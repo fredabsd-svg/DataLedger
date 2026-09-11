@@ -2,7 +2,7 @@
 
 Sistema contábil brasileiro com inteligência artificial e integração MCP, planejado para reunir Fiscal, Folha de Pagamento, Contabilidade, Honorários e Processos/Paralegal em uma plataforma para escritórios de contabilidade.
 
-**Status: planejamento e documentação inicial.** Ainda não há aplicação executável, motor de cálculo, servidor MCP ou integração oficial implementados. As capacidades abaixo representam o escopo de desenvolvimento.
+**Status: arquitetura e fundação técnica.** Existe um esqueleto executável mínimo (Django com endpoint de verificação de saúde), sem nenhum módulo de negócio, motor de cálculo, servidor MCP ou integração oficial implementados ainda. As capacidades abaixo representam o escopo de desenvolvimento.
 
 ## Visão do produto
 
@@ -54,6 +54,7 @@ Os cálculos serão realizados por regras determinísticas, versionadas e testad
 
 - [Escopo funcional e orientação de implementação](docs/escopo.md).
 - [Plano da primeira entrega](docs/planos/DL-001-documentacao-inicial.md).
+- [Plano de arquitetura e fundação técnica](docs/planos/DL-002-arquitetura-fundacao.md).
 - [Modelo de pull request](.github/pull_request_template.md).
 - [Verificação da documentação](scripts/validate-docs.ps1).
 
@@ -61,7 +62,11 @@ Cada etapa deve ter critérios de aceite e evidências de teste. O fluxo obrigat
 
 ## Como começar
 
-Esta versão contém documentação e uma verificação documental; não há comando de inicialização da aplicação. A stack, o modelo de dados detalhado e os contratos serão definidos na etapa de arquitetura antes da implementação.
+A stack técnica foi definida na etapa de arquitetura: Python com Django e
+Django REST Framework, PostgreSQL e templates renderizados no servidor
+(HTMX/Alpine.js). Ainda não há módulo de negócio implementado; o que existe
+é o esqueleto do projeto e um endpoint de verificação de saúde. Detalhes e
+motivação em [docs/planos/DL-002-arquitetura-fundacao.md](docs/planos/DL-002-arquitetura-fundacao.md).
 
 Para obter o repositório, use Git com suporte a HTTPS:
 
@@ -70,20 +75,49 @@ git clone https://github.com/fredabsd-svg/DataLedger.git
 cd DataLedger
 ```
 
+Para rodar a aplicação localmente sem Docker (requer Python 3.12 ou
+superior):
+
+```sh
+python -m venv .venv
+# Windows: .venv\Scripts\activate ; Linux/macOS: source .venv/bin/activate
+pip install -r requirements/dev.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
+
+Para rodar com Docker Compose (aplicação e PostgreSQL):
+
+```sh
+cp .env.example .env
+docker compose up --build
+```
+
+Em ambos os casos, `GET /api/health/` deve responder `{"status": "ok"}`.
+
+Para rodar o lint, a formatação e os testes do backend:
+
+```sh
+ruff check .
+ruff format --check .
+pytest
+```
+
 Para validar a documentação a partir da raiz, use PowerShell 7 ou superior:
 
 ```sh
 pwsh -NoProfile -File scripts/validate-docs.ps1
 ```
 
-A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao final das linhas e existência dos destinos de links relativos. Não valida conteúdo jurídico, URLs externas ou âncoras. O workflow proposto executa essa mesma verificação em pushes e pull requests.
+A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao final das linhas e existência dos destinos de links relativos. Não valida conteúdo jurídico, URLs externas ou âncoras. Os workflows de documentação e de backend executam essas verificações em pushes e pull requests.
 
 ## Etapas de evolução
 
 | Etapa | Entrega esperada | Situação |
 | --- | --- | --- |
 | 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
-| 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Planejada. |
+| 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
 | 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Planejada. |
 | 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Planejada. |
 | 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
