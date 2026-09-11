@@ -2,13 +2,14 @@ from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 
 from apps.auditoria.services import registrar
 from apps.empresas.forms import EmpresaForm
+from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
 from apps.empresas.serializers import (
     EmpresaSerializer,
@@ -58,22 +59,8 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         return permissions
 
 
-class EmpresaEscopadaMixin:
-    """Resolve a empresa da URL restrita ao escritório ativo da requisição.
-
-    Uma empresa de outro escritório resulta em 404, não em 403: não
-    confirma sequer a existência do registro para quem não tem acesso.
-    """
-
-    permission_classes = [TemEscritorioAtivo]
-
-    def get_empresa(self):
-        return get_object_or_404(
-            Empresa, pk=self.kwargs["empresa_id"], escritorio=self.request.escritorio
-        )
-
-
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
+    permission_classes = [TemEscritorioAtivo]
     serializer_class = EstabelecimentoSerializer
 
     def get_permissions(self):
@@ -91,6 +78,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
 
 
 class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
+    permission_classes = [TemEscritorioAtivo]
     serializer_class = HistoricoRegimeTributarioSerializer
 
     def get_permissions(self):

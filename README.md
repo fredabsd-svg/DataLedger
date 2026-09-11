@@ -58,10 +58,71 @@ Os cálculos serão realizados por regras determinísticas, versionadas e testad
 - [Plano de fundação: autenticação e multiempresa](docs/planos/DL-003-fundacao-multiempresa.md).
 - [Plano de cadastro central de empresas](docs/planos/DL-004-cadastro-empresas.md).
 - [Plano de permissões por papel e auditoria](docs/planos/DL-005-permissoes-auditoria.md).
+- [Plano de contabilidade básica](docs/planos/DL-006-contabilidade-basica.md).
 - [Modelo de pull request](.github/pull_request_template.md).
 - [Verificação da documentação](scripts/validate-docs.ps1).
 
 Cada etapa deve ter critérios de aceite e evidências de teste. O fluxo obrigatório é: validar, revisar o diff, commitar, fazer push, abrir ou atualizar o PR e conferir as verificações automáticas. O merge depende de revisão autorizada.
+
+## Estado atual e continuidade (leia antes de continuar o desenvolvimento)
+
+Esta seção existe para que quem retomar o projeto depois não precise
+reconstruir o contexto do zero. Atualize-a a cada etapa integrada.
+
+**Onde paramos:** a etapa 3 (Fundação) e a primeira fatia da etapa 4
+(Contabilidade básica, DL-006) estão implementadas e testadas, mas **ainda
+não integradas na `main`** — só a DL-002 está na `main` até o momento.
+Todo o código das etapas DL-003 a DL-006 existe no repositório remoto, sem
+nenhum trabalho perdido, mas precisa ser trazido para a `main` na ordem
+correta descrita abaixo antes de qualquer etapa nova ser iniciada.
+
+### Por que a `main` está atrasada em relação ao trabalho já feito
+
+Os PRs #3, #4, #5 e #6 foram mesclados **para dentro da branch de origem
+encadeada de cada um** (prática prevista no AGENTS.md, seção 6, para PRs
+dependentes), em vez de serem reapontados (`base` do PR) para `main` antes
+do merge. Resultado: o conteúdo de cada etapa ficou "preso" uma branch
+antes do destino final. Os PRs de correção **#7, #8 e #9** existem para
+consertar isso, levando cada etapa até a `main`, sem alterar nenhum código
+— só o branch de destino.
+
+**Lição para as próximas etapas:** ao mesclar um PR cuja `base` não é
+`main` (um PR encadeado), reaponte a `base` para `main` **antes** de
+mesclar, assim que o PR do qual ele depende já estiver integrado. Nunca
+mesclar um PR encadeado direto na branch intermediária esperando "arrumar
+depois" — é exatamente isso que gerou a pendência atual.
+
+### Pull requests — estado em 11/09/2026
+
+| PR | Etapa | Branch | Situação |
+| --- | --- | --- | --- |
+| [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) | DL-001 — Documentação inicial | `docs/dl-001-documentacao-inicial` | Integrado em `main`. |
+| [#2](https://github.com/fredabsd-svg/DataLedger/pull/2) | DL-002 — Arquitetura e fundação técnica | `feat/dl-002-arquitetura-fundacao` | Integrado em `main`. |
+| [#3](https://github.com/fredabsd-svg/DataLedger/pull/3) | DL-003 — Autenticação e multiempresa | `feat/dl-003-fundacao-multiempresa` | Mesclado na branch errada (ver acima). Corrigido pelo PR #7. |
+| [#4](https://github.com/fredabsd-svg/DataLedger/pull/4) | DL-004 — Cadastro de empresas | `feat/dl-004-cadastro-empresas` | Mesclado na branch errada. Corrigido pelo PR #7 (o conteúdo acabou incluído ali, ver nota do PR). |
+| [#5](https://github.com/fredabsd-svg/DataLedger/pull/5) | DL-005 — Permissões e auditoria | `feat/dl-005-permissoes-auditoria` | Mesclado na branch errada. Corrigido pelo PR #8. |
+| [#6](https://github.com/fredabsd-svg/DataLedger/pull/6) | DL-006 — Contabilidade básica | `feat/dl-006-contabilidade-basica` | Mesclado na branch errada. Corrigido pelo PR #9. |
+| [#7](https://github.com/fredabsd-svg/DataLedger/pull/7) | Correção DL-003 (+DL-004) → `main` | `feat/dl-003-fundacao-multiempresa` → `main` | **Aberto, CI aprovada. Mesclar primeiro.** |
+| [#8](https://github.com/fredabsd-svg/DataLedger/pull/8) | Correção DL-005 → `main` | `feat/dl-004-cadastro-empresas` → `main` | **Aberto, CI aprovada. Mesclar depois do #7.** |
+| [#9](https://github.com/fredabsd-svg/DataLedger/pull/9) | Correção DL-006 → `main` | `feat/dl-005-permissoes-auditoria` → `main` | **Aberto, CI aprovada. Mesclar por último.** |
+
+### Próximos passos, em ordem
+
+1. Mesclar o PR #7, depois o #8, depois o #9, nessa ordem exata (cada um
+   depende do anterior já estar em `main`; o diff de cada PR encolhe para
+   conter só a etapa correspondente conforme os anteriores são mesclados).
+2. Depois do PR #9 mesclado, `main` terá tudo de DL-002 a DL-006. Apagar as
+   branches `feat/dl-002-arquitetura-fundacao`, `feat/dl-003-fundacao-multiempresa`,
+   `feat/dl-004-cadastro-empresas` e `feat/dl-005-permissoes-auditoria`
+   (a `feat/dl-006-contabilidade-basica` pode ficar ou ser apagada também,
+   a critério de quem revisar).
+3. Configurar a proteção da branch `main` (README, etapa 2 — ainda
+   pendente), para que este tipo de merge indevido fique bloqueado
+   estruturalmente e não dependa só de atenção humana.
+4. Escolher e planejar o próximo fluxo da etapa 4 (Honorários,
+   Processos/Paralegal ou Fiscal/XML de NF-e — decisão de produto, não
+   técnica) e abrir sua branch **a partir da `main` já atualizada**, sem
+   encadear em uma branch de etapa anterior ainda não integrada.
 
 ## Como começar
 
@@ -125,7 +186,7 @@ A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao fin
 | 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
 | 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
 | 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Entregue: autenticação, isolamento entre escritórios, cadastro de empresas/estabelecimentos, permissões básicas por papel e auditoria. Matriz fina de permissões por operação fica para quando os módulos de negócio existirem. |
-| 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Planejada. |
+| 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Contabilidade básica (plano de contas, lançamentos por partidas dobradas, Diário, Razão, Balancete) entregue. Demais fluxos planejados. |
 | 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
 | 6. Cálculos e integrações | Motores validados, fechamentos, obrigações e conectores homologados. | Planejada. |
 
