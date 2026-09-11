@@ -55,6 +55,8 @@ Os cálculos serão realizados por regras determinísticas, versionadas e testad
 - [Escopo funcional e orientação de implementação](docs/escopo.md).
 - [Plano da primeira entrega](docs/planos/DL-001-documentacao-inicial.md).
 - [Plano de arquitetura e fundação técnica](docs/planos/DL-002-arquitetura-fundacao.md).
+- [Plano de fundação: autenticação e multiempresa](docs/planos/DL-003-fundacao-multiempresa.md).
+- [Plano de cadastro central de empresas](docs/planos/DL-004-cadastro-empresas.md).
 - [Modelo de pull request](.github/pull_request_template.md).
 - [Verificação da documentação](scripts/validate-docs.ps1).
 
@@ -94,7 +96,10 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Em ambos os casos, `GET /api/health/` deve responder `{"status": "ok"}`.
+Em ambos os casos, `GET /api/health/` deve responder `{"status": "ok"}`. Para
+autenticar, crie um usuário com `python manage.py createsuperuser` e acesse
+`/login/`; o painel em `/` mostra o escritório ativo do usuário, conforme
+descrito em [docs/planos/DL-003-fundacao-multiempresa.md](docs/planos/DL-003-fundacao-multiempresa.md).
 
 Para rodar o lint, a formatação e os testes do backend:
 
@@ -118,7 +123,7 @@ A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao fin
 | --- | --- | --- |
 | 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
 | 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
-| 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Planejada. |
+| 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Autenticação, isolamento entre escritórios e cadastro central de empresas/estabelecimentos entregues; permissões finas por módulo e auditoria ainda planejadas. |
 | 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Planejada. |
 | 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
 | 6. Cálculos e integrações | Motores validados, fechamentos, obrigações e conectores homologados. | Planejada. |
