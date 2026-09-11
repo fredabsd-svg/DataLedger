@@ -1,0 +1,23 @@
+name: Documentação
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-docs:
+    name: Validar documentação
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar documentação
+        shell: pwsh
+        run: ./scripts/validate-docs.ps1
