@@ -124,6 +124,7 @@ Após qualquer alteração no código revisado ou testado, executar novamente as
 - Não versionar segredos, dados reais de clientes, certificados privados, caches ou artefatos temporários.
 - Não usar push forçado, apagar branches compartilhadas ou reescrever histórico compartilhado sem autorização expressa.
 - Preferir etapas dependentes após a integração da anterior. Se PRs encadeados forem necessários, documentar dependências e bases para evitar diffs acumulados confusos.
+- Nunca mesclar um PR encadeado (`base` diferente da branch de destino final) sem antes reapontar sua `base` para o destino real, assim que o PR do qual ele depende já estiver integrado. Mesclar direto na branch intermediária "para arrumar depois" faz o conteúdo integrado não chegar à branch de destino, mesmo aparecendo como mesclado.
 - Abertura de PR não equivale a aprovação, merge ou publicação.
 - Merge exige verificações obrigatórias aprovadas e revisão por pessoa autorizada, conforme as proteções do repositório.
 - Em caso de conflito, resolver preservando a intenção de ambas as mudanças e repetir os testes afetados.
