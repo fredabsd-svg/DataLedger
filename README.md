@@ -57,6 +57,7 @@ Os cálculos serão realizados por regras determinísticas, versionadas e testad
 - [Plano de arquitetura e fundação técnica](docs/planos/DL-002-arquitetura-fundacao.md).
 - [Plano de fundação: autenticação e multiempresa](docs/planos/DL-003-fundacao-multiempresa.md).
 - [Plano de cadastro central de empresas](docs/planos/DL-004-cadastro-empresas.md).
+- [Plano de permissões por papel e auditoria](docs/planos/DL-005-permissoes-auditoria.md).
 - [Modelo de pull request](.github/pull_request_template.md).
 - [Verificação da documentação](scripts/validate-docs.ps1).
 
@@ -123,7 +124,7 @@ A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao fin
 | --- | --- | --- |
 | 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
 | 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
-| 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Autenticação, isolamento entre escritórios e cadastro central de empresas/estabelecimentos entregues; permissões finas por módulo e auditoria ainda planejadas. |
+| 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Entregue: autenticação, isolamento entre escritórios, cadastro de empresas/estabelecimentos, permissões básicas por papel e auditoria. Matriz fina de permissões por operação fica para quando os módulos de negócio existirem. |
 | 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Planejada. |
 | 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
 | 6. Cálculos e integrações | Motores validados, fechamentos, obrigações e conectores homologados. | Planejada. |
