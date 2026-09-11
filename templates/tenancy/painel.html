@@ -15,6 +15,7 @@
 
     {% if escritorio_ativo %}
         <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
+        <p><a href="{% url 'empresas:lista' %}">Empresas</a></p>
     {% else %}
         <h1>Nenhum escritório ativo</h1>
     {% endif %}
