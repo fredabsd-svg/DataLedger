@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "apps.core",
+    "apps.accounts",
+    "apps.tenancy",
 ]
 
 MIDDLEWARE = [
@@ -45,6 +47,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.tenancy.middleware.EscritorioAtivoMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -111,6 +114,14 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Usuário customizado desde a primeira migração: nunca trocar este valor
+# depois que houver dados reais, pois isso não é suportado pelo Django.
+AUTH_USER_MODEL = "accounts.Usuario"
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "tenancy:painel"
+LOGOUT_REDIRECT_URL = "login"
 
 
 # Django REST Framework

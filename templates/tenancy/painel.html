@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8">
+    <title>Painel — DataLedger</title>
+</head>
+<body>
+    <p>
+        Usuário: {{ request.user }} —
+        <form method="post" action="{% url 'logout' %}" style="display:inline">
+            {% csrf_token %}
+            <button type="submit">Sair</button>
+        </form>
+    </p>
+
+    {% if escritorio_ativo %}
+        <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
+    {% else %}
+        <h1>Nenhum escritório ativo</h1>
+    {% endif %}
+
+    {% if escritorios|length > 1 %}
+        <h2>Trocar de escritório</h2>
+        <form method="post" action="{% url 'tenancy:ativar' %}">
+            {% csrf_token %}
+            <select name="escritorio_id">
+                {% for escritorio in escritorios %}
+                    <option value="{{ escritorio.id }}">{{ escritorio.nome }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit">Ativar</button>
+        </form>
+    {% endif %}
+</body>
+</html>
