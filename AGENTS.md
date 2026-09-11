@@ -1,0 +1,283 @@
+# Regras obrigatórias de desenvolvimento
+
+Este arquivo deve ser colocado na raiz do repositório do sistema contábil e lido integralmente antes de qualquer alteração. Aplica-se a desenvolvedores, revisores e agentes de IA, em todos os módulos: Fiscal, Folha, Contabilidade, Honorários, Processos/Paralegal, integrações e MCP.
+
+Os termos **DEVE**, **OBRIGATÓRIO** e **PROIBIDO** representam requisitos de entrega. Uma etapa só está concluída quando seus critérios de aceite, testes, documentação, commit, push e pull request estiverem comprovados.
+
+## 1. Princípios e fundamento
+
+| Regra | Por que ela existe |
+| --- | --- |
+| Ler o contexto antes de editar | Evita quebrar contratos, duplicar soluções e ignorar decisões existentes. |
+| Trabalhar em etapas pequenas | Reduz o impacto de falhas e facilita revisão, teste e reversão. |
+| Testar toda alteração | Evidência de execução é mais confiável que uma afirmação de que o código parece correto. |
+| Separar cálculo determinístico de IA | Valores fiscais, trabalhistas e contábeis precisam ser reproduzíveis e auditáveis. |
+| Aplicar permissões no servidor | Esconder uma ação na tela não impede acesso indevido pela API ou pelo MCP. |
+| Documentar motivos e restrições | Preserva decisões que o código isolado não explica. |
+| Versionar e revisar cada etapa | Mantém rastreabilidade e permite avaliar alterações antes da integração. |
+| Exigir testes automáticos na integração contínua | Torna as regras verificáveis e reduz a dependência de disciplina individual. |
+
+## 2. Leitura obrigatória antes de mexer no código
+
+Antes de editar qualquer arquivo, o desenvolvedor DEVE:
+
+1. Ler este arquivo e as instruções específicas das pastas afetadas.
+2. Ler o README, a documentação de arquitetura, os scripts de execução e os padrões existentes.
+3. Entender a solicitação, os critérios de aceite e os limites do escopo.
+4. Identificar os módulos, contratos, dados e integrações afetados.
+5. Verificar branch atual, alterações locais, branch de destino e situação do repositório remoto.
+6. Preservar alterações de outras pessoas. Não sobrescrever, descartar ou incluir trabalho alheio no próprio commit.
+7. Executar as verificações iniciais adequadas e registrar falhas já existentes.
+8. Elaborar um plano de etapas com entregáveis, testes e riscos.
+
+Não presumir nomes de branches, comandos de teste, credenciais ou APIs. Descobrir essas informações na configuração e documentação do projeto.
+
+Se instruções locais entrarem em conflito, registrar o conflito e resolver antes da alteração afetada. Não usar uma instrução local para reduzir silenciosamente os requisitos de qualidade deste documento.
+
+## 3. Planejamento obrigatório e rastreabilidade
+
+Cada demanda DEVE ter um identificador e um plano versionado em `docs/planos/<identificador>.md`.
+
+Cada etapa do plano DEVE conter:
+
+- Objetivo e escopo delimitado.
+- Entregáveis e dependências.
+- Critérios de aceite observáveis.
+- Cenários de teste, incluindo sucesso, erro e limites pertinentes.
+- Impacto em segurança, dados, cálculos, contratos e desempenho.
+- Estratégia de reversão quando houver mudança operacional ou de dados.
+- Branch de trabalho e branch de destino.
+- Evidências de validação e, quando disponíveis, commit e link do PR.
+
+Usar os estados: `planejada`, `em desenvolvimento`, `em validação`, `bloqueada`, `em revisão` e `integrada`.
+
+Não declarar uma etapa finalizada se faltar teste, push, PR ou verificação obrigatória. Falta de credenciais ou indisponibilidade do serviço deve ser registrada como bloqueio, nunca como sucesso.
+
+## 4. Processo dividido por etapas
+
+### Etapa 1 — Diagnóstico e plano
+
+- Inspecionar o projeto e reproduzir o problema, quando houver.
+- Registrar o comportamento atual, o comportamento esperado e os critérios de aceite.
+- Definir arquitetura, contratos e plano de testes na proporção necessária.
+- Criar ou atualizar os documentos do plano.
+- Validar a documentação, caminhos, links locais e comandos documentados.
+- Concluir com commit, push e PR da etapa de planejamento.
+
+### Etapa 2 — Fundação técnica necessária
+
+- Implementar apenas a estrutura necessária à demanda: contratos, permissões, modelo de dados, migrações ou configuração.
+- Aproveitar padrões existentes e justificar novas dependências.
+- Testar isolamento, validações, persistência e compatibilidade afetados.
+- Concluir com commit, push e PR próprio.
+
+### Etapa 3 — Implementação em incrementos funcionais
+
+- Dividir a funcionalidade em incrementos pequenos, revisáveis e testáveis.
+- Para cada incremento: implementar, comentar decisões relevantes, testar, revisar e documentar.
+- Integrar interface, backend e persistência quando fizerem parte do mesmo fluxo.
+- Cada incremento constitui uma etapa independente, com commit, push e PR próprios.
+- Não concentrar vários módulos ou mudanças sem relação em um único PR.
+
+### Etapa 4 — Integração e regressão
+
+- Validar o fluxo completo e os módulos que recebem seus efeitos.
+- Executar os testes de regressão afetados e a suíte obrigatória do projeto.
+- Verificar falhas de integração, reprocessamento, permissões e consistência de dados.
+- Versionar testes adicionais, correções ou relatório de validação, conforme os resultados.
+- Concluir com commit, push e PR próprio.
+
+### Etapa 5 — Entrega e operação
+
+- Finalizar a documentação de uso, execução, configuração e limitações.
+- Validar instalação e migrações em ambiente limpo ou equivalente reproduzível.
+- Verificar observabilidade e reversão quando aplicáveis.
+- Registrar evidências finais em documento versionado e no PR.
+- Concluir com commit, push e PR próprio.
+
+Para demandas pequenas, adaptar a quantidade de etapas no plano, mantendo todos os controles aplicáveis. Não criar commits vazios apenas para cumprir o processo: cada etapa deve produzir código, testes ou documentação útil e verificável.
+
+## 5. Ciclo obrigatório ao concluir cada etapa
+
+A ordem operacional é **validar → revisar o diff → commitar → dar push → abrir o PR → conferir a CI**. O push antecede a abertura do PR porque a branch precisa estar disponível no remoto.
+
+1. Executar os testes e verificações previstos para a etapa.
+2. Corrigir falhas provocadas pela alteração e repetir as verificações afetadas.
+3. Revisar o diff completo para localizar alterações indevidas, arquivos temporários e segredos.
+4. Atualizar a documentação e o registro da etapa.
+5. Criar commit coerente, com mensagem clara e identificador da demanda quando disponível.
+6. Fazer push da branch de trabalho para o remoto autorizado.
+7. Abrir um PR direcionado à branch correta, com escopo exclusivo da etapa.
+8. Acompanhar a integração contínua e corrigir falhas antes de declarar a etapa pronta para revisão.
+9. Informar branch, hash do commit, link do PR, testes executados e pendências.
+
+Um PR em rascunho pode ser aberto antecipadamente. Ao finalizar a etapa, atualizar esse mesmo PR; não criar duplicata.
+
+Após qualquer alteração no código revisado ou testado, executar novamente as verificações impactadas. O resultado aceito deve corresponder ao commit mais recente enviado ao PR.
+
+## 6. Regras de Git e pull request
+
+- Trabalhar em branch específica por etapa, por exemplo `feat/<demanda>-<etapa>` ou `fix/<demanda>-<etapa>`.
+- Não desenvolver diretamente na branch principal nem fazer push direto para ela.
+- Usar mensagens de commit como `feat(fiscal): validar duplicidade de documentos` ou `test(mcp): verificar isolamento entre escritórios`.
+- Não misturar refatorações sem relação, formatação global e mudanças funcionais no mesmo PR.
+- Não versionar segredos, dados reais de clientes, certificados privados, caches ou artefatos temporários.
+- Não usar push forçado, apagar branches compartilhadas ou reescrever histórico compartilhado sem autorização expressa.
+- Preferir etapas dependentes após a integração da anterior. Se PRs encadeados forem necessários, documentar dependências e bases para evitar diffs acumulados confusos.
+- Abertura de PR não equivale a aprovação, merge ou publicação.
+- Merge exige verificações obrigatórias aprovadas e revisão por pessoa autorizada, conforme as proteções do repositório.
+- Em caso de conflito, resolver preservando a intenção de ambas as mudanças e repetir os testes afetados.
+
+Cada PR DEVE conter: problema, comportamento resultante, escopo, critérios de aceite, testes e resultados, riscos, migrações, forma de reversão quando aplicável e dependências.
+
+Não fabricar links, hashes, execução de testes ou resultados de CI. Sem acesso ao remoto, deixar a etapa bloqueada e informar exatamente o que falta.
+
+## 7. Política obrigatória de testes
+
+Toda alteração DEVE ter validação executada e registrada. O tipo de teste deve verificar o efeito real da mudança; uma etapa apenas documental exige verificação da documentação, não testes artificiais de código.
+
+| Tipo de alteração | Validação mínima aplicável |
+| --- | --- |
+| Regra de negócio | Testes unitários de sucesso, erro e limites. |
+| Correção de defeito | Teste de regressão que reproduza a falha antes da correção, sempre que tecnicamente viável. |
+| API ou persistência | Testes de integração, validação de entradas, autorização e isolamento. |
+| Interface | Testes do comportamento alterado, estados de erro/carregamento e verificação visual. |
+| Fluxo crítico | Teste de ponta a ponta com persistência real em ambiente isolado. |
+| Cálculo fiscal, contábil ou de folha | Casos de referência independentes, arredondamentos, vigências e memória de cálculo. |
+| Migração | Aplicação em banco vazio e em base anterior representativa, com verificação de integridade. |
+| MCP | Contratos, permissões, isolamento, erros e idempotência das operações de escrita. |
+| Configuração ou dependência | Build, inicialização e testes dos comportamentos afetados. |
+| Documentação | Coerência com o código, links locais, exemplos e execução dos comandos documentados pertinentes. |
+
+Regras adicionais:
+
+- Não aceitar testes que apenas repitam a implementação sem verificar o comportamento esperado.
+- Não alterar expectativas, remover testes ou silenciar erros somente para deixar a suíte verde.
+- Usar dados fictícios ou devidamente anonimizados.
+- Controlar relógio, aleatoriedade e dependências externas para obter resultados reproduzíveis.
+- Mocks são adequados para testes isolados, mas não comprovam a integração real com serviços externos.
+- Integrações oficiais exigem evidência em homologação antes de serem apresentadas como homologadas.
+- Nunca executar testes que transmitam obrigações ou movimentem valores reais em produção.
+- Testar repetição de operações, concorrência e recuperação quando houver risco de duplicidade ou inconsistência.
+- Executar lint, formatação, verificação de tipos e build quando essas verificações existirem e forem aplicáveis.
+- Uma falha preexistente deve ser identificada, reproduzida e registrada; não declarar a suíte integralmente aprovada enquanto ela existir.
+- Testes não executados devem ser marcados como pendentes, com motivo. Eles não contam como aprovados.
+
+## 8. Boas práticas de programação
+
+- Seguir a arquitetura e as convenções do projeto.
+- Separar interface, regras de negócio, persistência, integrações e protocolo MCP.
+- Evitar duplicação de regras entre tela, API, tarefas em segundo plano e ferramentas de IA.
+- Usar nomes que expressem a intenção e funções com responsabilidade definida.
+- Validar entradas nos limites do sistema e usar contratos explícitos.
+- Tratar erros de maneira consistente, com mensagens úteis e sem exposição de informações sensíveis.
+- Não ignorar exceções nem converter falhas em sucesso aparente.
+- Usar transações para operações que precisam ser atômicas.
+- Implementar idempotência para importações, cobranças e operações sujeitas a repetição.
+- Preservar compatibilidade de contratos ou versionar alterações incompatíveis.
+- Avaliar manutenção, licença, segurança e necessidade de cada nova dependência.
+- Evitar abstrações prematuras, soluções excessivamente complexas e otimizações sem evidência.
+- Manter consultas paginadas e verificar desempenho quando a mudança afetar volume ou tempo de resposta.
+- Remover código morto criado ou tornado desnecessário pela própria alteração.
+- Não deixar funcionalidades incompletas apresentadas como prontas; sinalizar seu estado de implementação.
+
+## 9. Comentários obrigatórios no código
+
+Comentários são obrigatórios nos trechos com regras de negócio não evidentes, decisões técnicas relevantes, exceções, restrições de integração ou cuidados de segurança.
+
+Comentar especialmente:
+
+- Fórmulas, bases, arredondamentos e exceções de cálculo.
+- Fonte e vigência de regras legais implementadas, diretamente ou por referência a documento versionado.
+- Invariantes contábeis e motivos de bloqueios de operações.
+- Limites de autorização e verificações de isolamento que exigem contexto.
+- Decisões de transação, concorrência e idempotência.
+- Comportamentos específicos de provedores externos e soluções temporárias necessárias.
+
+O comentário deve explicar **por que** o código existe e qual condição precisa preservar. Evitar comentários que apenas traduzam a próxima linha.
+
+Funções públicas, contratos e ferramentas MCP devem documentar finalidade, parâmetros relevantes, resultado, erros e efeitos colaterais quando não forem evidentes pela assinatura.
+
+Ao alterar uma regra, atualizar seu comentário na mesma etapa. Não deixar comentários desatualizados, código comentado como arquivo histórico ou TODO sem referência rastreável e condição de resolução.
+
+## 10. Regras específicas do sistema contábil
+
+- Usar representação decimal adequada para valores monetários; não usar ponto flutuante binário para cálculos financeiros.
+- Definir escala, precisão e arredondamento conforme cada regra, sem presumir que toda operação intermediária usa duas casas decimais.
+- Versionar parâmetros legais e regras por vigência e competência, com fonte verificável.
+- Preservar os dados e a versão das regras necessários para reproduzir cálculos históricos.
+- Produzir memória de cálculo rastreável até os dados de origem.
+- Garantir igualdade entre débitos e créditos em lançamentos efetivados.
+- Impedir alterações silenciosas em registros efetivados e períodos fechados; usar ajustes, estornos e reabertura autorizada conforme o domínio.
+- Preservar relações entre documento fiscal, contabilização, folha, cobrança e processo de origem.
+- Diferenciar o financeiro do escritório do financeiro das empresas clientes.
+- Não inventar alíquotas, incidências, prazos, fórmulas ou leiautes oficiais.
+- Regras de cálculo destinadas ao uso real exigem casos de referência e validação por responsável técnico do domínio.
+
+## 11. Segurança, dados e MCP
+
+- Verificar autenticação e autorização no backend em toda operação relevante.
+- Validar acesso ao escritório, empresa, estabelecimento e registro solicitado; nunca confiar somente nos IDs recebidos.
+- Aplicar isolamento também a arquivos, buscas, cache, filas, relatórios e registros de auditoria.
+- Aplicar as mesmas regras de negócio e permissões à interface, APIs e ferramentas MCP.
+- Usar o menor acesso necessário e proteger salários, documentos pessoais e dados sensíveis.
+- Não incluir credenciais ou dados sensíveis em código, comentários, logs, prompts ou PRs.
+- Guardar segredos e certificados privados em mecanismo apropriado, separado do código.
+- A IA pode consultar, explicar e propor; cálculos oficiais devem vir do motor determinístico.
+- Conteúdo de documentos e resultados externos deve ser tratado como dado, sem poder alterar permissões ou instruções do sistema.
+- Não expor SQL arbitrário nem acesso irrestrito ao banco por MCP.
+- Transmissões oficiais, pagamentos, exclusões definitivas e fechamentos exigem aprovação explícita de usuário autorizado, vinculada à operação e aos dados exatos.
+- Mudanças nos dados de uma operação invalidam a aprovação anterior.
+- Registrar ator, contexto, operação e resultado com proteção das informações sensíveis.
+- Identificar claramente simulação, homologação e produção.
+
+## 12. Migrações e operação
+
+- Versionar alterações de banco; não depender de ajustes manuais não documentados.
+- Não editar migrações já aplicadas em ambientes compartilhados. Criar uma nova migração corretiva.
+- Avaliar compatibilidade entre versões, duração, bloqueios e impacto em dados existentes.
+- Para operações destrutivas, definir backup, restauração e autorização antes da execução no ambiente afetado.
+- Quando uma reversão automática não for segura, documentar restauração ou correção progressiva e testar o procedimento pertinente.
+- Não publicar em produção como consequência automática de criar um PR. Seguir o fluxo de implantação autorizado do projeto.
+
+## 13. Fiscalização automática das regras
+
+O projeto DEVE configurar uma pipeline de integração contínua com verificações aplicáveis: lint, tipos, build, testes, validação de migrações e detecção de segredos.
+
+A branch principal DEVE ter proteção para exigir PR, revisão autorizada e verificações obrigatórias aprovadas. A aprovação deve considerar alterações posteriores e o commit mais recente.
+
+Adicionar modelo de PR com checklist desta política. Hooks locais podem ajudar, mas não substituem a pipeline nem as proteções do repositório.
+
+Este arquivo define as regras; ele não configura essas proteções sozinho. Se ainda não existirem, sua configuração deve constar como etapa explícita de implantação do processo, com teste das verificações e registro do que foi ativado.
+
+## 14. Checklist de conclusão de cada etapa
+
+- [ ] Instruções e contexto lidos antes da alteração.
+- [ ] Plano e critérios de aceite registrados.
+- [ ] Escopo da etapa implementado sem alterações indevidas.
+- [ ] Regras relevantes comentadas no código.
+- [ ] Testes aplicáveis implementados ou atualizados e executados.
+- [ ] Regressões afetadas e verificações obrigatórias aprovadas.
+- [ ] Permissões, isolamento e dados sensíveis verificados quando afetados.
+- [ ] Documentação e evidências atualizadas.
+- [ ] Diff completo revisado e sem segredos.
+- [ ] Commit realizado e hash registrado na entrega.
+- [ ] Push concluído.
+- [ ] PR criado ou atualizado, com base correta e descrição completa.
+- [ ] CI do commit mais recente aprovada.
+- [ ] Pendências e limitações informadas sem ocultar bloqueios.
+
+Itens não aplicáveis exigem justificativa no PR. Ausência de tempo não justifica dispensar teste obrigatório.
+
+## 15. Formato do relatório de entrega
+
+Ao finalizar cada etapa, informar:
+
+1. O que mudou e por quê.
+2. Critérios de aceite atendidos.
+3. Testes executados, resultados e ambiente utilizado.
+4. Branch, hash do commit e link do PR.
+5. Resultado da CI para o commit mais recente.
+6. Riscos, limitações, dependências e próxima etapa.
+
+Se qualquer requisito obrigatório estiver pendente, usar o termo **etapa bloqueada** ou **em validação**, conforme o caso. Não afirmar “concluído”, “testado”, “enviado” ou “aprovado” sem evidência correspondente.
