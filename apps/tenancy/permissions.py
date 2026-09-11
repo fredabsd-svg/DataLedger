@@ -16,3 +16,21 @@ class TemEscritorioAtivo(BasePermission):
             and request.user.is_authenticated
             and getattr(request, "escritorio", None) is not None
         )
+
+
+def papel_permitido(*papeis):
+    """Cria uma permissão DRF que exige um dos papéis informados.
+
+    O papel vem de request.papel, resolvido pelo EscritorioAtivoMiddleware a
+    partir do vínculo do usuário com o escritório ativo — nunca de um valor
+    enviado pelo cliente. Usar sempre junto de TemEscritorioAtivo, já que
+    sem escritório ativo request.papel é None.
+    """
+
+    class PapelPermitido(BasePermission):
+        message = f"Papel sem permissão para esta operação (requer: {', '.join(papeis)})."
+
+        def has_permission(self, request, view):
+            return getattr(request, "papel", None) in papeis
+
+    return PapelPermitido

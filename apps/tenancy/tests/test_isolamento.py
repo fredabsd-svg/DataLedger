@@ -2,6 +2,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
+from apps.auditoria.models import RegistroAuditoria
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -77,3 +78,22 @@ def test_painel_exige_login(client):
 
     assert response.status_code == 302
     assert reverse("login") in response.url
+
+
+def test_ativar_escritorio_gera_registro_de_auditoria(client, duas_empresas_com_usuarios):
+    usuario_a = duas_empresas_com_usuarios["usuario_a"]
+    escritorio_b = duas_empresas_com_usuarios["escritorio_b"]
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario_a, escritorio=escritorio_b, papel=Papel.GESTOR
+    )
+    client.login(username="usuario_a", password="senha-forte-123")
+
+    client.post(
+        reverse("tenancy:api-escritorio-ativo"),
+        data={"escritorio_id": escritorio_b.id},
+        content_type="application/json",
+    )
+
+    assert RegistroAuditoria.objects.filter(
+        acao="escritorio.ativado", usuario=usuario_a, escritorio=escritorio_b
+    ).exists()

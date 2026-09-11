@@ -3,6 +3,7 @@ from django.shortcuts import redirect, render
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.auditoria.services import registrar
 from apps.tenancy.models import Escritorio
 
 
@@ -46,6 +47,13 @@ class EscritorioAtivoView(APIView):
             return Response({"detail": "Escritório inválido ou sem vínculo ativo."}, status=403)
 
         request.session["escritorio_id"] = int(escritorio_id)
+        # request.escritorio ainda reflete o valor de antes da troca (o
+        # middleware já rodou nesta requisição): busca o novo explicitamente.
+        registrar(
+            acao="escritorio.ativado",
+            usuario=request.user,
+            escritorio=Escritorio.objects.get(pk=escritorio_id),
+        )
         return Response({"status": "ok"})
 
 
@@ -74,4 +82,9 @@ def ativar_escritorio(request):
         tem_vinculo = request.user.vinculos.filter(escritorio_id=escritorio_id, ativo=True).exists()
         if tem_vinculo:
             request.session["escritorio_id"] = int(escritorio_id)
+            registrar(
+                acao="escritorio.ativado",
+                usuario=request.user,
+                escritorio=Escritorio.objects.get(pk=escritorio_id),
+            )
     return redirect("tenancy:painel")
