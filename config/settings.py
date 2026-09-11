@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.tenancy",
     "apps.empresas",
     "apps.auditoria",
+    "apps.contabilidade",
 ]
 
 MIDDLEWARE = [
