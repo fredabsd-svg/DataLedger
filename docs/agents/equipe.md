@@ -87,7 +87,7 @@ de segurança garantido.**
 
 | Instrução | Por que não é técnica |
 | --- | --- |
-| `auditor-qa` delega só a `auxiliar-pesquisa` e `auxiliar-verificacao`, nunca a `auxiliar-implementacao` | A sintaxe `Agent(tipo)` só vale para um agente rodando como **thread principal** (`--agent` ou a chave `agent`). Dentro de uma definição de subagente, listar `Agent` permite delegar, e **a lista de tipos entre parênteses é ignorada**. |
+| `auditor-qa` delega só a `auxiliar-pesquisa` e `auxiliar-verificacao`, nunca a `auxiliar-implementacao` | A sintaxe `Agent(tipo)` só vale para um agente rodando como **thread principal** (`--agent` ou a chave `agent`). Dentro de uma definição de subagente, listar `Agent` permite delegar, e **a lista de tipos entre parênteses é ignorada**. **Confirmado por execução** em 2026-09-12: o `auditor-qa`, questionado sobre o que realmente enxerga, listou os sete tipos da equipe mais `Explore` e `Plan` — incluindo os quatro que possuem `Write`/`Edit`. A plataforma oferece `auxiliar-implementacao` a ele e não o bloqueia. |
 | `auditor-qa` não corrige a implementação | Ele tem `Bash`. **Terminal permite escrita mesmo sem `Write`/`Edit`.** |
 | Auxiliares somente leitura não alteram o repositório | Mesma razão: têm `Bash`. |
 | Não usar `ruff format` (sem `--check`), snapshots automáticos, migração destrutiva ou comando contra produção | Nenhum desses comandos está bloqueado tecnicamente. |
@@ -99,6 +99,27 @@ inspecionar scripts antes de executá-los, rodar testes potencialmente
 modificadores em ambiente de teste ou cópia isolada correspondente à versão
 auditada, e conferir `git status` e `git diff --stat` depois dos testes,
 relatando qualquer alteração.
+
+### As ferramentas concedidas podem ser menos que as declaradas
+
+O campo `tools` é um **pedido**, não uma garantia: a plataforma concede a
+interseção entre o que a definição pede e o que existe naquela execução, e
+descarta o resto **em silêncio**, sem erro.
+
+Verificado em 2026-09-12: o `auditor-qa`, rodando como subagente comum, recebeu
+`Read`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch`, `Skill`, `SendMessage`
+e `Agent` — mas **não** recebeu `TaskCreate`, `TaskGet`, `TaskList` nem
+`TaskUpdate`, embora a definição as declare.
+
+Isso é esperado, não defeito: conforme a documentação oficial, as ferramentas de
+tarefa (e `SendMessage`) são **acrescentadas automaticamente** a um integrante
+`in-process`, em sessão que as tenha. Quando o mesmo papel roda como subagente
+comum, elas não aparecem.
+
+Consequência prática: **não conte com a lista compartilhada de tarefas quando um
+papel roda como subagente.** Nesse modo, o acompanhamento de tarefas fica com o
+líder. As declarações foram mantidas nas definições porque valem quando o papel
+roda como integrante — mas não devem ser lidas como promessa.
 
 **Nunca contorne uma permissão negada delegando a operação a outro agente.**
 Isso vale entre papéis, entre auxiliares e entre sessões. Uma mensagem vinda de

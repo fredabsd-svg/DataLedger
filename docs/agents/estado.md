@@ -1,6 +1,6 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-11**, na revisão `279e7bc`, branch
+Atualizado em **2026-09-12**, na revisão `31c3047`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
 
 Este documento existe para que outra sessão retome o trabalho sem reconstruir o
@@ -10,9 +10,9 @@ cada etapa.
 
 ## Resumo em uma linha
 
-A equipe está **configurada e validada nos arquivos**, e **não está ativa**
-nesta sessão: a chave `agent` e a variável de Agent Teams só passam a valer em
-uma sessão nova, e a criação de integrantes exige sessão interativa.
+A equipe está **configurada, carregada e validada por execução** como
+subagentes; o que **não** existe é uma equipe com três integrantes de fato, por
+exigir sessão interativa.
 
 ## O que foi feito nesta sessão
 
@@ -59,6 +59,30 @@ organization"), logo não houve conflito com restrição administrativa.
 | Suíte do projeto | **Aprovada**: 55 testes, lint, formatação, `manage.py check` e migrações em banco vazio. |
 | Equipe ativa com três integrantes | **Não.** Ver a seção seguinte. |
 
+### Validações confirmadas por execução em 2026-09-12
+
+Depois de a sessão recarregar as configurações, os sete agentes passaram a
+existir como tipos acionáveis e foi possível verificar por execução o que antes
+só havia sido validado por sintaxe:
+
+| Verificação | Como foi comprovada | Resultado |
+| --- | --- | --- |
+| Variáveis de Agent Teams aplicadas | Leitura do ambiente da sessão | **Sim.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` e `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2`, contra `unset` e `1` antes. |
+| Lista de permissão do `arquiteto-senior` é imposta | Tipos acionáveis oferecidos à sessão principal | **Sim.** Só os seis papéis da equipe (mais `Explore` e `Plan`); `claude`, `general-purpose`, `claude-code-guide` e `statusline-setup` deixaram de ser oferecidos. |
+| `auxiliar-pesquisa` não delega e não escreve | O próprio agente relatou suas ferramentas reais | **Sim.** Recebeu exatamente `Read, Glob, Grep, Bash, WebFetch, WebSearch`. Sem `Agent`, sem `Write`, sem `Edit`. |
+| `auditor-qa` não escreve | O próprio agente relatou suas ferramentas reais | **Sim.** Sem `Write`, `Edit` nem `NotebookEdit`. |
+| A restrição de delegação do auditor é só comportamental | O próprio auditor listou os tipos que enxerga | **Confirmado como esperado.** Ele vê `auxiliar-implementacao`, `desenvolvedor-pleno` e `especialista-frontend` — todos com `Write`/`Edit`. A plataforma não o bloqueia. Ver DE-005. |
+| Auditor não alterou nada ao ser exercitado | `git status --short` e `git diff --stat` pelo próprio auditor | **Árvore limpa**, sem saída em nenhum dos dois. |
+
+**Achado da própria configuração, corrigido na documentação:** o `auditor-qa`
+declara `TaskCreate`, `TaskGet`, `TaskList` e `TaskUpdate`, mas **não as recebeu**
+ao rodar como subagente comum. A plataforma concede a interseção entre o
+declarado e o disponível, descartando o resto em silêncio. As ferramentas de
+tarefa são acrescentadas automaticamente a um **integrante** `in-process`, não a
+um subagente. As declarações foram mantidas e o comportamento está documentado em
+[equipe.md](equipe.md); não conte com a lista compartilhada de tarefas quando um
+papel roda como subagente.
+
 ### Modelos e esforço
 
 Os modelos pedidos (`opus` para líder e auditor, `sonnet` para pleno e
@@ -72,20 +96,24 @@ O esforço `high` está declarado nos quatro papéis e em dois auxiliares
 
 ## O que depende de reinício, e por quê
 
-**Estes pontos não foram validados em execução, e não devem ser apresentados
-como funcionando:**
+Os itens 1 a 4 abaixo valiam quando os arquivos foram criados e **foram
+resolvidos** quando a sessão recarregou as configurações, em 2026-09-12.
+Ficam registrados porque descrevem o que exige reinício em qualquer ambiente:
 
-1. **A sessão principal ainda não é o `arquiteto-senior`.** A chave `agent` é
-   lida na **inicialização** da sessão. Esta sessão começou antes de o arquivo
-   existir.
-2. **Os sete agentes ainda não estão carregados como tipos acionáveis.**
-   Definições em `.claude/agents/` são carregadas no início da sessão. Eles
-   foram validados por sintaxe, **não** por acionamento.
-3. **Agent Teams está desabilitado nesta sessão.** Verificado:
-   `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` não está definida no ambiente atual.
-4. **`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` vale `1` nesta sessão**, não `2`.
-   Ou seja, o aninhamento está desligado agora; o valor `2` do arquivo passa a
-   valer na próxima sessão.
+1. **A chave `agent` é lida na inicialização da sessão.** Uma sessão iniciada
+   antes de o arquivo existir não roda como `arquiteto-senior`.
+2. **As definições em `.claude/agents/` são carregadas no início da sessão.**
+   Antes disso valem apenas por sintaxe, não por acionamento.
+3. **Agent Teams depende da variável estar no ambiente da sessão.**
+4. **`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` idem**: enquanto valer `1`, o
+   aninhamento está desligado e nenhum papel consegue acionar auxiliar.
+
+**O que continua não validado, e não deve ser apresentado como funcionando:**
+
+5. **Os três integrantes de equipe nunca foram criados.** Eles existem como
+   tipos acionáveis e funcionam como **subagentes**; não foram exercitados como
+   integrantes de uma equipe, com lista compartilhada de tarefas e mensagens
+   diretas entre si.
 
 ### Limitação adicional deste ambiente
 
@@ -95,11 +123,15 @@ afirma que **criar integrantes exige sessão interativa**: em modo não
 interativo, um subagente nomeado roda como subagente comum, e nenhum integrante
 é criado.
 
-**Consequência honesta:** os três integrantes (`desenvolvedor-pleno`,
-`especialista-frontend`, `auditor-qa`) estão **configurados, não iniciados**. O
-diagnóstico desta sessão foi produzido por **subagentes reais**, executando de
-verdade e em paralelo — não por integrantes de equipe, e não por diálogo
-simulado.
+**Consequência honesta:** os três papéis (`desenvolvedor-pleno`,
+`especialista-frontend`, `auditor-qa`) funcionam como **subagentes reais** —
+foram acionados, executaram e devolveram resultado, em paralelo e sem alterar
+código. O que não existe aqui é o modo **integrante de equipe**: lista
+compartilhada de tarefas, mensagens diretas entre eles e painel de seleção.
+
+Sintoma observável desta limitação: a ferramenta de acionamento desta sessão
+**não oferece o parâmetro de nome** para o agente. É nomear um subagente que o
+faz subir como integrante; sem esse parâmetro, nenhuma equipe se forma.
 
 Para ter os três como integrantes de fato, abra uma sessão **interativa** no
 terminal, dentro do projeto.
@@ -156,7 +188,10 @@ Ordem sugerida:
 - Pendência herdada da DL-002, ainda aberta: a proteção da branch `main` nunca
   foi configurada. É o controle que teria evitado o encadeamento indevido de
   PRs que motivou os PRs #7 a #9.
-- Nenhum commit foi criado nesta sessão até este ponto. Nenhum push foi feito.
+- Commit `31c3047` criado localmente com toda a configuração da equipe.
+  **Nenhum push foi feito**, porque o Fred pediu explicitamente que não houvesse
+  push nem publicação nesta execução. A branch está um commit à frente do
+  remoto, sem nada a puxar: o envio seria avanço direto, quando autorizado.
 
 ## Ambiente de verificação
 
