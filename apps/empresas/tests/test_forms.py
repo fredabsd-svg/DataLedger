@@ -126,9 +126,7 @@ def test_empresa_form_cnpj_longo_da_mensagem_de_formato_nao_de_tamanho_maximo():
     # que não diz nada para quem digita CNPJ. CNPJFormField não tem
     # MaxLengthValidator (max_length=None): normalizar_cnpj é quem recusa,
     # com a mensagem de formato do CNPJ.
-    form = EmpresaForm(
-        data={"razao_social": "Empresa Ltda", "nome_fantasia": "", "cnpj": "A" * 33}
-    )
+    form = EmpresaForm(data={"razao_social": "Empresa Ltda", "nome_fantasia": "", "cnpj": "A" * 33})
 
     assert not form.is_valid()
     (mensagem,) = form.errors["cnpj"]

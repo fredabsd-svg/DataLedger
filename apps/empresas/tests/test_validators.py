@@ -23,7 +23,12 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from apps.empresas.models import Empresa, Estabelecimento, TipoEstabelecimento
-from apps.empresas.validators import _FORMATO_CNPJ, normalizar_cnpj, validar_cnpj
+from apps.empresas.validators import (
+    _FORMATO_CNPJ,
+    _REGEX_SEM_MASCARA,
+    normalizar_cnpj,
+    validar_cnpj,
+)
 from apps.tenancy.models import Escritorio
 
 # CNPJ alfanumérico de referência para os testes: base "AB123CDE0001" com
@@ -177,10 +182,19 @@ def test_cnpj_com_caractere_unicode_que_expande_no_upper_e_invalido():
 # R9 (reauditoria, rodada 2), mutante M8: o caso acima tem 13 caracteres
 # ("ß123CDE000117"), então é recusado por comprimento — não por conjunto de
 # caracteres. Uma regex mutante `\w{14}` (aceita letra Unicode) sobreviveria
-# ao teste anterior. Estes três têm exatamente 14 caracteres e só são
-# recusados se o conjunto de caracteres for de fato restrito a ASCII:
-# "ıB123CDE000155" (dotless i minúsculo), "ſB123CDE000155" (long s),
-# "AB123CDE00015５" (dígito "5" fullwidth).
+# ao teste anterior.
+#
+# Os três casos abaixo têm exatamente 14 caracteres, mas **não isolam o
+# mecanismo por si só** se testados só através de validar_cnpj: "ıB..." e
+# "ſB..." têm .upper() que vira ASCII puro ("I", "S"), então acabam
+# recusados pelo DÍGITO VERIFICADOR não conferir (a base mudou de "AB..."
+# para "IB.../SB..."), não pelo conjunto de caracteres — o mutante M8
+# também os recusaria, pelo mesmo motivo (confirmado manualmente contra uma
+# cópia com o mutante aplicado). "AB123CDE00015５" (dígito "5" fullwidth)
+# também acaba recusado por _FORMATO_CNPJ (só ASCII), não por
+# _REGEX_SEM_MASCARA. Por isso o teste que de fato mata o mutante M8 é o de
+# baixo, que verifica a regex diretamente — mesmo padrão já usado para
+# _FORMATO_CNPJ acima.
 @pytest.mark.parametrize(
     "cnpj",
     [
@@ -193,6 +207,17 @@ def test_cnpj_com_letra_unicode_de_14_caracteres_e_invalido(cnpj):
     assert len(cnpj) == 14
     with pytest.raises(ValidationError):
         validar_cnpj(cnpj)
+
+
+def test_regex_sem_mascara_recusa_letra_unicode_de_largura_variavel():
+    # Mata o mutante M8 de fato: `\w{14}` (Unicode) casaria com os três
+    # valores abaixo; `[A-Za-z0-9]{14}` (o código real) não casa com
+    # nenhum. Testado contra a regex diretamente, não através de
+    # validar_cnpj, para não depender de o dígito verificador também dar
+    # errado por coincidência.
+    assert _REGEX_SEM_MASCARA.fullmatch("ıB123CDE000155") is None
+    assert _REGEX_SEM_MASCARA.fullmatch("ſB123CDE000155") is None
+    assert _REGEX_SEM_MASCARA.fullmatch("AB123CDE00015５") is None
 
 
 # Achado 4 (auditoria, média): a fronteira `resto % 11 < 2` (rejeita resto 0
@@ -353,6 +378,19 @@ def test_empresa_com_cnpj_em_caixas_diferentes_nao_duplica_registro():
 # Estabelecimento.save() sobrevivia à suíte inteira (o único teste de
 # Estabelecimento existente até aqui normalizava no serializer, não no
 # save()). Os três testes abaixo são os que o auditor especificou.
+#
+# Nota de honestidade (confirmado plantando o mutante manualmente numa
+# cópia isolada): o teste de caixas diferentes abaixo NÃO mata mais esse
+# mutante isoladamente por conta própria — a CheckConstraint
+# "estabelecimento_cnpj_canonico" (R1, adicionada nesta mesma rodada) hoje
+# também rejeitaria o INSERT em minúsculas, então o IntegrityError
+# esperado ainda ocorre, só que pela constraint de banco, não pelo
+# save(). Defesa em profundidade, não é problema — mas quem quiser matar
+# especificamente o mutante do save() deve olhar para
+# test_estabelecimento_persiste_cnpj_canonico_via_objects_create abaixo,
+# que usa CNPJ mascarado (18 caracteres) e falha com DataError ("value too
+# long for type character varying(14)") quando o save() não canoniza antes
+# de gravar — a coluna nunca chega a aceitar o valor cru.
 
 
 @pytest.mark.django_db
