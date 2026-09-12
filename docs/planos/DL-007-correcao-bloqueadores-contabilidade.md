@@ -6,7 +6,29 @@ itens BL-40, BL-41 e BL-42 do [backlog](../projeto/backlog.md).
 
 Autorizado pelo Fred em 2026-09-12.
 
-**Estado:** em desenvolvimento.
+**Estado:** em validação — implementado e revisado pelo `arquiteto-senior`,
+aguardando auditoria independente.
+
+## Histórico de revisão do arquiteto
+
+A primeira entrega do `desenvolvedor-pleno` foi **devolvida**, com dois defeitos
+e uma decisão de contrato pendente:
+
+1. **`validate_conta_pai` falhava aberto.** A condição exigia
+   `empresa is not None` para validar; com o contexto ausente, a validação era
+   silenciosamente ignorada e o vazamento entre empresas voltava. Em controle de
+   isolamento, a falha tem de ser **fechada**: na dúvida, recusa. Corrigido, com
+   teste que instancia o serializer sem empresa no contexto e prova a recusa.
+2. **A trilha de auditoria afirmava criação que não ocorreu.** Numa repetição
+   idempotente nada é gravado, mas a ação registrada continuava
+   `lancamento.criado`. Isso grava fato falso na peça que deveria servir de
+   prova, contra o AGENTS.md §11, que exige registrar operação **e resultado**.
+   Corrigido: repetição gera a ação distinta `lancamento.criacao_repetida`,
+   rastreável e referenciando o mesmo lançamento. O registro **não** foi
+   suprimido — saber que houve repetição é informação útil.
+3. **Contrato decidido pelo arquiteto:** `201` apenas na criação real, `200` na
+   repetição. `201 Created` é afirmação de fato; na repetição o sistema não
+   criou nada. Além de ser mais honesto, torna duplo clique observável.
 
 ## Objetivo
 
@@ -143,6 +165,38 @@ porque não existe tela de lançamento ainda.
   UPDATE` por estorno.
 - **Migração:** acrescenta restrição de unicidade e um campo opcional. Não
   altera dado existente.
+
+## Detecção prévia antes de aplicar a migração em base real (achado A9)
+
+A migração cria um índice único sobre `estorno_de`. Se a base já contiver
+**estornos duplicados**, ela falha — e isso é o comportamento desejado, não um
+problema a contornar. O auditor verificou que a falha é **limpa e atômica**: a
+coluna não é criada e a migração não é marcada como aplicada.
+
+Antes de aplicar em base com dados reais, **rode esta consulta** e trate o que
+ela devolver:
+
+```sql
+SELECT estorno_de_id, COUNT(*) AS estornos
+FROM contabilidade_lancamentocontabil
+WHERE estorno_de_id IS NOT NULL
+GROUP BY estorno_de_id
+HAVING COUNT(*) > 1;
+```
+
+Nenhuma linha devolvida significa que a migração pode ser aplicada. Consulta
+conferida contra o banco de desenvolvimento em 2026-09-12; devolveu zero linhas.
+
+Se houver linhas, **pare**: são lançamentos reais estornados mais de uma vez, e
+os saldos dessas empresas já estão distorcidos. É caso de análise contábil,
+não de decisão técnica — o tratamento (qual estorno preservar, qual ajustar)
+precisa de aprovação do responsável. **Nunca remova a restrição para a migração
+passar.**
+
+Nota de operação, também do achado A9: o `CREATE UNIQUE INDEX` é emitido sem
+`CONCURRENTLY` e portanto toma `ACCESS EXCLUSIVE` na tabela durante a
+aplicação. Com o volume atual isso é irrelevante; quando houver base grande em
+produção, avaliar criação concorrente em migração própria.
 
 ## Reversão
 
