@@ -6,8 +6,26 @@ itens BL-40, BL-41 e BL-42 do [backlog](../projeto/backlog.md).
 
 Autorizado pelo Fred em 2026-09-12.
 
-**Estado:** em validação — implementado e revisado pelo `arquiteto-senior`,
-aguardando auditoria independente.
+**Estado:** integrada. Parecer final **APROVADO COM RESSALVAS**, com as
+ressalvas explícitas e nenhuma escondendo falha essencial.
+
+## Ciclo de verificação desta etapa
+
+| Rodada | Resultado | Registro |
+| --- | --- | --- |
+| Revisão do arquiteto (1) | Devolvida: validação falhando aberto e trilha de auditoria afirmando criação inexistente | Ver histórico abaixo |
+| Auditoria independente (1) | **REPROVADO** — A1 e A2 de gravidade alta | [rodada 1](../auditorias/2026-09-12-dl-007-rodada-1.md) |
+| Revisão do arquiteto (2) | Devolvida: conversão genérica de `IntegrityError` (erro de instrução do próprio arquiteto) | Ver histórico abaixo |
+| Auditoria independente (2) | **APROVADO COM RESSALVAS** — N1 reproduzida, devolvida por decisão do arquiteto | [rodada 2](../auditorias/2026-09-12-dl-007-rodada-2.md) |
+| Verificação dirigida | **APROVADO COM RESSALVAS** — N1 sanado; N4 resolvido pelo arquiteto | [verificação dirigida](../auditorias/2026-09-12-dl-007-verificacao-dirigida.md) |
+
+Evolução da suíte: **55 → 91 testes**. Nenhuma regressão em nenhuma rodada.
+
+Cinco defeitos foram encontrados por três mecanismos distintos, e **nenhum
+mecanismo sozinho teria pegado todos**: a revisão do arquiteto pegou dois, a
+auditoria independente pegou três (um deles reabrindo o mais grave), e um veio
+de o `desenvolvedor-pleno` questionar uma instrução errada do arquiteto em vez
+de aplicá-la no automático.
 
 ## Histórico de revisão do arquiteto
 

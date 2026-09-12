@@ -1,3 +1,4 @@
+import hashlib
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -17,10 +18,21 @@ from apps.contabilidade.models import (
     TipoPartida,
 )
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
-from apps.contabilidade.services import LancamentoInvalido, criar_lancamento, estornar_lancamento
+from apps.contabilidade.services import (
+    ChaveIdempotenciaConflitante,
+    LancamentoInvalido,
+    criar_lancamento,
+    estornar_lancamento,
+)
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
+
+# Mesmo limite do CharField `chave_idempotencia` (models.py). Validado aqui,
+# na fronteira da API, para que um cabeçalho longo demais vire 400 (entrada
+# do cliente) em vez de vazar como 500 do banco (`DataError: value too long
+# for type character varying(255)` — achado A3 da auditoria).
+TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA = 255
 
 
 def _como_moeda(valor):
@@ -54,6 +66,15 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
 
     def get_queryset(self):
         return Conta.objects.filter(empresa=self.get_empresa())
+
+    def get_serializer_context(self):
+        # A empresa do contexto vem do escopo da URL, já revalidada contra o
+        # escritório ativo (EmpresaEscopadaMixin.get_empresa()) — nunca de um
+        # campo enviado pelo cliente. É o que permite ao serializer recusar
+        # `conta_pai` de outra empresa (BL-40) sem confiar no payload.
+        context = super().get_serializer_context()
+        context["empresa"] = self.get_empresa()
+        return context
 
     def perform_create(self, serializer):
         conta = serializer.save(empresa=self.get_empresa())
@@ -112,6 +133,22 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
         except (KeyError, ValueError) as exc:
             raise DRFValidationError("Informe 'data' no formato AAAA-MM-DD.") from exc
 
+        # Idempotência opcional (BL-41): o cliente decide quando quer garantia
+        # de não duplicar em caso de repetição de rede ou duplo clique,
+        # enviando um cabeçalho próprio. Sem o cabeçalho, o comportamento é
+        # exatamente o de antes (cada POST cria um lançamento) — contrato
+        # compatível, nada muda para quem não envia a chave.
+        #
+        # `strip()` + tratar string vazia como ausente (achado A4): " " e "  "
+        # não podem contar como duas chaves DISTINTAS — um cliente que só
+        # envia espaço em branco não pretendia usar idempotência nenhuma.
+        chave_idempotencia = (request.headers.get("Idempotency-Key") or "").strip() or None
+        if chave_idempotencia and len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA:
+            raise DRFValidationError(
+                f"O cabeçalho Idempotency-Key não pode ter mais de "
+                f"{TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA} caracteres."
+            )
+
         try:
             lancamento = criar_lancamento(
                 empresa=empresa,
@@ -119,13 +156,50 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
                 historico=dados.get("historico", ""),
                 itens=itens,
                 criado_por=request.user,
+                chave_idempotencia=chave_idempotencia,
             )
+        except ChaveIdempotenciaConflitante as exc:
+            # Conflito de estado (a chave já existe com outro conteúdo), não
+            # entrada inválida: 409, não 400 — e nada foi gravado (achado A2).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
-        registrar(acao="lancamento.criado", objeto=lancamento, request=request)
+        # O serviço informa se de fato criou ou reaproveitou um lançamento
+        # existente (mesma Idempotency-Key). A trilha de auditoria e o
+        # status HTTP precisam refletir o resultado real, nunca "criado" por
+        # padrão: um registro de auditoria que afirma criação que não
+        # aconteceu deixa de sustentar prova (AGENTS.md §11), e 201 numa
+        # repetição afirmaria um fato falso. Repetição não é erro — é
+        # informação útil (duplo clique, tempestade de retentativa) e por
+        # isso vira uma ação própria, rastreável, em vez de ficar oculta
+        # atrás de "lancamento.criado". `lancamento.criado_agora` é acessado
+        # direto (sem `getattr(..., True)`): `criar_lancamento` sempre define
+        # este atributo antes de devolver o objeto, e um padrão "True" por
+        # omissão falharia ABERTO exatamente no mesmo sentido do defeito que
+        # esta correção existe para fechar (achado A7).
+        if lancamento.criado_agora:
+            registrar(acao="lancamento.criado", objeto=lancamento, request=request)
+            status_code = status.HTTP_201_CREATED
+        else:
+            registrar(
+                acao="lancamento.criacao_repetida",
+                objeto=lancamento,
+                request=request,
+                # Só um hash curto da chave, nunca a chave crua (achado A8):
+                # é uma string arbitrária vinda do cliente, e `registrar()`
+                # só deve receber dados não sensíveis. O hash ainda permite
+                # correlacionar repetições da MESMA chave entre registros.
+                detalhes={
+                    "chave_idempotencia_hash": hashlib.sha256(
+                        chave_idempotencia.encode("utf-8")
+                    ).hexdigest()[:12]
+                },
+            )
+            status_code = status.HTTP_200_OK
+
         serializer = self.get_serializer(lancamento)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status_code)
 
 
 class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
