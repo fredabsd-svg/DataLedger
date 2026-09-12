@@ -25,6 +25,31 @@ def mensagem_cnpj_duplicado(model):
     return f"{model._meta.verbose_name} com este CNPJ já existe."
 
 
+class CNPJDuplicado(ValidationError):
+    """CNPJ já cadastrado, detectado pela corrida na constraint de unicidade.
+
+    Achado B1 da auditoria da etapa DL-011 (rodada 4): o gerenciador
+    ``erro_de_cnpj_duplicado_como_400`` levantava ``ValidationError`` do
+    Django puro, e as quatro views capturavam esse tipo genérico — largo
+    demais. ``Empresa.save()``/``Estabelecimento.save()`` também levantam
+    ``ValidationError`` (de ``normalizar_cnpj``, quando o valor é inválido),
+    só que com **mensagem simples**, sem ``error_dict``. Como o
+    ``except ValidationError`` das views sempre chamava
+    ``exc.message_dict`` — que só existe quando o ``ValidationError`` foi
+    construído com um dict —, uma ``ValidationError`` de mensagem vinda de
+    ``save()`` (ou de um *signal*, ou de uma regra futura) virava
+    ``AttributeError`` sem tratamento (500 escondendo a causa raiz no log),
+    e na tela virava **200 sem nenhum erro no formulário e nada gravado** —
+    falha convertida em sucesso aparente, o que o AGENTS.md §8 proíbe.
+
+    A correção é estreitar o contrato, não alargar o ``except``: só esta
+    subclasse — que o gerenciador constrói sempre com dict, garantindo
+    ``message_dict`` — é capturada pelas views. Qualquer outra
+    ``ValidationError`` (de ``save()``, de *signal*, de regra nova) sobe
+    intacta, com a causa legível.
+    """
+
+
 def mensagem_se_cnpj_duplicado(exc):
     """Traduz um IntegrityError de corrida na unicidade do CNPJ.
 
@@ -61,10 +86,16 @@ def erro_de_cnpj_duplicado_como_400():
     continuar utilizável depois (para o ``registrar()`` de auditoria, por
     exemplo), e não é papel deste gerenciador abrir transação.
 
-    Levanta ``django.core.exceptions.ValidationError({"cnpj": [mensagem]})``
-    — deliberadamente o ``ValidationError`` do Django, não o do DRF nem um
-    tipo próprio, porque os dois caminhos que usam isto (API e formulário
-    da tela) já sabem traduzir esse tipo para o formato de erro certo.
+    Levanta ``CNPJDuplicado({"cnpj": [mensagem]})`` — subclasse de
+    ``django.core.exceptions.ValidationError``, sempre construída com dict
+    (achado B1 da auditoria, rodada 4: capturar o ``ValidationError``
+    genérico nas views era largo demais, porque ``Model.save()`` também
+    levanta ``ValidationError``, só que de mensagem simples — ver a
+    docstring de ``CNPJDuplicado``). Os dois caminhos que usam isto (API e
+    formulário da tela) sabem traduzir esse tipo para o formato de erro
+    certo, e só ele — nunca o ``ValidationError`` genérico, que deve subir
+    intacto para quem chamou perceber a causa real.
+
     Só a violação das constraints ``empresas_empresa_cnpj_key`` /
     ``empresas_estabelecimento_cnpj_key`` é traduzida
     (``mensagem_se_cnpj_duplicado`` devolve ``None`` para qualquer outra
@@ -78,7 +109,7 @@ def erro_de_cnpj_duplicado_como_400():
         mensagem = mensagem_se_cnpj_duplicado(exc)
         if mensagem is None:
             raise
-        raise ValidationError({"cnpj": [mensagem]}) from exc
+        raise CNPJDuplicado({"cnpj": [mensagem]}) from exc
 
 
 @transaction.atomic

@@ -2,7 +2,6 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import redirect, render
 from rest_framework import generics
@@ -18,7 +17,11 @@ from apps.empresas.serializers import (
     EstabelecimentoSerializer,
     HistoricoRegimeTributarioSerializer,
 )
-from apps.empresas.services import erro_de_cnpj_duplicado_como_400, registrar_regime_tributario
+from apps.empresas.services import (
+    CNPJDuplicado,
+    erro_de_cnpj_duplicado_como_400,
+    registrar_regime_tributario,
+)
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 
@@ -61,7 +64,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         try:
             with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                 empresa = serializer.save()
-        except DjangoValidationError as exc:
+        except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         registrar(acao="empresa.criada", objeto=empresa, request=self.request)
 
@@ -85,7 +88,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         try:
             with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                 serializer.save()
-        except DjangoValidationError as exc:
+        except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
 
 
@@ -108,7 +111,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         try:
             with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                 estabelecimento = serializer.save(empresa=self.get_empresa())
-        except DjangoValidationError as exc:
+        except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
@@ -222,7 +225,7 @@ def criar_empresa(request):
             try:
                 with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                     empresa.save()
-            except DjangoValidationError as exc:
+            except CNPJDuplicado as exc:
                 for mensagem in exc.message_dict.get("cnpj", []):
                     form.add_error("cnpj", mensagem)
             else:
