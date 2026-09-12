@@ -1,7 +1,7 @@
 from datetime import date
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -117,12 +117,40 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
         return Response(serializer.data, status=201)
 
 
+def _mascara_cnpj(cnpj):
+    """Formata um CNPJ de 14 dígitos como XX.XXX.XXX/XXXX-XX.
+
+    Puramente de apresentação: não repete a validação de
+    apps.empresas.validators, que já garantiu o formato na gravação. Se o
+    valor armazenado não tiver exatamente 14 dígitos (dado herdado ou
+    corrompido), devolve o valor original em vez de mascarar errado.
+    """
+    digitos = "".join(filter(str.isdigit, cnpj))
+    if len(digitos) != 14:
+        return cnpj
+    return f"{digitos[0:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:14]}"
+
+
 @login_required
 def lista_empresas(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
-    empresas = Empresa.objects.filter(escritorio=request.escritorio)
-    return render(request, "empresas/lista.html", {"empresas": empresas})
+    empresas = list(Empresa.objects.filter(escritorio=request.escritorio))
+    # Formatação de apresentação (CNPJ mascarado) feita aqui, na view, e não
+    # em template tag própria: esta etapa não tem permissão para criar
+    # arquivos em apps/empresas/templatetags/ (ver docs/planos/DL-009).
+    for empresa in empresas:
+        empresa.cnpj_formatado = _mascara_cnpj(empresa.cnpj)
+    contexto = {
+        "empresas": empresas,
+        # Booleano calculado com o enum e passado pronto ao template: a
+        # regra de quem pode cadastrar mora só aqui, não repetida como
+        # string literal na marcação (achado A8 da auditoria de DL-009).
+        # A autorização real de qualquer forma é sempre re-checada no
+        # servidor em criar_empresa; isto só decide o que a tela mostra.
+        "pode_cadastrar": request.papel in (Papel.ADMINISTRADOR, Papel.GESTOR),
+    }
+    return render(request, "empresas/lista.html", contexto)
 
 
 @login_required
@@ -130,7 +158,12 @@ def criar_empresa(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
     if request.papel not in (Papel.ADMINISTRADOR, Papel.GESTOR):
-        return HttpResponseForbidden("Seu papel não permite cadastrar empresas.")
+        # Falta de permissão ganha template próprio, com explicação e
+        # caminho de volta — nunca mais texto cru sem contexto (BL-22).
+        # A autorização real continua sendo aplicada aqui, no servidor;
+        # o template só explica a negativa que já ocorreu.
+        contexto = {"mensagem": "Seu papel não permite cadastrar empresas."}
+        return render(request, "erros/sem_permissao.html", contexto, status=403)
 
     if request.method == "POST":
         form = EmpresaForm(request.POST)
@@ -139,6 +172,7 @@ def criar_empresa(request):
             empresa.escritorio = request.escritorio
             empresa.save()
             registrar(acao="empresa.criada", objeto=empresa, request=request)
+            messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")
             return redirect("empresas:lista")
     else:
         form = EmpresaForm()

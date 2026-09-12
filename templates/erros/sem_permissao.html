@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block titulo %}Sem permissão{% endblock %}
+
+{% block content %}
+    <h1>Sem permissão</h1>
+    <p>{{ mensagem|default:"Seu papel não permite realizar esta ação." }}</p>
+    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
+{% endblock %}

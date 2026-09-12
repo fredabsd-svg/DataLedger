@@ -1,16 +1,43 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="utf-8">
-    <title>Nova empresa — DataLedger</title>
-</head>
-<body>
-    <p><a href="{% url 'empresas:lista' %}">Voltar</a></p>
+{% extends "base.html" %}
+
+{% block titulo %}Nova empresa{% endblock %}
+
+{% block content %}
+    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
     <h1>Nova empresa</h1>
-    <form method="post">
+
+    <form method="post" class="formulario" novalidate>
         {% csrf_token %}
-        {{ form.as_p }}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}
+                    <p>{{ erro }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.errors %}
+                    {% comment %}
+                    O próprio Django (BoundField.aria_describedby, desde a
+                    5.0) já anota o widget acima com
+                    aria-describedby="{auto_id}_error" quando o campo tem
+                    erro — o id aqui só precisa casar com isso, não pode
+                    inventar outro prefixo (achado A1 da auditoria de
+                    DL-009: "erro-{id_for_label}" não batia com o que o
+                    Django gerava, e o aria-describedby ficava pendurado no
+                    vazio).
+                    {% endcomment %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}
+                            <p>{{ erro }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
         <button type="submit">Salvar</button>
     </form>
-</body>
-</html>
+{% endblock %}

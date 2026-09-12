@@ -1,19 +1,37 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="utf-8">
-    <title>Empresas — DataLedger</title>
-</head>
-<body>
-    <p><a href="{% url 'tenancy:painel' %}">Voltar ao painel</a></p>
+{% extends "base.html" %}
+
+{% block titulo %}Empresas{% endblock %}
+
+{% block content %}
     <h1>Empresas</h1>
-    <p><a href="{% url 'empresas:criar' %}">Nova empresa</a></p>
-    <ul>
-        {% for empresa in empresas %}
-            <li>{{ empresa.razao_social }} — {{ empresa.cnpj }}</li>
-        {% empty %}
-            <li>Nenhuma empresa cadastrada neste escritório.</li>
-        {% endfor %}
-    </ul>
-</body>
-</html>
+
+    {% if pode_cadastrar %}
+        <p><a href="{% url 'empresas:criar' %}">Nova empresa</a></p>
+    {% endif %}
+
+    <table class="tabela-dados">
+        <caption class="visualmente-oculto">Empresas cadastradas no escritório ativo</caption>
+        <thead>
+            <tr>
+                <th scope="col">Razão social</th>
+                <th scope="col">Nome fantasia</th>
+                <th scope="col">CNPJ</th>
+                <th scope="col">Cadastrada em</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for empresa in empresas %}
+                <tr>
+                    <td>{{ empresa.razao_social }}</td>
+                    <td>{{ empresa.nome_fantasia|default:"—" }}</td>
+                    <td>{{ empresa.cnpj_formatado }}</td>
+                    <td>{{ empresa.criado_em|date:"d/m/Y" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="4">Nenhuma empresa cadastrada neste escritório.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}

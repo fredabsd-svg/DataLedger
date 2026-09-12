@@ -90,11 +90,64 @@ class LancamentoContabil(models.Model):
         related_name="+",
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    chave_idempotencia = models.CharField(
+        "chave de idempotência",
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=(
+            "Cabeçalho Idempotency-Key enviado pelo cliente ao criar o "
+            "lançamento. Opcional: repetir o POST com a mesma chave, na "
+            "mesma empresa, devolve o lançamento já criado em vez de "
+            "duplicá-lo (BL-41). Não é derivada de data/histórico/itens — "
+            "dois lançamentos idênticos podem ser legítimos em contabilidade."
+        ),
+    )
+    chave_idempotencia_fingerprint = models.CharField(
+        "impressão digital da chave de idempotência",
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "Hash SHA-256 (hexadecimal) do conteúdo do lançamento (data, "
+            "histórico e itens) no momento em que a Idempotency-Key foi "
+            "usada. Permite recusar com 409 quando a MESMA chave é "
+            "reaproveitada para um conteúdo DIFERENTE, em vez de devolver "
+            "silenciosamente o lançamento antigo como se fosse sucesso "
+            "(achado de auditoria A2 do plano DL-007 — reaproveitar a chave "
+            "para outra coisa é 'corrupção por omissão', que não aparece na "
+            "conciliação)."
+        ),
+    )
 
     class Meta:
         verbose_name = "lançamento contábil"
         verbose_name_plural = "lançamentos contábeis"
         ordering = ["-data", "-criado_em"]
+        constraints = [
+            # Defesa de banco (DE-008, camada 1) para o achado BL-41: um
+            # lançamento só pode ser estornado uma vez. `estorno_de` é nulo em
+            # todo lançamento que não é estorno de nada — a `condition`
+            # restringe a unicidade só às linhas que efetivamente referenciam
+            # um original, para que múltiplos NULL continuem permitidos (do
+            # contrário nem seria necessário declarar a condição, mas isso
+            # torna explícito que a regra é "no máximo um estorno por
+            # original", não "no máximo um NULL").
+            models.UniqueConstraint(
+                fields=["estorno_de"],
+                condition=models.Q(estorno_de__isnull=False),
+                name="estorno_de_unico",
+            ),
+            # Defesa de banco para a idempotência opcional de criação (BL-41):
+            # a mesma chave só precisa ser única dentro da mesma empresa, para
+            # que a mesma chave usada por clientes de empresas diferentes não
+            # colida entre si. NULL (ausência de chave) nunca conflita.
+            models.UniqueConstraint(
+                fields=["empresa", "chave_idempotencia"],
+                condition=models.Q(chave_idempotencia__isnull=False),
+                name="chave_idempotencia_unica_por_empresa",
+            ),
+        ]
 
     def __str__(self):
         return f"Lançamento {self.pk} — {self.data} — {self.historico}"

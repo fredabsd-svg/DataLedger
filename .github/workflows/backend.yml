@@ -60,3 +60,16 @@ jobs:
 
       - name: Testes (pytest)
         run: pytest
+
+      # STORAGES usa CompressedManifestStaticFilesStorage (WhiteNoise), que
+      # exige o manifesto gerado por collectstatic. Sem esta etapa, o
+      # pipeline de estáticos nunca era exercido pela integração contínua, e
+      # uma falha só apareceria no deploy. Ver docs/projeto/decisoes.md,
+      # DE-012.
+      #
+      # Roda DEPOIS do pytest de propósito: se rodasse antes, o manifesto
+      # existiria durante os testes e a CI passaria com `{% static %}` em
+      # template, enquanto o pytest local (sem manifesto) falharia. CI mais
+      # permissiva que o ambiente local mascara defeito em vez de revelar.
+      - name: Arquivos estáticos são coletados
+        run: python manage.py collectstatic --noinput

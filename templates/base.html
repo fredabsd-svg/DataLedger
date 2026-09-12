@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block titulo %}DataLedger{% endblock %} — DataLedger</title>
+    {% comment %}
+    Caminho fixo, sem a tag "static": ela exige o manifesto gerado por
+    "collectstatic" (STORAGES usa ManifestStaticFilesStorage do WhiteNoise),
+    que a integração contínua e o ambiente de teste não executam antes da
+    suíte (.github/workflows/backend.yml não tem esse passo). Sem isto,
+    toda renderização de página quebra com "Missing staticfiles manifest
+    entry" — reproduzido nesta etapa. collectstatic mantém o arquivo
+    original sem hash junto do versionado por hash, então este caminho
+    funciona em desenvolvimento (runserver serve por finder), em teste (não
+    passa pelo storage) e em produção (WhiteNoise serve do STATIC_ROOT) —
+    só perde o "cache busting" do nome com hash. Decisão para revisão do
+    arquiteto-senior: automatizar collectstatic na integração contínua e no
+    deploy, e então voltar a usar a tag "static".
+    {% endcomment %}
+    <link rel="stylesheet" href="/static/css/base.css">
+</head>
+<body>
+    <a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
+
+    <header class="cabecalho">
+        <p class="marca"><a href="{% url 'tenancy:painel' %}">DataLedger</a></p>
+
+        {% if request.user.is_authenticated %}
+            <div class="contexto-operacao">
+                <span class="contexto-item">
+                    <span class="contexto-rotulo">Usuário:</span>
+                    {{ request.user.get_username }}
+                </span>
+                {% if request.escritorio %}
+                    <span class="contexto-item">
+                        <span class="contexto-rotulo">Escritório ativo:</span>
+                        {{ request.escritorio.nome }}
+                    </span>
+                {% endif %}
+                {% block contexto_extra %}{% endblock %}
+                <form method="post" action="{% url 'logout' %}" class="form-sair">
+                    {% csrf_token %}
+                    <button type="submit">Sair</button>
+                </form>
+            </div>
+        {% endif %}
+    </header>
+
+    {% if request.user.is_authenticated %}
+        <nav class="navegacao-principal" aria-label="Navegação principal">
+            <ul>
+                <li><a href="{% url 'tenancy:painel' %}">Painel</a></li>
+                <li><a href="{% url 'empresas:lista' %}">Empresas</a></li>
+            </ul>
+        </nav>
+    {% endif %}
+
+    <main id="conteudo" class="conteudo-principal">
+        {% if messages %}
+            {% comment %}
+            Sem aria-live no contêiner: a região já está presente no HTML
+            inicial (é o caso de todo redirect com mensagem), então
+            "polite" aqui normalmente não dispara anúncio, e fica
+            conflitante com o role="alert"/"status" de cada item — que já
+            faz o leitor de tela anunciar sozinho (achado A6 da auditoria
+            de DL-009).
+            {% endcomment %}
+            <ul class="mensagens">
+                {% for message in messages %}
+                    <li class="mensagem mensagem-{{ message.tags }}"
+                        role="{% if 'error' in message.tags or 'warning' in message.tags %}alert{% else %}status{% endif %}">
+                        {% comment %}
+                        Rótulo em texto, não só cor: quem não distingue as
+                        cores da borda ainda sabe se é erro, aviso, sucesso
+                        ou informação.
+                        {% endcomment %}
+                        {% if "error" in message.tags %}<strong>Erro:</strong>
+                        {% elif "warning" in message.tags %}<strong>Atenção:</strong>
+                        {% elif "success" in message.tags %}<strong>Sucesso:</strong>
+                        {% else %}<strong>Informação:</strong>{% endif %}
+                        {{ message }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

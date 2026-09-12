@@ -1,11 +1,9 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="utf-8">
-    <title>Empresas — DataLedger</title>
-</head>
-<body>
-    <p><a href="{% url 'tenancy:painel' %}">Voltar ao painel</a></p>
+{% extends "base.html" %}
+
+{% block titulo %}Sem escritório ativo{% endblock %}
+
+{% block content %}
+    <h1>Nenhum escritório ativo</h1>
     <p>Selecione um escritório ativo no painel antes de ver as empresas.</p>
-</body>
-</html>
+    <p><a href="{% url 'tenancy:painel' %}">Ir para o painel</a></p>
+{% endblock %}

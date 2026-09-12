@@ -30,3 +30,19 @@ def test_login_com_credenciais_invalidas_mostra_erro(client, usuario):
 
     assert response.status_code == 200
     assert response.context["form"].errors
+
+
+def test_login_com_credenciais_invalidas_anuncia_erro_para_leitor_de_tela(client, usuario):
+    """Critério 9, sem teste antes do achado A4: o erro de login precisa ser
+    anunciado (role="alert") e associado aos dois campos — sem isso, quem
+    usa leitor de tela não sabe que a tentativa falhou."""
+    resposta = client.post(
+        reverse("login"),
+        {"username": "ana", "password": "senha-errada"},
+    )
+
+    conteudo = resposta.content.decode()
+    assert 'id="erro-login"' in conteudo
+    assert 'role="alert"' in conteudo
+    assert 'aria-describedby="erro-login"' in conteudo
+    assert conteudo.count('aria-describedby="erro-login"') == 2  # usuário e senha

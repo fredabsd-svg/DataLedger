@@ -1,18 +1,47 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="utf-8">
-    <title>Entrar — DataLedger</title>
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block titulo %}Entrar{% endblock %}
+
+{% block content %}
     <h1>Entrar</h1>
-    {% if form.errors %}
-        <p>Usuário ou senha inválidos.</p>
+
+    {% if form.non_field_errors %}
+        {% comment %}
+        Erro de autenticação: não indica qual campo está errado, por não
+        revelar se o usuário existe (prática de segurança do próprio
+        Django). Ainda assim precisa ser anunciado e associado aos dois
+        campos, para quem usa leitor de tela.
+        {% endcomment %}
+        <div id="erro-login" class="mensagem mensagem-error" role="alert">
+            {% for erro in form.non_field_errors %}
+                <p>{{ erro }}</p>
+            {% endfor %}
+        </div>
     {% endif %}
-    <form method="post">
+
+    <form method="post" class="formulario" novalidate>
         {% csrf_token %}
-        {{ form.as_p }}
+        <div class="campo">
+            {{ form.username.label_tag }}
+            <input
+                type="text"
+                name="username"
+                id="id_username"
+                autocomplete="username"
+                autofocus
+                required
+                {% if form.non_field_errors %}aria-describedby="erro-login" aria-invalid="true"{% endif %}>
+        </div>
+        <div class="campo">
+            {{ form.password.label_tag }}
+            <input
+                type="password"
+                name="password"
+                id="id_password"
+                autocomplete="current-password"
+                required
+                {% if form.non_field_errors %}aria-describedby="erro-login" aria-invalid="true"{% endif %}>
+        </div>
         <button type="submit">Entrar</button>
     </form>
-</body>
-</html>
+{% endblock %}
