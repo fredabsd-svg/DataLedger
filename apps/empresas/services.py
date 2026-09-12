@@ -1,6 +1,8 @@
+from contextlib import contextmanager
 from datetime import timedelta
 
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
 
@@ -40,6 +42,43 @@ def mensagem_se_cnpj_duplicado(exc):
     if modelo is None:
         return None
     return mensagem_cnpj_duplicado(modelo)
+
+
+@contextmanager
+def erro_de_cnpj_duplicado_como_400():
+    """Traduz a corrida na unicidade do CNPJ num erro de campo, não um 500.
+
+    Achado A1 da reauditoria da etapa DL-011 (rodada 3): o tratamento de
+    ``IntegrityError`` do R4 tinha sido escrito três vezes (criação de
+    Empresa e de Estabelecimento pela API, criação pela tela) e faltou a
+    quarta — atualização de Empresa (``PUT``/``PATCH``), reproduzida pelo
+    auditor em 6 de 6 execuções com duas *threads*. Bloco repetido é bloco
+    esquecido na próxima vez; por isso a lógica de detecção mora só aqui.
+
+    Uso: ``with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
+    <gravação>``. O ``transaction.atomic()`` fica por fora, a cargo de quem
+    chama — é o savepoint que isola o ``IntegrityError`` para a conexão
+    continuar utilizável depois (para o ``registrar()`` de auditoria, por
+    exemplo), e não é papel deste gerenciador abrir transação.
+
+    Levanta ``django.core.exceptions.ValidationError({"cnpj": [mensagem]})``
+    — deliberadamente o ``ValidationError`` do Django, não o do DRF nem um
+    tipo próprio, porque os dois caminhos que usam isto (API e formulário
+    da tela) já sabem traduzir esse tipo para o formato de erro certo.
+    Só a violação das constraints ``empresas_empresa_cnpj_key`` /
+    ``empresas_estabelecimento_cnpj_key`` é traduzida
+    (``mensagem_se_cnpj_duplicado`` devolve ``None`` para qualquer outra
+    causa, e este gerenciador deixa o ``IntegrityError`` original subir sem
+    tradução nesse caso) — não repetir o erro da DL-007, que converteu todo
+    ``IntegrityError`` em erro de cliente e mascarou defeito de sistema.
+    """
+    try:
+        yield
+    except IntegrityError as exc:
+        mensagem = mensagem_se_cnpj_duplicado(exc)
+        if mensagem is None:
+            raise
+        raise ValidationError({"cnpj": [mensagem]}) from exc
 
 
 @transaction.atomic

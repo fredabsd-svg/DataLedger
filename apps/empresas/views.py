@@ -2,7 +2,8 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import IntegrityError, transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.shortcuts import redirect, render
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -17,7 +18,7 @@ from apps.empresas.serializers import (
     EstabelecimentoSerializer,
     HistoricoRegimeTributarioSerializer,
 )
-from apps.empresas.services import mensagem_se_cnpj_duplicado, registrar_regime_tributario
+from apps.empresas.services import erro_de_cnpj_duplicado_como_400, registrar_regime_tributario
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 
@@ -46,25 +47,22 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         return permissions
 
     def perform_create(self, serializer):
-        # R4 (reauditoria da etapa DL-011): duas requisições simultâneas com
-        # o mesmo CNPJ podem passar as duas pelo UniqueValidator do
+        # R4 (reauditoria, rodada 2): duas requisições simultâneas com o
+        # mesmo CNPJ podem passar as duas pelo UniqueValidator do
         # serializer (ele faz SELECT; entre o SELECT e este INSERT o
         # concorrente comita) e uma delas estoura IntegrityError na
         # constraint do banco. O savepoint de transaction.atomic() isola
         # esse erro: se ele ocorrer, só o INSERT é desfeito, e a conexão
         # continua utilizável para o registrar() de auditoria abaixo.
-        # Convertemos só a violação específica da constraint de cnpj em
-        # erro de campo; qualquer outro IntegrityError sobe sem tratamento
-        # — não repetir o erro da DL-007, que converteu todo IntegrityError
-        # em 400 e mascarou defeito de sistema como erro de cliente.
+        # erro_de_cnpj_duplicado_como_400 (apps/empresas/services.py)
+        # concentra a detecção de qual IntegrityError é a violação da
+        # constraint de cnpj — ver o comentário lá sobre por que isso mora
+        # num lugar só (A1, reauditoria, rodada 3).
         try:
-            with transaction.atomic():
+            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                 empresa = serializer.save()
-        except IntegrityError as exc:
-            mensagem = mensagem_se_cnpj_duplicado(exc)
-            if mensagem is None:
-                raise
-            raise DRFValidationError({"cnpj": [mensagem]}) from exc
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict) from exc
         registrar(acao="empresa.criada", objeto=empresa, request=self.request)
 
 
@@ -76,6 +74,19 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH"):
             permissions.append(PodeGerenciarEmpresa())
         return permissions
+
+    def perform_update(self, serializer):
+        # A1 (reauditoria da etapa DL-011, rodada 3): o R4 tinha sido
+        # corrigido só na criação. PUT/PATCH para o CNPJ de outra empresa
+        # tem exatamente a mesma corrida (SELECT do UniqueValidator, depois
+        # UPDATE) — reproduzida pelo auditor em 6 de 6 execuções com duas
+        # threads. Mesmo tratamento de perform_create, mesmo gerenciador de
+        # contexto compartilhado.
+        try:
+            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
+                serializer.save()
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict) from exc
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
@@ -95,13 +106,10 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
         # (ver comentário lá): cnpj de Estabelecimento também é unique=True.
         try:
-            with transaction.atomic():
+            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                 estabelecimento = serializer.save(empresa=self.get_empresa())
-        except IntegrityError as exc:
-            mensagem = mensagem_se_cnpj_duplicado(exc)
-            if mensagem is None:
-                raise
-            raise DRFValidationError({"cnpj": [mensagem]}) from exc
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict) from exc
         registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
 
@@ -212,13 +220,11 @@ def criar_empresa(request):
             # mesmo CNPJ — a corrida que gera 500 se não tratada. O
             # savepoint isola o erro para a conexão continuar utilizável.
             try:
-                with transaction.atomic():
+                with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                     empresa.save()
-            except IntegrityError as exc:
-                mensagem = mensagem_se_cnpj_duplicado(exc)
-                if mensagem is None:
-                    raise
-                form.add_error("cnpj", mensagem)
+            except DjangoValidationError as exc:
+                for mensagem in exc.message_dict.get("cnpj", []):
+                    form.add_error("cnpj", mensagem)
             else:
                 registrar(acao="empresa.criada", objeto=empresa, request=request)
                 messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")

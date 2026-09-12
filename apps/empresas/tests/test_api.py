@@ -20,7 +20,7 @@ from django.test import Client
 from django.urls import reverse
 from rest_framework.validators import UniqueValidator
 
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, Estabelecimento, TipoEstabelecimento
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -297,3 +297,118 @@ def test_criar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_500()
 
     assert set(resultados.values()) <= {201, 400}, resultados
     assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1
+
+
+# --- A1: a mesma corrida do R4, reaberta em PUT/PATCH ----------------------
+
+
+def test_atualizar_empresa_via_api_com_corrida_neutralizando_o_unique_validator_da_400(
+    client, gestor, monkeypatch
+):
+    # A1 (reauditoria da etapa DL-011, rodada 3): o R4 tinha sido corrigido
+    # só na criação. Alterar o CNPJ de uma empresa para o valor já usado
+    # por outra tem a mesma corrida (SELECT do UniqueValidator, depois
+    # UPDATE) — reproduzida pelo auditor em 6 de 6 execuções reais.
+    # Reprodução determinística: neutraliza o UniqueValidator para forçar
+    # o caminho que só ocorreria sob corrida.
+    escritorio = Escritorio.objects.get(cnpj="11111111000111")
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Alvo Ltda", cnpj="AB123CDE000155"
+    )
+    empresa_para_alterar = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa a Alterar Ltda", cnpj="11122233000183"
+    )
+    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.patch(
+        reverse("empresas:api-detalhe", kwargs={"pk": empresa_para_alterar.pk}),
+        data=json.dumps({"cnpj": "ab123cde000155"}),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    (mensagem,) = resposta.json()["cnpj"]
+    assert "já existe" in mensagem
+    empresa_para_alterar.refresh_from_db()
+    assert empresa_para_alterar.cnpj == "11122233000183"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_atualizar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_500():
+    # Mesma reprodução com concorrência real de
+    # test_criar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_500,
+    # agora em PATCH: duas empresas já existentes, cada thread tenta
+    # colocar o mesmo CNPJ (em caixas diferentes) na outra.
+    escritorio = Escritorio.objects.create(nome="Escritório Corrida Patch", cnpj="22222222000122")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-corrida-patch",
+        email="gestor-corrida-patch@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    empresa_a = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Corrida Patch A Ltda", cnpj="11122233000183"
+    )
+    empresa_b = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Corrida Patch B Ltda", cnpj="11444777000161"
+    )
+
+    barreira = threading.Barrier(2)
+    resultados = {}
+
+    def _patch(chave, pk, cnpj):
+        try:
+            cliente = Client(raise_request_exception=False)
+            cliente.login(username="gestor-corrida-patch", password="senha-forte-123")
+            barreira.wait()
+            resposta = cliente.patch(
+                reverse("empresas:api-detalhe", kwargs={"pk": pk}),
+                data=json.dumps({"cnpj": cnpj}),
+                content_type="application/json",
+            )
+            resultados[chave] = resposta.status_code
+        finally:
+            connection.close()
+
+    thread_a = threading.Thread(target=_patch, args=("A", empresa_a.pk, "AB123CDE000155"))
+    thread_b = threading.Thread(target=_patch, args=("B", empresa_b.pk, "ab123cde000155"))
+    thread_a.start()
+    thread_b.start()
+    thread_a.join()
+    thread_b.join()
+
+    assert set(resultados.values()) <= {200, 400}, resultados
+    assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1
+
+
+# --- A3/N11: a mesma corrida do R4, sem teste no POST de Estabelecimento --
+
+
+def test_criar_estabelecimento_via_api_com_corrida_neutralizando_o_unique_validator_da_400(
+    client, gestor, escritorio, monkeypatch
+):
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+    Estabelecimento.objects.create(
+        empresa=empresa,
+        tipo=TipoEstabelecimento.MATRIZ,
+        nome="Matriz",
+        cnpj="AB123CDE000155",
+    )
+    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:api-estabelecimentos", kwargs={"empresa_id": empresa.pk}),
+        data={"tipo": "filial", "nome": "Filial Concorrente", "cnpj": "ab123cde000155"},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    (mensagem,) = resposta.json()["cnpj"]
+    assert "já existe" in mensagem
+    assert Estabelecimento.objects.filter(cnpj="AB123CDE000155").count() == 1

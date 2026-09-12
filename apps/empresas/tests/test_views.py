@@ -237,3 +237,36 @@ def test_form_com_erro_todo_aria_describedby_aponta_para_id_existente(client, es
             assert f'id="{id_referenciado}"' in conteudo, (
                 f"aria-describedby aponta para '{id_referenciado}', que não existe na página"
             )
+
+
+def test_criar_empresa_pela_tela_com_corrida_neutralizando_o_validate_unique_da_erro_de_campo(
+    client, escritorio, monkeypatch
+):
+    # A3 (reauditoria da etapa DL-011, rodada 3), mutante N10: o try/except
+    # em torno de empresa.save() em criar_empresa não tinha teste próprio —
+    # o form.is_valid() já pega duplicidade comum via validate_unique() (um
+    # SELECT), então só a CORRIDA (SELECT->INSERT concorrente) exercita o
+    # try/except. Neutralizar validate_unique() força esse caminho sem
+    # precisar de duas threads reais.
+    from django.forms.models import BaseModelForm
+
+    monkeypatch.setattr(BaseModelForm, "validate_unique", lambda self: None)
+
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Original Ltda", cnpj="AB123CDE000155"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Concorrente Ltda",
+            "nome_fantasia": "",
+            "cnpj": "ab123cde000155",
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert "já existe" in resposta.content.decode()
+    assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1

@@ -1,9 +1,10 @@
 from datetime import date
 
 import pytest
+from django.db import IntegrityError, transaction
 
-from apps.empresas.models import Empresa, RegimeTributario
-from apps.empresas.services import registrar_regime_tributario
+from apps.empresas.models import Empresa, Estabelecimento, RegimeTributario, TipoEstabelecimento
+from apps.empresas.services import mensagem_se_cnpj_duplicado, registrar_regime_tributario
 from apps.tenancy.models import Escritorio
 
 pytestmark = pytest.mark.django_db
@@ -37,3 +38,70 @@ def test_nao_permite_vigencia_anterior_ao_periodo_atual(empresa):
 
     with pytest.raises(ValueError):
         registrar_regime_tributario(empresa, RegimeTributario.LUCRO_REAL, date(2024, 1, 1))
+
+
+# --- A3/N8: a guarda de mensagem_se_cnpj_duplicado contra a armadilha da
+# DL-007 (converter TODO IntegrityError em erro de cliente) existia só como
+# código, sem teste. O mutante que troca "if modelo is None: return None"
+# por "modelo = Empresa" traduziria qualquer IntegrityError — de FK, de
+# outra unique constraint, da própria CheckConstraint de canonicidade — em
+# "CNPJ já existe", mascarando defeito de sistema como erro do cliente.
+# Estes três testes fixam, para cada origem de IntegrityError que não é a
+# unicidade do CNPJ, que a função devolve None (reauditoria etapa DL-011,
+# rodada 3).
+
+
+def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_outra_unique_constraint(empresa):
+    Estabelecimento.objects.create(
+        empresa=empresa, tipo=TipoEstabelecimento.MATRIZ, nome="Matriz", cnpj="44455566000183"
+    )
+
+    with pytest.raises(IntegrityError) as excinfo, transaction.atomic():
+        # uma_matriz_por_empresa: unique constraint real, mas não é a de
+        # cnpj — cada empresa só pode ter uma matriz.
+        Estabelecimento.objects.create(
+            empresa=empresa,
+            tipo=TipoEstabelecimento.MATRIZ,
+            nome="Outra matriz",
+            cnpj="44455566000264",
+        )
+
+    assert "uma_matriz_por_empresa" in str(excinfo.value)
+    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+
+
+def test_mensagem_se_cnpj_duplicado_ignora_violacao_da_check_constraint_canonica(empresa):
+    with pytest.raises(IntegrityError) as excinfo, transaction.atomic():
+        # empresa_cnpj_canonico (R1): outra constraint do mesmo campo cnpj,
+        # mas não é a de UNICIDADE — é a que exige maiúsculas/A-Z0-9.
+        Empresa.objects.bulk_create(
+            [
+                Empresa(
+                    escritorio=empresa.escritorio,
+                    razao_social="Empresa Lote Ltda",
+                    cnpj="ab123cde000155",
+                )
+            ]
+        )
+
+    assert "empresa_cnpj_canonico" in str(excinfo.value)
+    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+
+
+def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_chave_estrangeira():
+    from django.db import connection
+
+    with pytest.raises(IntegrityError) as excinfo, transaction.atomic():
+        Estabelecimento.objects.create(
+            empresa_id=999999,
+            tipo=TipoEstabelecimento.MATRIZ,
+            nome="Matriz Órfã",
+            cnpj="44455566000183",
+        )
+        # A FK do Django é DEFERRABLE INITIALLY DEFERRED por padrão: sem
+        # forçar a checagem aqui, o IntegrityError só apareceria no COMMIT
+        # (ou, neste ambiente de teste, na desmontagem do banco de teste,
+        # tarde demais para o pytest.raises acima capturar).
+        connection.check_constraints()
+
+    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
