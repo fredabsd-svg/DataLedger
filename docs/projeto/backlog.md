@@ -35,7 +35,7 @@ qualquer funcionalidade nova.
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-46 | Aceitar **CNPJ alfanumérico** no cadastro, na validação e em tudo que compare CNPJ. Hoje o DataLedger **recusa** qualquer CNPJ alfanumérico. | `desenvolvedor-pleno` | **Documento técnico oficial** do cálculo do dígito verificador | **bloqueada** — aguardando a especificação oficial | CNPJ alfanumérico válido é aceito e persistido; CNPJ numérico existente continua válido; DV conferido pelo algoritmo **oficial**, com casos de referência; nenhum ponto do sistema descarta letras do CNPJ. |
+| BL-46 | Aceitar **CNPJ alfanumérico** no cadastro, na validação e em tudo que compare CNPJ. Hoje o DataLedger **recusa** qualquer CNPJ alfanumérico. | `desenvolvedor-pleno` | **Resolvida**: NT Conjunta 2025.001 e IN RFB 2.229, fornecidas pelo Fred em 2026-09-12 | **em desenvolvimento** — [DL-011](../planos/DL-011-cnpj-alfanumerico.md); rodada 1 reprovada pela auditoria, correções em curso | CNPJ alfanumérico válido é aceito e persistido; CNPJ numérico existente continua válido; DV conferido pelo algoritmo **oficial**, com casos de referência; nenhum ponto do sistema descarta letras do CNPJ. |
 
 ### Por que é P0 e por que já está em vigor
 

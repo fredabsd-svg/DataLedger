@@ -59,6 +59,10 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-40 | **A rotina que mais consome tempo hoje é importação e conferência de documentos fiscais.** É por onde o produto deve começar a entregar valor. | Fred, 2026-09-12 (resolve PE-10 e PE-14) |
 | RC-41 | O escritório **já não digita documento**: importa de um **sistema de gestão de XML** de terceiros. O DataLedger recebe de um sistema existente, não da SEFAZ diretamente. | Fred, 2026-09-12 (resolve PE-15 em parte) |
 | RC-42 | A carteira **tem segmentos especializados** (combustíveis, empreendimentos imobiliários e/ou transporte). O escopo fiscal **não** pode assumir apenas comércio e serviços simples. | Fred, 2026-09-12 (resolve PE-13 em parte) |
+| RC-43 | A importação de documentos fiscais recebe **XML cru, XML zipado ou em RAR**. | Fred, 2026-09-12 |
+| RC-44 | O sistema deve **também importar notas em formato SPED Fiscal** (EFD ICMS/IPI). | Fred, 2026-09-12 |
+| RC-45 | O diretório público de manuais do sistema de referência deve ser **guardado para as demais implementações**, e a pesquisa de dúvidas de domínio pode usar a técnica indicada pelo Fred. Registrado em [fontes-de-referencia.md](fontes-de-referencia.md). | Fred, 2026-09-12 |
+| RC-46 | O **CNPJ alfanumérico** (IN RFB nº 2.229 e NT Conjunta 2025.001) deve ser aceito. Em vigor desde **31/07/2026**. | Documento oficial fornecido pelo Fred, 2026-09-12 |
 
 **Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
 captura de documento. Precisa resolver **recepção, classificação e conferência**
@@ -67,6 +71,15 @@ captura de documento. Precisa resolver **recepção, classificação e conferên
 **Consequência de RC-42:** os segmentos especializados encarecem a apuração, não
 a importação. Isso reforça começar por importar e conferir, e deixar apuração
 para depois de saber **quais** segmentos.
+
+**Ressalva de RC-43:** ZIP é nativo no Python; **RAR é formato proprietário** e
+exige binário externo, que não existe no ambiente atual. A
+[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) entrega XML solto e
+ZIP, e o RAR fica como item próprio — ver **PE-16**.
+
+**Valor de RC-44, além do óbvio:** importar SPED Fiscal é o mecanismo de
+**migração e conferência** contra o sistema atual, período a período. É o que
+permite rodar os dois em paralelo sem risco para o escritório.
 
 ### Stack técnica
 
@@ -112,7 +125,11 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-12 | Quais obrigações acessórias estão **vigentes** e o escritório de fato entrega? | O material de referência é de 2018 e cita obrigações provavelmente extintas ou substituídas. Implementar obrigação não vigente é desperdício; implementar a errada é pior. |
 | PE-13 | Quais **segmentos especializados** existem na carteira: combustíveis, empreendimentos imobiliários, transporte, SCP? | Se nenhum, saem do escopo e o módulo fiscal encolhe de forma relevante. |
 | PE-14 | Qual rotina **mais consome tempo** no escritório hoje? | É a pergunta que melhor ordena o backlog por valor. |
-| PE-15 | Como o escritório recebe hoje os documentos fiscais: XML por e-mail, download em portal, digitação? | Define a prioridade e o formato do importador. |
+| PE-15 | Como o escritório recebe hoje os documentos fiscais: XML por e-mail, download em portal, digitação? | **Resolvida** por RC-41 e RC-43: sistema de gestão de XML de terceiros, entregando XML cru, ZIP ou RAR. |
+| PE-16 | O sistema de gestão de XML consegue exportar em **ZIP** em vez de RAR? | Se sim, o RAR sai do escopo e evitamos dependência de binário proprietário. Se não, é preciso decidir se vale empacotar essa dependência. |
+| PE-17 | O Fred pode fornecer um **arquivo SPED Fiscal real anonimizado** e um lote de XML de exemplo? | Sem amostra, os casos de teste da DL-010 saem só do leiaute oficial, e leiaute não revela as variações que aparecem na prática. |
+| PE-18 | Adotar o **formato de intercâmbio de terceiros** como caminho de adoção é decisão de produto com dimensão jurídica. | Ver [mapa-funcional-fiscal.md](mapa-funcional-fiscal.md). Sem a decisão, a adoção exige que o escritório mude a ferramenta de captura. |
+| PE-19 | Confirmação oficial da exclusão das letras `I`, `O`, `U`, `Q` e `F` no CNPJ alfanumérico. | A NT 2025.001 cita a restrição mas declara que "precisa ser confirmada". Enquanto não vier, **aceitamos** essas letras — recusar CNPJ legítimo é pior. |
 
 ## Como atualizar
 

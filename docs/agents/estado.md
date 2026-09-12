@@ -1,6 +1,6 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-12**, na revisão `31c3047`, branch
+Atualizado em **2026-09-12**, na revisão `d5dddb6`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
 
 Este documento existe para que outra sessão retome o trabalho sem reconstruir o
@@ -16,10 +16,11 @@ exigir sessão interativa.
 
 ## O que foi feito nesta sessão
 
-Configuração da equipe de agentes e diagnóstico inicial. **Nenhum arquivo de
-código de negócio foi alterado.**
+Duas fases. Primeiro a **configuração da equipe** e o diagnóstico inicial, sem
+tocar em código de negócio. Depois, com a equipe funcionando, **cinco etapas de
+produto** — ver "Trabalho de produto" mais abaixo.
 
-### Arquivos criados
+### Arquivos criados na fase de configuração
 
 | Arquivo | Conteúdo |
 | --- | --- |
@@ -39,9 +40,10 @@ código de negócio foi alterado.**
 | `docs/projeto/decisoes.md` | Decisões DE-001 a DE-007. |
 | `docs/auditorias/2026-09-11-diagnostico-inicial.md` | Diagnóstico dos três papéis, com os achados preservados. |
 
-Nenhum arquivo preexistente foi modificado. Verificado com `git status`: a
-árvore contém apenas adições. `~/.claude/settings.json` não existia e **não foi
-criado**; não há configuração administrativa nesta máquina
+Nenhum arquivo preexistente foi modificado **nessa fase**. Verificado com
+`git status` à época: a árvore continha apenas adições.
+`~/.claude/settings.json` não existia e **não foi criado**; não há
+configuração administrativa nesta máquina
 (`claude doctor`: "Managed settings (remote): none configured for this
 organization"), logo não houve conflito com restrição administrativa.
 
@@ -162,36 +164,55 @@ funcionam normalmente.
 
 Para uma sessão avulsa em outro papel: `claude --agent auditor-qa`.
 
+## Trabalho de produto entregue nesta sessão
+
+Todas as etapas seguiram o mesmo ciclo: o `arquiteto-senior` escreve o plano com
+critérios de aceite numerados, o implementador executa, o arquiteto revisa o
+diff, o `auditor-qa` audita a **versão integrada** com teste de mutação, os
+achados voltam ao responsável, e só então há commit.
+
+| Etapa | Conteúdo | Parecer da auditoria |
+| --- | --- | --- |
+| [DL-007](../planos/DL-007-correcao-bloqueadores-contabilidade.md) | BL-40 (isolamento de `conta_pai`) e BL-41 (estorno duplicado) | Aprovado após 2 rodadas e verificação dirigida |
+| [DL-008](../planos/DL-008-politica-monetaria-e-validacao-de-escala.md) | `apps/core/dinheiro.py`, política de arredondamento (DE-010) | Aprovado com ressalvas, corrigidas |
+| [DL-009](../planos/DL-009-fundacao-de-interface.md) | Template base, mensagens, estados de erro, acessibilidade | Aprovado com ressalvas, corrigidas |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais (XML, ZIP, SPED bloco C) | **Planejada, não iniciada** |
+| [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (BL-46) | **Reprovado na rodada 1**; correções em curso |
+
+A suíte foi de **55 para 200 testes**. O PR #11 levou DL-007 a DL-009 à `main`,
+com as quatro verificações da integração contínua verdes.
+
+Registro honesto de erros do próprio `arquiteto-senior`, já corrigidos e
+documentados nas auditorias: um critério de aceite que não exercitava o defeito
+que dizia cobrir, uma instrução que levou a um desenho pior (converter todo
+`IntegrityError` em erro 400, mascarando defeito de sistema como erro do
+cliente), e uma decisão que afirmava funcionar em produção sem que o
+`collectstatic` existisse no `Dockerfile`. Os três foram encontrados pela
+auditoria independente — que é exatamente o motivo de ela existir.
+
 ## Próximo passo
 
-**Priorização com o Fred.** O backlog está ordenado por dependência técnica,
-não por valor de negócio — e só o Fred pode corrigir isso.
-
-Ordem sugerida:
-
-1. **BL-01** — responder as pendências PE-01 a PE-08 de
-   [../projeto/requisitos.md](../projeto/requisitos.md). As mais urgentes são
-   PE-01 (qual rotina do escritório tem prioridade) e PE-02 (política de
-   arredondamento).
-2. **BL-40 e BL-41** — os dois achados bloqueadores da auditoria. Precisam de
-   correção e teste antes de qualquer funcionalidade nova.
-3. **BL-02** — proteção da branch `main`. É **ação administrativa no GitHub**:
-   nenhum agente pode executá-la.
+1. **DL-011, rodada 2.** O `desenvolvedor-pleno` está aplicando os sete achados
+   de [2026-09-12-dl-011-cnpj-alfanumerico.md](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md).
+   Depois: revisão do diff, suíte completa e **reauditoria**.
+2. **BL-47** — o CNPJ do próprio escritório (`Escritorio.cnpj`) **não tem
+   validação nenhuma**. Atenção: acrescentar validador a campo existente pode
+   impedir a gravação de registros já armazenados.
+3. **DL-010** — depende da DL-011, porque o documento fiscal é identificado por
+   CNPJ. Três perguntas ao Fred antes de começar: PE-16 (ZIP em vez de RAR),
+   PE-17 (amostra de SPED e de XML) e PE-13 (segmentos especializados).
+4. **BL-02** — proteção da branch `main`. É **ação administrativa no GitHub**:
+   nenhum agente pode executá-la, só o Fred.
 
 ## Estado do repositório
 
-- A `main` **já contém** DL-002 a DL-006. Os PRs #7, #8 e #9 foram mesclados —
-  verificado no GitHub e no histórico local.
-- A seção "Estado atual e continuidade" do `README.md` ainda descreve esses PRs
-  como pendentes. **O README não foi alterado nesta sessão**, porque o PR #10,
-  já aberto, corrige exatamente essa seção.
+- `main` contém DL-002 a DL-009. O PR #11 foi mesclado, com a CI verde.
+- A branch de trabalho é `claude/accounting-agent-team-setup-mn6lyf`, sincronizada
+  com o remoto até o commit `d5dddb6`.
+- O trabalho da DL-011 está **na árvore, sem commit**, por estar em ciclo de
+  auditoria: commitar esvaziaria a visão de `git diff` do auditor.
 - Pendência herdada da DL-002, ainda aberta: a proteção da branch `main` nunca
-  foi configurada. É o controle que teria evitado o encadeamento indevido de
-  PRs que motivou os PRs #7 a #9.
-- Commit `31c3047` criado localmente com toda a configuração da equipe.
-  **Nenhum push foi feito**, porque o Fred pediu explicitamente que não houvesse
-  push nem publicação nesta execução. A branch está um commit à frente do
-  remoto, sem nada a puxar: o envio seria avanço direto, quando autorizado.
+  foi configurada.
 
 ## Ambiente de verificação
 
