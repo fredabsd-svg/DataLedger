@@ -216,6 +216,33 @@ oficial.
    antes e depois. Sem isso o resultado não é reproduzível, o que contraria o
    §10 do AGENTS.md.
 
+### Refinamento: o critério é perda de informação, não contagem de dígitos
+
+Acrescentado em 2026-09-12, durante a implementação da DL-008, a partir de uma
+dúvida levantada pelo `desenvolvedor-pleno` e decidida pelo `arquiteto-senior`.
+
+A pergunta prática: `100,000` tem três casas decimais ou nenhuma?
+
+**Decisão:** a validação de escala mede **casas decimais significativas**, não
+dígitos escritos. O critério é se reduzir a escala **perde informação**:
+
+- `Decimal("100.000")` reduzido a 2 casas resulta em `100,00` — **perda zero**.
+  O zero à direita é forma de escrever, não precisão. É **aceito**.
+- `Decimal("100.004")` reduzido a 2 casas perde o `4` — **informação real
+  destruída**. É o mecanismo exato do achado 4. É **recusado**.
+
+Recusar `100,000` seria rigor tipográfico, não proteção contábil, e produziria
+falso positivo contra um cliente que não errou nada. Na prática a contagem
+normaliza o valor (remove zeros à direita, sem alterar o valor numérico) antes
+de medir o expoente — o que também resolve notação científica, onde contagens
+baseadas em texto erram nas duas direções.
+
+Consequência: `"100"`, `"100.0"` e `"100.000"` são o mesmo valor para todos os
+efeitos, inclusive para a comparação de impressão digital da idempotência
+(DE-009). Isso foi descoberto porque a primeira implementação, com contagem
+literal, quebrou um teste de idempotência já existente da DL-007 — e o teste
+estava certo.
+
 ### Escrituração manual: recusar, não arredondar
 
 Decisão específica e deliberada para o módulo de Contabilidade, que é o único
