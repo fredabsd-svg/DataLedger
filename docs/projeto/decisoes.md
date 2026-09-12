@@ -123,6 +123,69 @@ referências existentes e o hábito já estabelecido no projeto.
 **Consequência:** agentes leem `CLAUDE.md` automaticamente e são direcionados
 ao `AGENTS.md` antes de qualquer edição.
 
+## DE-008 — Invariante contábil nunca mora só em `Model.clean()`
+
+**Data:** 2026-09-12
+
+**Decisão:** toda invariante contábil deve ser imposta em **pelo menos um**
+destes lugares, nesta ordem de preferência:
+
+1. **Restrição de banco** — a mais forte: sobrevive a shell, ORM, admin e
+   corrida entre requisições.
+2. **Camada de serviço** (`services.py`) — para regra que envolve várias linhas
+   ou exige bloqueio transacional.
+3. **Serializer** — na fronteira da API, para validar o que o cliente enviou.
+
+`Model.clean()` continua existindo, mas **apenas como conveniência para o Django
+admin e formulários**. Nunca como única defesa.
+
+**Motivo:** é a causa raiz comum dos dois achados bloqueadores da auditoria de
+2026-09-11. **O Django REST Framework não executa `full_clean()`**, e
+`Model.objects.create()` também não. Logo, regra escrita apenas em
+`Model.clean()` ou em validador de campo é **decorativa** no caminho da API —
+exatamente o caminho que o produto usa. Foi assim que `conta_pai` pôde apontar
+para conta de outra empresa apesar de existir um `clean()` proibindo isso.
+
+**Alternativas descartadas:**
+
+- *Chamar `full_clean()` dentro de `Model.save()`*: resolveria de forma ampla,
+  mas altera o comportamento de todo o projeto de uma vez, inclusive de código
+  e testes já validados, com risco desproporcional a esta etapa. Pode ser
+  reconsiderado depois, como decisão própria e com regressão completa.
+- *Confiar apenas em `CheckConstraint`*: não expressa a regra de `conta_pai`,
+  porque a condição compara empresa da conta com empresa da conta pai — a
+  verificação atravessa linhas, e o PostgreSQL exigiria um gatilho.
+
+**Consequência:** a regra de `conta_pai` fica na camada 3 (serializer), e o
+`clean()` é mantido para o admin. A unicidade do estorno fica na camada 1
+(restrição de banco), reforçada na camada 2 (serviço, com bloqueio). Aceita-se
+que o acesso por shell consegue contornar a camada 3 — posição já adotada pelo
+projeto e registrada como tal.
+
+## DE-009 — Idempotência por chave explícita, nunca por semelhança
+
+**Data:** 2026-09-12
+
+**Decisão:** a proteção contra duplicidade na criação de lançamento usa uma
+chave enviada pelo cliente (cabeçalho `Idempotency-Key`), **opcional**. Não há
+dedução automática de duplicidade por chave natural.
+
+**Motivo — e este é um motivo contábil, não técnico:** em contabilidade, **dois
+lançamentos idênticos no mesmo dia podem ser inteiramente legítimos**. Duas
+taxas de mesmo valor, dois recebimentos iguais, dois honorários do mesmo
+contrato. Recusar o segundo por parecer duplicado corromperia a escrituração
+**por omissão** — e falta de lançamento é pior que lançamento duplicado, porque
+o duplicado aparece na conciliação e o ausente não.
+
+**Alternativas descartadas:** deduzir duplicidade por empresa + data +
+histórico + itens. Rejeitada pelo motivo acima. Também rejeitada a chave
+obrigatória, que quebraria o contrato atual sem necessidade.
+
+**Consequência:** a garantia só existe quando o cliente envia a chave. A
+interface, quando tiver tela de lançamento, **deverá** enviá-la. Registrado no
+backlog. Até então, a proteção fica disponível e não imposta — e isso está
+declarado, não escondido.
+
 ## DE-007 — Ambiente de desenvolvimento exige Python 3.12 ou superior
 
 **Data:** 2026-09-11
