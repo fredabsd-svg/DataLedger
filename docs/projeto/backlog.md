@@ -80,7 +80,7 @@ portal da Receita Federal, e registrar a fonte e a vigência junto do código.
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-47 | Validar o CNPJ do **próprio escritório**. `apps/tenancy/models.py` declara `cnpj = CharField(max_length=14, unique=True)` **sem validador algum** — aceita qualquer texto de até 14 caracteres, inclusive `"abc"`. | `desenvolvedor-pleno` | DL-011 (reaproveitar `validar_cnpj`) | planejada | `Escritorio.cnpj` recusa valor inválido, aceita numérico e alfanumérico, com teste. Avaliar o que fazer com registros existentes que não passem na validação. |
+| BL-47 | Validar o CNPJ do **próprio escritório**. `apps/tenancy/models.py` declara `cnpj = CharField(max_length=14, unique=True)` **sem validador algum** — aceita qualquer texto de até 14 caracteres, inclusive `"abc"`. | `desenvolvedor-pleno` | DL-011 concluída **e** decisão do Fred sobre dados existentes | **bloqueada** — precisa de plano de dados, ver evidência abaixo | `Escritorio.cnpj` recusa valor inválido, aceita numérico e alfanumérico, com teste. Avaliar o que fazer com registros existentes que não passem na validação. |
 
 Encontrado pelo `desenvolvedor-pleno` durante a DL-011, **fora do escopo da
 etapa**, e reportado em vez de corrigido — a disciplina certa.
@@ -93,6 +93,35 @@ Cuidado ao implementar: pode haver escritório já cadastrado com CNPJ que não
 passe na validação. Acrescentar validador a campo existente **quebra o
 salvamento** desses registros. Verificar a base antes e decidir o tratamento —
 não é caso de aplicar e ver o que acontece.
+
+### O risco deixou de ser hipotético — evidência medida
+
+Conferido pelo `arquiteto-senior` em 2026-09-12, durante a revisão da DL-011:
+**os cinco CNPJs de `Escritorio` usados na suíte de testes são todos inválidos**
+pelo dígito verificador.
+
+| CNPJ no teste | DV informado | DV correto |
+| --- | --- | --- |
+| `11111111000111` | 11 | 91 |
+| `22222222000122` | 22 | 91 |
+| `33333333000133` | 33 | 91 |
+| `55566677000155` | 55 | 83 |
+| `55566677000255` | 55 | 64 |
+
+Eles só existem porque `Escritorio.cnpj` nunca teve validador. Consequência
+direta para o BL-47:
+
+1. Acrescentar `validar_cnpj` ao campo **quebra a suíte inteira**, não um teste
+   isolado. Os dados de teste precisam ser trocados por CNPJs sintéticos com DV
+   correto, na mesma etapa.
+2. Em base real, escritório com CNPJ inválido fica **impossível de salvar**,
+   mesmo para alterar outro campo, se a canonização for feita em `save()` como
+   foi em `Empresa.save()`. Isso exige levantar a base antes e decidir entre
+   corrigir os dados, permitir gravação de registro herdado, ou bloquear com
+   mensagem que oriente a correção.
+3. Portanto o BL-47 **não é tarefa de uma linha**. Tem plano de dados, e o Fred
+   precisa dizer o que fazer com escritório cujo CNPJ esteja errado no cadastro
+   atual — corrigir na hora ou registrar pendência de cadastro.
 
 ## P0 — decisões e bloqueios
 

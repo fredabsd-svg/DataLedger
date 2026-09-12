@@ -130,6 +130,7 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-17 | O Fred pode fornecer um **arquivo SPED Fiscal real anonimizado** e um lote de XML de exemplo? | Sem amostra, os casos de teste da DL-010 saem só do leiaute oficial, e leiaute não revela as variações que aparecem na prática. |
 | PE-18 | Adotar o **formato de intercâmbio de terceiros** como caminho de adoção é decisão de produto com dimensão jurídica. | Ver [mapa-funcional-fiscal.md](mapa-funcional-fiscal.md). Sem a decisão, a adoção exige que o escritório mude a ferramenta de captura. |
 | PE-19 | Confirmação oficial da exclusão das letras `I`, `O`, `U`, `Q` e `F` no CNPJ alfanumérico. | A NT 2025.001 cita a restrição mas declara que "precisa ser confirmada". Enquanto não vier, **aceitamos** essas letras — recusar CNPJ legítimo é pior. |
+| PE-20 | O que fazer com **escritório já cadastrado cujo CNPJ esteja inválido**: corrigir o dado, permitir a gravação do registro herdado, ou bloquear com mensagem orientando a correção? | Bloqueia o **BL-47**. `Escritorio.cnpj` nunca teve validador e os CNPJs hoje em uso nos testes são todos inválidos pelo dígito verificador. Aplicar a validação sem essa decisão trava a gravação de registros existentes. |
 
 ## Como atualizar
 
