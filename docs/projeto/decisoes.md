@@ -123,6 +123,43 @@ referências existentes e o hábito já estabelecido no projeto.
 **Consequência:** agentes leem `CLAUDE.md` automaticamente e são direcionados
 ao `AGENTS.md` antes de qualquer edição.
 
+## DE-011 — CSS próprio e mínimo; nenhuma biblioteca visual externa
+
+**Data:** 2026-09-12
+
+**Quem decidiu:** `arquiteto-senior`, fechando o item BL-26.
+
+**Decisão:** a interface recebe **um arquivo CSS próprio e enxuto**, servido pelo
+`staticfiles` que já está configurado. **Nenhuma** biblioteca ou framework visual
+externo entra no projeto nesta etapa.
+
+**Motivo:**
+
+1. O projeto já decidiu templates renderizados no servidor, sem framework de
+   JavaScript — decisão documentada no próprio código
+   (`apps/tenancy/views.py`), que registra que HTMX ou Alpine entram "quando
+   houver necessidade real de atualização parcial". Um framework CSS pesado
+   contradiria essa escolha sem necessidade demonstrada.
+2. O usuário é contador em rotina de produção: precisa de **densidade,
+   legibilidade e previsibilidade**. Tabela legível, valor alinhado à direita e
+   foco visível resolvem mais que um sistema de design completo.
+3. O [AGENTS.md](../../AGENTS.md) §8 exige avaliar manutenção, licença,
+   segurança e **necessidade** de cada nova dependência. Hoje não existe uma
+   única tela de negócio consolidada — não há evidência que justifique a
+   dependência.
+4. A decisão é **reversível**: um CSS próprio pequeno não impede adotar
+   biblioteca depois, quando houver telas suficientes para saber o que se
+   precisa.
+
+**Alternativas descartadas:** Bootstrap, Tailwind ou similar. Não por demérito
+técnico, mas por **prematuridade**: escolher sistema visual antes de existirem
+telas reais é decidir sem informação, e o custo de trocar depois recai sobre
+marcação já escrita.
+
+**Consequência:** a interface fica sóbria e propositalmente simples. Quando
+houver telas de escrituração e relatório de verdade, a decisão será reavaliada
+com evidência, em decisão própria.
+
 ## DE-010 — Arredondamento é explícito por regra; não existe padrão global
 
 **Data:** 2026-09-12
