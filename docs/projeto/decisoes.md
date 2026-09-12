@@ -123,6 +123,102 @@ referências existentes e o hábito já estabelecido no projeto.
 **Consequência:** agentes leem `CLAUDE.md` automaticamente e são direcionados
 ao `AGENTS.md` antes de qualquer edição.
 
+## DE-010 — Arredondamento é explícito por regra; não existe padrão global
+
+**Data:** 2026-09-12
+
+**Quem decidiu:** `arquiteto-senior`, por delegação expressa do Fred, após
+pesquisa em fontes normativas brasileiras.
+
+**Decisão:** o DataLedger **não terá** uma política global de arredondamento.
+Toda operação que reduza casas decimais **DEVE** declarar explicitamente a
+política aplicada, e o motor de cálculo **DEVE** registrar qual política usou na
+memória de cálculo.
+
+### Por que não existe resposta única
+
+A pesquisa mostrou que a legislação brasileira exige **métodos diferentes para
+obrigações diferentes**. Uma política global estaria errada em algum tributo,
+necessariamente:
+
+| Obrigação | Método exigido | Fonte |
+| --- | --- | --- |
+| ICMS, casos gerais | **Arredondamento** a 2 casas pela ABNT NBR 5891 | Convênio ICMS 85/2001, cláusula 27, X, "b" |
+| Combustíveis | **Truncamento** na 2ª casa | Convênio ICMS 85/2001, cláusula 27, X, "a"; Portaria DNC 30/1994; Resolução ANP 41/2013 |
+| Retenções na EFD-Reinf | **Truncamento** na 2ª casa, sem arredondar; tolera arredondamento para maior até 1 centavo | Nota Orientativa RFB 01/2018 (eventos R-2010 a R-3010) |
+| Folha e eSocial | **Truncamento** na 2ª casa, sem arredondamento | Manual de Orientação do eSocial |
+| INSS | Lei não prevê arredondamento; duas casas mantidas | Orientação SEFIP |
+
+E o risco de escolher errado **não é estético**: o **STJ** decidiu que cortar
+casas decimais no cálculo do ICMS **caracteriza sonegação fiscal**, por ausência
+de amparo legal para desconsiderar as decimais além da segunda (relator ministro
+Humberto Martins). Ou seja, truncar onde a norma manda arredondar é infração —
+e arredondar onde a norma manda truncar gera divergência com o validador
+oficial.
+
+### Política adotada
+
+1. **Nunca `float`.** Somente `Decimal`, em toda cadeia de cálculo. Já era regra
+   do [AGENTS.md](../../AGENTS.md) §10; fica reafirmada.
+2. **Sem padrão implícito.** A função de quantização **exige** a política como
+   argumento obrigatório. Não existe valor por omissão, justamente para que
+   ninguém arredonde por acidente.
+3. **Políticas nomeadas**, cada uma amarrada à sua fonte:
+   - `ABNT_NBR_5891` — meio para o par (*banker's rounding*). Corresponde
+     exatamente a `ROUND_HALF_EVEN` do `decimal` do Python: quando o dígito
+     seguinte é 5 seguido só de zeros, vai para o par mais próximo; quando é 5
+     seguido de algarismo diferente de zero, sobe.
+   - `MEIO_PARA_CIMA` — `ROUND_HALF_UP`. Para regras que exijam
+     explicitamente esse comportamento.
+   - `TRUNCAR` — descarta as casas excedentes, sem olhar o valor
+     (`ROUND_DOWN`, em direção a zero).
+4. **Não arredondar intermediários.** O cálculo corre em precisão alta e
+   arredonda **apenas na fronteira declarada** pela regra. Arredondar etapa a
+   etapa acumula erro e é o caminho mais comum para relatório que não concilia.
+5. **Rastreabilidade.** A memória de cálculo registra política, escala e valor
+   antes e depois. Sem isso o resultado não é reproduzível, o que contraria o
+   §10 do AGENTS.md.
+
+### Escrituração manual: recusar, não arredondar
+
+Decisão específica e deliberada para o módulo de Contabilidade, que é o único
+implementado: ao receber um lançamento com **mais casas decimais do que a escala
+da conta**, o sistema **recusa** a requisição (400). Ele **não** arredonda em
+silêncio.
+
+Motivo: o arredondamento silencioso é exactamente o que rompe a invariante
+`débito = crédito`. O achado 4 da auditoria de 2026-09-11 mostrou o mecanismo —
+a igualdade era conferida **antes** do arredondamento do banco, então
+`100,004 + 100,004` contra `200,00` passava na checagem e gravava desbalanceado.
+Arredondar na entrada apenas moveria o problema; recusar resolve.
+
+Arredondamento é atribuição dos **motores de cálculo** (fiscal, folha,
+honorários), onde existe uma regra legal que diz qual método usar. Não é
+atribuição do lançamento manual, onde quem digita já deveria ter o valor final.
+
+### Alternativas descartadas
+
+- *Padrão global `ROUND_HALF_UP` em duas casas*: simples e errado. Divergiria do
+  validador oficial em folha, eSocial e EFD-Reinf, que truncam.
+- *Padrão global de truncamento*: divergiria do ICMS e, pelo entendimento do
+  STJ, poderia caracterizar sonegação.
+- *Arredondar a entrada do lançamento manual*: romperia `débito = crédito`, como
+  o achado 4 demonstrou.
+
+### Limites desta decisão, declarados
+
+Esta decisão define **engenharia**: como o sistema representa, arredonda e
+rastreia valores. Ela **não** homologa o tratamento tributário de nenhuma
+obrigação específica.
+
+A tabela acima foi levantada em fontes secundárias e no comunicado oficial da
+EFD-Reinf; a edição vigente da ABNT NBR 5891 aparece como `:1977` no Convênio
+ICMS 85/2001 e como `:2014` em fontes técnicas. **Antes de qualquer cálculo
+fiscal destinado a uso real**, a regra aplicável e a edição da norma devem ser
+conferidas no texto oficial e validadas pelo Fred, como responsável técnico —
+conforme o §10 do AGENTS.md, que exige casos de referência e validação
+profissional. Nenhuma alíquota, prazo ou leiaute foi inventado aqui.
+
 ## DE-008 — Invariante contábil nunca mora só em `Model.clean()`
 
 **Data:** 2026-09-12
