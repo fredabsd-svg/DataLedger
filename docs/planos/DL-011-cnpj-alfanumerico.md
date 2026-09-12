@@ -3,16 +3,47 @@
 Fecha o **BL-46**, que estava bloqueado por falta da especificação oficial do
 dígito verificador. O Fred forneceu o documento em 2026-09-12.
 
-**Estado:** em revisão — rodada 4 em correção (A1, A2 da auditoria da rodada 3).
+**Estado:** **integrada** na branch de trabalho, aguardando integração à `main`.
 
 | Item | Valor |
 | --- | --- |
 | Branch de trabalho | `claude/accounting-agent-team-setup-mn6lyf` |
 | Branch de destino | `main` |
-| Commit da rodada 3 | `6ae84e5` |
-| Base para diff de auditoria da rodada 3 | `6e6e088` |
-| Auditorias | [rodada 1 — reprovada](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md) · [rodada 2 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-2.md) · [rodada 3 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-3.md) |
-| Evidências da rodada 3 | 251 testes; `ruff check`, `ruff format --check` (123 arquivos), `manage.py check`, `makemigrations --check` limpos; migração aplicada em banco vazio e revertida |
+| Commit de fechamento | `44f9fe6` |
+| Evidências | **272 testes**; `ruff check`, `ruff format --check` (127 arquivos), `manage.py check`, `makemigrations --check` limpos; migração aplicada em banco vazio e revertida |
+| Verificação pendente | Resultado da integração contínua no remoto. As sete verificações foram **reproduzidas localmente**, o que é evidência, não substituto. |
+
+### As cinco rodadas, e o que cada auditoria encontrou
+
+| Rodada | Commit | Parecer | O que foi corrigido |
+| --- | --- | --- | --- |
+| 1 | — | [**REPROVADO**](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md) | O algoritmo do DV passou; falhou o entorno. Sete achados: sem canonização antes de gravar (duplicata por caixa), máscara recusada no fluxo real, `.upper()` alterando comprimento, fronteira `resto < 2` não exercida, tipo inválido, máscara em posição livre, testes fracos |
+| 2 | `fe5387d` | [aprovado com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-2.md) | Dez achados. O **R2** mostrou o defeito da máscara **reaparecendo no Django admin**, com a mensagem literal da rodada 1 |
+| 3 | `6ae84e5` | [aprovado com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-3.md) | Campo de CNPJ próprio (`fields.py`) e `CheckConstraint` no banco. Sete achados novos; o **A1** mostrou o R4 ainda aberto no `PUT`/`PATCH` |
+| 4 | `3794378` | [aprovado com ressalvas](../auditorias/2026-09-12-dl-011-auditoria-rodada-4.md) | A1, A2, A3 fechados. O **B1** apontou o `except` largo demais, com falha virando sucesso aparente |
+| 5 | `40c61c6` → `44f9fe6` | [aprovado, **pode encerrar**](../auditorias/2026-09-12-dl-011-auditoria-rodada-5-fechamento.md) | B1 e B2 fechados; depois C1, C2, C5, C6 e C7 |
+
+### Duas divergências registradas, e como terminaram
+
+1. **Rodada 4 — o `arquiteto-senior` contrariou o auditor.** Ele aprovou e
+   declarou que nada impedia fechar; eu discordei quanto ao **B1** e mandei
+   corrigir. Na rodada 5 o auditor **julgou a divergência e concluiu que foi
+   acerto**, acrescentando uma razão que eu não tinha: corrigir na raiz trouxe
+   cobertura de brinde, porque o `except` largo não era só defeito latente — era
+   trecho **intestável**.
+2. **Rodada 5 — o auditor corrigiu uma leitura minha.** Eu reportei que mutar os
+   quatro `except` matava "exatamente dois testes, nenhum a mais", e apresentei
+   isso como precisão. Era o contrário: quatro pontos mutados com dois testes
+   disparando significa **dois pontos sem proteção alguma**. Regra que fica para
+   a equipe: **mutar um ponto de cada vez; morrer menos que N é buraco, não
+   redundância.**
+
+### O que ficou em backlog, declarado e não esquecido
+
+`BL-54` (fortalecer a restrição de banco para o formato completo — **antes de a
+DL-010 importar em lote**), `BL-55`, `BL-56`, `BL-57` (alteração de CNPJ sem
+trilha de auditoria, preexistente), `BL-58`, e `BL-48` (escopo da unicidade,
+que depende de decisão do Fred).
 
 ## Migração e reversão — corrigido, era afirmação errada minha
 
