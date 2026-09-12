@@ -31,22 +31,31 @@ class CNPJDuplicado(ValidationError):
     Achado B1 da auditoria da etapa DL-011 (rodada 4): o gerenciador
     ``erro_de_cnpj_duplicado_como_400`` levantava ``ValidationError`` do
     Django puro, e as quatro views capturavam esse tipo genérico — largo
-    demais. ``Empresa.save()``/``Estabelecimento.save()`` também levantam
-    ``ValidationError`` (de ``normalizar_cnpj``, quando o valor é inválido),
-    só que com **mensagem simples**, sem ``error_dict``. Como o
-    ``except ValidationError`` das views sempre chamava
-    ``exc.message_dict`` — que só existe quando o ``ValidationError`` foi
-    construído com um dict —, uma ``ValidationError`` de mensagem vinda de
-    ``save()`` (ou de um *signal*, ou de uma regra futura) virava
-    ``AttributeError`` sem tratamento (500 escondendo a causa raiz no log),
-    e na tela virava **200 sem nenhum erro no formulário e nada gravado** —
-    falha convertida em sucesso aparente, o que o AGENTS.md §8 proíbe.
+    demais, porque ``Empresa.save()``/``Estabelecimento.save()`` também
+    levantam ``ValidationError`` (de ``normalizar_cnpj``, quando o valor é
+    inválido), só que fora do formato que o ``except`` esperava. Dois
+    sintomas distintos, cada um numa forma diferente de ``ValidationError``
+    que o ``except`` largo capturava sem distinguir:
+
+    - **Mensagem simples** (``ValidationError("texto")``, sem ``error_dict``):
+      o ``except`` chamava ``exc.message_dict`` incondicionalmente — que só
+      existe na forma construída com dict —, e isso estourava
+      ``AttributeError`` sem tratamento (500 escondendo a causa raiz no
+      log, em vez do ``ValidationError`` original).
+    - **Dict sem a chave ``"cnpj"``** (ex.: ``ValidationError({"razao_social":
+      [...]})``, de uma regra de negócio futura): na tela,
+      ``exc.message_dict.get("cnpj", [])`` devolvia lista vazia, o laço não
+      adicionava erro nenhum, e a view devolvia **200 sem nenhum erro no
+      formulário e nada gravado** — falha convertida em sucesso aparente,
+      o que o AGENTS.md §8 proíbe.
 
     A correção é estreitar o contrato, não alargar o ``except``: só esta
     subclasse — que o gerenciador constrói sempre com dict, garantindo
-    ``message_dict`` — é capturada pelas views. Qualquer outra
-    ``ValidationError`` (de ``save()``, de *signal*, de regra nova) sobe
-    intacta, com a causa legível.
+    ``message_dict`` e a chave ``"cnpj"`` — é capturada pelas views.
+    Qualquer outra ``ValidationError`` (de ``save()``, de *signal*, de
+    regra nova, em qualquer uma das duas formas acima) sobe intacta, com a
+    causa legível. Ver ``erro_de_cnpj_duplicado_como_400`` para onde e como
+    esta exceção é levantada.
     """
 
 
@@ -86,15 +95,13 @@ def erro_de_cnpj_duplicado_como_400():
     continuar utilizável depois (para o ``registrar()`` de auditoria, por
     exemplo), e não é papel deste gerenciador abrir transação.
 
-    Levanta ``CNPJDuplicado({"cnpj": [mensagem]})`` — subclasse de
-    ``django.core.exceptions.ValidationError``, sempre construída com dict
-    (achado B1 da auditoria, rodada 4: capturar o ``ValidationError``
-    genérico nas views era largo demais, porque ``Model.save()`` também
-    levanta ``ValidationError``, só que de mensagem simples — ver a
-    docstring de ``CNPJDuplicado``). Os dois caminhos que usam isto (API e
-    formulário da tela) sabem traduzir esse tipo para o formato de erro
-    certo, e só ele — nunca o ``ValidationError`` genérico, que deve subir
-    intacto para quem chamou perceber a causa real.
+    Levanta ``CNPJDuplicado({"cnpj": [mensagem]})`` — sempre com dict, nunca
+    o ``ValidationError`` genérico. Ver a docstring de ``CNPJDuplicado``
+    para o porquê: capturar o tipo genérico nas views era largo demais e
+    causava dois sintomas distintos (500 opaco e 200 silencioso) quando
+    ``Model.save()`` levantava sua própria ``ValidationError`` por outro
+    motivo. Os dois caminhos que usam isto (API e formulário da tela) sabem
+    traduzir só o tipo estreito para o formato de erro certo.
 
     Só a violação das constraints ``empresas_empresa_cnpj_key`` /
     ``empresas_estabelecimento_cnpj_key`` é traduzida

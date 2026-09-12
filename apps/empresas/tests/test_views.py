@@ -285,6 +285,15 @@ def test_criar_empresa_pela_tela_com_validationerror_de_dict_sem_cnpj_nao_e_engo
     # era gravado — falha virando sucesso aparente (AGENTS.md §8). Com o
     # tipo próprio (CNPJDuplicado), essa ValidationError não é capturada e
     # sobe intacta — nunca mais 200 silencioso.
+    #
+    # C6 (auditoria de fechamento, rodada 5): `pytest.raises(DjangoValidationError)`
+    # é satisfeito por qualquer subclasse, inclusive `CNPJDuplicado` — uma
+    # regressão que envelopasse a ValidationError genérica nesse tipo
+    # passaria despercebida. `assert type(...) is DjangoValidationError`
+    # discrimina o tipo exato. A asserção antiga
+    # `not Empresa.objects.filter(...).exists()` foi removida por ser
+    # vazia: com save() monkeypatchado para sempre levantar, nada seria
+    # gravado de qualquer forma — não provava cobertura de persistência.
     def _save_com_validationerror_de_outro_campo(self, *args, **kwargs):
         raise DjangoValidationError({"razao_social": ["problema de regra de negócio"]})
 
@@ -292,7 +301,7 @@ def test_criar_empresa_pela_tela_com_validationerror_de_dict_sem_cnpj_nao_e_engo
     _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
     client.login(username="gestor", password="senha-forte-123")
 
-    with pytest.raises(DjangoValidationError):
+    with pytest.raises(DjangoValidationError) as excinfo:
         client.post(
             reverse("empresas:criar"),
             {
@@ -302,4 +311,4 @@ def test_criar_empresa_pela_tela_com_validationerror_de_dict_sem_cnpj_nao_e_engo
             },
         )
 
-    assert not Empresa.objects.filter(razao_social="Empresa Nova Ltda").exists()
+    assert type(excinfo.value) is DjangoValidationError

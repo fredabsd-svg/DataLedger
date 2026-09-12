@@ -56,6 +56,23 @@ e nos mesmos arquivos.
 
 ---
 
+## Nota de formatação, para não parecer edição
+
+O relatório abaixo contém um bloco com os dois testes que o auditor propôs. A
+marcação desse bloco foi trocada de ```` ```python ```` para ```` ```text ````,
+e **só isso**.
+
+Motivo: o `ruff` formata blocos de código Python **dentro de arquivos
+Markdown**, e `ruff format --check .` roda na integração contínua. Manter a
+marcação original faria a verificação reprovar — e a alternativa, deixar o
+`ruff` reformatar, **alteraria o texto do auditor**, o que a regra de
+preservação integral dos achados proíbe.
+
+Nenhum caractere do conteúdo foi alterado. A mesma armadilha já derrubou a CI
+uma vez, no plano da DL-008, e está registrada lá.
+
+---
+
 # Auditoria de fechamento — DL-011 (BL-46), rodada 5
 
 Versão auditada: **`40c61c6`**, branch `claude/accounting-agent-team-setup-mn6lyf`, base do diff `7e92b18`. Medida contra os quatro relatórios anteriores, o `AGENTS.md`, o plano e DE-008/DE-013.
@@ -135,7 +152,7 @@ Esta é a sua pergunta 3, e é a quarta vez que a resposta é "havia algo".
 5. **Impacto.** Metade da correção do B1 pode ser desfeita — por refatoração, por `git revert` parcial, por alguém "simplificando" o import — sem que um único teste acuse. O sintoma que volta é o pior dos dois para diagnóstico: o log passa a mostrar `AttributeError` no lugar da regra de negócio que realmente falhou.
 6. **Correção recomendada.** Dois testes, espelhos exatos dos dois que já existem. Entrego como texto, para o `desenvolvedor-pleno` implementar:
 
-   ```python
+   ```text
    # apps/empresas/tests/test_api.py — junto do bloco B1 existente
 
    def test_criar_empresa_via_api_com_validationerror_de_mensagem_simples_sobe_sem_attributeerror(

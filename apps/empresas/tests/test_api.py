@@ -421,6 +421,22 @@ def test_criar_estabelecimento_via_api_com_corrida_neutralizando_o_unique_valida
 # mensagem simples, sem error_dict — e o except antigo (ValidationError
 # genérico) chamava exc.message_dict incondicionalmente, estourando
 # AttributeError e escondendo a causa raiz no log.
+#
+# C1 (auditoria de fechamento, rodada 5): o `except CNPJDuplicado` foi
+# trocado nos QUATRO caminhos de uma vez, mas só o de EmpresaDetailView
+# tinha teste. O arquiteto mutou um `except` por vez (não os quatro juntos)
+# e viu que revertê-los individualmente — só o de criação de Empresa, ou só
+# o de criação de Estabelecimento — deixava a suíte inteira verde: "quando
+# você muta N lugares e morrem menos de N testes, a diferença não é
+# redundância, é buraco." Os dois testes abaixo fecham os dois buracos.
+#
+# C6 (auditoria de fechamento): `pytest.raises(DjangoValidationError)` é
+# satisfeito por qualquer subclasse, inclusive `CNPJDuplicado`. Uma
+# regressão que envelopasse a ValidationError genérica em `CNPJDuplicado`
+# (preservando a mensagem) passaria despercebida — e reintroduziria o
+# defeito de outra forma: erro de outra regra reportado como erro do campo
+# "cnpj". `assert type(...) is DjangoValidationError` discrimina o tipo
+# exato, não só a hierarquia.
 
 
 def test_atualizar_empresa_via_api_com_validationerror_de_mensagem_simples_sobe_sem_attributeerror(
@@ -449,6 +465,51 @@ def test_atualizar_empresa_via_api_com_validationerror_de_mensagem_simples_sobe_
             content_type="application/json",
         )
 
+    assert type(excinfo.value) is DjangoValidationError
+    assert "erro de regra de negocio" in str(excinfo.value)
+
+
+def test_criar_empresa_via_api_com_validationerror_de_mensagem_simples_sobe_sem_attributeerror(
+    client, gestor, monkeypatch
+):
+    def _save_com_validationerror_de_mensagem(self, *args, **kwargs):
+        raise DjangoValidationError("erro de regra de negocio, sem error_dict")
+
+    monkeypatch.setattr(Empresa, "save", _save_com_validationerror_de_mensagem)
+    client.login(username="gestor", password="senha-forte-123")
+
+    with pytest.raises(DjangoValidationError) as excinfo:
+        client.post(
+            reverse("empresas:api-lista"),
+            data={"razao_social": "Empresa Nova Ltda", "cnpj": "11122233000183"},
+            content_type="application/json",
+        )
+
+    assert type(excinfo.value) is DjangoValidationError
+    assert "erro de regra de negocio" in str(excinfo.value)
+
+
+def test_criar_estabelecimento_via_api_com_validationerror_simples_sobe_sem_attributeerror(
+    client, gestor, escritorio, monkeypatch
+):
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+
+    def _save_com_validationerror_de_mensagem(self, *args, **kwargs):
+        raise DjangoValidationError("erro de regra de negocio, sem error_dict")
+
+    monkeypatch.setattr(Estabelecimento, "save", _save_com_validationerror_de_mensagem)
+    client.login(username="gestor", password="senha-forte-123")
+
+    with pytest.raises(DjangoValidationError) as excinfo:
+        client.post(
+            reverse("empresas:api-estabelecimentos", kwargs={"empresa_id": empresa.pk}),
+            data={"tipo": "matriz", "nome": "Matriz", "cnpj": "34028316000103"},
+            content_type="application/json",
+        )
+
+    assert type(excinfo.value) is DjangoValidationError
     assert "erro de regra de negocio" in str(excinfo.value)
 
 

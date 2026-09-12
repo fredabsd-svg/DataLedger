@@ -6,7 +6,7 @@
 próprio banco se o CNPJ gravado não estiver canônico. Até esta rodada essa
 correção — a principal mudança estrutural do R1 — não tinha um único teste:
 o auditor removeu as duas ``CheckConstraint`` (do ``Meta`` dos dois modelos
-e da migração) e a suíte inteira continuou passando. Os quatro casos abaixo
+e da migração) e a suíte inteira continuou passando. Os cinco casos abaixo
 são os que ele especificou, incluindo o que distingue as duas metades da
 condição (``Q(cnpj=Upper("cnpj"))`` e ``~Q(cnpj__regex=r"[^A-Z0-9]")``).
 
