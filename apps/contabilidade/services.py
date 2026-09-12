@@ -6,6 +6,18 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.contabilidade.models import ItemLancamento, LancamentoContabil, TipoPartida
+from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
+
+# Escala máxima aceita na escrituração MANUAL (DL-008 / DE-010). Não é uma
+# política de arredondamento: é a decisão específica e deliberada de
+# RECUSAR, nunca arredondar, um lançamento manual com mais casas decimais do
+# que a conta suporta. Quem digita um lançamento manual já deveria ter o
+# valor final — arredondar na entrada moveria o problema (achado 4: a
+# igualdade débito = crédito era conferida ANTES do arredondamento do banco,
+# então 100,004 + 100,004 contra 200,00 passava e gravava desbalanceado).
+# Arredondamento fica a cargo dos MOTORES de cálculo (fiscal, folha,
+# honorários), onde existe uma regra legal que diz qual política usar.
+ESCALA_MAXIMA_LANCAMENTO_MANUAL = 2
 
 
 class LancamentoInvalido(Exception):
@@ -90,6 +102,11 @@ def criar_lancamento(
     Toda validação contábil acontece antes de qualquer gravação, e a criação
     do lançamento com seus itens é atômica: ou tudo é gravado, ou nada é.
 
+    Cada item tem seu valor validado (sinal e escala, DL-008 / DE-010) ANTES
+    da soma de débitos e créditos: valor menor ou igual a zero é recusado, e
+    valor com mais de `ESCALA_MAXIMA_LANCAMENTO_MANUAL` casas decimais é
+    recusado — nunca arredondado em silêncio.
+
     `chave_idempotencia` é opcional (BL-41). Quando informada:
     - se já existir um lançamento com a MESMA chave, NESTA empresa, e com o
       MESMO conteúdo (comparado por `_impressao_digital`), devolve esse
@@ -119,6 +136,58 @@ def criar_lancamento(
     """
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
+
+    # Sinal e escala são verificados ITEM A ITEM, e ANTES de somar débitos e
+    # créditos (achado 4 / BL-17, DE-010). A ordem importa: se a soma
+    # viesse primeiro, dois valores com mais casas do que a conta suporta
+    # (ex.: 100,004 e 100,004) ainda poderiam ser gravados e só seriam
+    # arredondados pelo BANCO depois da checagem de igualdade — exatamente o
+    # mecanismo do achado 4, em que 100,004 + 100,004 contra 200,00 passava
+    # na comparação e gravava um lançamento desbalanceado.
+    for item in itens:
+        # Normaliza o valor para `Decimal` ANTES de qualquer comparação
+        # (achado 6 da auditoria de 2026-09-12): `criar_lancamento` é
+        # chamável por qualquer código, não só pela view HTTP (que já
+        # entrega `Decimal`), e `para_decimal` também recusa `float`/`bool`
+        # e texto fora do formato decimal simples (achados 6 e 7) — sem
+        # isto, um chamador que passasse `valor="100.00"` (string, tipo que
+        # `casas_decimais` já aceitava) quebraria na comparação `valor <= 0`
+        # abaixo com um `TypeError` cru, não com `LancamentoInvalido`.
+        # Reatribuir a `item["valor"]` garante que a soma de débitos/créditos
+        # e a gravação em `ItemLancamento` mais abaixo usem o MESMO valor
+        # já validado, nunca o original não normalizado.
+        try:
+            valor = para_decimal(item["valor"])
+        except ValorMonetarioInvalido as exc:
+            # Traduz o erro de tipo/valor do módulo monetário (float, bool,
+            # texto malformado, NaN, infinito) para a exceção de domínio
+            # deste serviço. Na prática a view já deveria ter filtrado boa
+            # parte disto antes de chegar aqui (achado BL-44/N3), mas
+            # `criar_lancamento` não confia apenas no chamador.
+            raise LancamentoInvalido(str(exc)) from exc
+        item["valor"] = valor
+        escala = casas_decimais(valor)
+
+        # Sinal: débito e crédito são expressos pelo campo `tipo`, nunca
+        # pelo sinal do valor. Permitir valor negativo criaria DUAS
+        # representações para a mesma coisa (um "débito de -50" e um
+        # "crédito de 50" ficariam indistinguíveis na soma) e foi
+        # exatamente o que deixou {débito 100, débito -50, crédito 50}
+        # passar na checagem de igualdade no achado 4. Zero também é
+        # recusado: uma partida sem valor não representa nenhum fato
+        # contábil.
+        if valor <= 0:
+            raise LancamentoInvalido(
+                f"O valor de uma partida deve ser maior que zero; recebido {valor}. "
+                "Débito e crédito são expressos pelo campo 'tipo', não pelo sinal do valor."
+            )
+
+        # Escala: a escrituração manual RECUSA, nunca arredonda (DE-010).
+        if escala > ESCALA_MAXIMA_LANCAMENTO_MANUAL:
+            raise LancamentoInvalido(
+                f"O valor {valor} tem {escala} casas decimais; a escrituração "
+                f"manual aceita no máximo {ESCALA_MAXIMA_LANCAMENTO_MANUAL}."
+            )
 
     total_debito = sum(
         (item["valor"] for item in itens if item["tipo"] == TipoPartida.DEBITO),
