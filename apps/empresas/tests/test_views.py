@@ -12,6 +12,7 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
 
 from apps.empresas.models import Empresa
@@ -51,6 +52,55 @@ def test_criar_empresa_com_sucesso_exibe_mensagem_de_confirmacao(client, escrito
     assert 'role="status"' in conteudo
 
 
+def test_criar_empresa_com_cnpj_mascarado_e_aceito_e_gravado_canonico(client, escritorio):
+    # Achado 2 (auditoria da etapa DL-011, alta): CNPJ digitado com máscara —
+    # o uso normal — era recusado pelo MaxLengthValidator do campo do model
+    # (14) antes de normalizar_cnpj tirar a máscara (o form gerava um campo
+    # automático com esse limite). EmpresaForm agora declara o campo cnpj
+    # explicitamente e normaliza em clean_cnpj antes do full_clean() do
+    # model. Este teste é de ponta a ponta (POST real na view), não só
+    # unitário na função de validação isolada.
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Mascarada Ltda",
+            "nome_fantasia": "",
+            "cnpj": "11.122.233/0001-83",
+        },
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "cadastrada com sucesso" in conteudo
+    # Gravado sem máscara: é o valor canônico que fica no banco.
+    assert Empresa.objects.filter(cnpj="11122233000183").exists()
+
+
+def test_criar_empresa_com_cnpj_alfanumerico_mascarado_e_minusculo_e_aceito(client, escritorio):
+    # Mesmo achado 2, agora combinando os três problemas que a auditoria
+    # reproduziu juntos: letras, máscara e minúsculas.
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Alfanumérica Ltda",
+            "nome_fantasia": "",
+            "cnpj": "ab.123.cde/0001-55",
+        },
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert "cadastrada com sucesso" in resposta.content.decode()
+    assert Empresa.objects.filter(cnpj="AB123CDE000155").exists()
+
+
 def test_criar_empresa_sem_permissao_usa_template_proprio_com_link_de_volta(client, escritorio):
     _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
     client.login(username="cliente", password="senha-forte-123")
@@ -79,6 +129,27 @@ def test_lista_empresas_exibe_cnpj_mascarado(client, escritorio):
     assert "11.122.233/0001-83" in conteudo
     # CNPJ cru (14 dígitos seguidos) não deve aparecer mais na página.
     assert "11122233000183" not in conteudo
+
+
+def test_lista_empresas_exibe_cnpj_alfanumerico_mascarado(client, escritorio):
+    # CNPJ alfanumérico sintético (DL-011): base "AB123CDE0001" com DV "55"
+    # calculado pelo algoritmo oficial da NT 2025.001 (ver
+    # apps/empresas/tests/test_validators.py). O agrupamento com pontuação é
+    # convenção de exibição nossa, não da NT (ver comentário em
+    # apps/empresas/views.py::_mascara_cnpj), mas continua valendo para as 14
+    # posições alfanuméricas ou numéricas.
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Alfanumérica Ltda", cnpj="AB123CDE000155"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    conteudo = resposta.content.decode()
+    assert "AB.123.CDE/0001-55" in conteudo
+    # CNPJ cru (14 caracteres seguidos) não deve aparecer mais na página.
+    assert "AB123CDE000155" not in conteudo
 
 
 def test_lista_empresas_vazia_mostra_mensagem_de_estado_vazio(client, escritorio):
@@ -167,3 +238,77 @@ def test_form_com_erro_todo_aria_describedby_aponta_para_id_existente(client, es
             assert f'id="{id_referenciado}"' in conteudo, (
                 f"aria-describedby aponta para '{id_referenciado}', que não existe na página"
             )
+
+
+def test_criar_empresa_pela_tela_com_corrida_neutralizando_o_validate_unique_da_erro_de_campo(
+    client, escritorio, monkeypatch
+):
+    # A3 (reauditoria da etapa DL-011, rodada 3), mutante N10: o try/except
+    # em torno de empresa.save() em criar_empresa não tinha teste próprio —
+    # o form.is_valid() já pega duplicidade comum via validate_unique() (um
+    # SELECT), então só a CORRIDA (SELECT->INSERT concorrente) exercita o
+    # try/except. Neutralizar validate_unique() força esse caminho sem
+    # precisar de duas threads reais.
+    from django.forms.models import BaseModelForm
+
+    monkeypatch.setattr(BaseModelForm, "validate_unique", lambda self: None)
+
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Original Ltda", cnpj="AB123CDE000155"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Concorrente Ltda",
+            "nome_fantasia": "",
+            "cnpj": "ab123cde000155",
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert "já existe" in resposta.content.decode()
+    assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1
+
+
+def test_criar_empresa_pela_tela_com_validationerror_de_dict_sem_cnpj_nao_e_engolida(
+    client, escritorio, monkeypatch
+):
+    # B1 (auditoria da etapa DL-011, rodada 4): antes desta correção, o
+    # except da tela era ValidationError genérico e lia
+    # exc.message_dict.get("cnpj", []) — se a ValidationError vinda de
+    # Empresa.save() tivesse dict, mas SEM a chave "cnpj" (ex.: uma regra
+    # de negócio futura sobre razao_social), o loop não adicionava erro
+    # nenhum: a view devolvia 200, sem nenhum erro no formulário, e nada
+    # era gravado — falha virando sucesso aparente (AGENTS.md §8). Com o
+    # tipo próprio (CNPJDuplicado), essa ValidationError não é capturada e
+    # sobe intacta — nunca mais 200 silencioso.
+    #
+    # C6 (auditoria de fechamento, rodada 5): `pytest.raises(DjangoValidationError)`
+    # é satisfeito por qualquer subclasse, inclusive `CNPJDuplicado` — uma
+    # regressão que envelopasse a ValidationError genérica nesse tipo
+    # passaria despercebida. `assert type(...) is DjangoValidationError`
+    # discrimina o tipo exato. A asserção antiga
+    # `not Empresa.objects.filter(...).exists()` foi removida por ser
+    # vazia: com save() monkeypatchado para sempre levantar, nada seria
+    # gravado de qualquer forma — não provava cobertura de persistência.
+    def _save_com_validationerror_de_outro_campo(self, *args, **kwargs):
+        raise DjangoValidationError({"razao_social": ["problema de regra de negócio"]})
+
+    monkeypatch.setattr(Empresa, "save", _save_com_validationerror_de_outro_campo)
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    with pytest.raises(DjangoValidationError) as excinfo:
+        client.post(
+            reverse("empresas:criar"),
+            {
+                "razao_social": "Empresa Nova Ltda",
+                "nome_fantasia": "",
+                "cnpj": "11122233000183",
+            },
+        )
+
+    assert type(excinfo.value) is DjangoValidationError

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -81,6 +83,45 @@ def test_detalhe_de_empresa_de_outro_escritorio_da_404(client, cenario):
     response = client.get(reverse("empresas:api-detalhe", args=[cenario["empresa_b"].id]))
 
     assert response.status_code == 404
+
+
+def test_atualizar_empresa_de_outro_escritorio_da_404(client, cenario):
+    # C7 (auditoria de fechamento da etapa DL-011, rodada 5): test_detalhe_...
+    # acima cobre o GET; PUT/PATCH nunca tinha sido exercitado contra
+    # empresa de outro escritório. EmpresaDetailView.perform_update é
+    # criação desta etapa (A1) — a proteção vem do mesmo get_queryset que o
+    # GET já usa (EmpresaQuerySetMixin), mas isso merece teste próprio, não
+    # inferência a partir do teste do GET.
+    client.login(username="ana", password="senha-forte-123")
+    _ativar(client, cenario["escritorio_a"].id)
+
+    response = client.patch(
+        reverse("empresas:api-detalhe", args=[cenario["empresa_b"].id]),
+        data=json.dumps({"razao_social": "Tentativa de alteração indevida"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+    cenario["empresa_b"].refresh_from_db()
+    assert cenario["empresa_b"].razao_social == "Empresa B Ltda"
+
+
+def test_criar_estabelecimento_em_empresa_de_outro_escritorio_da_404(client, cenario):
+    # Mesmo motivo do teste acima, para EstabelecimentoListCreateView: a
+    # empresa da URL é resolvida por EmpresaEscopadaMixin.get_empresa(),
+    # escopada ao escritório ativo — POST de estabelecimento numa empresa
+    # de outro escritório deve dar 404, nunca criar o estabelecimento lá.
+    client.login(username="ana", password="senha-forte-123")
+    _ativar(client, cenario["escritorio_a"].id)
+
+    response = client.post(
+        reverse("empresas:api-estabelecimentos", kwargs={"empresa_id": cenario["empresa_b"].id}),
+        data={"tipo": "matriz", "nome": "Matriz Indevida", "cnpj": "34028316000103"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+    assert not cenario["empresa_b"].estabelecimentos.exists()
 
 
 def test_criar_empresa_usa_o_escritorio_ativo_e_ignora_o_do_cliente(client, cenario):

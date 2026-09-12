@@ -435,3 +435,100 @@ e a integração contínua, que usa Python 3.14.
 **Consequência:** quem for rodar o projeto localmente precisa de Python 3.12+.
 Isso deve ser documentado no README como pré-requisito — pendência registrada
 no [backlog](backlog.md).
+
+## DE-013 — Máscara de CNPJ é aceita só no leiaute exato
+
+**Data:** 2026-09-12
+
+**Decisão:** `normalizar_cnpj` reconhece a máscara **apenas** no formato
+`XX.XXX.XXX/XXXX-XX`. Qualquer outra combinação de `.`, `/` ou `-` é caractere
+inválido, não separador a descartar.
+
+**Motivo:** a primeira implementação removia esses três caracteres **de
+qualquer posição**. A auditoria da DL-011 (achado 6 da rodada 1) mostrou o
+efeito: `"../-11222333000181"` e `"11222333000181."` eram **aceitos**, porque
+depois da remoção cega sobravam 14 caracteres por coincidência. Remoção cega é
+tolerância que não distingue erro de digitação de entrada absurda.
+
+**Alternativas descartadas:**
+
+- **Manter a remoção cega.** Aceita entrada sem sentido e, pior, aceita-a em
+  silêncio — o usuário nunca descobre que digitou errado.
+- **Recusar máscara por completo**, exigindo só os 14 caracteres. Contraria o
+  hábito universal de digitar CNPJ mascarado no Brasil e contraria o critério 7
+  do plano.
+
+**Consequência, e é a parte que importa:** a regra é mais restritiva do que a
+letra da NT 2025.001, que fala em "remover os caracteres de máscara". Para
+**digitação humana** isso é acerto. Para **entrada automatizada** é risco
+declarado:
+
+> Arquivo de terceiro que traga CNPJ com separação parcial — por exemplo
+> `11222333/0001-81` — **será recusado** na importação da
+> [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md).
+
+A DL-010 **não deve** presumir que o validador aceita qualquer pontuação. Se um
+formato de origem real usar separação parcial, a decisão é nova: normalizar na
+borda do importador, ou ampliar esta regra com justificativa. O que não pode é
+ser resolvido em silêncio dentro do validador.
+
+**Fonte:** NT Conjunta 2025.001 v1.00, de 25/04/2025 (ENCAT); IN RFB nº 2.229,
+de 15/10/2024. Vigência do CNPJ alfanumérico: desde 31/07/2026.
+
+## DE-014 — Implantação em nuvem, servidor único, banco compartilhado
+
+**Data:** 2026-09-12
+
+**Decisão do Fred**, registrada pelo `arquiteto-senior`: o DataLedger roda **na
+nuvem**, em servidor único, acessado por navegador. Dimensionamento alvo: **cerca
+de 50 usuários simultâneos** (RC-48 e RC-49).
+
+Complementa o que a arquitetura já havia fixado, e que agora fica explícito:
+**um banco de dados compartilhado**, com isolamento por `Escritorio` dentro
+dele — não um banco por cliente.
+
+**Motivo da nuvem, e é contábil antes de ser técnico:** prazo de obrigação
+acessória não perdoa. Com servidor no escritório, falha de máquina no dia 15 é
+problema do escritório, e o prazo não muda. Na nuvem, disponibilidade e cópia de
+segurança são responsabilidade contratada de quem faz isso em escala. Soma-se o
+acesso remoto, que deixou de ser conveniência.
+
+**Motivo do banco compartilhado:** com um banco por empresa cliente, cada
+atualização, cada cópia de segurança e cada conferência se multiplicariam pelo
+número de clientes, e qualquer relatório de carteira exigiria consultar dezenas
+de bancos. O custo dessa escolha é que **o isolamento passa a ser
+responsabilidade do software**, não do sistema de arquivos — por isso é o ponto
+mais auditado do projeto, a cada etapa, por execução e não por promessa.
+
+**Alternativas descartadas:**
+
+- **Servidor no escritório.** Funciona sem internet e tem custo previsível, mas
+  transfere ao escritório a responsabilidade por energia, cópia de segurança,
+  segurança e recuperação, e impede acesso remoto. Seria a escolha correta se a
+  internet do escritório fosse instável — o Fred confirmou que não é o caso.
+- **Nuvem com contingência local.** Mais caro e mais complexo. Só se justifica
+  se parar uma tarde for inaceitável.
+- **Um banco por cliente.** Ver acima.
+
+## Consequências de engenharia, que não são opcionais
+
+Esta decisão **cria obrigações**. Registradas aqui para não virarem descoberta
+tardia:
+
+| # | Obrigação | Backlog |
+| --- | --- | --- |
+| 1 | **Cópia de segurança com restauração testada.** Banco único significa que o escritório inteiro para junto se ele se perder. Cópia nunca restaurada em teste não é cópia, é esperança. | BL-33, elevado a P0 |
+| 2 | **Tornar impossível subir sem PostgreSQL.** Hoje, sem `DATABASE_URL` configurada, o sistema cai silenciosamente em SQLite, que não suporta escrita concorrente de 50 pessoas. Falharia em uso, não na instalação. | BL-50 |
+| 3 | **Tráfego cifrado (HTTPS) e cabeçalhos de segurança.** Com acesso pela internet, senha e dado de cliente em claro é inaceitável. | BL-51 |
+| 4 | **Processamento em segundo plano.** Importar milhares de XMLs não pode acontecer dentro de uma requisição web: estoura tempo limite, prende trabalhador do servidor e derruba a experiência dos outros 49 usuários. | BL-52 |
+
+A quarta é a que mais muda projeto: **a [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) deixa de ser só um leitor de arquivo e passa a exigir fila de tarefas**, com acompanhamento de progresso e resultado consultável depois.
+
+**Sobre dimensionamento, com honestidade:** 50 usuários simultâneos é carga
+modesta para Django com PostgreSQL, e não é o que preocupa. O que preocupa é a
+importação em lote, e **isso só se dimensiona medindo**, com um lote real do
+escritório (PE-17). Não afirmo desempenho que não medi.
+
+**Pendência que esta decisão abre:** dado de cliente em nuvem envolve
+**residência do dado e LGPD**. Registrado como PE-25, para decisão do Fred junto
+ao provedor.
