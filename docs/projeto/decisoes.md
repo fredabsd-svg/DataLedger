@@ -123,6 +123,77 @@ referências existentes e o hábito já estabelecido no projeto.
 **Consequência:** agentes leem `CLAUDE.md` automaticamente e são direcionados
 ao `AGENTS.md` antes de qualquer edição.
 
+## DE-012 — Caminho fixo para o CSS, e `collectstatic` na integração contínua
+
+**Data:** 2026-09-12
+
+**Quem decidiu:** `arquiteto-senior`, a partir de achado do
+`especialista-frontend` na DL-009.
+
+**O problema encontrado:** `STORAGES["staticfiles"]` usa
+`whitenoise.storage.CompressedManifestStaticFilesStorage` — decisão anterior ao
+trabalho desta etapa. Esse backend **exige o manifesto** gerado por
+`collectstatic`. Usar `{% static %}` em template **quebrava a suíte inteira**,
+porque nem o `pytest` nem a integração contínua executavam `collectstatic`.
+
+Ou seja: o projeto configurou um pipeline de estáticos que **nunca foi
+exercido**. A falha só apareceria no deploy.
+
+**Decisão, em três partes:**
+
+1. **`collectstatic --noinput` roda na integração contínua**, **depois** do
+   `pytest`. A ordem é deliberada: se rodasse antes, o manifesto existiria
+   durante os testes e a CI passaria com `{% static %}` enquanto o `pytest`
+   local (sem manifesto) falharia. CI mais permissiva que o ambiente local
+   mascara defeito em vez de revelar.
+2. **`collectstatic` roda também no `Dockerfile`**, antes de trocar de usuário.
+   Ver a correção abaixo — esta parte **faltava** na primeira versão desta
+   decisão.
+3. **O `base.html` referencia o CSS por caminho fixo** (`/static/css/base.css`),
+   não por `{% static %}`, para que a suíte de testes não dependa do manifesto.
+
+### Correção desta decisão — a limitação declarada estava errada
+
+A primeira versão desta decisão afirmava que o caminho fixo "funciona em
+produção" e declarava como **única** limitação a perda de *cache busting*.
+**Estava errado, e o erro era do `arquiteto-senior`.**
+
+A auditoria da DL-009 verificou o caminho de deploy real e encontrou o seguinte:
+o `Dockerfile` copiava o código e chamava `gunicorn` **direto**, e
+`staticfiles/` está no `.gitignore` — logo **não vinha pelo `COPY` e não era
+gerada na imagem**. Com `DEBUG=False`:
+
+- `/static/css/base.css` devolveria **404**;
+- o **admin do Django quebraria**, porque ele usa `{% static %}` e levantaria
+  `ValueError: Missing staticfiles manifest entry`.
+
+Ou seja: acrescentar o passo só à integração contínua verificava o pipeline e
+**não corrigia o deploy**. A imagem subiria e falharia em uso real. A perda de
+*cache busting* era, de longe, a menor das limitações — e o WhiteNoise ainda
+aplica `max-age=60` a arquivo sem hash, o que reduz mais o peso dela.
+
+Corrigido: `collectstatic` passa a rodar no `Dockerfile`. Verificação exigida
+antes de considerar fechado: `docker build` seguido de `GET
+/static/css/base.css` com `DEBUG=False` devolvendo **200**.
+
+**Limitação que permanece, agora declarada corretamente:** o caminho fixo perde
+o *cache busting* — o nome do arquivo não muda quando o conteúdo muda, então um
+navegador pode servir CSS velho por até o tempo de cache após um deploy. Hoje
+existe um único arquivo CSS e nenhum público em produção. **Não é a solução
+final**; ver BL-45.
+
+**Alternativas descartadas:**
+
+- *Trocar para um backend de estáticos sem manifesto*: perderia compressão e
+  versionamento em produção para resolver um problema de ambiente de teste.
+  Consertar o teste é mais barato que rebaixar a produção.
+- *Rodar `collectstatic` antes do `pytest` também localmente*: acrescenta passo
+  obrigatório e lento a cada execução de teste, para um ganho que hoje é nulo.
+
+**Encaminhamento:** quando houver mais de um arquivo estático, ou público real
+em produção, voltar a `{% static %}` com `collectstatic` também no caminho de
+teste. Registrado no backlog como BL-45.
+
 ## DE-011 — CSS próprio e mínimo; nenhuma biblioteca visual externa
 
 **Data:** 2026-09-12
