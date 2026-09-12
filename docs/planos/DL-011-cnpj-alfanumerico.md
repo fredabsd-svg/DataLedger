@@ -3,17 +3,54 @@
 Fecha o **BL-46**, que estava bloqueado por falta da especificação oficial do
 dígito verificador. O Fred forneceu o documento em 2026-09-12.
 
-**Estado:** em revisão — rodada 3 em correção.
+**Estado:** em revisão — rodada 4 em correção (A1, A2 da auditoria da rodada 3).
 
 | Item | Valor |
 | --- | --- |
 | Branch de trabalho | `claude/accounting-agent-team-setup-mn6lyf` |
 | Branch de destino | `main` |
-| Commit da rodada 2 | `fe5387d` |
-| Base para diff de auditoria | `f65d418` |
-| Auditorias | [rodada 1 — reprovada](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md), [rodada 2 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-2.md) |
-| Evidências da rodada 2 | 225 testes; `ruff check`, `ruff format --check` (120 arquivos), `manage.py check`, `makemigrations --check` limpos; 14 de 20 mutantes mortos |
-| Reversão | A etapa não cria migração de dados. Reverter é `git revert` dos commits de código; nenhum dado gravado precisa ser desfeito. O único efeito de reverter é voltar a **recusar** CNPJ alfanumérico. |
+| Commit da rodada 3 | `6ae84e5` |
+| Base para diff de auditoria da rodada 3 | `6e6e088` |
+| Auditorias | [rodada 1 — reprovada](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md) · [rodada 2 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-2.md) · [rodada 3 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-3.md) |
+| Evidências da rodada 3 | 251 testes; `ruff check`, `ruff format --check` (123 arquivos), `manage.py check`, `makemigrations --check` limpos; migração aplicada em banco vazio e revertida |
+
+## Migração e reversão — corrigido, era afirmação errada minha
+
+O achado **A4** da rodada 3 pegou uma afirmação falsa que eu tinha escrito aqui:
+*"a etapa não cria migração de dados"*. Corrigindo, com o que foi verificado:
+
+**A etapa cria a migração `empresas/0002`.** Ela é de **esquema**, não de dados —
+nenhum registro é reescrito —, mas acrescenta duas `CheckConstraint`
+**validantes**: `empresa_cnpj_canonico` e `estabelecimento_cnpj_canonico`.
+
+Consequência que eu tinha ignorado, e que o auditor reproduziu em banco
+descartável:
+
+> Aplicada sobre base que já contenha CNPJ não canônico, **a migração falha** e o
+> *deploy* para. A falha é limpa — a transação é atômica e nada fica pela
+> metade —, mas para.
+
+**Antes de aplicar em base existente**, executar e esperar zero nas duas:
+
+```sql
+SELECT count(*) FROM empresas_empresa
+ WHERE cnpj <> upper(cnpj) OR cnpj ~ '[^A-Z0-9]';
+SELECT count(*) FROM empresas_estabelecimento
+ WHERE cnpj <> upper(cnpj) OR cnpj ~ '[^A-Z0-9]';
+```
+
+O risco real é baixo — antes desta etapa o validador recusava letras e a coluna
+é `varchar(14)` —, mas isso é estimativa, não verificação contra a base do Fred.
+
+**Estratégia de reversão, corrigida.** A anterior estava errada: `git revert` dos
+commits **não desfaz a restrição no banco**, e o banco continuaria recusando o
+que o código revertido volta a produzir. A ordem correta é:
+
+1. `python manage.py migrate empresas 0001` — remove as duas restrições.
+2. `git revert` dos commits de código.
+
+O efeito de reverter é voltar a **recusar** CNPJ alfanumérico, que é um defeito
+em vigor. Reverter só faz sentido diante de problema maior que esse.
 
 ## Por que é urgente
 
@@ -81,7 +118,11 @@ A nota afirma que o novo cálculo preserva o DV dos CNPJs numéricos existentes.
 | `19131243000197` | 97 | 97 |
 
 **Compatibilidade confirmada.** Nenhum CNPJ já cadastrado deixa de ser válido, e
-**nenhuma migração de dados é necessária**.
+**nenhum registro precisa ser reescrito**.
+
+Cuidado com a leitura: isto vale para o **dígito verificador**. A etapa cria sim
+uma migração de **esquema**, com duas restrições de banco — ver "Migração e
+reversão" no início deste plano.
 
 ## Ponto que NÃO deve ser implementado
 
@@ -186,7 +227,9 @@ e não pode ser resolvida em silêncio dentro do validador.
 
 ## Impacto
 
-- **Dados:** nenhum. Compatibilidade retroativa verificada; nenhuma migração.
+- **Dados:** nenhum registro é reescrito. Compatibilidade retroativa do dígito
+  verificador verificada. **Há migração de esquema** (`empresas/0002`), com as
+  duas restrições e a pré-checagem descritas no início deste plano.
 - **Contratos:** ampliação — passa a aceitar o que hoje recusa.
 - **Risco de não fazer:** empresa com CNPJ novo não consegue ser cadastrada, e
   documento fiscal dela não poderá ser importado.

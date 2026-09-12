@@ -112,6 +112,20 @@ Registrado como **PE-21** em [requisitos.md](requisitos.md), porque a escolha
 entre unicidade global e unicidade por escritório é decisão de produto — e é
 difícil de reverter depois que houver dado real.
 
+## P1 — ressalvas da auditoria da DL-011 que vão para backlog
+
+O `auditor-qa` separou, a pedido, o que trava o fechamento da etapa e o que pode
+esperar. Estes três podem esperar; A1, A2 e A4 entraram na própria etapa. Ver
+[reauditoria da rodada 3](../auditorias/2026-09-12-dl-011-reauditoria-rodada-3.md).
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-54 | **Fortalecer a restrição de banco do CNPJ** (achado A5). Hoje `empresa_cnpj_canonico` garante **canonicidade**, não **formato**: por `bulk_create` passam `''`, `'ABC'`, `'AB123CDE000199'` (DV errado) e `'AB123CDE0001AA'` (letra no DV). O comentário no código aponta a restrição como garantia para a importação em lote da DL-010 — e nessa direção ela não garante. | `desenvolvedor-pleno` | — | planejada | Condição passa a `Q(cnpj__regex=r"^[A-Z0-9]{12}[0-9]{2}$")`, que é a regex oficial do Anexo I. `bulk_create` com `''`, `'ABC'` e `'AB123CDE0001AA'` levanta `IntegrityError`, com teste. O comentário declara explicitamente que o **dígito verificador não é conferido pelo banco**. |
+| BL-55 | **Prender a camada do serializer sozinha** (achado A6). Os mutantes N6 (`to_internal_value` valida mas não normaliza) e N12 (remover o `UniqueValidator`) sobrevivem à suíte, porque `Model.save()` e a tradução do `IntegrityError` cobrem por trás. Defesa em profundidade funcionando — mas cada camada só está protegida pela existência da outra. | `desenvolvedor-pleno` | — | planejada | Teste que valide `EmpresaSerializer` isoladamente, sem `save()`, afirmando `validated_data["cnpj"] == "AB123CDE000155"` a partir de `"ab.123.cde/0001-55"`. N6 e N12 passam a morrer. |
+| BL-56 | **Dica de digitação no campo de CNPJ** (achado A7). A correção do R2 removeu o `maxlength="14"` do HTML — corretamente, porque ele truncava a máscara no navegador antes de qualquer validação. Não há risco: o servidor recusa o que estiver fora do formato. É melhoria de experiência. | `especialista-frontend` | — | planejada | Campo orienta a digitação sem impedir a máscara: `maxlength="18"` é o máximo semanticamente possível. Nenhuma entrada legítima passa a ser recusada. |
+
+**BL-54 deve estar resolvido antes de a [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) importar em lote.** É natural que vá junto com aquela etapa.
+
 ## P1 — lacunas de validação encontradas de passagem
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
