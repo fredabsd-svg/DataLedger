@@ -1,36 +1,36 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="utf-8">
-    <title>Painel — DataLedger</title>
-</head>
-<body>
-    <p>
-        Usuário: {{ request.user }} —
-        <form method="post" action="{% url 'logout' %}" style="display:inline">
-            {% csrf_token %}
-            <button type="submit">Sair</button>
-        </form>
-    </p>
+{% extends "base.html" %}
 
+{% block titulo %}Painel{% endblock %}
+
+{% block content %}
     {% if escritorio_ativo %}
         <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
-        <p><a href="{% url 'empresas:lista' %}">Empresas</a></p>
+        <p><a href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a></p>
+    {% elif escritorios %}
+        <h1>Selecione um escritório</h1>
+        <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
     {% else %}
         <h1>Nenhum escritório ativo</h1>
+        <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade. Contate quem administra o cadastro para receber acesso.</p>
     {% endif %}
 
     {% if escritorios|length > 1 %}
-        <h2>Trocar de escritório</h2>
-        <form method="post" action="{% url 'tenancy:ativar' %}">
-            {% csrf_token %}
-            <select name="escritorio_id">
-                {% for escritorio in escritorios %}
-                    <option value="{{ escritorio.id }}">{{ escritorio.nome }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">Ativar</button>
-        </form>
+        <section aria-labelledby="titulo-trocar-escritorio">
+            <h2 id="titulo-trocar-escritorio">Trocar de escritório</h2>
+            <form method="post" action="{% url 'tenancy:ativar' %}" class="formulario">
+                {% csrf_token %}
+                <div class="campo">
+                    <label for="id_escritorio_id">Escritório</label>
+                    <select name="escritorio_id" id="id_escritorio_id">
+                        {% for escritorio in escritorios %}
+                            <option value="{{ escritorio.id }}" {% if escritorio_ativo and escritorio.id == escritorio_ativo.id %}selected{% endif %}>
+                                {{ escritorio.nome }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit">Ativar</button>
+            </form>
+        </section>
     {% endif %}
-</body>
-</html>
+{% endblock %}

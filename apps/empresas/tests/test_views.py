@@ -1,0 +1,169 @@
+"""Testes das views HTML de empresas (DL-009: estados de tela).
+
+Cobre o que a etapa DL-009 mudou: mensagem de sucesso ao cadastrar, template
+próprio de "sem permissão" em vez de texto cru, CNPJ mascarado na listagem e
+a ocultação do link "Nova empresa" para quem não pode usá-lo. Isolamento e
+regra de permissão em si já são cobertos por test_isolamento.py e
+test_permissoes.py — este arquivo não repete aquilo, só o comportamento de
+apresentação.
+"""
+
+import re
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+
+from apps.empresas.models import Empresa
+from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def escritorio():
+    return Escritorio.objects.create(nome="Escritório A", cnpj="11111111000111")
+
+
+def _usuario_com_papel(papel, escritorio, username):
+    usuario = get_user_model().objects.create_user(
+        username=username, email=f"{username}@escritorio.com.br", password="senha-forte-123"
+    )
+    VinculoUsuarioEscritorio.objects.create(usuario=usuario, escritorio=escritorio, papel=papel)
+    return usuario
+
+
+def test_criar_empresa_com_sucesso_exibe_mensagem_de_confirmacao(client, escritorio):
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {"razao_social": "Empresa Nova Ltda", "nome_fantasia": "", "cnpj": "11122233000183"},
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert Empresa.objects.filter(cnpj="11122233000183").exists()
+    conteudo = resposta.content.decode()
+    assert "cadastrada com sucesso" in conteudo
+    # A mensagem tem que ser anunciada, não só decorativa.
+    assert 'role="status"' in conteudo
+
+
+def test_criar_empresa_sem_permissao_usa_template_proprio_com_link_de_volta(client, escritorio):
+    _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
+    client.login(username="cliente", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:criar"))
+
+    assert resposta.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta.templates]
+    conteudo = resposta.content.decode()
+    # Nada de texto cru sem contexto: precisa de explicação e caminho de volta.
+    assert "Sem permissão" in conteudo
+    assert reverse("empresas:lista") in conteudo
+    assert not Empresa.objects.exists()
+
+
+def test_lista_empresas_exibe_cnpj_mascarado(client, escritorio):
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    conteudo = resposta.content.decode()
+    assert "11.122.233/0001-83" in conteudo
+    # CNPJ cru (14 dígitos seguidos) não deve aparecer mais na página.
+    assert "11122233000183" not in conteudo
+
+
+def test_lista_empresas_vazia_mostra_mensagem_de_estado_vazio(client, escritorio):
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    assert "Nenhuma empresa cadastrada neste escritório." in resposta.content.decode()
+
+
+def test_lista_empresas_sem_escritorio_ativo_explica_e_da_caminho_de_volta(client):
+    get_user_model().objects.create_user(
+        username="sem_vinculo", email="sem_vinculo@escritorio.com.br", password="senha-forte-123"
+    )
+    client.login(username="sem_vinculo", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "Nenhum escritório ativo" in conteudo
+    assert reverse("tenancy:painel") in conteudo
+
+
+def test_link_nova_empresa_oculto_para_papel_sem_permissao_de_gerenciar(client, escritorio):
+    _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
+    client.login(username="cliente", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    assert resposta.status_code == 200
+    assert "Nova empresa" not in resposta.content.decode()
+
+
+def test_link_nova_empresa_visivel_para_gestor(client, escritorio):
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    assert "Nova empresa" in resposta.content.decode()
+
+
+def test_lista_empresas_exibe_data_em_pt_br(client, escritorio):
+    """Critério 13, sem teste antes do achado A4: data teria que estar em
+    pt-BR (dd/mm/aaaa), não em outro formato."""
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    conteudo = resposta.content.decode()
+    data_esperada = empresa.criado_em.strftime("%d/%m/%Y")
+    assert data_esperada in conteudo
+    # Formato ISO (americano/técnico) não pode ser o que aparece na tela.
+    assert empresa.criado_em.strftime("%Y-%m-%d") not in conteudo
+
+
+def test_form_com_erro_todo_aria_describedby_aponta_para_id_existente(client, escritorio):
+    """A1: o Django (desde a 5.0) anota o widget com
+    aria-describedby="{auto_id}_error" quando o campo tem erro. Se a caixa
+    de erro do template usar outro id, o atributo fica pendurado no vazio —
+    pior que não ter o atributo, porque parece acessível e não é. Este
+    teste é genérico (não é sobre o campo cnpj especificamente) para pegar
+    qualquer campo futuro que caia no mesmo problema.
+    """
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        # CNPJ com dígito verificador errado: gera erro só no campo cnpj.
+        {"razao_social": "Empresa Invalida Ltda", "nome_fantasia": "", "cnpj": "11122233000199"},
+    )
+
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    referencias = re.findall(r'aria-describedby="([^"]*)"', conteudo)
+    assert referencias, "esperava ao menos um campo com erro anotado por aria-describedby"
+    for valor in referencias:
+        for id_referenciado in valor.split():
+            assert f'id="{id_referenciado}"' in conteudo, (
+                f"aria-describedby aponta para '{id_referenciado}', que não existe na página"
+            )

@@ -1,3 +1,4 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from rest_framework.response import Response
@@ -79,12 +80,37 @@ def painel(request):
 def ativar_escritorio(request):
     if request.method == "POST":
         escritorio_id = request.POST.get("escritorio_id")
-        tem_vinculo = request.user.vinculos.filter(escritorio_id=escritorio_id, ativo=True).exists()
-        if tem_vinculo:
-            request.session["escritorio_id"] = int(escritorio_id)
-            registrar(
-                acao="escritorio.ativado",
-                usuario=request.user,
-                escritorio=Escritorio.objects.get(pk=escritorio_id),
-            )
+
+        # BL-23: antes, um vínculo inexistente (ou um valor não numérico)
+        # caía direto no redirecionamento sem avisar nada — o usuário achava
+        # que a troca tinha funcionado. Agora todo caminho que não ativa
+        # termina em mensagem de erro explícita. Validação por string (em
+        # vez de try/except sobre int()) evita depender de exceção para um
+        # caso de entrada tão comum quanto campo vazio ou valor não numérico.
+        if not escritorio_id or not str(escritorio_id).isdigit():
+            messages.error(request, "Escritório inválido.")
+            return redirect("tenancy:painel")
+        escritorio_id_valido = int(escritorio_id)
+
+        # Nunca confiar apenas no ID recebido: exige vínculo ativo do
+        # próprio usuário autenticado com o escritório solicitado (mesma
+        # regra de isolamento aplicada em EscritorioAtivoView.post).
+        tem_vinculo = request.user.vinculos.filter(
+            escritorio_id=escritorio_id_valido, ativo=True
+        ).exists()
+        if not tem_vinculo:
+            messages.error(request, "Escritório inválido ou sem vínculo ativo com o seu usuário.")
+            return redirect("tenancy:painel")
+
+        request.session["escritorio_id"] = escritorio_id_valido
+        escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
+        registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
+        messages.success(request, f"Escritório ativo: {escritorio.nome}.")
+    else:
+        # BL-23/A9: GET nesta URL (link direto, favorito, back do navegador)
+        # também voltava em silêncio — mesmo problema do POST inválido, só
+        # que pelo método errado em vez do ID errado. O formulário do
+        # painel só envia POST; chegar aqui por GET não troca nada e
+        # precisa dizer isso.
+        messages.error(request, "Use o formulário do painel para trocar de escritório.")
     return redirect("tenancy:painel")

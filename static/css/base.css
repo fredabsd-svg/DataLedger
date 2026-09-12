@@ -1,0 +1,256 @@
+/*
+ * CSS próprio e mínimo do DataLedger (DE-011: nenhuma biblioteca visual
+ * externa). Prioriza densidade, legibilidade e contraste para uso em
+ * rotina de produção, não efeito visual.
+ */
+
+:root {
+    color-scheme: light;
+    --cor-texto: #1a1a1a;
+    --cor-fundo: #ffffff;
+    /* #b8bcc4 dava 1,9:1 contra o fundo branco — abaixo do mínimo de 3:1
+       da WCAG 1.4.11 para limite de componente de interface (borda de
+       input, select, tabela, cabeçalho). #6b7280 dá 4,83:1, recalculado
+       (achado A5 da auditoria de DL-009). */
+    --cor-borda: #6b7280;
+    --cor-primaria: #0b4f8a;
+    --cor-primaria-escura: #073d63;
+    --cor-foco: #0b4f8a;
+    --cor-erro: #8a1c1c;
+    --cor-erro-fundo: #fbe9e9;
+    --cor-sucesso: #1c5e2a;
+    --cor-sucesso-fundo: #e9f6ec;
+    --cor-aviso: #7a5200;
+    --cor-aviso-fundo: #fdf3e0;
+    --cor-info: #1c3d5e;
+    --cor-info-fundo: #e8f1fa;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--cor-texto);
+    background: var(--cor-fundo);
+}
+
+/* Foco visível, explícito e com contraste suficiente em qualquer elemento
+   navegável por teclado — critério 10 do plano DL-009. Usa :focus-visible
+   para não marcar cliques de mouse, apenas navegação por teclado. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+    outline: 3px solid var(--cor-foco);
+    outline-offset: 2px;
+}
+
+/* Atalho para o conteúdo (critério 8): fora da tela até receber foco. */
+.pular-para-conteudo {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    padding: 0.5rem 1rem;
+    background: var(--cor-primaria);
+    color: #ffffff;
+    z-index: 10;
+}
+
+.pular-para-conteudo:focus {
+    left: 0.5rem;
+    top: 0.5rem;
+}
+
+.visualmente-oculto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.cabecalho {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--cor-borda);
+}
+
+.marca a {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--cor-primaria);
+    text-decoration: none;
+}
+
+.contexto-operacao {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin: 0;
+}
+
+.contexto-rotulo {
+    font-weight: 600;
+}
+
+.form-sair {
+    margin: 0;
+}
+
+.navegacao-principal {
+    padding: 0.5rem 1.5rem;
+    background: #f4f6f8;
+    border-bottom: 1px solid var(--cor-borda);
+}
+
+.navegacao-principal ul {
+    display: flex;
+    gap: 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.navegacao-principal a {
+    color: var(--cor-primaria);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.navegacao-principal a:hover {
+    text-decoration: underline;
+}
+
+.conteudo-principal {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+/* Mensagens de django.contrib.messages: cor de apoio, nunca único
+   indicador — o texto "Erro:", "Sucesso:" etc. já vem no template. */
+.mensagens {
+    list-style: none;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mensagem {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--cor-borda);
+    border-left-width: 6px;
+    border-radius: 2px;
+}
+
+.mensagem-error {
+    color: var(--cor-erro);
+    background: var(--cor-erro-fundo);
+    border-left-color: var(--cor-erro);
+}
+
+.mensagem-warning {
+    color: var(--cor-aviso);
+    background: var(--cor-aviso-fundo);
+    border-left-color: var(--cor-aviso);
+}
+
+.mensagem-success {
+    color: var(--cor-sucesso);
+    background: var(--cor-sucesso-fundo);
+    border-left-color: var(--cor-sucesso);
+}
+
+.mensagem-info,
+.mensagem-debug {
+    color: var(--cor-info);
+    background: var(--cor-info-fundo);
+    border-left-color: var(--cor-info);
+}
+
+.formulario {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 32rem;
+}
+
+.campo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.campo label {
+    font-weight: 600;
+}
+
+.campo input,
+.campo select {
+    padding: 0.5rem;
+    border: 1px solid var(--cor-borda);
+    border-radius: 2px;
+    font-size: 1rem;
+}
+
+button {
+    align-self: flex-start;
+    padding: 0.5rem 1.25rem;
+    background: var(--cor-primaria);
+    color: #ffffff;
+    border: 1px solid var(--cor-primaria);
+    border-radius: 2px;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--cor-primaria-escura);
+}
+
+/* Tabela de dados contábeis/cadastrais: densa e legível, sem esconder
+   colunas — critério "não esconder informação em favor da estética". */
+.tabela-dados {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.tabela-dados th,
+.tabela-dados td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--cor-borda);
+    text-align: left;
+}
+
+.tabela-dados th {
+    background: #f4f6f8;
+    font-weight: 700;
+}
+
+/* Não há regra de valor monetário aqui de propósito. Nenhuma tela atual
+   exibe valor monetário — Contabilidade só tem API. Uma classe reservada
+   "para quando existir" seria código morto, o que o AGENTS.md §8 manda
+   remover, e decidiria alinhamento e tipografia sem uma tela real para
+   avaliar (mesmo motivo da DE-011: não decidir sem evidência).
+   Quando a primeira tela de escrituração ou relatório existir, o
+   alinhamento à direita e `font-variant-numeric: tabular-nums` entram
+   junto com ela, e aí dá para verificar de verdade se a coluna comporta o
+   maior valor sem truncar — o que é o requisito que importa. */

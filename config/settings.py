@@ -107,6 +107,10 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# CSS próprio do projeto (DE-011: nenhuma biblioteca visual externa) vive em
+# static/css/ na raiz do repositório, fora de qualquer app — por isso
+# precisa ser declarado explicitamente aqui para o finder encontrá-lo.
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
