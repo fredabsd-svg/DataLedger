@@ -90,7 +90,13 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-06 | Há migração de dados de sistema atual? Em qual formato? | Muda prioridade de importadores e de idempotência. |
 | PE-07 | Política de backup e restauração, e quem a executa. | Exigida pelas regras de engenharia; hoje não existe procedimento verificado. |
 | PE-08 | Quais papéis de usuário existem de fato no escritório e o que cada um pode fazer. | RC-04 e RC-17 dependem da matriz real de permissões. |
-| PE-09 | O trabalho encadeado dos PRs #7, #8 e #9 deve ser concluído antes de nova etapa? | Ver [estado.md](../agents/estado.md); afeta qual revisão-base a equipe usa. |
+| PE-09 | O trabalho encadeado dos PRs #7, #8 e #9 deve ser concluído antes de nova etapa? | **Resolvida** em 2026-09-12: os PRs foram integrados e o PR #11 levou DL-007 a DL-009 à `main`. |
+| PE-10 | Qual módulo primeiro: Fiscal, Folha, Contabilidade, Honorários ou Processos? | Ver [mapa-funcional-fiscal.md](mapa-funcional-fiscal.md). Cada um é um domínio grande; sem essa escolha o backlog segue ordenado por dependência técnica, não por valor. |
+| PE-11 | Se Fiscal: qual **regime** (Simples, Presumido, Real) e qual **imposto** atender primeiro, de ponta a ponta? | Define o primeiro motor de cálculo e seus casos de referência. |
+| PE-12 | Quais obrigações acessórias estão **vigentes** e o escritório de fato entrega? | O material de referência é de 2018 e cita obrigações provavelmente extintas ou substituídas. Implementar obrigação não vigente é desperdício; implementar a errada é pior. |
+| PE-13 | Quais **segmentos especializados** existem na carteira: combustíveis, empreendimentos imobiliários, transporte, SCP? | Se nenhum, saem do escopo e o módulo fiscal encolhe de forma relevante. |
+| PE-14 | Qual rotina **mais consome tempo** no escritório hoje? | É a pergunta que melhor ordena o backlog por valor. |
+| PE-15 | Como o escritório recebe hoje os documentos fiscais: XML por e-mail, download em portal, digitação? | Define a prioridade e o formato do importador. |
 
 ## Como atualizar
 
