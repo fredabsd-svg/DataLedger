@@ -48,9 +48,9 @@ ou leiaute.
 
 ```python
 class PoliticaArredondamento(models.TextChoices):
-    ABNT_NBR_5891 = "abnt_nbr_5891"   # meio para o par (ROUND_HALF_EVEN)
+    ABNT_NBR_5891 = "abnt_nbr_5891"  # meio para o par (ROUND_HALF_EVEN)
     MEIO_PARA_CIMA = "meio_para_cima"  # ROUND_HALF_UP
-    TRUNCAR = "truncar"                # descarta excedente (ROUND_DOWN)
+    TRUNCAR = "truncar"  # descarta excedente (ROUND_DOWN)
 
 
 def quantizar(valor, *, casas, politica):
@@ -60,6 +60,12 @@ def quantizar(valor, *, casas, politica):
     acidente (DE-010).
     """
 ```
+
+> Atenção ao editar este documento: o `ruff` desta versão **formata blocos de
+> código Python dentro de Markdown**, e `ruff format --check .` roda na
+> integração contínua. Comentário alinhado com espaços extras em bloco
+> ```python``` **quebra a CI**. Foi o que aconteceu com a primeira versão deste
+> plano.
 
 Requisitos do módulo:
 
