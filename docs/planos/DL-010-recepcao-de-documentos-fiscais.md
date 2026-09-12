@@ -75,15 +75,17 @@ por CNPJ, e a chave de acesso da NF-e contém o CNPJ do emitente.
 **isolada num único ponto**, para que a correção do BL-46 entre em um lugar só e
 valha para todos os caminhos de importação.
 
-### 2. RAR exige dependência externa; ZIP não
+### 2. RAR saiu do escopo — resolvido pela origem, não por limitação nossa
 
-`zipfile` é nativo em Python. **RAR é formato proprietário** e exige binário
-externo, que **não existe neste ambiente** (verificado: sem `unrar`, `unar`,
-`7z` ou `bsdtar`).
+`zipfile` é nativo em Python. **RAR é formato proprietário** e exigiria binário
+externo, que não existe neste ambiente (verificado: sem `unrar`, `unar`, `7z`
+ou `bsdtar`), com licença própria e mais uma peça para manter.
 
-**Decisão desta etapa:** suportar **XML solto e ZIP**. RAR fica como item
-próprio, e vale antes perguntar ao Fred se o sistema de origem pode exportar em
-ZIP — o que resolveria sem dependência alguma.
+**Resolvido em 2026-09-12 (RC-47):** o Fred confirmou que o sistema de gestão de
+XML **exporta XML puro e também zipado**. O RAR, portanto, **não é necessário**.
+
+Esta é a forma mais barata de resolver uma dependência: descobrir que ela não é
+preciso. **Escopo: XML solto e ZIP.**
 
 ## Escopo desta etapa
 
@@ -155,15 +157,39 @@ emitido por terceiro confiável, nunca por semelhança de conteúdo.**
 - **Reversão:** a migração é reversível; documentos importados podem ser
   removidos por lote de importação.
 
-## Pendências que não bloqueiam esta etapa
+## Restrição herdada da DL-011 que precisa estar à vista
 
-1. **BL-46** — algoritmo oficial do DV do CNPJ alfanumérico. Enquanto não vier,
-   o sistema segue aceitando apenas CNPJ numérico, e isso fica **declarado**,
-   não escondido.
-2. Se o sistema de origem pode exportar **ZIP** em vez de RAR.
-3. Decisão sobre o formato de intercâmbio de terceiros.
-4. Quais **segmentos especializados** existem na carteira (RC-42) — afeta
-   apuração, não esta etapa.
+A [DE-013](../projeto/decisoes.md) estreitou a aceitação de máscara de CNPJ:
+`normalizar_cnpj` reconhece **apenas** o leiaute exato `XX.XXX.XXX/XXXX-XX`.
+
+Consequência direta para esta etapa: arquivo de terceiro que traga CNPJ com
+separação parcial — por exemplo `11222333/0001-81` — **será recusado**.
+
+O importador **não deve** presumir tolerância a pontuação arbitrária. Se uma
+origem real usar separação parcial, isso é decisão nova: normalizar na borda do
+importador, com teste próprio, ou ampliar a DE-013 com justificativa. O que não
+pode é ser resolvido em silêncio dentro do validador.
+
+## Pendências
+
+| # | Pendência | Situação |
+| --- | --- | --- |
+| 1 | Algoritmo oficial do DV do CNPJ alfanumérico (**BL-46**) | **Resolvida.** NT 2025.001 obtida; [DL-011](DL-011-cnpj-alfanumerico.md) em revisão. |
+| 2 | Origem pode exportar **ZIP** em vez de RAR? | **Resolvida** (RC-47): exporta XML puro e zipado. RAR fora do escopo. |
+| 3 | Amostra real de **SPED Fiscal** e lote de **XML** (PE-17) | **Em atendimento.** O Fred está preparando. Até chegarem, os casos saem do leiaute oficial e de amostras sintéticas escritas por nós. |
+| 4 | Decisão sobre o formato de intercâmbio de terceiros (PE-18) | Aberta. Não bloqueia: o XML é a fonte primária. |
+| 5 | Quais **segmentos especializados** existem na carteira (PE-13/RC-42) | Aberta. Afeta apuração, não recepção. |
+
+### Por que a falta da amostra real não para a etapa, mas limita o que posso afirmar
+
+O leiaute oficial define o que é **válido**. A amostra real mostra o que
+**aparece**: campo opcional que a origem sempre preenche, campo obrigatório que
+vem vazio, codificação de caractere, quebra de linha, acento em razão social,
+XML com assinatura, XML de cancelamento e de carta de correção no meio do lote.
+
+Dá para construir a recepção sem a amostra. **Não** dá para afirmar que ela
+aguenta o lote do escritório antes de ter rodado contra um lote do escritório.
+Isso ficará declarado no relatório da etapa, não escondido.
 
 ## Divisão de responsabilidade
 
