@@ -19,6 +19,8 @@ caso de conflito. Este documento é apenas o resumo operacional.
 | [docs/projeto/requisitos.md](docs/projeto/requisitos.md) | Requisitos confirmados, hipóteses e pendências. |
 | [docs/projeto/backlog.md](docs/projeto/backlog.md) | Tarefas, prioridades, dependências e critérios de aceite. |
 | [docs/projeto/decisoes.md](docs/projeto/decisoes.md) | Decisões arquiteturais e justificativas. |
+| [docs/projeto/fontes-de-referencia.md](docs/projeto/fontes-de-referencia.md) | Onde pesquisar o domínio, e como usar sem copiar. **Leia antes de planejar módulo novo.** |
+| [docs/projeto/mapa-funcional-fiscal.md](docs/projeto/mapa-funcional-fiscal.md) | Capacidades da escrita fiscal e o achado sobre formato de intercâmbio. |
 | [docs/planos/](docs/planos/) | Plano versionado de cada demanda `DL-xxx`. |
 | [docs/auditorias/](docs/auditorias/) | Relatórios de auditoria efetivamente realizados. |
 
