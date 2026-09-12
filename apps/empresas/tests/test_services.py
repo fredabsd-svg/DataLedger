@@ -4,7 +4,12 @@ import pytest
 from django.db import IntegrityError, transaction
 
 from apps.empresas.models import Empresa, Estabelecimento, RegimeTributario, TipoEstabelecimento
-from apps.empresas.services import mensagem_se_cnpj_duplicado, registrar_regime_tributario
+from apps.empresas.services import (
+    CNPJDuplicado,
+    erro_de_cnpj_duplicado_como_400,
+    mensagem_se_cnpj_duplicado,
+    registrar_regime_tributario,
+)
 from apps.tenancy.models import Escritorio
 
 pytestmark = pytest.mark.django_db
@@ -105,3 +110,58 @@ def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_chave_estrangeira():
         connection.check_constraints()
 
     assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+
+
+# --- B2 (auditoria da etapa DL-011, rodada 4): os três testes acima prendem
+# mensagem_se_cnpj_duplicado ISOLADA, como função — mas nada exercitava o
+# próprio gerenciador erro_de_cnpj_duplicado_como_400(). Um mutante de uma
+# linha nele (`mensagem_se_cnpj_duplicado(exc) or "CNPJ ja existe."`)
+# reintroduz a DL-007 inteira, nos quatro caminhos de uma vez, sem que a
+# suíte acusasse. Os dois testes abaixo prendem o gerenciador diretamente.
+
+
+def test_gerenciador_deixa_subir_integrityerror_de_outra_constraint(empresa):
+    Estabelecimento.objects.create(
+        empresa=empresa, tipo=TipoEstabelecimento.MATRIZ, nome="Matriz", cnpj="44455566000183"
+    )
+
+    with (
+        pytest.raises(IntegrityError) as excinfo,
+        transaction.atomic(),
+        erro_de_cnpj_duplicado_como_400(),
+    ):
+        Estabelecimento.objects.create(
+            empresa=empresa,
+            tipo=TipoEstabelecimento.MATRIZ,
+            nome="Outra matriz",
+            cnpj="44455566000264",
+        )
+
+    # Com o mutante `or "CNPJ ja existe."`, isto viraria CNPJDuplicado (400)
+    # em vez de subir como o IntegrityError original de
+    # uma_matriz_por_empresa — a mesma armadilha da DL-007, agora dentro do
+    # próprio gerenciador.
+    assert "uma_matriz_por_empresa" in str(excinfo.value)
+
+
+def test_gerenciador_traduz_apenas_a_unique_de_cnpj(empresa):
+    Empresa.objects.create(
+        escritorio=empresa.escritorio, razao_social="Empresa B Ltda", cnpj="AB123CDE000155"
+    )
+
+    with (
+        pytest.raises(CNPJDuplicado) as excinfo,
+        transaction.atomic(),
+        erro_de_cnpj_duplicado_como_400(),
+    ):
+        Empresa.objects.bulk_create(
+            [
+                Empresa(
+                    escritorio=empresa.escritorio,
+                    razao_social="Empresa C Ltda",
+                    cnpj="AB123CDE000155",
+                )
+            ]
+        )
+
+    assert excinfo.value.message_dict == {"cnpj": ["empresa com este CNPJ já existe."]}

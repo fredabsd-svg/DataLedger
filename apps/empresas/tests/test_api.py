@@ -15,7 +15,8 @@ import threading
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, connection
 from django.test import Client
 from django.urls import reverse
 from rest_framework.validators import UniqueValidator
@@ -412,3 +413,72 @@ def test_criar_estabelecimento_via_api_com_corrida_neutralizando_o_unique_valida
     (mensagem,) = resposta.json()["cnpj"]
     assert "já existe" in mensagem
     assert Estabelecimento.objects.filter(cnpj="AB123CDE000155").count() == 1
+
+
+# --- B1 (auditoria da etapa DL-011, rodada 4): o except das views tinha
+# ficado mais largo do que a exceção que o gerenciador levanta. Model.save()
+# também levanta django.core.exceptions.ValidationError — só que de
+# mensagem simples, sem error_dict — e o except antigo (ValidationError
+# genérico) chamava exc.message_dict incondicionalmente, estourando
+# AttributeError e escondendo a causa raiz no log.
+
+
+def test_atualizar_empresa_via_api_com_validationerror_de_mensagem_simples_sobe_sem_attributeerror(
+    client, gestor, monkeypatch
+):
+    empresa = Empresa.objects.create(
+        escritorio=Escritorio.objects.get(cnpj="11111111000111"),
+        razao_social="Empresa Alvo Ltda",
+        cnpj="11122233000183",
+    )
+
+    def _save_com_validationerror_de_mensagem(self, *args, **kwargs):
+        raise DjangoValidationError("erro de regra de negocio, sem error_dict")
+
+    monkeypatch.setattr(Empresa, "save", _save_com_validationerror_de_mensagem)
+    client.login(username="gestor", password="senha-forte-123")
+
+    # A ValidationError genérica não é CNPJDuplicado, então o except estreito
+    # não a captura — ela sobe intacta. Nunca AttributeError (que é o que
+    # acontecia quando o except era ValidationError genérico e chamava
+    # exc.message_dict, que só existe na forma construída com dict).
+    with pytest.raises(DjangoValidationError) as excinfo:
+        client.patch(
+            reverse("empresas:api-detalhe", kwargs={"pk": empresa.pk}),
+            data=json.dumps({"razao_social": "Nome Novo Ltda"}),
+            content_type="application/json",
+        )
+
+    assert "erro de regra de negocio" in str(excinfo.value)
+
+
+# --- B2 (auditoria, rodada 4): teste de requisição — IntegrityError de
+# origem diferente da unicidade do CNPJ não pode virar 400 em nenhum dos
+# quatro caminhos. Este cobre o caminho de criação de Empresa.
+
+
+def test_criar_empresa_via_api_com_integrityerror_de_outra_origem_sobe_sem_tratamento(
+    client, gestor, monkeypatch
+):
+    class _DiagnosticoDeOutraConstraint:
+        constraint_name = "uma_matriz_por_empresa"
+
+    causa_falsa = IntegrityError("violação simulada de outra constraint")
+    causa_falsa.diag = _DiagnosticoDeOutraConstraint()
+
+    def _save_com_integrityerror_de_outra_origem(self, *args, **kwargs):
+        raise IntegrityError("não é a unicidade do cnpj") from causa_falsa
+
+    monkeypatch.setattr(Empresa, "save", _save_com_integrityerror_de_outra_origem)
+    client.login(username="gestor", password="senha-forte-123")
+
+    # Com o mutante `mensagem_se_cnpj_duplicado(exc) or "CNPJ ja existe."`,
+    # isto viraria 400 "CNPJ já existe" — a armadilha da DL-007. O código
+    # correto deixa subir como defeito de sistema (500 fora de teste; aqui,
+    # a exceção não tratada propaga para quem chamou).
+    with pytest.raises(IntegrityError):
+        client.post(
+            reverse("empresas:api-lista"),
+            data={"razao_social": "Empresa Ltda", "cnpj": "11122233000183"},
+            content_type="application/json",
+        )

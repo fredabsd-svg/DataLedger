@@ -12,6 +12,7 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
 
 from apps.empresas.models import Empresa
@@ -270,3 +271,35 @@ def test_criar_empresa_pela_tela_com_corrida_neutralizando_o_validate_unique_da_
     assert resposta.status_code == 200
     assert "já existe" in resposta.content.decode()
     assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1
+
+
+def test_criar_empresa_pela_tela_com_validationerror_de_dict_sem_cnpj_nao_e_engolida(
+    client, escritorio, monkeypatch
+):
+    # B1 (auditoria da etapa DL-011, rodada 4): antes desta correção, o
+    # except da tela era ValidationError genérico e lia
+    # exc.message_dict.get("cnpj", []) — se a ValidationError vinda de
+    # Empresa.save() tivesse dict, mas SEM a chave "cnpj" (ex.: uma regra
+    # de negócio futura sobre razao_social), o loop não adicionava erro
+    # nenhum: a view devolvia 200, sem nenhum erro no formulário, e nada
+    # era gravado — falha virando sucesso aparente (AGENTS.md §8). Com o
+    # tipo próprio (CNPJDuplicado), essa ValidationError não é capturada e
+    # sobe intacta — nunca mais 200 silencioso.
+    def _save_com_validationerror_de_outro_campo(self, *args, **kwargs):
+        raise DjangoValidationError({"razao_social": ["problema de regra de negócio"]})
+
+    monkeypatch.setattr(Empresa, "save", _save_com_validationerror_de_outro_campo)
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    with pytest.raises(DjangoValidationError):
+        client.post(
+            reverse("empresas:criar"),
+            {
+                "razao_social": "Empresa Nova Ltda",
+                "nome_fantasia": "",
+                "cnpj": "11122233000183",
+            },
+        )
+
+    assert not Empresa.objects.filter(razao_social="Empresa Nova Ltda").exists()
