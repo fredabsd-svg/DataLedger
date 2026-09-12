@@ -35,7 +35,7 @@ qualquer funcionalidade nova.
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-46 | Aceitar **CNPJ alfanumérico** no cadastro, na validação e em tudo que compare CNPJ. Hoje o DataLedger **recusa** qualquer CNPJ alfanumérico. | `desenvolvedor-pleno` | **Resolvida**: NT Conjunta 2025.001 e IN RFB 2.229, fornecidas pelo Fred em 2026-09-12 | **em desenvolvimento** — [DL-011](../planos/DL-011-cnpj-alfanumerico.md); rodada 1 reprovada pela auditoria, correções em curso | CNPJ alfanumérico válido é aceito e persistido; CNPJ numérico existente continua válido; DV conferido pelo algoritmo **oficial**, com casos de referência; nenhum ponto do sistema descarta letras do CNPJ. |
+| BL-46 | Aceitar **CNPJ alfanumérico** no cadastro, na validação e em tudo que compare CNPJ. Hoje o DataLedger **recusa** qualquer CNPJ alfanumérico. | `desenvolvedor-pleno` | **Resolvida**: NT Conjunta 2025.001 e IN RFB 2.229, fornecidas pelo Fred em 2026-09-12 | **em revisão** — [DL-011](../planos/DL-011-cnpj-alfanumerico.md); rodada 1 reprovada, rodada 2 aprovada com ressalvas, rodada 3 em correção | CNPJ alfanumérico válido é aceito e persistido; CNPJ numérico existente continua válido; DV conferido pelo algoritmo **oficial**, com casos de referência; nenhum ponto do sistema descarta letras do CNPJ. |
 
 ### Por que é P0 e por que já está em vigor
 
@@ -62,19 +62,55 @@ O impacto não é só o cadastro: **qualquer comparação de CNPJ** herda o prob
 inclusive a futura identificação da empresa no XML importado e a chave de acesso
 da NF-e, que contém o CNPJ do emitente.
 
-### Por que está bloqueada, e não em desenvolvimento
+### Como deixou de estar bloqueada
 
-A página oficial confirma o **fato** e a **data**, mas **não publica o algoritmo
-do dígito verificador** — ela remete a um documento técnico à parte. Fontes
-secundárias descrevem o cálculo como módulo 11 sobre o valor ASCII de cada
-caractere menos 48, **mas isso não foi confirmado em fonte oficial**.
-
-Implementar dígito verificador a partir de descrição de blog seria exatamente o
+Esteve bloqueada enquanto só havia o **fato** e a **data** em fonte oficial, sem
+o **algoritmo do dígito verificador**. Fontes secundárias descreviam o cálculo,
+mas implementar dígito verificador a partir de descrição de blog é exatamente o
 que o [AGENTS.md](../../AGENTS.md) §10 proíbe: inventar fórmula. Um validador
 errado recusaria empresa legítima ou aceitaria CNPJ inválido — os dois caros.
 
-**Antes de implementar:** obter o documento técnico oficial do cálculo do DV, no
-portal da Receita Federal, e registrar a fonte e a vigência junto do código.
+**Desbloqueada em 2026-09-12**, quando o Fred forneceu a **Nota Técnica Conjunta
+CNPJ Alfanumérico, NT 2025.001, versão 1.00, de 25/04/2025**, do ENCAT, cujo
+Anexo I traz a implementação de referência. Base legal: **IN RFB nº 2.229**, de
+15/10/2024. Fonte e vigência registradas junto do código, em
+`apps/empresas/validators.py`.
+
+## P1 — achados preexistentes revelados pela reauditoria da DL-011
+
+Nenhum dos dois foi causado pela DL-011. A reauditoria da rodada 2 os encontrou
+ao atacar o entorno e os reproduziu por execução. Registrados para não se
+perderem.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-48 | Decidir o escopo da unicidade de CNPJ. Hoje `Empresa.cnpj` e `Estabelecimento.cnpj` são `unique=True` **globais**, sem escopo de escritório, e a mensagem de erro confirma a existência do cadastro em **outro** escritório. | `arquiteto-senior` conduz; **decisão do Fred** | — | **bloqueada** — depende de PE-21 | Escritório A não consegue descobrir, por tentativa de cadastro, se um CNPJ já é cliente de outro escritório; cadastro duplicado **dentro** do próprio escritório continua com mensagem específica e útil. |
+| BL-49 | `POST` *form-encoded* ou *multipart* na API de empresas cria a empresa com `ativo: false`, apesar de `default=True` no modelo. É o tratamento de entrada HTML do `BooleanField` do DRF. | `desenvolvedor-pleno` | — | planejada | Empresa criada por qualquer tipo de corpo de requisição nasce ativa, salvo se `ativo` for enviado explicitamente como falso; teste cobrindo JSON, *form-encoded* e *multipart*. |
+
+### BL-48 — por que isto é comercial, não só técnico
+
+Reproduzido pelo `auditor-qa` em 2026-09-12: com a empresa `AB123CDE000155`
+cadastrada no **escritório B**, o gestor do **escritório A**, autenticado,
+recebe `400 {"cnpj":["empresa com este CNPJ já existe."]}` ao tentar cadastrar o
+mesmo CNPJ. A listagem dele continua vazia — **o isolamento de leitura está
+correto** —, mas a mensagem de erro entrega a informação.
+
+Na prática: um escritório consegue descobrir, um CNPJ por tentativa, se
+determinada empresa já é cliente de **outro** escritório no mesmo DataLedger.
+Não revela razão social nem qual escritório. Ainda assim, é informação
+comercial num produto vendido a concorrentes entre si.
+
+Contradiz a regra que o próprio projeto escreveu em `apps/empresas/mixins.py`:
+*"404, não 403: não confirma nem a existência do registro para quem não tem
+acesso."*
+
+**Vem da DL-004**, não da DL-011. Mas a DL-011 **amplia** o alcance: antes, o
+oráculo podia ser driblado por diferença de maiúscula e minúscula; agora a
+canonização fecha essa fresta e o oráculo fica exato.
+
+Registrado como **PE-21** em [requisitos.md](requisitos.md), porque a escolha
+entre unicidade global e unicidade por escritório é decisão de produto — e é
+difícil de reverter depois que houver dado real.
 
 ## P1 — lacunas de validação encontradas de passagem
 

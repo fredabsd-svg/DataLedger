@@ -3,7 +3,17 @@
 Fecha o **BL-46**, que estava bloqueado por falta da especificação oficial do
 dígito verificador. O Fred forneceu o documento em 2026-09-12.
 
-**Estado:** em desenvolvimento.
+**Estado:** em revisão — rodada 3 em correção.
+
+| Item | Valor |
+| --- | --- |
+| Branch de trabalho | `claude/accounting-agent-team-setup-mn6lyf` |
+| Branch de destino | `main` |
+| Commit da rodada 2 | `fe5387d` |
+| Base para diff de auditoria | `f65d418` |
+| Auditorias | [rodada 1 — reprovada](../auditorias/2026-09-12-dl-011-cnpj-alfanumerico.md), [rodada 2 — aprovada com ressalvas](../auditorias/2026-09-12-dl-011-reauditoria-rodada-2.md) |
+| Evidências da rodada 2 | 225 testes; `ruff check`, `ruff format --check` (120 arquivos), `manage.py check`, `makemigrations --check` limpos; 14 de 20 mutantes mortos |
+| Reversão | A etapa não cria migração de dados. Reverter é `git revert` dos commits de código; nenhum dado gravado precisa ser desfeito. O único efeito de reverter é voltar a **recusar** CNPJ alfanumérico. |
 
 ## Por que é urgente
 
@@ -131,6 +141,48 @@ perder, **mas fora do escopo desta etapa**:
 | 11 | O campo do modelo persiste CNPJ alfanumérico sem truncar |
 | 12 | Comentário no código cita a NT 2025.001 e a IN RFB 2.229 como fonte |
 | 13 | Sem regressão; `ruff`, `format --check`, `manage.py check`, `makemigrations --check` limpos |
+
+## Decisões tomadas durante a execução, que o plano original não previa
+
+Registradas a pedido do achado R6 da rodada 2, que apontou — com razão — que
+três decisões de engenharia tinham ficado sem registro em lugar algum.
+
+### 1. A correção foi estendida a `Estabelecimento`
+
+O plano fala em "o campo do modelo", no singular, pensando em `Empresa`.
+`Estabelecimento.cnpj` tem `unique=True` e passa pelo mesmo caminho de API sem
+`full_clean()`, logo tinha o mesmo defeito. Decisão do `arquiteto-senior`:
+estender. Deixar o defeito lá seria incoerente e viraria achado na etapa
+seguinte.
+
+### 2. Espaço em branco na borda é tolerado
+
+Ampliação de contrato não prevista no plano. Motivo: o `CharField` de formulário
+do Django já removia o espaço, e a API não — o mesmo valor era aceito num
+caminho e recusado no outro. CNPJ colado de planilha vem com espaço, e com
+frequência.
+
+### 3. O critério 7 foi **estreitado** — e isto tem consequência para a DL-010
+
+Esta é a decisão que mais importa registrar.
+
+O plano transcreve da nota técnica: "caracteres de máscara removidos antes de
+validar: `.` `/` `-`". A implementação **não** faz remoção cega desses
+caracteres: reconhece **apenas o leiaute exato** `XX.XXX.XXX/XXXX-XX`.
+
+Motivo: a remoção cega aceitava entradas absurdas como `../-11222333000181`,
+que só por coincidência sobram com 14 caracteres — achado 6 da rodada 1.
+
+É a decisão certa para **digitação humana**. Mas é **mais restritiva do que a
+letra do plano**, e cria risco declarado para a
+[DL-010](DL-010-recepcao-de-documentos-fiscais.md): arquivo de terceiro que
+traga CNPJ com separação parcial, como `11222333/0001-81`, **será recusado na
+importação**.
+
+Consequência de projeto: a DL-010 **não deve** presumir que `normalizar_cnpj`
+aceita qualquer pontuação. Se um formato de origem real usar separação parcial,
+isso é decisão nova — normalizar na borda do importador, ou ampliar a regra —
+e não pode ser resolvida em silêncio dentro do validador.
 
 ## Impacto
 

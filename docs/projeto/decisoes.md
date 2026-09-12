@@ -435,3 +435,42 @@ e a integração contínua, que usa Python 3.14.
 **Consequência:** quem for rodar o projeto localmente precisa de Python 3.12+.
 Isso deve ser documentado no README como pré-requisito — pendência registrada
 no [backlog](backlog.md).
+
+## DE-013 — Máscara de CNPJ é aceita só no leiaute exato
+
+**Data:** 2026-09-12
+
+**Decisão:** `normalizar_cnpj` reconhece a máscara **apenas** no formato
+`XX.XXX.XXX/XXXX-XX`. Qualquer outra combinação de `.`, `/` ou `-` é caractere
+inválido, não separador a descartar.
+
+**Motivo:** a primeira implementação removia esses três caracteres **de
+qualquer posição**. A auditoria da DL-011 (achado 6 da rodada 1) mostrou o
+efeito: `"../-11222333000181"` e `"11222333000181."` eram **aceitos**, porque
+depois da remoção cega sobravam 14 caracteres por coincidência. Remoção cega é
+tolerância que não distingue erro de digitação de entrada absurda.
+
+**Alternativas descartadas:**
+
+- **Manter a remoção cega.** Aceita entrada sem sentido e, pior, aceita-a em
+  silêncio — o usuário nunca descobre que digitou errado.
+- **Recusar máscara por completo**, exigindo só os 14 caracteres. Contraria o
+  hábito universal de digitar CNPJ mascarado no Brasil e contraria o critério 7
+  do plano.
+
+**Consequência, e é a parte que importa:** a regra é mais restritiva do que a
+letra da NT 2025.001, que fala em "remover os caracteres de máscara". Para
+**digitação humana** isso é acerto. Para **entrada automatizada** é risco
+declarado:
+
+> Arquivo de terceiro que traga CNPJ com separação parcial — por exemplo
+> `11222333/0001-81` — **será recusado** na importação da
+> [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md).
+
+A DL-010 **não deve** presumir que o validador aceita qualquer pontuação. Se um
+formato de origem real usar separação parcial, a decisão é nova: normalizar na
+borda do importador, ou ampliar esta regra com justificativa. O que não pode é
+ser resolvido em silêncio dentro do validador.
+
+**Fonte:** NT Conjunta 2025.001 v1.00, de 25/04/2025 (ENCAT); IN RFB nº 2.229,
+de 15/10/2024. Vigência do CNPJ alfanumérico: desde 31/07/2026.
