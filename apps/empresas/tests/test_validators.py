@@ -22,7 +22,7 @@ etapa DL-011):
 import pytest
 from django.core.exceptions import ValidationError
 
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, Estabelecimento, TipoEstabelecimento
 from apps.empresas.validators import _FORMATO_CNPJ, normalizar_cnpj, validar_cnpj
 from apps.tenancy.models import Escritorio
 
@@ -174,6 +174,27 @@ def test_cnpj_com_caractere_unicode_que_expande_no_upper_e_invalido():
         validar_cnpj("ß123CDE000117")
 
 
+# R9 (reauditoria, rodada 2), mutante M8: o caso acima tem 13 caracteres
+# ("ß123CDE000117"), então é recusado por comprimento — não por conjunto de
+# caracteres. Uma regex mutante `\w{14}` (aceita letra Unicode) sobreviveria
+# ao teste anterior. Estes três têm exatamente 14 caracteres e só são
+# recusados se o conjunto de caracteres for de fato restrito a ASCII:
+# "ıB123CDE000155" (dotless i minúsculo), "ſB123CDE000155" (long s),
+# "AB123CDE00015５" (dígito "5" fullwidth).
+@pytest.mark.parametrize(
+    "cnpj",
+    [
+        "ıB123CDE000155",
+        "ſB123CDE000155",
+        "AB123CDE00015５",
+    ],
+)
+def test_cnpj_com_letra_unicode_de_14_caracteres_e_invalido(cnpj):
+    assert len(cnpj) == 14
+    with pytest.raises(ValidationError):
+        validar_cnpj(cnpj)
+
+
 # Achado 4 (auditoria, média): a fronteira `resto % 11 < 2` (rejeita resto 0
 # e resto 1 com DV "0") não era exercida por nenhum caso dos 41 testes
 # anteriores. Casos calculados pela auditoria da etapa DL-011.
@@ -203,11 +224,21 @@ def test_cnpj_com_tipo_invalido_levanta_validation_error(valor):
 # aceitaria máscara mal formada, desde que o resultado tivesse 14
 # caracteres por coincidência. A máscara só é reconhecida no formato exato
 # XX.XXX.XXX/XXXX-XX; qualquer outra distribuição de separadores é recusada.
+#
+# R9 (reauditoria, rodada 2), mutante M10: os dois primeiros casos abaixo
+# são recusados até por uma regex mutante com separador livre em cada
+# posição (`[./-]?` em vez de literal fixo), porque o total de caracteres
+# não bate de qualquer forma. Os dois últimos ("11-122-233.0001/83" e
+# "11/122/233-0001.83") têm exatamente 14 dígitos e separador em cada
+# posição certa, só com o TIPO de separador trocado — são o caso que de
+# fato distingue "só nesta posição exata" de "qualquer separador aqui".
 @pytest.mark.parametrize(
     "cnpj",
     [
         "../-11222333000181",
         ".1122.2330/00181-",
+        "11-122-233.0001/83",
+        "11/122/233-0001.83",
     ],
 )
 def test_cnpj_com_mascara_mal_formada_e_invalido(cnpj):
@@ -219,6 +250,11 @@ def test_cnpj_com_mascara_mal_formada_e_invalido(cnpj):
 # em CNPJ colado de planilha) tem que ser aceito, tanto sem máscara quanto
 # com máscara — a validação unitária isolada já cobre os dois casos; o
 # caminho de ponta a ponta pela API está em test_api.py.
+#
+# Achado R8 (reauditoria, rodada 2): normalizar_cnpj usa str.strip() sem
+# argumento, que remove qualquer whitespace Unicode, não só espaço comum —
+# o comentário antigo dizia o contrário. Acrescentados NBSP (colado de
+# página HTML), tab e quebra de linha, todos aceitos.
 @pytest.mark.parametrize(
     "cnpj",
     [
@@ -226,10 +262,23 @@ def test_cnpj_com_mascara_mal_formada_e_invalido(cnpj):
         "11222333000181 ",
         " 11222333000181 ",
         " 11.222.333/0001-81 ",
+        "\xa011222333000181",  # NBSP à esquerda
+        "11222333000181\xa0",  # NBSP à direita
+        "11222333000181\n",  # quebra de linha
+        "\t11222333000181\t",  # tabulação nos dois lados
     ],
 )
 def test_cnpj_com_espaco_na_borda_nao_levanta_erro(cnpj):
     validar_cnpj(cnpj)
+
+
+# Achado R8 (reauditoria, rodada 2), caso negativo: caractere de largura
+# zero não é whitespace (não pertence a str.isspace()), então não é
+# removido por strip() — e por isso continua sendo recusado como caractere
+# inválido, não aceito por acidente.
+def test_cnpj_com_caractere_de_largura_zero_e_invalido():
+    with pytest.raises(ValidationError):
+        validar_cnpj("11222333000181" + "\u200b")
 
 
 # Ajuste 2 (reauditoria da etapa DL-011): letra na posição do dígito
@@ -296,3 +345,55 @@ def test_empresa_com_cnpj_em_caixas_diferentes_nao_duplica_registro():
         )
 
     assert Empresa.objects.filter(cnpj=CNPJ_ALFANUMERICO_VALIDO).count() == 1
+
+
+# R3 (reauditoria, rodada 2): a extensão da canonização a Estabelecimento
+# foi decisão do arquiteto-senior na rodada anterior, mas não tinha teste
+# próprio — o mutante que apaga `self.cnpj = normalizar_cnpj(self.cnpj)` de
+# Estabelecimento.save() sobrevivia à suíte inteira (o único teste de
+# Estabelecimento existente até aqui normalizava no serializer, não no
+# save()). Os três testes abaixo são os que o auditor especificou.
+
+
+@pytest.mark.django_db
+def test_estabelecimento_com_cnpj_em_caixas_diferentes_nao_duplica_registro():
+    from django.db import IntegrityError, transaction
+
+    escritorio = Escritorio.objects.create(nome="Escritório A", cnpj="11111111000111")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+    Estabelecimento.objects.create(
+        empresa=empresa,
+        tipo=TipoEstabelecimento.MATRIZ,
+        nome="Matriz",
+        cnpj=CNPJ_ALFANUMERICO_VALIDO,
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Estabelecimento.objects.create(
+            empresa=empresa,
+            tipo=TipoEstabelecimento.FILIAL,
+            nome="Filial (duplicada)",
+            cnpj=CNPJ_ALFANUMERICO_VALIDO.lower(),
+        )
+
+    assert Estabelecimento.objects.filter(cnpj=CNPJ_ALFANUMERICO_VALIDO).count() == 1
+
+
+@pytest.mark.django_db
+def test_estabelecimento_persiste_cnpj_canonico_via_objects_create():
+    escritorio = Escritorio.objects.create(nome="Escritório A", cnpj="11111111000111")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa A Ltda", cnpj="11122233000183"
+    )
+    estabelecimento = Estabelecimento.objects.create(
+        empresa=empresa,
+        tipo=TipoEstabelecimento.MATRIZ,
+        nome="Matriz",
+        cnpj="ab.123.cde/0001-55",
+    )
+
+    estabelecimento.refresh_from_db()
+
+    assert estabelecimento.cnpj == CNPJ_ALFANUMERICO_VALIDO

@@ -2,6 +2,7 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -16,7 +17,7 @@ from apps.empresas.serializers import (
     EstabelecimentoSerializer,
     HistoricoRegimeTributarioSerializer,
 )
-from apps.empresas.services import registrar_regime_tributario
+from apps.empresas.services import mensagem_se_cnpj_duplicado, registrar_regime_tributario
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 
@@ -45,7 +46,25 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         return permissions
 
     def perform_create(self, serializer):
-        empresa = serializer.save()
+        # R4 (reauditoria da etapa DL-011): duas requisições simultâneas com
+        # o mesmo CNPJ podem passar as duas pelo UniqueValidator do
+        # serializer (ele faz SELECT; entre o SELECT e este INSERT o
+        # concorrente comita) e uma delas estoura IntegrityError na
+        # constraint do banco. O savepoint de transaction.atomic() isola
+        # esse erro: se ele ocorrer, só o INSERT é desfeito, e a conexão
+        # continua utilizável para o registrar() de auditoria abaixo.
+        # Convertemos só a violação específica da constraint de cnpj em
+        # erro de campo; qualquer outro IntegrityError sobe sem tratamento
+        # — não repetir o erro da DL-007, que converteu todo IntegrityError
+        # em 400 e mascarou defeito de sistema como erro de cliente.
+        try:
+            with transaction.atomic():
+                empresa = serializer.save()
+        except IntegrityError as exc:
+            mensagem = mensagem_se_cnpj_duplicado(exc)
+            if mensagem is None:
+                raise
+            raise DRFValidationError({"cnpj": [mensagem]}) from exc
         registrar(acao="empresa.criada", objeto=empresa, request=self.request)
 
 
@@ -73,7 +92,16 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         return Estabelecimento.objects.filter(empresa=self.get_empresa())
 
     def perform_create(self, serializer):
-        estabelecimento = serializer.save(empresa=self.get_empresa())
+        # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
+        # (ver comentário lá): cnpj de Estabelecimento também é unique=True.
+        try:
+            with transaction.atomic():
+                estabelecimento = serializer.save(empresa=self.get_empresa())
+        except IntegrityError as exc:
+            mensagem = mensagem_se_cnpj_duplicado(exc)
+            if mensagem is None:
+                raise
+            raise DRFValidationError({"cnpj": [mensagem]}) from exc
         registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
 
@@ -178,10 +206,23 @@ def criar_empresa(request):
         if form.is_valid():
             empresa = form.save(commit=False)
             empresa.escritorio = request.escritorio
-            empresa.save()
-            registrar(acao="empresa.criada", objeto=empresa, request=request)
-            messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")
-            return redirect("empresas:lista")
+            # R4 (reauditoria da etapa DL-011): o form.is_valid() já checou
+            # unicidade via validate_unique() (um SELECT), mas entre esse
+            # SELECT e o INSERT abaixo um concorrente pode ter comitado o
+            # mesmo CNPJ — a corrida que gera 500 se não tratada. O
+            # savepoint isola o erro para a conexão continuar utilizável.
+            try:
+                with transaction.atomic():
+                    empresa.save()
+            except IntegrityError as exc:
+                mensagem = mensagem_se_cnpj_duplicado(exc)
+                if mensagem is None:
+                    raise
+                form.add_error("cnpj", mensagem)
+            else:
+                registrar(acao="empresa.criada", objeto=empresa, request=request)
+                messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")
+                return redirect("empresas:lista")
     else:
         form = EmpresaForm()
 

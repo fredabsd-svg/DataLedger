@@ -85,13 +85,24 @@ def normalizar_cnpj(valor):
         # auditoria da etapa DL-011).
         raise ValidationError("CNPJ deve ser um texto.")
 
-    # Espaço em branco na borda (comum em CNPJ colado de planilha) é
-    # descartado aqui, antes das regexes de máscara. Sem isso, o campo de
-    # formulário aceitava (CharField do Django tem strip=True por padrão) e
-    # a API recusava o mesmo valor — porque este código roda antes do
-    # trim_whitespace do DRF (reauditoria da etapa DL-011, ajuste 1). Só
-    # espaço comum (str.strip() sem argumento); não é tratamento de
-    # caractere invisível exótico.
+    # Espaço em branco na borda (comum em CNPJ colado de planilha ou de
+    # página web) é descartado aqui, antes das regexes de máscara. Sem
+    # isso, o campo de formulário aceitava (CharField do Django tem
+    # strip=True por padrão) e a API recusava o mesmo valor — porque este
+    # código roda antes do trim_whitespace do DRF (reauditoria da etapa
+    # DL-011, ajuste 1).
+    #
+    # Correção de comentário (achado R8 da reauditoria, rodada 2): a frase
+    # anterior aqui dizia que só espaço comum era removido. Isso é falso.
+    # `str.strip()` sem argumento remove qualquer caractere da classe
+    # Unicode `str.isspace()` — inclusive NBSP (U+00A0), tabulação ("\t"),
+    # quebra de linha ("\n", "\r") e outros espaços Unicode (ex.:
+    # U+2000-U+200A, U+3000). O comportamento real é mais permissivo do que
+    # o texto antigo afirmava, e é o desejável: CNPJ colado de página HTML
+    # costuma vir com NBSP. Caractere de largura zero (U+200B, zero-width
+    # space) NÃO é removido, porque não pertence à classe `str.isspace()` —
+    # e por isso continua sendo recusado como caractere inválido,
+    # corretamente.
     valor = valor.strip()
 
     mascarado = _REGEX_MASCARA.fullmatch(valor)

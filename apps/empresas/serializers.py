@@ -3,17 +3,14 @@ from rest_framework.validators import UniqueValidator
 
 from apps.empresas.fields import CNPJSerializerField
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+from apps.empresas.services import mensagem_cnpj_duplicado as _mensagem_cnpj_duplicado
 
-
-def _mensagem_cnpj_duplicado(model):
-    # Mesmo texto que o DRF geraria sozinho para um CharField unique=True
-    # gerado automaticamente (ver rest_framework.utils.field_mapping),
-    # construído aqui porque CNPJSerializerField é declarado explicitamente
-    # nos dois serializers abaixo — e um campo declarado explicitamente não
-    # herda o UniqueValidator automático do ModelSerializer. Usar
-    # model._meta.verbose_name em vez de escrever "empresa"/"estabelecimento"
-    # à mão mantém a mensagem em sincronia se o verbose_name mudar.
-    return f"{model._meta.verbose_name} com este CNPJ já existe."
+# CNPJSerializerField é declarado explicitamente nos dois serializers abaixo
+# (não é o CharField automático do ModelSerializer), então precisa repor à
+# mão o UniqueValidator que o ModelSerializer geraria sozinho para um campo
+# unique=True. A mensagem vem de apps.empresas.services.mensagem_cnpj_duplicado
+# — a mesma usada por views.py para o caso de corrida (R4 da reauditoria da
+# etapa DL-011), para as duas rotas darem exatamente o mesmo texto.
 
 
 class HistoricoRegimeTributarioSerializer(serializers.ModelSerializer):
