@@ -52,6 +52,22 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-20 | Testes com dados sintéticos ou devidamente anonimizados. | [AGENTS.md](../../AGENTS.md) §7 |
 | RC-21 | Cálculo determinístico separado da IA; a IA consulta, explica e propõe, mas não produz resultado oficial. | [AGENTS.md](../../AGENTS.md) §11 |
 
+### Confirmados pelo Fred em 2026-09-12
+
+| ID | Requisito | Origem |
+| --- | --- | --- |
+| RC-40 | **A rotina que mais consome tempo hoje é importação e conferência de documentos fiscais.** É por onde o produto deve começar a entregar valor. | Fred, 2026-09-12 (resolve PE-10 e PE-14) |
+| RC-41 | O escritório **já não digita documento**: importa de um **sistema de gestão de XML** de terceiros. O DataLedger recebe de um sistema existente, não da SEFAZ diretamente. | Fred, 2026-09-12 (resolve PE-15 em parte) |
+| RC-42 | A carteira **tem segmentos especializados** (combustíveis, empreendimentos imobiliários e/ou transporte). O escopo fiscal **não** pode assumir apenas comércio e serviços simples. | Fred, 2026-09-12 (resolve PE-13 em parte) |
+
+**Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
+captura de documento. Precisa resolver **recepção, classificação e conferência**
+— que é exatamente onde o tempo é gasto.
+
+**Consequência de RC-42:** os segmentos especializados encarecem a apuração, não
+a importação. Isso reforça começar por importar e conferir, e deixar apuração
+para depois de saber **quais** segmentos.
+
 ### Stack técnica
 
 | ID | Requisito | Origem |

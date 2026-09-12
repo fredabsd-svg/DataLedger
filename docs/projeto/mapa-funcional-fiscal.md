@@ -177,6 +177,59 @@ O passo 5 merece destaque: **importar XML entrega valor antes de qualquer
 apuração existir**, porque substitui digitação manual desde o primeiro dia. É a
 fatia com melhor relação entre esforço e alívio de dor.
 
+## Achado de estratégia: existe um formato de intercâmbio documentado e público
+
+Levantado em 2026-09-12, a partir de diretório público indicado pelo Fred.
+
+O sistema de referência publica, em servidor aberto, a especificação de um
+**formato de intercâmbio de importação**: arquivo texto, campos separados por
+`|`, registros hierárquicos, **65 tipos de registro**. Ele cobre muito além do
+fiscal:
+
+| Faixa | Conteúdo |
+| --- | --- |
+| `0000`–`0020` | Empresa, clientes, fornecedores, com histórico de alteração cadastral |
+| `0100`–`0160` | Produtos, vigências, unidades, composição, saldo, grupos |
+| `0200`–`0240` | Contas contábeis, históricos, departamentos, centros de custo |
+| `0300`–`0420` | Equipamentos ECF, bens e contas patrimoniais |
+| `1000`–`1500` | Notas de **entrada**: impostos, estoque, informações municipais e estaduais, **lançamentos contábeis**, parcelas |
+| `2000`–`2500` | Notas de **saída**, mesma estrutura |
+| `3000`–`3500` | Notas de **serviço**, mesma estrutura |
+| `4000`–`4750` | Reduções Z e cupons fiscais |
+| `5100`–`5420` | Recebimentos vinculados a cada tipo de documento |
+
+### Por que isso importa mais que qualquer funcionalidade
+
+O escritório **já opera** com um sistema de gestão de XML que alimenta o sistema
+atual (RC-41). Se o DataLedger **ler o mesmo formato de intercâmbio**, esse
+sistema passa a alimentar o DataLedger **sem nenhuma mudança do lado do
+escritório**.
+
+Isso transforma a adoção: em vez de exigir que o escritório troque a ferramenta
+de captura, o DataLedger entra como **mais um destino** do que já é produzido
+hoje. Dá para rodar os dois em paralelo e comparar resultado — que é a única
+forma responsável de migrar um sistema contábil.
+
+Observe ainda que o formato já carrega **lançamentos contábeis** (`1300`,
+`2300`, `3300`) e **parcelas** (`1500`, `2500`, `3500`). Ou seja: a integração
+fiscal-contábil-financeiro está prevista no próprio intercâmbio.
+
+### Decisão que cabe ao Fred
+
+Ler um formato de intercâmbio documentado e publicado abertamente é
+**interoperabilidade**, categoria diferente de copiar interface ou
+funcionalidade. Ainda assim, é decisão de produto com dimensão jurídica, e não a
+tomo sozinho.
+
+Recomendação técnica: adotar **os dois caminhos**, com prioridades distintas.
+
+1. **XML de NF-e** como formato primário — é padrão público de governo, sem
+   ambiguidade de licença, e é a fonte da verdade. O leiaute vigente deve ser
+   obtido no [Portal Nacional da NF-e](https://www.nfe.fazenda.gov.br) e no
+   Manual de Orientação do Contribuinte, **não de memória**.
+2. **Formato de intercâmbio de terceiros** como caminho de adoção, para que a
+   ferramenta que o escritório já usa continue servindo.
+
 ## Perguntas que dependem do Fred
 
 Registradas em [requisitos.md](requisitos.md) como pendências:
