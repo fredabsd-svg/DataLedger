@@ -225,7 +225,7 @@ def test_cnpj_com_mascara_mal_formada_e_invalido(cnpj):
         " 11222333000181",
         "11222333000181 ",
         " 11222333000181 ",
-        " 11.222.233/0001-83 ",
+        " 11.222.333/0001-81 ",
     ],
 )
 def test_cnpj_com_espaco_na_borda_nao_levanta_erro(cnpj):
