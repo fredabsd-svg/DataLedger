@@ -64,6 +64,8 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-45 | O diretório público de manuais do sistema de referência deve ser **guardado para as demais implementações**, e a pesquisa de dúvidas de domínio pode usar a técnica indicada pelo Fred. Registrado em [fontes-de-referencia.md](fontes-de-referencia.md). | Fred, 2026-09-12 |
 | RC-46 | O **CNPJ alfanumérico** (IN RFB nº 2.229 e NT Conjunta 2025.001) deve ser aceito. Em vigor desde **31/07/2026**. | Documento oficial fornecido pelo Fred, 2026-09-12 |
 | RC-47 | O sistema de gestão de XML **exporta XML puro e também zipado**. O RAR, portanto, **não é necessário**. | Fred, 2026-09-12 (resolve PE-16) |
+| RC-48 | O DataLedger é implantado **na nuvem**, em servidor único, acessado pelo navegador. Nada é instalado nas estações. | Fred, 2026-09-12 (resolve PE-24) |
+| RC-49 | Dimensionamento alvo: **cerca de 50 usuários simultâneos**. | Fred, 2026-09-12 (resolve PE-04 em parte) |
 
 **Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
 captura de documento. Precisa resolver **recepção, classificação e conferência**
@@ -121,7 +123,7 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-01 | Qual módulo e qual rotina do escritório têm prioridade de negócio agora? | Sem isso, o backlog é ordenado por dependência técnica, não por valor. |
 | PE-02 | Política de arredondamento por tipo de cálculo (fiscal, folha, contábil) e em qual etapa arredondar. | Risco de divergência de centavos entre relatório e lançamento. |
 | PE-03 | Regime tributário e porte das empresas atendidas inicialmente. | Define a complexidade do módulo Fiscal e o que pode ficar fora do escopo. |
-| PE-04 | Volume esperado: número de escritórios, empresas por escritório e lançamentos por competência. | Define paginação, índices e estratégia de relatório. |
+| PE-04 | Volume esperado: número de escritórios, empresas por escritório e lançamentos por competência. | **Parcialmente resolvida** por RC-49 (cerca de 50 usuários simultâneos). Faltam número de empresas atendidas e volume de documentos por competência, que é o que dimensiona a importação e os índices. |
 | PE-05 | Como é feito hoje o fechamento e a reabertura de período no escritório do Fred. | RC-16 depende do procedimento real, não de uma suposição. |
 | PE-06 | Há migração de dados de sistema atual? Em qual formato? | Muda prioridade de importadores e de idempotência. |
 | PE-07 | Política de backup e restauração, e quem a executa. | Exigida pelas regras de engenharia; hoje não existe procedimento verificado. |
@@ -139,6 +141,8 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-19 | Confirmação oficial da exclusão das letras `I`, `O`, `U`, `Q` e `F` no CNPJ alfanumérico. | A NT 2025.001 cita a restrição mas declara que "precisa ser confirmada". Enquanto não vier, **aceitamos** essas letras — recusar CNPJ legítimo é pior. |
 | PE-22 | Documento **não eletrônico** — nota modelo 1/1A, nota de produtor, cupom fiscal — **não tem chave de acesso**. Como evitar duplicidade ao importar esses documentos pelo SPED? | Bloqueia parte do critério 9 da [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md). A decisão de domínio da etapa apoia a idempotência na chave de acesso, que esses documentos não possuem. Reimportar o mesmo período duplicaria a escrituração deles. Depende de o Fred dizer se o escritório tem documento assim em período que será migrado. |
 | PE-23 | Cancelamento de NF-e vive em **evento separado**, e não altera o XML da nota. O escritório **arquiva os eventos** junto com as notas, ou só as notas? | Determina o que a recepção pode garantir. Sem os eventos, nota cancelada é recebida como válida — o arquivo dela continua dizendo "autorizada". Se o escritório não arquiva eventos, a situação real do documento só vem pelo SPED ou por consulta à SEFAZ, e isso muda o desenho da conferência. |
+| PE-24 | Onde o servidor fica: escritório ou nuvem? | **Resolvida** por RC-48: nuvem. Registrada em DE-014. |
+| PE-25 | **Residência do dado e LGPD** na nuvem: em qual país o dado de cliente fica armazenado, e qual o contrato com o provedor? | Decorre de DE-014. Dado contábil de cliente é dado de terceiro sob responsabilidade do escritório. Precisa de decisão do Fred junto ao provedor, antes de existir dado real. |
 | PE-21 | A unicidade de CNPJ deve ser **global** no DataLedger, ou **por escritório**? Hoje é global, e a mensagem de erro revela a um escritório que determinado CNPJ já é cliente de outro. | Bloqueia o **BL-48**. É informação comercial num produto vendido a escritórios concorrentes entre si. Difícil de reverter depois que houver dado real: mudar a unicidade depois exige migração e pode encontrar duplicatas legítimas já gravadas. |
 | PE-20 | O que fazer com **escritório já cadastrado cujo CNPJ esteja inválido**: corrigir o dado, permitir a gravação do registro herdado, ou bloquear com mensagem orientando a correção? | Bloqueia o **BL-47**. `Escritorio.cnpj` nunca teve validador e os CNPJs hoje em uso nos testes são todos inválidos pelo dígito verificador. Aplicar a validação sem essa decisão trava a gravação de registros existentes. |
 

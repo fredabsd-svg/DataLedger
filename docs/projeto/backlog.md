@@ -159,6 +159,26 @@ direta para o BL-47:
    precisa dizer o que fazer com escritório cujo CNPJ esteja errado no cadastro
    atual — corrigir na hora ou registrar pendência de cadastro.
 
+## P0 — implantação em nuvem (DE-014)
+
+Abertos em 2026-09-12, quando o Fred decidiu implantação **em nuvem** com cerca
+de **50 usuários simultâneos** (RC-48, RC-49). Nenhum é urgente **hoje**, porque
+não há nada em produção. Todos são **pré-condição para existir dado real de
+cliente** — e por isso são P0, não P2.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-50 | **Impedir que o sistema suba sem PostgreSQL.** Hoje `config/settings.py` usa `env.db("DATABASE_URL", default="sqlite:///...")`: sem a variável configurada, cai em SQLite **em silêncio**. SQLite não suporta a escrita concorrente de 50 usuários e falharia **em uso**, não na instalação. | `desenvolvedor-pleno` | — | planejada | Com `DEBUG=False` e sem `DATABASE_URL`, a aplicação **recusa subir** com mensagem explícita. SQLite segue permitido apenas em desenvolvimento, de forma declarada. Teste automatizado. |
+| BL-51 | **HTTPS e cabeçalhos de segurança.** Acesso pela internet sem cifra expõe senha e dado de cliente. Hoje não há proxy reverso nem configuração de `SECURE_*`. | `desenvolvedor-pleno` | — | planejada | `manage.py check --deploy` sem avisos; redirecionamento para HTTPS; HSTS; *cookies* de sessão e CSRF marcados como seguros; proxy reverso documentado no procedimento de implantação. |
+| BL-52 | **Fila de tarefas em segundo plano.** Importar milhares de XMLs dentro de uma requisição web estoura tempo limite, prende trabalhador do servidor e degrada a experiência dos demais usuários. | `arquiteto-senior` decide a tecnologia; `desenvolvedor-pleno` implementa | — | planejada | Importação submetida devolve resposta imediata com identificador; o processamento roda fora da requisição; o usuário consulta progresso e resultado depois; falha de um lote não derruba o processo. |
+| BL-33 | **Cópia de segurança e restauração, com restauração efetivamente testada.** Elevado de P2 a P0 pela DE-014: banco único em nuvem significa que **o escritório inteiro para junto** se ele se perder. Cópia nunca restaurada não é cópia, é esperança. | `arquiteto-senior` define; `desenvolvedor-pleno` implementa | PE-07 | planejada | Restauração executada em ambiente descartável, a partir de cópia real, com evidência registrada e tempo de recuperação medido. |
+| BL-53 | **Procedimento de implantação documentado e executado uma vez**, do zero ao sistema no ar, incluindo variáveis de ambiente obrigatórias, migração e `collectstatic`. | `arquiteto-senior` | BL-50, BL-51 | planejada | Documento que um terceiro consegue seguir; execução registrada com evidência. |
+
+**BL-52 muda o desenho da [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md).**
+A etapa deixa de ser "ler arquivo e gravar" e passa a ser "receber arquivo,
+enfileirar, processar em segundo plano e relatar". É melhor descobrir isso agora
+do que depois de a etapa estar escrita.
+
 ## P0 — decisões e bloqueios
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
@@ -212,7 +232,6 @@ no que existe. Foram localizadas no diagnóstico com arquivo e linha.
 | BL-36 | Tratar `int(escritorio_id)` inválido (achado 10, gravidade baixa): hoje um valor não numérico gera 500 em vez de 400. | `desenvolvedor-pleno` | — | planejada | Requisição com valor não numérico retorna 400, com teste. |
 | BL-45 | Voltar a usar `{% static %}` com *cache busting*, quando houver mais de um arquivo estático ou público real em produção. Hoje o CSS é referenciado por caminho fixo (DE-012), o que funciona mas não invalida cache do navegador após deploy. | `especialista-frontend` | mais de um estático, ou deploy real | planejada | Template usa `{% static %}`; suíte e CI passam com o manifesto gerado; nome do arquivo servido muda quando o conteúdo muda. |
 | BL-44 | Validar o **corpo** da requisição de lançamento nos limites do banco (achado N3 da [auditoria DL-007 rodada 2](../auditorias/2026-09-12-dl-007-rodada-2.md), gravidade média, **pré-existente**). Hoje `historico` com 5000 caracteres, `valor` com 25 dígitos e `"Infinity"` viram **500**. A DL-007 blindou apenas o cabeçalho `Idempotency-Key`. | `desenvolvedor-pleno` | BL-17 (mesma família; depende de PE-02 para a política de escala) | planejada | Entrada acima do limite retorna 400 com mensagem útil, nunca 500. Testes de limite para `historico`, `valor` e valores não finitos. |
-| BL-33 | Planejar e **verificar** backup e restauração. Não existe procedimento hoje. | `arquiteto-senior` define; `desenvolvedor-pleno` implementa | BL-01 (PE-07) | planejada | Restauração testada em ambiente descartável, com evidência registrada. |
 | BL-34 | Cobrir as lacunas de teste apontadas no diagnóstico: idempotência, concorrência, arredondamento, migração sobre base preexistente. | `desenvolvedor-pleno` | BL-12 | planejada | Cada lacuna tem teste que falha antes da correção e passa depois. |
 
 ## Fora do escopo por enquanto
