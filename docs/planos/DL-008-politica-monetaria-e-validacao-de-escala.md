@@ -117,7 +117,7 @@ Na view de criação de lançamento, devolver **400** com mensagem útil, nunca 
 | 8 | Partida com valor **negativo** → 400, nada gravado |
 | 9 | Partida com valor **zero** → 400 |
 | 10 | Partida com **3 casas decimais** → 400, **recusada e não arredondada** |
-| 11 | O cenário exato do achado 4 (`100,004 + 100,004` contra `200,00`) → 400 |
+| 11 | O cenário exato do achado 4 (`débito 100,004 + 100,004` contra `crédito 200,008`) → 400, nada gravado |
 | 12 | `historico` com 5000 caracteres → 400, não 500 |
 | 13 | `valor` com 25 dígitos → 400, não 500 |
 | 14 | `valor` `"Infinity"` e `"NaN"` → 400, não 500 |
@@ -126,6 +126,29 @@ Na view de criação de lançamento, devolver **400** com mensagem útil, nunca 
 
 Não deve haver migração nova: a mudança é de validação e de um módulo novo, sem
 alteração de campo.
+
+### Correção do critério 11 — erro de redação do `arquiteto-senior`
+
+A primeira versão deste critério pedia `débito 100,004 + 100,004` contra
+**`crédito 200,00`**. Esse cenário **nunca exercitou o achado 4**: a soma
+`200,008` jamais foi igual a `200,00`, então já era recusado **antes** da
+correção. O teste escrito a partir dele passava por construção, e a auditoria
+provou por mutação — removendo a validação de escala, os testes do critério 11
+continuavam passando.
+
+O mecanismo real do achado 4 é `débito 100,004 + 100,004` contra **`crédito
+200,008`**:
+
+- antes da correção: **201**, gravando `débito 200,00 / crédito 200,01` —
+  desbalanceado **no banco**, porque a igualdade era conferida antes do
+  arredondamento da coluna;
+- depois da correção: **400**, nada gravado.
+
+O critério foi corrigido acima. O erro foi de quem escreveu o plano, não de quem
+o implementou — e só apareceu porque o auditor rodou o código **pré-correção**
+em cópia isolada para medir se o teste reproduzia o defeito, em vez de confiar
+no enunciado. **Técnica a repetir:** um teste de regressão só vale se falhar
+contra a versão que tinha o defeito.
 
 ## Impacto
 
