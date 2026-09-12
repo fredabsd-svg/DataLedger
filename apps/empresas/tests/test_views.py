@@ -81,6 +81,27 @@ def test_lista_empresas_exibe_cnpj_mascarado(client, escritorio):
     assert "11122233000183" not in conteudo
 
 
+def test_lista_empresas_exibe_cnpj_alfanumerico_mascarado(client, escritorio):
+    # CNPJ alfanumérico sintético (DL-011): base "AB123CDE0001" com DV "55"
+    # calculado pelo algoritmo oficial da NT 2025.001 (ver
+    # apps/empresas/tests/test_validators.py). O agrupamento com pontuação é
+    # convenção de exibição nossa, não da NT (ver comentário em
+    # apps/empresas/views.py::_mascara_cnpj), mas continua valendo para as 14
+    # posições alfanuméricas ou numéricas.
+    Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Alfanumérica Ltda", cnpj="AB123CDE000155"
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.get(reverse("empresas:lista"))
+
+    conteudo = resposta.content.decode()
+    assert "AB.123.CDE/0001-55" in conteudo
+    # CNPJ cru (14 caracteres seguidos) não deve aparecer mais na página.
+    assert "AB123CDE000155" not in conteudo
+
+
 def test_lista_empresas_vazia_mostra_mensagem_de_estado_vazio(client, escritorio):
     _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
     client.login(username="gestor", password="senha-forte-123")

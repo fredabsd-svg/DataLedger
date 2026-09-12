@@ -118,17 +118,25 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
 
 
 def _mascara_cnpj(cnpj):
-    """Formata um CNPJ de 14 dígitos como XX.XXX.XXX/XXXX-XX.
+    """Formata um CNPJ de 14 caracteres como XX.XXX.XXX/XXXX-XX.
 
     Puramente de apresentação: não repete a validação de
     apps.empresas.validators, que já garantiu o formato na gravação. Se o
-    valor armazenado não tiver exatamente 14 dígitos (dado herdado ou
+    valor armazenado não tiver exatamente 14 caracteres (dado herdado ou
     corrompido), devolve o valor original em vez de mascarar errado.
+
+    O CNPJ alfanumérico (NT 2025.001/IN RFB 2.229, ver
+    apps/empresas/validators.py) continua com 14 posições, então o mesmo
+    agrupamento de sempre é aplicado a letras e dígitos — não só a dígitos.
+    Importante: esse agrupamento XX.XXX.XXX/XXXX-XX é convenção nossa de
+    exibição, não uma regra normativa. A NT 2025.001 define validação, chave
+    de acesso e código de barras; ela não define máscara de tela. Se a
+    Receita publicar um formato de apresentação próprio, esta função deve
+    ser revista.
     """
-    digitos = "".join(filter(str.isdigit, cnpj))
-    if len(digitos) != 14:
+    if len(cnpj) != 14:
         return cnpj
-    return f"{digitos[0:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:14]}"
+    return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
 @login_required

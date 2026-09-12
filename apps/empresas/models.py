@@ -1,6 +1,6 @@
 from django.db import models
 
-from apps.empresas.validators import validar_cnpj
+from apps.empresas.validators import normalizar_cnpj, validar_cnpj
 from apps.tenancy.models import Escritorio
 
 # Lista oficial de siglas de unidade federativa (não é uma regra fiscal:
@@ -58,6 +58,20 @@ class Empresa(models.Model):
         verbose_name = "empresa"
         verbose_name_plural = "empresas"
         ordering = ["razao_social"]
+
+    def save(self, *args, **kwargs):
+        # Canoniza o CNPJ (remove máscara, converte para maiúsculas) antes
+        # de gravar, em todo caminho de ORM — não só via formulário ou
+        # serializer, que podem ser contornados por chamadas diretas
+        # .objects.create()/.save(). O DRF não chama full_clean() e
+        # Model.objects.create() também não (DE-008); validar só em
+        # clean() ou em validador de campo não bastaria para impedir que
+        # "AB123CDE000155" e "ab123cde000155" gravassem como dois registros
+        # apesar de unique=True (achado 1 da auditoria da etapa DL-011).
+        # A validação do dígito verificador continua em validar_cnpj,
+        # acionada por full_clean()/serializer/form; aqui só canonizamos.
+        self.cnpj = normalizar_cnpj(self.cnpj)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.nome_fantasia or self.razao_social
@@ -129,6 +143,13 @@ class Estabelecimento(models.Model):
                 name="uma_matriz_por_empresa",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        # Mesmo motivo e mesma regra de Empresa.save(): o campo cnpj aqui
+        # também é unique=True e passa pelos mesmos caminhos (API sem
+        # full_clean(), .objects.create() direto).
+        self.cnpj = normalizar_cnpj(self.cnpj)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()}) — {self.empresa}"
