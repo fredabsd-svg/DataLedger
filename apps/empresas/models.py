@@ -70,6 +70,27 @@ class Empresa(models.Model):
         # apesar de unique=True (achado 1 da auditoria da etapa DL-011).
         # A validação do dígito verificador continua em validar_cnpj,
         # acionada por full_clean()/serializer/form; aqui só canonizamos.
+        #
+        # Risco herdado, aceito conscientemente: normalizar_cnpj levanta
+        # ValidationError para valor com caractere ou máscara inválidos.
+        # Isso significa que um registro que já estivesse gravado com CNPJ
+        # inválido se tornaria impossível de salvar de novo — mesmo só para
+        # alterar outro campo, porque este save() sempre re-normaliza. Aqui
+        # isso é aceitável: o campo cnpj tem validar_cnpj desde a DL-004,
+        # então só uma chamada direta de ORM (fora de formulário/serializer)
+        # produziria um registro assim, e nenhum dos dados de teste ou de
+        # produção conhecidos está nessa situação.
+        #
+        # Isso NÃO vale para Escritorio (apps/tenancy/models.py), que não
+        # tem validar_cnpj nenhum e cujo campo cnpj nunca foi canonizado
+        # (BL-47, ainda não feito). A reauditoria da etapa DL-011 confirmou
+        # que os CNPJs de Escritorio usados nos testes atuais — incluindo
+        # "11111111000111", "22222222000122", "33333333000133",
+        # "55566677000155" e "55566677000255" — têm dígito verificador
+        # inválido pela regra oficial. Aplicar a mesma canonização em
+        # Escritorio.save() sem um plano de dados quebraria a suíte e, em
+        # produção, travaria a gravação de escritórios já cadastrados. Não
+        # replicar este padrão em Escritorio fora do BL-47.
         self.cnpj = normalizar_cnpj(self.cnpj)
         super().save(*args, **kwargs)
 

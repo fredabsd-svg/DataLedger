@@ -20,8 +20,16 @@ _FORMATO_CNPJ = re.compile(r"^[A-Z0-9]{12}[0-9]{2}$")
 # caracteres depois de tirar os separadores de qualquer posição. A máscara
 # só é reconhecida no formato exato; qualquer outra combinação de separador
 # é tratada como caractere inválido (e cai no ramo de erro abaixo).
+#
+# O último grupo é [A-Za-z0-9]{2}, não [0-9]{2}: se restringíssemos aqui a
+# só dígitos, um CNPJ mascarado com letra na posição do DV (ex.:
+# "11.222.333/0001-8A") deixaria de casar com esta regex e cairia direto no
+# erro genérico de "máscara mal formada" — sem dizer que o problema
+# específico é letra onde só pode haver número. Quem impõe "DV é numérico"
+# é só _FORMATO_CNPJ, depois da máscara já ter sido removida (reauditoria da
+# etapa DL-011, ajuste 2): uma regra, um lugar, uma mensagem específica.
 _REGEX_MASCARA = re.compile(
-    r"^([A-Za-z0-9]{2})\.([A-Za-z0-9]{3})\.([A-Za-z0-9]{3})/([A-Za-z0-9]{4})-([0-9]{2})$"
+    r"^([A-Za-z0-9]{2})\.([A-Za-z0-9]{3})\.([A-Za-z0-9]{3})/([A-Za-z0-9]{4})-([A-Za-z0-9]{2})$"
 )
 
 # Sem máscara: exatamente 14 caracteres alfanuméricos ASCII. Restringir a
@@ -76,6 +84,15 @@ def normalizar_cnpj(valor):
         # chama esta função como parte da validação de um campo (achado 5 da
         # auditoria da etapa DL-011).
         raise ValidationError("CNPJ deve ser um texto.")
+
+    # Espaço em branco na borda (comum em CNPJ colado de planilha) é
+    # descartado aqui, antes das regexes de máscara. Sem isso, o campo de
+    # formulário aceitava (CharField do Django tem strip=True por padrão) e
+    # a API recusava o mesmo valor — porque este código roda antes do
+    # trim_whitespace do DRF (reauditoria da etapa DL-011, ajuste 1). Só
+    # espaço comum (str.strip() sem argumento); não é tratamento de
+    # caractere invisível exótico.
+    valor = valor.strip()
 
     mascarado = _REGEX_MASCARA.fullmatch(valor)
     if mascarado:

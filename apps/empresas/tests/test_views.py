@@ -51,6 +51,55 @@ def test_criar_empresa_com_sucesso_exibe_mensagem_de_confirmacao(client, escrito
     assert 'role="status"' in conteudo
 
 
+def test_criar_empresa_com_cnpj_mascarado_e_aceito_e_gravado_canonico(client, escritorio):
+    # Achado 2 (auditoria da etapa DL-011, alta): CNPJ digitado com máscara —
+    # o uso normal — era recusado pelo MaxLengthValidator do campo do model
+    # (14) antes de normalizar_cnpj tirar a máscara (o form gerava um campo
+    # automático com esse limite). EmpresaForm agora declara o campo cnpj
+    # explicitamente e normaliza em clean_cnpj antes do full_clean() do
+    # model. Este teste é de ponta a ponta (POST real na view), não só
+    # unitário na função de validação isolada.
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Mascarada Ltda",
+            "nome_fantasia": "",
+            "cnpj": "11.122.233/0001-83",
+        },
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "cadastrada com sucesso" in conteudo
+    # Gravado sem máscara: é o valor canônico que fica no banco.
+    assert Empresa.objects.filter(cnpj="11122233000183").exists()
+
+
+def test_criar_empresa_com_cnpj_alfanumerico_mascarado_e_minusculo_e_aceito(client, escritorio):
+    # Mesmo achado 2, agora combinando os três problemas que a auditoria
+    # reproduziu juntos: letras, máscara e minúsculas.
+    _usuario_com_papel(Papel.GESTOR, escritorio, "gestor")
+    client.login(username="gestor", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("empresas:criar"),
+        {
+            "razao_social": "Empresa Alfanumérica Ltda",
+            "nome_fantasia": "",
+            "cnpj": "ab.123.cde/0001-55",
+        },
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert "cadastrada com sucesso" in resposta.content.decode()
+    assert Empresa.objects.filter(cnpj="AB123CDE000155").exists()
+
+
 def test_criar_empresa_sem_permissao_usa_template_proprio_com_link_de_volta(client, escritorio):
     _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
     client.login(username="cliente", password="senha-forte-123")
