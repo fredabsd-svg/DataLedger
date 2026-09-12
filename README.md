@@ -69,60 +69,66 @@ Cada etapa deve ter critérios de aceite e evidências de teste. O fluxo obrigat
 Esta seção existe para que quem retomar o projeto depois não precise
 reconstruir o contexto do zero. Atualize-a a cada etapa integrada.
 
-**Onde paramos:** a etapa 3 (Fundação) e a primeira fatia da etapa 4
-(Contabilidade básica, DL-006) estão implementadas e testadas, mas **ainda
-não integradas na `main`** — só a DL-002 está na `main` até o momento.
-Todo o código das etapas DL-003 a DL-006 existe no repositório remoto, sem
-nenhum trabalho perdido, mas precisa ser trazido para a `main` na ordem
-correta descrita abaixo antes de qualquer etapa nova ser iniciada.
+**Onde paramos (11/09/2026):** a `main` contém tudo de DL-001 a DL-006 —
+documentação inicial, arquitetura/fundação técnica (Django + DRF +
+PostgreSQL), autenticação e isolamento entre escritórios, cadastro central
+de empresas/estabelecimentos, permissões básicas por papel, auditoria, e o
+primeiro módulo de negócio (Contabilidade básica: plano de contas,
+lançamentos por partidas dobradas, Diário, Razão, Balancete). Todas as
+migrações aplicam em banco vazio, os 55 testes automatizados passam e o
+lint/formatação (`ruff`) e a validação de documentação estão limpos —
+conferido rodando a suíte completa sobre a `main` consolidada nesta data.
 
-### Por que a `main` está atrasada em relação ao trabalho já feito
+A etapa 3 (Fundação) está encerrada. Da etapa 4 ("Primeiros fluxos"), só a
+Contabilidade básica foi entregue; Paralegal, Honorários, Fiscal (XML de
+NF-e) e cadastros de folha continuam planejados, cada um em PR próprio.
 
-Os PRs #3, #4, #5 e #6 foram mesclados **para dentro da branch de origem
-encadeada de cada um** (prática prevista no AGENTS.md, seção 6, para PRs
-dependentes), em vez de serem reapontados (`base` do PR) para `main` antes
-do merge. Resultado: o conteúdo de cada etapa ficou "preso" uma branch
-antes do destino final. Os PRs de correção **#7, #8 e #9** existem para
-consertar isso, levando cada etapa até a `main`, sem alterar nenhum código
-— só o branch de destino.
+### Incidente resolvido: PRs encadeados mesclados na branch errada
 
-**Lição para as próximas etapas:** ao mesclar um PR cuja `base` não é
-`main` (um PR encadeado), reaponte a `base` para `main` **antes** de
-mesclar, assim que o PR do qual ele depende já estiver integrado. Nunca
-mesclar um PR encadeado direto na branch intermediária esperando "arrumar
-depois" — é exatamente isso que gerou a pendência atual.
+Durante a integração das etapas DL-003 a DL-006, os PRs correspondentes
+(#3 a #6) foram mesclados **para dentro da branch de origem encadeada de
+cada um** (prática prevista no AGENTS.md, seção 6, para PRs dependentes)
+em vez de terem a `base` reapontada para `main` antes do merge. O conteúdo
+de cada etapa ficou "preso" uma branch antes do destino final, mesmo
+aparecendo como "Merged" no GitHub — nenhum trabalho foi perdido, mas a
+`main` ficou temporariamente atrasada em relação ao que já estava pronto.
 
-### Pull requests — estado em 11/09/2026
+Corrigido pelos PRs #7, #8 e #9 (mesmo conteúdo dos PRs #3 a #6, só com a
+`base` correta), mesclados nessa ordem diretamente em `main`. Já
+integrados; nenhuma ação pendente relacionada a isso.
 
-| PR | Etapa | Branch | Situação |
-| --- | --- | --- | --- |
-| [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) | DL-001 — Documentação inicial | `docs/dl-001-documentacao-inicial` | Integrado em `main`. |
-| [#2](https://github.com/fredabsd-svg/DataLedger/pull/2) | DL-002 — Arquitetura e fundação técnica | `feat/dl-002-arquitetura-fundacao` | Integrado em `main`. |
-| [#3](https://github.com/fredabsd-svg/DataLedger/pull/3) | DL-003 — Autenticação e multiempresa | `feat/dl-003-fundacao-multiempresa` | Mesclado na branch errada (ver acima). Corrigido pelo PR #7. |
-| [#4](https://github.com/fredabsd-svg/DataLedger/pull/4) | DL-004 — Cadastro de empresas | `feat/dl-004-cadastro-empresas` | Mesclado na branch errada. Corrigido pelo PR #7 (o conteúdo acabou incluído ali, ver nota do PR). |
-| [#5](https://github.com/fredabsd-svg/DataLedger/pull/5) | DL-005 — Permissões e auditoria | `feat/dl-005-permissoes-auditoria` | Mesclado na branch errada. Corrigido pelo PR #8. |
-| [#6](https://github.com/fredabsd-svg/DataLedger/pull/6) | DL-006 — Contabilidade básica | `feat/dl-006-contabilidade-basica` | Mesclado na branch errada. Corrigido pelo PR #9. |
-| [#7](https://github.com/fredabsd-svg/DataLedger/pull/7) | Correção DL-003 (+DL-004) → `main` | `feat/dl-003-fundacao-multiempresa` → `main` | **Aberto, CI aprovada. Mesclar primeiro.** |
-| [#8](https://github.com/fredabsd-svg/DataLedger/pull/8) | Correção DL-005 → `main` | `feat/dl-004-cadastro-empresas` → `main` | **Aberto, CI aprovada. Mesclar depois do #7.** |
-| [#9](https://github.com/fredabsd-svg/DataLedger/pull/9) | Correção DL-006 → `main` | `feat/dl-005-permissoes-auditoria` → `main` | **Aberto, CI aprovada. Mesclar por último.** |
+**Lição registrada no AGENTS.md (seção 6):** ao mesclar um PR cuja `base`
+não é `main` (um PR encadeado), reapontar a `base` para `main` **antes**
+de mesclar, assim que o PR do qual ele depende já estiver integrado.
+
+### Pull requests — histórico
+
+Todos os PRs abaixo estão mesclados; a tabela fica para referência de
+como cada etapa chegou à `main`.
+
+| PR | Etapa | Situação |
+| --- | --- | --- |
+| [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) | DL-001 — Documentação inicial | Integrado em `main`. |
+| [#2](https://github.com/fredabsd-svg/DataLedger/pull/2) | DL-002 — Arquitetura e fundação técnica | Integrado em `main`. |
+| [#3](https://github.com/fredabsd-svg/DataLedger/pull/3) a [#6](https://github.com/fredabsd-svg/DataLedger/pull/6) | DL-003 a DL-006 | Mesclados na branch encadeada errada (ver incidente acima); conteúdo trazido à `main` pelos PRs #7 a #9. |
+| [#7](https://github.com/fredabsd-svg/DataLedger/pull/7) | Correção DL-003 (+DL-004) → `main` | Integrado em `main`. |
+| [#8](https://github.com/fredabsd-svg/DataLedger/pull/8) | Correção DL-005 → `main` | Integrado em `main`. |
+| [#9](https://github.com/fredabsd-svg/DataLedger/pull/9) | Correção DL-006 → `main` | Integrado em `main`. |
 
 ### Próximos passos, em ordem
 
-1. Mesclar o PR #7, depois o #8, depois o #9, nessa ordem exata (cada um
-   depende do anterior já estar em `main`; o diff de cada PR encolhe para
-   conter só a etapa correspondente conforme os anteriores são mesclados).
-2. Depois do PR #9 mesclado, `main` terá tudo de DL-002 a DL-006. Apagar as
-   branches `feat/dl-002-arquitetura-fundacao`, `feat/dl-003-fundacao-multiempresa`,
-   `feat/dl-004-cadastro-empresas` e `feat/dl-005-permissoes-auditoria`
-   (a `feat/dl-006-contabilidade-basica` pode ficar ou ser apagada também,
-   a critério de quem revisar).
-3. Configurar a proteção da branch `main` (README, etapa 2 — ainda
-   pendente), para que este tipo de merge indevido fique bloqueado
-   estruturalmente e não dependa só de atenção humana.
-4. Escolher e planejar o próximo fluxo da etapa 4 (Honorários,
+1. Apagar as branches remotas já mescladas e sem PR aberto:
+   `feat/dl-002-arquitetura-fundacao`, `feat/dl-003-fundacao-multiempresa`,
+   `feat/dl-004-cadastro-empresas`, `feat/dl-005-permissoes-auditoria` e
+   `feat/dl-006-contabilidade-basica`. Puramente organizacional — todo o
+   conteúdo já está em `main`.
+2. Configurar a proteção da branch `main` (etapa 2 do roadmap, ainda
+   pendente): exigir PR, revisão e verificações obrigatórias aprovadas
+   antes do merge. Isso bloquearia estruturalmente o tipo de merge indevido
+   do incidente acima, em vez de depender só de atenção humana.
+3. Escolher e planejar o próximo fluxo da etapa 4 (Honorários,
    Processos/Paralegal ou Fiscal/XML de NF-e — decisão de produto, não
-   técnica) e abrir sua branch **a partir da `main` já atualizada**, sem
-   encadear em uma branch de etapa anterior ainda não integrada.
+   técnica) e abrir sua branch **a partir da `main` já atualizada**.
 
 ## Como começar
 
