@@ -31,6 +31,51 @@ qualquer funcionalidade nova.
 | BL-42 | Decidir como garantir que validações de modelo valham no caminho da API. **Causa raiz comum de BL-40 e do achado 4:** o DRF não executa `full_clean()`, então regra escrita só em `Model.clean()` ou em validador de campo é decorativa via API. | `arquiteto-senior` decide; `desenvolvedor-pleno` implementa | — | **decidida** (DE-008) | Decisão registrada em [decisoes.md](decisoes.md) e aplicada de forma uniforme; teste que prove a validação ativa via HTTP. |
 | BL-43 | Fazer a interface enviar `Idempotency-Key` nos formulários de lançamento. Decorre de DE-009: a proteção existe, mas só vale quando o cliente manda a chave. | `especialista-frontend` | BL-41, existir tela de lançamento | planejada | Formulário de lançamento envia chave única por tentativa; duplo clique não gera dois lançamentos. |
 
+## P0 — defeito em vigor: CNPJ alfanumérico
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-46 | Aceitar **CNPJ alfanumérico** no cadastro, na validação e em tudo que compare CNPJ. Hoje o DataLedger **recusa** qualquer CNPJ alfanumérico. | `desenvolvedor-pleno` | **Documento técnico oficial** do cálculo do dígito verificador | **bloqueada** — aguardando a especificação oficial | CNPJ alfanumérico válido é aceito e persistido; CNPJ numérico existente continua válido; DV conferido pelo algoritmo **oficial**, com casos de referência; nenhum ponto do sistema descarta letras do CNPJ. |
+
+### Por que é P0 e por que já está em vigor
+
+Confirmado em fonte oficial da **Receita Federal** em 2026-09-12: a implantação
+do CNPJ alfanumérico começou em **31 de julho de 2026**, regida pela **Instrução
+Normativa RFB nº 2.229**, publicada em 15/10/2024. **Já está valendo.** CNPJs
+numéricos existentes seguem inalterados.
+
+**O defeito, demonstrado por execução:**
+
+`apps/empresas/validators.py` faz
+`digitos = "".join(filter(str.isdigit, valor))` — ou seja, **descarta as
+letras** — e depois exige 14 dígitos. Um CNPJ alfanumérico de 14 caracteres é
+reduzido a 9 dígitos e recusado com a mensagem "CNPJ deve ter 14 dígitos".
+
+Reprodução:
+
+| Entrada | Resultado hoje |
+| --- | --- |
+| `11.222.333/0001-81` (numérico) | Aceito |
+| `12ABC34501DE35` (14 caracteres, com letras) | **Recusado** |
+
+O impacto não é só o cadastro: **qualquer comparação de CNPJ** herda o problema,
+inclusive a futura identificação da empresa no XML importado e a chave de acesso
+da NF-e, que contém o CNPJ do emitente.
+
+### Por que está bloqueada, e não em desenvolvimento
+
+A página oficial confirma o **fato** e a **data**, mas **não publica o algoritmo
+do dígito verificador** — ela remete a um documento técnico à parte. Fontes
+secundárias descrevem o cálculo como módulo 11 sobre o valor ASCII de cada
+caractere menos 48, **mas isso não foi confirmado em fonte oficial**.
+
+Implementar dígito verificador a partir de descrição de blog seria exatamente o
+que o [AGENTS.md](../../AGENTS.md) §10 proíbe: inventar fórmula. Um validador
+errado recusaria empresa legítima ou aceitaria CNPJ inválido — os dois caros.
+
+**Antes de implementar:** obter o documento técnico oficial do cálculo do DV, no
+portal da Receita Federal, e registrar a fonte e a vigência junto do código.
+
 ## P0 — decisões e bloqueios
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
