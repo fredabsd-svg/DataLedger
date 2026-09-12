@@ -76,6 +76,24 @@ errado recusaria empresa legítima ou aceitaria CNPJ inválido — os dois caros
 **Antes de implementar:** obter o documento técnico oficial do cálculo do DV, no
 portal da Receita Federal, e registrar a fonte e a vigência junto do código.
 
+## P1 — lacunas de validação encontradas de passagem
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-47 | Validar o CNPJ do **próprio escritório**. `apps/tenancy/models.py` declara `cnpj = CharField(max_length=14, unique=True)` **sem validador algum** — aceita qualquer texto de até 14 caracteres, inclusive `"abc"`. | `desenvolvedor-pleno` | DL-011 (reaproveitar `validar_cnpj`) | planejada | `Escritorio.cnpj` recusa valor inválido, aceita numérico e alfanumérico, com teste. Avaliar o que fazer com registros existentes que não passem na validação. |
+
+Encontrado pelo `desenvolvedor-pleno` durante a DL-011, **fora do escopo da
+etapa**, e reportado em vez de corrigido — a disciplina certa.
+
+Por que não entrou na DL-011: o BL-46 trata do CNPJ das **empresas clientes**;
+este é o CNPJ do **escritório contábil**, outro modelo e outro contexto.
+Misturar os dois numa etapa faria o diff perder foco.
+
+Cuidado ao implementar: pode haver escritório já cadastrado com CNPJ que não
+passe na validação. Acrescentar validador a campo existente **quebra o
+salvamento** desses registros. Verificar a base antes e decidir o tratamento —
+não é caso de aplicar e ver o que acontece.
+
 ## P0 — decisões e bloqueios
 
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
