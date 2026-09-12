@@ -1,29 +1,19 @@
-from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
+from apps.empresas.fields import CNPJSerializerField
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
-from apps.empresas.validators import normalizar_cnpj
 
 
-def _normalizar_cnpj_do_payload(data):
-    """Normaliza ``data["cnpj"]`` antes da validação de campo do DRF.
-
-    O CharField gerado automaticamente pelo ModelSerializer herda
-    max_length=14 do model (o CNPJ já canonizado). Sem esta normalização
-    prévia, um CNPJ mascarado (até 18 caracteres) é recusado pelo
-    MaxLengthValidator antes mesmo de chegar em validar_cnpj — o mesmo
-    defeito do formulário (achado 2 da auditoria da etapa DL-011), só que na
-    API. ``data`` pode ser um dict comum (JSON) ou um QueryDict imutável
-    (form-encoded); ``.copy()`` cobre os dois casos.
-    """
-    if not (hasattr(data, "get") and isinstance(data.get("cnpj"), str)):
-        return data
-    data = data.copy()
-    try:
-        data["cnpj"] = normalizar_cnpj(data["cnpj"])
-    except DjangoValidationError as exc:
-        raise serializers.ValidationError({"cnpj": exc.messages}) from exc
-    return data
+def _mensagem_cnpj_duplicado(model):
+    # Mesmo texto que o DRF geraria sozinho para um CharField unique=True
+    # gerado automaticamente (ver rest_framework.utils.field_mapping),
+    # construído aqui porque CNPJSerializerField é declarado explicitamente
+    # nos dois serializers abaixo — e um campo declarado explicitamente não
+    # herda o UniqueValidator automático do ModelSerializer. Usar
+    # model._meta.verbose_name em vez de escrever "empresa"/"estabelecimento"
+    # à mão mantém a mensagem em sincronia se o verbose_name mudar.
+    return f"{model._meta.verbose_name} com este CNPJ já existe."
 
 
 class HistoricoRegimeTributarioSerializer(serializers.ModelSerializer):
@@ -34,6 +24,21 @@ class HistoricoRegimeTributarioSerializer(serializers.ModelSerializer):
 
 
 class EstabelecimentoSerializer(serializers.ModelSerializer):
+    # Declarado explicitamente (não o CharField automático do
+    # ModelSerializer): CNPJSerializerField normaliza e valida dentro do
+    # laço por-campo do DRF, o que preserva a agregação de erros com os
+    # demais campos (R7 da reauditoria da etapa DL-011). UniqueValidator
+    # precisa ser reposto à mão pelo mesmo motivo — campo explícito não
+    # herda os validadores que o ModelSerializer geraria sozinho.
+    cnpj = CNPJSerializerField(
+        validators=[
+            UniqueValidator(
+                queryset=Estabelecimento.objects.all(),
+                message=_mensagem_cnpj_duplicado(Estabelecimento),
+            )
+        ]
+    )
+
     class Meta:
         model = Estabelecimento
         fields = [
@@ -51,11 +56,15 @@ class EstabelecimentoSerializer(serializers.ModelSerializer):
             "ativo",
         ]
 
-    def to_internal_value(self, data):
-        return super().to_internal_value(_normalizar_cnpj_do_payload(data))
-
 
 class EmpresaSerializer(serializers.ModelSerializer):
+    cnpj = CNPJSerializerField(
+        validators=[
+            UniqueValidator(
+                queryset=Empresa.objects.all(), message=_mensagem_cnpj_duplicado(Empresa)
+            )
+        ]
+    )
     regime_atual = serializers.SerializerMethodField()
 
     class Meta:
@@ -65,9 +74,6 @@ class EmpresaSerializer(serializers.ModelSerializer):
     def get_regime_atual(self, empresa):
         vigente = empresa.historico_regime_tributario.filter(vigencia_fim__isnull=True).first()
         return vigente.regime if vigente else None
-
-    def to_internal_value(self, data):
-        return super().to_internal_value(_normalizar_cnpj_do_payload(data))
 
     def create(self, validated_data):
         # Isolamento: a empresa criada pertence sempre ao escritório ativo

@@ -1,26 +1,19 @@
 from django import forms
 
 from apps.empresas.models import Empresa
-from apps.empresas.validators import normalizar_cnpj
 
 
 class EmpresaForm(forms.ModelForm):
-    # Campo declarado explicitamente, não o gerado automaticamente pelo
-    # ModelForm a partir do model. O campo do model tem max_length=14 (o
-    # CNPJ já canonizado); se usássemos o campo automático, o
-    # MaxLengthValidator(14) rodaria sobre o valor CRU digitado pelo usuário
-    # — que com máscara tem até 18 caracteres — e bloquearia antes de
-    # normalizar_cnpj tirar a máscara. Era exatamente isso que a auditoria
-    # da etapa DL-011 reproduziu (achado 2): CNPJ mascarado, o uso normal,
-    # sendo recusado com "no máximo 14 caracteres". Ao normalizar aqui, em
-    # clean_cnpj, o valor que chega ao full_clean() do model (chamado pelo
-    # ModelForm) já está canônico, com 14 caracteres, e o MaxLengthValidator
-    # do model passa a validar o valor certo.
-    cnpj = forms.CharField(label="CNPJ", max_length=32)
-
+    # Não precisa mais declarar nem normalizar o campo "cnpj" aqui: o campo
+    # do modelo agora é CNPJModelField (apps/empresas/fields.py), cujo
+    # formfield() já devolve um CNPJFormField com a normalização embutida
+    # em to_python() e sem o MaxLengthValidator baseado no max_length=14 do
+    # banco. É a correção estrutural do achado R2 da reauditoria da etapa
+    # DL-011: antes, só este formulário normalizava (em clean_cnpj); o
+    # Django admin gerava seu próprio ModelForm a partir do model e
+    # continuava recusando CNPJ mascarado. Apontar o campo do MODELO para
+    # CNPJModelField faz qualquer ModelForm — este, o do admin, o inline —
+    # herdar o comportamento certo, sem duplicar lógica.
     class Meta:
         model = Empresa
         fields = ["razao_social", "nome_fantasia", "cnpj"]
-
-    def clean_cnpj(self):
-        return normalizar_cnpj(self.cleaned_data["cnpj"])
