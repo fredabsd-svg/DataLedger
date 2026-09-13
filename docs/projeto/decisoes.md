@@ -738,48 +738,58 @@ integralmente satisfaz a exigência e preserva a legibilidade do livro.
 
 Alcance dos campos alteráveis: pendente de PE-35.
 
-## DE-018 — Eliminação de período: implementar, depois do que a torna segura
+## DE-018 — Duas operações diferentes: regerar o derivado e apagar o original
 
-**Data:** 2026-09-13
+**Data:** 2026-09-13. **Reescrita no mesmo dia**, depois de o Fred explicar o
+caso de uso real (RC-59). A versão anterior tratava as duas como uma só e
+partia de um receio que não se aplicava.
 
-**Decisão:** implementar a eliminação de período (RC-52), **com salvaguardas
-obrigatórias e não configuráveis**, e **depois** das duas coisas que a tornam
-recuperável. Substitui a recomendação anterior de não implementar.
+### O que eu tinha entendido errado
 
-### Salvaguardas que não serão opcionais
+Eu li "eliminação de período" como apagar escrituração para reduzir volume, e
+montei salvaguardas pesadas em cima disso: exportação verificada, inventário
+permanente, dependência de restauração testada.
 
-1. Só período **encerrado** (BL-11).
-2. **Exportação completa e verificada antes de apagar**: o sistema grava um
-   arquivo com tudo que será eliminado e confere que ele pode ser lido de volta.
-   Exportação que falhe **aborta** a eliminação.
-3. Papel autorizado, com confirmação que mostra a **contagem** do que será
-   eliminado e os totais do período.
-4. **Inventário permanente do que foi eliminado**: empresa, período, quantidade
-   de lançamentos, totais de débito e crédito, impressão digital do arquivo
-   exportado, autor e data. Esse registro **nunca** é eliminado — nem por outra
-   eliminação de período.
-5. A trilha de auditoria da própria operação é imutável.
+O que o Fred quer é outra coisa. As notas escrituradas no fiscal **geram** os
+lançamentos da contabilidade. Se o plano de contas mudar no meio do ano, ele
+precisa **apagar os lançamentos gerados e refazê-los** a partir das notas — que
+continuam intactas. Não é destruição de dado: é **reconstrução de dado
+derivado**, e a origem permanece.
 
-### Ordem, e por que ela não é negociável
+A diferença é a mesma entre apagar um relatório e apagar os lançamentos que o
+originaram. Um se refaz; o outro, não.
 
-A eliminação entra **depois** de:
+### Decisão: duas operações, com regras distintas
 
-- **BL-33** — cópia de segurança com restauração efetivamente testada. Hoje não
-  existe. Apagar dado de cliente sem restauração provada não é uma
-  funcionalidade, é uma aposta.
-- **BL-11** — fechamento de período.
+**1. Regeração de lançamentos derivados** — o que o Fred pediu.
 
-Não é recusa: é sequência. A ordem inversa transforma o primeiro erro de
-operação em perda definitiva de escrituração de cliente, que é o pior defeito
-possível neste sistema.
+| Regra | Motivo |
+| --- | --- |
+| Só alcança lançamento cuja **origem** seja um processo do sistema (escrita fiscal, folha), nunca lançamento manual | Lançamento manual não tem de onde ser refeito. Apagá-lo é perda definitiva |
+| Só em **período aberto** (RC-57) | Período fechado não se mexe sem reabrir |
+| **Não** alcança lançamento conciliado ou ajustado à mão, salvo autorização explícita | Levantado no mapa funcional: conciliação trava regeração |
+| Apaga e refaz na **mesma transação** | Falha no meio não pode deixar o período sem lançamento nenhum |
+| Registra na trilha: quem, quando, que período, quantos lançamentos saíram e quantos entraram | Rastro do que aconteceu, mesmo o resultado sendo equivalente |
+| Idempotente | Rodar duas vezes produz o mesmo resultado, não o dobro |
 
-### O que ainda falta decidir
+**2. Eliminação de escrituração** — apagar dado sem origem de onde refazer.
 
-**PE-34**: para que a eliminação serve no escritório. Reduzir volume se resolve
-com arquivamento, que tem caminho de volta e é preferível. Empresa que saiu da
-carteira ou pedido de exclusão por LGPD são apagamento de verdade — e aí a
-pergunta seguinte é o que fazer com a obrigação legal de guarda dos livros
-daquele período, que é matéria do responsável técnico, não do software.
+Continua valendo tudo que a versão anterior exigia: só período encerrado,
+exportação verificada antes de apagar com aborto em caso de falha, papel
+autorizado com contagem e totais, inventário permanente, e **depois** de BL-33
+(restauração testada). Não há demanda para isso hoje — fica registrado para não
+ser confundido com a operação acima.
+
+### Pré-requisito que isso revela, e que não existe hoje
+
+O lançamento contábil precisa saber **de onde veio**: a origem (manual, escrita
+fiscal, folha) e o **documento que o originou**. Sem isso, não há como
+distinguir o que pode ser regerado do que é insubstituível — e uma regeração
+apagaria lançamento manual junto.
+
+Hoje `LancamentoContabil` não tem nenhum dos dois. Vira **BL-72**, e entra junto
+da [DL-016](../planos/DL-016-competencia-e-fechamento.md), que já altera o
+modelo — uma migração em vez de duas.
 
 ## DE-019 — Competência é o mês da data do lançamento
 

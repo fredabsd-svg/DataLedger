@@ -42,9 +42,13 @@ O primeiro protege o operador de si mesmo; o segundo protege o cliente.
 - Recusa, **no servidor**, de lançamento em competência encerrada.
 - Período de trabalho por empresa, com a política de três estados.
 - Filtro de competência nas saídas da DL-015.
+- **Origem e documento de origem no lançamento** (BL-72). Entra aqui por
+  economia de migração: esta etapa já altera o modelo, e separar as duas daria
+  duas migrações sobre a mesma tabela. É pré-requisito da regeração de
+  lançamentos derivados (BL-66, DE-018) e da integração fiscal→contábil.
 
-Fora do escopo: alteração em massa (BL-65), eliminação (BL-66), centro de custo
-(BL-67 a BL-69), numeração de livros (BL-70), interface (BL-62).
+Fora do escopo: alteração em massa (BL-65), regeração de derivados (BL-66),
+centro de custo (BL-67 a BL-69), numeração de livros (BL-70), interface (BL-62).
 
 ## Decisão de modelagem, já tomada
 
@@ -84,8 +88,15 @@ porque depois fica cara.
    400). Teste para os três estados.
 10. As saídas da DL-015 aceitam competência como forma de informar o período, sem
     perder o intervalo de datas livre.
-11. Sem regressão: suíte, lint, formatação, `manage.py check` e migrações em
-    banco vazio limpos.
+11. A origem do lançamento é gravada com valores controlados, **não é alterável**
+    depois de gravada, e o lançamento criado pela API de escrituração manual
+    nasce com origem manual. Teste que tenta alterar a origem e falha.
+12. Existe caminho do documento de origem para os lançamentos que ele gerou, e o
+    inverso, respeitando o isolamento entre empresas.
+13. Sem regressão: suíte, lint, formatação, `manage.py check` e migrações em
+    banco vazio limpos. A migração é aplicada sobre base **com dados** num
+    teste, e os lançamentos existentes recebem origem manual — nenhum fica sem
+    origem.
 
 ## Riscos
 
