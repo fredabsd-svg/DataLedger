@@ -225,6 +225,80 @@ período encerrado sem obrigação pendente, com papel autorizado e registro.
 A mesma lógica vale para exclusão em massa. Onde o sistema de referência
 apagaria, nós registramos.
 
+## Conta retificadora, apresentação de saldo e implantação
+
+Levantado em 2026-09-13 com material enviado pelo Fred — um balanço patrimonial
+e o lançamento de implantação que o originou. Resolveu PE-37 e detalhou RC-53.
+
+### O caso de referência que temos, com números conferidos
+
+O balanço enviado traz o grupo do imobilizado assim:
+
+| Classificação | Conta | Saldo |
+| --- | --- | --- |
+| `1.2.3.03.001` | Máquinas e equipamentos | 1.437,50 **D** |
+| `1.2.3.04.001` | Veículos | 29.900,00 **D** |
+| `1.2.3.07.003` | **(-)** Depreciações de máquinas e equipamentos | 2.074,18 **C** |
+| `1.2.3` | **Imobilizado** | **29.263,32 D** |
+
+Conferi por cálculo: `1.437,50 + 29.900,00 − 2.074,18 = 29.263,32`. Bate.
+
+Isso é **caso de referência com resultado esperado**, e vale mais que qualquer
+descrição: vira teste. É exatamente o cenário do achado 3 da auditoria, onde o
+código atual produziria 33.411,68 em vez de 29.263,32.
+
+### As três regras que esse caso estabelece
+
+1. **A retificadora é conta de natureza contrária dentro do grupo.** Não é um
+   valor negativo: é uma conta credora classificada dentro de um grupo devedor.
+   O modelo atual já permite isso de propósito.
+2. **O grupo soma pela natureza dele**, não pela dos filhos. Grupo devedor:
+   débitos menos créditos das descendentes. É a correção de DE-020, agora com
+   número de referência para provar.
+3. **O saldo é apresentado em valor absoluto com indicador `D` ou `C`.** Nunca
+   como número negativo. Um saldo credor de 2.074,18 se escreve `2.074,18 C`, e
+   o nome da conta carrega o prefixo `(-)`.
+
+A terceira regra é mudança de contrato para nós: hoje as saídas devolvem um
+número que pode vir negativo. Vira **BL-77**.
+
+### Implantação de saldos, o procedimento real
+
+Um **único lançamento**, do tipo vários débitos para vários créditos, datado
+**na data de encerramento do balanço do escritório anterior** — tipicamente
+31/12. Cada conta de saldo devedor entra a débito, cada conta de saldo credor
+entra a crédito, com histórico dizendo de que data é o saldo. A retificadora
+entra pelo lado da natureza dela. O lançamento fecha como qualquer outro.
+
+Duas consequências para o nosso desenho:
+
+- A implantação **não precisa de modelo novo**. É um lançamento comum, com o
+  cuidado de ser identificável como abertura.
+- A validação certa **não** é "ativo igual a passivo mais patrimônio líquido"
+  calculada por fora: é a igualdade entre débitos e créditos do próprio
+  lançamento, que o sistema já exige de todo lançamento. O que falta é o
+  assistente que evite digitar dezenas de linhas na mão e que recuse conta de
+  resultado.
+
+**Cuidado registrado pelo Fred:** lucros e prejuízos acumulados exigem tratamento
+próprio, com um passo de transferência do resultado do período, e isso afeta
+quem transmite a escrituração digital. É **PE-38** — regra contábil que precisa
+vir dele com fonte, porque implantar errado contamina a primeira demonstração do
+cliente novo.
+
+### Outras confirmações das mesmas telas
+
+- A conta é vinculada a **grupos de cada demonstração**, e a ausência de vínculo
+  é **declarada** ("não faz parte"), não um campo vazio. A diferença importa:
+  campo vazio é esquecimento, valor declarado é decisão.
+- A conta tem **tipo explícito** (analítica ou sintética) além da hierarquia, e
+  a **classificação contábil** é distinta do código de cadastro. Hoje nosso
+  `Conta.codigo` acumula os dois papéis, e a classificação analítica/sintética é
+  inferida do campo que autoriza lançamento — o que o achado 2 da auditoria
+  mostrou ser frágil.
+- Existe **origem própria** para o lançamento de transferência de resultado.
+  Reforça BL-72.
+
 ## Integração fiscal → contábil: como a nota vira lançamento
 
 Levantado em 2026-09-13 no manual público de escrita fiscal, a pedido do Fred,
