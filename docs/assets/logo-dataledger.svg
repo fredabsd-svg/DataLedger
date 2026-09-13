@@ -1,66 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">DataLedger</title>
-  <desc id="desc">Símbolo DataLedger em azul e verde, combinando um G, um laço infinito e cubos de dados.</desc>
-  <defs>
-    <linearGradient id="blue" x1="76" y1="84" x2="414" y2="430" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#149BFF"/>
-      <stop offset="0.45" stop-color="#0868C7"/>
-      <stop offset="1" stop-color="#062A6E"/>
-    </linearGradient>
-    <linearGradient id="green" x1="158" y1="112" x2="372" y2="406" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#25F071"/>
-      <stop offset="0.55" stop-color="#08B84E"/>
-      <stop offset="1" stop-color="#02853B"/>
-    </linearGradient>
-    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#F1F5F9"/>
-      <stop offset="0.45" stop-color="#94A3B8"/>
-      <stop offset="1" stop-color="#E2E8F0"/>
-    </linearGradient>
-    <filter id="softGlow" x="-25%" y="-25%" width="150%" height="150%">
-      <feGaussianBlur stdDeviation="4" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.34"/>
-    </filter>
-    <g id="cube">
-      <polygon points="0,-17 29,-1 0,15 -29,-1" fill="#24DD67" stroke="#E2E8F0" stroke-width="2"/>
-      <polygon points="-29,-1 0,15 0,49 -29,33" fill="#0577C9" stroke="#E2E8F0" stroke-width="2"/>
-      <polygon points="29,-1 0,15 0,49 29,33" fill="#064A9B" stroke="#E2E8F0" stroke-width="2"/>
-    </g>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="titulo descricao">
+  <!-- Conceito: partidas dobradas. Monograma "DL" em que as duas letras têm a mesma altura e -->
+  <!-- espessura, unidas por uma linha de equilíbrio: todo lançamento contábil precisa fechar. -->
+  <title id="titulo">Logotipo DataLedger</title>
+  <desc id="descricao">Monograma das letras D e L, do mesmo tamanho, apoiadas sobre uma linha de equilíbrio, dentro de um selo arredondado escuro.</desc>
 
-  <g filter="url(#shadow)">
-    <!-- blue structural loops -->
-    <path d="M238 112C198 72 135 69 91 99C36 136 22 213 54 272C83 326 146 353 205 334C233 325 257 307 274 282L218 282C204 297 186 307 166 310C120 316 79 282 73 236C67 187 102 143 151 136C184 131 216 143 238 167" fill="none" stroke="url(#blue)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M244 168C274 119 325 87 382 91C452 96 500 157 492 226C484 297 418 343 349 329C307 321 274 295 250 259" fill="none" stroke="url(#blue)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#0D1117" stroke="#30363D" stroke-width="4"/>
 
-    <!-- silver inner accents -->
-    <path d="M236 121C196 83 137 80 96 108C49 139 35 204 58 256" fill="none" stroke="url(#silver)" stroke-width="5" stroke-linecap="round" opacity="0.9"/>
-    <path d="M267 163C298 122 338 105 383 108C441 112 478 161 472 217" fill="none" stroke="url(#silver)" stroke-width="5" stroke-linecap="round" opacity="0.9"/>
+  <!-- Letra D: haste + bojo semicircular, sólidos (sem contorno interno) para legibilidade em 32 px -->
+  <path d="M26 32 H42 A28 28 0 0 1 42 88 H26 Z" fill="#22D3EE"/>
 
-    <!-- G bar -->
-    <path d="M168 236H261" fill="none" stroke="url(#blue)" stroke-width="50" stroke-linecap="round"/>
+  <!-- Letra L: haste + base, mesma altura da letra D -->
+  <rect x="86" y="32" width="16" height="56" fill="#A371F7"/>
+  <rect x="86" y="74" width="34" height="14" fill="#A371F7"/>
 
-    <!-- green infinity ribbon -->
-    <path d="M135 133C199 99 230 147 259 206C286 260 316 329 371 340C415 349 449 324 471 286" fill="none" stroke="#E2E8F0" stroke-width="60" stroke-linecap="round" opacity="0.95"/>
-    <path d="M135 133C199 99 230 147 259 206C286 260 316 329 371 340C415 349 449 324 471 286" fill="none" stroke="url(#green)" stroke-width="48" stroke-linecap="round" filter="url(#softGlow)"/>
-
-    <!-- subtle green return inside right loop -->
-    <path d="M471 286C454 318 429 337 397 342" fill="none" stroke="#4CF58C" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
-
-    <!-- data cubes -->
-    <g transform="translate(374 181) scale(.58)">
-      <use href="#cube" x="0" y="-44"/>
-      <use href="#cube" x="-42" y="-2"/>
-      <use href="#cube" x="42" y="-2"/>
-      <use href="#cube" x="0" y="37"/>
-      <use href="#cube" x="-42" y="79"/>
-      <use href="#cube" x="42" y="79"/>
-    </g>
-  </g>
-
-  <!-- compact wordmark cue for favicon-like contexts -->
-  <circle cx="455" cy="78" r="9" fill="#3FB950" stroke="#E2E8F0" stroke-width="2"/>
+  <!-- Linha de equilíbrio: representa o "bater" das partidas dobradas -->
+  <rect x="26" y="96" width="94" height="6" rx="3" fill="#3FB950"/>
 </svg>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-dataledger.svg" alt="Símbolo do DataLedger" width="128" />
+  <img src="docs/assets/logo-dataledger.svg" alt="Monograma DL do DataLedger: as letras D e L com o mesmo peso, sobre uma linha de equilíbrio" width="128" />
 </p>
 
 # 📊 DataLedger
