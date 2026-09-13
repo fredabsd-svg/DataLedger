@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">Arquitetura do DataLedger</title>
+  <desc id="desc">Camadas de interface, serviços Django e DRF, módulos de negócio, auditoria e PostgreSQL.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="430"><stop stop-color="#0D1117"/><stop offset="1" stop-color="#111827"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#22D3EE"/><stop offset="1" stop-color="#58A6FF"/></linearGradient>
+  </defs>
+  <rect width="1200" height="430" rx="28" fill="url(#bg)"/>
+  <rect x="1" y="1" width="1198" height="428" rx="27" fill="none" stroke="#30363D" stroke-width="2"/>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="52" y="58" font-size="27" fill="#E6EDF3" font-weight="800">Arquitetura modular, isolamento no centro</text>
+    <text x="52" y="88" font-size="15" fill="#8B949E">A mesma regra de acesso deve valer para tela, API, tarefas e futuro MCP.</text>
+
+    <g transform="translate(54 118)">
+      <rect width="1092" height="58" rx="16" fill="#101820" stroke="#264A56"/>
+      <text x="28" y="24" font-size="12" fill="#22D3EE" font-weight="700">INTERFACE</text>
+      <text x="28" y="44" font-size="15" fill="#E6EDF3">Templates Django · HTMX · Alpine.js · API REST</text>
+      <circle cx="1020" cy="29" r="17" fill="#22D3EE" opacity=".14"/><path d="M1011 29h18M1020 20v18" stroke="#22D3EE" stroke-width="2.5" stroke-linecap="round"/>
+    </g>
+
+    <g transform="translate(54 194)">
+      <rect width="1092" height="72" rx="16" fill="#101820" stroke="#30363D"/>
+      <text x="28" y="24" font-size="12" fill="#A371F7" font-weight="700">APLICAÇÃO</text>
+      <g font-size="14" fill="#E6EDF3">
+        <rect x="28" y="36" width="148" height="24" rx="8" fill="#171B2B"/><text x="47" y="53">Accounts</text>
+        <rect x="188" y="36" width="148" height="24" rx="8" fill="#171B2B"/><text x="207" y="53">Tenancy</text>
+        <rect x="348" y="36" width="148" height="24" rx="8" fill="#171B2B"/><text x="367" y="53">Empresas</text>
+        <rect x="508" y="36" width="148" height="24" rx="8" fill="#171B2B"/><text x="527" y="53">Contabilidade</text>
+        <rect x="668" y="36" width="148" height="24" rx="8" fill="#171B2B"/><text x="687" y="53">Auditoria</text>
+        <rect x="828" y="36" width="236" height="24" rx="8" fill="#10252B" stroke="#22D3EE" stroke-opacity=".35"/><text x="847" y="53" fill="#7EE7F5">Fiscal · próximos módulos</text>
+      </g>
+    </g>
+
+    <g transform="translate(54 284)">
+      <rect width="710" height="92" rx="16" fill="#101820" stroke="#2E4D39"/>
+      <text x="28" y="25" font-size="12" fill="#3FB950" font-weight="700">DADOS E GARANTIAS</text>
+      <text x="28" y="49" font-size="15" fill="#E6EDF3">PostgreSQL · constraints · transações · Decimal · migrações versionadas</text>
+      <text x="28" y="73" font-size="13" fill="#8B949E">Isolamento por Escritório + rastreabilidade + invariantes contábeis</text>
+      <g transform="translate(640 46)" fill="none" stroke="#3FB950" stroke-width="2.5">
+        <ellipse cx="0" cy="-18" rx="22" ry="8"/><path d="M-22-18v32c0 5 10 8 22 8s22-3 22-8v-32M-22-2c0 5 10 8 22 8s22-3 22-8"/>
+      </g>
+    </g>
+
+    <g transform="translate(784 284)">
+      <rect width="362" height="92" rx="16" fill="#101820" stroke="#4E3D67"/>
+      <text x="24" y="25" font-size="12" fill="#A371F7" font-weight="700">IA / MCP — EVOLUÇÃO PLANEJADA</text>
+      <text x="24" y="49" font-size="14" fill="#E6EDF3">Consultar · explicar · propor</text>
+      <text x="24" y="71" font-size="13" fill="#8B949E">Sem substituir cálculo determinístico.</text>
+      <path d="M315 30c13 0 23 10 23 23s-10 23-23 23-23-10-23-23 10-23 23-23Z" fill="#A371F7" opacity=".12"/><path d="m305 53 7 7 14-16" fill="none" stroke="#A371F7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <g stroke="url(#cyan)" stroke-width="2" fill="none" opacity=".8">
+      <path d="M600 176v18"/><path d="M600 266v18"/>
+    </g>
+    <path d="m594 188 6 6 6-6M594 278l6 6 6-6" fill="none" stroke="#22D3EE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
