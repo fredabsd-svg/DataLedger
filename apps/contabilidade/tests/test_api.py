@@ -128,6 +128,13 @@ def test_empresa_de_outro_escritorio_da_404_em_contas(client, cenario):
 
 
 def test_razao_acumula_saldo_por_conta(client, cenario):
+    # Atualizado pela DE-016 (DL-015): a rota passou a EXIGIR 'inicio'/'fim'
+    # na querystring, e a resposta deixou de ser {"conta", "saldo_final",
+    # "itens"} para o contrato de 4 colunas do plano DL-015 ({"conta",
+    # "nome", "inicio", "fim", "saldo_anterior", "total_debito",
+    # "total_credito", "saldo_final", "itens"}). O teste original chamava a
+    # rota sem período (aceitava o acumulado "desde sempre") — o que a
+    # DE-016 deliberadamente proíbe agora.
     usuario = _usuario_com_papel(Papel.GESTOR, cenario["escritorio_a"], "gestor")
     criar_lancamento(
         empresa=cenario["empresa_a"],
@@ -152,7 +159,8 @@ def test_razao_acumula_saldo_por_conta(client, cenario):
     client.login(username="gestor", password="senha-forte-123")
 
     response = client.get(
-        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["caixa"].id])
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["caixa"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
     )
 
     corpo = response.json()
@@ -161,6 +169,10 @@ def test_razao_acumula_saldo_por_conta(client, cenario):
 
 
 def test_balancete_reflete_saldos_das_contas(client, cenario):
+    # Atualizado pela DE-016 (DL-015): a rota passou a exigir 'inicio'/'fim',
+    # e a resposta virou {"inicio", "fim", "contas": [...], "total_debitos",
+    # "total_creditos"}, com cada conta trazendo 4 colunas (saldo_anterior,
+    # debitos, creditos, saldo_final) em vez da coluna única "saldo".
     usuario = _usuario_com_papel(Papel.GESTOR, cenario["escritorio_a"], "gestor")
     criar_lancamento(
         empresa=cenario["empresa_a"],
@@ -174,8 +186,11 @@ def test_balancete_reflete_saldos_das_contas(client, cenario):
     )
     client.login(username="gestor", password="senha-forte-123")
 
-    response = client.get(reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]))
+    response = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
+    )
 
-    saldos = {linha["conta"]: linha["saldo"] for linha in response.json()}
+    saldos = {linha["conta"]: linha["saldo_final"] for linha in response.json()["contas"]}
     assert saldos["1.1"] == "1000.00"
     assert saldos["2.1"] == "1000.00"

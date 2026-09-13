@@ -2,7 +2,6 @@ import hashlib
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -10,19 +9,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import (
-    Conta,
-    ItemLancamento,
-    LancamentoContabil,
-    NaturezaConta,
-    TipoPartida,
-)
+from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
     LancamentoInvalido,
+    apurar_balancete,
+    apurar_razao,
     criar_lancamento,
     estornar_lancamento,
+    listar_diario,
+    localizar_lotes_desbalanceados,
 )
 from apps.core.dinheiro import PADRAO_VALOR_DECIMAL_SIMPLES
 from apps.empresas.mixins import EmpresaEscopadaMixin
@@ -64,6 +61,59 @@ def _como_moeda(valor):
     causa do banco usado no ambiente, mascarando o valor real.
     """
     return str(Decimal(valor).quantize(Decimal("0.01")))
+
+
+def _periodo_obrigatorio(request):
+    """Extrai e valida `inicio`/`fim` da querystring das saídas com período.
+
+    DE-016: o período passa a ser OBRIGATÓRIO no Diário, Razão e Balancete —
+    quebra deliberada do contrato anterior. Ausente, malformado (formato
+    diferente de AAAA-MM-DD) ou invertido (`inicio > fim`) sempre vira 400
+    com mensagem útil, nunca 500 nem um período implícito (critério 2 do
+    plano DL-015).
+    """
+    bruto_inicio = request.query_params.get("inicio")
+    bruto_fim = request.query_params.get("fim")
+    if not bruto_inicio or not bruto_fim:
+        raise DRFValidationError("Informe 'inicio' e 'fim' (formato AAAA-MM-DD) na querystring.")
+
+    try:
+        inicio = date.fromisoformat(bruto_inicio)
+    except ValueError as exc:
+        raise DRFValidationError(
+            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
+        ) from exc
+    try:
+        fim = date.fromisoformat(bruto_fim)
+    except ValueError as exc:
+        raise DRFValidationError(
+            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
+        ) from exc
+
+    if inicio > fim:
+        raise DRFValidationError(
+            f"'inicio' ({inicio.isoformat()}) não pode ser posterior a 'fim' ({fim.isoformat()})."
+        )
+    return inicio, fim
+
+
+def _nivel_opcional(request):
+    """Extrai e valida o parâmetro opcional `nivel` do Balancete.
+
+    Ausente (ou vazio), devolve `None` — sem recorte de hierarquia. Presente
+    e malformado (não inteiro, ou menor que 1) vira 400: a raiz do plano de
+    contas é o nível 1, não existe nível zero ou negativo.
+    """
+    bruto = request.query_params.get("nivel")
+    if not bruto:
+        return None
+    try:
+        nivel = int(bruto)
+    except ValueError as exc:
+        raise DRFValidationError(f"'nivel' inválido: '{bruto}' não é um número inteiro.") from exc
+    if nivel < 1:
+        raise DRFValidationError("'nivel' deve ser maior ou igual a 1 (a raiz é o nível 1).")
+    return nivel
 
 
 # Consulta é liberada a qualquer papel vinculado ao escritório ativo;
@@ -302,66 +352,167 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class DiarioView(EmpresaEscopadaMixin, APIView):
+    """Diário: lançamentos da empresa no período, em ordem cronológica (BL-59, DL-015)."""
+
+    permission_classes = [TemEscritorioAtivo]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        inicio, fim = _periodo_obrigatorio(request)
+
+        lancamentos = []
+        total_debito = Decimal("0")
+        total_credito = Decimal("0")
+        # `listar_diario` já faz prefetch de itens+conta em consultas de
+        # tamanho constante; iterar `lancamento.itens.all()` aqui usa o
+        # cache do prefetch, sem gerar uma consulta por lançamento (N+1).
+        for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim):
+            debito_lancamento = Decimal("0")
+            credito_lancamento = Decimal("0")
+            itens = []
+            for item in lancamento.itens.all():
+                if item.tipo == TipoPartida.DEBITO:
+                    debito_lancamento += item.valor
+                else:
+                    credito_lancamento += item.valor
+                itens.append(
+                    {
+                        "conta": item.conta.codigo,
+                        "nome": item.conta.nome,
+                        "tipo": item.tipo,
+                        "valor": _como_moeda(item.valor),
+                    }
+                )
+            total_debito += debito_lancamento
+            total_credito += credito_lancamento
+            lancamentos.append(
+                {
+                    "id": lancamento.id,
+                    "data": lancamento.data.isoformat(),
+                    "historico": lancamento.historico,
+                    "total_debito": _como_moeda(debito_lancamento),
+                    "total_credito": _como_moeda(credito_lancamento),
+                    "itens": itens,
+                }
+            )
+
+        return Response(
+            {
+                "inicio": inicio.isoformat(),
+                "fim": fim.isoformat(),
+                "lancamentos": lancamentos,
+                "total_debito": _como_moeda(total_debito),
+                "total_credito": _como_moeda(total_credito),
+            }
+        )
+
+
 class RazaoView(EmpresaEscopadaMixin, APIView):
-    """Razão de uma conta: itens de lançamento em ordem cronológica com saldo acumulado."""
+    """Razão de uma conta no período: saldo anterior, itens e saldo final (BL-60, DL-015)."""
 
     permission_classes = [TemEscritorioAtivo]
 
     def get(self, request, empresa_id, conta_id):
         empresa = self.get_empresa()
         conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        inicio, fim = _periodo_obrigatorio(request)
 
-        itens = (
-            ItemLancamento.objects.filter(conta=conta)
-            .select_related("lancamento")
-            .order_by("lancamento__data", "lancamento__criado_em", "id")
+        apuracao = apurar_razao(conta=conta, inicio=inicio, fim=fim)
+
+        itens = [
+            {
+                "lancamento_id": linha["lancamento_id"],
+                "data": linha["data"].isoformat(),
+                "historico": linha["historico"],
+                "tipo": linha["tipo"],
+                # Decimal como string: o encoder JSON padrão do DRF
+                # converte Decimal para float fora de um DecimalField de
+                # serializer, o que quebraria a precisão decimal exigida
+                # para valores monetários (AGENTS.md, seção 10).
+                "valor": _como_moeda(linha["valor"]),
+                "saldo": _como_moeda(linha["saldo"]),
+            }
+            for linha in apuracao["itens"]
+        ]
+
+        return Response(
+            {
+                "conta": conta.codigo,
+                "nome": conta.nome,
+                "inicio": inicio.isoformat(),
+                "fim": fim.isoformat(),
+                "saldo_anterior": _como_moeda(apuracao["saldo_anterior"]),
+                "total_debito": _como_moeda(apuracao["total_debito"]),
+                "total_credito": _como_moeda(apuracao["total_credito"]),
+                "saldo_final": _como_moeda(apuracao["saldo_final"]),
+                "itens": itens,
+            }
         )
-
-        saldo = Decimal("0")
-        linhas = []
-        for item in itens:
-            sinal = 1 if item.tipo == TipoPartida.DEBITO else -1
-            if conta.natureza == NaturezaConta.CREDORA:
-                sinal *= -1
-            saldo += sinal * item.valor
-            linhas.append(
-                {
-                    "lancamento_id": item.lancamento_id,
-                    "data": item.lancamento.data,
-                    "historico": item.lancamento.historico,
-                    "tipo": item.tipo,
-                    # Decimal como string: o encoder JSON padrão do DRF
-                    # converte Decimal para float fora de um DecimalField de
-                    # serializer, o que quebraria a precisão decimal exigida
-                    # para valores monetários (AGENTS.md, seção 10).
-                    "valor": _como_moeda(item.valor),
-                    "saldo": _como_moeda(saldo),
-                }
-            )
-
-        return Response({"conta": conta.codigo, "saldo_final": _como_moeda(saldo), "itens": linhas})
 
 
 class BalanceteView(EmpresaEscopadaMixin, APIView):
-    """Saldo atual de cada conta que aceita lançamento, considerando sua natureza."""
+    """Balancete de verificação da empresa no período, com 4 colunas por conta
+    (saldo anterior, débitos, créditos, saldo final) — BL-61, DL-015."""
 
     permission_classes = [TemEscritorioAtivo]
 
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
-        linhas = []
-        for conta in Conta.objects.filter(empresa=empresa, aceita_lancamento=True):
-            total_debito = conta.itens_lancamento.filter(tipo=TipoPartida.DEBITO).aggregate(
-                total=Sum("valor")
-            )["total"] or Decimal("0")
-            total_credito = conta.itens_lancamento.filter(tipo=TipoPartida.CREDITO).aggregate(
-                total=Sum("valor")
-            )["total"] or Decimal("0")
-            saldo = (
-                total_debito - total_credito
-                if conta.natureza == NaturezaConta.DEVEDORA
-                else total_credito - total_debito
-            )
-            linhas.append({"conta": conta.codigo, "nome": conta.nome, "saldo": _como_moeda(saldo)})
+        inicio, fim = _periodo_obrigatorio(request)
+        nivel = _nivel_opcional(request)
 
-        return Response(linhas)
+        apuracao = apurar_balancete(empresa=empresa, inicio=inicio, fim=fim, nivel=nivel)
+
+        contas = [
+            {
+                "conta": linha["conta"],
+                "nome": linha["nome"],
+                "nivel": linha["nivel"],
+                "analitica": linha["analitica"],
+                "saldo_anterior": _como_moeda(linha["saldo_anterior"]),
+                "debitos": _como_moeda(linha["debitos"]),
+                "creditos": _como_moeda(linha["creditos"]),
+                "saldo_final": _como_moeda(linha["saldo_final"]),
+            }
+            for linha in apuracao["contas"]
+        ]
+
+        return Response(
+            {
+                "inicio": inicio.isoformat(),
+                "fim": fim.isoformat(),
+                "contas": contas,
+                "total_debitos": _como_moeda(apuracao["total_debitos"]),
+                "total_creditos": _como_moeda(apuracao["total_creditos"]),
+            }
+        )
+
+
+class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
+    """Lotes (lançamentos) cuja soma de débitos difere da de créditos (BL-64, DL-015).
+
+    Sem período: uma base torta é torta em qualquer recorte. Em operação
+    normal isto não deveria existir — `criar_lancamento` impede a gravação
+    de um lançamento desbalanceado; esta rota existe para achar o que foi
+    gravado por outro caminho (ex.: acesso direto ao ORM).
+    """
+
+    permission_classes = [TemEscritorioAtivo]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+
+        lotes = [
+            {
+                "id": lancamento.id,
+                "data": lancamento.data.isoformat(),
+                "historico": lancamento.historico,
+                "total_debito": _como_moeda(lancamento.total_debito),
+                "total_credito": _como_moeda(lancamento.total_credito),
+                "diferenca": _como_moeda(lancamento.total_debito - lancamento.total_credito),
+            }
+            for lancamento in localizar_lotes_desbalanceados(empresa=empresa)
+        ]
+
+        return Response({"lotes": lotes})
