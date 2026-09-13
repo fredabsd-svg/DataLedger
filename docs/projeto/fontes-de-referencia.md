@@ -35,7 +35,7 @@ planejar o módulo correspondente:
 | Arquivo | Serve para planejar |
 | --- | --- |
 | `Domínio Escrita Fiscal.pdf` | Fiscal — **já analisado**, ver [mapa funcional](mapa-funcional-fiscal.md) |
-| `Domínio Contabilidade.pdf` | Contabilidade |
+| `Domínio Contabilidade.pdf` | Contabilidade — **já analisado**, ver [mapa funcional contábil](mapa-funcional-contabil.md) |
 | `Domínio Folha.pdf` | Folha de pagamento |
 | `Domínio Honorários.pdf` | Honorários |
 | `Domínio Processos.pdf` | Processos e paralegal |

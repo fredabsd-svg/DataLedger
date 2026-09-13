@@ -655,3 +655,36 @@ chamada, que é exatamente a propriedade pela qual escolhi assim.
 Um **processo trabalhador separado** ao lado do servidor web, supervisionado.
 Isso é inerente ao problema, não da ferramenta: toda opção exige. Entra como
 requisito do **BL-53**, o procedimento de implantação.
+
+## DE-016 — Saída contábil exige período, e o contrato atual quebra
+
+**Data:** 2026-09-13
+
+**Decisão:** Razão e Balancete passam a **exigir** `inicio` e `fim`. Requisição
+sem os dois recebe 400. É quebra deliberada do contrato que existe hoje.
+
+### Por quê
+
+Uma saída contábil sem período não é uma saída "geral": é uma resposta errada
+com aparência de certa. O contador emite balancete de um mês, de um trimestre,
+de um exercício — e o que o sistema devolve hoje é o acumulado desde o primeiro
+lançamento da base, em uma coluna só. Quem não conferir contra o Diário não
+percebe.
+
+### Por que quebrar em vez de manter compatível
+
+Um padrão opcional com valor-padrão "tudo" preserva exatamente o erro que
+estamos corrigindo, e preserva-o no caminho mais fácil — o de quem não passa
+parâmetro. Manter os dois comportamentos custaria testes dobrados para sustentar
+o comportamento que não queremos.
+
+O custo de quebrar é, hoje, **zero medido**: o sistema não está implantado, não
+há cliente consumindo a API e a única consumidora seria a interface, que ainda
+não existe (BL-62). Essa janela fecha assim que houver implantação real — e é
+justamente por isso que a quebra é agora.
+
+### Consequência
+
+Registrada no contrato da [DL-015](../planos/DL-015-contabilidade-utilizavel.md),
+com critério de aceite próprio: período ausente, malformado ou invertido devolve
+400 com mensagem útil, nunca 500 nem período implícito.

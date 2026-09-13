@@ -21,6 +21,7 @@ caso de conflito. Este documento é apenas o resumo operacional.
 | [docs/projeto/decisoes.md](docs/projeto/decisoes.md) | Decisões arquiteturais e justificativas. |
 | [docs/projeto/fontes-de-referencia.md](docs/projeto/fontes-de-referencia.md) | Onde pesquisar o domínio, e como usar sem copiar. **Leia antes de planejar módulo novo.** |
 | [docs/projeto/mapa-funcional-fiscal.md](docs/projeto/mapa-funcional-fiscal.md) | Capacidades da escrita fiscal e o achado sobre formato de intercâmbio. |
+| [docs/projeto/mapa-funcional-contabil.md](docs/projeto/mapa-funcional-contabil.md) | Capacidades da contabilidade, cruzamento honesto com o código e o que **não** copiar. |
 | [docs/planos/](docs/planos/) | Plano versionado de cada demanda `DL-xxx`. |
 | [docs/auditorias/](docs/auditorias/) | Relatórios de auditoria efetivamente realizados. |
 

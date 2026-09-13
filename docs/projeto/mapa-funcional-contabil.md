@@ -1,0 +1,343 @@
+# Mapa funcional — Contabilidade
+
+Levantamento das **capacidades** que um módulo de contabilidade precisa ter num
+escritório brasileiro, derivado da análise de um manual de referência de sistema
+comercial, no diretório público indicado pelo Fred (RC-45), analisado em
+2026-09-13 a pedido dele.
+
+Companheiro do [mapa funcional fiscal](mapa-funcional-fiscal.md). Mesmas regras
+de uso, mesma ressalva de data.
+
+## O que este documento é, e o que não é
+
+**É** um mapa de capacidades do domínio contábil: o que um escritório executa,
+que dados sustentam cada saída e que regras verificáveis decorrem disso.
+
+**Não é** cópia de sistema algum. Não foram transcritos texto, telas,
+nomenclatura de menus nem estrutura de interface. O material é protegido por
+direito autoral e **não está versionado neste repositório**, nem em trechos: foi
+baixado para área temporária, lido, e o entendimento reescrito em nossas
+palavras. Orientação do Fred: *"não faça igual"*.
+
+O material é de **2018**. Nenhuma obrigação acessória aqui listada é requisito
+enquanto o Fred não confirmar a vigência.
+
+## Como o levantamento foi feito
+
+O manual tem 856 páginas. Foi convertido em texto na área temporária
+(`pdftotext`; a camada de texto é nativa, então OCR não foi necessário) e lido
+por **dois auxiliares de pesquisa em paralelo, com fatias disjuntas** —
+cadastros e movimentos de um lado, saídas e utilitários do outro. Nenhum dos
+dois tem permissão de escrita; a árvore do repositório foi conferida limpa ao
+fim. Cada um devolveu capacidades classificadas como *confirmado pelo domínio*,
+*hipótese* ou *a conferir*.
+
+O cruzamento com o que o DataLedger já tem foi feito por mim, `arquiteto-senior`,
+lendo o código — não o `README`.
+
+## As seis ideias estruturais
+
+Mais importante que a lista de funcionalidades é entender **como as peças se
+sustentam**. Seis decisões de arquitetura aparecem no domínio e mudam o nosso
+desenho:
+
+### 1. O lote é a unidade que fecha, não a partida
+
+Débito igual a crédito é regra **do lote**, não de cada linha. Um lote pode ser
+um débito para vários créditos, vários para vários, e o sistema precisa conhecer
+essa topologia. Consequência direta: existe uma rotina de conferência dedicada a
+**encontrar lotes cuja soma não fecha** — é a própria partida dobrada exposta
+como ferramenta de diagnóstico.
+
+Nosso `LancamentoContabil` já é o lote, e o serviço já valida a igualdade. O que
+não temos é a **conferência**: uma consulta que varra a base e mostre o que está
+torto. Sem isso, a invariante só existe no caminho feliz de quem usa a API.
+
+### 2. Período de trabalho e fechamento são coisas diferentes
+
+- **Período de trabalho** é a janela em que se está digitando agora. Lançar fora
+  dela pode ser livre, gerar aviso ou ser bloqueado — é escolha por empresa.
+- **Fechamento** é o ato formal de encerrar a competência. Depois dele, alterar
+  exige controle explícito.
+
+São dois controles distintos, e confundi-los é erro caro. O primeiro evita erro
+de digitação (lançar 2025 em vez de 2026). O segundo é a garantia contábil.
+
+Há ainda um terceiro, mais fino: **conta conciliada até uma data** não aceita
+lançamento retroativo nem alteração antes dessa data, mesmo com o período
+aberto.
+
+### 3. A conta da empresa aponta para uma conta padronizada
+
+O plano de contas da empresa é dela. Mas as obrigações digitais exigem que cada
+conta analítica seja **amarrada a uma conta de um plano referencial oficial**,
+por vigência. É um vínculo separado, cadastrado uma vez e replicável entre
+empresas — não um campo dentro da conta.
+
+Pré-condição verificável: sem 100% das contas movimentadas vinculadas, a
+escrituração digital do período não pode ser gerada. Isso tem de bloquear ou
+sinalizar, nunca sair em silêncio com conta faltando.
+
+### 4. Demonstrativo é estrutura configurável ligada às contas
+
+DRE, DLPA, DMPL, DFC, DVA não são relatórios com fórmula fixa no código. Cada um
+tem uma **estrutura de grupos** e as contas da empresa são **vinculadas** a esses
+grupos. Conta não vinculada simplesmente não entra na soma — o demonstrativo
+sai, e sai errado, sem reclamar.
+
+Mesma lógica dos índices de análise: quais contas compõem cada indicador é
+configuração, não dedução automática do plano de contas.
+
+Para nós, isso confirma a linha da DE-010: **regra é dado versionado, não
+código**. E acrescenta um requisito de conferência: toda conta movimentada
+precisa estar em alguma estrutura, ou o sistema avisa.
+
+### 5. O lançamento carrega mais dimensões do que conta, valor e data
+
+O que aparece no domínio, além do essencial:
+
+| Dimensão | Para que serve |
+| --- | --- |
+| Centro de custo e departamento | Resultado por unidade; exige rateio que fecha com o valor da partida |
+| Origem | Distinguir lançamento digitado de lançamento gerado por outro processo |
+| Histórico padronizado | Texto montado a partir de modelo com variáveis, em vez de digitação livre |
+| Participante | Terceiro envolvido, quando a obrigação exige |
+| Localizador | Referência externa para reencontrar o lançamento depois |
+| Conciliado | Estado que **trava** alteração e regeração |
+
+### 6. Dado derivado precisa ser regerável, e conciliado trava regeração
+
+Lançamento gerado a partir de outro (rateio, contabilização de extrato,
+mutação do patrimônio líquido) precisa poder ser **refeito** quando a origem
+muda. E a regeração **não pode** passar por cima do que já foi conciliado ou
+ajustado à mão sem autorização explícita.
+
+É o mesmo princípio que já adotamos para estorno: dado derivado não se edita, se
+refaz — de forma rastreável.
+
+## Capacidades mapeadas
+
+Resumo. A classificação é a dos auxiliares, revisada por mim.
+
+### Cadastros que sustentam a escrituração
+
+| Capacidade | Situação no domínio |
+| --- | --- |
+| Empresa com histórico de alteração cadastral | Confirmada |
+| Quadro societário com vigência | Confirmada |
+| Contador responsável técnico, com registro no conselho | Confirmada |
+| Plano de contas com máscara, sintéticas e analíticas | Confirmada |
+| Conta com vigência e situação (evita uso de conta encerrada) | Confirmada |
+| Vínculo com plano de contas referencial, por vigência | Confirmada |
+| Estrutura de demonstrativos vinculada às contas | Confirmada |
+| Histórico padronizado com variáveis | Confirmada |
+| Departamento e centro de custo, com rateio | Confirmada |
+| Lançamento padrão (modelo reutilizável de partidas) | Confirmada |
+| Regra de contabilização de extrato bancário | Confirmada |
+| Notas explicativas ligadas a contas e ao período | Confirmada |
+| Participantes e responsáveis por obrigação | A conferir — depende da obrigação |
+| Plano de contas compartilhado entre empresas do mesmo grupo | Decisão do Fred |
+| Perfil de empresa (modelo para abrir cliente novo) | Hipótese |
+| Matriz e filial com escrituração centralizada | Decisão do Fred |
+| Conglomerado econômico, sociedade em conta de participação | A conferir — nicho |
+
+### Movimento
+
+| Capacidade | Situação no domínio |
+| --- | --- |
+| Lançamento por partidas dobradas, com topologia de lote | Confirmada |
+| Livro caixa (escrituração simplificada) | Confirmada |
+| Consulta e lançamento na mesma tela, com filtros amplos | Confirmada |
+| Importação de extrato bancário com área intermediária | Confirmada |
+| Conciliação bancária 1:1, 1:N e N:1, e desconciliação | Confirmada |
+| Conciliação de conta até uma data, travando o retroativo | Confirmada |
+| Lançamento orçado por competência, e comparação com o realizado | Confirmada |
+| Rateio por centro de custo, que fecha com o valor | Confirmada |
+| Rateio gerencial (segunda dimensão paralela) | Decisão do Fred |
+
+### Saídas
+
+| Capacidade | Situação no domínio |
+| --- | --- |
+| Diário, Razão, Balancete, Balanço, Livro Caixa | Confirmadas |
+| Termo de abertura e encerramento, termo de transferência | Confirmadas |
+| Emissão consolidada de livros com paginação amarrada | Confirmada |
+| Carta de responsabilidade da administração | Confirmada |
+| DRE, DLPA, DMPL, DFC, DVA, notas explicativas | Confirmadas |
+| Análise vertical, horizontal e índices configuráveis | Confirmadas |
+| Escrituração contábil digital e escrituração contábil fiscal | Existência confirmada; **leiaute e vigência a conferir** |
+
+### Operação e conferência
+
+| Capacidade | Situação no domínio |
+| --- | --- |
+| Consulta de saldo com rastreio até o lançamento de origem | Confirmada |
+| Conferência de lotes com diferença entre débito e crédito | Confirmada |
+| Apuração de custo de mercadoria e de produto vendido | Fórmula agregada confirmada; **critério de custeio a conferir** |
+| Zeramento das contas de resultado no encerramento | Confirmada |
+| Importação com validação em camadas antes de gravar | Confirmada |
+| Regeração de lançamento derivado, preservando o conciliado | Confirmada |
+| Alteração de lançamentos em massa | **Em tensão com as nossas regras — ver abaixo** |
+| Exclusão em massa e eliminação de período | **Em tensão com as nossas regras — ver abaixo** |
+| Cópia de configuração entre empresas do escritório | Confirmada |
+| Backup, inclusive antes de operação destrutiva | Confirmada |
+
+## Duas capacidades que entram em choque com as nossas regras
+
+Este é o achado que mais importa para o desenho, e não é uma funcionalidade
+faltando — é uma que **não devemos copiar como está**.
+
+### Alteração de lançamentos em massa
+
+Localizar lançamentos por filtro amplo e sobrescrever campos de todos de uma vez.
+O auxiliar registrou honestamente que **não encontrou descrição de rastro do
+valor anterior** na parte que leu.
+
+Nossa regra é explícita: lançamento efetivado não se altera; corrige-se por
+procedimento rastreável. O `LancamentoContabil` impede alteração no próprio
+`save()`.
+
+**Recomendação:** oferecer a capacidade — a dor é real, corrigir 300 lançamentos
+com a classificação errada à mão é inviável — mas implementá-la como **lote de
+ajuste rastreável**: um conjunto de estornos e relançamentos vinculados ao
+original, com autor, data e motivo, e não como `UPDATE` em cima do efetivado.
+Custa mais linhas e preserva a contabilidade.
+
+### Eliminação de período
+
+Descartar lançamentos anteriores a uma data para reduzir volume. O próprio
+material recomenda backup antes — indício de que não há como desfazer.
+
+**Recomendação:** não implementar por ora. Se um dia houver demanda real de
+volume, tratar como **arquivamento** (mover para armazenamento frio, com
+inventário do que saiu e como voltar), nunca como exclusão, e condicionado a
+período encerrado sem obrigação pendente, com papel autorizado e registro.
+
+A mesma lógica vale para exclusão em massa. Onde o sistema de referência
+apagaria, nós registramos.
+
+## O que já existe no DataLedger
+
+Cruzamento honesto, verificado por leitura de código em 2026-09-13
+(`apps/contabilidade/`), não pelo README:
+
+| Capacidade | Situação real |
+| --- | --- |
+| Plano de contas por empresa, hierárquico, com natureza e tipo | **Pronto** (`Conta`) |
+| Distinção sintética/analítica | **Pronto**, pelo campo que autoriza lançamento |
+| Lançamento por partidas dobradas, com igualdade validada | **Pronto** (`criar_lancamento`) |
+| Imutabilidade do efetivado, com estorno único e rastreável | **Pronto e auditado** |
+| Idempotência na criação, com impressão digital do conteúdo | **Pronto e auditado** |
+| Precisão monetária e política de arredondamento | **Pronto** (DE-010) |
+| Isolamento entre empresas | **Pronto e auditado** |
+| Razão por conta | **Parcial** — existe, mas **sem filtro de período**: devolve tudo desde o primeiro lançamento |
+| Balancete | **Parcial** — uma coluna de saldo acumulado; **sem período**, sem saldo anterior, sem débitos e créditos do período, sem totalização das sintéticas |
+| Diário | **Não existe como livro.** O que há é a listagem cronológica da API, sem numeração, sem termo, sem totais por lote |
+| Interface de contabilidade | **Não existe.** Só API: os templates cobrem empresas, login, painel e erros |
+| Competência | **Não existe** — BL-15 |
+| Rascunho x efetivado | **Não existe** — BL-10. Todo lançamento nasce efetivado |
+| Período encerrado e reabertura | **Não existe** — BL-11 |
+| Centro de custo, departamento, rateio | Não existe |
+| Histórico padronizado, lançamento padrão | Não existe |
+| Plano referencial e estrutura de demonstrativos | Não existe |
+| Balanço, DRE e demais demonstrações | Não existe |
+| Termos de abertura e encerramento, livros numerados | Não existe |
+| Conciliação bancária e importação de extrato | Não existe |
+| Conferência de lotes com diferença | Não existe |
+| Saldo inicial de implantação | Não existe |
+
+**Leitura desta tabela.** O núcleo — partida dobrada correta, imutável, isolada
+por empresa e com precisão decimal — está sólido e auditado. É a parte difícil de
+consertar depois, e está certa. O que falta é quase tudo que transforma esse
+núcleo em **rotina de escritório**: período, saídas conciliáveis com a origem, e
+uma tela para operar.
+
+A lacuna mais desconfortável não é técnica: **não dá para usar a contabilidade
+sem programar**. Enquanto isso for verdade, o Fred não consegue sequer testar o
+sistema com um caso real.
+
+## Obrigações e informativos citados pelo material (vigência a conferir)
+
+Lista de nomes encontrados no material de **2018**, registrada como pendência,
+**não** como requisito: escrituração contábil digital (ECD), escrituração
+contábil fiscal (ECF), FCONT, balancetes setoriais de agências reguladoras,
+arquivo para o Banco Central, arquivo de operadoras de saúde, prestação de contas
+de partidos políticos, arquivo de tribunal de contas estadual, Sinco, rendimentos
+e deduções de carnê-leão.
+
+Várias provavelmente mudaram ou deixaram de existir. **Não afirmo quais**, porque
+isso exige conferência em fonte oficial vigente, e essa conferência é do
+responsável técnico.
+
+> Este documento não constitui homologação contábil ou fiscal. Cálculo, leiaute
+> ou obrigação só entram em código com regra confirmada em texto oficial
+> vigente, caso de referência e validação profissional, conforme AGENTS.md §10.
+
+## Regras verificáveis colhidas (candidatas a teste)
+
+1. Lote com soma de débitos diferente da soma de créditos é recusado, e existe
+   consulta que encontra qualquer lote torto já gravado.
+2. Conta sintética nunca recebe lançamento direto.
+3. Lançamento em competência encerrada é recusado no servidor; a reabertura
+   exige papel autorizado e gera registro de auditoria.
+4. Lançamento fora do período de trabalho segue a política configurada da
+   empresa — nunca é aceito sem checagem.
+5. Conta conciliada até uma data recusa inclusão, alteração e exclusão anteriores
+   a essa data.
+6. Rateio por centro de custo fecha exatamente com o valor da partida rateada.
+7. O saldo de uma conta no Razão bate com a linha dela no Balancete do mesmo
+   período — mesma origem, agregações diferentes.
+8. Balancete e Balanço na mesma data de corte contam a mesma história, com o
+   efeito do zeramento explicitado.
+9. Escrituração digital só é gerada com 100% das contas movimentadas vinculadas
+   ao plano referencial vigente; falta de vínculo bloqueia ou sinaliza.
+10. Conta com lançamento não pode ser excluída.
+11. Reclassificação de conta sintética propaga para as filhas, sem órfãs.
+12. Apuração de custo satisfaz `estoque inicial + compras − estoque final`, e o
+    lançamento gerado bate com o valor apurado.
+13. Regeração de lançamento derivado não altera o que está conciliado sem
+    autorização explícita.
+14. Importação não grava registro classificado como erro, e reimportar o mesmo
+    conteúdo não duplica.
+15. Toda operação em massa registra quem fez, quando, sobre quantos itens, e é
+    reversível ou reconstruível.
+
+## Proposta de fatiamento
+
+Ordem técnica sugerida, para o Fred ordenar por valor:
+
+1. **Competência e período** (BL-15, BL-11) — nada de contabilidade séria
+   funciona sem isso, e é pré-condição de qualquer fechamento.
+2. **Saídas com período e conciliáveis** — Razão e Balancete com intervalo,
+   saldo anterior, movimento e saldo final; Diário com totais por lote. É o que
+   permite conferir o sistema contra a realidade.
+3. **Tela de contabilidade** — plano de contas, lançamento, Razão e Balancete no
+   navegador. Sem isso o sistema não sai do papel.
+4. **Saldo inicial de implantação** — sem ele não se migra empresa nenhuma.
+5. **Rascunho e efetivação** (BL-10) — o contador precisa digitar, conferir e só
+   então efetivar.
+6. **Conferência de lotes e consulta de saldo com rastreio**.
+7. **Balanço e DRE**, com estrutura vinculada às contas.
+8. Depois, por demanda: centro de custo, extrato e conciliação bancária,
+   lançamento padrão, plano referencial e escrituração digital.
+
+Os itens 1 a 4 formam uma fatia coerente: **é o mínimo para o Fred lançar uma
+empresa real e conferir o resultado**. Recomendo que seja a próxima etapa de
+contabilidade.
+
+## Perguntas que dependem do Fred
+
+Registradas em [requisitos.md](requisitos.md) como pendências PE-26 a PE-33.
+
+1. O que vem primeiro: fechar a fatia fiscal (DL-010, recepção de documentos) ou
+   tornar a contabilidade utilizável de ponta a ponta?
+2. Como é o fechamento e a reabertura de período no seu escritório hoje: quem
+   autoriza, o que é exigido, com que frequência acontece? (PE-05, ainda aberta)
+3. Centro de custo é usado pelos seus clientes, ou é exceção?
+4. Como entram os **saldos iniciais** de uma empresa que chega ao escritório com
+   contabilidade já existente?
+5. Os livros precisam de numeração e termos desde já, ou só quando houver
+   entrega digital?
+6. Existe empresa na carteira com matriz e filiais em escrituração centralizada?
+7. Plano de contas compartilhado entre empresas do mesmo grupo é necessário?
+8. Quais das obrigações listadas você **de fato entrega** hoje?

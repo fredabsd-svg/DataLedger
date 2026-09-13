@@ -188,6 +188,7 @@ diverge.
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred (laço original, monograma, razonete); quarta execução é o **conceito do próprio Fred em vetor limpo** | **Aguardando aprovação do Fred** na branch de trabalho; a `main` ainda mostra o razonete (PR #16) |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Em execução** — onda 1 (backend) delegada em 2026-09-13 |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -224,20 +225,30 @@ auditoria independente — que é exatamente o motivo de ela existir.
    abrir PR e integrar. Se reprovar: ajustar a partir do feedback dele, não
    trocar de conceito — o conceito é dele. Já integrados à `main`: DL-011
    (PR #12), DL-014 e README (PR #15), razonete (PR #16).
-2. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
-   documentos fiscais.** É a prioridade de negócio confirmada pelo Fred (RC-40).
+2. **[DL-015](../planos/DL-015-contabilidade-utilizavel.md) — contabilidade
+   utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
+   trabalhar na contabilidade, a partir do manual de referência. O levantamento
+   está em [mapa-funcional-contabil.md](../projeto/mapa-funcional-contabil.md);
+   as lacunas viraram BL-59 a BL-66. Onda 1 (saídas por período) delegada ao
+   `desenvolvedor-pleno`; onda 2 é a interface (BL-62), que só começa com o
+   contrato da onda 1 integrado e auditado.
+3. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
+   documentos fiscais.** Era a prioridade anterior (RC-40); **saiu da frente da
+   fila** por RC-50, sem ser cancelada.
    O plano já tem os leiautes de NF-e e de SPED levantados em fonte oficial.
    Antes de começar, ler a seção de pendências: **BL-52** (fila de tarefas em
    segundo plano) mudou o desenho da etapa, e **BL-54** deve estar resolvido
    antes de gravar CNPJ em lote.
-3. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+4. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53. Nenhum urgente hoje, todos
    pré-condição para existir dado real de cliente.
-4. **Decisões que dependem do Fred:** PE-20 (escritório com CNPJ inválido),
+5. **Decisões que dependem do Fred:** PE-20 (escritório com CNPJ inválido),
    PE-21 (escopo da unicidade de CNPJ), PE-22 (documento não eletrônico nos
    períodos a migrar), PE-23 (o sistema de XML entrega os eventos?), PE-25
-   (residência do dado e LGPD).
-5. **BL-02** — proteção da branch `main`. Ação administrativa no GitHub, que
+   (residência do dado e LGPD), e as novas **PE-27 a PE-33** da contabilidade —
+   com destaque para PE-27 (saldos iniciais de implantação), que bloqueia o
+   BL-63 e sem a qual não se migra empresa nenhuma.
+6. **BL-02** — proteção da branch `main`. Ação administrativa no GitHub, que
    nenhum agente pode executar: a API de proteção respondeu 403 a esta sessão
    (o proxy de integração não permite escrita nesse endpoint). O Fred faz em
    Settings → Rules → Rulesets, exigindo PR com as verificações "Lint e

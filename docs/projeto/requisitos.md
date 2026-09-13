@@ -66,6 +66,7 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-47 | O sistema de gestão de XML **exporta XML puro e também zipado**. O RAR, portanto, **não é necessário**. | Fred, 2026-09-12 (resolve PE-16) |
 | RC-48 | O DataLedger é implantado **na nuvem**, em servidor único, acessado pelo navegador. Nada é instalado nas estações. | Fred, 2026-09-12 (resolve PE-24) |
 | RC-49 | Dimensionamento alvo: **cerca de 50 usuários simultâneos**. | Fred, 2026-09-12 (resolve PE-04 em parte) |
+| RC-50 | A prioridade de trabalho agora é o **módulo de Contabilidade**, partindo do manual de referência do diretório público (RC-45). | Fred, 2026-09-13 (resolve PE-26; PE-01 e PE-10 seguem abertas para as demais etapas) |
 
 **Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
 captura de documento. Precisa resolver **recepção, classificação e conferência**
@@ -120,6 +121,14 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 
 | ID | Pendência | Impacto se não for resolvida |
 | --- | --- | --- |
+| PE-26 | O que vem primeiro: a fatia fiscal ou a contabilidade? | **Resolvida** por RC-50: o Fred determinou em 2026-09-13 trabalhar na contabilidade, a partir do manual de referência. A DL-010 (fiscal) continua planejada e sai da frente da fila. |
+| PE-27 | Como entram os **saldos iniciais** de uma empresa que chega ao escritório com contabilidade já existente? Lançamento de abertura, importação, ou digitação por conta? | Sem isso não se migra empresa nenhuma, e o balancete de qualquer cliente novo nasce errado. |
+| PE-28 | **Centro de custo** é usado pelos clientes do escritório, ou é exceção? | Define se a partida já nasce com dimensão de rateio. Acrescentar depois é migração de dados; acrescentar sem uso é peso morto. |
+| PE-29 | Os **livros contábeis** precisam de numeração e termos de abertura/encerramento desde já, ou só quando houver entrega digital? | Muda o desenho do Diário: livro numerado tem sequência controlada e não pode ter buraco. |
+| PE-30 | Existe empresa na carteira com **matriz e filiais em escrituração centralizada**? | Se sim, o lançamento precisa identificar a filial desde o início. |
+| PE-31 | **Plano de contas compartilhado** entre empresas do mesmo grupo é necessário? | Muda a modelagem: hoje `Conta` pertence a uma empresa. Compartilhar depois é migração. |
+| PE-32 | Quais **obrigações contábeis** o escritório de fato entrega hoje (escrituração digital, escrituração fiscal, balancetes setoriais)? | A lista do material de referência é de 2018 e cita obrigações provavelmente extintas. Implementar a errada é pior que não implementar. |
+| PE-33 | **Correção em massa**: quando o escritório precisa corrigir muitos lançamentos de uma vez (classificação errada em 300 notas, por exemplo), como isso é feito hoje e com que frequência? | Decide se vale construir o lote de ajuste rastreável agora ou depois. A capacidade equivalente no sistema de referência sobrescreve o lançamento efetivado, o que as nossas regras proíbem. |
 | PE-01 | Qual módulo e qual rotina do escritório têm prioridade de negócio agora? | Sem isso, o backlog é ordenado por dependência técnica, não por valor. |
 | PE-02 | Política de arredondamento por tipo de cálculo (fiscal, folha, contábil) e em qual etapa arredondar. | Risco de divergência de centavos entre relatório e lançamento. |
 | PE-03 | Regime tributário e porte das empresas atendidas inicialmente. | Define a complexidade do módulo Fiscal e o que pode ficar fora do escopo. |
