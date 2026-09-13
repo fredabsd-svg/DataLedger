@@ -63,6 +63,21 @@ concilia uma apuração, o que o contador espera ver numa conferência.
 **Não use para obter regra tributária vigente.** Conteúdo de fornecedor
 envelhece e não é fonte oficial.
 
+### Limite técnico descoberto em 2026-09-13
+
+A base de soluções do fornecedor (`suporte.dominioatendimento.com`, páginas do
+tipo `solucao.html?codigo=N`) **não é legível por agente**. As páginas respondem
+200, mas o corpo do artigo é montado por JavaScript com sessão autenticada:
+`curl` recebe a casca, o `WebFetch` recebe 403, e mesmo um navegador sem sessão
+devolve **exatamente o mesmo HTML para códigos diferentes** — verificado com
+três códigos distintos, todos com o mesmo tamanho em bytes.
+
+Consequência prática: quando o Fred indicar uma solução dessa base, ou ele cola
+o conteúdo, ou o entendimento vem de outra fonte. **Uma delas funciona**: os
+artigos que aparecem nos resultados de busca pública trazem resumo utilizável, e
+os **manuais em PDF do diretório público** (seção 1) cobrem o mesmo assunto com
+mais profundidade.
+
 ## 3. Fontes oficiais — obrigatórias para qualquer cálculo
 
 Para **toda** regra que vire cálculo, alíquota, prazo, leiaute de obrigação ou
