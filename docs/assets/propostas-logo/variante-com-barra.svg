@@ -25,6 +25,8 @@
   <path d="M177.1 140.1A120 120 0 0 1 258.8 215.0C291 268 301 328 350 362C400 396 448 372 476 322" fill="none" stroke="url(#verde)" stroke-width="48" stroke-linecap="round"/>
   <!-- laço esquerdo (fica por cima da fita) -->
   <circle cx="146" cy="256" r="120" fill="none" stroke="url(#azul)" stroke-width="50"/>
+  <!-- barra do laço esquerdo (retângulo, não traço: gradiente precisa de caixa com altura) -->
+  <rect x="125" y="231" width="132" height="50" rx="25" fill="url(#azul)"/>
   <!-- cubos de dados -->
   <g transform="translate(366 250)">
     <use href="#cubo" x="0" y="-48"/><use href="#cubo" x="-42" y="-24"/><use href="#cubo" x="42" y="-24"/>

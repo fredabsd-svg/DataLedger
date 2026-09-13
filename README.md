@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-dataledger.svg" alt="Símbolo do DataLedger: um razonete — a conta T da contabilidade — com lançamentos equilibrados e a linha verde de fechamento" width="128" />
+  <img src="docs/assets/logo-dataledger.svg" alt="Símbolo do DataLedger: laço duplo azul entrelaçado por uma fita verde, com um conjunto de cubos de dados no laço direito" width="128" />
 </p>
 
 # 📊 DataLedger
