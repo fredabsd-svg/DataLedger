@@ -155,6 +155,7 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 - [x] **DL-013** — logo oficial
 - [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
 - [ ] **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si 🧭 **em execução**
+- [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
