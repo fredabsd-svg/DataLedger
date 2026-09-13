@@ -185,6 +185,8 @@ diverge.
 | [DL-009](../planos/DL-009-fundacao-de-interface.md) | Fundação de interface, estados de erro, acessibilidade | Integrada (PR #11) |
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
+| [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
+| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — **em revisão**: o Fred reprovou o resultado e pediu novo desenho | Integrada na `main`; substituição em curso |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
