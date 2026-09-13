@@ -153,6 +153,7 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 - [x] **DL-011** — CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229)
 - [x] **DL-012** — redesenho do README e identidade visual
 - [x] **DL-013** — logo oficial
+- [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**

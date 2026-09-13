@@ -107,6 +107,14 @@ Regras que decorrem disso:
 A causa do problema não foi distração, foi **duplicação**. Texto repetido em
 quatro lugares diverge assim que alguém atualiza um.
 
+## Regras impostas por mecanismo
+
+Parte das regras deixou de ser pedido: gancho de sessão que injeta o
+`AGENTS.md` no contexto, workflow que reprova PR sem atestado de leitura, teste
+que reprova estado divergente, e `main` protegida. O que é imposto e o que é só
+instrução está declarado no fim do [AGENTS.md](AGENTS.md) e no plano
+[DL-014](docs/planos/DL-014-guardas-de-processo.md).
+
 ## Segredos
 
 Nunca exiba, versione ou registre em memória: credenciais, chaves, certificados

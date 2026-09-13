@@ -187,6 +187,7 @@ diverge.
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — reprovado pelo Fred e **substituído** pelo monograma DL em 2026-09-13 | Integrada; logo novo na branch de trabalho |
+| [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -218,9 +219,9 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **Integrar a DL-011 à `main`.** A etapa está fechada na branch de trabalho,
-   commit `44f9fe6`, com parecer de encerramento do `auditor-qa`. Falta
-   confirmar a integração contínua no remoto e abrir a integração.
+1. **Integrar à `main` a branch de trabalho** (README corrigido, logo novo,
+   BL-50/51, DE-015 e DL-014) por PR, e **configurar a proteção da `main`**
+   — pedido do Fred em 2026-09-13. A DL-011 já foi integrada pelo PR #12.
 2. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
    documentos fiscais.** É a prioridade de negócio confirmada pelo Fred (RC-40).
    O plano já tem os leiautes de NF-e e de SPED levantados em fonte oficial.

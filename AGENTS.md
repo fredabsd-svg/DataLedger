@@ -282,3 +282,23 @@ Ao finalizar cada etapa, informar:
 6. Riscos, limitações, dependências e próxima etapa.
 
 Se qualquer requisito obrigatório estiver pendente, usar o termo **etapa bloqueada** ou **em validação**, conforme o caso. Não afirmar “concluído”, “testado”, “enviado” ou “aprovado” sem evidência correspondente.
+
+## Como estas regras são impostas
+
+Regra escrita é pedido; pedido depende de alguém ler. Desde a
+[DL-014](docs/planos/DL-014-guardas-de-processo.md) parte delas é **imposta por
+mecanismo**, e a diferença fica declarada aqui para ninguém confundir uma coisa
+com a outra:
+
+| Imposto tecnicamente | Como |
+| --- | --- |
+| Este arquivo entra no contexto de toda sessão do Claude Code na web, antes da primeira ação | Gancho `SessionStart` em `.claude/hooks/session-start.sh` |
+| Pull request só fica verde com o atestado "Li o AGENTS.md" marcado e um plano `DL-xxx` citado | Workflow `Regras do projeto` |
+| Etapa com plano que não apareça no README e em `docs/agents/estado.md` reprova o build | `apps/core/tests/test_documentacao_do_estado.py` |
+| `main` só recebe alteração por PR com as verificações verdes | Proteção da branch no GitHub |
+
+**Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
+web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje
+bloquearia o único revisor. Para isso servem a auditoria independente por etapa
+e a revisão do diff — processo, não gancho.
+

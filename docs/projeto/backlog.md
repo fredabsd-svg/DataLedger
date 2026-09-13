@@ -202,7 +202,7 @@ do que depois de a etapa estar escrita.
 | ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
 | BL-01 | Fred responder as pendências PE-01 a PE-08 de [requisitos.md](requisitos.md), com prioridade para PE-01 (prioridade de negócio) e PE-02 (política de arredondamento). | `arquiteto-senior` conduz; decisão é do Fred | — | planejada | Cada pendência vira requisito confirmado ou decisão registrada em [decisoes.md](decisoes.md). |
-| BL-02 | Configurar proteção da branch `main`: exigir PR, revisão autorizada e verificações obrigatórias aprovadas. | Fred (ação administrativa no GitHub) | — | bloqueada | Merge direto em `main` recusado; PR sem CI aprovada não mescla. Registrar evidência da configuração. |
+| BL-02 | Configurar proteção da branch `main`: exigir PR, revisão autorizada e verificações obrigatórias aprovadas. | `arquiteto-senior`, por pedido do Fred em 2026-09-13 ([DL-014](../planos/DL-014-guardas-de-processo.md)) | — | **em validação** | Merge direto em `main` recusado; PR sem CI aprovada não mescla. Registrar evidência da configuração. |
 
 BL-02 é pendência herdada da DL-002, registrada no README e ainda não
 resolvida. É **ação administrativa no GitHub**: nenhum agente pode executá-la.
