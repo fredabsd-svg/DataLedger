@@ -1,206 +1,201 @@
-# DataLedger
+<p align="center">
+  <img src="docs/assets/logo-dataledger.svg" alt="Logo do DataLedger: livro-razão com símbolo de código" width="128" />
+</p>
 
-Sistema contábil brasileiro com inteligência artificial e integração MCP, planejado para reunir Fiscal, Folha de Pagamento, Contabilidade, Honorários e Processos/Paralegal em uma plataforma para escritórios de contabilidade.
+# 📊 DataLedger
 
-**Status: arquitetura e fundação técnica.** Existe um esqueleto executável mínimo (Django com endpoint de verificação de saúde), sem nenhum módulo de negócio, motor de cálculo, servidor MCP ou integração oficial implementados ainda. As capacidades abaixo representam o escopo de desenvolvimento.
+<p align="center">
+  <strong>Sistema contábil brasileiro, multiempresa, auditável e preparado para evoluir por módulos.</strong>
+</p>
 
-## Visão do produto
+<p align="center">
+  <em>Onde devs brasileiros organizam, consultam e versionam dados como código.</em>
+</p>
 
-Centralizar as rotinas do escritório, compartilhar cadastros entre departamentos e preservar a origem de cada documento, cálculo e lançamento. A plataforma deverá atender vários escritórios e empresas, com permissões específicas e isolamento de dados.
+<p align="center">
+  <a href="https://github.com/fredabsd-svg/DataLedger/actions/workflows/backend.yml"><img alt="Backend CI" src="https://github.com/fredabsd-svg/DataLedger/actions/workflows/backend.yml/badge.svg" /></a>
+  <a href="https://github.com/fredabsd-svg/DataLedger/actions/workflows/documentation.yml"><img alt="Docs CI" src="https://github.com/fredabsd-svg/DataLedger/actions/workflows/documentation.yml/badge.svg" /></a>
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white" />
+  <img alt="Django 6.1.1" src="https://img.shields.io/badge/Django-6.1.1-0C4B33?style=flat-square&logo=django&logoColor=white" />
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-ready-336791?style=flat-square&logo=postgresql&logoColor=white" />
+  <a href="https://github.com/fredabsd-svg/DataLedger/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/fredabsd-svg/DataLedger?style=flat-square&logo=github" /></a>
+  <a href="https://github.com/fredabsd-svg/DataLedger/forks"><img alt="Forks" src="https://img.shields.io/github/forks/fredabsd-svg/DataLedger?style=flat-square&logo=github" /></a>
+  <a href="https://github.com/fredabsd-svg/DataLedger/issues"><img alt="Issues" src="https://img.shields.io/github/issues/fredabsd-svg/DataLedger?style=flat-square&logo=github" /></a>
+  <img alt="Feito no Brasil" src="https://img.shields.io/badge/feito%20no-Brasil-009C3B?style=flat-square" />
+</p>
 
-A abrangência funcional das [Soluções Domínio](https://www.dominiosistemas.com.br/solucoes/dominio-pro/) é uma referência para o produto. O DataLedger terá identidade e implementação próprias, sem vínculo declarado com a Thomson Reuters e sem pressupor acesso a APIs da Domínio.
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="Visão visual do DataLedger conectando módulos contábeis a um núcleo auditável" width="100%" />
+</p>
 
-## Módulos planejados
+> **Estado atual:** a base do produto já inclui autenticação, isolamento entre escritórios, cadastro de empresas e estabelecimentos, permissões, auditoria e contabilidade básica com plano de contas, partidas dobradas, Diário, Razão e Balancete. A DL-011 acrescentou suporte ao CNPJ alfanumérico e elevou a suíte automatizada para 272 testes. Fiscal, Folha, Honorários, Processos/Paralegal, IA e MCP seguem como evolução planejada.
 
-| Módulo | Objetivo e capacidades previstas |
-| --- | --- |
-| Fiscal | Importação de documentos, escrituração, apurações versionadas, memória de cálculo, obrigações e integração contábil. |
-| Folha de Pagamento | Empregados, vínculos, eventos, folha, férias, 13º, rescisões, encargos e evolução para obrigações oficiais. |
-| Contabilidade | Plano de contas, partidas dobradas, conciliação, Diário, Razão, balancete, balanço, DRE e fechamento. |
-| Honorários | Contratos, cobranças recorrentes, serviços avulsos, contas a receber, inadimplência e rentabilidade do escritório. |
-| Processos/Paralegal | Abertura, alteração e baixa de empresas, licenças, certidões, protocolos, documentos, prazos e responsáveis. |
+## ✨ O que o DataLedger quer resolver
 
-Os módulos compartilharão cadastros de empresas, estabelecimentos, usuários, documentos, tarefas e competências. Um portal do cliente permitirá acompanhar solicitações e receber documentos autorizados.
+O DataLedger nasce para reunir as rotinas de um escritório contábil em uma plataforma única, com **dados compartilhados entre módulos**, **rastreabilidade de origem**, **regras versionadas** e **isolamento entre escritórios e empresas**.
 
-## Inteligência artificial e MCP
-
-O projeto prevê duas capacidades distintas:
-
-1. **Assistente interno:** conversa em português para consultar informações, explicar variações e preparar sugestões dentro do sistema.
-2. **Servidor MCP:** disponibiliza ferramentas e recursos para aplicativos de IA autorizados, respeitando as mesmas permissões da aplicação.
-
-Exemplos de solicitações previstas:
-
-- “Quais empresas têm documentos pendentes nesta competência?”
-- “Explique a variação da folha em relação ao mês anterior.”
-- “Liste os honorários vencidos e os processos com prazo nesta semana.”
-- “Prepare uma proposta de lançamento para revisão.”
-
-Os cálculos serão realizados por regras determinísticas, versionadas e testadas. A IA deverá indicar as fontes dos dados, distinguir sugestões de resultados efetivados e depender de aprovação para operações críticas. Ela não terá acesso irrestrito ao banco de dados.
-
-## Princípios de construção
-
-- Isolamento entre escritórios e controle de acesso por empresa e operação.
-- Valores monetários com precisão decimal e arredondamento explícito.
-- Rastreabilidade, memória de cálculo e histórico de alterações.
-- Regras legais com fonte, vigência e casos de referência validados.
-- Operações repetíveis sem duplicação indevida de documentos ou cobranças.
-- Distinção visível entre simulação, homologação e produção.
-- Testes e revisão em todas as etapas de desenvolvimento.
-
-## Documentação e contribuição
-
-**Antes de alterar qualquer arquivo, leia integralmente o [AGENTS.md](AGENTS.md).**
-
-- [Escopo funcional e orientação de implementação](docs/escopo.md).
-- [Plano da primeira entrega](docs/planos/DL-001-documentacao-inicial.md).
-- [Plano de arquitetura e fundação técnica](docs/planos/DL-002-arquitetura-fundacao.md).
-- [Plano de fundação: autenticação e multiempresa](docs/planos/DL-003-fundacao-multiempresa.md).
-- [Plano de cadastro central de empresas](docs/planos/DL-004-cadastro-empresas.md).
-- [Plano de permissões por papel e auditoria](docs/planos/DL-005-permissoes-auditoria.md).
-- [Plano de contabilidade básica](docs/planos/DL-006-contabilidade-basica.md).
-- [Modelo de pull request](.github/pull_request_template.md).
-- [Verificação da documentação](scripts/validate-docs.ps1).
-
-Cada etapa deve ter critérios de aceite e evidências de teste. O fluxo obrigatório é: validar, revisar o diff, commitar, fazer push, abrir ou atualizar o PR e conferir as verificações automáticas. O merge depende de revisão autorizada.
-
-## Estado atual e continuidade (leia antes de continuar o desenvolvimento)
-
-Esta seção existe para que quem retomar o projeto depois não precise
-reconstruir o contexto do zero. Atualize-a a cada etapa integrada.
-
-**Onde paramos (11/09/2026):** a `main` contém tudo de DL-001 a DL-006 —
-documentação inicial, arquitetura/fundação técnica (Django + DRF +
-PostgreSQL), autenticação e isolamento entre escritórios, cadastro central
-de empresas/estabelecimentos, permissões básicas por papel, auditoria, e o
-primeiro módulo de negócio (Contabilidade básica: plano de contas,
-lançamentos por partidas dobradas, Diário, Razão, Balancete). Todas as
-migrações aplicam em banco vazio, os 55 testes automatizados passam e o
-lint/formatação (`ruff`) e a validação de documentação estão limpos —
-conferido rodando a suíte completa sobre a `main` consolidada nesta data.
-
-A etapa 3 (Fundação) está encerrada. Da etapa 4 ("Primeiros fluxos"), só a
-Contabilidade básica foi entregue; Paralegal, Honorários, Fiscal (XML de
-NF-e) e cadastros de folha continuam planejados, cada um em PR próprio.
-
-### Incidente resolvido: PRs encadeados mesclados na branch errada
-
-Durante a integração das etapas DL-003 a DL-006, os PRs correspondentes
-(#3 a #6) foram mesclados **para dentro da branch de origem encadeada de
-cada um** (prática prevista no AGENTS.md, seção 6, para PRs dependentes)
-em vez de terem a `base` reapontada para `main` antes do merge. O conteúdo
-de cada etapa ficou "preso" uma branch antes do destino final, mesmo
-aparecendo como "Merged" no GitHub — nenhum trabalho foi perdido, mas a
-`main` ficou temporariamente atrasada em relação ao que já estava pronto.
-
-Corrigido pelos PRs #7, #8 e #9 (mesmo conteúdo dos PRs #3 a #6, só com a
-`base` correta), mesclados nessa ordem diretamente em `main`. Já
-integrados; nenhuma ação pendente relacionada a isso.
-
-**Lição registrada no AGENTS.md (seção 6):** ao mesclar um PR cuja `base`
-não é `main` (um PR encadeado), reapontar a `base` para `main` **antes**
-de mesclar, assim que o PR do qual ele depende já estiver integrado.
-
-### Pull requests — histórico
-
-Todos os PRs abaixo estão mesclados; a tabela fica para referência de
-como cada etapa chegou à `main`.
-
-| PR | Etapa | Situação |
+| | Capacidade | Situação |
 | --- | --- | --- |
-| [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) | DL-001 — Documentação inicial | Integrado em `main`. |
-| [#2](https://github.com/fredabsd-svg/DataLedger/pull/2) | DL-002 — Arquitetura e fundação técnica | Integrado em `main`. |
-| [#3](https://github.com/fredabsd-svg/DataLedger/pull/3) a [#6](https://github.com/fredabsd-svg/DataLedger/pull/6) | DL-003 a DL-006 | Mesclados na branch encadeada errada (ver incidente acima); conteúdo trazido à `main` pelos PRs #7 a #9. |
-| [#7](https://github.com/fredabsd-svg/DataLedger/pull/7) | Correção DL-003 (+DL-004) → `main` | Integrado em `main`. |
-| [#8](https://github.com/fredabsd-svg/DataLedger/pull/8) | Correção DL-005 → `main` | Integrado em `main`. |
-| [#9](https://github.com/fredabsd-svg/DataLedger/pull/9) | Correção DL-006 → `main` | Integrado em `main`. |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete | ✅ Base implementada |
+| <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado |
+| <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado e trilha de alterações | ✅ Fundação implementada |
+| <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de documentos, escrituração, apuração e integração contábil | 🧭 Próximo grande fluxo |
+| <img src="docs/assets/icons/users.svg" alt="" width="28" /> | **Folha** — vínculos, eventos, férias, 13º, rescisões e encargos | 🗺️ Planejado |
+| <img src="docs/assets/icons/briefcase.svg" alt="" width="28" /> | **Honorários e Paralegal** — contratos, cobranças, processos, prazos e documentos | 🗺️ Planejado |
+| <img src="docs/assets/icons/sparkles.svg" alt="" width="28" /> | **IA + MCP** — consulta assistida e operações controladas pelas mesmas permissões do sistema | 🗺️ Planejado |
 
-### Próximos passos, em ordem
+## 🧭 Arquitetura em uma imagem
 
-1. Apagar as branches remotas já mescladas e sem PR aberto:
-   `feat/dl-002-arquitetura-fundacao`, `feat/dl-003-fundacao-multiempresa`,
-   `feat/dl-004-cadastro-empresas`, `feat/dl-005-permissoes-auditoria` e
-   `feat/dl-006-contabilidade-basica`. Puramente organizacional — todo o
-   conteúdo já está em `main`.
-2. Configurar a proteção da branch `main` (etapa 2 do roadmap, ainda
-   pendente): exigir PR, revisão e verificações obrigatórias aprovadas
-   antes do merge. Isso bloquearia estruturalmente o tipo de merge indevido
-   do incidente acima, em vez de depender só de atenção humana.
-3. Escolher e planejar o próximo fluxo da etapa 4 (Honorários,
-   Processos/Paralegal ou Fiscal/XML de NF-e — decisão de produto, não
-   técnica) e abrir sua branch **a partir da `main` já atualizada**.
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Arquitetura do DataLedger com Django, DRF, PostgreSQL, módulos de negócio, auditoria e interfaces" width="100%" />
+</p>
 
-## Como começar
+O núcleo atual usa **Python 3.12+, Django 6.1.1, Django REST Framework 3.18.1 e PostgreSQL**, com templates renderizados no servidor e evolução de interface apoiada por HTMX/Alpine.js. A regra central é simples: **cálculo oficial deve ser determinístico, testável e reproduzível; IA consulta, explica e propõe**.
 
-A stack técnica foi definida na etapa de arquitetura: Python com Django e
-Django REST Framework, PostgreSQL e templates renderizados no servidor
-(HTMX/Alpine.js). Ainda não há módulo de negócio implementado; o que existe
-é o esqueleto do projeto e um endpoint de verificação de saúde. Detalhes e
-motivação em [docs/planos/DL-002-arquitetura-fundacao.md](docs/planos/DL-002-arquitetura-fundacao.md).
+## 🥊 Gauntlet Loop de qualidade
 
-Para obter o repositório, use Git com suporte a HTTPS:
+<p align="center">
+  <img src="docs/assets/gauntlet-loop.svg" alt="Ciclo de qualidade do DataLedger: planejar, implementar, testar, atacar, corrigir, auditar e integrar" width="100%" />
+</p>
 
-```sh
+A engenharia do DataLedger trata software contábil como software crítico. Uma mudança não termina quando “funciona na máquina”: ela passa por planejamento, testes, revisão do diff, auditoria, CI e registro das decisões. Na DL-011, por exemplo, sucessivas rodadas de auditoria encontraram falhas que rodadas anteriores não haviam visto — e os testes cresceram junto com as correções.
+
+## 🧱 Princípios que não negociamos
+
+- **Isolamento por escritório e empresa** aplicado no backend, não apenas escondido na interface.
+- **Partidas dobradas** e invariantes contábeis protegidos por regra e teste.
+- **Valores monetários com precisão decimal**, escala e arredondamento explícitos.
+- **Rastreabilidade** de documentos, lançamentos, cálculos, atores e alterações.
+- **Regras legais versionadas por vigência**, com fonte e casos de referência.
+- **Idempotência** para importações, cobranças e operações sujeitas a repetição.
+- **Falha visível**: erro nunca deve virar sucesso aparente.
+- **IA sem acesso irrestrito ao banco** e sem substituir o motor determinístico.
+
+## 🚀 Como rodar localmente
+
+### 1. Clone o repositório
+
+```bash
 git clone https://github.com/fredabsd-svg/DataLedger.git
 cd DataLedger
 ```
 
-Para rodar a aplicação localmente sem Docker (requer Python 3.12 ou
-superior):
+### 2. Crie o ambiente e instale as dependências
 
-```sh
+```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate ; Linux/macOS: source .venv/bin/activate
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
 pip install -r requirements/dev.txt
+```
+
+### 3. Configure, migre e execute
+
+```bash
 cp .env.example .env
 python manage.py migrate
 python manage.py runserver
 ```
 
-Para rodar com Docker Compose (aplicação e PostgreSQL):
+A verificação de saúde fica em `GET /api/health/`. Para entrar na aplicação, crie um usuário administrativo com `python manage.py createsuperuser` e acesse `/login/`.
 
-```sh
+### Docker Compose
+
+```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-Em ambos os casos, `GET /api/health/` deve responder `{"status": "ok"}`. Para
-autenticar, crie um usuário com `python manage.py createsuperuser` e acesse
-`/login/`; o painel em `/` mostra o escritório ativo do usuário, conforme
-descrito em [docs/planos/DL-003-fundacao-multiempresa.md](docs/planos/DL-003-fundacao-multiempresa.md).
+## 🧪 Verificações de desenvolvimento
 
-Para rodar o lint, a formatação e os testes do backend:
-
-```sh
+```bash
 ruff check .
 ruff format --check .
 pytest
+python manage.py check
+python manage.py makemigrations --check
 ```
 
-Para validar a documentação a partir da raiz, use PowerShell 7 ou superior:
+Documentação:
 
-```sh
+```powershell
 pwsh -NoProfile -File scripts/validate-docs.ps1
 ```
 
-A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao final das linhas e existência dos destinos de links relativos. Não valida conteúdo jurídico, URLs externas ou âncoras. Os workflows de documentação e de backend executam essas verificações em pushes e pull requests.
+## 🛠️ Tech stack
 
-## Etapas de evolução
+<p>
+  <img src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Django-6.1.1-0C4B33?style=for-the-badge&logo=django&logoColor=white" alt="Django" />
+  <img src="https://img.shields.io/badge/DRF-3.18.1-A30000?style=for-the-badge" alt="Django REST Framework" />
+  <img src="https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/HTMX-3366CC?style=for-the-badge&logo=htmx&logoColor=white" alt="HTMX" />
+  <img src="https://img.shields.io/badge/Alpine.js-8BC0D0?style=for-the-badge&logo=alpinedotjs&logoColor=111827" alt="Alpine.js" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions" />
+</p>
 
-| Etapa | Entrega esperada | Situação |
-| --- | --- | --- |
-| 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
-| 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
-| 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Entregue: autenticação, isolamento entre escritórios, cadastro de empresas/estabelecimentos, permissões básicas por papel e auditoria. Matriz fina de permissões por operação fica para quando os módulos de negócio existirem. |
-| 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Contabilidade básica (plano de contas, lançamentos por partidas dobradas, Diário, Razão, Balancete) entregue. Demais fluxos planejados. |
-| 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
-| 6. Cálculos e integrações | Motores validados, fechamentos, obrigações e conectores homologados. | Planejada. |
+## 🗺️ Roadmap real do repositório
 
-Cada etapa ampla será desdobrada em incrementos revisáveis. A presença do AGENTS.md não ativa proteções de branch; essa configuração precisa ser feita e verificada separadamente. Os testes da aplicação serão adicionados junto aos respectivos componentes.
+- [x] **DL-001** — documentação inicial e regras de contribuição
+- [x] **DL-002** — arquitetura e fundação técnica
+- [x] **DL-003** — autenticação e isolamento multiempresa
+- [x] **DL-004** — cadastro central de empresas e estabelecimentos
+- [x] **DL-005** — permissões e auditoria
+- [x] **DL-006** — contabilidade básica
+- [x] **DL-007** — correções de bloqueadores da contabilidade
+- [x] **DL-008** — política monetária e validação de escala
+- [x] **DL-009** — fundação de interface
+- [x] **DL-011** — CNPJ alfanumérico
+- [ ] **DL-010** — recepção de documentos fiscais / evolução do fluxo Fiscal
+- [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
+- [ ] **Folha de Pagamento**
+- [ ] **Honorários**
+- [ ] **Processos/Paralegal**
+- [ ] **IA e servidor MCP**
 
-## Referências
+> A ordem dos números DL reflete dependências e decisões de implementação; uma etapa posterior pode ser concluída antes de outra quando ela remove um bloqueio técnico.
 
-- [Visão funcional das Soluções Domínio](https://www.dominiosistemas.com.br/solucoes/dominio-pro/).
-- [Documentação oficial do Model Context Protocol](https://modelcontextprotocol.io/).
+## 🤝 Contribuindo
 
-Integrações e regras legais deverão ser verificadas nas fontes oficiais durante sua implementação, considerando vigência, credenciamento e disponibilidade técnica.
+<p align="center">
+  <img src="docs/assets/contributing.svg" alt="Ilustração de contribuição no DataLedger com branch, revisão, testes e pull request" width="760" />
+</p>
+
+Contribuições técnicas são bem-vindas, mas o projeto possui regras rígidas porque lida com domínio contábil e isolamento de dados. **Antes de alterar qualquer arquivo, leia integralmente [`AGENTS.md`](AGENTS.md).**
+
+Comece por estes documentos:
+
+- [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) — requisitos confirmados e pendências.
+- [`docs/projeto/backlog.md`](docs/projeto/backlog.md) — prioridades, dependências e critérios de aceite.
+- [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) — decisões arquiteturais e justificativas.
+- [`docs/projeto/mapa-funcional-fiscal.md`](docs/projeto/mapa-funcional-fiscal.md) — visão funcional do domínio Fiscal.
+- [`docs/planos/`](docs/planos/) — planos versionados das demandas DL.
+- [`docs/auditorias/`](docs/auditorias/) — auditorias preservadas das etapas realizadas.
+
+Fluxo esperado: **branch própria → implementação pequena → testes → revisão do diff → push → pull request → CI → revisão autorizada**.
+
+## 📚 Navegação rápida
+
+| Documento | Para que serve |
+| --- | --- |
+| [`AGENTS.md`](AGENTS.md) | Regras obrigatórias de desenvolvimento |
+| [`CLAUDE.md`](CLAUDE.md) | Contexto operacional para agentes e retomada do trabalho |
+| [`docs/escopo.md`](docs/escopo.md) | Escopo funcional do sistema |
+| [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) | Requisitos e hipóteses |
+| [`docs/projeto/backlog.md`](docs/projeto/backlog.md) | Backlog priorizado |
+| [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) | Registro de decisões |
+| [`docs/planos/`](docs/planos/) | Histórico das etapas DL |
+| [`docs/auditorias/`](docs/auditorias/) | Relatórios de auditoria |
+
+## 🇧🇷 Construído para a realidade contábil brasileira
+
+O DataLedger é desenvolvido com foco em rastreabilidade, isolamento, auditabilidade e evolução segura de regras. Integrações oficiais e regras legais só devem ser tratadas como implementadas depois de validação nas fontes oficiais e evidência técnica correspondente.
+
+<p align="center">
+  <strong>Feito com engenharia, café e responsabilidade por <a href="https://github.com/fredabsd-svg">fredabsd-svg</a>.</strong>
+</p>
+
+<p align="center">
+  ⭐ Se o projeto fizer sentido para você, acompanhe a evolução e deixe uma estrela.
+</p>
