@@ -1,8 +1,12 @@
 # DL-013 — Atualizar marca visual do DataLedger
 
-**Estado:** **substituída** em 2026-09-13. O Fred reprovou o laço infinito com cubos ("tá feio") e o `arquiteto-senior` encomendou três variantes ao `especialista-frontend`, com restrições: relação com contabilidade, sem letra inventada, flat, sem filtro, legível em 32 px e 128 px, em fundo claro e escuro.
+**Estado:** **substituída duas vezes** e fechada em 2026-09-13.
 
-Escolhida a **variante A — monograma DL**: as letras D e L com o mesmo peso, sobre uma linha verde de equilíbrio. Lê o nome do produto sem ambiguidade (o logo anterior tinha um "G" que não existe em DataLedger) e evoca as partidas dobradas — duas colunas de peso igual. As variantes B (livro-razão aberto) e C (grade de razão formando um D) foram descartadas por colapsarem em 32 px; as três estão preservadas, na versão final e com as renderizações de revisão, no commit `bfff79c` para consulta. O caminho `docs/assets/logo-dataledger.svg` foi mantido.
+1. O laço infinito com cubos foi reprovado pelo Fred ("tá feio"): sem relação com contabilidade, com um "G" que não existe em DataLedger, sobrecarregado de gradientes, sombra e brilho.
+2. O monograma "DL" que o substituiu foi reprovado de novo ("ficou horrível, você pode fazer bem melhor"). Diagnóstico: correto e sem alma — duas letras e um traço, indistinguível de qualquer sigla.
+3. O símbolo atual é o **razonete** — a conta T, que todo contador reconhece antes de ler qualquer letra. Débito à esquerda, crédito à direita; os lançamentos têm larguras diferentes mas **somam o mesmo nos dois lados** (84 + 60 + 92 em cada); a barra verde é o fechamento — a conta bateu. Uma cor primária (azul-marinho), um acento (esmeralda), sem filtro, 1,5 KB. Desenhado pelo `arquiteto-senior` em três execuções renderizadas em 128 px e 32 px, fundo claro e escuro, e conferidas a olho; a regra dupla de fechamento (variante A) foi descartada por virar borrão em 32 px, e o T verde (variante C) por perder o significado do fechamento.
+
+O caminho `docs/assets/logo-dataledger.svg` foi preservado nas três trocas.
 
 ## Objetivo
 

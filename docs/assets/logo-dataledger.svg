@@ -1,18 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="titulo descricao">
-  <!-- Conceito: partidas dobradas. Monograma "DL" em que as duas letras têm a mesma altura e -->
-  <!-- espessura, unidas por uma linha de equilíbrio: todo lançamento contábil precisa fechar. -->
-  <title id="titulo">Logotipo DataLedger</title>
-  <desc id="descricao">Monograma das letras D e L, do mesmo tamanho, apoiadas sobre uma linha de equilíbrio, dentro de um selo arredondado escuro.</desc>
-
-  <rect x="4" y="4" width="120" height="120" rx="24" fill="#0D1117" stroke="#30363D" stroke-width="4"/>
-
-  <!-- Letra D: haste + bojo semicircular, sólidos (sem contorno interno) para legibilidade em 32 px -->
-  <path d="M26 32 H42 A28 28 0 0 1 42 88 H26 Z" fill="#22D3EE"/>
-
-  <!-- Letra L: haste + base, mesma altura da letra D -->
-  <rect x="86" y="32" width="16" height="56" fill="#A371F7"/>
-  <rect x="86" y="74" width="34" height="14" fill="#A371F7"/>
-
-  <!-- Linha de equilíbrio: representa o "bater" das partidas dobradas -->
-  <rect x="26" y="96" width="94" height="6" rx="3" fill="#3FB950"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="titulo descricao">
+  <title id="titulo">DataLedger</title>
+  <desc id="descricao">Razonete, a conta T da contabilidade: lançamentos de valores diferentes em cada lado e a linha verde de fechamento que mostra que os totais batem.</desc>
+  <!--
+    Símbolo do DataLedger (DL-013, revisão de 2026-09-13).
+    Conceito: o razonete — débito à esquerda, crédito à direita. As larguras
+    dos lançamentos são diferentes, mas somam o mesmo nos dois lados
+    (84 + 60 + 92 = 236 em cada): valores distintos, totais iguais. A barra
+    verde é o fechamento — a conta bateu.
+    Uma cor primária (azul-marinho), um acento (esmeralda), sem filtro, sem
+    fonte, sem recurso externo. Legível em 32 px e em 128 px, em fundo claro
+    e escuro, porque o símbolo carrega o próprio fundo.
+  -->
+  <defs>
+    <linearGradient id="fundo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1C3D70"/>
+      <stop offset="1" stop-color="#0A1B36"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#fundo)"/>
+  <g fill="none" stroke="#F4F7FB" stroke-linecap="round">
+    <path d="M100 126H412M256 126V366" stroke-width="38"/>
+    <path d="M136 200H220M136 258H196M136 316H228M292 200H376M292 258H352M292 316H384" stroke-width="28"/>
+  </g>
+  <path d="M116 424H396" fill="none" stroke="#2DD4A0" stroke-linecap="round" stroke-width="30"/>
 </svg>

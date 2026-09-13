@@ -186,7 +186,7 @@ diverge.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
-| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — reprovado pelo Fred e **substituído** pelo monograma DL em 2026-09-13 | Integrada; logo novo na branch de trabalho |
+| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — dois desenhos reprovados pelo Fred; fechado com o **razonete** (conta T) em 2026-09-13 | Integrada |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
