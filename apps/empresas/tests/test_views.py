@@ -14,6 +14,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -206,10 +207,21 @@ def test_lista_empresas_exibe_data_em_pt_br(client, escritorio):
     resposta = client.get(reverse("empresas:lista"))
 
     conteudo = resposta.content.decode()
-    data_esperada = empresa.criado_em.strftime("%d/%m/%Y")
+    # localtime() é obrigatório aqui, e não detalhe de estilo. USE_TZ=True
+    # guarda `criado_em` em UTC, e TIME_ZONE="America/Sao_Paulo" faz o
+    # template renderizar no fuso de Brasília. Comparar direto com o valor em
+    # UTC fazia este teste falhar todo dia entre 00:00 e 03:00 UTC — das 21:00
+    # à meia-noite em São Paulo —, porque nessa janela a data em UTC já virou
+    # e a local ainda não. Descoberto em 2026-09-13, com o teste acusando
+    # "13/09/2026" contra "12/09/2026" na tela; a tela estava certa.
+    #
+    # Falha que só aparece em três horas do dia parece intermitência e
+    # costuma ser tratada como tal. Não era: era o teste comparando fusos
+    # diferentes.
+    data_esperada = timezone.localtime(empresa.criado_em).strftime("%d/%m/%Y")
     assert data_esperada in conteudo
     # Formato ISO (americano/técnico) não pode ser o que aparece na tela.
-    assert empresa.criado_em.strftime("%Y-%m-%d") not in conteudo
+    assert timezone.localtime(empresa.criado_em).strftime("%Y-%m-%d") not in conteudo
 
 
 def test_form_com_erro_todo_aria_describedby_aponta_para_id_existente(client, escritorio):

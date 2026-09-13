@@ -164,6 +164,30 @@ funcionam normalmente.
 
 Para uma sessão avulsa em outro papel: `claude --agent auditor-qa`.
 
+## Todas as etapas do projeto
+
+Tabela completa, porque este documento é a **fonte única do estado** — o
+[README](../../README.md) aponta para cá em vez de repetir a informação. Essa
+decisão veio de um achado do Fred em 2026-09-13: o estado estava duplicado em
+quatro lugares do README e tinha divergido. Verdade espalhada é verdade que
+diverge.
+
+| Etapa | Entrega | Situação |
+| --- | --- | --- |
+| [DL-001](../planos/DL-001-documentacao-inicial.md) | Documentação inicial, escopo, regras e modelo de PR | Integrada |
+| [DL-002](../planos/DL-002-arquitetura-fundacao.md) | Arquitetura e fundação técnica: Django, DRF, PostgreSQL, CI | Integrada |
+| [DL-003](../planos/DL-003-fundacao-multiempresa.md) | Autenticação e isolamento entre escritórios | Integrada |
+| [DL-004](../planos/DL-004-cadastro-empresas.md) | Cadastro central de empresas e estabelecimentos | Integrada |
+| [DL-005](../planos/DL-005-permissoes-auditoria.md) | Permissões por papel e trilha de auditoria | Integrada |
+| [DL-006](../planos/DL-006-contabilidade-basica.md) | Contabilidade básica: plano de contas, partidas dobradas, Diário, Razão, Balancete | Integrada |
+| [DL-007](../planos/DL-007-correcao-bloqueadores-contabilidade.md) | Correção dos dois bloqueadores da auditoria inicial | Integrada (PR #11) |
+| [DL-008](../planos/DL-008-politica-monetaria-e-validacao-de-escala.md) | Política monetária explícita e módulo de arredondamento | Integrada (PR #11) |
+| [DL-009](../planos/DL-009-fundacao-de-interface.md) | Fundação de interface, estados de erro, acessibilidade | Integrada (PR #11) |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
+| [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
+
+**Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
+
 ## Trabalho de produto entregue nesta sessão
 
 Todas as etapas seguiram o mesmo ciclo: o `arquiteto-senior` escreve o plano com

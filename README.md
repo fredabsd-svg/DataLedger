@@ -2,7 +2,9 @@
 
 Sistema contábil brasileiro com inteligência artificial e integração MCP, planejado para reunir Fiscal, Folha de Pagamento, Contabilidade, Honorários e Processos/Paralegal em uma plataforma para escritórios de contabilidade.
 
-**Status: arquitetura e fundação técnica.** Existe um esqueleto executável mínimo (Django com endpoint de verificação de saúde), sem nenhum módulo de negócio, motor de cálculo, servidor MCP ou integração oficial implementados ainda. As capacidades abaixo representam o escopo de desenvolvimento.
+**Status: fundação entregue e auditada; módulos de negócio em construção.** Já funcionam autenticação, isolamento entre escritórios, cadastro de empresas e estabelecimentos, permissões por papel, trilha de auditoria, plano de contas com partidas dobradas e política monetária explícita. **Não existem ainda** os módulos Fiscal, Folha, Honorários e Processos/Paralegal, nem motor de cálculo de tributos, servidor MCP ou integração oficial. As capacidades descritas abaixo representam o **escopo de desenvolvimento**, não o que está pronto.
+
+> **O estado atual detalhado fica em [docs/agents/estado.md](docs/agents/estado.md)** — revisão, etapas concluídas, próximo passo e pendências. Este README descreve o **produto e o processo**, que mudam pouco; o estado, que muda a cada etapa, mora num lugar só, de propósito.
 
 ## Visão do produto
 
@@ -64,79 +66,58 @@ Os cálculos serão realizados por regras determinísticas, versionadas e testad
 
 Cada etapa deve ter critérios de aceite e evidências de teste. O fluxo obrigatório é: validar, revisar o diff, commitar, fazer push, abrir ou atualizar o PR e conferir as verificações automáticas. O merge depende de revisão autorizada.
 
-## Estado atual e continuidade (leia antes de continuar o desenvolvimento)
+## Estado atual e continuidade
 
-Esta seção existe para que quem retomar o projeto depois não precise
-reconstruir o contexto do zero. Atualize-a a cada etapa integrada.
+**A fonte única do estado é [docs/agents/estado.md](docs/agents/estado.md).**
+Consulte-o antes de retomar o desenvolvimento: revisão atual, etapas
+concluídas, próximo passo, pendências e decisões que dependem do responsável
+pelo produto.
 
-**Onde paramos (11/09/2026):** a `main` contém tudo de DL-001 a DL-006 —
-documentação inicial, arquitetura/fundação técnica (Django + DRF +
-PostgreSQL), autenticação e isolamento entre escritórios, cadastro central
-de empresas/estabelecimentos, permissões básicas por papel, auditoria, e o
-primeiro módulo de negócio (Contabilidade básica: plano de contas,
-lançamentos por partidas dobradas, Diário, Razão, Balancete). Todas as
-migrações aplicam em banco vazio, os 55 testes automatizados passam e o
-lint/formatação (`ruff`) e a validação de documentação estão limpos —
-conferido rodando a suíte completa sobre a `main` consolidada nesta data.
+Esta seção existia em quatro lugares diferentes deste README e **divergiu** — o
+topo do arquivo ainda dizia "esqueleto sem módulo de negócio" enquanto o meio
+documentava a contabilidade funcionando. Achado pelo Fred em 2026-09-13. A
+correção não foi só reescrever: foi **tirar a duplicação**, porque verdade
+espalhada em quatro lugares é verdade que diverge.
 
-A etapa 3 (Fundação) está encerrada. Da etapa 4 ("Primeiros fluxos"), só a
-Contabilidade básica foi entregue; Paralegal, Honorários, Fiscal (XML de
-NF-e) e cadastros de folha continuam planejados, cada um em PR próprio.
+### Resumo, em uma tabela
 
-### Incidente resolvido: PRs encadeados mesclados na branch errada
-
-Durante a integração das etapas DL-003 a DL-006, os PRs correspondentes
-(#3 a #6) foram mesclados **para dentro da branch de origem encadeada de
-cada um** (prática prevista no AGENTS.md, seção 6, para PRs dependentes)
-em vez de terem a `base` reapontada para `main` antes do merge. O conteúdo
-de cada etapa ficou "preso" uma branch antes do destino final, mesmo
-aparecendo como "Merged" no GitHub — nenhum trabalho foi perdido, mas a
-`main` ficou temporariamente atrasada em relação ao que já estava pronto.
-
-Corrigido pelos PRs #7, #8 e #9 (mesmo conteúdo dos PRs #3 a #6, só com a
-`base` correta), mesclados nessa ordem diretamente em `main`. Já
-integrados; nenhuma ação pendente relacionada a isso.
-
-**Lição registrada no AGENTS.md (seção 6):** ao mesclar um PR cuja `base`
-não é `main` (um PR encadeado), reapontar a `base` para `main` **antes**
-de mesclar, assim que o PR do qual ele depende já estiver integrado.
-
-### Pull requests — histórico
-
-Todos os PRs abaixo estão mesclados; a tabela fica para referência de
-como cada etapa chegou à `main`.
-
-| PR | Etapa | Situação |
+| Etapa | Entrega | Situação |
 | --- | --- | --- |
-| [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) | DL-001 — Documentação inicial | Integrado em `main`. |
-| [#2](https://github.com/fredabsd-svg/DataLedger/pull/2) | DL-002 — Arquitetura e fundação técnica | Integrado em `main`. |
-| [#3](https://github.com/fredabsd-svg/DataLedger/pull/3) a [#6](https://github.com/fredabsd-svg/DataLedger/pull/6) | DL-003 a DL-006 | Mesclados na branch encadeada errada (ver incidente acima); conteúdo trazido à `main` pelos PRs #7 a #9. |
-| [#7](https://github.com/fredabsd-svg/DataLedger/pull/7) | Correção DL-003 (+DL-004) → `main` | Integrado em `main`. |
-| [#8](https://github.com/fredabsd-svg/DataLedger/pull/8) | Correção DL-005 → `main` | Integrado em `main`. |
-| [#9](https://github.com/fredabsd-svg/DataLedger/pull/9) | Correção DL-006 → `main` | Integrado em `main`. |
+| DL-001 a DL-002 | Documentação, arquitetura, fundação técnica | Integrada |
+| DL-003 | Autenticação e isolamento entre escritórios | Integrada |
+| DL-004 | Cadastro de empresas e estabelecimentos | Integrada |
+| DL-005 | Permissões por papel e trilha de auditoria | Integrada |
+| DL-006 | Contabilidade básica: plano de contas, partidas dobradas, Diário, Razão, Balancete | Integrada |
+| DL-007 | Correção de dois bloqueadores de auditoria: isolamento de conta e estorno duplicado | Integrada |
+| DL-008 | Política monetária explícita e módulo de arredondamento | Integrada |
+| DL-009 | Fundação de interface, estados de erro e acessibilidade | Integrada |
+| DL-010 | Recepção de documentos fiscais (XML, ZIP, SPED) | **Planejada** — próxima |
+| DL-011 | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada |
 
-### Próximos passos, em ordem
+**Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
-1. Apagar as branches remotas já mescladas e sem PR aberto:
-   `feat/dl-002-arquitetura-fundacao`, `feat/dl-003-fundacao-multiempresa`,
-   `feat/dl-004-cadastro-empresas`, `feat/dl-005-permissoes-auditoria` e
-   `feat/dl-006-contabilidade-basica`. Puramente organizacional — todo o
-   conteúdo já está em `main`.
-2. Configurar a proteção da branch `main` (etapa 2 do roadmap, ainda
-   pendente): exigir PR, revisão e verificações obrigatórias aprovadas
-   antes do merge. Isso bloquearia estruturalmente o tipo de merge indevido
-   do incidente acima, em vez de depender só de atenção humana.
-3. Escolher e planejar o próximo fluxo da etapa 4 (Honorários,
-   Processos/Paralegal ou Fiscal/XML de NF-e — decisão de produto, não
-   técnica) e abrir sua branch **a partir da `main` já atualizada**.
+### Histórico de integração
+
+Os PRs [#1](https://github.com/fredabsd-svg/DataLedger/pull/1) a
+[#9](https://github.com/fredabsd-svg/DataLedger/pull/9) levaram DL-001 a
+DL-006 à `main`, com um incidente de PRs encadeados mesclados na branch errada
+— corrigido, e a lição está registrada no [AGENTS.md](AGENTS.md) §6. O PR
+[#11](https://github.com/fredabsd-svg/DataLedger/pull/11) integrou DL-007 a
+DL-009 e o [#12](https://github.com/fredabsd-svg/DataLedger/pull/12) integrou a
+DL-011.
+
+### Pendência que nenhum agente pode resolver
+
+A proteção da branch `main` **nunca foi configurada**: exigir PR, revisão e
+verificações aprovadas antes do merge. É ação administrativa no GitHub, do
+responsável pelo repositório. Foi a ausência dela que permitiu o incidente dos
+PRs encadeados.
 
 ## Como começar
 
-A stack técnica foi definida na etapa de arquitetura: Python com Django e
-Django REST Framework, PostgreSQL e templates renderizados no servidor
-(HTMX/Alpine.js). Ainda não há módulo de negócio implementado; o que existe
-é o esqueleto do projeto e um endpoint de verificação de saúde. Detalhes e
-motivação em [docs/planos/DL-002-arquitetura-fundacao.md](docs/planos/DL-002-arquitetura-fundacao.md).
+A stack é Python com Django e Django REST Framework, PostgreSQL e templates
+renderizados no servidor. Detalhes e motivação em
+[docs/planos/DL-002-arquitetura-fundacao.md](docs/planos/DL-002-arquitetura-fundacao.md).
 
 Para obter o repositório, use Git com suporte a HTTPS:
 
@@ -189,10 +170,10 @@ A verificação confere arquivos obrigatórios, UTF-8, títulos, espaços ao fin
 
 | Etapa | Entrega esperada | Situação |
 | --- | --- | --- |
-| 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | Proposta nesta entrega. |
-| 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | Stack definida e esqueleto do projeto entregue; proteção da branch principal ainda pendente. |
+| 1. Documentação inicial | README, regras, escopo, plano, modelo de PR e verificação documental. | **Entregue.** |
+| 2. Arquitetura e controles | Stack, modelo de dados, contratos, estratégia de testes e proteção da branch principal. | **Entregue**, exceto a **proteção da branch `main`**, que segue pendente e é ação administrativa. |
 | 3. Fundação | Autenticação, escritórios, empresas, permissões, auditoria e persistência. | Entregue: autenticação, isolamento entre escritórios, cadastro de empresas/estabelecimentos, permissões básicas por papel e auditoria. Matriz fina de permissões por operação fica para quando os módulos de negócio existirem. |
-| 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | Contabilidade básica (plano de contas, lançamentos por partidas dobradas, Diário, Razão, Balancete) entregue. Demais fluxos planejados. |
+| 4. Primeiros fluxos | Paralegal, honorários, contabilidade básica, XML de NF-e e cadastros de folha, em PRs independentes. | **Contabilidade básica entregue e auditada**, com política monetária explícita, fundação de interface e CNPJ alfanumérico. **Recepção de XML de NF-e e SPED é a próxima etapa.** Paralegal, honorários e folha continuam planejados. |
 | 5. IA e MCP | Consultas autorizadas, recursos e preparação controlada de operações. | Planejada. |
 | 6. Cálculos e integrações | Motores validados, fechamentos, obrigações e conectores homologados. | Planejada. |
 
