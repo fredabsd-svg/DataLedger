@@ -80,6 +80,41 @@ Não diga que um teste passou sem tê-lo executado. Build bem-sucedido não é
 prova de correção funcional. Falha preexistente deve ser registrada, não
 escondida.
 
+## Estado do projeto: um lugar só
+
+**[docs/agents/estado.md](docs/agents/estado.md) é a fonte única do estado.**
+O `README.md` aponta para ele e **não** repete a informação.
+
+Instrução permanente do Fred, de 2026-09-13, depois de encontrar o README
+afirmando no topo que existia "apenas um esqueleto sem módulo de negócio"
+enquanto o mesmo arquivo documentava a contabilidade funcionando — a afirmação
+obsoleta estava em **quatro** lugares:
+
+> Isso precisa ser atualizado para não confundir os agentes nem quem entrar no
+> projeto. **Nunca esqueça de atualizar.**
+
+Regras que decorrem disso:
+
+1. **Ao concluir qualquer etapa, atualize `docs/agents/estado.md`.** Faz parte
+   da entrega, como teste e commit.
+2. **Não descreva o estado do projeto em outro arquivo.** Se precisar
+   mencioná-lo, aponte para a fonte única.
+3. `apps/core/tests/test_documentacao_do_estado.py` verifica isso na
+   integração contínua: etapa com plano que não apareça no README ou no
+   `estado.md` **reprova o build**, e afirmações já desmentidas não podem
+   voltar.
+
+A causa do problema não foi distração, foi **duplicação**. Texto repetido em
+quatro lugares diverge assim que alguém atualiza um.
+
+## Regras impostas por mecanismo
+
+Parte das regras deixou de ser pedido: gancho de sessão que injeta o
+`AGENTS.md` no contexto, workflow que reprova PR sem atestado de leitura, teste
+que reprova estado divergente, e `main` protegida. O que é imposto e o que é só
+instrução está declarado no fim do [AGENTS.md](AGENTS.md) e no plano
+[DL-014](docs/planos/DL-014-guardas-de-processo.md).
+
 ## Segredos
 
 Nunca exiba, versione ou registre em memória: credenciais, chaves, certificados

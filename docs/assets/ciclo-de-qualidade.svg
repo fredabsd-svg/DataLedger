@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
-  <title id="title">Gauntlet Loop de qualidade do DataLedger</title>
+  <title id="title">Ciclo de qualidade do DataLedger</title>
   <desc id="desc">Ciclo visual de planejar, implementar, testar, atacar, corrigir, auditar e integrar.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="330"><stop stop-color="#0D1117"/><stop offset="1" stop-color="#101826"/></linearGradient>
@@ -9,7 +9,7 @@
   <rect width="1200" height="330" rx="28" fill="url(#bg)"/>
   <rect x="1" y="1" width="1198" height="328" rx="27" fill="none" stroke="#30363D" stroke-width="2"/>
   <g font-family="Inter,Segoe UI,Arial,sans-serif">
-    <text x="52" y="58" font-size="28" fill="#E6EDF3" font-weight="800">Gauntlet Loop</text>
+    <text x="52" y="58" font-size="28" fill="#E6EDF3" font-weight="800">Ciclo de qualidade</text>
     <text x="52" y="84" font-size="15" fill="#8B949E">Cada volta precisa produzir evidência melhor que a anterior.</text>
 
     <path d="M105 172 C170 106 255 106 320 172 S470 238 535 172 685 106 750 172 900 238 965 172 1080 125 1110 172" fill="none" stroke="url(#line)" stroke-width="4" opacity=".8" filter="url(#glow)"/>

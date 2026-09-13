@@ -1,0 +1,64 @@
+name: Regras do projeto
+
+# DL-014. Guarda tecnico, nao pedido: um pull request so fica verde se o autor
+# — pessoa ou modelo de IA — atestou no corpo que leu o AGENTS.md e citou o
+# plano DL da etapa. Junto com a protecao da branch main (que exige este check),
+# torna impossivel integrar sem passar pelas regras.
+#
+# O corpo do PR e conteudo externo: entra por variavel de ambiente e e tratado
+# como dado, nunca interpolado no shell.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  atestado:
+    name: Regras do projeto
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Conferir atestado de leitura e plano da etapa
+        env:
+          CORPO_DO_PR: ${{ github.event.pull_request.body }}
+        shell: python
+        run: |
+          import os, re, sys
+
+          corpo = os.environ.get("CORPO_DO_PR") or ""
+          problemas = []
+
+          def marcado(texto):
+              padrao = r"-\s*\[[xX]\]\s*" + re.escape(texto)
+              return re.search(padrao, corpo) is not None
+
+          if not marcado("Li o AGENTS.md"):
+              problemas.append(
+                  "A caixa 'Li o AGENTS.md e as instruções das pastas afetadas antes "
+                  "de alterar arquivos' não está marcada. Leia o AGENTS.md e marque-a "
+                  "com [x] no corpo do PR."
+              )
+          if not marcado("Atualizei o **estado do projeto**"):
+              problemas.append(
+                  "A caixa 'Atualizei o estado do projeto em docs/agents/estado.md' "
+                  "não está marcada."
+              )
+          if not re.search(r"DL-\d{3}", corpo):
+              problemas.append(
+                  "O PR não cita nenhuma etapa DL-xxx. Toda alteração pertence a um "
+                  "plano em docs/planos/ (AGENTS.md §3)."
+              )
+
+          if problemas:
+              print("::error::PR reprovado pelas regras do projeto.")
+              for p in problemas:
+                  print(f"::error::{p}")
+              print(
+                  "\nAs regras estão em AGENTS.md. Este check existe para que ninguém — "
+                  "pessoa ou IA — integre código sem tê-las lido."
+              )
+              sys.exit(1)
+          print("Atestado de leitura e plano da etapa presentes. OK.")

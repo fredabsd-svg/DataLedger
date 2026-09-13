@@ -532,3 +532,126 @@ escritório (PE-17). Não afirmo desempenho que não medi.
 **Pendência que esta decisão abre:** dado de cliente em nuvem envolve
 **residência do dado e LGPD**. Registrado como PE-25, para decisão do Fred junto
 ao provedor.
+
+## DE-015 — Tarefas em segundo plano: contrato do Django, banco como armazenamento
+
+**Data:** 2026-09-13
+
+**Decisão:** programar contra **`django.tasks`**, o contrato oficial do Django
+desde a 6.0 (DEP 0014), e adotar **`django-tasks-db`** como backend, que
+armazena a fila no **PostgreSQL que já temos**. Fecha o **BL-52**.
+
+Nenhuma peça nova de infraestrutura: sem Redis, sem RabbitMQ.
+
+### O que foi medido, e não suposto
+
+A pesquisa levantou os candidatos; a verificação **executou** os dois finalistas
+em ambientes descartáveis, com Django 6.1.1 e PostgreSQL 16. Três resultados
+mudaram a decisão:
+
+**1. O argumento que eu considerava decisivo não distingue os candidatos.**
+
+Eu havia escrito que a vantagem de uma fila no PostgreSQL seria enfileirar a
+tarefa **na mesma transação** que grava o lote, eliminando a classe de defeito
+"lote gravado sem tarefa" e "tarefa sem lote". A verificação mostrou que
+**`procrastinate` e `django-tasks-db` se comportam de forma idêntica** nisso —
+os dois gravam a fila na mesma conexão, e o `rollback` desfaz os dois juntos.
+Testado com transação e exceção proposital: zero linhas em ambos.
+
+É o comportamento correto, e é bom que exista. Mas **não serve para escolher**,
+e usá-lo como critério teria sido decidir por um argumento que não discrimina.
+
+**2. Nenhum dos dois se recupera sozinho da queda do trabalhador.**
+
+Com `kill -9` no meio do processamento, os dois deixam a tarefa **presa para
+sempre** — `doing` num, `RUNNING` no outro. Subir um trabalhador novo **não**
+retoma nenhuma das duas.
+
+Isso é o achado mais importante da verificação, e **elimina a ilusão de que a
+escolha da biblioteca resolveria o problema**. Não resolve. Ver a consequência
+de projeto abaixo.
+
+**3. O custo em dependências é muito diferente.**
+
+| | `django-tasks-db` | `procrastinate` |
+| --- | --- | --- |
+| Versão | 0.13.0 | 3.9.0 |
+| Dependências novas | **2** | **7** |
+| API | Contrato **oficial** do Django | Própria |
+| Admin | Somente leitura | Com ações de repetir, cancelar e abortar |
+| Recuperação manual de tarefa presa | **Nenhum caminho** além de SQL | Documentada (`shell`, admin) |
+
+### Por que escolhi o menos capaz dos dois
+
+Porque o critério não é "qual faz mais hoje", e sim **quanto custa estar
+errado**.
+
+- Se `django-tasks-db` (0.13.0, jovem) se mostrar imaturo, **trocamos o
+  backend** e o nosso código **não muda** — ele fala `django.tasks`, que é o
+  contrato do Django. Inclusive dá para migrar para um backend baseado em
+  Celery ou Redis sem reescrever uma chamada.
+- Se adotássemos `procrastinate` e precisássemos sair, seria **reescrever cada
+  ponto de chamada**.
+
+Essa assimetria decide. Amarrar-se ao contrato do framework, e não à
+biblioteca, é o que mantém a decisão reversível.
+
+As duas vantagens reais do `procrastinate` — admin com ação de repetir e
+caminho de recuperação — **perdem peso** porque, pelo motivo da seção seguinte,
+teremos tela e modelo próprios de lote de qualquer maneira. A recuperação que
+importa ao contador não é "repetir a tarefa": é **retomar o lote do documento
+3.412**, e isso nenhuma das duas entrega.
+
+### Consequência de projeto, que é obrigatória e não opcional
+
+> **A resiliência é nossa, não da fila.**
+
+A [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) precisa de um
+modelo próprio de **lote de importação**, com:
+
+1. **Progresso por documento**, para responder "3.412 de 5.000" e para retomar
+   de onde parou.
+2. **Sinal de vida** (o instante da última atividade), para que lote sem
+   progresso há muito tempo seja **detectado**, não descoberto por acaso.
+3. **Estado visível ao operador**, com motivo de recusa por documento.
+4. **Idempotência pela chave de acesso**, que já é decisão da etapa e é o que
+   torna **seguro reprocessar** um lote interrompido.
+
+Com esses quatro itens, reprocessar um lote travado é uma operação inofensiva —
+e é por isso que a fraqueza dos dois candidatos deixa de ser bloqueante.
+
+**Sem eles, a etapa não pode ser dada como concluída**, por mais que a fila
+funcione.
+
+### Verificação que falta antes de fixar a dependência
+
+Condição para entrar em `requirements/`:
+
+- O ambiente de teste tinha apenas **Python 3.14.0rc2**; a integração contínua
+  usa **3.14 final**. A instalação foi conferida na rc2, não no GA.
+- Nenhum dos pacotes declara compatibilidade com **Django 6.1** nos
+  classificadores — funcionou porque não há teto de versão, o que é diferente
+  de suporte declarado.
+
+**A própria CI fecha essa lacuna**: ao acrescentar a dependência, o *build* em
+Python 3.14 passa ou não passa. Se não passar, esta decisão volta à mesa, e
+`procrastinate` é o substituto imediato — trocar o backend não muda o código de
+chamada, que é exatamente a propriedade pela qual escolhi assim.
+
+### Alternativas descartadas
+
+- **Celery.** Escolha óbvia de mercado, e a descarto com justificativa, não por
+  hábito: exige Redis ou RabbitMQ, ou seja, mais uma peça para manter, cifrar e
+  **fazer cópia de segurança à parte**. Pior, o documento fiscal passaria a
+  existir, em trânsito, **fora do banco** que concentra o backup (BL-33) e a
+  trilha de auditoria.
+- **RQ e Dramatiq.** Mesma objeção: exigem Redis ou RabbitMQ.
+- **`django-q2`.** Funciona sobre o ORM e evitaria infraestrutura nova, mas usa
+  API própria, sem a reversibilidade do contrato oficial.
+- **Rodar dentro da requisição.** É o que a DE-014 proíbe explicitamente.
+
+### Custo que assumo, declarado
+
+Um **processo trabalhador separado** ao lado do servidor web, supervisionado.
+Isso é inerente ao problema, não da ferramenta: toda opção exige. Entra como
+requisito do **BL-53**, o procedimento de implantação.

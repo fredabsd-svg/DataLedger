@@ -1,6 +1,6 @@
 # DL-012 — Redesign visual do README e identidade pública
 
-**Estado:** em validação
+**Estado:** integrada na `main` pelo PR #13. Corrigida em 2026-09-13 pelo `arquiteto-senior` após revisão do Fred — ver o commit de correção do README.
 
 ## Objetivo
 
