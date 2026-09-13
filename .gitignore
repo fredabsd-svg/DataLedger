@@ -10,7 +10,14 @@ pip-wheel-metadata/
 # Django
 *.log
 local_settings.py
-db.sqlite3
+# Qualquer banco SQLite, nao so o db.sqlite3 padrao. Um arquivo .sqlite3
+# solto e um banco de dados inteiro; num sistema contabil, um descuido o leva
+# para dentro de um commit com dado de cliente. Ampliado em 2026-09-13, depois
+# de um teste de mutacao deixar "nao_deve_ser_criado.sqlite3" na raiz.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 media/
 staticfiles/
 

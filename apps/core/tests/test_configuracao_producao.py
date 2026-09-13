@@ -73,22 +73,31 @@ def test_debug_false_sem_database_url_recusa_subir():
     assert "PostgreSQL" in resultado.stderr
 
 
-def test_debug_false_com_database_url_sqlite_recusa_subir():
+def test_debug_false_com_database_url_sqlite_recusa_subir(tmp_path):
     """Critério de aceite 2: configurar explicitamente SQLite em produção é
-    tão grave quanto não configurar nada — também deve recusar subir."""
-    resultado = _rodar_manage_check(
-        {
-            "DEBUG": "False",
-            "DATABASE_URL": "sqlite:///" + str(BASE_DIR / "nao_deve_ser_criado.sqlite3"),
-        }
-    )
+    tão grave quanto não configurar nada — também deve recusar subir.
+
+    O caminho do banco aponta para `tmp_path`, e não para a raiz do
+    repositório, de propósito. A primeira versão deste teste usava
+    `BASE_DIR / "nao_deve_ser_criado.sqlite3"`: enquanto a guarda funciona o
+    arquivo nunca nasce, mas basta alguém desligar a guarda — numa
+    refatoração, ou num teste de mutação como o que o `arquiteto-senior`
+    rodou em 2026-09-13 — para o Django criar o arquivo **dentro da árvore
+    versionada**. Foi exatamente o que aconteceu.
+
+    Um arquivo SQLite solto no repositório é risco real num sistema
+    contábil: é um banco de dados inteiro, e num descuido vai parar num
+    commit com dado dentro. Teste não escreve na árvore do projeto.
+    """
+    banco = tmp_path / "nao_deve_ser_criado.sqlite3"
+    resultado = _rodar_manage_check({"DEBUG": "False", "DATABASE_URL": f"sqlite:///{banco}"})
 
     assert resultado.returncode != 0, resultado.stdout + resultado.stderr
     assert "ImproperlyConfigured" in resultado.stderr
     assert "SQLite" in resultado.stderr
     # A recusa é na validação de settings, então o arquivo de banco nunca
     # chega a ser criado no disco.
-    assert not (BASE_DIR / "nao_deve_ser_criado.sqlite3").exists()
+    assert not banco.exists()
 
 
 def test_debug_true_sem_database_url_sobe_com_aviso_declarado():
