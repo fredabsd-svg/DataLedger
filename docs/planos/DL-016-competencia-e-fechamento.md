@@ -46,34 +46,33 @@ O primeiro protege o operador de si mesmo; o segundo protege o cliente.
 Fora do escopo: alteração em massa (BL-65), eliminação (BL-66), centro de custo
 (BL-67 a BL-69), numeração de livros (BL-70), interface (BL-62).
 
-## Decisão de modelagem a tomar antes de implementar
+## Decisão de modelagem, já tomada
 
-**A competência é derivada da data do lançamento, ou é campo próprio?**
+**DE-019**: a competência é o **mês da data do lançamento**, não um campo
+próprio. Dois campos poderiam discordar, e a partir daí Diário e Balancete
+contariam histórias diferentes.
 
-Derivada é mais simples e nunca diverge da data. Campo próprio permite o que a
-contabilidade às vezes exige: lançamento de dezembro registrado em janeiro com
-competência de dezembro.
+O caso "lançamento de dezembro digitado em janeiro" é atendido sem campo novo:
+é um lançamento **com data de dezembro**. Aberto o mês, grava-se; fechado, vale
+RC-57 — reabre, lança, fecha, com rastro.
 
-Recomendação: **derivada**, até que haja caso real que exija o contrário — e a
-data do lançamento passa a ser o único fato. O caso de competência diferente da
-data é atendido pelo fechamento: enquanto dezembro estiver aberto, lança-se com
-data de dezembro.
-
-Depende de confirmar com o Fred (PE-05), e será registrada como decisão antes de
-qualquer código.
+Decisão reversível enquanto não houver dado real, e registrada agora justamente
+porque depois fica cara.
 
 ## Critérios de aceite
 
 1. Lançar em competência encerrada é recusado **no servidor**, com 409 e
    mensagem que diz qual competência está fechada — não 500, não silêncio.
 2. O mesmo vale para estorno: estornar lançamento de período encerrado é
-   recusado, porque gera lançamento naquele período.
+   recusado, porque gera lançamento naquele período. **Confirmado pelo Fred**
+   (RC-57): período fechado não se mexe, só reabrindo.
 3. Reabertura exige papel autorizado; usuário sem o papel recebe 403 e **nada
    muda**.
 4. Reabertura grava na trilha: quem, quando, qual competência, qual motivo.
    Motivo vazio é recusado.
 5. Fechar uma competência com lote desbalanceado na base é recusado — a
-   conferência da DL-015 é pré-condição do fechamento.
+   conferência da DL-015 é pré-condição do fechamento. **Confirmado pelo Fred**
+   (RC-58).
 6. Fechamento é idempotente: fechar duas vezes a mesma competência não duplica
    registro nem muda o autor do primeiro fechamento.
 7. Concorrência: duas requisições simultâneas de fechamento da mesma competência

@@ -780,3 +780,40 @@ com arquivamento, que tem caminho de volta e é preferível. Empresa que saiu da
 carteira ou pedido de exclusão por LGPD são apagamento de verdade — e aí a
 pergunta seguinte é o que fazer com a obrigação legal de guarda dos livros
 daquele período, que é matéria do responsável técnico, não do software.
+
+## DE-019 — Competência é o mês da data do lançamento
+
+**Data:** 2026-09-13
+
+**Decisão:** a competência **não** é campo próprio do lançamento: é o mês da
+`data` dele. O fechamento se dá por empresa e competência, e o que ele controla
+é a `data` dos lançamentos novos.
+
+Decisão **operacional e reversível**, tomada por mim para não paralisar a
+[DL-016](../planos/DL-016-competencia-e-fechamento.md). Comunicada ao Fred com
+o caso concreto que a derrubaria, e revisável enquanto não houver dado real.
+
+### Por quê
+
+Um fato contábil tem uma data. Ter dois campos — a data e um "mês a que isso
+pertence" — cria a possibilidade de eles discordarem, e nenhum sistema impede
+que um lançamento datado de 10/01 declare competência de dezembro por engano.
+A partir daí, Diário e Balancete podem contar histórias diferentes, e é preciso
+escolher qual dos dois campos manda em cada saída. Esse tipo de ambiguidade é
+exatamente o que produz relatório que não concilia.
+
+### O caso que exigiria o contrário, e por que ele não exige
+
+"Lançamento de dezembro digitado em janeiro." Isso não é um lançamento com
+competência diferente da data: é um lançamento **com data de dezembro**,
+digitado depois. Enquanto dezembro estiver aberto, grava-se normalmente. Depois
+de fechado, vale RC-57: reabre, lança, fecha de novo — com rastro, que é
+justamente o que se quer quando se mexe em mês entregue.
+
+### Custo de reverter, se for preciso
+
+Baixo enquanto não houver dado real: acrescentar um campo de competência com
+valor derivado da data para as linhas existentes é uma migração simples e sem
+perda. O custo sobe assim que houver escrituração de cliente, porque aí as duas
+informações passam a ter de ser conferidas uma a uma. Por isso a decisão está
+registrada agora, e não depois.

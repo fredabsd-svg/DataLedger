@@ -73,6 +73,8 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-54 | **Centro de custo** é usado por parte das empresas, não por todas, e precisa ser cadastrado. | Fred, 2026-09-13 (resolve PE-28) |
 | RC-55 | A rotina de centro de custo, conforme material público indicado pelo Fred (consultado em 2026-09-13): habilitar por empresa **a partir de uma data**; cadastrar **departamento** e, dentro dele, **centro de custo**; **vincular centros de custo às contas**, com **percentual de rateio** definido na conta (em lote ou conta a conta); ao lançar numa conta vinculada, o rateio é **proposto** e conferido no lançamento; as saídas contábeis podem ser **filtradas por centro de custo**; habilitar **não altera** lançamento já gravado. | Fred, 2026-09-13 |
 | RC-56 | **Livros contábeis precisam ser numerados.** | Fred, 2026-09-13 (resolve PE-29) |
+| RC-57 | **Período fechado não se mexe.** Qualquer alteração exige **reabertura** do período — inclusive estorno, que também é lançamento novo e cairia dentro do mês fechado. | Fred, 2026-09-13 |
+| RC-58 | **Não se fecha competência com lote desbalanceado na base.** A conferência de débito e crédito é pré-condição do fechamento: fechar por cima de inconsistência é carimbar o erro. | Fred, 2026-09-13 |
 
 **Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
 captura de documento. Precisa resolver **recepção, classificação e conferência**
