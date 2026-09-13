@@ -827,3 +827,80 @@ valor derivado da data para as linhas existentes é uma migração simples e sem
 perda. O custo sobe assim que houver escrituração de cliente, porque aí as duas
 informações passam a ter de ser conferidas uma a uma. Por isso a decisão está
 registrada agora, e não depois.
+
+## DE-020 — Respostas às quatro decisões que a auditoria da DL-015 encaminhou
+
+**Data:** 2026-09-13. Origem:
+[auditoria DL-015 rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md),
+parecer **reprovado**, achados 2, 3, 7, 8, 11 e 13.
+
+### 1. Saldo de conta no Balancete: uma regra só, para toda conta
+
+Os achados 2 e 7 são o mesmo defeito por dois caminhos: o código decide se lê os
+itens próprios **ou** soma as filhas, olhando `aceita_lancamento`. Quando o
+estado do dado foge da hipótese (conta com movimento marcada como sintética;
+conta analítica com filhas), some valor.
+
+**Decisão:** a regra passa a ser única e não depende de classificação —
+**o saldo de qualquer conta é o movimento próprio dela mais o das descendentes**.
+Conta folha soma só o próprio; grupo sem movimento próprio soma só as filhas; o
+caso híbrido deixa de ser caso.
+
+E os totais do Balancete deixam de ser a soma das linhas: passam a ser a
+**soma de todos os itens do período da empresa**, numa agregação própria. Assim
+`total_debitos == total_creditos` deixa de depender de a árvore estar bem
+formada — nenhum arranjo de hierarquia faz valor sumir do rodapé.
+
+Continuam valendo as guardas de dado: recusar marcar como sintética uma conta
+com movimento, e apontar na conferência as inconsistências que já existirem.
+Elas evitam o estado; a regra acima garante que, existindo, nada desapareça.
+
+### 2. Grupo com conta retificadora (achado 3)
+
+**Decisão:** o ramo do grupo acumula **débitos e créditos brutos** das
+descendentes e aplica a natureza **do próprio grupo uma única vez**. Com isso,
+`saldo_final = saldo_anterior ± (debitos − creditos)` vale em **toda** linha do
+balancete, analítica ou sintética — e a linha deixa de se contradizer.
+
+A aritmética atual está errada sob qualquer convenção: um imobilizado de 100 com
+depreciação acumulada de 30 aparece como 130. A **apresentação** (como exibir a
+retificadora dentro do grupo) é decisão profissional do Fred e foi levada a ele.
+
+### 3. Razão de conta sintética (achado 8)
+
+**Decisão:** consolida — opção (a) do auditor. O Razão de um grupo devolve os
+itens das descendentes, em ordem cronológica, com a resposta declarando que a
+conta é sintética e que o extrato é consolidado.
+
+Motivo: a regra central desta etapa é "Razão e Balancete contam a mesma
+história". Recusar com 409 (opção b) seria mais barato e abriria uma exceção
+justamente na conta onde o contador mais olha ao conferir um grupo. Custo aceito:
+extrato de grupo pode ser longo — tratado com a paginação de BL-76.
+
+### 4. Quem pode ler contabilidade (achado 11)
+
+**Decisão imediata e conservadora:** o papel **cliente deixa de ler** Diário,
+Razão, Balancete e conferência. Os demais papéis vinculados ao escritório
+seguem lendo, até decisão do Fred.
+
+Motivo: hoje um cliente com login lê a contabilidade completa de **todos os
+outros clientes** do mesmo escritório. Num escritório de contabilidade isso é
+sigilo de cliente contra cliente. A política é anterior à DL-015, mas as quatro
+saídas novas mudam a consequência: antes era uma listagem crua de lançamentos,
+agora é o livro inteiro numa requisição.
+
+O desenho definitivo depende de **PE-36**: quais papéis leem contabilidade, e se
+passa a existir vínculo usuário↔empresa — hoje o vínculo é só com o escritório,
+então não há como dizer "este usuário vê só estes clientes".
+
+### 5. SQLite não é ambiente de conferência monetária (achado 13)
+
+**Decisão:** declarar o limite, não perseguir a paridade. Em SQLite, as três
+saídas divergem entre si em valores muito altos, porque os agregados passam por
+ponto flutuante. Em PostgreSQL — produção e integração contínua — não há
+divergência.
+
+Fazer o SQLite somar exato custaria carregar os itens em memória e somar em
+Python, penalizando o banco que realmente usamos para servir o que só existe em
+desenvolvimento. O aviso de SQLite já existente em `config/settings.py` passa a
+dizer que conferência de valor não vale nesse ambiente.
