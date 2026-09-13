@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="titulo descricao">
+  <!-- Conceito: grade de razão formando a letra D. Linhas horizontais de um livro razão, com -->
+  <!-- larguras crescentes e depois decrescentes, desenham o bojo do D; a última linha, o saldo, se destaca em verde. -->
+  <title id="titulo">Logotipo DataLedger</title>
+  <desc id="descricao">Letra D formada por linhas horizontais de um razão contábil, com a última linha, o saldo, destacada em verde, dentro de um selo arredondado escuro.</desc>
+
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#0D1117" stroke="#30363D" stroke-width="4"/>
+
+  <!-- Haste vertical do D -->
+  <rect x="30" y="32" width="10" height="60" fill="#22D3EE"/>
+
+  <!-- Linhas do razão: comprimento segue o contorno do bojo do D -->
+  <rect x="40" y="32" width="12" height="7" fill="#22D3EE"/>
+  <rect x="40" y="43" width="24" height="7" fill="#22D3EE"/>
+  <rect x="40" y="54" width="30" height="7" fill="#22D3EE"/>
+  <rect x="40" y="65" width="30" height="7" fill="#22D3EE"/>
+  <rect x="40" y="76" width="24" height="7" fill="#22D3EE"/>
+  <rect x="40" y="87" width="12" height="5" fill="#22D3EE"/>
+
+  <!-- Linha de saldo: destacada, mais longa que as demais -->
+  <rect x="30" y="97" width="46" height="7" rx="1" fill="#3FB950"/>
+</svg>
