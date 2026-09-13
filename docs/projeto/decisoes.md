@@ -688,3 +688,95 @@ justamente por isso que a quebra é agora.
 Registrada no contrato da [DL-015](../planos/DL-015-contabilidade-utilizavel.md),
 com critério de aceite próprio: período ausente, malformado ou invertido devolve
 400 com mensagem útil, nunca 500 nem período implícito.
+
+## DE-017 — Alteração em massa: o Fred pediu, e ela preserva o original
+
+**Data:** 2026-09-13
+
+**Decisão:** implementar alteração em massa de lançamentos (RC-51). O
+comportamento **depende do estado do período**:
+
+| Situação do período | O que a alteração em massa faz |
+| --- | --- |
+| **Aberto** | Altera os lançamentos e grava a **versão anterior completa** numa trilha imutável. O Diário mostra só o lançamento corrigido. |
+| **Encerrado** | Não altera. Gera **lançamento de ajuste** (estorno e relançamento) vinculado ao original, com motivo. |
+
+### Por que não escolhi só um dos dois
+
+Minha recomendação inicial, no [mapa funcional
+contábil](mapa-funcional-contabil.md), era fazer **tudo** por estorno e
+relançamento. Estava errada por excesso, e o pedido do Fred me obrigou a
+examinar melhor.
+
+Corrigir a classificação de 300 notas **antes de fechar o mês** não é um fato
+contábil novo: é a correção de um erro de digitação. Transformar isso em 600
+lançamentos a mais polui o Diário, e o livro passa a contar uma história que não
+aconteceu. O contador que confere o razão vê três linhas onde houve um fato.
+
+Já alterar lançamento de período **encerrado** é outra coisa: o balancete
+daquele mês já foi entregue, a demonstração já foi assinada, e mudar o passado em
+silêncio é exatamente o que a trilha de auditoria existe para impedir.
+
+A regra do [AGENTS.md](../../AGENTS.md) §10 exige que a correção seja
+**rastreável** — não exige que seja por estorno. Guardar a versão anterior
+integralmente satisfaz a exigência e preserva a legibilidade do livro.
+
+### O que isso exige, e por que não é a próxima tarefa
+
+1. **Fechamento de período** (BL-11). Sem saber o que está encerrado, a regra
+   acima não tem como ser aplicada — e a versão permissiva seria a que vale
+   sempre. É pré-requisito, não detalhe.
+2. **Versionamento do lançamento**: a versão anterior precisa ser guardada
+   inteira (cabeçalho e partidas), com autor, data, motivo e o identificador da
+   operação em lote que a originou.
+3. A imutabilidade atual (`save()` levanta exceção) **não é removida**. A
+   alteração passa a existir por um serviço explícito, que grava a versão
+   anterior na mesma transação. Quem chamar `save()` direto continua sendo
+   recusado — a proteção que a auditoria validou permanece.
+4. A operação é **atômica e idempotente**: falha no meio não deixa metade dos
+   lançamentos alterados, e repetir a mesma requisição não aplica duas vezes.
+
+Alcance dos campos alteráveis: pendente de PE-35.
+
+## DE-018 — Eliminação de período: implementar, depois do que a torna segura
+
+**Data:** 2026-09-13
+
+**Decisão:** implementar a eliminação de período (RC-52), **com salvaguardas
+obrigatórias e não configuráveis**, e **depois** das duas coisas que a tornam
+recuperável. Substitui a recomendação anterior de não implementar.
+
+### Salvaguardas que não serão opcionais
+
+1. Só período **encerrado** (BL-11).
+2. **Exportação completa e verificada antes de apagar**: o sistema grava um
+   arquivo com tudo que será eliminado e confere que ele pode ser lido de volta.
+   Exportação que falhe **aborta** a eliminação.
+3. Papel autorizado, com confirmação que mostra a **contagem** do que será
+   eliminado e os totais do período.
+4. **Inventário permanente do que foi eliminado**: empresa, período, quantidade
+   de lançamentos, totais de débito e crédito, impressão digital do arquivo
+   exportado, autor e data. Esse registro **nunca** é eliminado — nem por outra
+   eliminação de período.
+5. A trilha de auditoria da própria operação é imutável.
+
+### Ordem, e por que ela não é negociável
+
+A eliminação entra **depois** de:
+
+- **BL-33** — cópia de segurança com restauração efetivamente testada. Hoje não
+  existe. Apagar dado de cliente sem restauração provada não é uma
+  funcionalidade, é uma aposta.
+- **BL-11** — fechamento de período.
+
+Não é recusa: é sequência. A ordem inversa transforma o primeiro erro de
+operação em perda definitiva de escrituração de cliente, que é o pior defeito
+possível neste sistema.
+
+### O que ainda falta decidir
+
+**PE-34**: para que a eliminação serve no escritório. Reduzir volume se resolve
+com arquivamento, que tem caminho de volta e é preferível. Empresa que saiu da
+carteira ou pedido de exclusão por LGPD são apagamento de verdade — e aí a
+pergunta seguinte é o que fazer com a obrigação legal de guarda dos livros
+daquele período, que é matéria do responsável técnico, não do software.

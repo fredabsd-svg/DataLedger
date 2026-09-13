@@ -229,9 +229,16 @@ auditoria independente — que é exatamente o motivo de ela existir.
    utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
    trabalhar na contabilidade, a partir do manual de referência. O levantamento
    está em [mapa-funcional-contabil.md](../projeto/mapa-funcional-contabil.md);
-   as lacunas viraram BL-59 a BL-66. Onda 1 (saídas por período) delegada ao
-   `desenvolvedor-pleno`; onda 2 é a interface (BL-62), que só começa com o
-   contrato da onda 1 integrado e auditado.
+   as lacunas viraram BL-59 a BL-71. Onda 1 (saídas por período) **integrada em
+   `8f2c209` e em auditoria**; onda 2 é a interface (BL-62), que só começa com o
+   contrato da onda 1 auditado.
+
+   O Fred respondeu quatro pendências em 2026-09-13 (RC-51 a RC-56): saldos
+   iniciais entram por lançamento do balanço patrimonial; centro de custo é
+   usado por parte das empresas; livros precisam de numeração; e ele pediu
+   **alteração em massa** e **eliminação de período** — desenhadas em DE-017 e
+   DE-018, com a ordem de implantação declarada: a eliminação só depois de
+   BL-33 (restauração testada) e BL-11 (fechamento de período).
 3. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
    documentos fiscais.** Era a prioridade anterior (RC-40); **saiu da frente da
    fila** por RC-50, sem ser cancelada.

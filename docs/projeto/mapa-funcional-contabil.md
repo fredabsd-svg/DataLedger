@@ -187,6 +187,15 @@ Resumo. A classificação é a dos auxiliares, revisada por mim.
 Este é o achado que mais importa para o desenho, e não é uma funcionalidade
 faltando — é uma que **não devemos copiar como está**.
 
+> **Atualização de 2026-09-13, depois da resposta do Fred.** Ele pediu as duas:
+> alteração em massa (RC-51) e eliminação de período (RC-52). As duas serão
+> implementadas, com desenho próprio — **DE-017** e **DE-018**. A recomendação
+> abaixo de fazer *toda* correção por estorno estava errada por excesso, e o
+> pedido dele me obrigou a rever: corrigir classificação antes de fechar o mês
+> não é fato contábil novo, e transformar isso em estorno polui o livro. O que
+> permanece é a exigência de **rastro** e a ordem de implantação: eliminar dado
+> de cliente só depois de haver restauração provada.
+
 ### Alteração de lançamentos em massa
 
 Localizar lançamentos por filtro amplo e sobrescrever campos de todos de uma vez.
@@ -327,17 +336,27 @@ contabilidade.
 
 ## Perguntas que dependem do Fred
 
-Registradas em [requisitos.md](requisitos.md) como pendências PE-26 a PE-33.
+### Respondidas em 2026-09-13
 
-1. O que vem primeiro: fechar a fatia fiscal (DL-010, recepção de documentos) ou
-   tornar a contabilidade utilizável de ponta a ponta?
-2. Como é o fechamento e a reabertura de período no seu escritório hoje: quem
-   autoriza, o que é exigido, com que frequência acontece? (PE-05, ainda aberta)
-3. Centro de custo é usado pelos seus clientes, ou é exceção?
-4. Como entram os **saldos iniciais** de uma empresa que chega ao escritório com
-   contabilidade já existente?
-5. Os livros precisam de numeração e termos desde já, ou só quando houver
-   entrega digital?
-6. Existe empresa na carteira com matriz e filiais em escrituração centralizada?
-7. Plano de contas compartilhado entre empresas do mesmo grupo é necessário?
-8. Quais das obrigações listadas você **de fato entrega** hoje?
+| Pergunta | Resposta | Onde virou requisito |
+| --- | --- | --- |
+| Fiscal ou contabilidade primeiro? | Contabilidade | RC-50 |
+| Como entram os saldos iniciais? | Por lançamento dos saldos do balanço patrimonial | RC-53, BL-63 |
+| Centro de custo é usado? | Sim, por parte das empresas; precisa cadastro | RC-54, RC-55, BL-67 a BL-69 |
+| Livros precisam de numeração? | Sim | RC-56, BL-70 |
+| Alteração em massa? | Implementar | RC-51, DE-017, BL-65 |
+| Eliminação de período? | Implementar | RC-52, DE-018, BL-66 |
+
+### Ainda abertas
+
+1. Como é o fechamento e a reabertura de período no escritório hoje: quem
+   autoriza, o que é exigido, com que frequência acontece? (PE-05)
+2. Para que serve a eliminação de período: volume, empresa que saiu da carteira,
+   ou exclusão por LGPD? (PE-34)
+3. Na alteração em massa, quais campos precisam ser corrigidos na prática, e com
+   que frequência? (PE-35)
+4. Existe empresa na carteira com matriz e filiais em escrituração centralizada?
+   (PE-30)
+5. Plano de contas compartilhado entre empresas do mesmo grupo é necessário?
+   (PE-31)
+6. Quais das obrigações listadas o escritório **de fato entrega** hoje? (PE-32)

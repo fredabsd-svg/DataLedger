@@ -67,6 +67,12 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-48 | O DataLedger é implantado **na nuvem**, em servidor único, acessado pelo navegador. Nada é instalado nas estações. | Fred, 2026-09-12 (resolve PE-24) |
 | RC-49 | Dimensionamento alvo: **cerca de 50 usuários simultâneos**. | Fred, 2026-09-12 (resolve PE-04 em parte) |
 | RC-50 | A prioridade de trabalho agora é o **módulo de Contabilidade**, partindo do manual de referência do diretório público (RC-45). | Fred, 2026-09-13 (resolve PE-26; PE-01 e PE-10 seguem abertas para as demais etapas) |
+| RC-51 | O sistema **deve fazer alteração em massa de lançamentos**. | Fred, 2026-09-13 (resolve PE-33). Como será feito, preservando a trilha: **DE-017**. |
+| RC-52 | O sistema **deve ter eliminação de período**. | Fred, 2026-09-13. Com quais salvaguardas, e em que ordem: **DE-018**. Falta saber **para quê** — ver PE-34. |
+| RC-53 | **Saldos iniciais** de empresa nova entram por **lançamento dos saldos do balanço patrimonial**. Não é um cadastro à parte: é um lançamento contábil de abertura. | Fred, 2026-09-13 (resolve PE-27) |
+| RC-54 | **Centro de custo** é usado por parte das empresas, não por todas, e precisa ser cadastrado. | Fred, 2026-09-13 (resolve PE-28) |
+| RC-55 | A rotina de centro de custo, conforme material público indicado pelo Fred (consultado em 2026-09-13): habilitar por empresa **a partir de uma data**; cadastrar **departamento** e, dentro dele, **centro de custo**; **vincular centros de custo às contas**, com **percentual de rateio** definido na conta (em lote ou conta a conta); ao lançar numa conta vinculada, o rateio é **proposto** e conferido no lançamento; as saídas contábeis podem ser **filtradas por centro de custo**; habilitar **não altera** lançamento já gravado. | Fred, 2026-09-13 |
+| RC-56 | **Livros contábeis precisam ser numerados.** | Fred, 2026-09-13 (resolve PE-29) |
 
 **Consequência de RC-41, e é a mais importante:** o produto não precisa resolver
 captura de documento. Precisa resolver **recepção, classificação e conferência**
@@ -122,9 +128,11 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | ID | Pendência | Impacto se não for resolvida |
 | --- | --- | --- |
 | PE-26 | O que vem primeiro: a fatia fiscal ou a contabilidade? | **Resolvida** por RC-50: o Fred determinou em 2026-09-13 trabalhar na contabilidade, a partir do manual de referência. A DL-010 (fiscal) continua planejada e sai da frente da fila. |
-| PE-27 | Como entram os **saldos iniciais** de uma empresa que chega ao escritório com contabilidade já existente? Lançamento de abertura, importação, ou digitação por conta? | Sem isso não se migra empresa nenhuma, e o balancete de qualquer cliente novo nasce errado. |
-| PE-28 | **Centro de custo** é usado pelos clientes do escritório, ou é exceção? | Define se a partida já nasce com dimensão de rateio. Acrescentar depois é migração de dados; acrescentar sem uso é peso morto. |
-| PE-29 | Os **livros contábeis** precisam de numeração e termos de abertura/encerramento desde já, ou só quando houver entrega digital? | Muda o desenho do Diário: livro numerado tem sequência controlada e não pode ter buraco. |
+| PE-27 | Como entram os **saldos iniciais**? | **Resolvida** por RC-53: por lançamento dos saldos do balanço patrimonial. |
+| PE-28 | **Centro de custo** é usado pelos clientes do escritório? | **Resolvida** por RC-54 e RC-55: sim, por parte das empresas. |
+| PE-29 | Os **livros contábeis** precisam de numeração? | **Resolvida** por RC-56: sim. |
+| PE-34 | **Para que serve a eliminação de período** (RC-52) no escritório: reduzir volume do banco, encerrar relação com empresa que saiu da carteira, ou atender pedido de exclusão de dados (LGPD)? | Muda o desenho e é difícil de reverter depois. Reduzir volume se resolve com arquivamento, que tem caminho de volta. Empresa que saiu e exclusão por LGPD são apagamento de verdade, e aí a pergunta seguinte é o que fazer com a obrigação legal de guarda dos livros do período. Sem essa resposta, a implementação seria um palpite sobre dado de cliente. |
+| PE-35 | Na **alteração em massa** (RC-51), quais campos o escritório precisa corrigir na prática: conta, histórico, centro de custo, data, valor? E com que frequência isso acontece? | Determina o alcance da operação. Corrigir conta e histórico é reclassificação; alterar valor e data muda o fato contábil e tem peso diferente na trilha. |
 | PE-30 | Existe empresa na carteira com **matriz e filiais em escrituração centralizada**? | Se sim, o lançamento precisa identificar a filial desde o início. |
 | PE-31 | **Plano de contas compartilhado** entre empresas do mesmo grupo é necessário? | Muda a modelagem: hoje `Conta` pertence a uma empresa. Compartilhar depois é migração. |
 | PE-32 | Quais **obrigações contábeis** o escritório de fato entrega hoje (escrituração digital, escrituração fiscal, balancetes setoriais)? | A lista do material de referência é de 2018 e cita obrigações provavelmente extintas. Implementar a errada é pior que não implementar. |
