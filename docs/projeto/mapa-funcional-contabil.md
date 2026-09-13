@@ -225,6 +225,73 @@ período encerrado sem obrigação pendente, com papel autorizado e registro.
 A mesma lógica vale para exclusão em massa. Onde o sistema de referência
 apagaria, nós registramos.
 
+## Integração fiscal → contábil: como a nota vira lançamento
+
+Levantado em 2026-09-13 no manual público de escrita fiscal, a pedido do Fred,
+depois de ele explicar que o caso real da regeração (RC-59) é este. É o desenho
+que a DL-010 (fiscal) vai precisar, e por isso fica registrado aqui e não só lá.
+
+### A amarração das contas
+
+**A conta não está no produto nem no participante.** Ela vem de **duas**
+configurações que se somam:
+
+| Configuração | Define |
+| --- | --- |
+| **Classificação da operação** (o *acumulador* da tela que o Fred enviou) | As contas de débito e crédito do valor principal da nota, e as de frete, seguro, despesas acessórias, pedágio e parcelas |
+| **Cadastro de cada imposto** | As contas de "a recolher" e "a recuperar" daquele imposto, com histórico próprio, mais devoluções e ajustes |
+
+Isso confirma, do lado contábil, o que o [mapa fiscal](mapa-funcional-fiscal.md)
+já dizia do lado do cálculo: **a classificação da operação é o centro do motor**.
+A mesma escolha que determina o tratamento tributário determina a contabilização.
+
+### O histórico é modelo, não texto
+
+O texto do lançamento gerado vem de um **modelo com variáveis**, preenchidas com
+dados do documento (número, participante, valor, data). Para nós: histórico não
+é `CharField` copiado, é um serviço que resolve o modelo no momento da geração.
+
+### Dois momentos, não um
+
+1. Ao gravar a nota, monta-se a **prévia** do lançamento, visível e editável
+   dentro da própria nota — é a aba Contabilidade da tela do Fred.
+2. A **efetivação na contabilidade** é rotina em lote, por período.
+
+Separar os dois importa: a prévia permite conferir antes de a contabilidade ser
+tocada, e o lote permite reprocessar um período inteiro.
+
+### A regeração, e o que faremos diferente
+
+O sistema de referência regera por período e por tipo de movimento, com duas
+proteções — não regerar o que foi alterado à mão e não regerar o que está
+conciliado. **As duas são opção do usuário, não obrigação.**
+
+Onde vamos divergir, deliberadamente:
+
+| Ponto | Referência | DataLedger |
+| --- | --- | --- |
+| Preservar lançamento alterado à mão | Opção | **Padrão**, e desligar exige ato explícito |
+| Preservar conciliado | Opção | **Padrão** |
+| Período encerrado | Aviso | **Recusa** (RC-57) |
+| Duplicidade | Confiada à rotina | **Chave natural** (documento de origem + tipo), para que reprocessar não duplique nem que a rotina falhe no meio |
+
+A diferença toda está numa frase: no sistema de referência, o usuário desmarcar
+uma caixa por engano custa a correção manual que ele fez. Aqui, não.
+
+### Exclusão de nota contabilizada
+
+Excluir a nota oferece, como **escolha explícita**, excluir também o lançamento
+gerado — nunca implicitamente. Para nós, essa escolha fica condicionada às
+mesmas regras: período aberto, lançamento não conciliado, com rastro.
+
+### O que não foi possível confirmar
+
+- O mecanismo pelo qual o sistema sabe que um lançamento foi alterado à mão.
+  Nós resolveremos com campo próprio, não por inferência.
+- A navegação do lançamento **de volta** à nota. Só a ida está documentada. Nós
+  faremos os dois sentidos (BL-72) — sem a volta, uma conferência de balancete
+  não chega ao documento que a originou.
+
 ## O que já existe no DataLedger
 
 Cruzamento honesto, verificado por leitura de código em 2026-09-13
