@@ -1,6 +1,10 @@
 # DL-015 — Contabilidade utilizável: saídas com período e conferência
 
-**Estado:** em execução desde 2026-09-13.
+**Estado:** em execução desde 2026-09-13. Onda 1 implementada (`8f2c209`),
+corrigida (`05f93f0`), **reprovada nas rodadas 1 e 2** da auditoria; em terceira
+rodada de correção. Relatórios em
+[2026-09-13 rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md) e
+[2026-09-14 rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md).
 
 ## Por que esta etapa existe
 

@@ -879,9 +879,27 @@ extrato de grupo pode ser longo — tratado com a paginação de BL-76.
 
 ### 4. Quem pode ler contabilidade (achado 11)
 
-**Decisão imediata e conservadora:** o papel **cliente deixa de ler** Diário,
-Razão, Balancete e conferência. Os demais papéis vinculados ao escritório
-seguem lendo, até decisão do Fred.
+**Decisão imediata e conservadora:** o papel **cliente deixa de ler
+contabilidade** — **toda** leitura de contabilidade, e não uma lista de rotas.
+Os demais papéis vinculados ao escritório seguem lendo, até decisão do Fred.
+
+> **Correção de 2026-09-14, achado novo 2 da [rodada
+> 2](../auditorias/2026-09-14-dl-015-rodada-2.md).** A redação original desta
+> decisão dizia "deixa de ler Diário, Razão, Balancete e conferência" — a lista
+> das quatro rotas que a etapa criou. Foi implementada exatamente assim, e o
+> cliente continuou lendo a escrituração inteira por `lancamentos/` e o plano de
+> contas por `contas/`, com histórico, valores e partidas. O problema que esta
+> decisão existe para resolver continuou aberto, e o texto afirmava o contrário.
+>
+> Erro meu de redação, e de um tipo que vale nomear: **descrevi o remédio pela
+> lista do que eu tinha acabado de tocar, em vez de pelo problema que queria
+> fechar.** Eu conhecia a rota `lancamentos/` — ela estava na observação 3 do
+> relatório da rodada 1, que li e classifiquei como assunto de contrato, não de
+> sigilo.
+>
+> O critério correto, e que vale daqui em diante: **nenhuma rota devolve
+> escrituração, plano de contas ou saldo a quem não pode ler contabilidade** —
+> independentemente de quando a rota foi criada.
 
 Motivo: hoje um cliente com login lê a contabilidade completa de **todos os
 outros clientes** do mesmo escritório. Num escritório de contabilidade isso é
@@ -911,9 +929,21 @@ dizer que conferência de valor não vale nesse ambiente.
 
 **Contexto:** o achado 10 da auditoria mostrou que um `ItemLancamento` pode
 apontar para uma conta de uma empresa e um lançamento de **outra**. Quando isso
-existe, o histórico de um cliente aparece na tela de outro escritório. Nascer,
-só nasce por gravação direta no ORM — a API não permite —, mas é vazamento de
-sigilo quando nasce.
+existe, o histórico de um cliente aparece na tela de outro escritório.
+
+> **Correção de 2026-09-14, achado novo 6 da [rodada
+> 2](../auditorias/2026-09-14-dl-015-rodada-2.md).** Esta decisão dizia, aqui,
+> que o estado "só nasce por gravação direta no ORM — a API não permite". **Eu
+> não verifiquei isso antes de escrever.** O auditor verificou: o **Django
+> admin** grava o item com conta de outra empresa, grava lote desbalanceado e
+> grava lote sem nenhuma partida — três violações da partida dobrada, por uma
+> tela que existe e que é justamente o caminho de quem quer "ajustar uma
+> coisinha".
+>
+> O adiamento da garantia de banco **continua valendo**, pelo motivo de
+> migração explicado abaixo, mas o risco era maior do que declarei. Em
+> compensação, entra agora o que não depende de migração: validação no próprio
+> `ItemLancamento` e restrição do que o admin oferece — **BL-79**.
 
 **Decisão:** a defesa em profundidade em código **já entrou** na rodada 2 (Razão
 e Balancete passaram a filtrar também pela empresa do lançamento, com teste). A
@@ -933,3 +963,54 @@ sistema com dado de cliente.
 **Risco de esperar, declarado:** enquanto isso, a proteção é o código — que a
 rodada 2 cobriu com teste em ambas as saídas — e o fato de que a API não cria o
 estado. Não há dado real no sistema. Vira **BL-78**, com dependência declarada.
+
+## DE-022 — "Analítica" passa a significar folha da árvore
+
+**Data:** 2026-09-14. Origem: achado novo 1 da
+[auditoria rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md), gravidade
+alta.
+
+**Decisão:** a palavra **analítica**, nas saídas contábeis, passa a significar
+**conta sem descendentes** — folha da árvore. O campo que autoriza lançamento
+deixa de ser o critério de apresentação e volta a ser o que o nome dele diz:
+permissão de escriturar.
+
+Em consequência:
+
+- O **Razão consolida** sempre que a conta **tiver descendentes**, não quando
+  estiver marcada como sintética.
+- O Balancete marca como analítica a conta **sem filhas**, seja qual for a
+  permissão de lançamento dela. É o que um consumidor precisa para saber quais
+  linhas somar sem contar duas vezes.
+- A **conferência ganha a quarta categoria**: conta que aceita lançamento e tem
+  contas subordinadas.
+
+### Por que o defeito existia
+
+A DE-020 §1 já dizia que a regra de saldo "não depende de classificação". Isso
+foi aplicado ao Balancete e **não** ao Razão, que continuou decidindo por
+`aceita_lancamento`. Sobraram dois critérios para a mesma pergunta, e o
+resultado é o pior defeito possível nesta etapa: a mesma conta, no mesmo
+período, com números diferentes em duas saídas — e com a soma das linhas
+"analíticas" dando o dobro do rodapé.
+
+O estado que expõe isso **nasce pela API documentada**, não por corrupção: o
+campo que autoriza lançamento tem valor padrão verdadeiro, então quem cadastra
+um grupo e depois pendura contas nele cria exatamente esse caso, sem aviso.
+
+### Por que não proibir o estado em vez de tratá-lo
+
+Proibir "conta com filhas aceita lançamento" seria mais simples, e foi a
+alternativa que o auditor ofereceu. Recusei por duas razões:
+
+1. **Planos de contas reais chegam assim.** Vamos importar plano de contas de
+   escritórios anteriores (RC-62), e não temos como exigir que estejam
+   coerentes antes de o sistema conseguir emitir um balancete. Um sistema que
+   recusa o plano do cliente novo não é usável.
+2. **Proibir não conserta o que já existe.** A conferência precisa apontar o
+   caso de qualquer forma; e se ela aponta, o cálculo tem de estar certo
+   enquanto o contador não arruma.
+
+A regra continua sendo a da DE-020 §1: **nenhum arranjo de plano de contas pode
+fazer valor sumir nem aparecer duas vezes.** Proibição é conveniência; a
+aritmética correta é obrigação.

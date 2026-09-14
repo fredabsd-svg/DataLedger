@@ -1,7 +1,15 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-12**, na revisão `44f9fe6`, branch
+Atualizado em **2026-09-14**, na revisão `05f93f0`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
+
+> **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
+> `auditor-qa` (achado novo 8 da [rodada 2 da
+> DL-015](../auditorias/2026-09-14-dl-015-rodada-2.md)), junto com o restante do
+> estado. O teste de integração contínua não pega isso: ele exige que cada
+> identificador `DL-xxx` apareça aqui e no README, não que o texto esteja
+> atual. Quem atualiza este arquivo confere **a revisão e a contagem de
+> testes**, não só a lista de etapas.
 
 Este documento existe para que outra sessão retome o trabalho sem reconstruir o
 contexto. **Processos de agentes não sobrevivem ao encerramento da sessão** —
@@ -188,7 +196,7 @@ diverge.
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred (laço original, monograma, razonete); quarta execução é o **conceito do próprio Fred em vetor limpo** | **Aguardando aprovação do Fred** na branch de trabalho; a `main` ainda mostra o razonete (PR #16) |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
-| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Em correção** — onda 1 integrada em `8f2c209` e **reprovada** na [auditoria rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md): 14 achados, 3 de gravidade alta |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Em correção, rodada 3.** Onda 1 integrada em `8f2c209` ([reprovada na rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md), 14 achados); correções em `05f93f0` ([reprovada na rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md), 12 dos 14 corrigidos, 14 achados novos, 2 de gravidade alta) |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -208,7 +216,7 @@ achados voltam ao responsável, e só então há commit.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais (XML, ZIP, SPED bloco C) | **Planejada, não iniciada** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (BL-46) | **Cinco rodadas.** 1 reprovada; 2 a 4 aprovadas com ressalvas; 5 **liberada para encerramento** |
 
-A suíte foi de **55 para 200 testes**. O PR #11 levou DL-007 a DL-009 à `main`,
+A suíte foi de **55 para 364 testes** (173 só em contabilidade). O PR #11 levou DL-007 a DL-009 à `main`,
 com as quatro verificações da integração contínua verdes.
 
 Registro honesto de erros do próprio `arquiteto-senior`, já corrigidos e
@@ -230,9 +238,10 @@ auditoria independente — que é exatamente o motivo de ela existir.
    utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
    trabalhar na contabilidade, a partir do manual de referência. O levantamento
    está em [mapa-funcional-contabil.md](../projeto/mapa-funcional-contabil.md);
-   as lacunas viraram BL-59 a BL-71. Onda 1 (saídas por período) **integrada em
-   `8f2c209` e em auditoria**; onda 2 é a interface (BL-62), que só começa com o
-   contrato da onda 1 auditado.
+   as lacunas viraram BL-59 a BL-80. Onda 1 (saídas por período) integrada em
+   `8f2c209`, corrigida em `05f93f0`, **reprovada em duas rodadas de auditoria**
+   e em terceira rodada de correção; onda 2 é a interface (BL-62), que só
+   começa com o contrato da onda 1 aprovado.
 
    O Fred respondeu quatro pendências em 2026-09-13 (RC-51 a RC-56): saldos
    iniciais entram por lançamento do balanço patrimonial; centro de custo é
