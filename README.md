@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-dataledger.svg" alt="Símbolo do DataLedger: um razonete — a conta T da contabilidade — com lançamentos equilibrados e a linha verde de fechamento" width="128" />
+  <img src="docs/assets/logo-dataledger.svg" alt="Símbolo do DataLedger: laço duplo azul entrelaçado por uma fita verde, com um conjunto de cubos de dados no laço direito" width="128" />
 </p>
 
 # 📊 DataLedger
@@ -36,10 +36,10 @@ O DataLedger nasce para reunir as rotinas de um escritório contábil em uma pla
 
 | | Capacidade | Situação |
 | --- | --- | --- |
-| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete | ✅ Base implementada e auditada |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas e lançamentos por partidas dobradas, imutáveis e com estorno rastreável | ✅ Núcleo implementado e auditado — saídas por período em [DL-015](docs/planos/DL-015-contabilidade-utilizavel.md) |
 | <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado e auditado |
 | <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado no servidor e trilha de alterações | ✅ Fundação implementada |
-| <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🧭 Próximo fluxo — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
+| <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🗺️ Planejado — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
 | <img src="docs/assets/icons/users.svg" alt="" width="28" /> | **Folha** — vínculos, eventos, férias, 13º, rescisões e encargos | 🗺️ Planejado |
 | <img src="docs/assets/icons/briefcase.svg" alt="" width="28" /> | **Honorários e Paralegal** — contratos, cobranças, processos, prazos e documentos | 🗺️ Planejado |
 | <img src="docs/assets/icons/sparkles.svg" alt="" width="28" /> | **IA + MCP** — consulta assistida e operações controladas pelas mesmas permissões do sistema | 🗺️ Planejado |
@@ -154,6 +154,8 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 - [x] **DL-012** — redesenho do README e identidade visual
 - [x] **DL-013** — logo oficial
 - [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
+- [ ] **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si 🧭 **em execução**
+- [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**

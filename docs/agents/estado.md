@@ -1,7 +1,22 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-12**, na revisão `44f9fe6`, branch
+Atualizado em **2026-09-14**, logo após a revisão `7bf6dae`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
+
+> **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
+> `auditor-qa` (achado novo 8 da [rodada 2 da
+> DL-015](../auditorias/2026-09-14-dl-015-rodada-2.md)), junto com o restante do
+> estado. O teste de integração contínua não pega isso: ele exige que cada
+> identificador `DL-xxx` apareça aqui e no README, não que o texto esteja
+> atual. Quem atualiza este arquivo confere **a revisão e a contagem de
+> testes**, não só a lista de etapas.
+>
+> **Armadilha descoberta ao corrigir isso, registrada para a próxima sessão:**
+> um arquivo **não consegue citar o hash do commit que o contém** — o hash só
+> existe depois de o conteúdo estar fechado, e qualquer `--amend` o muda de
+> novo. Tentei e gravei um hash que nunca chegou a existir na branch. A
+> convenção que passa a valer: citar a revisão **anterior** ("logo após
+> `<hash>`"), que é verificável, em vez de fingir citar a própria.
 
 Este documento existe para que outra sessão retome o trabalho sem reconstruir o
 contexto. **Processos de agentes não sobrevivem ao encerramento da sessão** —
@@ -186,8 +201,10 @@ diverge.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
-| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — dois desenhos reprovados pelo Fred; fechado com o **razonete** (conta T) em 2026-09-13 | Integrada |
+| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred (laço original, monograma, razonete); quarta execução é o **conceito do próprio Fred em vetor limpo** | **Aguardando aprovação do Fred** na branch de trabalho; a `main` ainda mostra o razonete (PR #16) |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 APROVADA COM RESSALVAS** na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md), depois de reprovada nas rodadas [1](../auditorias/2026-09-13-dl-015-rodada-1.md), [2](../auditorias/2026-09-14-dl-015-rodada-2.md) e [3](../auditorias/2026-09-14-dl-015-rodada-3.md). Ressalvas viradas BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
+| [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -206,7 +223,7 @@ achados voltam ao responsável, e só então há commit.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais (XML, ZIP, SPED bloco C) | **Planejada, não iniciada** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (BL-46) | **Cinco rodadas.** 1 reprovada; 2 a 4 aprovadas com ressalvas; 5 **liberada para encerramento** |
 
-A suíte foi de **55 para 200 testes**. O PR #11 levou DL-007 a DL-009 à `main`,
+A suíte foi de **55 para 402 testes** (211 só em contabilidade), e passou a rodar em **12 s** em vez de 199 s, depois de BL-80. O PR #11 levou DL-007 a DL-009 à `main`,
 com as quatro verificações da integração contínua verdes.
 
 Registro honesto de erros do próprio `arquiteto-senior`, já corrigidos e
@@ -219,24 +236,47 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **Integrar à `main` a branch de trabalho** (README corrigido, logo novo,
-   BL-50/51, DE-015 e DL-014) por PR, e **configurar a proteção da `main`**
-   — pedido do Fred em 2026-09-13. A DL-011 já foi integrada pelo PR #12.
-2. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
-   documentos fiscais.** É a prioridade de negócio confirmada pelo Fred (RC-40).
+1. **Integrar a branch à `main`** — autorizado pelo Fred em 2026-09-14. A
+   [DL-013](../planos/DL-013-logo-oficial.md) (logo) foi encerrada junto, e a
+   pasta temporária de pranchas saiu do repositório. Já integrados antes:
+   DL-011 (PR #12), DL-014 e README (PR #15), razonete (PR #16 — substituído).
+2. **[DL-015](../planos/DL-015-contabilidade-utilizavel.md) — contabilidade
+   utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
+   trabalhar na contabilidade, a partir do manual de referência. O levantamento
+   está em [mapa-funcional-contabil.md](../projeto/mapa-funcional-contabil.md);
+   as lacunas viraram BL-59 a BL-80. Onda 1 (saídas por período) integrada em
+   `8f2c209`, corrigida em `05f93f0`, **reprovada em duas rodadas de auditoria**
+   e em terceira rodada de correção; onda 2 é a interface (BL-62), que só
+   começa com o contrato da onda 1 aprovado.
+
+   O Fred respondeu quatro pendências em 2026-09-13 (RC-51 a RC-56): saldos
+   iniciais entram por lançamento do balanço patrimonial; centro de custo é
+   usado por parte das empresas; livros precisam de numeração; e ele pediu
+   **alteração em massa** e **eliminação de período** — desenhadas em DE-017 e
+   DE-018, com a ordem de implantação declarada: a eliminação só depois de
+   BL-33 (restauração testada) e BL-11 (fechamento de período).
+3. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
+   documentos fiscais.** Era a prioridade anterior (RC-40); **saiu da frente da
+   fila** por RC-50, sem ser cancelada.
    O plano já tem os leiautes de NF-e e de SPED levantados em fonte oficial.
    Antes de começar, ler a seção de pendências: **BL-52** (fila de tarefas em
    segundo plano) mudou o desenho da etapa, e **BL-54** deve estar resolvido
    antes de gravar CNPJ em lote.
-3. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+4. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53. Nenhum urgente hoje, todos
    pré-condição para existir dado real de cliente.
-4. **Decisões que dependem do Fred:** PE-20 (escritório com CNPJ inválido),
+5. **Decisões que dependem do Fred:** PE-20 (escritório com CNPJ inválido),
    PE-21 (escopo da unicidade de CNPJ), PE-22 (documento não eletrônico nos
    períodos a migrar), PE-23 (o sistema de XML entrega os eventos?), PE-25
-   (residência do dado e LGPD).
-5. **BL-02** — proteção da branch `main`. Ação administrativa no GitHub, que
-   nenhum agente pode executar.
+   (residência do dado e LGPD), e as novas **PE-27 a PE-33** da contabilidade —
+   com destaque para PE-27 (saldos iniciais de implantação), que bloqueia o
+   BL-63 e sem a qual não se migra empresa nenhuma.
+6. **BL-02** — proteção da branch `main`. Ação administrativa no GitHub, que
+   nenhum agente pode executar: a API de proteção respondeu 403 a esta sessão
+   (o proxy de integração não permite escrita nesse endpoint). O Fred faz em
+   Settings → Rules → Rulesets, exigindo PR com as verificações "Lint e
+   testes", "Validar documentação" e "Regras do projeto", e bloqueando force
+   push e exclusão.
 
 ## Estado do repositório
 

@@ -64,6 +64,71 @@ class Conta(models.Model):
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
             raise ValidationError("A conta pai deve pertencer à mesma empresa.")
 
+        # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
+        # sem esta checagem, atribuir como pai uma conta descendente da
+        # própria conta (inclusive a própria conta, o caso degenerado de
+        # profundidade zero) criava um laço que derrubava o Balancete e o
+        # Razão com RecursionError. Só se aplica a conta já persistida
+        # (`self.pk`): uma conta nova, sem filhos ainda, não pode ser
+        # ancestral de nada. O limite de profundidade é uma defesa
+        # REDUNDANTE contra um ciclo PRÉ-EXISTENTE não relacionado a esta
+        # conta (ex.: duas outras contas já formando um laço) — sem ele,
+        # `ancestral.conta_pai` desse laço alheio faria este laço FOR
+        # nunca terminar.
+        if self.pk and self.conta_pai_id:
+            ancestral = self.conta_pai
+            profundidade = 0
+            while ancestral is not None:
+                if ancestral.pk == self.pk:
+                    raise ValidationError(
+                        "A conta pai não pode ser a própria conta nem uma conta "
+                        f"descendente dela — isto criaria um ciclo envolvendo "
+                        f"{self.codigo} ({self.nome})."
+                    )
+                profundidade += 1
+                if profundidade > 1000:
+                    raise ValidationError(
+                        "Não foi possível validar a hierarquia de contas: "
+                        "profundidade excessiva ou ciclo pré-existente entre "
+                        "outras contas."
+                    )
+                ancestral = ancestral.conta_pai
+
+        # Guarda de dado (achado 2 / DE-020): recusa marcar como sintética
+        # ("aceita_lancamento=False") uma conta que já tem movimento próprio
+        # gravado. Antes desta guarda, o Django admin permitia essa
+        # reclassificação sem checagem alguma, e o valor da conta ficava
+        # órfão no Balancete (o débito existia no Diário e não aparecia em
+        # linha nenhuma). A regra única de saldo do Balancete já impede o
+        # valor de desaparecer mesmo que este estado exista — esta guarda
+        # existe para não deixar o estado ACONTECER pelo caminho validado
+        # (admin/formulário); acesso direto ao ORM continua contornando-a,
+        # risco já aceito e documentado no projeto (DE-008).
+        #
+        # Achado novo 14 (rodada 2): a guarda original disparava sempre que
+        # o ESTADO ATUAL fosse "sintética com movimento", mesmo quando esta
+        # gravação não tem NADA a ver com `aceita_lancamento` — por exemplo,
+        # uma conta já em estado legado (alcançado por `.update()` direto no
+        # ORM, contornando esta mesma guarda) que alguém só quer RENOMEAR.
+        # A mensagem acusava "não é possível marcar esta conta como
+        # sintética" a quem não tocou nesse campo. A guarda agora só
+        # dispara na TRANSIÇÃO real desta gravação (o valor gravado no banco
+        # era `True`, e esta chamada está mudando para `False`) — um estado
+        # já inconsistente ANTES desta gravação não é reportado aqui de
+        # novo: quem aponta esse caso é a conferência (BL-64, quarta
+        # categoria e `contas_sinteticas_com_movimento`), que não acusa
+        # ninguém de uma ação específica.
+        if self.pk and not self.aceita_lancamento and self.itens_lancamento.exists():
+            valor_gravado = (
+                Conta.objects.filter(pk=self.pk).values_list("aceita_lancamento", flat=True).first()
+            )
+            if valor_gravado:
+                raise ValidationError(
+                    "Não é possível marcar esta conta como sintética: ela já tem "
+                    "lançamento próprio gravado. Estorne ou mova o movimento "
+                    "antes de reclassificar."
+                )
+
 
 class LancamentoContabil(models.Model):
     """Lançamento contábil por partidas dobradas.
@@ -188,6 +253,35 @@ class ItemLancamento(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} {self.valor} — {self.conta}"
+
+    def clean(self):
+        # Achado 10 da auditoria (rodada 1) e achado novo 6 (rodada 2, BL-79):
+        # um `ItemLancamento` pode apontar para uma `conta` de uma empresa e
+        # um `lancamento` de OUTRA — quando isso existe, o histórico e o
+        # nome de conta de um cliente aparecem no Diário/Balancete de outro
+        # (a defesa em CÓDIGO já existe em `apurar_razao`/`apurar_balancete`,
+        # que filtram por `lancamento__empresa` além de `conta__empresa` —
+        # DE-021). `criar_lancamento` já recusa este estado no caminho
+        # normal da API (`conta.empresa_id != empresa.id`); esta checagem
+        # aqui é a MESMA regra na camada de conveniência do Django admin/
+        # formulários (DE-008), porque o DRF e `.objects.create()` não
+        # chamam `full_clean()`. A garantia de BANCO (constraint que
+        # atravesse as três tabelas) fica para a DL-016 (DE-021, BL-78) —
+        # exige migração de esquema.
+        #
+        # Só valida quando os DOIS lados já têm empresa resolvida: um item
+        # em construção sem `conta` ou sem `lancamento` ainda atribuídos
+        # (formulário em preenchimento) não deveria estourar aqui — o campo
+        # obrigatório do model já recusaria a ausência na gravação.
+        if (
+            self.conta_id
+            and self.lancamento_id
+            and self.conta.empresa_id != self.lancamento.empresa_id
+        ):
+            raise ValidationError(
+                "A conta deste item deve pertencer à mesma empresa do lançamento "
+                f"({self.conta} é de uma empresa; o lançamento é de outra)."
+            )
 
     def save(self, *args, **kwargs):
         if self.pk is not None:

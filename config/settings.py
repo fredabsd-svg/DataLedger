@@ -7,6 +7,7 @@ Ver .env.example para a lista completa e valores de referência para
 desenvolvimento local.
 """
 
+import os
 import warnings
 from pathlib import Path
 
@@ -120,7 +121,10 @@ elif DEBUG:
         "DATABASE_URL não configurada: usando SQLite local em "
         f"{BASE_DIR / 'db.sqlite3'}. Válido apenas em desenvolvimento "
         "(DEBUG=True) — nunca use SQLite em produção nem com dado real de "
-        "cliente (BL-50, DE-014).",
+        "cliente (BL-50, DE-014). Além disso, SQLite não preserva a escala "
+        "decimal em agregações (Sum) como o PostgreSQL faz: conferência de "
+        "VALOR monetário (Diário, Razão, Balancete) não vale neste ambiente "
+        "— use PostgreSQL para qualquer verificação de número (DE-020).",
         RuntimeWarning,
         stacklevel=1,
     )
@@ -146,6 +150,57 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+# BL-80 (achado da auditoria DL-015, rodada 2, observação 1): hasher de senha
+# RÁPIDO, exclusivamente durante a execução da suíte de teste — nunca em
+# produção, nem por acidente.
+#
+# Motivo: o hasher padrão do Django (PBKDF2, várias centenas de milhares de
+# iterações) é deliberadamente LENTO — é a defesa contra força bruta sobre um
+# hash de senha vazado. Essa lentidão é uma virtude em produção e um custo
+# puro em teste: quase todo teste da suíte de contabilidade autentica um
+# usuário (`client.login`), e cada login recalcula o hash da senha de teste
+# do zero. A auditoria mediu `pytest apps/contabilidade`: 195 s com o hasher
+# padrão, 4,4 s com um hasher rápido — os MESMOS 173 aprovados, porque nenhum
+# teste depende da força do hash, só da autenticação funcionar.
+#
+# Um hasher sem NENHUMA defesa contra força bruta (MD5PasswordHasher) fora de
+# teste seria armazenar senha real de forma insegura — por isso a troca só
+# vale quando as DUAS condições abaixo são verdadeiras ao mesmo tempo, nunca
+# uma só:
+#
+# 1. `PYTEST_VERSION` está no ambiente: variável que o PRÓPRIO pytest define
+#    (desde a versão 8), presente durante TODA execução da suíte e ausente em
+#    qualquer outro processo — inclusive o servidor de produção, que nunca
+#    roda sob pytest.
+# 2. `DEBUG` é `True`.
+#
+#    Correção de 2026-09-14 (achado novo 4 da auditoria da DL-015, rodada
+#    3): esta linha dizia que a checagem de `DATABASE_URL` mais acima já
+#    "EXIGE `DEBUG=False` em produção". Isso é FALSO, e o auditor verificou:
+#    aquela checagem recusa subir com **SQLite** quando `DEBUG=False` (ou
+#    sem `DATABASE_URL` nenhuma) — ela não examina `DEBUG` de forma alguma
+#    quando `DATABASE_URL` aponta para PostgreSQL. Um servidor com
+#    `DEBUG=True` e `DATABASE_URL` PostgreSQL sobe normalmente, sem aviso
+#    nenhum. Ou seja: nada no projeto hoje IMPEDE `DEBUG=True` em produção —
+#    é disciplina de operação (variável de ambiente configurada certo), não
+#    um invariante que o código garanta. Avaliar uma guarda que recuse subir
+#    com `DEBUG=True` fora de desenvolvimento é o BL-82, ainda não feito.
+#
+# A dupla condição É a proteção, não uma conveniência: se `PYTEST_VERSION`
+# fosse definida por engano num ambiente real (variável de ambiente vazada,
+# script copiado sem cuidado), a checagem de `DEBUG` ainda bloqueia a troca
+# ENQUANTO quem configurou o ambiente real tiver posto `DEBUG=False` — o que
+# é disciplina de operação, não garantia de código (ver item 2 acima). E se
+# `DEBUG=True` escapasse para produção por outro motivo qualquer,
+# `PYTEST_VERSION` não estaria definida ali (a menos que o processo esteja
+# de fato rodando sob pytest). As duas juntas cobrem os dois lados do erro
+# tanto quanto o ambiente permitir — nenhuma delas isolada seria suficiente,
+# e a suíte de teste em `test_hasher_de_senha_...` (achado novo 4) mede as
+# quatro combinações em subprocesso, matando a mutação que remove qualquer
+# uma das duas condições.
+if "PYTEST_VERSION" in os.environ and DEBUG:
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 
 # Internacionalização

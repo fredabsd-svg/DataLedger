@@ -655,3 +655,532 @@ chamada, que é exatamente a propriedade pela qual escolhi assim.
 Um **processo trabalhador separado** ao lado do servidor web, supervisionado.
 Isso é inerente ao problema, não da ferramenta: toda opção exige. Entra como
 requisito do **BL-53**, o procedimento de implantação.
+
+## DE-016 — Saída contábil exige período, e o contrato atual quebra
+
+**Data:** 2026-09-13
+
+**Decisão:** Razão e Balancete passam a **exigir** `inicio` e `fim`. Requisição
+sem os dois recebe 400. É quebra deliberada do contrato que existe hoje.
+
+### Por quê
+
+Uma saída contábil sem período não é uma saída "geral": é uma resposta errada
+com aparência de certa. O contador emite balancete de um mês, de um trimestre,
+de um exercício — e o que o sistema devolve hoje é o acumulado desde o primeiro
+lançamento da base, em uma coluna só. Quem não conferir contra o Diário não
+percebe.
+
+### Por que quebrar em vez de manter compatível
+
+Um padrão opcional com valor-padrão "tudo" preserva exatamente o erro que
+estamos corrigindo, e preserva-o no caminho mais fácil — o de quem não passa
+parâmetro. Manter os dois comportamentos custaria testes dobrados para sustentar
+o comportamento que não queremos.
+
+O custo de quebrar é, hoje, **zero medido**: o sistema não está implantado, não
+há cliente consumindo a API e a única consumidora seria a interface, que ainda
+não existe (BL-62). Essa janela fecha assim que houver implantação real — e é
+justamente por isso que a quebra é agora.
+
+### Consequência
+
+Registrada no contrato da [DL-015](../planos/DL-015-contabilidade-utilizavel.md),
+com critério de aceite próprio: período ausente, malformado ou invertido devolve
+400 com mensagem útil, nunca 500 nem período implícito.
+
+## DE-017 — Alteração em massa: o Fred pediu, e ela preserva o original
+
+**Data:** 2026-09-13
+
+**Decisão:** implementar alteração em massa de lançamentos (RC-51). O
+comportamento **depende do estado do período**:
+
+| Situação do período | O que a alteração em massa faz |
+| --- | --- |
+| **Aberto** | Altera os lançamentos e grava a **versão anterior completa** numa trilha imutável. O Diário mostra só o lançamento corrigido. |
+| **Encerrado** | Não altera. Gera **lançamento de ajuste** (estorno e relançamento) vinculado ao original, com motivo. |
+
+### Por que não escolhi só um dos dois
+
+Minha recomendação inicial, no [mapa funcional
+contábil](mapa-funcional-contabil.md), era fazer **tudo** por estorno e
+relançamento. Estava errada por excesso, e o pedido do Fred me obrigou a
+examinar melhor.
+
+Corrigir a classificação de 300 notas **antes de fechar o mês** não é um fato
+contábil novo: é a correção de um erro de digitação. Transformar isso em 600
+lançamentos a mais polui o Diário, e o livro passa a contar uma história que não
+aconteceu. O contador que confere o razão vê três linhas onde houve um fato.
+
+Já alterar lançamento de período **encerrado** é outra coisa: o balancete
+daquele mês já foi entregue, a demonstração já foi assinada, e mudar o passado em
+silêncio é exatamente o que a trilha de auditoria existe para impedir.
+
+A regra do [AGENTS.md](../../AGENTS.md) §10 exige que a correção seja
+**rastreável** — não exige que seja por estorno. Guardar a versão anterior
+integralmente satisfaz a exigência e preserva a legibilidade do livro.
+
+### O que isso exige, e por que não é a próxima tarefa
+
+1. **Fechamento de período** (BL-11). Sem saber o que está encerrado, a regra
+   acima não tem como ser aplicada — e a versão permissiva seria a que vale
+   sempre. É pré-requisito, não detalhe.
+2. **Versionamento do lançamento**: a versão anterior precisa ser guardada
+   inteira (cabeçalho e partidas), com autor, data, motivo e o identificador da
+   operação em lote que a originou.
+3. A imutabilidade atual (`save()` levanta exceção) **não é removida**. A
+   alteração passa a existir por um serviço explícito, que grava a versão
+   anterior na mesma transação. Quem chamar `save()` direto continua sendo
+   recusado — a proteção que a auditoria validou permanece.
+4. A operação é **atômica e idempotente**: falha no meio não deixa metade dos
+   lançamentos alterados, e repetir a mesma requisição não aplica duas vezes.
+
+Alcance dos campos alteráveis: pendente de PE-35.
+
+## DE-018 — Duas operações diferentes: regerar o derivado e apagar o original
+
+**Data:** 2026-09-13. **Reescrita no mesmo dia**, depois de o Fred explicar o
+caso de uso real (RC-59). A versão anterior tratava as duas como uma só e
+partia de um receio que não se aplicava.
+
+### O que eu tinha entendido errado
+
+Eu li "eliminação de período" como apagar escrituração para reduzir volume, e
+montei salvaguardas pesadas em cima disso: exportação verificada, inventário
+permanente, dependência de restauração testada.
+
+O que o Fred quer é outra coisa. As notas escrituradas no fiscal **geram** os
+lançamentos da contabilidade. Se o plano de contas mudar no meio do ano, ele
+precisa **apagar os lançamentos gerados e refazê-los** a partir das notas — que
+continuam intactas. Não é destruição de dado: é **reconstrução de dado
+derivado**, e a origem permanece.
+
+A diferença é a mesma entre apagar um relatório e apagar os lançamentos que o
+originaram. Um se refaz; o outro, não.
+
+### Decisão: duas operações, com regras distintas
+
+**1. Regeração de lançamentos derivados** — o que o Fred pediu.
+
+| Regra | Motivo |
+| --- | --- |
+| Só alcança lançamento cuja **origem** seja um processo do sistema (escrita fiscal, folha), nunca lançamento manual | Lançamento manual não tem de onde ser refeito. Apagá-lo é perda definitiva |
+| Só em **período aberto** (RC-57) | Período fechado não se mexe sem reabrir |
+| **Não** alcança lançamento conciliado ou ajustado à mão, salvo autorização explícita | Levantado no mapa funcional: conciliação trava regeração |
+| Apaga e refaz na **mesma transação** | Falha no meio não pode deixar o período sem lançamento nenhum |
+| Registra na trilha: quem, quando, que período, quantos lançamentos saíram e quantos entraram | Rastro do que aconteceu, mesmo o resultado sendo equivalente |
+| Idempotente | Rodar duas vezes produz o mesmo resultado, não o dobro |
+
+**2. Eliminação de escrituração** — apagar dado sem origem de onde refazer.
+
+Continua valendo tudo que a versão anterior exigia: só período encerrado,
+exportação verificada antes de apagar com aborto em caso de falha, papel
+autorizado com contagem e totais, inventário permanente, e **depois** de BL-33
+(restauração testada). Não há demanda para isso hoje — fica registrado para não
+ser confundido com a operação acima.
+
+### Pré-requisito que isso revela, e que não existe hoje
+
+O lançamento contábil precisa saber **de onde veio**: a origem (manual, escrita
+fiscal, folha) e o **documento que o originou**. Sem isso, não há como
+distinguir o que pode ser regerado do que é insubstituível — e uma regeração
+apagaria lançamento manual junto.
+
+Hoje `LancamentoContabil` não tem nenhum dos dois. Vira **BL-72**, e entra junto
+da [DL-016](../planos/DL-016-competencia-e-fechamento.md), que já altera o
+modelo — uma migração em vez de duas.
+
+## DE-019 — Competência é o mês da data do lançamento
+
+**Data:** 2026-09-13
+
+**Decisão:** a competência **não** é campo próprio do lançamento: é o mês da
+`data` dele. O fechamento se dá por empresa e competência, e o que ele controla
+é a `data` dos lançamentos novos.
+
+Decisão **operacional e reversível**, tomada por mim para não paralisar a
+[DL-016](../planos/DL-016-competencia-e-fechamento.md). Comunicada ao Fred com
+o caso concreto que a derrubaria, e revisável enquanto não houver dado real.
+
+### Por quê
+
+Um fato contábil tem uma data. Ter dois campos — a data e um "mês a que isso
+pertence" — cria a possibilidade de eles discordarem, e nenhum sistema impede
+que um lançamento datado de 10/01 declare competência de dezembro por engano.
+A partir daí, Diário e Balancete podem contar histórias diferentes, e é preciso
+escolher qual dos dois campos manda em cada saída. Esse tipo de ambiguidade é
+exatamente o que produz relatório que não concilia.
+
+### O caso que exigiria o contrário, e por que ele não exige
+
+"Lançamento de dezembro digitado em janeiro." Isso não é um lançamento com
+competência diferente da data: é um lançamento **com data de dezembro**,
+digitado depois. Enquanto dezembro estiver aberto, grava-se normalmente. Depois
+de fechado, vale RC-57: reabre, lança, fecha de novo — com rastro, que é
+justamente o que se quer quando se mexe em mês entregue.
+
+### Custo de reverter, se for preciso
+
+Baixo enquanto não houver dado real: acrescentar um campo de competência com
+valor derivado da data para as linhas existentes é uma migração simples e sem
+perda. O custo sobe assim que houver escrituração de cliente, porque aí as duas
+informações passam a ter de ser conferidas uma a uma. Por isso a decisão está
+registrada agora, e não depois.
+
+## DE-020 — Respostas às quatro decisões que a auditoria da DL-015 encaminhou
+
+**Data:** 2026-09-13. Origem:
+[auditoria DL-015 rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md),
+parecer **reprovado**, achados 2, 3, 7, 8, 11 e 13.
+
+### 1. Saldo de conta no Balancete: uma regra só, para toda conta
+
+Os achados 2 e 7 são o mesmo defeito por dois caminhos: o código decide se lê os
+itens próprios **ou** soma as filhas, olhando `aceita_lancamento`. Quando o
+estado do dado foge da hipótese (conta com movimento marcada como sintética;
+conta analítica com filhas), some valor.
+
+**Decisão:** a regra passa a ser única e não depende de classificação —
+**o saldo de qualquer conta é o movimento próprio dela mais o das descendentes**.
+Conta folha soma só o próprio; grupo sem movimento próprio soma só as filhas; o
+caso híbrido deixa de ser caso.
+
+E os totais do Balancete deixam de ser a soma das linhas: passam a ser a
+**soma de todos os itens do período da empresa**, numa agregação própria. Assim
+`total_debitos == total_creditos` deixa de depender de a árvore estar bem
+formada — nenhum arranjo de hierarquia faz valor sumir do rodapé.
+
+Continuam valendo as guardas de dado: recusar marcar como sintética uma conta
+com movimento, e apontar na conferência as inconsistências que já existirem.
+Elas evitam o estado; a regra acima garante que, existindo, nada desapareça.
+
+### 2. Grupo com conta retificadora (achado 3)
+
+**Decisão:** o ramo do grupo acumula **débitos e créditos brutos** das
+descendentes e aplica a natureza **do próprio grupo uma única vez**. Com isso,
+`saldo_final = saldo_anterior ± (debitos − creditos)` vale em **toda** linha do
+balancete, analítica ou sintética — e a linha deixa de se contradizer.
+
+A aritmética atual está errada sob qualquer convenção: um imobilizado de 100 com
+depreciação acumulada de 30 aparece como 130. A **apresentação** (como exibir a
+retificadora dentro do grupo) é decisão profissional do Fred e foi levada a ele.
+
+### 3. Razão de conta sintética (achado 8)
+
+**Decisão:** consolida — opção (a) do auditor. O Razão de um grupo devolve os
+itens das descendentes, em ordem cronológica, com a resposta declarando que a
+conta é sintética e que o extrato é consolidado.
+
+Motivo: a regra central desta etapa é "Razão e Balancete contam a mesma
+história". Recusar com 409 (opção b) seria mais barato e abriria uma exceção
+justamente na conta onde o contador mais olha ao conferir um grupo. Custo aceito:
+extrato de grupo pode ser longo — tratado com a paginação de BL-76.
+
+### 4. Quem pode ler contabilidade (achado 11)
+
+**Decisão imediata e conservadora:** o papel **cliente deixa de ler
+contabilidade** — **toda** leitura de contabilidade, e não uma lista de rotas.
+Os demais papéis vinculados ao escritório seguem lendo, até decisão do Fred.
+
+> **Correção de 2026-09-14, achado novo 2 da [rodada
+> 2](../auditorias/2026-09-14-dl-015-rodada-2.md).** A redação original desta
+> decisão dizia "deixa de ler Diário, Razão, Balancete e conferência" — a lista
+> das quatro rotas que a etapa criou. Foi implementada exatamente assim, e o
+> cliente continuou lendo a escrituração inteira por `lancamentos/` e o plano de
+> contas por `contas/`, com histórico, valores e partidas. O problema que esta
+> decisão existe para resolver continuou aberto, e o texto afirmava o contrário.
+>
+> Erro meu de redação, e de um tipo que vale nomear: **descrevi o remédio pela
+> lista do que eu tinha acabado de tocar, em vez de pelo problema que queria
+> fechar.** Eu conhecia a rota `lancamentos/` — ela estava na observação 3 do
+> relatório da rodada 1, que li e classifiquei como assunto de contrato, não de
+> sigilo.
+>
+> O critério correto, e que vale daqui em diante: **nenhuma rota devolve
+> escrituração, plano de contas ou saldo a quem não pode ler contabilidade** —
+> independentemente de quando a rota foi criada.
+
+Motivo: hoje um cliente com login lê a contabilidade completa de **todos os
+outros clientes** do mesmo escritório. Num escritório de contabilidade isso é
+sigilo de cliente contra cliente. A política é anterior à DL-015, mas as quatro
+saídas novas mudam a consequência: antes era uma listagem crua de lançamentos,
+agora é o livro inteiro numa requisição.
+
+O desenho definitivo depende de **PE-36**: quais papéis leem contabilidade, e se
+passa a existir vínculo usuário↔empresa — hoje o vínculo é só com o escritório,
+então não há como dizer "este usuário vê só estes clientes".
+
+### 5. SQLite não é ambiente de conferência monetária (achado 13)
+
+**Decisão:** declarar o limite, não perseguir a paridade. Em SQLite, as três
+saídas divergem entre si em valores muito altos, porque os agregados passam por
+ponto flutuante. Em PostgreSQL — produção e integração contínua — não há
+divergência.
+
+Fazer o SQLite somar exato custaria carregar os itens em memória e somar em
+Python, penalizando o banco que realmente usamos para servir o que só existe em
+desenvolvimento. O aviso de SQLite já existente em `config/settings.py` passa a
+dizer que conferência de valor não vale nesse ambiente.
+
+## DE-021 — A constraint que amarra item, conta e lançamento à mesma empresa entra na DL-016
+
+**Data:** 2026-09-14
+
+**Contexto:** o achado 10 da auditoria mostrou que um `ItemLancamento` pode
+apontar para uma conta de uma empresa e um lançamento de **outra**. Quando isso
+existe, o histórico de um cliente aparece na tela de outro escritório.
+
+> **Correção de 2026-09-14, achado novo 6 da [rodada
+> 2](../auditorias/2026-09-14-dl-015-rodada-2.md).** Esta decisão dizia, aqui,
+> que o estado "só nasce por gravação direta no ORM — a API não permite". **Eu
+> não verifiquei isso antes de escrever.** O auditor verificou: o **Django
+> admin** grava o item com conta de outra empresa, grava lote desbalanceado e
+> grava lote sem nenhuma partida — três violações da partida dobrada, por uma
+> tela que existe e que é justamente o caminho de quem quer "ajustar uma
+> coisinha".
+>
+> O adiamento da garantia de banco **continua valendo**, pelo motivo de
+> migração explicado abaixo, mas o risco era maior do que declarei. Em
+> compensação, entra agora o que não depende de migração: validação no próprio
+> `ItemLancamento` e restrição do que o admin oferece — **BL-79**.
+
+**Decisão:** a defesa em profundidade em código **já entrou** na rodada 2 (Razão
+e Balancete passaram a filtrar também pela empresa do lançamento, com teste). A
+**garantia de banco** fica para a [DL-016](../planos/DL-016-competencia-e-fechamento.md).
+
+### Por que não agora
+
+A garantia não cabe numa `CheckConstraint`: ela atravessa três tabelas. A forma
+correta em PostgreSQL é desnormalizar a empresa para o item e amarrar as chaves
+estrangeiras compostas — o que exige **migração de esquema**.
+
+A DL-016 já vai migrar esse mesmo modelo para acrescentar origem e documento de
+origem (BL-72). Fazer as duas na mesma migração é uma mudança de esquema em vez
+de duas sobre a mesma tabela, e migração é a operação mais cara de reverter num
+sistema com dado de cliente.
+
+**Risco de esperar, declarado:** enquanto isso, a proteção é o código — que a
+rodada 2 cobriu com teste em ambas as saídas — e o fato de que a API não cria o
+estado. Não há dado real no sistema. Vira **BL-78**, com dependência declarada.
+
+## DE-022 — "Analítica" passa a significar folha da árvore
+
+**Data:** 2026-09-14. Origem: achado novo 1 da
+[auditoria rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md), gravidade
+alta.
+
+**Decisão:** a palavra **analítica**, nas saídas contábeis, passa a significar
+**conta sem descendentes** — folha da árvore. O campo que autoriza lançamento
+deixa de ser o critério de apresentação e volta a ser o que o nome dele diz:
+permissão de escriturar.
+
+Em consequência:
+
+- O **Razão consolida** sempre que a conta **tiver descendentes**, não quando
+  estiver marcada como sintética.
+- O Balancete marca como analítica a conta **sem filhas**, seja qual for a
+  permissão de lançamento dela.
+
+> **Correção de 2026-09-14, achado novo 3 da [rodada
+> 3](../auditorias/2026-09-14-dl-015-rodada-3.md).** A frase continuava com "é o
+> que um consumidor precisa para saber quais linhas somar sem contar duas
+> vezes". **Não é**, quando existe conta com movimento próprio *e* filhas: a
+> soma das folhas fica menor que o rodapé, porque o que foi lançado direto no
+> grupo não aparece em folha nenhuma. O auditor mediu a divergência em 11 de 12
+> planos gerados ao acaso.
+>
+> Resolvido em **DE-024 §2**: cada linha passa a declarar o **movimento
+> próprio**, e a regra somável vira "a soma dos próprios de todas as linhas é o
+> total" — verdadeira em qualquer arranjo, porque todo lançamento é próprio de
+> exatamente uma conta.
+- A **conferência ganha a quarta categoria**: conta que aceita lançamento e tem
+  contas subordinadas.
+
+### Por que o defeito existia
+
+A DE-020 §1 já dizia que a regra de saldo "não depende de classificação". Isso
+foi aplicado ao Balancete e **não** ao Razão, que continuou decidindo por
+`aceita_lancamento`. Sobraram dois critérios para a mesma pergunta, e o
+resultado é o pior defeito possível nesta etapa: a mesma conta, no mesmo
+período, com números diferentes em duas saídas — e com a soma das linhas
+"analíticas" dando o dobro do rodapé.
+
+O estado que expõe isso **nasce pela API documentada**, não por corrupção: o
+campo que autoriza lançamento tem valor padrão verdadeiro, então quem cadastra
+um grupo e depois pendura contas nele cria exatamente esse caso, sem aviso.
+
+### Por que não proibir o estado em vez de tratá-lo
+
+Proibir "conta com filhas aceita lançamento" seria mais simples, e foi a
+alternativa que o auditor ofereceu. Recusei por duas razões:
+
+1. **Planos de contas reais chegam assim.** Vamos importar plano de contas de
+   escritórios anteriores (RC-62), e não temos como exigir que estejam
+   coerentes antes de o sistema conseguir emitir um balancete. Um sistema que
+   recusa o plano do cliente novo não é usável.
+2. **Proibir não conserta o que já existe.** A conferência precisa apontar o
+   caso de qualquer forma; e se ela aponta, o cálculo tem de estar certo
+   enquanto o contador não arruma.
+
+A regra continua sendo a da DE-020 §1: **nenhum arranjo de plano de contas pode
+fazer valor sumir nem aparecer duas vezes.** Proibição é conveniência; a
+aritmética correta é obrigação.
+
+## DE-023 — O admin do Django não cria lançamento contábil
+
+**Data:** 2026-09-14. Origem: achado novo 6 da
+[auditoria rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md). Decisão
+tomada pelo `desenvolvedor-pleno` sob delegação explícita e **ratificada por
+mim**, com o registro formal aqui, como ele pediu no relatório.
+
+**Decisão:** `LancamentoContabilAdmin` deixa de oferecer inclusão. O lançamento
+contábil só nasce por `criar_lancamento`.
+
+### Por quê
+
+O auditor gravou, pela tela de administração, três coisas que a regra do projeto
+proíbe: item com conta de outra empresa, lote com débito diferente de crédito, e
+lote sem nenhuma partida. Nenhum passava por `criar_lancamento`, que é onde as
+invariantes contábeis vivem.
+
+A alternativa seria reimplementar as validações no formulário do admin. Recusada:
+teríamos **duas** implementações da mesma regra contábil, e a segunda existiria
+só para atender a uma tela de manutenção que ninguém usa para escriturar. Duas
+implementações da mesma regra divergem — é o mesmo argumento que motivou a fonte
+única do estado.
+
+### O que isso não resolve, e fica declarado
+
+> **Correção de 2026-09-14, achado novo 2 da [rodada
+> 3](../auditorias/2026-09-14-dl-015-rodada-3.md).** A frase que estava aqui
+> tinha as **duas metades erradas**, e eu a escrevi de cabeça sobre um arquivo
+> de 70 linhas que poderia ter lido:
+>
+> - dizia que o admin "continua permitindo alterar" — **não permite**:
+>   `has_change_permission` é falso, a ficha abre em modo leitura e o `POST`
+>   devolve 403;
+> - não mencionava **excluir**, que era o que estava de fato aberto — e é o
+>   pior dos dois, porque `QuerySet.delete()` **não** passa pelo `delete()` do
+>   modelo, então a ação em lote da listagem apagava lançamento e partidas sem
+>   estorno, sem versão anterior e sem trilha.
+>
+> Corrigido no código junto desta rodada: `has_delete_permission` também é
+> falso. O admin, para lançamento contábil, é **somente leitura**.
+
+O que permanece aberto é a gravação por **`QuerySet.update()` / `objects.create()`
+direto no ORM**, que nenhum `clean()` ou `save()` alcança. `ItemLancamento` ganhou `clean()` exigindo que conta e lançamento
+sejam da mesma empresa — o que fecha o caminho pelo formulário, mas não pelo
+`QuerySet.update()`. A garantia de banco continua sendo **BL-78**, na DL-016.
+
+### Consequência operacional
+
+Se um dia for preciso gravar lançamento fora do fluxo normal — uma migração de
+dados, uma correção excepcional —, o caminho é um comando de gestão que chama
+`criar_lancamento`, não a tela de administração. Isso mantém a trilha e as
+invariantes, e deixa rastro do que foi feito.
+
+
+## DE-024 — Respostas à rodada 3: o que o balancete promete somar, e onde eu meço
+
+**Data:** 2026-09-14. Origem:
+[auditoria rodada 3](../auditorias/2026-09-14-dl-015-rodada-3.md), parecer
+**reprovado**, achados novos 1 a 4.
+
+### 1. O teste do admin não renderiza página (achado novo 1)
+
+**Decisão:** opção (a) do auditor. O teste passa a verificar o **contrato**
+(`has_add_permission` e `has_delete_permission` são falsos, e a ação de exclusão
+em lote é recusada), sem renderizar HTML.
+
+A ordem da integração contínua **não muda**. Ela roda `collectstatic` depois do
+`pytest` de propósito, e o motivo está escrito no workflow: se rodasse antes, a
+CI passaria com um `{% static %}` que falharia na máquina de quem desenvolve —
+integração contínua mais permissiva que o ambiente local mascara defeito. Trocar
+essa ordem para acomodar um teste seria enfraquecer uma guarda boa para atender
+a um caso particular.
+
+**Guarda de processo que passa a valer para mim**, e é a parte que importa: a
+contagem de testes que eu declarar num commit tem de vir de **árvore limpa**.
+Rodei na árvore de trabalho, que carregava um `staticfiles/` de dois dias antes,
+e anunciei "392 passed" — número que não existia num `checkout` novo. O comando
+é `git archive <hash> | tar -x -C <dir vazio>` e rodar lá. Vira **BL-81**, para
+não depender da minha memória.
+
+### 2. O balancete passa a declarar o movimento próprio de cada conta (achado novo 3)
+
+**Decisão:** cada linha do Balancete ganha **débitos e créditos próprios** —
+o que foi lançado **diretamente** naquela conta —, ao lado dos valores
+consolidados que ela já traz.
+
+Com isso existe um conjunto de linhas que soma o rodapé, e ele é simples de
+enunciar: **a soma dos valores próprios de todas as linhas é igual ao total**.
+Sempre, em qualquer arranjo de plano de contas, porque todo lançamento é próprio
+de exatamente uma conta.
+
+Descartei as duas alternativas do auditor:
+
+- **Criar uma linha extra** para o movimento próprio do grupo inventaria, no
+  balancete, uma conta que não existe no plano do cliente. Balancete é documento
+  de conferência; linha que não corresponde a conta cadastrada confunde mais do
+  que resolve.
+- **Declarar que só o rodapé vale** seria honesto e inútil: o contador soma as
+  linhas, é isso que ele faz com um balancete na frente. Um sistema que responde
+  "não some" está entregando um documento que não serve para conferir.
+
+A DE-022 dizia que marcar a folha resolvia a soma. **Não resolvia**, quando a
+conta tem movimento próprio *e* filhas. Corrigido lá.
+
+### 3. Onde a senha fraca é decidida precisa de teste (achado novo 4)
+
+**Decisão:** a dupla condição fica, ganha teste nas quatro combinações, e o
+comentário é corrigido.
+
+O comentário afirmava que a validação de banco "exige `DEBUG=False` em
+produção". Não exige: ela recusa SQLite quando `DEBUG=False`. Um servidor com
+`DEBUG=True` e PostgreSQL sobe normalmente — o auditor verificou. Escrever uma
+justificativa apoiada em garantia inexistente é pior que não justificar, porque
+o próximo leitor conclui que a outra metade da condição é redundante e a remove.
+
+Fica registrado como **BL-82** avaliar uma guarda que recuse subir com
+`DEBUG=True` fora de desenvolvimento. Hoje não existe, e vários raciocínios de
+segurança do projeto já se apoiam nela como se existisse.
+
+
+## DE-025 — Declaração de risco residual enumera os caminhos verificados
+
+**Data:** 2026-09-14. Origem: o padrão que três auditorias seguidas apontaram
+nos **meus** textos, não no código da equipe.
+
+**Decisão:** toda decisão que declare risco residual — "o que isto não resolve",
+"o que fica aberto", "o risco aceito é" — precisa **enumerar os caminhos
+verificados, um a um**, ou dizer explicitamente que não foram verificados.
+
+### O padrão que motiva a regra
+
+| Rodada | O que eu escrevi | O que era verdade |
+| --- | --- | --- |
+| 2 | "o cliente deixa de ler Diário, Razão, Balancete e conferência" | Ele continuava lendo tudo por `lancamentos/` |
+| 3 | "o admin continua permitindo alterar, protegido pelo `save()`" | Alterar estava recusado; **excluir** é que estava aberto, e apagava em lote sem trilha |
+| 4 | docstring do `ContaAdmin`: risco residual é "apagar conta sem movimento" | Verdade, mas incompleto: **alterar** a empresa de uma conta com movimento quebra o balancete |
+
+Três vezes o mesmo movimento: **descrevi o que eu tinha acabado de fechar e
+apresentei isso como o inventário do que está aberto.** O leitor seguinte — que
+pode ser o Fred decidindo implantar — lê a declaração como levantamento e
+conclui que o resto foi examinado.
+
+### O que a regra exige, na prática
+
+Ao escrever "o risco que sobra é X", antes de publicar:
+
+1. **Listar as portas** do componente. Para um `ModelAdmin`, são quatro:
+   incluir, alterar, excluir individualmente e excluir em lote — e a última não
+   passa pelo `delete()` do modelo.
+2. **Exercitar cada uma**, não deduzir da leitura. Foi exercitando que o auditor
+   achou as três.
+3. **Escrever o resultado de cada uma**, inclusive as que estão fechadas.
+4. Onde não der para exercitar, escrever **"não verificado"** — que é
+   informação honesta, ao contrário de um silêncio que parece cobertura.
+
+Custa minutos e teria evitado três achados. Não é sobre atenção: é sobre
+enumerar antes de afirmar.

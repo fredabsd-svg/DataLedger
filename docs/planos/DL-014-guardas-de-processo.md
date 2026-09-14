@@ -56,7 +56,7 @@ declara com honestidade onde não é.
 | 2 | Depois do gancho, `ruff` e `pytest` funcionam com o `.venv` que ele criou | Um arquivo lintado e um teste executado |
 | 3 | Gancho é idempotente | Segunda execução conclui sem erro |
 | 4 | Workflow reprova PR sem atestado e aprova PR com atestado | Lógica testada localmente com corpos de PR de exemplo, e execução real no PR desta etapa |
-| 5 | `main` protegida: push direto recusado, PR exige os três checks | Configuração conferida na API ou na tela do GitHub |
+| 5 | `main` protegida: push direto recusado, PR exige os três checks | Configuração conferida na API ou na tela do GitHub. **Pendente (BL-02):** a API de proteção respondeu 403 à sessão de agente em 2026-09-13; só o Fred, pela tela do GitHub, consegue ativar |
 | 6 | `AGENTS.md` e `CLAUDE.md` declaram o que é imposto e o que é instrução | Leitura |
 | 7 | Sem regressão; suíte, lint, formatação e validação de documentação limpos | Execução |
 

@@ -49,6 +49,28 @@ class ContaSerializer(serializers.ModelSerializer):
             )
         if value.empresa_id != empresa.id:
             raise serializers.ValidationError("A conta pai deve pertencer à mesma empresa.")
+
+        # Impede o ciclo NA ORIGEM também nesta camada (achado 6, DE-008:
+        # invariante contábil não mora só em `Model.clean()`, porque o DRF
+        # não chama `full_clean()`). Só relevante quando esta validação
+        # ocorre sobre uma conta JÁ existente (`self.instance`, uma futura
+        # rota de atualização) — uma conta em criação não tem filhos ainda e
+        # não pode ser ancestral de nada. O `visitado` evita loop infinito
+        # se a cadeia percorrida tiver um ciclo PRÉ-EXISTENTE não relacionado
+        # a esta conta (defesa redundante, mesmo espírito do limite de
+        # profundidade em `Conta.clean()`).
+        if self.instance is not None:
+            ancestral = value
+            visitado = set()
+            while ancestral is not None:
+                if ancestral.pk == self.instance.pk:
+                    raise serializers.ValidationError(
+                        "A conta pai não pode ser a própria conta nem uma conta descendente dela."
+                    )
+                if ancestral.pk in visitado:
+                    break
+                visitado.add(ancestral.pk)
+                ancestral = ancestral.conta_pai
         return value
 
 
