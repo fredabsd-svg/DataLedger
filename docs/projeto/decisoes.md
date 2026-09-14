@@ -904,3 +904,32 @@ Fazer o SQLite somar exato custaria carregar os itens em memória e somar em
 Python, penalizando o banco que realmente usamos para servir o que só existe em
 desenvolvimento. O aviso de SQLite já existente em `config/settings.py` passa a
 dizer que conferência de valor não vale nesse ambiente.
+
+## DE-021 — A constraint que amarra item, conta e lançamento à mesma empresa entra na DL-016
+
+**Data:** 2026-09-14
+
+**Contexto:** o achado 10 da auditoria mostrou que um `ItemLancamento` pode
+apontar para uma conta de uma empresa e um lançamento de **outra**. Quando isso
+existe, o histórico de um cliente aparece na tela de outro escritório. Nascer,
+só nasce por gravação direta no ORM — a API não permite —, mas é vazamento de
+sigilo quando nasce.
+
+**Decisão:** a defesa em profundidade em código **já entrou** na rodada 2 (Razão
+e Balancete passaram a filtrar também pela empresa do lançamento, com teste). A
+**garantia de banco** fica para a [DL-016](../planos/DL-016-competencia-e-fechamento.md).
+
+### Por que não agora
+
+A garantia não cabe numa `CheckConstraint`: ela atravessa três tabelas. A forma
+correta em PostgreSQL é desnormalizar a empresa para o item e amarrar as chaves
+estrangeiras compostas — o que exige **migração de esquema**.
+
+A DL-016 já vai migrar esse mesmo modelo para acrescentar origem e documento de
+origem (BL-72). Fazer as duas na mesma migração é uma mudança de esquema em vez
+de duas sobre a mesma tabela, e migração é a operação mais cara de reverter num
+sistema com dado de cliente.
+
+**Risco de esperar, declarado:** enquanto isso, a proteção é o código — que a
+rodada 2 cobriu com teste em ambas as saídas — e o fato de que a API não cria o
+estado. Não há dado real no sistema. Vira **BL-78**, com dependência declarada.

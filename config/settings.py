@@ -120,7 +120,10 @@ elif DEBUG:
         "DATABASE_URL não configurada: usando SQLite local em "
         f"{BASE_DIR / 'db.sqlite3'}. Válido apenas em desenvolvimento "
         "(DEBUG=True) — nunca use SQLite em produção nem com dado real de "
-        "cliente (BL-50, DE-014).",
+        "cliente (BL-50, DE-014). Além disso, SQLite não preserva a escala "
+        "decimal em agregações (Sum) como o PostgreSQL faz: conferência de "
+        "VALOR monetário (Diário, Razão, Balancete) não vale neste ambiente "
+        "— use PostgreSQL para qualquer verificação de número (DE-020).",
         RuntimeWarning,
         stacklevel=1,
     )

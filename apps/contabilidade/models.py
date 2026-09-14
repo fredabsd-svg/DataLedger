@@ -64,6 +64,53 @@ class Conta(models.Model):
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
             raise ValidationError("A conta pai deve pertencer à mesma empresa.")
 
+        # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
+        # sem esta checagem, atribuir como pai uma conta descendente da
+        # própria conta (inclusive a própria conta, o caso degenerado de
+        # profundidade zero) criava um laço que derrubava o Balancete e o
+        # Razão com RecursionError. Só se aplica a conta já persistida
+        # (`self.pk`): uma conta nova, sem filhos ainda, não pode ser
+        # ancestral de nada. O limite de profundidade é uma defesa
+        # REDUNDANTE contra um ciclo PRÉ-EXISTENTE não relacionado a esta
+        # conta (ex.: duas outras contas já formando um laço) — sem ele,
+        # `ancestral.conta_pai` desse laço alheio faria este laço FOR
+        # nunca terminar.
+        if self.pk and self.conta_pai_id:
+            ancestral = self.conta_pai
+            profundidade = 0
+            while ancestral is not None:
+                if ancestral.pk == self.pk:
+                    raise ValidationError(
+                        "A conta pai não pode ser a própria conta nem uma conta "
+                        f"descendente dela — isto criaria um ciclo envolvendo "
+                        f"{self.codigo} ({self.nome})."
+                    )
+                profundidade += 1
+                if profundidade > 1000:
+                    raise ValidationError(
+                        "Não foi possível validar a hierarquia de contas: "
+                        "profundidade excessiva ou ciclo pré-existente entre "
+                        "outras contas."
+                    )
+                ancestral = ancestral.conta_pai
+
+        # Guarda de dado (achado 2 / DE-020): recusa marcar como sintética
+        # ("aceita_lancamento=False") uma conta que já tem movimento próprio
+        # gravado. Antes desta guarda, o Django admin permitia essa
+        # reclassificação sem checagem alguma, e o valor da conta ficava
+        # órfão no Balancete (o débito existia no Diário e não aparecia em
+        # linha nenhuma). A regra única de saldo do Balancete já impede o
+        # valor de desaparecer mesmo que este estado exista — esta guarda
+        # existe para não deixar o estado ACONTECER pelo caminho validado
+        # (admin/formulário); acesso direto ao ORM continua contornando-a,
+        # risco já aceito e documentado no projeto (DE-008).
+        if self.pk and not self.aceita_lancamento and self.itens_lancamento.exists():
+            raise ValidationError(
+                "Não é possível marcar esta conta como sintética: ela já tem "
+                "lançamento próprio gravado. Estorne ou mova o movimento "
+                "antes de reclassificar."
+            )
+
 
 class LancamentoContabil(models.Model):
     """Lançamento contábil por partidas dobradas.

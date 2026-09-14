@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -13,12 +14,15 @@ from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
+    HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
     apurar_razao,
     criar_lancamento,
     estornar_lancamento,
     listar_diario,
+    localizar_contas_sinteticas_com_movimento,
+    localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
 )
 from apps.core.dinheiro import PADRAO_VALOR_DECIMAL_SIMPLES
@@ -51,6 +55,22 @@ TAMANHO_MAXIMO_HISTORICO = 300
 # mensagem genérica escondia a mensagem de domínio, mais útil ao contador.
 LIMITE_MAGNITUDE_VALOR = Decimal(10) ** (18 - 2)
 
+# Formato ESTRITO aceito para `inicio`/`fim` (achado 12): exatamente quatro
+# dígitos, hífen, dois dígitos, hífen, dois dígitos. Verificado ANTES de
+# `date.fromisoformat`, que aceita formatos fora do contrato anunciado
+# (AAAA-MM-DD) e os reinterpreta em silêncio — por exemplo, uma data de
+# semana ISO ("2026-W01-1") é aceita e convertida para OUTRO ano
+# (29/12/2025), sem aviso nenhum. Mesma política já aplicada ao valor
+# monetário (PADRAO_VALOR_DECIMAL_SIMPLES): um sistema contábil não pode
+# reinterpretar a entrada — recusa, não adivinha.
+_PADRAO_DATA_SIMPLES = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Formato ESTRITO aceito para `nivel` (achado 12): um ou mais dígitos, sem
+# sinal, sem espaço e sem "_" como separador. Verificado ANTES de `int()`,
+# que aceita "1_0" (convertido para 10), " 2 " e "+2" sem avisar — mesma
+# classe de reinterpretação silenciosa que a checagem acima evita para data.
+_PADRAO_NIVEL_SIMPLES = re.compile(r"^\d+$")
+
 
 def _como_moeda(valor):
     """Formata um Decimal monetário como string com duas casas.
@@ -76,6 +96,18 @@ def _periodo_obrigatorio(request):
     bruto_fim = request.query_params.get("fim")
     if not bruto_inicio or not bruto_fim:
         raise DRFValidationError("Informe 'inicio' e 'fim' (formato AAAA-MM-DD) na querystring.")
+
+    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_inicio):
+        # Recusa ANTES de chegar a `date.fromisoformat` (achado 12): esse
+        # construtor aceita formatos fora do contrato anunciado (data de
+        # semana ISO, data sem separador) e os reinterpreta em silêncio.
+        raise DRFValidationError(
+            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
+        )
+    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_fim):
+        raise DRFValidationError(
+            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
+        )
 
     try:
         inicio = date.fromisoformat(bruto_inicio)
@@ -107,6 +139,11 @@ def _nivel_opcional(request):
     bruto = request.query_params.get("nivel")
     if not bruto:
         return None
+    if not _PADRAO_NIVEL_SIMPLES.fullmatch(bruto):
+        # Recusa ANTES de `int()` (achado 12): "1_0" seria interpretado como
+        # 10 (separador de dígitos do Python, PEP 515), e " 2 "/"+2" seriam
+        # aceitos em silêncio — reinterpretação que o contrato não promete.
+        raise DRFValidationError(f"'nivel' inválido: '{bruto}' não é um número inteiro.")
     try:
         nivel = int(bruto)
     except ValueError as exc:
@@ -121,6 +158,19 @@ def _nivel_opcional(request):
 # efetivamente cuida da contabilidade do escritório.
 PodeEscriturar = papel_permitido(
     Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO
+)
+
+# Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,
+# conferência): DE-020, resposta ao achado 11. Decisão imediata e
+# conservadora do arquiteto-senior: o papel CLIENTE deixa de ler a
+# contabilidade — antes, qualquer usuário com vínculo de papel CLIENTE no
+# escritório lia o Diário (com histórico), o Razão e o Balancete completos
+# de TODOS os outros clientes do mesmo escritório, o que é sigilo de
+# cliente contra cliente, não apenas permissão fina. Os demais papéis
+# vinculados ao escritório seguem lendo, até uma matriz fina por módulo
+# (PE-36).
+PodeLerContabilidade = papel_permitido(
+    Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO, Papel.PARALEGAL
 )
 
 
@@ -355,7 +405,7 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
 class DiarioView(EmpresaEscopadaMixin, APIView):
     """Diário: lançamentos da empresa no período, em ordem cronológica (BL-59, DL-015)."""
 
-    permission_classes = [TemEscritorioAtivo]
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
@@ -409,22 +459,35 @@ class DiarioView(EmpresaEscopadaMixin, APIView):
 
 
 class RazaoView(EmpresaEscopadaMixin, APIView):
-    """Razão de uma conta no período: saldo anterior, itens e saldo final (BL-60, DL-015)."""
+    """Razão de uma conta no período: saldo anterior, itens e saldo final (BL-60, DL-015).
 
-    permission_classes = [TemEscritorioAtivo]
+    Conta sintética (achado 8 / DE-020): o extrato CONSOLIDA os itens das
+    analíticas subordinadas — a resposta declara `"analitica": false` e
+    `"consolidado": true` para que quem lê saiba que está vendo o grupo, não
+    uma conta com movimento próprio.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
     def get(self, request, empresa_id, conta_id):
         empresa = self.get_empresa()
         conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
         inicio, fim = _periodo_obrigatorio(request)
 
-        apuracao = apurar_razao(conta=conta, inicio=inicio, fim=fim)
+        try:
+            apuracao = apurar_razao(conta=conta, empresa=empresa, inicio=inicio, fim=fim)
+        except HierarquiaInconsistente as exc:
+            # Ciclo ou conta_pai de outra empresa na hierarquia (achado 6):
+            # resposta controlada, nomeando a conta, nunca um 500 mudo.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         itens = [
             {
                 "lancamento_id": linha["lancamento_id"],
                 "data": linha["data"].isoformat(),
                 "historico": linha["historico"],
+                "conta": linha["conta"],
+                "nome": linha["conta_nome"],
                 "tipo": linha["tipo"],
                 # Decimal como string: o encoder JSON padrão do DRF
                 # converte Decimal para float fora de um DecimalField de
@@ -440,6 +503,8 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
             {
                 "conta": conta.codigo,
                 "nome": conta.nome,
+                "analitica": conta.aceita_lancamento,
+                "consolidado": apuracao["consolidado"],
                 "inicio": inicio.isoformat(),
                 "fim": fim.isoformat(),
                 "saldo_anterior": _como_moeda(apuracao["saldo_anterior"]),
@@ -455,14 +520,19 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
     """Balancete de verificação da empresa no período, com 4 colunas por conta
     (saldo anterior, débitos, créditos, saldo final) — BL-61, DL-015."""
 
-    permission_classes = [TemEscritorioAtivo]
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
         inicio, fim = _periodo_obrigatorio(request)
         nivel = _nivel_opcional(request)
 
-        apuracao = apurar_balancete(empresa=empresa, inicio=inicio, fim=fim, nivel=nivel)
+        try:
+            apuracao = apurar_balancete(empresa=empresa, inicio=inicio, fim=fim, nivel=nivel)
+        except HierarquiaInconsistente as exc:
+            # Ciclo ou conta_pai de outra empresa na hierarquia (achado 6):
+            # resposta controlada, nomeando a conta, nunca um 500 mudo.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         contas = [
             {
@@ -490,15 +560,27 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
 
 
 class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
-    """Lotes (lançamentos) cuja soma de débitos difere da de créditos (BL-64, DL-015).
+    """Conferência de inconsistências da base contábil da empresa (BL-64, DL-015).
 
     Sem período: uma base torta é torta em qualquer recorte. Em operação
-    normal isto não deveria existir — `criar_lancamento` impede a gravação
-    de um lançamento desbalanceado; esta rota existe para achar o que foi
-    gravado por outro caminho (ex.: acesso direto ao ORM).
+    normal nada disto deveria existir — `criar_lancamento` impede a
+    gravação de um lançamento desbalanceado, e `Conta.clean()` impede a
+    reclassificação de uma conta com movimento e o ciclo na hierarquia
+    (achados 2 e 6); esta rota existe para achar o que foi gravado ou
+    alterado por outro caminho (ex.: acesso direto ao ORM).
+
+    Três categorias, cada uma reportada mesmo que as outras estejam vazias:
+
+    - `lotes`: lançamentos com menos de duas partidas (`motivo`
+      "sem_partidas") ou com débito diferente de crédito (`motivo`
+      "desbalanceado") — achado 9.
+    - `contas_sinteticas_com_movimento`: contas marcadas como sintéticas que
+      já têm itens de lançamento próprios — achado 2.
+    - `hierarquia_inconsistente`: mensagens descrevendo ciclo ou
+      `conta_pai` de outra empresa no plano de contas — achado 6.
     """
 
-    permission_classes = [TemEscritorioAtivo]
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
@@ -511,8 +593,27 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
                 "total_debito": _como_moeda(lancamento.total_debito),
                 "total_credito": _como_moeda(lancamento.total_credito),
                 "diferenca": _como_moeda(lancamento.total_debito - lancamento.total_credito),
+                "motivo": "sem_partidas" if lancamento.quantidade_itens < 2 else "desbalanceado",
             }
             for lancamento in localizar_lotes_desbalanceados(empresa=empresa)
         ]
 
-        return Response({"lotes": lotes})
+        contas_sinteticas_com_movimento = [
+            {
+                "conta": conta.codigo,
+                "nome": conta.nome,
+                "debitos": _como_moeda(conta.debitos),
+                "creditos": _como_moeda(conta.creditos),
+            }
+            for conta in localizar_contas_sinteticas_com_movimento(empresa=empresa)
+        ]
+
+        return Response(
+            {
+                "lotes": lotes,
+                "contas_sinteticas_com_movimento": contas_sinteticas_com_movimento,
+                "hierarquia_inconsistente": localizar_inconsistencias_de_hierarquia(
+                    empresa=empresa
+                ),
+            }
+        )
