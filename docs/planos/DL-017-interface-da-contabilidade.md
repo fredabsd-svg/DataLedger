@@ -1,10 +1,11 @@
 # DL-017 — Interface da contabilidade
 
-**Estado:** fases A e B implementadas e integradas em 2026-09-14 (PR #18), e
-**REPROVADAS** na [rodada 1 da auditoria](../auditorias/2026-09-14-dl-017-rodada-1.md).
-Os 15 achados foram corrigidos (BL-87 a BL-99), mais dois da mesma classe que a
-varredura encontrou e o relatório não tinha (BL-101, BL-102).
-**Aguardando a rodada 2**, que é quem aprova.
+**Estado:** fases A e B integradas em 2026-09-14 (PR #18), **reprovadas na
+[rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) e de novo na
+[rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md)**. Dos 15 achados da
+rodada 1, 14 fechados por medição do auditor; a rodada 2 encontrou um
+**bloqueador que está na `main`** — a tela grava `1.000` como `1,00` (R2-1).
+Correção em curso, BL-103 a BL-113, sob a [DE-029](../projeto/decisoes.md).
 
 ## O resultado da rodada 1, em três frases
 
@@ -84,6 +85,32 @@ por eles, e que a mesma classe podia existir em caminhos que não percorreu.
 Percorrendo o formulário campo a campo com a pergunta *"isso chega ao banco sem
 checagem de limite?"*, apareceram mais dois (BL-101 e BL-102). **Achado não é
 lista de tarefas; é amostra de um padrão.**
+
+## O que a rodada 2 ensinou, e é a lição mais cara até aqui
+
+**Corrigimos o exemplo, não a classe.** O auditor nomeou o padrão, e o erro é
+meu, porque quem escreve as tarefas de correção sou eu:
+
+| O achado dizia | A tarefa que escrevi virou | O defeito voltou por |
+| --- | --- | --- |
+| "nunca truncar em silêncio" (5) | "recusar acima de 20" | `num_linhas` malformado (R2-3) |
+| "medir CSS" (6) | "proibir `style=` inline" | especificidade do seletor, sem teste (R2-6) |
+| "a tela é a porta mais frouxa" (2) | "delegar a `para_decimal`" | `1.000` gravado como `1,00` (R2-1) |
+
+O terceiro é o bloqueador, e é o mais instrutivo: a correção do achado 2 estava
+**certa no que fazia** — o texto passou a descer para o módulo monetário — e
+mesmo assim o dinheiro continuou se perdendo, na linha imediatamente acima, na
+tradução que ninguém tinha escrito como regra.
+
+Passa a valer, e está na [DE-029](../projeto/decisoes.md): **o critério de
+aceite de uma correção cita a classe do defeito, nunca só a reprodução do
+relatório.**
+
+**E o teste que existia não podia pegar.** A DE-027 instituiu um teste de
+equivalência entre tela e API. Ele compara os dois lados **depois** da tradução;
+o defeito estava **na** tradução. 487 testes verdes, um bloqueador em vigor. O
+teste que faltava é de outra natureza — **texto digitado → valor gravado** — e
+teria pego na primeira execução.
 
 ## Por que esta etapa existe
 

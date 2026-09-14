@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **REPROVADAS** na [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md). **Os 15 achados foram corrigidos** (BL-87 a BL-99, mais BL-101 e BL-102 encontrados na varredura); suíte em **487 testes**, verificada em árvore limpa. **Aguardando a rodada 2**, que é quem aprova |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)**, **REPROVADAS na [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) e de novo na [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md)**. Dos 15 achados da rodada 1, 14 fechados por medição do auditor e 21 de 22 mutantes morrem — mas a rodada 2 encontrou um **BLOQUEADOR que está na `main`**: a tela grava `1.000` como `1,00` (R2-1/BL-103). Correção em curso, BL-103 a BL-113 |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -247,16 +247,22 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — mandar a
-   rodada 2 da auditoria.** Os 15 achados da
-   [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) estão corrigidos e
-   integrados na branch de trabalho, mais dois da mesma classe que a varredura
-   encontrou e o relatório não tinha (BL-101, magnitude de valor; BL-102,
-   chave de idempotência longa). Suíte em **487 testes**, verificada em árvore
-   limpa, com os dois defeitos de gravidade alta reaplicados e mortos por
-   medição do `arquiteto-senior`. **Nada disso é aprovação:** quem aprova é a
-   rodada 2, sobre a versão integrada. Só então vai para a `main`, e desta vez
-   **na ordem certa** — auditar e depois integrar.
+1. **BL-103 — BLOQUEADOR EM VIGOR NA `main`: a tela grava `1.000` como
+   `1,00`.** É o achado R2-1 da
+   [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md). O contador digita
+   mil reais como se escreve mil reais em português, a tela diz "gravado com
+   sucesso", e o livro fica com um real — e **nada reclama**, porque os dois
+   lados sofreram a mesma divisão: o lote fecha, o balancete concilia, a
+   conferência não acusa. Está em `9b22b03` desde a integração do PR #18, não é
+   regressão da correção da rodada 1. **O Fred foi avisado**, porque tem o
+   sistema no ar pelo Docker sobre esse código. A correção está decidida na
+   **[DE-029](../projeto/decisoes.md)** — gramática pt-BR explícita, texto
+   ambíguo se recusa — e em correção com o `especialista-frontend`, junto com
+   BL-105 a BL-113. A rodada 3 só começa com R2-1 a R2-4 corrigidos e
+   integrados.
+
+   **Não integrar nada na `main` antes do parecer.** A primeira vez que abri
+   essa exceção foi o que pôs este defeito lá.
 2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
@@ -295,11 +301,11 @@ auditoria independente — que é exatamente o motivo de ela existir.
   A e B** — esta última integrada por autorização expressa do Fred **antes** de
   a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
   auditar e só então integrar.
-- **Suíte: 487 testes** na branch de trabalho (446 na `main`), rodando em ~22 s
-  em árvore limpa. Os 446 da `main` foram confirmados pelo `auditor-qa` em
-  verificação independente; os 41 novos vêm da correção da rodada 1 (35 em
-  `test_dl017_rodada1_correcoes.py`, 4 em `test_dl017_urlconf_integrado.py`,
-  2 em `test_dl017_telas.py`) e ainda **não** passaram por auditoria.
+- **Suíte: 487 testes** na branch de trabalho (446 na `main`), rodando em ~20 s
+  em árvore limpa — confirmado pelo `auditor-qa` na rodada 2, em verificação
+  independente. **Suíte verde não é sistema correto:** os mesmos 487 passavam
+  com o bloqueador BL-103 em vigor, porque nenhum teste comparava o texto
+  digitado com o valor gravado. É o que a DE-029 institui.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.

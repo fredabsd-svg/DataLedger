@@ -151,6 +151,8 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 
 ## 🗺️ Roadmap real do repositório
 
+A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração.
+
 - [x] **DL-001** — documentação inicial e regras de contribuição
 - [x] **DL-002** — arquitetura e fundação técnica
 - [x] **DL-003** — autenticação e isolamento multiempresa
@@ -165,7 +167,7 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 - [x] **DL-013** — logo oficial
 - [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
 - [x] **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si
-- [ ] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador 🧭 **telas integradas, em correção de auditoria**
+- [ ] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
 - [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil

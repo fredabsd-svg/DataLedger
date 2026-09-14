@@ -265,6 +265,47 @@ partidas dobradas está correto e auditado.
 | BL-70 | **Numeração dos livros contábeis** (RC-56). Livro numerado tem sequência controlada, sem buraco e sem repetição, por empresa e por tipo de livro. | `desenvolvedor-pleno` | BL-61 | planejada | Número por empresa e tipo de livro, atribuído na emissão; sequência sem buraco e sem repetição sob concorrência (teste concorrente); um livro emitido não muda de número; teste que prova a recusa de dois livros com o mesmo número. |
 | BL-71 | **Termo de abertura e encerramento** do livro, vinculado ao livro que ele abre e encerra. | `desenvolvedor-pleno` | BL-70 | planejada | Termo referencia número do livro, período e páginas consistentes com o próprio livro; não existe termo sem livro correspondente; teste de coerência entre os dois. |
 
+## P0 — BLOQUEADOR EM VIGOR: a tela grava `1.000` como `1,00`
+
+Achado **R2-1** da [auditoria DL-017 rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md).
+**Está na `main`**, em `9b22b03`, desde a integração do PR #18 — não é regressão
+da correção da rodada 1. Precisa estar fechado **antes de existir dado real de
+cliente**, e o Fred foi avisado de que o sistema no ar dele tem o defeito.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-103 | **A tela grava um número diferente do que o contador digitou.** `_decimal_do_formulario` só remove o separador de milhar **quando há vírgula**: `1.000` vira `Decimal("1.000")`, que é 1. Medido em 9 de 12 valores de milhar comuns — `1.000`→1,00, `1.500`→1,50, `10.000`→10,00, `150.000`→150,00, `2.500`→2,50. A tela responde "Lançamento gravado com sucesso"; **nada reclama**, porque os dois lados sofreram a mesma divisão: o lote fecha, o balancete concilia, a conferência não acusa. | `especialista-frontend` | **DE-029** | **em correção** | Gramática pt-BR explícita da DE-029 (`^[+-]?(\d+\|\d{1,3}(\.\d{3})+)(,\d{1,2})?$`); texto fora dela **recusado** com mensagem que ensina o formato, nunca reinterpretado. `10.00` passa a ser recusado, e isso é correto. **E o teste que a DE-029 institui: texto digitado → valor gravado**, com a tabela de 12 valores — nunca 302 com outro número. |
+| BL-104 | **Reescrever a DE-027 e instituir o teste que faltava.** A cláusula de tradução (*"separador de milhar sai"*) não corresponde ao que o código fazia nem ao que deve fazer, e corrigir o código para bater com ela seria pior (tiraria o ponto de `10.00`). A verdade que faltava: **`1.000` é ambíguo**, logo "tradução de locale" não é operação bem definida sobre ele. Pior: o teste de equivalência que a DE-027 institui **não pode pegar um defeito na tradução**, porque compara os dois lados depois dela. | `arquiteto-senior` | — | **feita** — [DE-029](decisoes.md), com aviso no topo da DE-027 | A gramática escrita como padrão, não como prosa; a regra de que **texto ambíguo se recusa**; e o teste "texto digitado → valor gravado" como obrigação, ao lado do de equivalência. |
+
+## P1 — demais achados da rodada 2 da DL-017
+
+O relatório integral está em
+[docs/auditorias/2026-09-14-dl-017-rodada-2.md](../auditorias/2026-09-14-dl-017-rodada-2.md).
+Dos 15 achados da rodada 1, **14 foram fechados** por medição do auditor e 21 de
+22 mutantes morrem. Três fecharam **o caso descrito, não a classe nomeada** — e
+é daí que vêm R2-3, R2-5 e R2-6.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-105 | **R2-2: `?nivel=` com mais de 4300 dígitos derruba o Balancete com 500**, por uma URL — que pode ser colada, favoritada ou compartilhada. E `nivel=٢` (dígito índico-arábico) é aceito como 2, quando a API recusa. A API **já documenta a lição** (`views.py:77-83`: usa `[0-9]`, não `\d`, e envolve o `int()` em `try/except`); a tela não copiou nenhuma das duas. | `especialista-frontend` | — | **em correção** | Mesmo padrão da API, **importado** e não duplicado; `int()` protegido. Os seis valores medidos pelo auditor devolvem o **mesmo** status na tela e na API. |
+| BL-106 | **R2-3: o achado 5 só foi fechado por cima.** `num_linhas` malformado (`abc`, vazio, `2.5`, `1e1`, `None`) faz a view ler **4 de 6 linhas** e gravar com sucesso, descartando 77,00 de débito e 77,00 de crédito — o cenário exato do achado 5, com o mesmo dano. A causa não era o teto: **é a view confiar num contador enviado pelo cliente para decidir quantos campos ler.** Junto: o comentário de `views_web.py:638-641` afirma o contrário do que o código faz, e é ele que justifica a correção do achado 5. | `especialista-frontend` | — | **em correção** | Quantidade de linhas derivada do **próprio POST**; `num_linhas` só para exibição; recusa acima do teto mantida. A tabela de 8 valores devolve 6 partidas gravadas ou 400 — nunca 302 com 4. |
+| BL-107 | **R2-4: byte `NUL` em `historico` ou `chave_idempotencia` chega ao INSERT e derruba com 500 — na tela E na API.** Não é regressão da DL-017: é buraco anterior que a varredura expôs. O formulário de conta está protegido porque é `ModelForm`; de novo o escrito à mão é o desprotegido. | `desenvolvedor-pleno` | — | **em correção** | **Uma correção só** para as duas portas, numa camada que cubra ambas (validador de modelo ou `services.py`). 400 com mensagem útil, nunca 500 nem `IntegrityError` traduzido. Teste campo a campo, nas duas portas. |
+| BL-108 | **R2-5: a conferência ainda exclui em silêncio uma linha incompleta do total.** Antes mostrava `0,00`, evidentemente errado; agora mostra um total **plausível e balanceado** que ignora 500,00 preenchidos logo acima — e "batendo" é o sinal que convida a gravar. Nada errado é gravado (a gravação recusa), mas a tela que existe para dar confiança dá confiança no número errado. | `especialista-frontend` | — | **em correção** | Soma parcial mantida **e a exclusão anunciada**: "N linha(s) ainda não entram neste total", ou marcação na própria linha. |
+| BL-109 | **R2-6: a correção da indentação não tem teste que a defenda.** O mutante que reduz a especificidade do seletor — **a primeira tentativa, a que não corrigia nada** — sobrevive a 487 testes. O teste que existe verifica a ausência de `style=` inline, isto é, a **forma** da correção anterior, não o **efeito** desta. A hierarquia já sumiu duas vezes nesta mesma entrega, por motivos diferentes, com a suíte verde. | `especialista-frontend` | — | **em correção** | Teste que afirme o **efeito**: cada `nivel-N` com regra mais específica que `.tabela-dados td` e `padding-left` crescente, ou medição de `getComputedStyle` no Chromium. A mutação de especificidade passa a **morrer**. |
+| BL-110 | **R2-7: `para_decimal` aceita dígito Unicode não latino como dinheiro** (`\d` em vez de `[0-9]`). `'０１０,00'` grava 10,00; `'١٢٣.٤٥'` é aceito como 123,45. Pesa mais do que parece: a DE-027 acabou de apontar **todo** caminho de entrada futuro para este módulo — tela, API, NFS-e da DL-010, carga de planilha. E a lição já está escrita no repositório, no guarda irmão `_PADRAO_NIVEL_SIMPLES`, com o comentário explicando o porquê. | `desenvolvedor-pleno` | — | **em correção** | `^[+-]?[0-9]+(\.[0-9]+)?$`; os quatro textos medidos levantam `ValorMonetarioInvalido`. `+10.00` **continua aceito** — é contrato testado e a DE-027 depende dele. |
+| BL-111 | **R2-8: a evidência do critério 16 não mostra o software entregue.** As três capturas são de `9b22b03`, o commit reprovado, e não têm nem os "—" das colunas consolidadas nem a indentação hierárquica. Continua faltando captura de "criar conta" e "lançar", os dois passos que o critério nomeia. | `especialista-frontend` | BL-103 a BL-109 | planejada | Capturas refeitas na revisão entregue, incluindo criar conta e lançar. Junto: texto de apoio no rótulo do campo de data — o `<input type="date">` mostra o formato do navegador, e na captura aparece `09/01/2026` logo abaixo de um cabeçalho dizendo `01/09/2026`. Não é defeito de código; é ambiguidade real para quem usa navegador fora de pt-BR. |
+| BL-112 | **R2-9: a raiz do plano de contas fica 12 px à esquerda do próprio cabeçalho.** `nivel-0` e `nivel-1` zeram o recuo padrão da célula em vez de somar a partir dele; a escada fica −12, +8, +28, +48, +68 px, e o primeiro degrau mede 8 px em vez de 20. | `especialista-frontend` | — | **em correção** | Indentação **aditiva** sobre o recuo padrão da célula. Medido no Chromium. |
+| BL-113 | **R2-10: a recusa por teto apaga as partidas digitadas.** A mensagem manda "grave em dois lançamentos separados" — e os dados do segundo acabaram de ser jogados fora pela mesma resposta. Uma linha acima, o código declara a intenção oposta. | `especialista-frontend` | — | **em correção** | Todas as linhas enviadas re-exibidas (marcando as excedentes), ou os valores que não couberam repetidos na mensagem. |
+
+### R2-11, e por que o README parou de descrever estado
+
+O auditor encontrou o `README.md` dizendo *"telas integradas, em correção de
+auditoria"* contra o `estado.md` dizendo *"aguardando a rodada 2"* — divergência
+**no primeiro commit depois** de o achado 7 ter sido corrigido. A causa é a mesma
+que o Fred nomeou em 2026-09-13: **duplicação**. O roadmap do README passou a
+declarar explicitamente que lista o que existe, nunca o estado, e aponta para a
+fonte única. Feito pelo `arquiteto-senior`.
+
 ## P0 — o caminho documentado de subir o sistema não funcionava
 
 Reproduzido **pelo Fred**, na máquina dele, em 2026-09-14, seguindo literalmente

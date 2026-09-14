@@ -1266,6 +1266,18 @@ inaceitáveis é percorrida pelos **dois** caminhos (tela e API) exigindo o
 derrubando a tela com 500) é corrigido pelo mesmo movimento, e é a razão de os
 dois andarem juntos.
 
+### Atenção: a cláusula de tradução desta decisão estava ERRADA
+
+Acrescentado em 2026-09-14, depois da rodada 2 da auditoria. A frase abaixo que
+descreve a tradução como *"vírgula decimal vira ponto, separador de milhar
+sai"* **não corresponde ao que o código fazia nem ao que ele deve fazer**, e
+por trás dela passou um defeito **bloqueador**: a tela gravava `1.000` como
+1,00. Ver **DE-029**, que substitui a cláusula de tradução e institui o teste
+que faltava.
+
+O resto desta decisão continua valendo: quem julga o texto de um valor
+monetário é o módulo monetário, nunca a view.
+
 ### O que "mesmo veredito" quer dizer, exatamente
 
 Acrescentado em 2026-09-14, porque o `especialista-frontend` levantou o caso na
@@ -1327,3 +1339,91 @@ Ela resolve o ambiente de avaliação e desenvolvimento. **Não** define como a
 migração acontece na implantação em nuvem — isso é do P0 de implantação
 (DE-014), junto com cópia de segurança e restauração testada (BL-33), e continua
 em aberto.
+
+## DE-029 — A gramática pt-BR do campo de valor, e a regra de que texto ambíguo se recusa
+
+**Data:** 2026-09-14. **Substitui a cláusula de tradução da DE-027**, que estava
+errada. Contexto: achado R2-1 da
+[auditoria DL-017 rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md), de
+gravidade **bloqueador**.
+
+### O defeito que originou a decisão
+
+A tela gravava `1.000` como **1,00**. O contador digita mil reais como todo
+brasileiro escreve mil reais, a tela responde *"Lançamento gravado com
+sucesso"*, e o livro fica com um real. O lançamento fecha (os dois lados
+sofreram a mesma divisão), o balancete concilia, e a tela de conferência diz que
+não há inconsistência. Medido em 9 de 12 valores de milhar comuns.
+
+Estava na `main` desde a integração do PR #18.
+
+### Por que a DE-027 não podia pegar isso
+
+A DE-027 acertou em *quem julga* o texto (o módulo monetário, nunca a view) e a
+implementação obedece. O erro está na frase que **define a tradução**:
+*"vírgula decimal vira ponto, separador de milhar sai"*. O código só tirava o
+separador quando havia vírgula — e **corrigir o código para bater com o texto
+seria pior**, porque tiraria o ponto de `10.00` e transformaria dez reais em mil.
+
+A verdade que faltava enxergar: **`1.000` é ambíguo.** Em pt-BR é mil; no formato
+canônico da API é um. Não existe função de tradução bem definida sobre esse
+texto, logo não existe conserto que preserve as duas leituras.
+
+### A decisão
+
+**1. O campo de valor da tela aceita uma gramática pt-BR explícita, escrita como
+padrão e não como prosa:**
+
+```
+^[+-]?(\d+|\d{1,3}(\.\d{3})+)(,\d{1,2})?$
+```
+
+Em português: dígitos sem separador algum, **ou** dígitos agrupados de três em
+três por ponto, com centavos opcionais depois da vírgula.
+
+| Digitado | Vale | Por quê |
+| --- | --- | --- |
+| `1000` | 1000,00 | sem separador, sem ambiguidade |
+| `1.000` | 1000,00 | grupo de milhar bem formado |
+| `1.234.567,89` | 1234567,89 | idem, com centavos |
+| `0,50` | 0,50 | centavos |
+| `10.00` | **recusado** | `.00` não é grupo de milhar; em pt-BR é malformado |
+| `1.00` | **recusado** | idem |
+| `1e3`, `1_000`, `NaN` | **recusado** | não é a gramática |
+
+**2. Texto fora da gramática é recusado pela tela, com mensagem que ensina o
+formato** — nunca reinterpretado, nunca "corrigido" em silêncio. `10.00` passa a
+ser recusado, **e isso é correto**: é o formato canônico da API, não o da tela
+de um contador brasileiro.
+
+**3. Depois da tradução, `para_decimal` continua julgando.** A gramática não o
+substitui: ele é a segunda camada, que apanha sinal, escala e não-finito. A
+DE-027 continua valendo inteira nesse ponto.
+
+### O teste que faltava, e que é o coração desta decisão
+
+A DE-027 instituiu um teste de **equivalência entre tela e API**. Ele não podia
+pegar o R2-1 **por construção**: compara os dois lados *depois* da tradução, e o
+defeito estava *na* tradução. Passa a ser obrigatório um segundo teste, de outra
+natureza:
+
+> **Texto digitado → valor gravado.** Para uma tabela de textos em pt-BR, o valor
+> que fica no banco é exatamente o que o texto significa em pt-BR, ou a
+> requisição é recusada com 400. **Nunca 302 com outro número.**
+
+Esse teste teria pego o defeito na primeira execução. Os dois testes convivem: o
+de equivalência protege a fronteira entre as portas; este protege o significado
+do que o contador digitou.
+
+### A lição de processo, que vale além deste campo
+
+O auditor nomeou o padrão das três correções incompletas desta rodada, e ele é
+meu: **a correção fechou o caso que o relatório descrevia, não a classe que ele
+nomeava.** O achado 5 dizia *"nunca truncar em silêncio"* e a tarefa que escrevi
+virou *"recusar acima de 20"* — o defeito voltou por `num_linhas` malformado
+(R2-3). O achado 6 dizia *"medir CSS"* e virou *"proibir `style=` inline"* — a
+indentação segue sem teste que a defenda (R2-6).
+
+Passa a valer: **o critério de aceite de uma correção cita a classe do defeito,
+nunca só a reprodução do relatório.** Quem escreve a tarefa é o
+`arquiteto-senior`, e o erro de escrevê-la estreita é dele.
