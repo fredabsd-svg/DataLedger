@@ -206,6 +206,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Em execução** — fase A (backend de apoio) delegada em 2026-09-14 |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -237,10 +238,10 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-015 onda 2](../planos/DL-015-contabilidade-utilizavel.md) — a
-   interface (BL-62).** É o que falta para o Fred usar o sistema sem programar:
-   hoje a contabilidade só responde por API. O contrato das quatro saídas está
-   estável e auditado, que era a condição para começar.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — a interface
+   (BL-62).** Autorizada pelo Fred em 2026-09-14 e **em execução**. É o que
+   falta para ele usar o sistema sem programar. Fase A (autorização num lugar
+   só, e saldo com `D`/`C`) antes das telas — ver DE-026.
 2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
