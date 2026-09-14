@@ -96,7 +96,7 @@ class LancamentoContabilAdmin(admin.ModelAdmin):
         # lançamento e itens em lote, DEFINITIVAMENTE, sem estorno, sem
         # versão anterior e sem registro em `apps/auditoria`. Pelo caminho
         # individual (".../<id>/delete/") a guarda do modelo rodava, mas
-        # como uma excepión que vazava (500), não como uma recusa
+        # como uma exceção que vazava (500), não como uma recusa
         # apresentável. `has_delete_permission=False` fecha os dois
         # caminhos na ORIGEM (o Django nem oferece a ação nem a URL),
         # devolvendo 403 em vez de apagar ou de estourar.

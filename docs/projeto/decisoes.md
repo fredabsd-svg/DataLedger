@@ -1145,3 +1145,42 @@ o próximo leitor conclui que a outra metade da condição é redundante e a rem
 Fica registrado como **BL-82** avaliar uma guarda que recuse subir com
 `DEBUG=True` fora de desenvolvimento. Hoje não existe, e vários raciocínios de
 segurança do projeto já se apoiam nela como se existisse.
+
+
+## DE-025 — Declaração de risco residual enumera os caminhos verificados
+
+**Data:** 2026-09-14. Origem: o padrão que três auditorias seguidas apontaram
+nos **meus** textos, não no código da equipe.
+
+**Decisão:** toda decisão que declare risco residual — "o que isto não resolve",
+"o que fica aberto", "o risco aceito é" — precisa **enumerar os caminhos
+verificados, um a um**, ou dizer explicitamente que não foram verificados.
+
+### O padrão que motiva a regra
+
+| Rodada | O que eu escrevi | O que era verdade |
+| --- | --- | --- |
+| 2 | "o cliente deixa de ler Diário, Razão, Balancete e conferência" | Ele continuava lendo tudo por `lancamentos/` |
+| 3 | "o admin continua permitindo alterar, protegido pelo `save()`" | Alterar estava recusado; **excluir** é que estava aberto, e apagava em lote sem trilha |
+| 4 | docstring do `ContaAdmin`: risco residual é "apagar conta sem movimento" | Verdade, mas incompleto: **alterar** a empresa de uma conta com movimento quebra o balancete |
+
+Três vezes o mesmo movimento: **descrevi o que eu tinha acabado de fechar e
+apresentei isso como o inventário do que está aberto.** O leitor seguinte — que
+pode ser o Fred decidindo implantar — lê a declaração como levantamento e
+conclui que o resto foi examinado.
+
+### O que a regra exige, na prática
+
+Ao escrever "o risco que sobra é X", antes de publicar:
+
+1. **Listar as portas** do componente. Para um `ModelAdmin`, são quatro:
+   incluir, alterar, excluir individualmente e excluir em lote — e a última não
+   passa pelo `delete()` do modelo.
+2. **Exercitar cada uma**, não deduzir da leitura. Foi exercitando que o auditor
+   achou as três.
+3. **Escrever o resultado de cada uma**, inclusive as que estão fechadas.
+4. Onde não der para exercitar, escrever **"não verificado"** — que é
+   informação honesta, ao contrário de um silêncio que parece cobertura.
+
+Custa minutos e teria evitado três achados. Não é sobre atenção: é sobre
+enumerar antes de afirmar.
