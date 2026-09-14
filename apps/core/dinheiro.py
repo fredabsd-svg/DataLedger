@@ -101,7 +101,17 @@ _ARREDONDAMENTO = {
 # upstream). Um sistema contábil não pode reinterpretar a entrada — RECUSAR
 # é a resposta, igual à decisão já tomada para escala (DE-010). Aplica-se só
 # a `str`; `int` não tem essa ambiguidade (não existe "int com espaço").
-PADRAO_VALOR_DECIMAL_SIMPLES = re.compile(r"^[+-]?\d+(\.\d+)?$")
+#
+# `[0-9]`, não `\d` (achado R2-7 da auditoria DL-017, rodada 2): em Python,
+# `\d` casa QUALQUER dígito decimal Unicode, não só ASCII — "０１０,00"
+# (dígitos "fullwidth"), "١٢٣.٤٥" (índico-arábico) e "๑๐.00" (tailandês)
+# passavam por esta regex, e `Decimal(str)` os aceita, convertendo em
+# silêncio para o valor ASCII equivalente. O docstring deste módulo promete
+# RECUSAR qualquer representação que não seja a declarada — o mesmo motivo
+# já registrado, em comentário, para `_PADRAO_DATA_SIMPLES` e
+# `_PADRAO_NIVEL_SIMPLES` em `apps.contabilidade.views`. `[0-9]` casa
+# exclusivamente os dez dígitos ASCII.
+PADRAO_VALOR_DECIMAL_SIMPLES = re.compile(r"^[+-]?[0-9]+(\.[0-9]+)?$")
 
 
 class ValorMonetarioInvalido(Exception):

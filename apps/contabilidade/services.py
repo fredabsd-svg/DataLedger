@@ -139,6 +139,11 @@ def criar_lancamento(
     valor com mais de `ESCALA_MAXIMA_LANCAMENTO_MANUAL` casas decimais é
     recusado — nunca arredondado em silêncio.
 
+    `historico` e `chave_idempotencia` são recusados (`LancamentoInvalido`)
+    se contiverem o caractere nulo (achado R2-4, auditoria DL-017 rodada 2):
+    sem esta checagem, o PostgreSQL rejeitaria o INSERT com `DataError`, um
+    500 cru — ver o comentário junto da checagem, mais abaixo.
+
     `chave_idempotencia` é opcional (BL-41). Quando informada:
     - se já existir um lançamento com a MESMA chave, NESTA empresa, e com o
       MESMO conteúdo (comparado por `_impressao_digital`), devolve esse
@@ -168,6 +173,31 @@ def criar_lancamento(
     """
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
+
+    # Byte nulo (achado R2-4 da auditoria DL-017, rodada 2): o PostgreSQL
+    # recusa `\x00` em coluna de texto com `DataError: PostgreSQL text
+    # fields cannot contain NUL (0x00) bytes` — um 500 cru, não um erro de
+    # domínio. Um navegador não digita NUL num campo de texto; um cliente de
+    # integração, um trecho colado de arquivo binário ou um proxy
+    # mal-comportado enviam. `historico` e `chave_idempotencia` chegam aqui
+    # como texto já lido "à mão" pelas DUAS portas (a tela em
+    # `views_web.py` e a API em `views.py`) — nenhuma das duas passa por um
+    # `ModelForm`/`ModelSerializer`, que teria essa recusa embutida (é
+    # exatamente por que o formulário de CONTA está protegido e este não
+    # estava). `criar_lancamento` é o único ponto por onde as duas portas
+    # passam para gravar (AGENTS.md §8: não duplicar regra entre tela e
+    # API) — verificar aqui, uma vez só, fecha as duas ao mesmo tempo, sem
+    # tocar em nenhuma das duas views. Levanta `LancamentoInvalido`, que as
+    # duas views já traduzem para 400 com mensagem própria — nunca deixa o
+    # `\x00` chegar ao INSERT.
+    if "\x00" in historico:
+        raise LancamentoInvalido(
+            "O histórico não pode conter o caractere nulo (código 0)."
+        )
+    if chave_idempotencia and "\x00" in chave_idempotencia:
+        raise LancamentoInvalido(
+            "A chave de idempotência não pode conter o caractere nulo (código 0)."
+        )
 
     # Sinal e escala são verificados ITEM A ITEM, e ANTES de somar débitos e
     # créditos (achado 4 / BL-17, DE-010). A ordem importa: se a soma
