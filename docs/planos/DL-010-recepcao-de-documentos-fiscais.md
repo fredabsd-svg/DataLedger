@@ -3,7 +3,26 @@
 Primeira fatia do módulo Fiscal, escolhida pelo Fred: **importação e
 conferência** é a rotina que mais consome tempo no escritório (RC-40).
 
-**Estado:** planejada.
+**Estado:** **revisado em 2026-09-14 pelo acervo real do escritório.** O Fred
+confirmou o foco: *"foca na importação e conferência"*.
+
+> ## Revisão de prioridade — o plano estava com a ordem invertida
+>
+> Este plano foi escrito a partir de manual e conversa, e priorizava **NF-e e
+> SPED**. Em 2026-09-14 o Fred enviou **5.850 XMLs** do acervo, e a medição
+> desmentiu a suposição:
+>
+> | Documento | Quantidade | Participação |
+> | --- | --- | --- |
+> | **NFS-e nacional** (serviço prestado, RC-66) | 4.979 | **85%** |
+> | NF-e modelo 55 | 618 — **611 de saída** | 11% |
+> | NFCom 62, CT-e 57, GTVe 64 | 79 | 1% |
+>
+> Seguir o plano original seria construir primeiro exatamente a parte que menos
+> aparece na carteira dele. **A primeira fatia passa a ser a NFS-e nacional.**
+>
+> O levantamento de leiaute de NF-e e de SPED, mais abaixo, **continua válido e
+> não foi descartado** — muda a ordem em que é usado, não o conteúdo.
 
 ## Objetivo
 
@@ -91,25 +110,43 @@ preciso. **Escopo: XML solto e ZIP.**
 
 ## Escopo desta etapa
 
-**Dentro:**
+Reorganizado em 2026-09-14 pela medição do acervo.
+
+**Fatia 1 — o que o escritório mais recebe:**
 
 - Receber arquivo: XML solto, vários XMLs, ou ZIP contendo XMLs.
-- Receber arquivo SPED Fiscal e extrair os documentos do **bloco C**.
-- Identificar a **empresa** do documento pelo CNPJ, dentro do escritório ativo.
-- Persistir o documento com **rastreabilidade até o arquivo de origem**.
-- **Idempotência pela chave de acesso.**
-- **Isolamento**: documento de CNPJ que não pertence a nenhuma empresa do
-  escritório é recusado, com motivo, e nunca gravado.
-- Relatório do que foi recebido, duplicado, recusado e por quê.
+- **NFS-e nacional**, versões `1.00` e `1.01` (RC-72), que é 85% do movimento.
+- **Classificação pelo conteúdo do documento**, nunca pelo nome do arquivo ou
+  pasta (RC-71).
+- **Deduplicação pelo identificador do documento** (RC-69, RC-74).
+- **Eventos, inclusive órfãos** — guardados mesmo sem a nota correspondente, e
+  aplicados quando ela chegar (RC-70).
+- Identificar a **empresa** pelo CNPJ **ou CPF** (RC-73), dentro do escritório
+  ativo.
+- **Isolamento**: documento que não pertence a nenhuma empresa do escritório é
+  recusado, com motivo, e nunca gravado.
+- **Conferência**: o que entrou, o que já existia, o que foi recusado e por quê,
+  o que está cancelado, e o que chegou sem par.
+
+**Fatia 2, com o leiaute já levantado neste plano:** NF-e modelo 55.
+
+**Fatia 3, quando houver demanda medida:** NFCom, CT-e, GTVe — juntos são 1% do
+acervo, e o NFCom vem de **um único emitente**.
 
 **Fora, declarado:**
 
+- **SPED Fiscal** — sai da primeira fatia. O leiaute está levantado aqui, mas o
+  Fred ainda não forneceu arquivo, e a medição mostra que o volume está na
+  NFS-e. Volta quando houver amostra.
 - Apuração de qualquer imposto.
-- Classificação fiscal e o cadastro de regras por vigência.
+- Classificação fiscal e cadastro de regras por vigência.
+- Contabilização automática (é a integração fiscal-contábil, ver
+  [mapa contábil](../projeto/mapa-funcional-contabil.md)).
 - Livros e obrigações acessórias.
-- Blocos da EFD além do `C`.
 - Segmentos especializados (RC-42), que afetam apuração, não recepção.
-- RAR.
+- **Bloco IBS/CBS** enquanto **PE-39** não for decidido pelo Fred: 12% das notas
+  já o trazem (RC-76), e recepcionar sem ele descarta informação que chegou —
+  mas o leiaute e a regra precisam de fonte oficial vigente, que não levantei.
 
 ## Decisão de domínio: aqui a chave natural é correta
 
@@ -137,28 +174,41 @@ emitido por terceiro confiável, nunca por semelhança de conteúdo.**
 
 ## Critérios de aceite
 
+Reescritos em 2026-09-14. Os de 1 a 14 valiam antes e continuam valendo, com a
+NFS-e no lugar da NF-e onde couber; de 15 a 22 vêm da medição do acervo real e
+**cada um tem um número medido por trás**.
+
 | # | Critério |
 | --- | --- |
-| 1 | XML de NF-e válido é recebido e persistido, com rastreio ao arquivo de origem |
+| 1 | XML de NFS-e válido é recebido e persistido, com rastreio ao arquivo de origem |
 | 2 | ZIP com vários XMLs é processado, e o relatório informa cada um |
 | 3 | **Reimportar o mesmo arquivo não duplica** nenhum documento |
 | 4 | Reimportar o mesmo XML dentro de outro ZIP também não duplica |
-| 5 | Documento cujo CNPJ não pertence a nenhuma empresa do escritório é **recusado**, com motivo, e não gravado |
-| 5a | Documento **sem bloco `dest`** é tratado como caso próprio, com motivo distinto de "CNPJ não reconhecido" — nunca como XML malformado |
-| 5b | Arquivo de **evento** (`envEvento` ou `procEventoNFe`) é reconhecido pelo elemento raiz, relatado com o tipo e a chave que referencia, e **não** tratado como nota |
-| 5c | XML de NF-e em **leiaute anterior ao 4.00** é recusado com mensagem específica, não com erro genérico de esquema |
+| 5 | Documento cujo CNPJ/CPF não pertence a nenhuma empresa do escritório é **recusado**, com motivo, e não gravado |
 | 6 | Documento de empresa de **outro escritório** nunca é acessível nem importável |
-| 7 | XML malformado, truncado ou que não seja NF-e é recusado com mensagem útil, sem derrubar o lote |
+| 7 | XML malformado, truncado ou de tipo não suportado é recusado com mensagem útil, sem derrubar o lote |
 | 8 | Um arquivo ruim no meio do ZIP **não impede** os demais de serem importados |
-| 9 | Arquivo SPED Fiscal é lido em **ISO-8859-1** e os documentos do bloco C são extraídos |
-| 9a | A integridade do arquivo é conferida pelas contagens de `9900`, `9990`, `9999` e `C990` **antes** de importar; arquivo com contagem divergente é recusado por inteiro |
-| 9b | `C100` **sem** `C170` e `C190` — cancelado, denegado, inutilizado — é lido sem erro e classificado pelo `COD_SIT`, nunca tratado como arquivo malformado |
-| 9c | `C100` de modelo **não eletrônico**, sem `CHV_NFE`, é lido e relatado; o tratamento de duplicidade desses documentos segue a decisão de **PE-22**, e não é silencioso |
 | 10 | Valores monetários entram por `Decimal`, pela política da DE-010, sem ponto flutuante |
 | 11 | O relatório distingue: recebido, duplicado ignorado, recusado com motivo |
 | 12 | Toda importação gera registro na trilha de auditoria, sem expor conteúdo sensível |
-| 13 | A identificação de empresa por CNPJ está em **um único ponto** do código |
-| 14 | Sem regressão; `ruff`, `format --check`, `manage.py check`, `makemigrations --check` limpos |
+| 13 | A identificação de empresa por CNPJ/CPF está em **um único ponto** do código |
+| 14 | Sem regressão; `ruff`, `format --check`, `manage.py check`, `makemigrations --check` limpos, **verificados em árvore limpa** (BL-81) |
+| **15** | **Deduplicação pelo identificador do documento** (`Id` de `infNFSe`, `NFS` + 50 dígitos, RC-74) — **nunca** por nome de arquivo ou caminho. Teste com os dois casos reais medidos: o mesmo documento em **duas pastas de clientes diferentes**, e o mesmo documento **duas vezes na mesma pasta** (RC-69) |
+| **16** | O número sequencial (`nNFSe`/`nDFSe`) **não** é usado como chave: varia de 1 a 13 dígitos sem padronização (RC-74). Teste que prove que dois documentos de emitentes distintos com o mesmo número **coexistem** |
+| **17** | **Evento órfão é aceito e guardado** (RC-70), e aplicado à nota quando ela chegar depois. Teste nas duas ordens: evento antes da nota, e nota antes do evento. Nota cancelada **nunca** é apresentada como válida |
+| **18** | **Classificação pelo conteúdo** (RC-71). Teste com o caso real: documento cujo nome de arquivo diz `evento` e cujo conteúdo é outro tipo — o sistema acerta pelo conteúdo |
+| **19** | **As duas versões de leiaute** da NFS-e (`1.00` e `1.01`, RC-72) são aceitas. Teste com uma de cada |
+| **20** | **CPF em qualquer papel** — prestador ou tomador pessoa física (RC-73) — é aceito. Teste com CPF no emitente e no tomador |
+| **21** | **Variações de arquivo** (RC-75) não quebram a leitura: sem declaração de codificação, `UTF-8` maiúsculo e minúsculo, CRLF, minificado e indentado. Teste para cada, e um caso com **acentuação em razão social** provando que não corrompe |
+| **22** | **CNPJ com zero à esquerda** é preservado (553 casos reais, RC-75). Teste que prove que o identificador nunca passa por conversão numérica |
+
+### O que estes critérios protegem, em linguagem de escritório
+
+O critério 15 evita **escriturar a mesma receita duas vezes**. O 17 evita
+**escriturar nota cancelada como válida** — e, como os 29 cancelamentos do
+acervo chegaram sem a nota, é o caso normal, não a exceção. O 21 e o 22 evitam
+razão social corrompida e CNPJ mutilado, que são os defeitos que aparecem no
+primeiro dia de uso e destroem a confiança no sistema.
 
 ## Impacto
 

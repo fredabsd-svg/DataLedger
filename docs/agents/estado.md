@@ -199,7 +199,7 @@ diverge.
 | [DL-007](../planos/DL-007-correcao-bloqueadores-contabilidade.md) | Correção dos dois bloqueadores da auditoria inicial | Integrada (PR #11) |
 | [DL-008](../planos/DL-008-politica-monetaria-e-validacao-de-escala.md) | Política monetária explícita e módulo de arredondamento | Integrada (PR #11) |
 | [DL-009](../planos/DL-009-fundacao-de-interface.md) | Fundação de interface, estados de erro, acessibilidade | Integrada (PR #11) |
-| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção e conferência de documentos fiscais | **Plano revisado em 2026-09-14** pelo acervo real: a primeira fatia passa a ser **NFS-e** (85% do movimento), não NF-e. Foco confirmado pelo Fred |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred; o quarto é o **conceito do próprio Fred em vetor limpo** | **Integrada (PR #17)** |
@@ -251,8 +251,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
    fechamento de período.** Planejada e com contrato escrito. Destrava a
    alteração em massa (DE-017) e a regeração de lançamentos derivados (DE-018),
    as duas pedidas pelo Fred.
-4. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
-   documentos fiscais.** Fora da frente da fila por RC-50, sem ser cancelada.
+4. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — importação
+   e conferência de documentos fiscais.** O Fred confirmou o foco em
+   2026-09-14: *"foca na importação e conferência"*. O plano foi **revisado**
+   pela medição do acervo real — primeira fatia é **NFS-e**, não NF-e, porque
+   85% do movimento dele é nota de serviço prestado. Os 22 critérios de aceite
+   têm número medido por trás. Começa quando a DL-017 (telas) for auditada.
 5. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53.
 6. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
