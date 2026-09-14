@@ -245,12 +245,72 @@ button:hover {
     font-weight: 700;
 }
 
-/* Não há regra de valor monetário aqui de propósito. Nenhuma tela atual
-   exibe valor monetário — Contabilidade só tem API. Uma classe reservada
-   "para quando existir" seria código morto, o que o AGENTS.md §8 manda
-   remover, e decidiria alinhamento e tipografia sem uma tela real para
-   avaliar (mesmo motivo da DE-011: não decidir sem evidência).
-   Quando a primeira tela de escrituração ou relatório existir, o
-   alinhamento à direita e `font-variant-numeric: tabular-nums` entram
-   junto com ela, e aí dá para verificar de verdade se a coluna comporta o
-   maior valor sem truncar — o que é o requisito que importa. */
+/* Valor monetário (DL-017, fase B): a primeira tela de escrituração e
+   relatório contábil chegou, e com ela o requisito real que o comentário
+   antigo deste arquivo dizia estar esperando — alinhamento à direita e
+   algarismos de largura fixa (tabular-nums), para que colunas de valores
+   fiquem alinhadas verticalmente e sejam fáceis de somar visualmente.
+   O sinal (débito/crédito) NUNCA é só a cor: o indicador D/C ao lado
+   (.indicador-natureza) é sempre texto, nunca só cor. */
+.valor-monetario {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+th.valor-monetario {
+    text-align: right;
+}
+
+/* Indicador de natureza do saldo (D/C, RC-61): peso de fonte, nunca só
+   cor — sempre acompanhado, no HTML, de um texto por extenso só para
+   leitor de tela (.visualmente-oculto, já definida acima). */
+.indicador-natureza {
+    font-weight: 700;
+    margin-left: 0.25rem;
+}
+
+/* Linha de total/rodapé de tabela contábil (Diário, Razão, Balancete):
+   destaque visual (borda e peso), nunca o único jeito de saber que é um
+   total — o próprio texto da célula ("Total do período" etc.) já diz isso. */
+.linha-total td {
+    font-weight: 700;
+    border-top: 2px solid var(--cor-borda);
+}
+
+/* Formulário de período (Diário, Razão, Balancete): disposição em linha,
+   para não ocupar a tela inteira só com duas datas e um botão. */
+.formulario-periodo {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.formulario-periodo .campo {
+    gap: 0.25rem;
+}
+
+/* Formulário de lançamento: os campos de conta/tipo/valor moram dentro de
+   .tabela-dados (uma linha por partida), não do .formulario genérico de
+   32rem usado pelos formulários simples de cadastro. */
+.formulario-lancamento {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.formulario-lancamento .tabela-dados select,
+.formulario-lancamento .tabela-dados input {
+    width: 100%;
+    padding: 0.4rem;
+    border: 1px solid var(--cor-borda);
+    border-radius: 2px;
+    font-size: 1rem;
+}
+
+.acoes-formulario {
+    display: flex;
+    gap: 0.75rem;
+}

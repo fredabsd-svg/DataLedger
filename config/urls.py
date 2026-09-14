@@ -14,5 +14,13 @@ urlpatterns = [
     path("api/auditoria/", include("apps.auditoria.urls")),
     path("empresas/", include("apps.empresas.urls")),
     path("contabilidade/", include("apps.contabilidade.urls")),
+    # Telas da contabilidade (DL-017). Prefixo DIFERENTE do da API acima, e
+    # não por gosto: os dois conjuntos têm rotas com o mesmo caminho literal
+    # sob o mesmo `empresa_id` (`diario/`, `balancete/`). Se dividissem o
+    # prefixo, a segunda inclusão nunca seria alcançada — o Django resolve a
+    # primeira que casar, em silêncio, e a tela ou a API simplesmente
+    # desapareceria sem erro nenhum. Levantado pelo `especialista-frontend`
+    # ao entregar a fase B.
+    path("contabilidade/painel/", include("apps.contabilidade.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]

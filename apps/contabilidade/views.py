@@ -6,11 +6,13 @@ from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
+from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoPartida
+from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
@@ -102,6 +104,51 @@ def _como_moeda(valor):
     return str(Decimal(valor).quantize(Decimal("0.01")))
 
 
+def _saldo_absoluto_com_natureza(saldo_assinado, natureza_cadastrada):
+    """Converte um saldo ASSINADO (a convenção interna de `services.py`:
+    positivo quando o saldo está do mesmo lado da natureza CADASTRADA da
+    conta — ver `_saldo_por_natureza`/`_sinal_do_item`) para o par que a
+    apresentação contábil exige (RC-61 / BL-77, critério 5 do plano
+    DL-017): `(valor_absoluto: Decimal, letra: "D" | "C" | None)`. O valor
+    NUNCA é negativo — quem consome (a resposta HTTP hoje, a tela na fase B)
+    mostra a letra ao lado do número, nunca o sinal.
+
+    A natureza APURADA (a letra devolvida aqui) não é a mesma coisa que a
+    natureza CADASTRADA da conta (`Conta.natureza`, o parâmetro
+    `natureza_cadastrada`): uma conta DEVEDORA cujo movimento do período
+    pesa mais para o crédito apura saldo CREDOR — mesmo continuando
+    cadastrada como devedora. É o coração do caso de referência do Fred
+    (docs/projeto/mapa-funcional-contabil.md, "Conta retificadora,
+    apresentação de saldo e implantação"): a conta retificadora de
+    depreciação é cadastrada com natureza CONTRÁRIA à do grupo de
+    propósito, e o GRUPO (que tem natureza própria, devedora) apura saldo
+    devedor mesmo absorvendo o crédito da retificadora — a natureza apurada
+    do grupo vem do SINAL do resultado, nunca copiada de um filho.
+    A mesma lógica vale para uma conta isolada, sem filhos: se o crédito do
+    período supera o débito de uma conta cadastrada devedora, ela apura
+    saldo credor, ponto.
+
+    Saldo exatamente ZERO não tem lado — não existe "meio D, meio C" nem um
+    lado mais correto que o outro para apresentar. Decisão explícita deste
+    módulo (não há regra contábil que escolha um lado para zero): devolve
+    `letra=None`. Quem for renderizar (a fase B) não deve mostrar indicador
+    nenhum quando `letra` vier `None` — mostrar "D" ou "C" para saldo zero
+    seria inventar uma informação que os dados não sustentam.
+    """
+    if saldo_assinado == 0:
+        return saldo_assinado, None
+
+    letra_cadastrada = "D" if natureza_cadastrada == NaturezaConta.DEVEDORA else "C"
+    if saldo_assinado > 0:
+        return saldo_assinado, letra_cadastrada
+
+    # Negativo, na convenção assinada dos serviços: o saldo apurado está do
+    # lado CONTRÁRIO ao cadastrado. Inverte o sinal (nunca devolve negativo)
+    # e a letra.
+    letra_apurada = "C" if letra_cadastrada == "D" else "D"
+    return -saldo_assinado, letra_apurada
+
+
 def _periodo_obrigatorio(request):
     """Extrai e valida `inicio`/`fim` da querystring das saídas com período.
 
@@ -186,6 +233,7 @@ PodeEscriturar = papel_permitido(
     Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO
 )
 
+
 # Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,
 # conferência) — e, desde o achado novo 2 da rodada 2, TAMBÉM o `GET` de
 # `ContaListCreateView` (plano de contas) e de `LancamentoListCreateView`
@@ -208,9 +256,20 @@ PodeEscriturar = papel_permitido(
 #
 # Os demais papéis vinculados ao escritório seguem lendo, até uma matriz fina
 # por módulo (PE-36).
-PodeLerContabilidade = papel_permitido(
-    Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO, Papel.PARALEGAL
-)
+#
+# DE-026 / DL-017 fase A, critério 1: esta classe NÃO decide mais nada
+# sozinha — ela só traduz `apps.contabilidade.permissoes.
+# papel_pode_ler_contabilidade` (a fonte única da regra, sem depender de
+# DRF) para o protocolo de permissão do DRF. A tela (fase B) vai chamar a
+# MESMA função diretamente, sem passar pelo DRF. Ver o docstring de
+# `permissoes.py` para o contrato completo, e
+# `tests/test_permissoes_contabilidade.py` para o teste que prova que os
+# dois lados decidem igual.
+class PodeLerContabilidade(BasePermission):
+    message = "Papel sem permissão para ler a contabilidade."
+
+    def has_permission(self, request, view):
+        return papel_pode_ler_contabilidade(getattr(request, "papel", None))
 
 
 class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
@@ -523,6 +582,15 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
     consolidação, e uma conta que aceita lançamento e tem filhas aparecia
     marcada `"analitica": true` com o Razão zerado, enquanto o Balancete da
     MESMA conta trazia o total consolidado.
+
+    Saldo com natureza (RC-61 / BL-77, critério 5 do plano DL-017):
+    `saldo_anterior`, `saldo_final` e a coluna `saldo` de cada item de
+    `itens` NUNCA vêm negativos — são o valor ABSOLUTO, acompanhados do
+    campo irmão `<campo>_natureza` ("D", "C" ou `None` para saldo zero — ver
+    `_saldo_absoluto_com_natureza`). A natureza aplicada é sempre a da
+    CONTA CONSULTADA (`conta`, inclusive quando consolidado — o grupo), a
+    mesma que já decide o sinal interno em `apurar_razao`/`_sinal_do_item`;
+    nunca a de uma conta descendente.
     """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
@@ -539,23 +607,37 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
             # resposta controlada, nomeando a conta, nunca um 500 mudo.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-        itens = [
-            {
-                "lancamento_id": linha["lancamento_id"],
-                "data": linha["data"].isoformat(),
-                "historico": linha["historico"],
-                "conta": linha["conta"],
-                "nome": linha["conta_nome"],
-                "tipo": linha["tipo"],
-                # Decimal como string: o encoder JSON padrão do DRF
-                # converte Decimal para float fora de um DecimalField de
-                # serializer, o que quebraria a precisão decimal exigida
-                # para valores monetários (AGENTS.md, seção 10).
-                "valor": _como_moeda(linha["valor"]),
-                "saldo": _como_moeda(linha["saldo"]),
-            }
-            for linha in apuracao["itens"]
-        ]
+        itens = []
+        for linha in apuracao["itens"]:
+            # RC-61 / BL-77: a coluna "saldo" de cada linha do Razão também
+            # vira valor absoluto + natureza apurada — sempre pela natureza
+            # da conta CONSULTADA (`conta`), nunca a do item individual (ver
+            # docstring da classe e de `apurar_razao`).
+            saldo_abs, saldo_natureza = _saldo_absoluto_com_natureza(linha["saldo"], conta.natureza)
+            itens.append(
+                {
+                    "lancamento_id": linha["lancamento_id"],
+                    "data": linha["data"].isoformat(),
+                    "historico": linha["historico"],
+                    "conta": linha["conta"],
+                    "nome": linha["conta_nome"],
+                    "tipo": linha["tipo"],
+                    # Decimal como string: o encoder JSON padrão do DRF
+                    # converte Decimal para float fora de um DecimalField de
+                    # serializer, o que quebraria a precisão decimal exigida
+                    # para valores monetários (AGENTS.md, seção 10).
+                    "valor": _como_moeda(linha["valor"]),
+                    "saldo": _como_moeda(saldo_abs),
+                    "saldo_natureza": saldo_natureza,
+                }
+            )
+
+        saldo_anterior_abs, saldo_anterior_natureza = _saldo_absoluto_com_natureza(
+            apuracao["saldo_anterior"], conta.natureza
+        )
+        saldo_final_abs, saldo_final_natureza = _saldo_absoluto_com_natureza(
+            apuracao["saldo_final"], conta.natureza
+        )
 
         return Response(
             {
@@ -569,10 +651,12 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
                 "consolidado": apuracao["consolidado"],
                 "inicio": inicio.isoformat(),
                 "fim": fim.isoformat(),
-                "saldo_anterior": _como_moeda(apuracao["saldo_anterior"]),
+                "saldo_anterior": _como_moeda(saldo_anterior_abs),
+                "saldo_anterior_natureza": saldo_anterior_natureza,
                 "total_debito": _como_moeda(apuracao["total_debito"]),
                 "total_credito": _como_moeda(apuracao["total_credito"]),
-                "saldo_final": _como_moeda(apuracao["saldo_final"]),
+                "saldo_final": _como_moeda(saldo_final_abs),
+                "saldo_final_natureza": saldo_final_natureza,
                 "itens": itens,
             }
         )
@@ -580,7 +664,22 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
 
 class BalanceteView(EmpresaEscopadaMixin, APIView):
     """Balancete de verificação da empresa no período, com 4 colunas por conta
-    (saldo anterior, débitos, créditos, saldo final) — BL-61, DL-015."""
+    (saldo anterior, débitos, créditos, saldo final) — BL-61, DL-015.
+
+    Saldo com natureza (RC-61 / BL-77, critério 5 do plano DL-017):
+    `saldo_anterior` e `saldo_final`, em cada linha, NUNCA vêm negativos —
+    são o valor ABSOLUTO, acompanhados do campo irmão `<campo>_natureza`
+    ("D", "C" ou `None` para saldo zero — ver `_saldo_absoluto_com_natureza`
+    em `views.py`). A natureza é a APURADA daquela linha, não a CADASTRADA
+    da conta (`linha["natureza"]`, que `apurar_balancete` devolve só para
+    esta conversão): o caso de referência é o grupo Imobilizado do Fred
+    (docs/projeto/mapa-funcional-contabil.md) — devedor, cadastrado como
+    tal — que segue apurando saldo DEVEDOR mesmo absorvendo o crédito da
+    retificadora (natureza cadastrada oposta) entre suas descendentes.
+    `debitos`/`creditos`/`debitos_proprios`/`creditos_proprios` continuam
+    como somas BRUTAS (sempre ≥ 0 por construção): não precisam de
+    indicador de natureza, só o saldo tem lado.
+    """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
@@ -596,26 +695,41 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
             # resposta controlada, nomeando a conta, nunca um 500 mudo.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-        contas = [
-            {
-                "conta": linha["conta"],
-                "nome": linha["nome"],
-                "nivel": linha["nivel"],
-                "analitica": linha["analitica"],
-                "saldo_anterior": _como_moeda(linha["saldo_anterior"]),
-                "debitos": _como_moeda(linha["debitos"]),
-                "creditos": _como_moeda(linha["creditos"]),
-                # Achado novo 3 / DE-024 §2: movimento PRÓPRIO da conta (o
-                # que foi lançado DIRETO nela, sem o das descendentes) — é
-                # sobre estes dois campos, não sobre "debitos"/"creditos"
-                # (consolidados), que a soma das linhas reconcilia com
-                # total_debitos/total_creditos abaixo.
-                "debitos_proprios": _como_moeda(linha["debitos_proprios"]),
-                "creditos_proprios": _como_moeda(linha["creditos_proprios"]),
-                "saldo_final": _como_moeda(linha["saldo_final"]),
-            }
-            for linha in apuracao["contas"]
-        ]
+        contas = []
+        for linha in apuracao["contas"]:
+            # RC-61 / BL-77: `linha["natureza"]` é a natureza CADASTRADA da
+            # conta (adicionada por `apurar_balancete` só para esta
+            # conversão) — a natureza APURADA de cada saldo é derivada do
+            # SINAL do valor assinado, não copiada dela. Ver docstring da
+            # classe e de `_saldo_absoluto_com_natureza`.
+            saldo_anterior_abs, saldo_anterior_natureza = _saldo_absoluto_com_natureza(
+                linha["saldo_anterior"], linha["natureza"]
+            )
+            saldo_final_abs, saldo_final_natureza = _saldo_absoluto_com_natureza(
+                linha["saldo_final"], linha["natureza"]
+            )
+            contas.append(
+                {
+                    "conta": linha["conta"],
+                    "nome": linha["nome"],
+                    "nivel": linha["nivel"],
+                    "analitica": linha["analitica"],
+                    "saldo_anterior": _como_moeda(saldo_anterior_abs),
+                    "saldo_anterior_natureza": saldo_anterior_natureza,
+                    "debitos": _como_moeda(linha["debitos"]),
+                    "creditos": _como_moeda(linha["creditos"]),
+                    # Achado novo 3 / DE-024 §2: movimento PRÓPRIO da conta (o
+                    # que foi lançado DIRETO nela, sem o das descendentes) — é
+                    # sobre estes dois campos, não sobre "debitos"/"creditos"
+                    # (consolidados), que a soma das linhas reconcilia com
+                    # total_debitos/total_creditos abaixo. Sempre ≥ 0: não
+                    # levam indicador de natureza (ver docstring da classe).
+                    "debitos_proprios": _como_moeda(linha["debitos_proprios"]),
+                    "creditos_proprios": _como_moeda(linha["creditos_proprios"]),
+                    "saldo_final": _como_moeda(saldo_final_abs),
+                    "saldo_final_natureza": saldo_final_natureza,
+                }
+            )
 
         return Response(
             {

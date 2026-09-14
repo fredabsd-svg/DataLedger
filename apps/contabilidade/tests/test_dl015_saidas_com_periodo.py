@@ -327,6 +327,12 @@ def test_razao_apura_saldo_anterior_e_saldo_parte_dele(client, cenario):
     # A coluna "saldo" acumula A PARTIR do saldo anterior, não de zero.
     assert corpo["itens"][0]["saldo"] == "800.00"
     assert corpo["saldo_final"] == "800.00"
+    # RC-61 / BL-77: Caixa é devedora e nunca inverte de lado neste cenário
+    # (só débito) — a natureza APURADA coincide com a CADASTRADA em todo
+    # ponto, e o valor já vem em módulo (positivo), nunca negativo.
+    assert corpo["saldo_anterior_natureza"] == "D"
+    assert corpo["itens"][0]["saldo_natureza"] == "D"
+    assert corpo["saldo_final_natureza"] == "D"
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +376,19 @@ def test_balancete_saldo_final_respeita_natureza_da_conta(client, cenario):
     assert capital["debitos"] == "0.00"
     assert capital["creditos"] == "100.00"
     assert capital["saldo_final"] == "300.00"  # 200,00 + (100,00 crédito - 0 débito)
+    # RC-61 / BL-77: Capital é CREDORA e todo o movimento é a favor do lado
+    # cadastrado — natureza apurada "C" em todo ponto.
+    assert capital["saldo_anterior_natureza"] == "C"
+    assert capital["saldo_final_natureza"] == "C"
 
     caixa = linhas["1.1"]
     assert caixa["saldo_anterior"] == "200.00"
     assert caixa["debitos"] == "100.00"
     assert caixa["creditos"] == "0.00"
     assert caixa["saldo_final"] == "300.00"  # 200,00 + (100,00 débito - 0 crédito)
+    # Caixa é DEVEDORA, também sem inversão neste cenário — natureza "D".
+    assert caixa["saldo_anterior_natureza"] == "D"
+    assert caixa["saldo_final_natureza"] == "D"
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +456,11 @@ def test_conciliacao_razao_x_balancete(client, cenario):
     assert razao["total_debito"] == linha_caixa["debitos"]
     assert razao["total_credito"] == linha_caixa["creditos"]
     assert razao["saldo_final"] == linha_caixa["saldo_final"]
+    # RC-61 / BL-77: a conciliação também vale para a natureza apurada — as
+    # duas saídas descrevem a MESMA conta, no MESMO período, então o
+    # indicador D/C tem que bater, não só o número absoluto.
+    assert razao["saldo_anterior_natureza"] == linha_caixa["saldo_anterior_natureza"]
+    assert razao["saldo_final_natureza"] == linha_caixa["saldo_final_natureza"]
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +723,10 @@ def test_lancamento_fora_do_intervalo_nao_aparece_em_nenhuma_saida_nem_totais(cl
     assert razao["itens"] == []
     assert razao["saldo_final"] == "0.00"
     assert razao["saldo_anterior"] == "0.00"  # também não é "anterior": é POSTERIOR ao período
+    # RC-61 / BL-77: saldo ZERO não tem lado — nem D nem C. `letra=None` é
+    # decisão explícita de `_saldo_absoluto_com_natureza` (views.py).
+    assert razao["saldo_final_natureza"] is None
+    assert razao["saldo_anterior_natureza"] is None
 
     balancete = client.get(
         reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]), periodo
@@ -712,6 +734,7 @@ def test_lancamento_fora_do_intervalo_nao_aparece_em_nenhuma_saida_nem_totais(cl
     linha_caixa = next(linha for linha in balancete["contas"] if linha["conta"] == "1.1")
     assert linha_caixa["debitos"] == "0.00"
     assert linha_caixa["saldo_final"] == "0.00"
+    assert linha_caixa["saldo_final_natureza"] is None
     assert balancete["total_debitos"] == "0.00"
 
 
@@ -1254,23 +1277,58 @@ def test_balancete_grupo_com_conta_retificadora_aplica_natureza_do_grupo_uma_vez
     assert grupo["debitos"] == "100.00"
     assert grupo["creditos"] == "30.00"
     assert grupo["saldo_final"] == "70.00"
+    # RC-61 / BL-77: o grupo é cadastrado DEVEDOR e apura saldo devedor (o
+    # crédito da retificadora não é suficiente para inverter o lado) —
+    # natureza apurada "D", igual à cadastrada.
+    assert grupo["saldo_final_natureza"] == "D"
+    depreciacao_linha = linhas["1.2.2"]
+    # A retificadora, isolada, é CREDORA e só recebeu crédito — natureza
+    # apurada "C", igual à cadastrada (ela não inverte; é o GRUPO que
+    # absorve o crédito dela sem inverter, porque o débito de "Bens" é
+    # maior).
+    assert depreciacao_linha["saldo_final_natureza"] == "C"
 
 
 def _assert_toda_linha_do_balancete_bate_com_a_propria_natureza(response, empresa):
-    """Teste GENÉRICO pedido pelo achado 3: para TODA linha do balancete,
-    analítica ou sintética, `saldo_final == saldo_anterior ± (debitos −
-    creditos)` conforme a NATUREZA DA PRÓPRIA CONTA (nunca a de um filho ou
-    de outra linha) — lida direto do banco, sem depender da fixture.
+    """Teste GENÉRICO pedido pelo achado 3, adaptado pela RC-61 / BL-77: para
+    TODA linha do balancete, analítica ou sintética, o saldo RECONSTRUÍDO
+    (valor absoluto + natureza apurada, convertido de volta para o saldo
+    ASSINADO) tem que satisfazer `saldo_final == saldo_anterior ±
+    (debitos − creditos)` conforme a NATUREZA CADASTRADA DA PRÓPRIA CONTA
+    (nunca a de um filho ou de outra linha) — lida direto do banco, sem
+    depender da fixture.
+
+    Reconstruir o saldo assinado a partir de `(valor_absoluto,
+    natureza_apurada, natureza_cadastrada)` é o INVERSO exato de
+    `views._saldo_absoluto_com_natureza`: positivo quando as duas letras
+    coincidem, negativo quando não coincidem, zero quando `natureza_apurada`
+    vier `None`. Antes da RC-61/BL-77 este teste comparava o saldo ASSINADO
+    direto; agora prova que a conversão para valor absoluto + indicador é
+    REVERSÍVEL — não só "parece certa" nos poucos casos escolhidos a dedo
+    pelos testes específicos de cada achado.
     """
     naturezas_por_codigo = dict(
         Conta.objects.filter(empresa=empresa).values_list("codigo", "natureza")
     )
+
+    def _assinado(valor_absoluto, natureza_apurada, natureza_cadastrada):
+        if natureza_apurada is None:
+            assert valor_absoluto == 0
+            return Decimal("0")
+        letra_cadastrada = "D" if natureza_cadastrada == NaturezaConta.DEVEDORA else "C"
+        return valor_absoluto if natureza_apurada == letra_cadastrada else -valor_absoluto
+
     for linha in response.json()["contas"]:
-        saldo_anterior = Decimal(linha["saldo_anterior"])
+        natureza_cadastrada = naturezas_por_codigo[linha["conta"]]
+        saldo_anterior = _assinado(
+            Decimal(linha["saldo_anterior"]), linha["saldo_anterior_natureza"], natureza_cadastrada
+        )
         debitos = Decimal(linha["debitos"])
         creditos = Decimal(linha["creditos"])
-        saldo_final = Decimal(linha["saldo_final"])
-        sinal = 1 if naturezas_por_codigo[linha["conta"]] == NaturezaConta.DEVEDORA else -1
+        saldo_final = _assinado(
+            Decimal(linha["saldo_final"]), linha["saldo_final_natureza"], natureza_cadastrada
+        )
+        sinal = 1 if natureza_cadastrada == NaturezaConta.DEVEDORA else -1
         assert saldo_final == saldo_anterior + sinal * (debitos - creditos), linha
 
 
@@ -1424,6 +1482,12 @@ def test_razao_conta_credora_apura_saldo_anterior_coluna_saldo_e_saldo_final(cli
     assert corpo["saldo_anterior"] == "500.00"
     assert [item["saldo"] for item in corpo["itens"]] == ["800.00", "700.00"]
     assert corpo["saldo_final"] == "700.00"
+    # RC-61 / BL-77: Capital é CREDORA e o saldo nunca inverte de lado neste
+    # cenário (a devolução de 100,00 não é suficiente para zerar os 800,00
+    # acumulados) — natureza apurada "C" em todo ponto, igual à cadastrada.
+    assert corpo["saldo_anterior_natureza"] == "C"
+    assert [item["saldo_natureza"] for item in corpo["itens"]] == ["C", "C"]
+    assert corpo["saldo_final_natureza"] == "C"
 
 
 def test_conciliacao_razao_x_balancete_conta_credora(client, cenario):
@@ -1461,6 +1525,8 @@ def test_conciliacao_razao_x_balancete_conta_credora(client, cenario):
     assert razao["total_debito"] == linha_capital["debitos"]
     assert razao["total_credito"] == linha_capital["creditos"]
     assert razao["saldo_final"] == linha_capital["saldo_final"]
+    assert razao["saldo_anterior_natureza"] == linha_capital["saldo_anterior_natureza"]
+    assert razao["saldo_final_natureza"] == linha_capital["saldo_final_natureza"]
 
 
 # ---------------------------------------------------------------------------
@@ -2435,6 +2501,16 @@ def cenario_imobilizado_fred(cenario):
 
 
 def test_caso_referencia_fred_grupo_imobilizado_fecha_em_29263_32(client, cenario_imobilizado_fred):
+    """RC-61 / BL-77, critério 5 do plano DL-017: depois da mudança para
+    valor absoluto + indicador de natureza, este caso de referência
+    continua fechando em 29.263,32 — agora com o indicador "D" que o
+    balanço do Fred mostra (docs/projeto/mapa-funcional-contabil.md):
+
+        1.2.3.03.001 Máquinas e equipamentos ......... 1.437,50 D
+        1.2.3.04.001 Veículos ......................... 29.900,00 D
+        1.2.3.07.003 (-) Depreciações de máq. e equip. .. 2.074,18 C
+        1.2.3        Imobilizado (grupo) ............... 29.263,32 D
+    """
     c = cenario_imobilizado_fred
     _autenticar(client, c["escritorio_a"])
     periodo = {"inicio": "2023-01-01", "fim": "2023-12-31"}
@@ -2446,15 +2522,25 @@ def test_caso_referencia_fred_grupo_imobilizado_fecha_em_29263_32(client, cenari
 
     assert linhas["1.2.3.03.001"]["debitos"] == "1437.50"
     assert linhas["1.2.3.03.001"]["saldo_final"] == "1437.50"
+    assert linhas["1.2.3.03.001"]["saldo_final_natureza"] == "D"
     assert linhas["1.2.3.04.001"]["debitos"] == "29900.00"
     assert linhas["1.2.3.04.001"]["saldo_final"] == "29900.00"
+    assert linhas["1.2.3.04.001"]["saldo_final_natureza"] == "D"
     assert linhas["1.2.3.07.003"]["creditos"] == "2074.18"
     assert linhas["1.2.3.07.003"]["saldo_final"] == "2074.18"
+    # A retificadora, cadastrada CREDORA, apura saldo do lado dela mesma
+    # (ela não inverte) — quem absorve o crédito sem inverter é o GRUPO.
+    assert linhas["1.2.3.07.003"]["saldo_final_natureza"] == "C"
 
     grupo = linhas["1.2.3"]
     assert grupo["debitos"] == "31337.50"
     assert grupo["creditos"] == "2074.18"
     assert grupo["saldo_final"] == "29263.32"  # o número do balanço do Fred
+    # O grupo é cadastrado DEVEDOR e continua apurando saldo devedor — o
+    # crédito da retificadora (2.074,18) não é suficiente para inverter o
+    # lado do débito consolidado (31.337,50). Nunca "-29263.32": valor
+    # absoluto sempre, com o indicador ao lado (RC-61).
+    assert grupo["saldo_final_natureza"] == "D"
 
 
 def test_razao_consolidado_de_grupo_com_retificadora_aplica_natureza_do_grupo(
@@ -2477,12 +2563,101 @@ def test_razao_consolidado_de_grupo_com_retificadora_aplica_natureza_do_grupo(
     assert razao_grupo["total_debito"] == "31337.50"
     assert razao_grupo["total_credito"] == "2074.18"
     assert razao_grupo["saldo_final"] == "29263.32"
+    # RC-61 / BL-77: o grupo apura saldo devedor — mesmo indicador do
+    # Balancete da mesma conta (ver conciliação no teste do critério 6).
+    assert razao_grupo["saldo_final_natureza"] == "D"
 
     # Coluna "saldo" linha a linha: os itens vêm em ordem cronológica; como
     # os três compartilham lançamento e criado_em, o desempate é por id, na
     # ordem em que foram criados (máquinas, veículos, depreciação).
     saldos = [item["saldo"] for item in razao_grupo["itens"]]
     assert saldos == ["1437.50", "31337.50", "29263.32"]
+    # A coluna de saldo acumula pela natureza do GRUPO (devedora) em toda a
+    # linha — nunca inverte, porque o débito acumulado nunca fica menor que
+    # o crédito da retificadora neste extrato.
+    assert [item["saldo_natureza"] for item in razao_grupo["itens"]] == ["D", "D", "D"]
+
+
+# ---------------------------------------------------------------------------
+# DL-017, fase A, critério 5 (RC-61 / BL-77) — o coração da tarefa: a
+# natureza APURADA de uma conta ISOLADA (sem filhos, sem retificadora) pode
+# ser CONTRÁRIA à natureza CADASTRADA, quando o movimento do período pesa
+# para o lado oposto. Os testes do Fred (acima) provam a mecânica do GRUPO
+# absorvendo uma retificadora sem inverter; estes provam que a mesma
+# conversão (valor absoluto + indicador) também vale para uma conta comum,
+# sem hierarquia nenhuma envolvida — a distinção entre natureza cadastrada
+# e natureza apurada não é um efeito colateral de grupo com retificadora,
+# é uma propriedade do SALDO, e vale para qualquer conta.
+# ---------------------------------------------------------------------------
+
+
+def test_conta_devedora_isolada_apura_saldo_credor_quando_credito_supera_debito(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    # Caixa é cadastrada DEVEDORA (fixture `cenario`). Um único lançamento
+    # com o crédito de Caixa maior que o débito dela no período (aqui,
+    # débito zero) é o suficiente para o saldo apurado ficar do lado
+    # CONTRÁRIO ao cadastrado — sem grupo, sem retificadora, sem hierarquia.
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 10),
+        historico="Saída de caixa maior que o saldo (saldo apurado credor)",
+        itens=[
+            {"conta": cenario["capital"], "tipo": TipoPartida.DEBITO, "valor": Decimal("200.00")},
+            {"conta": cenario["caixa"], "tipo": TipoPartida.CREDITO, "valor": Decimal("200.00")},
+        ],
+    )
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+
+    razao = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["caixa"].id]),
+        periodo,
+    ).json()
+    balancete = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]), periodo
+    ).json()
+    linha_caixa = next(linha for linha in balancete["contas"] if linha["conta"] == "1.1")
+
+    # Nunca "-200.00": o contrato é valor ABSOLUTO, sempre, com o indicador
+    # ao lado dizendo o lado real do saldo.
+    assert razao["saldo_final"] == "200.00"
+    assert razao["saldo_final_natureza"] == "C"  # CONTRÁRIA à cadastrada (Caixa é devedora)
+    assert linha_caixa["saldo_final"] == "200.00"
+    assert linha_caixa["saldo_final_natureza"] == "C"
+    # A conciliação Razão x Balancete (critério 6) vale também para a
+    # natureza apurada quando ela inverte, não só quando ela coincide com a
+    # cadastrada (os outros testes de conciliação só cobriam o caso "sem
+    # inversão").
+    assert razao["saldo_final_natureza"] == linha_caixa["saldo_final_natureza"]
+
+    # A coluna "saldo" do item, linha a linha, também vem em módulo + letra:
+    # o único item do período É o próprio saldo final aqui (sem saldo
+    # anterior).
+    assert razao["itens"][0]["saldo"] == "200.00"
+    assert razao["itens"][0]["saldo_natureza"] == "C"
+
+
+def test_conta_credora_isolada_apura_saldo_devedor_quando_debito_supera_credito(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    # Espelho do teste anterior: Capital é cadastrada CREDORA; um débito sem
+    # crédito correspondente no período apura saldo DEVEDOR.
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 10),
+        historico="Devolução de capital maior que o saldo (saldo apurado devedor)",
+        itens=[
+            {"conta": cenario["capital"], "tipo": TipoPartida.DEBITO, "valor": Decimal("50.00")},
+            {"conta": cenario["caixa"], "tipo": TipoPartida.CREDITO, "valor": Decimal("50.00")},
+        ],
+    )
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+
+    razao = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["capital"].id]),
+        periodo,
+    ).json()
+
+    assert razao["saldo_final"] == "50.00"
+    assert razao["saldo_final_natureza"] == "D"  # CONTRÁRIA à cadastrada (Capital é credora)
 
 
 # ---------------------------------------------------------------------------
@@ -2599,6 +2774,8 @@ def test_razao_saldo_anterior_nao_soma_item_de_lancamento_de_outra_empresa(clien
     # anterior) faria os 7,00 do item corrompido entrarem aqui.
     assert razao_b["saldo_anterior"] == "0.00"
     assert razao_b["saldo_final"] == "0.00"
+    assert razao_b["saldo_anterior_natureza"] is None
+    assert razao_b["saldo_final_natureza"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block titulo %}Lançamento {{ lancamento.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+{% endblock %}
+
+{% block content %}
+    <p><a href="{% url 'contabilidade_web:diario' empresa.id %}">Voltar para o Diário</a></p>
+    <h1>Lançamento nº {{ lancamento.id }}</h1>
+    <p>
+        <strong>Data:</strong> {{ lancamento.data|date:"d/m/Y" }}<br>
+        <strong>Histórico:</strong> {{ lancamento.historico|default:"—" }}
+        {% if lancamento.estorno_de_id %}
+            <br><strong>Estorno do lançamento:</strong> nº {{ lancamento.estorno_de_id }}
+        {% endif %}
+    </p>
+
+    <table class="tabela-dados">
+        <caption class="visualmente-oculto">Partidas do lançamento {{ lancamento.id }}</caption>
+        <thead>
+            <tr>
+                <th scope="col">Conta</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in itens %}
+                <tr>
+                    <td>{{ item.conta.codigo }} — {{ item.conta.nome }}</td>
+                    <td>{% if item.tipo == "debito" %}Débito{% else %}Crédito{% endif %}</td>
+                    <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr class="linha-total">
+                <td colspan="2">Total (débito / crédito)</td>
+                <td class="valor-monetario">{{ total_debito_ptbr }} / {{ total_credito_ptbr }}</td>
+            </tr>
+        </tfoot>
+    </table>
+{% endblock %}

@@ -1184,3 +1184,39 @@ Ao escrever "o risco que sobra é X", antes de publicar:
 
 Custa minutos e teria evitado três achados. Não é sobre atenção: é sobre
 enumerar antes de afirmar.
+
+## DE-026 — A tela da contabilidade não chama a própria API
+
+**Data:** 2026-09-14. Contexto: início da interface da contabilidade
+([DL-017](../planos/DL-017-interface-da-contabilidade.md), BL-62).
+
+**Decisão:** as telas são **views Django que chamam os serviços diretamente**
+(`listar_diario`, `apurar_razao`, `apurar_balancete`, `criar_lancamento`) e
+renderizam HTML no servidor. **Não** há JavaScript buscando a própria API.
+
+### Por quê
+
+1. **A autorização não pode existir em dois lugares.** A API já decide quem lê
+   contabilidade. Se a tela chamasse a API, teríamos duas camadas de
+   autenticação (sessão e a da API) no mesmo pedido; se a tela reimplementasse a
+   regra, teríamos duas cópias da mesma decisão de sigilo. As duas opções são
+   ruins, e a segunda é a que produz vazamento — foi exatamente assim que o
+   papel cliente continuou lendo a escrituração por outra rota.
+2. **O projeto já é assim.** `apps/empresas` e `apps/tenancy` renderizam no
+   servidor, com a fundação da DL-009 (template base, mensagens, estados,
+   acessibilidade). Introduzir um consumidor JavaScript agora criaria dois
+   modelos de tela no mesmo produto, sem demanda que justifique.
+3. **Um contador conferindo um balancete não precisa de aplicação de página
+   única.** Precisa de página que carrega, imprime bem e funciona com teclado.
+
+### O que isso exige, e é a parte que importa
+
+A regra de quem pode ler contabilidade passa a viver **num módulo só**, usado
+pela API e pela tela. Não é "cuidado ao copiar": é impossibilitar a cópia.
+Entra como fase A da DL-017, **antes** de qualquer template.
+
+### O que esta decisão não fecha
+
+A API continua existindo e sendo o contrato público — ela é o que um dia
+alimenta integração, aplicativo ou o servidor MCP previsto no escopo. O que se
+decide aqui é que **a nossa tela não é cliente dela**.

@@ -137,6 +137,54 @@ fonte oficial vigente — e essa conferência é do responsável técnico.**
 > cálculo ou obrigação exige regra confirmada em texto oficial vigente, casos de
 > referência e validação profissional, conforme AGENTS.md §10.
 
+## O acervo real do escritório, medido em 2026-09-14
+
+O Fred enviou **5.850 XMLs** do acervo. É a primeira vez que este projeto tem
+dado real, e ele **desmentiu a ordem de trabalho que eu havia planejado**.
+
+| Documento | Quantidade | Participação |
+| --- | --- | --- |
+| **NFS-e nacional** (serviço prestado) | 4.979 | **85%** |
+| NF-e modelo 55 | 618 — **611 de saída**, 7 de entrada | 11% |
+| NFCom modelo 62 | 69, de **um único emitente** | 1% |
+| CT-e modelo 57 | 9, todos de entrada | — |
+| GTVe modelo 64 | 1 | — |
+| Eventos | 186, dos quais 29 são cancelamento | — |
+
+**A consequência é direta:** a DL-010 foi escrita para NF-e e SPED. Na carteira
+do Fred, NF-e é 11% do movimento e **nota de serviço prestado é 85%** (RC-66).
+Seguir o plano original seria construir primeiro justamente a parte que menos
+aparece no trabalho dele.
+
+Nenhuma leitura de manual revelaria isso. É o argumento mais concreto a favor da
+regra do AGENTS.md §7 sobre caso de referência real.
+
+### Os cinco achados que viram regra de importador
+
+1. **Duplicidade é real, e de dois tipos** (RC-69): 36 NF-e idênticas em duas
+   pastas de clientes diferentes, e 105 NFS-e idênticas **dentro da mesma
+   pasta** — a mesma nota catalogada em "Entradas" e em "Saídas" pela ferramenta
+   de origem. Deduplicar **por identificador do documento**, nunca por caminho.
+2. **Evento órfão é o caso normal** (RC-70): dos 29 cancelamentos, **os 29**
+   apontam para documento que não está no acervo. Guardar o evento mesmo sem a
+   nota, e aplicá-lo quando ela chegar.
+3. **Classificar pelo conteúdo, nunca pelo nome** (RC-71): uma GTVe modelo 64
+   estava com `_evento_` no nome, dentro de pasta chamada `DESCONHECIDO`.
+4. **O arquivo varia mais do que o leiaute** (RC-75): codificação ausente,
+   maiúscula e minúscula, CRLF, minificado e indentado, e **553 CNPJ com zero à
+   esquerda** — que sozinho já obriga tratar o campo como texto.
+5. **A Reforma Tributária já chegou aos arquivos** (RC-76): 12% das notas de
+   serviço trazem o bloco de IBS/CBS. Não é planejamento futuro; é o que entra
+   hoje.
+
+### A ressalva que o próprio levantamento fez, e que mantenho
+
+**A amostra não representa o universo** (PE-41): vem de duas origens e **82% das
+notas de serviço são de um único município**. O risco concreto é ajustar o
+leitor ao provedor de software de uma prefeitura e descobrir isso no cliente
+seguinte. Uma segunda amostra, de outro município, vale mais que qualquer
+refinamento sobre esta.
+
 ## O que já existe no DataLedger
 
 Cruzamento honesto com o que está implementado hoje:

@@ -166,6 +166,10 @@ def test_razao_acumula_saldo_por_conta(client, cenario):
     corpo = response.json()
     assert corpo["saldo_final"] == "1500.00"
     assert [linha["saldo"] for linha in corpo["itens"]] == ["1000.00", "1500.00"]
+    # RC-61 / BL-77 (DL-017, fase A): valor sempre absoluto, com indicador de
+    # natureza apurada ao lado — Caixa é devedora e não inverte aqui.
+    assert corpo["saldo_final_natureza"] == "D"
+    assert [linha["saldo_natureza"] for linha in corpo["itens"]] == ["D", "D"]
 
 
 def test_balancete_reflete_saldos_das_contas(client, cenario):
@@ -191,6 +195,10 @@ def test_balancete_reflete_saldos_das_contas(client, cenario):
         {"inicio": "2024-01-01", "fim": "2024-01-31"},
     )
 
-    saldos = {linha["conta"]: linha["saldo_final"] for linha in response.json()["contas"]}
-    assert saldos["1.1"] == "1000.00"
-    assert saldos["2.1"] == "1000.00"
+    contas_por_codigo = {linha["conta"]: linha for linha in response.json()["contas"]}
+    assert contas_por_codigo["1.1"]["saldo_final"] == "1000.00"
+    assert contas_por_codigo["2.1"]["saldo_final"] == "1000.00"
+    # RC-61 / BL-77 (DL-017, fase A): Caixa (devedora) e Capital (credora)
+    # não invertem neste cenário — natureza apurada igual à cadastrada.
+    assert contas_por_codigo["1.1"]["saldo_final_natureza"] == "D"
+    assert contas_por_codigo["2.1"]["saldo_final_natureza"] == "C"

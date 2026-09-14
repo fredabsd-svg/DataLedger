@@ -17,6 +17,11 @@
                 <th scope="col">Nome fantasia</th>
                 <th scope="col">CNPJ</th>
                 <th scope="col">Cadastrada em</th>
+                {# Porta de entrada da contabilidade (DL-017). As telas contábeis
+                   exigem `empresa_id`, então o link natural nasce aqui, na linha
+                   da empresa — e não na navegação do topo, que não sabe de qual
+                   empresa se trata. #}
+                <th scope="col">Contabilidade</th>
             </tr>
         </thead>
         <tbody>
@@ -26,10 +31,17 @@
                     <td>{{ empresa.nome_fantasia|default:"—" }}</td>
                     <td>{{ empresa.cnpj_formatado }}</td>
                     <td>{{ empresa.criado_em|date:"d/m/Y" }}</td>
+                    <td>
+                        <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
+                        ·
+                        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
+                        ·
+                        <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Lançar</a>
+                    </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4">Nenhuma empresa cadastrada neste escritório.</td>
+                    <td colspan="5">Nenhuma empresa cadastrada neste escritório.</td>
                 </tr>
             {% endfor %}
         </tbody>
