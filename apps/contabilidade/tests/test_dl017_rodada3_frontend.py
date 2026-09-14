@@ -7,6 +7,7 @@ do `arquiteto-senior` — sem teste aqui. Dados 100% sintéticos, criados
 nos próprios testes.
 """
 
+import signal
 import time
 
 import pytest
@@ -140,25 +141,114 @@ def test_num_linhas_no_limite_de_conversao_do_python_nao_e_500(client, cen):
     assert duracao < _TETO_DE_TEMPO_S, duracao
 
 
-def test_linhas_lancamento_do_post_capa_num_linhas_mesmo_em_chamada_direta():
-    """Defesa em profundidade (R3-1): mesmo chamada DIRETAMENTE — sem
-    passar pela recusa da view —, `_linhas_lancamento_do_post` nunca
-    itera um número de vezes proporcional a um `num_linhas` arbitrário;
-    ela mesma capa internamente em `LINHAS_LEITURA_TETO_DE_SEGURANCA`.
-    Nenhum `range()` deste módulo confia sozinho em quem o chama.
+# ---------------------------------------------------------------------------
+# A6/BL-130 — os dois testes de defesa em profundidade acima (na forma
+# antiga) mediam a DURAÇÃO de uma chamada com `num_linhas=10**12` e
+# afirmavam `duracao < 1`. Sob o mutante que remove a capa interna
+# (`num_linhas = min(num_linhas, LINHAS_LEITURA_TETO_DE_SEGURANCA)`), a
+# chamada NÃO RETORNA — o teste não FALHA, ele PENDURA. Medido pelo
+# auditor: 10 minutos antes de ser morto manualmente, com o banco de
+# teste travado e a execução seguinte envenenada por um motivo alheio. Um
+# teste cujo modo de falha é pendurar não reprova um build: ele estoura o
+# `timeout-minutes` do workflow inteiro, com uma causa que não se parece
+# com a causa (a mesma armadilha do `aa10f20`, por outra via).
+#
+# A correção usa as DUAS saídas que o achado sugere, sem escolher uma só:
+# 1. Medir a PROPRIEDADE (não a duração) com um valor pequeno e seguro
+#    (`LINHAS_LEITURA_TETO_DE_SEGURANCA + 1`, nunca `10**12`): confirma
+#    que a capa realmente exclui o que está acima do teto.
+# 2. Um teto de tempo que de fato INTERROMPE a chamada com `10**12` (via
+#    `signal.alarm`, sem depender de `pytest-timeout`, que não está
+#    instalado) — continua exercitando o valor hostil de verdade, mas sem
+#    o risco de pendurar a sessão inteira: sob o mutante, este teste
+#    FALHA com uma mensagem clara em poucos segundos, nunca trava.
+# ---------------------------------------------------------------------------
+
+
+class _TempoEsgotado(Exception):
+    pass
+
+
+def _com_teto_de_tempo_que_interrompe(segundos, funcao, *args, **kwargs):
+    """Chama `funcao(*args, **kwargs)` com um teto de tempo que
+    INTERROMPE a chamada de verdade (via `signal.alarm`), em vez de só
+    medir quanto tempo ela levou depois que já retornou. Levanta
+    `_TempoEsgotado` se `funcao` não retornar dentro de `segundos` —
+    transforma "pendurar" numa `AssertionError`/exceção normal, dentro do
+    próprio processo de teste, bem antes de qualquer timeout externo
+    (do `pytest`, do workflow) precisar agir.
     """
-    inicio = time.monotonic()
-    linhas, erros = views_web._linhas_lancamento_do_post({}, 10**12)
-    duracao = time.monotonic() - inicio
-    assert duracao < 1, duracao
+
+    def _alarme(signum, frame):
+        raise _TempoEsgotado(f"não retornou em {segundos}s")
+
+    anterior = signal.signal(signal.SIGALRM, _alarme)
+    signal.alarm(segundos)
+    try:
+        return funcao(*args, **kwargs)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, anterior)
+
+
+def test_linhas_lancamento_do_post_exclui_o_que_esta_acima_do_teto_de_seguranca():
+    """A6/BL-130, saída 1 (propriedade): chama com
+    `LINHAS_LEITURA_TETO_DE_SEGURANCA + 1` — um número pequeno, rápido em
+    QUALQUER implementação, capada ou não — e mede o EFEITO da capa: uma
+    linha completa no índice imediatamente acima do teto não é lida. Sob
+    o mutante que remove a capa, esta chamada continua rápida, mas a
+    linha 201 passaria a ser lida — é essa mudança de comportamento que
+    prova a capa, não quanto tempo a chamada levou.
+    """
+    indice_acima_do_teto = views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA + 1
+    post = {
+        f"conta_{indice_acima_do_teto}": "999",
+        f"tipo_{indice_acima_do_teto}": "debito",
+        f"valor_{indice_acima_do_teto}": "10,00",
+    }
+    linhas, erros = views_web._linhas_lancamento_do_post(post, indice_acima_do_teto)
+    indices_lidos = {linha["indice"] for linha in linhas}
+    assert indice_acima_do_teto not in indices_lidos
+    assert max(indices_lidos, default=0) <= views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA
+
+
+def test_linhas_lancamento_do_post_nunca_pendura_com_num_linhas_absurdo():
+    """A6/BL-130, saída 2 (teto de tempo que interrompe): exercita o MESMO
+    `10**12` que a rodada 3 usava, mas sob um teto de 5s que INTERROMPE a
+    chamada de verdade — nunca deixa a sessão pendurar. Sob o mutante que
+    remove a capa interna, este teste levanta `_TempoEsgotado` em ~5s (uma
+    falha limpa e rápida) em vez de travar por minutos.
+    """
+    linhas, erros = _com_teto_de_tempo_que_interrompe(
+        5, views_web._linhas_lancamento_do_post, {}, 10**12
+    )
     assert linhas == []
     assert erros == []
 
 
-def test_contexto_form_lancamento_capa_num_linhas_mesmo_em_chamada_direta(cen):
-    """Mesma defesa em profundidade, para `_contexto_form_lancamento`."""
-    inicio = time.monotonic()
+def test_contexto_form_lancamento_exclui_o_que_esta_acima_do_teto_de_seguranca(cen):
+    """Mesma defesa (saída 1, propriedade), para `_contexto_form_lancamento`."""
+    indice_acima_do_teto = views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA + 1
     contexto = views_web._contexto_form_lancamento(
+        cen["empresa"],
+        [],
+        indice_acima_do_teto,
+        data_texto="",
+        historico="",
+        chave_idempotencia="x",
+    )
+    indices = {linha["indice"] for linha in contexto["linhas"]}
+    assert indice_acima_do_teto not in indices
+    assert len(contexto["linhas"]) == views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA
+
+
+def test_contexto_form_lancamento_nunca_pendura_com_num_linhas_absurdo(cen):
+    """Mesma defesa (saída 2, teto de tempo que interrompe), para
+    `_contexto_form_lancamento`.
+    """
+    contexto = _com_teto_de_tempo_que_interrompe(
+        5,
+        views_web._contexto_form_lancamento,
         cen["empresa"],
         [],
         10**12,
@@ -166,8 +256,6 @@ def test_contexto_form_lancamento_capa_num_linhas_mesmo_em_chamada_direta(cen):
         historico="",
         chave_idempotencia="x",
     )
-    duracao = time.monotonic() - inicio
-    assert duracao < 1, duracao
     assert len(contexto["linhas"]) == views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA
 
 

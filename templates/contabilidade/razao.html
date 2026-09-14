@@ -27,13 +27,21 @@
 
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# R2-8: ver o comentário equivalente em lancamento_form.html. #}
-            <label for="id_inicio">Início (dd/mm/aaaa)</label>
-            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}">
+            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
+                   aria-describedby="id_inicio_ajuda">
+            <p class="texto-apoio" id="id_inicio_ajuda">
+                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+            </p>
         </div>
         <div class="campo">
-            <label for="id_fim">Fim (dd/mm/aaaa)</label>
-            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
+                   aria-describedby="id_fim_ajuda">
+            <p class="texto-apoio" id="id_fim_ajuda">
+                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+            </p>
         </div>
         <button type="submit">Consultar período</button>
     </form>

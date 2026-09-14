@@ -88,6 +88,116 @@ def test_ativar_escritorio_com_valor_nao_numerico_nao_quebra_e_avisa(
     assert any("Escritório inválido" in m for m in _mensagens(resposta))
 
 
+# ---------------------------------------------------------------------------
+# A2 (auditoria DL-017 rodada 4, BL-127): `escritorio_id` com mais de 4300
+# dígitos derrubava `ativar_escritorio` com 500 cru (`int()` estourava o
+# limite de conversão do interpretador); dígito Unicode (`"２"`) era aceito
+# por `.isdigit()` e reinterpretado em silêncio. Corrigido com
+# `apps.core.identificadores.para_id`, usado também em
+# `EscritorioAtivoView.post` (a porta da API, mesmo arquivo) — o gêmeo que
+# apareceu na mesma investigação, sem estar no relatório do auditor.
+# ---------------------------------------------------------------------------
+
+
+def test_ativar_escritorio_com_id_de_milhares_de_digitos_nunca_500(
+    client, usuario_com_dois_escritorios
+):
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(reverse("tenancy:ativar"), {"escritorio_id": "9" * 6000}, follow=True)
+
+    assert resposta.status_code == 200
+    assert any("Escritório inválido" in m for m in _mensagens(resposta))
+    assert client.session.get("escritorio_id") is None
+
+
+def test_ativar_escritorio_com_digito_unicode_nao_e_reinterpretado(
+    client, usuario_com_dois_escritorios
+):
+    """`"２"`.isdigit() é `True` e `int("２")` devolve `2` — antes da
+    correção, um `escritorio_id="２"` era silenciosamente reinterpretado
+    como `2`. Aqui não há vínculo com o id 2 (nem com "２"), então o
+    resultado observável é sempre recusa — mas a MOTIVAÇÃO importa: com
+    `para_id`, a recusa acontece por FORMATO (dígito não-ASCII), nunca por
+    "não achei o vínculo" depois de aceitar um valor reinterpretado.
+    """
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(reverse("tenancy:ativar"), {"escritorio_id": "２"}, follow=True)
+
+    assert resposta.status_code == 200
+    assert any("Escritório inválido" in m for m in _mensagens(resposta))
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_com_id_de_milhares_de_digitos_nunca_500(
+    client, usuario_com_dois_escritorios
+):
+    """O gêmeo de `ativar_escritorio`, na porta da API (`EscritorioAtivoView.
+    post`) — encontrado durante a correção do A2, não estava no relatório
+    do auditor: antes, `escritorio_id` ia direto para `.filter()` sem
+    nenhuma checagem, e o mesmo texto de milhares de dígitos derrubava a
+    view com `ValueError` cru dentro do ORM (`Field 'id' expected a number
+    but got ...`).
+    """
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"),
+        {"escritorio_id": "9" * 6000},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 403, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_com_json_numero_gigante_ja_e_recusado_pelo_parser_json(
+    client, usuario_com_dois_escritorios
+):
+    """Medição de fronteira, não do meu código: tentei reproduzir o mesmo
+    gêmeo com `escritorio_id` como NÚMERO JSON (sem aspas) gigante — mas um
+    literal numérico de milhares de dígitos nem chega a este servidor como
+    Python `int`. `json.loads` (usado pelo `JSONParser` do DRF) aplica o
+    MESMO limite de conversão texto->int do interpretador ao decodificar o
+    corpo da requisição, e falha ANTES de chegar à view, com 400 — nunca
+    500. Este teste documenta que essa porta já está fechada por uma
+    camada de baixo do projeto (o parser JSON do DRF), não por `para_id`:
+    ele nunca é chamado neste caminho. Corpo construído como bytes crus
+    (não via `json.dumps`, que também estouraria o mesmo limite ao
+    CODIFICAR — ver o comentário em `apps.core.tests.test_identificadores.
+    test_para_id_recusa_int_com_milhares_de_digitos`).
+    """
+    client.login(username="ana", password="senha-forte-123")
+    corpo = ('{"escritorio_id": ' + "9" * 6000 + "}").encode()
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"), data=corpo, content_type="application/json"
+    )
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_aceita_id_valido_como_numero_json(
+    client, usuario_com_dois_escritorios
+):
+    """Controle positivo: `para_id` não pode ter apertado o caminho normal
+    — um `escritorio_id` válido, enviado como número JSON (forma natural
+    de um cliente de API bem-comportado), continua funcionando."""
+    client.login(username="ana", password="senha-forte-123")
+    escritorio_b = usuario_com_dois_escritorios["escritorio_b"]
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"),
+        {"escritorio_id": escritorio_b.id},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") == escritorio_b.id
+
+
 def test_ativar_escritorio_com_sucesso_mostra_mensagem_de_confirmacao(
     client, usuario_com_dois_escritorios
 ):

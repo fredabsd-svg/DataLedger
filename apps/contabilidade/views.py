@@ -1,6 +1,5 @@
 import hashlib
 import re
-from datetime import date
 from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
@@ -28,6 +27,7 @@ from apps.contabilidade.services import (
     localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
 )
+from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
@@ -57,22 +57,6 @@ TAMANHO_MAXIMO_HISTORICO = 300
 # recebido e a escala aceita (DE-010) — duplicar a checagem aqui com uma
 # mensagem genérica escondia a mensagem de domínio, mais útil ao contador.
 LIMITE_MAGNITUDE_VALOR = Decimal(10) ** (18 - 2)
-
-# Formato ESTRITO aceito para `inicio`/`fim` (achado 12): exatamente quatro
-# dígitos, hífen, dois dígitos, hífen, dois dígitos. Verificado ANTES de
-# `date.fromisoformat`, que aceita formatos fora do contrato anunciado
-# (AAAA-MM-DD) e os reinterpreta em silêncio — por exemplo, uma data de
-# semana ISO ("2026-W01-1") é aceita e convertida para OUTRO ano
-# (29/12/2025), sem aviso nenhum. Mesma política já aplicada ao valor
-# monetário (PADRAO_VALOR_DECIMAL_SIMPLES): um sistema contábil não pode
-# reinterpretar a entrada — recusa, não adivinha.
-#
-# `[0-9]`, não `\d` (achado novo 11, rodada 2): em Python, `\d` casa QUALQUER
-# dígito Unicode, não só ASCII — "٢٠٢٦-٠١-٠١" (dígitos arábico-índicos) e
-# "２０２６-０１-０１" (dígitos largos) passavam por esta regex e só eram
-# recusados, por acidente, pelo comportamento de `date.fromisoformat` mais
-# abaixo. `[0-9]` casa exclusivamente os dez dígitos ASCII.
-_PADRAO_DATA_SIMPLES = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 # Formato ESTRITO aceito para `nivel` (achado 12): um ou mais dígitos ASCII
 # (`[0-9]`, não `\d` — mesmo motivo do padrão de data acima, achado novo 11),
@@ -157,36 +141,27 @@ def _periodo_obrigatorio(request):
     diferente de AAAA-MM-DD) ou invertido (`inicio > fim`) sempre vira 400
     com mensagem útil, nunca 500 nem um período implícito (critério 2 do
     plano DL-015).
+
+    A conversão em si é delegada a `apps.core.datas.para_data` (BL-133,
+    achado A9 da auditoria DL-017 rodada 4 / DE-030 estendida a dado
+    tipado): antes, este módulo tinha seu PRÓPRIO `_PADRAO_DATA_SIMPLES` e
+    sua própria chamada a `date.fromisoformat`, e `apps.empresas.views`
+    não tinha proteção nenhuma — duas cópias da mesma regra (uma delas
+    frouxa) é exatamente o que a DE-026 existe para impedir.
     """
     bruto_inicio = request.query_params.get("inicio")
     bruto_fim = request.query_params.get("fim")
     if not bruto_inicio or not bruto_fim:
         raise DRFValidationError("Informe 'inicio' e 'fim' (formato AAAA-MM-DD) na querystring.")
 
-    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_inicio):
-        # Recusa ANTES de chegar a `date.fromisoformat` (achado 12): esse
-        # construtor aceita formatos fora do contrato anunciado (data de
-        # semana ISO, data sem separador) e os reinterpreta em silêncio.
-        raise DRFValidationError(
-            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
-        )
-    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_fim):
-        raise DRFValidationError(
-            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
-        )
-
     try:
-        inicio = date.fromisoformat(bruto_inicio)
-    except ValueError as exc:
-        raise DRFValidationError(
-            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
-        ) from exc
+        inicio = para_data(bruto_inicio)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'inicio' inválido: {exc}") from exc
     try:
-        fim = date.fromisoformat(bruto_fim)
-    except ValueError as exc:
-        raise DRFValidationError(
-            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
-        ) from exc
+        fim = para_data(bruto_fim)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'fim' inválido: {exc}") from exc
 
     if inicio > fim:
         raise DRFValidationError(
@@ -424,17 +399,25 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
             )
 
         try:
-            data_lancamento = date.fromisoformat(dados["data"])
-        except (KeyError, ValueError, TypeError) as exc:
-            # `date.fromisoformat` também recusa ano fora da faixa suportada
-            # por `datetime.date` (1-9999) com `ValueError` — por exemplo
-            # "99999-01-01" ou "0000-01-01" — então uma data fora de faixa já
-            # cai neste mesmo 400, sem precisar de checagem adicional (BL-44).
-            # `TypeError` cobre 'data' que não seja string (número, lista,
-            # null): `fromisoformat` exige `str` e levanta `TypeError`, não
-            # `ValueError`, para qualquer outro tipo — sem capturá-lo aqui o
-            # 400 vira 500 pela mesma classe de defeito do achado N3.
+            data_bruta = dados["data"]
+        except (KeyError, TypeError) as exc:
             raise DRFValidationError("Informe 'data' no formato AAAA-MM-DD.") from exc
+        try:
+            # `para_data` (achado A9 da auditoria DL-017 rodada 4, BL-133):
+            # antes, este trecho chamava `date.fromisoformat` direto, sem a
+            # gramática estrita que `_periodo_obrigatorio` já aplicava a
+            # `inicio`/`fim` — o mesmo módulo tinha a defesa certa num lugar
+            # e não noutro. Sem ela, uma data de semana ISO
+            # ("2026-W01-1") era aceita e REINTERPRETADA em silêncio para
+            # outro ano/mês/dia (medido: grava "2025-12-29" para quem
+            # digitou "2026-W01-1") — corrupção silenciosa da DATA de um
+            # lançamento contábil, pior que o 500 que o `except` antigo já
+            # evitava para tipo errado (`TypeError`, número JSON etc., que
+            # `para_data` também recusa, com `DataInvalida`, não mais
+            # deixando vazar cru).
+            data_lancamento = para_data(data_bruta)
+        except DataInvalida as exc:
+            raise DRFValidationError(f"'data' inválida: {exc}") from exc
 
         # Idempotência opcional (BL-41): o cliente decide quando quer garantia
         # de não duplicar em caso de repetição de rede ou duplo clique,

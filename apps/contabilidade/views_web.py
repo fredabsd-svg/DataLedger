@@ -273,38 +273,59 @@ def _periodo_do_formulario(request):
     return inicio, fim, None
 
 
+def _inteiro_de_cliente(texto):
+    """Converte `texto` — entrada de CLIENTE — para `int`, ou devolve
+    `None` se não for um inteiro ASCII simples. Nunca lança exceção, nunca
+    reinterpreta em silêncio.
+
+    R2-2 (rodada 2): o guarda de formato não pode ser `isdigit()` sozinho
+    — ele é `True` para QUALQUER dígito decimal Unicode, não só ASCII
+    (`"٢".isdigit()` é `True`), e o `int()` do Python **aceita e converte**
+    esses dígitos em silêncio: `int("７") == 7`, `int("٢") == 2`. Sem o
+    guarda, um identificador em dígito Unicode passa por inteiro e é
+    reinterpretado como se fosse outro — a mesma classe de reinterpretação
+    silenciosa que a DE-029 proíbe para valor monetário, aqui para
+    identificador.
+
+    A1/A2 (rodada 4): nada protegia o `int()` seguinte de um texto
+    absurdamente longo — `int("9" * 4301)` levanta `ValueError: Exceeds
+    the limit (4300 digits) for integer string conversion`, um 500
+    alcançável por qualquer POST/URL construído à mão. Dois campos deste
+    projeto (`conta_id` aqui, `nivel` do Balancete) tinham exatamente os
+    dois defeitos ao mesmo tempo, porque cada um reimplementava o próprio
+    guarda. `_inteiro_de_cliente` é o ÚNICO lugar deste arquivo que
+    converte texto de cliente para `int` — usado em TODO ponto onde isso
+    acontece (ver `_nivel_do_formulario`, `_itens_e_totais` e o
+    `num_linhas` de `lancamento_novo`), para que a lição não precise ser
+    reaprendida campo por campo. Reaproveita `_PADRAO_NIVEL_SIMPLES`
+    (`[0-9]+`, importado de `apps.contabilidade.views`) — mesmo padrão que
+    a API já usa, não uma segunda cópia.
+    """
+    if not texto or not _PADRAO_NIVEL_SIMPLES.fullmatch(texto):
+        return None
+    try:
+        return int(texto)
+    except ValueError:
+        # Só alcançável por um texto com mais dígitos do que o limite de
+        # conversão do próprio Python — o padrão acima já garante só
+        # dígitos ASCII 0-9.
+        return None
+
+
 def _nivel_do_formulario(request):
     """Lê e valida o parâmetro opcional 'nivel' do Balancete.
 
     Ausente (ou vazio) devolve `None` — sem recorte de hierarquia, igual à
-    API. Presente e malformado vira mensagem de erro, nunca um 500.
-
-    R2-2 (rodada 2 da auditoria da DL-017): antes desta correção, o guarda
-    de formato era `bruto.isdigit()` — que é `True` para QUALQUER dígito
-    decimal Unicode, não só ASCII (`"٢".isdigit()` é `True`, e essa tela
-    interpretava como nível 2 em silêncio um texto que a API já recusa por
-    contrato — a mesma classe do achado 2 da rodada 1, em outro campo).
-    Pior: nada protegia o `int()` seguinte, e `int("9" * 5000)` levanta
-    `ValueError: Exceeds the limit (4300 digits) for integer string
-    conversion` — um 500 alcançável só por uma URL colada/favoritada
-    (`?nivel=...`), sem tocar em campo de formulário nenhum. A API já tinha
-    as duas lições aplicadas em `_PADRAO_NIVEL_SIMPLES` (`[0-9]`, não `\\d`)
-    e no `try/except ValueError` em volta do `int()` — reaproveitado aqui,
-    não duplicado.
+    API. Presente e malformado vira mensagem de erro, nunca um 500. A
+    conversão em si é `_inteiro_de_cliente` (ver o docstring dela para o
+    porquê); esta função só acrescenta o intervalo de negócio
+    (1..`NIVEL_MAXIMO`) por cima.
     """
     bruto = request.GET.get("nivel", "").strip()
     if not bruto:
         return None, None
-    if not _PADRAO_NIVEL_SIMPLES.fullmatch(bruto):
-        return None, "'Nível' deve ser um número inteiro."
-    try:
-        nivel = int(bruto)
-    except ValueError:
-        # Só alcançável por um texto absurdamente longo (o padrão acima já
-        # garante só dígitos ASCII 0-9): o limite de conversão do próprio
-        # Python, não um valor inválido no sentido do contrato desta tela.
-        return None, f"'Nível' deve ser um número inteiro entre 1 e {NIVEL_MAXIMO}."
-    if nivel < 1 or nivel > NIVEL_MAXIMO:
+    nivel = _inteiro_de_cliente(bruto)
+    if nivel is None or nivel < 1 or nivel > NIVEL_MAXIMO:
         return None, f"'Nível' deve ser um número inteiro entre 1 e {NIVEL_MAXIMO}."
     return nivel, None
 
@@ -568,7 +589,14 @@ assert LINHAS_MAXIMAS_LANCAMENTO < LINHAS_LEITURA_TETO_DE_SEGURANCA, (
 # desaparecia em silêncio, com HTTP 302 "gravado com sucesso". Para poder
 # RECUSAR uma chave malformada (em vez de ignorá-la), a busca precisa
 # primeiro ENCONTRÁ-LA.
-_PADRAO_CHAVE_DE_LINHA = re.compile(r"^(conta|tipo|valor)_(.+)$")
+#
+# A3 (rodada 4): `re.IGNORECASE` por um motivo específico — "CONTA_3" e
+# "Conta_3" (prefixo em capitalização diferente da que o template emite)
+# também precisam ser ENCONTRADOS para poderem ser recusados como não
+# canônicos (ver o teste de capitalização em `_indices_de_linha_do_post`
+# abaixo). Sem isto, ficavam invisíveis pelo mesmo motivo que o índice
+# malformado ficava antes da correção da rodada 3.
+_PADRAO_CHAVE_DE_LINHA = re.compile(r"^(conta|tipo|valor)_(.+)$", re.IGNORECASE)
 
 
 def _indices_de_linha_do_post(post):
@@ -598,10 +626,11 @@ def _indices_de_linha_do_post(post):
     inteiro (400, nomeando as chaves) — nunca ignorar a linha e seguir
     em frente, que foi exatamente a política que produziu o achado 5.
 
-    Um sufixo numérico absurdamente longo (mais dígitos do que o limite
-    de conversão do próprio Python) é tratado como não canônico sem
-    lançar exceção — `int()` sobre esse texto levantaria `ValueError`
-    por si só; aqui isso vira "chave não entendida", não um 500.
+    A conversão em si é `_inteiro_de_cliente` (ver o docstring dela): um
+    sufixo com dígito Unicode fora do ASCII, ou absurdamente longo (mais
+    dígitos do que o limite de conversão do próprio Python), nunca lança
+    exceção — vira "chave não entendida" (não canônica), não um 500 nem
+    uma reinterpretação silenciosa.
     """
     maior = 0
     chaves_nao_canonicas = []
@@ -609,19 +638,22 @@ def _indices_de_linha_do_post(post):
         casamento = _PADRAO_CHAVE_DE_LINHA.match(chave)
         if not casamento:
             continue
+        prefixo = casamento.group(1)
+        if prefixo != prefixo.lower():
+            # A3 (rodada 4): "CONTA_3"/"Conta_3" — o template NUNCA emite
+            # prefixo fora de minúsculas; um POST construído à mão com
+            # capitalização diferente não é uma linha "que não existe", é
+            # uma linha que ninguém olhou. Recusa, não ignora.
+            chaves_nao_canonicas.append(chave)
+            continue
         sufixo = casamento.group(2)
-        if not sufixo or not sufixo.isascii() or not sufixo.isdigit():
-            chaves_nao_canonicas.append(chave)
-            continue
-        try:
-            indice = int(sufixo)
-        except ValueError:
-            # Só alcançável por um sufixo com mais dígitos do que o
-            # limite de conversão do Python (`sys.get_int_max_str_
-            # digits()`) — um texto absurdamente longo, não um índice.
-            chaves_nao_canonicas.append(chave)
-            continue
-        if str(indice) != sufixo or indice < 1 or indice > LINHAS_LEITURA_TETO_DE_SEGURANCA:
+        indice = _inteiro_de_cliente(sufixo)
+        if (
+            indice is None
+            or str(indice) != sufixo
+            or indice < 1
+            or indice > LINHAS_LEITURA_TETO_DE_SEGURANCA
+        ):
             chaves_nao_canonicas.append(chave)
             continue
         if indice > maior:
@@ -746,7 +778,17 @@ def _itens_e_totais(linhas_brutas, contas_por_id):
     total_debito = Decimal("0")
     total_credito = Decimal("0")
     for linha in linhas_brutas:
-        conta = contas_por_id.get(int(linha["conta_id"])) if linha["conta_id"].isdigit() else None
+        # A1 (rodada 4 da auditoria da DL-017): `linha["conta_id"].isdigit()`
+        # sozinho aceitava dígito Unicode (`"７".isdigit()` é `True`, e o
+        # `int()` seguinte reinterpretava em silêncio como a conta 7) e não
+        # protegia o `int()` de um texto de mais de 4300 dígitos —
+        # `ValueError` cru, 500. A MESMA classe que o campo `nivel` já
+        # tinha fechado na rodada 2, ~470 linhas acima — `_inteiro_de_
+        # cliente` é agora o único lugar deste arquivo que faz essa
+        # conversão, para as duas lições não precisarem ser reaprendidas
+        # campo por campo.
+        conta_id = _inteiro_de_cliente(linha["conta_id"])
+        conta = contas_por_id.get(conta_id) if conta_id is not None else None
         if conta is None:
             # Também cobre o caso de um `conta_id` de OUTRA empresa (não
             # está em `contas_por_id`, que só tem contas DESTA empresa) —
@@ -823,23 +865,49 @@ def lancamento_novo(request, empresa_id):
     )
 
     if request.method == "POST":
+        # A3/BL-128 (rodada 4): a política de BL-116 ("nenhuma linha
+        # enviada deixa de ser lida ou recusada") vale para a REQUISIÇÃO
+        # inteira, não para o dicionário `request.POST` sozinho.
+        # `request.FILES` é uma entrada ESTRUTURADA que esta view nunca
+        # olhava — um par de partidas completo e balanceado enviado como
+        # CAMPO DE ARQUIVO (`multipart/form-data`) era invisível para
+        # `_indices_de_linha_do_post(request.POST)`, sumia da tela, do
+        # total da conferência e do aviso do R2-5, e o lote remanescente
+        # gravava com HTTP 302 "sucesso" — a assinatura exata do achado 5,
+        # pela quarta vez, por um transporte diferente. Este formulário
+        # nunca ofereceu (nem precisa de) upload de arquivo algum; a saída
+        # segura é recusar QUALQUER campo de arquivo, nomeando a chave, em
+        # vez de simplesmente não olhar para `request.FILES`.
+        if request.FILES:
+            messages.error(
+                request,
+                "Este formulário não aceita arquivo nenhum. Campo(s) "
+                "enviados como arquivo, recusados por completo: "
+                + "; ".join(sorted(request.FILES.keys()))
+                + ".",
+            )
+            contexto = _contexto_form_lancamento(
+                empresa,
+                contas_disponiveis,
+                LINHAS_INICIAIS_LANCAMENTO,
+                data_texto=request.POST.get("data", ""),
+                historico=request.POST.get("historico", "").strip(),
+                chave_idempotencia=request.POST.get("chave_idempotencia") or uuid.uuid4().hex,
+                linhas_preenchidas=request.POST,
+            )
+            return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
         acao = request.POST.get("acao")
-        try:
-            num_linhas_campo = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
-        # R3-4 (auditoria DL-017, rodada 3): a forma sem parênteses
-        # ("except TypeError, ValueError:") é sintaxe da PEP 758,
-        # exclusiva do Python 3.14 — quebrava o carregamento do URLconf
-        # inteiro em 3.12/3.13, a versão mínima que `pyproject.toml`
-        # (`requires-python = ">=3.12"`) promete. A forma COM parênteses
-        # é a que funciona nessa versão mínima, e quem garante que ela
-        # não volta a ser reescrita para a PEP 758 é o alinhamento
-        # `[tool.ruff] target-version = "py312"` (também em
-        # `pyproject.toml`) — travado por
-        # `test_target_version_do_ruff_bate_com_requires_python`, em
-        # `apps/core/tests/test_versao_minima_python.py`. Sem esse
-        # alinhamento, `ruff format` reescreveria isto de volta; com ele,
-        # não precisa de `# fmt: skip` nenhum.
-        except (TypeError, ValueError):
+        # A1/rodada 4 — mesma varredura: `num_linhas` é texto de
+        # cliente virando `int()`, então passa por `_inteiro_de_cliente`
+        # como qualquer outro campo deste arquivo (ver o docstring dela) —
+        # nunca reinterpreta dígito Unicode, nunca lança exceção. Ausente
+        # ou malformado cai no padrão de linhas iniciais, do mesmo jeito
+        # que o `try/except` anterior já fazia — só que agora sem precisar
+        # de uma cláusula `except` com mais de um tipo (a sintaxe que deu
+        # origem ao R3-4/BL-118 nem chega a existir aqui).
+        num_linhas_campo = _inteiro_de_cliente(request.POST.get("num_linhas", ""))
+        if num_linhas_campo is None:
             num_linhas_campo = LINHAS_INICIAIS_LANCAMENTO
 
         data_texto = request.POST.get("data", "")

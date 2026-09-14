@@ -211,6 +211,20 @@ summary:focus-visible {
     font-size: 1rem;
 }
 
+/* Texto de apoio VISÍVEL abaixo de um campo — diferente de
+   .visualmente-oculto (só para leitor de tela). DE-031/A5 (rodada 4 da
+   auditoria da DL-017): o rótulo de um campo de data não pode AFIRMAR um
+   formato que não controla (o de <input type="date"> vem do navegador,
+   não deste CSS nem do LANGUAGE_CODE) — a correção certa é o rótulo não
+   prometer, e este texto dizer o que o sistema de fato garante. Precisa
+   ser visível (não só para leitor de tela) porque o problema que ele
+   resolve é uma confusão VISUAL, para quem enxerga a tela. */
+.texto-apoio {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--cor-borda);
+}
+
 button {
     align-self: flex-start;
     padding: 0.5rem 1.25rem;

@@ -35,15 +35,27 @@
 
             <div class="campo">
                 {% comment %}
-                R2-8 (rodada 2 da auditoria da DL-017): `<input type="date">`
-                exibe o formato do NAVEGADOR do usuário, não um formato que
-                este projeto controle (sem JavaScript — critério 15 — não há
-                como forçar). Um navegador em inglês mostra mês/dia/ano ao
-                lado de um cabeçalho em dia/mês/ano, e a ambiguidade é real.
-                O texto de apoio no rótulo é o que dá para fazer sem JS.
+                DE-031/A5 (rodada 4 da auditoria da DL-017): a correção do
+                R2-8 (rótulo "Data (dd/mm/aaaa)") CONSERTOU a forma e
+                ERROU o conteúdo — o rótulo passou a AFIRMAR um formato
+                que este campo não controla. `<input type="date">` exibe
+                o formato do NAVEGADOR (sem JavaScript — critério 15 —
+                não há como forçar), e a própria captura entregue na
+                rodada 3 mostrava "09/01/2026" (mês/dia/ano) embaixo do
+                rótulo "(dd/mm/aaaa)" — o rótulo mentia. A DE-031 decidiu
+                MANTER o seletor nativo (acessibilidade e navegação por
+                teclado — trocar por texto livre perderia isso) e trocar
+                a PROMESSA: o rótulo nomeia o campo sem prometer formato;
+                o texto de apoio diz que o campo segue o navegador,
+                e que TODA exibição de data deste sistema (fora deste
+                campo de entrada) é dd/mm/aaaa — a garantia real.
                 {% endcomment %}
-                <label for="id_data">Data (dd/mm/aaaa)</label>
-                <input type="date" id="id_data" name="data" value="{{ data_texto }}" required>
+                <label for="id_data">Data</label>
+                <input type="date" id="id_data" name="data" value="{{ data_texto }}" required
+                       aria-describedby="id_data_ajuda">
+                <p class="texto-apoio" id="id_data_ajuda">
+                    O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+                </p>
             </div>
             <div class="campo">
                 <label for="id_historico">Histórico</label>

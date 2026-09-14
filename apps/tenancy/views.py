@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
+from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.tenancy.models import Escritorio
 
 
@@ -62,7 +63,22 @@ class EscritorioAtivoView(APIView):
         )
 
     def post(self, request):
-        escritorio_id = request.data.get("escritorio_id")
+        escritorio_id_bruto = request.data.get("escritorio_id")
+
+        # `para_id` (achado A2 da auditoria DL-017 rodada 4, BL-127, e o
+        # gêmeo encontrado nesta mesma correção): antes, `escritorio_id`
+        # ia direto para o `filter()` sem checagem nenhuma — um
+        # identificador em texto com milhares de dígitos (`"9" * 6000`)
+        # levantava `ValueError` DENTRO do ORM ao montar o filtro
+        # (`Field 'id' expected a number but got ...`), 500 cru; e um
+        # `int` JSON igualmente grande estourava o mesmo limite ao ser
+        # comparado. `para_id` aceita as duas formas (texto da querystring/
+        # formulário, número JSON) com o MESMO julgador, e nunca deixa um
+        # identificador fora do formato chegar ao ORM.
+        try:
+            escritorio_id = para_id(escritorio_id_bruto)
+        except IdentificadorInvalido:
+            return Response({"detail": "Escritório inválido ou sem vínculo ativo."}, status=403)
 
         # Nunca confiar apenas no ID recebido: exige vínculo ativo do
         # próprio usuário autenticado com o escritório solicitado.
@@ -70,7 +86,7 @@ class EscritorioAtivoView(APIView):
         if not tem_vinculo:
             return Response({"detail": "Escritório inválido ou sem vínculo ativo."}, status=403)
 
-        request.session["escritorio_id"] = int(escritorio_id)
+        request.session["escritorio_id"] = escritorio_id
         # request.escritorio ainda reflete o valor de antes da troca (o
         # middleware já rodou nesta requisição): busca o novo explicitamente.
         registrar(
@@ -107,13 +123,25 @@ def ativar_escritorio(request):
         # BL-23: antes, um vínculo inexistente (ou um valor não numérico)
         # caía direto no redirecionamento sem avisar nada — o usuário achava
         # que a troca tinha funcionado. Agora todo caminho que não ativa
-        # termina em mensagem de erro explícita. Validação por string (em
-        # vez de try/except sobre int()) evita depender de exceção para um
-        # caso de entrada tão comum quanto campo vazio ou valor não numérico.
-        if not escritorio_id or not str(escritorio_id).isdigit():
+        # termina em mensagem de erro explícita.
+        #
+        # `para_id` (achado A2 da auditoria DL-017 rodada 4, BL-127):
+        # SUBSTITUI a validação por `str(escritorio_id).isdigit()` +
+        # `int(escritorio_id)` que havia aqui. O comentário que justificava
+        # essa escolha ("evita depender de exceção para um caso de entrada
+        # tão comum") é exatamente o que causava o defeito: `.isdigit()`
+        # aceita QUALQUER dígito Unicode (`"２"`.isdigit()` é `True`,
+        # reinterpretado em silêncio para `2`) e não impõe limite de
+        # comprimento (`"9" * 6000` passa em `.isdigit()`, e só o `int()`
+        # seguinte estourava com `ValueError` cru — 500). `para_id` aplica
+        # as duas defesas de uma vez, com o mesmo julgador usado em
+        # `EscritorioAtivoView.post` (view irmã, mesmo arquivo) — nunca
+        # reimplementado aqui.
+        try:
+            escritorio_id_valido = para_id(escritorio_id)
+        except IdentificadorInvalido:
             messages.error(request, "Escritório inválido.")
             return redirect("tenancy:painel")
-        escritorio_id_valido = int(escritorio_id)
 
         # Nunca confiar apenas no ID recebido: exige vínculo ativo do
         # próprio usuário autenticado com o escritório solicitado (mesma

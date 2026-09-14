@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -9,6 +7,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 
 from apps.auditoria.services import registrar
+from apps.core.datas import DataInvalida, para_data
 from apps.empresas.forms import EmpresaForm
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
@@ -137,9 +136,25 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
             raise DRFValidationError("regime e vigencia_inicio são obrigatórios.")
 
         try:
-            data_inicio = date.fromisoformat(vigencia_inicio)
-        except ValueError as exc:
-            raise DRFValidationError("vigencia_inicio deve estar no formato AAAA-MM-DD.") from exc
+            # `para_data` (achado A9 da auditoria DL-017 rodada 4, BL-133 /
+            # DE-030 estendida a dado tipado): antes, este trecho chamava
+            # `date.fromisoformat` direto sobre `vigencia_inicio`, sem
+            # gramática nem checagem de tipo — a mesma classe do R3-3
+            # (número JSON reinterpretado / 500), só que num campo de data:
+            #   "2026-W01-1" -> 201, gravado 2025-12-29 (reinterpretado em
+            #                    silêncio — data de semana ISO aceita por
+            #                    `fromisoformat` e convertida para OUTRO dia)
+            #   20260101 (número JSON) -> 500 (`TypeError`, não capturado:
+            #                    `fromisoformat` exige `str`)
+            #   "20260101" (sem hífen) -> 201, gravado 2026-01-01 (aceito
+            #                    fora do formato AAAA-MM-DD anunciado)
+            # `para_data` usa a MESMA gramática que `apps.contabilidade.
+            # views._periodo_obrigatorio` já aplicava a `inicio`/`fim`
+            # (agora em `apps.core.datas`, para não duplicar a regra entre
+            # os dois apps — DE-026).
+            data_inicio = para_data(vigencia_inicio)
+        except DataInvalida as exc:
+            raise DRFValidationError(f"'vigencia_inicio' inválido: {exc}") from exc
 
         try:
             registro = registrar_regime_tributario(empresa, regime, data_inicio)

@@ -7,6 +7,7 @@ R2-4 e R2-7 (o byte NUL e o dígito Unicode em `apps.core.dinheiro`) são do
 nos próprios testes.
 """
 
+import inspect
 import json
 import os
 import re
@@ -23,6 +24,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.contabilidade import views_web
 from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoConta
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -145,6 +147,52 @@ def test_texto_digitado_vira_exatamente_o_valor_gravado_ou_e_recusado(client, ce
     lancamento = LancamentoContabil.objects.get(chave_idempotencia=chave)
     valores_gravados = {item.valor for item in lancamento.itens.all()}
     assert valores_gravados == {esperado}, (texto, valores_gravados)
+
+
+# ---------------------------------------------------------------------------
+# A8/BL-132 (rodada 4) — a PRIMEIRA camada da gramática pt-BR, testada
+# SOZINHA. A DE-029 publicava `_GRAMATICA_VALOR_PTBR` com `\d` (que casa
+# QUALQUER dígito Unicode) enquanto o código sempre usou `[0-9]` — a
+# mesma classe do R2-7, com os papéis trocados (texto errado, código
+# certo). O texto já foi corrigido (BL-122); o que faltava é o teste: até
+# aqui, `_GRAMATICA_VALOR_PTBR` só era defendida pela SEGUNDA camada
+# (`para_decimal`, que recusa dígito Unicode por conta própria) — o
+# mutante que trocasse `[0-9]` por `\d` na gramática sobrevivia a 608
+# testes, porque nenhum deles chamava a gramática ISOLADA da segunda
+# camada. Defesa em profundidade só conta quando CADA camada é testada
+# por si (a mesma lição do BL-119/A4, aplicada aqui à primeira camada em
+# vez da condição de pulo).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "０１０,00",  # dígito fullwidth
+        "١٢٣,٤٥",  # dígito índico-arábico
+        "๑๐,00",  # dígito tailandês
+        "1.０00,00",  # um único dígito Unicode dentro de um texto pt-BR bem formado
+    ],
+)
+def test_gramatica_ptbr_recusa_digito_unicode_sozinha_sem_ajuda_de_para_decimal(texto):
+    """A8/BL-132: chama `_GRAMATICA_VALOR_PTBR.fullmatch` DIRETAMENTE —
+    sem passar por `_decimal_do_formulario` nem por `para_decimal` (a
+    segunda camada, que já tem seu próprio teste em
+    `apps/core/tests/test_dinheiro.py` e não é o que este teste mede).
+    Se a gramática algum dia voltar a usar `\\d` em vez de `[0-9]`
+    (exatamente o texto que a DE-029 publicou antes da BL-122), ela
+    passaria a CASAR estes textos — e é isso que este teste reprova,
+    independentemente de qualquer camada posterior.
+    """
+    assert views_web._GRAMATICA_VALOR_PTBR.fullmatch(texto) is None, texto
+
+
+def test_gramatica_ptbr_aceita_digito_ascii_equivalente_como_controle():
+    """Controle positivo do teste acima: a MESMA forma, em dígitos ASCII,
+    é aceita pela gramática — a recusa dos dígitos Unicode não é a
+    gramática rejeitando TUDO por acidente.
+    """
+    assert views_web._GRAMATICA_VALOR_PTBR.fullmatch("1.000,00") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -449,32 +497,84 @@ def test_recusa_por_teto_preserva_os_valores_digitados_na_mensagem(client, cen):
 
 
 # ---------------------------------------------------------------------------
-# R2-8 — texto de apoio nos rótulos de data (ambiguidade do <input type=date>)
+# R2-8 / DE-031 / A5 (rodada 4) — o rótulo do campo de data NÃO PODE
+# afirmar um formato que `<input type="date">` não controla.
+#
+# A correção do R2-8 (rodada 2) consertou a FORMA — acrescentou um texto
+# de apoio — e ERROU o CONTEÚDO: o rótulo passou a dizer "(dd/mm/aaaa)",
+# uma AFIRMAÇÃO de formato que o campo nativo não garante (o formato vem
+# do *locale* do navegador, sem JavaScript não há como forçar — critério
+# 15). A própria captura entregue na rodada 3 mostrava "09/01/2026"
+# (mês/dia/ano) embaixo do rótulo "(dd/mm/aaaa)" — o rótulo mentia. A
+# DE-031 decidiu a correção real: manter o seletor nativo (acessibilidade
+# — teclado, leitor de tela) e trocar a PROMESSA — o rótulo nomeia o
+# campo sem prometer formato; o texto de apoio diz que o campo segue o
+# navegador, e que TODA data exibida pelo sistema (fora deste campo de
+# entrada) é dd/mm/aaaa. A decisão foi registrada e não executada por uma
+# rodada inteira (achado A5) — este teste é o que falta para o mecanismo,
+# não só o lembrete, garantir que não regride: um rótulo que volte a
+# afirmar "(dd/mm/aaaa)" reprova aqui.
 # ---------------------------------------------------------------------------
 
 
-def test_rotulos_de_data_trazem_dica_de_formato_ptbr(client, cen):
-    """R2-8: `<input type="date">` exibe o formato do NAVEGADOR do
-    usuário, não um formato que este projeto controle — sem JavaScript
-    (critério 15) não há como forçar. A captura da rodada 1 mostrava
-    "09/01/2026" (mês/dia/ano) três centímetros abaixo de um cabeçalho
-    "01/09/2026" (dia/mês/ano) na MESMA tela. O texto de apoio explícito
-    no rótulo é o que dá para fazer sem JS.
+def test_rotulo_de_data_nao_afirma_formato_que_o_campo_nao_controla(client, cen):
+    """Guarda de regressão (R2-8→DE-031/A5): nenhum rótulo de campo de
+    data pode voltar a dizer "(dd/mm/aaaa)" — essa é exatamente a
+    afirmação que a captura da rodada 3 provou falsa.
     """
     _login(client, cen)
     empresa_id = cen["empresa"].id
 
-    resposta = client.get(_url_lancamento(cen))
-    assert "Data (dd/mm/aaaa)" in resposta.content.decode()
-
+    urls = [_url_lancamento(cen)]
     for nome_rota, args in [
         ("contabilidade_web:diario", [empresa_id]),
         ("contabilidade_web:balancete", [empresa_id]),
         ("contabilidade_web:razao", [empresa_id, cen["caixa"].id]),
     ]:
-        conteudo = client.get(reverse(nome_rota, args=args)).content.decode()
-        assert "Início (dd/mm/aaaa)" in conteudo, nome_rota
-        assert "Fim (dd/mm/aaaa)" in conteudo, nome_rota
+        urls.append(reverse(nome_rota, args=args))
+
+    for url in urls:
+        conteudo = client.get(url).content.decode()
+        assert "(dd/mm/aaaa)" not in conteudo, url
+        # Nenhum rótulo de campo de data (Data/Início/Fim) pode conter
+        # QUALQUER string de formato entre parênteses — não só a
+        # pt-BR — porque a promessa errada é a classe, não o texto exato.
+        for rotulo in re.findall(r'<label for="id_(?:data|inicio|fim)">([^<]*)</label>', conteudo):
+            assert "/" not in rotulo, (url, rotulo)
+
+
+def test_rotulo_de_data_tem_texto_de_apoio_visivel_e_associado(client, cen):
+    """DE-031: o rótulo nomeia o campo sem prometer formato — mas o
+    contador não fica sem informação nenhuma. O texto de apoio (VISÍVEL,
+    não só para leitor de tela — o problema que ele resolve é uma
+    confusão visual) diz que o campo segue o navegador e que toda
+    exibição de data do sistema é dd/mm/aaaa, associado ao campo por
+    `aria-describedby` (o mesmo padrão do achado 11).
+    """
+    _login(client, cen)
+    empresa_id = cen["empresa"].id
+
+    urls_e_ids = [
+        (_url_lancamento(cen), ["id_data"]),
+        (reverse("contabilidade_web:diario", args=[empresa_id]), ["id_inicio", "id_fim"]),
+        (reverse("contabilidade_web:balancete", args=[empresa_id]), ["id_inicio", "id_fim"]),
+        (
+            reverse("contabilidade_web:razao", args=[empresa_id, cen["caixa"].id]),
+            ["id_inicio", "id_fim"],
+        ),
+    ]
+    for url, ids_de_campo in urls_e_ids:
+        conteudo = client.get(url).content.decode()
+        assert conteudo.count("texto-apoio") >= len(ids_de_campo), url
+        assert conteudo.count("O formato deste campo é o do seu navegador") == len(ids_de_campo), (
+            url
+        )
+        assert conteudo.count("Toda data exibida pelo sistema é dd/mm/aaaa") == len(ids_de_campo), (
+            url
+        )
+        for id_campo in ids_de_campo:
+            assert f'aria-describedby="{id_campo}_ajuda"' in conteudo, (url, id_campo)
+            assert f'id="{id_campo}_ajuda"' in conteudo, (url, id_campo)
 
 
 # ---------------------------------------------------------------------------
@@ -572,31 +672,72 @@ def _chromium_funciona(caminho):
 _CHROMIUM = _caminho_chromium()
 _CHROMIUM_FUNCIONAL = _chromium_funciona(_CHROMIUM)
 
-precisa_de_chromium = pytest.mark.skipif(
-    not _CHROMIUM_FUNCIONAL,
-    reason=(
-        "R2-6/R2-9: medir CSS calculado exige um navegador REAL e FUNCIONAL. "
-        "A condição de pulo mede CAPACIDADE (uma renderização de verificação "
-        "com timeout curto, uma vez por sessão) — não só presença de binário. "
-        "Achado da CI (aa10f20): /usr/bin/chromium existia e mesmo assim não "
-        "subia (D-Bus, sandbox, /dev/shm), estourando timeout e derrubando a "
-        "suíte com SIGKILL em vez de pular. A defesa textual sem navegador "
-        "(acima) continua valendo mesmo aqui."
-    ),
+_MOTIVO_DO_PULO = (
+    "R2-6/R2-9: medir CSS calculado exige um navegador REAL e FUNCIONAL. "
+    "A condição de pulo mede CAPACIDADE (uma renderização de verificação "
+    "com timeout curto, uma vez por sessão) — não só presença de binário. "
+    "Achado da CI (aa10f20): /usr/bin/chromium existia e mesmo assim não "
+    "subia (D-Bus, sandbox, /dev/shm), estourando timeout e derrubando a "
+    "suíte com SIGKILL em vez de pular. A defesa textual sem navegador "
+    "(acima) continua valendo mesmo aqui."
 )
+
+
+def _pular_se_chromium_nao_funcional():
+    """Ponto ÚNICO que decide se um teste de EFEITO (medição real no
+    navegador) roda ou pula — chamado no CORPO de cada um desses testes,
+    nunca num `@pytest.mark.skipif` na definição da função.
+
+    A4 (rodada 4, BL-129): um `@pytest.mark.skipif(CONDICAO, ...)`
+    decorando a função tem `CONDICAO` avaliada UMA VEZ, na importação do
+    módulo — vira um `bool` estático dentro do marcador, e nada num teste
+    rodando depois consegue mudar essa decisão já tomada. Foi por isso que
+    o mutante MH (trocar `not _CHROMIUM_FUNCIONAL` por `_CHROMIUM is
+    None` — a condição EXATA que derrubou a CI em `aa10f20`) sobrevivia a
+    608 testes: não havia como, dentro da suíte, FORÇAR a condição para
+    `False` e observar o comportamento — o valor já tinha sido decidido
+    antes de qualquer teste rodar.
+
+    Com a decisão MOVIDA para dentro do corpo do teste, chamada por uma
+    função só, ela passa a ser TESTÁVEL das duas formas que a BL-129 exige,
+    em par:
+
+    1. Estrutural — `test_gate_de_navegador_deriva_de_chromium_funcional`
+       lê o CÓDIGO-FONTE desta função (`inspect.getsource`) e afirma que
+       ela decide por `_CHROMIUM_FUNCIONAL`, nunca por `_CHROMIUM is
+       None`. Pega o mutante ANTES de rodar qualquer coisa.
+    2. Comportamental — `test_pular_dispara_quando_chromium_nao_funcional`
+       e `test_nao_pular_quando_chromium_funcional` chamam esta função com
+       `monkeypatch.setattr(..., "_CHROMIUM_FUNCIONAL", False/True)` e
+       observam o efeito real: `pytest.skip` disparado ou não. Pega o
+       mutante mesmo que a inspeção de texto falhe por algum motivo.
+
+    E os dois testes de EFEITO (`test_indentacao_hierarquica_...` e
+    `test_mutante_me2_...`) chamam esta função como a PRIMEIRA linha do
+    corpo — `test_chamadores_do_gate_pulam_pela_funcao_compartilhada`
+    confirma isso também por inspeção de código-fonte, para que ninguém
+    volte a decorar um dos dois com `@pytest.mark.skipif` direto e
+    reabra exatamente o mesmo buraco por outro caminho.
+    """
+    if not _CHROMIUM_FUNCIONAL:
+        pytest.skip(_MOTIVO_DO_PULO)
 
 
 # ---------------------------------------------------------------------------
 # R2-6/R2-9, defendido SEM NAVEGADOR — a rede que falta quando não há
-# Chromium/Playwright (a integração contínua do projeto não tem nenhum dos
-# dois: `.github/workflows/` não instala navegador). Os testes com
-# `@precisa_de_chromium` abaixo ficam PULADOS lá — honestamente pulados
-# (`test_indentacao_por_efeito_pula_com_motivo_quando_nao_ha_navegador`
-# prova isso), mas pulado não é aprovado, e o mutante ME2 sobreviveria
-# exatamente no lugar que decide se um PR entra ou não. É o achado R2-6
-# outra vez, um nível acima: "controle correto, sem teste" — só que agora
-# o "controle" é o próprio teste de navegador, e falta o que o DEFENDE na
-# CI. Apontado pelo arquiteto-senior na revisão desta entrega.
+# Chromium/Playwright funcional (a CI só instalou o binário depois da
+# BL-119; e mesmo com o binário presente, "presente" não é "funcional" —
+# ver `_chromium_funciona`). Os testes de EFEITO abaixo chamam
+# `_pular_se_chromium_nao_funcional()` como primeira linha do corpo — não
+# um `@pytest.mark.skipif` na definição da função (ver o docstring
+# daquela função para o motivo: um marcador não é testável em tempo de
+# execução). Pulado com motivo não é aprovado, e o mutante ME2
+# sobreviveria exatamente no lugar que decide se um PR entra ou não. É o
+# achado R2-6 outra vez, um nível acima: "controle correto, sem teste" —
+# só que agora o "controle" é o próprio teste de navegador, e falta o que
+# o DEFENDE. Apontado pelo arquiteto-senior na revisão da rodada 2, e de
+# novo pelo auditor-qa na rodada 4 (A4/BL-129), porque a primeira correção
+# consertou o CÁLCULO da condição de pulo e não a TESTABILIDADE dela.
 #
 # Este teste lê o CSS como TEXTO (nenhum subprocess, nenhum Chromium) e
 # mede a MESMA propriedade que os testes de navegador medem no DOM:
@@ -780,7 +921,6 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
         Path(caminho_html).unlink(missing_ok=True)
 
 
-@precisa_de_chromium
 def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(client, cen):
     """R2-6 (defende o efeito, não a forma) + R2-9 (a indentação é
     ADITIVA sobre o recuo padrão da célula, não parte de zero).
@@ -798,6 +938,7 @@ def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(cli
        causaria: especificidade reduzida faz TODOS os níveis caírem na
        regra genérica da tabela, e todos os valores ficam idênticos).
     """
+    _pular_se_chromium_nao_funcional()
     empresa = cen["empresa"]
     grupo = Conta.objects.create(
         empresa=empresa,
@@ -861,7 +1002,6 @@ def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(cli
     assert nivel_3 == nivel_2 + 20, (nivel_2, nivel_3)
 
 
-@precisa_de_chromium
 def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao():
     """Evidência de que o teste acima MATA o mutante ME2 do relatório da
     rodada 2 ("`.tabela-dados td.nivel-N` -> `.nivel-N`", a primeira
@@ -873,6 +1013,7 @@ def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao():
     níveis caem no MESMO `padding-left` — a asserção "estritamente
     crescente" do teste acima falharia.
     """
+    _pular_se_chromium_nao_funcional()
     css_original = Path("static/css/base.css").read_text(encoding="utf-8")
     css_mutado = re.sub(r"\.tabela-dados td(\.nivel-\d+)", r"\1", css_original)
     assert css_mutado != css_original, "o mutante precisa alterar o CSS de verdade"
@@ -898,25 +1039,80 @@ def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao():
     )
 
 
-def test_indentacao_por_efeito_pula_com_motivo_quando_nao_ha_navegador():
-    """Documenta o limite honesto — e a correção pedida pelo
-    arquiteto-senior depois de a CI cair em `aa10f20`: a condição de
-    pulo mede CAPACIDADE (`_CHROMIUM_FUNCIONAL`, uma renderização de
-    verificação com timeout curto, rodada uma vez por sessão), nunca só
-    presença de binário (`_CHROMIUM is None`, a versão antiga desta
-    checagem). Um binário PRESENTE mas QUEBRADO (sem D-Bus, sandbox
-    inutilizável, `/dev/shm` insuficiente) tem que pular — e antes desta
-    correção não pulava: `_CHROMIUM` não era `None`, o `skipif` antigo
-    não disparava, o teste de efeito RODAVA, estourava os 30s de
-    timeout e o processo morria com `SIGKILL` (-9), reprovando a suíte
-    inteira. `_CHROMIUM_FUNCIONAL` é sempre `True` ou `False` — nunca
-    "não sei" (nunca aprovação por omissão) — e os dois testes de efeito
-    só rodam quando ele é `True` (nunca reprovação por infraestrutura
-    indisponível).
+# ---------------------------------------------------------------------------
+# A4/BL-129 — par ESTRUTURAL + COMPORTAMENTAL para a condição de pulo dos
+# testes de efeito. O teste antigo (`assert _CHROMIUM_FUNCIONAL in (True,
+# False)`) era uma TAUTOLOGIA — `_chromium_funciona` só pode devolver um
+# `bool`, então a asserção nunca podia falhar, e o mutante MH (trocar
+# `not _CHROMIUM_FUNCIONAL` por `_CHROMIUM is None` — a condição EXATA
+# que derrubou a CI em `aa10f20`) sobrevivia a 608 testes. Substituído
+# pelos dois abaixo, que juntos PEGAM esse mutante.
+# ---------------------------------------------------------------------------
+
+
+def test_gate_de_navegador_deriva_de_chromium_funcional_nao_de_chromium():
+    """ESTRUTURAL: lê o CÓDIGO-FONTE de `_pular_se_chromium_nao_funcional`
+    (a função que os dois testes de efeito chamam) e afirma que ela decide
+    por `_CHROMIUM_FUNCIONAL` — nunca pela forma que derrubou a CI em
+    `aa10f20` (`_CHROMIUM is None`, presença de binário). Pega o mutante
+    MH pela FORMA, antes de qualquer coisa rodar; o par comportamental
+    abaixo pega pelo EFEITO.
     """
-    assert _CHROMIUM_FUNCIONAL in (True, False)
-    if _CHROMIUM_FUNCIONAL:
-        assert _CHROMIUM is not None
+    codigo_fonte = inspect.getsource(_pular_se_chromium_nao_funcional)
+    assert "_CHROMIUM_FUNCIONAL" in codigo_fonte
+    assert "_CHROMIUM is None" not in codigo_fonte
+
+
+def test_chamadores_do_gate_pulam_pela_funcao_compartilhada():
+    """ESTRUTURAL, complementar: os dois testes de EFEITO chamam
+    `_pular_se_chromium_nao_funcional()` como parte do próprio corpo —
+    nenhum dos dois volta a usar `@pytest.mark.skipif` direto (o que
+    reabriria o buraco do A4 por outro caminho, mesmo com a função acima
+    correta).
+    """
+    for teste in (
+        test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel,
+        test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao,
+    ):
+        assert "_pular_se_chromium_nao_funcional()" in inspect.getsource(teste), teste.__name__
+        assert not any(marca.name == "skipif" for marca in getattr(teste, "pytestmark", [])), (
+            teste.__name__
+        )
+
+
+def test_pular_dispara_quando_chromium_nao_funcional(monkeypatch):
+    """COMPORTAMENTAL (metade 1): força `_CHROMIUM_FUNCIONAL = False` — o
+    cenário real da CI antes da BL-119 — e exige que
+    `_pular_se_chromium_nao_funcional()` de fato PULE, com o motivo
+    declarado. Isto é o que o mutante MH, se reaplicado, faria parar de
+    acontecer: com `_CHROMIUM is None` no lugar de `_CHROMIUM_FUNCIONAL`,
+    forçar esta variável para `False` NÃO mudaria nada, porque `_CHROMIUM`
+    (o caminho do binário) continuaria não-`None` no ambiente real.
+    """
+    monkeypatch.setattr(
+        "apps.contabilidade.tests.test_dl017_rodada2_frontend._CHROMIUM_FUNCIONAL",
+        False,
+    )
+    # `pytest.skip.Exception` é o alias PÚBLICO da exceção que
+    # `pytest.skip()` levanta — documentado exatamente para este caso,
+    # testar código que chama `pytest.skip()` sem depender de `_pytest`.
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        _pular_se_chromium_nao_funcional()
+    assert "navegador" in str(excinfo.value).lower()
+
+
+def test_nao_pular_quando_chromium_funcional(monkeypatch):
+    """COMPORTAMENTAL (metade 2), controle: com `_CHROMIUM_FUNCIONAL =
+    True` forçado, a função NÃO pula — devolve normalmente. Sem este
+    controle, uma versão de `_pular_se_chromium_nao_funcional` que
+    sempre pulasse (não só quando deveria) passaria no teste acima e
+    esconderia os dois testes de efeito atrás de um pulo permanente.
+    """
+    monkeypatch.setattr(
+        "apps.contabilidade.tests.test_dl017_rodada2_frontend._CHROMIUM_FUNCIONAL",
+        True,
+    )
+    _pular_se_chromium_nao_funcional()  # não deve levantar nem pular
 
 
 @pytest.mark.parametrize("comportamento", ["dormir_alem_do_timeout", "sair_com_erro"])

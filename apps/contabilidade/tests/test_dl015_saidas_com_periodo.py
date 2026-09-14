@@ -2040,19 +2040,26 @@ def test_balancete_recusa_data_com_digito_unicode_nao_ascii(client, cenario, ini
 
 
 def test_padrao_data_simples_recusa_digito_nao_ascii_na_propria_regex():
-    """A regex `_PADRAO_DATA_SIMPLES`, testada DIRETAMENTE — não pelo
-    comportamento da rota. O relatório da auditoria registrou que, para
-    data, o buraco na regex era "fechado por acidente" por
-    `date.fromisoformat` (que já recusa dígito não-ASCII por conta própria);
-    ou seja, o teste comportamental acima NÃO discrimina `\\d` de `[0-9]` —
-    os dois dão 400, um pela regex, outro pelo fromisoformat. Esta checagem
-    prova a regex em si, independente desse acidente.
-    """
-    from apps.contabilidade.views import _PADRAO_DATA_SIMPLES
+    """A regex de data, testada DIRETAMENTE — não pelo comportamento da
+    rota. O relatório da auditoria registrou que, para data, o buraco na
+    regex era "fechado por acidente" por `date.fromisoformat` (que já
+    recusa dígito não-ASCII por conta própria); ou seja, o teste
+    comportamental acima NÃO discrimina `\\d` de `[0-9]` — os dois dão 400,
+    um pela regex, outro pelo fromisoformat. Esta checagem prova a regex em
+    si, independente desse acidente.
 
-    assert _PADRAO_DATA_SIMPLES.fullmatch("2026-01-01")
-    assert not _PADRAO_DATA_SIMPLES.fullmatch("٢٠٢٦-٠١-٠١")
-    assert not _PADRAO_DATA_SIMPLES.fullmatch("２０２６-０１-０１")
+    Import atualizado (BL-133, achado A9 da auditoria DL-017 rodada 4): a
+    regex deixou de ser privada de `apps.contabilidade.views`
+    (`_PADRAO_DATA_SIMPLES`) e passou a viver em `apps.core.datas`
+    (`PADRAO_DATA_SIMPLES`, pública) — o mesmo padrão agora usado também
+    por `apps.empresas.views`, para não duplicar a regra entre os dois
+    apps (DE-026).
+    """
+    from apps.core.datas import PADRAO_DATA_SIMPLES
+
+    assert PADRAO_DATA_SIMPLES.fullmatch("2026-01-01")
+    assert not PADRAO_DATA_SIMPLES.fullmatch("٢٠٢٦-٠١-٠١")
+    assert not PADRAO_DATA_SIMPLES.fullmatch("２０２６-０１-０１")
 
 
 @pytest.mark.parametrize(
