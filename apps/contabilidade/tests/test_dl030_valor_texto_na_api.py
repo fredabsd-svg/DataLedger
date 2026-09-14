@@ -66,7 +66,9 @@ def cenario():
         natureza=NaturezaConta.CREDORA,
     )
     usuario = get_user_model().objects.create_user(
-        username="gestora-de030", email="gestora-de030@escritorio.com.br", password="senha-forte-123"
+        username="gestora-de030",
+        email="gestora-de030@escritorio.com.br",
+        password="senha-forte-123",
     )
     VinculoUsuarioEscritorio.objects.create(
         usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR

@@ -557,7 +557,12 @@ def _chromium_funciona(caminho):
                 text=True,
                 timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S,
             )
-    except subprocess.TimeoutExpired, OSError:
+    # R3-4: forma com parênteses fixada por `# fmt: skip` — ver o
+    # comentário equivalente em views_web.py (o formatador, sob
+    # `target-version = "py314"`, reescreveria isto de volta para a
+    # sintaxe PEP 758, exclusiva do 3.14, que quebra a versão mínima
+    # 3.12 que `pyproject.toml` declara).
+    except (subprocess.TimeoutExpired, OSError):  # fmt: skip
         return False
     return resultado.returncode == 0 and "sessao-de-verificacao" in resultado.stdout
 

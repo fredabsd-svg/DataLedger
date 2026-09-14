@@ -180,20 +180,14 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"]
-)
+@pytest.mark.parametrize("nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"])
 def test_apiview_de_tenancy_recusa_usuario_anonimo(client, nome_rota):
     resposta = client.get(reverse(nome_rota))
     assert resposta.status_code == 403, (nome_rota, resposta.status_code)
 
 
-@pytest.mark.parametrize(
-    "nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"]
-)
-def test_apiview_de_tenancy_recusa_anonimo_mesmo_com_padrao_global_afrouxado(
-    client, nome_rota
-):
+@pytest.mark.parametrize("nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"])
+def test_apiview_de_tenancy_recusa_anonimo_mesmo_com_padrao_global_afrouxado(client, nome_rota):
     """R3-10: a prova de que a permissão está DECLARADA na view, não só
     herdada do padrão global. Se `permission_classes = [IsAuthenticated]`
     fosse removido das duas views, este teste teria que FALHAR — a rota

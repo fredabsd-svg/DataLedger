@@ -1,6 +1,33 @@
+[project]
+# R3-4 (auditoria DL-017, rodada 3): a compatibilidade com Python 3.12+ era
+# só uma promessa do README (`README.md:18`, `:53`, `:148`) — nada declarava
+# nem verificava isso. `apps/contabilidade/views_web.py` usava, desde
+# `9b22b03`, `except TypeError, ValueError:` (sintaxe da PEP 758, exclusiva
+# do Python 3.14): quem seguisse o README com 3.12 ou 3.13 recebia
+# `SyntaxError` ao carregar o URLconf, e o site inteiro deixava de subir —
+# não só a contabilidade. Decisão do arquiteto-senior: MANTER a promessa de
+# 3.12+ (não estreitar a compatibilidade por causa de um açúcar sintático
+# que não traz benefício funcional). `requires-python` é a declaração;
+# `apps/core/tests/test_versao_minima_python.py` é a verificação — compila
+# TODOS os `.py` do repositório com esta versão mínima via `ast.parse(...,
+# feature_version=...)`, então uma divergência futura (declaração e código)
+# reprova a suíte em vez de esperar uma auditoria encontrar.
+name = "dataledger"
+requires-python = ">=3.12"
+
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+# Alinhado com `requires-python` acima (achado do arquiteto-senior sobre o
+# BL-118 em andamento): com `target-version = "py314"` e `requires-python
+# = ">=3.12"` lado a lado, o ruff ficava AUTORIZADO a sugerir — e, com
+# `--fix`, a ESCREVER — sintaxe exclusiva do 3.14 (ex.: `except A, B:` sem
+# parênteses, PEP 758) num projeto que promete 3.12+. É a mesma classe do
+# defeito que motivou esta etapa: compatibilidade declarada num lugar e
+# contrariada em outro, sem nada ligando os dois. `py312` fecha esse elo, e
+# `test_target_version_do_ruff_bate_com_requires_python` (em
+# `apps/core/tests/test_versao_minima_python.py`) verifica que os dois
+# nunca voltam a divergir.
+target-version = "py312"
 # `docs/**` está aqui por um motivo de integridade, não de estilo: o ruff
 # formata blocos de código Python dentro de arquivos Markdown, e
 # `docs/auditorias/` guarda os relatórios do `auditor-qa` **como foram

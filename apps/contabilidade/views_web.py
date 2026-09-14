@@ -765,7 +765,16 @@ def lancamento_novo(request, empresa_id):
         acao = request.POST.get("acao")
         try:
             num_linhas_campo = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
-        except TypeError, ValueError:
+        # R3-4 (auditoria DL-017, rodada 3): a forma sem parênteses
+        # ("except TypeError, ValueError:") é sintaxe da PEP 758,
+        # exclusiva do Python 3.14 — quebrava o carregamento do URLconf
+        # inteiro em 3.12/3.13, a versão mínima que `pyproject.toml`
+        # (`requires-python`) promete. `# fmt: skip` porque
+        # `[tool.ruff] target-version = "py314"` faz `ruff format`
+        # REESCREVER a forma com parênteses de volta para a PEP 758 —
+        # o alvo do formatador e a versão mínima declarada divergem, e
+        # a versão mínima é a que vale aqui.
+        except (TypeError, ValueError):  # fmt: skip
             num_linhas_campo = LINHAS_INICIAIS_LANCAMENTO
         # `num_linhas_campo` (o campo OCULTO do formulário) decide só
         # quantas linhas a tela EXIBE de volta a partir de agora — NUNCA

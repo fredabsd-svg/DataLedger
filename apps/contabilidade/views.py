@@ -345,7 +345,7 @@ def _extrair_itens(payload_itens, empresa):
         if not isinstance(valor_bruto, str):
             raise DRFValidationError(
                 f"Valor inválido em um dos itens: {valor_bruto!r} precisa ser "
-                "enviado como TEXTO (ex.: \"100.00\"), nunca como número JSON — "
+                'enviado como TEXTO (ex.: "100.00"), nunca como número JSON — '
                 "um número perde precisão ao ser decodificado pelo parser JSON, "
                 "antes mesmo de chegar a este servidor."
             )
