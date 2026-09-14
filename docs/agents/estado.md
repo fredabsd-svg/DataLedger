@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Onze achados da rodada 3 corrigidos**, 608 testes em árvore limpa; rodada 4 em execução |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). A **rodada 4 é a primeira sem bloqueador e sem gravidade alta** — 608 testes, nenhuma regressão nos quatro pontos críticos. Correção em curso, BL-126 a BL-137 |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,28 +248,28 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — rodada 4 da
-   auditoria, EM EXECUÇÃO.** Os onze achados da
-   [rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md) estão corrigidos e
-   integrados na branch. Verificado por mim em árvore limpa (`b271e9bf`):
-   **608 testes**, e a sequência inteira da CI limpa — `ruff check`,
-   `ruff format --check` (115 arquivos), `manage.py check`, `migrate` em banco
-   vazio, `makemigrations --check` e `collectstatic`.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir a
+   rodada 4 e reauditar.** A [rodada 4](../auditorias/2026-09-14-dl-017-rodada-4.md)
+   **reprovou**, mas é a **primeira sem bloqueador e sem achado de gravidade
+   alta**. BL-115 fechou com prova forte: remover a capa interna da função de
+   leitura **faz a suíte inteira travar**. Nenhuma regressão em idempotência,
+   lote desbalanceado, aritmética do balancete (20 planos aleatórios, 0
+   divergências) nem isolamento.
 
-   Duas mutações minhas, reaplicadas e medidas: desligar a recusa por
-   `num_linhas` derruba **4** testes; estreitar de volta a busca de índice de
-   linha derruba **4**. Desfeitas, `sha256` idêntico e 403 aprovados em
-   `apps/contabilidade`. O bloqueador de negação de serviço fecha: 10¹² linhas
-   passaram de **sem retorno em 45 s** para **0,000 s**, medido por mim na
-   função e por HTTP pelo implementador.
+   Reprovam: dois campos ainda devolvem **500** por conversão numérica sem
+   proteção (A1, A2 — a mesma classe já fechada para `nivel` na rodada 2), e
+   **o achado 5 voltou pela quarta vez** por um transporte novo: linha enviada
+   como campo de arquivo é invisível e grava com 302 (A3). Em correção,
+   BL-126 a BL-137.
 
-   **Nada disso é aprovação.** Quem aprova é a rodada 4, sobre a versão
-   integrada — e só então vai para a `main`.
+   **O diagnóstico que fecha a etapa, e é do auditor:** a classe de um defeito
+   se escreve pelo **efeito proibido**, nunca pelo mecanismo onde ele foi visto.
+   Das três correções da rodada 3, só a que estava escrita assim (BL-117)
+   fechou. Virou **DE-032**.
 
-   **Padrão desta etapa, nomeado na rodada 3:** três vezes a correção de um
-   achado criou ou deixou aberto o seguinte. A causa é minha — escrevo tarefas
-   que descrevem **o caso** e não a **classe**. Virou forma obrigatória do
-   backlog em BL-124: todo item de correção começa por "A classe é:".
+   **BL-119 ganhou resposta medida:** o log real da CI diz `606 passed, 2
+   skipped` — os testes que medem CSS não rodam no runner. Navegador instalado
+   no workflow, e `pytest -rs` ligado para pulo aparecer com motivo.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem

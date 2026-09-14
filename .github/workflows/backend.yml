@@ -46,6 +46,34 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements/dev.txt
 
+      # BL-119, decidida POR MEDIÇÃO e não por suposição. O achado 6 da rodada
+      # 1 (a indentação hierárquica que nunca era aplicada) só apareceu porque
+      # alguém MEDIU o CSS num navegador — e apareceu duas vezes, por causas
+      # diferentes, na mesma entrega. A defesa textual que existe hoje pega a
+      # FORMA de uma das quebras, não o efeito: o auditor derrubou o efeito por
+      # outra via (`!important` numa regra posterior) e, sem navegador, zero
+      # testes morreram.
+      #
+      # Eu havia levantado a hipótese de que o runner já subia o Chromium
+      # sozinho — `/usr/bin/chromium` existe nele — e escrevi o critério para
+      # poder dizer NÃO: "se os testes de efeito aparecerem como `passed` na
+      # CI, fecha sem tocar no workflow; se aparecerem como `skipped`, entra a
+      # instalação". O auditor leu o log real da revisão `d046baf`:
+      # **606 passed, 2 skipped**. A hipótese estava errada, e o critério
+      # informou isso sem eu precisar defendê-la.
+      #
+      # `--no-sandbox`, `--disable-dev-shm-usage` e `--user-data-dir` próprio
+      # já são usados pelos testes; o que faltava era o navegador subir. A
+      # condição de pulo continua medindo CAPACIDADE (não presença do
+      # binário), então se esta instalação falhar num runner futuro os testes
+      # voltam a pular com motivo, em vez de derrubar a suíte — que foi o
+      # defeito de `aa10f20`.
+      - name: Instalar navegador para os testes que medem CSS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends chromium-browser || \
+            sudo apt-get install -y --no-install-recommends chromium
+
       - name: Lint (ruff check)
         run: ruff check .
 
@@ -59,7 +87,11 @@ jobs:
         run: python manage.py migrate
 
       - name: Testes (pytest)
-        run: pytest
+        # `-rs` lista os testes PULADOS com o motivo. Sem isso, o log da CI
+        # diz "606 passed, 2 skipped" e não diz por quê — foi exatamente o
+        # dado que faltou para decidir a BL-119, e o auditor precisou inferir.
+        # Teste pulado em silêncio é verificação que some sem avisar.
+        run: pytest -rs
 
       # STORAGES usa CompressedManifestStaticFilesStorage (WhiteNoise), que
       # exige o manifesto gerado por collectstatic. Sem esta etapa, o

@@ -1538,3 +1538,78 @@ e mentir com aparência de precisão é pior que não dizer.
 **Reversível:** se o Fred relatar confusão real no escritório, a saída é um
 campo de texto com leitura pt-BR no servidor, e aí a gramática de data entra na
 DE-030 junto com as de valor.
+
+## DE-032 — A classe de um defeito se escreve pelo efeito proibido, nunca pelo mecanismo onde ele foi visto
+
+**Data:** 2026-09-14. Contexto: ponto 4 da seção "onde eu acho que você errou"
+da [auditoria DL-017 rodada 4](../auditorias/2026-09-14-dl-017-rodada-4.md).
+**Complementa a DE-029**, que instituiu a forma obrigatória "A classe é:"; o que
+muda aqui é **o que se escreve depois dela**.
+
+### A evidência que originou a decisão
+
+A forma obrigatória funcionou: todos os itens de BL-115 a BL-125 trazem a frase.
+E mesmo assim duas das três correções fecharam o **caso** e não a **classe**. O
+auditor mostrou por quê, com a tabela que eu não tinha enxergado:
+
+| Item | Como escrevi a classe | O que aconteceu |
+| --- | --- | --- |
+| BL-115 | "nenhum número do cliente **dimensiona laço**" | varreram todo `range()` — corretamente — e o `int()` na linha ao lado ficou (A1, A2) |
+| BL-116 | "nenhuma linha enviada **no POST** deixa de ser lida" | virou "nenhuma chave de `request.POST`"; `request.FILES` ficou fora (A3) |
+| BL-117 | "nenhuma camada **constrói `Decimal`** a partir de entrada de cliente" | **fechou** — o mutante mata 14 |
+
+As duas primeiras nomeiam **a construção de código onde o defeito foi visto**
+(`range`, `request.POST`). A terceira nomeia **o efeito que não pode acontecer**.
+É a única que fechou.
+
+### A decisão
+
+Todo critério de aceite de correção descreve **o estado que o sistema não pode
+alcançar**, em termos observáveis de fora, e nunca o trecho de código onde o
+defeito apareceu.
+
+| Em vez de | Escreva |
+| --- | --- |
+| "nenhum número do cliente dimensiona laço" | "nenhuma entrada de cliente faz o servidor gastar tempo proporcional a ela" |
+| "nenhuma chave de `request.POST` é ignorada" | "nenhum dado enviado numa requisição deixa de ser lido ou recusado" |
+| "usar `try/except` em volta do `int()`" | "nenhuma entrada de cliente produz resposta 5xx" |
+
+O teste da redação é simples: **se a frase cita um nome de função, de módulo, de
+dicionário ou de construção da linguagem, ela está escrita pelo mecanismo.** O
+mecanismo entra depois, como *exemplo* — que é onde a DE-029 já o coloca.
+
+### Por que isto não é preciosismo de redação
+
+Quem implementa cumpre o que está escrito, e cumpre bem. Nas duas ocorrências
+acima a varredura foi **feita**, com competência, e parou exatamente na fronteira
+que a frase desenhou. O limite não foi de cuidado; foi de escopo — e o escopo
+fui eu que escrevi. **Quando a classe é estreita, a correção correta é
+insuficiente**, e isso não aparece em revisão de código: só aparece quando
+alguém ataca por fora, que é o que a auditoria faz.
+
+## DE-033 — Toda decisão que especifique comportamento observável nasce com item de backlog no mesmo commit
+
+**Data:** 2026-09-14. Contexto: achado **A5** da rodada 4.
+
+**O que aconteceu:** a [DE-031](decisoes.md) decidiu que o rótulo do campo de
+data deixaria de afirmar um formato que ele não controla. A decisão foi
+registrada, argumentada e datada — e **nunca virou tarefa**. Os sete rótulos
+continuam dizendo `(dd/mm/aaaa)`, a captura entregue continua mostrando
+`09/01/2026` embaixo deles, e nenhum teste cobre o texto do rótulo, então nada
+acusou. Uma rodada inteira de auditoria depois, o achado R3-8 continua vivo no
+produto.
+
+**Decisão:** uma decisão que especifique comportamento observável — texto de
+tela, formato aceito, resposta HTTP, regra de recusa — **só está registrada
+quando existe, no mesmo commit, um item de backlog com responsável e critério de
+aceite**. Decisão sem tarefa atribuída é intenção, e intenção não chega ao
+usuário.
+
+Decisões que descrevem **estrutura** (onde mora uma regra, quem julga o quê,
+qual camada faz o quê) não precisam disso quando já estão implementadas no mesmo
+commit — o que a regra alcança é a decisão que **projeta** comportamento futuro.
+
+**Verificação:** por enquanto, disciplina de quem escreve — eu. Não é imposta
+por mecanismo, e **declaro isso**: a DE-029 e a BL-124 mostraram que lembrete
+tem taxa de falha alta neste projeto. Se reincidir, vira teste que cruza
+`decisoes.md` com `backlog.md`.
