@@ -1220,3 +1220,48 @@ Entra como fase A da DL-017, **antes** de qualquer template.
 A API continua existindo e sendo o contrato público — ela é o que um dia
 alimenta integração, aplicativo ou o servidor MCP previsto no escopo. O que se
 decide aqui é que **a nossa tela não é cliente dela**.
+
+## DE-027 — Quem julga o texto de um valor monetário é o módulo monetário, não a view
+
+**Data:** 2026-09-14. Contexto: achado 2 da [auditoria da DL-017, rodada
+1](../auditorias/2026-09-14-dl-017-rodada-1.md). Medido: a tela de lançamento
+gravou `1e3` como **1.000,00**, e ainda aceitou `1_000`, `+10,00` e `10,00 ` com
+espaço — quatro formatos que a API recusa com 400 de propósito.
+
+**Decisão:** a view de tela **não constrói `Decimal`**. Ela faz uma única coisa
+com o texto digitado: troca a vírgula decimal pelo ponto e entrega o **texto**
+para `apps.contabilidade.monetario.para_decimal`, traduzindo
+`ValorMonetarioInvalido` em erro de campo do formulário. A partir daqui, todo
+caminho de entrada de valor monetário — tela, API, importação de XML, carga de
+planilha — passa pelo mesmo julgador de formato textual.
+
+### Por que isso é decisão de arquitetura e não conserto local
+
+A DE-026 fechou o risco que eu havia nomeado: **duplicar** a regra. O que
+escapou foi o simétrico, e é mais difícil de ver, porque não há cópia nenhuma
+para comparar: a tela **contornou** o guarda. `_decimal_do_formulario`
+documentava corretamente que a validação de domínio (sinal, escala — DE-010)
+continua em `criar_lancamento`; e estava certo. Só que, ao fazer
+`Decimal(texto)` dentro da view, tirou de `para_decimal` a única coisa que só
+ele podia julgar: **se aquele texto é uma representação aceitável de dinheiro**.
+`criar_lancamento` recebe um `Decimal` já pronto e não tem mais o que recusar.
+
+O efeito prático é o oposto do esperado de uma interface: a tela ficou a porta
+**mais frouxa** da mesma invariante. `1e3` virar mil reais não é erro de
+arredondamento nem de apresentação — é reinterpretar em mil vezes o que está
+escrito na tela do contador.
+
+### A regra que fica, em uma frase
+
+**Validação de formato pertence a quem define o formato.** Se uma camada precisa
+do valor tipado, ela pede o valor tipado a esse dono — nunca o constrói por
+conta própria a partir do texto do usuário.
+
+### Como isso passa a ser verificado
+
+Não por revisão: por teste de equivalência. Uma lista de textos aceitáveis e
+inaceitáveis é percorrida pelos **dois** caminhos (tela e API) exigindo o
+**mesmo** veredito em cada um. Quando entrar um terceiro caminho de entrada
+(importação de NFS-e, DL-010), ele entra na mesma lista. O achado 1 (não-finitos
+derrubando a tela com 500) é corrigido pelo mesmo movimento, e é a razão de os
+dois andarem juntos.

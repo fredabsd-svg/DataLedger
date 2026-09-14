@@ -1,6 +1,24 @@
 # DL-017 — Interface da contabilidade
 
-**Estado:** fases A e B implementadas em 2026-09-14; **aguardando auditoria**.
+**Estado:** fases A e B implementadas e integradas em 2026-09-14 (PR #18), e
+**REPROVADAS** na [rodada 1 da auditoria](../auditorias/2026-09-14-dl-017-rodada-1.md).
+Correção em curso — BL-87 a BL-99. A rodada 2 só começa com os achados 1 a 8
+corrigidos e integrados.
+
+## O resultado da rodada 1, em três frases
+
+Dos 17 critérios, **11 atendidos**, 5 atendidos com ressalva, 1 parcialmente
+atendido e **o critério 13 não atendido**. A aritmética resistiu a tudo: 20
+planos de contas aleatórios, todos os níveis, conta híbrida, retificadora e saldo
+zero — a soma das linhas exibidas bateu com o rodapé e com a API, sempre. O que
+reprovou a etapa foi a **apresentação**: a tela devolve 500 em entrada trivial de
+usuário (valor `NaN` colado de planilha, histórico longo) e o único total de
+conferência que ela mostra num caminho sem erro está errado.
+
+Erro meu, registrado: **eu integrei antes da auditoria voltar**, com autorização
+do Fred, e o custo apareceu na primeira vez que abri essa exceção. O achado 7 —
+`estado.md` e `README.md` descrevendo um estado que o próprio commit desmentia —
+também é meu.
 
 ## Critério 16 — o percurso feito pelo navegador
 
@@ -148,6 +166,59 @@ Numerados para a auditoria conferir um a um.
 17. Suíte, `ruff check`, `ruff format --check`, `manage.py check` e migrações em
     banco vazio limpos, **verificados em árvore limpa** (`git archive` em
     diretório vazio, BL-81). Nenhuma regressão nos 402 testes.
+
+## Onde é fácil errar
+
+Escrita depois da rodada 1 da auditoria, e por uma razão específica: o
+`urls_web.py` já **remetia a esta seção** desde a fase B, e ela não existia — o
+achado 13 encontrou a referência quebrada. O conteúdo existia, só estava
+morando em comentário de código, que é o lugar onde ninguém procura antes de
+mexer.
+
+### 1. Os dois prefixos de rota não podem ser unificados
+
+A API vive em `contabilidade/` e as telas em `contabilidade/painel/`. **Não é
+gosto:** os dois conjuntos têm rotas com o mesmo caminho literal sob o mesmo
+`empresa_id` (`diario/`, `balancete/`). Se dividissem o prefixo, o Django
+resolveria a primeira inclusão que casasse e a segunda **nunca** seria
+alcançada. Não há erro, não há aviso: a tela, ou a API, simplesmente desaparece.
+
+O guarda disso era um comentário — e o achado 9 mostrou que **nenhum dos 446
+testes** exercita o `config/urls.py` real, porque os testes da etapa declaram o
+próprio urlconf. Vira BL-95.
+
+### 2. Formatar é apresentação; julgar o texto do valor não é
+
+O caminho seguro tem uma direção só: o valor é `Decimal` desde o serviço até o
+template, e só o template formata. O que a rodada 1 mostrou é o caminho de volta,
+que eu não havia previsto: **a view lendo texto do usuário e construindo
+`Decimal` por conta própria** contorna o único guarda de formato do sistema. Ver
+DE-027. `1e3` gravado como 1.000,00 saiu daqui.
+
+### 3. `float` fora do cálculo também quebra — só quebra calado
+
+O plano dizia "nenhum `float` em nenhum ponto" e eu verifiquei isso no cálculo.
+Passou num atributo de estilo: `(nivel - 1) * 1.25`, que com `LANGUAGE_CODE`
+`pt-br` o template localiza para `padding-left: 1,25rem` — CSS inválido. Nenhum
+teste falhou, nenhum erro apareceu, e a indentação do plano de contas nunca
+existiu. A regra fica mais forte: **nenhum `float` em nenhum ponto, inclusive
+onde o número não é dinheiro.**
+
+### 4. O formulário escrito à mão não tem as defesas que o `ModelForm` tem
+
+Dois dos quatro achados de 500 estão no único formulário desta entrega escrito à
+mão, o de lançamento. O de conta é `ModelForm` e o Django cuida do comprimento,
+do tipo e da recusa. Onde a proteção automática não existe, **cada limite do
+modelo precisa de validação explícita na view** — `max_length` do histórico,
+finitude do valor, teto de partidas. O `maxlength` do HTML é conveniência de
+navegador, nunca defesa (AGENTS.md §1).
+
+### 5. Truncar entrada é sempre pior do que recusá-la
+
+`num_linhas` acima do teto fazia a view processar 20 partidas e **descartar as
+demais em silêncio**, gravando um lançamento balanceado e "bem-sucedido". Perda
+silenciosa de fato contábil não é detectada por nenhuma conferência, justamente
+porque o que sobrou fecha. Em escrituração: **recuse, nunca ajuste.**
 
 ## Fora do escopo
 

@@ -1,8 +1,17 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, com a `main` em `dba0133` (PR #17 integrado).
+Atualizado em **2026-09-14**, com a `main` em `9b22b03` (PR #18 integrado).
 Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
 partir da `main` depois da integração.
+
+> **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
+> que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
+> DL-017 rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) encontrou este
+> arquivo afirmando "DL-017 em execução — fase A delegada" e "DL-015 onda 2 não
+> iniciada" **enquanto o commit auditado continha as seis telas prontas e
+> integradas**. Repetido no `README.md`. Corrigido nesta entrega. O guarda de
+> integração contínua não pega este caso: ele exige que cada `DL-xxx` apareça
+> aqui e no README, não que a descrição esteja correta.
 
 > **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
 > `auditor-qa` (achado novo 8 da [rodada 2 da
@@ -204,9 +213,9 @@ diverge.
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred; o quarto é o **conceito do próprio Fred em vetor limpo** | **Integrada (PR #17)** |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
-| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Em execução** — fase A (backend de apoio) delegada em 2026-09-14 |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)**, e **REPROVADAS** na [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md): 2 achados de gravidade alta na camada de apresentação. Correção em curso (BL-87 a BL-99) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -238,10 +247,14 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — a interface
-   (BL-62).** Autorizada pelo Fred em 2026-09-14 e **em execução**. É o que
-   falta para ele usar o sistema sem programar. Fase A (autorização num lugar
-   só, e saldo com `D`/`C`) antes das telas — ver DE-026.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir os 15
+   achados da auditoria e reauditar.** As seis telas existem, estão integradas
+   na `main` (PR #18) e a contabilidade já é usável pelo navegador — mas a
+   [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) **reprovou** a etapa.
+   Prioridade 1: `NaN`/`Infinity` e histórico longo devolvendo 500 (achados 1 e
+   4) e o rodapé de conferência mostrando `0,00` com as linhas preenchidas
+   (achado 3). A aritmética passou em tudo; o que reprova é a apresentação. A
+   rodada 2 só começa com os achados 1 a 8 corrigidos e **integrados**.
 2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
@@ -269,10 +282,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Estado do repositório
 
-- **`main` em `dba0133`**, com DL-002 a DL-009, DL-011, DL-012, DL-013, DL-014 e
-  **DL-015 onda 1**.
-- **Suíte: 402 testes** (211 só em contabilidade), rodando em **14 s** — eram
-  199 s antes de BL-80.
+- **`main` em `9b22b03`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017 fases
+  A e B** — esta última integrada por autorização expressa do Fred **antes** de
+  a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
+  auditar e só então integrar.
+- **Suíte: 446 testes**, rodando em **27 s** — eram 199 s antes de BL-80.
+  Confirmado pelo `auditor-qa` em verificação independente.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.
