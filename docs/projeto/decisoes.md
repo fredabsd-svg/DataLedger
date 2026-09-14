@@ -1375,11 +1375,25 @@ texto, logo não existe conserto que preserve as duas leituras.
 padrão e não como prosa:**
 
 ```
-^[+-]?(\d+|\d{1,3}(\.\d{3})+)(,\d{1,2})?$
+^[+-]?([0-9]+|[0-9]{1,3}(\.[0-9]{3})+)(,[0-9]{1,2})?$
 ```
 
 Em português: dígitos sem separador algum, **ou** dígitos agrupados de três em
 três por ponto, com centavos opcionais depois da vírgula.
+
+**`[0-9]`, nunca `\d` — e isto é normativo, não detalhe de escrita.** Em Python,
+`\d` casa **qualquer** dígito decimal Unicode: `０１０` (fullwidth), `١٢٣`
+(índico-arábico), `๑๐` (tailandês). Esta decisão foi publicada, em 2026-09-14,
+com `\d` no texto enquanto o código usava `[0-9]` — quem implementasse seguindo
+o documento reabriria o R2-7, **e nenhum teste reclamaria** (medido: o mutante
+que troca `[0-9]` por `\d` na gramática sobrevive a 559 testes). Corrigido no
+mesmo dia, pelo achado R3-6 da
+[rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md).
+
+É o erro da DE-027 com os papéis trocados: lá o texto estava certo e o código
+errado; aqui o código estava certo e o texto errado. A lição é a mesma nos dois
+casos — **decisão que descreve comportamento precisa de teste que ligue o texto
+ao código**, senão ela envelhece sem que ninguém perceba.
 
 | Digitado | Vale | Por quê |
 | --- | --- | --- |
@@ -1427,3 +1441,100 @@ indentação segue sem teste que a defenda (R2-6).
 Passa a valer: **o critério de aceite de uma correção cita a classe do defeito,
 nunca só a reprodução do relatório.** Quem escreve a tarefa é o
 `arquiteto-senior`, e o erro de escrevê-la estreita é dele.
+
+## DE-030 — Todo caminho de entrada de valor monetário declara sua gramática, e nenhum constrói `Decimal` por conta própria
+
+**Data:** 2026-09-14. Contexto: achado **R3-3** e o segundo ponto da seção "onde
+eu acho que você errou" da
+[auditoria DL-017 rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md).
+
+### O buraco que nem a DE-027 nem a DE-029 cobriam
+
+As duas decisões legislam sobre **dois** dialetos de entrada: a tela, que fala
+pt-BR (DE-029), e a API, que fala o formato canônico com ponto decimal
+(DE-027). O sistema tem um **terceiro**, que nenhuma das duas menciona: o
+**número JSON**.
+
+Medido pelo auditor, pela API real:
+
+```
+enviado 99999999999999.99   -> HTTP 201, gravado 99999999999999.98
+enviado 70368744177664.01   -> HTTP 201, gravado 70368744177664.02
+enviado 562949953421312.07  -> HTTP 201, gravado 562949953421312.10
+enviado "1e3" como TEXTO    -> 400 (correto)
+enviado  1e3  como NÚMERO   -> 201, gravado 1.000,00
+```
+
+O JSON vira `float` no Python, `apps/contabilidade/views.py` faz `str(valor)` e
+depois `Decimal(...)`, e a recusa de notação científica que o próprio comentário
+do arquivo anuncia é contornada **trocando aspas por número**. É o R2-1 na outra
+porta: 201 de sucesso com número diferente do enviado.
+
+Hoje o estrago é limitado por acidente: abaixo de ~7×10¹³ o espaçamento do
+`double` é menor que um centavo, e a checagem de escala recusa os casos
+problemáticos. **"Protegido por acidente de escala" é exatamente o mecanismo
+pelo qual `1.234` escapava antes do R2-1.** Não conta como proteção.
+
+### A decisão
+
+**1. Nenhuma camada constrói `Decimal` a partir de entrada de cliente.** Nem a
+tela, nem a API, nem a importação. Todas entregam **texto** a
+`apps.core.dinheiro.para_decimal`, que é o único julgador. A API hoje
+reimplementa a checagem com a mesma expressão regular e constrói o `Decimal`
+sozinha — é duplicação, e é onde este defeito mora.
+
+**2. Valor monetário que chegue como número (não texto) é recusado.** `float`
+já é recusado por contrato dentro de `para_decimal`; a recusa passa a valer
+**antes**, na fronteira, com mensagem que diga para enviar como texto.
+
+**3. Todo caminho de entrada declara, por escrito e em teste, qual gramática
+aceita.** Hoje são três: pt-BR (tela, DE-029), canônica (API, DE-027) e
+**nenhuma** (número JSON, que passa a ser recusado). Quando a
+[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) trouxer NFS-e e
+carga de planilha, cada um desses caminhos responde a pergunta **antes** de
+existir código: *qual texto eu aceito, e o que faço com o que não casa?*
+
+### Por que isto não é preciosismo
+
+O auditor formulou melhor do que eu: *"quando a DL-010 trouxer NFS-e e carga de
+planilha, a pergunta «qual gramática este caminho usa?» não terá resposta
+escrita"*. São quatro caminhos de entrada de dinheiro num sistema contábil. A
+DE-027 acertou em dizer que **um** módulo julga; faltava dizer que **todos**
+passam por ele.
+
+## DE-031 — O campo de data mantém o seletor do navegador, e o rótulo para de afirmar formato
+
+**Data:** 2026-09-14. Contexto: achado **R3-8** da rodada 3, e o resíduo do
+R2-8 da rodada 2.
+
+**O problema, visível na captura entregue:** o `<input type="date">` exibe
+`09/14/2026` (mês/dia/ano, *locale* do navegador) logo abaixo de um rótulo que
+diz "(dd/mm/aaaa)" e três centímetros acima de um cabeçalho que diz
+`14/09/2026`. A mesma data, em duas ordens, na mesma tela. **Não é defeito de
+código:** o formato de exibição do seletor nativo vem do navegador, e
+`LANGUAGE_CODE` não o altera.
+
+**Decisão: fica o seletor nativo**, e o rótulo **deixa de afirmar** um formato
+que ele não controla.
+
+Motivos, nesta ordem:
+
+1. **Acessibilidade e teclado.** O seletor nativo é navegável por teclado,
+   anunciado por leitor de tela e conhecido pelo usuário. Um campo de texto
+   livre perde isso.
+2. **Sem JavaScript** (critério 15). Forçar o formato exigiria JS; trocar por
+   texto exigiria leitura pt-BR no servidor e reintroduziria a classe de defeito
+   que a DE-029 acabou de fechar para valores — agora para datas.
+3. **Na prática, o escritório vê pt-BR.** Navegador em português brasileiro
+   exibe `dd/mm/aaaa`. A ambiguidade aparece em ambiente fora de pt-BR — como o
+   contêiner onde a captura foi feita.
+
+**O que muda:** o rótulo nomeia o campo sem prometer formato, e o texto de
+apoio diz que o campo segue o navegador, enquanto **toda exibição de data do
+sistema é `dd/mm/aaaa`**. Prometer menos e cumprir é melhor que prometer
+`dd/mm/aaaa` num campo que pode mostrar outra coisa — hoje o rótulo pode mentir,
+e mentir com aparência de precisão é pior que não dizer.
+
+**Reversível:** se o Fred relatar confusão real no escritório, a saída é um
+campo de texto com leitura pt-BR no servidor, e aí a gramática de data entra na
+DE-030 junto com as de valor.

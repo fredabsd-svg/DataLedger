@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)**, **REPROVADAS na [rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) e de novo na [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md)**. Dos 15 achados da rodada 1, 14 fechados por medição do auditor e 21 de 22 mutantes morrem — mas a rodada 2 encontrou um **BLOQUEADOR que está na `main`**: a tela grava `1.000` como `1,00` (R2-1/BL-103). Correção em curso, BL-103 a BL-113 |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. Correção em curso, BL-115 a BL-124 |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -247,53 +247,54 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — mandar a
-   rodada 3 da auditoria.** O bloqueador BL-103 (a tela gravava `1.000` como
-   `1,00`) está **corrigido na branch de trabalho**, junto com os outros dez
-   achados da [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md).
-   **Continua em vigor na `main`**, em `9b22b03`, até a etapa ser aprovada e
-   integrada — o Fred foi avisado e sabe que, até lá, precisa digitar os
-   centavos (`1.000,00`) e não pôr dado real de cliente.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir a
+   rodada 3 e reauditar.** A [rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md)
+   **reprovou**. O bloqueador da rodada 2 fechou (55 textos medidos; `1.000`
+   vale mil) e dez das onze correções estão fechadas por medição do auditor —
+   mas a correção do R2-10 **criou** um achado de gravidade alta: um POST com
+   `num_linhas` grande prende a requisição, e o `gunicorn` sobe com **um** worker
+   síncrono. Não corrompe dado; **nega o serviço**. É BL-115, e bloqueia a
+   rodada 4. Junto, BL-116 a BL-124.
 
-   Verificado por mim em árvore limpa (`24fa4804`): **559 testes**, `ruff
-   check`, `ruff format --check`, `manage.py check` e `makemigrations --check`
-   limpos. Duas mutações minhas, reaplicadas e medidas: devolver o
-   `if "," in bruto` do bloqueador derruba **12** testes; reduzir a
-   especificidade do seletor de indentação (ME2) derruba **3** testes mesmo
-   **sem navegador**. Desfeitos, `sha256` idêntico nos dois arquivos e 559
-   aprovados.
+   **Padrão desta etapa, nomeado na rodada 3:** três vezes a correção de um
+   achado criou ou deixou aberto o seguinte. A causa é minha — escrevo tarefas
+   que descrevem **o caso** e não a **classe**. Virou forma obrigatória do
+   backlog em BL-124: todo item de correção começa por "A classe é:".
 
-   **Nada disso é aprovação.** Quem aprova é a rodada 3, sobre a versão
-   integrada. Só então vai para a `main`.
+2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
+   técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
+   vínculo, a tela explica corretamente e a única saída é o admin do Django.
+   Nenhuma das três auditorias viu, porque todas partem de cenário já montado.
+   **Estado inicial de instalação é um estado da interface.**
 
-2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
+3. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
    existir dado real de cliente**. BL-84, BL-85 e BL-86 completam as ressalvas
    da auditoria.
-3. **[DL-016](../planos/DL-016-competencia-e-fechamento.md) — competência e
+4. **[DL-016](../planos/DL-016-competencia-e-fechamento.md) — competência e
    fechamento de período.** Planejada e com contrato escrito. Destrava a
    alteração em massa (DE-017) e a regeração de lançamentos derivados (DE-018),
    as duas pedidas pelo Fred.
-4. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — importação
+5. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — importação
    e conferência de documentos fiscais.** O Fred confirmou o foco em
    2026-09-14: *"foca na importação e conferência"*. O plano foi **revisado**
    pela medição do acervo real — primeira fatia é **NFS-e**, não NF-e, porque
    85% do movimento dele é nota de serviço prestado. Os 22 critérios de aceite
    têm número medido por trás. Começa quando a DL-017 (telas) for auditada.
-5. **BL-100 — aguardando confirmação do Fred.** `docker compose up --build`
+6. **BL-100 — aguardando confirmação do Fred.** `docker compose up --build`
    falhava na máquina dele com "container dataledger-db-1 is unhealthy", num
    banco perfeitamente saudável: a verificação de saúde não tinha
    `start_period` e se esgotava durante o `initdb` (22 s lá, ~1 s na CI). Junto,
    nenhuma migração rodava ao subir. Corrigido em `docker-compose.yml` (DE-028)
    e no README. **Não testado aqui** — não existe daemon Docker neste ambiente;
    só `docker compose config` e leitura. Só o Fred pode fechar este item.
-6. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+7. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53.
-7. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
+8. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
    vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
    implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
-8. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
+9. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
    documentação" e "Regras do projeto", e bloqueando force push e exclusão.
@@ -305,10 +306,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
   a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
   auditar e só então integrar.
 - **Suíte: 559 testes** na branch de trabalho (446 na `main`), rodando em ~25 s
-  em árvore limpa. **Suíte verde não é sistema correto:** 487 testes passavam
-  com o bloqueador BL-103 em vigor, porque nenhum comparava o texto digitado
-  com o valor gravado. É o que a DE-029 institui, e é o teste que hoje derruba
-  12 casos quando o defeito volta.
+  em árvore limpa — reproduzido pelo `auditor-qa` na rodada 3, que confirma os
+  números. **Suíte verde não é sistema correto:** 487 testes passavam com o
+  bloqueador BL-103 em vigor, e 559 passam hoje com BL-115 em vigor. O que muda
+  isso não é contagem, é **variar a dimensão medida** — a rodada 2 variou o
+  texto do valor, a rodada 3 cronometrou o tempo e variou a forma do nome do
+  campo. Achou nas duas.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.

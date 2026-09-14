@@ -36,13 +36,15 @@ O DataLedger nasce para reunir as rotinas de um escritório contábil em uma pla
 
 | | Capacidade | Situação |
 | --- | --- | --- |
-| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada e auditada em 4 rodadas — interface em [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
 | <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado e auditado |
 | <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado no servidor e trilha de alterações | ✅ Fundação implementada |
 | <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🗺️ Planejado — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
 | <img src="docs/assets/icons/users.svg" alt="" width="28" /> | **Folha** — vínculos, eventos, férias, 13º, rescisões e encargos | 🗺️ Planejado |
 | <img src="docs/assets/icons/briefcase.svg" alt="" width="28" /> | **Honorários e Paralegal** — contratos, cobranças, processos, prazos e documentos | 🗺️ Planejado |
 | <img src="docs/assets/icons/sparkles.svg" alt="" width="28" /> | **IA + MCP** — consulta assistida e operações controladas pelas mesmas permissões do sistema | 🗺️ Planejado |
+
+A coluna acima diz se a **capacidade** existe no repositório, em traço grosso. Em que pé está cada etapa — em execução, em auditoria, reprovada, integrada — fica em [`docs/agents/estado.md`](docs/agents/estado.md), e **só lá**. Este arquivo já afirmou duas vezes coisa que o repositório desmentia; as duas por descrever estado em segundo lugar.
 
 ## 🧭 Arquitetura em uma imagem
 
