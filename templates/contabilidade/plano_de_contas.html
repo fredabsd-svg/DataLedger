@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block titulo %}Plano de contas — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+{% endblock %}
+
+{% block content %}
+    <p>
+        <a href="{% url 'empresas:lista' %}">Voltar para empresas</a>
+        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
+        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
+        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
+    </p>
+    <h1>Plano de contas — {{ empresa.razao_social }}</h1>
+
+    {% if pode_escriturar %}
+        <p><a href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a></p>
+    {% endif %}
+
+    {% if linhas %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Nível</th>
+                    <th scope="col">Código</th>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Tipo</th>
+                    <th scope="col">Natureza</th>
+                    <th scope="col">Aceita lançamento</th>
+                    <th scope="col">Situação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td>{{ linha.nivel|default:"—" }}</td>
+                        <td>{{ linha.conta.codigo }}</td>
+                        <td style="padding-left: {{ linha.indentacao_rem }}rem">{{ linha.conta.nome }}</td>
+                        <td>{{ linha.conta.get_tipo_display }}</td>
+                        <td>{{ linha.conta.get_natureza_display }}</td>
+                        <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
+                        <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            {% if pode_escriturar %}
+                <a href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Cadastre a primeira conta</a>.
+            {% endif %}
+        </p>
+    {% endif %}
+{% endblock %}

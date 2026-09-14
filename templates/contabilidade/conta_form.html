@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block titulo %}Nova conta — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+{% endblock %}
+
+{% block content %}
+    <p><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Voltar para o plano de contas</a></p>
+    <h1>Nova conta — {{ empresa.razao_social }}</h1>
+
+    <form method="post" class="formulario" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.help_text %}<p class="visualmente-oculto">{{ campo.help_text }}</p>{% endif %}
+                {% if campo.errors %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit">Salvar</button>
+    </form>
+{% endblock %}

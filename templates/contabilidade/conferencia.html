@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+{% endblock %}
+
+{% block content %}
+    <p>
+        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
+        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
+        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
+    </p>
+    <h1>Conferência — {{ empresa.razao_social }}</h1>
+
+    {% if tudo_certo %}
+        <p class="mensagem mensagem-success" role="status">Nenhuma inconsistência encontrada.</p>
+    {% endif %}
+
+    <h2>Lançamentos sem partidas ou desbalanceados</h2>
+    {% if lotes %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Lançamentos com problema de partidas</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Histórico</th>
+                    <th scope="col">Motivo</th>
+                    <th scope="col">Débito</th>
+                    <th scope="col">Crédito</th>
+                    <th scope="col">Diferença</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lote in lotes %}
+                    <tr>
+                        <td>{{ lote.lancamento.data|date:"d/m/Y" }}</td>
+                        <td>
+                            <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id lote.lancamento.id %}">
+                                {{ lote.lancamento.historico|default:"(sem histórico)" }}
+                            </a>
+                        </td>
+                        <td>{{ lote.motivo }}</td>
+                        <td class="valor-monetario">{{ lote.total_debito_ptbr }}</td>
+                        <td class="valor-monetario">{{ lote.total_credito_ptbr }}</td>
+                        <td class="valor-monetario">{{ lote.diferenca_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum lançamento sem partidas ou desbalanceado.</p>
+    {% endif %}
+
+    <h2>Contas sintéticas com movimento próprio</h2>
+    {% if contas_sinteticas %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Contas sintéticas com movimento próprio</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Código</th>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Débitos</th>
+                    <th scope="col">Créditos</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in contas_sinteticas %}
+                    <tr>
+                        <td>{{ item.conta.codigo }}</td>
+                        <td>{{ item.conta.nome }}</td>
+                        <td class="valor-monetario">{{ item.debitos_ptbr }}</td>
+                        <td class="valor-monetario">{{ item.creditos_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhuma conta sintética com movimento próprio.</p>
+    {% endif %}
+
+    <h2>Contas que aceitam lançamento e têm contas subordinadas</h2>
+    <p>Não é um erro — é um caso para o contador avaliar se quer reclassificar a permissão de lançamento.</p>
+    {% if contas_com_subordinadas %}
+        <ul>
+            {% for conta in contas_com_subordinadas %}
+                <li>{{ conta.codigo }} — {{ conta.nome }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>Nenhuma conta neste caso.</p>
+    {% endif %}
+
+    <h2>Hierarquia do plano de contas</h2>
+    {% if hierarquia_inconsistente %}
+        <ul>
+            {% for mensagem in hierarquia_inconsistente %}
+                <li class="mensagem mensagem-error" role="alert">{{ mensagem }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>Nenhuma inconsistência de hierarquia encontrada.</p>
+    {% endif %}
+{% endblock %}

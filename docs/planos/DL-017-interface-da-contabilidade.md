@@ -1,6 +1,42 @@
 # DL-017 — Interface da contabilidade
 
-**Estado:** em execução desde 2026-09-14.
+**Estado:** fases A e B implementadas em 2026-09-14; **aguardando auditoria**.
+
+## Critério 16 — o percurso feito pelo navegador
+
+A prova de que a etapa saiu do papel. Servidor de desenvolvimento no ar, dados
+**inteiramente fictícios** (Empresa Modelo Ltda, CNPJ de exemplo), percurso
+feito por mim, `arquiteto-senior`, pelas telas:
+
+1. Entrar no sistema.
+2. Criar duas contas pelo formulário: `1.1.1 Caixa` (devedora) e
+   `3.1.1 Receita de serviços` (credora).
+3. Lançar **1.500,00** — débito em Caixa, crédito em Receita. Resposta da tela:
+   *"Lançamento gravado com sucesso. Lançamento nº 1"*.
+4. Conferir o mesmo valor nas três saídas, no mesmo período.
+
+| Tela | O que mostrou |
+| --- | --- |
+| [Balancete](../assets/telas/balancete.png) | Caixa `1.500,00 D`, Receita `1.500,00 C`, total do período 1.500,00 / 1.500,00 |
+| [Razão](../assets/telas/razao.png) | Saldo anterior 0,00, a partida, e saldo `1.500,00 D` |
+| [Diário](../assets/telas/diario.png) | O lote com os totais |
+
+As capturas foram feitas em Chromium, com a marcação e a folha de estilo que o
+servidor entrega.
+
+**Dois achados do percurso, registrados porque são de método:**
+
+- **A tela recusou um envio meu, com mensagem precisa.** Preenchi parcialmente
+  as linhas vazias do formulário e recebi *"Linha 3: preencha conta, tipo e
+  valor, ou deixe a linha em branco"*. É a validação agindo no caminho real, não
+  em teste.
+- **Quase relatei um defeito que não existe.** Criei contas por requisição
+  direta sem enviar `aceita_lancamento`; elas nasceram sem aceitar lançamento, e
+  a tela seguinte disse, corretamente, que não havia conta disponível. Fui
+  conferir o formulário: **a caixa vem marcada por padrão**. O defeito era do meu
+  roteiro, que reproduziu alguém desmarcando a opção. Fica registrado porque a
+  lição vale mais que o episódio: **reproduzir "pelo caminho de verdade" exige
+  reproduzir o que o navegador envia**, não o que parece equivalente a ele.
 
 ## Por que esta etapa existe
 

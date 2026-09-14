@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block titulo %}Diário — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período:</span>
+            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <p>
+        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
+        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
+        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
+        — <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
+    </p>
+    <h1>Diário — {{ empresa.razao_social }}</h1>
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}">
+        </div>
+        <button type="submit">Consultar período</button>
+    </form>
+
+    {% if lotes %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Lançamentos do período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Histórico</th>
+                    <th scope="col">Débito</th>
+                    <th scope="col">Crédito</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lote in lotes %}
+                    <tr>
+                        <td>{{ lote.lancamento.data|date:"d/m/Y" }}</td>
+                        <td>
+                            <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id lote.lancamento.id %}">
+                                {{ lote.lancamento.historico|default:"(sem histórico)" }}
+                            </a>
+                        </td>
+                        <td class="valor-monetario">{{ lote.debito_ptbr }}</td>
+                        <td class="valor-monetario">{{ lote.credito_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="linha-total">
+                    <td colspan="2">Total do período</td>
+                    <td class="valor-monetario">{{ total_debito_ptbr }}</td>
+                    <td class="valor-monetario">{{ total_credito_ptbr }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    {% elif inicio and fim %}
+        <p>Nenhum lançamento no período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}.</p>
+    {% endif %}
+{% endblock %}

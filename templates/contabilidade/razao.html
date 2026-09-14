@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block titulo %}Razão — {{ conta.codigo }} {{ conta.nome }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período:</span>
+            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <p>
+        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
+        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
+    </p>
+    <h1>Razão — {{ conta.codigo }} {{ conta.nome }}</h1>
+    {% if consolidado %}
+        <p><em>Esta conta consolida os valores das contas subordinadas a ela.</em></p>
+    {% endif %}
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}">
+        </div>
+        <button type="submit">Consultar período</button>
+    </form>
+
+    <p>
+        <strong>Saldo anterior:</strong>
+        <span class="valor-monetario">{{ saldo_anterior_ptbr }}</span>
+        {% if saldo_anterior_natureza %}
+            <span class="indicador-natureza">{{ saldo_anterior_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_anterior_natureza.extenso }})</span></span>
+        {% endif %}
+    </p>
+
+    {% if itens %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Movimentação da conta {{ conta.codigo }} no período</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Histórico</th>
+                    {% if consolidado %}<th scope="col">Conta</th>{% endif %}
+                    <th scope="col">Tipo</th>
+                    <th scope="col">Valor</th>
+                    <th scope="col">Saldo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                    <tr>
+                        <td>{{ item.data|date:"d/m/Y" }}</td>
+                        <td>
+                            <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id item.lancamento_id %}">
+                                {{ item.historico|default:"(sem histórico)" }}
+                            </a>
+                        </td>
+                        {% if consolidado %}<td>{{ item.conta_codigo }} — {{ item.conta_nome }}</td>{% endif %}
+                        <td>{% if item.tipo == "debito" %}Débito{% else %}Crédito{% endif %}</td>
+                        <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                        <td class="valor-monetario">
+                            {{ item.saldo_ptbr }}
+                            {% if item.saldo_natureza %}<span class="indicador-natureza">{{ item.saldo_natureza.letra }}<span class="visualmente-oculto"> ({{ item.saldo_natureza.extenso }})</span></span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="linha-total">
+                    <td colspan="{% if consolidado %}5{% else %}4{% endif %}">
+                        Total do período — Débitos <span class="valor-monetario">{{ total_debito_ptbr }}</span>
+                        / Créditos <span class="valor-monetario">{{ total_credito_ptbr }}</span>
+                    </td>
+                    <td class="valor-monetario">
+                        {{ saldo_final_ptbr }}
+                        {% if saldo_final_natureza %}<span class="indicador-natureza">{{ saldo_final_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_final_natureza.extenso }})</span></span>{% endif %}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    {% elif inicio and fim %}
+        <p>
+            Nenhum lançamento nesta conta no período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}.
+            O saldo permanece
+            <span class="valor-monetario">{{ saldo_final_ptbr }}</span>
+            {% if saldo_final_natureza %}<span class="indicador-natureza">{{ saldo_final_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_final_natureza.extenso }})</span></span>{% endif %}.
+        </p>
+    {% endif %}
+{% endblock %}

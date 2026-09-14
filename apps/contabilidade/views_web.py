@@ -50,6 +50,7 @@ from apps.contabilidade.services import (
     localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
 )
+
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
 # existir uma segunda cópia de nenhuma das duas regras a seguir:
 # - PodeEscriturar: MESMA permissão de escrita que a API usa (indicação
@@ -335,9 +336,7 @@ class ContaCriarForm(forms.ModelForm):
         # pode incluir conta de OUTRA empresa — listar todas do banco
         # vazaria estrutura de plano de contas de outros clientes do
         # escritório.
-        self.fields["conta_pai"].queryset = Conta.objects.filter(empresa=empresa).order_by(
-            "codigo"
-        )
+        self.fields["conta_pai"].queryset = Conta.objects.filter(empresa=empresa).order_by("codigo")
         self.fields["conta_pai"].required = False
 
 
@@ -347,9 +346,7 @@ def conta_nova(request, empresa_id):
         return _resposta_sem_escritorio(request)
     empresa = _empresa_do_escritorio_ativo(request, empresa_id)
     if not _pode_escriturar(request):
-        return _resposta_sem_permissao(
-            request, "Seu papel não permite criar contas nesta empresa."
-        )
+        return _resposta_sem_permissao(request, "Seu papel não permite criar contas nesta empresa.")
 
     if request.method == "POST":
         # A empresa é atribuída à instância ANTES de is_valid() — não é um
@@ -480,16 +477,14 @@ def lancamento_novo(request, empresa_id):
     # inclusive inativas: "não esconder informação contábil" é sobre
     # RELATÓRIO, não sobre a lista de opções de um formulário de entrada).
     contas_disponiveis = list(
-        Conta.objects.filter(empresa=empresa, aceita_lancamento=True, ativo=True).order_by(
-            "codigo"
-        )
+        Conta.objects.filter(empresa=empresa, aceita_lancamento=True, ativo=True).order_by("codigo")
     )
 
     if request.method == "POST":
         acao = request.POST.get("acao")
         try:
             num_linhas = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             num_linhas = LINHAS_INICIAIS_LANCAMENTO
         num_linhas = max(2, min(num_linhas, LINHAS_MAXIMAS_LANCAMENTO))
 
@@ -530,9 +525,7 @@ def lancamento_novo(request, empresa_id):
         contas_por_id = {conta.id: conta for conta in contas_disponiveis}
         for linha in linhas_brutas:
             conta = (
-                contas_por_id.get(int(linha["conta_id"]))
-                if linha["conta_id"].isdigit()
-                else None
+                contas_por_id.get(int(linha["conta_id"])) if linha["conta_id"].isdigit() else None
             )
             if conta is None:
                 # Também cobre o caso de um `conta_id` de OUTRA empresa
@@ -543,7 +536,7 @@ def lancamento_novo(request, empresa_id):
                 continue
             try:
                 valor = _decimal_do_formulario(linha["valor_texto"])
-            except (InvalidOperation, ValueError):
+            except InvalidOperation, ValueError:
                 erros.append(f"Linha {linha['indice']}: valor “{linha['valor_texto']}” inválido.")
                 continue
             if linha["tipo"] not in (TipoPartida.DEBITO, TipoPartida.CREDITO):
@@ -679,7 +672,9 @@ def lancamento_detalhe(request, empresa_id, lancamento_id):
             total_debito += item.valor
         else:
             total_credito += item.valor
-        itens.append({"conta": item.conta, "tipo": item.tipo, "valor_ptbr": _valor_ptbr(item.valor)})
+        itens.append(
+            {"conta": item.conta, "tipo": item.tipo, "valor_ptbr": _valor_ptbr(item.valor)}
+        )
 
     contexto = {
         "empresa": empresa,

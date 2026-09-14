@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block titulo %}Novo lançamento — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa:</span>
+        {{ empresa.razao_social }}
+    </span>
+{% endblock %}
+
+{% block content %}
+    <p>
+        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
+        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
+    </p>
+    <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
+
+    {% if not contas %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta que aceite lançamento e esteja ativa.
+            <a href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Cadastre uma conta</a> antes de lançar.
+        </p>
+    {% else %}
+        <form method="post" class="formulario-lancamento" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="num_linhas" value="{{ num_linhas }}">
+            {% comment %}
+            Idempotência (BL-43, critério 11): o MESMO token acompanha toda
+            esta tentativa de lançamento, inclusive um duplo clique real —
+            o navegador reenvia o MESMO corpo (o mesmo campo oculto) sem
+            depender de JavaScript nenhum. Ver views_web.lancamento_novo.
+            {% endcomment %}
+            <input type="hidden" name="chave_idempotencia" value="{{ chave_idempotencia }}">
+
+            <div class="campo">
+                <label for="id_data">Data</label>
+                <input type="date" id="id_data" name="data" value="{{ data_texto }}" required>
+            </div>
+            <div class="campo">
+                <label for="id_historico">Histórico</label>
+                <input type="text" id="id_historico" name="historico" value="{{ historico }}" maxlength="300">
+            </div>
+
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Partidas do lançamento</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Linha</th>
+                        <th scope="col">Conta</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <th scope="row">
+                                <label for="id_conta_{{ linha.indice }}">Linha {{ linha.indice }}</label>
+                            </th>
+                            <td>
+                                <select id="id_conta_{{ linha.indice }}" name="conta_{{ linha.indice }}">
+                                    <option value="">— Selecione —</option>
+                                    {% for conta in contas %}
+                                        <option value="{{ conta.id }}" {% if linha.conta_id == conta.id|stringformat:"s" %}selected{% endif %}>
+                                            {{ conta.codigo }} — {{ conta.nome }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <label class="visualmente-oculto" for="id_tipo_{{ linha.indice }}">Tipo da linha {{ linha.indice }}</label>
+                                <select id="id_tipo_{{ linha.indice }}" name="tipo_{{ linha.indice }}">
+                                    <option value="">— Selecione —</option>
+                                    <option value="debito" {% if linha.tipo == "debito" %}selected{% endif %}>Débito</option>
+                                    <option value="credito" {% if linha.tipo == "credito" %}selected{% endif %}>Crédito</option>
+                                </select>
+                            </td>
+                            <td>
+                                <label class="visualmente-oculto" for="id_valor_{{ linha.indice }}">Valor da linha {{ linha.indice }}</label>
+                                <input type="text" inputmode="decimal" id="id_valor_{{ linha.indice }}"
+                                       name="valor_{{ linha.indice }}" value="{{ linha.valor_texto }}"
+                                       placeholder="0,00">
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="linha-total">
+                        <td colspan="2">Total conferido antes de gravar</td>
+                        <td>Débito: <span class="valor-monetario">{{ total_debito_ptbr|default:"0,00" }}</span></td>
+                        <td>Crédito: <span class="valor-monetario">{{ total_credito_ptbr|default:"0,00" }}</span></td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="acoes-formulario">
+                {% if pode_adicionar_linha %}
+                    <button type="submit" name="acao" value="adicionar_linha">Adicionar linha</button>
+                {% endif %}
+                <button type="submit" name="acao" value="gravar">Gravar lançamento</button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}
