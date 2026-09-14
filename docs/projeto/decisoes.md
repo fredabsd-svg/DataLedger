@@ -1265,3 +1265,34 @@ inaceitáveis é percorrida pelos **dois** caminhos (tela e API) exigindo o
 (importação de NFS-e, DL-010), ele entra na mesma lista. O achado 1 (não-finitos
 derrubando a tela com 500) é corrigido pelo mesmo movimento, e é a razão de os
 dois andarem juntos.
+
+## DE-028 — Migração automática ao subir é conveniência de desenvolvimento, nunca de produção
+
+**Data:** 2026-09-14. Contexto: o Fred tentou abrir o sistema pelo Docker no
+Windows seguindo **exatamente** o que o README manda, e não conseguiu (BL-100).
+
+**Decisão:** o `command` do serviço `web` no `docker-compose.yml` roda
+`manage.py migrate --noinput` antes do gunicorn. O `CMD` do `Dockerfile`
+**continua sendo só o gunicorn**, e essa diferença é proposital.
+
+### Por que os dois não são iguais
+
+Em desenvolvimento sobe **uma** instância, contra um volume que pode ter
+acabado de nascer vazio. Sem migração automática, a primeira tela devolve erro
+de relação inexistente — e quem está avaliando o produto conclui, com razão, que
+ele não funciona. Foi o que aconteceu: o caminho documentado no README não
+levava a um sistema utilizável.
+
+Em produção sobe **mais de uma** instância da aplicação. Se cada uma migrasse ao
+iniciar, várias executariam o mesmo `migrate` em paralelo na mesma base. Pior:
+uma migração longa passaria a bloquear o start, e um `restart: unless-stopped`
+transformaria falha de migração em laço de reinício. **Migração é passo
+deliberado de implantação** — alguém decide, executa, confere e só então as
+instâncias sobem.
+
+### O limite honesto desta decisão
+
+Ela resolve o ambiente de avaliação e desenvolvimento. **Não** define como a
+migração acontece na implantação em nuvem — isso é do P0 de implantação
+(DE-014), junto com cópia de segurança e restauração testada (BL-33), e continua
+em aberto.

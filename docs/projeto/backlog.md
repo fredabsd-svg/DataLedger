@@ -265,6 +265,25 @@ partidas dobradas está correto e auditado.
 | BL-70 | **Numeração dos livros contábeis** (RC-56). Livro numerado tem sequência controlada, sem buraco e sem repetição, por empresa e por tipo de livro. | `desenvolvedor-pleno` | BL-61 | planejada | Número por empresa e tipo de livro, atribuído na emissão; sequência sem buraco e sem repetição sob concorrência (teste concorrente); um livro emitido não muda de número; teste que prova a recusa de dois livros com o mesmo número. |
 | BL-71 | **Termo de abertura e encerramento** do livro, vinculado ao livro que ele abre e encerra. | `desenvolvedor-pleno` | BL-70 | planejada | Termo referencia número do livro, período e páginas consistentes com o próprio livro; não existe termo sem livro correspondente; teste de coerência entre os dois. |
 
+## P0 — o caminho documentado de subir o sistema não funcionava
+
+Reproduzido **pelo Fred**, na máquina dele, em 2026-09-14, seguindo literalmente
+o que o README manda. Não veio de auditoria: veio de uso.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-100 | **`docker compose up --build` falhava com "container dataledger-db-1 is unhealthy"** num volume novo, com o banco perfeitamente saudável. Duas causas somadas, as duas no `docker-compose.yml`: (a) a verificação de saúde do PostgreSQL **não tinha `start_period`**, então as 5 tentativas de 5 s se esgotavam em ~25 s enquanto o `initdb` ainda rodava — levou **22 s** na máquina do Fred, contra pouco mais de 1 s na integração contínua, e por isso a CI nunca viu; (b) `pg_isready` sem `-h` fala pelo socket Unix, onde o `initdb` sobe um servidor **temporário** que é derrubado em seguida — podia aprovar o servidor errado. Junto, um terceiro defeito do mesmo caminho: o `CMD` da imagem é só o gunicorn, então **nenhuma migração rodava** e o banco subia sem tabela; a primeira tela devolveria erro de relação inexistente. | `arquiteto-senior` | — | **corrigida na branch de trabalho, NÃO TESTADA aqui** | `docker compose up --build` num volume novo, em máquina lenta, chega a `http://localhost:8000/login/` sem intervenção. **Quem verifica é o Fred**, no Windows dele: não existe daemon Docker neste ambiente de desenvolvimento, então a correção foi validada só por `docker compose config` (sintaxe e interpolação) e por leitura. Enquanto ele não confirmar, o item continua aberto. |
+
+### Por que a integração contínua não pegou
+
+Ela nunca sobe o `docker-compose.yml`. Constrói a imagem e roda a suíte contra um
+PostgreSQL de serviço do próprio GitHub Actions — que já nasce pronto. O arquivo
+que o Fred usa para abrir o sistema **não é exercitado por nenhuma verificação
+automática**, e o defeito era de tempo: só aparece em disco lento, em volume
+novo. Entra como item de verificação a decidir (não basta "tomar cuidado": ou
+existe um passo de CI que suba a composição de verdade, ou a limitação fica
+declarada).
+
 ## P0 — achados da auditoria da DL-017 ([rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md))
 
 A etapa foi **REPROVADA** com 2 achados de gravidade alta. O relatório integral

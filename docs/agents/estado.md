@@ -270,12 +270,19 @@ auditoria independente — que é exatamente o motivo de ela existir.
    pela medição do acervo real — primeira fatia é **NFS-e**, não NF-e, porque
    85% do movimento dele é nota de serviço prestado. Os 22 critérios de aceite
    têm número medido por trás. Começa quando a DL-017 (telas) for auditada.
-5. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+5. **BL-100 — aguardando confirmação do Fred.** `docker compose up --build`
+   falhava na máquina dele com "container dataledger-db-1 is unhealthy", num
+   banco perfeitamente saudável: a verificação de saúde não tinha
+   `start_period` e se esgotava durante o `initdb` (22 s lá, ~1 s na CI). Junto,
+   nenhuma migração rodava ao subir. Corrigido em `docker-compose.yml` (DE-028)
+   e no README. **Não testado aqui** — não existe daemon Docker neste ambiente;
+   só `docker compose config` e leitura. Só o Fred pode fechar este item.
+6. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53.
-6. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
+7. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
    vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
    implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
-7. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
+8. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
    documentação" e "Regras do projeto", e bloqueando force push e exclusão.

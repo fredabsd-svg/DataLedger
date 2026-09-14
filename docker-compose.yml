@@ -8,11 +8,37 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dataledger}
     volumes:
       - dataledger_postgres_data:/var/lib/postgresql/data
+    # Duas correções, as duas por defeito REPRODUZIDO na máquina do Fred em
+    # 2026-09-14, com `docker compose up --build` num volume novo (BL-100):
+    #
+    # 1. `start_period`. Faltava. A verificação começava 5 s após o contêiner
+    #    subir, mas o PostgreSQL ainda estava rodando o `initdb` — que levou
+    #    22 s ali, contra pouco mais de 1 s na integração contínua. Com
+    #    `interval: 5s` e `retries: 5`, as cinco tentativas se esgotavam em
+    #    ~25 s, ANTES de o servidor definitivo existir, e o compose declarava
+    #    "container dataledger-db-1 is unhealthy" com o banco perfeitamente
+    #    saudável. Durante o `start_period` a falha não conta para o total de
+    #    tentativas: é exatamente o campo previsto para inicialização lenta.
+    #    90 s dão folga para disco lento, Windows/WSL e primeira criação do
+    #    volume; assim que uma verificação passa, o `web` sobe na hora.
+    #
+    # 2. `-h 127.0.0.1`. Sem host, o `pg_isready` fala pelo socket Unix — e o
+    #    `initdb` sobe um servidor TEMPORÁRIO nesse socket (com
+    #    `listen_addresses` vazio) só para criar o banco, e o derruba em
+    #    seguida. A verificação podia aprovar esse servidor de passagem, o
+    #    `web` subiria contra um banco que estava sendo desligado. Exigindo
+    #    TCP, só o servidor definitivo responde. É corrida rara e de
+    #    diagnóstico horrível; fechada junto porque é a mesma linha.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dataledger}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-dataledger} -d ${POSTGRES_DB:-dataledger}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 90s
 
   web:
     build: .
@@ -25,6 +51,20 @@ services:
       - "8000:8000"
     volumes:
       - staticfiles:/app/staticfiles
+    # Migrações ANTES do gunicorn, e só aqui — o `CMD` do Dockerfile segue
+    # sendo apenas o gunicorn. A diferença é deliberada (DE-028): num
+    # ambiente de desenvolvimento sobe UM contêiner, e o banco vazio de um
+    # volume recém-criado tem de ganhar as tabelas sozinho, senão a primeira
+    # tela devolve erro de relação inexistente. Em produção há mais de uma
+    # instância da aplicação, e várias subindo ao mesmo tempo executariam a
+    # migração em paralelo — migração é passo deliberado de implantação,
+    # não efeito colateral de iniciar processo.
+    command:
+      [
+        "sh",
+        "-c",
+        "python manage.py migrate --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000",
+      ]
 
 volumes:
   dataledger_postgres_data:

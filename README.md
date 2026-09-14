@@ -110,6 +110,16 @@ cp .env.example .env
 docker compose up --build
 ```
 
+O `web` aplica as migrações e sobe o gunicorn em `http://localhost:8000`. Na primeira vez o PostgreSQL cria o volume do zero, e isso pode levar mais de um minuto antes de o `web` começar — é esperado.
+
+Depois que subir, em **outro terminal**, crie o usuário para entrar:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+Então acesse `http://localhost:8000/login/`.
+
 ## 🧪 Verificações de desenvolvimento
 
 ```bash
