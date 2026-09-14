@@ -477,6 +477,13 @@ def _construir_hierarquia(contas):
     Devolve `(contas_por_id, filhos_de, nivel_de)`: `nivel_de(conta_id)` é
     memoizado (toda a árvore já está em memória, então subir até a raiz não
     custa consulta nenhuma, só Python).
+
+    Usada por `apurar_balancete` e `localizar_inconsistencias_de_hierarquia`
+    (achado 9 da conferência), que PRECISAM do nível/da árvore completa da
+    empresa para listar TODAS as contas. `apurar_razao` NÃO usa mais esta
+    função (achados novos 10 e 14, rodada 2 da auditoria): o Razão só
+    precisa da subárvore da conta consultada, e usa `_descendentes_de`, que
+    busca no banco por nível em vez de carregar o plano de contas inteiro.
     """
     contas_por_id = {conta.id: conta for conta in contas}
     filhos_de = defaultdict(list)
@@ -514,23 +521,48 @@ def _construir_hierarquia(contas):
     return contas_por_id, filhos_de, nivel_de
 
 
-def _ids_descendentes(conta_id, filhos_de):
-    """{conta_id} ∪ todos os ids descendentes (qualquer profundidade), via
-    `filhos_de` (mapa já validado por `_construir_hierarquia`). Defesa
-    redundante contra ciclo: se o mapa já foi validado, esta busca nunca
-    deveria revisitar um id, mas a checagem é barata e documenta a
-    invariante em vez de confiar silenciosamente nela.
+def _descendentes_de(conta, empresa):
+    """{conta.id} ∪ todos os ids descendentes (qualquer profundidade), buscados
+    NO BANCO por nível da árvore — NUNCA carrega o plano de contas inteiro da
+    empresa (achados novos 10 e 14 da auditoria da DL-015, rodada 2).
+
+    Antes desta correção, `apurar_razao` chamava `_construir_hierarquia` sobre
+    TODAS as contas da empresa só para consolidar UMA conta e sua subárvore —
+    o que (a) custava uma consulta que crescia com o plano de contas inteiro
+    (achado 10) e (b) fazia um ciclo em QUALQUER ramo do plano derrubar o
+    Razão de QUALQUER conta, mesmo uma sem relação nenhuma com o ciclo
+    (achado 14: um erro em "4"/"4.1" tornava indisponível até o Razão de
+    "1.1 Caixa"). O Razão nunca precisou saber de ANCESTRAIS nem de nível —
+    só de quais contas são descendentes da conta consultada, para decidir se
+    consolida (DE-022) e o que somar.
+
+    Cada iteração deste laço busca só os FILHOS DIRETOS do nível anterior
+    (uma consulta por nível de profundidade da SUBÁRVORE consultada, não da
+    empresa inteira) — para a conta folha, o caso mais comum, é UMA única
+    consulta que devolve zero filhos.
+
+    Levanta `HierarquiaInconsistente`, nomeando a conta, se encontrar um
+    ciclo alcançável a partir desta conta (ela mesma reaparecendo como sua
+    própria descendente) — nunca um laço infinito nem um 500 mudo.
     """
-    ids = set()
-    pilha = [conta_id]
-    while pilha:
-        atual = pilha.pop()
-        if atual in ids:
-            raise HierarquiaInconsistente(
-                f"Ciclo detectado ao consolidar as contas descendentes da conta de id {conta_id}."
+    ids = {conta.id}
+    nivel_atual = [conta.id]
+    while nivel_atual:
+        filhos_ids = list(
+            Conta.objects.filter(empresa=empresa, conta_pai_id__in=nivel_atual).values_list(
+                "id", flat=True
             )
-        ids.add(atual)
-        pilha.extend(filhos_de.get(atual, []))
+        )
+        proximo_nivel = []
+        for filho_id in filhos_ids:
+            if filho_id in ids:
+                raise HierarquiaInconsistente(
+                    "Ciclo detectado na hierarquia de contas ao consolidar as "
+                    f"descendentes da conta {conta.codigo} ({conta.nome})."
+                )
+            ids.add(filho_id)
+            proximo_nivel.append(filho_id)
+        nivel_atual = proximo_nivel
     return ids
 
 
@@ -542,19 +574,28 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     o sinal da natureza da conta. A coluna `saldo`, de cada linha do
     período, acumula a PARTIR do saldo anterior, nunca de zero.
 
-    Conta SINTÉTICA (achado 8 / DE-020): o Razão CONSOLIDA os itens de todas
-    as analíticas subordinadas (qualquer profundidade), em vez de devolver
-    zeros enquanto o Balancete mostra o consolidado — as duas saídas contam
-    a mesma história. O sinal aplicado a CADA item, mesmo vindo de uma
-    descendente com natureza diferente (ex.: retificadora), é sempre o da
-    conta CONSULTADA (o grupo) — mesma decisão do achado 3: a natureza do
-    grupo é aplicada uma única vez, nunca a de cada descendente.
+    Consolidação (achado 8 / DE-020, corrigida pela DE-022 — achado novo 1 da
+    rodada 2): o Razão CONSOLIDA sempre que a conta TIVER DESCENDENTES —
+    nunca mais pela permissão de lançamento (`aceita_lancamento`). Antes desta
+    correção, o critério era `not conta.aceita_lancamento`, e o Balancete já
+    somava "movimento próprio + descendentes" para QUALQUER conta desde a
+    DE-020: uma conta que ACEITA lançamento e TEM filhas (estado que a API
+    cria pelo valor padrão de `aceita_lancamento`, sem exigir nada
+    inconsistente — DE-022 explica por que este estado não é proibido)
+    aparecia no Balancete com o total consolidado e, no Razão da MESMA
+    conta, MESMO período, com zero — porque o Razão nunca entrava no ramo de
+    consolidação. Agora os dois critérios são o MESMO: "tem descendentes".
+    O sinal aplicado a CADA item, mesmo vindo de uma descendente com
+    natureza diferente (ex.: retificadora), é sempre o da conta CONSULTADA
+    (o grupo) — mesma decisão do achado 3: a natureza do grupo é aplicada
+    uma única vez, nunca a de cada descendente (achado novo 9).
 
     `empresa` é exigida explicitamente (achado 10): os itens considerados
     são sempre filtrados também por `lancamento__empresa=empresa`, nunca só
     pela conta — um `ItemLancamento` corrompido (conta de uma empresa,
     lançamento de outra, só alcançável por ORM direto) não pode aparecer no
-    Razão de ninguém.
+    Razão de ninguém. Isto vale TANTO para o saldo anterior quanto para o
+    período (achado novo 5: a primeira correção só cobriu o período).
 
     Devolve um dict com `consolidado` (bool), `saldo_anterior`, `itens`
     (lista de dicts com `lancamento_id`, `data`, `historico`, `conta`,
@@ -564,13 +605,12 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     """
     zero = Decimal("0")
 
-    # Valida a árvore da empresa (ciclo, pai órfão — achado 6) ANTES de
-    # decidir se e o que consolidar.
-    contas_da_empresa = list(Conta.objects.filter(empresa=empresa))
-    _contas_por_id, filhos_de, _nivel_de = _construir_hierarquia(contas_da_empresa)
-
-    consolidado = not conta.aceita_lancamento
-    ids_contas = _ids_descendentes(conta.id, filhos_de) if consolidado else {conta.id}
+    # `_descendentes_de` busca SÓ a subárvore da conta consultada (achados
+    # novos 10 e 14) — nunca a árvore inteira da empresa. `consolidado` é
+    # exatamente "esta conta tem descendentes" (DE-022): `ids_contas` sempre
+    # contém a própria conta, então ter mais de um id É ter descendentes.
+    ids_contas = _descendentes_de(conta, empresa)
+    consolidado = len(ids_contas) > 1
 
     # Uma única consulta agregada para o saldo anterior: soma condicional de
     # débito e crédito separadamente (CASE/WHEN dentro do próprio SUM), sem
@@ -669,9 +709,22 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     creditos)` usando a própria natureza do grupo). Agora bate, em toda
     linha, analítica ou sintética.
 
-    Isso significa que uma conta analítica com filhas (achado 7) soma o
+    Isso significa que uma conta com permissão de lançamento e filhas
+    (achado 7, e achado novo 1 quando a permissão continua `True`) soma o
     próprio movimento MAIS o das filhas — deixa de ser um estado "impossível"
     que descartava o valor das filhas em silêncio.
+
+    O campo `analitica` de cada linha (DE-022, achado novo 1) significa
+    CONTA SEM DESCENDENTES — nunca mais `aceita_lancamento`. Antes desta
+    correção, o Balancete usava `aceita_lancamento` para "analitica" e o
+    Razão usava o MESMO campo para decidir se consolidava: uma conta que
+    aceita lançamento e tem filhas aparecia aqui com o total consolidado
+    (próprio + descendentes, regra já vigente pela DE-020) e marcada
+    `analitica: true` — então somar as linhas marcadas como analíticas
+    contava o valor da conta E o das filhas separadamente, e o total dava o
+    DOBRO do rodapé. Ver `apurar_razao`, que usa o MESMO critério
+    ("tem descendentes") para decidir quando consolidar — as duas saídas
+    agora concordam sobre o que "analítica" significa.
 
     O TOTAL da resposta (`total_debitos`/`total_creditos`) deixa de ser a
     soma das LINHAS exibidas: passa a ser a soma de TODOS os itens do
@@ -797,7 +850,16 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 "conta": conta.codigo,
                 "nome": conta.nome,
                 "nivel": nivel_de(conta.id),
-                "analitica": conta.aceita_lancamento,
+                # DE-022 (achado novo 1, rodada 2): "analítica" significa
+                # CONTA SEM DESCENDENTES (folha da árvore) — não depende de
+                # `aceita_lancamento`. É o que quem lê o balancete precisa
+                # saber para somar as linhas certas sem contar valor em
+                # dobro: uma conta que ACEITA lançamento e TEM filhas soma
+                # próprio + descendentes (regra única, DE-020) e por isso
+                # NÃO é folha — contar a linha dela como "analítica" ao
+                # somar a lista faria a soma das linhas ficar maior que o
+                # rodapé exatamente pelo valor das filhas, contado nas duas.
+                "analitica": conta.id not in filhos_de,
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
@@ -858,8 +920,14 @@ def localizar_lotes_desbalanceados(*, empresa):
 
     `total_debito`/`total_credito`/`quantidade_itens` chegam como atributos
     anotados em cada `LancamentoContabil` (uma única consulta, sem N+1).
-    Quem chama decide o `motivo` ("sem_partidas" quando `quantidade_itens` é
-    menor que 2; "desbalanceado" no caso contrário) e calcula
+    Quem chama decide o `motivo` — TRÊS vias, não duas (achado novo 12):
+    "sem_partidas" (zero itens), "partida_unica" (exatamente um item, que é
+    NECESSARIAMENTE desbalanceado, mas por um motivo diferente de "duas ou
+    mais partidas cuja soma não fecha" — antes da correção, as duas
+    situações compartilhavam o rótulo "sem_partidas", e um lote com uma
+    partida de 5,00 aparecia rotulado "sem_partidas" na MESMA linha em que o
+    total mostrava 5,00, contradizendo a si mesmo) e "desbalanceado" (duas
+    ou mais partidas com débito ≠ crédito) — e calcula
     `diferenca = total_debito - total_credito` (positivo quando o débito
     excede o crédito, negativo no caso contrário — preserva a direção do
     desbalanceamento, útil para quem for investigar).
@@ -924,16 +992,95 @@ def localizar_contas_sinteticas_com_movimento(*, empresa):
     )
 
 
-def localizar_inconsistencias_de_hierarquia(*, empresa):
-    """Tenta validar a árvore de contas da empresa (achado 6, BL-64): ciclo
-    ou `conta_pai` de outra empresa. Devolve a lista de mensagens
-    encontradas (vazia numa base sadia) — NUNCA deixa `HierarquiaInconsistente`
-    subir: esta função existe justamente para que a conferência APONTE o
-    problema, em vez de a rota quebrar com 500.
+def localizar_contas_que_aceitam_lancamento_e_tem_subordinadas(*, empresa):
+    """Contas que ACEITAM lançamento direto e TÊM contas subordinadas
+    (DE-022, achado novo 1 — quarta categoria da conferência, BL-64).
+
+    NÃO é erro nem é bloqueado: a DE-022 decide explicitamente NÃO proibir
+    este estado — planos de contas importados de outros escritórios chegam
+    assim, e a regra única de saldo (DE-020) já garante que o valor não se
+    perde nem duplica, e o Razão e o Balancete já concordam sobre quando
+    consolidar (mesmo critério: "tem descendentes"). Esta categoria existe
+    para o contador ENXERGAR o caso e decidir se quer reclassificar a
+    permissão de lançamento — não para impedir nada.
+
+    Devolve lista vazia se a hierarquia estiver inconsistente (ciclo,
+    `conta_pai` de outra empresa): esse problema já é reportado por
+    `localizar_inconsistencias_de_hierarquia` (achado 6); esta função nunca
+    deve derrubar a conferência com 500 por causa dele.
     """
     contas = list(Conta.objects.filter(empresa=empresa))
     try:
-        _construir_hierarquia(contas)
-    except HierarquiaInconsistente as exc:
-        return [str(exc)]
-    return []
+        _, filhos_de, _ = _construir_hierarquia(contas)
+    except HierarquiaInconsistente:
+        return []
+    return [conta for conta in contas if conta.aceita_lancamento and filhos_de.get(conta.id)]
+
+
+def localizar_inconsistencias_de_hierarquia(*, empresa):
+    """Varre a árvore de contas da empresa (achado 6, BL-64) e devolve TODAS
+    as mensagens de inconsistência encontradas — ciclo ou `conta_pai` de
+    outra empresa — vazia numa base sadia.
+
+    Achado novo 13 (rodada 2): antes, esta função delegava a
+    `_construir_hierarquia`, que LEVANTA na primeira inconsistência
+    encontrada — correto para o caminho de CÁLCULO (Balancete, Razão: não dá
+    para continuar computando saldo com uma árvore quebrada, então falhar
+    cedo é a escolha certa), mas errado para a CONFERÊNCIA, cujo propósito é
+    justamente listar tudo que está torto de uma vez. Um plano com dois
+    ciclos independentes reportava só o primeiro, e corrigir o plano virava
+    tentativa e erro (corrige um, reemite, descobre o próximo).
+
+    Algoritmo: para cada conta ainda não resolvida, sobe pela cadeia de
+    `conta_pai` marcando o caminho percorrido (`no_caminho`). Encontrar uma
+    conta já em `no_caminho` fecha um ciclo (reportado UMA vez, nomeando a
+    conta onde o laço se fechou); encontrar um `conta_pai` fora do mapa da
+    empresa é o órfão (achado 6). Encontrar uma conta já `visitado` (de um
+    percurso anterior, sem problema) termina o percurso ATUAL sem reportar
+    nada — evita reprocessar a mesma cadeia várias vezes e, mais importante,
+    evita reportar o MESMO ciclo mais de uma vez (todo o caminho percorrido
+    entra em `visitado` ao final de cada percurso, com ou sem problema).
+    NUNCA deixa `HierarquiaInconsistente` subir — o problema é dado, não
+    exceção.
+    """
+    contas = list(Conta.objects.filter(empresa=empresa))
+    contas_por_id = {conta.id: conta for conta in contas}
+    mensagens = []
+    visitado = set()
+
+    for conta in contas:
+        if conta.id in visitado:
+            continue
+
+        caminho = []
+        no_caminho = set()
+        atual = conta
+        problema = None
+        while True:
+            if atual.id in no_caminho:
+                problema = (
+                    "Ciclo detectado na hierarquia de contas envolvendo a conta "
+                    f"{atual.codigo} ({atual.nome})."
+                )
+                break
+            if atual.id in visitado:
+                # Este percurso desemboca numa conta JÁ resolvida (de outro
+                # percurso, sem problema) — caminho limpo, nada a reportar.
+                break
+            caminho.append(atual.id)
+            no_caminho.add(atual.id)
+            if atual.conta_pai_id is None:
+                break
+            if atual.conta_pai_id not in contas_por_id:
+                problema = (
+                    f"A conta {atual.codigo} ({atual.nome}) tem uma conta pai que "
+                    "não pertence a esta empresa."
+                )
+                break
+            atual = contas_por_id[atual.conta_pai_id]
+
+        if problema:
+            mensagens.append(problema)
+        visitado.update(caminho)
+
+    return mensagens

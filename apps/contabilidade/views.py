@@ -21,6 +21,7 @@ from apps.contabilidade.services import (
     criar_lancamento,
     estornar_lancamento,
     listar_diario,
+    localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
     localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
@@ -63,13 +64,31 @@ LIMITE_MAGNITUDE_VALOR = Decimal(10) ** (18 - 2)
 # (29/12/2025), sem aviso nenhum. Mesma política já aplicada ao valor
 # monetário (PADRAO_VALOR_DECIMAL_SIMPLES): um sistema contábil não pode
 # reinterpretar a entrada — recusa, não adivinha.
-_PADRAO_DATA_SIMPLES = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#
+# `[0-9]`, não `\d` (achado novo 11, rodada 2): em Python, `\d` casa QUALQUER
+# dígito Unicode, não só ASCII — "٢٠٢٦-٠١-٠١" (dígitos arábico-índicos) e
+# "２０２６-０１-０１" (dígitos largos) passavam por esta regex e só eram
+# recusados, por acidente, pelo comportamento de `date.fromisoformat` mais
+# abaixo. `[0-9]` casa exclusivamente os dez dígitos ASCII.
+_PADRAO_DATA_SIMPLES = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
-# Formato ESTRITO aceito para `nivel` (achado 12): um ou mais dígitos, sem
-# sinal, sem espaço e sem "_" como separador. Verificado ANTES de `int()`,
-# que aceita "1_0" (convertido para 10), " 2 " e "+2" sem avisar — mesma
-# classe de reinterpretação silenciosa que a checagem acima evita para data.
-_PADRAO_NIVEL_SIMPLES = re.compile(r"^\d+$")
+# Formato ESTRITO aceito para `nivel` (achado 12): um ou mais dígitos ASCII
+# (`[0-9]`, não `\d` — mesmo motivo do padrão de data acima, achado novo 11),
+# sem sinal, sem espaço e sem "_" como separador. Verificado ANTES de
+# `int()`, que aceita "1_0" (convertido para 10), " 2 " e "+2" sem avisar —
+# mesma classe de reinterpretação silenciosa que a checagem acima evita para
+# data. Também aceitaria QUALQUER dígito Unicode ("٢") se usássemos `\d`.
+_PADRAO_NIVEL_SIMPLES = re.compile(r"^[0-9]+$")
+
+# Teto superior para `nivel` (achado novo 11): nenhum plano de contas real
+# chega a esta profundidade — é só para recusar um valor absurdo como
+# "999999999999999999999999999999" (que o Python aceitaria como inteiro de
+# precisão arbitrária sem erro nenhum) em vez de deixá-lo percorrer o
+# cálculo de nível sem produzir efeito útil. Generoso o bastante para não
+# incomodar nenhum plano de contas real (a hierarquia mais profunda do
+# domínio contábil, no material de referência do projeto, tem poucos
+# níveis — ver docs/projeto/mapa-funcional-contabil.md).
+NIVEL_MAXIMO = 50
 
 
 def _como_moeda(valor):
@@ -148,8 +167,15 @@ def _nivel_opcional(request):
         nivel = int(bruto)
     except ValueError as exc:
         raise DRFValidationError(f"'nivel' inválido: '{bruto}' não é um número inteiro.") from exc
-    if nivel < 1:
-        raise DRFValidationError("'nivel' deve ser maior ou igual a 1 (a raiz é o nível 1).")
+    if nivel < 1 or nivel > NIVEL_MAXIMO:
+        # achado novo 11: limite SUPERIOR explícito, além do mínimo já
+        # existente — sem ele, um valor absurdo como
+        # "999999999999999999999999999999" (inteiro Python válido, sem
+        # limite de tamanho) seria aceito sem recusa nenhuma.
+        raise DRFValidationError(
+            f"'nivel' deve ser um número inteiro entre 1 e {NIVEL_MAXIMO} "
+            "(a raiz do plano de contas é o nível 1)."
+        )
     return nivel
 
 
@@ -161,14 +187,27 @@ PodeEscriturar = papel_permitido(
 )
 
 # Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,
-# conferência): DE-020, resposta ao achado 11. Decisão imediata e
+# conferência) — e, desde o achado novo 2 da rodada 2, TAMBÉM o `GET` de
+# `ContaListCreateView` (plano de contas) e de `LancamentoListCreateView`
+# (Diário "crú", sem período): DE-020 §4, corrigida. Decisão imediata e
 # conservadora do arquiteto-senior: o papel CLIENTE deixa de ler a
 # contabilidade — antes, qualquer usuário com vínculo de papel CLIENTE no
 # escritório lia o Diário (com histórico), o Razão e o Balancete completos
 # de TODOS os outros clientes do mesmo escritório, o que é sigilo de
-# cliente contra cliente, não apenas permissão fina. Os demais papéis
-# vinculados ao escritório seguem lendo, até uma matriz fina por módulo
-# (PE-36).
+# cliente contra cliente, não apenas permissão fina.
+#
+# A DE-020 §4 original listava só as QUATRO rotas criadas por esta etapa
+# (Diário, Razão, Balancete, conferência) — e ficou pela metade: o CLIENTE
+# continuava lendo a MESMA escrituração completa por `GET .../lancamentos/`
+# (sem período, com histórico e partidas) e o plano de contas por
+# `GET .../contas/`. O critério correto, daqui em diante: NENHUMA rota
+# devolve escrituração, plano de contas ou saldo a quem não pode ler
+# contabilidade — independentemente de quando a rota foi criada. As rotas de
+# ESCRITURAÇÃO (POST das duas views abaixo) continuam usando `PodeEscriturar`,
+# sem mudança — só a LEITURA passou a exigir este papel.
+#
+# Os demais papéis vinculados ao escritório seguem lendo, até uma matriz fina
+# por módulo (PE-36).
 PodeLerContabilidade = papel_permitido(
     Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO, Papel.PARALEGAL
 )
@@ -182,6 +221,10 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         permissions = [permission() for permission in self.permission_classes]
         if self.request.method == "POST":
             permissions.append(PodeEscriturar())
+        else:
+            # achado novo 2: leitura do plano de contas segue a MESMA regra
+            # das outras saídas contábeis — o papel CLIENTE não lê.
+            permissions.append(PodeLerContabilidade())
         return permissions
 
     def get_queryset(self):
@@ -268,6 +311,14 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
         permissions = [permission() for permission in self.permission_classes]
         if self.request.method == "POST":
             permissions.append(PodeEscriturar())
+        else:
+            # achado novo 2: esta rota devolvia a escrituração completa
+            # (histórico, valores, partidas) a qualquer papel vinculado ao
+            # escritório, inclusive CLIENTE — era o "caminho fácil" que
+            # continuava aberto depois da DE-020 §4 original, porque a
+            # decisão citava só as quatro rotas novas (Diário, Razão,
+            # Balancete, conferência) e não esta, que já existia antes.
+            permissions.append(PodeLerContabilidade())
         return permissions
 
     def get_queryset(self):
@@ -461,10 +512,17 @@ class DiarioView(EmpresaEscopadaMixin, APIView):
 class RazaoView(EmpresaEscopadaMixin, APIView):
     """Razão de uma conta no período: saldo anterior, itens e saldo final (BL-60, DL-015).
 
-    Conta sintética (achado 8 / DE-020): o extrato CONSOLIDA os itens das
-    analíticas subordinadas — a resposta declara `"analitica": false` e
-    `"consolidado": true` para que quem lê saiba que está vendo o grupo, não
-    uma conta com movimento próprio.
+    Consolidação (achado 8 / DE-020, corrigida pela DE-022): o extrato
+    CONSOLIDA sempre que a conta TIVER DESCENDENTES — a resposta declara
+    `"analitica": false` e `"consolidado": true` para que quem lê saiba que
+    está vendo o grupo, não uma conta com movimento próprio. `"analitica"`
+    é sempre o NEGATIVO de `"consolidado"` (as duas descrevem a mesma
+    pergunta — "esta conta tem descendentes?" — só que em polaridades
+    opostas): antes da correção do achado novo 1, este campo vinha de
+    `conta.aceita_lancamento`, um critério DIFERENTE do que decidia a
+    consolidação, e uma conta que aceita lançamento e tem filhas aparecia
+    marcada `"analitica": true` com o Razão zerado, enquanto o Balancete da
+    MESMA conta trazia o total consolidado.
     """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
@@ -503,7 +561,11 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
             {
                 "conta": conta.codigo,
                 "nome": conta.nome,
-                "analitica": conta.aceita_lancamento,
+                # DE-022 (achado novo 1): "analitica" é o NEGATIVO de
+                # "consolidado" — o mesmo critério ("tem descendentes?"),
+                # nunca mais `conta.aceita_lancamento`. Ver docstring da
+                # classe.
+                "analitica": not apuracao["consolidado"],
                 "consolidado": apuracao["consolidado"],
                 "inicio": inicio.isoformat(),
                 "fim": fim.isoformat(),
@@ -569,21 +631,43 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
     (achados 2 e 6); esta rota existe para achar o que foi gravado ou
     alterado por outro caminho (ex.: acesso direto ao ORM).
 
-    Três categorias, cada uma reportada mesmo que as outras estejam vazias:
+    Quatro categorias, cada uma reportada mesmo que as outras estejam vazias:
 
-    - `lotes`: lançamentos com menos de duas partidas (`motivo`
-      "sem_partidas") ou com débito diferente de crédito (`motivo`
-      "desbalanceado") — achado 9.
+    - `lotes`: lançamentos com menos de duas partidas — `motivo`
+      "sem_partidas" (zero itens) ou "partida_unica" (exatamente um item) —
+      ou com débito diferente de crédito (`motivo` "desbalanceado") —
+      achado 9, rótulo de três vias corrigido pelo achado novo 12 (antes,
+      um lote com UMA partida de 5,00 aparecia como "sem_partidas" na MESMA
+      linha em que o total mostrava 5,00 — a própria ferramenta de
+      diagnóstico se contradizia).
     - `contas_sinteticas_com_movimento`: contas marcadas como sintéticas que
       já têm itens de lançamento próprios — achado 2.
+    - `contas_que_aceitam_lancamento_e_tem_subordinadas`: quarta categoria
+      (DE-022, achado novo 1) — conta que aceita lançamento direto E tem
+      contas subordinadas. NÃO é erro nem é bloqueado (a DE-022 explica por
+      quê); é só para o contador enxergar o caso.
     - `hierarquia_inconsistente`: mensagens descrevendo ciclo ou
-      `conta_pai` de outra empresa no plano de contas — achado 6.
+      `conta_pai` de outra empresa no plano de contas — achado 6, agora
+      acumulando TODAS as inconsistências encontradas, não só a primeira
+      (achado novo 13).
     """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
 
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
+
+        def _motivo(lancamento):
+            # Achado novo 12: três motivos, não dois — "sem_partidas" (zero
+            # itens) e "partida_unica" (um item) são casos DIFERENTES de
+            # "desbalanceado" (duas ou mais partidas cuja soma não fecha), e
+            # confundi-los fazia a própria conferência se contradizer (uma
+            # linha dizendo "sem_partidas" ao lado de um total de 5,00).
+            if lancamento.quantidade_itens == 0:
+                return "sem_partidas"
+            if lancamento.quantidade_itens == 1:
+                return "partida_unica"
+            return "desbalanceado"
 
         lotes = [
             {
@@ -593,7 +677,7 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
                 "total_debito": _como_moeda(lancamento.total_debito),
                 "total_credito": _como_moeda(lancamento.total_credito),
                 "diferenca": _como_moeda(lancamento.total_debito - lancamento.total_credito),
-                "motivo": "sem_partidas" if lancamento.quantidade_itens < 2 else "desbalanceado",
+                "motivo": _motivo(lancamento),
             }
             for lancamento in localizar_lotes_desbalanceados(empresa=empresa)
         ]
@@ -608,10 +692,18 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
             for conta in localizar_contas_sinteticas_com_movimento(empresa=empresa)
         ]
 
+        contas_que_aceitam_lancamento_e_tem_subordinadas = [
+            {"conta": conta.codigo, "nome": conta.nome}
+            for conta in localizar_contas_que_aceitam_lancamento_e_tem_subordinadas(empresa=empresa)
+        ]
+
         return Response(
             {
                 "lotes": lotes,
                 "contas_sinteticas_com_movimento": contas_sinteticas_com_movimento,
+                "contas_que_aceitam_lancamento_e_tem_subordinadas": (
+                    contas_que_aceitam_lancamento_e_tem_subordinadas
+                ),
                 "hierarquia_inconsistente": localizar_inconsistencias_de_hierarquia(
                     empresa=empresa
                 ),

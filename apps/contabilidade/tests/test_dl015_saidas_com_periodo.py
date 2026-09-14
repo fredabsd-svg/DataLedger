@@ -26,7 +26,7 @@ from apps.contabilidade.models import (
     TipoConta,
     TipoPartida,
 )
-from apps.contabilidade.services import criar_lancamento, estornar_lancamento
+from apps.contabilidade.services import criar_lancamento, estornar_lancamento, listar_diario
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -1778,7 +1778,12 @@ def test_conferencia_distingue_lote_sem_partidas_de_lote_desbalanceado(client, c
 
     lotes = {lote["id"]: lote for lote in response.json()["lotes"]}
     assert lotes[lote_vazio.id]["motivo"] == "sem_partidas"
-    assert lotes[lote_unico.id]["motivo"] == "sem_partidas"
+    # Achado novo 12: um lote com UMA partida é "partida_unica", não
+    # "sem_partidas" — antes desta correção, os dois rótulos eram os
+    # mesmos, e a linha de "lote_unico" dizia "sem_partidas" ao lado de um
+    # total de 5,00, contradizendo a si mesma (a mesma falha de coerência
+    # interna que o achado 3 apontou, agora na ferramenta de diagnóstico).
+    assert lotes[lote_unico.id]["motivo"] == "partida_unica"
     assert lotes[lote_desbalanceado.id]["motivo"] == "desbalanceado"
     assert lotes[lote_desbalanceado.id]["diferenca"] == "1.00"
 
@@ -1854,6 +1859,14 @@ def test_item_de_lancamento_de_outra_empresa_nao_aparece_no_razao_nem_no_balance
 def test_leitura_das_quatro_rotas_de_contabilidade_depende_do_papel(
     client, cenario, papel, status_esperado
 ):
+    # Achado novo 2 (rodada 2): estendido de QUATRO para TODAS as rotas de
+    # LEITURA de contabilidade — `contas/` (plano de contas) e
+    # `lancamentos/` (Diário "crú", sem período) continuavam devolvendo a
+    # escrituração completa ao papel CLIENTE depois da correção original,
+    # porque a permissão só tinha sido aplicada às quatro rotas CRIADAS por
+    # esta etapa (Diário, Razão, Balancete, conferência), não a estas duas,
+    # que já existiam antes. O nome do teste ficou histórico; o comentário
+    # documenta o alcance real.
     _usuario_com_papel(papel, cenario["escritorio_a"], f"usuario-{papel.value}")
     client.login(username=f"usuario-{papel.value}", password="senha-forte-123")
     periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
@@ -1863,10 +1876,45 @@ def test_leitura_das_quatro_rotas_de_contabilidade_depende_do_papel(
         reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["caixa"].id]),
         reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
         reverse("contabilidade:conferencia-lotes-desbalanceados", args=[cenario["empresa_a"].id]),
+        reverse("contabilidade:contas", args=[cenario["empresa_a"].id]),
+        reverse("contabilidade:lancamentos", args=[cenario["empresa_a"].id]),
     ]
     for rota in rotas:
         response = client.get(rota, periodo)
         assert response.status_code == status_esperado, rota
+
+
+def test_leitura_de_lancamentos_e_contas_pelo_cliente_nao_devolve_a_escrituracao(client, cenario):
+    """Achado novo 2, evidência de CONTEÚDO (não só o status): antes desta
+    correção, `GET .../lancamentos/` devolvia a escrituração inteira —
+    histórico, valores e partidas — ao papel CLIENTE, mesmo sem período.
+    Reproduz literalmente o corpo mostrado no relatório da auditoria.
+    """
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 5),
+        historico="SEGREDO do cliente X: NF 123 de Fulano",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("9999.99")},
+            {
+                "conta": cenario["capital"],
+                "tipo": TipoPartida.CREDITO,
+                "valor": Decimal("9999.99"),
+            },
+        ],
+    )
+    _usuario_com_papel(Papel.CLIENTE, cenario["escritorio_a"], "cliente-sem-acesso")
+    client.login(username="cliente-sem-acesso", password="senha-forte-123")
+
+    resposta_lancamentos = client.get(
+        reverse("contabilidade:lancamentos", args=[cenario["empresa_a"].id])
+    )
+    resposta_contas = client.get(reverse("contabilidade:contas", args=[cenario["empresa_a"].id]))
+
+    assert resposta_lancamentos.status_code == 403
+    assert "SEGREDO" not in resposta_lancamentos.content.decode()
+    assert resposta_contas.status_code == 403
+    assert "Caixa" not in resposta_contas.content.decode()
 
 
 # ---------------------------------------------------------------------------
@@ -1889,6 +1937,64 @@ def test_balancete_recusa_formato_de_data_fora_do_contrato_aaaa_mm_dd(client, ce
 
 @pytest.mark.parametrize("nivel", ["1_0", " 2 ", "+2"])
 def test_balancete_recusa_nivel_fora_do_formato_numerico_simples(client, cenario, nivel):
+    _autenticar(client, cenario["escritorio_a"])
+
+    response = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {"inicio": "2026-01-01", "fim": "2026-01-31", "nivel": nivel},
+    )
+
+    assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 11 — `nivel` e data recusam dígito Unicode; `nivel` tem teto
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "inicio",
+    [
+        "٢٠٢٦-٠١-٠١",  # dígitos arábico-índicos — \d os aceitava, [0-9] não
+        "２０２６-０１-０１",  # dígitos largos (fullwidth)
+    ],
+)
+def test_balancete_recusa_data_com_digito_unicode_nao_ascii(client, cenario, inicio):
+    _autenticar(client, cenario["escritorio_a"])
+
+    response = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {"inicio": inicio, "fim": "2026-01-31"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_padrao_data_simples_recusa_digito_nao_ascii_na_propria_regex():
+    """A regex `_PADRAO_DATA_SIMPLES`, testada DIRETAMENTE — não pelo
+    comportamento da rota. O relatório da auditoria registrou que, para
+    data, o buraco na regex era "fechado por acidente" por
+    `date.fromisoformat` (que já recusa dígito não-ASCII por conta própria);
+    ou seja, o teste comportamental acima NÃO discrimina `\\d` de `[0-9]` —
+    os dois dão 400, um pela regex, outro pelo fromisoformat. Esta checagem
+    prova a regex em si, independente desse acidente.
+    """
+    from apps.contabilidade.views import _PADRAO_DATA_SIMPLES
+
+    assert _PADRAO_DATA_SIMPLES.fullmatch("2026-01-01")
+    assert not _PADRAO_DATA_SIMPLES.fullmatch("٢٠٢٦-٠١-٠١")
+    assert not _PADRAO_DATA_SIMPLES.fullmatch("２０２６-０１-０１")
+
+
+@pytest.mark.parametrize(
+    "nivel",
+    [
+        "٢",  # dígito arábico-índico para "2" — antes era aceito como nível 2
+        "２",  # dígito largo (fullwidth) para "2"
+        "999999999999999999999999999999",  # inteiro Python válido, sem teto
+    ],
+)
+def test_balancete_recusa_nivel_com_digito_unicode_ou_acima_do_teto(client, cenario, nivel):
     _autenticar(client, cenario["escritorio_a"])
 
     response = client.get(
@@ -2001,3 +2107,764 @@ def test_diario_numero_de_consultas_nao_cresce_e_tem_teto_explicito(
 
     with django_assert_max_num_queries(10):
         client.get(reverse("contabilidade:diario", args=[empresa.id]), periodo)
+
+
+# ===========================================================================
+# Achados novos da auditoria da DL-015, rodada 2
+# (docs/auditorias/2026-09-14-dl-015-rodada-2.md). Reprovada.
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 1 — DE-022: "analítica" = folha da árvore. Razão e Balancete
+# concordam sobre quando consolidar, mesmo quando a conta ACEITA lançamento
+# e TEM filhas (estado que a API cria pelo valor padrão de
+# `aceita_lancamento`, sem exigir nada inconsistente — DE-022 explica por
+# que este estado NÃO é proibido).
+# ---------------------------------------------------------------------------
+
+
+def test_de022_conta_que_aceita_lancamento_e_tem_filha_bate_razao_e_balancete(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+
+    # Reprodução do achado novo 1, 100% pela API: pai e filha criados SEM
+    # desmarcar `aceita_lancamento` (o valor padrão do modelo é `True`).
+    resposta_pai = client.post(
+        reverse("contabilidade:contas", args=[cenario["empresa_a"].id]),
+        data={
+            "codigo": "4",
+            "nome": "Despesas operacionais",
+            "tipo": TipoConta.DESPESA,
+            "natureza": NaturezaConta.DEVEDORA,
+        },
+        content_type="application/json",
+    )
+    assert resposta_pai.status_code == 201
+    assert resposta_pai.json()["aceita_lancamento"] is True
+    pai_id = resposta_pai.json()["id"]
+
+    resposta_filha = client.post(
+        reverse("contabilidade:contas", args=[cenario["empresa_a"].id]),
+        data={
+            "codigo": "4.1",
+            "nome": "Aluguel",
+            "tipo": TipoConta.DESPESA,
+            "natureza": NaturezaConta.DEVEDORA,
+            "conta_pai": pai_id,
+        },
+        content_type="application/json",
+    )
+    assert resposta_filha.status_code == 201
+    filha = Conta.objects.get(pk=resposta_filha.json()["id"])
+
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 5),
+        historico="Aluguel de janeiro",
+        itens=[
+            {"conta": filha, "tipo": TipoPartida.DEBITO, "valor": Decimal("1500.00")},
+            {
+                "conta": cenario["capital"],
+                "tipo": TipoPartida.CREDITO,
+                "valor": Decimal("1500.00"),
+            },
+        ],
+    )
+
+    balancete = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]), periodo
+    ).json()
+    razao_pai = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, pai_id]), periodo
+    ).json()
+
+    linha_pai = next(linha for linha in balancete["contas"] if linha["conta"] == "4")
+    # "4" tem descendente ("4.1") -> não é folha -> não é "analitica" (DE-022).
+    assert linha_pai["analitica"] is False
+    assert linha_pai["debitos"] == "1500.00"
+    assert linha_pai["saldo_final"] == "1500.00"
+
+    # (i) Razão(pai) bate com a linha do Balancete(pai) nos QUATRO valores —
+    # a prova central do achado (mesma conta, mesmo período, mesma história).
+    assert razao_pai["consolidado"] is True
+    assert razao_pai["analitica"] is False
+    assert razao_pai["saldo_anterior"] == linha_pai["saldo_anterior"]
+    assert razao_pai["total_debito"] == linha_pai["debitos"]
+    assert razao_pai["total_credito"] == linha_pai["creditos"]
+    assert razao_pai["saldo_final"] == linha_pai["saldo_final"]
+
+    # (ii) a soma das linhas marcadas como "analitica" (folha, DE-022)
+    # reconcilia com o total_debitos — COM e SEM `nivel`. Antes da correção,
+    # "4" e "4.1" seriam AS DUAS marcadas `analitica: true` (o critério era
+    # `aceita_lancamento`, e nenhuma delas foi desmarcada), e a soma daria
+    # 3000,00 contra um rodapé de 1500,00.
+    soma_folhas = sum(
+        Decimal(linha["debitos"]) for linha in balancete["contas"] if linha["analitica"]
+    )
+    assert soma_folhas == Decimal(balancete["total_debitos"]) == Decimal("1500.00")
+
+    balancete_com_nivel = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {**periodo, "nivel": "2"},
+    ).json()
+    soma_folhas_com_nivel = sum(
+        Decimal(linha["debitos"]) for linha in balancete_com_nivel["contas"] if linha["analitica"]
+    )
+    assert (
+        soma_folhas_com_nivel == Decimal(balancete_com_nivel["total_debitos"]) == Decimal("1500.00")
+    )
+
+    # (iii) a conferência aponta "4" na quarta categoria (DE-022) — não como
+    # erro, só como um caso que o contador pode querer olhar.
+    conferencia = client.get(
+        reverse("contabilidade:conferencia-lotes-desbalanceados", args=[cenario["empresa_a"].id])
+    ).json()
+    codigos_apontados = {
+        item["conta"] for item in conferencia["contas_que_aceitam_lancamento_e_tem_subordinadas"]
+    }
+    assert "4" in codigos_apontados
+    assert "4.1" not in codigos_apontados  # "4.1" não tem subordinada — não entra
+
+
+def test_de022_movimento_proprio_no_pai_e_na_filha_nao_perde_nem_dobra(client, cenario):
+    """Segunda reprodução do achado novo 1: movimento PRÓPRIO no pai (60,00)
+    E na filha (40,00) — o relatório mediu Razão do pai em 60,00 (ou 0,00)
+    contra Balancete em 100,00 (ou 1500,00), e soma das linhas analíticas em
+    1140,00 contra rodapé de 1100,00.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+    pai = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="5",
+        nome="Resultado",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+        # aceita_lancamento NÃO foi desmarcado — fica no padrão True.
+    )
+    filha = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="5.1",
+        nome="Resultado detalhe",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=pai,
+    )
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 5),
+        historico="Movimento do pai",
+        itens=[
+            {"conta": pai, "tipo": TipoPartida.DEBITO, "valor": Decimal("60.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("60.00")},
+        ],
+    )
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 10),
+        historico="Movimento da filha",
+        itens=[
+            {"conta": filha, "tipo": TipoPartida.DEBITO, "valor": Decimal("40.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("40.00")},
+        ],
+    )
+
+    balancete = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]), periodo
+    ).json()
+    razao_pai = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, pai.id]), periodo
+    ).json()
+    linha_pai = next(linha for linha in balancete["contas"] if linha["conta"] == "5")
+
+    assert linha_pai["debitos"] == "100.00"  # 60 (próprio) + 40 (filha)
+    assert razao_pai["total_debito"] == linha_pai["debitos"] == "100.00"
+    assert razao_pai["saldo_final"] == linha_pai["saldo_final"]
+
+    soma_folhas = sum(
+        Decimal(linha["debitos"])
+        for linha in balancete["contas"]
+        if linha["analitica"] and linha["conta"] in {"5", "5.1"}
+    )
+    assert soma_folhas == Decimal("40.00")  # só "5.1" é folha; "5" tem descendente
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 3 — caso de referência do Fred (mapa-funcional-contabil.md,
+# seção "Conta retificadora, apresentação de saldo e implantação") e
+# achado novo 9 — sinal do Razão consolidado em grupo com retificadora
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cenario_imobilizado_fred(cenario):
+    """Grupo "Imobilizado" com duas contas de bens e uma retificadora, e o
+    lançamento ÚNICO de implantação de saldos que o Fred enviou — números
+    literais de docs/projeto/mapa-funcional-contabil.md, seção "Conta
+    retificadora, apresentação de saldo e implantação":
+
+        1.2.3.03.001 Máquinas e equipamentos ......... 1.437,50 D
+        1.2.3.04.001 Veículos ......................... 29.900,00 D
+        1.2.3.07.003 (-) Depreciações de máq. e equip. .. 2.074,18 C
+        1.2.3        Imobilizado (grupo) ............... 29.263,32 D
+
+    O lançamento de implantação (mapa: "um único lançamento, do tipo vários
+    débitos para vários créditos, datado na data de encerramento do balanço
+    anterior — tipicamente 31/12") precisa fechar (débito = crédito) na
+    TOTALIDADE, não dentro do grupo — por isso o lado credor que falta
+    (29.263,32) entra em "Capital Social", representando o resto do balanço
+    que também compõe a implantação.
+    """
+    imobilizado = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="1.2.3",
+        nome="Imobilizado",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    maquinas = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="1.2.3.03.001",
+        nome="Máquinas e equipamentos",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=imobilizado,
+    )
+    veiculos = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="1.2.3.04.001",
+        nome="Veículos",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=imobilizado,
+    )
+    depreciacao = Conta.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="1.2.3.07.003",
+        nome="(-) Depreciações de máquinas e equipamentos",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.CREDORA,  # retificadora: natureza OPOSTA ao grupo
+        conta_pai=imobilizado,
+    )
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2023, 12, 31),  # encerramento do balanço anterior
+        historico="Implantação de saldos - balanço de 31/12/2023",
+        itens=[
+            {"conta": maquinas, "tipo": TipoPartida.DEBITO, "valor": Decimal("1437.50")},
+            {"conta": veiculos, "tipo": TipoPartida.DEBITO, "valor": Decimal("29900.00")},
+            {"conta": depreciacao, "tipo": TipoPartida.CREDITO, "valor": Decimal("2074.18")},
+            {
+                "conta": cenario["capital"],
+                "tipo": TipoPartida.CREDITO,
+                "valor": Decimal("29263.32"),
+            },
+        ],
+    )
+    return {
+        **cenario,
+        "imobilizado": imobilizado,
+        "maquinas": maquinas,
+        "veiculos": veiculos,
+        "depreciacao": depreciacao,
+    }
+
+
+def test_caso_referencia_fred_grupo_imobilizado_fecha_em_29263_32(client, cenario_imobilizado_fred):
+    c = cenario_imobilizado_fred
+    _autenticar(client, c["escritorio_a"])
+    periodo = {"inicio": "2023-01-01", "fim": "2023-12-31"}
+
+    balancete = client.get(
+        reverse("contabilidade:balancete", args=[c["empresa_a"].id]), periodo
+    ).json()
+    linhas = {linha["conta"]: linha for linha in balancete["contas"]}
+
+    assert linhas["1.2.3.03.001"]["debitos"] == "1437.50"
+    assert linhas["1.2.3.03.001"]["saldo_final"] == "1437.50"
+    assert linhas["1.2.3.04.001"]["debitos"] == "29900.00"
+    assert linhas["1.2.3.04.001"]["saldo_final"] == "29900.00"
+    assert linhas["1.2.3.07.003"]["creditos"] == "2074.18"
+    assert linhas["1.2.3.07.003"]["saldo_final"] == "2074.18"
+
+    grupo = linhas["1.2.3"]
+    assert grupo["debitos"] == "31337.50"
+    assert grupo["creditos"] == "2074.18"
+    assert grupo["saldo_final"] == "29263.32"  # o número do balanço do Fred
+
+
+def test_razao_consolidado_de_grupo_com_retificadora_aplica_natureza_do_grupo(
+    client, cenario_imobilizado_fred
+):
+    """Achado novo 9: o Razão consolidado do MESMO grupo (mesmo cenário do
+    caso de referência do Fred) tem que aplicar a natureza do GRUPO, não a
+    de cada descendente — inclusive na coluna "saldo" linha a linha.
+    """
+    c = cenario_imobilizado_fred
+    _autenticar(client, c["escritorio_a"])
+    periodo = {"inicio": "2023-01-01", "fim": "2023-12-31"}
+
+    razao_grupo = client.get(
+        reverse("contabilidade:razao", args=[c["empresa_a"].id, c["imobilizado"].id]), periodo
+    ).json()
+
+    assert razao_grupo["consolidado"] is True
+    assert razao_grupo["analitica"] is False
+    assert razao_grupo["total_debito"] == "31337.50"
+    assert razao_grupo["total_credito"] == "2074.18"
+    assert razao_grupo["saldo_final"] == "29263.32"
+
+    # Coluna "saldo" linha a linha: os itens vêm em ordem cronológica; como
+    # os três compartilham lançamento e criado_em, o desempate é por id, na
+    # ordem em que foram criados (máquinas, veículos, depreciação).
+    saldos = [item["saldo"] for item in razao_grupo["itens"]]
+    assert saldos == ["1437.50", "31337.50", "29263.32"]
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 4 — rodapé do Balancete não pode somar movimento ANTERIOR ao
+# período (limite inferior da agregação do TOTAL, sem teste até agora)
+# ---------------------------------------------------------------------------
+
+
+def test_balancete_rodape_nao_soma_movimento_anterior_ao_periodo(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2023, 12, 1),  # ANTES do período consultado
+        historico="Movimento anterior ao período",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("800.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("800.00")},
+        ],
+    )
+
+    response = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
+    )
+
+    corpo = response.json()
+    # Sem NENHUM movimento dentro do período, o rodapé tem que ser ZERO —
+    # não o valor do movimento anterior. O mutante N05 (remover
+    # `lancamento__data__gte=inicio` da agregação do total) faz o rodapé
+    # somar o movimento anterior mesmo assim, e ainda assim "fechar"
+    # (débito = crédito), sem nada acusar.
+    assert corpo["total_debitos"] == corpo["total_creditos"] == "0.00"
+    linha_caixa = next(linha for linha in corpo["contas"] if linha["conta"] == "1.1")
+    assert linha_caixa["saldo_anterior"] == "800.00"
+    assert linha_caixa["debitos"] == "0.00"
+
+
+def test_balancete_rodape_traz_so_o_movimento_de_dentro_do_periodo(client, cenario):
+    """Segundo caso do achado novo 4: movimento ANTES, DENTRO e DEPOIS do
+    período — o rodapé só pode trazer o de DENTRO.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2023, 12, 1),
+        historico="Antes",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("800.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("800.00")},
+        ],
+    )
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 15),
+        historico="Dentro",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("50.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("50.00")},
+        ],
+    )
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 2, 10),
+        historico="Depois",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("30.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("30.00")},
+        ],
+    )
+
+    response = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
+    )
+
+    corpo = response.json()
+    assert corpo["total_debitos"] == corpo["total_creditos"] == "50.00"
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 5 — Razão: `saldo_anterior` também precisa filtrar por
+# `lancamento__empresa` (a correção anterior só cobriu o PERÍODO)
+# ---------------------------------------------------------------------------
+
+
+def test_razao_saldo_anterior_nao_soma_item_de_lancamento_de_outra_empresa(client, cenario):
+    # Mesma corrupção do achado 10 (item de A apontando para conta de B),
+    # mas datada ANTES do período consultado — caminho do `saldo_anterior`,
+    # que o teste original do achado 10 não exercitava (ele cria o item
+    # cruzado DENTRO do período).
+    lancamento_a = criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2023, 12, 1),  # antes do período que será consultado em B
+        historico="Lançamento de A",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("100.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("100.00")},
+        ],
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento_a,
+        conta=cenario["caixa_b"],
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("7.00"),
+    )
+
+    _autenticar(client, cenario["escritorio_b"], username="gestor-b")
+    razao_b = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_b"].id, cenario["caixa_b"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
+    ).json()
+
+    # O mutante N08 (remover `lancamento__empresa` do agregado do saldo
+    # anterior) faria os 7,00 do item corrompido entrarem aqui.
+    assert razao_b["saldo_anterior"] == "0.00"
+    assert razao_b["saldo_final"] == "0.00"
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 6 — ItemLancamento.clean() exige mesma empresa; admin não
+# oferece inclusão de lançamento (BL-79)
+# ---------------------------------------------------------------------------
+
+
+def test_item_lancamento_clean_recusa_conta_de_outra_empresa(cenario):
+    lancamento = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
+    )
+    item = ItemLancamento(
+        lancamento=lancamento,
+        conta=cenario["caixa_b"],  # conta da empresa B
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("100.00"),
+    )
+
+    with pytest.raises(ValidationError):
+        item.full_clean()
+
+
+def test_item_lancamento_clean_aceita_conta_da_mesma_empresa(cenario):
+    lancamento = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
+    )
+    item = ItemLancamento(
+        lancamento=lancamento,
+        conta=cenario["caixa"],  # conta da empresa A, mesma do lançamento
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("100.00"),
+    )
+
+    item.full_clean(exclude=["id"])  # não deve levantar
+
+
+@pytest.mark.parametrize(
+    "itens",
+    [
+        # (a) item de conta de OUTRA empresa
+        [("caixa", "debito", "100.00"), ("caixa_b", "debito", "7.00")],
+        # (b) lote desbalanceado
+        [("caixa", "debito", "100.00"), ("capital", "credito", "90.00")],
+        # (c) lote sem nenhuma partida
+        [],
+    ],
+)
+def test_admin_recusa_inclusao_de_lancamento_nos_tres_casos_do_relatorio(
+    client, cenario, itens, django_user_model
+):
+    """Achado novo 6: os três casos que a auditoria gravou pela tela de
+    inclusão do admin (`admin:contabilidade_lancamentocontabil_add`) agora
+    são recusados — porque a inclusão está DESABILITADA
+    (`has_add_permission=False`), não porque o formulário validou cada
+    caso. Os três têm que dar 403 e nada pode ser gravado.
+    """
+    django_user_model.objects.create_superuser(
+        username="admin-teste", email="admin@escritorio.com.br", password="senha-forte-123"
+    )
+    client.login(username="admin-teste", password="senha-forte-123")
+    total_lancamentos_antes = LancamentoContabil.objects.count()
+    total_itens_antes = ItemLancamento.objects.count()
+
+    dados = {
+        "empresa": cenario["empresa_a"].id,
+        "data": "2024-01-09",
+        "historico": "Tentativa via admin",
+        "itens-TOTAL_FORMS": str(len(itens)),
+        "itens-INITIAL_FORMS": "0",
+        "itens-MIN_NUM_FORMS": "0",
+        "itens-MAX_NUM_FORMS": "1000",
+    }
+    for i, (conta_chave, tipo, valor) in enumerate(itens):
+        dados[f"itens-{i}-conta"] = str(cenario[conta_chave].id)
+        dados[f"itens-{i}-tipo"] = tipo
+        dados[f"itens-{i}-valor"] = valor
+
+    response = client.post(
+        "/admin/contabilidade/lancamentocontabil/add/",
+        data=dados,
+    )
+
+    assert response.status_code == 403
+    assert LancamentoContabil.objects.count() == total_lancamentos_antes
+    assert ItemLancamento.objects.count() == total_itens_antes
+
+
+def test_admin_nao_oferece_botao_de_inclusao_de_lancamento(client, django_user_model):
+    django_user_model.objects.create_superuser(
+        username="admin-teste2", email="admin2@escritorio.com.br", password="senha-forte-123"
+    )
+    client.login(username="admin-teste2", password="senha-forte-123")
+
+    response = client.get("/admin/contabilidade/lancamentocontabil/")
+
+    assert response.status_code == 200
+    # O link para a tela de inclusão (".../lancamentocontabil/add/") não
+    # pode aparecer na listagem quando `has_add_permission` é False —
+    # evitamos depender do TEXTO do botão (varia com a tradução ativa).
+    assert "/contabilidade/lancamentocontabil/add/" not in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 7 — ordenação do Diário observável independentemente do banco
+# ---------------------------------------------------------------------------
+
+
+def test_listar_diario_declara_ordenacao_por_data_criado_em_e_id(cenario):
+    """Em vez de confiar que o banco, por acaso, devolve a ordem certa
+    quando duas linhas têm `data` e `criado_em` iguais (o que fazia o teste
+    antigo passar mesmo com o mutante S05 — `order_by` só por "data" — já
+    que o PostgreSQL devolvia a ordem de inserção, coincidindo com o id
+    neste cenário específico), verificamos a CLÁUSULA DE ORDENAÇÃO do
+    próprio queryset — independente de como o banco decide desempatar.
+    """
+    queryset = listar_diario(
+        empresa=cenario["empresa_a"], inicio=date(2024, 1, 1), fim=date(2024, 1, 31)
+    )
+
+    assert queryset.query.order_by == ("data", "criado_em", "id")
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 10 — teto de consultas no Razão e na conferência
+# ---------------------------------------------------------------------------
+
+
+def test_razao_numero_de_consultas_tem_teto_explicito(
+    client, cenario, django_assert_max_num_queries
+):
+    _autenticar(client, cenario["escritorio_a"])
+    empresa = cenario["empresa_a"]
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+    client.get(
+        reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo
+    )  # aquecimento
+
+    with django_assert_max_num_queries(10):
+        resposta = client.get(
+            reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo
+        )
+    assert resposta.status_code == 200
+
+
+def test_razao_numero_de_consultas_nao_cresce_com_tamanho_do_plano_de_contas(client, cenario):
+    """Achados novos 10 e 14: o Razão de uma conta FOLHA não pode mais
+    carregar o plano de contas inteiro da empresa — `_descendentes_de` só
+    consulta a subárvore da conta pedida. Prova por comparação: o número de
+    consultas do Razão de "Caixa" (folha, sem filhos) tem que ser o MESMO
+    com 2 contas extra no plano e com 200.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    empresa = cenario["empresa_a"]
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+    client.get(
+        reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo
+    )  # aquecimento
+
+    with CaptureQueriesContext(connection) as poucas_contas:
+        client.get(reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo)
+
+    for i in range(200):
+        Conta.objects.create(
+            empresa=empresa,
+            codigo=f"9.{i}",
+            nome=f"Conta extra {i}",
+            tipo=TipoConta.ATIVO,
+            natureza=NaturezaConta.DEVEDORA,
+        )
+
+    with CaptureQueriesContext(connection) as muitas_contas:
+        client.get(reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo)
+
+    assert len(muitas_contas) == len(poucas_contas)
+
+
+def test_conferencia_numero_de_consultas_tem_teto_explicito(
+    client, cenario, django_assert_max_num_queries
+):
+    _autenticar(client, cenario["escritorio_a"])
+    empresa = cenario["empresa_a"]
+    client.get(
+        reverse("contabilidade:conferencia-lotes-desbalanceados", args=[empresa.id])
+    )  # aquecimento
+
+    with django_assert_max_num_queries(10):
+        resposta = client.get(
+            reverse("contabilidade:conferencia-lotes-desbalanceados", args=[empresa.id])
+        )
+    assert resposta.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 13 — a conferência de hierarquia acumula TODAS as
+# inconsistências, não só a primeira
+# ---------------------------------------------------------------------------
+
+
+def test_conferencia_aponta_todos_os_ciclos_independentes_da_hierarquia(client, cenario):
+    empresa = cenario["empresa_a"]
+    a1 = Conta.objects.create(
+        empresa=empresa,
+        codigo="A1",
+        nome="A1",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    a2 = Conta.objects.create(
+        empresa=empresa,
+        codigo="A2",
+        nome="A2",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=a1,
+    )
+    Conta.objects.filter(pk=a1.id).update(conta_pai=a2.id)  # ciclo A1 <-> A2
+
+    b1 = Conta.objects.create(
+        empresa=empresa,
+        codigo="B1",
+        nome="B1",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    b2 = Conta.objects.create(
+        empresa=empresa,
+        codigo="B2",
+        nome="B2",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=b1,
+    )
+    Conta.objects.filter(pk=b1.id).update(conta_pai=b2.id)  # ciclo B1 <-> B2, INDEPENDENTE
+
+    _autenticar(client, cenario["escritorio_a"])
+    response = client.get(
+        reverse("contabilidade:conferencia-lotes-desbalanceados", args=[empresa.id])
+    )
+
+    inconsistencias = response.json()["hierarquia_inconsistente"]
+    assert len(inconsistencias) == 2
+    texto = " ".join(inconsistencias)
+    assert "A1" in texto
+    assert "B1" in texto
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 14 — ciclo em um ramo não derruba o Razão de conta sem
+# relação; guarda de reclassificação não acusa quem não reclassificou
+# ---------------------------------------------------------------------------
+
+
+def test_razao_de_conta_sem_relacao_com_ciclo_continua_disponivel(client, cenario):
+    """Um ciclo entre DUAS contas (sem relação com "Caixa") não pode mais
+    derrubar o Razão de "Caixa" — antes desta correção, `apurar_razao`
+    validava a árvore INTEIRA da empresa antes de decidir o que consolidar.
+    """
+    empresa = cenario["empresa_a"]
+    x1 = Conta.objects.create(
+        empresa=empresa,
+        codigo="8",
+        nome="X1",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    x2 = Conta.objects.create(
+        empresa=empresa,
+        codigo="8.1",
+        nome="X2",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=x1,
+    )
+    Conta.objects.filter(pk=x1.id).update(conta_pai=x2.id)  # ciclo x1 <-> x2
+
+    _autenticar(client, cenario["escritorio_a"])
+    response = client.get(
+        reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]),
+        {"inicio": "2024-01-01", "fim": "2024-01-31"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_conta_clean_nao_acusa_reclassificacao_em_edicao_que_nao_toca_aceita_lancamento(cenario):
+    """Uma conta JÁ em estado legado (sintética com movimento, alcançada só
+    por `.update()` direto no ORM — a mesma via da auditoria) não pode ter
+    QUALQUER outra edição (aqui, renomear) bloqueada com uma mensagem que
+    acusa o usuário de estar reclassificando, quando ele não tocou
+    `aceita_lancamento` nesta gravação.
+    """
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 5),
+        historico="Lançamento",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("500.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("500.00")},
+        ],
+    )
+    Conta.objects.filter(pk=cenario["caixa"].id).update(aceita_lancamento=False)  # estado legado
+
+    caixa = Conta.objects.get(pk=cenario["caixa"].id)
+    caixa.nome = "Caixa (renomeada)"  # não toca aceita_lancamento
+
+    caixa.full_clean()  # não deve levantar
+    caixa.save()
+
+    assert Conta.objects.get(pk=caixa.id).nome == "Caixa (renomeada)"
+
+
+def test_conta_clean_continua_recusando_a_transicao_real_para_sintetica(cenario):
+    """Continua recusando quando a TRANSIÇÃO é real nesta gravação (estava
+    True no banco, o `full_clean()` está mudando para False agora) — não é
+    uma regressão do achado novo 14, é a checagem de que a guarda continua
+    valendo para o caso que ela existe para impedir.
+    """
+    criar_lancamento(
+        empresa=cenario["empresa_a"],
+        data=date(2024, 1, 5),
+        historico="Lançamento",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("500.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("500.00")},
+        ],
+    )
+    caixa = Conta.objects.get(pk=cenario["caixa"].id)
+    caixa.aceita_lancamento = False
+
+    with pytest.raises(ValidationError):
+        caixa.full_clean()

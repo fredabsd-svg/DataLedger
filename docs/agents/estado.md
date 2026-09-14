@@ -1,6 +1,6 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, na revisão `05f93f0`, branch
+Atualizado em **2026-09-14**, na revisão `b8c701d`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
 
 > **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
@@ -196,7 +196,7 @@ diverge.
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred (laço original, monograma, razonete); quarta execução é o **conceito do próprio Fred em vetor limpo** | **Aguardando aprovação do Fred** na branch de trabalho; a `main` ainda mostra o razonete (PR #16) |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
-| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Em correção, rodada 3.** Onda 1 integrada em `8f2c209` ([reprovada na rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md), 14 achados); correções em `05f93f0` ([reprovada na rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md), 12 dos 14 corrigidos, 14 achados novos, 2 de gravidade alta) |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Em correção, rodada 3.** Onda 1 integrada em `8f2c209` ([reprovada na rodada 1](../auditorias/2026-09-13-dl-015-rodada-1.md), 14 achados); correções em `05f93f0` ([reprovada na rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md), 12 dos 14 corrigidos, 14 achados novos, 2 de gravidade alta); segunda correção integrada e **em auditoria rodada 3** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -216,7 +216,7 @@ achados voltam ao responsável, e só então há commit.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais (XML, ZIP, SPED bloco C) | **Planejada, não iniciada** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (BL-46) | **Cinco rodadas.** 1 reprovada; 2 a 4 aprovadas com ressalvas; 5 **liberada para encerramento** |
 
-A suíte foi de **55 para 364 testes** (173 só em contabilidade). O PR #11 levou DL-007 a DL-009 à `main`,
+A suíte foi de **55 para 392 testes** (201 só em contabilidade), e passou a rodar em **15 s** em vez de 199 s, depois de BL-80. O PR #11 levou DL-007 a DL-009 à `main`,
 com as quatro verificações da integração contínua verdes.
 
 Registro honesto de erros do próprio `arquiteto-senior`, já corrigidos e

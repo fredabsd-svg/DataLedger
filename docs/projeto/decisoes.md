@@ -1014,3 +1014,41 @@ alternativa que o auditor ofereceu. Recusei por duas razões:
 A regra continua sendo a da DE-020 §1: **nenhum arranjo de plano de contas pode
 fazer valor sumir nem aparecer duas vezes.** Proibição é conveniência; a
 aritmética correta é obrigação.
+
+## DE-023 — O admin do Django não cria lançamento contábil
+
+**Data:** 2026-09-14. Origem: achado novo 6 da
+[auditoria rodada 2](../auditorias/2026-09-14-dl-015-rodada-2.md). Decisão
+tomada pelo `desenvolvedor-pleno` sob delegação explícita e **ratificada por
+mim**, com o registro formal aqui, como ele pediu no relatório.
+
+**Decisão:** `LancamentoContabilAdmin` deixa de oferecer inclusão. O lançamento
+contábil só nasce por `criar_lancamento`.
+
+### Por quê
+
+O auditor gravou, pela tela de administração, três coisas que a regra do projeto
+proíbe: item com conta de outra empresa, lote com débito diferente de crédito, e
+lote sem nenhuma partida. Nenhum passava por `criar_lancamento`, que é onde as
+invariantes contábeis vivem.
+
+A alternativa seria reimplementar as validações no formulário do admin. Recusada:
+teríamos **duas** implementações da mesma regra contábil, e a segunda existiria
+só para atender a uma tela de manutenção que ninguém usa para escriturar. Duas
+implementações da mesma regra divergem — é o mesmo argumento que motivou a fonte
+única do estado.
+
+### O que isso não resolve, e fica declarado
+
+O admin continua permitindo **alterar** o que existe, e a proteção nesse caminho
+continua sendo o `save()` do modelo, que recusa alteração de lançamento
+efetivado. `ItemLancamento` ganhou `clean()` exigindo que conta e lançamento
+sejam da mesma empresa — o que fecha o caminho pelo formulário, mas não pelo
+`QuerySet.update()`. A garantia de banco continua sendo **BL-78**, na DL-016.
+
+### Consequência operacional
+
+Se um dia for preciso gravar lançamento fora do fluxo normal — uma migração de
+dados, uma correção excepcional —, o caminho é um comando de gestão que chama
+`criar_lancamento`, não a tela de administração. Isso mantém a trilha e as
+invariantes, e deixa rastro do que foi feito.
