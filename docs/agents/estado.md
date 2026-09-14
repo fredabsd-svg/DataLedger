@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. Correção em curso, BL-115 a BL-124 |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Onze achados da rodada 3 corrigidos**, 608 testes em árvore limpa; rodada 4 em execução |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,14 +248,23 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir a
-   rodada 3 e reauditar.** A [rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md)
-   **reprovou**. O bloqueador da rodada 2 fechou (55 textos medidos; `1.000`
-   vale mil) e dez das onze correções estão fechadas por medição do auditor —
-   mas a correção do R2-10 **criou** um achado de gravidade alta: um POST com
-   `num_linhas` grande prende a requisição, e o `gunicorn` sobe com **um** worker
-   síncrono. Não corrompe dado; **nega o serviço**. É BL-115, e bloqueia a
-   rodada 4. Junto, BL-116 a BL-124.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — rodada 4 da
+   auditoria, EM EXECUÇÃO.** Os onze achados da
+   [rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md) estão corrigidos e
+   integrados na branch. Verificado por mim em árvore limpa (`b271e9bf`):
+   **608 testes**, e a sequência inteira da CI limpa — `ruff check`,
+   `ruff format --check` (115 arquivos), `manage.py check`, `migrate` em banco
+   vazio, `makemigrations --check` e `collectstatic`.
+
+   Duas mutações minhas, reaplicadas e medidas: desligar a recusa por
+   `num_linhas` derruba **4** testes; estreitar de volta a busca de índice de
+   linha derruba **4**. Desfeitas, `sha256` idêntico e 403 aprovados em
+   `apps/contabilidade`. O bloqueador de negação de serviço fecha: 10¹² linhas
+   passaram de **sem retorno em 45 s** para **0,000 s**, medido por mim na
+   função e por HTTP pelo implementador.
+
+   **Nada disso é aprovação.** Quem aprova é a rodada 4, sobre a versão
+   integrada — e só então vai para a `main`.
 
    **Padrão desta etapa, nomeado na rodada 3:** três vezes a correção de um
    achado criou ou deixou aberto o seguinte. A causa é minha — escrevo tarefas
