@@ -1,6 +1,6 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, na revisão `b8c701d`, branch
+Atualizado em **2026-09-14**, logo após a revisão `f24c078`, branch
 `claude/accounting-agent-team-setup-mn6lyf`.
 
 > **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
@@ -10,6 +10,13 @@ Atualizado em **2026-09-14**, na revisão `b8c701d`, branch
 > identificador `DL-xxx` apareça aqui e no README, não que o texto esteja
 > atual. Quem atualiza este arquivo confere **a revisão e a contagem de
 > testes**, não só a lista de etapas.
+>
+> **Armadilha descoberta ao corrigir isso, registrada para a próxima sessão:**
+> um arquivo **não consegue citar o hash do commit que o contém** — o hash só
+> existe depois de o conteúdo estar fechado, e qualquer `--amend` o muda de
+> novo. Tentei e gravei um hash que nunca chegou a existir na branch. A
+> convenção que passa a valer: citar a revisão **anterior** ("logo após
+> `<hash>`"), que é verificável, em vez de fingir citar a própria.
 
 Este documento existe para que outra sessão retome o trabalho sem reconstruir o
 contexto. **Processos de agentes não sobrevivem ao encerramento da sessão** —
