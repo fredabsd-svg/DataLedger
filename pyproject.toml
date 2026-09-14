@@ -1,7 +1,19 @@
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-extend-exclude = ["*/migrations/*"]
+# `docs/**` está aqui por um motivo de integridade, não de estilo: o ruff
+# formata blocos de código Python dentro de arquivos Markdown, e
+# `docs/auditorias/` guarda os relatórios do `auditor-qa` **como foram
+# entregues**. O arquiteto-senior não edita, suaviza nem omite achado algum —
+# e uma ferramenta automática não pode fazer pelo processo o que o processo
+# proíbe a uma pessoa. Descoberto em 2026-09-14: `ruff format --check`
+# reprovou o relatório da rodada 2 da DL-017 por causa do alinhamento de um
+# comentário dentro de um bloco ```python que o auditor copiou do código
+# auditado. Formatar aquele bloco mudaria a citação.
+#
+# Não há código Python de produção sob `docs/`; a exclusão não abre buraco de
+# verificação. Se um dia houver, ele sai de `docs/` — não se tira esta linha.
+extend-exclude = ["*/migrations/*", "docs/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]

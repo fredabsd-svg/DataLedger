@@ -156,18 +156,67 @@ def test_tela_e_api_recusam_o_mesmo_texto_nunca_500(client, cen, texto):
     assert LancamentoContabil.objects.count() == antes
 
 
-@pytest.mark.parametrize("texto", ["100.00", "1", "0.50", "1500.00"])
-def test_tela_e_api_aceitam_o_mesmo_texto_sem_virgula(client, cen, texto):
-    """Controle positivo da equivalência: um texto SEM vírgula, já no
-    formato que `para_decimal` aceita (dígitos, ponto decimal opcional), é
-    gravado pelos dois caminhos — a correção não pode ter passado a
-    recusar formatos válidos.
+# ---------------------------------------------------------------------------
+# DE-029 (rodada 2): este teste SUBSTITUI o antigo
+# `test_tela_e_api_aceitam_o_mesmo_texto_sem_virgula`, que parametrizava
+# ["100.00", "1", "0.50", "1500.00"] como "controle positivo da
+# equivalência". Essa premissa estava ERRADA: os quatro textos são o
+# formato CANÔNICO DA API (ponto como separador DECIMAL), não pt-BR — e a
+# DE-029 institui uma gramática pt-BR explícita (`^[+-]?(\d+|\d{1,3}
+# (\.\d{3})+)(,\d{1,2})?$`) que RECUSA três deles na tela ("100.00",
+# "0.50", "1500.00": nenhum é grupo de milhar bem formado). Isso não é
+# regressão — é exatamente o comportamento que fechou o bloqueador R2-1
+# ("1.000" gravado como 1,00): "10.00"/"100.00" deixam de ser
+# reinterpretados como pt-BR "por acidente", porque deixam de ser aceitos
+# nenhuma leitura.
+#
+# Os dois testes abaixo separam o que era uma única afirmação confusa em
+# duas verdadeiras: um texto pt-BR bem formado (dígitos, ponto de milhar a
+# cada três casas, vírgula de centavos) grava o MESMO valor nos dois
+# caminhos; um texto no formato canônico da API (ponto DECIMAL) é
+# RECUSADO pela tela e ACEITO pela API — divergência intencional, prevista
+# na própria DE-029.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("texto", ["1", "1000", "1.000", "0,50", "1.234.567,89"])
+def test_tela_e_api_aceitam_o_mesmo_texto_quando_e_pt_br_valido(client, cen, texto):
+    """DE-029: para um texto DENTRO da gramática pt-BR (dígitos sem
+    separador, ou agrupados de três em três por ponto, com centavos
+    opcionais depois da vírgula), a tela grava o mesmo valor que a API
+    grava para a TRADUÇÃO desse mesmo texto (pontos de milhar removidos,
+    vírgula decimal virada ponto) — a única tradução de locale que a tela
+    faz, e a mesma que ela aplica internamente antes de perguntar a
+    `para_decimal`.
     """
     _login(client, cen)
-    resposta_tela = _post_tela(client, cen, texto, chave=f"tela-ok-{texto}")
+    resposta_tela = _post_tela(client, cen, texto, chave=f"tela-ptbr-{texto}")
     assert resposta_tela.status_code == 302, (texto, resposta_tela.status_code)
 
-    resposta_api = _post_api(client, cen, texto, chave=f"api-ok-{texto}")
+    traduzido = texto.replace(".", "").replace(",", ".")
+    resposta_api = _post_api(client, cen, traduzido, chave=f"api-ptbr-{texto}")
+    assert resposta_api.status_code == 201, (texto, resposta_api.status_code, resposta_api.content)
+
+
+@pytest.mark.parametrize("texto", ["100.00", "0.50", "1500.00", "10.00"])
+def test_tela_recusa_formato_canonico_da_api_por_nao_ser_pt_br(client, cen, texto):
+    """DE-029: ponto como separador DECIMAL ("100.00") não é uma leitura
+    pt-BR válida — não é grupo de milhar bem formado (exige exatamente
+    três dígitos após cada ponto). A tela RECUSA (recusar é o
+    comportamento CORRETO: reinterpretar seria adivinhar entre duas
+    leituras possíveis do mesmo texto); a API, que fala o formato dela
+    mesma, ACEITA o texto literal. A divergência é intencional e
+    documentada na DE-029 ("10.00 passa a ser recusado, e isso é
+    correto") — diferente da equivalência que se aplica ao que ESTÁ
+    dentro da gramática de cada porta (teste acima).
+    """
+    _login(client, cen)
+    antes = LancamentoContabil.objects.count()
+    resposta_tela = _post_tela(client, cen, texto, chave=f"tela-canonico-{texto}")
+    assert resposta_tela.status_code == 400, (texto, resposta_tela.status_code)
+    assert LancamentoContabil.objects.count() == antes
+
+    resposta_api = _post_api(client, cen, texto, chave=f"api-canonico-{texto}")
     assert resposta_api.status_code == 201, (texto, resposta_api.status_code, resposta_api.content)
 
 

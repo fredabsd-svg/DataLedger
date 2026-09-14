@@ -68,7 +68,15 @@ from apps.contabilidade.services import (
 #   chega ao INSERT do Postgres pela tela e vira 500 (`DataError`), porque
 #   `criar_lancamento` (services.py) não os verifica: ele confia que quem
 #   chama (API ou tela) já filtrou a entrada bruta do usuário.
+# - _PADRAO_NIVEL_SIMPLES: MESMO padrão `^[0-9]+$` (não `\d`, que casaria
+#   QUALQUER dígito Unicode) que a API usa para validar 'nivel' — achado
+#   R2-2 da rodada 2: esta tela tinha uma cópia frouxa (`bruto.isdigit()`)
+#   que aceitava dígito índico-arábico/fullwidth em silêncio E não
+#   protegia `int()` de um texto de milhares de dígitos (`ValueError:
+#   Exceeds the limit… for integer string conversion`, um 500 alcançável
+#   só por uma URL). Ver `_nivel_do_formulario` abaixo.
 from apps.contabilidade.views import (
+    _PADRAO_NIVEL_SIMPLES,
     LIMITE_MAGNITUDE_VALOR,
     TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA,
     TAMANHO_MAXIMO_HISTORICO,
@@ -270,13 +278,32 @@ def _nivel_do_formulario(request):
 
     Ausente (ou vazio) devolve `None` — sem recorte de hierarquia, igual à
     API. Presente e malformado vira mensagem de erro, nunca um 500.
+
+    R2-2 (rodada 2 da auditoria da DL-017): antes desta correção, o guarda
+    de formato era `bruto.isdigit()` — que é `True` para QUALQUER dígito
+    decimal Unicode, não só ASCII (`"٢".isdigit()` é `True`, e essa tela
+    interpretava como nível 2 em silêncio um texto que a API já recusa por
+    contrato — a mesma classe do achado 2 da rodada 1, em outro campo).
+    Pior: nada protegia o `int()` seguinte, e `int("9" * 5000)` levanta
+    `ValueError: Exceeds the limit (4300 digits) for integer string
+    conversion` — um 500 alcançável só por uma URL colada/favoritada
+    (`?nivel=...`), sem tocar em campo de formulário nenhum. A API já tinha
+    as duas lições aplicadas em `_PADRAO_NIVEL_SIMPLES` (`[0-9]`, não `\\d`)
+    e no `try/except ValueError` em volta do `int()` — reaproveitado aqui,
+    não duplicado.
     """
     bruto = request.GET.get("nivel", "").strip()
     if not bruto:
         return None, None
-    if not bruto.isdigit():
+    if not _PADRAO_NIVEL_SIMPLES.fullmatch(bruto):
         return None, "'Nível' deve ser um número inteiro."
-    nivel = int(bruto)
+    try:
+        nivel = int(bruto)
+    except ValueError:
+        # Só alcançável por um texto absurdamente longo (o padrão acima já
+        # garante só dígitos ASCII 0-9): o limite de conversão do próprio
+        # Python, não um valor inválido no sentido do contrato desta tela.
+        return None, f"'Nível' deve ser um número inteiro entre 1 e {NIVEL_MAXIMO}."
     if nivel < 1 or nivel > NIVEL_MAXIMO:
         return None, f"'Nível' deve ser um número inteiro entre 1 e {NIVEL_MAXIMO}."
     return nivel, None
@@ -423,30 +450,65 @@ def conta_nova(request, empresa_id):
 # ---------------------------------------------------------------------------
 
 
+# DE-029 — substitui a cláusula de tradução da DE-027, que estava ERRADA.
+# A DE-027 dizia "vírgula decimal vira ponto, separador de milhar sai", mas
+# o código só tirava o ponto quando havia vírgula: "1.000" (mil reais em
+# pt-BR) era gravado como 1,00 — bloqueador da rodada 2 da auditoria da
+# DL-017, na `main` desde o PR #18. A causa raiz não é um `if` esquecido: é
+# que "1.000" é AMBÍGUO (mil reais em pt-BR; um real no formato canônico da
+# API) e não existe função de tradução bem definida sobre um texto ambíguo
+# — corrigir o código para "sempre tirar o ponto" resolveria "1.000" e
+# quebraria "10.00" no sentido oposto (dez reais viraria mil).
+#
+# A saída, como em todo lugar deste módulo monetário, é NUNCA adivinhar:
+# uma gramática pt-BR EXPLÍCITA, e texto fora dela é recusado — nunca
+# reinterpretado. Dígitos sem separador ALGUM, ou dígitos agrupados de três
+# em três por ponto (grupo de milhar bem formado: exatamente três dígitos
+# após cada ponto), com centavos opcionais depois da vírgula.
+#
+# "10.00"/"1.00" são RECUSADOS de propósito: não são grupo de milhar bem
+# formado (".00" tem só dois dígitos) — são o formato CANÔNICO DA API
+# (ponto como separador DECIMAL), não uma leitura pt-BR válida. Essa
+# divergência entre tela e API para textos fora da gramática pt-BR é
+# intencional (ver docs/projeto/decisoes.md, DE-029).
+#
+# `[0-9]`, não `\d`: mesma lição já aplicada em `_PADRAO_NIVEL_SIMPLES`
+# (achado R2-2 desta rodada) e em `PADRAO_VALOR_DECIMAL_SIMPLES`
+# (`apps.core.dinheiro`, achado R2-7) — `\d` do Python casa QUALQUER
+# dígito decimal Unicode ("０１０" fullwidth, "١٢٣" índico-arábico, "๑๐"
+# tailandês), não só ASCII 0-9. Sem esta troca, a gramática desta tela
+# aceitaria esses textos em silêncio; `para_decimal` (segunda camada,
+# chamada depois da tradução) já recusa todos eles hoje, então não havia
+# furo ativo — mas manter `\d` aqui deixaria um julgador frouxo na
+# PRIMEIRA camada, quando a segunda for a única linha de defesa não
+# deveria ser por acidente.
+_GRAMATICA_VALOR_PTBR = re.compile(r"^[+-]?([0-9]+|[0-9]{1,3}(\.[0-9]{3})+)(,[0-9]{1,2})?$")
+
+
 def _decimal_do_formulario(texto):
-    """Converte o texto digitado no campo de valor (pt-BR: vírgula decimal,
-    ponto como separador de milhar opcional) para `Decimal`.
+    """Converte o texto digitado no campo de valor (pt-BR) para `Decimal`.
 
-    DE-027 (achados 1 e 2 da auditoria da DL-017, rodada 1): esta função faz
-    UMA ÚNICA coisa com o texto — troca a vírgula decimal pelo ponto — e
-    entrega o resultado para `apps.core.dinheiro.para_decimal`, que é quem
-    JULGA se aquele texto é uma representação aceitável de dinheiro (mesmo
-    módulo que a API usa em `_extrair_itens`, views.py). Antes desta
-    correção, a função construía `Decimal(bruto)` diretamente: o construtor
-    do Python é mais permissivo do que o contrato monetário do projeto (
-    aceita notação científica, "_" como separador de dígitos, e não rejeita
-    `NaN`/`Infinity`), então a TELA tinha se tornado a porta mais frouxa da
-    mesma invariante que a API aplica de propósito — "1e3" era gravado como
-    1.000,00, e "NaN"/"Infinity" chegavam a `_valor_ptbr` (achado 1) e
-    derrubavam a tela com 500 ao tentar formatá-los na mensagem de recusa.
+    DUAS camadas, nesta ordem — DE-029 (rodada 2) sobre DE-027 (rodada 1):
 
-    Não faz `.strip()` do texto antes de julgar o formato: espaço em volta
-    ("10,00 ") é rejeitado por `para_decimal` (o mesmo espaço que a API
-    também rejeita, pelo mesmo motivo — "não reinterpretar em silêncio o
-    que foi digitado", docstring de `PADRAO_VALOR_DECIMAL_SIMPLES`), não
-    silenciosamente descartado. Quem chama já garante que o texto não é
-    puramente vazio antes de chegar aqui (`_linhas_lancamento_do_post`
-    trata "" como linha em branco).
+    1. `_GRAMATICA_VALOR_PTBR` julga se o texto é uma representação pt-BR
+       BEM FORMADA (a única coisa que só esta tela pode saber — a API não
+       fala pt-BR). Texto fora da gramática é recusado AQUI, com mensagem
+       que ensina o formato — nunca "corrigido" ou reinterpretado.
+    2. Só o que casou a gramática é TRADUZIDO (pontos de milhar somem,
+       vírgula decimal vira ponto — a única tradução de locale que esta
+       tela faz, agora comprovadamente segura: a gramática já garantiu que
+       cada ponto restante é um separador de milhar válido) e entregue a
+       `apps.core.dinheiro.para_decimal`, que é quem julga se o resultado é
+       uma representação aceitável de dinheiro em geral (mesmo módulo que a
+       API usa em `_extrair_itens`, views.py) — sinal, não-finito, formato
+       canônico. Continua sendo a ÚNICA função que decide isso (DE-027):
+       esta view nunca constrói `Decimal` por conta própria.
+
+    Antes da DE-027 (rodada 1), a função construía `Decimal(bruto)`
+    diretamente — o construtor do Python é mais permissivo do que o
+    contrato monetário do projeto (notação científica, "_" como separador
+    de dígitos, não rejeita `NaN`/`Infinity`). Antes da DE-029 (rodada 2), a
+    tradução só tirava o ponto quando havia vírgula, e "1.000" virava 1,00.
 
     Levanta `ValorMonetarioInvalido` para texto que não representa um valor
     monetário aceitável — quem chama trata isso como erro de FORMULÁRIO. A
@@ -455,9 +517,69 @@ def _decimal_do_formulario(texto):
     formato de DIGITAÇÃO, nunca decide se o valor é aceitável contabilmente.
     """
     bruto = texto or ""
-    if "," in bruto:
-        bruto = bruto.replace(".", "").replace(",", ".")
-    return para_decimal(bruto)
+    if not _GRAMATICA_VALOR_PTBR.fullmatch(bruto):
+        raise ValorMonetarioInvalido(
+            f"Valor “{bruto}” não está no formato aceito. Use dígitos, ponto "
+            "a cada três casas como separador de milhar (ex.: 1.000) e "
+            "vírgula para os centavos (ex.: 1.000,00). Um texto ambíguo "
+            "nunca é reinterpretado — é recusado."
+        )
+    # Seguro remover TODOS os pontos (não só quando há vírgula): a
+    # gramática acima já garantiu que, se existem pontos, cada um deles é
+    # um grupo de milhar de exatamente três dígitos — nunca um separador
+    # decimal disfarçado (esse caso já foi recusado acima).
+    traduzido = bruto.replace(".", "").replace(",", ".")
+    return para_decimal(traduzido)
+
+
+# R2-3 (rodada 2 da auditoria da DL-017): teto de SEGURANÇA para quantas
+# linhas esta view tenta ler/exibir a partir de um único POST — bem acima
+# do teto de NEGÓCIO (LINHAS_MAXIMAS_LANCAMENTO). Não é regra contábil: é
+# higiene de fronteira HTTP, para que um ÚNICO campo com índice absurdo
+# (ex.: "conta_999999999999") não force `_maior_indice_de_linha_no_post` a
+# devolver um número gigante e esta view tentar processar/exibir uma
+# quantidade de linhas proporcional a esse índice.
+LINHAS_LEITURA_TETO_DE_SEGURANCA = 200
+
+# Índice limitado a 4 dígitos (até 9999): generoso acima de qualquer
+# lançamento real (LINHAS_MAXIMAS_LANCAMENTO é 20) e, combinado com o teto
+# de segurança acima, evita que um índice de magnitude arbitrária precise
+# nem ser convertido para comparação.
+_PADRAO_INDICE_DE_LINHA = re.compile(r"^(?:conta|tipo|valor)_([0-9]{1,4})$")
+
+
+def _maior_indice_de_linha_no_post(post):
+    """Deriva quantas linhas o POST REALMENTE contém, a partir do próprio
+    conteúdo enviado — nunca do campo oculto `num_linhas`.
+
+    R2-3: o achado 5 da rodada 1 ("nunca truncar partidas em silêncio") só
+    tinha sido fechado por cima — a correção da rodada 1 impedia um
+    `num_linhas` INFLADO de truncar o lote (BL-91), mas um `num_linhas`
+    MALFORMADO, vazio ou simplesmente MENOR do que o conteúdo real do POST
+    (`abc`, ``, `2.5`, `1e1`, `None`) ainda abria a porta de baixo: a view
+    lia só as primeiras linhas que o campo oculto mandava ler, descartando
+    em silêncio o resto — o MESMO dano do achado 5 (77,00 de débito e
+    77,00 de crédito somem, o lote fecha "balanceado"), só que pela causa
+    errada. A causa real nunca foi o teto: é a view confiar num CONTADOR
+    ENVIADO PELO CLIENTE para decidir quantos campos ler.
+
+    Esta função devolve o maior N tal que QUALQUER um dos três campos
+    `conta_N`/`tipo_N`/`valor_N` esteja PRESENTE no POST (mesmo vazio) —
+    o piso REAL de leitura. `num_linhas` continua existindo, mas só para a
+    EXIBIÇÃO (quantas linhas em branco o formulário mostra de volta antes
+    de qualquer envio) — nunca mais para decidir quantas linhas LER.
+
+    Capada em `LINHAS_LEITURA_TETO_DE_SEGURANCA` (ver o comentário da
+    constante).
+    """
+    maior = 0
+    for chave in post:
+        casamento = _PADRAO_INDICE_DE_LINHA.match(chave)
+        if casamento:
+            indice = int(casamento.group(1))
+            if indice > maior:
+                maior = indice
+    return min(maior, LINHAS_LEITURA_TETO_DE_SEGURANCA)
 
 
 def _linhas_lancamento_do_post(post, num_linhas):
@@ -503,6 +625,7 @@ def _contexto_form_lancamento(
     linhas_preenchidas=None,
     total_debito=None,
     total_credito=None,
+    linhas_excluidas_do_total=0,
 ):
     linhas = []
     for i in range(1, num_linhas + 1):
@@ -525,6 +648,11 @@ def _contexto_form_lancamento(
         "pode_adicionar_linha": num_linhas < LINHAS_MAXIMAS_LANCAMENTO,
         "total_debito_ptbr": _valor_ptbr(total_debito) if total_debito is not None else None,
         "total_credito_ptbr": _valor_ptbr(total_credito) if total_credito is not None else None,
+        # R2-5: quantas linhas ficaram FORA da soma acima (conta/tipo/valor
+        # incompletos, ou valor/conta inválidos) — a conferência precisa
+        # ANUNCIAR a exclusão, nunca só mostrar um total plausível e
+        # batendo que ignora, em silêncio, o que está preenchido ao lado.
+        "linhas_excluidas_do_total": linhas_excluidas_do_total,
     }
 
 
@@ -568,7 +696,15 @@ def _itens_e_totais(linhas_brutas, contas_por_id):
         try:
             valor = _decimal_do_formulario(linha["valor_texto"])
         except ValorMonetarioInvalido:
-            erros.append(f"Linha {linha['indice']}: valor “{linha['valor_texto']}” inválido.")
+            # R2-1/DE-029: a mensagem ENSINA o formato em vez de só dizer
+            # "inválido" — é a exigência da própria decisão ("recusa com
+            # mensagem que ensina o formato"), no lugar onde o contador de
+            # fato lê o erro (o rodapé de mensagens da tela).
+            erros.append(
+                f"Linha {linha['indice']}: valor “{linha['valor_texto']}” inválido. Use "
+                "dígitos, ponto a cada três casas como separador de milhar "
+                "(ex.: 1.000) e vírgula para os centavos (ex.: 1.000,00)."
+            )
             continue
         # Mesmo teto de MAGNITUDE que a API já verifica em `_extrair_itens`
         # (views.py) antes de chamar `criar_lancamento` — achado da
@@ -628,18 +764,24 @@ def lancamento_novo(request, empresa_id):
     if request.method == "POST":
         acao = request.POST.get("acao")
         try:
-            num_linhas = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
+            num_linhas_campo = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
         except TypeError, ValueError:
-            num_linhas = LINHAS_INICIAIS_LANCAMENTO
-        # O TETO superior (LINHAS_MAXIMAS_LANCAMENTO) NÃO é aplicado aqui
-        # por `min()` (achado 5 / BL-91): um `num_linhas` acima do teto
-        # enviado para "gravar" precisa ser RECUSADO mais abaixo, nunca
-        # truncado em silêncio — truncar aqui foi o mecanismo exato que
-        # descartou 77,00 de débito e 77,00 de crédito de um lote que
-        # fechava "balanceado" com sucesso. O piso de 2 é seguro de aplicar
-        # já aqui: ele nunca faz esta view LER menos campos do que os que o
-        # cliente possa ter enviado, só garante um mínimo para exibição.
-        num_linhas = max(2, num_linhas)
+            num_linhas_campo = LINHAS_INICIAIS_LANCAMENTO
+        # `num_linhas_campo` (o campo OCULTO do formulário) decide só
+        # quantas linhas a tela EXIBE de volta a partir de agora — NUNCA
+        # mais quantas linhas são LIDAS do POST (ver R2-3 abaixo). Piso de
+        # 2 é só para exibição, não afeta leitura.
+        num_linhas_exibicao = max(2, num_linhas_campo)
+        # R2-3 (rodada 2 da auditoria da DL-017): a quantidade REAL de
+        # linhas a LER vem do próprio CONTEÚDO do POST
+        # (`_maior_indice_de_linha_no_post`), nunca só do campo oculto — um
+        # `num_linhas` malformado, vazio ou menor do que o conteúdo real
+        # ("abc", "", "2.5", "1e1", "None") não pode fazer esta view ler
+        # MENOS campos do que os que o cliente de fato enviou. Ver o
+        # docstring daquela função para o mecanismo completo do defeito
+        # que isto fecha (o mesmo dano do achado 5 da rodada 1, por outra
+        # porta).
+        num_linhas_leitura = max(num_linhas_exibicao, _maior_indice_de_linha_no_post(request.POST))
 
         data_texto = request.POST.get("data", "")
         historico = request.POST.get("historico", "").strip()
@@ -657,49 +799,87 @@ def lancamento_novo(request, empresa_id):
             # Só acrescenta uma linha em branco e re-renderiza — NUNCA
             # grava nada. É a forma de a tela funcionar sem JavaScript
             # (critério 15): cada "+ linha" é um novo GET/POST normal.
-            num_linhas = min(num_linhas + 1, LINHAS_MAXIMAS_LANCAMENTO)
-            # Achado 3 / BL-88: as linhas JÁ enviadas neste POST alimentam
-            # o MESMO cálculo de totais que "gravar" usa (`_itens_e_totais`)
-            # — "Adicionar linha" é o único botão de conferência que esta
-            # tela tem sem JavaScript, e o rodapé não pode mais mostrar
-            # `0,00 / 0,00` com as linhas preenchidas do lado. Os erros
-            # desta extração são descartados de propósito aqui: o contador
-            # ainda está digitando, e esta ação nunca grava nada — a
-            # validação séria acontece em "gravar".
-            linhas_brutas, _ = _linhas_lancamento_do_post(request.POST, num_linhas)
-            _, _, total_debito, total_credito = _itens_e_totais(linhas_brutas, contas_por_id)
+            num_linhas_exibicao = min(num_linhas_exibicao + 1, LINHAS_MAXIMAS_LANCAMENTO)
+            num_linhas_leitura = max(num_linhas_leitura, num_linhas_exibicao)
+            # Achado 3 / BL-88 (rodada 1) + R2-3/R2-5 (rodada 2): as linhas
+            # JÁ enviadas neste POST alimentam o MESMO cálculo de totais
+            # que "gravar" usa (`_itens_e_totais`) — "Adicionar linha" é o
+            # único botão de conferência que esta tela tem sem JavaScript.
+            # Lê TODAS as linhas realmente presentes no POST
+            # (`num_linhas_leitura`, não só as que serão re-exibidas): uma
+            # linha preenchida além do que a página mostra de volta não
+            # pode desaparecer do total sem aviso. R2-5: os erros desta
+            # extração (linha incompleta, conta/valor inválidos) não são
+            # mais descartados em silêncio — a CONTAGEM de quantas linhas
+            # ficaram fora do total é anunciada na tela
+            # (`linhas_excluidas_do_total`, no contexto e no template):
+            # antes, o rodapé podia mostrar dois valores "batendo" que
+            # ignoravam, sem uma palavra, uma linha preenchida ao lado —
+            # e "batendo" é exatamente o sinal que convida a gravar.
+            linhas_brutas, erros_incompletas = _linhas_lancamento_do_post(
+                request.POST, num_linhas_leitura
+            )
+            _, erros_itens_conf, total_debito, total_credito = _itens_e_totais(
+                linhas_brutas, contas_por_id
+            )
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
-                num_linhas,
+                num_linhas_exibicao,
                 data_texto=data_texto,
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,
                 linhas_preenchidas=request.POST,
                 total_debito=total_debito,
                 total_credito=total_credito,
+                linhas_excluidas_do_total=len(erros_incompletas) + len(erros_itens_conf),
             )
             return render(request, "contabilidade/lancamento_form.html", contexto)
 
         # Qualquer outro valor de 'acao' (normalmente "gravar") é tratado
         # como tentativa de gravação — nunca perde silenciosamente o que
         # foi digitado.
-        if num_linhas > LINHAS_MAXIMAS_LANCAMENTO:
-            # Achado 5 / BL-91: recusa o POST inteiro — nunca processa só
-            # as primeiras LINHAS_MAXIMAS_LANCAMENTO e descarta o resto em
-            # silêncio. Era exatamente assim que um lote com 22 partidas
-            # (as 20 primeiras batendo, e as 2 últimas TAMBÉM batendo entre
-            # si) fechava com "sucesso" perdendo 77,00 de débito e 77,00 de
-            # crédito — perda silenciosa de fato contábil, que nenhuma
-            # conferência posterior aponta porque o que sobrou também fecha
-            # balanceado. Em escrituração: recusa, nunca ajusta.
-            messages.error(
-                request,
+        if num_linhas_leitura > LINHAS_MAXIMAS_LANCAMENTO:
+            # Achado 5 / BL-91 (rodada 1) + R2-3 (rodada 2): recusa o POST
+            # inteiro — nunca processa só as primeiras
+            # LINHAS_MAXIMAS_LANCAMENTO e descarta o resto em silêncio. A
+            # comparação usa `num_linhas_leitura` (derivado do CONTEÚDO
+            # real do POST) — não o campo oculto: um `num_linhas`
+            # malformado ou reduzido não pode abrir, por baixo, a mesma
+            # porta que um `num_linhas` inflado já não abre mais por cima.
+            # Era exatamente por cima que um lote de 22 partidas (as 20
+            # primeiras batendo, e as 2 últimas TAMBÉM batendo entre si)
+            # fechava com "sucesso" perdendo 77,00 de débito e 77,00 de
+            # crédito — perda silenciosa de fato contábil que nenhuma
+            # conferência posterior aponta porque o que sobrou também
+            # fecha balanceado. Em escrituração: recusa, nunca ajusta.
+            #
+            # R2-10 (rodada 2): a recusa não pode SOMAR uma segunda perda
+            # à primeira — a tela volta a exibir só as primeiras
+            # LINHAS_MAXIMAS_LANCAMENTO linhas (exibir todas as enviadas
+            # deixaria esta view renderizar uma página proporcional a
+            # quantas linhas um POST arbitrário mandasse), mas os valores
+            # das linhas que excederam o teto são repetidos na própria
+            # MENSAGEM de recusa, para que copiá-los para um segundo
+            # lançamento não dependa de o contador tê-los memorizado.
+            linhas_excedentes, _ = _linhas_lancamento_do_post(request.POST, num_linhas_leitura)
+            linhas_excedentes = [
+                linha for linha in linhas_excedentes if linha["indice"] > LINHAS_MAXIMAS_LANCAMENTO
+            ]
+            mensagem = (
                 f"Este formulário aceita no máximo {LINHAS_MAXIMAS_LANCAMENTO} partidas "
-                f"por lançamento; foram enviadas {num_linhas}. Grave em dois lançamentos "
-                "separados, ou peça ao administrador do escritório para avaliar um teto "
-                "maior.",
+                f"por lançamento; foram enviadas {num_linhas_leitura}. Nada foi gravado. "
+                "Copie os dados abaixo para um segundo lançamento, ou peça ao "
+                "administrador do escritório para avaliar um teto maior."
             )
+            if linhas_excedentes:
+                resumo = "; ".join(
+                    f"linha {linha['indice']} ({linha['tipo'] or '?'}, "
+                    f"{linha['valor_texto'] or '?'})"
+                    for linha in linhas_excedentes
+                )
+                mensagem += f" Linhas que não couberam: {resumo}."
+            messages.error(request, mensagem)
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
@@ -711,7 +891,7 @@ def lancamento_novo(request, empresa_id):
             )
             return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
-        linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas)
+        linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas_leitura)
 
         # Achado 4 / BL-90: mesmo teto do modelo (`historico =
         # CharField(max_length=300)`) verificado AQUI, antes de qualquer
@@ -823,7 +1003,7 @@ def lancamento_novo(request, empresa_id):
         contexto = _contexto_form_lancamento(
             empresa,
             contas_disponiveis,
-            num_linhas,
+            num_linhas_leitura,
             data_texto=data_texto,
             historico=historico,
             chave_idempotencia=chave_idempotencia,

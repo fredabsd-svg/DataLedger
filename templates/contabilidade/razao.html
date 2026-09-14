@@ -27,11 +27,12 @@
 
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            <label for="id_inicio">Início</label>
+            {# R2-8: ver o comentário equivalente em lancamento_form.html. #}
+            <label for="id_inicio">Início (dd/mm/aaaa)</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}">
         </div>
         <div class="campo">
-            <label for="id_fim">Fim</label>
+            <label for="id_fim">Fim (dd/mm/aaaa)</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}">
         </div>
         <button type="submit">Consultar período</button>

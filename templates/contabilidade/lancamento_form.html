@@ -34,7 +34,15 @@
             <input type="hidden" name="chave_idempotencia" value="{{ chave_idempotencia }}">
 
             <div class="campo">
-                <label for="id_data">Data</label>
+                {% comment %}
+                R2-8 (rodada 2 da auditoria da DL-017): `<input type="date">`
+                exibe o formato do NAVEGADOR do usuário, não um formato que
+                este projeto controle (sem JavaScript — critério 15 — não há
+                como forçar). Um navegador em inglês mostra mês/dia/ano ao
+                lado de um cabeçalho em dia/mês/ano, e a ambiguidade é real.
+                O texto de apoio no rótulo é o que dá para fazer sem JS.
+                {% endcomment %}
+                <label for="id_data">Data (dd/mm/aaaa)</label>
                 <input type="date" id="id_data" name="data" value="{{ data_texto }}" required>
             </div>
             <div class="campo">
@@ -85,6 +93,27 @@
                     {% endfor %}
                 </tbody>
                 <tfoot>
+                    {% if linhas_excluidas_do_total %}
+                        {% comment %}
+                        R2-5 (rodada 2 da auditoria da DL-017): antes, uma
+                        linha incompleta (ex.: tipo e valor preenchidos, mas
+                        conta esquecida) era excluída do total em SILÊNCIO —
+                        o rodapé mostrava os dois lados "batendo" enquanto
+                        ignorava, sem uma palavra, o que estava preenchido
+                        ao lado. "Batendo" é exatamente o sinal que convida
+                        a gravar. Agora a exclusão é ANUNCIADA, mantendo a
+                        soma parcial (que continua útil).
+                        {% endcomment %}
+                        <tr class="linha-aviso-conferencia">
+                            <td colspan="4">
+                                <p class="mensagem mensagem-warning" role="status">
+                                    {{ linhas_excluidas_do_total }} linha(s) com conta, tipo ou
+                                    valor incompletos ou inválidos ainda NÃO entram no total
+                                    abaixo — confira antes de gravar.
+                                </p>
+                            </td>
+                        </tr>
+                    {% endif %}
                     <tr class="linha-total">
                         <td colspan="2">Total conferido antes de gravar</td>
                         {% comment %}
