@@ -233,6 +233,7 @@ PodeEscriturar = papel_permitido(
     Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO
 )
 
+
 # Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,
 # conferência) — e, desde o achado novo 2 da rodada 2, TAMBÉM o `GET` de
 # `ContaListCreateView` (plano de contas) e de `LancamentoListCreateView`
