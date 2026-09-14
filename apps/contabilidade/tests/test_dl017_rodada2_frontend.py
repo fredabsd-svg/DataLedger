@@ -557,12 +557,14 @@ def _chromium_funciona(caminho):
                 text=True,
                 timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S,
             )
-    # R3-4: forma com parênteses fixada por `# fmt: skip` — ver o
-    # comentário equivalente em views_web.py (o formatador, sob
-    # `target-version = "py314"`, reescreveria isto de volta para a
-    # sintaxe PEP 758, exclusiva do 3.14, que quebra a versão mínima
-    # 3.12 que `pyproject.toml` declara).
-    except (subprocess.TimeoutExpired, OSError):  # fmt: skip
+    # R3-4: forma com parênteses — ver o comentário equivalente em
+    # views_web.py. É a que funciona na versão mínima declarada
+    # (`requires-python = ">=3.12"`); quem garante que `ruff format` não
+    # a reescreve de volta para a PEP 758 é o alinhamento `[tool.ruff]
+    # target-version = "py312"` em `pyproject.toml`, travado por
+    # `test_target_version_do_ruff_bate_com_requires_python`
+    # (apps/core/tests/test_versao_minima_python.py).
+    except (subprocess.TimeoutExpired, OSError):
         return False
     return resultado.returncode == 0 and "sessao-de-verificacao" in resultado.stdout
 

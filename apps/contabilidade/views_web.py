@@ -830,12 +830,16 @@ def lancamento_novo(request, empresa_id):
         # ("except TypeError, ValueError:") é sintaxe da PEP 758,
         # exclusiva do Python 3.14 — quebrava o carregamento do URLconf
         # inteiro em 3.12/3.13, a versão mínima que `pyproject.toml`
-        # (`requires-python`) promete. `# fmt: skip` porque
-        # `[tool.ruff] target-version = "py314"` faz `ruff format`
-        # REESCREVER a forma com parênteses de volta para a PEP 758 —
-        # o alvo do formatador e a versão mínima declarada divergem, e
-        # a versão mínima é a que vale aqui.
-        except (TypeError, ValueError):  # fmt: skip
+        # (`requires-python = ">=3.12"`) promete. A forma COM parênteses
+        # é a que funciona nessa versão mínima, e quem garante que ela
+        # não volta a ser reescrita para a PEP 758 é o alinhamento
+        # `[tool.ruff] target-version = "py312"` (também em
+        # `pyproject.toml`) — travado por
+        # `test_target_version_do_ruff_bate_com_requires_python`, em
+        # `apps/core/tests/test_versao_minima_python.py`. Sem esse
+        # alinhamento, `ruff format` reescreveria isto de volta; com ele,
+        # não precisa de `# fmt: skip` nenhum.
+        except (TypeError, ValueError):
             num_linhas_campo = LINHAS_INICIAIS_LANCAMENTO
 
         data_texto = request.POST.get("data", "")
