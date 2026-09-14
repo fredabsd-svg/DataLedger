@@ -21,18 +21,20 @@ Contrato para quem consome:
 - API (`apps.contabilidade.views.PodeLerContabilidade`): já integrado nesta
   etapa — a classe de permissão do DRF chama `papel_pode_ler_contabilidade`
   em `has_permission`, sem repetir a lista de papéis.
-- Tela (fase B, ainda não escrita): antes de renderizar qualquer tela de
-  LEITURA de contabilidade (plano de contas, Diário, Razão, Balancete,
-  conferência — a tela de LANÇAMENTO, que também escreve, usa a regra de
-  `PodeEscriturar` em `views.py`, fora do escopo deste módulo), a view web
-  chama `papel_pode_ler_contabilidade(request.papel)`. Se `False`, responde
-  com o template de falta de permissão (critério 3 do plano DL-017) — nunca
-  texto cru, nunca 500, nunca a tela renderizada sem checar antes.
-  `request.papel` vem do `EscritorioAtivoMiddleware`, resolvido a partir do
-  vínculo do usuário com o escritório ATIVO — nunca de um campo enviado pelo
-  cliente (mesma fonte que `apps.tenancy.permissions.papel_permitido` já usa
-  na API; a tela deve usar a mesma fonte, nunca reconsultar o vínculo por
-  fora do middleware).
+- Tela (fase B, `apps.contabilidade.views_web`, escrita e integrada em
+  `config/urls.py` sob o prefixo `contabilidade/painel/`): antes de
+  renderizar qualquer tela de LEITURA de contabilidade (plano de contas,
+  Diário, Razão, Balancete, conferência — a tela de LANÇAMENTO, que também
+  escreve, usa a regra de `PodeEscriturar` em `views.py`, fora do escopo
+  deste módulo), a view web passa `request.papel` a
+  `papel_pode_ler_contabilidade`. Se `False`, responde com o template de
+  falta de permissão
+  (critério 3 do plano DL-017) — nunca texto cru, nunca 500, nunca a tela
+  renderizada sem checar antes. `request.papel` vem do
+  `EscritorioAtivoMiddleware`, resolvido a partir do vínculo do usuário com
+  o escritório ATIVO — nunca de um campo enviado pelo cliente (mesma fonte
+  que `apps.tenancy.permissions.papel_permitido` já usa na API; a tela usa a
+  mesma fonte, nunca reconsulta o vínculo por fora do middleware).
 
 Critério de aceite (plano DL-017, critério 1): mutar `papel_pode_ler_
 contabilidade` (ou a tupla `PAPEIS_QUE_LEEM_CONTABILIDADE` da qual ela
