@@ -68,11 +68,39 @@ jobs:
       # binário), então se esta instalação falhar num runner futuro os testes
       # voltam a pular com motivo, em vez de derrubar a suíte — que foi o
       # defeito de `aa10f20`.
-      - name: Instalar navegador para os testes que medem CSS
+      # ATENÇÃO ao que está escrito aqui, porque a versão anterior deste passo
+      # QUEBROU a integração contínua e o achado R5-1 da rodada 5 é sobre ela.
+      #
+      # Eu havia posto `apt-get install chromium-browser`. No `ubuntu-noble`
+      # esse pacote tem 50 kB e é só um INVÓLUCRO que instala o snap do
+      # Chromium — e o snap roda confinado, com `/tmp` privado: não enxerga o
+      # arquivo `file:///tmp/tmpXXXX.html` que os testes de medição escrevem.
+      # O navegador então renderiza a página de erro, cujo `<title>` é a
+      # própria URL, e o `json.loads` da medição estoura. Resultado medido em
+      # `526a51db`: `2 failed, 681 passed` — a instalação transformou dois
+      # testes PULADOS em dois testes FALHANDO, que é pior que o estado que
+      # ela pretendia corrigir.
+      #
+      # O critério que escrevi para a BL-119 previa dois desfechos (`passed`
+      # fecha, `skipped` instala) e o mundo devolveu um terceiro, `failed`.
+      # Critério binário sobre sistema ternário.
+      #
+      # Não instalo mais nada: o runner do GitHub já traz **Google Chrome**
+      # em `/usr/bin/google-chrome`, fora de snap, que lê o disco do runner.
+      # Este passo apenas REGISTRA no log qual navegador existe e onde — para
+      # que a próxima decisão sobre isto seja tomada com dado, e não com
+      # suposição, que foi exatamente o erro que originou o R5-1.
+      - name: Registrar navegadores disponíveis no runner
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends chromium-browser || \
-            sudo apt-get install -y --no-install-recommends chromium
+          for b in google-chrome google-chrome-stable chromium chromium-browser; do
+            p="$(command -v "$b" || true)"
+            if [ -n "$p" ]; then
+              echo "encontrado: $b -> $p"
+              readlink -f "$p" | sed 's/^/  caminho real: /'
+            else
+              echo "ausente: $b"
+            fi
+          done
 
       - name: Lint (ruff check)
         run: ruff check .

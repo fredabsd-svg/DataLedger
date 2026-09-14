@@ -1613,3 +1613,53 @@ commit — o que a regra alcança é a decisão que **projeta** comportamento fu
 por mecanismo, e **declaro isso**: a DE-029 e a BL-124 mostraram que lembrete
 tem taxa de falha alta neste projeto. Se reincidir, vira teste que cruza
 `decisoes.md` com `backlog.md`.
+
+## DE-034 — A varredura de uma classe começa no CAMPO, não na linha
+
+**Data:** 2026-09-14. Contexto: ponto 5 da seção "onde eu acho que você errou" da
+[auditoria DL-017 rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md).
+**Sucessora prática da DE-032**, que continua valendo: a classe se escreve pelo
+efeito proibido. O que a DE-034 acrescenta é **onde a varredura começa**.
+
+### A evidência
+
+A DE-032 funcionou melhor que qualquer regra desta etapa — **nove classes
+fechadas com mutante morrendo**, incluindo duas que vinham sobrevivendo havia
+três rodadas. E ainda assim os três resíduos da rodada 5 estão, os três, **a um
+campo de distância** do que foi consertado:
+
+| Classe declarada | Onde fechou | O vizinho que ficou |
+| --- | --- | --- |
+| "nenhum dado tipado sem gramática" | `vigencia_inicio`, **linha 134** | `regime`, **linha 133** — literalmente a linha de cima, no mesmo `request.data` |
+| "nenhuma entrada é reinterpretada em silêncio" | tela e `tenancy` | `item["conta"]` da **API**, no mesmo arquivo do campo `data` que foi corrigido |
+| "nenhuma entrada produz 5xx" | conversão texto→número | **restrição de banco**, e uma delas na mesma função que já converte a de CNPJ em 400 |
+
+Não é falta de cuidado de quem implementa: a varredura foi feita, e foi feita
+bem. É que ela começou **na linha apontada** e se expandiu pelo mecanismo
+(`range`, `int()`, `fromisoformat`), em vez de começar **no campo** e se expandir
+pelos vizinhos.
+
+### A decisão
+
+Quando um campo de uma requisição é corrigido, **os outros campos da mesma
+requisição entram na varredura por construção** — não por lembrança. Em
+concreto, a correção de um campo obriga a percorrer:
+
+1. **Os demais campos do mesmo `request.data` / `request.POST` / formulário.**
+2. **O mesmo campo nas outras superfícies** — tela, API, importação. Foi assim
+   que o `conta` da API escapou enquanto o da tela era corrigido.
+3. **As demais restrições do mesmo `Meta`** quando o defeito envolver o banco.
+
+### A pista que estava escrita e ninguém leu
+
+O relatório traz a observação mais fina das cinco rodadas: os comentários de
+`views_web.py` **afirmam que a API já usa `para_id`**. Ela não usa. O comentário
+não só afirmou mais do que a defesa entregava — **ele afirmou exatamente a coisa
+que impediu de ir olhar**.
+
+É a oitava ocorrência da família "comentário que afirma mais do que a defesa
+entrega", e a primeira em que o comentário **causou** a lacuna em vez de apenas
+descrevê-la mal. Por isso a regra ganha um par verificável, e não fica no
+conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
+ser conferível por teste** — se X não usa, o teste reprova. Registrado como
+BL-146.

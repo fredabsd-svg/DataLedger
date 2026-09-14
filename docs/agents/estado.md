@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). A **rodada 4 foi a primeira sem bloqueador e sem gravidade alta**. Os 12 achados dela estão corrigidos (BL-126 a BL-137), mais **dois gêmeos que nenhuma auditoria achou** (BL-138, BL-139). **683 testes** em árvore limpa; rodada 5 em execução |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **Reprovada em 5 rodadas.** A [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) fechou **os 12 achados da rodada 4** e varreu **concorrência real**, que passou inteira — mas trouxe um **bloqueador que eu criei** (a CI está vermelha: a instalação de navegador que eu fiz transformou 2 testes pulados em 2 falhando) e dois achados ALTA. Correção em curso, BL-140 a BL-147 |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,25 +248,28 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — rodada 5 da
-   auditoria, EM EXECUÇÃO.** Os 12 achados da
-   [rodada 4](../auditorias/2026-09-14-dl-017-rodada-4.md) estão corrigidos e
-   integrados. Verificado por mim em árvore limpa: **683 testes** e a sequência
-   do workflow — `ruff check`, `ruff format --check` (121 arquivos),
-   `manage.py check`, `migrate` em banco vazio, `collectstatic`. Duas mutações
-   minhas, reaplicadas e medidas: devolver o `isdigit()+int()` cru ao `conta_id`
-   derruba **3** testes; fazer a view voltar a ignorar os campos de arquivo
-   derruba **2**. Desfeitas, `sha256` idêntico.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir a
+   rodada 5 e reauditar.** A [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md)
+   **reprovou**, e o auditor fez questão de registrar que *"o parecer negativo
+   esconde o tamanho do avanço: esta é, de longe, a melhor entrega das cinco"*.
 
-   **A DE-032 se pagou na estreia.** Ao escrever os critérios pelo **efeito
-   proibido**, o `desenvolvedor-pleno` encontrou dois defeitos que **quatro
-   rodadas de auditoria não tinham achado** — e um deles é maior que os do
-   relatório: a API de lançamentos gravava **data errada em silêncio**
-   (`"2026-W01-1"` virava 29/12/2025). Não é erro de servidor; é escrituração
-   com data que ninguém escreveu, e nenhuma conferência apontaria. São BL-138 e
-   BL-139.
+   **O que fechou:** os 12 achados da rodada 4, todos, medidos por mutação dele
+   — inclusive dois que sobreviviam havia três rodadas. E **concorrência real
+   foi varrida pela primeira vez e a contabilidade passou inteira**: 8
+   requisições simultâneas com a mesma chave produzem 1 lançamento; 2 estornos
+   simultâneos, 1 estorno; 10 lançamentos concorrentes fecham o balancete em
+   100,00 exatos; 4 duplos cliques na tela, 1 lançamento.
 
-   **Nada disso é aprovação.** Quem aprova é a rodada 5.
+   **O que reprova:** um **bloqueador que eu criei** — a instalação de navegador
+   no workflow puxou o snap, que roda confinado e não lê `/tmp`, transformando 2
+   testes pulados em 2 **falhando** (BL-140, workflow já corrigido nesta
+   entrega) — e dois achados **ALTA**: o campo `regime` aceita lixo e grava
+   (BL-141), e o `conta` do item na API vai direto ao ORM, gravando `1.9` na
+   conta 1 e `"٢"` na conta 2 com HTTP 201 (BL-142).
+
+   **A regra que fica, e é a sucessora da DE-032:** a varredura de uma classe
+   começa no **CAMPO**, não na linha. Os três resíduos estavam, todos, a **um
+   campo de distância** do que foi consertado. Virou **DE-034**.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -305,6 +308,34 @@ auditoria independente — que é exatamente o motivo de ela existir.
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
    documentação" e "Regras do projeto", e bloqueando force push e exclusão.
+
+## O que o Fred opera sem cobertura, mesmo quando a DL-017 for aprovada
+
+Levantado pelo `auditor-qa` na
+[rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md), a pedido meu, e
+reproduzido aqui porque é o que ele precisa saber **antes** de pôr dado de
+cliente — não depois.
+
+1. **Não existe rascunho, não existe período encerrado, não existe bloqueio de
+   reabertura.** Todo lançamento gravado é efetivado, e nada impede lançar em
+   competência já fechada. Está no backlog (BL-10, BL-11), não na entrega.
+2. **Data de lançamento não tem faixa.** `0001-01-01` e `9999-12-31` são
+   aceitos.
+3. **Estorno é o único caminho de correção**, e funciona — inclusive sob
+   concorrência, medido. Não há edição, e isso é **decisão de produto**, não
+   limitação temporária.
+4. **Backup e restauração não foram planejados nem verificados** nesta etapa.
+5. **Validação HTML5 completa e percurso manual por uma pessoa** não foram
+   feitos. As capturas são evidência de tela, não de uso.
+6. **Nada disso substitui a validação profissional do Fred** sobre o que a
+   legislação exige de um Diário, de um Razão e de um Balancete; sobre o teto de
+   partidas (PE-42); sobre conta sem pai tratada como raiz (PE-43); e sobre a
+   apresentação de uma conta devedora com **saldo credor**, que aparece na
+   captura do Balancete sem nenhuma sinalização.
+
+O auditor declarou, e eu subscrevo: **ninguém aqui afirma que o sistema está
+livre de defeitos, que é seguro, ou que está em conformidade legal.** Afirmamos
+o que medimos, e está registrado o que não medimos.
 
 ## Estado do repositório
 
