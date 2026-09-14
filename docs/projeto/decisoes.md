@@ -980,8 +980,20 @@ Em consequência:
 - O **Razão consolida** sempre que a conta **tiver descendentes**, não quando
   estiver marcada como sintética.
 - O Balancete marca como analítica a conta **sem filhas**, seja qual for a
-  permissão de lançamento dela. É o que um consumidor precisa para saber quais
-  linhas somar sem contar duas vezes.
+  permissão de lançamento dela.
+
+> **Correção de 2026-09-14, achado novo 3 da [rodada
+> 3](../auditorias/2026-09-14-dl-015-rodada-3.md).** A frase continuava com "é o
+> que um consumidor precisa para saber quais linhas somar sem contar duas
+> vezes". **Não é**, quando existe conta com movimento próprio *e* filhas: a
+> soma das folhas fica menor que o rodapé, porque o que foi lançado direto no
+> grupo não aparece em folha nenhuma. O auditor mediu a divergência em 11 de 12
+> planos gerados ao acaso.
+>
+> Resolvido em **DE-024 §2**: cada linha passa a declarar o **movimento
+> próprio**, e a regra somável vira "a soma dos próprios de todas as linhas é o
+> total" — verdadeira em qualquer arranjo, porque todo lançamento é próprio de
+> exatamente uma conta.
 - A **conferência ganha a quarta categoria**: conta que aceita lançamento e tem
   contas subordinadas.
 
@@ -1040,9 +1052,24 @@ implementações da mesma regra divergem — é o mesmo argumento que motivou a 
 
 ### O que isso não resolve, e fica declarado
 
-O admin continua permitindo **alterar** o que existe, e a proteção nesse caminho
-continua sendo o `save()` do modelo, que recusa alteração de lançamento
-efetivado. `ItemLancamento` ganhou `clean()` exigindo que conta e lançamento
+> **Correção de 2026-09-14, achado novo 2 da [rodada
+> 3](../auditorias/2026-09-14-dl-015-rodada-3.md).** A frase que estava aqui
+> tinha as **duas metades erradas**, e eu a escrevi de cabeça sobre um arquivo
+> de 70 linhas que poderia ter lido:
+>
+> - dizia que o admin "continua permitindo alterar" — **não permite**:
+>   `has_change_permission` é falso, a ficha abre em modo leitura e o `POST`
+>   devolve 403;
+> - não mencionava **excluir**, que era o que estava de fato aberto — e é o
+>   pior dos dois, porque `QuerySet.delete()` **não** passa pelo `delete()` do
+>   modelo, então a ação em lote da listagem apagava lançamento e partidas sem
+>   estorno, sem versão anterior e sem trilha.
+>
+> Corrigido no código junto desta rodada: `has_delete_permission` também é
+> falso. O admin, para lançamento contábil, é **somente leitura**.
+
+O que permanece aberto é a gravação por **`QuerySet.update()` / `objects.create()`
+direto no ORM**, que nenhum `clean()` ou `save()` alcança. `ItemLancamento` ganhou `clean()` exigindo que conta e lançamento
 sejam da mesma empresa — o que fecha o caminho pelo formulário, mas não pelo
 `QuerySet.update()`. A garantia de banco continua sendo **BL-78**, na DL-016.
 
@@ -1052,3 +1079,69 @@ Se um dia for preciso gravar lançamento fora do fluxo normal — uma migração
 dados, uma correção excepcional —, o caminho é um comando de gestão que chama
 `criar_lancamento`, não a tela de administração. Isso mantém a trilha e as
 invariantes, e deixa rastro do que foi feito.
+
+
+## DE-024 — Respostas à rodada 3: o que o balancete promete somar, e onde eu meço
+
+**Data:** 2026-09-14. Origem:
+[auditoria rodada 3](../auditorias/2026-09-14-dl-015-rodada-3.md), parecer
+**reprovado**, achados novos 1 a 4.
+
+### 1. O teste do admin não renderiza página (achado novo 1)
+
+**Decisão:** opção (a) do auditor. O teste passa a verificar o **contrato**
+(`has_add_permission` e `has_delete_permission` são falsos, e a ação de exclusão
+em lote é recusada), sem renderizar HTML.
+
+A ordem da integração contínua **não muda**. Ela roda `collectstatic` depois do
+`pytest` de propósito, e o motivo está escrito no workflow: se rodasse antes, a
+CI passaria com um `{% static %}` que falharia na máquina de quem desenvolve —
+integração contínua mais permissiva que o ambiente local mascara defeito. Trocar
+essa ordem para acomodar um teste seria enfraquecer uma guarda boa para atender
+a um caso particular.
+
+**Guarda de processo que passa a valer para mim**, e é a parte que importa: a
+contagem de testes que eu declarar num commit tem de vir de **árvore limpa**.
+Rodei na árvore de trabalho, que carregava um `staticfiles/` de dois dias antes,
+e anunciei "392 passed" — número que não existia num `checkout` novo. O comando
+é `git archive <hash> | tar -x -C <dir vazio>` e rodar lá. Vira **BL-81**, para
+não depender da minha memória.
+
+### 2. O balancete passa a declarar o movimento próprio de cada conta (achado novo 3)
+
+**Decisão:** cada linha do Balancete ganha **débitos e créditos próprios** —
+o que foi lançado **diretamente** naquela conta —, ao lado dos valores
+consolidados que ela já traz.
+
+Com isso existe um conjunto de linhas que soma o rodapé, e ele é simples de
+enunciar: **a soma dos valores próprios de todas as linhas é igual ao total**.
+Sempre, em qualquer arranjo de plano de contas, porque todo lançamento é próprio
+de exatamente uma conta.
+
+Descartei as duas alternativas do auditor:
+
+- **Criar uma linha extra** para o movimento próprio do grupo inventaria, no
+  balancete, uma conta que não existe no plano do cliente. Balancete é documento
+  de conferência; linha que não corresponde a conta cadastrada confunde mais do
+  que resolve.
+- **Declarar que só o rodapé vale** seria honesto e inútil: o contador soma as
+  linhas, é isso que ele faz com um balancete na frente. Um sistema que responde
+  "não some" está entregando um documento que não serve para conferir.
+
+A DE-022 dizia que marcar a folha resolvia a soma. **Não resolvia**, quando a
+conta tem movimento próprio *e* filhas. Corrigido lá.
+
+### 3. Onde a senha fraca é decidida precisa de teste (achado novo 4)
+
+**Decisão:** a dupla condição fica, ganha teste nas quatro combinações, e o
+comentário é corrigido.
+
+O comentário afirmava que a validação de banco "exige `DEBUG=False` em
+produção". Não exige: ela recusa SQLite quando `DEBUG=False`. Um servidor com
+`DEBUG=True` e PostgreSQL sobe normalmente — o auditor verificou. Escrever uma
+justificativa apoiada em garantia inexistente é pior que não justificar, porque
+o próximo leitor conclui que a outra metade da condição é redundante e a remove.
+
+Fica registrado como **BL-82** avaliar uma guarda que recuse subir com
+`DEBUG=True` fora de desenvolvimento. Hoje não existe, e vários raciocínios de
+segurança do projeto já se apoiam nela como se existisse.
