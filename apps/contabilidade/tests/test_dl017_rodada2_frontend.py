@@ -8,10 +8,12 @@ nos próprios testes.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -482,6 +484,19 @@ def test_rotulos_de_data_trazem_dica_de_formato_ptbr(client, cen):
 
 
 def _caminho_chromium():
+    """Localiza o binário do Chromium por caminho fixo conhecido ou pelo
+    `PATH`.
+
+    `DATALEDGER_TESTE_CHROMIUM_CAMINHO`, se definida, FORÇA o caminho
+    devolvido (string vazia força "nenhum encontrado") — é um hook SÓ DE
+    VERIFICAÇÃO desta suíte, nunca lido por código de produção, que
+    existe para as próprias medições abaixo poderem simular um binário
+    ausente ou QUEBRADO sem mexer no `PATH` real do sistema (compartilhado
+    por outros processos desta sessão).
+    """
+    if "DATALEDGER_TESTE_CHROMIUM_CAMINHO" in os.environ:
+        forcado = os.environ["DATALEDGER_TESTE_CHROMIUM_CAMINHO"]
+        return forcado or None
     candidatos = [
         "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
         shutil.which("chromium"),
@@ -494,13 +509,72 @@ def _caminho_chromium():
     return None
 
 
+# Teto do "isto é só uma checagem de sessão" — bem menor que o timeout das
+# medições reais (30s). Se a checagem de capacidade em si não responder
+# nesse tempo, o navegador já não presta para as medições.
+_TIMEOUT_VERIFICACAO_DE_SESSAO_S = 10
+
+
+def _chromium_funciona(caminho):
+    """Confirma que o binário não só EXISTE, mas RENDERIZA de verdade.
+
+    Achado da integração contínua (`aa10f20`, apontado pelo
+    arquiteto-senior): o runner do GitHub TINHA `/usr/bin/chromium`
+    presente — `_caminho_chromium()` o encontrava, o `skipif` antigo (que
+    só checava `_CHROMIUM is None`) não pulava, o teste de efeito RODAVA
+    — e o processo travava (D-Bus ausente em contêiner, sandbox, perfil)
+    até estourar os 30s de timeout e morrer com `SIGKILL` (-9),
+    reprovando a suíte inteira em vez de pular com motivo. **Presença de
+    binário não é navegador funcionando** — é a mesma classe de erro que
+    esta etapa inteira vem corrigindo: medir a FORMA (o arquivo existe)
+    em vez do EFEITO (ele renderiza).
+
+    Faz UMA tentativa de renderizar um HTML trivial (`data:` URL, nenhum
+    arquivo temporário necessário) com timeout CURTO
+    (`_TIMEOUT_VERIFICACAO_DE_SESSAO_S`, bem menor que o das medições
+    reais) e confirma que voltou DOM de verdade. Qualquer falha aqui —
+    timeout, código de saída diferente de zero, exceção do sistema
+    operacional — vira `False`, NUNCA uma exceção que reprovaria a
+    suíte. Chamada UMA VEZ por sessão de teste (na importação deste
+    módulo, armazenada em `_CHROMIUM_FUNCIONAL`), não uma vez por teste.
+    """
+    if not caminho:
+        return False
+    try:
+        with tempfile.TemporaryDirectory() as perfil:
+            resultado = subprocess.run(
+                [
+                    caminho,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    f"--user-data-dir={perfil}",
+                    "--dump-dom",
+                    "data:text/html,<title>sessao-de-verificacao</title>",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S,
+            )
+    except subprocess.TimeoutExpired, OSError:
+        return False
+    return resultado.returncode == 0 and "sessao-de-verificacao" in resultado.stdout
+
+
 _CHROMIUM = _caminho_chromium()
+_CHROMIUM_FUNCIONAL = _chromium_funciona(_CHROMIUM)
 
 precisa_de_chromium = pytest.mark.skipif(
-    _CHROMIUM is None,
+    not _CHROMIUM_FUNCIONAL,
     reason=(
-        "R2-6/R2-9: medir CSS calculado exige um navegador real — indisponível "
-        "neste ambiente (nenhum Chromium encontrado)."
+        "R2-6/R2-9: medir CSS calculado exige um navegador REAL e FUNCIONAL. "
+        "A condição de pulo mede CAPACIDADE (uma renderização de verificação "
+        "com timeout curto, uma vez por sessão) — não só presença de binário. "
+        "Achado da CI (aa10f20): /usr/bin/chromium existia e mesmo assim não "
+        "subia (D-Bus, sandbox, /dev/shm), estourando timeout e derrubando a "
+        "suíte com SIGKILL em vez de pular. A defesa textual sem navegador "
+        "(acima) continua valendo mesmo aqui."
     ),
 )
 
@@ -623,10 +697,11 @@ def test_defesa_textual_nao_depende_de_chromium_estar_disponivel(monkeypatch):
     assert niveis[2] - niveis[1] == Decimal("1.25")
 
 
-def _padding_left_computado(corpo_html, seletor):
-    """Renderiza `corpo_html` (com o CSS REAL do projeto, static/css/
-    base.css, inlinado) num Chromium headless e devolve o `padding-left`
-    computado de cada elemento que casa `seletor`, na ordem do DOM.
+def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
+    """Renderiza `corpo_html` (com `css_texto`, ou o CSS REAL do projeto —
+    static/css/base.css — se omitido) num Chromium headless e devolve o
+    `padding-left` computado de cada elemento que casa `seletor`, na
+    ordem do DOM.
 
     R2-6: só medir o EFEITO (getComputedStyle) prova que a indentação
     funciona — o teste que já existia
@@ -636,8 +711,22 @@ def _padding_left_computado(corpo_html, seletor):
     mutante ME2 do relatório da rodada 2 (trocar `.tabela-dados
     td.nivel-N` por `.nivel-N`) sobrevivia a 487 testes exatamente porque
     nenhum deles chegava a medir isto.
+
+    Hardening pós-`aa10f20`: `--disable-dev-shm-usage` (um `/dev/shm`
+    pequeno ou ausente em contêiner é causa clássica do processo morrer
+    com `SIGKILL`, retorno -9) e um `--user-data-dir` TEMPORÁRIO E
+    PRÓPRIO por chamada (nunca um perfil compartilhado, que pode estar
+    travado por outro processo desta sessão). Mesmo assim, se o
+    navegador falhar aqui — timeout, exceção do sistema operacional, DOM
+    sem o `<title>` esperado — este teste PULA, nunca reprova a suíte: a
+    classe "recurso externo de ambiente indisponível ou quebrado" nunca
+    pode derrubar o build por si só. A checagem de capacidade
+    (`_chromium_funciona`, uma vez por sessão) já deveria ter pulado
+    antes de chegar aqui — isto é defesa em profundidade, não a primeira
+    linha de defesa.
     """
-    css = Path("static/css/base.css").read_text(encoding="utf-8")
+    if css_texto is None:
+        css_texto = Path("static/css/base.css").read_text(encoding="utf-8")
     script = f"""
     <script>
     var els = document.querySelectorAll({seletor!r});
@@ -647,34 +736,41 @@ def _padding_left_computado(corpo_html, seletor):
     </script>
     """
     html = (
-        f"<!DOCTYPE html><html><head><style>{css}</style></head>"
+        f"<!DOCTYPE html><html><head><style>{css_texto}</style></head>"
         f"<body>{corpo_html}{script}</body></html>"
     )
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
         f.write(html)
-        caminho = f.name
+        caminho_html = f.name
     try:
-        resultado = subprocess.run(
-            [
-                _CHROMIUM,
-                "--headless=new",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--dump-dom",
-                f"file://{caminho}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        with tempfile.TemporaryDirectory() as perfil:
+            try:
+                resultado = subprocess.run(
+                    [
+                        _CHROMIUM,
+                        "--headless=new",
+                        "--disable-gpu",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        f"--user-data-dir={perfil}",
+                        "--dump-dom",
+                        f"file://{caminho_html}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                pytest.skip(f"Chromium presente mas não funcionou ao medir: {exc!r}")
         casamento = re.search(r"<title>(.*?)</title>", resultado.stdout, re.DOTALL)
-        assert casamento, (
-            f"Chromium não devolveu <title>: stdout={resultado.stdout[:500]!r} "
-            f"stderr={resultado.stderr[:500]!r}"
-        )
+        if not casamento:
+            pytest.skip(
+                "Chromium presente mas não devolveu <title> ao medir: "
+                f"stdout={resultado.stdout[:300]!r} stderr={resultado.stderr[:300]!r}"
+            )
         return json.loads(casamento.group(1))
     finally:
-        Path(caminho).unlink(missing_ok=True)
+        Path(caminho_html).unlink(missing_ok=True)
 
 
 @precisa_de_chromium
@@ -729,7 +825,7 @@ def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(cli
 
     tabela = re.search(r"<table.*?</table>", conteudo, re.DOTALL).group(0)
 
-    padding_celula_comum = _padding_left_computado(tabela, "td:not([class])")
+    padding_celula_comum = _renderizar_e_medir(tabela, "td:not([class])")
     assert padding_celula_comum, "esperava ao menos uma célula sem classe de nível (ex.: Código)"
     base_px = int(padding_celula_comum[0].removesuffix("px"))
 
@@ -739,7 +835,7 @@ def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(cli
     # elemento de um nível dá o MESMO padding, e que o valor sobe 20px de
     # nível para nível, não a posição numa lista combinada.
     def _valores_unicos(nivel):
-        valores = _padding_left_computado(tabela, f".nivel-{nivel}")
+        valores = _renderizar_e_medir(tabela, f".nivel-{nivel}")
         assert valores, f"esperava ao menos um elemento nivel-{nivel}"
         unicos = {int(v.removesuffix("px")) for v in valores}
         assert len(unicos) == 1, (nivel, valores)
@@ -759,7 +855,7 @@ def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(cli
 
 
 @precisa_de_chromium
-def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao(tmp_path):
+def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao():
     """Evidência de que o teste acima MATA o mutante ME2 do relatório da
     rodada 2 ("`.tabela-dados td.nivel-N` -> `.nivel-N`", a primeira
     tentativa de correção do achado 6 da rodada 1, que o próprio
@@ -782,37 +878,9 @@ def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao(tmp_path):
         '<tr><td class="nivel-3">neto</td></tr>'
         "</table>"
     )
-    script = """
-    <script>
-    var els = document.querySelectorAll('.nivel-1, .nivel-2, .nivel-3');
-    var out = [];
-    els.forEach(function(e) { out.push(getComputedStyle(e).paddingLeft); });
-    document.title = JSON.stringify(out);
-    </script>
-    """
-    html_mutado = (
-        f"<!DOCTYPE html><html><head><style>{css_mutado}</style></head>"
-        f"<body>{tabela}{script}</body></html>"
+    valores_sob_mutante = _renderizar_e_medir(
+        tabela, ".nivel-1, .nivel-2, .nivel-3", css_texto=css_mutado
     )
-    caminho = tmp_path / "mutante_me2.html"
-    caminho.write_text(html_mutado, encoding="utf-8")
-
-    resultado = subprocess.run(
-        [
-            _CHROMIUM,
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--dump-dom",
-            f"file://{caminho}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    casamento = re.search(r"<title>(.*?)</title>", resultado.stdout, re.DOTALL)
-    assert casamento, resultado.stdout[:500]
-    valores_sob_mutante = json.loads(casamento.group(1))
 
     # Sob o mutante, os três níveis colapsam no MESMO padding — a asserção
     # "estritamente crescente" do teste real FALHARIA aqui. É a prova de
@@ -824,12 +892,56 @@ def test_mutante_me2_especificidade_reduzida_e_detectado_pela_medicao(tmp_path):
 
 
 def test_indentacao_por_efeito_pula_com_motivo_quando_nao_ha_navegador():
-    """Documenta o limite honesto: sem Chromium, os dois testes acima são
-    PULADOS, não aprovados por omissão — `_caminho_chromium()` devolve
-    `None` e o `skipif` carrega o motivo. Este teste garante que a busca
-    de binário em si não lança exceção em nenhum ambiente.
+    """Documenta o limite honesto — e a correção pedida pelo
+    arquiteto-senior depois de a CI cair em `aa10f20`: a condição de
+    pulo mede CAPACIDADE (`_CHROMIUM_FUNCIONAL`, uma renderização de
+    verificação com timeout curto, rodada uma vez por sessão), nunca só
+    presença de binário (`_CHROMIUM is None`, a versão antiga desta
+    checagem). Um binário PRESENTE mas QUEBRADO (sem D-Bus, sandbox
+    inutilizável, `/dev/shm` insuficiente) tem que pular — e antes desta
+    correção não pulava: `_CHROMIUM` não era `None`, o `skipif` antigo
+    não disparava, o teste de efeito RODAVA, estourava os 30s de
+    timeout e o processo morria com `SIGKILL` (-9), reprovando a suíte
+    inteira. `_CHROMIUM_FUNCIONAL` é sempre `True` ou `False` — nunca
+    "não sei" (nunca aprovação por omissão) — e os dois testes de efeito
+    só rodam quando ele é `True` (nunca reprovação por infraestrutura
+    indisponível).
     """
-    assert _caminho_chromium() is None or Path(_caminho_chromium()).exists()
+    assert _CHROMIUM_FUNCIONAL in (True, False)
+    if _CHROMIUM_FUNCIONAL:
+        assert _CHROMIUM is not None
+
+
+@pytest.mark.parametrize("comportamento", ["dormir_alem_do_timeout", "sair_com_erro"])
+def test_binario_presente_mas_quebrado_e_detectado_sem_travar(tmp_path, comportamento):
+    """Prova da CLASSE de correção — não só do caso — pedida na revisão
+    depois da queda da CI em `aa10f20`: um executável chamado
+    "chromium" que EXISTE mas não FUNCIONA precisa fazer
+    `_chromium_funciona` devolver `False`, RAPIDAMENTE (dentro do
+    timeout curto da própria checagem de sessão, nunca herdando os 30s
+    das medições reais) e SEM lançar exceção — exatamente o cenário do
+    runner do GitHub: binário presente, navegador não funcional.
+
+    Os dois comportamentos cobrem as duas classes clássicas de falha
+    citadas pelo arquiteto-senior: travar (o processo nunca retorna —
+    aqui simulado por `sleep`, no lugar do travamento real por D-Bus/
+    sandbox/`/dev/shm`) e sair com erro (`exit 1`, no lugar de uma
+    falha de inicialização que o Chromium real reportaria com código
+    diferente de zero).
+    """
+    script = tmp_path / "chromium-quebrado"
+    if comportamento == "dormir_alem_do_timeout":
+        script.write_text(f"#!/bin/sh\nsleep {_TIMEOUT_VERIFICACAO_DE_SESSAO_S + 30}\n")
+    else:
+        script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(0o755)
+
+    inicio = time.monotonic()
+    assert _chromium_funciona(str(script)) is False
+    duracao = time.monotonic() - inicio
+    # A checagem tem teto CURTO — não pode herdar os 30s das medições
+    # reais, nem travar além disso.
+    assert duracao < _TIMEOUT_VERIFICACAO_DE_SESSAO_S + 5, duracao
 
 
 # ---------------------------------------------------------------------------

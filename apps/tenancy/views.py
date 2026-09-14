@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,7 +14,23 @@ class MeusEscritoriosView(APIView):
 
     Isolamento: o filtro é sempre por vínculo do usuário autenticado, nunca
     por um identificador recebido do cliente.
+
+    `permission_classes` DECLARADO explicitamente (achado R3-10, auditoria
+    DL-017 rodada 3): antes, esta view (e `EscritorioAtivoView`, abaixo) não
+    declarava nada e dependia só de `REST_FRAMEWORK.DEFAULT_PERMISSION_
+    CLASSES` (`config/settings.py`) para exigir autenticação — as ÚNICAS
+    duas `APIView` do repositório nessa situação. Não havia vazamento (o
+    padrão global já é `IsAuthenticated`), mas o risco é de MANUTENÇÃO:
+    relaxar o padrão global para acrescentar uma rota pública no futuro
+    tiraria a autenticação destas duas sem que nenhuma linha delas mudasse.
+    `TemEscritorioAtivo` (usada no resto do projeto) NÃO serve aqui: as duas
+    rotas existem justamente para o usuário CONSULTAR seus escritórios e
+    definir/consultar o ativo — exigir um escritório já ativo seria
+    impossível de satisfazer na primeira visita. `IsAuthenticated` é o
+    mínimo correto, agora fixado na própria classe.
     """
+
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         escritorios = Escritorio.objects.filter(
@@ -23,7 +40,13 @@ class MeusEscritoriosView(APIView):
 
 
 class EscritorioAtivoView(APIView):
-    """Consulta ou define o escritório ativo na sessão do usuário."""
+    """Consulta ou define o escritório ativo na sessão do usuário.
+
+    `permission_classes` declarado explicitamente pelo mesmo motivo de
+    `MeusEscritoriosView` (achado R3-10) — ver o docstring dela.
+    """
+
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if request.escritorio is None:

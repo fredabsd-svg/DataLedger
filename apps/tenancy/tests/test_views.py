@@ -16,6 +16,7 @@ sem teste antes) e A9 (GET em `ativar_escritorio` voltava em silêncio).
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -162,3 +163,56 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
     assert '<span class="contexto-rotulo">Escritório ativo:</span>' in conteudo
     assert "Escritório A" in conteudo
     assert "mensagem-success" not in conteudo  # garante que não sobrou flash
+
+
+# ---------------------------------------------------------------------------
+# R3-10 (auditoria DL-017, rodada 3): `MeusEscritoriosView` e
+# `EscritorioAtivoView` (apps/tenancy/views.py) são as ÚNICAS duas `APIView`
+# do repositório que não declaravam `permission_classes` própria — dependiam
+# só do padrão global (`REST_FRAMEWORK.DEFAULT_PERMISSION_CLASSES`,
+# `config/settings.py`). Não havia vazamento (o padrão já é
+# `IsAuthenticated`), mas o risco era de MANUTENÇÃO: relaxar o padrão
+# global no futuro (para uma rota pública qualquer) tiraria a autenticação
+# destas duas sem que nenhuma linha delas mudasse. A prova de que a correção
+# fecha esse risco é afrouxar o padrão global DENTRO do teste
+# (`override_settings`) e confirmar que a recusa a anônimo CONTINUA — só é
+# possível porque a permissão agora está fixada na própria classe.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"]
+)
+def test_apiview_de_tenancy_recusa_usuario_anonimo(client, nome_rota):
+    resposta = client.get(reverse(nome_rota))
+    assert resposta.status_code == 403, (nome_rota, resposta.status_code)
+
+
+@pytest.mark.parametrize(
+    "nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"]
+)
+def test_apiview_de_tenancy_recusa_anonimo_mesmo_com_padrao_global_afrouxado(
+    client, nome_rota
+):
+    """R3-10: a prova de que a permissão está DECLARADA na view, não só
+    herdada do padrão global. Se `permission_classes = [IsAuthenticated]`
+    fosse removido das duas views, este teste teria que FALHAR — a rota
+    passaria a aceitar anônimo, porque o padrão global abaixo é `AllowAny`.
+    A mutação que reproduz esse "antes" está na matriz de verificação desta
+    entrega, não neste teste (que testa o estado CORRIGIDO).
+    """
+    padrao_afrouxado = {"DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"]}
+    with override_settings(REST_FRAMEWORK=padrao_afrouxado):
+        resposta = client.get(reverse(nome_rota))
+    assert resposta.status_code == 403, (nome_rota, resposta.status_code)
+
+
+def test_apiview_de_tenancy_aceita_usuario_autenticado(client, usuario_com_dois_escritorios):
+    """Controle positivo: a declaração explícita de `permission_classes`
+    não pode ter apertado o caminho normal — usuário autenticado continua
+    acessando as duas rotas."""
+    client.login(username="ana", password="senha-forte-123")
+    resposta_escritorios = client.get(reverse("tenancy:api-escritorios"))
+    assert resposta_escritorios.status_code == 200
+    resposta_ativo = client.get(reverse("tenancy:api-escritorio-ativo"))
+    assert resposta_ativo.status_code == 200
