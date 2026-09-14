@@ -899,6 +899,19 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 # `creditos_proprios` acima) — continua útil para quem quer
                 # saber se a conta tem descendentes.
                 "analitica": conta.id not in filhos_de,
+                # Natureza CADASTRADA da conta (`Conta.natureza`) — exposta
+                # aqui só para permitir à VIEW converter `saldo_anterior`/
+                # `saldo_final` (ainda assinados, abaixo) em valor absoluto
+                # + natureza APURADA (RC-61 / BL-77, critério 5 do plano
+                # DL-017): a apurada NÃO é a cadastrada quando o movimento
+                # do período inverte o lado do saldo — ver
+                # `views._saldo_absoluto_com_natureza`. Esta função
+                # continua devolvendo o saldo ASSINADO (positivo = mesmo
+                # lado da natureza cadastrada): a conversão para
+                # apresentação é responsabilidade da view, não do serviço
+                # (o valor "continua Decimal até o template" — DL-017,
+                # seção de riscos).
+                "natureza": conta.natureza,
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
