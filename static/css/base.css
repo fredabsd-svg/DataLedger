@@ -314,3 +314,45 @@ th.valor-monetario {
     display: flex;
     gap: 0.75rem;
 }
+
+/* Indentação hierárquica do Plano de Contas e do Balancete (achado 6 da
+   auditoria da DL-017, rodada 1): por CLASSE, nunca `style` inline. O
+   defeito original calculava `(nivel - 1) * 1.25` em Python como `float`
+   e o template, sob LANGUAGE_CODE "pt-br", localizava para
+   "padding-left: 1,25rem" — CSS INVÁLIDO (vírgula onde o CSS exige
+   ponto), então nenhuma conta era indentada, em nenhum nível, sem nenhum
+   teste ou erro acusando. A coluna "Nível" continua mostrando o número
+   real além do décimo nível — nenhuma informação é escondida, só a
+   indentação visual satura ali (nenhuma hierarquia contábil real chega
+   lá). "nivel-0" cobre a raiz e o caso degenerado de ciclo (sem nível).
+
+   Seletor `.tabela-dados td.nivel-N`, não `.nivel-N` isolado: a
+   especificidade de UMA classe (0,1,0) perde para a regra genérica da
+   tabela `.tabela-dados td` (0,1,1, classe + tipo), então `.nivel-N`
+   sozinho nunca vencia o `padding` já definido ali — medido no Chromium
+   (getComputedStyle): as três variantes de nível davam o MESMO
+   `padding-left` (12px, o da regra genérica), ou seja, zero indentação
+   de novo, por um motivo diferente do `float` original. Corrigido
+   aumentando a especificidade para (0,2,1), sem `!important`. */
+.tabela-dados td.nivel-0 { padding-left: 0; }
+.tabela-dados td.nivel-1 { padding-left: 0; }
+.tabela-dados td.nivel-2 { padding-left: 1.25rem; }
+.tabela-dados td.nivel-3 { padding-left: 2.5rem; }
+.tabela-dados td.nivel-4 { padding-left: 3.75rem; }
+.tabela-dados td.nivel-5 { padding-left: 5rem; }
+.tabela-dados td.nivel-6 { padding-left: 6.25rem; }
+.tabela-dados td.nivel-7 { padding-left: 7.5rem; }
+.tabela-dados td.nivel-8 { padding-left: 8.75rem; }
+.tabela-dados td.nivel-9 { padding-left: 10rem; }
+.tabela-dados td.nivel-10 { padding-left: 11.25rem; }
+
+/* Coluna consolidada do Balancete que NÃO é somável no rodapé (achado 10
+   / BL-96: "Débitos"/"Créditos" contam cada lançamento uma vez por nível
+   da hierarquia — só "Débitos próprios"/"Créditos próprios" somam,
+   DE-024 §2). Separação visual discreta, nunca o único indicador — o "—"
+   e o `title`/texto para leitor de tela (no template) já dizem isso em
+   texto. */
+.coluna-nao-somavel {
+    background: #f4f6f8;
+    color: var(--cor-borda);
+}

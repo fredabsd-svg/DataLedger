@@ -6,11 +6,18 @@ criados nos próprios testes (nenhum dado real de cliente).
 
 Este módulo TAMBÉM funciona como urlconf de teste (`urlpatterns` abaixo,
 usado via `@pytest.mark.urls(__name__)`): as rotas de `apps.contabilidade.
-urls_web` ainda não estão costuradas em `config/urls.py` (isso é trabalho
-do arquiteto-senior, "a costura entre as fases" — ver o plano). O urlconf
-abaixo espelha exatamente o que se espera dessa costura, no prefixo
-"contabilidade/painel/" documentado em `urls_web.py`, e serve ao mesmo
-tempo como especificação executável para quem for fazer a integração.
+urls_web` JÁ estão costuradas em `config/urls.py` (a costura entre as
+fases, feita pelo arquiteto-senior) no prefixo "contabilidade/painel/"
+documentado em `urls_web.py` — este urlconf de teste espelha esse mesmo
+prefixo por isolamento (não depender de `config/urls.py` para testar só
+esta fase), não porque a costura esteja pendente. O achado 13 da auditoria
+da DL-017 (rodada 1) encontrou esta afirmação já desmentida pelo próprio
+commit em que vivia: comentário desatualizado é o mesmo defeito que a
+instrução permanente do Fred em CLAUDE.md cobra para `docs/agents/
+estado.md` — só que em código. Quem quiser testar contra o urlconf REAL
+(não este espelho) encontra isso em
+`apps.contabilidade.tests.test_dl017_urlconf_integrado` (achado 9 /
+BL-95, responsabilidade do desenvolvedor-pleno).
 """
 
 import re
@@ -294,6 +301,56 @@ def test_criar_conta_com_codigo_duplicado_da_erro_no_campo_sem_500(client, cenar
     assert "Já existe uma conta com este código" in resposta.content.decode()
 
 
+def test_combo_de_conta_pai_nao_lista_conta_de_outra_empresa(client, cenario):
+    """Achado 8 / BL-94: mutante sobrevivente na rodada 1 — trocar
+    `Conta.objects.filter(empresa=empresa)` por `Conta.objects.all()` em
+    `ContaCriarForm.__init__` (views_web.py) sobrevivia à suíte inteira (0
+    falhas em 446). O controle já funcionava (verificado por medição na
+    auditoria), só não tinha teste. Cobre as DUAS formas de vazamento que
+    o critério 2 do plano proíbe: uma empresa do MESMO escritório (que
+    `escritorio=request.escritorio` sozinho NÃO filtra — só `empresa=`
+    filtra) e uma empresa de OUTRO escritório.
+
+    Se este teste voltar a passar depois de `Conta.objects.all()` no
+    lugar do filtro, o formulário "Nova conta" passaria a exibir o plano
+    de contas inteiro de todos os clientes de todos os escritórios —
+    código e nome, que revelam estrutura societária, bancos e litígios.
+    """
+    empresa_a = cenario["empresa_a"]
+    empresa_a2 = Empresa.objects.create(
+        escritorio=cenario["escritorio_a"],
+        razao_social="Empresa A2 Ltda",
+        cnpj="99988877000199",
+    )
+    conta_mesmo_escritorio = Conta.objects.create(
+        empresa=empresa_a2,
+        codigo="9.99",
+        nome="Conta sigilosa da Empresa A2",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    conta_outro_escritorio = Conta.objects.create(
+        empresa=cenario["empresa_b"],
+        codigo="8.88",
+        nome="Conta sigilosa da Empresa B",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+
+    _autenticar(client, cenario["escritorio_a"])
+    resposta = client.get(reverse("contabilidade_web:conta_nova", args=[empresa_a.id]))
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+
+    assert conta_mesmo_escritorio.nome not in conteudo
+    assert conta_mesmo_escritorio.codigo not in conteudo
+    assert conta_outro_escritorio.nome not in conteudo
+    assert conta_outro_escritorio.codigo not in conteudo
+    # Positivo: as contas da PRÓPRIA empresa continuam disponíveis como
+    # conta-pai — a correção não pode isolar demais e esvaziar o combo.
+    assert cenario["circulante"].nome in conteudo
+
+
 # ---------------------------------------------------------------------------
 # Critérios 4, 5 e 6 — apresentação contábil
 # ---------------------------------------------------------------------------
@@ -335,6 +392,96 @@ def test_valores_em_ptbr_e_saldo_com_indicador_dc(client, cenario):
     assert '<span class="indicador-natureza">D' in conteudo
     # Capital é credora e recebeu crédito: saldo credor -> "C".
     assert '<span class="indicador-natureza">C' in conteudo
+
+
+def test_saldo_zero_e_natureza_invertida_na_tela_nunca_negativo(client, cenario):
+    """Ressalva do critério 5 na auditoria da DL-017, rodada 1: M4 (saldo
+    zero ganhando natureza D), M5 (natureza apurada nunca inverte) e M6
+    (saldo voltando a poder ser negativo) só eram mortos por testes da
+    API — nenhum teste de TELA cobria os três, mesmo a função sendo a
+    MESMA (`_saldo_absoluto_com_natureza`, reaproveitada de views.py por
+    DE-026). Cobre os três pelo lado da tela (Razão e Balancete).
+    """
+    empresa = cenario["empresa_a"]
+    hoje = timezone.localdate()
+
+    # Caixa é CADASTRADA devedora; um período em que ela recebe mais
+    # CRÉDITO (250) do que DÉBITO (100) apura saldo CREDOR (150) — a
+    # natureza apurada inverte em relação à cadastrada (M5), e o valor
+    # tem que aparecer absoluto, nunca com sinal negativo (M6).
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Entrada em Caixa",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("100.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("100.00")},
+        ],
+    )
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Saída maior que o saldo devedor de Caixa",
+        itens=[
+            {"conta": cenario["capital"], "tipo": TipoPartida.DEBITO, "valor": Decimal("250.00")},
+            {"conta": cenario["caixa"], "tipo": TipoPartida.CREDITO, "valor": Decimal("250.00")},
+        ],
+    )
+    # Bancos (também devedora) recebe débito e crédito IGUAIS: saldo
+    # ZERO, que RC-61 diz não ter lado nenhum (M4).
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Entrada em Bancos",
+        itens=[
+            {"conta": cenario["bancos"], "tipo": TipoPartida.DEBITO, "valor": Decimal("40.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("40.00")},
+        ],
+    )
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Devolução em Bancos",
+        itens=[
+            {"conta": cenario["capital"], "tipo": TipoPartida.DEBITO, "valor": Decimal("40.00")},
+            {"conta": cenario["bancos"], "tipo": TipoPartida.CREDITO, "valor": Decimal("40.00")},
+        ],
+    )
+
+    _autenticar(client, cenario["escritorio_a"])
+    inicio = hoje.replace(day=1).isoformat()
+    fim = hoje.isoformat()
+
+    # Razão de Caixa: saldo final apurado é CREDOR (150,00), embora Caixa
+    # seja cadastrada devedora.
+    url_razao = (
+        reverse("contabilidade_web:razao", args=[empresa.id, cenario["caixa"].id])
+        + f"?inicio={inicio}&fim={fim}"
+    )
+    resposta = client.get(url_razao)
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "150,00" in conteudo
+    assert "-150,00" not in conteudo
+    assert "−150,00" not in conteudo
+    assert '<span class="indicador-natureza">C' in conteudo
+
+    # Balancete: a linha de Bancos tem saldo final "0,00" SEM indicador de
+    # natureza nenhum — nem "D", nem "C".
+    url_balancete = (
+        reverse("contabilidade_web:balancete", args=[empresa.id]) + f"?inicio={inicio}&fim={fim}"
+    )
+    resposta = client.get(url_balancete)
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    # Divide pelas aberturas de `<tr>`: o pedaço que contém "1.1.02" (o
+    # código de Bancos) vai do início da SUA própria linha até a próxima
+    # `<tr>` — nunca cruza para a linha de outra conta (ao contrário de um
+    # `re.search` não ancorado, que pegaria da PRIMEIRA `<tr>` do documento).
+    pedacos = conteudo.split("<tr>")
+    trecho = next(pedaco for pedaco in pedacos if "1.1.02" in pedaco)
+    assert "0,00" in trecho
+    assert '<span class="indicador-natureza">' not in trecho
 
 
 def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):

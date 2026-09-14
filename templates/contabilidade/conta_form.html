@@ -24,7 +24,17 @@
             <div class="campo">
                 {{ campo.label_tag }}
                 {{ campo }}
-                {% if campo.help_text %}<p class="visualmente-oculto">{{ campo.help_text }}</p>{% endif %}
+                {% comment %}
+                Achado 11 / BL-97: o Django 6.1 gera `aria-describedby`
+                apontando para "{id do campo}_helptext" automaticamente
+                quando o campo tem `help_text` — mas o `id` correspondente
+                só existia se ESTE elemento o declarasse. Sem ele, o
+                atributo referenciava um `id` inexistente e quem usa
+                leitor de tela nunca recebia o texto de ajuda (mesmo padrão
+                que o bloco de erro abaixo já usa corretamente, com
+                "_error").
+                {% endcomment %}
+                {% if campo.help_text %}<p class="visualmente-oculto" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
                 {% if campo.errors %}
                     <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
                         {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}

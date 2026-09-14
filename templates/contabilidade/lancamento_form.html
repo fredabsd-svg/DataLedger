@@ -55,10 +55,9 @@
                 <tbody>
                     {% for linha in linhas %}
                         <tr>
-                            <th scope="row">
-                                <label for="id_conta_{{ linha.indice }}">Linha {{ linha.indice }}</label>
-                            </th>
+                            <th scope="row">Linha {{ linha.indice }}</th>
                             <td>
+                                <label class="visualmente-oculto" for="id_conta_{{ linha.indice }}">Conta da linha {{ linha.indice }}</label>
                                 <select id="id_conta_{{ linha.indice }}" name="conta_{{ linha.indice }}">
                                     <option value="">— Selecione —</option>
                                     {% for conta in contas %}
@@ -88,8 +87,20 @@
                 <tfoot>
                     <tr class="linha-total">
                         <td colspan="2">Total conferido antes de gravar</td>
-                        <td>Débito: <span class="valor-monetario">{{ total_debito_ptbr|default:"0,00" }}</span></td>
-                        <td>Crédito: <span class="valor-monetario">{{ total_credito_ptbr|default:"0,00" }}</span></td>
+                        {% comment %}
+                        Achado 3 / BL-88: o `default` só entra quando
+                        `total_debito_ptbr`/`total_credito_ptbr` são `None`
+                        (nenhuma linha foi processada ainda — primeira
+                        visita ao formulário, GET). A partir do primeiro
+                        "Adicionar linha" ou tentativa de gravação, a view
+                        sempre calcula os dois totais a partir das linhas
+                        JÁ preenchidas neste POST (`_itens_e_totais`), então
+                        "0,00" nunca aparece aqui ao lado de linhas com
+                        valor — ou é a soma real, ou é "ainda não
+                        conferido".
+                        {% endcomment %}
+                        <td>Débito: <span class="valor-monetario">{{ total_debito_ptbr|default:"— (ainda não conferido)" }}</span></td>
+                        <td>Crédito: <span class="valor-monetario">{{ total_credito_ptbr|default:"— (ainda não conferido)" }}</span></td>
                     </tr>
                 </tfoot>
             </table>
@@ -97,6 +108,20 @@
             <div class="acoes-formulario">
                 {% if pode_adicionar_linha %}
                     <button type="submit" name="acao" value="adicionar_linha">Adicionar linha</button>
+                {% else %}
+                    {% comment %}
+                    Achado 14 / BL-99: o botão simplesmente desaparecia ao
+                    chegar no teto, sem explicar por quê — critério 13
+                    (saída navegável) também vale para um limite, não só
+                    para um erro. `role="status"` para leitor de tela
+                    anunciar sem interromper (não é um erro).
+                    {% endcomment %}
+                    <p class="mensagem mensagem-info" role="status">
+                        Este lançamento já tem o máximo de {{ num_linhas }} partidas permitidas
+                        em um único lançamento. Para escriturar mais fatos, grave este
+                        lançamento e crie um segundo — ou peça ao administrador do escritório
+                        para avaliar um teto maior.
+                    </p>
                 {% endif %}
                 <button type="submit" name="acao" value="gravar">Gravar lançamento</button>
             </div>

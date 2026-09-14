@@ -48,8 +48,14 @@
                     <th scope="col">Código</th>
                     <th scope="col">Nome</th>
                     <th scope="col">Saldo anterior</th>
-                    <th scope="col">Débitos</th>
-                    <th scope="col">Créditos</th>
+                    <th scope="col" class="coluna-nao-somavel">
+                        Débitos
+                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Débitos próprios")</span>
+                    </th>
+                    <th scope="col" class="coluna-nao-somavel">
+                        Créditos
+                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Créditos próprios")</span>
+                    </th>
                     <th scope="col">Débitos próprios</th>
                     <th scope="col">Créditos próprios</th>
                     <th scope="col">Saldo final</th>
@@ -60,7 +66,7 @@
                     <tr>
                         <td>{{ linha.nivel }}</td>
                         <td>{{ linha.codigo }}</td>
-                        <td style="padding-left: {{ linha.indentacao_rem }}rem">
+                        <td class="nivel-{{ linha.nivel_classe }}">
                             {% if linha.conta_id %}
                                 <a href="{% url 'contabilidade_web:razao' empresa.id linha.conta_id %}?inicio={{ inicio|date:'Y-m-d' }}&fim={{ fim|date:'Y-m-d' }}">
                                     {{ linha.nome }}
@@ -85,8 +91,31 @@
                 {% endfor %}
             </tbody>
             <tfoot>
+                {% comment %}
+                Achado 10 / BL-96: as colunas "Débitos"/"Créditos"
+                (consolidadas — cada lançamento é contado uma vez POR
+                NÍVEL da hierarquia, DE-022/DE-024) nunca somam para o
+                total do período; só "Débitos próprios"/"Créditos
+                próprios" somam (DE-024 §2). Antes desta correção o texto
+                da legenda cobria as duas colunas com `colspan`, sem marca
+                nenhuma POR COLUNA — um contador somando "Débitos" com o
+                dedo encontrava 3.000,00 contra 1.000,00 no rodapé (200%
+                de diferença medida pelo auditor) sem nenhum aviso na
+                própria coluna. Agora cada uma tem um "—" individual, com
+                `title` e texto para leitor de tela explicando por quê.
+                {% endcomment %}
                 <tr class="linha-total">
-                    <td colspan="6">Total do período (soma das colunas “próprios” acima)</td>
+                    <td colspan="4">Total do período (soma das colunas “próprios” abaixo)</td>
+                    <td class="valor-monetario coluna-nao-somavel"
+                        title="Coluna consolidada: cada lançamento é contado uma vez por nível da hierarquia; não é somável neste rodapé.">
+                        <span aria-hidden="true">—</span>
+                        <span class="visualmente-oculto">Coluna consolidada, não somável neste total.</span>
+                    </td>
+                    <td class="valor-monetario coluna-nao-somavel"
+                        title="Coluna consolidada: cada lançamento é contado uma vez por nível da hierarquia; não é somável neste rodapé.">
+                        <span aria-hidden="true">—</span>
+                        <span class="visualmente-oculto">Coluna consolidada, não somável neste total.</span>
+                    </td>
                     <td class="valor-monetario">{{ total_debitos_ptbr }}</td>
                     <td class="valor-monetario">{{ total_creditos_ptbr }}</td>
                     <td></td>

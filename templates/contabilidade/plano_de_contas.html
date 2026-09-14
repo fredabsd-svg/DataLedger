@@ -41,7 +41,7 @@
                     <tr>
                         <td>{{ linha.nivel|default:"—" }}</td>
                         <td>{{ linha.conta.codigo }}</td>
-                        <td style="padding-left: {{ linha.indentacao_rem }}rem">{{ linha.conta.nome }}</td>
+                        <td class="nivel-{{ linha.nivel_classe }}">{{ linha.conta.nome }}</td>
                         <td>{{ linha.conta.get_tipo_display }}</td>
                         <td>{{ linha.conta.get_natureza_display }}</td>
                         <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>

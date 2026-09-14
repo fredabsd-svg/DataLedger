@@ -25,7 +25,7 @@ import hashlib
 import re
 import uuid
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
@@ -52,7 +52,7 @@ from apps.contabilidade.services import (
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
-# existir uma segunda cópia de nenhuma das duas regras a seguir:
+# existir uma segunda cópia de nenhuma das regras a seguir:
 # - PodeEscriturar: MESMA permissão de escrita que a API usa (indicação
 #   explícita do docstring de permissoes.py — a tela de lançamento "usa a
 #   regra de PodeEscriturar em views.py").
@@ -61,7 +61,21 @@ from apps.contabilidade.services import (
 #   o sinal pode inverter a natureza APURADA em relação à CADASTRADA — ver o
 #   docstring de origem) — exatamente o tipo de decisão que DE-026 não quer
 #   duplicada em dois lugares.
-from apps.contabilidade.views import PodeEscriturar, _saldo_absoluto_com_natureza
+# - TAMANHO_MAXIMO_HISTORICO e LIMITE_MAGNITUDE_VALOR: mesmos limites do
+#   modelo (achado 1/4 da auditoria da DL-017, rodada 1) que a API já
+#   verifica na fronteira ANTES de gravar — sem eles aqui, o mesmo texto
+#   longo demais ou o mesmo valor grande demais que a API recusa com 400
+#   chega ao INSERT do Postgres pela tela e vira 500 (`DataError`), porque
+#   `criar_lancamento` (services.py) não os verifica: ele confia que quem
+#   chama (API ou tela) já filtrou a entrada bruta do usuário.
+from apps.contabilidade.views import (
+    LIMITE_MAGNITUDE_VALOR,
+    TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA,
+    TAMANHO_MAXIMO_HISTORICO,
+    PodeEscriturar,
+    _saldo_absoluto_com_natureza,
+)
+from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.empresas.models import Empresa
 
 # Mesmo teto de NÍVEL que a API aplica em `apps.contabilidade.views.NIVEL_
@@ -69,6 +83,19 @@ from apps.empresas.models import Empresa
 # boa educação na fronteira HTTP desta tela (nenhum plano de contas real
 # chega a esta profundidade), não uma regra de negócio contábil.
 NIVEL_MAXIMO = 50
+
+# Teto de indentação VISUAL do Plano de Contas e do Balancete (achado 6 da
+# auditoria da DL-017, rodada 1): a coluna "Nível" sempre mostra o número
+# REAL, então limitar a indentação a 10 níveis não esconde informação —
+# nenhum plano de contas real chega lá (ver
+# docs/projeto/mapa-funcional-contabil.md). Usada para escolher a classe
+# CSS "nivel-N" (static/css/base.css), NUNCA um atributo `style` inline:
+# o defeito original era exatamente `(nivel - 1) * 1.25`, um `float` que o
+# `LANGUAGE_CODE = "pt-br"` localizava para `padding-left: 1,25rem` — CSS
+# inválido, sem indentação nenhuma em nenhum nível, e sem nenhum teste ou
+# erro acusando (AGENTS.md §10: nunca `float`, inclusive onde o número não
+# é dinheiro).
+NIVEL_INDENTACAO_MAXIMA = 10
 
 # Formato ESTRITO aceito para 'inicio'/'fim' na querystring desta tela —
 # mesma cautela da API (apps.contabilidade.views._PADRAO_DATA_SIMPLES):
@@ -299,7 +326,11 @@ def _linhas_hierarquicas(contas):
             {
                 "conta": conta,
                 "nivel": nivel,
-                "indentacao_rem": (nivel - 1) * 1.25 if nivel else 0,
+                # Inteiro, nunca `float` (achado 6) — vira a classe CSS
+                # "nivel-N" no template, capada em NIVEL_INDENTACAO_MAXIMA;
+                # `None` (conta em ciclo) e nível 1 (raiz) caem em "nivel-0"
+                # (sem indentação, nenhuma classe negativa).
+                "nivel_classe": min(nivel, NIVEL_INDENTACAO_MAXIMA) if nivel else 0,
             }
         )
     return linhas
@@ -392,18 +423,37 @@ def _decimal_do_formulario(texto):
     """Converte o texto digitado no campo de valor (pt-BR: vírgula decimal,
     ponto como separador de milhar opcional) para `Decimal`.
 
-    Levanta `InvalidOperation`/`ValueError` para texto que não representa
-    um número — quem chama trata isso como erro de FORMULÁRIO. A validação
-    de DOMÍNIO (sinal, escala máxima — DE-010) continua sendo feita só por
-    `criar_lancamento` (services.py); esta função só entende o formato de
-    DIGITAÇÃO, nunca decide se o valor é aceitável contabilmente.
+    DE-027 (achados 1 e 2 da auditoria da DL-017, rodada 1): esta função faz
+    UMA ÚNICA coisa com o texto — troca a vírgula decimal pelo ponto — e
+    entrega o resultado para `apps.core.dinheiro.para_decimal`, que é quem
+    JULGA se aquele texto é uma representação aceitável de dinheiro (mesmo
+    módulo que a API usa em `_extrair_itens`, views.py). Antes desta
+    correção, a função construía `Decimal(bruto)` diretamente: o construtor
+    do Python é mais permissivo do que o contrato monetário do projeto (
+    aceita notação científica, "_" como separador de dígitos, e não rejeita
+    `NaN`/`Infinity`), então a TELA tinha se tornado a porta mais frouxa da
+    mesma invariante que a API aplica de propósito — "1e3" era gravado como
+    1.000,00, e "NaN"/"Infinity" chegavam a `_valor_ptbr` (achado 1) e
+    derrubavam a tela com 500 ao tentar formatá-los na mensagem de recusa.
+
+    Não faz `.strip()` do texto antes de julgar o formato: espaço em volta
+    ("10,00 ") é rejeitado por `para_decimal` (o mesmo espaço que a API
+    também rejeita, pelo mesmo motivo — "não reinterpretar em silêncio o
+    que foi digitado", docstring de `PADRAO_VALOR_DECIMAL_SIMPLES`), não
+    silenciosamente descartado. Quem chama já garante que o texto não é
+    puramente vazio antes de chegar aqui (`_linhas_lancamento_do_post`
+    trata "" como linha em branco).
+
+    Levanta `ValorMonetarioInvalido` para texto que não representa um valor
+    monetário aceitável — quem chama trata isso como erro de FORMULÁRIO. A
+    validação de DOMÍNIO (sinal, escala máxima — DE-010) continua sendo
+    feita só por `criar_lancamento` (services.py); esta função só entende o
+    formato de DIGITAÇÃO, nunca decide se o valor é aceitável contabilmente.
     """
-    bruto = (texto or "").strip()
-    if not bruto:
-        raise ValueError("valor vazio")
+    bruto = texto or ""
     if "," in bruto:
         bruto = bruto.replace(".", "").replace(",", ".")
-    return Decimal(bruto)
+    return para_decimal(bruto)
 
 
 def _linhas_lancamento_do_post(post, num_linhas):
@@ -411,19 +461,30 @@ def _linhas_lancamento_do_post(post, num_linhas):
     POST bruto. Uma linha totalmente vazia é ignorada — o contador não
     precisa preencher as N linhas oferecidas. Uma linha PARCIALMENTE
     preenchida é um erro de formulário, reportado como tal.
+
+    `valor_texto` é devolvido SEM `.strip()` (achado 2, DE-027): espaço em
+    volta do valor é uma DIGITAÇÃO que `_decimal_do_formulario`/
+    `para_decimal` devem julgar, não algo que esta função pode descartar
+    antes — descartar em silêncio é exatamente a reinterpretação que o
+    projeto decidiu nunca fazer. `conta_id` e `tipo` continuam com
+    `.strip()`: são identificadores/opções de `<select>`, não texto de
+    dinheiro, e não têm um julgador de formato próprio para delegar a
+    checagem. A DECISÃO de "linha em branco" usa o valor JÁ testado por
+    vazio (`.strip()` só para esta comparação), não o texto guardado.
     """
     linhas = []
     erros = []
     for i in range(1, num_linhas + 1):
         conta_id = (post.get(f"conta_{i}") or "").strip()
         tipo = (post.get(f"tipo_{i}") or "").strip()
-        valor_texto = (post.get(f"valor_{i}") or "").strip()
-        if not conta_id and not tipo and not valor_texto:
+        valor_bruto = post.get(f"valor_{i}") or ""
+        valor_em_branco = not valor_bruto.strip()
+        if not conta_id and not tipo and valor_em_branco:
             continue
-        if not conta_id or not tipo or not valor_texto:
+        if not conta_id or not tipo or valor_em_branco:
             erros.append(f"Linha {i}: preencha conta, tipo e valor, ou deixe a linha em branco.")
             continue
-        linhas.append({"indice": i, "conta_id": conta_id, "tipo": tipo, "valor_texto": valor_texto})
+        linhas.append({"indice": i, "conta_id": conta_id, "tipo": tipo, "valor_texto": valor_bruto})
     return linhas, erros
 
 
@@ -463,6 +524,86 @@ def _contexto_form_lancamento(
     }
 
 
+def _itens_e_totais(linhas_brutas, contas_por_id):
+    """Converte as linhas BRUTAS do POST (já filtradas por
+    `_linhas_lancamento_do_post`) em itens prontos para `criar_lancamento`,
+    somando débito e crédito no caminho.
+
+    Compartilhada pelos dois ramos que precisam do MESMO cálculo (achado 3
+    / BL-88): "adicionar_linha" (só para mostrar o total de CONFERÊNCIA,
+    nunca para gravar) e "gravar" (para decidir se pode gravar). Antes
+    desta correção, "adicionar_linha" reconstruía o formulário sem chamar
+    nada disto, e o rodapé "Total conferido antes de gravar" mostrava
+    `0,00 / 0,00` com as linhas já preenchidas ao lado — o único total que
+    esta tela mostra num caminho sem erro (não há JavaScript, critério 15)
+    estava sempre errado.
+
+    Uma linha com conta/tipo/valor inválido não interrompe o cálculo: ela
+    soma um erro à lista devolvida e é EXCLUÍDA da soma. Para
+    "adicionar_linha" isso é a conferência PARCIAL esperada enquanto o
+    contador ainda digita (uma linha isolada errada não deve zerar o total
+    das demais); para "gravar", a presença de qualquer erro na lista já
+    impede a gravação mais abaixo, então a soma aqui não precisa ser
+    "tudo ou nada" — ela só alimenta a mensagem de conferência.
+
+    Devolve `(itens, erros, total_debito, total_credito)`.
+    """
+    itens = []
+    erros = []
+    total_debito = Decimal("0")
+    total_credito = Decimal("0")
+    for linha in linhas_brutas:
+        conta = contas_por_id.get(int(linha["conta_id"])) if linha["conta_id"].isdigit() else None
+        if conta is None:
+            # Também cobre o caso de um `conta_id` de OUTRA empresa (não
+            # está em `contas_por_id`, que só tem contas DESTA empresa) —
+            # nunca vaza para a mensagem de erro qual empresa seria, só que
+            # a conta é inválida.
+            erros.append(f"Linha {linha['indice']}: conta inválida.")
+            continue
+        try:
+            valor = _decimal_do_formulario(linha["valor_texto"])
+        except ValorMonetarioInvalido:
+            erros.append(f"Linha {linha['indice']}: valor “{linha['valor_texto']}” inválido.")
+            continue
+        # Mesmo teto de MAGNITUDE que a API já verifica em `_extrair_itens`
+        # (views.py) antes de chamar `criar_lancamento` — achado da
+        # varredura desta rodada (critério de aceite 1): `criar_lancamento`
+        # (services.py) verifica sinal e ESCALA (casas decimais), mas nunca
+        # magnitude; sem este limite AQUI, um valor cujo módulo não caiba
+        # em `ItemLancamento.valor` (DecimalField max_digits=18,
+        # decimal_places=2) passa por toda validação de domínio e só falha
+        # no INSERT do Postgres com `DataError: numeric field overflow` —
+        # 500, não 400, exatamente a MESMA classe de defeito dos achados 1
+        # e 4, num caminho que o auditor não tinha percorrido ainda.
+        if abs(valor) >= LIMITE_MAGNITUDE_VALOR:
+            # A mensagem usa o TEXTO digitado, não `_valor_ptbr(valor)`: um
+            # valor deste tamanho (por definição, aqui) pode ter centenas
+            # de dígitos, e `_valor_ptbr` faz `.quantize(Decimal("0.01"))`
+            # — que levanta `decimal.InvalidOperation` quando o resultado
+            # excede a precisão do contexto decimal (28 dígitos, ver o
+            # docstring de `quantizar` em apps/core/dinheiro.py). Formatar
+            # o valor recusado por ser grande demais CRIARIA um 500 novo,
+            # exatamente a classe de defeito que esta checagem existe para
+            # fechar. `LIMITE_MAGNITUDE_VALOR` (10**16) é pequeno e seguro
+            # de formatar.
+            erros.append(
+                f"Linha {linha['indice']}: valor “{linha['valor_texto']}” é grande demais "
+                f"para um item de lançamento; o módulo deve ser menor que "
+                f"{_valor_ptbr(LIMITE_MAGNITUDE_VALOR)}."
+            )
+            continue
+        if linha["tipo"] not in (TipoPartida.DEBITO, TipoPartida.CREDITO):
+            erros.append(f"Linha {linha['indice']}: tipo de partida inválido.")
+            continue
+        itens.append({"conta": conta, "tipo": linha["tipo"], "valor": valor})
+        if linha["tipo"] == TipoPartida.DEBITO:
+            total_debito += valor
+        else:
+            total_credito += valor
+    return itens, erros, total_debito, total_credito
+
+
 @login_required
 def lancamento_novo(request, empresa_id):
     if request.escritorio is None:
@@ -486,7 +627,15 @@ def lancamento_novo(request, empresa_id):
             num_linhas = int(request.POST.get("num_linhas", LINHAS_INICIAIS_LANCAMENTO))
         except TypeError, ValueError:
             num_linhas = LINHAS_INICIAIS_LANCAMENTO
-        num_linhas = max(2, min(num_linhas, LINHAS_MAXIMAS_LANCAMENTO))
+        # O TETO superior (LINHAS_MAXIMAS_LANCAMENTO) NÃO é aplicado aqui
+        # por `min()` (achado 5 / BL-91): um `num_linhas` acima do teto
+        # enviado para "gravar" precisa ser RECUSADO mais abaixo, nunca
+        # truncado em silêncio — truncar aqui foi o mecanismo exato que
+        # descartou 77,00 de débito e 77,00 de crédito de um lote que
+        # fechava "balanceado" com sucesso. O piso de 2 é seguro de aplicar
+        # já aqui: ele nunca faz esta view LER menos campos do que os que o
+        # cliente possa ter enviado, só garante um mínimo para exibição.
+        num_linhas = max(2, num_linhas)
 
         data_texto = request.POST.get("data", "")
         historico = request.POST.get("historico", "").strip()
@@ -498,11 +647,23 @@ def lancamento_novo(request, empresa_id):
         # conteúdo bate (ver o docstring de `criar_lancamento`).
         chave_idempotencia = request.POST.get("chave_idempotencia") or uuid.uuid4().hex
 
+        contas_por_id = {conta.id: conta for conta in contas_disponiveis}
+
         if acao == "adicionar_linha":
             # Só acrescenta uma linha em branco e re-renderiza — NUNCA
             # grava nada. É a forma de a tela funcionar sem JavaScript
             # (critério 15): cada "+ linha" é um novo GET/POST normal.
             num_linhas = min(num_linhas + 1, LINHAS_MAXIMAS_LANCAMENTO)
+            # Achado 3 / BL-88: as linhas JÁ enviadas neste POST alimentam
+            # o MESMO cálculo de totais que "gravar" usa (`_itens_e_totais`)
+            # — "Adicionar linha" é o único botão de conferência que esta
+            # tela tem sem JavaScript, e o rodapé não pode mais mostrar
+            # `0,00 / 0,00` com as linhas preenchidas do lado. Os erros
+            # desta extração são descartados de propósito aqui: o contador
+            # ainda está digitando, e esta ação nunca grava nada — a
+            # validação séria acontece em "gravar".
+            linhas_brutas, _ = _linhas_lancamento_do_post(request.POST, num_linhas)
+            _, _, total_debito, total_credito = _itens_e_totais(linhas_brutas, contas_por_id)
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
@@ -511,42 +672,76 @@ def lancamento_novo(request, empresa_id):
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,
                 linhas_preenchidas=request.POST,
+                total_debito=total_debito,
+                total_credito=total_credito,
             )
             return render(request, "contabilidade/lancamento_form.html", contexto)
 
         # Qualquer outro valor de 'acao' (normalmente "gravar") é tratado
         # como tentativa de gravação — nunca perde silenciosamente o que
         # foi digitado.
+        if num_linhas > LINHAS_MAXIMAS_LANCAMENTO:
+            # Achado 5 / BL-91: recusa o POST inteiro — nunca processa só
+            # as primeiras LINHAS_MAXIMAS_LANCAMENTO e descarta o resto em
+            # silêncio. Era exatamente assim que um lote com 22 partidas
+            # (as 20 primeiras batendo, e as 2 últimas TAMBÉM batendo entre
+            # si) fechava com "sucesso" perdendo 77,00 de débito e 77,00 de
+            # crédito — perda silenciosa de fato contábil, que nenhuma
+            # conferência posterior aponta porque o que sobrou também fecha
+            # balanceado. Em escrituração: recusa, nunca ajusta.
+            messages.error(
+                request,
+                f"Este formulário aceita no máximo {LINHAS_MAXIMAS_LANCAMENTO} partidas "
+                f"por lançamento; foram enviadas {num_linhas}. Grave em dois lançamentos "
+                "separados, ou peça ao administrador do escritório para avaliar um teto "
+                "maior.",
+            )
+            contexto = _contexto_form_lancamento(
+                empresa,
+                contas_disponiveis,
+                LINHAS_MAXIMAS_LANCAMENTO,
+                data_texto=data_texto,
+                historico=historico,
+                chave_idempotencia=chave_idempotencia,
+                linhas_preenchidas=request.POST,
+            )
+            return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
         linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas)
 
-        itens = []
-        total_debito = Decimal("0")
-        total_credito = Decimal("0")
-        contas_por_id = {conta.id: conta for conta in contas_disponiveis}
-        for linha in linhas_brutas:
-            conta = (
-                contas_por_id.get(int(linha["conta_id"])) if linha["conta_id"].isdigit() else None
+        # Achado 4 / BL-90: mesmo teto do modelo (`historico =
+        # CharField(max_length=300)`) verificado AQUI, antes de qualquer
+        # tentativa de gravação — sem isto, o único guarda era o
+        # `maxlength="300"` do HTML (proteção de NAVEGADOR, nunca de
+        # servidor — AGENTS.md §1), e um POST direto com histórico maior
+        # chegava ao INSERT do Postgres como `DataError: value too long
+        # for type character varying(300)`, um 500 cru. O formulário de
+        # conta é `ModelForm` e o Django já cuida disto sozinho; este é o
+        # único formulário escrito à mão da entrega, e por isso o único
+        # que precisa desta checagem explícita.
+        if len(historico) > TAMANHO_MAXIMO_HISTORICO:
+            erros.append(f"O histórico não pode ter mais de {TAMANHO_MAXIMO_HISTORICO} caracteres.")
+
+        # Mesma classe de defeito dos achados 1 e 4, encontrada na
+        # varredura desta rodada (critério de aceite 1): `chave_
+        # idempotencia` é um campo OCULTO do formulário (o navegador nunca
+        # o alonga sozinho), mas nada nesta view impedia um POST direto com
+        # um valor maior que `LancamentoContabil.chave_idempotencia`
+        # (CharField max_length=255) — reproduzido e confirmado
+        # (`DataError: value too long for type character varying(255)`, um
+        # 500 cru) antes desta correção. A API já tem o mesmo limite
+        # (`TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA`, views.py); aqui é o mesmo
+        # valor, reaproveitado, não duplicado.
+        if len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA:
+            erros.append(
+                "A chave de idempotência não pode ter mais de "
+                f"{TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA} caracteres."
             )
-            if conta is None:
-                # Também cobre o caso de um `conta_id` de OUTRA empresa
-                # (não está em `contas_por_id`, que só tem contas DESTA
-                # empresa) — nunca vaza para a mensagem de erro qual
-                # empresa seria, só que a conta é inválida.
-                erros.append(f"Linha {linha['indice']}: conta inválida.")
-                continue
-            try:
-                valor = _decimal_do_formulario(linha["valor_texto"])
-            except InvalidOperation, ValueError:
-                erros.append(f"Linha {linha['indice']}: valor “{linha['valor_texto']}” inválido.")
-                continue
-            if linha["tipo"] not in (TipoPartida.DEBITO, TipoPartida.CREDITO):
-                erros.append(f"Linha {linha['indice']}: tipo de partida inválido.")
-                continue
-            itens.append({"conta": conta, "tipo": linha["tipo"], "valor": valor})
-            if linha["tipo"] == TipoPartida.DEBITO:
-                total_debito += valor
-            else:
-                total_credito += valor
+
+        itens, erros_itens, total_debito, total_credito = _itens_e_totais(
+            linhas_brutas, contas_por_id
+        )
+        erros = erros + erros_itens
 
         data_lancamento = None
         if not _PADRAO_DATA_SIMPLES.fullmatch(data_texto or ""):
@@ -858,7 +1053,11 @@ def balancete(request, empresa_id):
                 "codigo": linha["conta"],
                 "nome": linha["nome"],
                 "nivel": linha["nivel"],
-                "indentacao_rem": (linha["nivel"] - 1) * 1.25,
+                # Inteiro, nunca `float` (achado 6 — mesma regra de
+                # `_linhas_hierarquicas`, ver o comentário lá).
+                "nivel_classe": min(linha["nivel"], NIVEL_INDENTACAO_MAXIMA)
+                if linha["nivel"]
+                else 0,
                 "analitica": linha["analitica"],
                 "saldo_anterior_ptbr": _valor_ptbr(saldo_anterior_abs),
                 "saldo_anterior_natureza": _indicador_natureza(saldo_anterior_nat),
