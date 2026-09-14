@@ -1,7 +1,8 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, logo após a revisão `7bf6dae`, branch
-`claude/accounting-agent-team-setup-mn6lyf`.
+Atualizado em **2026-09-14**, com a `main` em `dba0133` (PR #17 integrado).
+Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
+partir da `main` depois da integração.
 
 > **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
 > `auditor-qa` (achado novo 8 da [rodada 2 da
@@ -201,9 +202,9 @@ diverge.
 | [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção de documentos fiscais: XML, ZIP e SPED | **Planejada — próxima** |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
-| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred (laço original, monograma, razonete); quarta execução é o **conceito do próprio Fred em vetor limpo** | **Aguardando aprovação do Fred** na branch de trabalho; a `main` ainda mostra o razonete (PR #16) |
-| [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Em validação na branch de trabalho |
-| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 APROVADA COM RESSALVAS** na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md), depois de reprovada nas rodadas [1](../auditorias/2026-09-13-dl-015-rodada-1.md), [2](../auditorias/2026-09-14-dl-015-rodada-2.md) e [3](../auditorias/2026-09-14-dl-015-rodada-3.md). Ressalvas viradas BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
+| [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred; o quarto é o **conceito do próprio Fred em vetor limpo** | **Integrada (PR #17)** |
+| [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -236,55 +237,40 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **Integrar a branch à `main`** — autorizado pelo Fred em 2026-09-14. A
-   [DL-013](../planos/DL-013-logo-oficial.md) (logo) foi encerrada junto, e a
-   pasta temporária de pranchas saiu do repositório. Já integrados antes:
-   DL-011 (PR #12), DL-014 e README (PR #15), razonete (PR #16 — substituído).
-2. **[DL-015](../planos/DL-015-contabilidade-utilizavel.md) — contabilidade
-   utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
-   trabalhar na contabilidade, a partir do manual de referência. O levantamento
-   está em [mapa-funcional-contabil.md](../projeto/mapa-funcional-contabil.md);
-   as lacunas viraram BL-59 a BL-80. Onda 1 (saídas por período) integrada em
-   `8f2c209`, corrigida em `05f93f0`, **reprovada em duas rodadas de auditoria**
-   e em terceira rodada de correção; onda 2 é a interface (BL-62), que só
-   começa com o contrato da onda 1 aprovado.
-
-   O Fred respondeu quatro pendências em 2026-09-13 (RC-51 a RC-56): saldos
-   iniciais entram por lançamento do balanço patrimonial; centro de custo é
-   usado por parte das empresas; livros precisam de numeração; e ele pediu
-   **alteração em massa** e **eliminação de período** — desenhadas em DE-017 e
-   DE-018, com a ordem de implantação declarada: a eliminação só depois de
-   BL-33 (restauração testada) e BL-11 (fechamento de período).
-3. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
-   documentos fiscais.** Era a prioridade anterior (RC-40); **saiu da frente da
-   fila** por RC-50, sem ser cancelada.
-   O plano já tem os leiautes de NF-e e de SPED levantados em fonte oficial.
-   Antes de começar, ler a seção de pendências: **BL-52** (fila de tarefas em
-   segundo plano) mudou o desenho da etapa, e **BL-54** deve estar resolvido
-   antes de gravar CNPJ em lote.
-4. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
-   testada), BL-50, BL-51, BL-52 e BL-53. Nenhum urgente hoje, todos
-   pré-condição para existir dado real de cliente.
-5. **Decisões que dependem do Fred:** PE-20 (escritório com CNPJ inválido),
-   PE-21 (escopo da unicidade de CNPJ), PE-22 (documento não eletrônico nos
-   períodos a migrar), PE-23 (o sistema de XML entrega os eventos?), PE-25
-   (residência do dado e LGPD), e as novas **PE-27 a PE-33** da contabilidade —
-   com destaque para PE-27 (saldos iniciais de implantação), que bloqueia o
-   BL-63 e sem a qual não se migra empresa nenhuma.
-6. **BL-02** — proteção da branch `main`. Ação administrativa no GitHub, que
-   nenhum agente pode executar: a API de proteção respondeu 403 a esta sessão
-   (o proxy de integração não permite escrita nesse endpoint). O Fred faz em
-   Settings → Rules → Rulesets, exigindo PR com as verificações "Lint e
-   testes", "Validar documentação" e "Regras do projeto", e bloqueando force
-   push e exclusão.
+1. **[DL-015 onda 2](../planos/DL-015-contabilidade-utilizavel.md) — a
+   interface (BL-62).** É o que falta para o Fred usar o sistema sem programar:
+   hoje a contabilidade só responde por API. O contrato das quatro saídas está
+   estável e auditado, que era a condição para começar.
+2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
+   mover conta **com movimento** para outra empresa; o balancete da origem
+   deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
+   existir dado real de cliente**. BL-84, BL-85 e BL-86 completam as ressalvas
+   da auditoria.
+3. **[DL-016](../planos/DL-016-competencia-e-fechamento.md) — competência e
+   fechamento de período.** Planejada e com contrato escrito. Destrava a
+   alteração em massa (DE-017) e a regeração de lançamentos derivados (DE-018),
+   as duas pedidas pelo Fred.
+4. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — recepção de
+   documentos fiscais.** Fora da frente da fila por RC-50, sem ser cancelada.
+5. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+   testada), BL-50, BL-51, BL-52 e BL-53.
+6. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
+   vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
+   implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
+7. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
+   de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
+   Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
+   documentação" e "Regras do projeto", e bloqueando force push e exclusão.
 
 ## Estado do repositório
 
-- `main` contém DL-002 a DL-009.
-- A branch de trabalho é `claude/accounting-agent-team-setup-mn6lyf`,
-  sincronizada com o remoto. Último commit: `44f9fe6`.
-- **Suíte: 272 testes** (eram 55 no início da sessão).
-- A DL-011 está **completa e auditada** na branch, aguardando integração.
+- **`main` em `dba0133`**, com DL-002 a DL-009, DL-011, DL-012, DL-013, DL-014 e
+  **DL-015 onda 1**.
+- **Suíte: 402 testes** (211 só em contabilidade), rodando em **14 s** — eram
+  199 s antes de BL-80.
+- A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
+  diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
+  um relatório errado.
 - Pendência herdada da DL-002: a proteção da branch `main` nunca foi
   configurada.
 
