@@ -236,11 +236,10 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **Logo (DL-013):** o Fred precisa aprovar a quarta execução (pranchas em
-   `docs/assets/propostas-logo/`). Se aprovar: apagar a pasta de pranchas,
-   abrir PR e integrar. Se reprovar: ajustar a partir do feedback dele, não
-   trocar de conceito — o conceito é dele. Já integrados à `main`: DL-011
-   (PR #12), DL-014 e README (PR #15), razonete (PR #16).
+1. **Integrar a branch à `main`** — autorizado pelo Fred em 2026-09-14. A
+   [DL-013](../planos/DL-013-logo-oficial.md) (logo) foi encerrada junto, e a
+   pasta temporária de pranchas saiu do repositório. Já integrados antes:
+   DL-011 (PR #12), DL-014 e README (PR #15), razonete (PR #16 — substituído).
 2. **[DL-015](../planos/DL-015-contabilidade-utilizavel.md) — contabilidade
    utilizável.** Prioridade confirmada pelo Fred em 2026-09-13 (**RC-50**):
    trabalhar na contabilidade, a partir do manual de referência. O levantamento

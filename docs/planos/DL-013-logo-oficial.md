@@ -1,6 +1,8 @@
 # DL-013 — Logo oficial do DataLedger
 
-**Estado:** quarta execução, **aguardando aprovação do Fred** (2026-09-13).
+**Estado:** **encerrada em 2026-09-14.** O Fred autorizou a integração à `main`
+junto do restante da branch. A pasta temporária de pranchas saiu do repositório,
+como previsto no escopo.
 
 ## Histórico honesto
 
@@ -17,7 +19,7 @@
    pediu "algo assim, melhore esse".
 4. **Conceito do Fred, executado em vetor limpo** — esta versão. Mesmas
    cores, composição e assinatura; o que mudou está descrito em
-   [docs/assets/propostas-logo/README.md](../assets/propostas-logo/README.md).
+   descrito abaixo, em "O que mudou em relação ao original do Fred".
 
 O caminho `docs/assets/logo-dataledger.svg` foi preservado nas quatro trocas.
 
@@ -34,23 +36,27 @@ assinatura ("DataLedger" + "SISTEMA CONTÁBIL") também em vetor.
   `docs/assets/logo-dataledger-assinatura-escura.svg` — assinatura completa.
 - Texto alternativo do logo no `README.md`.
 - Pasta temporária `docs/assets/propostas-logo/` com as pranchas de
-  conferência; **sai antes da integração à `main`**.
+  conferência; **removida em 2026-09-14, antes da integração**, como previsto.
 - Não alterar código, dependências, modelos, migrações ou regras de negócio.
 
 ## Critérios de aceite
 
 1. O símbolo renderiza em fundo claro e escuro, em 128 px e em 32 px.
-   **Verificado** por renderização em Chromium (prancha
-   `simbolo-128px-e-32px.png`) e conferência a olho.
+   **Verificado** por renderização em Chromium nos dois tamanhos e nos dois
+   fundos, conferida a olho. A prancha usada saiu do repositório junto da pasta
+   temporária; a evidência é a verificação, não o arquivo.
 2. A fita verde não vaza para dentro do laço esquerdo nem termina em corte
-   reto visível. **Verificado** na renderização em 360 px
-   (`variantes-sem-e-com-barra.png`); a v3 tinha o vazamento e foi refeita.
+   reto visível. **Verificado** em renderização a 360 px; a terceira execução tinha o
+   vazamento e foi refeita por isso.
 3. Os assets não contêm scripts, fontes externas nem links remotos.
    **Verificado**: o único URL nos três SVGs é o `xmlns` do SVG.
 4. O README continua apontando para um arquivo existente e o texto
    alternativo descreve o desenho atual.
 5. Os workflows de documentação e backend permanecem verdes.
-6. **O Fred aprova o desenho.** Pendente.
+6. **O Fred aprova o desenho.** **Atendido por autorização de integração**, em
+   2026-09-14 — ele mandou integrar a branch à `main`, e o logo ia nela. Não é
+   aprovação estética declarada item a item; é autorização de integração, e
+   registro assim para não inflar. Trocar o SVG depois custa um commit.
 
 ## Fonte da assinatura
 
@@ -72,3 +78,26 @@ Reverter o commit da DL-013 restaura o logo anterior.
 
 - **Branch de trabalho:** `claude/accounting-agent-team-setup-mn6lyf`
 - **Branch de destino:** `main`
+
+## O que mudou em relação ao original do Fred
+
+Registrado aqui porque a pasta temporária que trazia esta comparação saiu do
+repositório na integração.
+
+- **Mesmo conceito, mesmas cores, mesma composição:** dois laços azuis, fita
+  verde atravessando, cubos isométricos no laço direito, nome em negrito
+  azul-marinho e a linha "SISTEMA CONTÁBIL" em caixa alta espaçada.
+- **Vetor plano:** dois gradientes suaves, sem sombra, brilho ou filtro. O
+  símbolo tem 2,2 KB, sem fonte externa e sem nenhum recurso remoto.
+- **O entrelaçado é de verdade**, pela ordem de desenho: a fita nasce escondida
+  na faixa do laço esquerdo, emerge por baixo dele na junção e passa por cima do
+  laço direito, terminando em ponta redonda.
+- **Os sete cubos** têm o mesmo tamanho e a mesma luz, e continuam legíveis em
+  32 px como um bloco.
+- **A assinatura** usa a fonte Sora convertida em traçados, para não depender de
+  fonte instalada em quem abre o arquivo.
+
+Arquivos definitivos: `docs/assets/logo-dataledger.svg` (símbolo),
+`docs/assets/logo-dataledger-assinatura.svg` e
+`docs/assets/logo-dataledger-assinatura-escura.svg` (assinatura completa, para
+fundo claro e escuro).
