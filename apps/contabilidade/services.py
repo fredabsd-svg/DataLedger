@@ -685,11 +685,13 @@ def apurar_razao(*, conta, empresa, inicio, fim):
 def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     """Apura o Balancete de verificação da empresa no período [inicio, fim] (BL-61).
 
-    Quatro colunas por conta (saldo_anterior, débitos, créditos, saldo_final)
-    em vez da coluna única de antes desta etapa. `nivel` é opcional: ausente,
-    devolve todas as contas (analíticas e sintéticas); presente, devolve só
-    as contas com nível <= `nivel` (raiz = nível 1) — mas o TOTAL da resposta
-    continua somando TODOS os itens do período da empresa, sem recorte (ver
+    Quatro colunas CONSOLIDADAS por conta (saldo_anterior, débitos, créditos,
+    saldo_final) mais duas colunas PRÓPRIAS (débitos_proprios,
+    creditos_proprios — achado novo 3 da rodada 3 / DE-024 §2, ver comentário
+    junto do `append` abaixo). `nivel` é opcional: ausente, devolve todas as
+    contas (analíticas e sintéticas); presente, devolve só as contas com
+    nível <= `nivel` (raiz = nível 1) — mas o TOTAL da resposta continua
+    somando TODOS os itens do período da empresa, sem recorte (ver
     comentário perto do `return`).
 
     Regra ÚNICA de saldo (achados 2, 3 e 7 / DE-020): o saldo de QUALQUER
@@ -845,6 +847,46 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         debitos = bruto["debito_periodo"]
         creditos = bruto["credito_periodo"]
         saldo_final = saldo_anterior + _saldo_por_natureza(debitos, creditos, conta.natureza)
+
+        # Achado novo 3 da auditoria (rodada 3) / DE-024 §2: além do
+        # CONSOLIDADO acima (própria conta + TODAS as descendentes), cada
+        # linha declara também o movimento PRÓPRIO — o que foi lançado
+        # DIRETAMENTE nesta conta, sem o das descendentes. É sobre este
+        # valor, não sobre o consolidado, que a soma das linhas reconcilia
+        # com o rodapé: a soma dos PRÓPRIOS de todas as linhas EXIBIDAS é
+        # sempre `total_debitos`/`total_creditos`, porque todo lançamento é
+        # próprio de EXATAMENTE uma conta (nunca de duas, nunca de nenhuma).
+        # A DE-022 dizia que "analítica" (folha) resolvia essa soma — não
+        # resolvia quando a conta tem movimento próprio E filhas (o valor
+        # próprio do grupo não aparecia em folha nenhuma); esta é a correção.
+        #
+        # SEM filtro de `nivel`: "próprio" é o bruto da própria conta MENOS
+        # o bruto de cada filho DIRETO — o que sobra é exatamente o valor
+        # gravado nesta conta antes de somar qualquer descendente (o mesmo
+        # que `agregados_por_conta` traria sem a recursão de `bruto_de`).
+        #
+        # COM filtro de `nivel`: uma conta na BORDA do corte (cujo filho
+        # ficou de fora da exibição por estar mais profundo que `nivel`)
+        # precisa ABSORVER o movimento do que não é exibido — senão a soma
+        # das linhas EXIBIDAS ficaria menor que o rodapé exatamente pelo
+        # valor que foi cortado da lista. Por isso só se subtrai o bruto de
+        # um filho quando esse filho TAMBÉM está sendo exibido
+        # (`nivel_de(filho) <= nivel`); o que não é subtraído permanece
+        # dentro do "próprio" do ancestral visível mais profundo. Com
+        # `nivel=None` (tudo exibido) a fórmula se reduz ao caso simples
+        # acima, porque todo filho é sempre "exibido".
+        filhos_exibidos_ids = [
+            filho_id
+            for filho_id in filhos_de.get(conta.id, [])
+            if nivel is None or nivel_de(filho_id) <= nivel
+        ]
+        debitos_proprios = debitos - sum(
+            (brutos[filho_id]["debito_periodo"] for filho_id in filhos_exibidos_ids), zero
+        )
+        creditos_proprios = creditos - sum(
+            (brutos[filho_id]["credito_periodo"] for filho_id in filhos_exibidos_ids), zero
+        )
+
         linhas.append(
             {
                 "conta": conta.codigo,
@@ -852,17 +894,16 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 "nivel": nivel_de(conta.id),
                 # DE-022 (achado novo 1, rodada 2): "analítica" significa
                 # CONTA SEM DESCENDENTES (folha da árvore) — não depende de
-                # `aceita_lancamento`. É o que quem lê o balancete precisa
-                # saber para somar as linhas certas sem contar valor em
-                # dobro: uma conta que ACEITA lançamento e TEM filhas soma
-                # próprio + descendentes (regra única, DE-020) e por isso
-                # NÃO é folha — contar a linha dela como "analítica" ao
-                # somar a lista faria a soma das linhas ficar maior que o
-                # rodapé exatamente pelo valor das filhas, contado nas duas.
+                # `aceita_lancamento`. Não é mais o critério para somar
+                # linhas sem contar valor em dobro (ver `debitos_proprios`/
+                # `creditos_proprios` acima) — continua útil para quem quer
+                # saber se a conta tem descendentes.
                 "analitica": conta.id not in filhos_de,
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
+                "debitos_proprios": debitos_proprios,
+                "creditos_proprios": creditos_proprios,
                 "saldo_final": saldo_final,
             }
         )

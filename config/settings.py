@@ -173,15 +173,32 @@ AUTH_PASSWORD_VALIDATORS = [
 #    (desde a versão 8), presente durante TODA execução da suíte e ausente em
 #    qualquer outro processo — inclusive o servidor de produção, que nunca
 #    roda sob pytest.
-# 2. `DEBUG` é `True`: nunca é o caso em produção — a checagem de
-#    `DATABASE_URL` mais acima já EXIGE `DEBUG=False` em produção (DE-014).
+# 2. `DEBUG` é `True`.
+#
+#    Correção de 2026-09-14 (achado novo 4 da auditoria da DL-015, rodada
+#    3): esta linha dizia que a checagem de `DATABASE_URL` mais acima já
+#    "EXIGE `DEBUG=False` em produção". Isso é FALSO, e o auditor verificou:
+#    aquela checagem recusa subir com **SQLite** quando `DEBUG=False` (ou
+#    sem `DATABASE_URL` nenhuma) — ela não examina `DEBUG` de forma alguma
+#    quando `DATABASE_URL` aponta para PostgreSQL. Um servidor com
+#    `DEBUG=True` e `DATABASE_URL` PostgreSQL sobe normalmente, sem aviso
+#    nenhum. Ou seja: nada no projeto hoje IMPEDE `DEBUG=True` em produção —
+#    é disciplina de operação (variável de ambiente configurada certo), não
+#    um invariante que o código garanta. Avaliar uma guarda que recuse subir
+#    com `DEBUG=True` fora de desenvolvimento é o BL-82, ainda não feito.
 #
 # A dupla condição É a proteção, não uma conveniência: se `PYTEST_VERSION`
 # fosse definida por engano num ambiente real (variável de ambiente vazada,
-# script copiado sem cuidado), a checagem de `DEBUG` ainda bloqueia a troca.
-# E se `DEBUG=True` escapasse para produção por outro motivo qualquer,
-# `PYTEST_VERSION` não estaria definida ali. As duas juntas cobrem os dois
-# lados do erro — nenhuma delas isolada seria suficiente.
+# script copiado sem cuidado), a checagem de `DEBUG` ainda bloqueia a troca
+# ENQUANTO quem configurou o ambiente real tiver posto `DEBUG=False` — o que
+# é disciplina de operação, não garantia de código (ver item 2 acima). E se
+# `DEBUG=True` escapasse para produção por outro motivo qualquer,
+# `PYTEST_VERSION` não estaria definida ali (a menos que o processo esteja
+# de fato rodando sob pytest). As duas juntas cobrem os dois lados do erro
+# tanto quanto o ambiente permitir — nenhuma delas isolada seria suficiente,
+# e a suíte de teste em `test_hasher_de_senha_...` (achado novo 4) mede as
+# quatro combinações em subprocesso, matando a mutação que remove qualquer
+# uma das duas condições.
 if "PYTEST_VERSION" in os.environ and DEBUG:
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 

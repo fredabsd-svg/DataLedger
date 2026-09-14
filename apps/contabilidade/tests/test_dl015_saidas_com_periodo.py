@@ -11,7 +11,10 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.backends.db import SessionStore
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -2228,10 +2231,20 @@ def test_de022_conta_que_aceita_lancamento_e_tem_filha_bate_razao_e_balancete(cl
 
 
 def test_de022_movimento_proprio_no_pai_e_na_filha_nao_perde_nem_dobra(client, cenario):
-    """Segunda reprodução do achado novo 1: movimento PRÓPRIO no pai (60,00)
-    E na filha (40,00) — o relatório mediu Razão do pai em 60,00 (ou 0,00)
-    contra Balancete em 100,00 (ou 1500,00), e soma das linhas analíticas em
-    1140,00 contra rodapé de 1100,00.
+    """Segunda reprodução do achado novo 1 (rodada 2): movimento PRÓPRIO no
+    pai (60,00) E na filha (40,00) — o relatório mediu Razão do pai em 60,00
+    (ou 0,00) contra Balancete em 100,00 (ou 1500,00), e soma das linhas
+    analíticas em 1140,00 contra rodapé de 1100,00.
+
+    Também é o cenário do achado novo 3 da rodada 3 / DE-024 §2: a soma das
+    linhas "analitica" (folha) não reconciliava com o rodapé quando o pai
+    tinha movimento próprio E filha (a folha "5.1" sozinha soma 40,00,
+    contra um rodapé de 100,00 — os 60,00 do pai não apareciam em NENHUMA
+    folha). A correção acrescenta `debitos_proprios`/`creditos_proprios` a
+    CADA linha (o que foi lançado DIRETO nela, sem o das descendentes); a
+    invariante que agora vale, testada COM e SEM `nivel`, é: a soma dos
+    PRÓPRIOS de TODAS as linhas exibidas é sempre `total_debitos`/
+    `total_creditos` — nunca depende de quais linhas são folha.
     """
     _autenticar(client, cenario["escritorio_a"])
     periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
@@ -2288,6 +2301,56 @@ def test_de022_movimento_proprio_no_pai_e_na_filha_nao_perde_nem_dobra(client, c
         if linha["analitica"] and linha["conta"] in {"5", "5.1"}
     )
     assert soma_folhas == Decimal("40.00")  # só "5.1" é folha; "5" tem descendente
+
+    # Achado novo 3 / DE-024 §2: "5" (pai) declara o PRÓPRIO (60,00) — o que
+    # a soma das folhas, acima, nunca conseguiria mostrar — e "5.1" (filha)
+    # continua com o próprio igual ao consolidado, porque é folha.
+    linha_filha = next(linha for linha in balancete["contas"] if linha["conta"] == "5.1")
+    assert linha_pai["debitos_proprios"] == "60.00"
+    assert linha_filha["debitos_proprios"] == "40.00"
+
+    def _soma_dos_proprios_reconcilia(corpo_balancete):
+        soma_debitos_proprios = sum(
+            Decimal(linha["debitos_proprios"]) for linha in corpo_balancete["contas"]
+        )
+        soma_creditos_proprios = sum(
+            Decimal(linha["creditos_proprios"]) for linha in corpo_balancete["contas"]
+        )
+        total_debitos = Decimal(corpo_balancete["total_debitos"])
+        total_creditos = Decimal(corpo_balancete["total_creditos"])
+        assert soma_debitos_proprios == total_debitos == Decimal("100.00")
+        assert soma_creditos_proprios == total_creditos == Decimal("100.00")
+
+    # SEM `nivel`: "5", "5.1" e "2.1" (capital, credor dos dois lançamentos)
+    # aparecem, cada uma com seu próprio — nenhuma soma valor da outra.
+    _soma_dos_proprios_reconcilia(balancete)
+
+    # COM `nivel=1`: "5.1" fica DE FORA da lista (nível 2 > 1) — o próprio
+    # dela (40,00) tem que ser ABSORVIDO pela linha de "5" (nível 1, o
+    # ancestral visível mais profundo), ou a soma cairia para 60,00 contra
+    # um rodapé que continua 100,00 (o rodapé NUNCA depende de `nivel`).
+    balancete_nivel_1 = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {**periodo, "nivel": "1"},
+    ).json()
+    assert {linha["conta"] for linha in balancete_nivel_1["contas"]} == {"1.1", "2.1", "5"}
+    linha_pai_nivel_1 = next(
+        linha for linha in balancete_nivel_1["contas"] if linha["conta"] == "5"
+    )
+    assert linha_pai_nivel_1["debitos_proprios"] == "100.00"  # absorveu o de "5.1"
+    _soma_dos_proprios_reconcilia(balancete_nivel_1)
+
+    # COM `nivel=2`: "5.1" volta a aparecer, e o próprio de "5" volta a ser
+    # só o dele mesmo (60,00) — mesmo resultado do balancete sem filtro.
+    balancete_nivel_2 = client.get(
+        reverse("contabilidade:balancete", args=[cenario["empresa_a"].id]),
+        {**periodo, "nivel": "2"},
+    ).json()
+    linha_pai_nivel_2 = next(
+        linha for linha in balancete_nivel_2["contas"] if linha["conta"] == "5"
+    )
+    assert linha_pai_nivel_2["debitos_proprios"] == "60.00"
+    _soma_dos_proprios_reconcilia(balancete_nivel_2)
 
 
 # ---------------------------------------------------------------------------
@@ -2624,19 +2687,171 @@ def test_admin_recusa_inclusao_de_lancamento_nos_tres_casos_do_relatorio(
     assert ItemLancamento.objects.count() == total_itens_antes
 
 
-def test_admin_nao_oferece_botao_de_inclusao_de_lancamento(client, django_user_model):
-    django_user_model.objects.create_superuser(
+def test_admin_lancamento_e_somente_consulta_contrato_direto(rf, django_user_model):
+    """Achado novo 1 (bloqueador) da rodada 3 / DE-024 §1: o teste ANTERIOR
+    fazia `client.get("/admin/contabilidade/lancamentocontabil/")`, que
+    RENDERIZA a listagem do admin — sob `CompressedManifestStaticFilesStorage`
+    (config/settings.py), qualquer template com `{% static %}` (o próprio
+    template do admin) exige o manifesto que só existe DEPOIS de
+    `collectstatic`. A integração contínua roda `collectstatic` DEPOIS do
+    `pytest`, DE PROPÓSITO (DE-012): se a ordem fosse invertida, a CI passaria
+    escondendo exatamente o defeito que esse teste queria pegar. Em checkout
+    limpo (`git archive` + `tar`, sem `collectstatic` nenhum antes — o que a
+    CI faz), esse teste estourava `ValueError: Missing staticfiles manifest
+    entry for 'admin/css/base.css'`. Os 391 "aprovados" do commit anterior só
+    existiam porque a árvore de trabalho já tinha um `staticfiles/`
+    (gitignored) de uma execução anterior.
+
+    Verificamos o CONTRATO diretamente (opção (a) da correção, DE-024 §1) —
+    nenhuma página é renderizada: `has_add_permission` e
+    `has_delete_permission` (achado novo 2, abaixo) são falsos.
+    """
+    usuario = django_user_model.objects.create_superuser(
         username="admin-teste2", email="admin2@escritorio.com.br", password="senha-forte-123"
     )
-    client.login(username="admin-teste2", password="senha-forte-123")
+    request = rf.get("/admin/contabilidade/lancamentocontabil/")
+    request.user = usuario
 
-    response = client.get("/admin/contabilidade/lancamentocontabil/")
+    admin_instance = admin.site._registry[LancamentoContabil]
 
-    assert response.status_code == 200
-    # O link para a tela de inclusão (".../lancamentocontabil/add/") não
-    # pode aparecer na listagem quando `has_add_permission` é False —
-    # evitamos depender do TEXTO do botão (varia com a tradução ativa).
-    assert "/contabilidade/lancamentocontabil/add/" not in response.content.decode()
+    assert admin_instance.has_add_permission(request) is False
+    assert admin_instance.has_delete_permission(request) is False
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 2 — o admin apaga escrituração em lote, sem rastro,
+# contornando a imutabilidade (LancamentoContabil.delete() não é chamado por
+# QuerySet.delete(), que é o que a ação "delete_selected" da listagem usa)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_lancamento_nao_oferece_acao_de_exclusao_em_lote(rf, cenario, django_user_model):
+    """A ação "delete_selected" da listagem chama `QuerySet.delete()`, que
+    NÃO passa por `LancamentoContabil.delete()` (a guarda que levanta
+    `LancamentoImutavelError`) — antes desta correção, apagava lançamento e
+    itens em lote, DEFINITIVAMENTE, sem estorno, sem versão anterior e sem
+    registro em `apps/auditoria`.
+
+    Verificamos o MECANISMO diretamente, sem passar pelo `Client` — a mesma
+    restrição do achado novo 1: uma requisição de ação via `Client` que a
+    permissão recusa cai de volta no render NORMAL da listagem (o Django,
+    com a ação fora da lista de permitidas, simplesmente ignora o POST e
+    devolve a página de novo, 200) — o que reintroduziria o mesmo problema
+    de renderização em checkout limpo. Testamos o que realmente importa: (1)
+    "delete_selected" nunca aparece entre as ações disponíveis
+    (`get_actions`), porque `has_delete_permission` é falso; (2) mesmo
+    chamando `response_action` diretamente com essa ação, nada é executado
+    (devolve `None`) e a contagem não muda. Mutar `has_delete_permission`
+    para `True` faz a ação aparecer em `get_actions` e este teste falha.
+    """
+    lancamento = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento,
+        conta=cenario["caixa"],
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("10.00"),
+    )
+    total_lancamentos_antes = LancamentoContabil.objects.count()
+    total_itens_antes = ItemLancamento.objects.count()
+
+    usuario = django_user_model.objects.create_superuser(
+        username="admin-teste4", email="admin4@escritorio.com.br", password="senha-forte-123"
+    )
+    admin_instance = admin.site._registry[LancamentoContabil]
+    request = rf.post(
+        "/admin/contabilidade/lancamentocontabil/",
+        data={
+            "action": "delete_selected",
+            "_selected_action": [str(lancamento.id)],
+            "index": "0",
+        },
+    )
+    request.user = usuario
+    request.session = SessionStore()
+    request.session.save()
+    request._messages = FallbackStorage(request)
+
+    assert "delete_selected" not in admin_instance.get_actions(request)
+
+    resposta = admin_instance.response_action(
+        request, queryset=LancamentoContabil.objects.filter(pk=lancamento.pk)
+    )
+
+    assert resposta is None  # ação não reconhecida entre as permitidas: nada executado
+    assert LancamentoContabil.objects.count() == total_lancamentos_antes
+    assert ItemLancamento.objects.count() == total_itens_antes
+
+
+def test_admin_recusa_exclusao_individual_de_lancamento(client, cenario, django_user_model):
+    """Caminho individual (botão "Excluir" na ficha, `.../<id>/delete/`):
+    ANTES desta correção, a guarda de imutabilidade RODAVA (o `delete()` do
+    modelo), mas como uma excepión que vazava — 500, não uma recusa
+    apresentável. `has_delete_permission=False` faz o Django recusar ANTES
+    de chegar no modelo: 403, e nada é tocado. Diferente do caso em lote
+    acima, este caminho NÃO cai de volta em nenhum render (`delete_view`
+    verifica a permissão e levanta `PermissionDenied` antes de montar
+    qualquer página) — seguro usar o `Client` normalmente.
+    """
+    django_user_model.objects.create_superuser(
+        username="admin-teste5", email="admin5@escritorio.com.br", password="senha-forte-123"
+    )
+    client.login(username="admin-teste5", password="senha-forte-123")
+    lancamento = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
+    )
+    total_antes = LancamentoContabil.objects.count()
+
+    response = client.post(
+        f"/admin/contabilidade/lancamentocontabil/{lancamento.id}/delete/",
+        data={"post": "yes"},
+    )
+
+    assert response.status_code == 403
+    assert LancamentoContabil.objects.count() == total_antes
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 6 — defesas sem teste que as torne observáveis: M11
+# (`has_change_permission` do admin de lançamento) e M05 (`_descendentes_de`
+# sem o filtro `empresa=empresa`, mais abaixo, junto do Razão)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_recusa_alteracao_de_lancamento_por_post(client, cenario, django_user_model):
+    """M11 (achado novo 6): `has_change_permission` é falso, mas nenhum
+    teste fixava isso — mutar para `True` fazia a suíte inteira passar do
+    mesmo jeito. `changeform_view` verifica a permissão ANTES de montar a
+    página de resposta a um `POST` de salvamento (diferente do `GET`, que
+    devolve a ficha em modo leitura e por isso não testamos aqui, pela
+    mesma restrição do achado novo 1) — seguro usar o `Client`.
+    """
+    django_user_model.objects.create_superuser(
+        username="admin-teste6", email="admin6@escritorio.com.br", password="senha-forte-123"
+    )
+    client.login(username="admin-teste6", password="senha-forte-123")
+    lancamento = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Histórico original"
+    )
+
+    response = client.post(
+        f"/admin/contabilidade/lancamentocontabil/{lancamento.id}/change/",
+        data={
+            "empresa": str(cenario["empresa_a"].id),
+            "data": "2024-02-02",
+            "historico": "Histórico alterado pelo admin",
+            "itens-TOTAL_FORMS": "0",
+            "itens-INITIAL_FORMS": "0",
+            "itens-MIN_NUM_FORMS": "0",
+            "itens-MAX_NUM_FORMS": "1000",
+            "_save": "Salvar",
+        },
+    )
+
+    assert response.status_code == 403
+    lancamento.refresh_from_db()
+    assert lancamento.historico == "Histórico original"
 
 
 # ---------------------------------------------------------------------------
@@ -2727,6 +2942,157 @@ def test_conferencia_numero_de_consultas_tem_teto_explicito(
             reverse("contabilidade:conferencia-lotes-desbalanceados", args=[empresa.id])
         )
     assert resposta.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Achado novo 5 da rodada 3: os dois testes de teto acima NÃO DISCRIMINAM —
+# passam com 201/201 mesmo removendo `select_related` do Razão (N+1
+# garantido, M19) e não medem o custo real de um plano de contas profundo.
+# ---------------------------------------------------------------------------
+
+
+def test_razao_numero_de_consultas_nao_cresce_com_quantidade_de_itens(
+    client, cenario, django_assert_max_num_queries
+):
+    """Mata M19 (remoção de `select_related("lancamento", "conta")` do
+    Razão): com `select_related`, o número de consultas do Razão de uma
+    conta FOLHA é CONSTANTE — não depende de quantos itens ela tem no
+    período — porque lançamento e conta de cada item vêm no MESMO `JOIN`,
+    não numa consulta por item (N+1). Medido: 60 lançamentos (60 itens na
+    conta consultada) ainda ficam nas MESMAS ~8 consultas do teste de teto
+    acima; sem `select_related`, o mesmo cenário sobe para ~121 (uma
+    consulta por `item.lancamento` mais uma por `item.conta`) — bem acima do
+    teto de 10 declarado no teste de teto. O teste anterior (achado 10 da
+    rodada 2) não pegava isto porque o cenário de aquecimento tinha poucos
+    ou nenhum item.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    empresa = cenario["empresa_a"]
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+    for i in range(60):
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2024, 1, 5),
+            historico=f"Movimento {i}",
+            itens=[
+                {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("1.00")},
+                {
+                    "conta": cenario["capital"],
+                    "tipo": TipoPartida.CREDITO,
+                    "valor": Decimal("1.00"),
+                },
+            ],
+        )
+    client.get(
+        reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo
+    )  # aquecimento
+
+    with django_assert_max_num_queries(10):
+        resposta = client.get(
+            reverse("contabilidade:razao", args=[empresa.id, cenario["caixa"].id]), periodo
+        )
+    assert resposta.status_code == 200
+
+
+def test_razao_numero_de_consultas_do_grupo_raiz_de_plano_profundo(client, cenario):
+    """Achado novo 5: o teto FIXO de 10 consultas só vale para conta FOLHA
+    em plano RASO — `_descendentes_de` busca a subárvore da conta consultada
+    NÍVEL A NÍVEL (uma consulta por nível de profundidade), então o Razão do
+    grupo RAIZ de um plano profundo paga uma consulta por nível. Medido:
+    profundidade 1 -> 8 consultas, 3 -> 10 (já no teto fixo), 6 -> 13, 10 ->
+    17 — crescimento de uma consulta por nível, não uma explosão, mas
+    incompatível com um teto FIXO de 10: um plano de contas brasileiro real
+    tem 5 a 6 níveis. Este teste declara o teto em FUNÇÃO da profundidade
+    (`profundidade + 9`, com margem) em vez de um número fixo que a
+    hierarquia real ultrapassa, e mostra explicitamente que o teto fixo de
+    10 não serve para este caso.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    empresa = cenario["empresa_a"]
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+
+    profundidade = 8
+    raiz = None
+    conta_pai = None
+    for nivel in range(profundidade):
+        conta_pai = Conta.objects.create(
+            empresa=empresa,
+            codigo=f"9.{nivel}",
+            nome=f"Nível {nivel} do plano profundo",
+            tipo=TipoConta.ATIVO,
+            natureza=NaturezaConta.DEVEDORA,
+            conta_pai=conta_pai,
+        )
+        if raiz is None:
+            raiz = conta_pai
+
+    client.get(reverse("contabilidade:razao", args=[empresa.id, raiz.id]), periodo)  # aquecimento
+    with CaptureQueriesContext(connection) as ctx:
+        resposta = client.get(reverse("contabilidade:razao", args=[empresa.id, raiz.id]), periodo)
+
+    assert resposta.status_code == 200
+    # O teto FIXO das duas funções acima (10) já não bastaria aqui — este é
+    # exatamente o ponto do achado: declarar o teto em função da
+    # profundidade, com uma margem pequena para não quebrar por 1 consulta
+    # incidental de middleware/permissão.
+    assert len(ctx) > 10
+    assert len(ctx) <= profundidade + 9
+
+
+def test_razao_nao_consolida_conta_de_outra_empresa_com_conta_pai_corrompido(client, cenario):
+    """M05 (achado novo 6): `_descendentes_de` filtra por `empresa=empresa`
+    ALÉM de `conta_pai_id__in` — sem esse filtro, uma conta de OUTRA
+    empresa cujo `conta_pai` (só alcançável por gravação direta no ORM,
+    contornando `Conta.clean()` — mesma via da auditoria) aponta para uma
+    conta DESTA empresa apareceria no Razão consolidado como se fosse
+    descendente legítima.
+
+    O filtro a jusante (`lancamento__empresa=empresa` na consulta de itens
+    de `apurar_razao`) sozinho NÃO bastaria para pegar este caso: aqui o
+    item corrompido tem `conta` de uma empresa e `lancamento` da OUTRA (a
+    consultada) — o mesmo tipo de corrupção que `ItemLancamento.clean()`
+    recusa no caminho validado (achado 10 / achado novo 6 da rodada 2), só
+    alcançável por ORM direto. Só o filtro por empresa DENTRO de
+    `_descendentes_de` impede essa conta de entrar no conjunto de ids
+    consolidados.
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    periodo = {"inicio": "2024-01-01", "fim": "2024-01-31"}
+
+    # "Infiltrada" é da empresa B, mas o `conta_pai` aponta para "Caixa" da
+    # empresa A — corrompido, só alcançável por ORM direto (`.create()` não
+    # chama `full_clean()`).
+    infiltrada = Conta.objects.create(
+        empresa=cenario["empresa_b"],
+        codigo="9.9",
+        nome="Infiltrada",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        conta_pai=cenario["caixa"],
+    )
+    # O item corrompido tem `conta` da empresa B e `lancamento` da empresa A
+    # (a consultada) — se `_descendentes_de` incluísse "infiltrada" por
+    # engano, o filtro `lancamento__empresa=empresa` NÃO pegaria este item,
+    # porque o lançamento É da empresa A.
+    lancamento_a = LancamentoContabil.objects.create(
+        empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento da empresa A"
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento_a,
+        conta=infiltrada,
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("999.99"),
+    )
+
+    resposta = client.get(
+        reverse("contabilidade:razao", args=[cenario["empresa_a"].id, cenario["caixa"].id]),
+        periodo,
+    )
+
+    assert resposta.status_code == 200
+    razao = resposta.json()
+    assert razao["total_debito"] == "0.00"
+    assert all(item["valor"] != "999.99" for item in razao["itens"])
 
 
 # ---------------------------------------------------------------------------

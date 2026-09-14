@@ -605,6 +605,13 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
                 "saldo_anterior": _como_moeda(linha["saldo_anterior"]),
                 "debitos": _como_moeda(linha["debitos"]),
                 "creditos": _como_moeda(linha["creditos"]),
+                # Achado novo 3 / DE-024 §2: movimento PRÓPRIO da conta (o
+                # que foi lançado DIRETO nela, sem o das descendentes) — é
+                # sobre estes dois campos, não sobre "debitos"/"creditos"
+                # (consolidados), que a soma das linhas reconcilia com
+                # total_debitos/total_creditos abaixo.
+                "debitos_proprios": _como_moeda(linha["debitos_proprios"]),
+                "creditos_proprios": _como_moeda(linha["creditos_proprios"]),
                 "saldo_final": _como_moeda(linha["saldo_final"]),
             }
             for linha in apuracao["contas"]
