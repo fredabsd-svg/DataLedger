@@ -86,6 +86,35 @@ Percorrendo o formulário campo a campo com a pergunta *"isso chega ao banco sem
 checagem de limite?"*, apareceram mais dois (BL-101 e BL-102). **Achado não é
 lista de tarefas; é amostra de um padrão.**
 
+## Três testes que não conseguiam falhar
+
+Apareceram na correção da rodada 3, um de cada responsável, e são a mesma
+armadilha em três disfarces. Ficam registrados porque **nenhum deles foi
+encontrado por leitura** — os três só apareceram quando alguém reaplicou o
+mutante e mediu.
+
+| Quem | O teste dizia medir | O que media de fato |
+| --- | --- | --- |
+| `arquiteto-senior` | se o código compila em 3.12 e 3.13 | nada — `py_compile … \| tail -1 && echo OK` devolve o código de saída do `tail`, que é sempre zero. Imprimiu "COMPILA" nas duas versões que falham |
+| `especialista-frontend` | se há navegador para medir CSS | se o **arquivo** existe. No runner do GitHub o binário existe e não sobe: o teste não pulava, rodava e estourava 30 s de timeout |
+| `desenvolvedor-pleno` | se a permissão está fixada na view, e não herdada | o padrão **real**, não o afrouxado: o DRF fixa `permission_classes` na **importação** do módulo, e `override_settings` invalida o cache de `api_settings` sem reescrever o atributo de classe já fixado |
+
+O terceiro é o mais perigoso dos três, e vale entender por quê: **ele passava
+isolado e falhava em conjunto.** Rodado sozinho, o mutante morria; rodado na
+suíte inteira, sobrevivia, porque outra requisição DRF já havia fixado o
+atributo antes. Evidência positiva que depende da ordem de execução é pior que
+evidência nenhuma — ela dá confiança onde não há.
+
+**A regra que fica:** *um teste só conta como defesa depois que alguém o viu
+falhar.* Escrever o teste e vê-lo verde não prova nada — o verde pode vir de o
+teste não conseguir ficar vermelho. É o mesmo princípio que já valia para
+mutação de código, agora estendido ao próprio instrumento de medida.
+
+Consequência prática adotada: **teste estrutural e teste comportamental andam
+em par** quando o assunto é autorização. O estrutural prova que a decisão está
+declarada onde é aplicada; o comportamental prova que ela vale. Sozinho, o
+estrutural passa com `AllowAny` declarado.
+
 ## O que a rodada 2 ensinou, e é a lição mais cara até aqui
 
 **Corrigimos o exemplo, não a classe.** O auditor nomeou o padrão, e o erro é
