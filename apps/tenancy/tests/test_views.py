@@ -16,10 +16,11 @@ sem teste antes) e A9 (GET em `ativar_escritorio` voltava em silêncio).
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import override_settings
 from django.urls import reverse
+from rest_framework.permissions import IsAuthenticated
 
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+from apps.tenancy.views import EscritorioAtivoView, MeusEscritoriosView
 
 pytestmark = pytest.mark.django_db
 
@@ -173,10 +174,7 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
 # `config/settings.py`). Não havia vazamento (o padrão já é
 # `IsAuthenticated`), mas o risco era de MANUTENÇÃO: relaxar o padrão
 # global no futuro (para uma rota pública qualquer) tiraria a autenticação
-# destas duas sem que nenhuma linha delas mudasse. A prova de que a correção
-# fecha esse risco é afrouxar o padrão global DENTRO do teste
-# (`override_settings`) e confirmar que a recusa a anônimo CONTINUA — só é
-# possível porque a permissão agora está fixada na própria classe.
+# destas duas sem que nenhuma linha delas mudasse.
 # ---------------------------------------------------------------------------
 
 
@@ -186,19 +184,47 @@ def test_apiview_de_tenancy_recusa_usuario_anonimo(client, nome_rota):
     assert resposta.status_code == 403, (nome_rota, resposta.status_code)
 
 
-@pytest.mark.parametrize("nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"])
-def test_apiview_de_tenancy_recusa_anonimo_mesmo_com_padrao_global_afrouxado(client, nome_rota):
-    """R3-10: a prova de que a permissão está DECLARADA na view, não só
-    herdada do padrão global. Se `permission_classes = [IsAuthenticated]`
-    fosse removido das duas views, este teste teria que FALHAR — a rota
-    passaria a aceitar anônimo, porque o padrão global abaixo é `AllowAny`.
-    A mutação que reproduz esse "antes" está na matriz de verificação desta
-    entrega, não neste teste (que testa o estado CORRIGIDO).
+@pytest.mark.parametrize("nome_view", [MeusEscritoriosView.__name__, EscritorioAtivoView.__name__])
+def test_apiview_de_tenancy_declara_permission_classes_na_propria_classe(nome_view):
+    """R3-10: a prova de que a permissão está DECLARADA na view, não herdada
+    do padrão global — de forma determinística, não por comportamento em
+    tempo de execução.
+
+    **Por que não `override_settings(REST_FRAMEWORK=...)`, que era a
+    primeira forma que este teste tomou.** Medi, na mutação desta entrega
+    (mutante: apagar `permission_classes = [IsAuthenticated]` das duas
+    views): um teste baseado em `override_settings` só detecta a ausência
+    da declaração quando é a PRIMEIRA requisição DRF do processo de teste —
+    em qualquer execução posterior (a normal, com a suíte inteira), o
+    mutante SOBREVIVE em silêncio, porque `rest_framework.views.APIView`
+    fixa `permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES`
+    como atributo de classe NA IMPORTAÇÃO do módulo — uma vez por processo.
+    `override_settings` dispara o sinal que invalida o CACHE de
+    `api_settings`, mas não reescreve o atributo de classe já fixado em
+    `APIView`, que é exatamente o que uma view SEM `permission_classes`
+    próprio herdaria. É a mesma classe de "medição que não consegue falhar"
+    do R3-4 (o `tail -1 && echo OK`) — e eu só a encontrei porque apliquei o
+    mutante na ordem em que a suíte real roda, não isolado.
+
+    A prova correta é ESTRUTURAL, e não depende de nenhum comportamento de
+    cache do DRF nem da ordem de execução: `permission_classes` precisa
+    estar no `__dict__` da PRÓPRIA classe (`view_classe.__dict__`), não só
+    acessível por herança (`getattr`/MRO acharia o atributo herdado de
+    `APIView` de qualquer forma, mutante ou não — por isso não usei
+    `getattr`). Recebe o NOME da classe, não a classe em si, porque
+    `pytest.mark.parametrize` não pode fixar valores de classe direto no
+    id do teste de forma legível; resolve pelo nome dentro do teste.
     """
-    padrao_afrouxado = {"DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"]}
-    with override_settings(REST_FRAMEWORK=padrao_afrouxado):
-        resposta = client.get(reverse(nome_rota))
-    assert resposta.status_code == 403, (nome_rota, resposta.status_code)
+    view_classe = {
+        "MeusEscritoriosView": MeusEscritoriosView,
+        "EscritorioAtivoView": EscritorioAtivoView,
+    }[nome_view]
+    assert "permission_classes" in view_classe.__dict__, (
+        f"{nome_view} não declara `permission_classes` na própria classe — "
+        "dependeria do padrão global herdado via MRO, o risco de manutenção "
+        "que o achado R3-10 aponta."
+    )
+    assert view_classe.__dict__["permission_classes"] == [IsAuthenticated]
 
 
 def test_apiview_de_tenancy_aceita_usuario_autenticado(client, usuario_com_dois_escritorios):

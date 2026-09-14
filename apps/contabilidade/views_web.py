@@ -536,50 +536,97 @@ def _decimal_do_formulario(texto):
 # linhas esta view tenta ler/exibir a partir de um único POST — bem acima
 # do teto de NEGÓCIO (LINHAS_MAXIMAS_LANCAMENTO). Não é regra contábil: é
 # higiene de fronteira HTTP, para que um ÚNICO campo com índice absurdo
-# (ex.: "conta_999999999999") não force `_maior_indice_de_linha_no_post` a
-# devolver um número gigante e esta view tentar processar/exibir uma
+# (ex.: "conta_999999999999") não force esta view a processar/exibir uma
 # quantidade de linhas proporcional a esse índice.
+#
+# R3-9 (rodada 3, BL-120): os DOIS tetos precisam ficar nesta ordem para
+# sempre — o de SEGURANÇA (este) estritamente maior que o de NEGÓCIO
+# (LINHAS_MAXIMAS_LANCAMENTO, definido no topo do módulo) — porque hoje é
+# a DESIGUALDADE entre os dois, e não o desenho de nenhuma função, que
+# impede um índice fora do canônico (recusado por `_indices_de_linha_do_
+# post`) de coincidir com um índice de negócio válido. Falhar cedo e
+# ruidosamente (`AssertionError` na importação do módulo, não um 500 numa
+# requisição) é deliberado: é uma invariante ESTRUTURAL do arquivo, não
+# um dado de runtime — o mesmo motivo por que também há um teste dedicado
+# (`test_teto_de_seguranca_e_estritamente_maior_que_o_teto_de_negocio`,
+# em test_dl017_rodada2_frontend.py), que não depende do processo ter
+# sido de fato importado com `assert` habilitado (`python -O` os
+# descarta).
 LINHAS_LEITURA_TETO_DE_SEGURANCA = 200
+assert LINHAS_MAXIMAS_LANCAMENTO < LINHAS_LEITURA_TETO_DE_SEGURANCA, (
+    "LINHAS_MAXIMAS_LANCAMENTO (teto de NEGÓCIO) precisa ficar estritamente "
+    "abaixo de LINHAS_LEITURA_TETO_DE_SEGURANCA (teto de SEGURANÇA) — R3-9/BL-120."
+)
 
-# Índice limitado a 4 dígitos (até 9999): generoso acima de qualquer
-# lançamento real (LINHAS_MAXIMAS_LANCAMENTO é 20) e, combinado com o teto
-# de segurança acima, evita que um índice de magnitude arbitrária precise
-# nem ser convertido para comparação.
-_PADRAO_INDICE_DE_LINHA = re.compile(r"^(?:conta|tipo|valor)_([0-9]{1,4})$")
+# R3-2/BL-116 (rodada 3): o padrão de BUSCA é deliberadamente amplo —
+# qualquer sufixo NÃO VAZIO depois de "conta_"/"tipo_"/"valor_" — e não
+# `[0-9]{1,4}` como na rodada 2. A versão antiga só CASAVA índices já bem
+# formados; um índice mal formado ("conta_10000", "conta_0001",
+# "conta_+3") simplesmente não casava NADA, ficava invisível para
+# `_indices_de_linha_do_post` e para a leitura (`_linhas_lancamento_do_post`
+# só lê pela chave CANÔNICA "conta_{i}", nunca "conta_0001") — a linha
+# desaparecia em silêncio, com HTTP 302 "gravado com sucesso". Para poder
+# RECUSAR uma chave malformada (em vez de ignorá-la), a busca precisa
+# primeiro ENCONTRÁ-LA.
+_PADRAO_CHAVE_DE_LINHA = re.compile(r"^(conta|tipo|valor)_(.+)$")
 
 
-def _maior_indice_de_linha_no_post(post):
-    """Deriva quantas linhas o POST REALMENTE contém, a partir do próprio
-    conteúdo enviado — nunca do campo oculto `num_linhas`.
+def _indices_de_linha_do_post(post):
+    """Varre o POST e devolve `(maior_indice, chaves_nao_canonicas)`.
 
-    R2-3: o achado 5 da rodada 1 ("nunca truncar partidas em silêncio") só
-    tinha sido fechado por cima — a correção da rodada 1 impedia um
-    `num_linhas` INFLADO de truncar o lote (BL-91), mas um `num_linhas`
-    MALFORMADO, vazio ou simplesmente MENOR do que o conteúdo real do POST
-    (`abc`, ``, `2.5`, `1e1`, `None`) ainda abria a porta de baixo: a view
-    lia só as primeiras linhas que o campo oculto mandava ler, descartando
-    em silêncio o resto — o MESMO dano do achado 5 (77,00 de débito e
-    77,00 de crédito somem, o lote fecha "balanceado"), só que pela causa
-    errada. A causa real nunca foi o teto: é a view confiar num CONTADOR
-    ENVIADO PELO CLIENTE para decidir quantos campos ler.
+    R2-3 (rodada 2): deriva quantas linhas o POST REALMENTE contém a
+    partir do próprio conteúdo enviado — nunca do campo oculto
+    `num_linhas`. O achado 5 da rodada 1 ("nunca truncar partidas em
+    silêncio") só tinha sido fechado por cima: um `num_linhas` INFLADO
+    já não truncava (BL-91), mas um `num_linhas` MALFORMADO, vazio ou
+    menor do que o conteúdo real ainda abria a porta de baixo. A causa
+    real nunca foi o teto: é a view confiar num CONTADOR ENVIADO PELO
+    CLIENTE para decidir quantos campos ler. `num_linhas` continua
+    existindo, mas só para a EXIBIÇÃO — nunca mais para decidir quantas
+    linhas LER.
 
-    Esta função devolve o maior N tal que QUALQUER um dos três campos
-    `conta_N`/`tipo_N`/`valor_N` esteja PRESENTE no POST (mesmo vazio) —
-    o piso REAL de leitura. `num_linhas` continua existindo, mas só para a
-    EXIBIÇÃO (quantas linhas em branco o formulário mostra de volta antes
-    de qualquer envio) — nunca mais para decidir quantas linhas LER.
+    R3-2/BL-116 (rodada 3): a correção da rodada 2 fechou o CASO medido
+    (`num_linhas` malformado) e deixou aberta a CLASSE — um índice fora
+    do formato canônico ainda desaparecia em silêncio, com 302 de
+    sucesso. Um índice é CANÔNICO quando é um inteiro entre 1 e
+    `LINHAS_LEITURA_TETO_DE_SEGURANCA`, escrito em dígitos ASCII, SEM
+    zero à esquerda, sinal ou qualquer caractere que não seja dígito —
+    ou seja, exatamente `str(i)` para algum `i` inteiro nesse intervalo.
+    QUALQUER outra coisa ("0", "01", "0001", "10000", "+3", " 3", um
+    sufixo não numérico) é NÃO CANÔNICA: esta função devolve a chave
+    INTEIRA em `chaves_nao_canonicas`, e quem chama DEVE recusar o POST
+    inteiro (400, nomeando as chaves) — nunca ignorar a linha e seguir
+    em frente, que foi exatamente a política que produziu o achado 5.
 
-    Capada em `LINHAS_LEITURA_TETO_DE_SEGURANCA` (ver o comentário da
-    constante).
+    Um sufixo numérico absurdamente longo (mais dígitos do que o limite
+    de conversão do próprio Python) é tratado como não canônico sem
+    lançar exceção — `int()` sobre esse texto levantaria `ValueError`
+    por si só; aqui isso vira "chave não entendida", não um 500.
     """
     maior = 0
+    chaves_nao_canonicas = []
     for chave in post:
-        casamento = _PADRAO_INDICE_DE_LINHA.match(chave)
-        if casamento:
-            indice = int(casamento.group(1))
-            if indice > maior:
-                maior = indice
-    return min(maior, LINHAS_LEITURA_TETO_DE_SEGURANCA)
+        casamento = _PADRAO_CHAVE_DE_LINHA.match(chave)
+        if not casamento:
+            continue
+        sufixo = casamento.group(2)
+        if not sufixo or not sufixo.isascii() or not sufixo.isdigit():
+            chaves_nao_canonicas.append(chave)
+            continue
+        try:
+            indice = int(sufixo)
+        except ValueError:
+            # Só alcançável por um sufixo com mais dígitos do que o
+            # limite de conversão do Python (`sys.get_int_max_str_
+            # digits()`) — um texto absurdamente longo, não um índice.
+            chaves_nao_canonicas.append(chave)
+            continue
+        if str(indice) != sufixo or indice < 1 or indice > LINHAS_LEITURA_TETO_DE_SEGURANCA:
+            chaves_nao_canonicas.append(chave)
+            continue
+        if indice > maior:
+            maior = indice
+    return maior, chaves_nao_canonicas
 
 
 def _linhas_lancamento_do_post(post, num_linhas):
@@ -597,7 +644,16 @@ def _linhas_lancamento_do_post(post, num_linhas):
     dinheiro, e não têm um julgador de formato próprio para delegar a
     checagem. A DECISÃO de "linha em branco" usa o valor JÁ testado por
     vazio (`.strip()` só para esta comparação), não o texto guardado.
+
+    R3-1 (rodada 3, BL-115): `num_linhas` é capado em `LINHAS_LEITURA_
+    TETO_DE_SEGURANCA` DENTRO desta função, defesa em profundidade —
+    além de todo chamador já ser responsável por nunca passar um número
+    vindo do cliente sem antes recusá-lo (ver `lancamento_novo`), esta
+    função por si só nunca deve poder ser levada a iterar um número de
+    vezes proporcional a um valor arbitrário. Nenhum `range()` deste
+    módulo confia sozinho no chamador para ficar seguro.
     """
+    num_linhas = min(num_linhas, LINHAS_LEITURA_TETO_DE_SEGURANCA)
     linhas = []
     erros = []
     for i in range(1, num_linhas + 1):
@@ -627,6 +683,11 @@ def _contexto_form_lancamento(
     total_credito=None,
     linhas_excluidas_do_total=0,
 ):
+    # R3-1 (BL-115): defesa em profundidade — ver o comentário equivalente
+    # em `_linhas_lancamento_do_post`. Esta função monta o CONTEXTO de
+    # renderização; nunca deve poder ser levada a montar uma lista
+    # proporcional a um `num_linhas` arbitrário.
+    num_linhas = min(num_linhas, LINHAS_LEITURA_TETO_DE_SEGURANCA)
     linhas = []
     for i in range(1, num_linhas + 1):
         if linhas_preenchidas is not None:
@@ -776,21 +837,6 @@ def lancamento_novo(request, empresa_id):
         # a versão mínima é a que vale aqui.
         except (TypeError, ValueError):  # fmt: skip
             num_linhas_campo = LINHAS_INICIAIS_LANCAMENTO
-        # `num_linhas_campo` (o campo OCULTO do formulário) decide só
-        # quantas linhas a tela EXIBE de volta a partir de agora — NUNCA
-        # mais quantas linhas são LIDAS do POST (ver R2-3 abaixo). Piso de
-        # 2 é só para exibição, não afeta leitura.
-        num_linhas_exibicao = max(2, num_linhas_campo)
-        # R2-3 (rodada 2 da auditoria da DL-017): a quantidade REAL de
-        # linhas a LER vem do próprio CONTEÚDO do POST
-        # (`_maior_indice_de_linha_no_post`), nunca só do campo oculto — um
-        # `num_linhas` malformado, vazio ou menor do que o conteúdo real
-        # ("abc", "", "2.5", "1e1", "None") não pode fazer esta view ler
-        # MENOS campos do que os que o cliente de fato enviou. Ver o
-        # docstring daquela função para o mecanismo completo do defeito
-        # que isto fecha (o mesmo dano do achado 5 da rodada 1, por outra
-        # porta).
-        num_linhas_leitura = max(num_linhas_exibicao, _maior_indice_de_linha_no_post(request.POST))
 
         data_texto = request.POST.get("data", "")
         historico = request.POST.get("historico", "").strip()
@@ -801,6 +847,89 @@ def lancamento_novo(request, empresa_id):
         # já sabe devolver o MESMO lançamento em vez de duplicar quando o
         # conteúdo bate (ver o docstring de `criar_lancamento`).
         chave_idempotencia = request.POST.get("chave_idempotencia") or uuid.uuid4().hex
+
+        # R3-1 (rodada 3, BL-115, BLOQUEADOR — "um POST prende a
+        # requisição indefinidamente"): `num_linhas_campo` vem de um campo
+        # OCULTO do formulário — o cliente controla o valor por completo
+        # (um clique no inspetor do navegador). ANTES desta correção, um
+        # `num_linhas` grande o bastante (`10**12`, `"9" * 4000`)
+        # sobrevivia ao `int()` (o único limite era o de CONVERSÃO do
+        # próprio Python, 4300 dígitos) e se propagava, via `max()`, para
+        # `num_linhas_exibicao` e depois para `num_linhas_leitura` — SEM
+        # NUNCA passar pelo teto de segurança, porque aquele teto só
+        # capava o valor DERIVADO do conteúdo do POST, nunca o campo
+        # oculto em si. O resultado era um `range()` dimensionado por um
+        # inteiro arbitrário do cliente, nos DOIS ramos (`gravar` e
+        # `adicionar_linha`) — 26 s de bloqueio medidos para 10 milhões, e
+        # NENHUM retorno em 45 s para `10**12`. Com `gunicorn` sem
+        # `--workers` (um único *worker* síncrono, o mesmo comando do
+        # `docker-compose.yml` — o caminho pelo qual o Fred sobe o
+        # sistema), um único POST autenticado deixa o sistema inteiro sem
+        # resposta: não corrompe dado, **nega o serviço**.
+        #
+        # A classe (não só o caso): nenhum número vindo do cliente
+        # dimensiona laço, alocação ou repetição nesta view — em NENHUM
+        # ramo. A correção é recusar ANTES DE QUALQUER LEITURA, nos dois
+        # ramos ao mesmo tempo (este `if` roda antes do `if acao ==
+        # "adicionar_linha"` abaixo): nenhum valor vindo do cliente chega
+        # perto de um `max()`, um `min()` ou um `range()` sem primeiro
+        # passar por este teto.
+        if num_linhas_campo > LINHAS_LEITURA_TETO_DE_SEGURANCA:
+            messages.error(
+                request,
+                "'num_linhas' inválido: o formulário aceita no máximo "
+                f"{LINHAS_MAXIMAS_LANCAMENTO} partidas por lançamento.",
+            )
+            contexto = _contexto_form_lancamento(
+                empresa,
+                contas_disponiveis,
+                LINHAS_INICIAIS_LANCAMENTO,
+                data_texto=data_texto,
+                historico=historico,
+                chave_idempotencia=chave_idempotencia,
+                linhas_preenchidas=request.POST,
+            )
+            return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
+        # `num_linhas_campo` (o campo OCULTO do formulário) decide só
+        # quantas linhas a tela EXIBE de volta a partir de agora — NUNCA
+        # mais quantas linhas são LIDAS do POST (ver abaixo). Piso de 2 é
+        # só para exibição, não afeta leitura. Já garantidamente dentro do
+        # teto de segurança pela recusa acima.
+        num_linhas_exibicao = max(2, num_linhas_campo)
+
+        # R2-3 (rodada 2) + R3-2/BL-116 (rodada 3): a quantidade REAL de
+        # linhas a LER vem do próprio CONTEÚDO do POST
+        # (`_indices_de_linha_do_post`), nunca só do campo oculto — um
+        # `num_linhas` malformado, vazio ou menor do que o conteúdo real
+        # não pode fazer esta view ler MENOS campos do que os que o
+        # cliente de fato enviou (R2-3). E QUALQUER chave
+        # `conta_*`/`tipo_*`/`valor_*` fora do índice CANÔNICO (ver o
+        # docstring daquela função) é RECUSADA, nunca ignorada (R3-2): era
+        # assim que um par de linhas completo (débito e crédito batendo
+        # entre si) desaparecia em silêncio, com HTTP 302 "gravado com
+        # sucesso", quando o índice tinha zero à esquerda, sinal, espaço
+        # ou 5+ dígitos.
+        maior_indice, chaves_nao_canonicas = _indices_de_linha_do_post(request.POST)
+        if chaves_nao_canonicas:
+            messages.error(
+                request,
+                "Não entendi os seguintes campos do formulário — índice de "
+                "linha fora do formato esperado, nunca reinterpretado nem "
+                "ignorado: " + "; ".join(sorted(chaves_nao_canonicas)) + ".",
+            )
+            contexto = _contexto_form_lancamento(
+                empresa,
+                contas_disponiveis,
+                num_linhas_exibicao,
+                data_texto=data_texto,
+                historico=historico,
+                chave_idempotencia=chave_idempotencia,
+                linhas_preenchidas=request.POST,
+            )
+            return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
+        num_linhas_leitura = max(num_linhas_exibicao, maior_indice)
 
         contas_por_id = {conta.id: conta for conta in contas_disponiveis}
 
