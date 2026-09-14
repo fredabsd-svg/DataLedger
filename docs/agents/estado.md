@@ -247,22 +247,25 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **BL-103 — BLOQUEADOR EM VIGOR NA `main`: a tela grava `1.000` como
-   `1,00`.** É o achado R2-1 da
-   [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md). O contador digita
-   mil reais como se escreve mil reais em português, a tela diz "gravado com
-   sucesso", e o livro fica com um real — e **nada reclama**, porque os dois
-   lados sofreram a mesma divisão: o lote fecha, o balancete concilia, a
-   conferência não acusa. Está em `9b22b03` desde a integração do PR #18, não é
-   regressão da correção da rodada 1. **O Fred foi avisado**, porque tem o
-   sistema no ar pelo Docker sobre esse código. A correção está decidida na
-   **[DE-029](../projeto/decisoes.md)** — gramática pt-BR explícita, texto
-   ambíguo se recusa — e em correção com o `especialista-frontend`, junto com
-   BL-105 a BL-113. A rodada 3 só começa com R2-1 a R2-4 corrigidos e
-   integrados.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — mandar a
+   rodada 3 da auditoria.** O bloqueador BL-103 (a tela gravava `1.000` como
+   `1,00`) está **corrigido na branch de trabalho**, junto com os outros dez
+   achados da [rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md).
+   **Continua em vigor na `main`**, em `9b22b03`, até a etapa ser aprovada e
+   integrada — o Fred foi avisado e sabe que, até lá, precisa digitar os
+   centavos (`1.000,00`) e não pôr dado real de cliente.
 
-   **Não integrar nada na `main` antes do parecer.** A primeira vez que abri
-   essa exceção foi o que pôs este defeito lá.
+   Verificado por mim em árvore limpa (`24fa4804`): **559 testes**, `ruff
+   check`, `ruff format --check`, `manage.py check` e `makemigrations --check`
+   limpos. Duas mutações minhas, reaplicadas e medidas: devolver o
+   `if "," in bruto` do bloqueador derruba **12** testes; reduzir a
+   especificidade do seletor de indentação (ME2) derruba **3** testes mesmo
+   **sem navegador**. Desfeitos, `sha256` idêntico nos dois arquivos e 559
+   aprovados.
+
+   **Nada disso é aprovação.** Quem aprova é a rodada 3, sobre a versão
+   integrada. Só então vai para a `main`.
+
 2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
@@ -301,11 +304,11 @@ auditoria independente — que é exatamente o motivo de ela existir.
   A e B** — esta última integrada por autorização expressa do Fred **antes** de
   a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
   auditar e só então integrar.
-- **Suíte: 487 testes** na branch de trabalho (446 na `main`), rodando em ~20 s
-  em árvore limpa — confirmado pelo `auditor-qa` na rodada 2, em verificação
-  independente. **Suíte verde não é sistema correto:** os mesmos 487 passavam
-  com o bloqueador BL-103 em vigor, porque nenhum teste comparava o texto
-  digitado com o valor gravado. É o que a DE-029 institui.
+- **Suíte: 559 testes** na branch de trabalho (446 na `main`), rodando em ~25 s
+  em árvore limpa. **Suíte verde não é sistema correto:** 487 testes passavam
+  com o bloqueador BL-103 em vigor, porque nenhum comparava o texto digitado
+  com o valor gravado. É o que a DE-029 institui, e é o teste que hoje derruba
+  12 casos quando o defeito volta.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.
