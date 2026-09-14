@@ -191,9 +191,7 @@ def criar_lancamento(
     # duas views já traduzem para 400 com mensagem própria — nunca deixa o
     # `\x00` chegar ao INSERT.
     if "\x00" in historico:
-        raise LancamentoInvalido(
-            "O histórico não pode conter o caractere nulo (código 0)."
-        )
+        raise LancamentoInvalido("O histórico não pode conter o caractere nulo (código 0).")
     if chave_idempotencia and "\x00" in chave_idempotencia:
         raise LancamentoInvalido(
             "A chave de idempotência não pode conter o caractere nulo (código 0)."
