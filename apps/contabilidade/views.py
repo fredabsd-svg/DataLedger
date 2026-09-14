@@ -28,7 +28,7 @@ from apps.contabilidade.services import (
     localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
 )
-from apps.core.dinheiro import PADRAO_VALOR_DECIMAL_SIMPLES
+from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -326,25 +326,40 @@ def _extrair_itens(payload_itens, empresa):
         except (KeyError, TypeError) as exc:
             raise DRFValidationError("Valor inválido em um dos itens.") from exc
 
-        texto_valor = str(valor_bruto)
-        if not PADRAO_VALOR_DECIMAL_SIMPLES.fullmatch(texto_valor):
-            # Mais estrito que o construtor `Decimal`, que aceita espaços em
-            # volta, "_" como separador de dígitos (PEP 515) e notação
-            # científica: "1_000" convertido em silêncio para 1000
-            # reinterpreta o que o cliente digitou, e "  100.00  " aceito em
-            # silêncio esconde um erro de origem (achado 7 da auditoria de
-            # 2026-09-12) — um sistema contábil não pode reinterpretar a
-            # entrada. Este mesmo padrão também recusa "NaN"/"Infinity"/
-            # "-Infinity" (não são dígitos), substituindo a checagem
-            # separada de `valor.is_finite()` que existia aqui antes (BL-44 /
-            # achado N3): depois deste padrão, `Decimal(texto_valor)` NUNCA
-            # levanta `InvalidOperation` nem produz um resultado não finito.
+        # DE-030 (achado R3-3, auditoria DL-017 rodada 3): esta view NÃO
+        # constrói `Decimal` por conta própria — entrega TEXTO a
+        # `apps.core.dinheiro.para_decimal`, o único julgador de formato
+        # monetário do sistema (mesmo módulo que a tela usa, DE-027/DE-029).
+        # Antes desta correção, o código fazia `str(valor_bruto)` e depois
+        # `Decimal(texto)`: um `valor` enviado como NÚMERO JSON (não texto)
+        # virava `float` de precisão binária ao ser decodificado pelo
+        # parser de JSON, ANTES de qualquer checagem — e para magnitudes
+        # grandes (medido: acima de ~7×10¹³) o `float` já tinha perdido a
+        # última casa decimal. `str()` desse float reproduzia o valor JÁ
+        # CORROMPIDO, não o texto que o cliente pretendia enviar, e a
+        # recusa de notação científica que este arquivo anuncia era
+        # contornada simplesmente trocando aspas por número (`1e3` como
+        # texto: 400; `1e3` como número JSON: aceito, virava 1000,00). Por
+        # isso `valor` que não chegue como `str` é recusado AQUI, antes de
+        # qualquer conversão — nunca convertido para texto e reinterpretado.
+        if not isinstance(valor_bruto, str):
             raise DRFValidationError(
-                f"Valor inválido em um dos itens: '{texto_valor}' precisa ser um "
-                "número decimal simples (sinal opcional, dígitos, ponto decimal "
-                "opcional) — sem espaços, separador de milhar ou notação científica."
+                f"Valor inválido em um dos itens: {valor_bruto!r} precisa ser "
+                "enviado como TEXTO (ex.: \"100.00\"), nunca como número JSON — "
+                "um número perde precisão ao ser decodificado pelo parser JSON, "
+                "antes mesmo de chegar a este servidor."
             )
-        valor = Decimal(texto_valor)
+        try:
+            valor = para_decimal(valor_bruto)
+        except ValorMonetarioInvalido as exc:
+            # `para_decimal` já recusa: formato fora do decimal simples
+            # (sinal opcional, dígitos, ponto decimal opcional — sem
+            # espaços, "_" como separador de dígitos ou notação científica,
+            # achado 7 da auditoria de 2026-09-12) e valor não finito
+            # (`NaN`/`Infinity`/`-Infinity`, achado BL-44/N3). A mensagem do
+            # próprio módulo monetário já é específica; só acrescenta o
+            # contexto de que é um item do lote.
+            raise DRFValidationError(f"Valor inválido em um dos itens: {exc}") from exc
 
         if abs(valor) >= LIMITE_MAGNITUDE_VALOR:
             raise DRFValidationError(
