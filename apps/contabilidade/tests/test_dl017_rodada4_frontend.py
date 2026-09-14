@@ -8,12 +8,15 @@ A2, A9, A10 são do `desenvolvedor-pleno`; A4, A5, A6, A8 têm teste em
 código correspondente já vivia); A7 é do `arquiteto-senior`.
 """
 
+import inspect
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.contabilidade import views_web
 from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoConta
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -96,9 +99,10 @@ def test_conta_id_hostil_nunca_e_500_nem_reinterpretado(client, cen, conta_id_ho
     """A1/BL-126 — a MESMA classe que o campo `nivel` já tinha fechado na
     rodada 2 (`isdigit()` sozinho aceita QUALQUER dígito Unicode, e o
     `int()` sem `try/except` estoura em texto longo demais). Agora
-    `conta_id` passa por `_inteiro_de_cliente` (o único conversor de
-    texto-de-cliente-para-int deste arquivo): nunca 500, nunca gravado
-    numa conta diferente da que o texto realmente escreve.
+    `conta_id` passa por `_identificador_de_cliente` (delega a `para_id`,
+    `apps.core.identificadores` — ver o teste de delegação logo abaixo):
+    nunca 500, nunca gravado numa conta diferente da que o texto realmente
+    escreve.
     """
     _login(client, cen)
     antes = LancamentoContabil.objects.count()
@@ -122,6 +126,66 @@ def test_conta_id_valido_continua_gravando(client, cen):
         cen["caixa"].id,
         cen["receita"].id,
     }
+
+
+def test_conta_id_delega_ao_julgador_partilhado_de_identificador(client, cen, monkeypatch):
+    """A1/BL-126, integração posterior à rodada 4: `conta_id` é um
+    IDENTIFICADOR de banco, a mesma invariante que `apps.core.
+    identificadores.para_id` já julga para a API e para `apps.tenancy`
+    (BL-127/A2). Esta view não reimplementa o padrão — delega. Prova
+    ESTRUTURAL (o texto-fonte chama `_identificador_de_cliente`, que por
+    sua vez chama `para_id`) e COMPORTAMENTAL (susta `para_id` e confere
+    que um `conta_id` normal, que gravaria em qualquer outra condição,
+    passa a ser recusado — só alcançável se a chamada é REAL, não só
+    textual).
+    """
+    fonte_itens_e_totais = inspect.getsource(views_web._itens_e_totais)
+    assert '_identificador_de_cliente(linha["conta_id"])' in fonte_itens_e_totais
+    fonte_identificador = inspect.getsource(views_web._identificador_de_cliente)
+    assert "para_id(" in fonte_identificador
+
+    def _para_id_que_recusa_tudo(valor):
+        raise views_web.IdentificadorInvalido("simulação de teste: para_id indisponível")
+
+    monkeypatch.setattr(views_web, "para_id", _para_id_que_recusa_tudo)
+
+    _login(client, cen)
+    antes = LancamentoContabil.objects.count()
+    dados = _dados_base(cen, chave="a1-delegacao-para-id")
+    resposta = client.post(_url_lancamento(cen), dados)
+    assert resposta.status_code == 400, resposta.status_code
+    assert LancamentoContabil.objects.count() == antes
+    assert "conta inválida" in resposta.content.decode().lower()
+
+
+def test_num_linhas_nao_delega_a_para_id_preserva_magnitude(monkeypatch):
+    """Contraste com o teste acima: `num_linhas` (e `nivel`, e os índices
+    de linha) são QUANTIDADE de negócio, não identificador — continuam em
+    `_inteiro_de_cliente` (padrão `_PADRAO_NIVEL_SIMPLES` + `int()`
+    local), não em `para_id`. Prova ESTRUTURAL: o `num_linhas` de
+    `lancamento_novo` chama `_inteiro_de_cliente`, nunca
+    `_identificador_de_cliente`. Prova COMPORTAMENTAL, isolada da view
+    (que também usa `para_id` para `conta_id` no MESMO POST — sustar
+    `para_id` ali quebraria a resolução de conta por um motivo alheio a
+    este teste): com `para_id` substituído por uma função que sempre
+    recusa, `_inteiro_de_cliente` ainda converte um texto de 4000 dígitos
+    (maior que qualquer `num_linhas` real, mas dentro do limite de
+    conversão do Python) para o `int` de magnitude real — só alcançável
+    se a função NUNCA delega a `para_id`.
+    """
+    fonte_view = inspect.getsource(views_web.lancamento_novo)
+    assert '_inteiro_de_cliente(request.POST.get("num_linhas"' in fonte_view
+    assert '_identificador_de_cliente(request.POST.get("num_linhas"' not in fonte_view
+
+    monkeypatch.setattr(
+        views_web,
+        "para_id",
+        lambda valor: (_ for _ in ()).throw(
+            views_web.IdentificadorInvalido("não deveria ser chamado por num_linhas")
+        ),
+    )
+    texto_hostil = "9" * 4000
+    assert views_web._inteiro_de_cliente(texto_hostil) == int(texto_hostil)
 
 
 # ---------------------------------------------------------------------------

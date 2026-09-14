@@ -71,10 +71,9 @@ from apps.contabilidade.services import (
 # - _PADRAO_NIVEL_SIMPLES: MESMO padrão `^[0-9]+$` (não `\d`, que casaria
 #   QUALQUER dígito Unicode) que a API usa para validar 'nivel' — achado
 #   R2-2 da rodada 2: esta tela tinha uma cópia frouxa (`bruto.isdigit()`)
-#   que aceitava dígito índico-arábico/fullwidth em silêncio E não
-#   protegia `int()` de um texto de milhares de dígitos (`ValueError:
-#   Exceeds the limit… for integer string conversion`, um 500 alcançável
-#   só por uma URL). Ver `_nivel_do_formulario` abaixo.
+#   que aceitava dígito índico-arábico/fullwidth em silêncio. Usado só por
+#   `_inteiro_de_cliente` abaixo, que preserva a MAGNITUDE de um texto
+#   grande demais (ver o docstring dela para o porquê disso importar).
 from apps.contabilidade.views import (
     _PADRAO_NIVEL_SIMPLES,
     LIMITE_MAGNITUDE_VALOR,
@@ -84,6 +83,22 @@ from apps.contabilidade.views import (
     _saldo_absoluto_com_natureza,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
+
+# IdentificadorInvalido/para_id: o julgador único de "isto é um
+# IDENTIFICADOR de banco válido?" (BL-127, achado A2 da rodada 4— e o
+# gêmeo achado no mesmo módulo, `EscritorioAtivoView.post`, ao aplicar a
+# lição pelo EFEITO em vez de pela linha nomeada, DE-032). `conta_id`
+# (`_itens_e_totais`, abaixo) É um identificador de banco — a mesma
+# invariante que `para_id` já julga para a API e para `apps.tenancy` — por
+# isso usa `_identificador_de_cliente` (abaixo), que delega a `para_id`,
+# em vez de reimplementar o padrão e o teto de magnitude aqui. Isto é
+# DIFERENTE de `_inteiro_de_cliente`: nível de hierarquia e número de
+# linhas não são identificadores, são QUANTIDADES onde a regra de negócio
+# local precisa ver a magnitude real de um texto grande demais para poder
+# recusá-lo com uma mensagem própria (ver R3-1/BL-115 no docstring de
+# `_inteiro_de_cliente`) — por isso continuam com o julgador PRÓPRIO desta
+# tela, não com o teto genérico de `para_id`.
+from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.empresas.models import Empresa
 
 # Mesmo teto de NÍVEL que a API aplica em `apps.contabilidade.views.NIVEL_
@@ -278,6 +293,17 @@ def _inteiro_de_cliente(texto):
     `None` se não for um inteiro ASCII simples. Nunca lança exceção, nunca
     reinterpreta em silêncio.
 
+    Uso: QUANTIDADE de negócio (nível de hierarquia, número de linhas do
+    lançamento) — nunca identificador de banco (para isso, ver
+    `_identificador_de_cliente`, abaixo). A distinção importa porque uma
+    quantidade absurdamente grande, mas ainda assim CONVERSÍVEL para
+    `int` pelo próprio Python, precisa chegar como o `int` real na regra
+    de negócio local, para que ELA decida — com a magnitude visível — se
+    recusa e com que mensagem (R3-1/BL-115, abaixo). Um identificador não
+    tem essa necessidade: qualquer coisa fora de um teto pequeno e fixo
+    (19 dígitos, o maior `BigAutoField`) já é inválida por definição, não
+    importa o valor exato.
+
     R2-2 (rodada 2): o guarda de formato não pode ser `isdigit()` sozinho
     — ele é `True` para QUALQUER dígito decimal Unicode, não só ASCII
     (`"٢".isdigit()` é `True`), e o `int()` do Python **aceita e converte**
@@ -290,16 +316,24 @@ def _inteiro_de_cliente(texto):
     A1/A2 (rodada 4): nada protegia o `int()` seguinte de um texto
     absurdamente longo — `int("9" * 4301)` levanta `ValueError: Exceeds
     the limit (4300 digits) for integer string conversion`, um 500
-    alcançável por qualquer POST/URL construído à mão. Dois campos deste
-    projeto (`conta_id` aqui, `nivel` do Balancete) tinham exatamente os
-    dois defeitos ao mesmo tempo, porque cada um reimplementava o próprio
-    guarda. `_inteiro_de_cliente` é o ÚNICO lugar deste arquivo que
-    converte texto de cliente para `int` — usado em TODO ponto onde isso
-    acontece (ver `_nivel_do_formulario`, `_itens_e_totais` e o
-    `num_linhas` de `lancamento_novo`), para que a lição não precise ser
-    reaprendida campo por campo. Reaproveita `_PADRAO_NIVEL_SIMPLES`
-    (`[0-9]+`, importado de `apps.contabilidade.views`) — mesmo padrão que
-    a API já usa, não uma segunda cópia.
+    alcançável por qualquer POST/URL construído à mão. `nivel` do
+    Balancete tinha exatamente esse defeito. `_inteiro_de_cliente` é o
+    ÚNICO lugar deste arquivo que converte texto de QUANTIDADE de cliente
+    para `int` — usado em TODO ponto onde isso acontece (ver
+    `_nivel_do_formulario`, `_indices_de_linha_do_post` e o `num_linhas`
+    de `lancamento_novo`), para que a lição não precise ser reaprendida
+    campo por campo. Reaproveita `_PADRAO_NIVEL_SIMPLES` (`[0-9]+`,
+    importado de `apps.contabilidade.views`) — mesmo padrão que a API já
+    usa, não uma segunda cópia.
+
+    R3-1 (rodada 3, BL-115): é exatamente esta preservação de magnitude
+    que permite `lancamento_novo` recusar `num_linhas` absurdo com uma
+    mensagem de NEGÓCIO ("aceita no máximo N partidas"), em vez de tratar
+    um texto de 4000 dígitos como se fosse malformado e cair no padrão
+    silenciosamente — só o que realmente estoura o limite de CONVERSÃO do
+    interpretador (`sys.int_max_str_digits`) vira `None` aqui; o resto,
+    por maior que seja, chega como `int` de verdade para a regra de
+    negócio decidir.
     """
     if not texto or not _PADRAO_NIVEL_SIMPLES.fullmatch(texto):
         return None
@@ -309,6 +343,34 @@ def _inteiro_de_cliente(texto):
         # Só alcançável por um texto com mais dígitos do que o limite de
         # conversão do próprio Python — o padrão acima já garante só
         # dígitos ASCII 0-9.
+        return None
+
+
+def _identificador_de_cliente(texto):
+    """Converte `texto` — entrada de CLIENTE que deveria ser um
+    IDENTIFICADOR DE BANCO (ex.: `conta_id`) — usando o julgador
+    partilhado `para_id` (`apps.core.identificadores`), ou devolve `None`
+    se não for um identificador válido. Nunca lança exceção.
+
+    BL-127/A2 (rodada 4): esta tela tinha uma cópia PRÓPRIA da mesma
+    invariante que `apps.core.identificadores.para_id` já julga para a
+    API e para `apps.tenancy` — duas implementações da mesma regra
+    divergem assim que uma for corrigida sem a outra (DE-026/DE-030).
+    Delegar aqui, em vez de reimplementar o padrão e o teto de magnitude
+    (19 dígitos, o maior `BigAutoField`), fecha essa divergência na raiz.
+
+    Diferente de `_inteiro_de_cliente` (ver o docstring dela): um
+    identificador de banco nunca precisa de mais de 19 dígitos, então não
+    há necessidade de preservar a magnitude de um texto maior do que isso
+    — é inválido de qualquer forma, e `conta_id` inválido sempre vira a
+    MESMA mensagem ("conta inválida"), não importa se o texto era curto
+    demais, tinha dígito Unicode, ou passava de 19 dígitos.
+    """
+    if not texto:
+        return None
+    try:
+        return para_id(texto)
+    except IdentificadorInvalido:
         return None
 
 
@@ -782,12 +844,12 @@ def _itens_e_totais(linhas_brutas, contas_por_id):
         # sozinho aceitava dígito Unicode (`"７".isdigit()` é `True`, e o
         # `int()` seguinte reinterpretava em silêncio como a conta 7) e não
         # protegia o `int()` de um texto de mais de 4300 dígitos —
-        # `ValueError` cru, 500. A MESMA classe que o campo `nivel` já
-        # tinha fechado na rodada 2, ~470 linhas acima — `_inteiro_de_
-        # cliente` é agora o único lugar deste arquivo que faz essa
-        # conversão, para as duas lições não precisarem ser reaprendidas
-        # campo por campo.
-        conta_id = _inteiro_de_cliente(linha["conta_id"])
+        # `ValueError` cru, 500. `conta_id` É um identificador de banco
+        # (não uma quantidade de negócio), então usa `_identificador_de_
+        # cliente` — o mesmo julgador (`para_id`) que a API e
+        # `apps.tenancy` já usam para a idêntica invariante (ver o
+        # comentário de importação de `para_id`, no topo do arquivo).
+        conta_id = _identificador_de_cliente(linha["conta_id"])
         conta = contas_por_id.get(conta_id) if conta_id is not None else None
         if conta is None:
             # Também cobre o caso de um `conta_id` de OUTRA empresa (não
