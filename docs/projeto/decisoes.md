@@ -1266,6 +1266,37 @@ inaceitáveis é percorrida pelos **dois** caminhos (tela e API) exigindo o
 derrubando a tela com 500) é corrigido pelo mesmo movimento, e é a razão de os
 dois andarem juntos.
 
+### O que "mesmo veredito" quer dizer, exatamente
+
+Acrescentado em 2026-09-14, porque o `especialista-frontend` levantou o caso na
+implementação e a redação acima não respondia: `"+10,00"` digitado na tela é
+aceito; o **mesmo texto literal** enviado à API é recusado. Isso contradiz a
+decisão?
+
+**Não, e a distinção é o ponto.** A tela faz — e só ela faz — **uma** tradução
+declarada: vírgula decimal vira ponto, separador de milhar sai. É tradução de
+*locale*, não julgamento de valor. O contrato é:
+
+> Depois da tradução de *locale* da tela, o texto resultante recebe de
+> `para_decimal` **exatamente** o mesmo veredito que receberia se tivesse
+> chegado pela API.
+
+Ou seja, a equivalência é **a jusante da tradução**, nunca byte a byte na
+entrada — exigir texto idêntico nos dois canais seria exigir que o contador
+digitasse ponto decimal, que é o oposto do critério 4 do plano
+[DL-017](../planos/DL-017-interface-da-contabilidade.md) e de BL-23. No caso
+levantado:
+`"+10,00"` → `"+10.00"`, e `para_decimal("+10.00")` é aceito **pelos dois
+caminhos**, com contrato já testado em `apps/core/tests/test_dinheiro.py`. O
+sinal `+` não é a diferença; a vírgula é. O valor numérico concorda.
+
+O que a decisão proíbe continua valendo inteiro: a tela **não** pode aceitar
+nada que `para_decimal` recuse, nem recusar nada que ele aceite. Quem verifica
+isso é o teste de equivalência, e a tradução de *locale* é a **única** etapa
+autorizada entre o que o usuário digita e o que o julgador vê. Qualquer segunda
+transformação — `.strip()`, troca de sinal, corte de zeros — é reinterpretação
+silenciosa, e está proibida pelo mesmo motivo que originou esta decisão.
+
 ## DE-028 — Migração automática ao subir é conveniência de desenvolvimento, nunca de produção
 
 **Data:** 2026-09-14. Contexto: o Fred tentou abrir o sistema pelo Docker no

@@ -327,9 +327,13 @@ def _linhas_hierarquicas(contas):
                 "conta": conta,
                 "nivel": nivel,
                 # Inteiro, nunca `float` (achado 6) — vira a classe CSS
-                # "nivel-N" no template, capada em NIVEL_INDENTACAO_MAXIMA;
-                # `None` (conta em ciclo) e nível 1 (raiz) caem em "nivel-0"
-                # (sem indentação, nenhuma classe negativa).
+                # "nivel-N" no template, capada em NIVEL_INDENTACAO_MAXIMA.
+                # A classe acompanha o NÍVEL: raiz é nível 1 e vira
+                # "nivel-1"; só `None` (conta em ciclo, sem nível apurável)
+                # cai em "nivel-0". As duas classes têm indentação zero na
+                # folha de estilo, por motivos diferentes — a raiz porque é
+                # raiz, o ciclo porque não há nível a representar. Nenhuma
+                # classe negativa é gerada em nenhum caminho.
                 "nivel_classe": min(nivel, NIVEL_INDENTACAO_MAXIMA) if nivel else 0,
             }
         )

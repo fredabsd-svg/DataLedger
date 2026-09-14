@@ -2,8 +2,9 @@
 
 **Estado:** fases A e B implementadas e integradas em 2026-09-14 (PR #18), e
 **REPROVADAS** na [rodada 1 da auditoria](../auditorias/2026-09-14-dl-017-rodada-1.md).
-Correção em curso — BL-87 a BL-99. A rodada 2 só começa com os achados 1 a 8
-corrigidos e integrados.
+Os 15 achados foram corrigidos (BL-87 a BL-99), mais dois da mesma classe que a
+varredura encontrou e o relatório não tinha (BL-101, BL-102).
+**Aguardando a rodada 2**, que é quem aprova.
 
 ## O resultado da rodada 1, em três frases
 
@@ -55,6 +56,34 @@ servidor entrega.
   roteiro, que reproduziu alguém desmarcando a opção. Fica registrado porque a
   lição vale mais que o episódio: **reproduzir "pelo caminho de verdade" exige
   reproduzir o que o navegador envia**, não o que parece equivalente a ele.
+
+## O que a correção da rodada 1 ensinou
+
+Três coisas que valem mais que os defeitos em si, e por isso ficam no plano e
+não só no backlog.
+
+**1. Corrigir sem medir produz correção que não corrige.** A primeira versão da
+indentação por classe CSS (achado 6) usava `.nivel-N` isolado — especificidade
+menor que a regra genérica `.tabela-dados td` que já existia. Continuava sem
+indentação nenhuma, agora por um motivo diferente do `float` original. Só
+apareceu porque o `especialista-frontend` mediu de novo no Chromium: 12px em
+todos os níveis. Depois de aumentar a especificidade, 0px / 20px / 40px. **Uma
+correção verificada por leitura teria sido entregue quebrada.**
+
+**2. A mensagem de erro é código, e pode ser o próprio defeito.** Ao recusar um
+valor grande demais (BL-101), a primeira tentativa formatava o valor recusado
+para contar ao usuário qual era — e `_valor_ptbr` faz `.quantize()`, que estoura
+a precisão do contexto decimal com um número de centenas de dígitos. A checagem
+criada para fechar um 500 criava um 500 novo, no caminho de contar que recusou.
+É o mesmo desenho do achado 1 original, onde a tela derrubava ao renderizar uma
+recusa correta.
+
+**3. A varredura por classe de defeito valeu mais que a lista de achados.** O
+auditor disse explicitamente que encontrou os achados 1, 4 e 5 porque procurou
+por eles, e que a mesma classe podia existir em caminhos que não percorreu.
+Percorrendo o formulário campo a campo com a pergunta *"isso chega ao banco sem
+checagem de limite?"*, apareceram mais dois (BL-101 e BL-102). **Achado não é
+lista de tarefas; é amostra de um padrão.**
 
 ## Por que esta etapa existe
 

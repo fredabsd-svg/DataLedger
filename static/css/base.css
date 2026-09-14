@@ -324,7 +324,9 @@ th.valor-monetario {
    teste ou erro acusando. A coluna "Nível" continua mostrando o número
    real além do décimo nível — nenhuma informação é escondida, só a
    indentação visual satura ali (nenhuma hierarquia contábil real chega
-   lá). "nivel-0" cobre a raiz e o caso degenerado de ciclo (sem nível).
+   lá). Duas classes têm indentação zero, por motivos diferentes:
+   "nivel-1" é a RAIZ do plano (nível 1, que não se indenta) e "nivel-0" é
+   o caso degenerado de conta em ciclo, sem nível apurável.
 
    Seletor `.tabela-dados td.nivel-N`, não `.nivel-N` isolado: a
    especificidade de UMA classe (0,1,0) perde para a regra genérica da
