@@ -1722,3 +1722,38 @@ para os arquivos de instrução que concatena.
 
 **Consequência:** um teste reprova o build se um trecho literal e longo do
 `AGENTS.md` aparecer duplicado em outro arquivo.
+
+## DE-037 — Formato de agente só se gera para ferramenta que alguém usa
+
+**Data:** 2026-09-15. Contexto: execução da
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md).
+
+**O que aconteceu:** o plano nasceu cobrindo quatro ferramentas — Claude Code,
+Codex, GitHub Copilot e Gemini CLI — escolhidas por terem caminho e formato
+**confirmados em documentação oficial**. Isso responde "dá para fazer?", que é
+a pergunta errada. A pergunta certa é "alguém usa?". Perguntei ao Fred, e a
+resposta foi *"Codex pelo terminal"*.
+
+**Decisão:** o repositório gera definição de papel apenas para **Claude Code** e
+**Codex CLI**. Copilot e Gemini saem. `.github/copilot-instructions.md`
+permanece, porque é ponteiro de custo zero que já existia desde a DL-014 e
+continua servindo a quem abrir o projeto pelo GitHub.
+
+**Motivo:** cada formato gerado é manutenção permanente, mais uma superfície
+onde a documentação pode passar a mentir e mais um arquivo que o auditor tem de
+conferir. Capacidade confirmada não é necessidade demonstrada.
+
+**Alternativas descartadas:** manter os quatro "porque já estava pronto" — é
+como o projeto acumula peso morto; e deixar os dois formatos extras no gerador,
+desligados por configuração — seria código morto, proibido pelo AGENTS.md §8.
+
+**Consequência, e ela é barata:** acrescentar uma ferramenta depois é uma
+entrada na tabela do gerador mais um caso de teste. A decisão é reversível em
+minutos, e por isso não precisou de mais discussão.
+
+**Efeito colateral valioso:** a resposta do Fred transformou uma nota de rodapé
+em risco medido. O Codex trunca os arquivos de instrução em 32.768 bytes por
+padrão, e o `AGENTS.md` está em 22.601 — 69% do limite, crescendo a cada etapa.
+Virou o critério 14 da DL-019, com teste que reprova acima de 30.000 bytes.
+**Nenhuma das quatro ferramentas teria revelado isso; a pergunta ao usuário
+revelou.**

@@ -36,6 +36,8 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-06 | Trilha de auditoria de ator, contexto, operação e resultado. | [escopo.md](../escopo.md), `apps/auditoria/` |
 | RC-81 | O repositório não pode depender de uma única ferramenta de IA: os papéis da equipe existem em formato lido por Claude Code, Codex/ChatGPT, GitHub Copilot e Gemini CLI, e qualquer uma delas consegue criar um papel novo pelo procedimento escrito. | Pedido do Fred em 2026-09-15; [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) |
 | RC-82 | Definição de papel tem **uma** fonte e formatos gerados; cópia paralela mantida à mão é proibida, e a integração contínua reprova divergência. | DE-035, decorrente da instrução permanente do Fred de 2026-09-13 |
+| RC-83 | As ferramentas de IA em uso pelo Fred são **Claude Code** e **Codex pelo terminal**. Só elas recebem definição de papel gerada. | Resposta do Fred em 2026-09-15; DE-037 |
+| RC-84 | O `AGENTS.md` não pode ultrapassar 30.000 bytes, por causa do limite de 32.768 em que o Codex trunca arquivos de instrução **em silêncio**. | Decorre de RC-83; critério 14 da [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) |
 
 ### Engenharia obrigatória
 
@@ -197,8 +199,8 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 | PE-21 | A unicidade de CNPJ deve ser **global** no DataLedger, ou **por escritório**? Hoje é global, e a mensagem de erro revela a um escritório que determinado CNPJ já é cliente de outro. | Bloqueia o **BL-48**. É informação comercial num produto vendido a escritórios concorrentes entre si. Difícil de reverter depois que houver dado real: mudar a unicidade depois exige migração e pode encontrar duplicatas legítimas já gravadas. |
 | PE-20 | O que fazer com **escritório já cadastrado cujo CNPJ esteja inválido**: corrigir o dado, permitir a gravação do registro herdado, ou bloquear com mensagem orientando a correção? | Bloqueia o **BL-47**. `Escritorio.cnpj` nunca teve validador e os CNPJs hoje em uso nos testes são todos inválidos pelo dígito verificador. Aplicar a validação sem essa decisão trava a gravação de registros existentes. |
 
-| PE-44 | **Quais ferramentas de IA o Fred usa de fato?** A DL-019 cobre Claude Code, Codex/ChatGPT, GitHub Copilot e Gemini CLI, escolhidas por serem as que têm caminho e formato confirmados em documentação oficial. | Cada formato gerado é manutenção permanente. Cobrir ferramenta que ninguém usa é custo sem retorno; deixar de fora a que ele usa todo dia é o problema original sem solução. A resposta permite podar ou acrescentar formatos. Não bloqueia a entrega. |
-| PE-45 | **Gemini CLI: configuração de projeto.** Ler `AGENTS.md` no Gemini CLI exige a chave `context.fileName` nas configurações, e não confirmei se um `settings.json` versionado no repositório é lido, ou se a configuração é só pessoal. | Se for só pessoal, o `GEMINI.md`-ponteiro é a única cobertura possível pelo repositório, e o restante é instrução ao usuário. Não bloqueia. |
+| PE-44 | **Quais ferramentas de IA o Fred usa de fato?** | **Resolvida em 2026-09-15**, por RC-83: *"Codex pelo terminal"*. Copilot e Gemini saíram do escopo (DE-037), e a resposta revelou o risco de truncamento do `AGENTS.md` que virou o critério 14 da DL-019. |
+| PE-45 | ~~Gemini CLI: configuração de projeto.~~ | **Sem objeto** desde DE-037: o Gemini saiu do escopo. Se voltar, a pergunta volta com ele. |
 
 ## Como atualizar
 

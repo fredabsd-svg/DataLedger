@@ -78,10 +78,14 @@ está marcado como tal e **não vira arquivo**.
 docs/agents/papeis/<papel>.md      FONTE ÚNICA — frontmatter neutro + corpo
         │
         ├─ gera → .claude/agents/<papel>.md          (Claude Code)
-        ├─ gera → .codex/agents/<papel>.toml         (Codex CLI)
-        ├─ gera → .github/agents/<papel>.agent.md    (GitHub Copilot)
-        └─ gera → .gemini/agents/<papel>.md          (Gemini CLI)
+        └─ gera → .codex/agents/<papel>.toml         (Codex CLI)
 ```
+
+**Escopo reduzido a dois formatos em 2026-09-15**, durante a execução. Perguntei
+ao Fred quais ferramentas ele usa de fato e a resposta foi direta: *"Codex pelo
+terminal"*. Copilot e Gemini saíram — ver [DE-037](../projeto/decisoes.md) e o
+critério 14, que nasceu dessa resposta. `.github/copilot-instructions.md`
+permanece porque é ponteiro de custo zero, já existente desde a DL-014.
 
 Regra de desenho desta etapa, que vale para o que vier depois:
 
@@ -118,8 +122,8 @@ e o padrão do usuário prevalece.
 | 1 | A geração inicial **não altera um único byte** dos sete arquivos em `.claude/agents/` | `git diff --stat .claude/agents/` vazio após rodar o gerador sobre a fonte extraída |
 | 2 | Existe `docs/agents/papeis/<papel>.md` para os sete papéis, com frontmatter neutro e corpo em português | Leitura e execução do gerador |
 | 3 | `.codex/agents/<papel>.toml` gerado para os sete, com `name`, `description` e `developer_instructions` | Arquivo existe e é TOML válido (`tomllib.load`) |
-| 4 | `.github/agents/<papel>.agent.md` gerado para os sete, com `description` presente e corpo com menos de 30.000 caracteres | Teste automatizado |
-| 5 | `.gemini/agents/<papel>.md` gerado para os sete, com `name` e `description` | Teste automatizado |
+| 4 | ~~`.github/agents/<papel>.agent.md`~~ | **Fora do escopo** desde 2026-09-15: o Fred não usa Copilot |
+| 5 | ~~`.gemini/agents/<papel>.md`~~ | **Fora do escopo** desde 2026-09-15: o Fred não usa Gemini |
 | 6 | Links relativos são recalculados para a pasta de destino e continuam existindo | `scripts/validate-docs.ps1` (ou verificação equivalente) aprovada |
 | 7 | Um teste reprova o build quando qualquer derivado divergir da fonte | Alterar um derivado à mão e ver o teste falhar; reverter e ver passar |
 | 8 | Um teste reprova o build quando um papel existir na fonte e faltar em um dos quatro formatos | Remover um derivado e ver o teste falhar |
@@ -128,6 +132,20 @@ e o padrão do usuário prevalece.
 | 11 | Qualquer ferramenta consegue **criar um papel novo** seguindo um procedimento escrito | `docs/agents/como-criar-um-papel.md` existe, é citado nos quatro formatos e o procedimento foi executado de ponta a ponta uma vez |
 | 12 | Nenhuma regressão na suíte | `pytest`, `ruff check`, `ruff format --check`, `python manage.py check` |
 | 13 | O estado do projeto é atualizado | `DL-019` presente no README e em `docs/agents/estado.md` |
+| 14 | **`AGENTS.md` não pode crescer até ser truncado em silêncio pelo Codex** | Teste reprova acima de 30.000 bytes. Medição de 2026-09-15: **22.601 bytes**, 69% do limite padrão de 32.768 |
+
+### Por que o critério 14 existe
+
+O Codex concatena os arquivos de instrução e **para ao atingir
+`project_doc_max_bytes`, 32.768 por padrão**. Enquanto nenhuma pessoa da equipe
+usava Codex, isso era nota de rodapé. Com o Fred usando Codex no terminal, virou
+risco operacional: o `AGENTS.md` cresce a cada etapa, e quando estourar o limite
+a ferramenta passará a ler uma versão **incompleta** das regras sem avisar
+ninguém. O que some primeiro é o **fim** do arquivo — onde estão justamente
+"Como estas regras são impostas" e a seção que apresenta a equipe.
+
+É o mesmo padrão de defeito que o projeto já conhece: não é o erro que aparece,
+é o que passa despercebido porque nada acusa.
 
 ## Cenários de teste
 

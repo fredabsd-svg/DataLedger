@@ -249,9 +249,13 @@ ferramenta (DE-035):
 | Ferramenta | Arquivo gerado |
 | --- | --- |
 | Claude Code | `.claude/agents/<papel>.md` |
-| Codex CLI (ChatGPT) | `.codex/agents/<papel>.toml` |
-| GitHub Copilot | `.github/agents/<papel>.agent.md` |
-| Gemini CLI | `.gemini/agents/<papel>.md` |
+| Codex CLI, no terminal | `.codex/agents/<papel>.toml` |
+
+São duas porque são as duas em uso (RC-83). Copilot e Gemini têm formato
+confirmado e foram deixados de fora de propósito (DE-037): formato gerado é
+manutenção permanente, e capacidade confirmada não é necessidade demonstrada.
+Acrescentar um terceiro é uma entrada na tabela do gerador mais um caso de
+teste.
 
 **Não edite um desses arquivos à mão.** Altere a fonte e rode
 `python scripts/gerar_agentes.py --escrever`; um teste da integração contínua
@@ -260,14 +264,20 @@ reprova o build quando um derivado diverge. Para criar um papel novo, siga
 
 ### O que muda de ferramenta para ferramenta, e não pode ser escondido
 
-A tabela de restrições técnicas deste documento vale **para o Claude Code**. As
-outras ferramentas não têm campo equivalente confirmado:
+A tabela de restrições técnicas deste documento vale **para o Claude Code**. No
+Codex não há campo equivalente confirmado:
 
-| Restrição | Claude Code | Codex, Copilot, Gemini |
+| Restrição | Claude Code | Codex CLI |
 | --- | --- | --- |
 | `auditor-qa` sem `Write`/`Edit` | **Técnica** (ausência das ferramentas) | **Só instrução.** Nenhum campo confirmado impõe isso |
 | Auxiliares não delegam | **Técnica** (`disallowedTools: Agent`) | **Só instrução** |
 | Lista fechada de tipos acionáveis | **Técnica** para a thread principal | **Só instrução** |
+
+O agente customizado do Codex aceita `sandbox_mode`, que **poderia** dar uma
+restrição real de escrita. Os valores que ele admite **não foram confirmados**
+em documentação oficial, e o projeto não escreve campo com valor presumido.
+Enquanto não forem, a restrição do auditor no Codex é comportamental — e está
+dito assim no arquivo gerado, em vez de sugerir uma proteção que não existe.
 
 Por isso cada arquivo gerado para essas ferramentas carrega o aviso no próprio
 corpo. Um papel que promete isolamento inexistente é pior que papel nenhum — e
@@ -284,9 +294,12 @@ quem estiver usando a ferramenta.
 O [AGENTS.md](../../AGENTS.md) é padrão aberto. Em levantamento de 2026-09-15
 na documentação oficial, leem-no nativamente: Cursor, Google Jules, OpenCode,
 Zed, Roo Code, Cline, Kiro e — com suporte parcial, que varia por produto —
-GitHub Copilot. **Gemini CLI não lê por padrão** (usa `GEMINI.md`, e por isso o
-repositório tem um `GEMINI.md`-ponteiro); Amazon Q, Aider e Windsurf usam
-arquivo próprio e não foram cobertos.
+GitHub Copilot. Gemini CLI, Amazon Q, Aider e Windsurf usam arquivo próprio e
+**não** foram cobertos — nenhum deles está em uso aqui.
+
+O Codex, que é a segunda ferramenta em uso, lê o `AGENTS.md` nativamente e
+**para de ler ao atingir 32.768 bytes**. Daí o guarda de tamanho do critério 14
+da DL-019: passar do limite não dá erro, dá regra truncada em silêncio.
 
 Não há convenção confirmada de arquivo para o **ChatGPT no navegador** com
 conector de GitHub. O repositório não afirma que existe.
