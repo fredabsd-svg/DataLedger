@@ -256,10 +256,10 @@ auditoria independente — que é exatamente o motivo de ela existir.
    corromper dado, vazar entre empresas, desbalancear um lançamento ou derrubar
    o servidor'."*
 
-   **Decisão pendente do Fred:** integrar agora ou corrigir as dez ressalvas
-   antes. O argumento a favor de integrar é que a `main` hoje está **pior** —
-   ela tem o `1.000` gravado como `1,00` e não sobe em Python 3.12/3.13, e as
-   duas coisas estão corrigidas na branch.
+   **O Fred decidiu em 2026-09-15: integrar agora.** O argumento é que a `main`
+   está **pior** — tem o `1.000` gravado como `1,00` e não sobe em Python
+   3.12/3.13, e as duas coisas estão corrigidas aqui. As dez ressalvas viram a
+   rodada seguinte, em vez de travarem esta.
 
    **Antes de integrar, dois itens meus:** preencher o corpo do PR #19 (o check
    `Regras do projeto` está vermelho pela quarta vez — BL-147) e decidir se a
@@ -300,10 +300,17 @@ auditoria independente — que é exatamente o motivo de ela existir.
    só `docker compose config` e leitura. Só o Fred pode fechar este item.
 7. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53.
-8. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
+8. **Quatro decisões contábeis respondidas pelo Fred em 2026-09-15**, e que
+   viram código na rodada seguinte: faixa de data de lançamento de 01/01/2000 a
+   hoje + 30 dias (**RC-77**); estorno nunca anterior ao original, recusar
+   (**RC-78**); teto de 200 partidas com recusa explícita (**RC-79**); conta sem
+   contas-mãe avisa e deixa criar (**RC-80**). Fecham PE-42 e PE-43. As três que
+   não eram de sim ou não foram reescritas por mim como proposta concreta antes
+   de perguntar — presumir regra contábil é o que o projeto proíbe.
+9. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
    vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
    implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
-9. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
+10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
    documentação" e "Regras do projeto", e bloqueando force push e exclusão.
