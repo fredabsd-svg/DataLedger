@@ -1220,3 +1220,446 @@ Entra como fase A da DL-017, **antes** de qualquer template.
 A API continua existindo e sendo o contrato público — ela é o que um dia
 alimenta integração, aplicativo ou o servidor MCP previsto no escopo. O que se
 decide aqui é que **a nossa tela não é cliente dela**.
+
+## DE-027 — Quem julga o texto de um valor monetário é o módulo monetário, não a view
+
+**Data:** 2026-09-14. Contexto: achado 2 da [auditoria da DL-017, rodada
+1](../auditorias/2026-09-14-dl-017-rodada-1.md). Medido: a tela de lançamento
+gravou `1e3` como **1.000,00**, e ainda aceitou `1_000`, `+10,00` e `10,00 ` com
+espaço — quatro formatos que a API recusa com 400 de propósito.
+
+**Decisão:** a view de tela **não constrói `Decimal`**. Ela faz uma única coisa
+com o texto digitado: troca a vírgula decimal pelo ponto e entrega o **texto**
+para `apps.contabilidade.monetario.para_decimal`, traduzindo
+`ValorMonetarioInvalido` em erro de campo do formulário. A partir daqui, todo
+caminho de entrada de valor monetário — tela, API, importação de XML, carga de
+planilha — passa pelo mesmo julgador de formato textual.
+
+### Por que isso é decisão de arquitetura e não conserto local
+
+A DE-026 fechou o risco que eu havia nomeado: **duplicar** a regra. O que
+escapou foi o simétrico, e é mais difícil de ver, porque não há cópia nenhuma
+para comparar: a tela **contornou** o guarda. `_decimal_do_formulario`
+documentava corretamente que a validação de domínio (sinal, escala — DE-010)
+continua em `criar_lancamento`; e estava certo. Só que, ao fazer
+`Decimal(texto)` dentro da view, tirou de `para_decimal` a única coisa que só
+ele podia julgar: **se aquele texto é uma representação aceitável de dinheiro**.
+`criar_lancamento` recebe um `Decimal` já pronto e não tem mais o que recusar.
+
+O efeito prático é o oposto do esperado de uma interface: a tela ficou a porta
+**mais frouxa** da mesma invariante. `1e3` virar mil reais não é erro de
+arredondamento nem de apresentação — é reinterpretar em mil vezes o que está
+escrito na tela do contador.
+
+### A regra que fica, em uma frase
+
+**Validação de formato pertence a quem define o formato.** Se uma camada precisa
+do valor tipado, ela pede o valor tipado a esse dono — nunca o constrói por
+conta própria a partir do texto do usuário.
+
+### Como isso passa a ser verificado
+
+Não por revisão: por teste de equivalência. Uma lista de textos aceitáveis e
+inaceitáveis é percorrida pelos **dois** caminhos (tela e API) exigindo o
+**mesmo** veredito em cada um. Quando entrar um terceiro caminho de entrada
+(importação de NFS-e, DL-010), ele entra na mesma lista. O achado 1 (não-finitos
+derrubando a tela com 500) é corrigido pelo mesmo movimento, e é a razão de os
+dois andarem juntos.
+
+### Atenção: a cláusula de tradução desta decisão estava ERRADA
+
+Acrescentado em 2026-09-14, depois da rodada 2 da auditoria. A frase abaixo que
+descreve a tradução como *"vírgula decimal vira ponto, separador de milhar
+sai"* **não corresponde ao que o código fazia nem ao que ele deve fazer**, e
+por trás dela passou um defeito **bloqueador**: a tela gravava `1.000` como
+1,00. Ver **DE-029**, que substitui a cláusula de tradução e institui o teste
+que faltava.
+
+O resto desta decisão continua valendo: quem julga o texto de um valor
+monetário é o módulo monetário, nunca a view.
+
+### O que "mesmo veredito" quer dizer, exatamente
+
+Acrescentado em 2026-09-14, porque o `especialista-frontend` levantou o caso na
+implementação e a redação acima não respondia: `"+10,00"` digitado na tela é
+aceito; o **mesmo texto literal** enviado à API é recusado. Isso contradiz a
+decisão?
+
+**Não, e a distinção é o ponto.** A tela faz — e só ela faz — **uma** tradução
+declarada: vírgula decimal vira ponto, separador de milhar sai. É tradução de
+*locale*, não julgamento de valor. O contrato é:
+
+> Depois da tradução de *locale* da tela, o texto resultante recebe de
+> `para_decimal` **exatamente** o mesmo veredito que receberia se tivesse
+> chegado pela API.
+
+Ou seja, a equivalência é **a jusante da tradução**, nunca byte a byte na
+entrada — exigir texto idêntico nos dois canais seria exigir que o contador
+digitasse ponto decimal, que é o oposto do critério 4 do plano
+[DL-017](../planos/DL-017-interface-da-contabilidade.md) e de BL-23. No caso
+levantado:
+`"+10,00"` → `"+10.00"`, e `para_decimal("+10.00")` é aceito **pelos dois
+caminhos**, com contrato já testado em `apps/core/tests/test_dinheiro.py`. O
+sinal `+` não é a diferença; a vírgula é. O valor numérico concorda.
+
+O que a decisão proíbe continua valendo inteiro: a tela **não** pode aceitar
+nada que `para_decimal` recuse, nem recusar nada que ele aceite. Quem verifica
+isso é o teste de equivalência, e a tradução de *locale* é a **única** etapa
+autorizada entre o que o usuário digita e o que o julgador vê. Qualquer segunda
+transformação — `.strip()`, troca de sinal, corte de zeros — é reinterpretação
+silenciosa, e está proibida pelo mesmo motivo que originou esta decisão.
+
+## DE-028 — Migração automática ao subir é conveniência de desenvolvimento, nunca de produção
+
+**Data:** 2026-09-14. Contexto: o Fred tentou abrir o sistema pelo Docker no
+Windows seguindo **exatamente** o que o README manda, e não conseguiu (BL-100).
+
+**Decisão:** o `command` do serviço `web` no `docker-compose.yml` roda
+`manage.py migrate --noinput` antes do gunicorn. O `CMD` do `Dockerfile`
+**continua sendo só o gunicorn**, e essa diferença é proposital.
+
+### Por que os dois não são iguais
+
+Em desenvolvimento sobe **uma** instância, contra um volume que pode ter
+acabado de nascer vazio. Sem migração automática, a primeira tela devolve erro
+de relação inexistente — e quem está avaliando o produto conclui, com razão, que
+ele não funciona. Foi o que aconteceu: o caminho documentado no README não
+levava a um sistema utilizável.
+
+Em produção sobe **mais de uma** instância da aplicação. Se cada uma migrasse ao
+iniciar, várias executariam o mesmo `migrate` em paralelo na mesma base. Pior:
+uma migração longa passaria a bloquear o start, e um `restart: unless-stopped`
+transformaria falha de migração em laço de reinício. **Migração é passo
+deliberado de implantação** — alguém decide, executa, confere e só então as
+instâncias sobem.
+
+### O limite honesto desta decisão
+
+Ela resolve o ambiente de avaliação e desenvolvimento. **Não** define como a
+migração acontece na implantação em nuvem — isso é do P0 de implantação
+(DE-014), junto com cópia de segurança e restauração testada (BL-33), e continua
+em aberto.
+
+## DE-029 — A gramática pt-BR do campo de valor, e a regra de que texto ambíguo se recusa
+
+**Data:** 2026-09-14. **Substitui a cláusula de tradução da DE-027**, que estava
+errada. Contexto: achado R2-1 da
+[auditoria DL-017 rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md), de
+gravidade **bloqueador**.
+
+### O defeito que originou a decisão
+
+A tela gravava `1.000` como **1,00**. O contador digita mil reais como todo
+brasileiro escreve mil reais, a tela responde *"Lançamento gravado com
+sucesso"*, e o livro fica com um real. O lançamento fecha (os dois lados
+sofreram a mesma divisão), o balancete concilia, e a tela de conferência diz que
+não há inconsistência. Medido em 9 de 12 valores de milhar comuns.
+
+Estava na `main` desde a integração do PR #18.
+
+### Por que a DE-027 não podia pegar isso
+
+A DE-027 acertou em *quem julga* o texto (o módulo monetário, nunca a view) e a
+implementação obedece. O erro está na frase que **define a tradução**:
+*"vírgula decimal vira ponto, separador de milhar sai"*. O código só tirava o
+separador quando havia vírgula — e **corrigir o código para bater com o texto
+seria pior**, porque tiraria o ponto de `10.00` e transformaria dez reais em mil.
+
+A verdade que faltava enxergar: **`1.000` é ambíguo.** Em pt-BR é mil; no formato
+canônico da API é um. Não existe função de tradução bem definida sobre esse
+texto, logo não existe conserto que preserve as duas leituras.
+
+### A decisão
+
+**1. O campo de valor da tela aceita uma gramática pt-BR explícita, escrita como
+padrão e não como prosa:**
+
+```
+^[+-]?([0-9]+|[0-9]{1,3}(\.[0-9]{3})+)(,[0-9]{1,2})?$
+```
+
+Em português: dígitos sem separador algum, **ou** dígitos agrupados de três em
+três por ponto, com centavos opcionais depois da vírgula.
+
+**`[0-9]`, nunca `\d` — e isto é normativo, não detalhe de escrita.** Em Python,
+`\d` casa **qualquer** dígito decimal Unicode: `０１０` (fullwidth), `١٢٣`
+(índico-arábico), `๑๐` (tailandês). Esta decisão foi publicada, em 2026-09-14,
+com `\d` no texto enquanto o código usava `[0-9]` — quem implementasse seguindo
+o documento reabriria o R2-7, **e nenhum teste reclamaria** (medido: o mutante
+que troca `[0-9]` por `\d` na gramática sobrevive a 559 testes). Corrigido no
+mesmo dia, pelo achado R3-6 da
+[rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md).
+
+É o erro da DE-027 com os papéis trocados: lá o texto estava certo e o código
+errado; aqui o código estava certo e o texto errado. A lição é a mesma nos dois
+casos — **decisão que descreve comportamento precisa de teste que ligue o texto
+ao código**, senão ela envelhece sem que ninguém perceba.
+
+| Digitado | Vale | Por quê |
+| --- | --- | --- |
+| `1000` | 1000,00 | sem separador, sem ambiguidade |
+| `1.000` | 1000,00 | grupo de milhar bem formado |
+| `1.234.567,89` | 1234567,89 | idem, com centavos |
+| `0,50` | 0,50 | centavos |
+| `10.00` | **recusado** | `.00` não é grupo de milhar; em pt-BR é malformado |
+| `1.00` | **recusado** | idem |
+| `1e3`, `1_000`, `NaN` | **recusado** | não é a gramática |
+
+**2. Texto fora da gramática é recusado pela tela, com mensagem que ensina o
+formato** — nunca reinterpretado, nunca "corrigido" em silêncio. `10.00` passa a
+ser recusado, **e isso é correto**: é o formato canônico da API, não o da tela
+de um contador brasileiro.
+
+**3. Depois da tradução, `para_decimal` continua julgando.** A gramática não o
+substitui: ele é a segunda camada, que apanha sinal, escala e não-finito. A
+DE-027 continua valendo inteira nesse ponto.
+
+### O teste que faltava, e que é o coração desta decisão
+
+A DE-027 instituiu um teste de **equivalência entre tela e API**. Ele não podia
+pegar o R2-1 **por construção**: compara os dois lados *depois* da tradução, e o
+defeito estava *na* tradução. Passa a ser obrigatório um segundo teste, de outra
+natureza:
+
+> **Texto digitado → valor gravado.** Para uma tabela de textos em pt-BR, o valor
+> que fica no banco é exatamente o que o texto significa em pt-BR, ou a
+> requisição é recusada com 400. **Nunca 302 com outro número.**
+
+Esse teste teria pego o defeito na primeira execução. Os dois testes convivem: o
+de equivalência protege a fronteira entre as portas; este protege o significado
+do que o contador digitou.
+
+### A lição de processo, que vale além deste campo
+
+O auditor nomeou o padrão das três correções incompletas desta rodada, e ele é
+meu: **a correção fechou o caso que o relatório descrevia, não a classe que ele
+nomeava.** O achado 5 dizia *"nunca truncar em silêncio"* e a tarefa que escrevi
+virou *"recusar acima de 20"* — o defeito voltou por `num_linhas` malformado
+(R2-3). O achado 6 dizia *"medir CSS"* e virou *"proibir `style=` inline"* — a
+indentação segue sem teste que a defenda (R2-6).
+
+Passa a valer: **o critério de aceite de uma correção cita a classe do defeito,
+nunca só a reprodução do relatório.** Quem escreve a tarefa é o
+`arquiteto-senior`, e o erro de escrevê-la estreita é dele.
+
+## DE-030 — Todo caminho de entrada de valor monetário declara sua gramática, e nenhum constrói `Decimal` por conta própria
+
+**Data:** 2026-09-14. Contexto: achado **R3-3** e o segundo ponto da seção "onde
+eu acho que você errou" da
+[auditoria DL-017 rodada 3](../auditorias/2026-09-14-dl-017-rodada-3.md).
+
+### O buraco que nem a DE-027 nem a DE-029 cobriam
+
+As duas decisões legislam sobre **dois** dialetos de entrada: a tela, que fala
+pt-BR (DE-029), e a API, que fala o formato canônico com ponto decimal
+(DE-027). O sistema tem um **terceiro**, que nenhuma das duas menciona: o
+**número JSON**.
+
+Medido pelo auditor, pela API real:
+
+```
+enviado 99999999999999.99   -> HTTP 201, gravado 99999999999999.98
+enviado 70368744177664.01   -> HTTP 201, gravado 70368744177664.02
+enviado 562949953421312.07  -> HTTP 201, gravado 562949953421312.10
+enviado "1e3" como TEXTO    -> 400 (correto)
+enviado  1e3  como NÚMERO   -> 201, gravado 1.000,00
+```
+
+O JSON vira `float` no Python, `apps/contabilidade/views.py` faz `str(valor)` e
+depois `Decimal(...)`, e a recusa de notação científica que o próprio comentário
+do arquivo anuncia é contornada **trocando aspas por número**. É o R2-1 na outra
+porta: 201 de sucesso com número diferente do enviado.
+
+Hoje o estrago é limitado por acidente: abaixo de ~7×10¹³ o espaçamento do
+`double` é menor que um centavo, e a checagem de escala recusa os casos
+problemáticos. **"Protegido por acidente de escala" é exatamente o mecanismo
+pelo qual `1.234` escapava antes do R2-1.** Não conta como proteção.
+
+### A decisão
+
+**1. Nenhuma camada constrói `Decimal` a partir de entrada de cliente.** Nem a
+tela, nem a API, nem a importação. Todas entregam **texto** a
+`apps.core.dinheiro.para_decimal`, que é o único julgador. A API hoje
+reimplementa a checagem com a mesma expressão regular e constrói o `Decimal`
+sozinha — é duplicação, e é onde este defeito mora.
+
+**2. Valor monetário que chegue como número (não texto) é recusado.** `float`
+já é recusado por contrato dentro de `para_decimal`; a recusa passa a valer
+**antes**, na fronteira, com mensagem que diga para enviar como texto.
+
+**3. Todo caminho de entrada declara, por escrito e em teste, qual gramática
+aceita.** Hoje são três: pt-BR (tela, DE-029), canônica (API, DE-027) e
+**nenhuma** (número JSON, que passa a ser recusado). Quando a
+[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) trouxer NFS-e e
+carga de planilha, cada um desses caminhos responde a pergunta **antes** de
+existir código: *qual texto eu aceito, e o que faço com o que não casa?*
+
+### Por que isto não é preciosismo
+
+O auditor formulou melhor do que eu: *"quando a DL-010 trouxer NFS-e e carga de
+planilha, a pergunta «qual gramática este caminho usa?» não terá resposta
+escrita"*. São quatro caminhos de entrada de dinheiro num sistema contábil. A
+DE-027 acertou em dizer que **um** módulo julga; faltava dizer que **todos**
+passam por ele.
+
+## DE-031 — O campo de data mantém o seletor do navegador, e o rótulo para de afirmar formato
+
+**Data:** 2026-09-14. Contexto: achado **R3-8** da rodada 3, e o resíduo do
+R2-8 da rodada 2.
+
+**O problema, visível na captura entregue:** o `<input type="date">` exibe
+`09/14/2026` (mês/dia/ano, *locale* do navegador) logo abaixo de um rótulo que
+diz "(dd/mm/aaaa)" e três centímetros acima de um cabeçalho que diz
+`14/09/2026`. A mesma data, em duas ordens, na mesma tela. **Não é defeito de
+código:** o formato de exibição do seletor nativo vem do navegador, e
+`LANGUAGE_CODE` não o altera.
+
+**Decisão: fica o seletor nativo**, e o rótulo **deixa de afirmar** um formato
+que ele não controla.
+
+Motivos, nesta ordem:
+
+1. **Acessibilidade e teclado.** O seletor nativo é navegável por teclado,
+   anunciado por leitor de tela e conhecido pelo usuário. Um campo de texto
+   livre perde isso.
+2. **Sem JavaScript** (critério 15). Forçar o formato exigiria JS; trocar por
+   texto exigiria leitura pt-BR no servidor e reintroduziria a classe de defeito
+   que a DE-029 acabou de fechar para valores — agora para datas.
+3. **Na prática, o escritório vê pt-BR.** Navegador em português brasileiro
+   exibe `dd/mm/aaaa`. A ambiguidade aparece em ambiente fora de pt-BR — como o
+   contêiner onde a captura foi feita.
+
+**O que muda:** o rótulo nomeia o campo sem prometer formato, e o texto de
+apoio diz que o campo segue o navegador, enquanto **toda exibição de data do
+sistema é `dd/mm/aaaa`**. Prometer menos e cumprir é melhor que prometer
+`dd/mm/aaaa` num campo que pode mostrar outra coisa — hoje o rótulo pode mentir,
+e mentir com aparência de precisão é pior que não dizer.
+
+**Reversível:** se o Fred relatar confusão real no escritório, a saída é um
+campo de texto com leitura pt-BR no servidor, e aí a gramática de data entra na
+DE-030 junto com as de valor.
+
+## DE-032 — A classe de um defeito se escreve pelo efeito proibido, nunca pelo mecanismo onde ele foi visto
+
+**Data:** 2026-09-14. Contexto: ponto 4 da seção "onde eu acho que você errou"
+da [auditoria DL-017 rodada 4](../auditorias/2026-09-14-dl-017-rodada-4.md).
+**Complementa a DE-029**, que instituiu a forma obrigatória "A classe é:"; o que
+muda aqui é **o que se escreve depois dela**.
+
+### A evidência que originou a decisão
+
+A forma obrigatória funcionou: todos os itens de BL-115 a BL-125 trazem a frase.
+E mesmo assim duas das três correções fecharam o **caso** e não a **classe**. O
+auditor mostrou por quê, com a tabela que eu não tinha enxergado:
+
+| Item | Como escrevi a classe | O que aconteceu |
+| --- | --- | --- |
+| BL-115 | "nenhum número do cliente **dimensiona laço**" | varreram todo `range()` — corretamente — e o `int()` na linha ao lado ficou (A1, A2) |
+| BL-116 | "nenhuma linha enviada **no POST** deixa de ser lida" | virou "nenhuma chave de `request.POST`"; `request.FILES` ficou fora (A3) |
+| BL-117 | "nenhuma camada **constrói `Decimal`** a partir de entrada de cliente" | **fechou** — o mutante mata 14 |
+
+As duas primeiras nomeiam **a construção de código onde o defeito foi visto**
+(`range`, `request.POST`). A terceira nomeia **o efeito que não pode acontecer**.
+É a única que fechou.
+
+### A decisão
+
+Todo critério de aceite de correção descreve **o estado que o sistema não pode
+alcançar**, em termos observáveis de fora, e nunca o trecho de código onde o
+defeito apareceu.
+
+| Em vez de | Escreva |
+| --- | --- |
+| "nenhum número do cliente dimensiona laço" | "nenhuma entrada de cliente faz o servidor gastar tempo proporcional a ela" |
+| "nenhuma chave de `request.POST` é ignorada" | "nenhum dado enviado numa requisição deixa de ser lido ou recusado" |
+| "usar `try/except` em volta do `int()`" | "nenhuma entrada de cliente produz resposta 5xx" |
+
+O teste da redação é simples: **se a frase cita um nome de função, de módulo, de
+dicionário ou de construção da linguagem, ela está escrita pelo mecanismo.** O
+mecanismo entra depois, como *exemplo* — que é onde a DE-029 já o coloca.
+
+### Por que isto não é preciosismo de redação
+
+Quem implementa cumpre o que está escrito, e cumpre bem. Nas duas ocorrências
+acima a varredura foi **feita**, com competência, e parou exatamente na fronteira
+que a frase desenhou. O limite não foi de cuidado; foi de escopo — e o escopo
+fui eu que escrevi. **Quando a classe é estreita, a correção correta é
+insuficiente**, e isso não aparece em revisão de código: só aparece quando
+alguém ataca por fora, que é o que a auditoria faz.
+
+## DE-033 — Toda decisão que especifique comportamento observável nasce com item de backlog no mesmo commit
+
+**Data:** 2026-09-14. Contexto: achado **A5** da rodada 4.
+
+**O que aconteceu:** a [DE-031](decisoes.md) decidiu que o rótulo do campo de
+data deixaria de afirmar um formato que ele não controla. A decisão foi
+registrada, argumentada e datada — e **nunca virou tarefa**. Os sete rótulos
+continuam dizendo `(dd/mm/aaaa)`, a captura entregue continua mostrando
+`09/01/2026` embaixo deles, e nenhum teste cobre o texto do rótulo, então nada
+acusou. Uma rodada inteira de auditoria depois, o achado R3-8 continua vivo no
+produto.
+
+**Decisão:** uma decisão que especifique comportamento observável — texto de
+tela, formato aceito, resposta HTTP, regra de recusa — **só está registrada
+quando existe, no mesmo commit, um item de backlog com responsável e critério de
+aceite**. Decisão sem tarefa atribuída é intenção, e intenção não chega ao
+usuário.
+
+Decisões que descrevem **estrutura** (onde mora uma regra, quem julga o quê,
+qual camada faz o quê) não precisam disso quando já estão implementadas no mesmo
+commit — o que a regra alcança é a decisão que **projeta** comportamento futuro.
+
+**Verificação:** por enquanto, disciplina de quem escreve — eu. Não é imposta
+por mecanismo, e **declaro isso**: a DE-029 e a BL-124 mostraram que lembrete
+tem taxa de falha alta neste projeto. Se reincidir, vira teste que cruza
+`decisoes.md` com `backlog.md`.
+
+## DE-034 — A varredura de uma classe começa no CAMPO, não na linha
+
+**Data:** 2026-09-14. Contexto: ponto 5 da seção "onde eu acho que você errou" da
+[auditoria DL-017 rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md).
+**Sucessora prática da DE-032**, que continua valendo: a classe se escreve pelo
+efeito proibido. O que a DE-034 acrescenta é **onde a varredura começa**.
+
+### A evidência
+
+A DE-032 funcionou melhor que qualquer regra desta etapa — **nove classes
+fechadas com mutante morrendo**, incluindo duas que vinham sobrevivendo havia
+três rodadas. E ainda assim os três resíduos da rodada 5 estão, os três, **a um
+campo de distância** do que foi consertado:
+
+| Classe declarada | Onde fechou | O vizinho que ficou |
+| --- | --- | --- |
+| "nenhum dado tipado sem gramática" | `vigencia_inicio`, **linha 134** | `regime`, **linha 133** — literalmente a linha de cima, no mesmo `request.data` |
+| "nenhuma entrada é reinterpretada em silêncio" | tela e `tenancy` | `item["conta"]` da **API**, no mesmo arquivo do campo `data` que foi corrigido |
+| "nenhuma entrada produz 5xx" | conversão texto→número | **restrição de banco**, e uma delas na mesma função que já converte a de CNPJ em 400 |
+
+Não é falta de cuidado de quem implementa: a varredura foi feita, e foi feita
+bem. É que ela começou **na linha apontada** e se expandiu pelo mecanismo
+(`range`, `int()`, `fromisoformat`), em vez de começar **no campo** e se expandir
+pelos vizinhos.
+
+### A decisão
+
+Quando um campo de uma requisição é corrigido, **os outros campos da mesma
+requisição entram na varredura por construção** — não por lembrança. Em
+concreto, a correção de um campo obriga a percorrer:
+
+1. **Os demais campos do mesmo `request.data` / `request.POST` / formulário.**
+2. **O mesmo campo nas outras superfícies** — tela, API, importação. Foi assim
+   que o `conta` da API escapou enquanto o da tela era corrigido.
+3. **As demais restrições do mesmo `Meta`** quando o defeito envolver o banco.
+
+### A pista que estava escrita e ninguém leu
+
+O relatório traz a observação mais fina das cinco rodadas: os comentários de
+`views_web.py` **afirmam que a API já usa `para_id`**. Ela não usa. O comentário
+não só afirmou mais do que a defesa entregava — **ele afirmou exatamente a coisa
+que impediu de ir olhar**.
+
+É a oitava ocorrência da família "comentário que afirma mais do que a defesa
+entrega", e a primeira em que o comentário **causou** a lacuna em vez de apenas
+descrevê-la mal. Por isso a regra ganha um par verificável, e não fica no
+conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
+ser conferível por teste** — se X não usa, o teste reprova. Registrado como
+BL-146.

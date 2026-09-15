@@ -1,6 +1,26 @@
 # DL-017 — Interface da contabilidade
 
-**Estado:** fases A e B implementadas em 2026-09-14; **aguardando auditoria**.
+**Estado:** fases A e B integradas em 2026-09-14 (PR #18), **reprovadas na
+[rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) e de novo na
+[rodada 2](../auditorias/2026-09-14-dl-017-rodada-2.md)**. Dos 15 achados da
+rodada 1, 14 fechados por medição do auditor; a rodada 2 encontrou um
+**bloqueador que está na `main`** — a tela grava `1.000` como `1,00` (R2-1).
+Correção em curso, BL-103 a BL-113, sob a [DE-029](../projeto/decisoes.md).
+
+## O resultado da rodada 1, em três frases
+
+Dos 17 critérios, **11 atendidos**, 5 atendidos com ressalva, 1 parcialmente
+atendido e **o critério 13 não atendido**. A aritmética resistiu a tudo: 20
+planos de contas aleatórios, todos os níveis, conta híbrida, retificadora e saldo
+zero — a soma das linhas exibidas bateu com o rodapé e com a API, sempre. O que
+reprovou a etapa foi a **apresentação**: a tela devolve 500 em entrada trivial de
+usuário (valor `NaN` colado de planilha, histórico longo) e o único total de
+conferência que ela mostra num caminho sem erro está errado.
+
+Erro meu, registrado: **eu integrei antes da auditoria voltar**, com autorização
+do Fred, e o custo apareceu na primeira vez que abri essa exceção. O achado 7 —
+`estado.md` e `README.md` descrevendo um estado que o próprio commit desmentia —
+também é meu.
 
 ## Critério 16 — o percurso feito pelo navegador
 
@@ -37,6 +57,89 @@ servidor entrega.
   roteiro, que reproduziu alguém desmarcando a opção. Fica registrado porque a
   lição vale mais que o episódio: **reproduzir "pelo caminho de verdade" exige
   reproduzir o que o navegador envia**, não o que parece equivalente a ele.
+
+## O que a correção da rodada 1 ensinou
+
+Três coisas que valem mais que os defeitos em si, e por isso ficam no plano e
+não só no backlog.
+
+**1. Corrigir sem medir produz correção que não corrige.** A primeira versão da
+indentação por classe CSS (achado 6) usava `.nivel-N` isolado — especificidade
+menor que a regra genérica `.tabela-dados td` que já existia. Continuava sem
+indentação nenhuma, agora por um motivo diferente do `float` original. Só
+apareceu porque o `especialista-frontend` mediu de novo no Chromium: 12px em
+todos os níveis. Depois de aumentar a especificidade, 0px / 20px / 40px. **Uma
+correção verificada por leitura teria sido entregue quebrada.**
+
+**2. A mensagem de erro é código, e pode ser o próprio defeito.** Ao recusar um
+valor grande demais (BL-101), a primeira tentativa formatava o valor recusado
+para contar ao usuário qual era — e `_valor_ptbr` faz `.quantize()`, que estoura
+a precisão do contexto decimal com um número de centenas de dígitos. A checagem
+criada para fechar um 500 criava um 500 novo, no caminho de contar que recusou.
+É o mesmo desenho do achado 1 original, onde a tela derrubava ao renderizar uma
+recusa correta.
+
+**3. A varredura por classe de defeito valeu mais que a lista de achados.** O
+auditor disse explicitamente que encontrou os achados 1, 4 e 5 porque procurou
+por eles, e que a mesma classe podia existir em caminhos que não percorreu.
+Percorrendo o formulário campo a campo com a pergunta *"isso chega ao banco sem
+checagem de limite?"*, apareceram mais dois (BL-101 e BL-102). **Achado não é
+lista de tarefas; é amostra de um padrão.**
+
+## Três testes que não conseguiam falhar
+
+Apareceram na correção da rodada 3, um de cada responsável, e são a mesma
+armadilha em três disfarces. Ficam registrados porque **nenhum deles foi
+encontrado por leitura** — os três só apareceram quando alguém reaplicou o
+mutante e mediu.
+
+| Quem | O teste dizia medir | O que media de fato |
+| --- | --- | --- |
+| `arquiteto-senior` | se o código compila em 3.12 e 3.13 | nada — `py_compile … \| tail -1 && echo OK` devolve o código de saída do `tail`, que é sempre zero. Imprimiu "COMPILA" nas duas versões que falham |
+| `especialista-frontend` | se há navegador para medir CSS | se o **arquivo** existe. No runner do GitHub o binário existe e não sobe: o teste não pulava, rodava e estourava 30 s de timeout |
+| `desenvolvedor-pleno` | se a permissão está fixada na view, e não herdada | o padrão **real**, não o afrouxado: o DRF fixa `permission_classes` na **importação** do módulo, e `override_settings` invalida o cache de `api_settings` sem reescrever o atributo de classe já fixado |
+
+O terceiro é o mais perigoso dos três, e vale entender por quê: **ele passava
+isolado e falhava em conjunto.** Rodado sozinho, o mutante morria; rodado na
+suíte inteira, sobrevivia, porque outra requisição DRF já havia fixado o
+atributo antes. Evidência positiva que depende da ordem de execução é pior que
+evidência nenhuma — ela dá confiança onde não há.
+
+**A regra que fica:** *um teste só conta como defesa depois que alguém o viu
+falhar.* Escrever o teste e vê-lo verde não prova nada — o verde pode vir de o
+teste não conseguir ficar vermelho. É o mesmo princípio que já valia para
+mutação de código, agora estendido ao próprio instrumento de medida.
+
+Consequência prática adotada: **teste estrutural e teste comportamental andam
+em par** quando o assunto é autorização. O estrutural prova que a decisão está
+declarada onde é aplicada; o comportamental prova que ela vale. Sozinho, o
+estrutural passa com `AllowAny` declarado.
+
+## O que a rodada 2 ensinou, e é a lição mais cara até aqui
+
+**Corrigimos o exemplo, não a classe.** O auditor nomeou o padrão, e o erro é
+meu, porque quem escreve as tarefas de correção sou eu:
+
+| O achado dizia | A tarefa que escrevi virou | O defeito voltou por |
+| --- | --- | --- |
+| "nunca truncar em silêncio" (5) | "recusar acima de 20" | `num_linhas` malformado (R2-3) |
+| "medir CSS" (6) | "proibir `style=` inline" | especificidade do seletor, sem teste (R2-6) |
+| "a tela é a porta mais frouxa" (2) | "delegar a `para_decimal`" | `1.000` gravado como `1,00` (R2-1) |
+
+O terceiro é o bloqueador, e é o mais instrutivo: a correção do achado 2 estava
+**certa no que fazia** — o texto passou a descer para o módulo monetário — e
+mesmo assim o dinheiro continuou se perdendo, na linha imediatamente acima, na
+tradução que ninguém tinha escrito como regra.
+
+Passa a valer, e está na [DE-029](../projeto/decisoes.md): **o critério de
+aceite de uma correção cita a classe do defeito, nunca só a reprodução do
+relatório.**
+
+**E o teste que existia não podia pegar.** A DE-027 instituiu um teste de
+equivalência entre tela e API. Ele compara os dois lados **depois** da tradução;
+o defeito estava **na** tradução. 487 testes verdes, um bloqueador em vigor. O
+teste que faltava é de outra natureza — **texto digitado → valor gravado** — e
+teria pego na primeira execução.
 
 ## Por que esta etapa existe
 
@@ -148,6 +251,59 @@ Numerados para a auditoria conferir um a um.
 17. Suíte, `ruff check`, `ruff format --check`, `manage.py check` e migrações em
     banco vazio limpos, **verificados em árvore limpa** (`git archive` em
     diretório vazio, BL-81). Nenhuma regressão nos 402 testes.
+
+## Onde é fácil errar
+
+Escrita depois da rodada 1 da auditoria, e por uma razão específica: o
+`urls_web.py` já **remetia a esta seção** desde a fase B, e ela não existia — o
+achado 13 encontrou a referência quebrada. O conteúdo existia, só estava
+morando em comentário de código, que é o lugar onde ninguém procura antes de
+mexer.
+
+### 1. Os dois prefixos de rota não podem ser unificados
+
+A API vive em `contabilidade/` e as telas em `contabilidade/painel/`. **Não é
+gosto:** os dois conjuntos têm rotas com o mesmo caminho literal sob o mesmo
+`empresa_id` (`diario/`, `balancete/`). Se dividissem o prefixo, o Django
+resolveria a primeira inclusão que casasse e a segunda **nunca** seria
+alcançada. Não há erro, não há aviso: a tela, ou a API, simplesmente desaparece.
+
+O guarda disso era um comentário — e o achado 9 mostrou que **nenhum dos 446
+testes** exercita o `config/urls.py` real, porque os testes da etapa declaram o
+próprio urlconf. Vira BL-95.
+
+### 2. Formatar é apresentação; julgar o texto do valor não é
+
+O caminho seguro tem uma direção só: o valor é `Decimal` desde o serviço até o
+template, e só o template formata. O que a rodada 1 mostrou é o caminho de volta,
+que eu não havia previsto: **a view lendo texto do usuário e construindo
+`Decimal` por conta própria** contorna o único guarda de formato do sistema. Ver
+DE-027. `1e3` gravado como 1.000,00 saiu daqui.
+
+### 3. `float` fora do cálculo também quebra — só quebra calado
+
+O plano dizia "nenhum `float` em nenhum ponto" e eu verifiquei isso no cálculo.
+Passou num atributo de estilo: `(nivel - 1) * 1.25`, que com `LANGUAGE_CODE`
+`pt-br` o template localiza para `padding-left: 1,25rem` — CSS inválido. Nenhum
+teste falhou, nenhum erro apareceu, e a indentação do plano de contas nunca
+existiu. A regra fica mais forte: **nenhum `float` em nenhum ponto, inclusive
+onde o número não é dinheiro.**
+
+### 4. O formulário escrito à mão não tem as defesas que o `ModelForm` tem
+
+Dois dos quatro achados de 500 estão no único formulário desta entrega escrito à
+mão, o de lançamento. O de conta é `ModelForm` e o Django cuida do comprimento,
+do tipo e da recusa. Onde a proteção automática não existe, **cada limite do
+modelo precisa de validação explícita na view** — `max_length` do histórico,
+finitude do valor, teto de partidas. O `maxlength` do HTML é conveniência de
+navegador, nunca defesa (AGENTS.md §1).
+
+### 5. Truncar entrada é sempre pior do que recusá-la
+
+`num_linhas` acima do teto fazia a view processar 20 partidas e **descartar as
+demais em silêncio**, gravando um lançamento balanceado e "bem-sucedido". Perda
+silenciosa de fato contábil não é detectada por nenhuma conferência, justamente
+porque o que sobrou fecha. Em escrituração: **recuse, nunca ajuste.**
 
 ## Fora do escopo
 

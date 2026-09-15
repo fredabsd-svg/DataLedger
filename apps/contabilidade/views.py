@@ -1,8 +1,8 @@
 import hashlib
 import re
-from datetime import date
 from decimal import Decimal
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -28,7 +28,11 @@ from apps.contabilidade.services import (
     localizar_inconsistencias_de_hierarquia,
     localizar_lotes_desbalanceados,
 )
-from apps.core.dinheiro import PADRAO_VALOR_DECIMAL_SIMPLES
+from apps.core.datas import DataInvalida, para_data
+from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
+from apps.core.escolhas import EscolhaInvalida, para_escolha
+from apps.core.identificadores import IdentificadorInvalido, para_id
+from apps.core.restricoes import RestricaoViolada, restricao_como_400
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -58,22 +62,6 @@ TAMANHO_MAXIMO_HISTORICO = 300
 # mensagem genérica escondia a mensagem de domínio, mais útil ao contador.
 LIMITE_MAGNITUDE_VALOR = Decimal(10) ** (18 - 2)
 
-# Formato ESTRITO aceito para `inicio`/`fim` (achado 12): exatamente quatro
-# dígitos, hífen, dois dígitos, hífen, dois dígitos. Verificado ANTES de
-# `date.fromisoformat`, que aceita formatos fora do contrato anunciado
-# (AAAA-MM-DD) e os reinterpreta em silêncio — por exemplo, uma data de
-# semana ISO ("2026-W01-1") é aceita e convertida para OUTRO ano
-# (29/12/2025), sem aviso nenhum. Mesma política já aplicada ao valor
-# monetário (PADRAO_VALOR_DECIMAL_SIMPLES): um sistema contábil não pode
-# reinterpretar a entrada — recusa, não adivinha.
-#
-# `[0-9]`, não `\d` (achado novo 11, rodada 2): em Python, `\d` casa QUALQUER
-# dígito Unicode, não só ASCII — "٢٠٢٦-٠١-٠١" (dígitos arábico-índicos) e
-# "２０２６-０１-０１" (dígitos largos) passavam por esta regex e só eram
-# recusados, por acidente, pelo comportamento de `date.fromisoformat` mais
-# abaixo. `[0-9]` casa exclusivamente os dez dígitos ASCII.
-_PADRAO_DATA_SIMPLES = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-
 # Formato ESTRITO aceito para `nivel` (achado 12): um ou mais dígitos ASCII
 # (`[0-9]`, não `\d` — mesmo motivo do padrão de data acima, achado novo 11),
 # sem sinal, sem espaço e sem "_" como separador. Verificado ANTES de
@@ -91,6 +79,37 @@ _PADRAO_NIVEL_SIMPLES = re.compile(r"^[0-9]+$")
 # domínio contábil, no material de referência do projeto, tem poucos
 # níveis — ver docs/projeto/mapa-funcional-contabil.md).
 NIVEL_MAXIMO = 50
+
+# Achado R5-6 da auditoria DL-017 rodada 5 (BL-145, minha parte — a
+# política combinada com o especialista-frontend, que já aplica a mesma
+# recusa na tela): campo desconhecido no corpo do POST de lançamento era
+# aceito e IGNORADO em silêncio (`empresa`, `id`, `criado_por`,
+# `estornado` no topo; `xpto` dentro de um item) — enquanto a tela já
+# recusa (medido pelo auditor: `valor_total`/`estorno` → 400). É a MESMA
+# classe do achado 5 (BL-116, "nenhum dado enviado numa requisição deixa
+# de ser lido ou recusado"), só que pela superfície da API. O agravante
+# concreto: quem manda `chave_idempotencia` NO CORPO (em vez do cabeçalho
+# `Idempotency-Key`, o único contrato válido) não era avisado e recebia a
+# DUPLICIDADE que a chave existe para impedir — `chave_idempotencia` no
+# corpo é, por construção, um "campo desconhecido" e cai nesta mesma
+# recusa, fechando o buraco sem precisar de um caso especial.
+CAMPOS_PERMITIDOS_LANCAMENTO = frozenset({"data", "historico", "itens"})
+CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
+
+
+def _sem_campos_desconhecidos(dados, campos_permitidos, *, contexto):
+    """Recusa (`DRFValidationError`, nomeando a chave) se `dados` for um
+    `dict` com alguma chave fora de `campos_permitidos`. Não faz nada se
+    `dados` não for um `dict` — outra checagem, mais adiante, já recusa
+    tipo errado com sua própria mensagem (não duplicar aqui)."""
+    if not isinstance(dados, dict):
+        return
+    desconhecidos = set(dados) - campos_permitidos
+    if desconhecidos:
+        raise DRFValidationError(
+            f"Campo(s) não reconhecido(s) {contexto}: {', '.join(sorted(desconhecidos))}. "
+            f"Campos aceitos: {', '.join(sorted(campos_permitidos))}."
+        )
 
 
 def _como_moeda(valor):
@@ -157,36 +176,27 @@ def _periodo_obrigatorio(request):
     diferente de AAAA-MM-DD) ou invertido (`inicio > fim`) sempre vira 400
     com mensagem útil, nunca 500 nem um período implícito (critério 2 do
     plano DL-015).
+
+    A conversão em si é delegada a `apps.core.datas.para_data` (BL-133,
+    achado A9 da auditoria DL-017 rodada 4 / DE-030 estendida a dado
+    tipado): antes, este módulo tinha seu PRÓPRIO `_PADRAO_DATA_SIMPLES` e
+    sua própria chamada a `date.fromisoformat`, e `apps.empresas.views`
+    não tinha proteção nenhuma — duas cópias da mesma regra (uma delas
+    frouxa) é exatamente o que a DE-026 existe para impedir.
     """
     bruto_inicio = request.query_params.get("inicio")
     bruto_fim = request.query_params.get("fim")
     if not bruto_inicio or not bruto_fim:
         raise DRFValidationError("Informe 'inicio' e 'fim' (formato AAAA-MM-DD) na querystring.")
 
-    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_inicio):
-        # Recusa ANTES de chegar a `date.fromisoformat` (achado 12): esse
-        # construtor aceita formatos fora do contrato anunciado (data de
-        # semana ISO, data sem separador) e os reinterpreta em silêncio.
-        raise DRFValidationError(
-            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
-        )
-    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_fim):
-        raise DRFValidationError(
-            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
-        )
-
     try:
-        inicio = date.fromisoformat(bruto_inicio)
-    except ValueError as exc:
-        raise DRFValidationError(
-            f"'inicio' inválido: '{bruto_inicio}' não é uma data no formato AAAA-MM-DD."
-        ) from exc
+        inicio = para_data(bruto_inicio)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'inicio' inválido: {exc}") from exc
     try:
-        fim = date.fromisoformat(bruto_fim)
-    except ValueError as exc:
-        raise DRFValidationError(
-            f"'fim' inválido: '{bruto_fim}' não é uma data no formato AAAA-MM-DD."
-        ) from exc
+        fim = para_data(bruto_fim)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'fim' inválido: {exc}") from exc
 
     if inicio > fim:
         raise DRFValidationError(
@@ -299,7 +309,26 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         return context
 
     def perform_create(self, serializer):
-        conta = serializer.save(empresa=self.get_empresa())
+        # `restricao_como_400` (achado R5-5 da auditoria DL-017 rodada 5,
+        # BL-144 / DE-034): antes, esta view não tinha `try` nenhum —
+        # `codigo` repetido na mesma empresa (`Conta.Meta.constraints`,
+        # `codigo_unico_por_empresa`) derrubava com `IntegrityError` cru,
+        # 500. Medido sob concorrência (4 POSTs simultâneos com o mesmo
+        # código): `500, 201, 500, 500` — a integridade do dado nunca foi
+        # violada (a constraint segurou), só a RESPOSTA quebrava. O
+        # `transaction.atomic()` isola o `IntegrityError` num savepoint,
+        # para a conexão continuar utilizável para o `registrar()` abaixo
+        # (mesmo desenho de `erro_de_cnpj_duplicado_como_400`, em
+        # `apps.empresas.services`, que já faz isto para CNPJ).
+        try:
+            mensagem_codigo_duplicado = "Já existe uma conta com este código nesta empresa."
+            with (
+                transaction.atomic(),
+                restricao_como_400({"codigo_unico_por_empresa": mensagem_codigo_duplicado}),
+            ):
+                conta = serializer.save(empresa=self.get_empresa())
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"codigo": [str(exc)]}) from exc
         registrar(acao="conta.criada", objeto=conta, request=self.request)
 
 
@@ -310,15 +339,35 @@ def _extrair_itens(payload_itens, empresa):
 
     itens = []
     for item in payload_itens:
+        _sem_campos_desconhecidos(item, CAMPOS_PERMITIDOS_ITEM, contexto="em um item")
+
         try:
-            conta = Conta.objects.get(pk=item["conta"], empresa=empresa)
-        except (Conta.DoesNotExist, KeyError, TypeError, ValueError) as exc:
-            # `ValueError` cobre `pk` textual não numérico (ex.: "abc", "1x"):
-            # o backend do Postgres levanta `ValueError: Field 'id' expected
-            # a number but got 'abc'` ao tentar comparar o filtro, e sem essa
-            # captura o erro do cliente vazava como 500 (achado 1 da
-            # auditoria de 2026-09-12) — mesma classe de defeito que esta
-            # etapa existe para fechar.
+            conta_bruta = item["conta"]
+        except (KeyError, TypeError) as exc:
+            raise DRFValidationError("Conta inválida para esta empresa.") from exc
+
+        try:
+            # `para_id` (achado R5-3 da auditoria DL-017 rodada 5, BL-142 /
+            # DE-034): antes, `item["conta"]` ia direto para `.get(pk=...)`,
+            # protegido só pelo `except (..., TypeError, ValueError)`
+            # abaixo — o que barra texto não numérico, mas NÃO barra
+            # reinterpretação silenciosa: `1.9` (número JSON) gravava na
+            # conta 1 (Postgres/psycopg truncam o float ao comparar com a
+            # coluna inteira), `true` gravava na conta 1 (`bool` é `int` em
+            # Python), `" 1 "`/`"+1"` gravavam na conta 1, e `"٢"`/`"２"`
+            # (dígito Unicode) gravavam na conta 2 — sempre HTTP 201, sem
+            # aviso. É a MESMA classe que a tela e `apps.tenancy` já
+            # fecham com `para_id` — só a API de contabilidade não usava
+            # (dois comentários de `views_web.py` afirmavam que usava; não
+            # usava — ver a correção desses comentários, pedida ao
+            # `especialista-frontend`).
+            conta_id = para_id(conta_bruta)
+        except IdentificadorInvalido as exc:
+            raise DRFValidationError(f"Conta inválida para esta empresa: {exc}") from exc
+
+        try:
+            conta = Conta.objects.get(pk=conta_id, empresa=empresa)
+        except Conta.DoesNotExist as exc:
             raise DRFValidationError("Conta inválida para esta empresa.") from exc
 
         try:
@@ -326,25 +375,40 @@ def _extrair_itens(payload_itens, empresa):
         except (KeyError, TypeError) as exc:
             raise DRFValidationError("Valor inválido em um dos itens.") from exc
 
-        texto_valor = str(valor_bruto)
-        if not PADRAO_VALOR_DECIMAL_SIMPLES.fullmatch(texto_valor):
-            # Mais estrito que o construtor `Decimal`, que aceita espaços em
-            # volta, "_" como separador de dígitos (PEP 515) e notação
-            # científica: "1_000" convertido em silêncio para 1000
-            # reinterpreta o que o cliente digitou, e "  100.00  " aceito em
-            # silêncio esconde um erro de origem (achado 7 da auditoria de
-            # 2026-09-12) — um sistema contábil não pode reinterpretar a
-            # entrada. Este mesmo padrão também recusa "NaN"/"Infinity"/
-            # "-Infinity" (não são dígitos), substituindo a checagem
-            # separada de `valor.is_finite()` que existia aqui antes (BL-44 /
-            # achado N3): depois deste padrão, `Decimal(texto_valor)` NUNCA
-            # levanta `InvalidOperation` nem produz um resultado não finito.
+        # DE-030 (achado R3-3, auditoria DL-017 rodada 3): esta view NÃO
+        # constrói `Decimal` por conta própria — entrega TEXTO a
+        # `apps.core.dinheiro.para_decimal`, o único julgador de formato
+        # monetário do sistema (mesmo módulo que a tela usa, DE-027/DE-029).
+        # Antes desta correção, o código fazia `str(valor_bruto)` e depois
+        # `Decimal(texto)`: um `valor` enviado como NÚMERO JSON (não texto)
+        # virava `float` de precisão binária ao ser decodificado pelo
+        # parser de JSON, ANTES de qualquer checagem — e para magnitudes
+        # grandes (medido: acima de ~7×10¹³) o `float` já tinha perdido a
+        # última casa decimal. `str()` desse float reproduzia o valor JÁ
+        # CORROMPIDO, não o texto que o cliente pretendia enviar, e a
+        # recusa de notação científica que este arquivo anuncia era
+        # contornada simplesmente trocando aspas por número (`1e3` como
+        # texto: 400; `1e3` como número JSON: aceito, virava 1000,00). Por
+        # isso `valor` que não chegue como `str` é recusado AQUI, antes de
+        # qualquer conversão — nunca convertido para texto e reinterpretado.
+        if not isinstance(valor_bruto, str):
             raise DRFValidationError(
-                f"Valor inválido em um dos itens: '{texto_valor}' precisa ser um "
-                "número decimal simples (sinal opcional, dígitos, ponto decimal "
-                "opcional) — sem espaços, separador de milhar ou notação científica."
+                f"Valor inválido em um dos itens: {valor_bruto!r} precisa ser "
+                'enviado como TEXTO (ex.: "100.00"), nunca como número JSON — '
+                "um número perde precisão ao ser decodificado pelo parser JSON, "
+                "antes mesmo de chegar a este servidor."
             )
-        valor = Decimal(texto_valor)
+        try:
+            valor = para_decimal(valor_bruto)
+        except ValorMonetarioInvalido as exc:
+            # `para_decimal` já recusa: formato fora do decimal simples
+            # (sinal opcional, dígitos, ponto decimal opcional — sem
+            # espaços, "_" como separador de dígitos ou notação científica,
+            # achado 7 da auditoria de 2026-09-12) e valor não finito
+            # (`NaN`/`Infinity`/`-Infinity`, achado BL-44/N3). A mensagem do
+            # próprio módulo monetário já é específica; só acrescenta o
+            # contexto de que é um item do lote.
+            raise DRFValidationError(f"Valor inválido em um dos itens: {exc}") from exc
 
         if abs(valor) >= LIMITE_MAGNITUDE_VALOR:
             raise DRFValidationError(
@@ -352,9 +416,18 @@ def _extrair_itens(payload_itens, empresa):
                 f"módulo deve ser menor que {LIMITE_MAGNITUDE_VALOR}."
             )
 
-        tipo = item.get("tipo")
-        if tipo not in TipoPartida.values:
-            raise DRFValidationError("Tipo de partida inválido (use debito ou credito).")
+        try:
+            # `para_escolha` (achado R5-2, BL-141 / DE-034): esta checagem
+            # já era segura por acidente de forma (pertencimento a uma
+            # lista fechada nunca levanta exceção, seja qual for o tipo do
+            # valor testado) — mas era uma segunda cópia manual do mesmo
+            # padrão que `regime`, em `apps.empresas.views`, não tinha.
+            # Migrada para o módulo compartilhado para não deixar um
+            # terceiro campo de `choices` reinventar a checagem por conta
+            # própria no futuro.
+            tipo = para_escolha(item.get("tipo"), TipoPartida.values, nome_campo="tipo")
+        except EscolhaInvalida as exc:
+            raise DRFValidationError(str(exc)) from exc
 
         itens.append({"conta": conta, "tipo": tipo, "valor": valor})
     return itens
@@ -388,6 +461,7 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
         dados = request.data
+        _sem_campos_desconhecidos(dados, CAMPOS_PERMITIDOS_LANCAMENTO, contexto="no lançamento")
         itens = _extrair_itens(dados.get("itens"), empresa)
 
         historico = dados.get("historico", "")
@@ -409,17 +483,25 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
             )
 
         try:
-            data_lancamento = date.fromisoformat(dados["data"])
-        except (KeyError, ValueError, TypeError) as exc:
-            # `date.fromisoformat` também recusa ano fora da faixa suportada
-            # por `datetime.date` (1-9999) com `ValueError` — por exemplo
-            # "99999-01-01" ou "0000-01-01" — então uma data fora de faixa já
-            # cai neste mesmo 400, sem precisar de checagem adicional (BL-44).
-            # `TypeError` cobre 'data' que não seja string (número, lista,
-            # null): `fromisoformat` exige `str` e levanta `TypeError`, não
-            # `ValueError`, para qualquer outro tipo — sem capturá-lo aqui o
-            # 400 vira 500 pela mesma classe de defeito do achado N3.
+            data_bruta = dados["data"]
+        except (KeyError, TypeError) as exc:
             raise DRFValidationError("Informe 'data' no formato AAAA-MM-DD.") from exc
+        try:
+            # `para_data` (achado A9 da auditoria DL-017 rodada 4, BL-133):
+            # antes, este trecho chamava `date.fromisoformat` direto, sem a
+            # gramática estrita que `_periodo_obrigatorio` já aplicava a
+            # `inicio`/`fim` — o mesmo módulo tinha a defesa certa num lugar
+            # e não noutro. Sem ela, uma data de semana ISO
+            # ("2026-W01-1") era aceita e REINTERPRETADA em silêncio para
+            # outro ano/mês/dia (medido: grava "2025-12-29" para quem
+            # digitou "2026-W01-1") — corrupção silenciosa da DATA de um
+            # lançamento contábil, pior que o 500 que o `except` antigo já
+            # evitava para tipo errado (`TypeError`, número JSON etc., que
+            # `para_data` também recusa, com `DataInvalida`, não mais
+            # deixando vazar cru).
+            data_lancamento = para_data(data_bruta)
+        except DataInvalida as exc:
+            raise DRFValidationError(f"'data' inválida: {exc}") from exc
 
         # Idempotência opcional (BL-41): o cliente decide quando quer garantia
         # de não duplicar em caso de repetição de rede ou duplo clique,

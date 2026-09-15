@@ -17,8 +17,10 @@ sem teste antes) e A9 (GET em `ativar_escritorio` voltava em silêncio).
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from rest_framework.permissions import IsAuthenticated
 
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+from apps.tenancy.views import EscritorioAtivoView, MeusEscritoriosView
 
 pytestmark = pytest.mark.django_db
 
@@ -84,6 +86,116 @@ def test_ativar_escritorio_com_valor_nao_numerico_nao_quebra_e_avisa(
 
     assert resposta.status_code == 200
     assert any("Escritório inválido" in m for m in _mensagens(resposta))
+
+
+# ---------------------------------------------------------------------------
+# A2 (auditoria DL-017 rodada 4, BL-127): `escritorio_id` com mais de 4300
+# dígitos derrubava `ativar_escritorio` com 500 cru (`int()` estourava o
+# limite de conversão do interpretador); dígito Unicode (`"２"`) era aceito
+# por `.isdigit()` e reinterpretado em silêncio. Corrigido com
+# `apps.core.identificadores.para_id`, usado também em
+# `EscritorioAtivoView.post` (a porta da API, mesmo arquivo) — o gêmeo que
+# apareceu na mesma investigação, sem estar no relatório do auditor.
+# ---------------------------------------------------------------------------
+
+
+def test_ativar_escritorio_com_id_de_milhares_de_digitos_nunca_500(
+    client, usuario_com_dois_escritorios
+):
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(reverse("tenancy:ativar"), {"escritorio_id": "9" * 6000}, follow=True)
+
+    assert resposta.status_code == 200
+    assert any("Escritório inválido" in m for m in _mensagens(resposta))
+    assert client.session.get("escritorio_id") is None
+
+
+def test_ativar_escritorio_com_digito_unicode_nao_e_reinterpretado(
+    client, usuario_com_dois_escritorios
+):
+    """`"２"`.isdigit() é `True` e `int("２")` devolve `2` — antes da
+    correção, um `escritorio_id="２"` era silenciosamente reinterpretado
+    como `2`. Aqui não há vínculo com o id 2 (nem com "２"), então o
+    resultado observável é sempre recusa — mas a MOTIVAÇÃO importa: com
+    `para_id`, a recusa acontece por FORMATO (dígito não-ASCII), nunca por
+    "não achei o vínculo" depois de aceitar um valor reinterpretado.
+    """
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(reverse("tenancy:ativar"), {"escritorio_id": "２"}, follow=True)
+
+    assert resposta.status_code == 200
+    assert any("Escritório inválido" in m for m in _mensagens(resposta))
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_com_id_de_milhares_de_digitos_nunca_500(
+    client, usuario_com_dois_escritorios
+):
+    """O gêmeo de `ativar_escritorio`, na porta da API (`EscritorioAtivoView.
+    post`) — encontrado durante a correção do A2, não estava no relatório
+    do auditor: antes, `escritorio_id` ia direto para `.filter()` sem
+    nenhuma checagem, e o mesmo texto de milhares de dígitos derrubava a
+    view com `ValueError` cru dentro do ORM (`Field 'id' expected a number
+    but got ...`).
+    """
+    client.login(username="ana", password="senha-forte-123")
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"),
+        {"escritorio_id": "9" * 6000},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 403, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_com_json_numero_gigante_ja_e_recusado_pelo_parser_json(
+    client, usuario_com_dois_escritorios
+):
+    """Medição de fronteira, não do meu código: tentei reproduzir o mesmo
+    gêmeo com `escritorio_id` como NÚMERO JSON (sem aspas) gigante — mas um
+    literal numérico de milhares de dígitos nem chega a este servidor como
+    Python `int`. `json.loads` (usado pelo `JSONParser` do DRF) aplica o
+    MESMO limite de conversão texto->int do interpretador ao decodificar o
+    corpo da requisição, e falha ANTES de chegar à view, com 400 — nunca
+    500. Este teste documenta que essa porta já está fechada por uma
+    camada de baixo do projeto (o parser JSON do DRF), não por `para_id`:
+    ele nunca é chamado neste caminho. Corpo construído como bytes crus
+    (não via `json.dumps`, que também estouraria o mesmo limite ao
+    CODIFICAR — ver o comentário em `apps.core.tests.test_identificadores.
+    test_para_id_recusa_int_com_milhares_de_digitos`).
+    """
+    client.login(username="ana", password="senha-forte-123")
+    corpo = ('{"escritorio_id": ' + "9" * 6000 + "}").encode()
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"), data=corpo, content_type="application/json"
+    )
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") is None
+
+
+def test_api_escritorio_ativo_post_aceita_id_valido_como_numero_json(
+    client, usuario_com_dois_escritorios
+):
+    """Controle positivo: `para_id` não pode ter apertado o caminho normal
+    — um `escritorio_id` válido, enviado como número JSON (forma natural
+    de um cliente de API bem-comportado), continua funcionando."""
+    client.login(username="ana", password="senha-forte-123")
+    escritorio_b = usuario_com_dois_escritorios["escritorio_b"]
+
+    resposta = client.post(
+        reverse("tenancy:api-escritorio-ativo"),
+        {"escritorio_id": escritorio_b.id},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    assert client.session.get("escritorio_id") == escritorio_b.id
 
 
 def test_ativar_escritorio_com_sucesso_mostra_mensagem_de_confirmacao(
@@ -162,3 +274,75 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
     assert '<span class="contexto-rotulo">Escritório ativo:</span>' in conteudo
     assert "Escritório A" in conteudo
     assert "mensagem-success" not in conteudo  # garante que não sobrou flash
+
+
+# ---------------------------------------------------------------------------
+# R3-10 (auditoria DL-017, rodada 3): `MeusEscritoriosView` e
+# `EscritorioAtivoView` (apps/tenancy/views.py) são as ÚNICAS duas `APIView`
+# do repositório que não declaravam `permission_classes` própria — dependiam
+# só do padrão global (`REST_FRAMEWORK.DEFAULT_PERMISSION_CLASSES`,
+# `config/settings.py`). Não havia vazamento (o padrão já é
+# `IsAuthenticated`), mas o risco era de MANUTENÇÃO: relaxar o padrão
+# global no futuro (para uma rota pública qualquer) tiraria a autenticação
+# destas duas sem que nenhuma linha delas mudasse.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("nome_rota", ["tenancy:api-escritorios", "tenancy:api-escritorio-ativo"])
+def test_apiview_de_tenancy_recusa_usuario_anonimo(client, nome_rota):
+    resposta = client.get(reverse(nome_rota))
+    assert resposta.status_code == 403, (nome_rota, resposta.status_code)
+
+
+@pytest.mark.parametrize("nome_view", [MeusEscritoriosView.__name__, EscritorioAtivoView.__name__])
+def test_apiview_de_tenancy_declara_permission_classes_na_propria_classe(nome_view):
+    """R3-10: a prova de que a permissão está DECLARADA na view, não herdada
+    do padrão global — de forma determinística, não por comportamento em
+    tempo de execução.
+
+    **Por que não `override_settings(REST_FRAMEWORK=...)`, que era a
+    primeira forma que este teste tomou.** Medi, na mutação desta entrega
+    (mutante: apagar `permission_classes = [IsAuthenticated]` das duas
+    views): um teste baseado em `override_settings` só detecta a ausência
+    da declaração quando é a PRIMEIRA requisição DRF do processo de teste —
+    em qualquer execução posterior (a normal, com a suíte inteira), o
+    mutante SOBREVIVE em silêncio, porque `rest_framework.views.APIView`
+    fixa `permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES`
+    como atributo de classe NA IMPORTAÇÃO do módulo — uma vez por processo.
+    `override_settings` dispara o sinal que invalida o CACHE de
+    `api_settings`, mas não reescreve o atributo de classe já fixado em
+    `APIView`, que é exatamente o que uma view SEM `permission_classes`
+    próprio herdaria. É a mesma classe de "medição que não consegue falhar"
+    do R3-4 (o `tail -1 && echo OK`) — e eu só a encontrei porque apliquei o
+    mutante na ordem em que a suíte real roda, não isolado.
+
+    A prova correta é ESTRUTURAL, e não depende de nenhum comportamento de
+    cache do DRF nem da ordem de execução: `permission_classes` precisa
+    estar no `__dict__` da PRÓPRIA classe (`view_classe.__dict__`), não só
+    acessível por herança (`getattr`/MRO acharia o atributo herdado de
+    `APIView` de qualquer forma, mutante ou não — por isso não usei
+    `getattr`). Recebe o NOME da classe, não a classe em si, porque
+    `pytest.mark.parametrize` não pode fixar valores de classe direto no
+    id do teste de forma legível; resolve pelo nome dentro do teste.
+    """
+    view_classe = {
+        "MeusEscritoriosView": MeusEscritoriosView,
+        "EscritorioAtivoView": EscritorioAtivoView,
+    }[nome_view]
+    assert "permission_classes" in view_classe.__dict__, (
+        f"{nome_view} não declara `permission_classes` na própria classe — "
+        "dependeria do padrão global herdado via MRO, o risco de manutenção "
+        "que o achado R3-10 aponta."
+    )
+    assert view_classe.__dict__["permission_classes"] == [IsAuthenticated]
+
+
+def test_apiview_de_tenancy_aceita_usuario_autenticado(client, usuario_com_dois_escritorios):
+    """Controle positivo: a declaração explícita de `permission_classes`
+    não pode ter apertado o caminho normal — usuário autenticado continua
+    acessando as duas rotas."""
+    client.login(username="ana", password="senha-forte-123")
+    resposta_escritorios = client.get(reverse("tenancy:api-escritorios"))
+    assert resposta_escritorios.status_code == 200
+    resposta_ativo = client.get(reverse("tenancy:api-escritorio-ativo"))
+    assert resposta_ativo.status_code == 200

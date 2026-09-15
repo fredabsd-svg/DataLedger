@@ -46,6 +46,62 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements/dev.txt
 
+      # BL-119, decidida POR MEDIÇÃO e não por suposição. O achado 6 da rodada
+      # 1 (a indentação hierárquica que nunca era aplicada) só apareceu porque
+      # alguém MEDIU o CSS num navegador — e apareceu duas vezes, por causas
+      # diferentes, na mesma entrega. A defesa textual que existe hoje pega a
+      # FORMA de uma das quebras, não o efeito: o auditor derrubou o efeito por
+      # outra via (`!important` numa regra posterior) e, sem navegador, zero
+      # testes morreram.
+      #
+      # Eu havia levantado a hipótese de que o runner já subia o Chromium
+      # sozinho — `/usr/bin/chromium` existe nele — e escrevi o critério para
+      # poder dizer NÃO: "se os testes de efeito aparecerem como `passed` na
+      # CI, fecha sem tocar no workflow; se aparecerem como `skipped`, entra a
+      # instalação". O auditor leu o log real da revisão `d046baf`:
+      # **606 passed, 2 skipped**. A hipótese estava errada, e o critério
+      # informou isso sem eu precisar defendê-la.
+      #
+      # `--no-sandbox`, `--disable-dev-shm-usage` e `--user-data-dir` próprio
+      # já são usados pelos testes; o que faltava era o navegador subir. A
+      # condição de pulo continua medindo CAPACIDADE (não presença do
+      # binário), então se esta instalação falhar num runner futuro os testes
+      # voltam a pular com motivo, em vez de derrubar a suíte — que foi o
+      # defeito de `aa10f20`.
+      # ATENÇÃO ao que está escrito aqui, porque a versão anterior deste passo
+      # QUEBROU a integração contínua e o achado R5-1 da rodada 5 é sobre ela.
+      #
+      # Eu havia posto `apt-get install chromium-browser`. No `ubuntu-noble`
+      # esse pacote tem 50 kB e é só um INVÓLUCRO que instala o snap do
+      # Chromium — e o snap roda confinado, com `/tmp` privado: não enxerga o
+      # arquivo `file:///tmp/tmpXXXX.html` que os testes de medição escrevem.
+      # O navegador então renderiza a página de erro, cujo `<title>` é a
+      # própria URL, e o `json.loads` da medição estoura. Resultado medido em
+      # `526a51db`: `2 failed, 681 passed` — a instalação transformou dois
+      # testes PULADOS em dois testes FALHANDO, que é pior que o estado que
+      # ela pretendia corrigir.
+      #
+      # O critério que escrevi para a BL-119 previa dois desfechos (`passed`
+      # fecha, `skipped` instala) e o mundo devolveu um terceiro, `failed`.
+      # Critério binário sobre sistema ternário.
+      #
+      # Não instalo mais nada: o runner do GitHub já traz **Google Chrome**
+      # em `/usr/bin/google-chrome`, fora de snap, que lê o disco do runner.
+      # Este passo apenas REGISTRA no log qual navegador existe e onde — para
+      # que a próxima decisão sobre isto seja tomada com dado, e não com
+      # suposição, que foi exatamente o erro que originou o R5-1.
+      - name: Registrar navegadores disponíveis no runner
+        run: |
+          for b in google-chrome google-chrome-stable chromium chromium-browser; do
+            p="$(command -v "$b" || true)"
+            if [ -n "$p" ]; then
+              echo "encontrado: $b -> $p"
+              readlink -f "$p" | sed 's/^/  caminho real: /'
+            else
+              echo "ausente: $b"
+            fi
+          done
+
       - name: Lint (ruff check)
         run: ruff check .
 
@@ -59,7 +115,11 @@ jobs:
         run: python manage.py migrate
 
       - name: Testes (pytest)
-        run: pytest
+        # `-rs` lista os testes PULADOS com o motivo. Sem isso, o log da CI
+        # diz "606 passed, 2 skipped" e não diz por quê — foi exatamente o
+        # dado que faltou para decidir a BL-119, e o auditor precisou inferir.
+        # Teste pulado em silêncio é verificação que some sem avisar.
+        run: pytest -rs
 
       # STORAGES usa CompressedManifestStaticFilesStorage (WhiteNoise), que
       # exige o manifesto gerado por collectstatic. Sem esta etapa, o

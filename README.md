@@ -36,13 +36,15 @@ O DataLedger nasce para reunir as rotinas de um escritório contábil em uma pla
 
 | | Capacidade | Situação |
 | --- | --- | --- |
-| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada e auditada em 4 rodadas — interface em [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
 | <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado e auditado |
 | <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado no servidor e trilha de alterações | ✅ Fundação implementada |
 | <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🗺️ Planejado — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
 | <img src="docs/assets/icons/users.svg" alt="" width="28" /> | **Folha** — vínculos, eventos, férias, 13º, rescisões e encargos | 🗺️ Planejado |
 | <img src="docs/assets/icons/briefcase.svg" alt="" width="28" /> | **Honorários e Paralegal** — contratos, cobranças, processos, prazos e documentos | 🗺️ Planejado |
 | <img src="docs/assets/icons/sparkles.svg" alt="" width="28" /> | **IA + MCP** — consulta assistida e operações controladas pelas mesmas permissões do sistema | 🗺️ Planejado |
+
+A coluna acima diz se a **capacidade** existe no repositório, em traço grosso. Em que pé está cada etapa — em execução, em auditoria, reprovada, integrada — fica em [`docs/agents/estado.md`](docs/agents/estado.md), e **só lá**. Este arquivo já afirmou duas vezes coisa que o repositório desmentia; as duas por descrever estado em segundo lugar.
 
 ## 🧭 Arquitetura em uma imagem
 
@@ -101,6 +103,10 @@ python manage.py runserver
 
 A verificação de saúde fica em `GET /api/health/`. Para entrar na aplicação, crie um usuário administrativo com `python manage.py createsuperuser` e acesse `/login/`.
 
+**Falta um passo, e ele hoje só existe no admin do Django.** Um usuário recém-criado não tem vínculo com nenhum escritório, então o painel responde *"Nenhum escritório ativo"* — corretamente, porque toda empresa pertence a um escritório. Em `/admin/`, crie um **Escritório** (CNPJ com 14 caracteres, só os dígitos) e, na mesma tela, um **vínculo** do seu usuário com papel **Administrador**. Depois disso o painel abre e você pode cadastrar empresas.
+
+Que esse passo dependa de ferramenta técnica é uma lacuna conhecida, não um jeito de fazer: está registrada como **BL-125** e planejada em [DL-018](docs/planos/DL-018-primeiro-acesso.md).
+
 Sem `DATABASE_URL` configurada e com `DEBUG=True`, o sistema usa SQLite local e avisa isso ao subir. **Com `DEBUG=False` ele exige PostgreSQL e recusa subir sem ele** — é proteção, não limitação.
 
 ### Docker Compose
@@ -109,6 +115,16 @@ Sem `DATABASE_URL` configurada e com `DEBUG=True`, o sistema usa SQLite local e 
 cp .env.example .env
 docker compose up --build
 ```
+
+O `web` aplica as migrações e sobe o gunicorn em `http://localhost:8000`. Na primeira vez o PostgreSQL cria o volume do zero, e isso pode levar mais de um minuto antes de o `web` começar — é esperado.
+
+Depois que subir, em **outro terminal**, crie o usuário para entrar:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+Então acesse `http://localhost:8000/login/` — e siga o passo do **escritório e do vínculo** descrito acima, em `http://localhost:8000/admin/`, sem o qual o painel responde "Nenhum escritório ativo".
 
 ## 🧪 Verificações de desenvolvimento
 
@@ -141,6 +157,8 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 
 ## 🗺️ Roadmap real do repositório
 
+A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração.
+
 - [x] **DL-001** — documentação inicial e regras de contribuição
 - [x] **DL-002** — arquitetura e fundação técnica
 - [x] **DL-003** — autenticação e isolamento multiempresa
@@ -155,9 +173,10 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 - [x] **DL-013** — logo oficial
 - [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
 - [x] **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si
-- [ ] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador 🧭 **em execução**
+- [ ] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
 - [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
+- [ ] **DL-018** — primeiro acesso de uma instalação nova, pelo produto e sem admin técnico
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**

@@ -1,9 +1,42 @@
 from rest_framework import serializers
 
 from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.core.identificadores import IdentificadorInvalido, para_id
+
+
+class _ContaPaiField(serializers.PrimaryKeyRelatedField):
+    """`PrimaryKeyRelatedField` que julga o identificador com `para_id`
+    ANTES de qualquer consulta ao banco (achado R5-3 da auditoria DL-017
+    rodada 5, BL-142 / DE-034).
+
+    O `PrimaryKeyRelatedField` padrão do DRF (o que o `ModelSerializer`
+    geraria sozinho para `conta_pai`) faz `self.get_queryset().get(pk=data)`
+    direto — mesma classe de defeito que `_extrair_itens` tinha para
+    `item["conta"]` (`apps/contabilidade/views.py`): `1.9` (número JSON)
+    resolvia para a conta 1, `"٢"`/`"２"` (dígito Unicode) resolviam para a
+    conta 2, sempre com 201 e sem aviso. `to_internal_value` é o ÚNICO
+    ponto onde isso pode ser interceptado: `validate_conta_pai` (abaixo)
+    já recebe o valor DEPOIS de resolvido para uma instância de `Conta` —
+    tarde demais para julgar o texto/número original.
+    """
+
+    def to_internal_value(self, data):
+        try:
+            data = para_id(data)
+        except IdentificadorInvalido as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return super().to_internal_value(data)
 
 
 class ContaSerializer(serializers.ModelSerializer):
+    # Declarado explicitamente (não deixado para o `ModelSerializer` gerar
+    # sozinho) só para trocar a classe do campo por `_ContaPaiField` — os
+    # demais atributos (`queryset`, `required`, `allow_null`) espelham
+    # exatamente o que o `ModelSerializer` geraria a partir de
+    # `Conta.conta_pai` (`null=True, blank=True`), para não mudar nenhum
+    # outro comportamento do campo.
+    conta_pai = _ContaPaiField(queryset=Conta.objects.all(), required=False, allow_null=True)
+
     class Meta:
         model = Conta
         fields = [

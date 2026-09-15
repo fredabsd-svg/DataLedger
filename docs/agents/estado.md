@@ -1,8 +1,17 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, com a `main` em `dba0133` (PR #17 integrado).
+Atualizado em **2026-09-14**, com a `main` em `9b22b03` (PR #18 integrado).
 Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
 partir da `main` depois da integração.
+
+> **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
+> que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
+> DL-017 rodada 1](../auditorias/2026-09-14-dl-017-rodada-1.md) encontrou este
+> arquivo afirmando "DL-017 em execução — fase A delegada" e "DL-015 onda 2 não
+> iniciada" **enquanto o commit auditado continha as seis telas prontas e
+> integradas**. Repetido no `README.md`. Corrigido nesta entrega. O guarda de
+> integração contínua não pega este caso: ele exige que cada `DL-xxx` apareça
+> aqui e no README, não que a descrição esteja correta.
 
 > **Este cabeçalho ficou dois dias desatualizado** e foi encontrado assim pelo
 > `auditor-qa` (achado novo 8 da [rodada 2 da
@@ -204,9 +213,10 @@ diverge.
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred; o quarto é o **conceito do próprio Fred em vetor limpo** | **Integrada (PR #17)** |
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
-| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) não iniciada.** |
+| [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Em execução** — fase A (backend de apoio) delegada em 2026-09-14 |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
+| [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -238,41 +248,148 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — a interface
-   (BL-62).** Autorizada pelo Fred em 2026-09-14 e **em execução**. É o que
-   falta para ele usar o sistema sem programar. Fase A (autorização num lugar
-   só, e saldo com `D`/`C`) antes das telas — ver DE-026.
-2. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — APROVADA COM
+   RESSALVAS na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md).**
+   Primeira aprovação em seis rodadas. O auditor escreveu como ela deve ser
+   lida, e vale citar: *"não é 'está pronto', é 'está certo o suficiente para
+   integrar, com dez coisas nomeadas que ainda faltam, nenhuma delas capaz de
+   corromper dado, vazar entre empresas, desbalancear um lançamento ou derrubar
+   o servidor'."*
+
+   **O Fred decidiu em 2026-09-15: integrar agora.** O argumento é que a `main`
+   está **pior** — tem o `1.000` gravado como `1,00` e não sobe em Python
+   3.12/3.13, e as duas coisas estão corrigidas aqui. As dez ressalvas viram a
+   rodada seguinte, em vez de travarem esta.
+
+   **Antes de integrar, dois itens meus:** preencher o corpo do PR #19 (o check
+   `Regras do projeto` está vermelho pela quarta vez — BL-147) e decidir se a
+   `main` ganha proteção antes (BL-02, ação administrativa dele).
+
+   **Cuidado registrado em letras grandes, R6-1:** a correção óbvia do
+   instrumento de navegador (subir o timeout) **reabre o bloqueador da rodada
+   5**. Tirar o descarte do perfil da região julgada vem primeiro. Nunca o
+   contrário.
+
+2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
+   técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
+   vínculo, a tela explica corretamente e a única saída é o admin do Django.
+   Nenhuma das três auditorias viu, porque todas partem de cenário já montado.
+   **Estado inicial de instalação é um estado da interface.**
+
+3. **BL-83 — bloqueador de implantação.** Pelo Django admin ainda é possível
    mover conta **com movimento** para outra empresa; o balancete da origem
    deixa de fechar e a conferência não acusa. Precisa estar fechado **antes de
    existir dado real de cliente**. BL-84, BL-85 e BL-86 completam as ressalvas
    da auditoria.
-3. **[DL-016](../planos/DL-016-competencia-e-fechamento.md) — competência e
+4. **[DL-016](../planos/DL-016-competencia-e-fechamento.md) — competência e
    fechamento de período.** Planejada e com contrato escrito. Destrava a
    alteração em massa (DE-017) e a regeração de lançamentos derivados (DE-018),
    as duas pedidas pelo Fred.
-4. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — importação
+5. **[DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) — importação
    e conferência de documentos fiscais.** O Fred confirmou o foco em
    2026-09-14: *"foca na importação e conferência"*. O plano foi **revisado**
    pela medição do acervo real — primeira fatia é **NFS-e**, não NF-e, porque
    85% do movimento dele é nota de serviço prestado. Os 22 critérios de aceite
    têm número medido por trás. Começa quando a DL-017 (telas) for auditada.
-5. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
+6. **BL-100 — aguardando confirmação do Fred.** `docker compose up --build`
+   falhava na máquina dele com "container dataledger-db-1 is unhealthy", num
+   banco perfeitamente saudável: a verificação de saúde não tinha
+   `start_period` e se esgotava durante o `initdb` (22 s lá, ~1 s na CI). Junto,
+   nenhuma migração rodava ao subir. Corrigido em `docker-compose.yml` (DE-028)
+   e no README. **Não testado aqui** — não existe daemon Docker neste ambiente;
+   só `docker compose config` e leitura. Só o Fred pode fechar este item.
+7. **P0 de implantação (DE-014):** BL-33 (cópia de segurança com restauração
    testada), BL-50, BL-51, BL-52 e BL-53.
-6. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
+8. **Quatro decisões contábeis respondidas pelo Fred em 2026-09-15**, e que
+   viram código na rodada seguinte: faixa de data de lançamento de 01/01/2000 a
+   hoje + 30 dias (**RC-77**); estorno nunca anterior ao original, recusar
+   (**RC-78**); teto de 200 partidas com recusa explícita (**RC-79**); conta sem
+   contas-mãe avisa e deixa criar (**RC-80**). Fecham PE-42 e PE-43. As três que
+   não eram de sim ou não foram reescritas por mim como proposta concreta antes
+   de perguntar — presumir regra contábil é o que o projeto proíbe.
+9. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
    vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
    implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
-7. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
+10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
    documentação" e "Regras do projeto", e bloqueando force push e exclusão.
 
+## O que o Fred opera sem cobertura, mesmo quando a DL-017 for aprovada
+
+Levantado pelo `auditor-qa` na
+[rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md), a pedido meu, e
+reproduzido aqui porque é o que ele precisa saber **antes** de pôr dado de
+cliente — não depois.
+
+1. **Não existe rascunho, não existe período encerrado, não existe bloqueio de
+   reabertura.** Todo lançamento gravado é efetivado, e nada impede lançar em
+   competência já fechada. Está no backlog (BL-10, BL-11), não na entrega.
+2. **Data de lançamento não tem faixa.** `0001-01-01` e `9999-12-31` são
+   aceitos.
+3. **Estorno é o único caminho de correção**, e funciona — inclusive sob
+   concorrência, medido. Não há edição, e isso é **decisão de produto**, não
+   limitação temporária.
+4. **Backup e restauração não foram planejados nem verificados** nesta etapa.
+5. **Validação HTML5 completa e percurso manual por uma pessoa** não foram
+   feitos. As capturas são evidência de tela, não de uso.
+6. **Nada disso substitui a validação profissional do Fred** sobre o que a
+   legislação exige de um Diário, de um Razão e de um Balancete; sobre o teto de
+   partidas (PE-42); sobre conta sem pai tratada como raiz (PE-43); e sobre a
+   apresentação de uma conta devedora com **saldo credor**, que aparece na
+   captura do Balancete sem nenhuma sinalização.
+
+**Três itens acrescentados pelo `auditor-qa` na rodada 6**, que julgou a lista
+acima *"correta em tudo o que afirma, e incompleta em três pontos"*:
+
+7. **Há portas que aceitam e descartam sem avisar.** Enviar um campo do
+   formulário como **arquivo**, na tela de conta, grava a conta na **raiz do
+   plano** com mensagem de sucesso — muda a indentação, o nível e o Balancete
+   por nível. Querystring num POST e campo desconhecido no corpo são ignorados
+   em silêncio em 5 das 7 superfícies de escrita; só a tela de lançamento
+   recusa.
+8. **Registrar regime tributário com vigência no ano 9999 é irreversível pelo
+   produto.** Nenhum regime pode mais ser registrado para aquela empresa, e não
+   há edição nem exclusão — só acesso direto ao banco desfaz.
+9. **A chave de idempotência nunca expira.** Reusar a mesma chave meses depois
+   devolve o lançamento antigo em vez de criar um novo. É coerente com o
+   desenho; **não está decidido nem documentado como decisão**.
+
+E dois itens da lista ficaram **incompletos**, não errados:
+
+- **Item 2, faixa de data:** falta o **efeito**, que é o que importa. Um ano
+  digitado errado (um `9` no lugar de um `2`) põe o lançamento em `9999-12-31`,
+  e ele **não aparece em nenhuma tela de operação normal** — nem Diário, nem
+  Razão, nem Balancete, nem Conferência — e **nada avisa que existe movimento
+  fora do período**. O balancete do período concilia, então nenhuma conferência
+  aponta. Para achar, é preciso suspeitar e alargar o período até o ano 9999.
+- **Item 3, estorno:** o estorno recebe **sempre a data de hoje**, nunca a do
+  original, e **pode ficar anterior ao lançamento que estorna** — sem aviso e
+  sem teste.
+
+O auditor declarou, e eu subscrevo: **ninguém aqui afirma que o sistema está
+livre de defeitos, que é seguro, ou que está em conformidade legal.** Afirmamos
+o que medimos, e está registrado o que não medimos.
+
 ## Estado do repositório
 
-- **`main` em `dba0133`**, com DL-002 a DL-009, DL-011, DL-012, DL-013, DL-014 e
-  **DL-015 onda 1**.
-- **Suíte: 402 testes** (211 só em contabilidade), rodando em **14 s** — eram
-  199 s antes de BL-80.
+- **`main` em `9b22b03`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017 fases
+  A e B** — esta última integrada por autorização expressa do Fred **antes** de
+  a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
+  auditar e só então integrar.
+- **Suíte: 766 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
+  em árvore limpa. **Suíte verde não é sistema correto**, e esta etapa tem a
+  série completa como prova: 487 testes passavam com o bloqueador do `1.000` em
+  vigor; 559 passavam com a negação de serviço em vigor; 608 passavam com a API
+  gravando data errada em silêncio. O que encontra defeito não é contagem, é
+  **variar a dimensão medida** — rodada 2 variou o texto do valor; rodada 3
+  cronometrou o tempo e variou a forma do nome do campo; rodada 4 variou o
+  **transporte** da requisição e o **comprimento** de um identificador. Achou
+  nas três. **A dimensão indicada para a rodada seguinte fica em "Próximo passo",
+  e só lá** — repetir aqui foi o que produziu a divergência do achado R6-8:
+  este parágrafo afirmava "concorrência real" depois de ela já ter sido varrida
+  e aprovada. É a instrução permanente do Fred, de 2026-09-13, cobrando de
+  novo: texto repetido diverge assim que alguém atualiza um.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.

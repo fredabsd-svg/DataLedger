@@ -211,6 +211,20 @@ summary:focus-visible {
     font-size: 1rem;
 }
 
+/* Texto de apoio VISÍVEL abaixo de um campo — diferente de
+   .visualmente-oculto (só para leitor de tela). DE-031/A5 (rodada 4 da
+   auditoria da DL-017): o rótulo de um campo de data não pode AFIRMAR um
+   formato que não controla (o de <input type="date"> vem do navegador,
+   não deste CSS nem do LANGUAGE_CODE) — a correção certa é o rótulo não
+   prometer, e este texto dizer o que o sistema de fato garante. Precisa
+   ser visível (não só para leitor de tela) porque o problema que ele
+   resolve é uma confusão VISUAL, para quem enxerga a tela. */
+.texto-apoio {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--cor-borda);
+}
+
 button {
     align-self: flex-start;
     padding: 0.5rem 1.25rem;
@@ -313,4 +327,59 @@ th.valor-monetario {
 .acoes-formulario {
     display: flex;
     gap: 0.75rem;
+}
+
+/* Indentação hierárquica do Plano de Contas e do Balancete (achado 6 da
+   auditoria da DL-017, rodada 1): por CLASSE, nunca `style` inline. O
+   defeito original calculava `(nivel - 1) * 1.25` em Python como `float`
+   e o template, sob LANGUAGE_CODE "pt-br", localizava para
+   "padding-left: 1,25rem" — CSS INVÁLIDO (vírgula onde o CSS exige
+   ponto), então nenhuma conta era indentada, em nenhum nível, sem nenhum
+   teste ou erro acusando. A coluna "Nível" continua mostrando o número
+   real além do décimo nível — nenhuma informação é escondida, só a
+   indentação visual satura ali (nenhuma hierarquia contábil real chega
+   lá).
+
+   Seletor `.tabela-dados td.nivel-N`, não `.nivel-N` isolado: a
+   especificidade de UMA classe (0,1,0) perde para a regra genérica da
+   tabela `.tabela-dados td` (0,1,1, classe + tipo), então `.nivel-N`
+   sozinho nunca vencia o `padding` já definido ali — medido no Chromium
+   (getComputedStyle): as três variantes de nível davam o MESMO
+   `padding-left` (12px, o da regra genérica), ou seja, zero indentação
+   de novo, por um motivo diferente do `float` original. Corrigido
+   aumentando a especificidade para (0,2,1), sem `!important`.
+
+   R2-9 (rodada 2 da auditoria da DL-017): a escada era construída do ZERO
+   ("nivel-1"/"nivel-0" com `padding-left: 0`), IGNORANDO o
+   `padding-left: 0.75rem` que `.tabela-dados th, .tabela-dados td` já
+   aplica a TODAS as células (regra logo acima). O efeito medido no
+   Chromium: a raiz do plano ficava 12px À ESQUERDA do próprio cabeçalho
+   da coluna, e o primeiro degrau (nível 1 → 2) media só 8px em vez dos
+   20px pretendidos (1.25rem − 0.75rem, em vez de 1.25rem inteiro). A
+   indentação agora é ADITIVA sobre o recuo padrão da célula: "nivel-0" e
+   "nivel-1" (raiz do plano; e o caso degenerado de conta em ciclo, sem
+   nível apurável) usam o MESMO `padding-left` da célula comum (0.75rem —
+   alinhados com o cabeçalho, sem indentação), e cada nível seguinte soma
+   exatamente 1.25rem (20px) a partir daí. */
+.tabela-dados td.nivel-0 { padding-left: 0.75rem; }
+.tabela-dados td.nivel-1 { padding-left: 0.75rem; }
+.tabela-dados td.nivel-2 { padding-left: 2rem; }
+.tabela-dados td.nivel-3 { padding-left: 3.25rem; }
+.tabela-dados td.nivel-4 { padding-left: 4.5rem; }
+.tabela-dados td.nivel-5 { padding-left: 5.75rem; }
+.tabela-dados td.nivel-6 { padding-left: 7rem; }
+.tabela-dados td.nivel-7 { padding-left: 8.25rem; }
+.tabela-dados td.nivel-8 { padding-left: 9.5rem; }
+.tabela-dados td.nivel-9 { padding-left: 10.75rem; }
+.tabela-dados td.nivel-10 { padding-left: 12rem; }
+
+/* Coluna consolidada do Balancete que NÃO é somável no rodapé (achado 10
+   / BL-96: "Débitos"/"Créditos" contam cada lançamento uma vez por nível
+   da hierarquia — só "Débitos próprios"/"Créditos próprios" somam,
+   DE-024 §2). Separação visual discreta, nunca o único indicador — o "—"
+   e o `title`/texto para leitor de tela (no template) já dizem isso em
+   texto. */
+.coluna-nao-somavel {
+    background: #f4f6f8;
+    color: var(--cor-borda);
 }

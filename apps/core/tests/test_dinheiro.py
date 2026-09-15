@@ -234,3 +234,33 @@ def test_para_decimal_aceita_formato_simples_com_sinal():
     assert para_decimal("+100.00") == Decimal("100.00")
     assert para_decimal("-100.00") == Decimal("-100.00")
     assert para_decimal("100") == Decimal("100")
+
+
+# R2-7 (achado da auditoria DL-017, rodada 2, MÉDIA): `\d` do Python casa
+# QUALQUER dígito decimal Unicode, não só ASCII 0-9. Os quatro textos abaixo
+# são os medidos pelo auditor — cada um usa uma família de dígito diferente
+# (fullwidth, fullwidth misturado com ASCII, índico-arábico, tailandês) para
+# provar que a recusa vale para dígito Unicode em geral, não só um script
+# específico. O docstring do módulo promete RECUSAR qualquer representação
+# que não seja a declarada; antes da correção, `para_decimal` convertia
+# estes textos em silêncio para o valor ASCII equivalente (`Decimal` aceita
+# dígito Unicode nativamente).
+@pytest.mark.parametrize(
+    "texto_digito_unicode",
+    [
+        "０１０.00",  # dígitos "fullwidth" (formulário japonês/chinês de largura total)
+        "10.0０",  # fullwidth misturado com ASCII, só no último dígito
+        "١٢٣.٤٥",  # dígitos índico-arábicos (usados em árabe)
+        "๑๐.00",  # dígitos tailandeses
+    ],
+)
+def test_para_decimal_recusa_digito_unicode_nao_latino(texto_digito_unicode):
+    with pytest.raises(ValorMonetarioInvalido):
+        para_decimal(texto_digito_unicode)
+
+
+def test_para_decimal_continua_aceitando_apenas_digitos_ascii():
+    """Controle positivo da correção do R2-7: dígitos ASCII (0-9) continuam
+    sendo o único formato aceito — a correção (`\\d` -> `[0-9]`) não pode
+    ter deixado de aceitar nenhum texto que já era válido."""
+    assert para_decimal("0123456789.99") == Decimal("123456789.99")
