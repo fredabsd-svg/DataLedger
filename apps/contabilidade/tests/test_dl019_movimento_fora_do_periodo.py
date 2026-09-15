@@ -1,7 +1,7 @@
-"""BL-151 (b) — "há movimento fora do período consultado", e a Conferência
+"""BL-198 (b) — "há movimento fora do período consultado", e a Conferência
 como lugar onde o dado já gravado aparece (achado R6-4b da rodada 6).
 
-**É a razão declarada de a DL-019 existir antes da DL-010.** O auditor mediu,
+**É a razão declarada de a DL-020 existir antes da DL-010.** O auditor mediu,
 com um lançamento de 5.000,00 datado `9999-12-31` ao lado de um de 100,00 de
 hoje:
 
@@ -14,7 +14,7 @@ hoje:
 O balancete do período **concilia** — é por isso que nenhuma conferência
 aponta. Para achar, o contador precisa suspeitar e alargar o período até o ano
 9999. Validar a entrada (RC-77) fecha a porta; estas duas consultas **acendem
-a luz** sobre o que já está gravado, que a DL-019 declara explicitamente que
+a luz** sobre o que já está gravado, que a DL-020 declara explicitamente que
 não vai reparar por migração.
 
 Os lançamentos fora da faixa são criados aqui por ORM direto (`objects.
@@ -54,12 +54,12 @@ PERIODO = {"inicio": "2024-01-01", "fim": "2024-01-31"}
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-151", cnpj="66666666000177")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-198", cnpj="66666666000177")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-151 Ltda", cnpj="66677788000122"
+        escritorio=escritorio, razao_social="Empresa BL-198 Ltda", cnpj="66677788000122"
     )
     outra = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Outra Empresa BL-151 Ltda", cnpj="77788899000133"
+        escritorio=escritorio, razao_social="Outra Empresa BL-198 Ltda", cnpj="77788899000133"
     )
     grupo = Conta.objects.create(
         empresa=empresa,

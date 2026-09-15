@@ -1,14 +1,14 @@
-"""Varredura de repositório das restrições de banco (BL-167/BL-157).
+"""Varredura de repositório das restrições de banco (BL-214/BL-204).
 
 ## Por que este arquivo existe
 
 `apps/core/restricoes.py` **afirmava por escrito** que este módulo já
 existia — que ele "percorre TODOS os modelos dos apps do projeto" e que "uma
 constraint nova sem tradução reprova a suíte". O arquivo **não existia**
-(achado do inventário de 2026-09-15, BL-167): décima-segunda ocorrência da
+(achado do inventário de 2026-09-15, BL-214): décima-segunda ocorrência da
 família "comentário que afirma mais do que a defesa entrega", e a mais
 irônica delas, porque o comentário descrevia exatamente o mecanismo que a
-BL-157 pede e explicava por que ele é necessário — *"conferência manual não
+BL-204 pede e explicava por que ele é necessário — *"conferência manual não
 reprova build; registro + varredura de repositório reprova"*.
 
 O histórico justifica a desconfiança: o critério da BL-144 era "para cada
@@ -32,7 +32,7 @@ declaração.
 **Não cobre pela varredura principal:** os índices únicos IMPLÍCITOS. Eles
 não estão em `Meta.constraints`, e nomeá-los exige uma segunda gramática de
 nomes, própria do banco. São **três** formas, e a terceira entrou com a
-BL-172 (achado A6 da auditoria DL-019 rodada 1), porque a fronteira estava
+BL-219 (achado A6 da auditoria DL-020 rodada 1), porque a fronteira estava
 declarada como completa nomeando só a primeira:
 
 1. `unique=True` em campo → `<tabela>_<coluna>_key` no PostgreSQL.
@@ -51,7 +51,7 @@ A fronteira não fica implícita:
 atual — nas três formas —, então um `unique=True` ou um `unique_together`
 NOVO reprova a suíte e força a decisão em vez de escapar, que é a mesma
 armadilha da "décima quinta `APIView`" da BL-134. E
-`test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros` (BL-173)
+`test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros` (BL-220)
 exige que cada um deles tenha razão escrita, com o mesmo piso de 40
 caracteres que as restrições de `Meta` já tinham: uma restrição de banco não
 pode ficar sem razão conferível por causa da FORMA como foi declarada.
@@ -121,7 +121,7 @@ def constraints_declaradas(modelos):
     Recebe os modelos como PARÂMETRO, e não os busca por conta própria, para
     que `test_a_varredura_reprova_constraint_nova_sem_traducao` possa
     reconstruir o mutante — uma constraint nova, sem tradução — dentro do
-    próprio teste, sem tocar em nenhum modelo real (modelo da BL-150: a
+    próprio teste, sem tocar em nenhum modelo real (modelo da BL-197: a
     demonstração não pode depender de alguém ter lembrado de registrar que
     viu o teste falhar).
     """
@@ -158,7 +158,7 @@ def constraints_sem_registro(modelos):
 def _nome_do_indice_de_unique_together(modelo, campos):
     """Nome do índice único que o Django dá a um `Meta.unique_together`.
 
-    BL-172. Derivado pelo **próprio** gerador do Django (`_create_index_name`,
+    BL-219. Derivado pelo **próprio** gerador do Django (`_create_index_name`,
     do editor de esquema), e não por uma segunda cópia da regra de nomes: o
     nome carrega um hash de tabela e colunas e um truncamento que dependem do
     banco, e reimplementá-los aqui divergiria na primeira mudança — a
@@ -177,7 +177,7 @@ def _indices_unicos_implicitos(modelos):
     """Nome do índice único que cada restrição de unicidade NÃO declarada em
     `Meta.constraints` cria no banco.
 
-    Duas origens, e a segunda entrou com a BL-172:
+    Duas origens, e a segunda entrou com a BL-219:
 
     - `unique=True` em campo. O padrão do PostgreSQL para a restrição de
       unicidade de coluna é `<tabela>_<coluna>_key` (é dele que vem
@@ -189,7 +189,7 @@ def _indices_unicos_implicitos(modelos):
       varredura passavam por cima dela sem ver nada (achado A6, medido).
 
     Recebe os modelos como PARÂMETRO pelo mesmo motivo de
-    `constraints_declaradas`: para o mutante da BL-172 poder ser reconstruído
+    `constraints_declaradas`: para o mutante da BL-219 poder ser reconstruído
     dentro do próprio teste, sem tocar em modelo real.
     """
     nomes = set()
@@ -226,7 +226,7 @@ def test_varredura_inclui_cada_restricao_conferida_no_inventario(nome):
 
 
 def test_toda_constraint_de_meta_aparece_em_um_dos_tres_registros():
-    """BL-157/BL-167. É este teste que o comentário de `apps/core/restricoes.
+    """BL-204/BL-214. É este teste que o comentário de `apps/core/restricoes.
     py` promete: uma `CheckConstraint`/`UniqueConstraint` nova, declarada num
     `Meta` e sem tradução nem declaração, reprova a suíte.
     """
@@ -249,7 +249,7 @@ def test_a_varredura_reprova_constraint_nova_sem_traducao():
     """A demonstração da defesa, reconstruída dentro do próprio teste.
 
     Modelo imitado: `test_a_varredura_mata_o_m17_reconstruido_a_partir_do_
-    fonte_real` (BL-150), a única defesa da DL-019 que já estava demonstrada
+    fonte_real` (BL-197), a única defesa da DL-020 que já estava demonstrada
     no inventário. O mutante desta varredura é "acrescentar uma constraint
     nova sem mapear", e aqui ele é construído em memória — um objeto com o
     mesmo `_meta.constraints` que um modelo real expõe, carregando uma
@@ -305,7 +305,7 @@ def test_cada_nome_de_mensagens_de_restricao_e_uma_constraint_que_existe(nome):
 @pytest.mark.parametrize("nome", sorted(RESTRICOES_SEM_CAMINHO_DE_CLIENTE))
 def test_cada_restricao_sem_caminho_de_cliente_existe_e_tem_razao_escrita(nome):
     """A entrada tem de corresponder a uma restrição REAL — de `Meta` ou
-    índice único implícito (BL-173, mesma união que
+    índice único implícito (BL-220, mesma união que
     `test_cada_restricao_traduzida_fora_do_mapa_e_de_meta_ou_indice_implicito`
     já usava). Uma entrada que não corresponda a nada seria dispensa
     permanente de um nome que ninguém reconhece.
@@ -326,7 +326,7 @@ def test_cada_restricao_traduzida_fora_do_mapa_aponta_para_objeto_chamavel(nome)
     ou apagado, a afirmação passa a ser falsa. Importar e conferir que o
     objeto existe e é chamável transforma a citação em verificação — é o
     contrário de `apps/core/restricoes.py` afirmando um arquivo de teste que
-    não existia (BL-167).
+    não existia (BL-214).
     """
     caminho = RESTRICOES_TRADUZIDAS_FORA_DO_MAPA[nome]
     modulo_nome, atributo = caminho.rsplit(".", 1)
@@ -372,7 +372,7 @@ def test_o_conjunto_de_indices_unicos_implicitos_e_conhecido():
 
 @pytest.mark.parametrize("nome", sorted(INDICES_UNICOS_IMPLICITOS_CONHECIDOS))
 def test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros(nome):
-    """BL-173 (achado A7). Estar FORA da varredura principal não pode
+    """BL-220 (achado A7). Estar FORA da varredura principal não pode
     significar estar fora de toda pergunta.
 
     A assimetria que este teste desfaz: `RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
@@ -401,13 +401,13 @@ def test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros(nome):
 
 
 def test_a_varredura_enxerga_restricao_unica_declarada_por_unique_together():
-    """BL-172 (achado A6), reconstruído dentro do próprio teste.
+    """BL-219 (achado A6), reconstruído dentro do próprio teste.
 
     O mutante do auditor foi acrescentar `unique_together = [["empresa",
     "nome"]]` ao `Meta` de `Conta`: as duas varreduras deram **47 passed** e
     nem a principal nem o teste que prende a lista de índices implícitos
     enxergaram a restrição nova. Aqui o modelo é fabricado — mesmo molde do
-    `_MetaFalso` acima (BL-150) — para a prova não depender de ninguém ter
+    `_MetaFalso` acima (BL-197) — para a prova não depender de ninguém ter
     editado um modelo real e registrado que viu a suíte falhar.
     """
 

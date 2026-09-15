@@ -1,5 +1,5 @@
-"""RC-78 / BL-159 (estorno nunca anterior ao lançamento que reverte) e
-RC-79 / BL-160 (teto de 200 partidas), as duas confirmadas pelo Fred em
+"""RC-78 / BL-206 (estorno nunca anterior ao lançamento que reverte) e
+RC-79 / BL-207 (teto de 200 partidas), as duas confirmadas pelo Fred em
 2026-09-15 (docs/projeto/requisitos.md).
 
 **RC-78 — o que o auditor mediu** (achado R6-4c da rodada 6): o estorno
@@ -225,7 +225,7 @@ def test_uma_partida_acima_do_teto_e_recusada_e_nada_e_gravado(cenario):
 
 
 def test_api_herda_o_teto_sem_declarar_numero_nenhum(client, cenario):
-    """O ponto do item 2 da DE-034: antes da BL-160 o teto era um número de
+    """O ponto do item 2 da DE-034: antes da BL-207 o teto era um número de
     TELA (`LINHAS_MAXIMAS_LANCAMENTO`, em `views_web.py`) e a API não tinha
     teto nenhum. Agora a recusa é de domínio e vale nas duas portas."""
     assert client.login(username="gestora-rc78", password="senha-forte-123")

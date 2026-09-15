@@ -143,7 +143,7 @@ class LancamentoContabil(models.Model):
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="lancamentos")
-    # RC-77 / BL-158: a faixa de data também como validador de CAMPO, e não
+    # RC-77 / BL-205: a faixa de data também como validador de CAMPO, e não
     # só em `criar_lancamento`. Motivo (item 2 da DE-034 — o mesmo campo nas
     # outras superfícies): `full_clean()` é o que qualquer `ModelForm` chama,
     # inclusive o do admin, e o admin NÃO passa por `criar_lancamento`.

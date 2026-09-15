@@ -1,4 +1,4 @@
-"""BL-152 e BL-166 — o que um caminho de RECUSA da tela de lançamento
+"""BL-199 e BL-213 — o que um caminho de RECUSA da tela de lançamento
 devolve, e o `action` que os dois formulários declaram.
 
 ## Por que este arquivo existe
@@ -9,12 +9,12 @@ referenciados por nenhum teste do repositório**, e que nenhum teste enviava
 8 linhas para conferir que voltavam 8. O comportamento existia e nada o
 protegia — que é a definição de "código sem teste" desta etapa.
 
-E o BL-166 é o subtipo mais perigoso da família de comentários falsos: o
+E o BL-213 é o subtipo mais perigoso da família de comentários falsos: o
 docstring de `_mensagem_de_tela_para_dado_nao_contratado` (`:1248`) afirma
 que os dois formulários declaram `action` explícito "(ver os templates, **e
 o teste que lê o atributo**)". Os templates têm o atributo; **o teste não
 existia**. Um comentário que cita a própria prova de que é verdadeiro
-*impede* que alguém vá conferir — foi exatamente assim que a BL-165 nasceu.
+*impede* que alguém vá conferir — foi exatamente assim que a BL-212 nasceu.
 
 ## As duas formas de teste usadas aqui, e por quê
 
@@ -28,7 +28,7 @@ existia**. Um comentário que cita a própria prova de que é verdadeiro
    deixaria passar um `action` que carregasse querystring.
 2. **Pela requisição, nunca por `RequestFactory`.** Toda recusa aqui é
    medida por `client.post` na view de verdade, com sessão e permissão —
-   porque o defeito do BL-152 foi medido na tela, não na função.
+   porque o defeito do BL-199 foi medido na tela, não na função.
 
 Dados 100% sintéticos, criados nos próprios testes.
 """
@@ -58,9 +58,9 @@ SENHA = "senha-forte-123"
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-152", cnpj="77777777000177")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-199", cnpj="77777777000177")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-152 Ltda", cnpj="77788899000155"
+        escritorio=escritorio, razao_social="Empresa BL-199 Ltda", cnpj="77788899000155"
     )
     caixa = Conta.objects.create(
         empresa=empresa,
@@ -105,7 +105,7 @@ def _post_de_oito_linhas(cenario, **extras):
         "acao": "gravar",
         "num_linhas": "8",
         "data": timezone.localdate().isoformat(),
-        "historico": "BL-152: oito linhas enviadas",
+        "historico": "BL-199: oito linhas enviadas",
         "chave_idempotencia": "bl152-oito-linhas",
     }
     for indice, valor in enumerate(VALORES_DAS_OITO_LINHAS, start=1):
@@ -127,13 +127,13 @@ def _linhas_reexibidas(resposta):
 
 
 # ---------------------------------------------------------------------------
-# BL-152 — as 8 linhas enviadas voltam as 8, COM VALORES, em TODOS os
+# BL-199 — as 8 linhas enviadas voltam as 8, COM VALORES, em TODOS os
 # quatro dicionários que `_recusa_lancamento_com_erro` recusa
 # ---------------------------------------------------------------------------
 
 
 def test_recusa_por_campo_desconhecido_devolve_as_oito_linhas_com_valores(client, cenario):
-    """O critério do BL-152, literal: **8 linhas enviadas voltam as 8, com
+    """O critério do BL-199, literal: **8 linhas enviadas voltam as 8, com
     valores.**
 
     Medido pelo auditor na rodada 6: voltavam 4, porque
@@ -281,7 +281,7 @@ def test_recusa_por_num_linhas_acima_do_teto_de_seguranca_nao_perde_linhas(clien
 
 
 def test_piso_de_reexibicao_e_o_da_tela_INICIAL_e_nao_o_da_gravacao(client, cenario):
-    """A decisão do resíduo do BL-152, travada por teste.
+    """A decisão do resíduo do BL-199, travada por teste.
 
     O piso de `_linhas_a_reexibir_do_post` é `LINHAS_INICIAIS_LANCAMENTO`
     (4) e o do caminho de gravação é 2 (`views_web.py`,
@@ -299,7 +299,7 @@ def test_piso_de_reexibicao_e_o_da_tela_INICIAL_e_nao_o_da_gravacao(client, cena
         "acao": "gravar",
         "num_linhas": "2",
         "data": timezone.localdate().isoformat(),
-        "historico": "BL-152: piso de reexibição",
+        "historico": "BL-199: piso de reexibição",
         "chave_idempotencia": "bl152-piso",
         "conta_1": str(cenario["caixa"].id),
         "tipo_1": "debito",
@@ -321,7 +321,7 @@ def test_piso_de_reexibicao_e_o_da_tela_INICIAL_e_nao_o_da_gravacao(client, cena
 
 
 # ---------------------------------------------------------------------------
-# BL-166 — o teste que o comentário de `views_web.py:1248` cita, e que não
+# BL-213 — o teste que o comentário de `views_web.py:1248` cita, e que não
 # existia
 # ---------------------------------------------------------------------------
 
@@ -393,7 +393,7 @@ def _formulario_da_tela(html, campo_exclusivo):
 def test_os_dois_formularios_declaram_action_explicito_e_sem_querystring(
     client, cenario, rota, campo_exclusivo
 ):
-    """Metade 1 do BL-166: o atributo existe, aponta para a própria rota e
+    """Metade 1 do BL-213: o atributo existe, aponta para a própria rota e
     **não** carrega querystring — mesmo quando a tela foi aberta por uma
     URL que tem uma.
 
@@ -412,7 +412,7 @@ def test_os_dois_formularios_declaram_action_explicito_e_sem_querystring(
     assert action is not None, (
         "o <form> não declara `action`: sem ele o navegador reenvia a "
         "querystring da URL do documento no POST, e esta tela recusa "
-        "parâmetro de URL (R6-5/BL-152, BL-166)"
+        "parâmetro de URL (R6-5/BL-199, BL-213)"
     )
     assert action == endereco, action
     assert "?" not in action, action
@@ -444,7 +444,7 @@ def test_formulario_aberto_com_querystring_consegue_gravar(client, cenario):
             "acao": "gravar",
             "num_linhas": "2",
             "data": timezone.localdate().isoformat(),
-            "historico": "BL-166: gravado a partir de tela aberta com querystring",
+            "historico": "BL-213: gravado a partir de tela aberta com querystring",
             "chave_idempotencia": "bl166-querystring",
             "conta_1": str(cenario["caixa"].id),
             "tipo_1": "debito",

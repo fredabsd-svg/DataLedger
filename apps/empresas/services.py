@@ -130,7 +130,7 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
     valor do regime de um período já existente — preserva o histórico
     necessário para reproduzir apurações antigas.
 
-    Faixa de `vigencia_inicio` (BL-153, achado R6-6): teto em HOJE, regra
+    Faixa de `vigencia_inicio` (BL-200, achado R6-6): teto em HOJE, regra
     confirmada (RC-81); piso em 01/01/2000, **hipótese declarada** (HI-07).
     Ver o comentário em `apps.empresas.validators`, que é a fonte única da
     faixa e da mensagem — este serviço só traduz para `ValueError`, que é o
@@ -171,7 +171,7 @@ class ExclusaoDeRegimeInvalida(Exception):
 
 @transaction.atomic
 def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request=None):
-    """Apaga o ÚLTIMO período de regime tributário da empresa (RC-82/DE-035).
+    """Apaga o ÚLTIMO período de regime tributário da empresa (RC-82/DE-039).
 
     Contexto, porque a escolha aqui não é técnica e não é minha: o achado
     R6-6 mostrou que um dígito errado em `vigencia_inicio` deixava a empresa
@@ -181,13 +181,13 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
     estorno. Regime tributário é dado **cadastral**, não escrituração.
 
     A fronteira, que é o que impede esta decisão de contaminar o resto
-    (DE-035): isto vale para CADASTRO. **Não** se estende a lançamento
+    (DE-039): isto vale para CADASTRO. **Não** se estende a lançamento
     contábil efetivado — ali a correção segue por estorno rastreável e
     apagar continua proibido (`LancamentoImutavelError`, em
     `apps.contabilidade.models`). O teste da fronteira é a pergunta "isto é
     escrituração?"; se for, não se apaga.
 
-    Três garantias, todas do alcance técnico fixado na DE-035:
+    Três garantias, todas do alcance técnico fixado na DE-039:
 
     1. **Só o último período** — o que não tem sucessor. Apagar um período do
        meio abriria buraco na linha do tempo: o antecessor já teve a
@@ -247,7 +247,7 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
 
     anterior = periodos[1] if len(periodos) > 1 else None
     if anterior is not None:
-        # Garantia 2 da DE-035. `vigencia_fim` do anterior foi recortada por
+        # Garantia 2 da DE-039. `vigencia_fim` do anterior foi recortada por
         # `registrar_regime_tributario` quando o período agora apagado
         # entrou; desfazer o recorte é o que devolve a empresa a um estado
         # consistente. Guardamos o valor anterior na trilha para que o

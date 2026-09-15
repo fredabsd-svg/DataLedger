@@ -397,7 +397,7 @@ def _post_com_duas_partidas_alem_do_teto(cen, *, chave, historico, acao="gravar"
     entre si (10,00 cada lado) e as DUAS últimas TAMBÉM batendo entre si
     (77,00 / 77,00) — o cenário exato do achado 5.
 
-    RC-79/BL-160 (rodada 6): o teto de negócio passou de 20 para **200**
+    RC-79/BL-207 (rodada 6): o teto de negócio passou de 20 para **200**
     (confirmado pelo Fred), e por isso este POST é derivado de
     `views_web.LINHAS_MAXIMAS_LANCAMENTO` em vez de escrito com 22 linhas
     fixas. Um teste de teto com o número do teto embutido para de testar o
@@ -453,7 +453,7 @@ def test_teto_de_partidas_mostra_mensagem_explicativa(client, cen):
     linha" desaparece — a tela precisa dizer POR QUE (critério 13, saída
     navegável para um LIMITE, não só para um erro).
 
-    RC-79/BL-160: o número vem de `views_web.LINHAS_MAXIMAS_LANCAMENTO`, e
+    RC-79/BL-207: o número vem de `views_web.LINHAS_MAXIMAS_LANCAMENTO`, e
     a frase exibida tem de citar o teto REAL. Com "20" escrito à mão, este
     teste continuaria passando enquanto a tela dissesse 20 e o servidor
     aceitasse 200 — exatamente a divergência entre promessa e defesa que

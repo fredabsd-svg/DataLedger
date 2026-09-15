@@ -104,7 +104,7 @@ NIVEL_MAXIMO = 50
 CAMPOS_PERMITIDOS_LANCAMENTO = frozenset({"data", "historico", "itens"})
 CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
 
-# BL-149 / achado R6-2 (rodada 6): a política dos cinco dicionários passou a
+# BL-196 / achado R6-2 (rodada 6): a política dos cinco dicionários passou a
 # morar em `apps.core.requisicao` e vale para as SETE superfícies de escrita,
 # não só para o POST de lançamento. O que sobrava, medido pelo auditor, era
 # tudo o que NÃO é o corpo: querystring num POST (201 com um par de partidas
@@ -159,7 +159,7 @@ def _sem_campos_desconhecidos(dados, campos_permitidos, *, contexto):
     `dict` com alguma chave fora de `campos_permitidos`.
 
     Delega o julgamento a `apps.core.requisicao.recusar_campos_nao_
-    contratados` (BL-149) — a subtração de conjuntos e o texto da mensagem
+    contratados` (BL-196) — a subtração de conjuntos e o texto da mensagem
     moram lá, num lugar só. Esta função continua existindo porque o corpo da
     API é ANINHADO: cada item da lista de partidas é um dicionário próprio,
     que o contrato do topo não alcança."""
@@ -181,7 +181,7 @@ def _como_moeda(valor):
 
 
 def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, ids_contas=None):
-    """Serializa `movimento_fora_do_periodo` para a resposta JSON (BL-151).
+    """Serializa `movimento_fora_do_periodo` para a resposta JSON (BL-198).
 
     Devolve `None` quando não há nada fora do período — a chave existe SEMPRE
     na resposta, com `null`, porque um cliente que só a veja quando há
@@ -200,11 +200,11 @@ def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, ids_contas=None
     conta própria.
 
     O recorte por conta entra aqui como `ids_contas` — o conjunto já apurado
-    por `apurar_razao` (chave `ids_contas`, BL-165) —, nunca como a `Conta`:
+    por `apurar_razao` (chave `ids_contas`, BL-212) —, nunca como a `Conta`:
     esta serialização não mostra nada da conta, então receber a conta só
     serviria para `movimento_fora_do_periodo` percorrer a subárvore uma
     SEGUNDA vez (uma consulta por nível de profundidade), que é a regressão
-    de desempenho da BL-165. Sem `ids_contas`, o recorte é a empresa inteira
+    de desempenho da BL-212. Sem `ids_contas`, o recorte é a empresa inteira
     (Diário e Balancete).
     """
     fora = movimento_fora_do_periodo(empresa=empresa, inicio=inicio, fim=fim, ids_contas=ids_contas)
@@ -399,7 +399,7 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         return Conta.objects.filter(empresa=self.get_empresa())
 
     def post(self, request, *args, **kwargs):
-        # BL-149: a política dos cinco dicionários ANTES de qualquer
+        # BL-196: a política dos cinco dicionários ANTES de qualquer
         # gravação. Medido pelo auditor nesta rota: querystring em POST,
         # `empresa: 999`, `xpto` e `id: 4242` no corpo → **201 em todos**,
         # ignorados em silêncio. `id` é especialmente ruim: quem o envia
@@ -430,7 +430,7 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         # `apps.empresas.services`, que já faz isto para CNPJ).
         try:
             # A mensagem vem do registro único `apps.core.restricoes.
-            # MENSAGENS_DE_RESTRICAO` (BL-157): antes era um literal aqui, e
+            # MENSAGENS_DE_RESTRICAO` (BL-204): antes era um literal aqui, e
             # literal espalhado por view é exatamente como as duas
             # `CheckConstraint` de CNPJ ficaram sem tradução — não havia lugar
             # nenhum onde alguém pudesse ver a lista inteira e notar a falta.
@@ -573,7 +573,7 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
         dados = request.data
-        # BL-149: o corpo já era julgado aqui (R5-6/BL-145); o que faltava
+        # BL-196: o corpo já era julgado aqui (R5-6/BL-145); o que faltava
         # eram os OUTROS dicionários da mesma requisição — o auditor mediu
         # `POST .../lancamentos/?conta_3=…&xpto=1` devolvendo **201**, com o
         # par de partidas da querystring nem lido nem recusado. A política
@@ -694,7 +694,7 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
     permission_classes = [TemEscritorioAtivo, PodeEscriturar]
 
     def post(self, request, empresa_id, lancamento_id):
-        # BL-149: rota de ação, e mesmo assim entra na política — um corpo
+        # BL-196: rota de ação, e mesmo assim entra na política — um corpo
         # com `data` ou `historico` aqui sugere ao cliente que ele está
         # escolhendo a data do estorno, e ela é decidida pelo servidor
         # (RC-78). Aceitar e ignorar seria a mesma classe de defeito de
@@ -771,7 +771,7 @@ class DiarioView(EmpresaEscopadaMixin, APIView):
                 "lancamentos": lancamentos,
                 "total_debito": _como_moeda(total_debito),
                 "total_credito": _como_moeda(total_credito),
-                # BL-151: o Diário do período pode conciliar perfeitamente e
+                # BL-198: o Diário do período pode conciliar perfeitamente e
                 # ainda assim haver escrituração fora dele. Ver
                 # `_aviso_de_movimento_fora_do_periodo`.
                 "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
@@ -871,12 +871,12 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
                 "saldo_final": _como_moeda(saldo_final_abs),
                 "saldo_final_natureza": saldo_final_natureza,
                 "itens": itens,
-                # BL-151, recortado pela CONTA consultada (e pelas
+                # BL-198, recortado pela CONTA consultada (e pelas
                 # descendentes): o aviso do Razão fala da conta que está na
                 # tela, não da empresa inteira. O recorte é LITERALMENTE o
                 # conjunto que esta apuração somou — `apuracao["ids_contas"]`,
                 # o mesmo objeto, não uma segunda travessia da subárvore
-                # (BL-165: recomputá-lo dobra a consulta por nível de
+                # (BL-212: recomputá-lo dobra a consulta por nível de
                 # profundidade e estourou o teto de consultas do Razão).
                 "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
                     empresa=empresa, inicio=inicio, fim=fim, ids_contas=apuracao["ids_contas"]
@@ -961,7 +961,7 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
                 "contas": contas,
                 "total_debitos": _como_moeda(apuracao["total_debitos"]),
                 "total_creditos": _como_moeda(apuracao["total_creditos"]),
-                # BL-151: é no Balancete que a invisibilidade dói mais, porque
+                # BL-198: é no Balancete que a invisibilidade dói mais, porque
                 # ele é a saída que o contador usa para CONCILIAR — e ele
                 # concilia, com o valor de fora do período ausente dos dois
                 # lados. Ver `_aviso_de_movimento_fora_do_periodo`.
@@ -1048,13 +1048,13 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
             for conta in localizar_contas_que_aceitam_lancamento_e_tem_subordinadas(empresa=empresa)
         ]
 
-        # BL-151, quinta categoria: a Conferência não tem período — uma base
+        # BL-198, quinta categoria: a Conferência não tem período — uma base
         # torta é torta em qualquer recorte —, então aqui o equivalente ao
         # aviso das outras três saídas é listar o que está FORA DA FAIXA
         # PLAUSÍVEL (RC-77). É a única saída em que o `9999-12-31` já gravado
         # aparece sem o contador precisar suspeitar primeiro: validar a
         # entrada fecha a porta, e isto acende a luz sobre o que já entrou
-        # (a DL-019 declara o reparo de dado já gravado fora de escopo).
+        # (a DL-020 declara o reparo de dado já gravado fora de escopo).
         lancamentos_com_data_fora_da_faixa = [
             {
                 "id": lancamento.id,

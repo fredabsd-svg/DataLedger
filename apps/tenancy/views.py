@@ -2,7 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
-# BL-170/A1 (auditoria DL-019 rodada 1): as views de FUNÇÃO deste módulo
+# BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
 # declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
 # não substring do fonte — que a varredura de contratos
 # (`apps/core/tests/test_dl019_varredura_de_contratos.py`) lê para saber se a
@@ -23,7 +23,7 @@ from apps.core.requisicao import (
 )
 from apps.tenancy.models import Escritorio
 
-# BL-149 / achado R6-2 (rodada 6): a política dos cinco dicionários também
+# BL-196 / achado R6-2 (rodada 6): a política dos cinco dicionários também
 # nas duas superfícies de troca de escritório ativo. Medido pelo auditor:
 # `ativar_escritorio` aceitava querystring, campo desconhecido e
 # `request.FILES` — **302 nos três**, ignorando em silêncio —, e
@@ -95,7 +95,7 @@ class EscritorioAtivoView(APIView):
         )
 
     def post(self, request):
-        # BL-149: a política vem de `apps.core.requisicao`; aqui só a
+        # BL-196: a política vem de `apps.core.requisicao`; aqui só a
         # tradução para o protocolo desta superfície. 400 (entrada que o
         # contrato não aceita), não 403 — o 403 abaixo é para vínculo
         # inexistente, que é outra coisa e não deve ser confundida.
@@ -161,7 +161,7 @@ def painel(request):
 @require_http_methods(["GET", "POST"])
 def ativar_escritorio(request):
     if request.method == "POST":
-        # BL-149: mesma política da view irmã acima, mesma fonte única, e
+        # BL-196: mesma política da view irmã acima, mesma fonte única, e
         # aqui na forma que esta superfície usa para dizer "não" — mensagem
         # de erro e volta ao painel, o padrão que o BL-23 instituiu para
         # todo caminho que NÃO ativa. O auditor mediu 302 silencioso para

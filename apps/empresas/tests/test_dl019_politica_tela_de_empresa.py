@@ -1,5 +1,5 @@
 """A política dos cinco dicionários na TELA de cadastro de empresa
-(BL-149, superfície encontrada pela varredura da segunda rodada da DL-019).
+(BL-196, superfície encontrada pela varredura da segunda rodada da DL-020).
 
 `criar_empresa` era a única superfície de escrita do repositório que ainda
 não aplicava `apps.core.requisicao` — e não estava em nenhum relatório de
@@ -36,7 +36,7 @@ CNPJ_VALIDO = "11122233000183"
 
 @pytest.fixture
 def escritorio():
-    return Escritorio.objects.create(nome="Escritório BL-149/T", cnpj="11111111000111")
+    return Escritorio.objects.create(nome="Escritório BL-196/T", cnpj="11111111000111")
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def test_tela_recusa_campo_desconhecido_com_400_e_nao_grava(autenticado, campo):
 
 
 def test_tela_recusada_devolve_o_que_foi_digitado(autenticado):
-    """BL-152: recusar sem devolver o que o usuário digitou troca um defeito
+    """BL-199: recusar sem devolver o que o usuário digitou troca um defeito
     por outro. O formulário volta VINCULADO ao POST."""
     corpo = _corpo_valido()
     corpo["razao_social"] = "Empresa Com Nome Digitado Ltda"

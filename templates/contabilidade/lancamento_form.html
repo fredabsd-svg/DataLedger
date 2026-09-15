@@ -23,7 +23,7 @@
         </p>
     {% else %}
         {% comment %}
-        R6-5/BL-152: `action` EXPLÍCITO, e sem querystring. Um `<form>` sem
+        R6-5/BL-199: `action` EXPLÍCITO, e sem querystring. Um `<form>` sem
         `action` envia para a URL do próprio documento — **querystring
         incluída**. O auditor mediu o efeito: quem abrisse esta tela por um
         link com qualquer parâmetro (`?utm_source=email`, um marcador
@@ -65,7 +65,7 @@
                 campo de entrada) é dd/mm/aaaa — a garantia real.
                 {% endcomment %}
                 {% comment %}
-                RC-77/BL-158: `min`/`max` são CONVENIÊNCIA — o navegador
+                RC-77/BL-205: `min`/`max` são CONVENIÊNCIA — o navegador
                 avisa antes de o contador enviar, e o seletor nativo pula
                 direto para a faixa útil. Não são defesa: quem monta a
                 requisição à mão passa por cima de qualquer atributo, e a

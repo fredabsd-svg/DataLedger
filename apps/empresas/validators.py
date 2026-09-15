@@ -172,7 +172,7 @@ def validar_cnpj(valor):
 
 # ---------------------------------------------------------------------------
 # Faixa de `vigencia_inicio` de regime tributário (RC-81 confirmado, HI-07
-# hipótese) — achado R6-6 da auditoria DL-017 rodada 6, BL-153.
+# hipótese) — achado R6-6 da auditoria DL-017 rodada 6, BL-200.
 #
 # O defeito medido: `POST regime-tributario {"vigencia_inicio":"9999-12-31"}`
 # devolvia 201. `9999-12-31` é `date.max`, não existe data posterior, a regra

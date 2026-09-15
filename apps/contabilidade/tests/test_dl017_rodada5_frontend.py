@@ -215,7 +215,7 @@ def test_comentario_sobre_julgador_partilhado_so_afirma_o_que_e_verificavel():
     a API usa, o código de `apps.contabilidade.views` REALMENTE precisa
     usar `para_id` — a checagem vale nos dois sentidos, não só no de hoje.
 
-    R6-3/BL-150 (rodada 6) — este teste era o **décimo-primeiro** caso
+    R6-3/BL-197 (rodada 6) — este teste era o **décimo-primeiro** caso
     registrado de "teste que não consegue falhar", e o mais irônico: ele
     existe para impedir que um comentário minta sobre um julgador
     partilhado, e a linha que decidia era

@@ -1,9 +1,9 @@
-"""BL-151 (b) e BL-156 — o que as TELAS mostram sobre o que está fora do
+"""BL-198 (b) e BL-203 — o que as TELAS mostram sobre o que está fora do
 período, e o que elas dizem quando não há movimento nenhum.
 
 ## Por que este arquivo existe
 
-É o item que fez a DL-019 existir: um lançamento datado `9999-12-31` **não
+É o item que fez a DL-020 existir: um lançamento datado `9999-12-31` **não
 aparece em nenhuma tela de operação normal**, e o balancete do período
 **concilia** — então nenhuma conferência acusa. O aviso é a rede.
 
@@ -11,8 +11,8 @@ O inventário de 2026-09-15 mediu que o parcial
 `_aviso_movimento_fora_do_periodo.html` está incluído por `diario.html:48`,
 `razao.html:49` e `balancete.html:51`, e que a Conferência tem categoria
 própria — mas que **só o Razão ganhou teste de tela** (e no arquivo do
-BL-165). Diário, Balancete e Conferência eram código sem teste. A mensagem
-do Balancete sem movimento (BL-156) também era código sem teste: nenhum
+BL-212). Diário, Balancete e Conferência eram código sem teste. A mensagem
+do Balancete sem movimento (BL-203) também era código sem teste: nenhum
 teste referenciava `sem_movimento_no_periodo` nem o texto.
 
 ## O desenho destes testes, e a parte que não é detalhe
@@ -27,7 +27,7 @@ existir, ou por uma porta que não passa pela tela.
 Cada afirmação tem o seu controle negativo: as telas **não** avisam quando
 não há nada fora do período, e o Balancete **não** diz "sem movimento"
 quando há movimento. Sem os controles, um aviso preso em "sempre visível"
-passaria em tudo — é o item 8 da ordem de risco da BL-169.
+passaria em tudo — é o item 8 da ordem de risco da BL-216.
 
 Dados 100% sintéticos, criados nos próprios testes.
 """
@@ -64,9 +64,9 @@ DATA_ABSURDA = date(9999, 12, 31)
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-151", cnpj="66666666000166")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-198", cnpj="66666666000166")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-151 Ltda", cnpj="66677788000144"
+        escritorio=escritorio, razao_social="Empresa BL-198 Ltda", cnpj="66677788000144"
     )
     caixa = Conta.objects.create(
         empresa=empresa,
@@ -153,7 +153,7 @@ def _texto_visivel(resposta):
 
 
 # ---------------------------------------------------------------------------
-# BL-151 (b) — o aviso nas saídas de período que NÃO tinham teste de tela:
+# BL-198 (b) — o aviso nas saídas de período que NÃO tinham teste de tela:
 # Diário e Balancete (o Razão tem o seu em test_dl019_razao_reaproveita_
 # ids_contas.py)
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ def test_a_saida_avisa_que_ha_movimento_fora_do_periodo(client, cenario, rota):
 def test_a_saida_NAO_avisa_quando_nao_ha_nada_fora_do_periodo(client, cenario, rota):
     """O controle negativo, e ele não é formalidade: um aviso preso em
     "sempre visível" passaria em todos os testes acima e ensinaria o
-    contador a ignorá-lo — é o item 8 da ordem de risco da BL-169."""
+    contador a ignorá-lo — é o item 8 da ordem de risco da BL-216."""
     _autenticar(client)
     _lancamento_no_periodo(cenario)
 
@@ -244,7 +244,7 @@ def test_o_aviso_nao_esconde_nem_altera_a_tabela_ao_lado(client, cenario, rota):
 
 
 # ---------------------------------------------------------------------------
-# BL-151 (b) na Conferência — a única tela de uso normal em que o lançamento
+# BL-198 (b) na Conferência — a única tela de uso normal em que o lançamento
 # com data absurda aparece SEM o contador precisar suspeitar primeiro
 # ---------------------------------------------------------------------------
 
@@ -328,7 +328,7 @@ def test_conferencia_nao_mostra_lancamento_fora_da_faixa_de_OUTRA_empresa(client
 
 
 # ---------------------------------------------------------------------------
-# BL-156 — o Balancete sem movimento no período explica o que se está vendo,
+# BL-203 — o Balancete sem movimento no período explica o que se está vendo,
 # e NÃO esconde a tabela
 # ---------------------------------------------------------------------------
 

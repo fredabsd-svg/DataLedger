@@ -1,4 +1,4 @@
-"""RC-77 / BL-158 — faixa de data de lançamento: 01/01/2000 a hoje + 30 dias.
+"""RC-77 / BL-205 — faixa de data de lançamento: 01/01/2000 a hoje + 30 dias.
 
 Regra **confirmada pelo Fred em 2026-09-15** (docs/projeto/requisitos.md,
 RC-77), em resposta a proposta do `arquiteto-senior`. Nada aqui é hipótese.
@@ -6,7 +6,7 @@ RC-77), em resposta a proposta do `arquiteto-senior`. Nada aqui é hipótese.
 O defeito, medido pelo auditor na rodada 6 (achado R6-4): `data` de
 `0001-01-01`, `9999-12-31`, `1500-06-15` e `2999-01-01` eram aceitas com
 **201** pela API e **302** pela tela. E o efeito, que é a razão declarada de a
-DL-019 existir antes da DL-010: um lançamento de 5.000,00 datado `9999-12-31`
+DL-020 existir antes da DL-010: um lançamento de 5.000,00 datado `9999-12-31`
 **não aparece em nenhuma tela de operação normal** — nem Diário, nem Razão,
 nem Balancete, nem Conferência —, o balancete do período CONCILIA e nenhuma
 conferência acusa.
@@ -218,7 +218,7 @@ def test_full_clean_do_modelo_recusa_data_fora_da_faixa(cenario):
     """Item 2 da DE-034 — o mesmo campo nas outras superfícies. Quem grava por
     `ModelForm` (admin) não passa por `criar_lancamento`, e sem o validador de
     campo criaria um lançamento em `9999-12-31` — invisível em todas as saídas
-    de uso normal, que é o BL-151 inteiro por outra porta."""
+    de uso normal, que é o BL-198 inteiro por outra porta."""
     lancamento = LancamentoContabil(
         empresa=cenario["empresa"], data=date(9999, 12, 31), historico="pelo admin"
     )

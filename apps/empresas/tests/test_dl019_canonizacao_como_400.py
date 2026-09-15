@@ -1,5 +1,5 @@
 """As duas `CheckConstraint` de canonização de CNPJ traduzidas para 400
-(BL-157, achado R6-10 — segunda metade, que o inventário de 2026-09-15
+(BL-204, achado R6-10 — segunda metade, que o inventário de 2026-09-15
 mediu como ausente).
 
 ## O que faltava, e por que isto não é detalhe
@@ -59,13 +59,13 @@ CNPJ_VALIDO_CANONICO = "AB123CDE000155"
 
 @pytest.fixture
 def escritorio():
-    return Escritorio.objects.create(nome="Escritório BL-157", cnpj="11111111000111")
+    return Escritorio.objects.create(nome="Escritório BL-204", cnpj="11111111000111")
 
 
 @pytest.fixture
 def empresa(escritorio):
     return Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-157 Ltda", cnpj="11122233000183"
+        escritorio=escritorio, razao_social="Empresa BL-204 Ltda", cnpj="11122233000183"
     )
 
 
@@ -190,7 +190,7 @@ def test_put_de_empresa_sem_canonizacao_devolve_400_no_campo_cnpj(
     em duas rotas vizinhas do mesmo arquivo, o padrão do R6-2."""
     resposta = autenticado.put(
         reverse("empresas:api-detalhe", kwargs={"pk": empresa.pk}),
-        data={"razao_social": "Empresa BL-157 Ltda", "cnpj": CNPJ_VALIDO_MINUSCULO},
+        data={"razao_social": "Empresa BL-204 Ltda", "cnpj": CNPJ_VALIDO_MINUSCULO},
         content_type="application/json",
     )
 

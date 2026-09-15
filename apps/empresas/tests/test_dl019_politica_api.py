@@ -1,4 +1,4 @@
-"""BL-149 / achado R6-2: a política dos cinco dicionários nas rotas de escrita
+"""BL-196 / achado R6-2: a política dos cinco dicionários nas rotas de escrita
 de `apps.empresas`.
 
 Medido pelo auditor, tudo com sucesso e dado ignorado em silêncio:
@@ -41,9 +41,9 @@ CNPJ_VALIDO_NOVO = "ab123cde000155"
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-149/E", cnpj="13131313000144")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-196/E", cnpj="13131313000144")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-149/E Ltda", cnpj="11222333000181"
+        escritorio=escritorio, razao_social="Empresa BL-196/E Ltda", cnpj="11222333000181"
     )
     usuario = get_user_model().objects.create_user(
         username="gestora-bl149e", email="gestora-bl149e@escritorio.com.br", password=SENHA
@@ -116,7 +116,7 @@ def test_alteracao_de_empresa_recusa_campo_desconhecido(autenticado, cenario):
 
     assert resposta.status_code == 400, (resposta.status_code, resposta.content)
     cenario["empresa"].refresh_from_db()
-    assert cenario["empresa"].razao_social == "Empresa BL-149/E Ltda"
+    assert cenario["empresa"].razao_social == "Empresa BL-196/E Ltda"
 
 
 def test_alteracao_de_empresa_dentro_do_contrato_continua_funcionando(autenticado, cenario):

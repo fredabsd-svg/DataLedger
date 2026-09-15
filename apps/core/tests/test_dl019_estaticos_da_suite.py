@@ -1,5 +1,5 @@
-"""A suíte não pode depender de artefato NÃO VERSIONADO — BL-178 (achado B5 da
-auditoria DL-019 rodada 2).
+"""A suíte não pode depender de artefato NÃO VERSIONADO — BL-225 (achado B5 da
+auditoria DL-020 rodada 2).
 
 ## O defeito, e por que ele é de classe
 
@@ -20,7 +20,7 @@ CI dizia `1 failed, 1055 passed, 2 skipped`.**
 Duas consequências, medidas pelo auditor e piores que a falha em si:
 
 1. `pytest_sessionfinish` sai cedo em sessão vermelha, então a conferência do
-   elo de execução (BL-171) **nunca rodou na CI** — o mecanismo entregue na
+   elo de execução (BL-218) **nunca rodou na CI** — o mecanismo entregue na
    rodada anterior estava desligado lá.
 2. O par de controle do admin escondia metade: o teste **negativo** espera 200
    e por isso **renderiza** o template → estourava; o **positivo** termina em
@@ -49,7 +49,7 @@ reprova a suíte aqui também, em qualquer máquina. Sem isso, a defesa depender
 de alguém lembrar de clonar o repositório antes de declarar verde — que é
 exatamente o que não aconteceu por quatro relatórios seguidos.
 
-## O que esta fixture CUSTA — declarado, porque é custo e não defeito (BL-187)
+## O que esta fixture CUSTA — declarado, porque é custo e não defeito (BL-234)
 
 A fixture é `scope="session", autouse=True` no `conftest.py` da **raiz**: vale
 para a suíte inteira e não é desligável por arquivo. O preço disso, medido:
@@ -142,13 +142,13 @@ def test_a_integracao_continua_continua_coletando_estaticos_depois_do_pytest():
 
 
 def test_a_suite_deixou_de_validar_referencia_de_static_e_isso_esta_declarado():
-    """BL-187/C7. A fronteira declarada acima, medida.
+    """BL-234/C7. A fronteira declarada acima, medida.
 
     Sob o backend da suíte, uma referência a arquivo inexistente **passa**. É
     o custo da fixture, e ele fica aqui — onde se lê o que não é coberto — em
     vez de ficar implícito. Se alguém devolver o manifesto à suíte, este teste
     reprova e obriga a rever a seção, em vez de a declaração virar mentira em
-    silêncio (a família de defeito que a DL-019 inteira existe para matar).
+    silêncio (a família de defeito que a DL-020 inteira existe para matar).
     """
     from django.template import Context, Template
 

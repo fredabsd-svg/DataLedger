@@ -1,5 +1,5 @@
-"""BL-153 (faixa do RC-81 + hipótese HI-07) e BL-162 (exclusão do último
-período, RC-82/DE-035) — achado R6-6 da auditoria DL-017 rodada 6.
+"""BL-200 (faixa do RC-81 + hipótese HI-07) e BL-209 (exclusão do último
+período, RC-82/DE-039) — achado R6-6 da auditoria DL-017 rodada 6.
 
 **O defeito medido:** `POST regime-tributario {"vigencia_inicio":
 "9999-12-31"}` respondia **201**. `9999-12-31` é `date.max`, não existe data
@@ -21,7 +21,7 @@ importa:**
   regra — se o Fred baixar o piso, eles mudam junto com a hipótese.
 
 A **exclusão** segue RC-82 ("apagar", decisão do Fred contra a recomendação do
-`arquiteto-senior`) com o alcance da DE-035: só o último período, o anterior
+`arquiteto-senior`) com o alcance da DE-039: só o último período, o anterior
 volta a vigente, e o evento vai para `RegistroAuditoria` — o registro sai do
 produto, a trilha técnica fica.
 """
@@ -285,7 +285,7 @@ def test_admin_grava_vigencia_passada_no_inline(client, cenario):
 
 
 # ---------------------------------------------------------------------------
-# BL-162 / RC-82 / DE-035 — exclusão do último período
+# BL-209 / RC-82 / DE-039 — exclusão do último período
 # ---------------------------------------------------------------------------
 
 
@@ -302,7 +302,7 @@ def _dois_periodos(cenario):
 
 
 def test_apagar_o_ultimo_devolve_o_anterior_a_condicao_de_vigente(cenario):
-    """Item 2 da DE-035, e o ponto onde o defeito silencioso mora: sem a
+    """Item 2 da DE-039, e o ponto onde o defeito silencioso mora: sem a
     reabertura, apagar "funciona" e deixa a empresa **sem regime vigente** —
     exatamente o estado que a exclusão existe para consertar."""
     primeiro, segundo = _dois_periodos(cenario)
@@ -317,7 +317,7 @@ def test_apagar_o_ultimo_devolve_o_anterior_a_condicao_de_vigente(cenario):
 
 
 def test_depois_de_apagar_nao_sobra_intervalo_sem_regime(cenario):
-    """A garantia escrita no critério da BL-162, verificada pelo efeito: para
+    """A garantia escrita no critério da BL-209, verificada pelo efeito: para
     cada dia entre o início do primeiro período e hoje existe EXATAMENTE um
     período cobrindo aquele dia."""
     primeiro, segundo = _dois_periodos(cenario)
@@ -338,7 +338,7 @@ def test_depois_de_apagar_nao_sobra_intervalo_sem_regime(cenario):
 
 
 def test_apagar_periodo_do_meio_e_recusado_e_nada_muda(cenario):
-    """Item 1 da DE-035: apagar o período do meio abriria buraco na linha do
+    """Item 1 da DE-039: apagar o período do meio abriria buraco na linha do
     tempo — o antecessor já teve a `vigencia_fim` recortada, e sem o sucessor
     aquele intervalo fica sem regime nenhum. Empresa sem regime numa
     competência é pior que empresa com regime errado, porque a apuração não tem
@@ -373,7 +373,7 @@ def test_apagar_o_unico_periodo_deixa_a_empresa_sem_historico(cenario):
 
 
 def test_exclusao_grava_trilha_com_os_valores_antigos_e_o_autor(cenario):
-    """Item 3 da DE-035. O REGISTRO sai do histórico do produto; o FATO de
+    """Item 3 da DE-039. O REGISTRO sai do histórico do produto; o FATO de
     alguém ter apagado fica na trilha técnica — distinção apresentada ao Fred e
     confirmada por ele ("Concordo com você", 2026-09-15). Sem segredo nenhum
     nos detalhes: regime, datas e ids."""

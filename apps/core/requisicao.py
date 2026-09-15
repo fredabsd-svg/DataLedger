@@ -1,4 +1,4 @@
-"""Política única dos cinco dicionários de uma requisição (BL-149, achado
+"""Política única dos cinco dicionários de uma requisição (BL-196, achado
 R6-2 da auditoria DL-017 rodada 6).
 
 Espelha `apps.core.dinheiro`, `apps.core.datas`, `apps.core.escolhas` e
@@ -244,7 +244,7 @@ def recusar_campos_nao_contratados(dados, campos_aceitos, *, contexto=""):
     lançamento e cada item da lista de partidas são dois dicionários
     diferentes, com listas de campos diferentes, e o segundo não é
     alcançável pelo contrato do primeiro. Sem esta função, `views.py`
-    reimplementaria a mesma subtração de conjuntos — que é o que a BL-149
+    reimplementaria a mesma subtração de conjuntos — que é o que a BL-196
     existe para impedir.
 
     Não faz nada se `dados` não for um `Mapping`: ver

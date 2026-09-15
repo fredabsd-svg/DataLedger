@@ -1,6 +1,6 @@
 """Varredura de repositório das superfícies de escrita e dos seus contratos
-(BL-149, lacuna (a) do inventário de 2026-09-15; BL-170, achado A1 da
-auditoria DL-019 rodada 1).
+(BL-196, lacuna (a) do inventário de 2026-09-15; BL-217, achado A1 da
+auditoria DL-020 rodada 1).
 
 ## Por que ela existe
 
@@ -14,12 +14,12 @@ contrato**. O histórico é literal sobre a necessidade:
   e virou varredura.
 - BL-145 fechou a política em **1 de 7** superfícies. O critério estava
   escrito, a conferência foi feita, e seis ficaram de fora.
-- BL-157/BL-167: o registro de restrições afirmava uma varredura que não
+- BL-204/BL-214: o registro de restrições afirmava uma varredura que não
   existia, e **duas** constraints passaram pela conferência manual.
 
 Três vezes a mesma lição: *conferência manual não reprova build*.
 
-## A quarta lição, e ela é sobre ESTA varredura (BL-170)
+## A quarta lição, e ela é sobre ESTA varredura (BL-217)
 
 A primeira versão deste arquivo atacava o que a varredura *faz* e não o que
 ela *não enxerga*. O auditor mediu **duas fugas**, cada uma com o mutante
@@ -42,7 +42,7 @@ pelo auditor, é começar pela pergunta certa: **o que está alcançável por
 requisição**, respondida pelo urlconf real, e nunca por nome de módulo mais
 heurística de substring.
 
-## A quinta lição, e ela é sobre a correção da quarta (BL-174)
+## A quinta lição, e ela é sobre a correção da quarta (BL-221)
 
 A correção acima trocou `getattr(classe, "post")` por
 `callback.initkwargs["actions"]` — e **esse mecanismo nunca executou uma vez**.
@@ -73,7 +73,7 @@ não virar outro defeito:
    (`...ImportacaoViewSet.importar.post`), que é o que impede duas ações
    ligadas ao mesmo método HTTP de se apagarem.
 
-## A sexta lição, e ela é a TERCEIRA da mesma família (BL-183)
+## A sexta lição, e ela é a TERCEIRA da mesma família (BL-230)
 
 Três rodadas, três fugas, **todas na mesma fronteira**: o que a varredura
 **lê** contra o que o framework **faz em tempo de execução**.
@@ -129,7 +129,7 @@ HTTP e o par faria uma apagar a outra. Descoberta assim:
   que é literalmente como `dispatch()` resolve, **une** o resultado das várias
   rotas do mesmo alvo e soma o valor da classe — a soma é o lado estrito, e
   serve à classe descoberta sem rota nenhuma. O fato do Django está preso por
-  `test_o_django_deixa_a_rota_ampliar_http_method_names` (BL-183/C1).
+  `test_o_django_deixa_a_rota_ampliar_http_method_names` (BL-230/C1).
 - **Qualquer outro `initkwargs` da rota**: ou está na lista curta do que a
   varredura sabe resolver (`http_method_names`, `actions`) ou na lista, também
   declarada, do que comprovadamente não muda o despacho (o que o roteador do
@@ -145,7 +145,7 @@ ou por uma ponte do próprio app (uma indireção é resolvida, e a detecção �
 AST, nunca por substring: `inspect.getsource` de uma função chamada
 `_recusar_dado_nao_contratado` contém o nome dela na própria linha do `def`, e
 um teste por substring seria permanentemente verdadeiro, que é o defeito da
-BL-150).
+BL-197).
 
 **2. Toda view de função alcançável DECLARA os métodos que aceita.** Sem
 declaração a varredura não sabe classificá-la — e "não sei classificar" nunca
@@ -169,7 +169,7 @@ razão escrita, e uma entrada que deixe de corresponder a algo real reprova
 
 ## O que ela NÃO cobre, declarado
 
-A regra de redação desta seção, depois da BL-170: **ela só pode dizer o que a
+A regra de redação desta seção, depois da BL-217: **ela só pode dizer o que a
 varredura entrega, medido**. A versão anterior prometia que uma view de função
 que passasse a gravar "menciona `request.POST` e entra na varredura pelo mesmo
 critério" — e isso era falso, e falso é pior que ausente, porque impede que
@@ -178,7 +178,7 @@ alguém vá conferir.
 **O que não chega por requisição HTTP.** Escrita por ORM direto, pelo admin do
 Django ou por management command não passa por nenhum handler de rota e não é
 alcançada aqui. O admin é superfície nunca varrida e tem item próprio
-(BL-164); management command não existe no repositório hoje.
+(BL-211); management command não existe no repositório hoje.
 
 **Código de terceiros.** O `admin/`, o `login/` e o `logout/` do urlconf têm
 `__module__` fora de `apps.` e ficam de fora: as regras deste produto não
@@ -187,7 +187,7 @@ porque "o módulo não começa com `apps.`" é a forma mais barata de uma rota
 desaparecer da varredura. `test_toda_rota_fora_dos_apps_e_de_terceiro_
 conhecido` exige que todo callback descartado por esse filtro venha de um
 prefixo de terceiro DECLARADO; qualquer outro reprova, nomeando a rota. O
-admin tem item próprio (BL-164).
+admin tem item próprio (BL-211).
 
 **View ainda não roteada.** A varredura parte do urlconf; uma view de função
 escrita e não roteada não é alcançável por requisição e não aparece. As
@@ -200,7 +200,7 @@ view decorada com `@require_safe` que gravasse em `GET` é invisível **por
 construção** — e, agora que a classificação é por decorador declarado, ela é
 invisível com o aval de um fato do objeto, o que é mais convincente que a
 heurística anterior e por isso precisa estar escrito aqui. Nenhuma existe hoje
-(BL-181/B8); a defesa contra ela é de revisão, não desta varredura.
+(BL-228/B8); a defesa contra ela é de revisão, não desta varredura.
 
 **Middleware.** Middleware não é handler de rota, não aparece no urlconf e não
 entra nesta varredura: um middleware que gravasse a partir do corpo da
@@ -223,8 +223,8 @@ responde).
 **Se a superfície tem TESTE dos cinco dicionários.** Esta varredura prova que
 a política é CHAMADA, não que alguém a exercitou por requisição. Amarrar
 superfície a arquivo de teste por casamento de nome seria uma promessa que o
-próprio mecanismo não sustenta — o erro que a BL-166 nomeou. O elo que falta
-tem item, dono e desenho próprios: **BL-171**.
+próprio mecanismo não sustenta — o erro que a BL-213 nomeou. O elo que falta
+tem item, dono e desenho próprios: **BL-218**.
 """
 
 import ast
@@ -248,9 +248,9 @@ from rest_framework.views import APIView
 
 # `conftest.py` da raiz. Importado — e não reimplementado — porque a fronteira
 # "isto é código de teste?" precisa ser UMA, usada pelos dois lados: a
-# instrumentação do elo de execução (BL-171) e esta varredura faziam a mesma
+# instrumentação do elo de execução (BL-218) e esta varredura faziam a mesma
 # pergunta com duas regras diferentes, e as duas tinham o mesmo buraco
-# (BL-181/B7).
+# (BL-228/B7).
 import conftest
 
 # Molde reaproveitado, de propósito: a varredura da BL-134 já resolve "quais
@@ -280,7 +280,7 @@ NOME_DA_LISTA_DE_METODOS_DO_DJANGO = "request_method_list"
 # Nome do atributo que `ViewSetMixin.as_view` pendura NA VIEW (`view.actions =
 # actions`). É a fonte de verdade sobre o que o roteador ligou, e não
 # `initkwargs`, onde ele nunca aparece — foi ler o lugar errado que produziu a
-# BL-174. `test_o_roteador_do_drf_poe_actions_no_callback_e_nao_no_initkwargs`
+# BL-221. `test_o_roteador_do_drf_poe_actions_no_callback_e_nao_no_initkwargs`
 # mede os dois lados sobre um `DefaultRouter` real: se o DRF mudar de lugar, a
 # suíte reprova alto e nomeado, em vez de a varredura voltar a ler `None` para
 # sempre.
@@ -290,7 +290,7 @@ NOME_DO_ATRIBUTO_DE_ACOES_DO_DRF = "actions"
 # requisição é aceito. Ele é lido **da instância**, e `View.as_view` faz
 # `setattr(self, chave, valor)` para cada `initkwargs` antes do `dispatch`:
 # logo quem manda é o valor DA ROTA, e o da classe é só o padrão de quando a
-# rota não passa nada (BL-183/C1). Ler o da classe era a terceira fuga da
+# rota não passa nada (BL-230/C1). Ler o da classe era a terceira fuga da
 # mesma família, e `test_o_django_deixa_a_rota_ampliar_http_method_names` mede
 # a precedência em vez de afirmá-la.
 NOME_DO_ATRIBUTO_DE_METODOS_DO_DISPATCH = "http_method_names"
@@ -315,7 +315,7 @@ INITKWARGS_SEM_EFEITO_NO_DESPACHO = frozenset(
 # Nome que `rest_framework.decorators.api_view` dá à classe que cria por
 # `type(...)`. Ele ajusta `__name__` e `__module__` da classe para os da função
 # embrulhada, mas NÃO o `__qualname__` — então duas views `@api_view` no mesmo
-# módulo teriam a mesma chave e uma sumiria da varredura (BL-176/B3, forma b).
+# módulo teriam a mesma chave e uma sumiria da varredura (BL-223/B3, forma b).
 NOME_DA_CLASSE_CRIADA_PELO_API_VIEW = "WrappedAPIView"
 
 # Nome da variável livre que `api_view` fecha sobre a função do desenvolvedor.
@@ -324,7 +324,7 @@ NOME_DA_CLASSE_CRIADA_PELO_API_VIEW = "WrappedAPIView"
 # política: sem desembrulhar, a view seria acusada mesmo aplicando a política
 # corretamente, e a saída para quem topasse com isso seria registrar a
 # superfície na lista de exceções — que é como um registro vazio deixa de ser
-# vazio pelo motivo errado (BL-177/B4). Se o DRF renomear a variável, o
+# vazio pelo motivo errado (BL-224/B4). Se o DRF renomear a variável, o
 # desembrulho falha e a view volta a ser ACUSADA: erra para o lado estrito.
 NOME_DA_FUNCAO_FECHADA_PELO_API_VIEW = "func"
 
@@ -333,7 +333,7 @@ def _mapa_de_escrita_do_simple_router():
     """`{"post": {"create"}, ...}` — o mapa padrão do `SimpleRouter`, lido do
     PRÓPRIO DRF (`routers.SimpleRouter.routes`), não copiado para cá.
 
-    Mesma escolha da BL-172 com o gerador de nomes de índice do Django: uma
+    Mesma escolha da BL-219 com o gerador de nomes de índice do Django: uma
     segunda cópia da gramática envelhece em silêncio; ler a fonte faz uma
     mudança do DRF aparecer como falha alta. `test_o_mapa_padrao_do_roteador_
     vem_do_proprio_drf` fixa o conteúdo esperado, para que a mudança seja
@@ -374,7 +374,7 @@ RAIZ = pathlib.Path(__file__).resolve().parents[3]
 #
 # A última entrada que existiria aqui era `apps.empresas.views.criar_empresa`,
 # a tela de cadastro de empresa: única superfície de escrita do repositório
-# sem a política, encontrada por ESTA varredura na segunda rodada da DL-019 e
+# sem a política, encontrada por ESTA varredura na segunda rodada da DL-020 e
 # corrigida no mesmo passo (ver `_contrato_da_tela_de_empresa`), em vez de
 # registrada como exceção.
 SUPERFICIES_DE_ESCRITA_SEM_POLITICA = {}
@@ -382,7 +382,7 @@ SUPERFICIES_DE_ESCRITA_SEM_POLITICA = {}
 # Formato: {"caminho.pontilhado.da.view": "razão escrita"} para uma view de
 # função alcançável pelo urlconf que não declare os métodos que aceita. Vazio,
 # e vazio é o estado desejado: a declaração custa uma linha e é o que impede
-# a fuga (1) da BL-170 de voltar.
+# a fuga (1) da BL-217 de voltar.
 VIEWS_DE_FUNCAO_SEM_DECLARACAO_DE_METODOS = {}
 
 # Formato: {"arquivo:linha": "razão escrita"} para um `ContratoDeRequisicao`
@@ -405,7 +405,7 @@ def nomes_chamados(fonte):
     contrato):` contém o texto `recusar_dado_nao_contratado(`, então
     `"recusar_dado_nao_contratado(" in inspect.getsource(...)` seria
     verdadeiro para a própria ponte, para um comentário que a citasse e para
-    um `import`. É exatamente o M17 da BL-150, na mesma etapa.
+    um `import`. É exatamente o M17 da BL-197, na mesma etapa.
     """
     arvore = ast.parse(textwrap.dedent(fonte))
     nomes = set()
@@ -481,7 +481,7 @@ def metodos_http_declarados(objeto):
     """Métodos HTTP que os decoradores de `objeto` declaram, em maiúsculas, ou
     `None` quando não há declaração nenhuma.
 
-    BL-170. Este é o substituto da heurística textual `"request.method" in
+    BL-217. Este é o substituto da heurística textual `"request.method" in
     fonte`, e a diferença é de natureza: aqui a resposta é um **fato do
     objeto** (o que `@require_POST`/`@require_http_methods` fechou sobre a
     função), não uma substring que pode simplesmente não estar no arquivo. A
@@ -521,7 +521,7 @@ def metodos_http_declarados(objeto):
 # ponto em que uma rota pode sair da varredura sem ninguém ver, e
 # `test_toda_rota_fora_dos_apps_e_de_terceiro_conhecido` exige que tudo o que
 # ele descarta caia num destes prefixos. As rotas do admin do Django ficam
-# aqui — a varredura do admin contra as regras de negócio é a BL-164.
+# aqui — a varredura do admin contra as regras de negócio é a BL-211.
 PREFIXOS_DE_MODULO_DE_TERCEIROS = ("django.", "rest_framework.")
 
 
@@ -531,7 +531,7 @@ class RotaDescoberta(NamedTuple):
     `acoes` é `{"post": "create"}` — o que `ViewSetMixin.as_view` pendurou no
     callback — ou `None` quando a rota não é de `ViewSet`. Guardar a rota
     inteira, e não só o alvo, é o que permite UNIR as ações das várias rotas do
-    mesmo `ViewSet` em vez de deixar uma sobrescrever a outra (BL-176/B3).
+    mesmo `ViewSet` em vez de deixar uma sobrescrever a outra (BL-223/B3).
     """
 
     alvo: object
@@ -542,7 +542,7 @@ class RotaDescoberta(NamedTuple):
 def _acoes_ligadas_pelo_roteador(callback, initkwargs):
     """O `actions` que o roteador do DRF ligou neste callback, ou `None`.
 
-    A FONTE é `callback.actions` (BL-174). `initkwargs["actions"]` fica como
+    A FONTE é `callback.actions` (BL-221). `initkwargs["actions"]` fica como
     retaguarda porque um roteador de terceiro poderia passá-lo por
     `as_view(actions=...)` — mas o `SimpleRouter`/`DefaultRouter` do DRF nunca
     põe nada ali, e é por ter tratado a retaguarda como fonte que a varredura
@@ -561,12 +561,12 @@ def _percorrer_callbacks(padroes):
     filtro de módulo — é sobre esta lista crua que o filtro de terceiros é
     medido.
 
-    Recebe os padrões como PARÂMETRO para que a demonstração da BL-174 possa
+    Recebe os padrões como PARÂMETRO para que a demonstração da BL-221 possa
     registrar um `ViewSet` num `DefaultRouter` de verdade e ser lida por ESTE
     caminho, o mesmo do teste principal. Os dois mutantes anteriores passavam
     `initkwargs={"actions": ...}` à mão, numa forma que o roteador nunca
     produz, e por isso provavam um caminho que a produção não percorre — é
-    exatamente o que deixou a BL-174 passar.
+    exatamente o que deixou a BL-221 passar.
     """
     encontrados = []
 
@@ -600,7 +600,7 @@ def nome_do_alvo(alvo):
     DRF cria: nesse caso vale `__name__`, que o decorador ajusta para o nome da
     função do desenvolvedor. Sem isso, duas views `@api_view` no mesmo módulo
     produzem a mesma chave e **uma desaparece da varredura** — medido na
-    BL-176/B3 e preso por `test_duas_views_api_view_no_mesmo_modulo_nao_
+    BL-223/B3 e preso por `test_duas_views_api_view_no_mesmo_modulo_nao_
     colidem`.
     """
     qualname = getattr(alvo, "__qualname__", None) or getattr(alvo, "__name__", "")
@@ -631,7 +631,7 @@ class AlvoAlcancavel(NamedTuple):
     `initkwargs_das_rotas` é a tupla dos `initkwargs` de CADA rota deste alvo,
     guardados um a um e nunca fundidos: `dispatch()` resolve por rota, e duas
     rotas do mesmo alvo podem permitir métodos diferentes. Descartá-los aqui
-    foi o BL-183/C1 — a rota ampliava `http_method_names`, a varredura lia o da
+    foi o BL-230/C1 — a rota ampliava `http_method_names`, a varredura lia o da
     classe, e a superfície de escrita ficava invisível. O campo é OBRIGATÓRIO
     de propósito: com um padrão, o próximo caminho de construção voltaria ao
     comportamento antigo sem ninguém decidir.
@@ -649,10 +649,10 @@ def _alvos_de(rotas):
     gera duas entradas com a mesma chave — `{"get": "list", "post": "create"}`
     na rota de lista e `{"get": "retrieve", "put": "update", ...}` na de
     detalhe —, e a atribuição simples que existia aqui fazia a segunda apagar a
-    primeira, levando junto o POST de `create` (BL-176/B3, forma a; medido pelo
+    primeira, levando junto o POST de `create` (BL-223/B3, forma a; medido pelo
     auditor).
 
-    O mesmo molde vale para os `initkwargs` (BL-183/C1): eles são ACUMULADOS,
+    O mesmo molde vale para os `initkwargs` (BL-230/C1): eles são ACUMULADOS,
     rota a rota. Duas rotas do mesmo alvo, uma com `http_method_names` ampliado
     e outra sem, precisam somar os métodos — se a segunda sobrescrevesse a
     primeira, a superfície de escrita ampliada sumiria, que é exatamente o
@@ -684,7 +684,7 @@ def colisoes_de_chave(rotas):
     DIFERENTES reivindicam.
 
     Colisão de chave não é detalhe de implementação: é uma rota alcançável
-    sumindo da varredura em silêncio, que é a classe inteira da BL-176.
+    sumindo da varredura em silêncio, que é a classe inteira da BL-223.
     """
     por_caminho = {}
     for rota in rotas:
@@ -709,8 +709,8 @@ def _alvos_alcancaveis():
     requisição"), e não de nome de módulo mais heurística de substring.
     `view_class` é o atributo que o Django pendura em `View.as_view()`; `cls`,
     o que o DRF pendura em `APIView.as_view()`; `callback.actions`, o que o
-    roteador do DRF ligou num `ViewSet` — é ele que fecha a fuga (2) da BL-170
-    de verdade, depois da BL-174.
+    roteador do DRF ligou num `ViewSet` — é ele que fecha a fuga (2) da BL-217
+    de verdade, depois da BL-221.
 
     As `APIView` definidas em `apps/**/views*.py` e ainda SEM rota entram
     depois, sem ações ligadas: custa nada, e uma view de escrita escrita hoje e
@@ -763,7 +763,7 @@ def acoes_de_escrita_ligadas(classe, acoes_por_metodo):
     """`{"post": {"create", "importar"}, ...}` para um `ViewSet`, ou `None`
     quando a classe não é `ViewSet` (aí quem responde é `http_method_names`).
 
-    Duas situações, e a diferença entre elas é toda a BL-174:
+    Duas situações, e a diferença entre elas é toda a BL-221:
 
     1. **Com rota** (`acoes_por_metodo` veio de `callback.actions`): manda o
        que o roteador de fato ligou, `@action` de nome próprio inclusive. Não
@@ -771,7 +771,7 @@ def acoes_de_escrita_ligadas(classe, acoes_por_metodo):
     2. **Sem rota** (`ViewSet` escrito hoje, roteado amanhã): a retaguarda é o
        mapa padrão do `SimpleRouter` UNIDO a `cls.get_extra_actions()` — as
        duas únicas fontes de que o `SimpleRouter` dispõe para montar URLs. A
-       união é o que impede o defeito da BL-174 de voltar pela porta da
+       união é o que impede o defeito da BL-221 de voltar pela porta da
        retaguarda: só o mapa fixo devolveria `{}` para um `ViewSet` puro com
        `@action`, e `{}` é o lado errado do erro. Quando a união é vazia, isso
        é um FATO conferível sobre a classe (nenhum dos nomes padrão e nenhuma
@@ -864,7 +864,7 @@ def initkwargs_nao_suportados(initkwargs_das_rotas):
 class Superficie(NamedTuple):
     """Uma superfície de escrita descoberta.
 
-    `nome_efetivo` é o nome pelo qual o ELO DE EXECUÇÃO (BL-171) reconhece esta
+    `nome_efetivo` é o nome pelo qual o ELO DE EXECUÇÃO (BL-218) reconhece esta
     superfície na pilha, e ele identifica a superfície INTEIRA — os mesmos
     segmentos da chave, método HTTP incluído:
     `modulo.Classe.metodo`, `modulo.Classe.acao.metodo`, `modulo.funcao.metodo`.
@@ -874,9 +874,9 @@ class Superficie(NamedTuple):
 
     - o nome é da CLASSE ROTEADA, não do código que define o handler — duas
       rotas que compartilhem o handler de um mixin têm nomes distintos
-      (BL-179/B6);
+      (BL-226/B6);
     - o nome carrega o MÉTODO — um handler ligado a POST e a PUT tem duas
-      superfícies e dois nomes, e exercitar uma não marca a outra (BL-185/C3).
+      superfícies e dois nomes, e exercitar uma não marca a outra (BL-232/C3).
 
     Que `nome_efetivo` coincida com a chave é invariante, e está preso por
     `test_o_nome_efetivo_de_toda_superficie_e_a_propria_chave`.
@@ -899,8 +899,8 @@ def superficies_de_escrita(alvos):
       SABE classificar, e por isso reprova em vez de presumir leitura.
 
     Recebe os alvos como PARÂMETRO, e não os busca por conta própria, para que
-    os mutantes da BL-170 e da BL-174 possam ser reconstruídos dentro do
-    próprio arquivo (molde da BL-150), sem depender de ninguém ter registrado
+    os mutantes da BL-217 e da BL-221 possam ser reconstruídos dentro do
+    próprio arquivo (molde da BL-197), sem depender de ninguém ter registrado
     que viu a suíte falhar e sem tocar em nenhuma view real.
     """
     superficies = {}
@@ -933,10 +933,10 @@ def superficies_de_escrita(alvos):
                 continue
             for metodo, nomes in sorted(ligadas.items()):
                 for nome_da_acao in sorted(nomes):
-                    # O MÉTODO entra no nome efetivo (BL-185/C3): uma `@action`
+                    # O MÉTODO entra no nome efetivo (BL-232/C3): uma `@action`
                     # ligada a POST e a PUT tem duas superfícies e precisa de
                     # dois nomes, senão exercitar uma marca a outra no elo da
-                    # BL-171.
+                    # BL-218.
                     nome = f"{caminho}.{nome_da_acao}.{metodo}"
                     handler = getattr(alvo, nome_da_acao, None)
                     if handler is None:
@@ -961,7 +961,7 @@ def superficies_de_escrita(alvos):
             )
             continue
         for metodo in sorted(declarados & METODOS_DE_ESCRITA_EM_MAIUSCULAS):
-            # Idem BL-185/C3 para a view de função: `@require_http_methods(
+            # Idem BL-232/C3 para a view de função: `@require_http_methods(
             # ["POST", "PUT"])` produz duas superfícies, e o nome efetivo sem o
             # método fazia um teste de POST marcar o PUT como exercitado.
             nome = f"{caminho}.{metodo.lower()}"
@@ -980,7 +980,7 @@ def funcao_embrulhada_por_api_view(handler):
     política: sem desembrulhar, uma view `@api_view(["POST"])` é acusada mesmo
     aplicando a política corretamente, e a única saída de quem topasse com isso
     seria registrar a superfície na lista de exceções — que é como um registro
-    vazio deixa de ser vazio pelo motivo errado (BL-177/B4).
+    vazio deixa de ser vazio pelo motivo errado (BL-224/B4).
 
     Lê a variável livre pelo mesmo mecanismo com que `metodos_http_declarados`
     lê o decorador do Django, e com a mesma direção de erro: se o DRF renomear
@@ -1016,7 +1016,7 @@ def superficies_de_escrita_sem_politica(alvos=None):
         try:
             fonte = inspect.getsource(handler)
         except (OSError, TypeError) as erro:
-            # BL-184/C2. `continue` aqui APROVAVA: a superfície era descoberta
+            # BL-231/C2. `continue` aqui APROVAVA: a superfície era descoberta
             # e sumia da acusação, em silêncio, e este era o único ramo do
             # arquivo a errar para o lado permissivo — marcado, ainda por
             # cima, como declaradamente não exercitado. Handler sem fonte
@@ -1052,7 +1052,7 @@ def _arquivos_de_producao_dos_apps():
     """
     for caminho in sorted((RAIZ / "apps").rglob("*.py")):
         partes = caminho.relative_to(RAIZ).with_suffix("").parts
-        # Mesma função que o elo de execução usa (BL-181/B7): duas regras
+        # Mesma função que o elo de execução usa (BL-228/B7): duas regras
         # diferentes para "isto é código de teste?" é como as duas ficaram com
         # o mesmo buraco sem ninguém notar.
         if conftest.e_codigo_de_teste(".".join(partes)):
@@ -1131,7 +1131,7 @@ def test_a_varredura_encontra_as_superficies_de_escrita_de_hoje():
     """Controle: se a descoberta quebrar, o teste principal passaria a varrer
     um conjunto vazio e "nenhuma falta" viraria vácuo.
 
-    BL-170, item 3 da correção: este controle usa **o mesmo caminho** do teste
+    BL-217, item 3 da correção: este controle usa **o mesmo caminho** do teste
     principal (`superficies_de_escrita(_alvos_alcancaveis())`). Antes ele
     contava pelo urlconf enquanto o teste principal varria por módulo — dois
     conjuntos diferentes, e o controle não protegia a metade que podia
@@ -1151,7 +1151,7 @@ def test_cada_superficie_de_escrita_conhecida_continua_visivel_a_varredura(super
     sair da varredura em silêncio, que é a forma mais fácil de uma varredura
     passar a não medir nada.
 
-    A pergunta mudou com a BL-170: antes era "o atributo ainda existe?"
+    A pergunta mudou com a BL-217: antes era "o atributo ainda existe?"
     (`getattr(classe, "post")`), que é justamente a pergunta que devolvia
     `None` para todo `ViewSet`. Agora é "a varredura ainda enxerga esta
     superfície?", que é a pergunta que o teste principal faz.
@@ -1223,7 +1223,7 @@ def test_o_filtro_de_terceiros_esta_de_fato_descartando_o_admin():
 
 
 def test_toda_view_de_funcao_alcancavel_declara_os_metodos_que_aceita():
-    """BL-170, fuga (1). A varredura só pode dizer "isto não é superfície de
+    """BL-217, fuga (1). A varredura só pode dizer "isto não é superfície de
     escrita" quando tem um FATO em que se apoiar. Sem declaração de métodos
     ela não tem — e a resposta certa para "não sei" é reprovar nomeando a
     view, nunca presumir leitura.
@@ -1305,7 +1305,7 @@ def test_a_varredura_de_contratos_enxerga_os_contratos_de_hoje():
 
 
 # ---------------------------------------------------------------------------
-# As demonstrações, reconstruídas dentro do próprio teste (molde BL-150)
+# As demonstrações, reconstruídas dentro do próprio teste (molde BL-197)
 #
 # As duas primeiras são as DUAS FUGAS que o auditor mediu na rodada 1 (A1),
 # reconstruídas aqui para a prova não depender de ninguém ter registrado que
@@ -1335,7 +1335,7 @@ def test_a_varredura_reprova_superficie_de_escrita_sem_a_politica():
 
 
 def test_a_varredura_nao_se_satisfaz_com_mencao_em_comentario_ou_def():
-    """O M17 da BL-150 reconstruído nesta varredura: as três formas de o nome
+    """O M17 da BL-197 reconstruído nesta varredura: as três formas de o nome
     da política aparecer no fonte SEM ninguém chamá-la. Uma varredura por
     substring aprovaria as três."""
     so_no_comentario = """
@@ -1371,7 +1371,7 @@ def test_a_varredura_reprova_contrato_sem_campos_e_com_campos_none():
     assert contratos_sem_campos_explicitos(com_campos, "fonte") == []
 
 
-# --- Fuga (1) da BL-170: a view de função que grava sem gatilho textual -----
+# --- Fuga (1) da BL-217: a view de função que grava sem gatilho textual -----
 
 
 @login_required
@@ -1415,7 +1415,7 @@ def _mutante_conta_nova_json_com_politica(
 @login_required
 @require_http_methods(["POST", "PUT"])
 def _mutante_importar_por_post_e_put(request):  # pragma: no cover - objeto de medição
-    """View de função ligada a DOIS métodos de escrita (BL-185/C3): duas
+    """View de função ligada a DOIS métodos de escrita (BL-232/C3): duas
     superfícies, e antes da correção um só nome efetivo para as duas."""
     from apps.core.requisicao import recusar_dado_nao_contratado
 
@@ -1440,7 +1440,7 @@ def _gravar_conta_ficticia(empresa_id, codigo, nome):  # pragma: no cover - obje
 
 
 def test_a_varredura_enxerga_view_de_funcao_que_grava_sem_mencionar_request_post():
-    """Fuga (1) da BL-170, reconstruída e medida aqui dentro."""
+    """Fuga (1) da BL-217, reconstruída e medida aqui dentro."""
     fonte = inspect.getsource(_mutante_conta_nova_json)
 
     # O fato que tornava a heurística textual falsa, preso como asserção: a
@@ -1486,7 +1486,7 @@ def test_a_varredura_reprova_view_de_funcao_sem_declaracao_de_metodos():
     assert set(nao_classificadas) == {"apps.ficticio.views.tela_nova"}
 
 
-# --- Fuga (2) da BL-170: o ViewSet do DRF ----------------------------------
+# --- Fuga (2) da BL-217: o ViewSet do DRF ----------------------------------
 
 
 class _MutanteContaViewSetSemContrato(viewsets.ModelViewSet):
@@ -1599,11 +1599,11 @@ def test_a_varredura_aprova_o_viewset_que_aplica_a_politica():
     assert superficies_de_escrita_sem_politica(alvos) == {}
 
 
-# --- BL-174: o ViewSet PURO com @action, roteado por um DefaultRouter real --
+# --- BL-221: o ViewSet PURO com @action, roteado por um DefaultRouter real --
 #
 # Os mutantes acima passam as ações à mão. Isso é suficiente para medir a
 # CLASSIFICAÇÃO, e insuficiente para medir a DESCOBERTA — e foi exatamente aí
-# que a BL-174 se escondeu por uma rodada inteira: o roteador nunca produz
+# que a BL-221 se escondeu por uma rodada inteira: o roteador nunca produz
 # `initkwargs={"actions": ...}`, então o caminho que os mutantes provavam não
 # era o que a produção percorria. Os quatro testes abaixo partem de um
 # `DefaultRouter` de verdade e são lidos pelo MESMO caminho do teste principal
@@ -1646,7 +1646,7 @@ def _rotas_de_um_roteador_real(viewset, basename):
 
 
 def test_o_roteador_do_drf_poe_actions_no_callback_e_nao_no_initkwargs():
-    """BL-175/B2: a afirmação sobre o DRF vira asserção SOBRE o DRF.
+    """BL-222/B2: a afirmação sobre o DRF vira asserção SOBRE o DRF.
 
     O arquivo diz, em três lugares, que os métodos vêm do que o roteador liga.
     Enquanto isso era prosa, ele afirmou durante uma rodada inteira que lia
@@ -1716,7 +1716,7 @@ def test_o_mapa_padrao_do_roteador_vem_do_proprio_drf():
 
 
 def test_a_varredura_enxerga_action_de_escrita_de_nome_proprio_em_roteador_real():
-    """**O mutante da BL-174.** `ViewSet` puro com `@action(detail=False,
+    """**O mutante da BL-221.** `ViewSet` puro com `@action(detail=False,
     methods=["post"])` que grava, roteado por um `DefaultRouter` de verdade.
 
     Antes da correção este caso produzia ZERO superfícies. Agora a superfície
@@ -1773,7 +1773,7 @@ def test_a_retaguarda_enxerga_action_de_nome_proprio_em_viewset_sem_rota():
 
 
 def test_as_duas_rotas_de_um_viewset_nao_se_apagam():
-    """BL-176/B3, forma (a). Um `ViewSet` roteado gera duas rotas com o mesmo
+    """BL-223/B3, forma (a). Um `ViewSet` roteado gera duas rotas com o mesmo
     `modulo.qualname`: a de lista (`{"get": "list", "post": "create"}`) e a de
     detalhe (`{"get": "retrieve", "put": "update", ...}`).
 
@@ -1803,7 +1803,7 @@ def test_as_duas_rotas_de_um_viewset_nao_se_apagam():
     }
 
 
-# --- BL-176/B3, forma (b), e BL-177/B4: as views de `@api_view` -------------
+# --- BL-223/B3, forma (b), e BL-224/B4: as views de `@api_view` -------------
 
 
 @api_view(["POST"])
@@ -1823,7 +1823,7 @@ def _mutante_importar_sped(request):  # pragma: no cover - objeto de medição
 
 
 def test_duas_views_api_view_no_mesmo_modulo_nao_colidem():
-    """BL-176/B3, forma (b). `api_view` cria a classe por `type(...)` e ajusta
+    """BL-223/B3, forma (b). `api_view` cria a classe por `type(...)` e ajusta
     `__name__` e `__module__`, **mas não `__qualname__`** — as duas ficam
     `WrappedAPIView`. Com a chave por qualname, uma das duas DESAPARECIA da
     varredura em silêncio."""
@@ -1880,7 +1880,7 @@ def test_nenhuma_chave_de_alvo_colide_no_urlconf_real():
 
 
 def test_api_view_que_aplica_a_politica_nao_e_acusada():
-    """BL-177/B4. O handler que `api_view` instala é a função `handler` do
+    """BL-224/B4. O handler que `api_view` instala é a função `handler` do
     PRÓPRIO DRF, e `inspect.getsource` dela devolve fonte de terceiro que nunca
     chama a política: sem desembrulhar, a view seria acusada mesmo aplicando a
     política corretamente, e a saída de quem topasse com isso seria registrar a
@@ -1896,7 +1896,7 @@ def test_api_view_que_aplica_a_politica_nao_e_acusada():
     embrulhada = funcao_embrulhada_por_api_view(handler)
     # Asserção antes de uso: se o desembrulho parar de funcionar, a morte deste
     # teste é por ASSERÇÃO NOMEADA e não por `AttributeError` num `None` — o
-    # ponto fraco que a BL-169 registrou honestamente no mutante 11.
+    # ponto fraco que a BL-216 registrou honestamente no mutante 11.
     assert embrulhada is not None, (
         "O desembrulho do @api_view parou de achar a função do desenvolvedor. "
         "A varredura volta a ler o fonte do DRF e a acusar toda @api_view, e a "
@@ -1924,7 +1924,7 @@ def test_api_view_que_nao_aplica_a_politica_continua_acusada():
     }
 
 
-# --- BL-179/B6: duas rotas que compartilham o handler de um mixin -----------
+# --- BL-226/B6: duas rotas que compartilham o handler de um mixin -----------
 
 
 class _MutanteMixinDeImportacao(APIView):
@@ -1947,7 +1947,7 @@ class _MutanteImportarSpedView(_MutanteMixinDeImportacao):
 
 
 def test_duas_superficies_com_o_mesmo_handler_tem_nomes_efetivos_distintos():
-    """BL-179/B6. O registro do elo de execução aceitava
+    """BL-226/B6. O registro do elo de execução aceitava
     `f"{modulo}.{qualname}"` do handler — e o qualname do handler de um mixin é
     o MESMO nos dois. Exercitar uma rota marcava a outra como exercitada, sem
     ninguém a ter tocado.
@@ -1971,7 +1971,7 @@ def test_duas_superficies_com_o_mesmo_handler_tem_nomes_efetivos_distintos():
     assert sped.nome_efetivo == "apps.ficticio.views.ImportarSpedView.post"
 
 
-# --- BL-181/B8: a fronteira "middleware", declarada e conferível ------------
+# --- BL-228/B8: a fronteira "middleware", declarada e conferível ------------
 
 
 def test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo():
@@ -1989,7 +1989,7 @@ def test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo():
     )
 
 
-# --- BL-183/C1: o `http_method_names` que a ROTA amplia ---------------------
+# --- BL-230/C1: o `http_method_names` que a ROTA amplia ---------------------
 #
 # A terceira fuga da mesma família, e a razão de esta seção existir com um
 # teste de PRECEDÊNCIA na frente dos mutantes: enquanto "é assim que o
@@ -1997,7 +1997,7 @@ def test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo():
 # Aqui os dois valores existem, divergem, e o teste mede qual vence.
 #
 # As rotas destes mutantes vêm de `path()` de verdade — passar `initkwargs` à
-# mão foi o que deixou a BL-174 se esconder por uma rodada inteira.
+# mão foi o que deixou a BL-221 se esconder por uma rodada inteira.
 
 
 class _MutanteEstreitaViewSemContrato(APIView):
@@ -2133,7 +2133,7 @@ def test_a_varredura_aprova_a_mesma_view_estreita_quando_ela_aplica_a_politica()
 
 
 def test_a_rota_que_restringe_nao_apaga_a_rota_que_amplia():
-    """BL-183, item 1: rotas do mesmo alvo UNEM os métodos, nunca
+    """BL-230, item 1: rotas do mesmo alvo UNEM os métodos, nunca
     sobrescrevem — o mesmo molde já usado para as ações de `ViewSet`.
 
     Duas rotas para a mesma classe, uma sem `initkwargs` e outra ampliando, nas
@@ -2179,7 +2179,7 @@ def _outro_post(request):  # pragma: no cover - objeto de medição
 
 
 def test_a_varredura_reprova_initkwargs_que_ela_nao_sabe_resolver():
-    """BL-183, item 2: a generalização.
+    """BL-230, item 2: a generalização.
 
     `http_method_names` não é o único `initkwargs` capaz de mudar o despacho.
     `as_view(post=outra_funcao)` é ACEITO pelo Django sempre que `post` não
@@ -2255,7 +2255,7 @@ def test_nenhuma_rota_do_urlconf_real_usa_initkwargs_desconhecido():
     )
 
 
-# --- BL-184/C2: fonte ilegível reprova, e não aprova em silêncio ------------
+# --- BL-231/C2: fonte ilegível reprova, e não aprova em silêncio ------------
 
 
 class _MutanteSemFonteView(APIView):
@@ -2298,7 +2298,7 @@ _MutanteSemFonteView.post = _handler_compilado_em_memoria()
 
 
 def test_a_varredura_reprova_a_superficie_cujo_fonte_ela_nao_consegue_ler():
-    """BL-184/C2. `except (OSError, TypeError): continue` APROVAVA: a
+    """BL-231/C2. `except (OSError, TypeError): continue` APROVAVA: a
     superfície era descoberta e sumia da acusação, em silêncio, no único ramo
     do arquivo que errava para o lado permissivo."""
     with pytest.raises((OSError, TypeError)):
@@ -2326,7 +2326,7 @@ def test_a_varredura_aprova_a_mesma_superficie_quando_o_fonte_existe_e_tem_polit
     assert superficies_de_escrita_sem_politica(alvos) == {}
 
 
-# --- BL-185/C3: o nome efetivo carrega o método HTTP ------------------------
+# --- BL-232/C3: o nome efetivo carrega o método HTTP ------------------------
 
 
 class _MutanteDoisMetodosViewSet(viewsets.ViewSet):
@@ -2334,7 +2334,7 @@ class _MutanteDoisMetodosViewSet(viewsets.ViewSet):
     ação) deixa de identificar a superfície.
 
     A varredura já produzia duas CHAVES aqui; o que colapsava era o
-    `nome_efetivo`, que é o nome pelo qual o elo de execução (BL-171) reconhece
+    `nome_efetivo`, que é o nome pelo qual o elo de execução (BL-218) reconhece
     a superfície. Duas chaves e um nome efetivo faziam exercitar o POST marcar
     o PUT como exercitado.
     """
@@ -2348,7 +2348,7 @@ class _MutanteDoisMetodosViewSet(viewsets.ViewSet):
 
 
 def test_um_handler_ligado_a_dois_metodos_tem_dois_nomes_efetivos():
-    """BL-185/C3, a metade da varredura. Medido pelo auditor antes da
+    """BL-232/C3, a metade da varredura. Medido pelo auditor antes da
     correção: `chaves distintas = 2, nomes_efetivos distintos = 1`."""
     rotas = _rotas_de_um_roteador_real(_MutanteDoisMetodosViewSet, "dois-metodos")
 
@@ -2386,7 +2386,7 @@ def test_o_nome_efetivo_de_toda_superficie_e_a_propria_chave():
     que o elo de execução exige são o mesmo texto.
 
     Enquanto os dois divergiam, a diferença era silenciosa — a conferência da
-    BL-171 continuava verde marcando uma superfície por outra. Aqui a
+    BL-218 continuava verde marcando uma superfície por outra. Aqui a
     coincidência é verificada nas três formas de uma vez (view de função,
     classe comum e ação de `ViewSet`, se houver)."""
     superficies, _ = superficies_de_escrita(_alvos_alcancaveis())

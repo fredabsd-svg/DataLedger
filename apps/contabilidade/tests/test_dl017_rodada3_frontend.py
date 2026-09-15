@@ -371,7 +371,7 @@ def test_indice_acima_do_teto_de_seguranca_nunca_e_capado_em_silencio(client, ce
     reabriria a perda do achado 5 quando o teto de NEGÓCIO subisse:
     nenhuma linha de código mudaria, e a perda voltaria.
 
-    RC-79/BL-160 (rodada 6) — **o dia previsto aqui chegou**: o Fred
+    RC-79/BL-207 (rodada 6) — **o dia previsto aqui chegou**: o Fred
     confirmou o teto de negócio em 200, o teto de segurança subiu para 400
     junto (é o que a verificação abaixo força), e o índice deste teste
     passou a ser derivado do teto em vez de escrito como "201". Com "201"

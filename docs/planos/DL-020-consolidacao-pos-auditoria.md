@@ -1,4 +1,4 @@
-# DL-019 — Consolidação pós-auditoria e as quatro regras confirmadas
+# DL-020 — Consolidação pós-auditoria e as quatro regras confirmadas
 
 **Estado:** planejada em 2026-09-15, logo após a integração da
 [DL-017](DL-017-interface-da-contabilidade.md) na `main` (PR #19, `60cbcff`).
@@ -12,7 +12,7 @@ código. São catorze itens pequenos.
 A razão de consolidar antes de começar a importação fiscal é **uma só**, e não é
 perfeccionismo:
 
-> **BL-151: um lançamento com a data errada não aparece em nenhuma tela de
+> **BL-198: um lançamento com a data errada não aparece em nenhuma tela de
 > operação normal.** Nem Diário, nem Razão, nem Balancete, nem Conferência. O
 > balancete do período **concilia**, então nenhuma conferência acusa. Para
 > encontrar, o contador precisa suspeitar e alargar o período até o ano 9999.
@@ -25,7 +25,7 @@ alternativa é reabrir estes arquivos no meio da DL-010. **Foi exatamente esse
 padrão — mexer adiante deixando o vizinho aberto — que custou seis rodadas.**
 
 E há um aviso concreto do auditor: as duas `CheckConstraint` de canonização de
-CNPJ (BL-157) vazam `IntegrityError` cru por `bulk_create` — que é o caminho
+CNPJ (BL-204) vazam `IntegrityError` cru por `bulk_create` — que é o caminho
 natural de uma importação em lote. **A armadilha já está apontada para a
 DL-010.**
 
@@ -34,7 +34,7 @@ DL-010.**
 Fechar as catorze pendências sem abrir nenhuma nova, e deixar o sistema pronto
 para a etapa fiscal começar em terreno limpo.
 
-## ⚠️ Ordem obrigatória no BL-148 — leia antes de tocar no instrumento
+## ⚠️ Ordem obrigatória no BL-195 — leia antes de tocar no instrumento
 
 O auditor mediu, 3 de 3, que **a correção óbvia reabre o bloqueador da rodada
 5**:
@@ -55,7 +55,7 @@ outro job do mesmo commit acusa `timeout de 10s`, contra os **30 s** da mediçã
 real.
 
 Consequência: as duas medições de CSS por efeito **nunca rodaram na CI, em
-nenhuma rodada**. Fechar o BL-148 é o que finalmente as faz rodar.
+nenhuma rodada**. Fechar o BL-195 é o que finalmente as faz rodar.
 
 ## As quatro regras confirmadas pelo Fred em 2026-09-15
 
@@ -78,13 +78,13 @@ proposta concreta antes de perguntar — presumir regra contábil é o que o
 | `especialista-frontend` | `apps/contabilidade/views_web.py`, `urls_web.py`, `templates/**`, `static/**`, `test_dl017_*`, `test_dl019_frontend*`, `docs/assets/telas/*.png` |
 | `arquiteto-senior` | documentação, `.github/workflows/**`, e a costura |
 
-**O ponto de encontro é o BL-149**, que atravessa as duas listas: a política dos
+**O ponto de encontro é o BL-196**, que atravessa as duas listas: a política dos
 cinco dicionários precisa morar **num lugar só**. O `desenvolvedor-pleno` cria o
 módulo em `apps/core/`; o `especialista-frontend` o aplica às duas telas.
 Combinem a assinatura antes — vocês já fizeram isso duas vezes com bom
 resultado.
 
-## Uma armadilha conhecida no BL-160
+## Uma armadilha conhecida no BL-207
 
 Subir o teto de partidas para 200 **exige subir junto** o teto de segurança de
 leitura. As duas constantes estão amarradas por uma verificação que reprova se
@@ -95,14 +95,14 @@ teto de negócio mudasse. **Ela vai reprovar, e isso é o mecanismo funcionando.
 ## Critérios de aceite
 
 Os critérios de cada item estão no
-[backlog](../projeto/backlog.md), **BL-148 a BL-161**, escritos pelo **efeito
+[backlog](../projeto/backlog.md), **BL-195 a BL-208**, escritos pelo **efeito
 proibido** (DE-032) e cobrindo as outras superfícies (DE-034). Não os repito
 aqui — repetir é como o `estado.md` divergiu três vezes.
 
 Acrescento três que valem para a etapa inteira:
 
 1. **Nenhum fato gravado fica invisível em todas as saídas de uso normal.** É o
-   BL-151, e é a razão de a etapa existir.
+   BL-198, e é a razão de a etapa existir.
 2. **A DE-034 é percorrida item por item, por escrito, no relatório de entrega.**
    Ela tem três itens numerados; a rodada 6 executou dois, e o não executado foi
    onde ficou o maior resíduo. *Regra numerada que se cumpre por leitura vira
@@ -112,9 +112,9 @@ Acrescento três que valem para a etapa inteira:
 
 ## Riscos
 
-- **BL-148 é o único item com ordem obrigatória**, e errar a ordem reabre um
+- **BL-195 é o único item com ordem obrigatória**, e errar a ordem reabre um
   bloqueador já fechado. Está em letras grandes acima e no backlog.
-- **BL-149 atravessa os dois responsáveis.** Duas implementações da mesma
+- **BL-196 atravessa os dois responsáveis.** Duas implementações da mesma
   política é o risco que a DE-026 existe para impedir.
 - **A tentação de aproveitar e mexer noutra coisa.** Esta etapa é consolidação:
   o escopo é fechar catorze itens, não melhorar o que já passou.
@@ -132,3 +132,51 @@ migração de reparo não foi avaliada.
 - **Branch de trabalho:** `claude/accounting-agent-team-setup-mn6lyf`, reiniciada
   a partir da `main` depois do PR #19.
 - **Branch de destino:** `main`.
+
+## ⚠️ Esta etapa se chamava DL-019, e foi renumerada — tabela de correspondência
+
+**Duas sessões trabalharam em paralelo sem saber uma da outra**, e as duas
+partiram do mesmo commit (`60cbcff`) usando o identificador **DL-019**: esta, de
+consolidação da contabilidade, e a de portabilidade dos papéis de agente entre
+ferramentas de IA, que entrou na `main` primeiro (PR #20, 2026-09-15 11:32Z).
+
+A colisão foi detectada por duas vias independentes: pelo `arquiteto-senior`, ao
+ensaiar a renumeração, e — **sem ter sido informado** — pelo `auditor-qa`, que a
+mediu por `git ls-tree` e pela API de pedidos de integração e a registrou como
+**achado D4** da [rodada 4](../auditorias/2026-09-15-dl-020-rodada-4.md).
+
+O Fred autorizou renumerar **esta**, por ser a que ainda não estava integrada.
+
+### O que mudou
+
+| Antes | Agora |
+| --- | --- |
+| `DL-019` (consolidação pós-auditoria) | **`DL-020`** |
+| `docs/auditorias/2026-09-15-dl-019-rodada-{1,2,3,4}.md` | `…-dl-020-rodada-{1,2,3,4}.md` |
+| `BL-148` a `BL-193` | **`BL-195` a `BL-240`** (deslocamento de **+47**) |
+| `DE-035` (regime errado se corrige apagando) | **`DE-039`** |
+
+Para converter qualquer número citado nos relatórios: **some 47**. `BL-148` virou
+`BL-195`; `BL-183` virou `BL-230`; `BL-193` virou `BL-240`.
+
+### O que **não** mudou, e por quê
+
+1. **O conteúdo dos quatro relatórios de auditoria.** Eles foram **renomeados**,
+   nunca editados: seguem citando `BL-148` a `BL-193` e `DL-019`, que era a
+   numeração vigente quando foram escritos. **Relatório de auditoria não se
+   reescreve para caber em decisão posterior** — é para isso que esta tabela
+   existe. Nenhum relatório, de nenhuma das duas etapas, foi descartado.
+2. **O prefixo `test_dl019_*` dos arquivos de teste.** Renomeá-los faria os
+   relatórios preservados apontarem para arquivos inexistentes, o que é pior que
+   um prefixo desatualizado. Os arquivos `test_dl019_*` pertencem à etapa hoje
+   chamada DL-020.
+
+### A metade que o auditor viu e o arquiteto não
+
+Os identificadores `BL-xxx` são citados **dentro do código de teste**, como
+justificativa escrita de cada defesa, em dezenas de pontos. Sem renumerá-los
+junto, eles passariam a apontar para itens de outra demanda — e, nas palavras
+dele, *"essa metade é silenciosa: o Git não avisa"*. Os arquivos brigariam alto;
+as citações, não. **A renumeração do código foi feita no mesmo passo**, por
+substituição em duas fases com marcador intermediário, para nenhuma troca
+reescrever outra.

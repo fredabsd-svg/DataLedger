@@ -14,7 +14,7 @@
     <h1>Nova conta — {{ empresa.razao_social }}</h1>
 
     {% comment %}
-    R6-5/BL-152 (mesma razão do `lancamento_form.html`, ver o comentário
+    R6-5/BL-199 (mesma razão do `lancamento_form.html`, ver o comentário
     de lá): `action` explícito e sem querystring, para que um `<form>` sem
     `action` não reenvie a querystring da URL num POST que esta tela
     recusa.
@@ -51,7 +51,7 @@
         {% endfor %}
         {% if contas_mae_faltantes %}
             {% comment %}
-            RC-80/BL-161 — regra confirmada pelo Fred em 2026-09-15: conta
+            RC-80/BL-208 — regra confirmada pelo Fred em 2026-09-15: conta
             sem as contas-mãe **avisa e deixa criar**. A primeira tentativa
             não grava; ela volta aqui com os dados preenchidos, o aviso do
             que vai acontecer e um botão que DIZ o que vai acontecer.

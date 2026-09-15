@@ -222,7 +222,7 @@ def criar_lancamento(
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
 
-    # RC-79 / BL-160: teto de NEGÓCIO, verificado aqui porque este é o ponto
+    # RC-79 / BL-207: teto de NEGÓCIO, verificado aqui porque este é o ponto
     # por onde a tela e a API passam (ver o comentário de
     # `LIMITE_PARTIDAS_POR_LANCAMENTO`). Recusa NOMEANDO a quantidade
     # recebida e o teto — nunca truncar a lista e gravar um lote menor do
@@ -235,7 +235,7 @@ def criar_lancamento(
             "lançamento ou use importação."
         )
 
-    # RC-77 / BL-158: faixa de data, na mesma função e antes de qualquer
+    # RC-77 / BL-205: faixa de data, na mesma função e antes de qualquer
     # gravação. A gramática da data já foi julgada na fronteira de cada
     # superfície (`apps.core.datas.para_data`); o que falta, e que só o
     # domínio sabe, é se a data é plausível — ver `validar_data_de_lancamento`.
@@ -449,7 +449,7 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         if lancamento.estornos.exists():
             raise LancamentoInvalido("Este lançamento já foi estornado.")
 
-        # RC-78 / BL-159, confirmado pelo Fred em 2026-09-15: o estorno NUNCA
+        # RC-78 / BL-206, confirmado pelo Fred em 2026-09-15: o estorno NUNCA
         # pode ser datado antes do lançamento que ele reverte — recusar, e
         # não "permitir desde que registrado" (a escolha foi dele).
         #
@@ -730,11 +730,11 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     `total_debito`, `total_credito` (do período), `saldo_final` e
     `ids_contas`.
 
-    `ids_contas` (BL-165) é o conjunto EXATO de ids que esta apuração somou
+    `ids_contas` (BL-212) é o conjunto EXATO de ids que esta apuração somou
     — a conta e todas as descendentes, o que `_descendentes_de` devolveu.
     Está no resultado porque quem acabou de apurar o Razão costuma precisar
     do MESMO recorte para outra consulta da mesma requisição (hoje, o aviso
-    de movimento fora do período, BL-151), e `_descendentes_de` faz UMA
+    de movimento fora do período, BL-198), e `_descendentes_de` faz UMA
     CONSULTA POR NÍVEL de profundidade: recomputá-lo DOBRARIA o custo do
     Razão de um plano profundo. Devolver o conjunto é o que permite à
     segunda consulta ser barata — ver `movimento_fora_do_periodo`, que o
@@ -817,7 +817,7 @@ def apurar_razao(*, conta, empresa, inicio, fim):
         "total_debito": total_debito,
         "total_credito": total_credito,
         "saldo_final": saldo,
-        # BL-165: o recorte de contas desta apuração, para quem precisar do
+        # BL-212: o recorte de contas desta apuração, para quem precisar do
         # MESMO conjunto na mesma requisição sem pagar de novo a consulta
         # por nível de `_descendentes_de`. `frozenset` de propósito: é um
         # fato já apurado, e ninguém que o receba deve poder alterar o
@@ -1100,9 +1100,9 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
 
 
 def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):
-    """Existe movimento da empresa FORA de [inicio, fim]? (BL-151, achado R6-4b.)
+    """Existe movimento da empresa FORA de [inicio, fim]? (BL-198, achado R6-4b.)
 
-    É a razão de a DL-019 existir. O auditor mediu: um lançamento de
+    É a razão de a DL-020 existir. O auditor mediu: um lançamento de
     5.000,00 datado `9999-12-31`, ao lado de um de 100,00 de hoje, **não
     aparece em nenhuma saída de uso normal** — Diário, Razão, Balancete e
     Conferência todos respondem "não" para ele — e o balancete do período
@@ -1134,12 +1134,12 @@ def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=No
     `HierarquiaInconsistente` no mesmo caso em que `apurar_razao` já levanta
     (ciclo alcançável a partir da conta); quem chamar por aqui precisa tratar
     isso na mesma requisição. Nenhuma superfície chama por aqui hoje: as duas
-    do Razão passam `ids_contas` (BL-165), que não percorre hierarquia
+    do Razão passam `ids_contas` (BL-212), que não percorre hierarquia
     nenhuma e por isso não levanta.
 
     `ids_contas` é a versão BARATA do recorte por conta, para quem acabou de
     chamar `apurar_razao` e já tem o conjunto pronto (ele vem no resultado,
-    na chave `ids_contas` — BL-165): evita percorrer a subárvore uma segunda
+    na chave `ids_contas` — BL-212): evita percorrer a subárvore uma segunda
     vez. Isso não é micro-otimização — `_descendentes_de` faz UMA CONSULTA
     POR NÍVEL de profundidade, então recomputar DOBRARIA o custo do Razão de
     um plano profundo, e existe teste de teto de consulta declarado em função
@@ -1196,7 +1196,7 @@ def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=No
 
 
 def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
-    """Lançamentos já GRAVADOS com data fora da faixa do RC-77 (BL-151).
+    """Lançamentos já GRAVADOS com data fora da faixa do RC-77 (BL-198).
 
     A Conferência não tem período — uma base torta é torta em qualquer
     recorte —, então o aviso de "movimento fora do período" não se aplica a
@@ -1206,7 +1206,7 @@ def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
 
     É a única saída em que o `9999-12-31` aparece sem o contador precisar
     suspeitar primeiro. A validação de entrada não conserta o passado, e a
-    DL-019 declara o reparo de dado já gravado fora de escopo: a Conferência
+    DL-020 declara o reparo de dado já gravado fora de escopo: a Conferência
     é onde esse passado fica visível, com o lançamento nomeado, para o
     contador decidir o que fazer (estorno, ajuste) pelos caminhos normais.
 

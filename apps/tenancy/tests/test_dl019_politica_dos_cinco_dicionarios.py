@@ -1,5 +1,5 @@
 """A política dos cinco dicionários nas DUAS superfícies de troca de
-escritório ativo (BL-149, lacuna (c) do inventário de 2026-09-15).
+escritório ativo (BL-196, lacuna (c) do inventário de 2026-09-15).
 
 ## O que faltava
 
@@ -302,7 +302,7 @@ def test_as_duas_superficies_usam_o_mesmo_contrato(com_escritorio_a_ativo, cenar
     assert views.CONTRATO_ESCRITORIO_ATIVO.cabecalhos_ignorados == ("Idempotency-Key",)
 
     # Escopado na FUNÇÃO/MÉTODO citado, com parêntese de chamada — o molde da
-    # BL-150: `"CONTRATO_ESCRITORIO_ATIVO" in inspect.getsource(views)` seria
+    # BL-197: `"CONTRATO_ESCRITORIO_ATIVO" in inspect.getsource(views)` seria
     # permanentemente verdadeiro por causa da própria declaração e dos
     # comentários do arquivo.
     for fonte in (

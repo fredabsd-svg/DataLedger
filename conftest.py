@@ -1,5 +1,5 @@
-"""Instrumentação de sessão do pytest — BL-171 (achado A5 da auditoria DL-019
-rodada 1) e BL-178 (achado B5 da rodada 2).
+"""Instrumentação de sessão do pytest — BL-218 (achado A5 da auditoria DL-020
+rodada 1) e BL-225 (achado B5 da rodada 2).
 
 Duas coisas moram aqui, e as duas são de SESSÃO:
 
@@ -18,9 +18,9 @@ dicionários. Ela não prova — e declara, com todas as letras, que não prova 
 que alguém **exercitou** essa chamada numa requisição de teste. Uma superfície
 pode ter a linha no fonte e nunca ter sido tocada por teste nenhum.
 
-A BL-149 tinha um critério de aceite que guardava essa cobertura, e ele foi
+A BL-196 tinha um critério de aceite que guardava essa cobertura, e ele foi
 retirado por uma razão legítima: amarrar superfície a ARQUIVO DE TESTE por
-casamento de nome é a promessa que a BL-166 nomeou como não sustentável. A
+casamento de nome é a promessa que a BL-213 nomeou como não sustentável. A
 retirada, porém, ficou sem substituto e sem dono — a DE-033 pelo avesso.
 
 O substituto, proposto pelo auditor, **não usa heurística nenhuma**: ele amarra
@@ -47,7 +47,7 @@ tem controle positivo próprio, em
   fictícia que ninguém exercitou.
 
 Sem esses três, este arquivo seria mais uma afirmação que a defesa não
-entrega — a família de defeito que a DL-019 inteira existe para matar.
+entrega — a família de defeito que a DL-020 inteira existe para matar.
 
 ## Por que a conferência só vale na suíte inteira
 
@@ -72,10 +72,10 @@ superfície inteira.
 Duas correções da mesma classe — "evidência de execução valendo para
 superfície que ninguém tocou" — moram aí:
 
-- **a classe da instância** (BL-179/B6): duas superfícies que compartilhassem
+- **a classe da instância** (BL-226/B6): duas superfícies que compartilhassem
   o handler de um mixin compartilhariam o único nome guardado, e exercitar uma
   marcaria a outra;
-- **o método HTTP** (BL-185/C3): um handler ligado a POST e a PUT — uma
+- **o método HTTP** (BL-232/C3): um handler ligado a POST e a PUT — uma
   `@action(methods=["post","put"])`, uma view de função com
   `@require_http_methods(["POST","PUT"])` — tinha duas superfícies na varredura
   e um só nome aqui, e um teste de POST marcava o PUT. Um handler que aplique a
@@ -131,19 +131,19 @@ def e_codigo_de_teste(nome_pontilhado):
     política de dentro de um teste unitário dela.
 
     Esta função é a ÚNICA resposta do repositório para essa pergunta, e a
-    varredura de contratos a importa daqui (BL-181/B7).
+    varredura de contratos a importa daqui (BL-228/B7).
 
     A regra tem DUAS metades, e cada uma existe por um defeito medido:
 
     1. **Qualquer segmento igual a `tests`** — o pacote de testes. A marca
        `".tests."` da primeira versão não casava `apps.foo.tests` (faltava o
        ponto final), e aquele módulo era tratado como produção: era a fronteira
-       mais ESTREITA do que a sua redação (BL-181/B7).
+       mais ESTREITA do que a sua redação (BL-228/B7).
     2. **O ÚLTIMO segmento começando por `test_`** — e só o último. A segunda
        versão casava qualquer segmento, e com isso `apps.test_utils.views` e
        `apps.test_utils.services` — módulos de PRODUÇÃO perfeitamente
        plausíveis — saíam da varredura de contratos e do registro do elo
-       (BL-186/C5). Essa é a direção perigosa: mais larga faz código de
+       (BL-233/C5). Essa é a direção perigosa: mais larga faz código de
        produção SUMIR, enquanto mais estreita só o fazia sobrar. O último
        segmento é exatamente o que o `python_files` do pytest coleta, então
        aqui a fronteira passa a ser a do próprio coletor, e não um palpite.
@@ -161,7 +161,7 @@ def metodo_http_da_chamada(args, kwargs):
     A política é `recusar_dado_nao_contratado(requisicao, contrato)`, então a
     requisição é o primeiro argumento — e pode vir por nome. `None` quando o
     objeto não expõe `method`: aí o registro guarda só os nomes sem método, e
-    a conferência reprova por falta, que é o lado certo de errar (BL-185/C3).
+    a conferência reprova por falta, que é o lado certo de errar (BL-232/C3).
     """
     requisicao = kwargs.get("requisicao", args[0] if args else None)
     metodo = getattr(requisicao, "method", None)
@@ -173,7 +173,7 @@ def _nomes_registraveis_do_quadro(quadro, metodo_http=None):
 
     Dois eixos, e cada um nasceu de um achado:
 
-    1. **De quem é o nome** (BL-179/B6): o do CÓDIGO
+    1. **De quem é o nome** (BL-226/B6): o do CÓDIGO
        (`modulo.ClasseQueDefine.metodo`) e o EFETIVO
        (`modulo.ClasseDaInstancia.metodo`, lido de `self.__class__`). Duas
        superfícies que compartilhem o handler de um mixin têm o MESMO nome de
@@ -181,13 +181,13 @@ def _nomes_registraveis_do_quadro(quadro, metodo_http=None):
        do código continua registrado porque é ele que identifica as pontes de
        módulo (`_recusar_dado_nao_contratado`) e as views de função, que não
        têm `self`.
-    2. **Por qual MÉTODO HTTP** (BL-185/C3): cada nome entra também com o
+    2. **Por qual MÉTODO HTTP** (BL-232/C3): cada nome entra também com o
        método da requisição em curso (`...importar.post`). Sem isso, um
        handler ligado a POST e a PUT — uma `@action(methods=["post","put"])`,
        uma view de função com `@require_http_methods(["POST","PUT"])` — tinha
        duas superfícies na varredura e **um só** nome aqui, e exercitar o POST
        marcava o PUT como exercitado. É a classe do B6 num lugar novo: o que
-       se perde é justamente o elo de execução que a BL-171 existe para dar.
+       se perde é justamente o elo de execução que a BL-218 existe para dar.
 
     O nome SEM método continua sendo registrado porque é ele que casa com a
     superfície de uma classe comum (`...EmpresaDetailView.put`), onde o
@@ -273,7 +273,7 @@ def conferencia_de_execucao_se_aplica(argumentos, palavra_chave, expressao_de_ma
     `test_a_regra_de_quando_conferir_e_a_que_esta_escrita` poder medi-la com
     entradas sintéticas. É a parte do mecanismo que pode desligá-lo por
     inteiro, e um mecanismo desligado que ninguém percebe é o defeito que a
-    BL-171 existe para não cometer.
+    BL-218 existe para não cometer.
     """
     if palavra_chave or expressao_de_marca:
         return False
@@ -286,7 +286,7 @@ def superficies_nao_exercitadas(chamadores, superficies=None):
     descobre e que nunca chegou à política durante a sessão.
 
     `superficies` é parâmetro pelo mesmo motivo que `alvos` é parâmetro em
-    `superficies_de_escrita` (molde da BL-150): permite reconstruir o caso sob
+    `superficies_de_escrita` (molde da BL-197): permite reconstruir o caso sob
     medição — um handler ligado a POST e a PUT, exercitado só por POST — sem
     tocar em view real nenhuma. Em produção fica `None` e a varredura responde.
     """
@@ -304,9 +304,9 @@ def superficies_nao_exercitadas(chamadores, superficies=None):
         # `apps.empresas.views.EmpresaDetailView.put`,
         # `apps.x.views.ImportacaoViewSet.importar.post`. Duas correções estão
         # nisso: o handler pode vir de um mixin do projeto, e aí o quadro da
-        # pilha traz o qualname do MIXIN, que é compartilhado (BL-179/B6); e o
+        # pilha traz o qualname do MIXIN, que é compartilhado (BL-226/B6); e o
         # mesmo handler pode responder a dois métodos de escrita, e aí um nome
-        # sem método marcaria os dois (BL-185/C3). O registro resolve o
+        # sem método marcaria os dois (BL-232/C3). O registro resolve o
         # primeiro pela classe da instância e o segundo pelo método da
         # requisição em curso — ver `_nomes_registraveis_do_quadro`.
         if superficie.nome_efetivo not in chamadores:
@@ -324,7 +324,7 @@ def pytest_configure(config):
 
 
 # ---------------------------------------------------------------------------
-# BL-178 (achado B5 da rodada 2): nenhum teste pode depender de artefato NÃO
+# BL-225 (achado B5 da rodada 2): nenhum teste pode depender de artefato NÃO
 # VERSIONADO
 # ---------------------------------------------------------------------------
 
@@ -396,11 +396,11 @@ def pytest_sessionfinish(session, exitstatus):
     Anuncia SEMPRE o que fez — inclusive quando decide não conferir. Um
     mecanismo que só fala quando reprova é indistinguível de um mecanismo
     desligado, e "a conferência não rodou" foi exatamente a forma da falha que
-    a BL-170 acabou de corrigir na varredura de contratos.
+    a BL-217 acabou de corrigir na varredura de contratos.
     """
     if exitstatus != 0:
         _anunciar(
-            session.config, "BL-171: conferência do elo de execução pulada (sessão vermelha)."
+            session.config, "BL-218: conferência do elo de execução pulada (sessão vermelha)."
         )
         return
     if not conferencia_de_execucao_se_aplica(
@@ -411,7 +411,7 @@ def pytest_sessionfinish(session, exitstatus):
     ):
         _anunciar(
             session.config,
-            "BL-171: conferência do elo de execução pulada (execução parcial — "
+            "BL-218: conferência do elo de execução pulada (execução parcial — "
             "ela só vale para a suíte inteira).",
         )
         return
@@ -420,7 +420,7 @@ def pytest_sessionfinish(session, exitstatus):
     if not faltando:
         _anunciar(
             session.config,
-            "BL-171: toda superfície de escrita da varredura foi exercitada nesta "
+            "BL-218: toda superfície de escrita da varredura foi exercitada nesta "
             f"sessão ({len(CHAMADORES_DA_POLITICA)} pontos de produção chegaram à política).",
         )
         return
@@ -428,7 +428,7 @@ def pytest_sessionfinish(session, exitstatus):
     session.exitstatus = 1
     linhas = [
         "",
-        "BL-171 — superfície de escrita que a varredura conhece e que NENHUM "
+        "BL-218 — superfície de escrita que a varredura conhece e que NENHUM "
         "teste desta sessão exercitou:",
     ]
     linhas += [f"  {nome}: {motivo}" for nome, motivo in sorted(faltando.items())]

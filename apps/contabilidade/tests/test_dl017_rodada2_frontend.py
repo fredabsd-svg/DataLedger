@@ -442,7 +442,7 @@ def test_recusa_por_teto_preserva_os_valores_digitados_na_mensagem(client, cen):
     RESPOSTA inteira: a tela só re-exibia as `teto` primeiras, e a mensagem
     mandava "grave em dois lançamentos" sem repetir o que não coube.
 
-    RC-79/BL-160 (rodada 6): derivado de
+    RC-79/BL-207 (rodada 6): derivado de
     `views_web.LINHAS_MAXIMAS_LANCAMENTO`, nunca de "22" escrito à mão — o
     teto de negócio passou para 200 e este teste voltaria a medir um lote
     LEGÍTIMO, devolvendo 302 e falhando por motivo errado.
@@ -593,7 +593,7 @@ def _caminho_chromium():
     return None
 
 
-# R6-1/BL-148 (rodada 6) — o DESCARTE de um recurso temporário nunca pode
+# R6-1/BL-195 (rodada 6) — o DESCARTE de um recurso temporário nunca pode
 # reprovar a suíte, e nunca pode ser confundido com "o navegador não
 # funciona".
 #
@@ -663,17 +663,17 @@ def _perfil_de_navegador_descartavel():
         _descartar_caminho_temporario(perfil)
 
 
-# PASSO 3 do BL-148 — aplicado só DEPOIS de (1) o descarte do perfil sair
+# PASSO 3 do BL-195 — aplicado só DEPOIS de (1) o descarte do perfil sair
 # da região julgada nas duas funções e (2) os quatro testes de falha de
 # limpeza (no fim deste arquivo) conseguirem falhar. Nesta ordem, e não na
 # outra: subir o timeout sozinho faz a medição rodar e a `ENOTEMPTY` do
 # descarte reprovar a suíte, que é o bloqueador da rodada 5 reaberto.
 #
-# BL-168 (segunda rodada da DL-019): a frase anterior afirmava que os quatro
+# BL-215 (segunda rodada da DL-020): a frase anterior afirmava que os quatro
 # testes "foram vistos falhar contra os mutantes que os removem", e **não
 # havia registro nenhum disso** — afirmação não é registro, e esta é
 # justamente a propriedade que a etapa inteira exige demonstrar. O registro
-# passou a existir (relatório de entrega da segunda rodada da DL-019), e o
+# passou a existir (relatório de entrega da segunda rodada da DL-020), e o
 # que fica aqui é a RECEITA, conferível em um minuto por quem duvidar:
 #
 #   - devolver `tempfile.TemporaryDirectory()` à região julgada de
@@ -741,7 +741,7 @@ def _chromium_funciona(caminho, *, timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S):
     pula os testes de efeito com motivo, e a CI fica verde em vez de
     vermelha.
 
-    R6-1/BL-148 (rodada 6): o descarte do `--user-data-dir` NÃO fica mais
+    R6-1/BL-195 (rodada 6): o descarte do `--user-data-dir` NÃO fica mais
     dentro da região julgada por esta função — ver
     `_perfil_de_navegador_descartavel`. Uma falha de LIMPEZA do perfil não
     é incapacidade do navegador, e era relatada como se fosse ("erro de
@@ -771,7 +771,7 @@ def _chromium_funciona(caminho, *, timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S):
         ) as arquivo:
             arquivo.write(f"<title>{marca}</title>")
             caminho_html = arquivo.name
-        # R6-1/BL-148: `_perfil_de_navegador_descartavel`, nunca
+        # R6-1/BL-195: `_perfil_de_navegador_descartavel`, nunca
         # `tempfile.TemporaryDirectory()` — o `__exit__` daquele levanta
         # `ENOTEMPTY` DENTRO deste `try`, e o `except OSError` abaixo
         # classificava a falha de LIMPEZA como "o navegador não funciona"
@@ -806,7 +806,7 @@ def _chromium_funciona(caminho, *, timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S):
         _DIAGNOSTICO_CHROMIUM = f"{caminho}: erro de sistema operacional ao executar: {exc!r}"
         return False
     finally:
-        # R6-1/BL-148: o descarte do arquivo temporário está num `finally`
+        # R6-1/BL-195: o descarte do arquivo temporário está num `finally`
         # — e exceção levantada num `finally` propaga mesmo com os
         # `except` acima. `_descartar_caminho_temporario` nunca levanta.
         if caminho_html is not None:
@@ -1084,7 +1084,7 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
         f.write(html)
         caminho_html = f.name
     try:
-        # R6-1/BL-148: mesma troca de `_chromium_funciona`, e aqui ela é a
+        # R6-1/BL-195: mesma troca de `_chromium_funciona`, e aqui ela é a
         # metade GRAVE do achado — o `except (TimeoutExpired, OSError)`
         # abaixo está DENTRO do `with`, então cobria a exceção da CHAMADA e
         # nunca a da SAÍDA do `with`. Com `TemporaryDirectory`, a
@@ -1128,7 +1128,7 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
                 f"medir (ambiente quebrado, não regressão de CSS): {casamento.group(1)[:300]!r}"
             )
     finally:
-        # R6-1/BL-148: ver o `finally` equivalente em `_chromium_funciona`
+        # R6-1/BL-195: ver o `finally` equivalente em `_chromium_funciona`
         # — descarte no `finally` propaga por cima de qualquer `except`.
         _descartar_caminho_temporario(caminho_html)
 
@@ -1343,7 +1343,7 @@ def test_binario_presente_mas_quebrado_e_detectado_sem_travar(tmp_path, comporta
     falha de inicialização que o Chromium real reportaria com código
     diferente de zero).
 
-    R6-1/BL-148: o timeout passa a ser EXPLÍCITO neste teste (2s), e a
+    R6-1/BL-195: o timeout passa a ser EXPLÍCITO neste teste (2s), e a
     afirmação é "respeita o teto que recebeu", não mais "tem um teto
     curto próprio, menor que o das medições". O padrão da função subiu
     para os mesmos 30s da medição (ver `_TIMEOUT_MEDICAO_S` e o motivo
@@ -1453,7 +1453,7 @@ def test_renderizar_e_medir_pula_quando_title_nao_e_json(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# R6-1/BL-148 (rodada 6) — a OUTRA METADE do par acima: falha na LIMPEZA do
+# R6-1/BL-195 (rodada 6) — a OUTRA METADE do par acima: falha na LIMPEZA do
 # recurso temporário. O `test_renderizar_e_medir_pula_quando_title_nao_e_
 # json` cobre "o navegador respondeu coisa errada"; os quatro testes a
 # seguir cobrem "o navegador respondeu certo e o DESCARTE do perfil

@@ -1,4 +1,4 @@
-"""BL-150 / R6-3 — a família "comentário que afirma que X usa o julgador Y".
+"""BL-197 / R6-3 — a família "comentário que afirma que X usa o julgador Y".
 
 A BL-146 criou UM teste para esta família e ele não conseguia falhar: a
 linha que decidia era

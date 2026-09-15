@@ -16,7 +16,7 @@ constraint for renomeada ou removida numa refatoração futura, um
 IntegrityError diferente (ou nenhum) não deve passar por estes testes sem
 ser notado.
 
-**Alcance destes cinco casos, delimitado na DL-019 (BL-157).** O que eles
+**Alcance destes cinco casos, delimitado na DL-020 (BL-204).** O que eles
 afirmam é o comportamento do ORM DIRETO: ``bulk_create``/``bulk_update``/
 ``QuerySet.update()`` não passam por ``restricao_como_400`` nenhum, então a
 violação sobe como ``IntegrityError`` cru — e isso continua sendo o que o

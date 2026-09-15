@@ -1,9 +1,9 @@
-"""BL-165 — o Razão percorre a subárvore de contas UMA vez, não duas.
+"""BL-212 — o Razão percorre a subárvore de contas UMA vez, não duas.
 
 ## O defeito que este arquivo trava
 
-A DL-019 acrescentou ao Razão o aviso "há movimento fora do período"
-(BL-151). O aviso precisa do MESMO recorte de contas que a apuração usa (a
+A DL-020 acrescentou ao Razão o aviso "há movimento fora do período"
+(BL-198). O aviso precisa do MESMO recorte de contas que a apuração usa (a
 conta e todas as descendentes), e `_descendentes_de` busca esse conjunto
 **uma consulta por NÍVEL de profundidade** do plano. As duas superfícies do
 Razão — a tela e a API — pediram o recorte passando a `Conta`, então a
@@ -81,9 +81,9 @@ def cenario():
       1.1 Caixa          (folha, subordinada ao grupo)
     2   Capital Social   (fora da subárvore de "1")
     """
-    escritorio = Escritorio.objects.create(nome="Escritório BL-165", cnpj="88888888000188")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-212", cnpj="88888888000188")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-165 Ltda", cnpj="88899900000111"
+        escritorio=escritorio, razao_social="Empresa BL-212 Ltda", cnpj="88899900000111"
     )
     grupo = Conta.objects.create(
         empresa=empresa,
@@ -337,7 +337,7 @@ def test_consultas_do_razao_crescem_uma_por_nivel_de_profundidade(client, cenari
         f"{consultas_rasa} consultas em profundidade 4 e {consultas_profunda} em 12: "
         f"{consultas_profunda - consultas_rasa} a mais para {niveis_a_mais} níveis a mais. "
         "Mais de uma consulta por nível significa que a subárvore está sendo "
-        "percorrida mais de uma vez na mesma requisição (BL-165)."
+        "percorrida mais de uma vez na mesma requisição (BL-212)."
     )
     # Teto absoluto, na mesma forma da DL-015 (profundidade + 9), para a
     # comparação acima não passar num servidor que ficou caro nas DUAS medidas.

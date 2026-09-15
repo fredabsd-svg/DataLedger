@@ -1,4 +1,4 @@
-"""BL-149 / achado R6-2: a política dos cinco dicionários nas rotas de
+"""BL-196 / achado R6-2: a política dos cinco dicionários nas rotas de
 ESCRITA da API de contabilidade.
 
 O que o auditor mediu, autenticado e com payload válido — todas devolvendo
@@ -46,9 +46,9 @@ SENHA = "senha-forte-123"
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-149", cnpj="12121212000133")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-196", cnpj="12121212000133")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-149 Ltda", cnpj="11222333000181"
+        escritorio=escritorio, razao_social="Empresa BL-196 Ltda", cnpj="11222333000181"
     )
     caixa = Conta.objects.create(
         empresa=empresa,
@@ -82,7 +82,7 @@ def autenticado(client, cenario):
 def _corpo_de_lancamento(cenario):
     return {
         "data": timezone.localdate().isoformat(),
-        "historico": "BL-149",
+        "historico": "BL-196",
         "itens": [
             {"conta": cenario["caixa"].id, "tipo": "debito", "valor": "10.00"},
             {"conta": cenario["receita"].id, "tipo": "credito", "valor": "10.00"},

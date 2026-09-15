@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
-# BL-170/A1 (auditoria DL-019 rodada 1): as views de FUNÇÃO deste módulo
+# BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
 # declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
 # não substring do fonte — que a varredura de contratos
 # (`apps/core/tests/test_dl019_varredura_de_contratos.py`) lê para saber se a
@@ -54,7 +54,7 @@ from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 PodeGerenciarEmpresa = papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)
 
 
-# BL-149 / achado R6-2: a política dos cinco dicionários, aplicada às rotas
+# BL-196 / achado R6-2: a política dos cinco dicionários, aplicada às rotas
 # de escrita deste app. Medido pelo auditor, todas devolvendo **201/200** com
 # o dado ignorado em silêncio: querystring em POST; `empresa: 999` e `xpto`
 # no corpo de estabelecimento e de regime tributário.
@@ -85,8 +85,8 @@ def _recusar_dado_nao_contratado(request, contrato):
 def _contrato_da_tela_de_empresa():
     """Contrato da TELA de cadastro de empresa (`criar_empresa`).
 
-    Encontrado pela varredura da BL-149 (`apps/core/tests/test_dl019_
-    varredura_de_contratos.py`, segunda rodada da DL-019): esta era a única
+    Encontrado pela varredura da BL-196 (`apps/core/tests/test_dl019_
+    varredura_de_contratos.py`, segunda rodada da DL-020): esta era a única
     superfície de escrita do repositório que ainda não aplicava a política dos
     cinco dicionários. A rodada 6 mediu `conta_nova` e `ativar_escritorio`, o
     fechamento cobriu as rotas de API deste app, e esta tela ficou de fora —
@@ -144,7 +144,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         return permissions
 
     def post(self, request, *args, **kwargs):
-        # BL-149. `escritorio` no corpo é ignorado por construção (o
+        # BL-196. `escritorio` no corpo é ignorado por construção (o
         # serializer o define a partir do escritório ativo), e agora é
         # recusado: é um campo de ISOLAMENTO, e um cliente que o envie
         # precisa ouvir "não" em vez de receber 201 e acreditar que
@@ -172,7 +172,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # constraint de cnpj — ver o comentário lá sobre por que isso mora
         # num lugar só (A1, reauditoria, rodada 3).
         #
-        # `restricao_como_400("empresa_cnpj_canonico")` ACRESCENTADO (BL-157,
+        # `restricao_como_400("empresa_cnpj_canonico")` ACRESCENTADO (BL-204,
         # achado R6-10 / DE-034 item 3): é a outra metade do MESMO `Meta` que
         # a BL-144 fechou. Inalcançável por esta rota hoje — `Empresa.save()`
         # canoniza o CNPJ antes do INSERT —, e mapeada de propósito: o
@@ -205,7 +205,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         return permissions
 
     def _recusar_dado_nao_contratado_na_atualizacao(self, request):
-        # BL-149 / DE-034 item 2: a atualização é a MESMA superfície de
+        # BL-196 / DE-034 item 2: a atualização é a MESMA superfície de
         # escrita que a criação, com o mesmo corpo — e a rodada 6 mediu a
         # criação, não esta. Fechar só a criação repetiria, em duas rotas
         # vizinhas do mesmo arquivo, o padrão que o R6-2 nomeou.
@@ -233,7 +233,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         # UPDATE) — reproduzida pelo auditor em 6 de 6 execuções com duas
         # threads. Mesmo tratamento de perform_create, mesmo gerenciador de
         # contexto compartilhado.
-        # `empresa_cnpj_canonico` também aqui (BL-157): mesma constraint, mesmo
+        # `empresa_cnpj_canonico` também aqui (BL-204): mesma constraint, mesmo
         # `Meta`, e a atualização é o outro caminho de gravação do mesmo campo
         # — ver o comentário em `perform_create`.
         try:
@@ -263,7 +263,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         return Estabelecimento.objects.filter(empresa=self.get_empresa())
 
     def post(self, request, *args, **kwargs):
-        # BL-149: medido pelo auditor nesta rota — `empresa: 999` e `xpto` no
+        # BL-196: medido pelo auditor nesta rota — `empresa: 999` e `xpto` no
         # corpo devolviam **201**, ignorados em silêncio.
         _recusar_dado_nao_contratado(
             request,
@@ -293,7 +293,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         # tradução (nenhuma das duas camadas mascara defeito de sistema
         # como erro de cliente).
         #
-        # `estabelecimento_cnpj_canonico` ACRESCENTADA (BL-157, achado R6-10):
+        # `estabelecimento_cnpj_canonico` ACRESCENTADA (BL-204, achado R6-10):
         # a terceira constraint do MESMO `Meta`, pelo mesmo motivo da de
         # Empresa — ver o comentário em `EmpresaListCreateView.perform_create`.
         # As mensagens saem do registro único `apps.core.restricoes.
@@ -334,7 +334,7 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
 
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
-        # BL-149: medido pelo auditor nesta rota — querystring, `empresa` e
+        # BL-196: medido pelo auditor nesta rota — querystring, `empresa` e
         # `xpto` no corpo devolviam **201**, ignorados em silêncio.
         _recusar_dado_nao_contratado(request, CONTRATO_POST_REGIME)
         regime = request.data.get("regime")
@@ -397,19 +397,19 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
 
 
 class HistoricoRegimeTributarioDetailView(EmpresaEscopadaMixin, APIView):
-    """Exclusão do ÚLTIMO período de regime tributário (BL-162, RC-82/DE-035).
+    """Exclusão do ÚLTIMO período de regime tributário (BL-209, RC-82/DE-039).
 
     Existe porque o achado R6-6 mostrou uma porta de mão única: um dígito
     errado em `vigencia_inicio` deixava a empresa sem NENHUM caminho de
     correção pelo produto — não havia `PUT`, `DELETE` nem edição na tela, e
     só acesso direto ao banco desfazia. O Fred decidiu, em 2026-09-15, que a
-    correção **apaga** o registro (RC-82); o alcance está na DE-035 e a regra
+    correção **apaga** o registro (RC-82); o alcance está na DE-039 e a regra
     inteira mora em `apps.empresas.services.excluir_ultimo_regime_tributario`
     — esta view só traduz o veredito para HTTP.
 
     Só `DELETE`: não há `GET` de item (a listagem já responde isso) nem
     `PUT`/`PATCH`, porque editar um período em silêncio é justamente o que a
-    DE-035 não quis — "apagar e registrar de novo" deixa rastro do que
+    DE-039 não quis — "apagar e registrar de novo" deixa rastro do que
     aconteceu, "editar" não.
 
     Autorização no SERVIDOR, com o mesmo papel que cria (`PodeGerenciarEmpresa`
@@ -426,7 +426,7 @@ class HistoricoRegimeTributarioDetailView(EmpresaEscopadaMixin, APIView):
         # já revalidou contra o escritório ativo: um `registro_id` de outra
         # empresa (ou de outro escritório) responde 404, nunca apaga.
         registro = get_object_or_404(HistoricoRegimeTributario, pk=registro_id, empresa=empresa)
-        # BL-149: `DELETE` também entra na política. Um corpo com
+        # BL-196: `DELETE` também entra na política. Um corpo com
         # `vigencia_inicio` aqui sugeriria que o cliente está escolhendo QUAL
         # período apagar por conteúdo, quando quem decide é a URL.
         _recusar_dado_nao_contratado(request, CONTRATO_EXCLUSAO_DE_REGIME)
@@ -503,9 +503,9 @@ def criar_empresa(request):
         return render(request, "erros/sem_permissao.html", contexto, status=403)
 
     if request.method == "POST":
-        # BL-149: a política vem de `apps.core.requisicao` (ponto único), e a
+        # BL-196: a política vem de `apps.core.requisicao` (ponto único), e a
         # resposta segue o padrão já instituído nas telas da contabilidade
-        # (`conta_nova`, BL-152): formulário RE-RENDERIZADO com 400 e com o
+        # (`conta_nova`, BL-199): formulário RE-RENDERIZADO com 400 e com o
         # que o usuário digitou. Recusar sem devolver o que foi digitado troca
         # um defeito por outro; responder 200 faria a recusa passar por
         # "página normal" para qualquer cliente que olhe o código de status.

@@ -1,4 +1,4 @@
-"""BL-149 / achado R6-2 da auditoria DL-017 rodada 6: a política dos cinco
+"""BL-196 / achado R6-2 da auditoria DL-017 rodada 6: a política dos cinco
 dicionários mora num lugar só (`apps.core.requisicao`), e este arquivo é o
 teste do JULGADOR — não das superfícies.
 

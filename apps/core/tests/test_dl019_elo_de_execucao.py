@@ -1,5 +1,5 @@
-"""Controles positivos do elo de execução — BL-171 (achado A5 da auditoria
-DL-019 rodada 1).
+"""Controles positivos do elo de execução — BL-218 (achado A5 da auditoria
+DL-020 rodada 1).
 
 O mecanismo em si mora em `conftest.py` (ver o docstring de lá para o que ele
 fecha e por quê). Este arquivo existe por causa da **ressalva do
@@ -104,7 +104,7 @@ def test_o_registro_registra_uma_superficie_exercitada_por_requisicao(client):
 
 
 def test_a_conferencia_sabe_reprovar_nomeando_a_superficie_que_ninguem_exercitou():
-    """Pergunta 3, no molde da BL-150: o mutante é "o registro está vazio".
+    """Pergunta 3, no molde da BL-197: o mutante é "o registro está vazio".
 
     Com o conjunto de chamadores VAZIO, toda superfície da varredura tem de
     ser reportada, e o relatório tem de conter a superfície pelo nome — que é
@@ -121,7 +121,7 @@ def test_a_conferencia_sabe_reprovar_nomeando_a_superficie_que_ninguem_exercitou
 def test_a_conferencia_aprova_quando_o_registro_cobre_a_superficie():
     """Par do teste acima: sem ele, uma conferência que reprovasse SEMPRE
     também passaria na metade de cima. Controle positivo e controle negativo
-    do mesmo mecanismo, a lição da BL-150."""
+    do mesmo mecanismo, a lição da BL-197."""
     from apps.core.tests.test_dl019_varredura_de_contratos import (
         _alvos_alcancaveis,
         superficies_de_escrita,
@@ -130,16 +130,16 @@ def test_a_conferencia_aprova_quando_o_registro_cobre_a_superficie():
     superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
     # O nome EFETIVO de cada superfície: `modulo.Classe.metodo`,
     # `modulo.Classe.acao.metodo` ou `modulo.funcao.metodo`. É a forma em que
-    # a superfície aparece na pilha depois da BL-179/B6 (a classe da
+    # a superfície aparece na pilha depois da BL-226/B6 (a classe da
     # instância, não o qualname do código, que pode ser de um mixin
-    # compartilhado) e da BL-185/C3 (o método HTTP da requisição em curso).
+    # compartilhado) e da BL-232/C3 (o método HTTP da requisição em curso).
     chamadores = {superficie.nome_efetivo for superficie in superficies.values()}
 
     assert conftest.superficies_nao_exercitadas(chamadores) == {}
 
 
 # ---------------------------------------------------------------------------
-# BL-179 (achado B6): o registro distingue quem compartilha handler
+# BL-226 (achado B6): o registro distingue quem compartilha handler
 # ---------------------------------------------------------------------------
 
 # Construído por `exec` com um `__globals__` próprio porque o que está sob
@@ -222,7 +222,7 @@ def test_o_registro_nomeia_a_classe_da_instancia_e_nao_so_a_do_mixin():
 
 
 def test_o_registro_ignora_quadro_de_modulo_de_teste():
-    """Par do teste acima, e a fronteira do BL-181/B7: um quadro de código de
+    """Par do teste acima, e a fronteira do BL-228/B7: um quadro de código de
     teste não entra no registro — senão a conferência ficaria satisfeita por
     alguém ter chamado a política dentro de um teste unitário dela."""
     import sys
@@ -237,7 +237,7 @@ def test_o_registro_ignora_quadro_de_modulo_de_teste():
 @pytest.mark.parametrize(
     ("nome", "e_teste"),
     [
-        # Os dez casos que o auditor mediu na rodada 3 (BL-186/C5), virados
+        # Os dez casos que o auditor mediu na rodada 3 (BL-233/C5), virados
         # parametrização. Os dois últimos são o achado: um módulo de PRODUÇÃO
         # chamado `apps/test_utils/views.py` era classificado como teste e
         # sumia da varredura de contratos e do registro do elo.
@@ -254,7 +254,7 @@ def test_o_registro_ignora_quadro_de_modulo_de_teste():
     ],
 )
 def test_a_fronteira_entre_teste_e_producao_nao_engole_modulo_de_producao(nome, e_teste):
-    """BL-186/C5. A correção do B7 abriu o buraco OPOSTO, e na direção
+    """BL-233/C5. A correção do B7 abriu o buraco OPOSTO, e na direção
     perigosa: casar `test_` em qualquer segmento faz `apps.test_utils.views`
     virar "teste" e desaparecer — enquanto o defeito anterior apenas fazia
     módulo de teste sobrar como produção.
@@ -273,7 +273,7 @@ def test_a_fronteira_entre_teste_e_producao_segue_o_python_files_do_pytest():
     módulo de teste queira o autor ou não —, e por isso a regra olha só o
     ÚLTIMO segmento: é ele que vira nome de arquivo. Se o `python_files`
     mudar, esta divergência reprova nomeada em vez de a fronteira envelhecer
-    em silêncio (molde da BL-172).
+    em silêncio (molde da BL-219).
     """
     import pathlib
     import tomllib
@@ -321,7 +321,7 @@ def test_a_regra_de_quando_conferir_e_a_que_esta_escrita(
 
 
 # ---------------------------------------------------------------------------
-# BL-185 (achado C3): a evidência de execução é por MÉTODO HTTP
+# BL-232 (achado C3): a evidência de execução é por MÉTODO HTTP
 # ---------------------------------------------------------------------------
 
 

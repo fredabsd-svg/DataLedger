@@ -1664,7 +1664,7 @@ conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
 ser conferível por teste** — se X não usa, o teste reprova. Registrado como
 BL-146.
 
-## DE-035 — Regime tributário errado se apaga, e a exclusão é um fato registrado
+## DE-039 — Regime tributário errado se apaga, e a exclusão é um fato registrado
 
 **Data:** 2026-09-15. **Origem:** achado R6-6 da
 [auditoria DL-017 rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md),
@@ -1728,5 +1728,5 @@ for, não se apaga.
 Hoje não há apuração fiscal no sistema, então apagar um período de regime não
 tem consequência a jusante. **Quando a DL-010 e a apuração existirem, apagar o
 regime de um período que já tem apuração calculada muda a base de um cálculo já
-entregue.** Registrado como **BL-163** para que a guarda nasça junto com a
+entregue.** Registrado como **BL-210** para que a guarda nasça junto com a
 apuração, e não depois de alguém descobrir pelo cliente.

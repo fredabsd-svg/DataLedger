@@ -1,5 +1,5 @@
 """Regras de domínio PURAS da escrituração — faixa de data e teto de
-partidas (RC-77 e RC-79, confirmados pelo Fred em 2026-09-15; BL-158, BL-160).
+partidas (RC-77 e RC-79, confirmados pelo Fred em 2026-09-15; BL-205, BL-207).
 
 **Por que este módulo existe, e por que ele não pode importar ORM.** A faixa
 precisa valer em três lugares que não podem compartilhar um módulo com
@@ -26,7 +26,7 @@ O achado que trouxe o item 2 para cá é do `arquiteto-senior`, em 2026-09-15,
 ao conferir o que eu havia encontrado no admin de regime tributário: se a
 recusa do RC-77 morasse só em `criar_lancamento`, **o admin criaria um
 lançamento datado `9999-12-31`, invisível em todas as telas de operação
-normal** — o BL-151 inteiro, que é a razão declarada de a DL-019 existir,
+normal** — o BL-198 inteiro, que é a razão declarada de a DL-020 existir,
 entrando por uma porta que ninguém havia olhado. É o item 2 da DE-034 (o
 mesmo campo nas outras superfícies) aplicado à superfície administrativa.
 """
@@ -39,7 +39,7 @@ from django.utils import timezone
 # RC-77, confirmado pelo Fred em 2026-09-15 (docs/projeto/requisitos.md): a
 # data de um lançamento fica entre 01/01/2000 e hoje + 30 dias.
 #
-# Por que existe um teto superior, e por que ele é o item que faz a DL-019
+# Por que existe um teto superior, e por que ele é o item que faz a DL-020
 # existir (achado R6-4 da auditoria da rodada 6): um `9` digitado no lugar de
 # um `2` grava o lançamento em `9999-12-31`, e ele **não aparece em nenhuma
 # tela de operação normal** — nem Diário, nem Razão, nem Balancete, nem
@@ -63,7 +63,7 @@ DIAS_FUTUROS_MAXIMOS_LANCAMENTO = 30
 # lançamento, com recusa explícita — NUNCA truncamento (BL-91).
 #
 # O teto é regra de NEGÓCIO e mora aqui, não na tela (item 2 da DE-034, e o
-# defeito concreto que a BL-160 fecha): até a DL-019 ele existia só como
+# defeito concreto que a BL-207 fecha): até a DL-020 ele existia só como
 # `LINHAS_MAXIMAS_LANCAMENTO` em `views_web.py`, e por isso a API **não tinha
 # teto nenhum** — o mesmo campo, sem a mesma regra, na superfície ao lado.
 # `criar_lancamento` é o único ponto por onde tela e API passam para gravar,

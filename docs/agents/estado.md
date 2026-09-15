@@ -215,8 +215,8 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
-| [DL-019](../planos/DL-019-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as quatro regras contábeis confirmadas pelo Fred | **Em execução** — planejada e delegada em 2026-09-15. Vem antes da DL-010 por um motivo só: **BL-151**, o lançamento com data errada que não aparece em tela nenhuma |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-195 a BL-204), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
+| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as quatro regras contábeis confirmadas pelo Fred | **Em execução** — planejada e delegada em 2026-09-15. Vem antes da DL-010 por um motivo só: **BL-198**, o lançamento com data errada que não aparece em tela nenhuma |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -249,20 +249,20 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-019](../planos/DL-019-consolidacao-pos-auditoria.md) — consolidação,
-   EM EXECUÇÃO.** Catorze itens: as dez ressalvas da rodada 6 (BL-148 a BL-157)
-   e as quatro regras que o Fred confirmou (BL-158 a BL-161). A
+1. **[DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) — consolidação,
+   EM EXECUÇÃO.** Catorze itens: as dez ressalvas da rodada 6 (BL-195 a BL-204)
+   e as quatro regras que o Fred confirmou (BL-205 a BL-208). A
    [DL-017](../planos/DL-017-interface-da-contabilidade.md) está **integrada na
    `main`** (PR #19, `60cbcff`).
 
-   **Por que esta etapa vem antes da DL-010**, e o motivo é um só: **BL-151 — um
+   **Por que esta etapa vem antes da DL-010**, e o motivo é um só: **BL-198 — um
    lançamento com a data errada não aparece em nenhuma tela de operação
    normal**, e o balancete do período concilia, então nenhuma conferência acusa.
    É o único item aberto em que o usuário **não consegue conferir o que não
    aparece**. Decisão apresentada ao Fred com as três opções e o trade-off; ele
    mandou seguir a recomendação.
 
-   **⚠️ BL-148 tem ordem obrigatória:** tirar o descarte do perfil da região
+   **⚠️ BL-195 tem ordem obrigatória:** tirar o descarte do perfil da região
    julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da
    rodada 5 — medido 3 de 3 pelo auditor.
 
@@ -272,8 +272,8 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
    | Responsável | Itens | Pode editar |
    | --- | --- | --- |
-   | `desenvolvedor-pleno` | BL-149 (módulo e API), BL-151(b), BL-153, BL-157, BL-158, BL-159, BL-160 no domínio | `apps/core/**`, `apps/contabilidade/views.py`, `serializers.py`, `services.py`, `models.py` e migração, `apps/tenancy/**`, `apps/empresas/**`, testes `test_dl019_*` que não terminem em `_frontend` |
-   | `especialista-frontend` | BL-148, BL-149 nas telas, BL-150, BL-151(b) na renderização, BL-152, BL-156, BL-160, BL-161 | `views_web.py`, `urls_web.py`, `templates/**`, `static/**`, `test_dl017_*`, `test_dl019_frontend*`, `docs/assets/telas/*.png` |
+   | `desenvolvedor-pleno` | BL-196 (módulo e API), BL-198(b), BL-200, BL-204, BL-205, BL-206, BL-207 no domínio | `apps/core/**`, `apps/contabilidade/views.py`, `serializers.py`, `services.py`, `models.py` e migração, `apps/tenancy/**`, `apps/empresas/**`, testes `test_dl019_*` que não terminem em `_frontend` |
+   | `especialista-frontend` | BL-195, BL-196 nas telas, BL-197, BL-198(b) na renderização, BL-199, BL-203, BL-207, BL-208 | `views_web.py`, `urls_web.py`, `templates/**`, `static/**`, `test_dl017_*`, `test_dl019_frontend*`, `docs/assets/telas/*.png` |
    | `arquiteto-senior` | documentação, `.github/workflows/**`, integração e commit | os demais |
 
    Nenhum dos dois commita: a integração é do `arquiteto-senior`, porque dois
@@ -299,9 +299,9 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **Bloqueado** e só a CI o executa.
 
    **O que o inventário mediu, item por item** (a etiqueta é do inventário, não
-   minha): **Testados** — BL-148, BL-153, BL-158, BL-159, BL-160, BL-162.
-   **Parciais** — BL-149, BL-151, BL-157. **Código sem teste** — BL-152, BL-156,
-   BL-161. **Testado com a defesa demonstrada** — só a **BL-150**. A evidência
+   minha): **Testados** — BL-195, BL-200, BL-205, BL-206, BL-207, BL-209.
+   **Parciais** — BL-196, BL-198, BL-204. **Código sem teste** — BL-199, BL-203,
+   BL-208. **Testado com a defesa demonstrada** — só a **BL-197**. A evidência
    de cada um está no próprio item do [backlog](../projeto/backlog.md), com
    arquivo e linha.
 
@@ -309,7 +309,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    ataca:**
 
    1. **Afirmei ao Fred que o admin do Django permitia criar lançamento datado
-      `9999-12-31`**, e chamei isso de "o mais grave" na BL-164. **É falso.**
+      `9999-12-31`**, e chamei isso de "o mais grave" na BL-211. **É falso.**
       `LancamentoContabilAdmin.has_add_permission` devolve `False`
       (`apps/contabilidade/admin.py:83`), e já era assim em `60cbcff`. Eu inferi
       o buraco de "o admin registra o modelo" **sem abrir o `ModelAdmin`** —
@@ -324,14 +324,14 @@ auditoria independente — que é exatamente o motivo de ela existir.
       `dataledger_b` no segundo), verificado antes de distribuir. O Django cria
       o banco de teste sozinho, então o segundo nem precisa existir.
 
-   ### Rodada 2 da DL-019 — o que ela entregou
+   ### Rodada 2 da DL-020 — o que ela entregou
 
    Medido por mim, sozinho na máquina, na revisão `a497046`: `ruff check` **0**,
    `ruff format --check` **0**, `manage.py check` **0**, `pytest -q -rs` →
    **1027 passed, 0 falhas, 0 pulos**. Eram **766** na integração da DL-017 e
    **907** no começo desta rodada.
 
-   **Backend, entregue e fechado:** BL-157, BL-167 e BL-149 (partes a e c). As
+   **Backend, entregue e fechado:** BL-204, BL-214 e BL-196 (partes a e c). As
    duas varreduras prometidas passam a existir e **foram vistas reprovar**.
 
    **O mecanismo funcionou no primeiro uso:** a varredura de contratos acusou
@@ -347,8 +347,8 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **Frontend: entregue, com uma ressalva que vai para o auditor.** O primeiro
    agente foi morto por **limite de sessão** no meio da rodada de mutantes,
    dizendo *"dois sobreviventes — os dois são achados"* e **sem dizer quais**.
-   Entregou BL-152, BL-168 e 27 testes novos (BL-149b, BL-151 nas telas, BL-156,
-   BL-161, BL-166). A rodada foi **refeita do zero**, não presumida:
+   Entregou BL-199, BL-215 e 27 testes novos (BL-149b, BL-198 nas telas, BL-203,
+   BL-208, BL-213). A rodada foi **refeita do zero**, não presumida:
    **13 mutantes aplicados, 13 mortos, 0 sobreviventes** — os 11 que eu listei
    mais **2 que o implementador acrescentou** ao ler o código, nos vizinhos de
    campo que a DE-034 aponta. Cada um com a **previsão escrita de qual teste
@@ -394,7 +394,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
    | **CI, log do job** | **1075 passed, 2 skipped**, 59,89 s |
 
-   **A linha `BL-171: toda superfície de escrita da varredura foi exercitada`
+   **A linha `BL-218: toda superfície de escrita da varredura foi exercitada`
    aparece no log da CI** — o mecanismo que estava desligado lá (sessão vermelha
    fazia a conferência sair cedo) voltou a rodar.
 
@@ -402,7 +402,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    `/usr/bin/chromium: timeout de 30s`. O critério 3 da etapa está atendido pelo
    ramo "pula com motivo", **não** pelo ramo "roda". Eu havia dito que elas
    "rodaram e passaram" — verdade **na minha árvore**, falso na CI. Virou
-   **BL-182**: o runner tem `google-chrome` fora de snap e a seleção tenta o
+   **BL-229**: o runner tem `google-chrome` fora de snap e a seleção tenta o
    chromium primeiro.
 
    **Duas retratações ficam registradas, a minha e a do auditor.** Ele mediu a
@@ -411,7 +411,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    passed" ao Fred **quatro vezes** enquanto a CI dizia `1 failed, 1055 passed,
    2 skipped`. A regra que decorre disso vale para os dois papéis: **declaração
    de suíte verde diz em que árvore foi medida, e a árvore que vale é a limpa.**
-   Mecanismo em **BL-180**, cumprida pela primeira vez nesta revisão.
+   Mecanismo em **BL-227**, cumprida pela primeira vez nesta revisão.
 
    ### Rodada 3 e a correção — estado em `2d1bc37`
 
@@ -435,7 +435,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
    | **CI, log do job** | **1103 passed, 2 skipped**, 62,68 s |
 
-   Eram 1077. Os 2 pulos continuam sendo as medições de CSS (BL-182).
+   Eram 1077. Os 2 pulos continuam sendo as medições de CSS (BL-229).
 
    **Uma quebra de regra declarada pelo implementador**, e verificada por mim:
    ele rodou `ruff format` sem `--check`, o que é proibido. Peguei o arquivo na
@@ -452,7 +452,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    se cumpre por leitura vira regra cumprida em dois terços"* é frase do próprio
    auditor, de uma rodada anterior, e ela se cumpriu em cima de mim.
 
-   Os campos que a DL-019 corrigiu são **quatro**: `data` de lançamento (RC-77),
+   Os campos que a DL-020 corrigiu são **quatro**: `data` de lançamento (RC-77),
    `vigencia_inicio` de regime (RC-81), o número de partidas (RC-79) e o
    conjunto inteiro que a política dos cinco dicionários julga.
 
@@ -468,7 +468,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **Item 2 — o mesmo campo nas outras superfícies.** *Percorrido em parte, e
    foi aqui que ficaram os dois achados.* Para `data` de lançamento, percorri
    serviço, API, tela, estorno **e admin** — e o admin foi o achado do
-   `desenvolvedor-pleno` que virou a BL-164. Para `vigencia_inicio`, percorri
+   `desenvolvedor-pleno` que virou a BL-211. Para `vigencia_inicio`, percorri
    API e admin, e o validador de modelo faz a **faixa** valer nas duas.
    *O que ficou, e o auditor mediu:* **(a)** a faixa valeu no admin mas a
    **vigência crescente não** — pelo inline nascem dois períodos abertos ao
@@ -479,7 +479,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    o item que a rodada 6 também não executou, pela segunda vez.
 
    **Item 3 — as demais restrições do mesmo `Meta`.** *Percorrido, e virou
-   mecanismo.* Era a origem da BL-157 (duas `CheckConstraint` de CNPJ sem
+   mecanismo.* Era a origem da BL-204 (duas `CheckConstraint` de CNPJ sem
    tradução, a outra metade do `Meta` que a BL-144 fechou). Deixou de ser
    conferência manual e virou a varredura de restrições, que percorre **todos**
    os modelos e foi vista reprovar. *O que ficou:* a fronteira dela também está
@@ -495,14 +495,14 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **Um critério meu foi retirado por inexequível**, e a razão fica: eu exigira
    "varredura provando que cada view de POST tem **teste** dos cinco
    dicionários". Amarrar superfície a arquivo de teste exigiria casamento de
-   nome por heurística — **exatamente o erro da BL-166**. A varredura prova que
+   nome por heurística — **exatamente o erro da BL-213**. A varredura prova que
    a política é **chamada**, e não finge provar mais.
 
    **Três contratos que eu fixei na distribuição**, para os dois não negociarem
    no meio do caminho — e para nenhum número de negócio ficar declarado em dois
    lugares, que é como a documentação divergiu três vezes:
 
-   1. A política dos cinco dicionários (BL-149) mora em `apps/core/requisicao.py`,
+   1. A política dos cinco dicionários (BL-196) mora em `apps/core/requisicao.py`,
       escrita pelo `desenvolvedor-pleno`: uma função que recebe a requisição e a
       declaração do que a view aceita, e levanta **uma** exceção carregando a
       razão e a lista de chaves ofensoras em separado. Quem responde é a view.
@@ -512,7 +512,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
       número de tela e passa a ser regra de domínio no serviço de criação, para
       que a **API também o herde** (item 2 da DE-034: o mesmo campo nas outras
       superfícies).
-   3. No BL-151(b), a consulta "há movimento fora do período consultado" é do
+   3. No BL-198(b), a consulta "há movimento fora do período consultado" é do
       `desenvolvedor-pleno`, em `services.py`; a renderização do aviso nas
       quatro saídas é do `especialista-frontend`.
 
@@ -522,12 +522,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
    `vigencia_inicio` por fora de `registrar_regime_tributario`, e eu conferi que
    `LancamentoContabilAdmin` tem o mesmo problema para a data. Consequência:
    **pelo admin dá para criar lançamento datado `9999-12-31`, invisível nas
-   quatro saídas** — o BL-151 por uma porta que ninguém tinha olhado. Logo a
+   quatro saídas** — o BL-198 por uma porta que ninguém tinha olhado. Logo a
    faixa do RC-77 precisa existir no **modelo**, e `models.py` não pode importar
    de `services.py` (import circular). O lugar canônico da faixa passa a ser um
    módulo **puro, sem ORM**, com `services.py` importando de lá e mantendo
    reexport para não quebrar o `especialista-frontend` no meio do trabalho. A
-   varredura completa do admin é a **BL-164**, e **não** é desta etapa.
+   varredura completa do admin é a **BL-211**, e **não** é desta etapa.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -581,12 +581,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
    substitui. O Fred escolheu isso **contra a minha recomendação**, e a escolha
    dele é a que vale: regime é dado **cadastral**, não escrituração, e é ele
    quem precisa provar coisas a cliente e a fisco. **Fecha a PE-44 por
-   completo.** O alcance técnico é meu e está em **DE-035**: apaga-se só o
+   completo.** O alcance técnico é meu e está em **DE-039**: apaga-se só o
    **último** período, a exclusão devolve o anterior à condição de vigente, e o
    **evento** de exclusão é gravado em `RegistroAuditoria`. O registro sai do
    histórico do produto; a trilha técnica fica, porque o `AGENTS.md` a torna
-   obrigatória e ela não é o que ele estava escolhendo. Virou **BL-162**, e a
-   guarda para quando existir apuração fiscal virou **BL-163** — registrada
+   obrigatória e ela não é o que ele estava escolhendo. Virou **BL-209**, e a
+   guarda para quando existir apuração fiscal virou **BL-210** — registrada
    antes de a apuração existir, de propósito. **Nada disso vale para lançamento
    efetivado:** ali a correção segue por estorno e apagar continua proibido.
 9. **Decisões que dependem do Fred:** **HI-07** (o piso de `01/01/2000` para

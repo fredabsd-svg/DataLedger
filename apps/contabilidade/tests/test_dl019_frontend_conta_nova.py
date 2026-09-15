@@ -1,7 +1,7 @@
-"""BL-149 (b) e BL-161 — a tela de cadastro de conta: os cinco dicionários
+"""BL-196 (b) e BL-208 — a tela de cadastro de conta: os cinco dicionários
 da requisição medidos NA VIEW, e o RC-80 (conta sem as contas-mãe).
 
-## BL-149 (b): por que um teste de ponta a ponta, e não mais um unitário
+## BL-196 (b): por que um teste de ponta a ponta, e não mais um unitário
 
 O defeito original foi medido pelo auditor **nesta tela**: enviar `conta_pai`
 como **arquivo** gravava a conta **na raiz do plano**, com 302 de sucesso e
@@ -21,7 +21,7 @@ afirma as **duas** metades: a resposta (400, nomeando o campo) e o **efeito**
 mesmo bloco, porque sem ele um `conta_nova` que recusasse tudo passaria em
 todos os casos negativos.
 
-## BL-161: o RC-80 tem DUAS metades, e a segunda é a escolha do Fred
+## BL-208: o RC-80 tem DUAS metades, e a segunda é a escolha do Fred
 
 > **RC-80 — conta sem as contas-mãe: avisar e deixar criar.**
 
@@ -54,9 +54,9 @@ SENHA = "senha-forte-123"
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório BL-149", cnpj="55555555000155")
+    escritorio = Escritorio.objects.create(nome="Escritório BL-196", cnpj="55555555000155")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa BL-149 Ltda", cnpj="55566677000133"
+        escritorio=escritorio, razao_social="Empresa BL-196 Ltda", cnpj="55566677000133"
     )
     ativo = Conta.objects.create(
         empresa=empresa,
@@ -103,7 +103,7 @@ def _texto_visivel(resposta):
 
 
 # ---------------------------------------------------------------------------
-# BL-149 (b) — os cinco dicionários da requisição, medidos NA VIEW
+# BL-196 (b) — os cinco dicionários da requisição, medidos NA VIEW
 # ---------------------------------------------------------------------------
 
 
@@ -145,7 +145,7 @@ def test_conta_nova_recusa_os_outros_dicionarios_pela_requisicao(client, cenario
     URL de um POST, `Idempotency-Key` por cabeçalho (o contrato da API, não
     desta tela) e campo desconhecido no corpo.
 
-    Antes da BL-149 as três eram aceitas e descartadas em silêncio nesta
+    Antes da BL-196 as três eram aceitas e descartadas em silêncio nesta
     tela — a defesa existia na tela vizinha (`lancamento_novo`) e não aqui.
     """
     _autenticar(client)
@@ -185,7 +185,7 @@ def test_controle_positivo_um_cadastro_legitimo_continua_gravando(client, cenari
 
 
 # ---------------------------------------------------------------------------
-# BL-161 / RC-80 — avisar E deixar criar
+# BL-208 / RC-80 — avisar E deixar criar
 # ---------------------------------------------------------------------------
 
 
