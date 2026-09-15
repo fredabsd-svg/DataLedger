@@ -370,6 +370,49 @@ auditoria independente — que é exatamente o motivo de ela existir.
    fabricado com os dois lados nulos, truthy, que renderiza a caixa vazia — e
    ela **morreu por asserção, em três testes**. Julgou a defesa suficiente.
 
+   ### Duas auditorias reprovaram, e o estado medido hoje
+
+   **Rodada 1 (`b13d41a`): REPROVADO**, 9 achados. **Rodada 2 (`d97a188`):
+   REPROVADO**, 8 achados novos, dois bloqueadores. Os dois relatórios estão em
+   [docs/auditorias/](../auditorias/), **preservados integralmente**.
+
+   **O pior achado foi contra mim, e não foi um caso: foi um método.** Eu aprovei
+   a correção do bloqueador da rodada 1 **depois de verificá-la com as minhas
+   mãos** — construí a superfície desprotegida e vi a varredura acusar. O que eu
+   não vi é que estava olhando o **mapa fixo de retaguarda** funcionar, e não o
+   mecanismo que eu tinha aprovado no plano: `initkwargs["actions"]` **nunca
+   executou**, porque o DRF põe `actions` como atributo próprio da view. A minha
+   superfície de teste por acaso usava os nomes do mapa. *Verifiquei a coisa
+   certa pelo caminho errado, e declarei o caminho.*
+
+   **Estado em `685abf3`, medido nas duas árvores e com a CI lida:**
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Árvore de trabalho | 1077 passed, exit 0 |
+   | **Cópia limpa da revisão commitada** (`git status` vazio, **zero** arquivos ignorados) | **1077 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1075 passed, 2 skipped**, 59,89 s |
+
+   **A linha `BL-171: toda superfície de escrita da varredura foi exercitada`
+   aparece no log da CI** — o mecanismo que estava desligado lá (sessão vermelha
+   fazia a conferência sair cedo) voltou a rodar.
+
+   **Os 2 pulos são as medições de CSS**, com motivo declarado no log:
+   `/usr/bin/chromium: timeout de 30s`. O critério 3 da etapa está atendido pelo
+   ramo "pula com motivo", **não** pelo ramo "roda". Eu havia dito que elas
+   "rodaram e passaram" — verdade **na minha árvore**, falso na CI. Virou
+   **BL-182**: o runner tem `google-chrome` fora de snap e a seleção tenta o
+   chromium primeiro.
+
+   **Duas retratações ficam registradas, a minha e a do auditor.** Ele mediu a
+   rodada 1 numa árvore contaminada, declarou *"nenhum número declarado estava
+   errado"*, e **retratou por escrito antes de me cobrar**. Eu repeti "1058
+   passed" ao Fred **quatro vezes** enquanto a CI dizia `1 failed, 1055 passed,
+   2 skipped`. A regra que decorre disso vale para os dois papéis: **declaração
+   de suíte verde diz em que árvore foi medida, e a árvore que vale é a limpa.**
+   Mecanismo em **BL-180**, cumprida pela primeira vez nesta revisão.
+
    ### A DE-034 percorrida item por item — achado A4 da auditoria
 
    Este é o **critério 2 da etapa**, que eu escrevi e **não cumpri**: o auditor
