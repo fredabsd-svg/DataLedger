@@ -344,12 +344,28 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **Mutantes de backend: 6 aplicados, 6 mortos, 0 sobreviventes** — entre eles
    o **M16**, o mutante do estorno que sobreviveu a 766 testes.
 
-   **Frontend: parcial.** O agente foi morto por **limite de sessão** no meio da
-   rodada de mutantes, dizendo *"dois sobreviventes — os dois são achados"* e
-   **sem dizer quais**. Entregou BL-152 e BL-168 e 27 testes novos (BL-149b,
-   BL-151 nas telas, BL-156, BL-161, BL-166). **Os dois sobreviventes são a
-   única coisa aberta da etapa**, e serão **refeitos, não presumidos** — não há
-   como saber quais eram sem repetir a rodada.
+   **Frontend: entregue, com uma ressalva que vai para o auditor.** O primeiro
+   agente foi morto por **limite de sessão** no meio da rodada de mutantes,
+   dizendo *"dois sobreviventes — os dois são achados"* e **sem dizer quais**.
+   Entregou BL-152, BL-168 e 27 testes novos (BL-149b, BL-151 nas telas, BL-156,
+   BL-161, BL-166). A rodada foi **refeita do zero**, não presumida:
+   **13 mutantes aplicados, 13 mortos, 0 sobreviventes** — os 11 que eu listei
+   mais **2 que o implementador acrescentou** ao ler o código, nos vizinhos de
+   campo que a DE-034 aponta. Cada um com a **previsão escrita de qual teste
+   deveria matá-lo antes de rodar**, e cada um morreu no teste previsto. Nenhum
+   teste precisou ser reforçado: já eram fortes.
+
+   ⚠️ **A ressalva fica aberta e vai para o auditor.** Os dois sobreviventes que
+   o agente morto declarou **não foram reproduzidos**, e há duas explicações que
+   eu **não consigo distinguir**: (a) ele já havia reforçado os testes antes de
+   morrer, e a mensagem precedeu esse trabalho; (b) eram mutantes **diferentes**
+   dos 13 tentados. **Não se declara resolvido o que não se sabe** — quem tem de
+   provar é o auditor, não eu.
+
+   Registrado junto um ponto fraco medido: o mutante "mostrar o aviso sempre"
+   morreu por `AttributeError`, não por asserção, porque a consulta devolve
+   `None` e não dicionário vazio. O teste pega o defeito **por acidente de
+   tipo**. Morte por erro é morte mais frágil que morte por asserção.
 
    **Um critério meu foi retirado por inexequível**, e a razão fica: eu exigira
    "varredura provando que cada view de POST tem **teste** dos cinco
