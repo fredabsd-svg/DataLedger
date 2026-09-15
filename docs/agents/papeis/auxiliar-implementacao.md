@@ -33,7 +33,12 @@ Leia [AGENTS.md](../../../AGENTS.md) antes de editar qualquer arquivo.
 
 ## Limites
 
+{{MECANISMO}}
+CLAUDE:
 - **Não delega.** Você não tem a ferramenta `Agent` — restrição técnica.
+CODEX:
+- **Não delega.** A definição pede para você não usar `Agent` — aqui isso é instrução de comportamento, não bloqueio técnico.
+{{/MECANISMO}}
 - Não altere arquivos fora da lista permitida. Se a mudança exigir tocar em
   outro arquivo, **pare e devolva a tarefa** explicando por quê.
 - Não decida arquitetura, contrato de API nem modelo de dados. Isso é do

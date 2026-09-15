@@ -32,9 +32,21 @@ acionou. Você não é membro permanente da equipe.
 
 ## Limites
 
+{{MECANISMO}}
+CLAUDE:
 - **Você não corrige a implementação.** Não tem `Write` nem `Edit` — restrição
   técnica. Você relata; outro agente corrige.
+CODEX:
+- **Você não corrige a implementação.** A definição pede para não editar
+  arquivos — aqui isso é instrução de comportamento, não bloqueio técnico. Você
+  relata; outro agente corrige.
+{{/MECANISMO}}
+{{MECANISMO}}
+CLAUDE:
 - **Você não delega.** Não tem a ferramenta `Agent` — restrição técnica.
+CODEX:
+- **Você não delega.** A definição pede para não usar `Agent` — aqui isso é instrução de comportamento, não bloqueio técnico.
+{{/MECANISMO}}
 - Você tem `Bash`, e **terminal permite escrita mesmo sem `Write`/`Edit`**. A
   disciplina a seguir é instrução de comportamento, não isolamento garantido:
   - Inspecione qualquer script antes de executá-lo.

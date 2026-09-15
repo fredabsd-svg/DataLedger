@@ -54,6 +54,12 @@ do time é não acrescentar dependência nova só para isto. O frontmatter neutr
 tem estrutura fixa e conhecida (duas chaves de topo escalares, dois mapas
 aninhados de um nível), então um leitor mínimo, específico para essa forma,
 é mais simples de auditar do que justificar e manter uma dependência nova.
+
+Correções da auditoria DL-019, rodada 1 (2026-09-15, REPROVADO — 12 achados,
+11 sob responsabilidade do `desenvolvedor-pleno`): este arquivo incorpora as
+correções dos achados 1, 2, 3, 6, 7, 8, 9 e 10. Os achados 5, 11 e 12 vivem
+no teste (`apps/core/tests/test_agentes_multiplataforma.py`). Cada correção
+está comentada no ponto onde vive, citando o achado.
 """
 
 from __future__ import annotations
@@ -61,6 +67,7 @@ from __future__ import annotations
 import argparse
 import posixpath
 import re
+import stat
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -104,7 +111,48 @@ DIRETORIOS_REPO = Diretorios.para_raiz(REPO_ROOT)
 # este script abre — por isso não faz parte de `Diretorios`.
 COMO_CRIAR_UM_PAPEL = "docs/agents/como-criar-um-papel.md"
 
+# Achado 3 (auditoria DL-019 rodada 1): a correção anterior do órfão (que
+# resolveu um resíduo real) abriu uma remoção destrutiva — `--escrever`
+# apagava qualquer `.md`/`.toml` que não fosse gerado, incluindo um agente
+# local que ninguém pediu para remover. A partir de agora, só um arquivo que
+# CARREGA esta marca (ou seja, que este próprio gerador escreveu antes) pode
+# ser apagado automaticamente. O Codex já carrega a marca no corpo (ver
+# `_bloco_como_criar_um_papel`); o Claude Code não tem onde colocá-la sem
+# quebrar o critério 1 (byte a byte) — por isso `.claude/agents/*.md` nunca é
+# apagado sozinho, só relatado como órfão. `verificar()` continua relatando
+# os dois tipos; só a remoção automática de `escrever()` ficou restrita.
+MARCA_DE_GERADO = "Este arquivo é gerado a partir de `docs/agents/papeis/`."
+
 LINK_MARKDOWN_RE = re.compile(r"(\[[^\]]+\]\()([^)]+)(\))")
+
+# Achado 2 (auditoria DL-019 rodada 1, alta): `nome` sem validação permitia
+# travessia de caminho — `nome: ../../../ESCAPOU` fazia `escrever()` gravar
+# fora dos diretórios de destino. `docs/agents/como-criar-um-papel.md`
+# convida qualquer ferramenta de IA a criar um arquivo em
+# `docs/agents/papeis/` e rodar `--escrever`; um `nome` malformado não podia
+# continuar sendo um caminho de escrita arbitrária a partir de dado de
+# repositório.
+_NOME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+# Achado 8 (auditoria DL-019 rodada 1, baixa): chave desconhecida em
+# `perfil`/`claude` era descartada em silêncio — um papel novo que
+# acrescentasse `sandbox_mode` (citado em docs/agents/equipe.md como
+# possibilidade futura) acreditava ter configurado algo que não existe em
+# lugar nenhum.
+_CHAVES_PERFIL = frozenset(
+    {"raciocinio", "esforco", "escreve_arquivos", "memoria_de_projeto", "delega_para"}
+)
+_CHAVES_CLAUDE = frozenset({"model", "effort", "memory", "color", "tools", "disallowedTools"})
+
+# Achado 7 (auditoria DL-019 rodada 1, baixa): caractere de controle no corpo
+# derrubava `--escrever` com um `tomllib.TOMLDecodeError` bruto, sem citar o
+# arquivo-fonte — contrariando a promessa do próprio procedimento publicado
+# ("o gerador falha com uma mensagem que aponta o arquivo e a linha"). Lista
+# dos controles que o TOML não aceita em string básica (tab e LF ficam de
+# fora, são válidos).
+_CONTROLE_PROIBIDO_TOML = frozenset(
+    chr(codigo) for codigo in (*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), 0x7F)
+)
 
 
 class ErroFrontmatter(ValueError):
@@ -149,6 +197,32 @@ class Papel:
 # --------------------------------------------------------------------------
 # Leitura da fonte única
 # --------------------------------------------------------------------------
+
+
+def _tokens_de_ferramentas(valor: str | None) -> set[str]:
+    """Extrai os nomes de ferramenta de um campo `tools`/`disallowedTools`.
+
+    Remove qualquer conteúdo entre parênteses primeiro — `arquiteto-senior`
+    declara `Agent(desenvolvedor-pleno, especialista-frontend, ...)`, e os
+    nomes de papel dentro dos parênteses não são ferramentas.
+    """
+    if not valor:
+        return set()
+    sem_parenteses = re.sub(r"\([^)]*\)", "", valor)
+    return {token.strip() for token in sem_parenteses.split(",") if token.strip()}
+
+
+def _validar_sem_controle_proibido(texto: str, caminho: Path) -> None:
+    """Achado 7: recusa cedo, citando arquivo e linha, em vez de deixar o
+    caractere chegar ao `tomllib` e explodir num traceback sem contexto."""
+    for indice, caractere in enumerate(texto):
+        if caractere in _CONTROLE_PROIBIDO_TOML:
+            linha = texto.count("\n", 0, indice) + 1
+            raise ErroFrontmatter(
+                f"{caminho}: contém caractere de controle proibido "
+                f"U+{ord(caractere):04X} na linha {linha} — provavelmente colado "
+                "de um PDF ou terminal; remova-o antes de gerar"
+            )
 
 
 def _linha_ou_erro(linhas: list[str], idx: int, caminho: Path) -> str:
@@ -207,6 +281,53 @@ def _ler_lista_inline(valor: str, chave: str, caminho: Path) -> tuple[str, ...]:
     return tuple(item.strip() for item in interior.split(","))
 
 
+def _validar_coerencia(papel: Papel) -> None:
+    """Achado 6 (auditoria DL-019 rodada 1, média): nada impedia `perfil`
+    (neutro) e `claude` (ferramentas concedidas de verdade) de se
+    contradizerem. Era possível acrescentar `Write` ao `tools` do
+    `auditor-qa` mantendo `escreve_arquivos: nao`, com os 18 testes daquela
+    rodada passando e os dois derivados continuando a *afirmar* que ele não
+    escreve. Essa é a única restrição que é mecanismo de verdade neste
+    projeto (ausência de `Write`/`Edit` no Claude Code); ela precisa de
+    coerência verificada, não só declarada.
+    """
+    caminho = papel.arquivo_fonte
+    concedidas = _tokens_de_ferramentas(papel.tools)
+    proibidas = _tokens_de_ferramentas(papel.disallowed_tools)
+
+    if papel.escreve_arquivos == "nao":
+        escrita_concedida = concedidas & {"Write", "Edit", "NotebookEdit"}
+        if escrita_concedida:
+            raise ErroFrontmatter(
+                f"{caminho}: perfil.escreve_arquivos=nao, mas claude.tools concede "
+                f"{sorted(escrita_concedida)} — perfil e claude estão em desacordo"
+            )
+        escrita_nao_proibida = {"Write", "Edit", "NotebookEdit"} - proibidas
+        if escrita_nao_proibida:
+            raise ErroFrontmatter(
+                f"{caminho}: perfil.escreve_arquivos=nao exige claude.disallowedTools "
+                f"com Write, Edit e NotebookEdit; falta {sorted(escrita_nao_proibida)}"
+            )
+
+    if not papel.delega_para:
+        if "Agent" in concedidas:
+            raise ErroFrontmatter(
+                f"{caminho}: perfil.delega_para vazio, mas claude.tools concede Agent"
+            )
+        if "Agent" not in proibidas:
+            raise ErroFrontmatter(
+                f"{caminho}: perfil.delega_para vazio exige claude.disallowedTools com Agent"
+            )
+
+    memoria_no_perfil = papel.memoria_de_projeto == "sim"
+    memoria_no_claude = papel.memory == "project"
+    if memoria_no_perfil != memoria_no_claude:
+        raise ErroFrontmatter(
+            f"{caminho}: perfil.memoria_de_projeto={papel.memoria_de_projeto!r} não "
+            f"bate com claude.memory={papel.memory!r} — os dois precisam concordar"
+        )
+
+
 def carregar_papel(caminho: Path) -> Papel:
     """Lê e valida um arquivo de ``docs/agents/papeis/``.
 
@@ -214,7 +335,20 @@ def carregar_papel(caminho: Path) -> Papel:
     a linha problemática — nunca grava nada, então uma fonte inválida nunca
     produz derivado parcial (cenário de teste 5 do plano DL-019).
     """
+    # Achado 9 (auditoria DL-019 rodada 1): a correção recomendada tinha duas
+    # partes — comparar bytes em `verificar()` (feito, ver lá) e ler a fonte
+    # com `newline=""` para não normalizar quebra de linha antes de gerar.
+    # Discordo dessa segunda parte, por escrito: `read_text()` com quebra de
+    # linha universal (padrão) converte CRLF/CR para LF UMA VEZ, na leitura
+    # da fonte, o que é o comportamento que queremos — saída sempre LF,
+    # independente de como a fonte foi salva. Ler com `newline=""`
+    # preservaria um CRLF acidental da fonte e o propagaria para dentro do
+    # derivado gerado, que é o problema oposto ao que motivou o achado. O
+    # ponto cego de verdade era a COMPARAÇÃO em `verificar()` usar texto
+    # normalizado em vez de bytes — isso está corrigido abaixo.
     texto = caminho.read_text(encoding="utf-8")
+    _validar_sem_controle_proibido(texto, caminho)
+
     if not texto.startswith("---\n"):
         raise ErroFrontmatter(f"{caminho}: o arquivo precisa começar com '---' na primeira linha")
 
@@ -230,6 +364,23 @@ def carregar_papel(caminho: Path) -> Papel:
     idx = 0
 
     nome, idx = _ler_escalar(linhas, idx, "nome", caminho)
+
+    # Achado 2: valida ANTES de qualquer outro processamento, porque é o
+    # valor usado depois para montar caminho de arquivo de saída.
+    if not _NOME_RE.fullmatch(nome):
+        raise ErroFrontmatter(
+            f"{caminho}: 'nome' inválido {nome!r} — só letras minúsculas, dígitos "
+            "e hífen simples entre grupos (regex "
+            f"{_NOME_RE.pattern!r}); isso existe para impedir travessia de "
+            "caminho quando o gerador grava os derivados"
+        )
+    if nome != caminho.stem:
+        raise ErroFrontmatter(
+            f"{caminho}: 'nome' ({nome!r}) precisa ser igual ao nome do arquivo "
+            f"sem extensão ({caminho.stem!r}) — nomes divergentes escondem qual "
+            "papel está sendo editado e quebram a correspondência 1-para-1 "
+            "usada para detectar órfão"
+        )
 
     linha = _linha_ou_erro(linhas, idx, caminho)
     if linha != "descricao: >-":
@@ -264,6 +415,12 @@ def carregar_papel(caminho: Path) -> Papel:
             raise ErroFrontmatter(
                 f"{caminho}: bloco 'perfil' sem a chave obrigatória '{chave_obrigatoria}'"
             )
+    desconhecidas = set(perfil) - _CHAVES_PERFIL
+    if desconhecidas:
+        raise ErroFrontmatter(
+            f"{caminho}: bloco 'perfil' tem chave desconhecida {sorted(desconhecidas)}; "
+            f"as aceitas são {sorted(_CHAVES_PERFIL)}"
+        )
 
     if perfil["raciocinio"] not in ("maximo", "equilibrado"):
         raise ErroFrontmatter(f"{caminho}: 'perfil.raciocinio' inválido: {perfil['raciocinio']!r}")
@@ -292,6 +449,12 @@ def carregar_papel(caminho: Path) -> Papel:
             raise ErroFrontmatter(
                 f"{caminho}: bloco 'claude' sem a chave obrigatória '{chave_obrigatoria}'"
             )
+    desconhecidas = set(claude) - _CHAVES_CLAUDE
+    if desconhecidas:
+        raise ErroFrontmatter(
+            f"{caminho}: bloco 'claude' tem chave desconhecida {sorted(desconhecidas)}; "
+            f"as aceitas são {sorted(_CHAVES_CLAUDE)}"
+        )
 
     if idx != len(linhas):
         raise ErroFrontmatter(
@@ -299,7 +462,7 @@ def carregar_papel(caminho: Path) -> Papel:
             f"(linha {idx + 1}: {linhas[idx]!r})"
         )
 
-    return Papel(
+    papel = Papel(
         nome=nome,
         descricao=descricao,
         raciocinio=perfil["raciocinio"],
@@ -318,6 +481,8 @@ def carregar_papel(caminho: Path) -> Papel:
         corpo=corpo,
         arquivo_fonte=caminho,
     )
+    _validar_coerencia(papel)
+    return papel
 
 
 def carregar_papeis(diretorios: Diretorios = DIRETORIOS_REPO) -> list[Papel]:
@@ -332,7 +497,61 @@ def carregar_papeis(diretorios: Diretorios = DIRETORIOS_REPO) -> list[Papel]:
     arquivos = sorted(diretorios.fonte.glob("*.md"))
     if not arquivos:
         raise ErroFrontmatter(f"nenhum papel encontrado em {diretorios.fonte}")
-    return [carregar_papel(caminho) for caminho in arquivos]
+    papeis = [carregar_papel(caminho) for caminho in arquivos]
+
+    # Achado 6 (parte cruzada): `delega_para` citando um papel que não existe
+    # na fonte só é detectável depois que TODOS os papéis foram carregados.
+    nomes = {papel.nome for papel in papeis}
+    for papel in papeis:
+        desconhecidos = [d for d in papel.delega_para if d not in nomes]
+        if desconhecidos:
+            raise ErroFrontmatter(
+                f"{papel.arquivo_fonte}: perfil.delega_para cita papel inexistente "
+                f"na fonte: {desconhecidos}"
+            )
+    return papeis
+
+
+# --------------------------------------------------------------------------
+# Achado 1 — resolução do marcador {{MECANISMO}}
+# --------------------------------------------------------------------------
+#
+# Seis frases do corpo afirmavam, em texto categórico, que uma restrição era
+# "técnica" — verdade só no Claude Code. No Codex, que também lê o mesmo
+# corpo, a afirmação é falsa: o agente tem a ferramenta. O aviso de
+# honestidade sozinho não bastava (ficava ~5 KB abaixo, como ressalva
+# genérica, sem retificar a frase específica).
+#
+# Correção: a fonte guarda as duas versões lado a lado, dentro de um bloco
+# ``{{MECANISMO}}...{{/MECANISMO}}``, e o gerador escolhe uma delas por
+# destino. Isso preserva o critério 1 (a versão ``CLAUDE:`` é o texto
+# histórico exato, byte a byte) e remove a afirmação falsa do lado Codex sem
+# inferir automaticamente uma reformulação — cada frase foi escrita à mão
+# para o destino que a lê, o que evita o risco de uma transformação genérica
+# produzir texto estranho ou ambíguo em algum papel.
+_MECANISMO_RE = re.compile(
+    r"\{\{MECANISMO\}\}\nCLAUDE:\n(?P<claude>.*?)\nCODEX:\n(?P<codex>.*?)\n\{\{/MECANISMO\}\}",
+    re.DOTALL,
+)
+
+
+def resolver_mecanismo(corpo: str, alvo: str) -> str:
+    """Substitui cada bloco ``{{MECANISMO}}`` pelo texto do ``alvo``.
+
+    ``alvo`` é ``"claude"`` ou ``"codex"``. Note que a substituição usa o
+    texto capturado tal como está, sem acrescentar quebra de linha: o ``\\n``
+    que já existe depois de ``{{/MECANISMO}}`` no arquivo-fonte faz esse
+    papel — é o mesmo ``\\n`` que terminava a frase original antes da
+    marcação, preservando parágrafos e linhas em branco ao redor byte a
+    byte.
+    """
+    if alvo not in ("claude", "codex"):
+        raise ValueError(f"alvo inválido para resolver_mecanismo: {alvo!r}")
+
+    def substituir(correspondencia: re.Match[str]) -> str:
+        return correspondencia.group(alvo)
+
+    return _MECANISMO_RE.sub(substituir, corpo)
 
 
 # --------------------------------------------------------------------------
@@ -382,26 +601,35 @@ def _origem_dir_relativa(papel: Papel, diretorios: Diretorios) -> str:
 # Blocos exclusivos do derivado Codex (não-Claude)
 # --------------------------------------------------------------------------
 
-AVISO_MARCADOR = (
-    "Aviso de honestidade: nesta ferramenta, a restrição descrita acima é "
-    "**instrução de comportamento**, não isolamento técnico garantido — "
-    "diferente do Claude Code, onde a ausência de `Write`/`Edit` é técnica "
-    "(ver `tools`/`disallowedTools` em `docs/agents/papeis/`)."
-)
-
 
 def _bloco_aviso_de_honestidade(papel: Papel) -> str:
+    """Achado 1 (parte 2): o texto do aviso era fixo, sempre citando
+    `Write`/`Edit`, mesmo quando a restrição real do papel era sobre
+    `Agent` (caso do `auxiliar-implementacao`, que só não delega). Agora o
+    texto — e a lista de ferramentas citadas — depende da razão real do
+    aviso. Também passou a dizer "descrita abaixo": este bloco agora fica no
+    TOPO do `developer_instructions` (ver `_corpo_codex`), não mais depois
+    do corpo.
+    """
     razoes = []
+    ferramentas_tecnicas = []
     if papel.escreve_arquivos == "nao":
         razoes.append("não editar arquivos")
+        ferramentas_tecnicas.append("`Write`/`Edit`")
     if not papel.delega_para:
         razoes.append("não delegar a outro agente")
+        ferramentas_tecnicas.append("`Agent`")
     razao = " e ".join(razoes)
+    ferramentas = " e ".join(ferramentas_tecnicas)
     return (
-        "\n## Aviso de honestidade desta ferramenta\n\n"
-        f"A definição deste papel pede para {razao}. {AVISO_MARCADOR} Cumpra "
-        "a instrução pelo mesmo motivo que cumpriria no Claude Code — não "
-        "porque a ferramenta impede o contrário.\n"
+        "## Aviso de honestidade desta ferramenta\n\n"
+        f"A definição deste papel pede para {razao}. Aviso de honestidade: "
+        "nesta ferramenta, a restrição descrita abaixo é **instrução de "
+        "comportamento**, não isolamento técnico garantido — diferente do "
+        f"Claude Code, onde a ausência de {ferramentas} é técnica (ver "
+        "`tools`/`disallowedTools` em `docs/agents/papeis/`). Cumpra a "
+        "instrução pelo mesmo motivo que cumpriria no Claude Code — não "
+        "porque a ferramenta impede o contrário."
     )
 
 
@@ -409,11 +637,16 @@ def _bloco_como_criar_um_papel() -> str:
     # O TOML do Codex não é documento navegado por caminho relativo (regra 1
     # do plano DL-019: quem lê trabalha com o diretório de trabalho na
     # raiz), então o link aqui é sempre relativo à raiz do repositório.
+    #
+    # A primeira frase é `MARCA_DE_GERADO`: `_e_arquivo_gerado` procura por
+    # ela para decidir se `escrever()` pode apagar este arquivo sozinho
+    # quando ele virar órfão (achado 3). Não mude o texto sem atualizar a
+    # constante junto.
     return (
-        "\n## Criar um papel novo\n\n"
-        f"Este arquivo é gerado a partir de `docs/agents/papeis/`. Para criar um "
+        f"## Criar um papel novo\n\n"
+        f"{MARCA_DE_GERADO} Para criar um "
         f"papel novo ou alterar este, siga `{COMO_CRIAR_UM_PAPEL}` — não edite "
-        "este arquivo diretamente, a próxima geração sobrescreve.\n"
+        "este arquivo diretamente, a próxima geração sobrescreve."
     )
 
 
@@ -424,13 +657,22 @@ def _corpo_codex(papel: Papel, diretorios: Diretorios) -> str:
     isso ele sozinho carrega o aviso de honestidade e a citação do
     procedimento de criar papel — o lado Claude fica byte a byte igual ao
     que já existia (critério 1 do plano DL-019).
+
+    Achado 1 (parte 3): o aviso de honestidade agora vem **antes** do corpo,
+    não depois. Quem lê de cima para baixo precisa encontrar a retificação
+    antes de chegar a qualquer menção a `Write`/`Agent` no texto do papel —
+    ver `test_aviso_de_honestidade_aparece_antes_de_qualquer_mencao_a_ferramenta`.
     """
     origem = _origem_dir_relativa(papel, diretorios)
-    corpo = recalcular_links(papel.corpo, origem, destino_dir=".")
+    corpo = resolver_mecanismo(papel.corpo, "codex")
+    corpo = recalcular_links(corpo, origem, destino_dir=".").strip("\n")
+
+    blocos = []
     if papel.precisa_aviso_de_honestidade:
-        corpo = corpo.rstrip("\n") + "\n" + _bloco_aviso_de_honestidade(papel)
-    corpo = corpo.rstrip("\n") + "\n" + _bloco_como_criar_um_papel()
-    return corpo
+        blocos.append(_bloco_aviso_de_honestidade(papel))
+    blocos.append(corpo)
+    blocos.append(_bloco_como_criar_um_papel())
+    return "\n\n".join(blocos) + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -463,7 +705,8 @@ def construir_claude(papel: Papel, diretorios: Diretorios = DIRETORIOS_REPO) -> 
 
     origem = _origem_dir_relativa(papel, diretorios)
     destino = posixpath.relpath(diretorios.claude.as_posix(), start=diretorios.raiz.as_posix())
-    corpo = recalcular_links(papel.corpo, origem, destino)
+    corpo = resolver_mecanismo(papel.corpo, "claude")
+    corpo = recalcular_links(corpo, origem, destino)
     return frontmatter + corpo
 
 
@@ -525,6 +768,21 @@ def _arquivos_esperados(papeis: list[Papel], diretorios: Diretorios) -> list[Arq
     return gerados
 
 
+def _confinar_no_destino(caminho: Path, diretorio_base: Path) -> None:
+    """Achado 2 (defesa em profundidade): mesmo com `nome` validado por
+    regex, confirma que o caminho final resolvido continua dentro do
+    diretório de destino esperado antes de escrever nele. Duas defesas
+    independentes, não uma — se uma falhar por um motivo que não previmos, a
+    outra ainda segura.
+    """
+    resolvido = caminho.resolve()
+    base = diretorio_base.resolve()
+    if not resolvido.is_relative_to(base):
+        raise ErroFrontmatter(
+            f"recusando gravar fora do destino esperado: {resolvido} não é descendente de {base}"
+        )
+
+
 def _validar_toml(arquivo: ArquivoGerado) -> None:
     """Confere que o TOML gerado é carregável e preserva o texto original.
 
@@ -532,33 +790,67 @@ def _validar_toml(arquivo: ArquivoGerado) -> None:
     arquivo, e ``developer_instructions`` precisa manter a acentuação
     (UTF-8) — o teste que chama esta função falha alto e cedo se o
     escapamento em ``_escapar_toml`` estiver errado.
+
+    Achado 7 (parte 2): se ainda assim o TOML gerado for inválido por algum
+    motivo que a validação de caractere de controle não previu, o erro vira
+    ``ErroFrontmatter`` citando o arquivo de destino, em vez de um
+    ``tomllib.TOMLDecodeError`` bruto sem contexto subindo até o usuário.
     """
-    tomllib.loads(arquivo.conteudo)
+    try:
+        tomllib.loads(arquivo.conteudo)
+    except tomllib.TOMLDecodeError as erro:
+        raise ErroFrontmatter(
+            f"{arquivo.caminho}: TOML gerado é inválido ({erro}) — isso indica um "
+            "bug no gerador, não necessariamente na fonte; nada foi gravado"
+        ) from erro
+
+
+def _e_arquivo_gerado(caminho: Path) -> bool:
+    """Achado 3: só um arquivo que carrega a marca de geração pode ser
+    apagado automaticamente. Ver o comentário em `MARCA_DE_GERADO`.
+    """
+    if caminho.suffix != ".toml":
+        # .claude/agents/*.md nunca carrega a marca (quebraria o critério 1)
+        # — por isso nunca é elegível para remoção automática aqui.
+        return False
+    try:
+        conteudo = caminho.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return MARCA_DE_GERADO in conteudo
 
 
 def _orfaos(papeis: list[Papel], diretorios: Diretorios) -> list[Path]:
-    """Deriva existente cujo papel já não está na fonte.
+    """Todo arquivo em `.claude/agents/`/`.codex/agents/` que não corresponde
+    a um papel atual da fonte — para relatar (`verificar`) e, entre estes,
+    só os marcados como gerados são elegíveis para apagar (`escrever`, via
+    `_e_arquivo_gerado`).
 
-    Usado tanto por ``verificar`` (para relatar) quanto por ``escrever``
-    (para apagar) — um papel removido de ``docs/agents/papeis/`` não deveria
-    deixar ``.claude/agents/`` ou ``.codex/agents/`` com o arquivo antigo
-    esquecido para trás (é o cenário 4 do plano DL-019, e o passo 5 de
-    ``docs/agents/como-criar-um-papel.md``).
+    Achado 10 (auditoria DL-019 rodada 1, baixa): a versão anterior só
+    olhava `sufixo` esperado com `iterdir()` (não recursivo), então um
+    arquivo em subdiretório (`.claude/agents/sub/x.md`) ou com extensão
+    alternativa (`intruso.markdown`) escapava do guarda inteiro — nem
+    relatado, nem removido, simplesmente invisível. Agora a varredura é
+    recursiva (`rglob`) e qualquer coisa que não seja **exatamente** um
+    `<papel>.md`/`<papel>.toml` esperado, direto no diretório (não em
+    subpasta), conta como divergência.
     """
     nomes_esperados = {papel.nome for papel in papeis}
+    esperados_por_diretorio = {
+        diretorios.claude: {f"{nome}.md" for nome in nomes_esperados},
+        diretorios.codex: {f"{nome}.toml" for nome in nomes_esperados},
+    }
     encontrados: list[Path] = []
-    for diretorio, sufixo in (
-        (diretorios.claude, ".md"),
-        (diretorios.codex, ".toml"),
-    ):
+    for diretorio, nomes_no_diretorio in esperados_por_diretorio.items():
         if not diretorio.is_dir():
             continue
-        for existente in diretorio.iterdir():
-            if not existente.name.endswith(sufixo):
+        for existente in sorted(diretorio.rglob("*")):
+            if existente.is_dir():
                 continue
-            nome_papel = existente.name[: -len(sufixo)]
-            if nome_papel not in nomes_esperados:
-                encontrados.append(existente)
+            relativo = existente.relative_to(diretorio)
+            if len(relativo.parts) == 1 and relativo.name in nomes_no_diretorio:
+                continue
+            encontrados.append(existente)
     return encontrados
 
 
@@ -567,6 +859,15 @@ def escrever(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> N
     for arquivo in gerados:
         if arquivo.caminho.suffix == ".toml":
             _validar_toml(arquivo)
+        # Achado 2: confina ANTES de qualquer escrita — se algum caminho
+        # escapar do destino esperado, a função inteira falha sem gravar
+        # nenhum dos arquivos desta chamada (mesma disciplina "tudo ou
+        # nada" que carregar_papeis já aplica à leitura).
+        _confinar_no_destino(
+            arquivo.caminho,
+            diretorios.claude if arquivo.caminho.suffix == ".md" else diretorios.codex,
+        )
+
     for arquivo in gerados:
         arquivo.caminho.parent.mkdir(parents=True, exist_ok=True)
         # Escreve em arquivo temporário e troca de nome: uma falha no meio da
@@ -575,16 +876,28 @@ def escrever(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> N
         temporario.write_text(arquivo.conteudo, encoding="utf-8")
         temporario.replace(arquivo.caminho)
 
-    orfaos = _orfaos(papeis, diretorios)
-    for caminho in orfaos:
+    todos_orfaos = _orfaos(papeis, diretorios)
+    removiveis = [caminho for caminho in todos_orfaos if _e_arquivo_gerado(caminho)]
+    so_relatados = [caminho for caminho in todos_orfaos if caminho not in removiveis]
+    for caminho in removiveis:
         caminho.unlink()
 
     mensagem = (
         f"Gerados {len(gerados)} arquivos a partir de {len(papeis)} papéis em {diretorios.fonte}."
     )
-    if orfaos:
-        relativos = ", ".join(str(c.relative_to(diretorios.raiz)) for c in orfaos)
-        mensagem += f" Removidos {len(orfaos)} derivado(s) órfão(s): {relativos}."
+    if removiveis:
+        relativos = ", ".join(str(c.relative_to(diretorios.raiz)) for c in removiveis)
+        mensagem += (
+            f" Removidos {len(removiveis)} derivado(s) órfão(s) marcado(s) como "
+            f"gerado(s): {relativos}."
+        )
+    if so_relatados:
+        relativos = ", ".join(str(c.relative_to(diretorios.raiz)) for c in so_relatados)
+        mensagem += (
+            f" ATENÇÃO: {len(so_relatados)} arquivo(s) sem papel correspondente na "
+            f"fonte e SEM marca de gerado — não removidos automaticamente, decida "
+            f"à mão: {relativos}."
+        )
     print(mensagem)
 
 
@@ -598,12 +911,37 @@ def verificar(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> 
     problemas: list[str] = []
     esperados = _arquivos_esperados(papeis, diretorios)
     for arquivo in esperados:
-        if not arquivo.caminho.exists():
+        relativo = None
+        if not arquivo.caminho.exists() and not arquivo.caminho.is_symlink():
             problemas.append(f"ausente: {arquivo.caminho.relative_to(diretorios.raiz)}")
             continue
-        atual = arquivo.caminho.read_text(encoding="utf-8")
-        if atual != arquivo.conteudo:
-            problemas.append(f"divergente: {arquivo.caminho.relative_to(diretorios.raiz)}")
+
+        relativo = arquivo.caminho.relative_to(diretorios.raiz)
+
+        # Achado 10: um symlink para fora do repositório tem o MESMO
+        # conteúdo textual do derivado esperado (então uma comparação só de
+        # texto aprova), mas deixou de ser um arquivo sob controle de
+        # versão. `exists()` segue o link; por isso a checagem de symlink
+        # vem antes e é independente da leitura de conteúdo.
+        if arquivo.caminho.is_symlink():
+            problemas.append(f"é um link simbólico, não um arquivo gerado: {relativo}")
+            continue
+        if not arquivo.caminho.is_file():
+            problemas.append(f"não é um arquivo regular: {relativo}")
+            continue
+
+        modo = stat.S_IMODE(arquivo.caminho.stat().st_mode)
+        if modo != 0o644:
+            problemas.append(f"permissão {oct(modo)} diferente de 0o644 esperado: {relativo}")
+
+        # Achado 9: compara BYTES, não texto. `Path.read_text()` normaliza
+        # quebra de linha universal (`\r\n`/`\r` -> `\n`) antes da
+        # comparação, então um derivado inteiro convertido para CRLF batia
+        # com o esperado e "sincronizado" saía errado.
+        atual = arquivo.caminho.read_bytes()
+        esperado = arquivo.conteudo.encode("utf-8")
+        if atual != esperado:
+            problemas.append(f"divergente: {relativo}")
 
     for caminho in _orfaos(papeis, diretorios):
         relativo = caminho.relative_to(diretorios.raiz)
@@ -626,15 +964,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         papeis = carregar_papeis()
+        if argumentos.escrever:
+            escrever(papeis)
+            return 0
+        problemas = verificar(papeis)
     except ErroFrontmatter as erro:
         print(f"Fonte inválida, nada foi gravado: {erro}", file=sys.stderr)
         return 2
 
-    if argumentos.escrever:
-        escrever(papeis)
-        return 0
-
-    problemas = verificar(papeis)
     if problemas:
         print("Derivados fora de sincronia com docs/agents/papeis/:", file=sys.stderr)
         for problema in problemas:
