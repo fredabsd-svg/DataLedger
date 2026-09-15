@@ -24,7 +24,7 @@ Formatação é apresentação: todo valor monetário permanece `Decimal` até o
 import hashlib
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from django import forms
@@ -82,6 +82,18 @@ from apps.contabilidade.views import (
     PodeEscriturar,
     _saldo_absoluto_com_natureza,
 )
+
+# DataInvalida/para_data: o julgador único de "isto é uma DATA de cliente
+# válida?" (BL-133, achado A9 da rodada 4). Esta tela tinha uma cópia
+# PRÓPRIA (`_PADRAO_DATA_SIMPLES` + `date.fromisoformat` cru) cujo
+# comentário original citava `apps.contabilidade.views._PADRAO_DATA_
+# SIMPLES` como referência — símbolo que a própria BL-133 REMOVEU ao
+# criar este módulo (R5-4/BL-143, rodada 5: a divergência já estava
+# impressa no comentário, e três mutantes na gramática de data desta tela
+# sobreviviam a 683 testes porque nada a defendia). `inicio`/`fim`
+# (`_periodo_do_formulario`) e `data` do lançamento (`lancamento_novo`)
+# usam `para_data` agora — a cópia privada não existe mais.
+from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 
 # IdentificadorInvalido/para_id: o julgador único de "isto é um
@@ -89,15 +101,24 @@ from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 # gêmeo achado no mesmo módulo, `EscritorioAtivoView.post`, ao aplicar a
 # lição pelo EFEITO em vez de pela linha nomeada, DE-032). `conta_id`
 # (`_itens_e_totais`, abaixo) É um identificador de banco — a mesma
-# invariante que `para_id` já julga para a API e para `apps.tenancy` — por
-# isso usa `_identificador_de_cliente` (abaixo), que delega a `para_id`,
-# em vez de reimplementar o padrão e o teto de magnitude aqui. Isto é
-# DIFERENTE de `_inteiro_de_cliente`: nível de hierarquia e número de
-# linhas não são identificadores, são QUANTIDADES onde a regra de negócio
-# local precisa ver a magnitude real de um texto grande demais para poder
-# recusá-lo com uma mensagem própria (ver R3-1/BL-115 no docstring de
-# `_inteiro_de_cliente`) — por isso continuam com o julgador PRÓPRIO desta
-# tela, não com o teto genérico de `para_id`.
+# invariante que `para_id` já julga para `apps.tenancy` (BL-127) **e para
+# a API de contabilidade** (`apps.contabilidade.views._extrair_itens`,
+# R5-3/BL-142, corrigido pelo `desenvolvedor-pleno` na mesma rodada em
+# que este comentário foi revisado). BL-146: uma versão ANTERIOR deste
+# comentário já afirmava "a API já usa" quando ainda não usava — foi
+# exatamente essa frase que impediu de checar. Não editar esta afirmação
+# sem rodar `test_comentario_sobre_julgador_partilhado_so_afirma_o_que_e_
+# verificavel` (test_dl017_rodada5_frontend.py), que confere o texto
+# contra `inspect.getsource(apps.contabilidade.views)` — a mesma classe
+# de proteção que esta nota descreve, aplicada a si própria. Esta tela
+# usa `_identificador_de_cliente` (abaixo), que delega a `para_id`, em
+# vez de reimplementar o padrão e o teto de magnitude aqui.
+# Isto é DIFERENTE de `_inteiro_de_cliente`: nível de hierarquia e número
+# de linhas não são identificadores, são QUANTIDADES onde a regra de
+# negócio local precisa ver a magnitude real de um texto grande demais
+# para poder recusá-lo com uma mensagem própria (ver R3-1/BL-115 no
+# docstring de `_inteiro_de_cliente`) — por isso continuam com o julgador
+# PRÓPRIO desta tela, não com o teto genérico de `para_id`.
 from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.empresas.models import Empresa
 
@@ -119,15 +140,6 @@ NIVEL_MAXIMO = 50
 # erro acusando (AGENTS.md §10: nunca `float`, inclusive onde o número não
 # é dinheiro).
 NIVEL_INDENTACAO_MAXIMA = 10
-
-# Formato ESTRITO aceito para 'inicio'/'fim' na querystring desta tela —
-# mesma cautela da API (apps.contabilidade.views._PADRAO_DATA_SIMPLES):
-# recusar ANTES de date.fromisoformat, que aceita formatos fora do
-# contrato anunciado (ex.: data de semana ISO) e os reinterpreta em
-# silêncio. Cópia deliberada e pequena (uma linha de regex), não a mesma
-# regra de negócio contábil que DE-026 protege contra duplicação — é
-# higiene de fronteira HTTP, própria de CADA fronteira.
-_PADRAO_DATA_SIMPLES = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 LINHAS_INICIAIS_LANCAMENTO = 4
 LINHAS_MAXIMAS_LANCAMENTO = 20
@@ -263,19 +275,16 @@ def _periodo_do_formulario(request):
     if not bruto_inicio or not bruto_fim:
         return None, None, "Informe as duas datas do período (início e fim)."
 
-    if not _PADRAO_DATA_SIMPLES.fullmatch(bruto_inicio) or not _PADRAO_DATA_SIMPLES.fullmatch(
-        bruto_fim
-    ):
-        return (
-            None,
-            None,
-            "Data inválida: use o seletor de data (ou o formato AAAA-MM-DD).",
-        )
-
+    # R5-4/BL-143: `para_data` (`apps.core.datas`) é o ÚNICO julgador de
+    # texto-de-cliente-para-data deste repositório (BL-133) — a cópia
+    # PRÓPRIA que existia aqui (`_PADRAO_DATA_SIMPLES` + `date.
+    # fromisoformat` cru) divergia da API sem que nenhum teste acusasse
+    # (MX4/MX9/MX10, rodada 5): a mesma gramática, reimplementada, é
+    # exatamente o que a DE-026 existe para impedir.
     try:
-        inicio = date.fromisoformat(bruto_inicio)
-        fim = date.fromisoformat(bruto_fim)
-    except ValueError:
+        inicio = para_data(bruto_inicio)
+        fim = para_data(bruto_fim)
+    except DataInvalida:
         return (
             None,
             None,
@@ -909,6 +918,28 @@ def _itens_e_totais(linhas_brutas, contas_por_id):
     return itens, erros, total_debito, total_credito
 
 
+def _recusa_lancamento_com_erro(request, empresa, contas_disponiveis, mensagem):
+    """Recusa a tentativa de POST em `lancamento_novo` com `mensagem`,
+    devolvendo o formulário RE-RENDERIZADO com o que já estava
+    preenchido (nunca uma tela em branco) e `status=400`. Ponto único
+    para os três "quinto dicionário da requisição" que esta view recusa
+    por completo, nunca ignora em silêncio: `request.FILES` (A3/BL-128),
+    `request.GET` e o cabeçalho `Idempotency-Key` (R5-6/BL-145) — DRY
+    depois que o terceiro caso apareceu (ver `lancamento_novo`).
+    """
+    messages.error(request, mensagem)
+    contexto = _contexto_form_lancamento(
+        empresa,
+        contas_disponiveis,
+        LINHAS_INICIAIS_LANCAMENTO,
+        data_texto=request.POST.get("data", ""),
+        historico=request.POST.get("historico", "").strip(),
+        chave_idempotencia=request.POST.get("chave_idempotencia") or uuid.uuid4().hex,
+        linhas_preenchidas=request.POST,
+    )
+    return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
+
 @login_required
 def lancamento_novo(request, empresa_id):
     if request.escritorio is None:
@@ -941,23 +972,61 @@ def lancamento_novo(request, empresa_id):
         # segura é recusar QUALQUER campo de arquivo, nomeando a chave, em
         # vez de simplesmente não olhar para `request.FILES`.
         if request.FILES:
-            messages.error(
+            return _recusa_lancamento_com_erro(
                 request,
+                empresa,
+                contas_disponiveis,
                 "Este formulário não aceita arquivo nenhum. Campo(s) "
                 "enviados como arquivo, recusados por completo: "
                 + "; ".join(sorted(request.FILES.keys()))
                 + ".",
             )
-            contexto = _contexto_form_lancamento(
+
+        # R5-6/BL-145 (rodada 5): MESMA classe do `request.FILES` acima —
+        # "nenhum dado enviado numa requisição deixa de ser lido ou
+        # recusado" vale para a requisição INTEIRA, e `request.GET` é o
+        # QUINTO dicionário (POST, FILES, META/cabeçalhos, corpo bruto,
+        # querystring) que esta view nunca olhava. O auditor mediu: um
+        # POST para este formulário com um par de partidas COMPLETO e
+        # BALANCEADO na querystring, ao lado de duas partidas normais no
+        # corpo, gravava só as duas do corpo com 302 "sucesso" — o par da
+        # querystring não aparecia em lugar nenhum, nem na tela, nem no
+        # aviso de linha incompleta. Nenhum formulário RENDERIZADO por
+        # esta tela produz querystring num POST (o `<form>` não tem
+        # `action="?...`), então qualquer querystring aqui só pode vir de
+        # alguém construindo a requisição à mão — recusar nomeando é
+        # seguro e não quebra o uso normal.
+        if request.GET:
+            return _recusa_lancamento_com_erro(
+                request,
                 empresa,
                 contas_disponiveis,
-                LINHAS_INICIAIS_LANCAMENTO,
-                data_texto=request.POST.get("data", ""),
-                historico=request.POST.get("historico", "").strip(),
-                chave_idempotencia=request.POST.get("chave_idempotencia") or uuid.uuid4().hex,
-                linhas_preenchidas=request.POST,
+                "Este formulário não aceita parâmetros na URL. Parâmetro(s) "
+                "recusados por completo: " + "; ".join(sorted(request.GET.keys())) + ".",
             )
-            return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
+
+        # R5-6/BL-145: a chave de idempotência desta tela É o campo
+        # OCULTO `chave_idempotencia` do próprio `<form>` — nunca um
+        # cabeçalho. O auditor mediu que quem manda `Idempotency-Key` por
+        # CABEÇALHO (o contrato da API, não desta tela) e omite o campo
+        # do corpo não é avisado: cada POST gera uma chave nova
+        # (`uuid.uuid4().hex`, abaixo) e GRAVA DUAS VEZES — exatamente a
+        # duplicidade que a chave de idempotência existe para impedir,
+        # na superfície ERRADA. Recusar nomeando é melhor que aceitar o
+        # cabeçalho como sinônimo: esta tela não tem como saber se o
+        # cliente que manda o cabeçalho TAMBÉM sabe que o campo oculto é
+        # quem manda de verdade, e aceitar os dois em silêncio reabriria
+        # a mesma ambiguidade por outra porta.
+        if request.headers.get("Idempotency-Key") or request.META.get("HTTP_IDEMPOTENCY_KEY"):
+            return _recusa_lancamento_com_erro(
+                request,
+                empresa,
+                contas_disponiveis,
+                "Este formulário não usa o cabeçalho 'Idempotency-Key' para evitar "
+                "duplicidade. Reenvie sem esse cabeçalho — o campo oculto do próprio "
+                "formulário já garante que reenviar a mesma tentativa não duplica o "
+                "lançamento.",
+            )
 
         acao = request.POST.get("acao")
         # A1/rodada 4 — mesma varredura: `num_linhas` é texto de
@@ -1199,14 +1268,14 @@ def lancamento_novo(request, empresa_id):
         )
         erros = erros + erros_itens
 
+        # R5-4/BL-143: mesmo julgador partilhado do período (ver o
+        # comentário de `_periodo_do_formulario`) — `para_data`, nunca a
+        # cópia privada nem `date.fromisoformat` cru.
         data_lancamento = None
-        if not _PADRAO_DATA_SIMPLES.fullmatch(data_texto or ""):
+        try:
+            data_lancamento = para_data(data_texto or "")
+        except DataInvalida:
             erros.append("Informe uma data válida.")
-        else:
-            try:
-                data_lancamento = date.fromisoformat(data_texto)
-            except ValueError:
-                erros.append("Informe uma data válida.")
 
         totais_batem = total_debito == total_credito and total_debito > 0
 

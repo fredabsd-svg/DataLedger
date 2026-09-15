@@ -12,6 +12,14 @@ Medido pelo auditor, pela API real:
 Corrigido com `apps.core.datas.para_data` — o mesmo módulo que
 `apps.contabilidade.views._periodo_obrigatorio` usa para `inicio`/`fim`
 (BL-133: não duplicar a regra entre os dois apps, DE-026).
+
+Achado R5-2 da auditoria DL-017 rodada 5 (BL-141), acrescentado abaixo: o
+campo VIZINHO no MESMO `request.data` — `regime`, uma linha acima de
+`vigencia_inicio` no código da view — não tinha checagem nenhuma de tipo
+nem de `choices` (DE-034: consertado um campo, os outros campos da mesma
+requisição entram na varredura). Corrigido com `apps.core.escolhas.
+para_escolha`, o quarto irmão de `dinheiro.py`/`datas.py`/
+`identificadores.py`.
 """
 
 from datetime import date
@@ -167,4 +175,74 @@ def test_outros_formatos_invalidos_de_vigencia_inicio_nunca_500(
     )
 
     assert resposta.status_code == 400, (vigencia_invalida, resposta.status_code, resposta.content)
+    assert _sem_nada_gravado()
+
+
+# ---------------------------------------------------------------------------
+# R5-2 (auditoria DL-017 rodada 5, BL-141): a tabela do auditor refeita
+# para `regime`, o vizinho de `vigencia_inicio` no mesmo `request.data`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "regime_invalido",
+    [
+        pytest.param(["simples_nacional"], id="lista"),
+        pytest.param({"a": 1}, id="dicionario"),
+        pytest.param(1, id="numero"),
+        pytest.param(True, id="booleano"),
+        pytest.param("SIMPLES_NACIONAL", id="maiusculas-fora-das-choices"),
+        pytest.param(" simples_nacional ", id="com-espacos"),
+        pytest.param("x" * 500, id="texto-longo-demais"),
+    ],
+)
+def test_regime_fora_do_dominio_nunca_e_gravado_e_nunca_da_500(
+    client, gestor, empresa, regime_invalido
+):
+    """Os sete casos medidos pelo auditor: antes, todos eram GRAVADOS com
+    201 (o texto literal do Python, `str(valor)`, virava o valor salvo —
+    `"['simples_nacional']"`, `"{'a': 1}"`, `"True"` — exceto o texto de
+    500 caracteres, que derrubava com `DataError`, 500 cru). Agora: 400 em
+    todos, nada gravado.
+    """
+    client.login(username="gestor-bl133", password="senha-forte-123")
+
+    resposta = client.post(
+        _url(empresa),
+        {"regime": regime_invalido, "vigencia_inicio": "2026-01-01"},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, (regime_invalido, resposta.status_code, resposta.content)
+    assert _sem_nada_gravado()
+
+
+def test_regime_valido_continua_gravando_exatamente_o_enviado(client, gestor, empresa):
+    """Controle positivo: o caminho normal continua funcionando, e o
+    lixo não circula mais — `GET` também devolveria exatamente isto."""
+    client.login(username="gestor-bl133", password="senha-forte-123")
+
+    resposta = client.post(
+        _url(empresa),
+        {"regime": RegimeTributario.SIMPLES_NACIONAL, "vigencia_inicio": "2026-01-01"},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 201, (resposta.status_code, resposta.content)
+    registro = HistoricoRegimeTributario.objects.get(empresa=empresa)
+    assert registro.regime == RegimeTributario.SIMPLES_NACIONAL
+
+
+def test_regime_e_vigencia_inicio_invalidos_juntos_continua_nunca_gravando(client, gestor, empresa):
+    """Os dois campos vizinhos, os dois errados ao mesmo tempo — nenhuma
+    combinação grava nada nem derruba com 500."""
+    client.login(username="gestor-bl133", password="senha-forte-123")
+
+    resposta = client.post(
+        _url(empresa),
+        {"regime": {"a": 1}, "vigencia_inicio": "2026-W01-1"},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
     assert _sem_nada_gravado()

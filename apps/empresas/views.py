@@ -8,9 +8,16 @@ from rest_framework.response import Response
 
 from apps.auditoria.services import registrar
 from apps.core.datas import DataInvalida, para_data
+from apps.core.escolhas import EscolhaInvalida, para_escolha
+from apps.core.restricoes import RestricaoViolada, restricao_como_400
 from apps.empresas.forms import EmpresaForm
 from apps.empresas.mixins import EmpresaEscopadaMixin
-from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+from apps.empresas.models import (
+    Empresa,
+    Estabelecimento,
+    HistoricoRegimeTributario,
+    RegimeTributario,
+)
 from apps.empresas.serializers import (
     EmpresaSerializer,
     EstabelecimentoSerializer,
@@ -107,11 +114,33 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
     def perform_create(self, serializer):
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
         # (ver comentário lá): cnpj de Estabelecimento também é unique=True.
+        #
+        # `restricao_como_400` ACRESCENTADO (achado R5-5 da auditoria
+        # DL-017 rodada 5, BL-144 / DE-034 — "agravante de método"
+        # nomeado pelo auditor): esta função JÁ envolvia a gravação em
+        # `erro_de_cnpj_duplicado_como_400()` — a defesa existia, nesta
+        # MESMA função, só para a unicidade de CNPJ, e não para
+        # `uma_matriz_por_empresa` (`Estabelecimento.Meta.constraints`,
+        # quatro linhas abaixo da de CNPJ no modelo). Uma segunda matriz
+        # para a mesma empresa derrubava com `IntegrityError` cru, 500.
+        # As duas constraints são checadas no MESMO `with`: qualquer uma
+        # das duas, ao violar, sobe como a exceção de negócio certa; uma
+        # `IntegrityError` de qualquer OUTRA origem continua subindo sem
+        # tradução (nenhuma das duas camadas mascara defeito de sistema
+        # como erro de cliente).
         try:
-            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
+            with (
+                transaction.atomic(),
+                erro_de_cnpj_duplicado_como_400(),
+                restricao_como_400(
+                    {"uma_matriz_por_empresa": "Esta empresa já tem uma matriz cadastrada."}
+                ),
+            ):
                 estabelecimento = serializer.save(empresa=self.get_empresa())
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"tipo": [str(exc)]}) from exc
         registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
 
@@ -134,6 +163,24 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
         vigencia_inicio = request.data.get("vigencia_inicio")
         if not regime or not vigencia_inicio:
             raise DRFValidationError("regime e vigencia_inicio são obrigatórios.")
+
+        try:
+            # `para_escolha` (achado R5-2 da auditoria DL-017 rodada 5,
+            # BL-141 / DE-034): `regime` é o VIZINHO de `vigencia_inicio`
+            # no mesmo `request.data` — a correção anterior (BL-133, rodada
+            # 4) tratou a linha de baixo e deixou esta como estava. Antes,
+            # `regime` não tinha checagem nenhuma de tipo nem de `choices`:
+            # uma lista, um dicionário, um número ou um booleano eram
+            # GRAVADOS (`str(valor)` do Python vira o texto salvo —
+            # "['simples_nacional']", "{'a': 1}", "True"), um texto fora
+            # das `RegimeTributario.choices` também (`"SIMPLES_NACIONAL"`
+            # em maiúsculas, ou com espaço em volta), e um texto de 500
+            # caracteres derrubava a gravação com `DataError` — 500 cru,
+            # `max_length=20` do campo. `para_escolha` recusa os sete casos
+            # com 400, antes de qualquer gravação.
+            regime = para_escolha(regime, RegimeTributario.values, nome_campo="regime")
+        except EscolhaInvalida as exc:
+            raise DRFValidationError(str(exc)) from exc
 
         try:
             # `para_data` (achado A9 da auditoria DL-017 rodada 4, BL-133 /

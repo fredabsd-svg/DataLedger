@@ -616,7 +616,8 @@ _TIMEOUT_VERIFICACAO_DE_SESSAO_S = 10
 
 
 def _chromium_funciona(caminho):
-    """Confirma que o binário não só EXISTE, mas RENDERIZA de verdade.
+    """Confirma que o binário não só EXISTE, mas RENDERIZA de verdade —
+    pelo MESMO mecanismo que a medição real usa.
 
     Achado da integração contínua (`aa10f20`, apontado pelo
     arquiteto-senior): o runner do GitHub TINHA `/usr/bin/chromium`
@@ -629,18 +630,47 @@ def _chromium_funciona(caminho):
     esta etapa inteira vem corrigindo: medir a FORMA (o arquivo existe)
     em vez do EFEITO (ele renderiza).
 
-    Faz UMA tentativa de renderizar um HTML trivial (`data:` URL, nenhum
-    arquivo temporário necessário) com timeout CURTO
+    R5-1/BL-140 (rodada 5, BLOQUEADOR — a CI ficou VERMELHA, `failed` em
+    vez de `skipped`): esta função verificava a capacidade com uma URL
+    `data:` — que **nunca toca o sistema de arquivos**. A medição real
+    (`_renderizar_e_medir`, abaixo) sempre usou `file://` sobre um
+    arquivo temporário. No runner, o `apt-get install chromium-browser`
+    do `ubuntu-noble` instala um INVÓLUCRO que sobe o **snap** do
+    Chromium — que roda com `/tmp` PRIVADO e não enxerga o arquivo que
+    `file://` aponta. O navegador sobe, "funciona", devolve DOM de
+    verdade — só que é o DOM da PRÓPRIA PÁGINA DE ERRO do navegador
+    (`<title>` = a URL pedida), porque o arquivo é invisível para ele. A
+    checagem de capacidade com `data:` não tinha como pegar isso: mediu o
+    mecanismo ERRADO. Corrigido escrevendo um arquivo temporário de
+    verdade (`tempfile.NamedTemporaryFile`, igual à medição real) com uma
+    marca conhecida no `<title>`, e renderizando ele por `file://` — o
+    MESMO caminho que quebra sob o snap. Um Chromium que não enxerga
+    `/tmp` (ou o arquivo temporário, onde quer que esteja) falha AQUI,
+    pula os testes de efeito com motivo, e a CI fica verde em vez de
+    vermelha.
+
+    Faz UMA tentativa, com timeout CURTO
     (`_TIMEOUT_VERIFICACAO_DE_SESSAO_S`, bem menor que o das medições
-    reais) e confirma que voltou DOM de verdade. Qualquer falha aqui —
-    timeout, código de saída diferente de zero, exceção do sistema
-    operacional — vira `False`, NUNCA uma exceção que reprovaria a
-    suíte. Chamada UMA VEZ por sessão de teste (na importação deste
-    módulo, armazenada em `_CHROMIUM_FUNCIONAL`), não uma vez por teste.
+    reais) e confirma que voltou a MARCA esperada no DOM — não só "algum"
+    DOM. Qualquer falha aqui — timeout, código de saída diferente de
+    zero, exceção do sistema operacional, marca ausente (a assinatura do
+    snap: o `<title>` existe, mas é a URL, não a marca) — vira `False`,
+    NUNCA uma exceção que reprovaria a suíte. Chamada UMA VEZ por sessão
+    de teste (na importação deste módulo, armazenada em
+    `_CHROMIUM_FUNCIONAL`), não uma vez por teste.
     """
+    global _DIAGNOSTICO_CHROMIUM
     if not caminho:
+        _DIAGNOSTICO_CHROMIUM = "nenhum candidato de caminho encontrado (nem fixo, nem no PATH)"
         return False
+    marca = "sessao-de-verificacao-por-arquivo"
+    caminho_html = None
     try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".html", delete=False, encoding="utf-8"
+        ) as arquivo:
+            arquivo.write(f"<title>{marca}</title>")
+            caminho_html = arquivo.name
         with tempfile.TemporaryDirectory() as perfil:
             resultado = subprocess.run(
                 [
@@ -651,7 +681,7 @@ def _chromium_funciona(caminho):
                     "--disable-dev-shm-usage",
                     f"--user-data-dir={perfil}",
                     "--dump-dom",
-                    "data:text/html,<title>sessao-de-verificacao</title>",
+                    f"file://{caminho_html}",
                 ],
                 capture_output=True,
                 text=True,
@@ -664,11 +694,43 @@ def _chromium_funciona(caminho):
     # target-version = "py312"` em `pyproject.toml`, travado por
     # `test_target_version_do_ruff_bate_com_requires_python`
     # (apps/core/tests/test_versao_minima_python.py).
-    except (subprocess.TimeoutExpired, OSError):
+    except subprocess.TimeoutExpired:
+        _DIAGNOSTICO_CHROMIUM = f"{caminho}: timeout de {_TIMEOUT_VERIFICACAO_DE_SESSAO_S}s"
         return False
-    return resultado.returncode == 0 and "sessao-de-verificacao" in resultado.stdout
+    except OSError as exc:
+        _DIAGNOSTICO_CHROMIUM = f"{caminho}: erro de sistema operacional ao executar: {exc!r}"
+        return False
+    finally:
+        if caminho_html is not None:
+            Path(caminho_html).unlink(missing_ok=True)
+    if resultado.returncode != 0:
+        _DIAGNOSTICO_CHROMIUM = (
+            f"{caminho}: saiu com código {resultado.returncode}; stderr={resultado.stderr[:500]!r}"
+        )
+        return False
+    if marca not in resultado.stdout:
+        _DIAGNOSTICO_CHROMIUM = (
+            f"{caminho}: rodou (código 0) mas não devolveu a marca esperada no DOM; "
+            f"stdout={resultado.stdout[:300]!r}"
+        )
+        return False
+    _DIAGNOSTICO_CHROMIUM = None
+    return True
 
 
+# R5-1/BL-140 — investigação do arquiteto-senior: o runner tem QUATRO
+# navegadores registrados (`google-chrome`, `google-chrome-stable`,
+# `chromium`, `chromium-browser` — os dois últimos apontando para
+# `/usr/local/share/chromium/chrome-linux/chrome`, o Chromium do
+# Playwright, não um pacote do sistema) e MESMO ASSIM a checagem de
+# capacidade considerava esse binário não-funcional ANTES de qualquer
+# instalação — o que motivou (por suposição, não por dado) a instalação
+# que causou o R5-1. `_DIAGNOSTICO_CHROMIUM` guarda o MOTIVO exato da
+# última falha de `_chromium_funciona` (timeout, código de saída,
+# stderr, ou DOM sem a marca esperada) para que a PRÓXIMA vez que os
+# testes de efeito pularem na CI, o `-rs` do pytest mostre o motivo real
+# — dado, não suposição — sem precisar tocar no workflow.
+_DIAGNOSTICO_CHROMIUM = None
 _CHROMIUM = _caminho_chromium()
 _CHROMIUM_FUNCIONAL = _chromium_funciona(_CHROMIUM)
 
@@ -718,9 +780,19 @@ def _pular_se_chromium_nao_funcional():
     confirma isso também por inspeção de código-fonte, para que ninguém
     volte a decorar um dos dois com `@pytest.mark.skipif` direto e
     reabra exatamente o mesmo buraco por outro caminho.
+    R5-1/BL-140: o motivo do pulo agora inclui `_DIAGNOSTICO_CHROMIUM` —
+    a causa REAL medida por `_chromium_funciona` (timeout, código de
+    saída, stderr, ou DOM sem a marca esperada) para o binário
+    encontrado (`_CHROMIUM`). Antes, o motivo era um texto FIXO que só
+    explicava a classe do defeito, nunca o caso do ambiente atual — quem
+    lesse o `-rs` da CI via "por que existe esta checagem", nunca "por
+    que ESTE binário, HOJE, falhou". Dado, não suposição.
     """
     if not _CHROMIUM_FUNCIONAL:
-        pytest.skip(_MOTIVO_DO_PULO)
+        pytest.skip(
+            f"{_MOTIVO_DO_PULO} Binário tentado: {_CHROMIUM!r}. "
+            f"Diagnóstico: {_DIAGNOSTICO_CHROMIUM}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -872,6 +944,19 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
     (`_chromium_funciona`, uma vez por sessão) já deveria ter pulado
     antes de chegar aqui — isto é defesa em profundidade, não a primeira
     linha de defesa.
+
+    R5-1/BL-140: o modo de falha MEDIDO na CI não foi nenhum dos dois
+    acima — foi `<title>` PRESENTE e NÃO-JSON. O snap do Chromium (ver o
+    docstring de `_chromium_funciona`) sobe, renderiza, devolve DOM real
+    — só que da PRÓPRIA PÁGINA DE ERRO, cujo `<title>` é a URL
+    `file://...` pedida, não o `JSON.stringify` que o script acima
+    escreveria. O `json.loads` de antes ficava FORA de qualquer `try`:
+    um título assim virava `JSONDecodeError` cru, **reprovando a suíte**
+    — a nona ocorrência de "comentário que promete mais que a defesa
+    entrega" (este docstring já dizia "nunca reprova a suíte" e não
+    entregava). Agora o `json.loads` está no MESMO `try` que decide
+    pular: título que não é JSON é ambiente quebrado, não regressão de
+    CSS.
     """
     if css_texto is None:
         css_texto = Path("static/css/base.css").read_text(encoding="utf-8")
@@ -916,7 +1001,17 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
                 "Chromium presente mas não devolveu <title> ao medir: "
                 f"stdout={resultado.stdout[:300]!r} stderr={resultado.stderr[:300]!r}"
             )
-        return json.loads(casamento.group(1))
+        # R5-1/BL-140: `<title>` PRESENTE, mas não-JSON, é a assinatura do
+        # snap (ver o docstring desta função) — ambiente quebrado, não
+        # regressão de CSS. Mesmo `pytest.skip` que os dois casos acima,
+        # nunca um `JSONDecodeError` cru reprovando a suíte.
+        try:
+            return json.loads(casamento.group(1))
+        except json.JSONDecodeError:
+            pytest.skip(
+                "Chromium presente mas devolveu <title> que não é JSON ao "
+                f"medir (ambiente quebrado, não regressão de CSS): {casamento.group(1)[:300]!r}"
+            )
     finally:
         Path(caminho_html).unlink(missing_ok=True)
 
@@ -1145,6 +1240,88 @@ def test_binario_presente_mas_quebrado_e_detectado_sem_travar(tmp_path, comporta
     # A checagem tem teto CURTO — não pode herdar os 30s das medições
     # reais, nem travar além disso.
     assert duracao < _TIMEOUT_VERIFICACAO_DE_SESSAO_S + 5, duracao
+
+
+# ---------------------------------------------------------------------------
+# R5-1/BL-140 — a checagem de capacidade tem que exercitar o MESMO
+# mecanismo (`file://` sobre um arquivo temporário) que a medição real usa
+# — não um atalho (`data:`) que nunca toca o sistema de arquivos. É
+# exatamente esse atalho que deixou passar o snap do Chromium na CI: ele
+# "funciona" para `data:` e falha (silenciosamente, devolvendo a própria
+# URL como `<title>`) só para `file://`.
+# ---------------------------------------------------------------------------
+
+
+def test_chromium_funciona_detecta_navegador_que_so_falha_em_file(tmp_path):
+    """Simula EXATAMENTE o sintoma medido pelo auditor no snap do Ubuntu:
+    um "navegador" que processa uma URL `data:` normalmente (devolveria
+    `True` numa checagem que usasse `data:`, como a de antes desta
+    correção), mas devolve a PRÓPRIA URL como `<title>` quando recebe
+    `file://` — porque não enxerga o arquivo (perfil confinado, `/tmp`
+    privado). Antes do R5-1/BL-140, `_chromium_funciona` teria devolvido
+    `True` aqui (mediu o mecanismo ERRADO); depois, devolve `False`,
+    porque agora testa `file://`, o MESMO caminho da medição real —
+    exatamente o que teria pulado os dois testes de efeito na CI em vez
+    de deixá-los falhar.
+    """
+    script = tmp_path / "chromium-tipo-snap"
+    script.write_text(
+        "#!/bin/bash\n"
+        'ultimo="${!#}"\n'
+        'case "$ultimo" in\n'
+        '  file://*) echo "<title>$ultimo</title>" ;;\n'
+        '  *) echo "<title>sessao-de-verificacao-por-arquivo</title>" ;;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    script.chmod(0o755)
+    assert _chromium_funciona(str(script)) is False
+
+
+def test_chromium_funciona_aceita_navegador_que_le_arquivo_de_verdade(tmp_path):
+    """Controle do teste acima: um "navegador" que devolve a marca
+    esperada tanto para `data:` quanto para `file://` (o caso REAL, sem
+    snap) continua sendo aceito — sem este controle, uma versão de
+    `_chromium_funciona` que sempre devolvesse `False` passaria no teste
+    de cima e escondería os testes de efeito atrás de um pulo permanente.
+    """
+    script = tmp_path / "chromium-de-verdade"
+    script.write_text("#!/bin/bash\necho '<title>sessao-de-verificacao-por-arquivo</title>'\n")
+    script.chmod(0o755)
+    assert _chromium_funciona(str(script)) is True
+
+
+def test_chromium_funciona_usa_file_nao_data(tmp_path):
+    """ESTRUTURAL, complementar aos dois comportamentais acima: a
+    checagem de capacidade constrói a URL com `file://`, nunca com
+    `data:` — a inspeção de texto pega o retrocesso antes mesmo de rodar
+    um processo.
+    """
+    codigo_fonte = inspect.getsource(_chromium_funciona)
+    assert 'f"file://{caminho_html}"' in codigo_fonte
+    assert "data:text/html" not in codigo_fonte
+
+
+def test_renderizar_e_medir_pula_quando_title_nao_e_json(monkeypatch, tmp_path):
+    """R5-1/BL-140 — reproduz o sintoma medido na CI diretamente na
+    função de MEDIÇÃO (não só na checagem de capacidade): um Chromium que
+    devolve `<title>` PRESENTE, mas igual à própria URL `file://` pedida
+    (não o `JSON.stringify` que o script real escreveria). Antes desta
+    correção, `json.loads` sobre isso era `json.JSONDecodeError` CRU,
+    reprovando a suíte — o `pytest.skip.Exception` é o efeito exigido
+    agora, exatamente como qualquer outra falha de ambiente já tratada
+    por esta função.
+    """
+    script = tmp_path / "chromium-tipo-snap-na-medicao"
+    script.write_text('#!/bin/bash\nultimo="${!#}"\necho "<title>$ultimo</title>"\nexit 0\n')
+    script.chmod(0o755)
+
+    import apps.contabilidade.tests.test_dl017_rodada2_frontend as este_modulo
+
+    monkeypatch.setattr(este_modulo, "_CHROMIUM", str(script))
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        _renderizar_e_medir("<p></p>", "p", css_texto="")
+    assert "json" in str(excinfo.value).lower() or "não é json" in str(excinfo.value).lower()
 
 
 # ---------------------------------------------------------------------------

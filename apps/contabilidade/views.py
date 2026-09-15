@@ -2,6 +2,7 @@ import hashlib
 import re
 from decimal import Decimal
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -29,6 +30,9 @@ from apps.contabilidade.services import (
 )
 from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
+from apps.core.escolhas import EscolhaInvalida, para_escolha
+from apps.core.identificadores import IdentificadorInvalido, para_id
+from apps.core.restricoes import RestricaoViolada, restricao_como_400
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -274,7 +278,26 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         return context
 
     def perform_create(self, serializer):
-        conta = serializer.save(empresa=self.get_empresa())
+        # `restricao_como_400` (achado R5-5 da auditoria DL-017 rodada 5,
+        # BL-144 / DE-034): antes, esta view não tinha `try` nenhum —
+        # `codigo` repetido na mesma empresa (`Conta.Meta.constraints`,
+        # `codigo_unico_por_empresa`) derrubava com `IntegrityError` cru,
+        # 500. Medido sob concorrência (4 POSTs simultâneos com o mesmo
+        # código): `500, 201, 500, 500` — a integridade do dado nunca foi
+        # violada (a constraint segurou), só a RESPOSTA quebrava. O
+        # `transaction.atomic()` isola o `IntegrityError` num savepoint,
+        # para a conexão continuar utilizável para o `registrar()` abaixo
+        # (mesmo desenho de `erro_de_cnpj_duplicado_como_400`, em
+        # `apps.empresas.services`, que já faz isto para CNPJ).
+        try:
+            mensagem_codigo_duplicado = "Já existe uma conta com este código nesta empresa."
+            with (
+                transaction.atomic(),
+                restricao_como_400({"codigo_unico_por_empresa": mensagem_codigo_duplicado}),
+            ):
+                conta = serializer.save(empresa=self.get_empresa())
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"codigo": [str(exc)]}) from exc
         registrar(acao="conta.criada", objeto=conta, request=self.request)
 
 
@@ -286,14 +309,32 @@ def _extrair_itens(payload_itens, empresa):
     itens = []
     for item in payload_itens:
         try:
-            conta = Conta.objects.get(pk=item["conta"], empresa=empresa)
-        except (Conta.DoesNotExist, KeyError, TypeError, ValueError) as exc:
-            # `ValueError` cobre `pk` textual não numérico (ex.: "abc", "1x"):
-            # o backend do Postgres levanta `ValueError: Field 'id' expected
-            # a number but got 'abc'` ao tentar comparar o filtro, e sem essa
-            # captura o erro do cliente vazava como 500 (achado 1 da
-            # auditoria de 2026-09-12) — mesma classe de defeito que esta
-            # etapa existe para fechar.
+            conta_bruta = item["conta"]
+        except (KeyError, TypeError) as exc:
+            raise DRFValidationError("Conta inválida para esta empresa.") from exc
+
+        try:
+            # `para_id` (achado R5-3 da auditoria DL-017 rodada 5, BL-142 /
+            # DE-034): antes, `item["conta"]` ia direto para `.get(pk=...)`,
+            # protegido só pelo `except (..., TypeError, ValueError)`
+            # abaixo — o que barra texto não numérico, mas NÃO barra
+            # reinterpretação silenciosa: `1.9` (número JSON) gravava na
+            # conta 1 (Postgres/psycopg truncam o float ao comparar com a
+            # coluna inteira), `true` gravava na conta 1 (`bool` é `int` em
+            # Python), `" 1 "`/`"+1"` gravavam na conta 1, e `"٢"`/`"２"`
+            # (dígito Unicode) gravavam na conta 2 — sempre HTTP 201, sem
+            # aviso. É a MESMA classe que a tela e `apps.tenancy` já
+            # fecham com `para_id` — só a API de contabilidade não usava
+            # (dois comentários de `views_web.py` afirmavam que usava; não
+            # usava — ver a correção desses comentários, pedida ao
+            # `especialista-frontend`).
+            conta_id = para_id(conta_bruta)
+        except IdentificadorInvalido as exc:
+            raise DRFValidationError(f"Conta inválida para esta empresa: {exc}") from exc
+
+        try:
+            conta = Conta.objects.get(pk=conta_id, empresa=empresa)
+        except Conta.DoesNotExist as exc:
             raise DRFValidationError("Conta inválida para esta empresa.") from exc
 
         try:
@@ -342,9 +383,18 @@ def _extrair_itens(payload_itens, empresa):
                 f"módulo deve ser menor que {LIMITE_MAGNITUDE_VALOR}."
             )
 
-        tipo = item.get("tipo")
-        if tipo not in TipoPartida.values:
-            raise DRFValidationError("Tipo de partida inválido (use debito ou credito).")
+        try:
+            # `para_escolha` (achado R5-2, BL-141 / DE-034): esta checagem
+            # já era segura por acidente de forma (pertencimento a uma
+            # lista fechada nunca levanta exceção, seja qual for o tipo do
+            # valor testado) — mas era uma segunda cópia manual do mesmo
+            # padrão que `regime`, em `apps.empresas.views`, não tinha.
+            # Migrada para o módulo compartilhado para não deixar um
+            # terceiro campo de `choices` reinventar a checagem por conta
+            # própria no futuro.
+            tipo = para_escolha(item.get("tipo"), TipoPartida.values, nome_campo="tipo")
+        except EscolhaInvalida as exc:
+            raise DRFValidationError(str(exc)) from exc
 
         itens.append({"conta": conta, "tipo": tipo, "valor": valor})
     return itens
