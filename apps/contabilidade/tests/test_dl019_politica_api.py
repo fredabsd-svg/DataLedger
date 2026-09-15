@@ -168,7 +168,9 @@ def test_conta_dentro_do_contrato_continua_sendo_criada(autenticado, cenario):
     url = reverse("contabilidade:contas", args=[cenario["empresa"].id])
 
     resposta = autenticado.post(
-        url, {**_corpo_de_conta(), "conta_pai": cenario["caixa"].id}, content_type="application/json"
+        url,
+        {**_corpo_de_conta(), "conta_pai": cenario["caixa"].id},
+        content_type="application/json",
     )
 
     assert resposta.status_code == 201, (resposta.status_code, resposta.content)

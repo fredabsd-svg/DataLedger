@@ -75,9 +75,7 @@ def test_arquivo_e_recusado_nomeando_a_chave(fabrica):
 
 
 def test_querystring_em_post_e_recusada_nomeando_os_parametros(fabrica):
-    requisicao = fabrica.post(
-        "/qualquer/?utm_source=nada&xpto=1", {"codigo": "1", "nome": "Caixa"}
-    )
+    requisicao = fabrica.post("/qualquer/?utm_source=nada&xpto=1", {"codigo": "1", "nome": "Caixa"})
 
     with pytest.raises(DadoNaoContratado) as erro:
         recusar_dado_nao_contratado(requisicao, CONTRATO_DA_TELA)
@@ -152,9 +150,7 @@ def test_ordem_de_avaliacao_e_a_declarada(fabrica):
 
 
 def test_contrato_que_aceita_arquivo_e_querystring_nao_recusa_nenhum_dos_dois(fabrica):
-    contrato = ContratoDeRequisicao(
-        campos={"codigo"}, aceita_arquivo=True, aceita_querystring=True
-    )
+    contrato = ContratoDeRequisicao(campos={"codigo"}, aceita_arquivo=True, aceita_querystring=True)
     requisicao = fabrica.post(
         "/qualquer/?pagina=2", {"codigo": "1", "anexo": SimpleUploadedFile("a.txt", b"1")}
     )

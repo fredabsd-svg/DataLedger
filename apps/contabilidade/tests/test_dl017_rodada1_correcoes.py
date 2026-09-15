@@ -16,6 +16,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.contabilidade import views_web
 from apps.contabilidade.models import (
     Conta,
     ItemLancamento,
@@ -23,7 +24,6 @@ from apps.contabilidade.models import (
     NaturezaConta,
     TipoConta,
 )
-from apps.contabilidade import views_web
 from apps.contabilidade.views import TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
