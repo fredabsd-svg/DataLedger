@@ -128,11 +128,93 @@ def test_a_conferencia_aprova_quando_o_registro_cobre_a_superficie():
     )
 
     superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
-    # Todo caminho, sem o método no fim: é a forma em que uma view de função
-    # aparece na pilha.
-    chamadores = {nome.rsplit(".", 1)[0] for nome in superficies}
+    # O nome EFETIVO de cada superfície: `modulo.Classe.atributo` para classe,
+    # `modulo.funcao` para view de função. É a forma em que a superfície
+    # aparece na pilha depois da BL-179/B6 — a classe da instância, não o
+    # qualname do código, que pode ser de um mixin compartilhado.
+    chamadores = {superficie.nome_efetivo for superficie in superficies.values()}
 
     assert conftest.superficies_nao_exercitadas(chamadores) == {}
+
+
+# ---------------------------------------------------------------------------
+# BL-179 (achado B6): o registro distingue quem compartilha handler
+# ---------------------------------------------------------------------------
+
+# Construído por `exec` com um `__globals__` próprio porque o que está sob
+# medição é o QUADRO DA PILHA, e o quadro herda o `__name__` do módulo em que a
+# função foi definida. Definidas aqui, estas classes teriam `__name__` de
+# módulo de teste e o registro as descartaria — o teste mediria o descarte, não
+# o mecanismo. Com o espaço de nomes fictício, o quadro é indistinguível de um
+# quadro de produção, que é o caso que interessa.
+_FONTE_DO_MODULO_FICTICIO = """
+class MixinDeImportacao:
+    def post(self, request):
+        return espiar()
+
+
+class ImportarXmlView(MixinDeImportacao):
+    pass
+
+
+class ImportarSpedView(MixinDeImportacao):
+    pass
+"""
+
+
+def _espiar_o_quadro_do_chamador():
+    """Devolve os nomes com que o quadro de quem chamou entraria no registro —
+    é o mesmo `_nomes_registraveis_do_quadro` que a política instrumentada usa,
+    lido do mesmo lugar (`sys._getframe(1)`)."""
+    import sys
+
+    return conftest._nomes_registraveis_do_quadro(sys._getframe(1))
+
+
+def _modulo_ficticio_de_producao():
+    espaco = {"__name__": "apps.ficticio.views", "espiar": _espiar_o_quadro_do_chamador}
+    exec(compile(_FONTE_DO_MODULO_FICTICIO, "<apps.ficticio.views>", "exec"), espaco)
+    return espaco
+
+
+def test_o_registro_nomeia_a_classe_da_instancia_e_nao_so_a_do_mixin():
+    """B6: duas superfícies que compartilham o handler de um mixin
+    compartilhavam o único nome que o registro guardava, e exercitar uma
+    marcava a outra como exercitada.
+
+    Não havia instância viva (os 14 handlers de hoje não se repetem), e é
+    desenho provável para a DL-010 — duas rotas de importação com o mesmo
+    `post`. Agora o quadro registra também o nome EFETIVO, lido de
+    `self.__class__`, e os dois são distintos.
+    """
+    ficticio = _modulo_ficticio_de_producao()
+
+    nomes_do_xml = ficticio["ImportarXmlView"]().post(None)
+    nomes_do_sped = ficticio["ImportarSpedView"]().post(None)
+
+    # O nome do CÓDIGO é o mesmo nos dois: é ele que produzia o falso positivo.
+    assert "apps.ficticio.views.MixinDeImportacao.post" in nomes_do_xml
+    assert "apps.ficticio.views.MixinDeImportacao.post" in nomes_do_sped
+
+    # O nome EFETIVO distingue, e é o único que a conferência aceita: exercitar
+    # a rota do XML não pode marcar a do SPED.
+    assert "apps.ficticio.views.ImportarXmlView.post" in nomes_do_xml
+    assert "apps.ficticio.views.ImportarSpedView.post" not in nomes_do_xml
+    assert "apps.ficticio.views.ImportarSpedView.post" in nomes_do_sped
+    assert "apps.ficticio.views.ImportarXmlView.post" not in nomes_do_sped
+
+
+def test_o_registro_ignora_quadro_de_modulo_de_teste():
+    """Par do teste acima, e a fronteira do BL-181/B7: um quadro de código de
+    teste não entra no registro — senão a conferência ficaria satisfeita por
+    alguém ter chamado a política dentro de um teste unitário dela."""
+    import sys
+
+    assert conftest._nomes_registraveis_do_quadro(sys._getframe(0)) == ()
+    assert conftest.e_codigo_de_teste("apps.foo.tests") is True
+    assert conftest.e_codigo_de_teste("apps.foo.tests.test_bar") is True
+    assert conftest.e_codigo_de_teste("apps.foo.test_bar") is True
+    assert conftest.e_codigo_de_teste("apps.foo.views") is False
 
 
 @pytest.mark.parametrize(
