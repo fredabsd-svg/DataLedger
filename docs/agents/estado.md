@@ -319,7 +319,43 @@ auditoria independente — que é exatamente o motivo de ela existir.
       registrado neste projeto e eu o repeti. O inventário salvou o resultado
       porque detectou a árvore se movendo e separou duas medições (estado A,
       `1 failed, 894 passed`; estado B, `907 passed`) — mas isso foi mérito dele,
-      não desenho meu.
+      não desenho meu. **Corrigido por mecanismo na rodada 2:** cada
+      implementador recebeu um banco próprio (`DATABASE_URL` apontando para
+      `dataledger_b` no segundo), verificado antes de distribuir. O Django cria
+      o banco de teste sozinho, então o segundo nem precisa existir.
+
+   ### Rodada 2 da DL-019 — o que ela entregou
+
+   Medido por mim, sozinho na máquina, na revisão `a497046`: `ruff check` **0**,
+   `ruff format --check` **0**, `manage.py check` **0**, `pytest -q -rs` →
+   **1027 passed, 0 falhas, 0 pulos**. Eram **766** na integração da DL-017 e
+   **907** no começo desta rodada.
+
+   **Backend, entregue e fechado:** BL-157, BL-167 e BL-149 (partes a e c). As
+   duas varreduras prometidas passam a existir e **foram vistas reprovar**.
+
+   **O mecanismo funcionou no primeiro uso:** a varredura de contratos acusou
+   `apps.empresas.views.criar_empresa` — a tela de cadastro de empresa era a
+   **única** superfície de escrita do repositório sem a política dos cinco
+   dicionários, e **seis rodadas de auditoria não a tinham visto**. Não entrou
+   como exceção: a política foi aplicada e testada, e os dois registros de
+   exceção ficaram **vazios**.
+
+   **Mutantes de backend: 6 aplicados, 6 mortos, 0 sobreviventes** — entre eles
+   o **M16**, o mutante do estorno que sobreviveu a 766 testes.
+
+   **Frontend: parcial.** O agente foi morto por **limite de sessão** no meio da
+   rodada de mutantes, dizendo *"dois sobreviventes — os dois são achados"* e
+   **sem dizer quais**. Entregou BL-152 e BL-168 e 27 testes novos (BL-149b,
+   BL-151 nas telas, BL-156, BL-161, BL-166). **Os dois sobreviventes são a
+   única coisa aberta da etapa**, e serão **refeitos, não presumidos** — não há
+   como saber quais eram sem repetir a rodada.
+
+   **Um critério meu foi retirado por inexequível**, e a razão fica: eu exigira
+   "varredura provando que cada view de POST tem **teste** dos cinco
+   dicionários". Amarrar superfície a arquivo de teste exigiria casamento de
+   nome por heurística — **exatamente o erro da BL-166**. A varredura prova que
+   a política é **chamada**, e não finge provar mais.
 
    **Três contratos que eu fixei na distribuição**, para os dois não negociarem
    no meio do caminho — e para nenhum número de negócio ficar declarado em dois
