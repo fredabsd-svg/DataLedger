@@ -7,6 +7,7 @@ R2-4 e R2-7 (o byte NUL e o dígito Unicode em `apps.core.dinheiro`) são do
 nos próprios testes.
 """
 
+import contextlib
 import inspect
 import json
 import os
@@ -609,9 +610,81 @@ def _caminho_chromium():
     return None
 
 
-# Teto do "isto é só uma checagem de sessão" — bem menor que o timeout das
-# medições reais (30s). Se a checagem de capacidade em si não responder
-# nesse tempo, o navegador já não presta para as medições.
+# R6-1/BL-148 (rodada 6) — o DESCARTE de um recurso temporário nunca pode
+# reprovar a suíte, e nunca pode ser confundido com "o navegador não
+# funciona".
+#
+# O que o dado disse: o `-rs` dos dois jobs de `38efbf9f` acusava
+# `OSError(39, 'Directory not empty')` com a mensagem "erro de sistema
+# operacional AO EXECUTAR". Não foi ao executar. `errno 39` (`ENOTEMPTY`)
+# não pode vir de `subprocess.run`: vinha do `shutil.rmtree` do `__exit__`
+# do `tempfile.TemporaryDirectory` do `--user-data-dir`, DEPOIS de o
+# navegador ter rodado e devolvido o DOM certo — o Chrome deixa processos
+# filhos escrevendo no diretório de perfil, e eles criam arquivos novos
+# entre o `scandir` e o `rmdir` do descarte. Reproduzido aqui 3 de 3, com
+# um navegador falso que renderiza CERTO e deixa um filho gravando no
+# perfil:
+#
+#     _chromium_funciona   -> False, "erro ... ao executar: OSError(39, ...)"
+#     _renderizar_e_medir  -> OSError(39) ESCAPANDO (o `except` cobria a
+#                             CHAMADA, não a saída do `with`)
+#
+# Eram DOIS defeitos de sinal oposto na mesma causa: um falso NEGATIVO
+# (navegador bom reprovado na checagem, os dois testes de efeito pulando
+# para sempre — nunca rodaram na integração contínua, em nenhuma rodada) e
+# uma armadilha armada (bastava subir o timeout para a medição rodar e a
+# mesma exceção reprovar a suíte, agora fora de qualquer `except`).
+#
+# A classe, escrita pelo efeito proibido (DE-032): **nenhuma falha de
+# recurso externo de ambiente reprova a suíte, INCLUSIVE falha na limpeza
+# do recurso** — e nenhuma falha de limpeza é relatada como incapacidade
+# do navegador. Estas duas funções são o ponto ÚNICO de descarte dos dois
+# recursos temporários que o instrumento cria (o arquivo HTML e o
+# diretório de perfil); nenhuma das duas medições volta a chamar
+# `TemporaryDirectory`, `rmtree` ou `unlink` por conta própria.
+def _descartar_caminho_temporario(caminho):
+    """Apaga um arquivo OU diretório temporário sem NUNCA levantar.
+
+    `ignore_errors=True` já cobre o `ENOTEMPTY` do descarte concorrente; o
+    `try/except OSError` em volta cobre o resto da família (`PermissionError`
+    do `unlink`, sistema de arquivos somente-leitura, caminho que virou
+    outra coisa entre a checagem e o descarte). Nenhum dos dois é
+    redundância decorativa: o primeiro é o caso medido, o segundo é a
+    classe.
+    """
+    try:
+        if os.path.isdir(caminho):
+            shutil.rmtree(caminho, ignore_errors=True)
+        else:
+            Path(caminho).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@contextlib.contextmanager
+def _perfil_de_navegador_descartavel():
+    """Cria um `--user-data-dir` próprio e o descarta ao sair, com a falha
+    de descarte SEMPRE engolida.
+
+    É a forma "criar o perfil e descartá-lo em `finally` com erro
+    ignorado" recomendada pelo auditor, encapsulada — em vez de um
+    `tempfile.TemporaryDirectory()` cujo `__exit__` levanta dentro da
+    região que julga se o navegador funciona. Usar `mkdtemp` explícito é
+    deliberado: deixa o descarte visível numa linha só, no lugar de
+    escondido num `__exit__` que nem parece código.
+    """
+    perfil = tempfile.mkdtemp(prefix="dataledger-perfil-chromium-")
+    try:
+        yield perfil
+    finally:
+        _descartar_caminho_temporario(perfil)
+
+
+# PASSO 3 do BL-148, ainda NÃO aplicado neste ponto da edição: o timeout
+# só pode ser revisto depois de (1) o descarte sair da região julgada nas
+# duas funções e (2) existir teste que force falha de limpeza e exija
+# pulo. Enquanto os dois não estiverem verificados, este número fica onde
+# estava.
 _TIMEOUT_VERIFICACAO_DE_SESSAO_S = 10
 
 
@@ -671,7 +744,12 @@ def _chromium_funciona(caminho):
         ) as arquivo:
             arquivo.write(f"<title>{marca}</title>")
             caminho_html = arquivo.name
-        with tempfile.TemporaryDirectory() as perfil:
+        # R6-1/BL-148: `_perfil_de_navegador_descartavel`, nunca
+        # `tempfile.TemporaryDirectory()` — o `__exit__` daquele levanta
+        # `ENOTEMPTY` DENTRO deste `try`, e o `except OSError` abaixo
+        # classificava a falha de LIMPEZA como "o navegador não funciona"
+        # (falso negativo medido 3 de 3). Ver o comentário do helper.
+        with _perfil_de_navegador_descartavel() as perfil:
             resultado = subprocess.run(
                 [
                     caminho,
@@ -701,8 +779,11 @@ def _chromium_funciona(caminho):
         _DIAGNOSTICO_CHROMIUM = f"{caminho}: erro de sistema operacional ao executar: {exc!r}"
         return False
     finally:
+        # R6-1/BL-148: o descarte do arquivo temporário está num `finally`
+        # — e exceção levantada num `finally` propaga mesmo com os
+        # `except` acima. `_descartar_caminho_temporario` nunca levanta.
         if caminho_html is not None:
-            Path(caminho_html).unlink(missing_ok=True)
+            _descartar_caminho_temporario(caminho_html)
     if resultado.returncode != 0:
         _DIAGNOSTICO_CHROMIUM = (
             f"{caminho}: saiu com código {resultado.returncode}; stderr={resultado.stderr[:500]!r}"
@@ -976,7 +1057,14 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
         f.write(html)
         caminho_html = f.name
     try:
-        with tempfile.TemporaryDirectory() as perfil:
+        # R6-1/BL-148: mesma troca de `_chromium_funciona`, e aqui ela é a
+        # metade GRAVE do achado — o `except (TimeoutExpired, OSError)`
+        # abaixo está DENTRO do `with`, então cobria a exceção da CHAMADA e
+        # nunca a da SAÍDA do `with`. Com `TemporaryDirectory`, a
+        # `ENOTEMPTY` do descarte escapava desta função como `OSError` cru
+        # (medido 3 de 3), reprovando a suíte e contradizendo o docstring
+        # acima, que promete pulo. Ver o comentário do helper.
+        with _perfil_de_navegador_descartavel() as perfil:
             try:
                 resultado = subprocess.run(
                     [
@@ -1013,7 +1101,9 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
                 f"medir (ambiente quebrado, não regressão de CSS): {casamento.group(1)[:300]!r}"
             )
     finally:
-        Path(caminho_html).unlink(missing_ok=True)
+        # R6-1/BL-148: ver o `finally` equivalente em `_chromium_funciona`
+        # — descarte no `finally` propaga por cima de qualquer `except`.
+        _descartar_caminho_temporario(caminho_html)
 
 
 def test_indentacao_hierarquica_e_aditiva_e_estritamente_crescente_por_nivel(client, cen):
