@@ -143,8 +143,7 @@ def _ler_bloco_mapa(linhas: list[str], idx: int, caminho: Path) -> tuple[dict[st
         chave, separador, valor = conteudo.partition(": ")
         if not separador:
             raise ErroFrontmatter(
-                f"{caminho}: linha {idx + 1} malformada, esperava 'chave: valor': "
-                f"{linhas[idx]!r}"
+                f"{caminho}: linha {idx + 1} malformada, esperava 'chave: valor': {linhas[idx]!r}"
             )
         mapa[chave] = valor
         idx += 1
@@ -162,8 +161,7 @@ def _ler_lista_inline(valor: str, chave: str, caminho: Path) -> tuple[str, ...]:
     valor = valor.strip()
     if not (valor.startswith("[") and valor.endswith("]")):
         raise ErroFrontmatter(
-            f"{caminho}: '{chave}' deveria ser uma lista entre colchetes, "
-            f"encontrei {valor!r}"
+            f"{caminho}: '{chave}' deveria ser uma lista entre colchetes, encontrei {valor!r}"
         )
     interior = valor[1:-1].strip()
     if not interior:
@@ -211,7 +209,9 @@ def carregar_papel(caminho: Path) -> Papel:
 
     linha = _linha_ou_erro(linhas, idx, caminho)
     if linha != "perfil:":
-        raise ErroFrontmatter(f"{caminho}: esperava 'perfil:' na linha {idx + 1}, encontrei {linha!r}")
+        raise ErroFrontmatter(
+            f"{caminho}: esperava 'perfil:' na linha {idx + 1}, encontrei {linha!r}"
+        )
     idx += 1
     perfil, idx = _ler_bloco_mapa(linhas, idx, caminho)
 
@@ -223,7 +223,9 @@ def carregar_papel(caminho: Path) -> Papel:
         "delega_para",
     ):
         if chave_obrigatoria not in perfil:
-            raise ErroFrontmatter(f"{caminho}: bloco 'perfil' sem a chave obrigatória '{chave_obrigatoria}'")
+            raise ErroFrontmatter(
+                f"{caminho}: bloco 'perfil' sem a chave obrigatória '{chave_obrigatoria}'"
+            )
 
     if perfil["raciocinio"] not in ("maximo", "equilibrado"):
         raise ErroFrontmatter(f"{caminho}: 'perfil.raciocinio' inválido: {perfil['raciocinio']!r}")
@@ -241,13 +243,17 @@ def carregar_papel(caminho: Path) -> Papel:
 
     linha = _linha_ou_erro(linhas, idx, caminho)
     if linha != "claude:":
-        raise ErroFrontmatter(f"{caminho}: esperava 'claude:' na linha {idx + 1}, encontrei {linha!r}")
+        raise ErroFrontmatter(
+            f"{caminho}: esperava 'claude:' na linha {idx + 1}, encontrei {linha!r}"
+        )
     idx += 1
     claude, idx = _ler_bloco_mapa(linhas, idx, caminho)
 
     for chave_obrigatoria in ("model", "effort", "color", "tools"):
         if chave_obrigatoria not in claude:
-            raise ErroFrontmatter(f"{caminho}: bloco 'claude' sem a chave obrigatória '{chave_obrigatoria}'")
+            raise ErroFrontmatter(
+                f"{caminho}: bloco 'claude' sem a chave obrigatória '{chave_obrigatoria}'"
+            )
 
     if idx != len(linhas):
         raise ErroFrontmatter(
@@ -268,7 +274,9 @@ def carregar_papel(caminho: Path) -> Papel:
         memory=claude.get("memory"),
         color=claude["color"],
         tools=_desaspar(claude["tools"]),
-        disallowed_tools=(_desaspar(claude["disallowedTools"]) if "disallowedTools" in claude else None),
+        disallowed_tools=(
+            _desaspar(claude["disallowedTools"]) if "disallowedTools" in claude else None
+        ),
         corpo=corpo,
         arquivo_fonte=caminho,
     )
@@ -480,6 +488,32 @@ def _validar_toml(arquivo: ArquivoGerado) -> None:
     tomllib.loads(arquivo.conteudo)
 
 
+def _orfaos(papeis: list[Papel]) -> list[Path]:
+    """Deriva existente cujo papel já não está na fonte.
+
+    Usado tanto por ``verificar`` (para relatar) quanto por ``escrever``
+    (para apagar) — um papel removido de ``docs/agents/papeis/`` não deveria
+    deixar ``.claude/agents/`` ou ``.codex/agents/`` com o arquivo antigo
+    esquecido para trás (é o cenário 4 do plano DL-019, e o passo 5 de
+    ``docs/agents/como-criar-um-papel.md``).
+    """
+    nomes_esperados = {papel.nome for papel in papeis}
+    encontrados: list[Path] = []
+    for diretorio, sufixo in (
+        (CLAUDE_DIR, ".md"),
+        (CODEX_DIR, ".toml"),
+    ):
+        if not diretorio.is_dir():
+            continue
+        for existente in diretorio.iterdir():
+            if not existente.name.endswith(sufixo):
+                continue
+            nome_papel = existente.name[: -len(sufixo)]
+            if nome_papel not in nomes_esperados:
+                encontrados.append(existente)
+    return encontrados
+
+
 def escrever(papeis: list[Papel]) -> None:
     gerados = _arquivos_esperados(papeis)
     for arquivo in gerados:
@@ -492,7 +526,16 @@ def escrever(papeis: list[Papel]) -> None:
         temporario = arquivo.caminho.with_suffix(arquivo.caminho.suffix + ".tmp")
         temporario.write_text(arquivo.conteudo, encoding="utf-8")
         temporario.replace(arquivo.caminho)
-    print(f"Gerados {len(gerados)} arquivos a partir de {len(papeis)} papéis em {FONTE_DIR}.")
+
+    orfaos = _orfaos(papeis)
+    for caminho in orfaos:
+        caminho.unlink()
+
+    mensagem = f"Gerados {len(gerados)} arquivos a partir de {len(papeis)} papéis em {FONTE_DIR}."
+    if orfaos:
+        relativos = ", ".join(str(c.relative_to(REPO_ROOT)) for c in orfaos)
+        mensagem += f" Removidos {len(orfaos)} derivado(s) órfão(s): {relativos}."
+    print(mensagem)
 
 
 def verificar(papeis: list[Papel]) -> list[str]:
@@ -511,26 +554,18 @@ def verificar(papeis: list[Papel]) -> list[str]:
         if atual != arquivo.conteudo:
             problemas.append(f"divergente: {arquivo.caminho.relative_to(REPO_ROOT)}")
 
-    nomes_esperados = {papel.nome for papel in papeis}
-    for diretorio, sufixo in (
-        (CLAUDE_DIR, ".md"),
-        (CODEX_DIR, ".toml"),
-    ):
-        if not diretorio.is_dir():
-            continue
-        for existente in diretorio.iterdir():
-            if not existente.name.endswith(sufixo):
-                continue
-            nome_papel = existente.name[: -len(sufixo)]
-            if nome_papel not in nomes_esperados:
-                problemas.append(f"órfão (sem papel correspondente na fonte): {existente.relative_to(REPO_ROOT)}")
+    for caminho in _orfaos(papeis):
+        relativo = caminho.relative_to(REPO_ROOT)
+        problemas.append(f"órfão (sem papel correspondente na fonte): {relativo}")
     return sorted(set(problemas))
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     grupo = parser.add_mutually_exclusive_group(required=True)
-    grupo.add_argument("--escrever", action="store_true", help="(re)grava os dois formatos derivados")
+    grupo.add_argument(
+        "--escrever", action="store_true", help="(re)grava os dois formatos derivados"
+    )
     grupo.add_argument(
         "--verificar",
         action="store_true",
