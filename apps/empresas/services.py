@@ -127,7 +127,17 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
     definindo seu fim como o dia anterior ao novo início. Nunca edita o
     valor do regime de um período já existente — preserva o histórico
     necessário para reproduzir apurações antigas.
+
+    Faixa de `vigencia_inicio` (BL-153, achado R6-6): teto em HOJE, regra
+    confirmada (RC-81); piso em 01/01/2000, **hipótese declarada** (HI-07).
+    Ver o comentário em `apps.empresas.validators`, que é a fonte única da
+    faixa e da mensagem — este serviço só traduz para `ValueError`, que é o
+    que a API já converte em 400.
     """
+    mensagem = mensagem_de_vigencia_de_regime_fora_da_faixa(vigencia_inicio)
+    if mensagem is not None:
+        raise ValueError(mensagem)
+
     periodo_vigente = (
         HistoricoRegimeTributario.objects.select_for_update()
         .filter(empresa=empresa, vigencia_fim__isnull=True)

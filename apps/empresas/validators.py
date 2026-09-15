@@ -1,6 +1,8 @@
 import re
+from datetime import date, datetime
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 # Fonte: Nota Técnica Conjunta CNPJ Alfanumérico — NT 2025.001, versão 1.00,
 # de 25/04/2025 (ENCAT, Anexo I). Base legal: Instrução Normativa RFB
@@ -166,3 +168,103 @@ def validar_cnpj(valor):
 
     if cnpj[12:] != primeiro_digito + segundo_digito:
         raise ValidationError("CNPJ inválido: dígitos verificadores não conferem.")
+
+
+# ---------------------------------------------------------------------------
+# Faixa de `vigencia_inicio` de regime tributário (RC-81 confirmado, HI-07
+# hipótese) — achado R6-6 da auditoria DL-017 rodada 6, BL-153.
+#
+# O defeito medido: `POST regime-tributario {"vigencia_inicio":"9999-12-31"}`
+# devolvia 201. `9999-12-31` é `date.max`, não existe data posterior, a regra
+# de vigência crescente (`registrar_regime_tributario`) exige que a próxima
+# comece DEPOIS — e não havia `PUT`, `DELETE` nem tela de edição. Um dígito
+# errado congelava para sempre o histórico do dado que governa toda a
+# apuração fiscal da empresa, e só acesso direto ao banco desfazia.
+#
+# LIMITE SUPERIOR — REGRA CONFIRMADA (RC-81, Fred em 2026-09-15, resposta
+# literal "Não" a "o escritório registra regime com vigência futura?"):
+# `vigencia_inicio` nunca é posterior a HOJE. Isto fecha a armadilha por
+# construção, não por vigilância: `date.max` não entra mais, e amanhã sempre
+# existe uma data posterior à última registrada.
+#
+# LIMITE INFERIOR — HIPÓTESE, NÃO REGRA CONFIRMADA (HI-07): o piso de
+# 01/01/2000 é o mesmo do RC-77, que o Fred confirmou para DATA DE
+# LANÇAMENTO. Ninguém o confirmou para regime tributário — estender é
+# presunção, e está registrado como hipótese em docs/projeto/requisitos.md
+# (HI-07) para ser perguntado. Sem piso nenhum, `0001-01-01` entraria, o que
+# mantém metade do defeito; com este piso declarado como hipótese, o
+# comportamento é seguro e a dívida fica visível. Se houver empresa com
+# regime documentado antes de 2000, o piso BAIXA — decisão do Fred, não
+# nossa.
+VIGENCIA_REGIME_MINIMA = date(2000, 1, 1)
+
+
+def vigencia_regime_maxima():
+    """Hoje — a última `vigencia_inicio` aceita para um regime (RC-81).
+
+    Função, não constante: "hoje" se move, e uma constante calculada no
+    import congelaria o teto no momento em que o processo subiu (um servidor
+    de longa duração passaria a recusar o dia seguinte). `timezone.
+    localdate()` respeita o fuso configurado; `date.today()` não.
+    """
+    return timezone.localdate()
+
+
+def mensagem_de_vigencia_de_regime_fora_da_faixa(vigencia_inicio):
+    """Mensagem de recusa se `vigencia_inicio` estiver fora da faixa; `None`
+    se estiver dentro.
+
+    Devolve mensagem em vez de levantar porque os dois consumidores precisam
+    de tipos de exceção diferentes e a REGRA precisa ser uma só:
+    `apps.empresas.services.registrar_regime_tributario` levanta `ValueError`
+    (que a API já traduz para 400) e `validar_vigencia_de_regime` levanta
+    `ValidationError` (contrato obrigatório de validador de campo de modelo,
+    usado pelo admin). Duplicar a comparação nos dois lados é exatamente o
+    que a DE-026 existe para impedir.
+
+    Recusa também o que não é `datetime.date` puro (inclusive `datetime`,
+    que é subclasse de `date`): o campo é `DateField`, um `datetime` seria
+    truncado na gravação, e a comparação de faixa estouraria `TypeError`
+    cru em vez de erro de domínio.
+    """
+    if isinstance(vigencia_inicio, datetime) or not isinstance(vigencia_inicio, date):
+        return (
+            "A vigência do regime tributário deve ser uma data (datetime.date); "
+            f"recebido {type(vigencia_inicio).__name__} ({vigencia_inicio!r})."
+        )
+    maxima = vigencia_regime_maxima()
+    if vigencia_inicio > maxima:
+        return (
+            f"A vigência do regime tributário não pode ser futura: "
+            f"{vigencia_inicio.strftime('%d/%m/%Y')} é posterior a hoje "
+            f"({maxima.strftime('%d/%m/%Y')}). Confira o ano digitado."
+        )
+    if vigencia_inicio < VIGENCIA_REGIME_MINIMA:
+        return (
+            f"A vigência do regime tributário não pode ser anterior a "
+            f"{VIGENCIA_REGIME_MINIMA.strftime('%d/%m/%Y')}; recebido "
+            f"{vigencia_inicio.strftime('%d/%m/%Y')}."
+        )
+    return None
+
+
+def validar_vigencia_de_regime(valor):
+    """Validador de CAMPO DE MODELO para `HistoricoRegimeTributario.
+    vigencia_inicio` (DE-034 item 2 — o mesmo campo nas outras superfícies).
+
+    A regra já está em `registrar_regime_tributario`, por onde a API passa.
+    Ela NÃO alcança o **admin do Django** (`HistoricoRegimeTributarioInline`,
+    em `apps/empresas/admin.py`), que grava por `ModelForm` e nunca chama o
+    serviço — a segunda, e única outra, superfície de escrita deste campo
+    hoje (não existe tela do produto para regime tributário). Um validador de
+    campo é chamado por `full_clean()`, que é o que o `ModelForm` do admin
+    executa, então a faixa vale nas duas portas sem reimplementar a
+    comparação.
+
+    Não cobre `objects.create()`/`bulk_create()` — nenhum validador de campo
+    cobre, porque o ORM não chama `full_clean()`. O caminho de negócio
+    (`registrar_regime_tributario`) é quem garante isso ali.
+    """
+    mensagem = mensagem_de_vigencia_de_regime_fora_da_faixa(valor)
+    if mensagem is not None:
+        raise ValidationError(mensagem)
