@@ -266,7 +266,38 @@ auditoria independente — que é exatamente o motivo de ela existir.
    julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da
    rodada 5 — medido 3 de 3 pelo auditor.
 
-2. **BL-125 — o primeiro acesso2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
+   **Distribuída em 2026-09-15, a partir da revisão `cb08fb7`**, com os dois
+   implementadores trabalhando em paralelo na mesma árvore e conjuntos de
+   arquivos disjuntos:
+
+   | Responsável | Itens | Pode editar |
+   | --- | --- | --- |
+   | `desenvolvedor-pleno` | BL-149 (módulo e API), BL-151(b), BL-153, BL-157, BL-158, BL-159, BL-160 no domínio | `apps/core/**`, `apps/contabilidade/views.py`, `serializers.py`, `services.py`, `models.py` e migração, `apps/tenancy/**`, `apps/empresas/**`, testes `test_dl019_*` que não terminem em `_frontend` |
+   | `especialista-frontend` | BL-148, BL-149 nas telas, BL-150, BL-151(b) na renderização, BL-152, BL-156, BL-160, BL-161 | `views_web.py`, `urls_web.py`, `templates/**`, `static/**`, `test_dl017_*`, `test_dl019_frontend*`, `docs/assets/telas/*.png` |
+   | `arquiteto-senior` | documentação, `.github/workflows/**`, integração e commit | os demais |
+
+   Nenhum dos dois commita: a integração é do `arquiteto-senior`, porque dois
+   agentes mexendo no índice ao mesmo tempo corrompem o commit.
+
+   **Três contratos que eu fixei na distribuição**, para os dois não negociarem
+   no meio do caminho — e para nenhum número de negócio ficar declarado em dois
+   lugares, que é como a documentação divergiu três vezes:
+
+   1. A política dos cinco dicionários (BL-149) mora em `apps/core/requisicao.py`,
+      escrita pelo `desenvolvedor-pleno`: uma função que recebe a requisição e a
+      declaração do que a view aceita, e levanta **uma** exceção carregando a
+      razão e a lista de chaves ofensoras em separado. Quem responde é a view.
+   2. A faixa de data do RC-77 e o teto de 200 do RC-79 têm fonte única em
+      `apps/contabilidade/services.py` — mínima como constante, máxima como
+      **função** (é "hoje + 30 dias", que se move). O teto de 200 deixa de ser
+      número de tela e passa a ser regra de domínio no serviço de criação, para
+      que a **API também o herde** (item 2 da DE-034: o mesmo campo nas outras
+      superfícies).
+   3. No BL-151(b), a consulta "há movimento fora do período consultado" é do
+      `desenvolvedor-pleno`, em `services.py`; a renderização do aviso nas
+      quatro saídas é do `especialista-frontend`.
+
+2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
    vínculo, a tela explica corretamente e a única saída é o admin do Django.
    Nenhuma das três auditorias viu, porque todas partem de cenário já montado.
@@ -303,9 +334,12 @@ auditoria independente — que é exatamente o motivo de ela existir.
    contas-mãe avisa e deixa criar (**RC-80**). Fecham PE-42 e PE-43. As três que
    não eram de sim ou não foram reescritas por mim como proposta concreta antes
    de perguntar — presumir regra contábil é o que o projeto proíbe.
-9. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
-   vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
-   implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
+9. **Decisões que dependem do Fred:** **PE-44** (faixa de vigência do regime
+   tributário e se a correção apaga ou registra — aberta na distribuição da
+   DL-019, e por isso a BL-153 entrega só a parte independente da resposta),
+   PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
+   e prejuízos acumulados na implantação), PE-20, PE-21, PE-22, PE-23, PE-25,
+   PE-30 a PE-35.
 10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
