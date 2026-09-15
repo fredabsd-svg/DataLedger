@@ -134,6 +134,16 @@ o diagnóstico e a decisão necessária em vez de entrar em ciclo infinito.
 
 ## Memória de projeto
 
+{{MECANISMO}}
+CLAUDE:
 Você tem memória de projeto. Registre padrões de arquitetura, decisões e
 preferências do Fred. **Nunca** registre segredos, credenciais, chaves, dados
 reais de clientes, salários ou documentos pessoais.
+CODEX:
+**Nesta ferramenta não há campo de memória de projeto confirmado**, e o
+projeto não configura campo que não tenha confirmado. Não conte com memória
+entre sessões: registre padrões de arquitetura e decisões em
+`docs/projeto/decisoes.md`, e o estado em `docs/agents/estado.md`, que é onde
+eles sobrevivem de verdade. **Nunca** registre segredos, credenciais, chaves,
+dados reais de clientes, salários ou documentos pessoais.
+{{/MECANISMO}}

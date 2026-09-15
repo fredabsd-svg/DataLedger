@@ -33,6 +33,31 @@ teste de sincronia reprova o build se algum deles divergir da fonte.
    links para cada formato de saída, você não precisa (e não deve) escrever
    um link diferente por formato.
 
+   **Toda afirmação sobre o que a ferramenta impede vai dentro de um bloco
+   `{{MECANISMO}}`.** É a regra mais importante deste documento, e a que uma
+   auditoria encontrou quebrada: frases como "você não tem `Write`, essa
+   restrição é técnica" são **verdade no Claude Code e mentira no Codex**, que
+   lê o mesmo texto e tem a ferramenta. Um papel que promete isolamento
+   inexistente é pior que papel nenhum. A sintaxe é exatamente esta, sem
+   espaço dentro das chaves, em maiúsculas, com as duas seções e o fechamento:
+
+   ```text
+   {{MECANISMO}}
+   CLAUDE:
+   Você não tem `Write` nem `Edit`. Essa restrição é **técnica**.
+   CODEX:
+   Você não edita arquivos. Aqui isso é **instrução de comportamento**, não
+   isolamento técnico: a ferramenta não impede, você é que não faz.
+   {{/MECANISMO}}
+   ```
+
+   O gerador escolhe uma das duas versões por destino. Marcador escrito de
+   qualquer outra forma **é recusado** com erro apontando arquivo e linha —
+   antes ele vazava literal para dentro do arquivo que o modelo lê, ou
+   engolia em silêncio o texto entre dois blocos. O mesmo vale para
+   **capacidade**, não só restrição: "você tem memória de projeto" é verdade
+   num lado e falso no outro, e também precisa do bloco.
+
 2. **Rode o gerador em modo escrita**:
 
    ```bash
@@ -67,11 +92,22 @@ teste de sincronia reprova o build se algum deles divergir da fonte.
    [`CLAUDE.md`](../../CLAUDE.md), seção "Estado do projeto: um lugar só").
 
 5. Se o papel for descartável (um experimento, uma prova de conceito), remova
-   o arquivo da fonte e rode o gerador de novo para que os derivados
-   desapareçam junto — não deixe `.claude/agents/` ou `.codex/agents/` com um
-   papel que não existe mais na fonte. O teste de sincronia detecta esse
-   resíduo (é o que o projeto chama de "derivado órfão") e reprova o build até
-   ele ser removido.
+   o arquivo da fonte e rode o gerador de novo. **Atenção, porque os dois lados
+   se comportam de forma diferente de propósito:**
+
+   - `.codex/agents/<papel>.toml` **é apagado sozinho**, porque o gerador
+     reconhece a marca que ele mesmo escreveu ali, citando este papel.
+   - `.claude/agents/<papel>.md` **não é apagado**: você precisa removê-lo à
+     mão. Esse arquivo não tem onde carregar a marca sem quebrar a exigência
+     de que os papéis existentes fiquem byte a byte idênticos, e o diretório
+     `.claude/agents/` é um lugar onde é legítimo alguém guardar um agente
+     pessoal. Apagar sozinho o que não se tem certeza de ter escrito já
+     destruiu um arquivo de usuário durante uma auditoria desta etapa.
+
+   O gerador diz, na saída, exatamente o que removeu e o que preservou. Só
+   depois de remover o `.md` à mão o `--verificar` fica verde. Enquanto
+   sobrar qualquer um dos dois, o teste de sincronia reprova o build — é o que
+   o projeto chama de "derivado órfão".
 
 ## O que isto não faz
 

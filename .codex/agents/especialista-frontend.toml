@@ -88,5 +88,5 @@ clientes.
 
 ## Criar um papel novo
 
-Este arquivo é gerado a partir de `docs/agents/papeis/`. Para criar um papel novo ou alterar este, siga `docs/agents/como-criar-um-papel.md` — não edite este arquivo diretamente, a próxima geração sobrescreve.
+Este arquivo é gerado a partir de `docs/agents/papeis/` (papel `especialista-frontend`). Para criar um papel novo ou alterar este, siga `docs/agents/como-criar-um-papel.md` — não edite este arquivo diretamente, a próxima geração sobrescreve.
 """

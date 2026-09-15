@@ -281,12 +281,29 @@ auditoria independente — que é exatamente o motivo de ela existir.
    **BLOQUEIO OPERACIONAL EM 2026-09-15, e não é falha técnica:** o
    `desenvolvedor-pleno` foi interrompido pelo **limite de uso da plataforma**
    (HTTP 429, `claude-sonnet-5`) **antes de começar** as correções da rodada 3.
-   Nada foi alterado por ele; a árvore está no estado de `500dbee`. Os
-   auxiliares usam o mesmo modelo e estão sob o mesmo limite. **Quem pode
-   implementar sem esbarrar nisso sou eu**, que rodo em `opus` — e isso não
-   quebra a separação essencial, porque a independência que importa é a do
-   `auditor-qa`, que não implementou nada e continua validando. Está registrado
-   aqui para não virar decisão silenciosa.
+   Nada foi alterado por ele; a árvore estava no estado de `500dbee`. Os
+   auxiliares usam o mesmo modelo e estavam sob o mesmo limite. **O Fred
+   autorizou que eu assumisse a implementação**, e assumi: as nove correções
+   dos achados da rodada 2 são minhas. A separação essencial permanece — a
+   independência que importa é a do `auditor-qa`, que não escreveu nada disto e
+   é quem valida. Registrado para não virar decisão silenciosa: **nesta rodada,
+   quem implementou foi o líder.**
+
+   **Correções da rodada 2, concluídas em 2026-09-15.** Nove achados fechados
+   (BL-174 a BL-180, BL-182, BL-183); BL-181 fica como **pendência declarada**,
+   porque exige confirmar em documentação oficial quais nomes de ferramenta o
+   Claude Code aceita — e o projeto não valida contra lista inventada. A suíte
+   foi de **817 para 846 testes**.
+
+   **Prova por mutação, feita por mim antes de devolver à auditoria:** removi
+   uma a uma as nove defesas novas e medi quais testes morriam. Oito mataram de
+   imediato. **A nona não matou nenhum** — e isso virou BL-185: ao corrigir o
+   A3, o `chmod` que fixa o modo do arquivo não tinha teste próprio, porque os
+   testes de `umask` passavam só pela tolerância do verificador. Era o **padrão
+   do achado A7 se repetindo dentro da correção do A3**. Corrigido, e agora
+   mutar o `chmod` mata o teste. Registro porque é o argumento inteiro desta
+   etapa: *sem a mutação, eu teria entregado a mesma classe de defeito que
+   estava corrigindo.*
 
    **Achado meu, encontrado depois das duas auditorias (BL-184):** varri o
    repositório **inteiro** em vez da lista de arquivos de cada achado, e

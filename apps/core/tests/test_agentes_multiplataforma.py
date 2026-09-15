@@ -149,16 +149,23 @@ def _arquivos_monitorados(raiz: Path = REPO_ROOT) -> list[Path]:
     return arquivos
 
 
-def _instantaneo_arquivos_monitorados(raiz: Path = REPO_ROOT) -> str:
-    hasher = hashlib.sha256()
+def _instantaneo_arquivos_monitorados(raiz: Path = REPO_ROOT) -> dict[str, str]:
+    """Hash por arquivo, não um hash só do conjunto.
+
+    Achado A5 (BL-178): a primeira versão devolvia **um** hash de tudo, então
+    a fixture sabia que "algo mudou" e não sabia o quê — e acusava o teste que
+    por acaso estava rodando. Guardar por arquivo permite nomear exatamente o
+    que mudou, que é a diferença entre um diagnóstico e um palpite.
+    """
+    instantaneo: dict[str, str] = {}
     for caminho in _arquivos_monitorados(raiz):
         relativo = caminho.relative_to(raiz).as_posix()
-        hasher.update(relativo.encode("utf-8"))
         try:
-            hasher.update(caminho.read_bytes())
+            conteudo = caminho.read_bytes()
         except FileNotFoundError:
-            hasher.update(b"<ausente>")
-    return hasher.hexdigest()
+            conteudo = b"<ausente>"
+        instantaneo[relativo] = hashlib.sha256(conteudo).hexdigest()
+    return instantaneo
 
 
 @pytest.fixture(autouse=True)
@@ -174,11 +181,29 @@ def _protege_a_arvore_de_trabalho_real(request):
     antes = _instantaneo_arquivos_monitorados()
     yield
     depois = _instantaneo_arquivos_monitorados()
-    assert antes == depois, (
-        f"{request.node.nodeid} alterou algum arquivo monitorado do repositório "
-        "real (ver _arquivos_monitorados). Testes deste módulo só podem "
-        "escrever dentro de tmp_path — use _copiar_repositorio_isolado(tmp_path) "
-        "em vez de tocar nos arquivos reais."
+    if antes == depois:
+        return
+
+    mudados = sorted(
+        set(antes) ^ set(depois) | {c for c in set(antes) & set(depois) if antes[c] != depois[c]}
+    )
+    # Achado A5 (BL-178): a mensagem anterior afirmava categoricamente que o
+    # teste tinha escrito, e mandava caçar uma escrita que podia não existir.
+    # A fixture mede "o arquivo mudou", não "o teste escreveu" — e neste
+    # projeto vários agentes trabalham em paralelo no mesmo repositório, então
+    # edição concorrente legítima é uma causa real e frequente. Nomear os
+    # arquivos e apresentar as duas hipóteses transforma um palpite acusatório
+    # num diagnóstico verificável.
+    raise AssertionError(
+        f"Arquivo(s) monitorado(s) mudaram durante {request.node.nodeid}:\n"
+        + "\n".join(f"  - {caminho}" for caminho in mudados)
+        + "\n\nDuas causas possíveis, nesta ordem de verificação:\n"
+        "  1. Edição concorrente por OUTRO processo (outro agente, seu editor). "
+        "Rode `git diff` nos arquivos acima: se a mudança for trabalho legítimo "
+        "de outra pessoa, este teste é inocente e a suíte pode ser repetida.\n"
+        "  2. Este teste escreveu no repositório real. Testes deste módulo só "
+        "podem escrever dentro de tmp_path — use _copiar_repositorio_isolado("
+        "tmp_path) em vez de tocar nos arquivos reais."
     )
 
 
@@ -724,17 +749,48 @@ def test_escrever_apaga_toml_orfao_que_carrega_a_marca_de_gerado(tmp_path):
     que a correção do achado 3 não podia quebrar.
     """
     diretorios = _copiar_repositorio_isolado(tmp_path)
-    papeis = ga.carregar_papeis(diretorios)
-    conteudo_gerado = ga.construir_codex_toml(papeis[0], diretorios)
+
+    # Gera um papel de verdade, para que a marca cite o nome DELE — é o que
+    # autoriza a remoção desde o achado A9.1.
+    fonte_fantasma = diretorios.fonte / "papel-fantasma.md"
+    _escrever_fonte_minima(fonte_fantasma, nome="papel-fantasma")
+    ga.escrever(ga.carregar_papeis(diretorios), diretorios)
     alvo = diretorios.codex / "papel-fantasma.toml"
-    alvo.write_text(conteudo_gerado, encoding="utf-8")
-    assert ga.MARCA_DE_GERADO in conteudo_gerado, (
-        "pré-condição do teste: o conteúdo carrega a marca"
+    assert ga.marca_de_gerado("papel-fantasma") in alvo.read_text(encoding="utf-8"), (
+        "pré-condição do teste: o arquivo gerado carrega a marca do próprio papel"
     )
+
+    fonte_fantasma.unlink()
+    ga.escrever(ga.carregar_papeis(diretorios), diretorios)
+
+    assert not alvo.exists(), "TOML órfão marcado como gerado deveria ter sido removido"
+
+
+def test_escrever_preserva_copia_de_toml_gerado_com_outro_nome(tmp_path):
+    """Achado A9.1 (BL-182): a marca de "gerado" viajava numa cópia.
+
+    `cp .codex/agents/auditor-qa.toml .codex/agents/meu-agente-pessoal.toml` é
+    o caminho mais natural para alguém criar um agente Codex pessoal — e o
+    `--escrever` seguinte **apagava** esse arquivo, porque a marca genérica
+    tinha vindo junto. Desde a correção a marca cita o papel de origem, então
+    a cópia não corresponde ao próprio nome e é preservada.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    papeis = ga.carregar_papeis(diretorios)
+    original = diretorios.codex / "auditor-qa.toml"
+    copia = diretorios.codex / "meu-agente-pessoal.toml"
+    copia.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
 
     ga.escrever(papeis, diretorios)
 
-    assert not alvo.exists(), "TOML órfão marcado como gerado deveria ter sido removido"
+    assert copia.exists(), (
+        "uma cópia de um arquivo gerado, salva com outro nome, é um arquivo do "
+        "usuário — o gerador não pode apagá-la só porque a marca veio junto"
+    )
+    problemas = ga.verificar(papeis, diretorios)
+    assert any("meu-agente-pessoal.toml" in p for p in problemas), (
+        "preservar não é ignorar: o arquivo continua sendo relatado como órfão"
+    )
 
 
 def test_escrever_nao_apaga_toml_sem_a_marca_de_gerado(tmp_path):
@@ -974,24 +1030,33 @@ def test_instantaneo_monitorado_detecta_mudanca_fora_dos_tres_diretorios_origina
     )
 
 
-def test_instantaneo_monitorado_nao_inclui_equipe_md_ou_estado_md(tmp_path):
-    """Decisão explícita, não esquecimento: este módulo não lê
-    `docs/agents/equipe.md` nem `docs/agents/estado.md` (o arquiteto-senior
-    os edita em paralelo com frequência), então eles ficam fora do
-    instantâneo de propósito — monitorá-los recriaria falso positivo por
-    edição concorrente legítima.
+def test_fixture_de_protecao_nomeia_o_arquivo_que_mudou(tmp_path):
+    """Achado A5 (BL-178): a fixture media "o arquivo mudou" e acusava "o
+    teste escreveu" — com uma mensagem que mandava caçar uma escrita que podia
+    não existir. Neste projeto vários agentes trabalham em paralelo no mesmo
+    repositório, então edição concorrente é causa real.
+
+    Este teste substitui `test_instantaneo_monitorado_nao_inclui_equipe_md_ou_
+    estado_md`, que era tautológico (afirmava que mudar dois arquivos fora da
+    lista não muda o hash da lista) e, pior, **fixava a limitação como se
+    fosse requisito**: quem quisesse ampliar o monitoramento teria de apagar um
+    teste verde para isso. Removido na correção da rodada 2.
     """
-    (tmp_path / "AGENTS.md").write_text("x", encoding="utf-8")
-    (tmp_path / "docs" / "agents").mkdir(parents=True)
-    (tmp_path / "docs" / "agents" / "papeis").mkdir()
+    (tmp_path / "AGENTS.md").write_text("original", encoding="utf-8")
+    (tmp_path / "docs" / "agents" / "papeis").mkdir(parents=True)
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "gerar_agentes.py").write_text("x", encoding="utf-8")
 
     antes = _instantaneo_arquivos_monitorados(tmp_path)
-    (tmp_path / "docs" / "agents" / "equipe.md").write_text("mudou", encoding="utf-8")
-    (tmp_path / "docs" / "agents" / "estado.md").write_text("mudou", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("alterado por outro processo", encoding="utf-8")
     depois = _instantaneo_arquivos_monitorados(tmp_path)
-    assert antes == depois
+
+    assert antes != depois, "pré-condição: a mudança precisa ser detectada"
+    mudados = [c for c in antes if antes[c] != depois.get(c)]
+    assert mudados == ["AGENTS.md"], (
+        "o instantâneo precisa dizer QUAL arquivo mudou, não só que algo mudou — "
+        "é o que separa diagnóstico de palpite"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1091,4 +1156,358 @@ def test_agents_md_nao_ultrapassa_a_margem_de_seguranca_do_codex():
         "erro visível, cortando primeiro as últimas seções do arquivo. Reduza "
         "o(s) arquivo(s) ou mova conteúdo para um documento apontado por eles "
         "antes que o limite real seja atingido."
+    )
+
+
+# --------------------------------------------------------------------------
+# Rodada 2 da auditoria (2026-09-15, REPROVADO): os defeitos que as CORREÇÕES
+# da rodada 1 criaram. Cada teste abaixo cita o achado que o originou.
+# --------------------------------------------------------------------------
+
+# Achado A1 (BL-174, alta). O marcador {{MECANISMO}}, criado para corrigir o
+# achado mais grave da rodada 1, era a única parte da entrega sem nenhum teste
+# — e falhava por OMISSÃO: sintaxe errada não dava erro, produzia derivado
+# errado. Dois modos opostos, ambos silenciosos: o `.*?` com DOTALL atravessava
+# blocos e apagava parágrafos inteiros do Codex; e o marcador não casado vazava
+# literal para dentro do arquivo que o modelo lê.
+_CORPOS_COM_MARCADOR_INVALIDO = {
+    "bloco_sem_codex": "{{MECANISMO}}\nCLAUDE:\nsó um lado\n{{/MECANISMO}}\n",
+    "bloco_sem_fechamento": "{{MECANISMO}}\nCLAUDE:\na\nCODEX:\nb\n",
+    "chaves_com_espaco": "{{ MECANISMO }}\nCLAUDE:\na\nCODEX:\nb\n{{/MECANISMO}}\n",
+    "marcador_minusculo": "{{mecanismo}}\nCLAUDE:\na\nCODEX:\nb\n{{/mecanismo}}\n",
+    "rotulos_minusculos": "{{MECANISMO}}\nclaude:\na\ncodex:\nb\n{{/MECANISMO}}\n",
+    "ordem_invertida": "{{MECANISMO}}\nCODEX:\nb\nCLAUDE:\na\n{{/MECANISMO}}\n",
+    "rotulo_solto_sem_bloco": "Texto normal.\n\nCODEX:\nisto não está em bloco nenhum\n",
+    "dois_blocos_primeiro_incompleto": (
+        "{{MECANISMO}}\nCLAUDE:\nprimeiro\n{{/MECANISMO}}\n\n"
+        "REGRA CRITICA QUE NAO PODE SUMIR\n\n"
+        "{{MECANISMO}}\nCLAUDE:\nsegundo\nCODEX:\nsegundo codex\n{{/MECANISMO}}\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("caso", sorted(_CORPOS_COM_MARCADOR_INVALIDO))
+def test_marcador_de_mecanismo_malformado_e_recusado(tmp_path, caso):
+    """Cada sintaxe errada precisa FALHAR ALTO, citando o arquivo.
+
+    Antes, todas passavam: `--escrever`, `--verificar` e os 52 testes ficavam
+    verdes enquanto o derivado saía errado.
+    """
+    caminho = tmp_path / "papel-teste.md"
+    _escrever_fonte_minima(caminho, nome="papel-teste")
+    caminho.write_text(
+        caminho.read_text(encoding="utf-8") + "\n" + _CORPOS_COM_MARCADOR_INVALIDO[caso],
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ga.ErroFrontmatter) as erro:
+        ga.carregar_papel(caminho)
+
+    assert "papel-teste.md" in str(erro.value), (
+        "a mensagem precisa apontar o arquivo: quem segue como-criar-um-papel.md "
+        "não sabe de cor qual dos sete tem o problema"
+    )
+
+
+def test_marcador_de_mecanismo_nao_atravessa_blocos(tmp_path):
+    """A reprodução exata do achado A1: dois blocos, o primeiro sem `CODEX:`.
+
+    O padrão antigo casava da abertura do bloco A até o fechamento do bloco B e
+    engolia o que estava no meio — uma regra inteira do papel sumia do derivado
+    Codex, sem erro. Hoje isso é recusado; e, quando os dois blocos são válidos,
+    o texto entre eles é preservado nos dois destinos.
+    """
+    corpo = (
+        "{{MECANISMO}}\nCLAUDE:\nprimeiro claude\nCODEX:\nprimeiro codex\n{{/MECANISMO}}\n"
+        "\nREGRA CRITICA QUE NAO PODE SUMIR\n\n"
+        "{{MECANISMO}}\nCLAUDE:\nsegundo claude\nCODEX:\nsegundo codex\n{{/MECANISMO}}\n"
+    )
+    for alvo, esperado in (("claude", "primeiro claude"), ("codex", "primeiro codex")):
+        resolvido = ga.resolver_mecanismo(corpo, alvo)
+        assert "REGRA CRITICA QUE NAO PODE SUMIR" in resolvido, (
+            f"conteúdo entre dois blocos sumiu do destino {alvo}"
+        )
+        assert esperado in resolvido
+        assert "MECANISMO" not in resolvido
+
+
+def test_nenhum_derivado_real_contem_marcador_de_mecanismo():
+    """O outro modo de falha do A1: vazamento do texto de controle.
+
+    Um modelo que leia `{{/MECANISMO}}` no meio do próprio papel não tem como
+    saber que aquilo não é instrução.
+    """
+    for caminho in sorted(CLAUDE_DIR.glob("*.md")) + sorted(CODEX_DIR.glob("*.toml")):
+        conteudo = caminho.read_text(encoding="utf-8")
+        assert "MECANISMO" not in conteudo, (
+            f"{caminho.relative_to(REPO_ROOT)} contém o marcador literal — ele deveria "
+            "ter sido resolvido na geração"
+        )
+
+
+# Achado A2 (BL-176, média). A varredura do achado 1 procurava afirmação de
+# RESTRIÇÃO e não via afirmação de CAPACIDADE: o `arquiteto-senior.toml` dizia
+# "Você tem memória de projeto. Registre...", e no Codex não existe campo de
+# memória. A mentira permissiva é pior que a restritiva: o agente conclui que
+# registrou, e o registro se perde sem rastro.
+_AFIRMACOES_DE_CAPACIDADE_INEXISTENTE = (
+    "Você tem memória de projeto",
+    "Você tem memória automática",
+)
+
+
+def test_codex_nao_afirma_capacidade_que_a_ferramenta_nao_tem():
+    for caminho in sorted(CODEX_DIR.glob("*.toml")):
+        instrucoes = tomllib.loads(caminho.read_text(encoding="utf-8"))["developer_instructions"]
+        for frase in _AFIRMACOES_DE_CAPACIDADE_INEXISTENTE:
+            assert frase not in instrucoes, (
+                f"{caminho.name} afirma {frase!r}, mas o TOML gerado só tem as chaves "
+                "name/description/developer_instructions — não existe campo de memória "
+                "confirmado no Codex. Envolva a frase num bloco {{MECANISMO}}."
+            )
+
+
+def test_papel_com_memoria_de_projeto_nao_promete_memoria_no_codex():
+    """A regra geral por trás do A2, não só a frase que foi encontrada."""
+    for caminho in sorted(FONTE_DIR.glob("*.md")):
+        papel = ga.carregar_papel(caminho)
+        if papel.memoria_de_projeto != "sim":
+            continue
+        instrucoes = tomllib.loads((CODEX_DIR / f"{papel.nome}.toml").read_text(encoding="utf-8"))[
+            "developer_instructions"
+        ]
+        assert "memória de projeto" not in instrucoes or "não há campo de memória" in instrucoes, (
+            f"{papel.nome}: o perfil declara memória de projeto (verdade no Claude Code) "
+            "e o derivado Codex não pode prometer o mesmo sem dizer que ali ela não existe"
+        )
+
+
+# Achado A3 (BL-175, alta). A checagem de permissão exigia modo EXATAMENTE
+# 0o644 e reprovava um clone limpo sob `umask 002` — padrão de usuário comum em
+# Debian/Ubuntu. Sem uma linha alterada, o build ficava vermelho; o Git não
+# versiona 664 × 644, então `git diff` saía limpo; e a remediação que a
+# mensagem mandava rodar (`--escrever`) não convergia, porque a escrita também
+# herdava o umask.
+@pytest.mark.parametrize("umask_valor", [0o022, 0o002, 0o077])
+def test_escrever_e_verificar_convergem_sob_qualquer_umask(tmp_path, umask_valor, monkeypatch):
+    import os
+
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    anterior = os.umask(umask_valor)
+    try:
+        papeis = ga.carregar_papeis(diretorios)
+        ga.escrever(papeis, diretorios)
+        problemas = ga.verificar(papeis, diretorios)
+    finally:
+        os.umask(anterior)
+
+    assert problemas == [], (
+        f"sob umask {oct(umask_valor)} o gerador escreveu e em seguida reprovou o que "
+        f"ele mesmo escreveu: {problemas}. Foi assim que um clone limpo ficava vermelho "
+        "sem ninguém ter alterado nada."
+    )
+
+
+@pytest.mark.parametrize(
+    ("modo", "trecho_esperado"),
+    [(0o664, None), (0o644, None), (0o755, "executável"), (0o666, "gravável por qualquer")],
+)
+def test_verificar_julga_permissao_por_propriedade_e_nao_por_valor_exato(
+    tmp_path, modo, trecho_esperado
+):
+    """0o664 (umask 002) precisa passar; executável e gravável por todos, não."""
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    papeis = ga.carregar_papeis(diretorios)
+    alvo = diretorios.claude / "auditor-qa.md"
+    alvo.chmod(modo)
+
+    problemas = [p for p in ga.verificar(papeis, diretorios) if "auditor-qa.md" in p]
+
+    if trecho_esperado is None:
+        assert problemas == [], f"modo {oct(modo)} é inofensivo e não deveria reprovar"
+    else:
+        assert any(trecho_esperado in p for p in problemas), (
+            f"modo {oct(modo)} deveria ser relatado: {problemas}"
+        )
+
+
+# Achado A9.2 (BL-182, baixa). `is_symlink()` é falso e `is_file()` é verdadeiro
+# para um hard link, e os bytes batem — o derivado passava a ser o mesmo inode
+# de um arquivo fora do repositório, com o guarda aprovando.
+def test_verificar_relata_hard_link_no_lugar_do_derivado(tmp_path):
+    import os
+
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    papeis = ga.carregar_papeis(diretorios)
+    alvo = diretorios.claude / "auditor-qa.md"
+    externo = tmp_path / "fora-do-repositorio.md"
+    externo.write_text(alvo.read_text(encoding="utf-8"), encoding="utf-8")
+    alvo.unlink()
+    os.link(externo, alvo)
+
+    problemas = ga.verificar(papeis, diretorios)
+
+    assert any("hard link" in p and "auditor-qa.md" in p for p in problemas), (
+        f"hard link para fora do repositório passou como sincronizado: {problemas}"
+    )
+
+
+# Achado A6 (BL-179, média). A coerência cobria só a direção restritiva ("o
+# perfil diz que não pode, o claude concede"). Faltava a simétrica: o perfil
+# declara capacidade que o Claude Code nega — e aí os dois derivados prometem
+# ao modelo algo que ele não tem, sem nem ganhar o aviso de honestidade, porque
+# o aviso só liga quando a restrição é declarada.
+@pytest.mark.parametrize(
+    ("substituicoes", "trecho_esperado"),
+    [
+        (
+            {"  escreve_arquivos: nao": "  escreve_arquivos: sim"},
+            "não concede",
+        ),
+        (
+            {
+                "  escreve_arquivos: nao": "  escreve_arquivos: sim",
+                '  tools: "Read"': '  tools: "Read, Write, Edit"',
+            },
+            "proíbe",
+        ),
+        (
+            {
+                "  delega_para: []": "  delega_para: [papel-teste]",
+                '  disallowedTools: "Write, Edit, NotebookEdit, Agent"': (
+                    '  disallowedTools: "Write, Edit, NotebookEdit"'
+                ),
+            },
+            "não concede Agent",
+        ),
+    ],
+)
+def test_perfil_nao_pode_prometer_capacidade_que_o_claude_nega(
+    tmp_path, substituicoes, trecho_esperado
+):
+    caminho = tmp_path / "papel-teste.md"
+    _escrever_fonte_minima(caminho, nome="papel-teste")
+    conteudo = caminho.read_text(encoding="utf-8")
+    for velho, novo in substituicoes.items():
+        assert velho in conteudo, f"pré-condição do teste: {velho!r} presente na fonte mínima"
+        conteudo = conteudo.replace(velho, novo)
+    caminho.write_text(conteudo, encoding="utf-8")
+
+    with pytest.raises(ga.ErroFrontmatter) as erro:
+        ga.carregar_papel(caminho)
+
+    assert trecho_esperado in str(erro.value)
+
+
+def test_coerencia_permissiva_dos_sete_papeis_reais():
+    """A regra nova não pode reprovar os papéis que já existem."""
+    for caminho in sorted(FONTE_DIR.glob("*.md")):
+        ga.carregar_papel(caminho)
+
+
+# Achado A7 (BL-180, baixa). O comentário do código declara `_confinar_no_destino`
+# como "segunda defesa independente — se uma falhar por um motivo que não
+# previmos, a outra ainda segura". Substituí-la por `if False:` não matava
+# teste nenhum: o teste que parecia cobri-la passava porque a PRIMEIRA defesa
+# barrava o caso antes de ela ser exercitada.
+def test_confinar_no_destino_recusa_caminho_fora_da_base(tmp_path):
+    base = tmp_path / "destino"
+    base.mkdir()
+    fora = tmp_path / "outro-lugar" / "escapou.md"
+
+    with pytest.raises(ga.ErroFrontmatter):
+        ga._confinar_no_destino(fora, base)
+
+    # E aceita o caso legítimo, para o teste não passar por acidente.
+    ga._confinar_no_destino(base / "papel.md", base)
+
+
+def test_confinar_no_destino_recusa_travessia_por_componente_relativo(tmp_path):
+    base = tmp_path / "destino"
+    base.mkdir()
+
+    with pytest.raises(ga.ErroFrontmatter):
+        ga._confinar_no_destino(base / ".." / "vizinho.md", base)
+
+
+def test_escrever_produz_modo_estavel_independente_do_umask(tmp_path):
+    """A outra metade do A3, e ela quase escapou.
+
+    A correção do A3 tem duas partes: `verificar()` julgar permissão por
+    propriedade, e `escrever()` fixar o modo com `chmod`. Ao mutar o `chmod`
+    para um no-op, **nenhum teste morreu** — porque os testes de umask acima
+    passam a depender só da tolerância do `verificar()`. Era o padrão do
+    achado A7 se repetindo na correção do A3: defesa declarada, sem teste que
+    a exercite. Este teste cobre a metade que faltava.
+    """
+    import os
+
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    papeis = ga.carregar_papeis(diretorios)
+    anterior = os.umask(0o077)
+    try:
+        ga.escrever(papeis, diretorios)
+    finally:
+        os.umask(anterior)
+
+    import stat as stat_mod
+
+    modos = {
+        caminho.name: stat_mod.S_IMODE(caminho.stat().st_mode)
+        for caminho in sorted(diretorios.claude.glob("*.md"))
+        + sorted(diretorios.codex.glob("*.toml"))
+    }
+    fora_do_padrao = {nome: oct(modo) for nome, modo in modos.items() if modo != 0o644}
+    assert not fora_do_padrao, (
+        "a saída do gerador não pode depender do umask de quem rodou o comando; "
+        f"sob umask 077 saiu: {fora_do_padrao}"
+    )
+
+
+def test_procedimento_publicado_de_criar_e_remover_papel_funciona_como_escrito(tmp_path):
+    """Achado A4 (BL-177): executa os passos 1, 2 e 5 de
+    `docs/agents/como-criar-um-papel.md` na ordem publicada e afirma o estado
+    final **que o texto descreve**.
+
+    Na rodada 1 o auditor executou esse mesmo passo 5 e registrou "zero
+    resíduo". A correção do achado 3 (parar de apagar arquivo não assinado)
+    estava certa, mas quebrou o procedimento — e o texto ficou para trás,
+    prometendo uma limpeza que não acontece mais. Enquanto o documento e o
+    comportamento discordarem, este teste reprova.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+
+    # Passos 1 e 2: cria a fonte e gera.
+    fonte = diretorios.fonte / "papel-descartavel.md"
+    _escrever_fonte_minima(fonte, nome="papel-descartavel")
+    ga.escrever(ga.carregar_papeis(diretorios), diretorios)
+    derivado_claude = diretorios.claude / "papel-descartavel.md"
+    derivado_codex = diretorios.codex / "papel-descartavel.toml"
+    assert derivado_claude.is_file() and derivado_codex.is_file()
+
+    # Passo 5: remove a fonte e regera.
+    fonte.unlink()
+    ga.escrever(ga.carregar_papeis(diretorios), diretorios)
+
+    assert not derivado_codex.exists(), (
+        "o procedimento diz que o derivado do Codex some sozinho — ele carrega a "
+        "marca deste papel, então é removido"
+    )
+    assert derivado_claude.is_file(), (
+        "o procedimento diz que o .md do Claude NÃO some sozinho e precisa ser "
+        "removido à mão; se isso mudar, o passo 5 do documento muda junto"
+    )
+
+    problemas = ga.verificar(ga.carregar_papeis(diretorios), diretorios)
+    relatos = [p for p in problemas if "papel-descartavel.md" in p]
+    assert relatos, "o .md preservado tem de continuar sendo relatado como órfão"
+    assert any("à mão" in p for p in relatos), (
+        "a mensagem precisa dizer que --escrever não resolve este caso: mandar rodar "
+        "um comando que não corrige foi o defeito A4"
+    )
+
+    # E o texto publicado precisa descrever esse mesmo comportamento.
+    procedimento = COMO_CRIAR.read_text(encoding="utf-8")
+    assert "não é apagado" in procedimento or "à mão" in procedimento, (
+        "docs/agents/como-criar-um-papel.md precisa avisar que o .md do Claude sai à mão"
     )
