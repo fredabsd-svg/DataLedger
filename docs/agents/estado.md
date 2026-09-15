@@ -366,6 +366,57 @@ auditoria independente — que é exatamente o motivo de ela existir.
    morreu por `AttributeError`, não por asserção, porque a consulta devolve
    `None` e não dicionário vazio. O teste pega o defeito **por acidente de
    tipo**. Morte por erro é morte mais frágil que morte por asserção.
+   **O auditor atacou esse ponto com a forma que não estoura** — um dicionário
+   fabricado com os dois lados nulos, truthy, que renderiza a caixa vazia — e
+   ela **morreu por asserção, em três testes**. Julgou a defesa suficiente.
+
+   ### A DE-034 percorrida item por item — achado A4 da auditoria
+
+   Este é o **critério 2 da etapa**, que eu escrevi e **não cumpri**: o auditor
+   mediu por `grep` que o `estado.md` citava a DE-034 duas vezes, ambas de
+   passagem, sem percorrer nenhum dos três itens numerados. *"Regra numerada que
+   se cumpre por leitura vira regra cumprida em dois terços"* é frase do próprio
+   auditor, de uma rodada anterior, e ela se cumpriu em cima de mim.
+
+   Os campos que a DL-019 corrigiu são **quatro**: `data` de lançamento (RC-77),
+   `vigencia_inicio` de regime (RC-81), o número de partidas (RC-79) e o
+   conjunto inteiro que a política dos cinco dicionários julga.
+
+   **Item 1 — os demais campos do mesmo dicionário da requisição.**
+   *Percorrido.* No POST de lançamento, `data` vizinha de `historico`,
+   `chave_idempotencia`, `num_linhas` e das chaves `conta_*`/`tipo_*`/`valor_*`:
+   todas passam por julgador próprio (`para_data`, `para_decimal`, `para_id`,
+   `_inteiro_de_cliente`), e a política dos cinco dicionários recusa qualquer
+   chave fora do contrato. No POST de regime, `vigencia_inicio` vizinha de
+   `regime`, que tem gramática de escolha desde a BL-141. *O que ficou:* nada
+   neste item.
+
+   **Item 2 — o mesmo campo nas outras superfícies.** *Percorrido em parte, e
+   foi aqui que ficaram os dois achados.* Para `data` de lançamento, percorri
+   serviço, API, tela, estorno **e admin** — e o admin foi o achado do
+   `desenvolvedor-pleno` que virou a BL-164. Para `vigencia_inicio`, percorri
+   API e admin, e o validador de modelo faz a **faixa** valer nas duas.
+   *O que ficou, e o auditor mediu:* **(a)** a faixa valeu no admin mas a
+   **vigência crescente não** — pelo inline nascem dois períodos abertos ao
+   mesmo tempo, e o estado não se cura sozinho (A2); **(b)** eu tratei
+   "superfície" como "as superfícies que existem hoje" e não como "as que podem
+   nascer", e por isso a varredura foi aceita com uma fronteira que não cumpre o
+   que declara (A1). **Os dois achados moram neste item.** Não é coincidência: é
+   o item que a rodada 6 também não executou, pela segunda vez.
+
+   **Item 3 — as demais restrições do mesmo `Meta`.** *Percorrido, e virou
+   mecanismo.* Era a origem da BL-157 (duas `CheckConstraint` de CNPJ sem
+   tradução, a outra metade do `Meta` que a BL-144 fechou). Deixou de ser
+   conferência manual e virou a varredura de restrições, que percorre **todos**
+   os modelos e foi vista reprovar. *O que ficou:* a fronteira dela também está
+   declarada como completa sem ser — `unique_together` é invisível (A6), e três
+   índices implícitos estão presos na lista sem razão escrita (A7).
+
+   **A lição, para a DL-010 não repetir:** os três itens não têm o mesmo custo.
+   O item 1 se resolve olhando a função; o item 3 virou mecanismo e agora se
+   resolve sozinho; **o item 2 é o caro**, porque exige perguntar "por onde mais
+   este dado entra" incluindo portas que ainda não existem. Duas rodadas
+   seguidas de auditoria acharam o resíduo exatamente nele.
 
    **Um critério meu foi retirado por inexequível**, e a razão fica: eu exigira
    "varredura provando que cada view de POST tem **teste** dos cinco
