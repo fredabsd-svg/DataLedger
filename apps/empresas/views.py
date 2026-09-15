@@ -73,6 +73,37 @@ def _recusar_dado_nao_contratado(request, contrato):
         raise DRFValidationError(exc.mensagem) from exc
 
 
+def _contrato_da_tela_de_empresa():
+    """Contrato da TELA de cadastro de empresa (`criar_empresa`).
+
+    Encontrado pela varredura da BL-149 (`apps/core/tests/test_dl019_
+    varredura_de_contratos.py`, segunda rodada da DL-019): esta era a única
+    superfície de escrita do repositório que ainda não aplicava a política dos
+    cinco dicionários. A rodada 6 mediu `conta_nova` e `ativar_escritorio`, o
+    fechamento cobriu as rotas de API deste app, e esta tela ficou de fora —
+    exatamente o "vizinho aberto" que a DE-034 existe para pegar. É a mesma
+    classe do defeito de `conta_nova`: `cnpj` enviado como ARQUIVO não aparece
+    em `request.POST`, e um campo desconhecido (`escritorio`, por exemplo) era
+    aceito e descartado em silêncio.
+
+    Os campos saem do PRÓPRIO formulário (`EmpresaForm.fields`), como
+    `_campos_gravaveis` faz para os serializers da API: uma lista literal aqui
+    divergiria do `<form>` na primeira mudança de cadastro.
+    `csrfmiddlewaretoken` entra porque o `<form>` o emite de verdade — não é
+    dado de negócio, mas é chave presente no corpo, e o contrato julga o
+    corpo inteiro.
+    """
+    return ContratoDeRequisicao(
+        campos=frozenset(EmpresaForm().fields) | {"csrfmiddlewaretoken"},
+        # Cadastro de empresa pela tela não tem contrato de idempotência
+        # nenhum: quem manda `Idempotency-Key` aqui está usando o contrato da
+        # API e precisa ouvir isso, em vez de acreditar num controle de
+        # repetição que esta superfície não implementa (R5-6/BL-145).
+        cabecalhos_ignorados=("Idempotency-Key",),
+        contexto="no cadastro de empresa pela tela",
+    )
+
+
 CONTRATO_POST_REGIME = ContratoDeRequisicao(
     campos={"regime", "vigencia_inicio"},
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -461,6 +492,20 @@ def criar_empresa(request):
         return render(request, "erros/sem_permissao.html", contexto, status=403)
 
     if request.method == "POST":
+        # BL-149: a política vem de `apps.core.requisicao` (ponto único), e a
+        # resposta segue o padrão já instituído nas telas da contabilidade
+        # (`conta_nova`, BL-152): formulário RE-RENDERIZADO com 400 e com o
+        # que o usuário digitou. Recusar sem devolver o que foi digitado troca
+        # um defeito por outro; responder 200 faria a recusa passar por
+        # "página normal" para qualquer cliente que olhe o código de status.
+        try:
+            recusar_dado_nao_contratado(request, _contrato_da_tela_de_empresa())
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return render(
+                request, "empresas/form.html", {"form": EmpresaForm(request.POST)}, status=400
+            )
+
         form = EmpresaForm(request.POST)
         if form.is_valid():
             empresa = form.save(commit=False)

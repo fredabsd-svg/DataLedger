@@ -665,10 +665,31 @@ def _perfil_de_navegador_descartavel():
 
 # PASSO 3 do BL-148 — aplicado só DEPOIS de (1) o descarte do perfil sair
 # da região julgada nas duas funções e (2) os quatro testes de falha de
-# limpeza (no fim deste arquivo) terem sido vistos falhar contra os
-# mutantes que os removem. Nesta ordem, e não na outra: subir o timeout
-# sozinho faz a medição rodar e a `ENOTEMPTY` do descarte reprovar a
-# suíte, que é o bloqueador da rodada 5 reaberto.
+# limpeza (no fim deste arquivo) conseguirem falhar. Nesta ordem, e não na
+# outra: subir o timeout sozinho faz a medição rodar e a `ENOTEMPTY` do
+# descarte reprovar a suíte, que é o bloqueador da rodada 5 reaberto.
+#
+# BL-168 (segunda rodada da DL-019): a frase anterior afirmava que os quatro
+# testes "foram vistos falhar contra os mutantes que os removem", e **não
+# havia registro nenhum disso** — afirmação não é registro, e esta é
+# justamente a propriedade que a etapa inteira exige demonstrar. O registro
+# passou a existir (relatório de entrega da segunda rodada da DL-019), e o
+# que fica aqui é a RECEITA, conferível em um minuto por quem duvidar:
+#
+#   - devolver `tempfile.TemporaryDirectory()` à região julgada de
+#     `_renderizar_e_medir` mata `test_renderizar_e_medir_pula_quando_
+#     limpeza_falha_e_o_titulo_nao_serve` e `..._mede_normalmente_com_
+#     limpeza_de_perfil_falhando`, os dois com `OSError(39)` — a armadilha
+#     deste passo 3, exatamente;
+#   - devolvê-lo à região julgada de `_chromium_funciona` mata
+#     `test_chromium_funciona_aceita_navegador_bom_com_limpeza_de_perfil_
+#     falhando` (o falso negativo: navegador bom, `False`);
+#   - tirar o `ignore_errors=True`/`except OSError` de
+#     `_descartar_caminho_temporario` mata os QUATRO.
+#
+# `test_perfil_descartavel_de_fato_apaga_o_diretorio_quando_consegue`
+# sobrevive aos três de propósito: é o controle positivo do descarte, e o
+# mutante que o mata é o oposto (uma função de descarte que não apaga nada).
 #
 # O teto era 10s, e o dado mostrou que o limiar curto era ELE MESMO uma
 # fonte de falso negativo: dos dois jobs de `38efbf9f`, um acusou `timeout

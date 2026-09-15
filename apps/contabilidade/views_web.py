@@ -1107,17 +1107,35 @@ def _linhas_a_reexibir_do_post(post):
     `request.FILES` isso era anterior à rodada 6; para `request.GET` e para
     o cabeçalho era novo, e triplicou a exposição.
 
-    A derivação é a MESMA do caminho de gravação, pela mesma razão (R2-3):
-    o campo oculto `num_linhas` não decide quantas linhas existem — o
-    conteúdo decide. Usa `max` com o piso de exibição e o maior índice
-    realmente presente, e o teto de SEGURANÇA fecha por cima (o
-    `_contexto_form_lancamento` também cap, defesa em profundidade): nem
+    A derivação tem a mesma FORMA do caminho de gravação, pela mesma razão
+    (R2-3): o campo oculto `num_linhas` não decide quantas linhas existem —
+    o CONTEÚDO decide. O teto de SEGURANÇA fecha por cima (o
+    `_contexto_form_lancamento` também capa, defesa em profundidade): nem
     aqui um `num_linhas` arbitrário dimensiona a página.
+
+    **O piso NÃO é o mesmo, e é deliberado** (resíduo do BL-152 apontado
+    pelo `desenvolvedor-pleno` na varredura de afirmações; antes esta frase
+    dizia "a MESMA", o que era falso): a gravação usa piso 2 porque lá
+    `num_linhas_exibicao` também serve ao botão "+ linha", que precisa
+    poder trabalhar com duas linhas; **um formulário RECUSADO volta com o
+    piso da tela INICIAL** (`LINHAS_INICIAIS_LANCAMENTO`), para nunca
+    oferecer menos linhas do que um formulário novo. A escolha não perde
+    nada digitado em nenhum dos dois pisos — o piso só acrescenta linha em
+    BRANCO —, e está travada por
+    `test_piso_de_reexibicao_e_o_da_tela_INICIAL_e_nao_o_da_gravacao`
+    (test_dl019_frontend_recusa_do_formulario_de_lancamento.py).
+
+    `num_linhas` não entra no `max`: um campo oculto inflado (ou absurdo,
+    acima do teto de segurança) faria esta função devolver uma página
+    proporcional ao que o cliente mandou, exatamente o que o parágrafo
+    acima diz que não acontece. Para um POST de formulário REAL isso não
+    muda nada — o `<form>` emite as chaves de todas as linhas que
+    renderizou, então o maior índice presente JÁ é o número de linhas
+    exibidas.
     """
-    num_linhas_campo = _inteiro_de_cliente(post.get("num_linhas", "")) or LINHAS_INICIAIS_LANCAMENTO
     maior_indice, _ = _indices_de_linha_do_post(post)
     return min(
-        max(LINHAS_INICIAIS_LANCAMENTO, num_linhas_campo, maior_indice),
+        max(LINHAS_INICIAIS_LANCAMENTO, maior_indice),
         LINHAS_LEITURA_TETO_DE_SEGURANCA,
     )
 
@@ -1383,10 +1401,19 @@ def lancamento_novo(request, empresa_id):
                 "'num_linhas' inválido: o formulário aceita no máximo "
                 f"{LINHAS_MAXIMAS_LANCAMENTO} partidas por lançamento.",
             )
+            # R6-5/BL-152, segunda rodada da DL-019: o número de linhas
+            # re-exibidas vem do PONTO ÚNICO de derivação, como em toda
+            # recusa desta tela. Era `LINHAS_INICIAIS_LANCAMENTO` fixo, e
+            # perdia o que estivesse digitado além da quarta linha —
+            # mesmo defeito do achado R6-5, no caminho vizinho. Derivar do
+            # conteúdo é seguro aqui justamente porque
+            # `_linhas_a_reexibir_do_post` NÃO olha o campo oculto: é o
+            # `num_linhas` absurdo que acabou de ser recusado, e ele não
+            # pode dimensionar a página (R3-1/BL-115).
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
-                LINHAS_INICIAIS_LANCAMENTO,
+                _linhas_a_reexibir_do_post(request.POST),
                 data_texto=data_texto,
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,
@@ -1421,10 +1448,17 @@ def lancamento_novo(request, empresa_id):
                 "linha fora do formato esperado, nunca reinterpretado nem "
                 "ignorado: " + "; ".join(sorted(chaves_nao_canonicas)) + ".",
             )
+            # R6-5/BL-152, segunda rodada da DL-019: era
+            # `num_linhas_exibicao` — derivado do campo OCULTO, sem o maior
+            # índice realmente presente —, e MEDIDO perdendo as linhas 5 a
+            # 8 de um POST com oito linhas e `num_linhas=4`. É o defeito do
+            # achado R6-5 no caminho vizinho de dentro da mesma view
+            # (DE-034, item 1). Agora o mesmo ponto único de derivação de
+            # toda recusa desta tela.
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
-                num_linhas_exibicao,
+                _linhas_a_reexibir_do_post(request.POST),
                 data_texto=data_texto,
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,

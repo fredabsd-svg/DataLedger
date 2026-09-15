@@ -58,8 +58,18 @@ from django.db import IntegrityError
 #
 # `apps/core/tests/test_dl019_varredura_de_restricoes.py` percorre TODOS os
 # modelos dos apps do projeto e exige que cada constraint declarada em `Meta`
-# apareça em UM destes dois dicionários. Uma constraint nova sem tradução
-# reprova a suíte — que é a única forma de isto não se repetir.
+# apareça em UM dos TRÊS registros deste módulo (este mapa, o de traduções
+# fora do mapa e o de restrições sem caminho de cliente). Uma constraint nova
+# sem tradução reprova a suíte — que é a única forma de isto não se repetir.
+#
+# A frase acima já esteve aqui afirmando um arquivo que NÃO existia (BL-167,
+# achado do inventário de 2026-09-15): o comentário descrevia o mecanismo,
+# explicava por que ele era necessário, e o mecanismo não estava lá. O
+# arquivo existe desde a segunda rodada da DL-019, e a varredura foi vista
+# reprovar com uma `CheckConstraint` nova e sem tradução acrescentada a um
+# modelo real — `test_a_varredura_reprova_constraint_nova_sem_traducao`
+# reconstrói esse mutante dentro do próprio teste, para a demonstração não
+# depender de ninguém ter registrado que a viu falhar.
 MENSAGENS_DE_RESTRICAO = {
     "codigo_unico_por_empresa": "Já existe uma conta com este código nesta empresa.",
     "uma_matriz_por_empresa": "Esta empresa já tem uma matriz cadastrada.",
