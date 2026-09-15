@@ -1,13 +1,45 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
+
+# BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
+# declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
+# não substring do fonte — que a varredura de contratos
+# (`apps/core/tests/test_dl019_varredura_de_contratos.py`) lê para saber se a
+# view é superfície de escrita. A classificação textual anterior
+# (`"request.method" in fonte`) foi contornada pelo auditor com uma view que
+# grava lendo `json.loads(request.body)`, com a suíte inteira verde.
+from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
 from apps.core.identificadores import IdentificadorInvalido, para_id
+from apps.core.requisicao import (
+    ContratoDeRequisicao,
+    DadoNaoContratado,
+    recusar_dado_nao_contratado,
+)
 from apps.tenancy.models import Escritorio
+
+# BL-196 / achado R6-2 (rodada 6): a política dos cinco dicionários também
+# nas duas superfícies de troca de escritório ativo. Medido pelo auditor:
+# `ativar_escritorio` aceitava querystring, campo desconhecido e
+# `request.FILES` — **302 nos três**, ignorando em silêncio —, e
+# `POST /api/escritorio-ativo/` com `xpto` respondia **200**.
+#
+# As duas aceitam UM campo só (`escritorio_id`) e nenhum cabeçalho de
+# idempotência: trocar de escritório é operação idempotente por natureza (o
+# resultado de fazer duas vezes é o mesmo), então quem envia
+# `Idempotency-Key` aqui está usando um contrato que não existe e precisa
+# ouvir isso — é o mesmo erro do R5-6 na tela de lançamento, onde a chave
+# ignorada produzia duplicidade.
+CONTRATO_ESCRITORIO_ATIVO = ContratoDeRequisicao(
+    campos={"escritorio_id"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na troca de escritório ativo",
+)
 
 
 class MeusEscritoriosView(APIView):
@@ -63,6 +95,15 @@ class EscritorioAtivoView(APIView):
         )
 
     def post(self, request):
+        # BL-196: a política vem de `apps.core.requisicao`; aqui só a
+        # tradução para o protocolo desta superfície. 400 (entrada que o
+        # contrato não aceita), não 403 — o 403 abaixo é para vínculo
+        # inexistente, que é outra coisa e não deve ser confundida.
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ESCRITORIO_ATIVO)
+        except DadoNaoContratado as exc:
+            return Response({"detail": exc.mensagem}, status=400)
+
         escritorio_id_bruto = request.data.get("escritorio_id")
 
         # `para_id` (achado A2 da auditoria DL-017 rodada 4, BL-127, e o
@@ -98,6 +139,7 @@ class EscritorioAtivoView(APIView):
 
 
 @login_required
+@require_safe
 def painel(request):
     """Página inicial pós-login: mostra o escritório ativo e permite trocar.
 
@@ -116,8 +158,22 @@ def painel(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def ativar_escritorio(request):
     if request.method == "POST":
+        # BL-196: mesma política da view irmã acima, mesma fonte única, e
+        # aqui na forma que esta superfície usa para dizer "não" — mensagem
+        # de erro e volta ao painel, o padrão que o BL-23 instituiu para
+        # todo caminho que NÃO ativa. O auditor mediu 302 silencioso para
+        # querystring, campo desconhecido e arquivo: a troca não acontecia
+        # (ou acontecia com dado ignorado) e o usuário não era avisado de
+        # nada.
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ESCRITORIO_ATIVO)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect("tenancy:painel")
+
         escritorio_id = request.POST.get("escritorio_id")
 
         # BL-23: antes, um vínculo inexistente (ou um valor não numérico)

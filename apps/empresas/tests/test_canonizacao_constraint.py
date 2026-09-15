@@ -15,6 +15,19 @@ Todas as asserções prendem a constraint pelo NOME (``empresa_cnpj_canonico``/
 constraint for renomeada ou removida numa refatoração futura, um
 IntegrityError diferente (ou nenhum) não deve passar por estes testes sem
 ser notado.
+
+**Alcance destes cinco casos, delimitado na DL-020 (BL-204).** O que eles
+afirmam é o comportamento do ORM DIRETO: ``bulk_create``/``bulk_update``/
+``QuerySet.update()`` não passam por ``restricao_como_400`` nenhum, então a
+violação sobe como ``IntegrityError`` cru — e isso continua sendo o que o
+sistema faz por esse caminho. O que eles **não** afirmam, e o inventário de
+2026-09-15 leu como se afirmassem, é que a tradução para 400 não exista:
+onde ela existe (as rotas de escrita de ``apps/empresas/views.py``, via
+``apps.core.restricoes``), a violação chega ao cliente como erro de negócio,
+e isso é medido em ``test_dl019_canonizacao_como_400.py`` — inclusive com a
+violação REAL do banco passando por ``restricao_como_400``, que é o único
+teste capaz de provar que o nome registrado bate com o nome que o driver
+devolve.
 """
 
 import pytest

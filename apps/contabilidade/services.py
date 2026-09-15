@@ -4,7 +4,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, DecimalField, F, Q, Sum
+from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
 from apps.contabilidade.models import (
@@ -13,6 +13,21 @@ from apps.contabilidade.models import (
     LancamentoContabil,
     NaturezaConta,
     TipoPartida,
+)
+from apps.contabilidade.validators import (
+    DATA_MINIMA_LANCAMENTO as DATA_MINIMA_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    DIAS_FUTUROS_MAXIMOS_LANCAMENTO as DIAS_FUTUROS_MAXIMOS_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    LIMITE_PARTIDAS_POR_LANCAMENTO as LIMITE_PARTIDAS_POR_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    data_maxima_lancamento as data_maxima_lancamento,
+)
+from apps.contabilidade.validators import (
+    mensagem_de_data_de_lancamento_fora_da_faixa,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
 
@@ -34,6 +49,19 @@ _CAMPO_SOMA_MONETARIA = DecimalField(max_digits=18, decimal_places=2)
 # Arredondamento fica a cargo dos MOTORES de cálculo (fiscal, folha,
 # honorários), onde existe uma regra legal que diz qual política usar.
 ESCALA_MAXIMA_LANCAMENTO_MANUAL = 2
+
+# RC-77 e RC-79 moram em `apps.contabilidade.validators`, módulo PURO (sem
+# ORM), e são REEXPORTADOS aqui — uma definição, um número. O motivo de não
+# viverem neste arquivo está no docstring de lá: `models.py` precisa da faixa
+# como validador de campo (é o que faz o ADMIN respeitá-la) e não pode
+# importar `services.py`, que importa `models.py`.
+#
+# O reexport não é conveniência gratuita: a tela (`views_web.py`) e os testes
+# importam estes nomes de `services`, e este módulo continua sendo o endereço
+# de domínio da escrituração. Quem escrever código novo pode usar qualquer um
+# dos dois caminhos; quem MUDAR o número mexe num lugar só. A forma
+# `from ... import X as X` é o reexport explícito da PEP 484 — é o que diz ao
+# ruff, e a quem lê, que o nome está aqui de propósito e não por sobra.
 
 
 class LancamentoInvalido(Exception):
@@ -65,6 +93,26 @@ class HierarquiaInconsistente(Exception):
     devolva uma resposta controlada (409) em vez de um 500 mudo, e para que
     a conferência (BL-64) consiga apontar o problema em vez de quebrar.
     """
+
+
+def validar_data_de_lancamento(data):
+    """Aplica a faixa do RC-77 a `data`, levantando `LancamentoInvalido`.
+
+    Julgador de DOMÍNIO, separado da gramática: `apps.core.datas.para_data`
+    decide se o TEXTO é uma data (formato, tipo, dia existente) e não sabe
+    nada de contabilidade; esta função decide se aquela data é PLAUSÍVEL para
+    um lançamento contábil. As duas superfícies chamam a primeira na fronteira
+    e esta pelo serviço, e nenhuma das duas repete a faixa.
+
+    A comparação em si — e a mensagem — moram em
+    `apps.contabilidade.validators`, que não importa ORM e por isso pode ser
+    usado TAMBÉM como validador de campo do modelo (o que faz o admin
+    respeitar a faixa). Aqui só se traduz para a exceção de domínio que as
+    duas views já convertem em 400.
+    """
+    mensagem = mensagem_de_data_de_lancamento_fora_da_faixa(data)
+    if mensagem is not None:
+        raise LancamentoInvalido(mensagem)
 
 
 def _impressao_digital(*, empresa_id, data, historico, itens):
@@ -173,6 +221,25 @@ def criar_lancamento(
     """
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
+
+    # RC-79 / BL-207: teto de NEGÓCIO, verificado aqui porque este é o ponto
+    # por onde a tela e a API passam (ver o comentário de
+    # `LIMITE_PARTIDAS_POR_LANCAMENTO`). Recusa NOMEANDO a quantidade
+    # recebida e o teto — nunca truncar a lista e gravar um lote menor do
+    # que o enviado, que é a perda silenciosa que a BL-91 proíbe e que
+    # deixaria o lote desbalanceado em silêncio.
+    if len(itens) > LIMITE_PARTIDAS_POR_LANCAMENTO:
+        raise LancamentoInvalido(
+            f"Um lançamento aceita no máximo {LIMITE_PARTIDAS_POR_LANCAMENTO} partidas; "
+            f"foram enviadas {len(itens)}. Nenhuma partida foi gravada — divida o "
+            "lançamento ou use importação."
+        )
+
+    # RC-77 / BL-205: faixa de data, na mesma função e antes de qualquer
+    # gravação. A gramática da data já foi julgada na fronteira de cada
+    # superfície (`apps.core.datas.para_data`); o que falta, e que só o
+    # domínio sabe, é se a data é plausível — ver `validar_data_de_lancamento`.
+    validar_data_de_lancamento(data)
 
     # Byte nulo (achado R2-4 da auditoria DL-017, rodada 2): o PostgreSQL
     # recusa `\x00` em coluna de texto com `DataError: PostgreSQL text
@@ -382,6 +449,37 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         if lancamento.estornos.exists():
             raise LancamentoInvalido("Este lançamento já foi estornado.")
 
+        # RC-78 / BL-206, confirmado pelo Fred em 2026-09-15: o estorno NUNCA
+        # pode ser datado antes do lançamento que ele reverte — recusar, e
+        # não "permitir desde que registrado" (a escolha foi dele).
+        #
+        # O defeito medido (achado R6-4c da rodada 6): a data do estorno era
+        # `timezone.localdate()` SEMPRE, sem nenhuma comparação com o
+        # original. Um lançamento datado no futuro (o que a faixa do RC-77
+        # continua permitindo até hoje + 30 dias) estornado hoje produzia um
+        # estorno ANTERIOR ao fato, e o Diário mostrava a reversão
+        # acontecendo antes do que ela reverte. O mutante que faz o estorno
+        # HERDAR a data do original sobrevivia a 766 testes: a regra não
+        # tinha teste em NENHUM dos dois sentidos.
+        #
+        # `data` é calculada aqui, uma vez, e passada explicitamente a
+        # `criar_lancamento` — antes o `data or timezone.localdate()` ficava
+        # na própria chamada, e por isso não havia onde comparar.
+        data_do_estorno = data or timezone.localdate()
+        # `validar_data_de_lancamento` ANTES da comparação, e não só por
+        # causa do RC-77: é ela que garante que `data_do_estorno` é um
+        # `date` puro, sem o que a comparação abaixo poderia estourar
+        # `TypeError` cru (texto, `datetime`) em vez de erro de domínio.
+        validar_data_de_lancamento(data_do_estorno)
+        if data_do_estorno < lancamento.data:
+            raise LancamentoInvalido(
+                "O estorno não pode ter data anterior à do lançamento que ele "
+                f"reverte: o lançamento {lancamento.pk} é de "
+                f"{lancamento.data.strftime('%d/%m/%Y')} e o estorno ficaria em "
+                f"{data_do_estorno.strftime('%d/%m/%Y')}. Informe uma data igual "
+                "ou posterior à do lançamento original."
+            )
+
         itens_invertidos = [
             {
                 "conta": item.conta,
@@ -396,7 +494,7 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         try:
             return criar_lancamento(
                 empresa=lancamento.empresa,
-                data=data or timezone.localdate(),
+                data=data_do_estorno,
                 historico=historico or f"Estorno do lançamento {lancamento.pk}",
                 itens=itens_invertidos,
                 criado_por=criado_por,
@@ -629,7 +727,19 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     (lista de dicts com `lancamento_id`, `data`, `historico`, `conta`,
     `conta_nome`, `tipo`, `valor`, `saldo`, todos com valores em `Decimal` —
     a formatação para string de moeda é responsabilidade da view),
-    `total_debito`, `total_credito` (do período) e `saldo_final`.
+    `total_debito`, `total_credito` (do período), `saldo_final` e
+    `ids_contas`.
+
+    `ids_contas` (BL-212) é o conjunto EXATO de ids que esta apuração somou
+    — a conta e todas as descendentes, o que `_descendentes_de` devolveu.
+    Está no resultado porque quem acabou de apurar o Razão costuma precisar
+    do MESMO recorte para outra consulta da mesma requisição (hoje, o aviso
+    de movimento fora do período, BL-198), e `_descendentes_de` faz UMA
+    CONSULTA POR NÍVEL de profundidade: recomputá-lo DOBRARIA o custo do
+    Razão de um plano profundo. Devolver o conjunto é o que permite à
+    segunda consulta ser barata — ver `movimento_fora_do_periodo`, que o
+    aceita em `ids_contas`, e o teto de consultas declarado em função da
+    profundidade em `test_dl015_saidas_com_periodo.py`.
     """
     zero = Decimal("0")
 
@@ -707,6 +817,12 @@ def apurar_razao(*, conta, empresa, inicio, fim):
         "total_debito": total_debito,
         "total_credito": total_credito,
         "saldo_final": saldo,
+        # BL-212: o recorte de contas desta apuração, para quem precisar do
+        # MESMO conjunto na mesma requisição sem pagar de novo a consulta
+        # por nível de `_descendentes_de`. `frozenset` de propósito: é um
+        # fato já apurado, e ninguém que o receba deve poder alterar o
+        # conjunto que declaradamente foi somado aqui.
+        "ids_contas": frozenset(ids_contas),
     }
 
 
@@ -981,6 +1097,133 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         "total_debitos": totais["debitos"],
         "total_creditos": totais["creditos"],
     }
+
+
+def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):
+    """Existe movimento da empresa FORA de [inicio, fim]? (BL-198, achado R6-4b.)
+
+    É a razão de a DL-020 existir. O auditor mediu: um lançamento de
+    5.000,00 datado `9999-12-31`, ao lado de um de 100,00 de hoje, **não
+    aparece em nenhuma saída de uso normal** — Diário, Razão, Balancete e
+    Conferência todos respondem "não" para ele — e o balancete do período
+    CONCILIA, porque os totais do período estão certos. Nada avisa que
+    existe mais. Validar a entrada (RC-77) fecha a porta para o futuro; esta
+    consulta é o que ACENDE A LUZ sobre o que já está gravado.
+
+    Devolve `None` quando não há nada fora do período (o caso normal, para a
+    tela não precisar comparar dicionário vazio) e, quando há:
+
+        {"anteriores":  {"quantidade": int, "data_extrema": date} | None,
+         "posteriores": {"quantidade": int, "data_extrema": date} | None}
+
+    `data_extrema` é a data MAIS DISTANTE de cada lado (a mais antiga antes
+    do período, a mais recente depois) — é o que permite à saída dizer "há
+    movimento até 31/12/9999" e oferecer um período que o alcance.
+    `quantidade` conta LANÇAMENTOS, não partidas.
+
+    Deliberadamente NÃO devolve valor somado: o aviso não é um saldo, e um
+    total parcial ao lado do total do período convidaria a somar os dois —
+    que é justamente a conciliação errada. Quem quer ver o movimento alarga
+    o período e vê pelo Diário, com os lançamentos de origem.
+
+    `conta` opcional: quando informada (e sem `ids_contas`), o recorte é o
+    MESMO conjunto de contas que `apurar_razao` usa (a conta e todas as
+    descendentes, `_descendentes_de`), para um aviso por conta falar da conta
+    consultada e não da empresa inteira. Sem ela, o recorte é a empresa
+    (Diário e Balancete). Neste caminho — e SÓ nele — a função levanta
+    `HierarquiaInconsistente` no mesmo caso em que `apurar_razao` já levanta
+    (ciclo alcançável a partir da conta); quem chamar por aqui precisa tratar
+    isso na mesma requisição. Nenhuma superfície chama por aqui hoje: as duas
+    do Razão passam `ids_contas` (BL-212), que não percorre hierarquia
+    nenhuma e por isso não levanta.
+
+    `ids_contas` é a versão BARATA do recorte por conta, para quem acabou de
+    chamar `apurar_razao` e já tem o conjunto pronto (ele vem no resultado,
+    na chave `ids_contas` — BL-212): evita percorrer a subárvore uma segunda
+    vez. Isso não é micro-otimização — `_descendentes_de` faz UMA CONSULTA
+    POR NÍVEL de profundidade, então recomputar DOBRARIA o custo do Razão de
+    um plano profundo, e existe teste de teto de consulta declarado em função
+    da profundidade justamente para isso
+    (`test_dl015_saidas_com_periodo.py`). A frase acima já foi FALSA uma vez:
+    `apurar_razao` não devolvia `ids_contas`, as duas superfícies do Razão
+    chamaram o caminho caro e o teto de consultas reprovou (24 onde o teto
+    era 17). Por isso as duas metades desta promessa têm teste próprio em
+    `test_dl019_razao_reaproveita_ids_contas.py`: que a chave existe, e que
+    nenhuma das duas superfícies percorre a subárvore duas vezes.
+    Quando os dois vêm, `ids_contas` vence e `conta` é ignorada.
+
+    Custo: **uma** consulta agregada de tamanho constante, com as quatro
+    medidas (quantidade e data extrema de cada lado) em agregação
+    condicional — não uma por lado. Mais as de `_descendentes_de` só quando
+    há `conta` sem `ids_contas`. Nada disso cresce com a quantidade de
+    lançamentos.
+    """
+    if conta is None and ids_contas is None:
+        base = LancamentoContabil.objects.filter(empresa=empresa)
+        campo_data = "data"
+        alvo_da_contagem = "id"
+    else:
+        if ids_contas is None:
+            ids_contas = _descendentes_de(conta, empresa)
+        base = ItemLancamento.objects.filter(conta_id__in=ids_contas, lancamento__empresa=empresa)
+        campo_data = "lancamento__data"
+        # Contar `lancamento` (com `distinct`) é o que faz a contagem ser de
+        # LANÇAMENTOS: um lançamento com débito e crédito na mesma subárvore
+        # tem dois itens e contaria duas vezes se contássemos itens.
+        alvo_da_contagem = "lancamento"
+
+    antes_do_periodo = Q(**{f"{campo_data}__lt": inicio})
+    depois_do_periodo = Q(**{f"{campo_data}__gt": fim})
+    medidas = base.aggregate(
+        quantidade_anteriores=Count(alvo_da_contagem, filter=antes_do_periodo, distinct=True),
+        data_extrema_anteriores=Min(campo_data, filter=antes_do_periodo),
+        quantidade_posteriores=Count(alvo_da_contagem, filter=depois_do_periodo, distinct=True),
+        data_extrema_posteriores=Max(campo_data, filter=depois_do_periodo),
+    )
+
+    def _lado(sufixo):
+        if not medidas[f"quantidade_{sufixo}"]:
+            return None
+        return {
+            "quantidade": medidas[f"quantidade_{sufixo}"],
+            "data_extrema": medidas[f"data_extrema_{sufixo}"],
+        }
+
+    lados = {"anteriores": _lado("anteriores"), "posteriores": _lado("posteriores")}
+    if lados["anteriores"] is None and lados["posteriores"] is None:
+        return None
+    return lados
+
+
+def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
+    """Lançamentos já GRAVADOS com data fora da faixa do RC-77 (BL-198).
+
+    A Conferência não tem período — uma base torta é torta em qualquer
+    recorte —, então o aviso de "movimento fora do período" não se aplica a
+    ela. O equivalente, e o que fecha o buraco do achado R6-4b para o dado
+    que JÁ EXISTE, é este: listar o que está fora da faixa plausível
+    (`DATA_MINIMA_LANCAMENTO` .. `data_maxima_lancamento()`).
+
+    É a única saída em que o `9999-12-31` aparece sem o contador precisar
+    suspeitar primeiro. A validação de entrada não conserta o passado, e a
+    DL-020 declara o reparo de dado já gravado fora de escopo: a Conferência
+    é onde esse passado fica visível, com o lançamento nomeado, para o
+    contador decidir o que fazer (estorno, ajuste) pelos caminhos normais.
+
+    O limite superior se MOVE com "hoje": um lançamento programado para
+    hoje + 40 dias aparece aqui hoje e deixa de aparecer daqui a dez dias,
+    quando entrar na faixa. É o comportamento pretendido — a faixa descreve
+    plausibilidade na data da consulta, não um selo permanente.
+
+    Devolve lista (não queryset): a Conferência sempre consome tudo, e a
+    lista deixa explícito que não há paginação aqui — em base sadia ela é
+    vazia.
+    """
+    return list(
+        LancamentoContabil.objects.filter(empresa=empresa)
+        .filter(Q(data__lt=DATA_MINIMA_LANCAMENTO) | Q(data__gt=data_maxima_lancamento()))
+        .order_by("data", "id")
+    )
 
 
 def localizar_lotes_desbalanceados(*, empresa):

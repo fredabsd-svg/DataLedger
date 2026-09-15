@@ -1,8 +1,8 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, com a `main` em `9b22b03` (PR #18 integrado).
-Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
-partir da `main` depois da integração.
+Atualizado em **2026-09-15**, com a `main` em `7e9dc56` (PR #20 integrado).
+Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, com a `main`
+atual incorporada e o PR #21 aberto.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -215,9 +215,10 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
+| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Em validação (PR #21)** — a retomada encontrou BL-242: `RC-81`, `RC-82` e `PE-44` tinham dois significados. Renumerar para `RC-85`, `RC-86` e `PE-46`, validar e devolver à auditoria antes do merge |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
-| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **ENCERRADA reprovada**, em três rodadas ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md), [3](../auditorias/2026-09-15-dl-019-rodada-3.md)), por decisão do Fred e pela régua da DE-038. Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -379,19 +380,343 @@ auditoria independente — que é exatamente o motivo de ela existir.
    corromper dado, vazar entre empresas, desbalancear um lançamento ou derrubar
    o servidor'."*
 
-   **O Fred decidiu em 2026-09-15: integrar agora.** O argumento é que a `main`
-   está **pior** — tem o `1.000` gravado como `1,00` e não sobe em Python
-   3.12/3.13, e as duas coisas estão corrigidas aqui. As dez ressalvas viram a
-   rodada seguinte, em vez de travarem esta.
+1. **[DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) — consolidação,
+   EM VALIDAÇÃO no PR #21.** Catorze itens: as dez ressalvas da rodada 6 (BL-195 a BL-204)
+   e as quatro regras que o Fred confirmou (BL-205 a BL-208). A
+   [DL-017](../planos/DL-017-interface-da-contabilidade.md) está **integrada na
+   `main`** (PR #19, `60cbcff`).
 
-   **Antes de integrar, dois itens meus:** preencher o corpo do PR #19 (o check
-   `Regras do projeto` está vermelho pela quarta vez — BL-147) e decidir se a
-   `main` ganha proteção antes (BL-02, ação administrativa dele).
+   **Por que esta etapa vem antes da DL-010**, e o motivo é um só: **BL-198 — um
+   lançamento com a data errada não aparece em nenhuma tela de operação
+   normal**, e o balancete do período concilia, então nenhuma conferência acusa.
+   É o único item aberto em que o usuário **não consegue conferir o que não
+   aparece**. Decisão apresentada ao Fred com as três opções e o trade-off; ele
+   mandou seguir a recomendação.
 
-   **Cuidado registrado em letras grandes, R6-1:** a correção óbvia do
-   instrumento de navegador (subir o timeout) **reabre o bloqueador da rodada
-   5**. Tirar o descarte do perfil da região julgada vem primeiro. Nunca o
-   contrário.
+   **Retomada de 2026-09-15 — BL-242:** a revisão encontrou `RC-81`, `RC-82`
+   e `PE-44` definidos duas vezes, com significados diferentes nas DL-019 e
+   DL-020. A CI de `d15e72c` estava verde e não detectava isso. Os requisitos
+   de regime passam a `RC-85`, `RC-86` e `PE-46`; as auditorias históricas
+   ficam intactas, a tradução entra no plano e um teste passa a impor a
+   unicidade. Até nova validação e auditoria, a etapa não volta a `em revisão`.
+
+   **⚠️ BL-195 tem ordem obrigatória:** tirar o descarte do perfil da região
+   julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da
+   rodada 5 — medido 3 de 3 pelo auditor.
+
+   **Distribuída em 2026-09-15, a partir da revisão `cb08fb7`**, com os dois
+   implementadores trabalhando em paralelo na mesma árvore e conjuntos de
+   arquivos disjuntos:
+
+   | Responsável | Itens | Pode editar |
+   | --- | --- | --- |
+   | `desenvolvedor-pleno` | BL-196 (módulo e API), BL-198(b), BL-200, BL-204, BL-205, BL-206, BL-207 no domínio | `apps/core/**`, `apps/contabilidade/views.py`, `serializers.py`, `services.py`, `models.py` e migração, `apps/tenancy/**`, `apps/empresas/**`, testes `test_dl019_*` que não terminem em `_frontend` |
+   | `especialista-frontend` | BL-195, BL-196 nas telas, BL-197, BL-198(b) na renderização, BL-199, BL-203, BL-207, BL-208 | `views_web.py`, `urls_web.py`, `templates/**`, `static/**`, `test_dl017_*`, `test_dl019_frontend*`, `docs/assets/telas/*.png` |
+   | `arquiteto-senior` | documentação, `.github/workflows/**`, integração e commit | os demais |
+
+   Nenhum dos dois commita: a integração é do `arquiteto-senior`, porque dois
+   agentes mexendo no índice ao mesmo tempo corrompem o commit.
+
+   **⚠️ O contêiner da sessão reiniciou em 2026-09-15 e matou os dois
+   implementadores no meio do trabalho, sem relatório.** O sistema de arquivos
+   sobreviveu, então o código está todo no repositório (commits de preservação),
+   mas **a declaração de o que estava pronto, não**. Isso foi resolvido por
+   **inventário por execução**, não por confiança. Estado medido pelo
+   `arquiteto-senior`, sozinho na máquina, na revisão de integração:
+
+   | Verificação | Resultado |
+   | --- | --- |
+   | `ruff check .` | 0 |
+   | `ruff format --check .` | 0 |
+   | `python manage.py check` | 0, sem problemas |
+   | `python manage.py makemigrations --check --dry-run` | `No changes detected` |
+   | `pytest -q -rs` | **907 passed**, 0 falhas, 0 pulos |
+
+   A suíte era de **766** testes quando a DL-017 foi integrada. **`pwsh` não
+   existe neste contêiner**, então `scripts/validate-docs.ps1` está
+   **Bloqueado** e só a CI o executa.
+
+   **O que o inventário mediu, item por item** (a etiqueta é do inventário, não
+   minha): **Testados** — BL-195, BL-200, BL-205, BL-206, BL-207, BL-209.
+   **Parciais** — BL-196, BL-198, BL-204. **Código sem teste** — BL-199, BL-203,
+   BL-208. **Testado com a defesa demonstrada** — só a **BL-197**. A evidência
+   de cada um está no próprio item do [backlog](../projeto/backlog.md), com
+   arquivo e linha.
+
+   **Dois erros meus nesta etapa, registrados porque são a classe que ela
+   ataca:**
+
+   1. **Afirmei ao Fred que o admin do Django permitia criar lançamento datado
+      `9999-12-31`**, e chamei isso de "o mais grave" na BL-211. **É falso.**
+      `LancamentoContabilAdmin.has_add_permission` devolve `False`
+      (`apps/contabilidade/admin.py:83`), e já era assim em `60cbcff`. Eu inferi
+      o buraco de "o admin registra o modelo" **sem abrir o `ModelAdmin`** —
+      afirmar sem medir, no item mais sensível da etapa. Corrigido no backlog.
+   2. **Lancei um agente que escrevia e outro que media ao mesmo tempo, na mesma
+      árvore e no mesmo banco.** "Medição concorrente não é medição" já estava
+      registrado neste projeto e eu o repeti. O inventário salvou o resultado
+      porque detectou a árvore se movendo e separou duas medições (estado A,
+      `1 failed, 894 passed`; estado B, `907 passed`) — mas isso foi mérito dele,
+      não desenho meu. **Corrigido por mecanismo na rodada 2:** cada
+      implementador recebeu um banco próprio (`DATABASE_URL` apontando para
+      `dataledger_b` no segundo), verificado antes de distribuir. O Django cria
+      o banco de teste sozinho, então o segundo nem precisa existir.
+
+   ### Rodada 2 da DL-020 — o que ela entregou
+
+   Medido por mim, sozinho na máquina, na revisão `a497046`: `ruff check` **0**,
+   `ruff format --check` **0**, `manage.py check` **0**, `pytest -q -rs` →
+   **1027 passed, 0 falhas, 0 pulos**. Eram **766** na integração da DL-017 e
+   **907** no começo desta rodada.
+
+   **Backend, entregue e fechado:** BL-204, BL-214 e BL-196 (partes a e c). As
+   duas varreduras prometidas passam a existir e **foram vistas reprovar**.
+
+   **O mecanismo funcionou no primeiro uso:** a varredura de contratos acusou
+   `apps.empresas.views.criar_empresa` — a tela de cadastro de empresa era a
+   **única** superfície de escrita do repositório sem a política dos cinco
+   dicionários, e **seis rodadas de auditoria não a tinham visto**. Não entrou
+   como exceção: a política foi aplicada e testada, e os dois registros de
+   exceção ficaram **vazios**.
+
+   **Mutantes de backend: 6 aplicados, 6 mortos, 0 sobreviventes** — entre eles
+   o **M16**, o mutante do estorno que sobreviveu a 766 testes.
+
+   **Frontend: entregue, com uma ressalva que vai para o auditor.** O primeiro
+   agente foi morto por **limite de sessão** no meio da rodada de mutantes,
+   dizendo *"dois sobreviventes — os dois são achados"* e **sem dizer quais**.
+   Entregou BL-199, BL-215 e 27 testes novos (BL-149b, BL-198 nas telas, BL-203,
+   BL-208, BL-213). A rodada foi **refeita do zero**, não presumida:
+   **13 mutantes aplicados, 13 mortos, 0 sobreviventes** — os 11 que eu listei
+   mais **2 que o implementador acrescentou** ao ler o código, nos vizinhos de
+   campo que a DE-034 aponta. Cada um com a **previsão escrita de qual teste
+   deveria matá-lo antes de rodar**, e cada um morreu no teste previsto. Nenhum
+   teste precisou ser reforçado: já eram fortes.
+
+   ⚠️ **A ressalva fica aberta e vai para o auditor.** Os dois sobreviventes que
+   o agente morto declarou **não foram reproduzidos**, e há duas explicações que
+   eu **não consigo distinguir**: (a) ele já havia reforçado os testes antes de
+   morrer, e a mensagem precedeu esse trabalho; (b) eram mutantes **diferentes**
+   dos 13 tentados. **Não se declara resolvido o que não se sabe** — quem tem de
+   provar é o auditor, não eu.
+
+   Registrado junto um ponto fraco medido: o mutante "mostrar o aviso sempre"
+   morreu por `AttributeError`, não por asserção, porque a consulta devolve
+   `None` e não dicionário vazio. O teste pega o defeito **por acidente de
+   tipo**. Morte por erro é morte mais frágil que morte por asserção.
+   **O auditor atacou esse ponto com a forma que não estoura** — um dicionário
+   fabricado com os dois lados nulos, truthy, que renderiza a caixa vazia — e
+   ela **morreu por asserção, em três testes**. Julgou a defesa suficiente.
+
+   ### Duas auditorias reprovaram, e o estado medido hoje
+
+   **Rodada 1 (`b13d41a`): REPROVADO**, 9 achados. **Rodada 2 (`d97a188`):
+   REPROVADO**, 8 achados novos, dois bloqueadores. Os dois relatórios estão em
+   [docs/auditorias/](../auditorias/), **preservados integralmente**.
+
+   **O pior achado foi contra mim, e não foi um caso: foi um método.** Eu aprovei
+   a correção do bloqueador da rodada 1 **depois de verificá-la com as minhas
+   mãos** — construí a superfície desprotegida e vi a varredura acusar. O que eu
+   não vi é que estava olhando o **mapa fixo de retaguarda** funcionar, e não o
+   mecanismo que eu tinha aprovado no plano: `initkwargs["actions"]` **nunca
+   executou**, porque o DRF põe `actions` como atributo próprio da view. A minha
+   superfície de teste por acaso usava os nomes do mapa. *Verifiquei a coisa
+   certa pelo caminho errado, e declarei o caminho.*
+
+   **Estado em `685abf3`, medido nas duas árvores e com a CI lida:**
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Árvore de trabalho | 1077 passed, exit 0 |
+   | **Cópia limpa da revisão commitada** (`git status` vazio, **zero** arquivos ignorados) | **1077 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1075 passed, 2 skipped**, 59,89 s |
+
+   **A linha `BL-218: toda superfície de escrita da varredura foi exercitada`
+   aparece no log da CI** — o mecanismo que estava desligado lá (sessão vermelha
+   fazia a conferência sair cedo) voltou a rodar.
+
+   **Os 2 pulos são as medições de CSS**, com motivo declarado no log:
+   `/usr/bin/chromium: timeout de 30s`. O critério 3 da etapa está atendido pelo
+   ramo "pula com motivo", **não** pelo ramo "roda". Eu havia dito que elas
+   "rodaram e passaram" — verdade **na minha árvore**, falso na CI. Virou
+   **BL-229**: o runner tem `google-chrome` fora de snap e a seleção tenta o
+   chromium primeiro.
+
+   **Duas retratações ficam registradas, a minha e a do auditor.** Ele mediu a
+   rodada 1 numa árvore contaminada, declarou *"nenhum número declarado estava
+   errado"*, e **retratou por escrito antes de me cobrar**. Eu repeti "1058
+   passed" ao Fred **quatro vezes** enquanto a CI dizia `1 failed, 1055 passed,
+   2 skipped`. A regra que decorre disso vale para os dois papéis: **declaração
+   de suíte verde diz em que árvore foi medida, e a árvore que vale é a limpa.**
+   Mecanismo em **BL-227**, cumprida pela primeira vez nesta revisão.
+
+   ### Rodada 3 e a correção — estado em `2d1bc37`
+
+   **Rodada 3 (`05c2a6d`): REPROVADO**, um achado ALTA (C1) e seis menores.
+   **B1 a B8 fechados**, todos verificados pelo auditor com mutante próprio.
+
+   **O padrão que três rodadas revelaram, e que vale mais que os três achados:**
+   as três fugas moram **no mesmo lugar** — a fronteira entre o que a varredura
+   **lê** e o que o framework **faz em tempo de execução**. `getattr(classe,
+   "post")` em vez do que o roteador liga; `initkwargs["actions"]` em vez de
+   `callback.actions`; `http_method_names` da classe em vez do da rota.
+   **Exigência permanente que decorre disso:** toda leitura estática de
+   comportamento de framework precisa de **teste de precedência** — dois valores
+   que existem, divergem, e o teste prova qual vence **por comportamento**.
+
+   **Estado em `2d1bc37`:**
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Cópia limpa da revisão gravada (`git status` vazio, **zero** ignorados) | **1105 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1103 passed, 2 skipped**, 62,68 s |
+
+   Eram 1077. Os 2 pulos continuam sendo as medições de CSS (BL-229).
+
+   **Uma quebra de regra declarada pelo implementador**, e verificada por mim:
+   ele rodou `ruff format` sem `--check`, o que é proibido. Peguei o arquivo na
+   revisão anterior e rodei `ruff format --check` nele — *"1 file already
+   formatted"*. Como a base já estava formatada, o comando **só pôde tocar
+   linhas dele**. Dano nulo, e o registro fica porque ele registrou em vez de
+   esconder.
+
+   ### Rodada 4, a renumeração e o estado final desta etapa
+
+   **Rodada 4 (`b2f6112`): REPROVADO — e com recomendação de ENCERRAR.** O
+   auditor entregou as duas metades sem arredondar uma na outra: *"reprovar aqui
+   não é dizer 'faça de novo'; é dizer **não integre assim**"*. Motivo da
+   reprovação: **D4**, a colisão de numeração — **não o código**.
+
+   **C1, C2, C3, C5 e C7 fechados**, verificados por ele. A frase dele que
+   resume o custo e a entrega da etapa:
+
+   > **"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no
+   > produto."**
+
+   #### A renumeração (D4), autorizada pelo Fred
+
+   Duas sessões partiram de `60cbcff` usando **DL-019**. A outra integrou
+   primeiro (PR #20), então **esta se moveu**: `DL-019` → **`DL-020`**,
+   `BL-148..BL-193` → **`BL-195..BL-240`** (some 47), `DE-035` → **`DE-039`**,
+   e os quatro relatórios renomeados. Tabela de correspondência no fim do
+   [plano](../planos/DL-020-consolidacao-pos-auditoria.md).
+
+   **O auditor detectou a colisão sozinho, sem ser informado**, e chegou à mesma
+   recomendação. E viu a metade que eu **não** tinha visto: os `BL-xxx` citados
+   **dentro do código de teste** — *"essa metade é silenciosa: o Git não
+   avisa"*. Eu tratava como higiene; é rastreabilidade.
+
+   **A `main` foi integrada ANTES do PR**, como ele exigiu. Dois conflitos, os
+   dois em documentação, **resolvidos mantendo os dois lados**. O `backlog.md`
+   **mesclou sozinho** — a renumeração pagando o próprio custo. **Os sete
+   relatórios sobreviveram**: três da outra etapa, quatro desta. Nenhum
+   descartado, **nenhum editado**.
+
+   #### Estado medido em `deacd1d`
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Cópia limpa da revisão gravada (`git status` vazio, **zero** ignorados) | **1196 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1194 passed, 2 skipped**, 62,69 s |
+
+   Os 2 pulos continuam sendo as medições de CSS (**BL-229**).
+
+   **BL-237/D1 fechada na parte que era condição** — a fronteira do despacho
+   deixou de ser silenciosa, com tabela de efeito medido e três testes que
+   **medem o silêncio**. O mecanismo segue **opcional e aberto**, por decisão
+   declarada do auditor.
+
+   **Aberto e nomeado:** BL-235 (a antiga A9), BL-236 (o mecanismo da leitura da
+   CI — **ato, não mecanismo**), BL-238, BL-239, BL-237 na parte opcional,
+   BL-229, e **BL-211 com A2 e A3**, que *não devem atravessar a DL-010*.
+
+   ### A DE-034 percorrida item por item — achado A4 da auditoria
+
+   Este é o **critério 2 da etapa**, que eu escrevi e **não cumpri**: o auditor
+   mediu por `grep` que o `estado.md` citava a DE-034 duas vezes, ambas de
+   passagem, sem percorrer nenhum dos três itens numerados. *"Regra numerada que
+   se cumpre por leitura vira regra cumprida em dois terços"* é frase do próprio
+   auditor, de uma rodada anterior, e ela se cumpriu em cima de mim.
+
+   Os campos que a DL-020 corrigiu são **quatro**: `data` de lançamento (RC-77),
+   `vigencia_inicio` de regime (RC-85), o número de partidas (RC-79) e o
+   conjunto inteiro que a política dos cinco dicionários julga.
+
+   **Item 1 — os demais campos do mesmo dicionário da requisição.**
+   *Percorrido.* No POST de lançamento, `data` vizinha de `historico`,
+   `chave_idempotencia`, `num_linhas` e das chaves `conta_*`/`tipo_*`/`valor_*`:
+   todas passam por julgador próprio (`para_data`, `para_decimal`, `para_id`,
+   `_inteiro_de_cliente`), e a política dos cinco dicionários recusa qualquer
+   chave fora do contrato. No POST de regime, `vigencia_inicio` vizinha de
+   `regime`, que tem gramática de escolha desde a BL-141. *O que ficou:* nada
+   neste item.
+
+   **Item 2 — o mesmo campo nas outras superfícies.** *Percorrido em parte, e
+   foi aqui que ficaram os dois achados.* Para `data` de lançamento, percorri
+   serviço, API, tela, estorno **e admin** — e o admin foi o achado do
+   `desenvolvedor-pleno` que virou a BL-211. Para `vigencia_inicio`, percorri
+   API e admin, e o validador de modelo faz a **faixa** valer nas duas.
+   *O que ficou, e o auditor mediu:* **(a)** a faixa valeu no admin mas a
+   **vigência crescente não** — pelo inline nascem dois períodos abertos ao
+   mesmo tempo, e o estado não se cura sozinho (A2); **(b)** eu tratei
+   "superfície" como "as superfícies que existem hoje" e não como "as que podem
+   nascer", e por isso a varredura foi aceita com uma fronteira que não cumpre o
+   que declara (A1). **Os dois achados moram neste item.** Não é coincidência: é
+   o item que a rodada 6 também não executou, pela segunda vez.
+
+   **Item 3 — as demais restrições do mesmo `Meta`.** *Percorrido, e virou
+   mecanismo.* Era a origem da BL-204 (duas `CheckConstraint` de CNPJ sem
+   tradução, a outra metade do `Meta` que a BL-144 fechou). Deixou de ser
+   conferência manual e virou a varredura de restrições, que percorre **todos**
+   os modelos e foi vista reprovar. *O que ficou:* a fronteira dela também está
+   declarada como completa sem ser — `unique_together` é invisível (A6), e três
+   índices implícitos estão presos na lista sem razão escrita (A7).
+
+   **A lição, para a DL-010 não repetir:** os três itens não têm o mesmo custo.
+   O item 1 se resolve olhando a função; o item 3 virou mecanismo e agora se
+   resolve sozinho; **o item 2 é o caro**, porque exige perguntar "por onde mais
+   este dado entra" incluindo portas que ainda não existem. Duas rodadas
+   seguidas de auditoria acharam o resíduo exatamente nele.
+
+   **Um critério meu foi retirado por inexequível**, e a razão fica: eu exigira
+   "varredura provando que cada view de POST tem **teste** dos cinco
+   dicionários". Amarrar superfície a arquivo de teste exigiria casamento de
+   nome por heurística — **exatamente o erro da BL-213**. A varredura prova que
+   a política é **chamada**, e não finge provar mais.
+
+   **Três contratos que eu fixei na distribuição**, para os dois não negociarem
+   no meio do caminho — e para nenhum número de negócio ficar declarado em dois
+   lugares, que é como a documentação divergiu três vezes:
+
+   1. A política dos cinco dicionários (BL-196) mora em `apps/core/requisicao.py`,
+      escrita pelo `desenvolvedor-pleno`: uma função que recebe a requisição e a
+      declaração do que a view aceita, e levanta **uma** exceção carregando a
+      razão e a lista de chaves ofensoras em separado. Quem responde é a view.
+   2. A faixa de data do RC-77 e o teto de 200 do RC-79 têm fonte única em
+      `apps/contabilidade/services.py` — mínima como constante, máxima como
+      **função** (é "hoje + 30 dias", que se move). O teto de 200 deixa de ser
+      número de tela e passa a ser regra de domínio no serviço de criação, para
+      que a **API também o herde** (item 2 da DE-034: o mesmo campo nas outras
+      superfícies).
+   3. No BL-198(b), a consulta "há movimento fora do período consultado" é do
+      `desenvolvedor-pleno`, em `services.py`; a renderização do aviso nas
+      quatro saídas é do `especialista-frontend`.
+
+   **Correção do contrato 2, em 2026-09-15, por um achado do
+   `desenvolvedor-pleno`:** o **admin do Django** também grava, sem passar pelo
+   serviço — ele encontrou `HistoricoRegimeTributarioInline` escrevendo
+   `vigencia_inicio` por fora de `registrar_regime_tributario`, e eu conferi que
+   `LancamentoContabilAdmin` tem o mesmo problema para a data. Consequência:
+   **pelo admin dá para criar lançamento datado `9999-12-31`, invisível nas
+   quatro saídas** — o BL-198 por uma porta que ninguém tinha olhado. Logo a
+   faixa do RC-77 precisa existir no **modelo**, e `models.py` não pode importar
+   de `services.py` (import circular). O lugar canônico da faixa passa a ser um
+   módulo **puro, sem ORM**, com `services.py` importando de lá e mantendo
+   reexport para não quebrar o `especialista-frontend` no meio do trabalho. A
+   varredura completa do admin é a **BL-211**, e **não** é desta etapa.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -430,9 +755,35 @@ auditoria independente — que é exatamente o motivo de ela existir.
    contas-mãe avisa e deixa criar (**RC-80**). Fecham PE-42 e PE-43. As três que
    não eram de sim ou não foram reescritas por mim como proposta concreta antes
    de perguntar — presumir regra contábil é o que o projeto proíbe.
-9. **Decisões que dependem do Fred:** PE-36 (quem lê contabilidade e se há
-   vínculo usuário-empresa), PE-38 (lucros e prejuízos acumulados na
-   implantação), PE-20, PE-21, PE-22, PE-23, PE-25, PE-30 a PE-35.
+
+   **Quinta decisão, no mesmo dia: RC-85** — o escritório **não** registra
+   regime tributário com vigência futura, então `vigencia_inicio` nunca é
+   posterior a hoje. Fecha a alínea (a) da PE-46 e, com ela, a "porta de mão
+   única" do achado R6-6 **por construção**: com o teto em "hoje", `date.max`
+   nunca entra e amanhã sempre existe data posterior à última registrada — a
+   regra de vigência crescente deixa de poder travar a empresa para sempre.
+   O **piso** de `01/01/2000` é **HI-07**, hipótese minha herdada do RC-77, que
+   fala de data de lançamento e não de regime. Declarada como tal no código.
+
+   **Sexta decisão, também em 2026-09-15: RC-86** — regime tributário errado se
+   corrige **apagando** o registro, não registrando uma correção que o
+   substitui. O Fred escolheu isso **contra a minha recomendação**, e a escolha
+   dele é a que vale: regime é dado **cadastral**, não escrituração, e é ele
+   quem precisa provar coisas a cliente e a fisco. **Fecha a PE-46 por
+   completo.** O alcance técnico é meu e está em **DE-039**: apaga-se só o
+   **último** período, a exclusão devolve o anterior à condição de vigente, e o
+   **evento** de exclusão é gravado em `RegistroAuditoria`. O registro sai do
+   histórico do produto; a trilha técnica fica, porque o `AGENTS.md` a torna
+   obrigatória e ela não é o que ele estava escolhendo. Virou **BL-209**, e a
+   guarda para quando existir apuração fiscal virou **BL-210** — registrada
+   antes de a apuração existir, de propósito. **Nada disso vale para lançamento
+   efetivado:** ali a correção segue por estorno e apagar continua proibido.
+9. **Decisões que dependem do Fred:** **HI-07** (o piso de `01/01/2000` para
+   vigência de regime é hipótese minha, não confirmação dele — a PE-46 está
+   fechada nas duas alíneas, por RC-85 e RC-86, mas o piso nunca foi
+   perguntado), PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
+   e prejuízos acumulados na implantação), PE-20, PE-21, PE-22, PE-23, PE-25,
+   PE-30 a PE-35.
 10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
    de proteção respondeu 403 à sessão de agente. Em Settings → Rules →
    Rulesets, exigindo PR com as verificações "Lint e testes", "Validar
@@ -496,26 +847,27 @@ o que medimos, e está registrado o que não medimos.
 
 ## Estado do repositório
 
-- **`main` em `9b22b03`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017 fases
-  A e B** — esta última integrada por autorização expressa do Fred **antes** de
-  a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
-  auditar e só então integrar.
-- **Suíte: 766 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
-  em árvore limpa. **Suíte verde não é sistema correto**, e esta etapa tem a
-  série completa como prova: 487 testes passavam com o bloqueador do `1.000` em
-  vigor; 559 passavam com a negação de serviço em vigor; 608 passavam com a API
-  gravando data errada em silêncio. O que encontra defeito não é contagem, é
-  **variar a dimensão medida** — rodada 2 variou o texto do valor; rodada 3
-  cronometrou o tempo e variou a forma do nome do campo; rodada 4 variou o
-  **transporte** da requisição e o **comprimento** de um identificador. Achou
-  nas três. **A dimensão indicada para a rodada seguinte fica em "Próximo passo",
-  e só lá** — repetir aqui foi o que produziu a divergência do achado R6-8:
-  este parágrafo afirmava "concorrência real" depois de ela já ter sido varrida
-  e aprovada. É a instrução permanente do Fred, de 2026-09-13, cobrando de
-  novo: texto repetido diverge assim que alguém atualiza um.
+- **`main` em `7e9dc56`**, com a DL-017 integrada pelo PR #19 e a DL-019
+  (portabilidade dos papéis de agentes) integrada pelo PR #20.
+- **PR #21 em validação**, branch
+  `claude/accounting-agent-team-setup-mn6lyf`. O `head` remoto ainda é
+  `d15e72c`; a retomada encontrou e corrigiu localmente o bloqueador BL-242,
+  acrescentou a guarda de unicidade de `RC-xx`/`PE-xx` e registrou a orientação
+  de produto DE-040. A etapa só volta a `em revisão` depois de commit, push,
+  CI do novo `head` e auditoria independente.
+- **Suíte do snapshot com a correção local:** **1194 passed, 2 skipped** em
+  109,98 s, Python 3.14.7/Linux e PostgreSQL 16 descartável. Os 43 pontos de
+  escrita descobertos pela varredura chegaram à política de autorização.
+  O teste documental específico passou 8/8 no Windows; uma mutação temporária
+  com `RC-84` duplicado fez a nova guarda reprovar e foi removida antes da
+  validação final.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
-  um relatório errado.
+  um relatório errado. Nesta retomada o transporte Windows→Linux converteu
+  finais de linha e levou `__pycache__` com caminhos absolutos; esses artefatos
+  foram removidos **somente do snapshot temporário**, os derivados foram
+  regenerados pelo script oficial e `--verificar` confirmou 7 papéis/14
+  arquivos antes da execução válida.
 - Pendência herdada da DL-002: a proteção da branch `main` nunca foi
   configurada.
 
@@ -531,11 +883,7 @@ qual é a última revisão com auditoria completa. Não confunda com entrega.
 
 Registrado para quem for reproduzir:
 
-- O contêiner padrão traz `python3` 3.11, e **o projeto não instala nele**:
-  `Django==6.1.1` exige 3.12 ou superior. Use `python3.13` (ou 3.12/3.14).
-- PostgreSQL 16 está disponível localmente; o Docker está instalado mas **sem
-  daemon em execução**. A suíte foi rodada contra um cluster PostgreSQL
-  descartável iniciado à mão.
-- PowerShell **não** está instalado, então `scripts/validate-docs.ps1` não pôde
-  ser executado aqui. As mesmas regras foram verificadas por uma
-  reimplementação equivalente; a execução oficial é a da integração contínua.
+- Windows 11, Python 3.14.7 em `.venv`, pip 26.2.1, Ruff 0.16.7 e pytest 9.1.1.
+- Docker Desktop 4.90.0, engine 29.7.2 e PostgreSQL 16 em contêiner descartável.
+- `scripts/validate-docs.ps1` foi executado no PowerShell local e aprovou os 79
+  arquivos Markdown; a CI do novo commit ainda é evidência pendente.

@@ -13,7 +13,14 @@
     <p><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Voltar para o plano de contas</a></p>
     <h1>Nova conta — {{ empresa.razao_social }}</h1>
 
-    <form method="post" class="formulario" novalidate>
+    {% comment %}
+    R6-5/BL-199 (mesma razão do `lancamento_form.html`, ver o comentário
+    de lá): `action` explícito e sem querystring, para que um `<form>` sem
+    `action` não reenvie a querystring da URL num POST que esta tela
+    recusa.
+    {% endcomment %}
+    <form method="post" action="{% url 'contabilidade_web:conta_nova' empresa.id %}"
+          class="formulario" novalidate>
         {% csrf_token %}
         {% if form.non_field_errors %}
             <div class="mensagem mensagem-error" role="alert">
@@ -42,6 +49,45 @@
                 {% endif %}
             </div>
         {% endfor %}
+        {% if contas_mae_faltantes %}
+            {% comment %}
+            RC-80/BL-208 — regra confirmada pelo Fred em 2026-09-15: conta
+            sem as contas-mãe **avisa e deixa criar**. A primeira tentativa
+            não grava; ela volta aqui com os dados preenchidos, o aviso do
+            que vai acontecer e um botão que DIZ o que vai acontecer.
+
+            Cuidados de risco proporcional: o botão de confirmação nomeia a
+            consequência ("como raiz do plano") em vez de dizer só
+            "Confirmar"; o caminho de correção (cadastrar as contas-mãe
+            primeiro) fica visível ao lado; e o botão "Salvar" comum
+            continua existindo, mas sem o valor de confirmação — reenviar
+            por ele traz o aviso de novo em vez de gravar por acidente.
+            `role="alert"`: é consequência estrutural, não informação de
+            rodapé.
+            {% endcomment %}
+            <div class="mensagem mensagem-warning" role="alert">
+                <p>
+                    <strong>Atenção:</strong> o código <strong>{{ codigo_pedido }}</strong> sugere
+                    {% if contas_mae_faltantes|length == 1 %}a conta-mãe{% else %}as contas-mãe{% endif %}
+                    <strong>{% for codigo_mae in contas_mae_faltantes %}{{ codigo_mae }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong>,
+                    que não {% if contas_mae_faltantes|length == 1 %}existe{% else %}existem{% endif %}
+                    neste plano de contas.
+                </p>
+                <p>
+                    Se você criar assim, <strong>{{ codigo_pedido }} entra como conta RAIZ do plano</strong>
+                    (nível 1): é como ela vai aparecer no Plano de contas, e é o nível em que ela
+                    vai ser somada no Balancete por nível. Nada foi gravado ainda.
+                </p>
+                <p>
+                    Se preferir a hierarquia completa, cadastre
+                    {% for codigo_mae in contas_mae_faltantes %}{{ codigo_mae }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                    primeiro e depois volte aqui — a conta-pai passa a aparecer na lista acima.
+                </p>
+                <button type="submit" name="confirmar_conta_sem_conta_mae" value="1">
+                    Criar {{ codigo_pedido }} assim mesmo, como raiz do plano
+                </button>
+            </div>
+        {% endif %}
         <button type="submit">Salvar</button>
     </form>
 {% endblock %}

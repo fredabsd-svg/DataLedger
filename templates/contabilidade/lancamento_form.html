@@ -22,7 +22,21 @@
             <a href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Cadastre uma conta</a> antes de lançar.
         </p>
     {% else %}
-        <form method="post" class="formulario-lancamento" novalidate>
+        {% comment %}
+        R6-5/BL-199: `action` EXPLÍCITO, e sem querystring. Um `<form>` sem
+        `action` envia para a URL do próprio documento — **querystring
+        incluída**. O auditor mediu o efeito: quem abrisse esta tela por um
+        link com qualquer parâmetro (`?utm_source=email`, um marcador
+        salvo, uma URL colada) recebia 400 na hora de gravar, porque o POST
+        levava a querystring de volta e esta tela recusa parâmetro de URL
+        (R5-6/BL-145, recusa correta e mantida). O comentário da view
+        justificava a recusa dizendo que "nenhum formulário renderizado por
+        esta tela produz querystring num POST" — premissa FALSA sobre HTML
+        enquanto não houvesse `action`. Agora a frase é verdadeira, e é
+        este atributo que a torna verdadeira.
+        {% endcomment %}
+        <form method="post" action="{% url 'contabilidade_web:lancamento_novo' empresa.id %}"
+              class="formulario-lancamento" novalidate>
             {% csrf_token %}
             <input type="hidden" name="num_linhas" value="{{ num_linhas }}">
             {% comment %}
@@ -50,11 +64,24 @@
                 e que TODA exibição de data deste sistema (fora deste
                 campo de entrada) é dd/mm/aaaa — a garantia real.
                 {% endcomment %}
+                {% comment %}
+                RC-77/BL-205: `min`/`max` são CONVENIÊNCIA — o navegador
+                avisa antes de o contador enviar, e o seletor nativo pula
+                direto para a faixa útil. Não são defesa: quem monta a
+                requisição à mão passa por cima de qualquer atributo, e a
+                recusa de verdade é do servidor (`criar_lancamento`), com
+                teste próprio. Os dois valores vêm de
+                `apps.contabilidade.services` pela view — nenhum número de
+                data escrito neste template.
+                {% endcomment %}
                 <label for="id_data">Data</label>
                 <input type="date" id="id_data" name="data" value="{{ data_texto }}" required
+                       min="{{ data_minima_iso }}" max="{{ data_maxima_iso }}"
                        aria-describedby="id_data_ajuda">
                 <p class="texto-apoio" id="id_data_ajuda">
                     O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+                    O sistema aceita data de lançamento entre {{ data_minima_ptbr|date:"d/m/Y" }}
+                    e {{ data_maxima_ptbr|date:"d/m/Y" }}.
                 </p>
             </div>
             <div class="campo">
@@ -158,7 +185,7 @@
                     anunciar sem interromper (não é um erro).
                     {% endcomment %}
                     <p class="mensagem mensagem-info" role="status">
-                        Este lançamento já tem o máximo de {{ num_linhas }} partidas permitidas
+                        Este lançamento já tem o máximo de {{ linhas_maximas }} partidas permitidas
                         em um único lançamento. Para escriturar mais fatos, grave este
                         lançamento e crie um segundo — ou peça ao administrador do escritório
                         para avaliar um teto maior.

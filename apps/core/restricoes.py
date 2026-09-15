@@ -44,11 +44,160 @@ from contextlib import contextmanager
 
 from django.db import IntegrityError
 
+# ---------------------------------------------------------------------------
+# Registro ÚNICO das restrições de banco e de como cada uma vira erro de
+# negócio (BL-204, achado R6-10 da auditoria DL-017 rodada 6).
+#
+# Por que um registro, e não a conferência manual que havia: o critério da
+# BL-144 dizia "para cada `Meta.constraints` existe caminho de API que a
+# converte em 400", a varredura foi FEITA, e ainda assim **duas** constraints
+# ficaram de fora — as duas `CheckConstraint` de canonização de CNPJ
+# (`empresa_cnpj_canonico`, `estabelecimento_cnpj_canonico`), que são a outra
+# metade do MESMO `Meta` que a BL-144 fechou (item 3 da DE-034). Conferência
+# manual não reprova build; registro + varredura de repositório reprova.
+#
+# `apps/core/tests/test_dl019_varredura_de_restricoes.py` percorre TODOS os
+# modelos dos apps do projeto e exige que cada constraint declarada em `Meta`
+# apareça em UM dos TRÊS registros deste módulo (este mapa, o de traduções
+# fora do mapa e o de restrições sem caminho de cliente). Uma constraint nova
+# sem tradução reprova a suíte — que é a única forma de isto não se repetir.
+#
+# A frase acima já esteve aqui afirmando um arquivo que NÃO existia (BL-214,
+# achado do inventário de 2026-09-15): o comentário descrevia o mecanismo,
+# explicava por que ele era necessário, e o mecanismo não estava lá. O
+# arquivo existe desde a segunda rodada da DL-020, e a varredura foi vista
+# reprovar com uma `CheckConstraint` nova e sem tradução acrescentada a um
+# modelo real — `test_a_varredura_reprova_constraint_nova_sem_traducao`
+# reconstrói esse mutante dentro do próprio teste, para a demonstração não
+# depender de ninguém ter registrado que a viu falhar.
+MENSAGENS_DE_RESTRICAO = {
+    "codigo_unico_por_empresa": "Já existe uma conta com este código nesta empresa.",
+    "uma_matriz_por_empresa": "Esta empresa já tem uma matriz cadastrada.",
+    # As duas de canonização de CNPJ (BL-204). Inalcançáveis pelo caminho
+    # normal da API — `Empresa.save()`/`Estabelecimento.save()` canonizam
+    # ANTES do INSERT —, mas `apps/empresas/tests/test_canonizacao_constraint.
+    # py` já prova que `bulk_create`/`bulk_update`/`QuerySet.update()` vazam
+    # `IntegrityError` cru, e o comentário do próprio modelo aponta a DL-010
+    # (importação em lote) como "candidata natural a usar bulk_create por
+    # desempenho". A armadilha estava ARMADA para a próxima etapa; mapeá-las
+    # aqui é o que a desarma antes de a importação existir.
+    "empresa_cnpj_canonico": (
+        "O CNPJ da empresa precisa ser gravado em formato canônico: só letras "
+        "maiúsculas e dígitos, sem máscara."
+    ),
+    "estabelecimento_cnpj_canonico": (
+        "O CNPJ do estabelecimento precisa ser gravado em formato canônico: só "
+        "letras maiúsculas e dígitos, sem máscara."
+    ),
+}
+
+# Restrições cuja tradução NÃO passa por `restricao_como_400`, com o ponto
+# exato que as traduz. Existir aqui não é dispensa: é declaração verificável
+# de onde a tradução mora, e a varredura confere que o objeto apontado existe
+# e é chamável (um caminho que alguém renomeie ou apague reprova a suíte).
+#
+# Nenhuma delas pode ser movida para o mapa acima sem revisar o ponto citado:
+# as três traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
+# diferente (409 de conflito de idempotência não é 400 de entrada inválida).
+RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
+    "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
+    "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+}
+
+# Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
+# restrições que nenhuma requisição de cliente alcança hoje, com o motivo
+# escrito. A varredura aceita, mas exige que estejam aqui NOMEADAS — o que
+# ela proíbe é o silêncio, não a ausência de tradução.
+#
+# Quando uma delas ganhar caminho de escrita por cliente (API, tela ou
+# importação), ela sai daqui e entra num dos dois de cima. O item de backlog
+# que cobre a varredura do admin contra as regras de negócio é a BL-211.
+#
+# BL-220 (achado A7 da auditoria DL-020 rodada 1): os índices únicos
+# IMPLÍCITOS entram aqui pela mesma porta. A assimetria que o achado nomeia
+# era real — uma restrição de `Meta` sem caminho de cliente exigia razão de 40
+# caracteres verificada por teste, e uma restrição de banco idêntica, só que
+# criada por `unique=True` em campo, não exigia nada. Três nomes estavam
+# presos em `INDICES_UNICOS_IMPLICITOS_CONHECIDOS` sem aparecer em registro
+# nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
+# quando ela é violada.
+RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    "unico_vinculo_usuario_escritorio": (
+        "Vínculo usuário-escritório só é criado pelo admin do Django "
+        "(apps/tenancy/admin.py) e por código de teste; não há rota de API nem "
+        "tela do produto que o grave. No admin, o `ModelForm` chama "
+        "`full_clean()`, cujo `validate_unique()` converte a violação em erro "
+        "de formulário ANTES do INSERT — então ela não chega ao cliente como "
+        "5xx por esse caminho."
+    ),
+    # Os três índices únicos implícitos que a BL-220 encontrou sem registro.
+    # A verificação de que HOJE não existe caminho de escrita de cliente para
+    # `Escritorio` nem para `Usuario` é do auditor da rodada 1, e é o que
+    # sustenta a classificação — não uma presunção.
+    "tenancy_escritorio_cnpj_key": (
+        "Índice único implícito de `Escritorio.cnpj` (`unique=True`). "
+        "Escritório só é criado pelo admin do Django (apps/tenancy/admin.py) e "
+        "por código de teste: não existe rota de API nem tela do produto que o "
+        "grave — as duas rotas de `apps.tenancy.views` apenas LEEM o vínculo do "
+        "usuário e trocam o escritório ativo da sessão. No admin, o `ModelForm` "
+        "converte a violação em erro de formulário antes do INSERT. "
+        "ATENÇÃO: a DL-018 (primeiro acesso) é a etapa que abre esse caminho — "
+        "quando abrir, esta entrada sai daqui e vira tradução para 400, como as "
+        "duas `*_cnpj_key` de empresas já são."
+    ),
+    "accounts_usuario_username_key": (
+        "Índice único implícito de `Usuario.username` (`unique=True`, herdado de "
+        "`AbstractUser`). Usuário só nasce pelo admin do Django, por "
+        "`createsuperuser` e por código de teste: `apps/accounts` não tem "
+        "`views.py` e nenhuma rota do projeto cria usuário. "
+        "ATENÇÃO: a DL-018 (primeiro acesso) é a etapa que abre esse caminho, e "
+        "cadastro público com nome de usuário repetido é exatamente o 500 que "
+        "esta entrada existe para antecipar."
+    ),
+    "accounts_usuario_email_key": (
+        "Índice único implícito de `Usuario.email` (`unique=True`). Mesma "
+        "situação de `accounts_usuario_username_key`, e com o mesmo prazo: não "
+        "há caminho de escrita de cliente hoje, e a DL-018 o abre. O e-mail "
+        "duplicado é o caso mais provável dos dois na prática, porque o usuário "
+        "escolhe o nome mas não escolhe ter só um e-mail."
+    ),
+}
+
+
+def mensagens_de(*nomes):
+    """Subconjunto de `MENSAGENS_DE_RESTRICAO` para passar a `restricao_como_400`.
+
+    Recebe nomes de constraint e devolve `{nome: mensagem}`. Levanta `KeyError`
+    para nome que não exista no registro — de propósito: um erro de digitação
+    no nome da constraint produziria, em silêncio, um `with` que não traduz
+    nada, e o 500 voltaria sem nenhum sinal. Falhar no import é melhor.
+
+    Cada view pede só as constraints que a SUA gravação pode violar, porque o
+    campo em que o erro é reportado (`{"codigo": [...]}`, `{"cnpj": [...]}`)
+    depende da rota — passar o registro inteiro em toda view reportaria a
+    constraint certa no campo errado.
+    """
+    return {nome: MENSAGENS_DE_RESTRICAO[nome] for nome in nomes}
+
 
 class RestricaoViolada(Exception):
     """Levantada quando uma `IntegrityError` corresponde a uma das
     constraints mapeadas em `restricao_como_400`. A mensagem já é a
-    mensagem de negócio pronta para o cliente (não o texto cru do banco)."""
+    mensagem de negócio pronta para o cliente (não o texto cru do banco).
+
+    `nome` carrega o nome da constraint violada, separado da mensagem
+    (BL-204): uma view que trate DUAS constraints no mesmo `with` precisa
+    saber QUAL delas caiu para reportar o erro no campo certo — sem isso, a
+    violação da canonização de CNPJ apareceria no campo `tipo` só porque a
+    view já tratava `uma_matriz_por_empresa` ali. Comparar texto de mensagem
+    para descobrir isso seria pior: a mensagem é conteúdo de produto e muda.
+    """
+
+    def __init__(self, mensagem, *, nome=None):
+        self.nome = nome
+        super().__init__(mensagem)
 
 
 def _nome_da_constraint_violada(exc):
@@ -84,4 +233,4 @@ def restricao_como_400(mapa_constraint_para_mensagem):
         mensagem = mapa_constraint_para_mensagem.get(nome_constraint)
         if mensagem is None:
             raise
-        raise RestricaoViolada(mensagem) from exc
+        raise RestricaoViolada(mensagem, nome=nome_constraint) from exc

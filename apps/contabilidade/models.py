@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
+from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa
 
 
@@ -142,7 +143,21 @@ class LancamentoContabil(models.Model):
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="lancamentos")
-    data = models.DateField("data")
+    # RC-77 / BL-205: a faixa de data também como validador de CAMPO, e não
+    # só em `criar_lancamento`. Motivo (item 2 da DE-034 — o mesmo campo nas
+    # outras superfícies): `full_clean()` é o que qualquer `ModelForm` chama,
+    # inclusive o do admin, e o admin NÃO passa por `criar_lancamento`.
+    # A regra mora em `apps.contabilidade.validators` (módulo sem ORM, que
+    # este arquivo pode importar sem circularidade — `services.py` não
+    # poderia ser importado aqui).
+    #
+    # Isto é defesa em profundidade, não a defesa principal: validador de
+    # campo não roda em `objects.create()`, `bulk_create()` nem
+    # `QuerySet.update()`, porque o ORM não chama `full_clean()`. Quem
+    # garante a faixa no caminho de negócio é `criar_lancamento`; para o dado
+    # gravado por fora dos dois, quem acende a luz é a categoria nova da
+    # Conferência (`localizar_lancamentos_com_data_fora_da_faixa`).
+    data = models.DateField("data", validators=[validar_data_de_lancamento_do_modelo])
     historico = models.CharField("histórico", max_length=300)
     estorno_de = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="estornos"

@@ -34,21 +34,47 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+# BL-217/A1 (auditoria DL-020 rodada 1): cada view de função deste módulo
+# DECLARA os métodos HTTP que aceita. Não é decoração cosmética — é o fato do
+# objeto que a varredura de contratos lê para saber se a view é superfície de
+# escrita. A classificação anterior era TEXTUAL (`"request.method" in fonte`)
+# e o auditor a contornou com uma view que grava lendo `json.loads(request.
+# body)` sob `@require_POST`: suíte inteira verde, lint limpo, gravação sem
+# contrato. Uma view de função alcançável pelo urlconf e SEM esta declaração
+# reprova a varredura — não existe mais o caminho "não consegui classificar,
+# então não é escrita".
+from django.views.decorators.http import require_http_methods, require_safe
+
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
+
+# RC-77 (faixa de data) e RC-79 (teto de partidas) vêm de
+# `apps.contabilidade.services` e NÃO são redeclarados aqui — nem a data
+# mínima, nem os 30 dias, nem o 200. Declarar o mesmo número em dois
+# arquivos é como o estado do projeto divergiu três vezes; e a recusa de
+# verdade é do servidor (`criar_lancamento`), não desta tela. O que esta
+# tela faz com eles é CONVENIÊNCIA: `min`/`max` no campo de data (DE-031 —
+# o seletor nativo continua sendo o do navegador) e o teto de linhas do
+# formulário. `data_maxima_lancamento` é FUNÇÃO porque "hoje + N dias" se
+# move: congelá-la num import daria um formulário com teto de ontem.
 from apps.contabilidade.services import (
+    DATA_MINIMA_LANCAMENTO,
+    LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
     apurar_razao,
     criar_lancamento,
+    data_maxima_lancamento,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
     localizar_inconsistencias_de_hierarquia,
+    localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
+    movimento_fora_do_periodo,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -120,6 +146,24 @@ from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 # docstring de `_inteiro_de_cliente`) — por isso continuam com o julgador
 # PRÓPRIO desta tela, não com o teto genérico de `para_id`.
 from apps.core.identificadores import IdentificadorInvalido, para_id
+
+# BL-196/R6-2: a política dos cinco dicionários de uma requisição mora em
+# `apps.core.requisicao` — UM lugar, como `dinheiro`, `datas`, `escolhas`,
+# `identificadores` e `restricoes`. Esta tela tinha a política escrita à mão
+# em `lancamento_novo` (três `if` seguidos) e NADA em `conta_nova`, a 40
+# linhas de distância no mesmo arquivo: enviar `conta_pai` como ARQUIVO
+# gravava a conta na RAIZ do plano com 302 de sucesso. Aqui ficam só as
+# DECLARAÇÕES do que cada tela aceita e a RESPOSTA de tela (re-renderizar o
+# formulário com 400 e tudo o que o usuário digitou); o julgamento é do
+# módulo.
+from apps.core.requisicao import (
+    DICIONARIO_ARQUIVO,
+    DICIONARIO_CABECALHO,
+    DICIONARIO_QUERYSTRING,
+    ContratoDeRequisicao,
+    DadoNaoContratado,
+    recusar_dado_nao_contratado,
+)
 from apps.empresas.models import Empresa
 
 # Mesmo teto de NÍVEL que a API aplica em `apps.contabilidade.views.NIVEL_
@@ -142,7 +186,16 @@ NIVEL_MAXIMO = 50
 NIVEL_INDENTACAO_MAXIMA = 10
 
 LINHAS_INICIAIS_LANCAMENTO = 4
-LINHAS_MAXIMAS_LANCAMENTO = 20
+
+# RC-79/BL-207 — teto de partidas por lançamento, confirmado pelo Fred em
+# 2026-09-15: **200**, com recusa explícita e NUNCA truncamento. O número
+# não mora aqui: é `LIMITE_PARTIDAS_POR_LANCAMENTO`, de
+# `apps.contabilidade.services`, que é quem recusa de verdade — para a tela
+# e para a API ao mesmo tempo. Esta constante continua existindo com nome
+# próprio porque o que ela significa NESTE arquivo é "quantas linhas o
+# formulário oferece e re-exibe no máximo", e é assim que os comentários de
+# R2-3/R3-2/R3-9 abaixo se referem a ela; o VALOR é um só.
+LINHAS_MAXIMAS_LANCAMENTO = LIMITE_PARTIDAS_POR_LANCAMENTO
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +513,7 @@ def _linhas_hierarquicas(contas):
 
 
 @login_required
+@require_safe
 def plano_de_contas(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -494,7 +548,45 @@ class ContaCriarForm(forms.ModelForm):
         self.fields["conta_pai"].required = False
 
 
+def _codigos_das_contas_mae(codigo):
+    """Códigos das contas-mãe IMPLÍCITOS num código de conta, do mais alto
+    para o mais próximo: `"4.1.1"` → `("4", "4.1")`.
+
+    RC-80/BL-208. Só vale para plano com separador `"."`: um código sem
+    ponto (`"41111"`, que alguns planos usam) não implica mãe nenhuma, e
+    inventar hierarquia a partir de fatia de dígitos seria presumir regra
+    contábil — o que o AGENTS.md proíbe. Parte vazia (`"4..1"`, `".1"`)
+    também devolve vazio: não é hierarquia, é código malformado, e quem
+    julga formato de código é o modelo.
+    """
+    partes = codigo.split(".")
+    if len(partes) < 2 or any(not parte for parte in partes):
+        return ()
+    return tuple(".".join(partes[: i + 1]) for i in range(len(partes) - 1))
+
+
+def _contas_mae_faltantes(empresa, codigo, conta_pai):
+    """Quais contas-mãe implícitas no código NÃO existem no plano desta
+    empresa — a consequência estrutural que o RC-80 manda avisar.
+
+    Devolve vazio quando o contador escolheu uma conta-pai explicitamente:
+    aí a conta não vai ficar como raiz, e o aviso ("ela ficará como raiz do
+    plano") seria falso. Uma consulta só, com `codigo__in` — nunca uma por
+    nível.
+    """
+    if conta_pai is not None:
+        return ()
+    codigos = _codigos_das_contas_mae(codigo or "")
+    if not codigos:
+        return ()
+    existentes = set(
+        Conta.objects.filter(empresa=empresa, codigo__in=codigos).values_list("codigo", flat=True)
+    )
+    return tuple(codigo_mae for codigo_mae in codigos if codigo_mae not in existentes)
+
+
 @login_required
+@require_http_methods(["GET", "POST"])
 def conta_nova(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -503,6 +595,34 @@ def conta_nova(request, empresa_id):
         return _resposta_sem_permissao(request, "Seu papel não permite criar contas nesta empresa.")
 
     if request.method == "POST":
+        # BL-196/R6-2 (rodada 6) — a defesa que existia na tela vizinha
+        # (`lancamento_novo`, 40 linhas abaixo) e NÃO existia aqui. Medido
+        # pelo auditor: `conta_pai` enviado como ARQUIVO gravava a conta na
+        # RAIZ do plano, com 302 de sucesso e sem uma palavra — muda a
+        # indentação, o nível e o Balancete por nível. Querystring em POST,
+        # campo desconhecido no corpo e `Idempotency-Key` por cabeçalho
+        # eram igualmente aceitos e descartados em silêncio.
+        #
+        # A resposta é o formulário RE-RENDERIZADO com 400 e o que o
+        # usuário digitou (mesma política de `_recusa_lancamento_com_erro`,
+        # BL-199): recusar sem devolver o que foi digitado troca um defeito
+        # por outro.
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CONTA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_form.html",
+                {
+                    "empresa": empresa,
+                    "form": ContaCriarForm(
+                        request.POST, instance=Conta(empresa=empresa), empresa=empresa
+                    ),
+                },
+                status=400,
+            )
+
         # A empresa é atribuída à instância ANTES de is_valid() — não é um
         # campo do formulário (o cliente nunca escolhe a empresa; ela vem
         # do escopo da URL, já revalidada acima). É o que permite a
@@ -512,6 +632,45 @@ def conta_nova(request, empresa_id):
         instancia = Conta(empresa=empresa)
         form = ContaCriarForm(request.POST, instance=instancia, empresa=empresa)
         if form.is_valid():
+            # RC-80/BL-208 — regra confirmada pelo Fred em 2026-09-15:
+            # conta sem as contas-mãe **avisa e deixa criar**. Cadastrar
+            # `4.1.1` num plano sem `4` e sem `4.1` é legítimo (o contador
+            # pode estar montando o plano de baixo para cima), mas tem
+            # consequência ESTRUTURAL que ele não pediu: sem conta-pai, a
+            # conta entra como RAIZ (nível 1), muda a indentação do Plano
+            # de Contas e a linha em que ela aparece no Balancete por
+            # nível. Nenhuma consequência estrutural de um cadastro
+            # acontece sem o usuário ser avisado — então a primeira
+            # tentativa NÃO grava: ela volta a tela com o aviso, os dados
+            # preenchidos e um botão que diz o que vai acontecer.
+            #
+            # 200 e não 400 de propósito: não é erro do usuário, é uma
+            # confirmação. E o caminho de correção fica visível ao lado
+            # (cadastrar as mães primeiro), que é o que o RC-80 pede
+            # quando diz "avisar".
+            contas_mae_faltantes = _contas_mae_faltantes(
+                empresa, form.cleaned_data.get("codigo"), form.cleaned_data.get("conta_pai")
+            )
+            if contas_mae_faltantes and request.POST.get("confirmar_conta_sem_conta_mae") != "1":
+                messages.warning(
+                    request,
+                    f"O código “{form.cleaned_data.get('codigo')}” sugere "
+                    f"{'a conta-mãe' if len(contas_mae_faltantes) == 1 else 'as contas-mãe'} "
+                    f"{', '.join(contas_mae_faltantes)}, que não "
+                    f"{'existe' if len(contas_mae_faltantes) == 1 else 'existem'} neste plano. "
+                    "Nada foi gravado ainda: confirme abaixo, ou cadastre as contas-mãe "
+                    "primeiro.",
+                )
+                return render(
+                    request,
+                    "contabilidade/conta_form.html",
+                    {
+                        "empresa": empresa,
+                        "form": form,
+                        "contas_mae_faltantes": contas_mae_faltantes,
+                        "codigo_pedido": form.cleaned_data.get("codigo"),
+                    },
+                )
             try:
                 # 'empresa' fica FORA da lista de campos do formulário, e
                 # por isso o Django exclui a UniqueConstraint
@@ -644,7 +803,16 @@ def _decimal_do_formulario(texto):
 # em test_dl017_rodada2_frontend.py), que não depende do processo ter
 # sido de fato importado com `assert` habilitado (`python -O` os
 # descarta).
-LINHAS_LEITURA_TETO_DE_SEGURANCA = 200
+# RC-79/BL-207 (rodada 6): o teto de NEGÓCIO subiu de 20 para 200, e este
+# teto de SEGURANÇA **subiu junto**, de 200 para 400 — que é exatamente o
+# que a verificação abaixo existe para forçar. Ela REPROVOU a importação do
+# módulo no instante em que o teto de negócio virou 200, com os dois em
+# 200: o mecanismo da BL-120 funcionando como projetado, um ano-luz melhor
+# do que a perda silenciosa que ele substituiu (com os dois iguais,
+# `min(maior, 200)` voltaria a descartar em silêncio o índice 200 na
+# fronteira). Mantido o dobro do teto de negócio, e não 201, para que a
+# folga continue existindo sem depender de aritmética de fronteira.
+LINHAS_LEITURA_TETO_DE_SEGURANCA = 400
 assert LINHAS_MAXIMAS_LANCAMENTO < LINHAS_LEITURA_TETO_DE_SEGURANCA, (
     "LINHAS_MAXIMAS_LANCAMENTO (teto de NEGÓCIO) precisa ficar estritamente "
     "abaixo de LINHAS_LEITURA_TETO_DE_SEGURANCA (teto de SEGURANÇA) — R3-9/BL-120."
@@ -810,6 +978,26 @@ def _contexto_form_lancamento(
         "historico": historico,
         "chave_idempotencia": chave_idempotencia,
         "pode_adicionar_linha": num_linhas < LINHAS_MAXIMAS_LANCAMENTO,
+        "linhas_maximas": LINHAS_MAXIMAS_LANCAMENTO,
+        # RC-77/BL-205 — faixa de data de lançamento (01/01/2000 a hoje +
+        # N dias), confirmada pelo Fred em 2026-09-15. Os dois valores vêm
+        # de `apps.contabilidade.services`, fonte única, e chegam ao
+        # template em DUAS formas porque servem a dois propósitos
+        # diferentes:
+        #
+        # - ISO (`*_iso`) para os atributos `min`/`max` do `<input
+        #   type="date">`. É CONVENIÊNCIA, nunca defesa: o atributo é do
+        #   navegador, e quem monta a requisição à mão passa por cima dele
+        #   — a recusa de verdade é de `criar_lancamento` (servidor), com
+        #   teste próprio. DE-031 continua valendo: o campo segue sendo o
+        #   seletor nativo e o rótulo não volta a afirmar formato.
+        # - pt-BR (`*_ptbr`) para o texto de apoio, porque toda data
+        #   EXIBIDA por este sistema é dd/mm/aaaa (critério 7) — inclusive
+        #   quando ela aparece dentro de uma frase.
+        "data_minima_iso": DATA_MINIMA_LANCAMENTO.isoformat(),
+        "data_maxima_iso": data_maxima_lancamento().isoformat(),
+        "data_minima_ptbr": DATA_MINIMA_LANCAMENTO,
+        "data_maxima_ptbr": data_maxima_lancamento(),
         "total_debito_ptbr": _valor_ptbr(total_debito) if total_debito is not None else None,
         "total_credito_ptbr": _valor_ptbr(total_credito) if total_credito is not None else None,
         # R2-5: quantas linhas ficaram FORA da soma acima (conta/tipo/valor
@@ -918,20 +1106,72 @@ def _itens_e_totais(linhas_brutas, contas_por_id):
     return itens, erros, total_debito, total_credito
 
 
+def _linhas_a_reexibir_do_post(post):
+    """Quantas linhas um caminho de RECUSA precisa devolver à tela, derivado
+    do CONTEÚDO REAL do POST — nunca um número fixo.
+
+    R6-5/BL-199 (rodada 6): `_recusa_lancamento_com_erro` passava
+    `LINHAS_INICIAIS_LANCAMENTO` (4) **fixo**, enquanto o caminho de
+    gravação, 200 linhas abaixo, deriva `num_linhas_leitura` do conteúdo do
+    POST justamente para não perder linha. Medido pelo auditor com 8 linhas
+    preenchidas: voltavam 4, e as outras 4 o contador digitava de novo —
+    numa função cujo docstring promete "o formulário RE-RENDERIZADO com o
+    que já estava preenchido (nunca uma tela em branco)". Para
+    `request.FILES` isso era anterior à rodada 6; para `request.GET` e para
+    o cabeçalho era novo, e triplicou a exposição.
+
+    A derivação tem a mesma FORMA do caminho de gravação, pela mesma razão
+    (R2-3): o campo oculto `num_linhas` não decide quantas linhas existem —
+    o CONTEÚDO decide. O teto de SEGURANÇA fecha por cima (o
+    `_contexto_form_lancamento` também capa, defesa em profundidade): nem
+    aqui um `num_linhas` arbitrário dimensiona a página.
+
+    **O piso NÃO é o mesmo, e é deliberado** (resíduo do BL-199 apontado
+    pelo `desenvolvedor-pleno` na varredura de afirmações; antes esta frase
+    dizia "a MESMA", o que era falso): a gravação usa piso 2 porque lá
+    `num_linhas_exibicao` também serve ao botão "+ linha", que precisa
+    poder trabalhar com duas linhas; **um formulário RECUSADO volta com o
+    piso da tela INICIAL** (`LINHAS_INICIAIS_LANCAMENTO`), para nunca
+    oferecer menos linhas do que um formulário novo. A escolha não perde
+    nada digitado em nenhum dos dois pisos — o piso só acrescenta linha em
+    BRANCO —, e está travada por
+    `test_piso_de_reexibicao_e_o_da_tela_INICIAL_e_nao_o_da_gravacao`
+    (test_dl019_frontend_recusa_do_formulario_de_lancamento.py).
+
+    `num_linhas` não entra no `max`: um campo oculto inflado (ou absurdo,
+    acima do teto de segurança) faria esta função devolver uma página
+    proporcional ao que o cliente mandou, exatamente o que o parágrafo
+    acima diz que não acontece. Para um POST de formulário REAL isso não
+    muda nada — o `<form>` emite as chaves de todas as linhas que
+    renderizou, então o maior índice presente JÁ é o número de linhas
+    exibidas.
+    """
+    maior_indice, _ = _indices_de_linha_do_post(post)
+    return min(
+        max(LINHAS_INICIAIS_LANCAMENTO, maior_indice),
+        LINHAS_LEITURA_TETO_DE_SEGURANCA,
+    )
+
+
 def _recusa_lancamento_com_erro(request, empresa, contas_disponiveis, mensagem):
     """Recusa a tentativa de POST em `lancamento_novo` com `mensagem`,
-    devolvendo o formulário RE-RENDERIZADO com o que já estava
-    preenchido (nunca uma tela em branco) e `status=400`. Ponto único
-    para os três "quinto dicionário da requisição" que esta view recusa
-    por completo, nunca ignora em silêncio: `request.FILES` (A3/BL-128),
-    `request.GET` e o cabeçalho `Idempotency-Key` (R5-6/BL-145) — DRY
-    depois que o terceiro caso apareceu (ver `lancamento_novo`).
+    devolvendo o formulário RE-RENDERIZADO com **tudo** o que já estava
+    preenchido (nunca uma tela em branco, nunca só as primeiras linhas) e
+    `status=400`. Ponto único para os "dicionários da requisição" que esta
+    view recusa por completo, nunca ignora em silêncio — hoje julgados por
+    `apps.core.requisicao` (BL-196), antes três `if` escritos à mão aqui
+    (`request.FILES`, A3/BL-128; `request.GET` e o cabeçalho
+    `Idempotency-Key`, R5-6/BL-145).
+
+    R6-5/BL-199: o número de linhas re-exibidas vem de
+    `_linhas_a_reexibir_do_post` (ver o docstring dela) — era aqui que as
+    linhas além da quarta se perdiam.
     """
     messages.error(request, mensagem)
     contexto = _contexto_form_lancamento(
         empresa,
         contas_disponiveis,
-        LINHAS_INICIAIS_LANCAMENTO,
+        _linhas_a_reexibir_do_post(request.POST),
         data_texto=request.POST.get("data", ""),
         historico=request.POST.get("historico", "").strip(),
         chave_idempotencia=request.POST.get("chave_idempotencia") or uuid.uuid4().hex,
@@ -940,7 +1180,134 @@ def _recusa_lancamento_com_erro(request, empresa, contas_disponiveis, mensagem):
     return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
 
+# ---------------------------------------------------------------------------
+# BL-196/R6-2 — a política dos cinco dicionários aplicada às DUAS telas de
+# POST deste arquivo. O julgamento é de `apps.core.requisicao`; aqui ficam
+# a DECLARAÇÃO de cada contrato e a RESPOSTA de tela.
+# ---------------------------------------------------------------------------
+
+
+# Campos que o `<form>` de lançamento REALMENTE emite, fora as linhas
+# (dinâmicas, tratadas abaixo). `csrfmiddlewaretoken` está aqui porque é
+# enviado pelo `{% csrf_token %}` do próprio template: sem declará-lo, o
+# contrato recusaria o formulário legítimo — o que seria a forma mais
+# rápida possível de alguém "consertar" isto declarando `campos=None` e
+# reabrindo o buraco.
+_CAMPOS_FIXOS_DO_FORMULARIO_DE_LANCAMENTO = frozenset(
+    {"csrfmiddlewaretoken", "acao", "num_linhas", "data", "historico", "chave_idempotencia"}
+)
+
+
+def _contrato_do_formulario_de_lancamento(post):
+    """Contrato desta tela para ESTE POST.
+
+    `campos` é declarado **explicitamente** (nunca `None`): os fixos acima,
+    mais as chaves de linha presentes no POST que TÊM a forma de chave de
+    linha (`conta_*`/`tipo_*`/`valor_*`, por `_PADRAO_CHAVE_DE_LINHA`).
+
+    A divisão de trabalho com `_indices_de_linha_do_post` é deliberada e
+    não é frouxidão: o contrato julga se o NOME do campo pertence ao
+    vocabulário desta tela; `_indices_de_linha_do_post` julga se o ÍNDICE é
+    canônico, e recusa `conta_0001`, `CONTA_3`, `conta_+3` com a mensagem
+    específica que o auditor mediu como correta (R3-2/BL-116, A3/rodada 4).
+    Se o contrato recusasse essas chaves primeiro, o contador passaria a
+    ler "campo não reconhecido" no lugar de "índice de linha fora do
+    formato esperado" — mensagem pior para o mesmo defeito, e três testes
+    de texto quebrados. Nenhuma chave fica sem julgamento: o que o contrato
+    deixa passar aqui, a canonicidade recusa na linha seguinte da view.
+    """
+    chaves_de_linha = {chave for chave in post if _PADRAO_CHAVE_DE_LINHA.match(chave)}
+    return ContratoDeRequisicao(
+        campos=_CAMPOS_FIXOS_DO_FORMULARIO_DE_LANCAMENTO | chaves_de_linha,
+        # Esta tela nunca ofereceu upload, e não tem contrato de
+        # querystring — ver `_mensagem_de_tela_para_dado_nao_contratado`
+        # para a razão CERTA de recusar querystring (a razão que estava
+        # escrita aqui era factualmente falsa sobre HTML).
+        aceita_arquivo=False,
+        aceita_querystring=False,
+        # A chave de idempotência desta tela É o campo oculto do próprio
+        # formulário. Quem manda `Idempotency-Key` por cabeçalho (o
+        # contrato da API, não desta tela) e omite o campo do corpo recebia
+        # uma chave nova a cada POST e GRAVAVA DUAS VEZES — a duplicidade
+        # que a chave existe para impedir, na superfície errada
+        # (R5-6/BL-145).
+        cabecalhos_ignorados=("Idempotency-Key",),
+        contexto="no formulário de lançamento",
+    )
+
+
+# Campos que o `<form>` de conta REALMENTE emite. `aceita_lancamento` é
+# caixa de marcação (só vem quando marcada) e `confirmar_conta_sem_conta_
+# mae` é o botão de confirmação do RC-80/BL-208 — os dois são legítimos e
+# precisam estar declarados.
+_CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
+    campos=frozenset(
+        {
+            "csrfmiddlewaretoken",
+            "codigo",
+            "nome",
+            "tipo",
+            "natureza",
+            "conta_pai",
+            "aceita_lancamento",
+            "confirmar_conta_sem_conta_mae",
+        }
+    ),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro de conta",
+)
+
+
+def _mensagem_de_tela_para_dado_nao_contratado(excecao, *, explicacao_extra=""):
+    """Traduz `DadoNaoContratado` para a frase que ESTA superfície mostra.
+
+    Decide por `excecao.dicionario` (constante estável), nunca pelo texto da
+    mensagem do módulo: comparar texto amarraria a tela à redação de
+    `apps.core.requisicao`, e a primeira reformulação lá quebraria o
+    português daqui sem nenhum aviso.
+
+    Por que recusar QUERYSTRING num POST, agora com a razão certa
+    (R6-5/BL-199): a justificativa anterior dizia que "nenhum formulário
+    renderizado por esta tela produz querystring num POST (o `<form>` não
+    tem `action=`)" — e era **falsa sobre HTML**, como o auditor mediu: um
+    `<form>` SEM `action` envia para a URL do próprio documento,
+    querystring incluída. Quem chegasse à tela por um link com
+    `?utm_source=...` não conseguia gravar. Duas mudanças fecham isso: os
+    dois formulários passaram a declarar `action` explícito e sem
+    querystring (ver os templates, e o teste que lê o atributo), e a razão
+    escrita passou a ser a verdadeira — **esta tela não tem contrato de
+    querystring**: nenhum parâmetro de URL altera o que ela grava, então um
+    parâmetro presente é dado que ninguém vai ler, e dado que ninguém lê se
+    recusa nomeando.
+    """
+    chaves = "; ".join(excecao.chaves)
+    if excecao.dicionario == DICIONARIO_ARQUIVO:
+        return (
+            "Este formulário não aceita arquivo nenhum. Campo(s) enviados como "
+            f"arquivo, recusados por completo: {chaves}. Nada foi gravado."
+        )
+    if excecao.dicionario == DICIONARIO_QUERYSTRING:
+        return (
+            "Este formulário não aceita parâmetros na URL — nenhum deles altera o "
+            f"que ele grava. Parâmetro(s) recusados por completo: {chaves}. Nada "
+            "foi gravado. Abra a tela pelo menu do sistema, sem parâmetros na "
+            "URL, e envie de novo."
+        )
+    if excecao.dicionario == DICIONARIO_CABECALHO:
+        return (
+            f"Este formulário não usa o cabeçalho '{chaves}'. Reenvie sem esse "
+            f"cabeçalho — ele não tem efeito nenhum aqui. {explicacao_extra}".strip()
+        )
+    return (
+        f"Não reconheço o(s) campo(s) enviado(s): {chaves}. Nada foi gravado — um "
+        "campo que esta tela não lê nunca é ignorado em silêncio."
+    )
+
+
 @login_required
+@require_http_methods(["GET", "POST"])
 def lancamento_novo(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -958,74 +1325,39 @@ def lancamento_novo(request, empresa_id):
     )
 
     if request.method == "POST":
-        # A3/BL-128 (rodada 4): a política de BL-116 ("nenhuma linha
-        # enviada deixa de ser lida ou recusada") vale para a REQUISIÇÃO
-        # inteira, não para o dicionário `request.POST` sozinho.
-        # `request.FILES` é uma entrada ESTRUTURADA que esta view nunca
-        # olhava — um par de partidas completo e balanceado enviado como
-        # CAMPO DE ARQUIVO (`multipart/form-data`) era invisível para
-        # `_indices_de_linha_do_post(request.POST)`, sumia da tela, do
-        # total da conferência e do aviso do R2-5, e o lote remanescente
-        # gravava com HTTP 302 "sucesso" — a assinatura exata do achado 5,
-        # pela quarta vez, por um transporte diferente. Este formulário
-        # nunca ofereceu (nem precisa de) upload de arquivo algum; a saída
-        # segura é recusar QUALQUER campo de arquivo, nomeando a chave, em
-        # vez de simplesmente não olhar para `request.FILES`.
-        if request.FILES:
-            return _recusa_lancamento_com_erro(
-                request,
-                empresa,
-                contas_disponiveis,
-                "Este formulário não aceita arquivo nenhum. Campo(s) "
-                "enviados como arquivo, recusados por completo: "
-                + "; ".join(sorted(request.FILES.keys()))
-                + ".",
+        # BL-196/R6-2 (rodada 6): UMA chamada, no lugar dos três `if`
+        # escritos à mão que existiam aqui (e de nenhum em `conta_nova`).
+        # A política é a de `apps.core.requisicao`, a ordem de avaliação é
+        # a declarada lá (`ORDEM_DE_AVALIACAO`: arquivo, querystring,
+        # cabeçalho, corpo) — a MESMA ordem em que esta view já recusava,
+        # de propósito: a mensagem que o contador vê quando manda dois
+        # erros de uma vez é comportamento observável, com teste em cima.
+        #
+        # Por que cada dicionário é recusado está no contrato
+        # (`_contrato_do_formulario_de_lancamento`) e na tradução da
+        # mensagem (`_mensagem_de_tela_para_dado_nao_contratado`), não
+        # repetido aqui. O histórico dos achados que produziram cada um:
+        # `request.FILES` = A3/BL-128 (um par de partidas completo e
+        # balanceado enviado como campo de ARQUIVO sumia da tela, do total
+        # e do aviso, e o resto gravava com 302 "sucesso"); `request.GET` e
+        # o cabeçalho `Idempotency-Key` = R5-6/BL-145; campo desconhecido
+        # no corpo = R6-2, que fechou na API e não na tela.
+        try:
+            recusar_dado_nao_contratado(
+                request, _contrato_do_formulario_de_lancamento(request.POST)
             )
-
-        # R5-6/BL-145 (rodada 5): MESMA classe do `request.FILES` acima —
-        # "nenhum dado enviado numa requisição deixa de ser lido ou
-        # recusado" vale para a requisição INTEIRA, e `request.GET` é o
-        # QUINTO dicionário (POST, FILES, META/cabeçalhos, corpo bruto,
-        # querystring) que esta view nunca olhava. O auditor mediu: um
-        # POST para este formulário com um par de partidas COMPLETO e
-        # BALANCEADO na querystring, ao lado de duas partidas normais no
-        # corpo, gravava só as duas do corpo com 302 "sucesso" — o par da
-        # querystring não aparecia em lugar nenhum, nem na tela, nem no
-        # aviso de linha incompleta. Nenhum formulário RENDERIZADO por
-        # esta tela produz querystring num POST (o `<form>` não tem
-        # `action="?...`), então qualquer querystring aqui só pode vir de
-        # alguém construindo a requisição à mão — recusar nomeando é
-        # seguro e não quebra o uso normal.
-        if request.GET:
+        except DadoNaoContratado as exc:
             return _recusa_lancamento_com_erro(
                 request,
                 empresa,
                 contas_disponiveis,
-                "Este formulário não aceita parâmetros na URL. Parâmetro(s) "
-                "recusados por completo: " + "; ".join(sorted(request.GET.keys())) + ".",
-            )
-
-        # R5-6/BL-145: a chave de idempotência desta tela É o campo
-        # OCULTO `chave_idempotencia` do próprio `<form>` — nunca um
-        # cabeçalho. O auditor mediu que quem manda `Idempotency-Key` por
-        # CABEÇALHO (o contrato da API, não desta tela) e omite o campo
-        # do corpo não é avisado: cada POST gera uma chave nova
-        # (`uuid.uuid4().hex`, abaixo) e GRAVA DUAS VEZES — exatamente a
-        # duplicidade que a chave de idempotência existe para impedir,
-        # na superfície ERRADA. Recusar nomeando é melhor que aceitar o
-        # cabeçalho como sinônimo: esta tela não tem como saber se o
-        # cliente que manda o cabeçalho TAMBÉM sabe que o campo oculto é
-        # quem manda de verdade, e aceitar os dois em silêncio reabriria
-        # a mesma ambiguidade por outra porta.
-        if request.headers.get("Idempotency-Key") or request.META.get("HTTP_IDEMPOTENCY_KEY"):
-            return _recusa_lancamento_com_erro(
-                request,
-                empresa,
-                contas_disponiveis,
-                "Este formulário não usa o cabeçalho 'Idempotency-Key' para evitar "
-                "duplicidade. Reenvie sem esse cabeçalho — o campo oculto do próprio "
-                "formulário já garante que reenviar a mesma tentativa não duplica o "
-                "lançamento.",
+                _mensagem_de_tela_para_dado_nao_contratado(
+                    exc,
+                    explicacao_extra=(
+                        "O campo oculto do próprio formulário já garante que "
+                        "reenviar a mesma tentativa não duplica o lançamento."
+                    ),
+                ),
             )
 
         acao = request.POST.get("acao")
@@ -1083,10 +1415,19 @@ def lancamento_novo(request, empresa_id):
                 "'num_linhas' inválido: o formulário aceita no máximo "
                 f"{LINHAS_MAXIMAS_LANCAMENTO} partidas por lançamento.",
             )
+            # R6-5/BL-199, segunda rodada da DL-020: o número de linhas
+            # re-exibidas vem do PONTO ÚNICO de derivação, como em toda
+            # recusa desta tela. Era `LINHAS_INICIAIS_LANCAMENTO` fixo, e
+            # perdia o que estivesse digitado além da quarta linha —
+            # mesmo defeito do achado R6-5, no caminho vizinho. Derivar do
+            # conteúdo é seguro aqui justamente porque
+            # `_linhas_a_reexibir_do_post` NÃO olha o campo oculto: é o
+            # `num_linhas` absurdo que acabou de ser recusado, e ele não
+            # pode dimensionar a página (R3-1/BL-115).
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
-                LINHAS_INICIAIS_LANCAMENTO,
+                _linhas_a_reexibir_do_post(request.POST),
                 data_texto=data_texto,
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,
@@ -1121,10 +1462,17 @@ def lancamento_novo(request, empresa_id):
                 "linha fora do formato esperado, nunca reinterpretado nem "
                 "ignorado: " + "; ".join(sorted(chaves_nao_canonicas)) + ".",
             )
+            # R6-5/BL-199, segunda rodada da DL-020: era
+            # `num_linhas_exibicao` — derivado do campo OCULTO, sem o maior
+            # índice realmente presente —, e MEDIDO perdendo as linhas 5 a
+            # 8 de um POST com oito linhas e `num_linhas=4`. É o defeito do
+            # achado R6-5 no caminho vizinho de dentro da mesma view
+            # (DE-034, item 1). Agora o mesmo ponto único de derivação de
+            # toda recusa desta tela.
             contexto = _contexto_form_lancamento(
                 empresa,
                 contas_disponiveis,
-                num_linhas_exibicao,
+                _linhas_a_reexibir_do_post(request.POST),
                 data_texto=data_texto,
                 historico=historico,
                 chave_idempotencia=chave_idempotencia,
@@ -1369,6 +1717,7 @@ def lancamento_novo(request, empresa_id):
 
 
 @login_required
+@require_safe
 def lancamento_detalhe(request, empresa_id, lancamento_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1407,11 +1756,96 @@ def lancamento_detalhe(request, empresa_id, lancamento_id):
 
 
 # ---------------------------------------------------------------------------
+# BL-198 (b) / R6-4 — "há movimento fora do período consultado"
+#
+# É o item que fez a DL-020 existir, e o único achado aberto com esta
+# característica: **o usuário não consegue conferir o que não aparece.** O
+# auditor mediu um lançamento de 5.000,00 datado `9999-12-31` (um `9`
+# digitado no lugar de `2`) ao lado de um de 100,00 de hoje:
+#
+#     Diário      (período padrão): mostra 5.000,00? False | avisa? False
+#     Balancete   (período padrão): mostra 5.000,00? False | avisa? False
+#     Razão       (período padrão): mostra 5.000,00? False | avisa? False
+#     Conferência (sem período)   : mostra 5.000,00? False
+#     total real de débito na base: 10.200,00
+#
+# O balancete do período **concilia** — é por isso que nenhuma conferência
+# aponta. Para encontrar, o contador precisava suspeitar e alargar o
+# período até o ano 9999.
+#
+# A faixa do RC-77 (BL-205) fecha a PORTA de entrada. Este aviso é a REDE
+# embaixo dela, e continua necessário depois de a porta fechar, por três
+# motivos: dado já gravado antes da regra não se conserta validando a
+# entrada (está fora do escopo desta etapa); a faixa permite datas
+# legítimas fora do período consultado (é o caso comum — o contador olha
+# setembro e existe movimento de outubro); e há portas de escrita que não
+# passam pela tela (o admin do Django, por exemplo).
+#
+# A consulta é de `services.py` (`movimento_fora_do_periodo`), UMA fonte;
+# esta função só monta a apresentação e o caminho de correção — o link que
+# ALARGA o período até incluir o que está fora, preservando os outros
+# parâmetros da tela (o `nivel` do Balancete, por exemplo).
+# ---------------------------------------------------------------------------
+
+
+def _aviso_de_movimento_fora_do_periodo(
+    request, empresa, inicio, fim, *, conta=None, ids_contas=None
+):
+    """Contexto do aviso, ou `None` quando não há nada fora do período.
+
+    Os dois parâmetros do Razão têm papéis DIFERENTES, e é por isso que ele
+    passa os dois (BL-212):
+
+    - `ids_contas` é o que CONSULTA: o conjunto de contas já apurado por
+      `apurar_razao` (chave `ids_contas` do resultado), reaproveitado para o
+      aviso recortar pelo MESMO conjunto que a tela está somando sem
+      percorrer a subárvore uma segunda vez — `_descendentes_de` faz uma
+      consulta por nível de profundidade, e recomputá-lo aqui dobrava esse
+      custo e estourava o teto de consultas do Razão.
+    - `conta` é o que APRESENTA: a chave `"conta"` do contexto é a única
+      coisa que faz o parcial dizer "esta conta (incluindo as subordinadas)"
+      em vez de "esta empresa". Nenhuma consulta depende dela quando
+      `ids_contas` vem, e o link que alarga o período também não — ele sai de
+      `request.path` mais os parâmetros da tela.
+
+    Sem nenhum dos dois, o recorte é a empresa inteira (Diário, Balancete).
+    Com `conta` sem `ids_contas`, `movimento_fora_do_periodo` ainda recorta
+    pela subárvore — pagando a travessia; nenhuma tela faz isso hoje.
+    """
+    fora = movimento_fora_do_periodo(
+        empresa=empresa, inicio=inicio, fim=fim, conta=conta, ids_contas=ids_contas
+    )
+    if not fora:
+        return None
+    anteriores = fora.get("anteriores")
+    posteriores = fora.get("posteriores")
+    datas_extremas = [
+        lado["data_extrema"] for lado in (anteriores, posteriores) if lado is not None
+    ]
+    # O link precisa ALARGAR, nunca substituir: quem está vendo setembro e
+    # tem movimento em outubro deve continuar vendo setembro no resultado.
+    inicio_ampliado = min([inicio, *datas_extremas])
+    fim_ampliado = max([fim, *datas_extremas])
+    parametros = request.GET.copy()
+    parametros["inicio"] = inicio_ampliado.isoformat()
+    parametros["fim"] = fim_ampliado.isoformat()
+    return {
+        "anteriores": anteriores,
+        "posteriores": posteriores,
+        "conta": conta,
+        "inicio_ampliado": inicio_ampliado,
+        "fim_ampliado": fim_ampliado,
+        "url_ampliada": f"{request.path}?{parametros.urlencode()}",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Diário
 # ---------------------------------------------------------------------------
 
 
 @login_required
+@require_safe
 def diario(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1453,6 +1887,10 @@ def diario(request, empresa_id):
             "lotes": lotes,
             "total_debito_ptbr": _valor_ptbr(total_debito),
             "total_credito_ptbr": _valor_ptbr(total_credito),
+            # BL-198 (b): ver o comentário da função.
+            "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
+                request, empresa, inicio, fim
+            ),
         }
     )
     return render(request, "contabilidade/diario.html", contexto)
@@ -1464,6 +1902,7 @@ def diario(request, empresa_id):
 
 
 @login_required
+@require_safe
 def razao(request, empresa_id, conta_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1487,6 +1926,23 @@ def razao(request, empresa_id, conta_id):
         # nomeando a conta, nunca um 500 mudo (mesmo tratamento da API).
         messages.error(request, str(exc))
         return render(request, "contabilidade/razao.html", contexto, status=409)
+
+    # BL-198 (b) + BL-212: DEPOIS da apuração e FORA do `try`, de propósito.
+    # Esta chamada já não percorre a hierarquia — ela reaproveita o conjunto
+    # de contas que a apuração acabou de percorrer (`apuracao["ids_contas"]`),
+    # então não há mais `HierarquiaInconsistente` a tratar aqui; o que a
+    # protege é depender de `apuracao`, que só existe quando o plano está
+    # consistente. Antes da BL-212 ela recomputava `_descendentes_de` (uma
+    # consulta por NÍVEL de profundidade), dobrando o custo do Razão de um
+    # plano profundo e estourando o teto de consultas. `conta` continua
+    # sendo passada, mas só para a APRESENTAÇÃO: é a chave "conta" do
+    # contexto, e é só ela que faz o aviso dizer "esta conta (incluindo as
+    # subordinadas)" em vez de "esta empresa". O link que alarga o período
+    # não depende dela — ele nasce de `request.path`, que no Razão já traz o
+    # `conta_id`.
+    aviso_fora_do_periodo = _aviso_de_movimento_fora_do_periodo(
+        request, empresa, inicio, fim, conta=conta, ids_contas=apuracao["ids_contas"]
+    )
 
     itens = []
     for linha in apuracao["itens"]:
@@ -1522,6 +1978,7 @@ def razao(request, empresa_id, conta_id):
             "total_credito_ptbr": _valor_ptbr(apuracao["total_credito"]),
             "saldo_final_ptbr": _valor_ptbr(saldo_final_abs),
             "saldo_final_natureza": _indicador_natureza(saldo_final_nat),
+            "movimento_fora_do_periodo": aviso_fora_do_periodo,
         }
     )
     return render(request, "contabilidade/razao.html", contexto)
@@ -1533,6 +1990,7 @@ def razao(request, empresa_id, conta_id):
 
 
 @login_required
+@require_safe
 def balancete(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1606,6 +2064,28 @@ def balancete(request, empresa_id):
             "linhas": linhas,
             "total_debitos_ptbr": _valor_ptbr(apuracao["total_debitos"]),
             "total_creditos_ptbr": _valor_ptbr(apuracao["total_creditos"]),
+            # R6-9/BL-203 (rodada 6) — critério 13, texto literal: "empresa
+            # sem lançamento no período mostra MENSAGEM, não tabela vazia
+            # sem explicação". Diário, Razão e Conferência cumpriam; o
+            # Balancete mostrava 3 linhas e 8 zeros, sem uma palavra. O
+            # achado foi levantado na rodada 5 como observação, não entrou
+            # no backlog, e por isso chegou intacto à rodada 6.
+            #
+            # A condição é "nenhum movimento NO PERÍODO" (os dois totais do
+            # período em zero), não "nenhuma linha": um balancete com saldo
+            # ANTERIOR e sem movimento no mês é informação legítima e
+            # continua sendo exibido inteiro — a mensagem explica o que se
+            # está vendo, **nunca esconde a tabela**. Esconder seria trocar
+            # um defeito de explicação por um de omissão contábil.
+            "sem_movimento_no_periodo": (
+                bool(linhas) and apuracao["total_debitos"] == 0 and apuracao["total_creditos"] == 0
+            ),
+            # BL-198 (b): e é justamente no balancete zerado que o aviso
+            # mais importa — ele concilia, então nada mais denuncia que
+            # existe movimento fora do período.
+            "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
+                request, empresa, inicio, fim
+            ),
         }
     )
     return render(request, "contabilidade/balancete.html", contexto)
@@ -1617,6 +2097,7 @@ def balancete(request, empresa_id):
 
 
 @login_required
+@require_safe
 def conferencia(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1660,14 +2141,37 @@ def conferencia(request, empresa_id):
     )
     hierarquia_inconsistente = localizar_inconsistencias_de_hierarquia(empresa=empresa)
 
+    # BL-198 (b) na Conferência: aqui não existe período, então o aviso
+    # equivalente é outro — lançamento com data FORA DA FAIXA do RC-77
+    # (antes de 01/01/2000 ou depois de hoje + N dias). É a única tela de
+    # uso normal em que um lançamento datado `9999-12-31` aparece SEM o
+    # contador precisar suspeitar primeiro e alargar o período à mão.
+    #
+    # Vale para dado JÁ GRAVADO: a faixa do RC-77 fecha a porta de entrada,
+    # e esta linha acende a luz sobre o que entrou antes dela (ou por uma
+    # porta que não passa pela tela, como o admin do Django). Validar a
+    # entrada não conserta o passado — e o reparo de dado gravado está
+    # declarado fora do escopo desta etapa, o que torna a Conferência o
+    # único lugar onde esse passado é visível.
+    lancamentos_com_data_fora_da_faixa = list(
+        localizar_lancamentos_com_data_fora_da_faixa(empresa=empresa)
+    )
+
     contexto = {
         "empresa": empresa,
         "lotes": lotes,
         "contas_sinteticas": contas_sinteticas,
         "contas_com_subordinadas": contas_com_subordinadas,
         "hierarquia_inconsistente": hierarquia_inconsistente,
+        "lancamentos_com_data_fora_da_faixa": lancamentos_com_data_fora_da_faixa,
+        "data_minima_lancamento": DATA_MINIMA_LANCAMENTO,
+        "data_maxima_lancamento": data_maxima_lancamento(),
         "tudo_certo": not (
-            lotes or contas_sinteticas or contas_com_subordinadas or hierarquia_inconsistente
+            lotes
+            or contas_sinteticas
+            or contas_com_subordinadas
+            or hierarquia_inconsistente
+            or lancamentos_com_data_fora_da_faixa
         ),
     }
     return render(request, "contabilidade/conferencia.html", contexto)

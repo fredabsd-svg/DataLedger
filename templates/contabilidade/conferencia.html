@@ -56,6 +56,61 @@
         <p>Nenhum lançamento sem partidas ou desbalanceado.</p>
     {% endif %}
 
+    {% comment %}
+    BL-198 (b) / R6-4 — a Conferência não tem período, então aqui o aviso
+    equivalente ao "há movimento fora do período consultado" é outro:
+    lançamento com data FORA DA FAIXA confirmada pelo Fred (RC-77).
+
+    Esta é a única tela de uso normal em que um lançamento datado
+    `9999-12-31` aparece SEM o contador precisar suspeitar primeiro e
+    alargar o período à mão — era esse o achado: o balancete do período
+    conciliava, e nenhuma conferência apontava.
+
+    Vale para dado JÁ GRAVADO. A faixa do RC-77 fecha a porta de entrada
+    (tela, API e admin); esta seção acende a luz sobre o que entrou antes
+    dela. Validar a entrada não conserta o passado, e o reparo de dado
+    gravado está declarado fora do escopo desta etapa.
+    {% endcomment %}
+    <h2>Lançamentos com data fora da faixa aceita</h2>
+    <p>
+        A faixa aceita para data de lançamento é de
+        {{ data_minima_lancamento|date:"d/m/Y" }} a {{ data_maxima_lancamento|date:"d/m/Y" }}
+        (hoje, mais a folga para lançamento programado). Um lançamento fora dela
+        normalmente é erro de digitação no ano — e, fora do período consultado, ele
+        não aparece no Diário, no Razão nem no Balancete.
+    </p>
+    {% if lancamentos_com_data_fora_da_faixa %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Lançamentos com data fora da faixa aceita</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Histórico</th>
+                    <th scope="col">O que fazer</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lancamento in lancamentos_com_data_fora_da_faixa %}
+                    <tr>
+                        <td>{{ lancamento.data|date:"d/m/Y" }}</td>
+                        <td>
+                            <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id lancamento.id %}">
+                                {{ lancamento.historico|default:"(sem histórico)" }}
+                            </a>
+                        </td>
+                        <td>
+                            Abra o lançamento e, se a data estiver errada, estorne-o e lance de
+                            novo com a data certa. Lançamento efetivado nunca é editado em
+                            silêncio.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum lançamento com data fora da faixa aceita.</p>
+    {% endif %}
+
     <h2>Contas sintéticas com movimento próprio</h2>
     {% if contas_sinteticas %}
         <table class="tabela-dados">

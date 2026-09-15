@@ -16,6 +16,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.contabilidade import views_web
 from apps.contabilidade.models import (
     Conta,
     ItemLancamento,
@@ -391,73 +392,78 @@ def test_historico_no_limite_do_modelo_e_aceito(client, cen):
 # ---------------------------------------------------------------------------
 
 
+def _post_com_duas_partidas_alem_do_teto(cen, *, chave, historico, acao="gravar"):
+    """Monta um POST com `teto + 2` partidas: as `teto` primeiras batendo
+    entre si (10,00 cada lado) e as DUAS últimas TAMBÉM batendo entre si
+    (77,00 / 77,00) — o cenário exato do achado 5.
+
+    RC-79/BL-207 (rodada 6): o teto de negócio passou de 20 para **200**
+    (confirmado pelo Fred), e por isso este POST é derivado de
+    `views_web.LINHAS_MAXIMAS_LANCAMENTO` em vez de escrito com 22 linhas
+    fixas. Um teste de teto com o número do teto embutido para de testar o
+    teto no dia em que o teto muda: ele passou a devolver 302 "gravado"
+    quando 22 partidas se tornaram legítimas, e só não passou por sorte de
+    a asserção ser de status.
+    """
+    teto = views_web.LINHAS_MAXIMAS_LANCAMENTO
+    dados = {
+        "acao": acao,
+        "num_linhas": str(teto + 2),
+        "data": timezone.localdate().isoformat(),
+        "historico": historico,
+        "chave_idempotencia": chave,
+    }
+    for i in range(1, teto + 1):
+        e_debito = i <= teto // 2
+        dados[f"conta_{i}"] = str((cen["caixa"] if e_debito else cen["receita"]).id)
+        dados[f"tipo_{i}"] = "debito" if e_debito else "credito"
+        dados[f"valor_{i}"] = "10,00"
+    dados[f"conta_{teto + 1}"] = str(cen["caixa"].id)
+    dados[f"tipo_{teto + 1}"] = "debito"
+    dados[f"valor_{teto + 1}"] = "77,00"
+    dados[f"conta_{teto + 2}"] = str(cen["receita"].id)
+    dados[f"tipo_{teto + 2}"] = "credito"
+    dados[f"valor_{teto + 2}"] = "77,00"
+    return dados
+
+
 def test_mais_partidas_que_o_teto_recusa_o_lote_inteiro(client, cen):
-    """Achado 5 / BL-91: 22 partidas, as 20 primeiras batendo entre si e as
-    2 últimas TAMBÉM batendo entre si (77,00 / 77,00). Antes da correção:
-    o lote fechava com 20 partidas gravadas "com sucesso", perdendo
-    77,00 de débito e 77,00 de crédito em silêncio. Agora: o POST inteiro
-    é recusado, ZERO lançamentos gravados.
+    """Achado 5 / BL-91: `teto + 2` partidas, as `teto` primeiras batendo
+    entre si e as 2 últimas TAMBÉM batendo entre si (77,00 / 77,00). Antes
+    da correção: o lote fechava com as `teto` primeiras gravadas "com
+    sucesso", perdendo 77,00 de débito e 77,00 de crédito em silêncio.
+    Agora: o POST inteiro é recusado, ZERO lançamentos gravados.
     """
     _login(client, cen)
-    contas_debito = [
-        Conta.objects.create(
-            empresa=cen["empresa"],
-            codigo=f"1.{i}",
-            nome=f"Conta débito {i}",
-            tipo=TipoConta.ATIVO,
-            natureza=NaturezaConta.DEVEDORA,
-        )
-        for i in range(1, 12)
-    ]
-    contas_credito = [
-        Conta.objects.create(
-            empresa=cen["empresa"],
-            codigo=f"2.{i}",
-            nome=f"Conta crédito {i}",
-            tipo=TipoConta.PATRIMONIO_LIQUIDO,
-            natureza=NaturezaConta.CREDORA,
-        )
-        for i in range(1, 12)
-    ]
-    dados = {
-        "acao": "gravar",
-        "num_linhas": "22",
-        "data": timezone.localdate().isoformat(),
-        "historico": "22 partidas",
-        "chave_idempotencia": "k-22-partidas",
-    }
-    for i in range(1, 11):
-        dados[f"conta_{i}"] = str(contas_debito[i - 1].id)
-        dados[f"tipo_{i}"] = "debito"
-        dados[f"valor_{i}"] = "10,00"
-    for i in range(11, 21):
-        dados[f"conta_{i}"] = str(contas_credito[i - 11].id)
-        dados[f"tipo_{i}"] = "credito"
-        dados[f"valor_{i}"] = "10,00"
-    dados["conta_21"] = str(contas_debito[10].id)
-    dados["tipo_21"] = "debito"
-    dados["valor_21"] = "77,00"
-    dados["conta_22"] = str(contas_credito[10].id)
-    dados["tipo_22"] = "credito"
-    dados["valor_22"] = "77,00"
+    teto = views_web.LINHAS_MAXIMAS_LANCAMENTO
+    dados = _post_com_duas_partidas_alem_do_teto(
+        cen, chave="k-partidas-alem-do-teto", historico=f"{teto + 2} partidas"
+    )
 
     resposta = client.post(_url_tela(cen), dados)
     assert resposta.status_code == 400, resposta.status_code
     assert LancamentoContabil.objects.count() == 0
     assert ItemLancamento.objects.count() == 0
     conteudo = resposta.content.decode()
-    assert "máximo" in conteudo and "20" in conteudo and "22" in conteudo
+    assert "máximo" in conteudo and str(teto) in conteudo and str(teto + 2) in conteudo
 
 
 def test_teto_de_partidas_mostra_mensagem_explicativa(client, cen):
-    """BL-99 (achado 14): ao chegar em 20 linhas, o botão "Adicionar linha"
-    desaparece — a tela precisa dizer POR QUE (critério 13, saída
+    """BL-99 (achado 14): ao chegar no teto de linhas, o botão "Adicionar
+    linha" desaparece — a tela precisa dizer POR QUE (critério 13, saída
     navegável para um LIMITE, não só para um erro).
+
+    RC-79/BL-207: o número vem de `views_web.LINHAS_MAXIMAS_LANCAMENTO`, e
+    a frase exibida tem de citar o teto REAL. Com "20" escrito à mão, este
+    teste continuaria passando enquanto a tela dissesse 20 e o servidor
+    aceitasse 200 — exatamente a divergência entre promessa e defesa que
+    esta etapa vem fechando.
     """
     _login(client, cen)
+    teto = views_web.LINHAS_MAXIMAS_LANCAMENTO
     dados = {
         "acao": "adicionar_linha",
-        "num_linhas": "20",
+        "num_linhas": str(teto),
         "data": timezone.localdate().isoformat(),
         "historico": "no teto",
         "chave_idempotencia": "k-teto",
@@ -465,10 +471,7 @@ def test_teto_de_partidas_mostra_mensagem_explicativa(client, cen):
     resposta = client.post(_url_tela(cen), dados)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
-    assert "Adicionar linha" not in conteudo.split("</table>")[-1] or (
-        "máximo de 20 partidas" in conteudo
-    )
-    assert "máximo de 20 partidas" in conteudo
+    assert f"máximo de {teto} partidas" in conteudo
 
 
 # ---------------------------------------------------------------------------
