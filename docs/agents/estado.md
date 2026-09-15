@@ -334,10 +334,21 @@ auditoria independente — que é exatamente o motivo de ela existir.
    contas-mãe avisa e deixa criar (**RC-80**). Fecham PE-42 e PE-43. As três que
    não eram de sim ou não foram reescritas por mim como proposta concreta antes
    de perguntar — presumir regra contábil é o que o projeto proíbe.
-9. **Decisões que dependem do Fred:** **PE-44** (faixa de vigência do regime
-   tributário e se a correção apaga ou registra — aberta na distribuição da
-   DL-019, e por isso a BL-153 entrega só a parte independente da resposta),
-   PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
+
+   **Quinta decisão, no mesmo dia: RC-81** — o escritório **não** registra
+   regime tributário com vigência futura, então `vigencia_inicio` nunca é
+   posterior a hoje. Fecha a alínea (a) da PE-44 e, com ela, a "porta de mão
+   única" do achado R6-6 **por construção**: com o teto em "hoje", `date.max`
+   nunca entra e amanhã sempre existe data posterior à última registrada — a
+   regra de vigência crescente deixa de poder travar a empresa para sempre.
+   O **piso** de `01/01/2000` é **HI-07**, hipótese minha herdada do RC-77, que
+   fala de data de lançamento e não de regime. Declarada como tal no código.
+9. **Decisões que dependem do Fred:** **PE-44(b)** (quando o contador erra o
+   regime de um período **já vigente**, a correção apaga o registro errado ou
+   registra uma correção rastreável? A alínea (a) foi respondida — ver RC-81 no
+   item 8 —, esta não, e ela não é reversível depois de aplicada a dado real),
+   **HI-07** (o piso de `01/01/2000` para vigência de regime é hipótese minha,
+   não confirmação dele), PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
    e prejuízos acumulados na implantação), PE-20, PE-21, PE-22, PE-23, PE-25,
    PE-30 a PE-35.
 10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
