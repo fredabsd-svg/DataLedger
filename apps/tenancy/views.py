@@ -1,6 +1,15 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
+
+# BL-170/A1 (auditoria DL-019 rodada 1): as views de FUNÇÃO deste módulo
+# declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
+# não substring do fonte — que a varredura de contratos
+# (`apps/core/tests/test_dl019_varredura_de_contratos.py`) lê para saber se a
+# view é superfície de escrita. A classificação textual anterior
+# (`"request.method" in fonte`) foi contornada pelo auditor com uma view que
+# grava lendo `json.loads(request.body)`, com a suíte inteira verde.
+from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -130,6 +139,7 @@ class EscritorioAtivoView(APIView):
 
 
 @login_required
+@require_safe
 def painel(request):
     """Página inicial pós-login: mostra o escritório ativo e permite trocar.
 
@@ -148,6 +158,7 @@ def painel(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def ativar_escritorio(request):
     if request.method == "POST":
         # BL-149: mesma política da view irmã acima, mesma fonte única, e

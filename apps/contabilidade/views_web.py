@@ -34,6 +34,17 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+# BL-170/A1 (auditoria DL-019 rodada 1): cada view de função deste módulo
+# DECLARA os métodos HTTP que aceita. Não é decoração cosmética — é o fato do
+# objeto que a varredura de contratos lê para saber se a view é superfície de
+# escrita. A classificação anterior era TEXTUAL (`"request.method" in fonte`)
+# e o auditor a contornou com uma view que grava lendo `json.loads(request.
+# body)` sob `@require_POST`: suíte inteira verde, lint limpo, gravação sem
+# contrato. Uma view de função alcançável pelo urlconf e SEM esta declaração
+# reprova a varredura — não existe mais o caminho "não consegui classificar,
+# então não é escrita".
+from django.views.decorators.http import require_http_methods, require_safe
+
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
@@ -502,6 +513,7 @@ def _linhas_hierarquicas(contas):
 
 
 @login_required
+@require_safe
 def plano_de_contas(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -574,6 +586,7 @@ def _contas_mae_faltantes(empresa, codigo, conta_pai):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def conta_nova(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1294,6 +1307,7 @@ def _mensagem_de_tela_para_dado_nao_contratado(excecao, *, explicacao_extra=""):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def lancamento_novo(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1703,6 +1717,7 @@ def lancamento_novo(request, empresa_id):
 
 
 @login_required
+@require_safe
 def lancamento_detalhe(request, empresa_id, lancamento_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1830,6 +1845,7 @@ def _aviso_de_movimento_fora_do_periodo(
 
 
 @login_required
+@require_safe
 def diario(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1886,6 +1902,7 @@ def diario(request, empresa_id):
 
 
 @login_required
+@require_safe
 def razao(request, empresa_id, conta_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1973,6 +1990,7 @@ def razao(request, empresa_id, conta_id):
 
 
 @login_required
+@require_safe
 def balancete(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -2079,6 +2097,7 @@ def balancete(request, empresa_id):
 
 
 @login_required
+@require_safe
 def conferencia(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)

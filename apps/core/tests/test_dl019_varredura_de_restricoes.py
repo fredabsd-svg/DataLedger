@@ -29,20 +29,39 @@ proíbe é o **silêncio**, não a ausência de tradução: uma restrição que
 nenhuma requisição alcança pode ficar sem tradução, mas não pode ficar sem
 declaração.
 
-**Não cobre:** os índices únicos IMPLÍCITOS, criados por `unique=True` em
-campo (`accounts_usuario_username_key` e companhia). Eles não estão em
-`Meta.constraints` e não são alcançáveis por esta varredura sem uma segunda
-gramática de nomes, própria do PostgreSQL. A fronteira não fica implícita:
+**Não cobre pela varredura principal:** os índices únicos IMPLÍCITOS. Eles
+não estão em `Meta.constraints`, e nomeá-los exige uma segunda gramática de
+nomes, própria do banco. São **três** formas, e a terceira entrou com a
+BL-172 (achado A6 da auditoria DL-019 rodada 1), porque a fronteira estava
+declarada como completa nomeando só a primeira:
+
+1. `unique=True` em campo → `<tabela>_<coluna>_key` no PostgreSQL.
+2. A chave primária → `_pkey`, deliberadamente fora: nenhuma requisição de
+   cliente escolhe o `id`.
+3. `Meta.unique_together` → nome gerado pelo **próprio Django** (sufixo
+   `_uniq`, com hash de tabela e colunas). O auditor mediu: acrescentar
+   `unique_together` a `Conta.Meta` passava com **47 passed**, invisível às
+   duas metades da varredura. Gravidade baixa (Django e DRF validam
+   `unique_together` na camada de formulário e serializer, e
+   `makemigrations --check` acusaria a mudança de modelo) — o que a tornou um
+   achado foi a fronteira declarada como completa sem o ser.
+
+A fronteira não fica implícita:
 `test_o_conjunto_de_indices_unicos_implicitos_e_conhecido` prende a lista
-atual, então um `unique=True` NOVO reprova a suíte e força a decisão em vez
-de escapar — que é a mesma armadilha da "décima quinta `APIView`" da BL-134.
+atual — nas três formas —, então um `unique=True` ou um `unique_together`
+NOVO reprova a suíte e força a decisão em vez de escapar, que é a mesma
+armadilha da "décima quinta `APIView`" da BL-134. E
+`test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros` (BL-173)
+exige que cada um deles tenha razão escrita, com o mesmo piso de 40
+caracteres que as restrições de `Meta` já tinham: uma restrição de banco não
+pode ficar sem razão conferível por causa da FORMA como foi declarada.
 """
 
 import importlib
 
 import pytest
 from django.apps import apps as registro_de_apps
-from django.db import models
+from django.db import connection, models
 
 from apps.core.restricoes import (
     MENSAGENS_DE_RESTRICAO,
@@ -136,20 +155,50 @@ def constraints_sem_registro(modelos):
     }
 
 
-def _indices_unicos_implicitos(modelos):
-    """Nome PostgreSQL do índice único que cada `unique=True` de campo cria.
+def _nome_do_indice_de_unique_together(modelo, campos):
+    """Nome do índice único que o Django dá a um `Meta.unique_together`.
 
-    O padrão do PostgreSQL para a restrição de unicidade de coluna é
-    `<tabela>_<coluna>_key` (é dele que vem `empresas_empresa_cnpj_key`, o
-    nome que `apps.empresas.services.mensagem_se_cnpj_duplicado` já
-    reconhece hoje). Chaves primárias ficam fora: são `_pkey`, e nenhuma
-    requisição de cliente escolhe o `id`.
+    BL-172. Derivado pelo **próprio** gerador do Django (`_create_index_name`,
+    do editor de esquema), e não por uma segunda cópia da regra de nomes: o
+    nome carrega um hash de tabela e colunas e um truncamento que dependem do
+    banco, e reimplementá-los aqui divergiria na primeira mudança — a
+    DE-026 aplicada a nome de índice. Se o Django renomear esse gerador, esta
+    função levanta `AttributeError` e a suíte reprova alto, que é o
+    comportamento certo: o contrário seria a varredura voltar a não enxergar
+    a terceira forma, em silêncio.
+    """
+    colunas = [modelo._meta.get_field(nome).column for nome in campos]
+    return connection.schema_editor()._create_index_name(
+        modelo._meta.db_table, colunas, suffix="_uniq"
+    )
+
+
+def _indices_unicos_implicitos(modelos):
+    """Nome do índice único que cada restrição de unicidade NÃO declarada em
+    `Meta.constraints` cria no banco.
+
+    Duas origens, e a segunda entrou com a BL-172:
+
+    - `unique=True` em campo. O padrão do PostgreSQL para a restrição de
+      unicidade de coluna é `<tabela>_<coluna>_key` (é dele que vem
+      `empresas_empresa_cnpj_key`, o nome que `apps.empresas.services.
+      mensagem_se_cnpj_duplicado` já reconhece hoje). Chaves primárias ficam
+      fora: são `_pkey`, e nenhuma requisição de cliente escolhe o `id`.
+    - `Meta.unique_together`. Cria restrição única no banco, não está em
+      `Meta.constraints` e não é campo `unique=True` — as duas metades da
+      varredura passavam por cima dela sem ver nada (achado A6, medido).
+
+    Recebe os modelos como PARÂMETRO pelo mesmo motivo de
+    `constraints_declaradas`: para o mutante da BL-172 poder ser reconstruído
+    dentro do próprio teste, sem tocar em modelo real.
     """
     nomes = set()
     for modelo in modelos:
         for campo in modelo._meta.local_fields:
             if getattr(campo, "unique", False) and not campo.primary_key:
                 nomes.add(f"{modelo._meta.db_table}_{campo.column}_key")
+        for campos in getattr(modelo._meta, "unique_together", ()) or ():
+            nomes.add(_nome_do_indice_de_unique_together(modelo, campos))
     return nomes
 
 
@@ -255,8 +304,15 @@ def test_cada_nome_de_mensagens_de_restricao_e_uma_constraint_que_existe(nome):
 
 @pytest.mark.parametrize("nome", sorted(RESTRICOES_SEM_CAMINHO_DE_CLIENTE))
 def test_cada_restricao_sem_caminho_de_cliente_existe_e_tem_razao_escrita(nome):
-    declaradas = constraints_declaradas(_modelos_do_repositorio())
-    assert nome in declaradas, sorted(declaradas)
+    """A entrada tem de corresponder a uma restrição REAL — de `Meta` ou
+    índice único implícito (BL-173, mesma união que
+    `test_cada_restricao_traduzida_fora_do_mapa_e_de_meta_ou_indice_implicito`
+    já usava). Uma entrada que não corresponda a nada seria dispensa
+    permanente de um nome que ninguém reconhece.
+    """
+    modelos = _modelos_do_repositorio()
+    reais = set(constraints_declaradas(modelos)) | _indices_unicos_implicitos(modelos)
+    assert nome in reais, sorted(reais)
     razao = RESTRICOES_SEM_CAMINHO_DE_CLIENTE[nome]
     # "Sem caminho de cliente" é declaração de LIMITE e precisa de motivo
     # legível — um registro com string vazia viraria dispensa silenciosa, que
@@ -312,3 +368,77 @@ def test_o_conjunto_de_indices_unicos_implicitos_e_conhecido():
         f"Esperado: {sorted(INDICES_UNICOS_IMPLICITOS_CONHECIDOS)}; "
         f"encontrado: {sorted(encontrados)}."
     )
+
+
+@pytest.mark.parametrize("nome", sorted(INDICES_UNICOS_IMPLICITOS_CONHECIDOS))
+def test_cada_indice_unico_implicito_aparece_em_um_dos_tres_registros(nome):
+    """BL-173 (achado A7). Estar FORA da varredura principal não pode
+    significar estar fora de toda pergunta.
+
+    A assimetria que este teste desfaz: `RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
+    exigia razão escrita de 40 caracteres, verificada por teste, para uma
+    restrição de `Meta` sem caminho de cliente — e um índice único implícito
+    na MESMA situação não exigia nada. Três nomes
+    (`tenancy_escritorio_cnpj_key`, `accounts_usuario_username_key`,
+    `accounts_usuario_email_key`) estavam presos na lista acima sem aparecer
+    em registro nenhum e sem razão escrita em lugar nenhum. Violar um deles
+    produz `IntegrityError` igual ao de uma `UniqueConstraint` de `Meta`; a
+    forma como a restrição foi declarada não muda isso.
+
+    Não é explorável hoje — não há caminho de escrita de cliente para
+    `Escritorio` nem para `Usuario` —, e é precisamente por isso que o
+    registro precisa existir ANTES: a DL-018, primeiro acesso, é a etapa que
+    abre esse caminho.
+    """
+    assert nome in _nomes_registrados(), (
+        f"O índice único implícito {nome} não aparece em nenhum dos três "
+        "registros de apps/core/restricoes.py. Escolha UM: "
+        "MENSAGENS_DE_RESTRICAO (a API traduz para 400), "
+        "RESTRICOES_TRADUZIDAS_FORA_DO_MAPA (outro ponto traduz — aponte qual) "
+        "ou RESTRICOES_SEM_CAMINHO_DE_CLIENTE (nenhuma requisição de cliente a "
+        "alcança — escreva por quê, com o mesmo piso das restrições de Meta)."
+    )
+
+
+def test_a_varredura_enxerga_restricao_unica_declarada_por_unique_together():
+    """BL-172 (achado A6), reconstruído dentro do próprio teste.
+
+    O mutante do auditor foi acrescentar `unique_together = [["empresa",
+    "nome"]]` ao `Meta` de `Conta`: as duas varreduras deram **47 passed** e
+    nem a principal nem o teste que prende a lista de índices implícitos
+    enxergaram a restrição nova. Aqui o modelo é fabricado — mesmo molde do
+    `_MetaFalso` acima (BL-150) — para a prova não depender de ninguém ter
+    editado um modelo real e registrado que viu a suíte falhar.
+    """
+
+    class _CampoFalso:
+        def __init__(self, coluna):
+            self.column = coluna
+            self.unique = False
+            self.primary_key = False
+
+    class _MetaComUniqueTogether:
+        db_table = "app_ficticio_conta"
+        constraints = ()
+        unique_together = (("empresa", "nome"),)
+        local_fields = ()
+
+        def get_field(self, nome):
+            return _CampoFalso(f"{nome}_id" if nome == "empresa" else nome)
+
+    class ModeloComUniqueTogether:
+        _meta = _MetaComUniqueTogether()
+
+    encontrados = _indices_unicos_implicitos([ModeloComUniqueTogether])
+
+    # Um nome só, gerado pelo Django, com a tabela e as colunas dentro dele —
+    # e é ele que aparece no `IntegrityError` quando a restrição é violada.
+    assert len(encontrados) == 1, encontrados
+    nome = next(iter(encontrados))
+    assert nome.startswith("app_ficticio_conta_empresa_id_nome_")
+    assert nome.endswith("_uniq")
+
+    # E a consequência que fecha o achado: um `unique_together` novo num
+    # modelo real faria a lista prendida divergir, e
+    # `test_o_conjunto_de_indices_unicos_implicitos_e_conhecido` reprova.
+    assert nome not in INDICES_UNICOS_IMPLICITOS_CONHECIDOS

@@ -2,6 +2,15 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+
+# BL-170/A1 (auditoria DL-019 rodada 1): as views de FUNÇÃO deste módulo
+# declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
+# não substring do fonte — que a varredura de contratos
+# (`apps/core/tests/test_dl019_varredura_de_contratos.py`) lê para saber se a
+# view é superfície de escrita. A classificação textual anterior
+# (`"request.method" in fonte`) foi contornada pelo auditor com uma view que
+# grava lendo `json.loads(request.body)`, com a suíte inteira verde.
+from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
@@ -458,6 +467,7 @@ def _mascara_cnpj(cnpj):
 
 
 @login_required
+@require_safe
 def lista_empresas(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
@@ -480,6 +490,7 @@ def lista_empresas(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def criar_empresa(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")

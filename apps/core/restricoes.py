@@ -114,6 +114,15 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # Quando uma delas ganhar caminho de escrita por cliente (API, tela ou
 # importação), ela sai daqui e entra num dos dois de cima. O item de backlog
 # que cobre a varredura do admin contra as regras de negócio é a BL-164.
+#
+# BL-173 (achado A7 da auditoria DL-019 rodada 1): os índices únicos
+# IMPLÍCITOS entram aqui pela mesma porta. A assimetria que o achado nomeia
+# era real — uma restrição de `Meta` sem caminho de cliente exigia razão de 40
+# caracteres verificada por teste, e uma restrição de banco idêntica, só que
+# criada por `unique=True` em campo, não exigia nada. Três nomes estavam
+# presos em `INDICES_UNICOS_IMPLICITOS_CONHECIDOS` sem aparecer em registro
+# nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
+# quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     "unico_vinculo_usuario_escritorio": (
         "Vínculo usuário-escritório só é criado pelo admin do Django "
@@ -122,6 +131,37 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`full_clean()`, cujo `validate_unique()` converte a violação em erro "
         "de formulário ANTES do INSERT — então ela não chega ao cliente como "
         "5xx por esse caminho."
+    ),
+    # Os três índices únicos implícitos que a BL-173 encontrou sem registro.
+    # A verificação de que HOJE não existe caminho de escrita de cliente para
+    # `Escritorio` nem para `Usuario` é do auditor da rodada 1, e é o que
+    # sustenta a classificação — não uma presunção.
+    "tenancy_escritorio_cnpj_key": (
+        "Índice único implícito de `Escritorio.cnpj` (`unique=True`). "
+        "Escritório só é criado pelo admin do Django (apps/tenancy/admin.py) e "
+        "por código de teste: não existe rota de API nem tela do produto que o "
+        "grave — as duas rotas de `apps.tenancy.views` apenas LEEM o vínculo do "
+        "usuário e trocam o escritório ativo da sessão. No admin, o `ModelForm` "
+        "converte a violação em erro de formulário antes do INSERT. "
+        "ATENÇÃO: a DL-018 (primeiro acesso) é a etapa que abre esse caminho — "
+        "quando abrir, esta entrada sai daqui e vira tradução para 400, como as "
+        "duas `*_cnpj_key` de empresas já são."
+    ),
+    "accounts_usuario_username_key": (
+        "Índice único implícito de `Usuario.username` (`unique=True`, herdado de "
+        "`AbstractUser`). Usuário só nasce pelo admin do Django, por "
+        "`createsuperuser` e por código de teste: `apps/accounts` não tem "
+        "`views.py` e nenhuma rota do projeto cria usuário. "
+        "ATENÇÃO: a DL-018 (primeiro acesso) é a etapa que abre esse caminho, e "
+        "cadastro público com nome de usuário repetido é exatamente o 500 que "
+        "esta entrada existe para antecipar."
+    ),
+    "accounts_usuario_email_key": (
+        "Índice único implícito de `Usuario.email` (`unique=True`). Mesma "
+        "situação de `accounts_usuario_username_key`, e com o mesmo prazo: não "
+        "há caminho de escrita de cliente hoje, e a DL-018 o abre. O e-mail "
+        "duplicado é o caso mais provável dos dois na prática, porque o usuário "
+        "escolhe o nome mas não escolhe ter só um e-mail."
     ),
 }
 
