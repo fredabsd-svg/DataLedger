@@ -1708,6 +1708,14 @@ possa dispensar por pedido, e não é o que o Fred estava escolhendo quando diss
 "apagar" — ele estava escolhendo o que o produto mostra. O produto mostra o
 histórico limpo; a trilha guarda quem mexeu.
 
+**Isto não ficou como interpretação minha.** Eu apresentei a distinção ao Fred,
+dizendo com todas as letras que se ele quisesse dizer "nem o log deve existir" a
+conversa seria outra, porque aí a mudança é de regra de engenharia e não de
+comportamento de tela. Ele reafirmou "apagar" e respondeu **"Concordo com
+você"** em 2026-09-15. A tabela acima está **confirmada pelo responsável**, e não
+apenas presumida pelo arquiteto — que é a diferença que este projeto existe para
+manter.
+
 ### O que continua proibido, e a diferença que importa
 
 Isto vale para **regime tributário**, que é cadastro. **Não** se estende a
