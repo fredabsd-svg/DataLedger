@@ -133,3 +133,9 @@ para tarefas específicas e **não delegam**.
 O `auditor-qa` não tem `Write`/`Edit` e **não corrige a implementação**: ele
 registra o achado e o encaminha ao responsável. Detalhes, permissões e
 limitações reais em [docs/agents/equipe.md](docs/agents/equipe.md).
+
+Desde a [DL-019](docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md),
+`.claude/agents/*.md` é **arquivo gerado**: a fonte de cada papel está em
+`docs/agents/papeis/`, e dela saem também os formatos de Codex, Copilot e
+Gemini. Editar o arquivo gerado é erro, e o teste acusa — altere a fonte e rode
+`python scripts/gerar_agentes.py --escrever`.

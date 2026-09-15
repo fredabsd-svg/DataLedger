@@ -610,6 +610,17 @@ Registrado para não ser confundido com esquecimento:
 - Conciliação bancária, centros de custo, Balanço Patrimonial, DRE, ECD e ECF —
   explicitamente adiados no plano da DL-006.
 
+## P2 — portabilidade entre ferramentas de IA ([DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md))
+
+Itens que a DL-019 deixa em aberto por decisão, não por esquecimento. A faixa
+BL-148 a BL-157 está reservada às dez ressalvas da rodada 6 da DL-017 e não é
+usada aqui.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-160 | **Podar ou ampliar os formatos gerados conforme o uso real.** A DL-019 cobre quatro ferramentas por terem caminho e formato confirmados, não por termos confirmado que o Fred usa as quatro (PE-44). Cada formato é manutenção permanente. | `arquiteto-senior` | PE-44 | aguardando resposta do Fred | Formatos gerados correspondem às ferramentas de fato usadas; a remoção de um formato tira também seu teste e sua menção em `equipe.md`. |
+| BL-161 | **Reconferir as convenções antes de cada mudança nos formatos.** Caminho e campo de arquivo de agente são convenção de fornecedor e mudam sem aviso — os prompts customizados do Codex já foram descontinuados em favor de skills. O repositório grava a data do levantamento (2026-09-15) e a fonte. | `arquiteto-senior` | — | pendente | Antes de alterar um formato gerado, a documentação oficial correspondente é reconsultada e a data registrada no plano. Campo não confirmado **não** é escrito. |
+
 ## Observação sobre o estado do repositório
 
 Os PRs #7, #8 e #9 **já foram mesclados**: a `main` contém DL-002 a DL-006. O

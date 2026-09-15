@@ -1663,3 +1663,62 @@ descrevê-la mal. Por isso a regra ganha um par verificável, e não fica no
 conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
 ser conferível por teste** — se X não usa, o teste reprova. Registrado como
 BL-146.
+
+## DE-035 — Papel de agente tem uma fonte e formatos gerados, nunca cópias paralelas
+
+**Data:** 2026-09-15. Contexto: pedido do Fred para que ChatGPT/Codex e outros
+modelos também consigam trabalhar no repositório, em
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md).
+
+**O que foi pedido:** uma pasta por ferramenta, cada uma com os agentes dentro,
+ao lado de `.claude`.
+
+**Decisão:** o conteúdo de cada papel vive em `docs/agents/papeis/<papel>.md`,
+em formato independente de fornecedor, e os arquivos de cada ferramenta —
+`.claude/agents/`, `.codex/agents/`, `.github/agents/`, `.gemini/agents/` — são
+**gerados** por `scripts/gerar_agentes.py`, com teste que reprova o build quando
+um derivado diverge da fonte.
+
+**Motivo:** o pedido literal criaria três cópias do mesmo papel. A instrução
+permanente do Fred, de 2026-09-13, nasceu exatamente disso — o estado do projeto
+afirmado em quatro lugares e já divergente. A causa registrada à época não foi
+distração, foi **duplicação**. Um papel de auditor descrito em três arquivos
+diverge no primeiro ajuste, e cada modelo passa a acreditar numa versão
+diferente de quem ele é.
+
+**Alternativas descartadas:**
+
+- **Cópias mantidas à mão**, como pedido: entrega o mesmo resultado hoje e
+  diverge na primeira manutenção, sem nada acusar.
+- **`.claude/agents/` como fonte canônica**, gerando os demais a partir dela:
+  custaria menos, mas consagraria um fornecedor como dono do formato — o oposto
+  do que a etapa existe para resolver.
+- **Arquivos-ponteiro finos** em cada pasta, do tipo "leia o papel em
+  `docs/`": funciona para regra de processo, não para definição de papel —
+  várias ferramentas carregam o arquivo do agente como prompt e não seguem o
+  ponteiro.
+
+**Consequência:** editar `.claude/agents/*.md` à mão passa a ser erro, e o teste
+acusa. Ferramenta nova só entra no conjunto com o caminho e o formato
+confirmados em documentação oficial.
+
+## DE-036 — Regra de processo aponta; só papel é gerado
+
+**Data:** 2026-09-15.
+
+**Decisão:** o `AGENTS.md` continua sendo o único lugar onde as regras de
+desenvolvimento existem. Ferramenta que não o lê nativamente ganha um arquivo
+fino que **aponta** para ele — como `.github/copilot-instructions.md` já faz
+desde a [DL-014](../planos/DL-014-guardas-de-processo.md) e como `GEMINI.md`
+passa a fazer. Geração automática fica restrita à definição de papel.
+
+**Motivo:** a regra é um documento longo, lido por sete ferramentas por
+convenção aberta; copiá-lo multiplicaria o risco e o tamanho. O papel é um
+prompt curto que a ferramenta carrega diretamente, e aí o ponteiro não serve.
+
+**Alternativas descartadas:** gerar cópias do `AGENTS.md` por ferramenta —
+duplicação sem ganho, com o agravante de o Codex ter limite padrão de 32 KiB
+para os arquivos de instrução que concatena.
+
+**Consequência:** um teste reprova o build se um trecho literal e longo do
+`AGENTS.md` aparecer duplicado em outro arquivo.

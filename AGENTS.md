@@ -302,3 +302,26 @@ web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que ho
 bloquearia o único revisor. Para isso servem a auditoria independente por etapa
 e a revisão do diff — processo, não gancho.
 
+## Você não trabalha sozinho neste repositório
+
+Independentemente da ferramenta que estiver lendo este arquivo, o projeto tem
+uma **equipe de papéis** com responsabilidades separadas: quem lidera e fala com
+o responsável pelo produto, quem implementa, quem cuida da interface, quem
+**audita de forma independente** e três auxiliares. A separação não é
+decorativa: a auditoria independente encontrou bloqueador em cinco rodadas
+seguidas de uma única etapa. Implementar e auditar o próprio trabalho é o que
+ela existe para impedir.
+
+- Papéis, permissões e limitações reais: [docs/agents/equipe.md](docs/agents/equipe.md).
+- Conteúdo de cada papel, em formato independente de fornecedor:
+  `docs/agents/papeis/`. Os arquivos de cada ferramenta — `.claude/agents/`,
+  `.codex/agents/`, `.github/agents/`, `.gemini/agents/` — são **gerados** dali
+  por `scripts/gerar_agentes.py`. **Não os edite à mão**; a integração contínua
+  reprova divergência ([DL-019](docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md)).
+- Para criar um papel novo: `docs/agents/como-criar-um-papel.md`.
+
+Restrição técnica e instrução de comportamento não são a mesma coisa, e a
+diferença **muda conforme a ferramenta**. O que é imposto em uma pode ser apenas
+pedido em outra; cada arquivo gerado declara isso no próprio corpo. Não presuma
+que um limite descrito em texto está sendo aplicado por mecanismo.
+

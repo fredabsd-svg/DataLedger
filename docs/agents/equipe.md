@@ -239,10 +239,62 @@ como integrante, mesmo sem pedido explícito de equipe. Para voltar ao
 comportamento de subagente, basta trocar
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` para `"0"`.
 
+## A mesma equipe fora do Claude Code
+
+Desde a [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) os
+sete papéis não pertencem mais a uma ferramenta só. O conteúdo de cada um vive
+em `docs/agents/papeis/<papel>.md` e é **gerado** para o formato de cada
+ferramenta (DE-035):
+
+| Ferramenta | Arquivo gerado |
+| --- | --- |
+| Claude Code | `.claude/agents/<papel>.md` |
+| Codex CLI (ChatGPT) | `.codex/agents/<papel>.toml` |
+| GitHub Copilot | `.github/agents/<papel>.agent.md` |
+| Gemini CLI | `.gemini/agents/<papel>.md` |
+
+**Não edite um desses arquivos à mão.** Altere a fonte e rode
+`python scripts/gerar_agentes.py --escrever`; um teste da integração contínua
+reprova o build quando um derivado diverge. Para criar um papel novo, siga
+`docs/agents/como-criar-um-papel.md`.
+
+### O que muda de ferramenta para ferramenta, e não pode ser escondido
+
+A tabela de restrições técnicas deste documento vale **para o Claude Code**. As
+outras ferramentas não têm campo equivalente confirmado:
+
+| Restrição | Claude Code | Codex, Copilot, Gemini |
+| --- | --- | --- |
+| `auditor-qa` sem `Write`/`Edit` | **Técnica** (ausência das ferramentas) | **Só instrução.** Nenhum campo confirmado impõe isso |
+| Auxiliares não delegam | **Técnica** (`disallowedTools: Agent`) | **Só instrução** |
+| Lista fechada de tipos acionáveis | **Técnica** para a thread principal | **Só instrução** |
+
+Por isso cada arquivo gerado para essas ferramentas carrega o aviso no próprio
+corpo. Um papel que promete isolamento inexistente é pior que papel nenhum — e
+a advertência que já valia aqui vale em dobro lá: **instrução em linguagem
+natural não é isolamento de segurança garantido.**
+
+Os derivados também **não fixam nome de modelo** fora do Claude Code.
+Identificador de modelo muda com frequência, e este projeto não inventa
+identificador: onde o campo é opcional, ele fica ausente e vale o padrão de
+quem estiver usando a ferramenta.
+
+### Quem já encontra as regras sozinho
+
+O [AGENTS.md](../../AGENTS.md) é padrão aberto. Em levantamento de 2026-09-15
+na documentação oficial, leem-no nativamente: Cursor, Google Jules, OpenCode,
+Zed, Roo Code, Cline, Kiro e — com suporte parcial, que varia por produto —
+GitHub Copilot. **Gemini CLI não lê por padrão** (usa `GEMINI.md`, e por isso o
+repositório tem um `GEMINI.md`-ponteiro); Amazon Q, Aider e Windsurf usam
+arquivo próprio e não foram cobertos.
+
+Não há convenção confirmada de arquivo para o **ChatGPT no navegador** com
+conector de GitHub. O repositório não afirma que existe.
+
 ## Manutenção destes arquivos
 
 `scripts/validate-docs.ps1` roda na integração contínua e valida **todos** os
-`.md` do repositório, inclusive `.claude/agents/*.md`. Ao criar ou editar
-qualquer definição de agente, garanta: título `# ` no corpo do arquivo, UTF-8
-válido, sem espaço no fim de linha, nova linha final, e links relativos que
-existam de verdade.
+`.md` do repositório, inclusive `.claude/agents/*.md` e `docs/agents/papeis/`.
+Ao criar ou editar qualquer definição de agente, garanta: título `# ` no corpo
+do arquivo, UTF-8 válido, sem espaço no fim de linha, nova linha final, e links
+relativos que existam de verdade.
