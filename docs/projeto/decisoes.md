@@ -1774,3 +1774,51 @@ padrão, e o `AGENTS.md` está em 22.601 — 69% do limite, crescendo a cada eta
 Virou o critério 14 da DL-019, com teste que reprova acima de 30.000 bytes.
 **Nenhuma das quatro ferramentas teria revelado isso; a pergunta ao usuário
 revelou.**
+
+## DE-038 — O rigor do processo é proporcional ao dano possível, não ao gosto do arquiteto
+
+**Data:** 2026-09-15. Contexto: cobrança do Fred ao fim da
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md), e ela
+estava certa.
+
+**O que aconteceu:** o Fred pediu pastas para que outras ferramentas de IA
+trabalhassem no repositório. Eu transformei o pedido numa etapa completa —
+fonte única, gerador, 29 testes novos, **três rodadas de auditoria** e duas
+reprovações — e consumi horas dele num item que não toca dado de cliente,
+cálculo, período fechado nem isolamento entre empresas. Ele resumiu assim:
+*"Tá difícil assim? você está a horas nisso e não consegue resolver"*.
+
+O [AGENTS.md](../../AGENTS.md) já mandava dimensionar "na proporção necessária
+à demanda", e a §4 já diz que demanda pequena adapta a quantidade de etapas. Eu
+não apliquei. Não foi zelo: foi **falta de calibragem**, e o custo caiu sobre o
+tempo do responsável pelo produto.
+
+**Decisão:** o ciclo completo — auditoria independente por rodada, correção,
+reauditoria até aprovação — vale para mudança que possa **corromper dado,
+errar cálculo, vazar informação entre empresas, desbalancear lançamento,
+alterar período encerrado ou derrubar o servidor**. Para o restante —
+ferramental interno, documentação, configuração de agente, script de apoio —
+vale **uma rodada de auditoria**; o que ela achar e não estiver nessa lista de
+danos vira item de backlog nomeado, e a etapa fecha.
+
+**Motivo:** processo tem custo, e o custo é o tempo do Fred. Rigor gasto onde o
+dano possível é pequeno é rigor que falta onde o dano é grande. Esta etapa
+produziu achados reais (travessia de caminho no gerador, build reprovando em
+clone limpo), mas produziu também rodadas que só refinaram o que já não
+machucava ninguém.
+
+**Alternativas descartadas:** manter o ciclo completo para tudo — foi o que
+fizemos, e o resultado está registrado acima; abandonar a auditoria
+independente em itens menores — ela achou, na primeira rodada desta mesma
+etapa, um defeito que gravava arquivo fora do repositório. Uma rodada é o
+equilíbrio.
+
+**Consequência, e é ela que muda o comportamento:** quem escreve o plano
+declara, no próprio plano, em qual das duas faixas a demanda está, **antes** de
+começar. Faixa declarada depois do primeiro parecer é escolha influenciada pelo
+resultado.
+
+**O que esta decisão NÃO afrouxa:** a honestidade dos relatórios, a exigência
+de teste executado, a proibição de apresentar hipótese como requisito
+confirmado e a preservação integral dos achados de auditoria. Nada disso é
+proporcional a risco — é condição de o registro valer alguma coisa.

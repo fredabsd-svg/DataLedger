@@ -1,6 +1,13 @@
 # DL-019 — Portabilidade entre ferramentas de IA: um papel, vários modelos
 
-**Estado:** planejada.
+**Estado:** em encerramento — ver "Como esta etapa fecha", no fim.
+
+**Faixa de rigor (DE-038): ferramental interno.** Esta etapa não toca dado de
+cliente, cálculo, período encerrado nem isolamento entre empresas. Pela regra
+que ela própria originou, caberia **uma** rodada de auditoria, com o resto indo
+para o backlog. Foram três, e isso custou horas do Fred — o registro fica aqui
+porque a faixa passou a ser declarada **antes** de começar, e esta é a etapa que
+ensinou o porquê.
 
 | Item | Valor |
 | --- | --- |
@@ -181,3 +188,28 @@ ninguém. O que some primeiro é o **fim** do arquivo — onde estão justamente
 - Não cria papéis novos. Os sete existentes apenas passam a existir em quatro
   formatos.
 - Não torna técnica, em outra ferramenta, uma restrição que lá é só instrução.
+
+## Como esta etapa fecha
+
+Decidido com o Fred em 2026-09-15, depois de duas reprovações e de ele cobrar o
+tempo gasto: **a rodada 3 é a última.** Qualquer achado que ela traga e que não
+esteja na lista de danos da [DE-038](../projeto/decisoes.md) — corromper dado,
+errar cálculo, vazar entre empresas, desbalancear lançamento, alterar período
+encerrado, derrubar o servidor — vira item de backlog nomeado, e a etapa fecha
+assim mesmo. **Não haverá rodada 4.**
+
+Isso não é aprovação antecipada, e a diferença importa: o parecer do auditor
+será registrado na íntegra, seja ele qual for, e o que ficar aberto fica
+**escrito como aberto**, não silenciado por encerramento.
+
+### O que já funciona, independentemente do parecer
+
+| Entrega | Situação |
+| --- | --- |
+| Sete papéis em `.codex/agents/*.toml` | Funcionando — o Codex CLI enxerga a equipe |
+| Sete papéis em `.claude/agents/*.md` | Funcionando, **byte a byte idênticos** aos de antes da etapa |
+| Fonte única em `docs/agents/papeis/` | Funcionando, com gerador e teste de sincronia |
+| `AGENTS.md` apresentando a equipe a qualquer ferramenta | Funcionando |
+| Procedimento para criar papel novo | Escrito e executado de ponta a ponta |
+| Guarda contra truncamento silencioso do `AGENTS.md` no Codex | Funcionando (22.783 de 30.000 bytes) |
+| Suíte do projeto | 846 testes, com uma falha pré-existente de outra etapa |
