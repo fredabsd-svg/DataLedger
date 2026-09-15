@@ -1,6 +1,6 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-14**, com a `main` em `9b22b03` (PR #18 integrado).
+Atualizado em **2026-09-15**, com a `main` em `60cbcff` (PR #19 integrado).
 Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
 partir da `main` depois da integração.
 
@@ -248,27 +248,27 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — APROVADA COM
-   RESSALVAS na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md).**
-   Primeira aprovação em seis rodadas. O auditor escreveu como ela deve ser
-   lida, e vale citar: *"não é 'está pronto', é 'está certo o suficiente para
-   integrar, com dez coisas nomeadas que ainda faltam, nenhuma delas capaz de
-   corromper dado, vazar entre empresas, desbalancear um lançamento ou derrubar
-   o servidor'."*
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — INTEGRADA na
+   `main` (PR #19), e as dez ressalvas viram a rodada seguinte.** Aprovada com
+   ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois
+   de cinco reprovações; integrada em 2026-09-15 por autorização do Fred, com o
+   trade-off apresentado por escrito.
 
-   **O Fred decidiu em 2026-09-15: integrar agora.** O argumento é que a `main`
-   está **pior** — tem o `1.000` gravado como `1,00` e não sobe em Python
-   3.12/3.13, e as duas coisas estão corrigidas aqui. As dez ressalvas viram a
-   rodada seguinte, em vez de travarem esta.
-
-   **Antes de integrar, dois itens meus:** preencher o corpo do PR #19 (o check
-   `Regras do projeto` está vermelho pela quarta vez — BL-147) e decidir se a
-   `main` ganha proteção antes (BL-02, ação administrativa dele).
+   **O que entra agora, e é a próxima entrega:** as dez ressalvas (BL-148 a
+   BL-157) mais as quatro regras que o Fred acabou de confirmar — faixa de data
+   (RC-77), estorno nunca anterior ao original (RC-78), teto de 200 partidas
+   (RC-79) e conta sem contas-mãe avisando (RC-80).
 
    **Cuidado registrado em letras grandes, R6-1:** a correção óbvia do
-   instrumento de navegador (subir o timeout) **reabre o bloqueador da rodada
-   5**. Tirar o descarte do perfil da região julgada vem primeiro. Nunca o
-   contrário.
+   instrumento de navegador (subir o timeout de 10 s) **reabre o bloqueador da
+   rodada 5**. Tirar o descarte do diretório de perfil da região julgada vem
+   **primeiro**. Nunca o contrário.
+
+   **E o que o dado do `_DIAGNOSTICO_CHROMIUM` revelou**, contra a hipótese de
+   todos nós três: o navegador do runner **funciona**. `OSError(39)` não pode
+   vir de `subprocess.run` — vem do descarte do perfil, depois de o navegador
+   rodar. As duas medições de CSS por efeito **nunca rodaram na CI**, em
+   nenhuma rodada.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -373,10 +373,16 @@ o que medimos, e está registrado o que não medimos.
 
 ## Estado do repositório
 
-- **`main` em `9b22b03`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017 fases
-  A e B** — esta última integrada por autorização expressa do Fred **antes** de
-  a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
-  auditar e só então integrar.
+- **`main` em `60cbcff`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017
+  completa** — as seis telas da contabilidade, aprovadas com ressalvas na
+  [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de **cinco
+  reprovações**. Integrada em 2026-09-15 por autorização do Fred, **desta vez
+  na ordem certa**: auditar, aprovar, e só então integrar.
+  - O bloqueador que mais custou — a tela gravando `1.000` como `1,00` — **saiu
+    da `main`**. E com ele a incompatibilidade com Python 3.12/3.13, que fazia
+    o site inteiro não subir apesar de o README prometer 3.12+.
+  - Squash com `expectedHeadSha`, então o que entrou é comprovadamente a
+    revisão auditada `0ec31ed` — nada além dela. 65 arquivos, +11.870/−257.
 - **Suíte: 766 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
   em árvore limpa. **Suíte verde não é sistema correto**, e esta etapa tem a
   série completa como prova: 487 testes passavam com o bloqueador do `1.000` em
