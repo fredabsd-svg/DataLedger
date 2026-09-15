@@ -26,13 +26,21 @@ from apps.contabilidade.services import (
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
     localizar_inconsistencias_de_hierarquia,
+    localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
+    movimento_fora_do_periodo,
 )
 from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.core.escolhas import EscolhaInvalida, para_escolha
 from apps.core.identificadores import IdentificadorInvalido, para_id
-from apps.core.restricoes import RestricaoViolada, restricao_como_400
+from apps.core.requisicao import (
+    ContratoDeRequisicao,
+    DadoNaoContratado,
+    recusar_campos_nao_contratados,
+    recusar_dado_nao_contratado,
+)
+from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -96,20 +104,69 @@ NIVEL_MAXIMO = 50
 CAMPOS_PERMITIDOS_LANCAMENTO = frozenset({"data", "historico", "itens"})
 CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
 
+# BL-149 / achado R6-2 (rodada 6): a política dos cinco dicionários passou a
+# morar em `apps.core.requisicao` e vale para as SETE superfícies de escrita,
+# não só para o POST de lançamento. O que sobrava, medido pelo auditor, era
+# tudo o que NÃO é o corpo: querystring num POST (201 com um par de partidas
+# completo pendurado na URL, nem lido nem recusado), `request.FILES` e
+# cabeçalho não contratado. Cada view abaixo declara o seu contrato; nenhuma
+# reimplementa a subtração de conjuntos.
+#
+# `aceita_querystring=False` em todas: nenhuma rota de ESCRITA desta API tem
+# contrato de querystring — o recorte de período é das rotas de LEITURA
+# (`_periodo_obrigatorio`), que não passam por aqui.
+#
+# Cabeçalhos: a API de lançamento USA `Idempotency-Key` (BL-41), então ela
+# não o declara como ignorado. As outras rotas de escrita NÃO têm contrato de
+# idempotência nenhum, e quem manda a chave nelas precisa saber que ela não
+# tem efeito — é o mesmo defeito da tela (R5-6), na direção oposta: lá o
+# cabeçalho era ignorado, aqui ele seria ignorado em rotas que não o
+# implementam.
+CONTRATO_POST_CONTA = ContratoDeRequisicao(
+    campos={"codigo", "nome", "tipo", "natureza", "conta_pai", "aceita_lancamento", "ativo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro de conta",
+)
+CONTRATO_POST_LANCAMENTO = ContratoDeRequisicao(
+    campos=CAMPOS_PERMITIDOS_LANCAMENTO,
+    contexto="no lançamento",
+)
+# Estorno é rota de AÇÃO: o que estornar vem da URL, e o corpo não tem
+# contrato nenhum. `campos=frozenset()` é "nenhum campo aceito" — diferente
+# de não declarar, que seria "não julgo o corpo".
+CONTRATO_POST_ESTORNO = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno",
+)
+
+
+def _recusar_dado_nao_contratado(request, contrato):
+    """Aplica a política de `apps.core.requisicao` e traduz o veredito para o
+    protocolo desta superfície (400 em JSON do DRF).
+
+    A tradução é de UMA linha de propósito: o módulo julga e não sabe
+    responder HTTP; esta função é a única ponte entre ele e o DRF nesta API.
+    """
+    try:
+        recusar_dado_nao_contratado(request, contrato)
+    except DadoNaoContratado as exc:
+        raise DRFValidationError(exc.mensagem) from exc
+
 
 def _sem_campos_desconhecidos(dados, campos_permitidos, *, contexto):
     """Recusa (`DRFValidationError`, nomeando a chave) se `dados` for um
-    `dict` com alguma chave fora de `campos_permitidos`. Não faz nada se
-    `dados` não for um `dict` — outra checagem, mais adiante, já recusa
-    tipo errado com sua própria mensagem (não duplicar aqui)."""
-    if not isinstance(dados, dict):
-        return
-    desconhecidos = set(dados) - campos_permitidos
-    if desconhecidos:
-        raise DRFValidationError(
-            f"Campo(s) não reconhecido(s) {contexto}: {', '.join(sorted(desconhecidos))}. "
-            f"Campos aceitos: {', '.join(sorted(campos_permitidos))}."
-        )
+    `dict` com alguma chave fora de `campos_permitidos`.
+
+    Delega o julgamento a `apps.core.requisicao.recusar_campos_nao_
+    contratados` (BL-149) — a subtração de conjuntos e o texto da mensagem
+    moram lá, num lugar só. Esta função continua existindo porque o corpo da
+    API é ANINHADO: cada item da lista de partidas é um dicionário próprio,
+    que o contrato do topo não alcança."""
+    try:
+        recusar_campos_nao_contratados(dados, campos_permitidos, contexto=contexto)
+    except DadoNaoContratado as exc:
+        raise DRFValidationError(exc.mensagem) from exc
 
 
 def _como_moeda(valor):
@@ -121,6 +178,40 @@ def _como_moeda(valor):
     causa do banco usado no ambiente, mascarando o valor real.
     """
     return str(Decimal(valor).quantize(Decimal("0.01")))
+
+
+def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
+    """Serializa `movimento_fora_do_periodo` para a resposta JSON (BL-151).
+
+    Devolve `None` quando não há nada fora do período — a chave existe SEMPRE
+    na resposta, com `null`, porque um cliente que só a veja quando há
+    movimento não tem como distinguir "não há" de "esta versão do servidor
+    não responde isso".
+
+    Por que a API também recebe o aviso, e não só a tela (item 2 da DE-034):
+    o fato invisível é invisível pela porta da API do mesmo jeito. Um cliente
+    que pede o Diário de janeiro recebe um total que CONCILIA e nenhuma pista
+    de que existe um lançamento de 5.000,00 em `9999-12-31` — foi exatamente
+    isso que o auditor mediu, e fechar só na tela repetiria o vício que o
+    R6-2 nomeou.
+
+    As datas saem em `isoformat()` (AAAA-MM-DD), como todas as outras datas
+    desta API — nunca `date` cru, que o encoder JSON do DRF converteria por
+    conta própria.
+    """
+    fora = movimento_fora_do_periodo(empresa=empresa, inicio=inicio, fim=fim, conta=conta)
+    if fora is None:
+        return None
+
+    def _lado(dados):
+        if dados is None:
+            return None
+        return {
+            "quantidade": dados["quantidade"],
+            "data_extrema": dados["data_extrema"].isoformat(),
+        }
+
+    return {"anteriores": _lado(fora["anteriores"]), "posteriores": _lado(fora["posteriores"])}
 
 
 def _saldo_absoluto_com_natureza(saldo_assinado, natureza_cadastrada):
@@ -299,6 +390,15 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
     def get_queryset(self):
         return Conta.objects.filter(empresa=self.get_empresa())
 
+    def post(self, request, *args, **kwargs):
+        # BL-149: a política dos cinco dicionários ANTES de qualquer
+        # gravação. Medido pelo auditor nesta rota: querystring em POST,
+        # `empresa: 999`, `xpto` e `id: 4242` no corpo → **201 em todos**,
+        # ignorados em silêncio. `id` é especialmente ruim: quem o envia
+        # acredita ter escolhido o identificador do registro.
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_CONTA)
+        return super().post(request, *args, **kwargs)
+
     def get_serializer_context(self):
         # A empresa do contexto vem do escopo da URL, já revalidada contra o
         # escritório ativo (EmpresaEscopadaMixin.get_empresa()) — nunca de um
@@ -321,10 +421,14 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         # (mesmo desenho de `erro_de_cnpj_duplicado_como_400`, em
         # `apps.empresas.services`, que já faz isto para CNPJ).
         try:
-            mensagem_codigo_duplicado = "Já existe uma conta com este código nesta empresa."
+            # A mensagem vem do registro único `apps.core.restricoes.
+            # MENSAGENS_DE_RESTRICAO` (BL-157): antes era um literal aqui, e
+            # literal espalhado por view é exatamente como as duas
+            # `CheckConstraint` de CNPJ ficaram sem tradução — não havia lugar
+            # nenhum onde alguém pudesse ver a lista inteira e notar a falta.
             with (
                 transaction.atomic(),
-                restricao_como_400({"codigo_unico_por_empresa": mensagem_codigo_duplicado}),
+                restricao_como_400(mensagens_de("codigo_unico_por_empresa")),
             ):
                 conta = serializer.save(empresa=self.get_empresa())
         except RestricaoViolada as exc:
@@ -461,7 +565,13 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
         dados = request.data
-        _sem_campos_desconhecidos(dados, CAMPOS_PERMITIDOS_LANCAMENTO, contexto="no lançamento")
+        # BL-149: o corpo já era julgado aqui (R5-6/BL-145); o que faltava
+        # eram os OUTROS dicionários da mesma requisição — o auditor mediu
+        # `POST .../lancamentos/?conta_3=…&xpto=1` devolvendo **201**, com o
+        # par de partidas da querystring nem lido nem recusado. A política
+        # inteira agora vem de um lugar só (`apps.core.requisicao`), com o
+        # MESMO contrato de campos de antes.
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_LANCAMENTO)
         itens = _extrair_itens(dados.get("itens"), empresa)
 
         historico = dados.get("historico", "")
@@ -576,6 +686,13 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
     permission_classes = [TemEscritorioAtivo, PodeEscriturar]
 
     def post(self, request, empresa_id, lancamento_id):
+        # BL-149: rota de ação, e mesmo assim entra na política — um corpo
+        # com `data` ou `historico` aqui sugere ao cliente que ele está
+        # escolhendo a data do estorno, e ela é decidida pelo servidor
+        # (RC-78). Aceitar e ignorar seria a mesma classe de defeito de
+        # sempre, com consequência contábil: o cliente acreditaria ter
+        # datado o estorno.
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ESTORNO)
         empresa = self.get_empresa()
         lancamento = get_object_or_404(LancamentoContabil, pk=lancamento_id, empresa=empresa)
 
@@ -646,6 +763,12 @@ class DiarioView(EmpresaEscopadaMixin, APIView):
                 "lancamentos": lancamentos,
                 "total_debito": _como_moeda(total_debito),
                 "total_credito": _como_moeda(total_credito),
+                # BL-151: o Diário do período pode conciliar perfeitamente e
+                # ainda assim haver escrituração fora dele. Ver
+                # `_aviso_de_movimento_fora_do_periodo`.
+                "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
+                    empresa=empresa, inicio=inicio, fim=fim
+                ),
             }
         )
 
@@ -740,6 +863,13 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
                 "saldo_final": _como_moeda(saldo_final_abs),
                 "saldo_final_natureza": saldo_final_natureza,
                 "itens": itens,
+                # BL-151, recortado pela CONTA consultada (e pelas
+                # descendentes, o mesmo conjunto que `apurar_razao` usa): o
+                # aviso do Razão fala da conta que está na tela, não da
+                # empresa inteira.
+                "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
+                    empresa=empresa, inicio=inicio, fim=fim, conta=conta
+                ),
             }
         )
 
@@ -820,6 +950,13 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
                 "contas": contas,
                 "total_debitos": _como_moeda(apuracao["total_debitos"]),
                 "total_creditos": _como_moeda(apuracao["total_creditos"]),
+                # BL-151: é no Balancete que a invisibilidade dói mais, porque
+                # ele é a saída que o contador usa para CONCILIAR — e ele
+                # concilia, com o valor de fora do período ausente dos dois
+                # lados. Ver `_aviso_de_movimento_fora_do_periodo`.
+                "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
+                    empresa=empresa, inicio=inicio, fim=fim
+                ),
             }
         )
 
@@ -900,9 +1037,26 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
             for conta in localizar_contas_que_aceitam_lancamento_e_tem_subordinadas(empresa=empresa)
         ]
 
+        # BL-151, quinta categoria: a Conferência não tem período — uma base
+        # torta é torta em qualquer recorte —, então aqui o equivalente ao
+        # aviso das outras três saídas é listar o que está FORA DA FAIXA
+        # PLAUSÍVEL (RC-77). É a única saída em que o `9999-12-31` já gravado
+        # aparece sem o contador precisar suspeitar primeiro: validar a
+        # entrada fecha a porta, e isto acende a luz sobre o que já entrou
+        # (a DL-019 declara o reparo de dado já gravado fora de escopo).
+        lancamentos_com_data_fora_da_faixa = [
+            {
+                "id": lancamento.id,
+                "data": lancamento.data.isoformat(),
+                "historico": lancamento.historico,
+            }
+            for lancamento in localizar_lancamentos_com_data_fora_da_faixa(empresa=empresa)
+        ]
+
         return Response(
             {
                 "lotes": lotes,
+                "lancamentos_com_data_fora_da_faixa": lancamentos_com_data_fora_da_faixa,
                 "contas_sinteticas_com_movimento": contas_sinteticas_com_movimento,
                 "contas_que_aceitam_lancamento_e_tem_subordinadas": (
                     contas_que_aceitam_lancamento_e_tem_subordinadas

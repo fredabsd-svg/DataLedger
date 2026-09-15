@@ -1,7 +1,6 @@
 import hashlib
 import json
 from collections import defaultdict
-from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
@@ -14,6 +13,21 @@ from apps.contabilidade.models import (
     LancamentoContabil,
     NaturezaConta,
     TipoPartida,
+)
+from apps.contabilidade.validators import (
+    DATA_MINIMA_LANCAMENTO as DATA_MINIMA_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    DIAS_FUTUROS_MAXIMOS_LANCAMENTO as DIAS_FUTUROS_MAXIMOS_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    LIMITE_PARTIDAS_POR_LANCAMENTO as LIMITE_PARTIDAS_POR_LANCAMENTO,
+)
+from apps.contabilidade.validators import (
+    data_maxima_lancamento as data_maxima_lancamento,
+)
+from apps.contabilidade.validators import (
+    mensagem_de_data_de_lancamento_fora_da_faixa,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
 
@@ -36,44 +50,18 @@ _CAMPO_SOMA_MONETARIA = DecimalField(max_digits=18, decimal_places=2)
 # honorários), onde existe uma regra legal que diz qual política usar.
 ESCALA_MAXIMA_LANCAMENTO_MANUAL = 2
 
-# RC-77, confirmado pelo Fred em 2026-09-15 (docs/projeto/requisitos.md):
-# a data de um lançamento fica entre 01/01/2000 e hoje + 30 dias.
+# RC-77 e RC-79 moram em `apps.contabilidade.validators`, módulo PURO (sem
+# ORM), e são REEXPORTADOS aqui — uma definição, um número. O motivo de não
+# viverem neste arquivo está no docstring de lá: `models.py` precisa da faixa
+# como validador de campo (é o que faz o ADMIN respeitá-la) e não pode
+# importar `services.py`, que importa `models.py`.
 #
-# Esta é a FONTE ÚNICA da faixa, e é aqui por decisão do arquiteto-senior na
-# DL-019: as duas superfícies (tela e API) importam daqui, nenhuma declara
-# 2000 nem 30 por conta própria. A mínima é constante porque não se move; a
-# máxima é FUNÇÃO porque se move todo dia, e uma constante calculada no
-# import congelaria a faixa no momento em que o processo subiu (um servidor
-# de longa duração passaria a recusar o dia seguinte).
-#
-# Por que existe um teto superior, e por que ele é o item que faz a DL-019
-# existir (achado R6-4 da auditoria da rodada 6): um `9` digitado no lugar
-# de um `2` grava o lançamento em `9999-12-31`, e ele **não aparece em
-# nenhuma tela de operação normal** — nem Diário, nem Razão, nem Balancete,
-# nem Conferência. O balancete do período CONCILIA, então nenhuma
-# conferência acusa: para achar o valor o contador precisa suspeitar e
-# alargar o período até o ano 9999. Os 30 dias à frente cobrem lançamento
-# programado (razão dada pelo Fred).
-#
-# O piso de 2000 foi proposta do arquiteto-senior aceita pelo Fred; se
-# aparecer escrituração anterior para importar (DL-010), **revalidar com
-# ele** em vez de alargar por conta própria.
-DATA_MINIMA_LANCAMENTO = date(2000, 1, 1)
-DIAS_FUTUROS_MAXIMOS_LANCAMENTO = 30
-
-# RC-79, confirmado pelo Fred em 2026-09-15: teto de 200 partidas por
-# lançamento, com recusa explícita — NUNCA truncamento (BL-91).
-#
-# O teto é regra de NEGÓCIO e mora aqui, não na tela (item 2 da DE-034, e o
-# defeito concreto que a BL-160 fecha): até a DL-019 ele existia só como
-# `LINHAS_MAXIMAS_LANCAMENTO` em `views_web.py`, e por isso a API **não
-# tinha teto nenhum** — o mesmo campo, sem a mesma regra, na superfície ao
-# lado. `criar_lancamento` é o único ponto por onde tela e API passam para
-# gravar, então a recusa aqui fecha as duas de uma vez. A tela importa esta
-# constante e mantém, do lado dela, o teto de segurança de LEITURA (BL-120),
-# que é outro número e serve para outra coisa: impedir que o servidor leia
-# mais linhas do que o negócio aceita.
-LIMITE_PARTIDAS_POR_LANCAMENTO = 200
+# O reexport não é conveniência gratuita: a tela (`views_web.py`) e os testes
+# importam estes nomes de `services`, e este módulo continua sendo o endereço
+# de domínio da escrituração. Quem escrever código novo pode usar qualquer um
+# dos dois caminhos; quem MUDAR o número mexe num lugar só. A forma
+# `from ... import X as X` é o reexport explícito da PEP 484 — é o que diz ao
+# ruff, e a quem lê, que o nome está aqui de propósito e não por sobra.
 
 
 class LancamentoInvalido(Exception):
@@ -107,47 +95,24 @@ class HierarquiaInconsistente(Exception):
     """
 
 
-def data_maxima_lancamento():
-    """Última data aceita para um lançamento: hoje + `DIAS_FUTUROS_MAXIMOS_
-    LANCAMENTO` (RC-77).
-
-    Função, não constante, porque o valor se MOVE (ver o comentário de
-    `DATA_MINIMA_LANCAMENTO`). Usa `timezone.localdate()`, o mesmo "hoje"
-    que `estornar_lancamento` já usa — nunca `date.today()`, que ignora o
-    fuso configurado.
-    """
-    return timezone.localdate() + timedelta(days=DIAS_FUTUROS_MAXIMOS_LANCAMENTO)
-
-
 def validar_data_de_lancamento(data):
     """Aplica a faixa do RC-77 a `data`, levantando `LancamentoInvalido`.
 
     Julgador de DOMÍNIO, separado da gramática: `apps.core.datas.para_data`
     decide se o TEXTO é uma data (formato, tipo, dia existente) e não sabe
-    nada de contabilidade; esta função decide se aquela data é PLAUSÍVEL
-    para um lançamento contábil. As duas superfícies chamam a primeira na
-    fronteira e esta pelo serviço, e nenhuma das duas repete a faixa.
+    nada de contabilidade; esta função decide se aquela data é PLAUSÍVEL para
+    um lançamento contábil. As duas superfícies chamam a primeira na fronteira
+    e esta pelo serviço, e nenhuma das duas repete a faixa.
 
-    Recusa também o que não é `datetime.date` puro — inclusive
-    `datetime.datetime`, que é subclasse de `date`: o campo do modelo é
-    `DateField`, então um `datetime` seria TRUNCADO na gravação (perda
-    silenciosa da hora que o chamador achava estar registrando) e, pior,
-    quebraria a comparação de faixa abaixo com `TypeError` cru em vez de
-    erro de domínio.
+    A comparação em si — e a mensagem — moram em
+    `apps.contabilidade.validators`, que não importa ORM e por isso pode ser
+    usado TAMBÉM como validador de campo do modelo (o que faz o admin
+    respeitar a faixa). Aqui só se traduz para a exceção de domínio que as
+    duas views já convertem em 400.
     """
-    if isinstance(data, datetime) or not isinstance(data, date):
-        raise LancamentoInvalido(
-            f"A data do lançamento deve ser uma data (datetime.date); recebido "
-            f"{type(data).__name__} ({data!r})."
-        )
-    maxima = data_maxima_lancamento()
-    if data < DATA_MINIMA_LANCAMENTO or data > maxima:
-        raise LancamentoInvalido(
-            f"A data do lançamento ({data.strftime('%d/%m/%Y')}) está fora da faixa "
-            f"aceita: de {DATA_MINIMA_LANCAMENTO.strftime('%d/%m/%Y')} até "
-            f"{maxima.strftime('%d/%m/%Y')} (hoje + {DIAS_FUTUROS_MAXIMOS_LANCAMENTO} "
-            "dias). Confira o ano digitado."
-        )
+    mensagem = mensagem_de_data_de_lancamento_fora_da_faixa(data)
+    if mensagem is not None:
+        raise LancamentoInvalido(mensagem)
 
 
 def _impressao_digital(*, empresa_id, data, historico, itens):
@@ -1116,7 +1081,7 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     }
 
 
-def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
+def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):
     """Existe movimento da empresa FORA de [inicio, fim]? (BL-151, achado R6-4b.)
 
     É a razão de a DL-019 existir. O auditor mediu: um lançamento de
@@ -1151,41 +1116,53 @@ def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
     `apurar_razao` já levanta (ciclo alcançável a partir da conta) — quem
     chama já trata isso na mesma requisição.
 
-    Custo: duas consultas agregadas de tamanho constante (uma por lado),
-    mais as de `_descendentes_de` quando há `conta`. Nenhuma delas cresce
-    com a quantidade de lançamentos.
+    `ids_contas` é a versão BARATA do recorte por conta, para quem acabou de
+    chamar `apurar_razao` e já tem o conjunto pronto (ele vem no resultado,
+    na chave `ids_contas`): evita percorrer a subárvore uma segunda vez.
+    Isso não é micro-otimização — `_descendentes_de` faz UMA CONSULTA POR
+    NÍVEL de profundidade, então recomputar DOBRARIA o custo do Razão de um
+    plano profundo, e existe teste de teto de consulta declarado em função da
+    profundidade justamente para isso (`test_dl015_saidas_com_periodo.py`).
+    Quando os dois vêm, `ids_contas` vence e `conta` é ignorada.
+
+    Custo: **uma** consulta agregada de tamanho constante, com as quatro
+    medidas (quantidade e data extrema de cada lado) em agregação
+    condicional — não uma por lado. Mais as de `_descendentes_de` só quando
+    há `conta` sem `ids_contas`. Nada disso cresce com a quantidade de
+    lançamentos.
     """
-    if conta is None:
+    if conta is None and ids_contas is None:
         base = LancamentoContabil.objects.filter(empresa=empresa)
         campo_data = "data"
-        contagem = Count("id", distinct=True)
+        alvo_da_contagem = "id"
     else:
-        ids_contas = _descendentes_de(conta, empresa)
-        base = ItemLancamento.objects.filter(
-            conta_id__in=ids_contas, lancamento__empresa=empresa
-        )
+        if ids_contas is None:
+            ids_contas = _descendentes_de(conta, empresa)
+        base = ItemLancamento.objects.filter(conta_id__in=ids_contas, lancamento__empresa=empresa)
         campo_data = "lancamento__data"
-        # `distinct=True` é o que faz a contagem ser de LANÇAMENTOS: um
-        # lançamento com débito e crédito na mesma subárvore tem dois itens
-        # e contaria duas vezes sem isto.
-        contagem = Count("lancamento", distinct=True)
+        # Contar `lancamento` (com `distinct`) é o que faz a contagem ser de
+        # LANÇAMENTOS: um lançamento com débito e crédito na mesma subárvore
+        # tem dois itens e contaria duas vezes se contássemos itens.
+        alvo_da_contagem = "lancamento"
 
-    anteriores = base.filter(**{f"{campo_data}__lt": inicio}).aggregate(
-        quantidade=contagem, data_extrema=Min(campo_data)
-    )
-    posteriores = base.filter(**{f"{campo_data}__gt": fim}).aggregate(
-        quantidade=contagem, data_extrema=Max(campo_data)
+    antes_do_periodo = Q(**{f"{campo_data}__lt": inicio})
+    depois_do_periodo = Q(**{f"{campo_data}__gt": fim})
+    medidas = base.aggregate(
+        quantidade_anteriores=Count(alvo_da_contagem, filter=antes_do_periodo, distinct=True),
+        data_extrema_anteriores=Min(campo_data, filter=antes_do_periodo),
+        quantidade_posteriores=Count(alvo_da_contagem, filter=depois_do_periodo, distinct=True),
+        data_extrema_posteriores=Max(campo_data, filter=depois_do_periodo),
     )
 
-    def _lado(agregado):
-        if not agregado["quantidade"]:
+    def _lado(sufixo):
+        if not medidas[f"quantidade_{sufixo}"]:
             return None
         return {
-            "quantidade": agregado["quantidade"],
-            "data_extrema": agregado["data_extrema"],
+            "quantidade": medidas[f"quantidade_{sufixo}"],
+            "data_extrema": medidas[f"data_extrema_{sufixo}"],
         }
 
-    lados = {"anteriores": _lado(anteriores), "posteriores": _lado(posteriores)}
+    lados = {"anteriores": _lado("anteriores"), "posteriores": _lado("posteriores")}
     if lados["anteriores"] is None and lados["posteriores"] is None:
         return None
     return lados
@@ -1217,9 +1194,7 @@ def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
     """
     return list(
         LancamentoContabil.objects.filter(empresa=empresa)
-        .filter(
-            Q(data__lt=DATA_MINIMA_LANCAMENTO) | Q(data__gt=data_maxima_lancamento())
-        )
+        .filter(Q(data__lt=DATA_MINIMA_LANCAMENTO) | Q(data__gt=data_maxima_lancamento()))
         .order_by("data", "id")
     )
 

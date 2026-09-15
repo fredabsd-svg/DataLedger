@@ -46,6 +46,8 @@
         <button type="submit">Consultar período</button>
     </form>
 
+    {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
+
     <p>
         <strong>Saldo anterior:</strong>
         <span class="valor-monetario">{{ saldo_anterior_ptbr }}</span>

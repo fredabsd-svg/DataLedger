@@ -1,0 +1,76 @@
+{% comment %}
+BL-151 (b) / R6-4 — o aviso "há movimento fora do período consultado",
+incluído por Diário, Razão e Balancete.
+
+É o item que fez a DL-019 existir. O auditor mediu um lançamento de
+5.000,00 datado `9999-12-31` (um `9` digitado no lugar de `2`): não
+aparecia em NENHUMA tela de operação normal, e o balancete do período
+conciliava — então nenhuma conferência apontava. Para encontrar, o contador
+precisava suspeitar e alargar o período até o ano 9999.
+
+Um parcial só, incluído nas três saídas, em vez de três blocos iguais: o
+texto deste aviso é o tipo de coisa que, copiada em três arquivos, diverge
+no primeiro ajuste — foi assim que o estado do projeto divergiu três vezes.
+
+Decisões de apresentação, e por que:
+
+- `role="alert"` (e não `status`): o contador está olhando um relatório que
+  ele acredita completo. A informação de que existe fato fora da vista
+  precisa interromper a leitura.
+- Não depende de cor: começa com a palavra "Atenção" em texto.
+- Diz a QUANTIDADE e a DATA EXTREMA de cada lado, nunca só "existe algo":
+  a data extrema é o que revela um ano digitado errado à primeira vista.
+- Traz o caminho de correção pronto — um link que AMPLIA o período até
+  incluir o que está fora (nunca substitui: quem estava vendo setembro
+  continua vendo setembro no resultado), preservando os outros parâmetros
+  da tela, como o `nível` do Balancete.
+- Nunca esconde nem altera a tabela ao lado: os números mostrados continuam
+  sendo os do período pedido, e o total continua conciliando com as linhas
+  exibidas (critério 6). Este aviso acrescenta informação; não corrige
+  número nenhum.
+{% endcomment %}
+{% if movimento_fora_do_periodo %}
+    <div class="mensagem mensagem-warning aviso-fora-do-periodo" role="alert">
+        <p>
+            <strong>Atenção:</strong>
+            {% if movimento_fora_do_periodo.conta %}
+                esta conta (incluindo as subordinadas) tem movimento
+            {% else %}
+                esta empresa tem movimento
+            {% endif %}
+            <strong>fora do período consultado</strong>, que não está somado em nenhuma
+            linha nem em nenhum total desta tela.
+        </p>
+        <ul>
+            {% if movimento_fora_do_periodo.anteriores %}
+                <li>
+                    {{ movimento_fora_do_periodo.anteriores.quantidade }}
+                    lançamento{{ movimento_fora_do_periodo.anteriores.quantidade|pluralize }}
+                    com data <strong>anterior</strong> a {{ inicio|date:"d/m/Y" }} —
+                    {% if movimento_fora_do_periodo.anteriores.quantidade == 1 %}em{% else %}o mais antigo em{% endif %}
+                    {{ movimento_fora_do_periodo.anteriores.data_extrema|date:"d/m/Y" }}.
+                </li>
+            {% endif %}
+            {% if movimento_fora_do_periodo.posteriores %}
+                <li>
+                    {{ movimento_fora_do_periodo.posteriores.quantidade }}
+                    lançamento{{ movimento_fora_do_periodo.posteriores.quantidade|pluralize }}
+                    com data <strong>posterior</strong> a {{ fim|date:"d/m/Y" }} —
+                    {% if movimento_fora_do_periodo.posteriores.quantidade == 1 %}em{% else %}o mais distante em{% endif %}
+                    {{ movimento_fora_do_periodo.posteriores.data_extrema|date:"d/m/Y" }}.
+                </li>
+            {% endif %}
+        </ul>
+        <p>
+            <a href="{{ movimento_fora_do_periodo.url_ampliada }}">
+                Ampliar o período para {{ movimento_fora_do_periodo.inicio_ampliado|date:"d/m/Y" }}
+                a {{ movimento_fora_do_periodo.fim_ampliado|date:"d/m/Y" }} e ver este movimento
+            </a>
+        </p>
+        <p class="texto-apoio">
+            Uma data muito distante costuma ser erro de digitação no ano. A correção de um
+            lançamento já efetivado é sempre por estorno — abra o lançamento pelo Diário do
+            período ampliado.
+        </p>
+    </div>
+{% endif %}

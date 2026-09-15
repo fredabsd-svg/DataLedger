@@ -230,6 +230,42 @@ def test_a_medicao_ignora_comentario_e_texto_e_ve_a_chamada():
     assert len(codigo_sem_comentarios_nem_textos(so_prosa)) == len(so_prosa)
 
 
+def test_a_varredura_mata_o_m17_reconstruido_a_partir_do_fonte_real():
+    """O M17 do auditor, reconstruído **em memória** a partir do fonte REAL
+    de `_extrair_itens`, e as duas medições lado a lado:
+
+    - a forma ANTIGA da verificação (`"para_id" in fonte`) **continuaria
+      passando** no mutante, porque os dois comentários sobreviveram — é
+      literalmente por isso que o teste da BL-146 não conseguia falhar;
+    - a forma desta varredura (código sem prosa, agulha com parêntese)
+      **acusa**.
+
+    Reconstruir em memória, em vez de substituir o arquivo, é deliberado por
+    dois motivos: `apps/contabilidade/views.py` é do `desenvolvedor-pleno` e
+    está sendo editado na mesma árvore (mutar em disco arriscaria apagar o
+    trabalho dele na reversão), e um mutante em memória fica **versionado**,
+    valendo em toda execução futura, em vez de ser uma medição de uma vez
+    só que ninguém repete.
+    """
+    from apps.contabilidade import views as views_api
+
+    fonte = inspect.getsource(views_api._extrair_itens)
+    # O M17: tira a CHAMADA de `para_id`, deixando os comentários intactos.
+    # `para_id(` com parêntese só existe na chamada (nos comentários o nome
+    # vem entre acentos graves, sem parênteses), então esta substituição é
+    # exatamente o mutante e nada além dele.
+    assert fonte.count("para_id(") == 1, fonte.count("para_id(")
+    mutado = fonte.replace("para_id(", "int(")
+
+    assert "para_id" in mutado, (
+        "o mutante precisa preservar as menções em comentário — é o que o "
+        "auditor mediu, e é a razão de a verificação antiga passar"
+    )
+    assert "para_id(" not in codigo_sem_comentarios_nem_textos(mutado)
+    # Controle: hoje, sem mutante, o uso está lá.
+    assert "para_id(" in codigo_sem_comentarios_nem_textos(fonte)
+
+
 def test_a_normalizacao_de_prosa_nao_depende_de_onde_a_linha_foi_quebrada():
     """Controle do outro instrumento: a mesma frase, quebrada em duas
     linhas de comentário, normaliza para o mesmo texto de uma linha. Sem
@@ -238,7 +274,6 @@ def test_a_normalizacao_de_prosa_nao_depende_de_onde_a_linha_foi_quebrada():
     apareceu.
     """
     quebrada = "    # o mesmo julgador (`para_id`) que a API e\n    # `apps.tenancy` já usam\n"
-    assert (
-        prosa_normalizada("o mesmo julgador (`para_id`) que a API e `apps.tenancy` já usam")
-        in prosa_normalizada(quebrada)
-    )
+    assert prosa_normalizada(
+        "o mesmo julgador (`para_id`) que a API e `apps.tenancy` já usam"
+    ) in prosa_normalizada(quebrada)

@@ -45,6 +45,8 @@
         <button type="submit">Consultar período</button>
     </form>
 
+    {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
+
     {% if lotes %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Lançamentos do período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</caption>

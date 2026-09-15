@@ -48,6 +48,32 @@
         <button type="submit">Consultar período</button>
     </form>
 
+    {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
+
+    {% if sem_movimento_no_periodo %}
+        {% comment %}
+        R6-9/BL-156 — critério 13, texto literal: "empresa sem lançamento no
+        período mostra MENSAGEM, não tabela vazia sem explicação". Diário,
+        Razão e Conferência cumpriam; o Balancete mostrava 3 linhas e 8
+        zeros, sem uma palavra. Levantado na rodada 5 como observação, ficou
+        fora do backlog e chegou intacto à rodada 6.
+
+        A mensagem vem ANTES da tabela e NÃO a substitui: um balancete
+        zerado (ou com saldo anterior e sem movimento no mês) é informação
+        contábil legítima, e esconder a tabela trocaria um defeito de
+        explicação por um de omissão. `role="status"`, não `alert`: não é
+        erro nem anomalia — é a resposta correta para um período sem
+        movimento.
+        {% endcomment %}
+        <p class="mensagem mensagem-info" role="status">
+            <strong>Nenhum movimento neste período</strong>
+            ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}): nenhum lançamento desta
+            empresa tem data dentro dele, então as colunas de débito e de crédito do
+            período são todas 0,00. As colunas de saldo continuam mostrando o que havia
+            antes do período. Para ver outro intervalo, mude as datas acima.
+        </p>
+    {% endif %}
+
     {% if linhas %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Balancete de verificação de {{ empresa.razao_social }} no período</caption>

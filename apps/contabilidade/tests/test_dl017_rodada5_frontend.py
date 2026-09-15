@@ -213,8 +213,32 @@ def test_comentario_sobre_julgador_partilhado_so_afirma_o_que_e_verificavel():
     verdade. Confere as DUAS metades: (1) o comentário não faz a
     afirmação falsa hoje; (2) se e quando o comentário vier a afirmar que
     a API usa, o código de `apps.contabilidade.views` REALMENTE precisa
-    importar `para_id` — a checagem vale nos dois sentidos, não só no de
-    hoje.
+    usar `para_id` — a checagem vale nos dois sentidos, não só no de hoje.
+
+    R6-3/BL-150 (rodada 6) — este teste era o **décimo-primeiro** caso
+    registrado de "teste que não consegue falhar", e o mais irônico: ele
+    existe para impedir que um comentário minta sobre um julgador
+    partilhado, e a linha que decidia era
+
+        api_de_fato_usa = "para_id" in inspect.getsource(views_api)
+
+    com `para_id` aparecendo em **dois comentários** de `views.py`. O
+    valor era permanentemente `True`: o mutante M17 (remover import E
+    chamada, comentários intactos) matava 7 testes do BL-142 e **passava**
+    aqui. Duas correções, que juntas fecham os dois jeitos de errar:
+
+    1. A agulha passou a ser `"para_id("`, **com parêntese** — só a
+       chamada tem; a menção em prosa vem entre acentos graves.
+    2. O escopo passou a ser a **função citada** (`_extrair_itens`), não o
+       módulo inteiro — molde de `test_extrair_itens_usa_para_id`, que é
+       quem de fato pegou o M17.
+
+    As outras 8 frases da mesma família (o auditor catalogou 7 e todas
+    eram verdadeiras, e nenhuma tinha teste) estão em
+    `test_dl019_frontend_afirmacoes_de_comentario.py`, com a prosa
+    removida por `tokenize` em vez de por convenção de acento grave — que
+    é a defesa geral da classe. Este teste continua aqui porque é o caso
+    nomeado pelo achado, no arquivo do achado.
     """
     from apps.contabilidade import views as views_api
 
@@ -227,7 +251,7 @@ def test_comentario_sobre_julgador_partilhado_so_afirma_o_que_e_verificavel():
     afirma_que_api_usa = "API já usa `para_id`" in bloco_comentario or (
         "API já usa" in bloco_comentario and "NÃO usa" not in bloco_comentario
     )
-    api_de_fato_usa = "para_id" in inspect.getsource(views_api)
+    api_de_fato_usa = "para_id(" in inspect.getsource(views_api._extrair_itens)
 
     assert afirma_que_api_usa == api_de_fato_usa, (
         "O comentário sobre o julgador partilhado precisa concordar com o código: "

@@ -44,11 +44,110 @@ from contextlib import contextmanager
 
 from django.db import IntegrityError
 
+# ---------------------------------------------------------------------------
+# Registro ÚNICO das restrições de banco e de como cada uma vira erro de
+# negócio (BL-157, achado R6-10 da auditoria DL-017 rodada 6).
+#
+# Por que um registro, e não a conferência manual que havia: o critério da
+# BL-144 dizia "para cada `Meta.constraints` existe caminho de API que a
+# converte em 400", a varredura foi FEITA, e ainda assim **duas** constraints
+# ficaram de fora — as duas `CheckConstraint` de canonização de CNPJ
+# (`empresa_cnpj_canonico`, `estabelecimento_cnpj_canonico`), que são a outra
+# metade do MESMO `Meta` que a BL-144 fechou (item 3 da DE-034). Conferência
+# manual não reprova build; registro + varredura de repositório reprova.
+#
+# `apps/core/tests/test_dl019_varredura_de_restricoes.py` percorre TODOS os
+# modelos dos apps do projeto e exige que cada constraint declarada em `Meta`
+# apareça em UM destes dois dicionários. Uma constraint nova sem tradução
+# reprova a suíte — que é a única forma de isto não se repetir.
+MENSAGENS_DE_RESTRICAO = {
+    "codigo_unico_por_empresa": "Já existe uma conta com este código nesta empresa.",
+    "uma_matriz_por_empresa": "Esta empresa já tem uma matriz cadastrada.",
+    # As duas de canonização de CNPJ (BL-157). Inalcançáveis pelo caminho
+    # normal da API — `Empresa.save()`/`Estabelecimento.save()` canonizam
+    # ANTES do INSERT —, mas `apps/empresas/tests/test_canonizacao_constraint.
+    # py` já prova que `bulk_create`/`bulk_update`/`QuerySet.update()` vazam
+    # `IntegrityError` cru, e o comentário do próprio modelo aponta a DL-010
+    # (importação em lote) como "candidata natural a usar bulk_create por
+    # desempenho". A armadilha estava ARMADA para a próxima etapa; mapeá-las
+    # aqui é o que a desarma antes de a importação existir.
+    "empresa_cnpj_canonico": (
+        "O CNPJ da empresa precisa ser gravado em formato canônico: só letras "
+        "maiúsculas e dígitos, sem máscara."
+    ),
+    "estabelecimento_cnpj_canonico": (
+        "O CNPJ do estabelecimento precisa ser gravado em formato canônico: só "
+        "letras maiúsculas e dígitos, sem máscara."
+    ),
+}
+
+# Restrições cuja tradução NÃO passa por `restricao_como_400`, com o ponto
+# exato que as traduz. Existir aqui não é dispensa: é declaração verificável
+# de onde a tradução mora, e a varredura confere que o objeto apontado existe
+# e é chamável (um caminho que alguém renomeie ou apague reprova a suíte).
+#
+# Nenhuma delas pode ser movida para o mapa acima sem revisar o ponto citado:
+# as três traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
+# diferente (409 de conflito de idempotência não é 400 de entrada inválida).
+RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
+    "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
+    "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+}
+
+# Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
+# restrições que nenhuma requisição de cliente alcança hoje, com o motivo
+# escrito. A varredura aceita, mas exige que estejam aqui NOMEADAS — o que
+# ela proíbe é o silêncio, não a ausência de tradução.
+#
+# Quando uma delas ganhar caminho de escrita por cliente (API, tela ou
+# importação), ela sai daqui e entra num dos dois de cima. O item de backlog
+# que cobre a varredura do admin contra as regras de negócio é a BL-164.
+RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    "unico_vinculo_usuario_escritorio": (
+        "Vínculo usuário-escritório só é criado pelo admin do Django "
+        "(apps/tenancy/admin.py) e por código de teste; não há rota de API nem "
+        "tela do produto que o grave. No admin, o `ModelForm` chama "
+        "`full_clean()`, cujo `validate_unique()` converte a violação em erro "
+        "de formulário ANTES do INSERT — então ela não chega ao cliente como "
+        "5xx por esse caminho."
+    ),
+}
+
+
+def mensagens_de(*nomes):
+    """Subconjunto de `MENSAGENS_DE_RESTRICAO` para passar a `restricao_como_400`.
+
+    Recebe nomes de constraint e devolve `{nome: mensagem}`. Levanta `KeyError`
+    para nome que não exista no registro — de propósito: um erro de digitação
+    no nome da constraint produziria, em silêncio, um `with` que não traduz
+    nada, e o 500 voltaria sem nenhum sinal. Falhar no import é melhor.
+
+    Cada view pede só as constraints que a SUA gravação pode violar, porque o
+    campo em que o erro é reportado (`{"codigo": [...]}`, `{"cnpj": [...]}`)
+    depende da rota — passar o registro inteiro em toda view reportaria a
+    constraint certa no campo errado.
+    """
+    return {nome: MENSAGENS_DE_RESTRICAO[nome] for nome in nomes}
+
 
 class RestricaoViolada(Exception):
     """Levantada quando uma `IntegrityError` corresponde a uma das
     constraints mapeadas em `restricao_como_400`. A mensagem já é a
-    mensagem de negócio pronta para o cliente (não o texto cru do banco)."""
+    mensagem de negócio pronta para o cliente (não o texto cru do banco).
+
+    `nome` carrega o nome da constraint violada, separado da mensagem
+    (BL-157): uma view que trate DUAS constraints no mesmo `with` precisa
+    saber QUAL delas caiu para reportar o erro no campo certo — sem isso, a
+    violação da canonização de CNPJ apareceria no campo `tipo` só porque a
+    view já tratava `uma_matriz_por_empresa` ali. Comparar texto de mensagem
+    para descobrir isso seria pior: a mensagem é conteúdo de produto e muda.
+    """
+
+    def __init__(self, mensagem, *, nome=None):
+        self.nome = nome
+        super().__init__(mensagem)
 
 
 def _nome_da_constraint_violada(exc):
@@ -84,4 +183,4 @@ def restricao_como_400(mapa_constraint_para_mensagem):
         mensagem = mapa_constraint_para_mensagem.get(nome_constraint)
         if mensagem is None:
             raise
-        raise RestricaoViolada(mensagem) from exc
+        raise RestricaoViolada(mensagem, nome=nome_constraint) from exc

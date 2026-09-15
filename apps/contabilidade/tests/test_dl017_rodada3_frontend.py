@@ -365,24 +365,32 @@ def test_indice_canonico_no_limite_do_teto_de_seguranca_e_aceito_como_indice(cli
 
 
 def test_indice_acima_do_teto_de_seguranca_nunca_e_capado_em_silencio(client, cen):
-    """R3-9/BL-120: um índice ACIMA do teto de segurança (201) é tratado
-    como NÃO CANÔNICO — a mesma recusa do R3-2 —, nunca capado em
-    silêncio para 200. É exatamente o capeamento silencioso
-    (`min(maior, 200)`) que reabriria a perda do achado 5 no dia em que
-    o Fred responder PE-42 com um teto de negócio de 200 partidas ou
-    mais: nenhuma linha de código mudaria, e a perda voltaria.
+    """R3-9/BL-120: um índice ACIMA do teto de segurança é tratado como NÃO
+    CANÔNICO — a mesma recusa do R3-2 —, nunca capado em silêncio para o
+    teto. É exatamente o capeamento silencioso (`min(maior, teto)`) que
+    reabriria a perda do achado 5 quando o teto de NEGÓCIO subisse:
+    nenhuma linha de código mudaria, e a perda voltaria.
+
+    RC-79/BL-160 (rodada 6) — **o dia previsto aqui chegou**: o Fred
+    confirmou o teto de negócio em 200, o teto de segurança subiu para 400
+    junto (é o que a verificação abaixo força), e o índice deste teste
+    passou a ser derivado do teto em vez de escrito como "201". Com "201"
+    fixo, este teste virou medição de um índice PERFEITAMENTE canônico e
+    falhou por motivo errado — que é a sorte boa: se a asserção fosse de
+    outra forma, ele teria passado dizendo nada.
     """
     _login(client, cen)
-    dados = _dados_base(cen, chave="r3-9-acima-201")
+    indice_acima_do_teto = views_web.LINHAS_LEITURA_TETO_DE_SEGURANCA + 1
+    dados = _dados_base(cen, chave="r3-9-acima-do-teto-de-seguranca")
     dados["num_linhas"] = "2"
-    dados["conta_201"] = str(cen["caixa"].id)
-    dados["tipo_201"] = "debito"
-    dados["valor_201"] = "5,00"
+    dados[f"conta_{indice_acima_do_teto}"] = str(cen["caixa"].id)
+    dados[f"tipo_{indice_acima_do_teto}"] = "debito"
+    dados[f"valor_{indice_acima_do_teto}"] = "5,00"
 
     resposta = client.post(_url_lancamento(cen), dados)
     assert resposta.status_code == 400
     conteudo = resposta.content.decode()
-    assert "conta_201" in conteudo
+    assert f"conta_{indice_acima_do_teto}" in conteudo
     assert "Não entendi" in conteudo
 
 

@@ -1,15 +1,21 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
 from apps.core.datas import DataInvalida, para_data
 from apps.core.escolhas import EscolhaInvalida, para_escolha
-from apps.core.restricoes import RestricaoViolada, restricao_como_400
+from apps.core.requisicao import (
+    ContratoDeRequisicao,
+    DadoNaoContratado,
+    recusar_dado_nao_contratado,
+)
+from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
 from apps.empresas.forms import EmpresaForm
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.models import (
@@ -25,7 +31,9 @@ from apps.empresas.serializers import (
 )
 from apps.empresas.services import (
     CNPJDuplicado,
+    ExclusaoDeRegimeInvalida,
     erro_de_cnpj_duplicado_como_400,
+    excluir_ultimo_regime_tributario,
     registrar_regime_tributario,
 )
 from apps.tenancy.models import Papel
@@ -35,6 +43,46 @@ from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 # consulta continua liberada a qualquer papel vinculado (ver get_permissions
 # e as views de leitura, que só exigem TemEscritorioAtivo).
 PodeGerenciarEmpresa = papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)
+
+
+# BL-149 / achado R6-2: a política dos cinco dicionários, aplicada às rotas
+# de escrita deste app. Medido pelo auditor, todas devolvendo **201/200** com
+# o dado ignorado em silêncio: querystring em POST; `empresa: 999` e `xpto`
+# no corpo de estabelecimento e de regime tributário.
+#
+# `empresa` no corpo é o caso que mais engana: o vínculo real vem SEMPRE do
+# escopo da URL, revalidado contra o escritório ativo
+# (`EmpresaEscopadaMixin.get_empresa()`), então `empresa: 999` nunca vazou
+# nada — mas quem o envia acredita ter escolhido a empresa, e ninguém dizia o
+# contrário.
+#
+# Os campos vêm do serializer, só os GRAVÁVEIS (`read_only` fora): assim a
+# lista não pode divergir do contrato real da rota, e `id`/`criado_em`/
+# `regime_atual` — que o auditor mediu sendo aceitos e ignorados — ficam
+# recusados por construção, sem lista literal para manter em dois lugares.
+def _campos_gravaveis(serializer):
+    return frozenset(nome for nome, campo in serializer.fields.items() if not campo.read_only)
+
+
+def _recusar_dado_nao_contratado(request, contrato):
+    """Ponte única entre `apps.core.requisicao` (que julga) e o DRF (que
+    responde) neste app — ver o módulo para o contrato completo."""
+    try:
+        recusar_dado_nao_contratado(request, contrato)
+    except DadoNaoContratado as exc:
+        raise DRFValidationError(exc.mensagem) from exc
+
+
+CONTRATO_POST_REGIME = ContratoDeRequisicao(
+    campos={"regime", "vigencia_inicio"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no regime tributário",
+)
+CONTRATO_EXCLUSAO_DE_REGIME = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na exclusão de regime tributário",
+)
 
 
 class EmpresaQuerySetMixin:
@@ -55,6 +103,22 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
             permissions.append(PodeGerenciarEmpresa())
         return permissions
 
+    def post(self, request, *args, **kwargs):
+        # BL-149. `escritorio` no corpo é ignorado por construção (o
+        # serializer o define a partir do escritório ativo), e agora é
+        # recusado: é um campo de ISOLAMENTO, e um cliente que o envie
+        # precisa ouvir "não" em vez de receber 201 e acreditar que
+        # cadastrou empresa em outro escritório.
+        _recusar_dado_nao_contratado(
+            request,
+            ContratoDeRequisicao(
+                campos=_campos_gravaveis(self.get_serializer()),
+                cabecalhos_ignorados=("Idempotency-Key",),
+                contexto="no cadastro de empresa",
+            ),
+        )
+        return super().post(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         # R4 (reauditoria, rodada 2): duas requisições simultâneas com o
         # mesmo CNPJ podem passar as duas pelo UniqueValidator do
@@ -67,11 +131,27 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # concentra a detecção de qual IntegrityError é a violação da
         # constraint de cnpj — ver o comentário lá sobre por que isso mora
         # num lugar só (A1, reauditoria, rodada 3).
+        #
+        # `restricao_como_400("empresa_cnpj_canonico")` ACRESCENTADO (BL-157,
+        # achado R6-10 / DE-034 item 3): é a outra metade do MESMO `Meta` que
+        # a BL-144 fechou. Inalcançável por esta rota hoje — `Empresa.save()`
+        # canoniza o CNPJ antes do INSERT —, e mapeada de propósito: o
+        # comentário do próprio modelo aponta a DL-010 (importação em lote)
+        # como candidata natural a `bulk_create`, que NÃO passa por `save()`,
+        # e já existe teste provando que esses caminhos vazam
+        # `IntegrityError` cru. A armadilha estava armada para a etapa
+        # seguinte; o mapeamento a desarma antes de a importação existir.
         try:
-            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
+            with (
+                transaction.atomic(),
+                erro_de_cnpj_duplicado_como_400(),
+                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+            ):
                 empresa = serializer.save()
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
         registrar(acao="empresa.criada", objeto=empresa, request=self.request)
 
 
@@ -84,6 +164,28 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
             permissions.append(PodeGerenciarEmpresa())
         return permissions
 
+    def _recusar_dado_nao_contratado_na_atualizacao(self, request):
+        # BL-149 / DE-034 item 2: a atualização é a MESMA superfície de
+        # escrita que a criação, com o mesmo corpo — e a rodada 6 mediu a
+        # criação, não esta. Fechar só a criação repetiria, em duas rotas
+        # vizinhas do mesmo arquivo, o padrão que o R6-2 nomeou.
+        _recusar_dado_nao_contratado(
+            request,
+            ContratoDeRequisicao(
+                campos=_campos_gravaveis(self.get_serializer()),
+                cabecalhos_ignorados=("Idempotency-Key",),
+                contexto="na alteração de empresa",
+            ),
+        )
+
+    def put(self, request, *args, **kwargs):
+        self._recusar_dado_nao_contratado_na_atualizacao(request)
+        return super().put(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        self._recusar_dado_nao_contratado_na_atualizacao(request)
+        return super().patch(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         # A1 (reauditoria da etapa DL-011, rodada 3): o R4 tinha sido
         # corrigido só na criação. PUT/PATCH para o CNPJ de outra empresa
@@ -91,11 +193,20 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         # UPDATE) — reproduzida pelo auditor em 6 de 6 execuções com duas
         # threads. Mesmo tratamento de perform_create, mesmo gerenciador de
         # contexto compartilhado.
+        # `empresa_cnpj_canonico` também aqui (BL-157): mesma constraint, mesmo
+        # `Meta`, e a atualização é o outro caminho de gravação do mesmo campo
+        # — ver o comentário em `perform_create`.
         try:
-            with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
+            with (
+                transaction.atomic(),
+                erro_de_cnpj_duplicado_como_400(),
+                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+            ):
                 serializer.save()
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
@@ -110,6 +221,19 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
 
     def get_queryset(self):
         return Estabelecimento.objects.filter(empresa=self.get_empresa())
+
+    def post(self, request, *args, **kwargs):
+        # BL-149: medido pelo auditor nesta rota — `empresa: 999` e `xpto` no
+        # corpo devolviam **201**, ignorados em silêncio.
+        _recusar_dado_nao_contratado(
+            request,
+            ContratoDeRequisicao(
+                campos=_campos_gravaveis(self.get_serializer()),
+                cabecalhos_ignorados=("Idempotency-Key",),
+                contexto="no cadastro de estabelecimento",
+            ),
+        )
+        return super().post(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
@@ -128,19 +252,30 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         # `IntegrityError` de qualquer OUTRA origem continua subindo sem
         # tradução (nenhuma das duas camadas mascara defeito de sistema
         # como erro de cliente).
+        #
+        # `estabelecimento_cnpj_canonico` ACRESCENTADA (BL-157, achado R6-10):
+        # a terceira constraint do MESMO `Meta`, pelo mesmo motivo da de
+        # Empresa — ver o comentário em `EmpresaListCreateView.perform_create`.
+        # As mensagens saem do registro único `apps.core.restricoes.
+        # MENSAGENS_DE_RESTRICAO`, que a varredura de repositório confere
+        # contra TODA `Meta.constraints` do projeto: era a conferência manual
+        # que deixava constraint de fora.
         try:
             with (
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
                 restricao_como_400(
-                    {"uma_matriz_por_empresa": "Esta empresa já tem uma matriz cadastrada."}
+                    mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico")
                 ),
             ):
                 estabelecimento = serializer.save(empresa=self.get_empresa())
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({"tipo": [str(exc)]}) from exc
+            # O campo em que o erro aparece depende de QUAL constraint caiu —
+            # `exc.nome`, nunca o texto da mensagem (ver `RestricaoViolada`).
+            campo = "cnpj" if exc.nome == "estabelecimento_cnpj_canonico" else "tipo"
+            raise DRFValidationError({campo: [str(exc)]}) from exc
         registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
 
@@ -159,6 +294,9 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
 
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
+        # BL-149: medido pelo auditor nesta rota — querystring, `empresa` e
+        # `xpto` no corpo devolviam **201**, ignorados em silêncio.
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_REGIME)
         regime = request.data.get("regime")
         vigencia_inicio = request.data.get("vigencia_inicio")
         if not regime or not vigencia_inicio:
@@ -216,6 +354,54 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
         )
         serializer = self.get_serializer(registro)
         return Response(serializer.data, status=201)
+
+
+class HistoricoRegimeTributarioDetailView(EmpresaEscopadaMixin, APIView):
+    """Exclusão do ÚLTIMO período de regime tributário (BL-162, RC-82/DE-035).
+
+    Existe porque o achado R6-6 mostrou uma porta de mão única: um dígito
+    errado em `vigencia_inicio` deixava a empresa sem NENHUM caminho de
+    correção pelo produto — não havia `PUT`, `DELETE` nem edição na tela, e
+    só acesso direto ao banco desfazia. O Fred decidiu, em 2026-09-15, que a
+    correção **apaga** o registro (RC-82); o alcance está na DE-035 e a regra
+    inteira mora em `apps.empresas.services.excluir_ultimo_regime_tributario`
+    — esta view só traduz o veredito para HTTP.
+
+    Só `DELETE`: não há `GET` de item (a listagem já responde isso) nem
+    `PUT`/`PATCH`, porque editar um período em silêncio é justamente o que a
+    DE-035 não quis — "apagar e registrar de novo" deixa rastro do que
+    aconteceu, "editar" não.
+
+    Autorização no SERVIDOR, com o mesmo papel que cria (`PodeGerenciarEmpresa`
+    — ADMINISTRADOR e GESTOR): quem pode registrar o regime pode desfazer o
+    último registro. Papel sem gestão recebe 403 mesmo sem nenhuma tela ter
+    mostrado botão.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeGerenciarEmpresa]
+
+    def delete(self, request, empresa_id, registro_id):
+        empresa = self.get_empresa()
+        # `get_object_or_404` sempre escopado pela empresa da URL, que o mixin
+        # já revalidou contra o escritório ativo: um `registro_id` de outra
+        # empresa (ou de outro escritório) responde 404, nunca apaga.
+        registro = get_object_or_404(HistoricoRegimeTributario, pk=registro_id, empresa=empresa)
+        # BL-149: `DELETE` também entra na política. Um corpo com
+        # `vigencia_inicio` aqui sugeriria que o cliente está escolhendo QUAL
+        # período apagar por conteúdo, quando quem decide é a URL.
+        _recusar_dado_nao_contratado(request, CONTRATO_EXCLUSAO_DE_REGIME)
+
+        try:
+            apagado = excluir_ultimo_regime_tributario(
+                empresa=empresa, registro=registro, usuario=request.user, request=request
+            )
+        except ExclusaoDeRegimeInvalida as exc:
+            raise DRFValidationError(str(exc)) from exc
+
+        # 200 com o que foi apagado, não 204 vazio: o contador precisa ver
+        # QUAL período saiu (regime e vigência), e a resposta é a única
+        # confirmação que ele tem — o registro não existe mais para consultar.
+        return Response({"apagado": apagado, "detail": "Período de regime tributário apagado."})
 
 
 def _mascara_cnpj(cnpj):

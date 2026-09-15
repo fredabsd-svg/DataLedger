@@ -2,7 +2,11 @@ from django.db import models
 from django.db.models.functions import Upper
 
 from apps.empresas.fields import CNPJModelField
-from apps.empresas.validators import normalizar_cnpj, validar_cnpj
+from apps.empresas.validators import (
+    normalizar_cnpj,
+    validar_cnpj,
+    validar_vigencia_de_regime,
+)
 from apps.tenancy.models import Escritorio
 
 # Condição de canonização, compartilhada pela CheckConstraint de Empresa e
@@ -148,7 +152,14 @@ class HistoricoRegimeTributario(models.Model):
         Empresa, on_delete=models.CASCADE, related_name="historico_regime_tributario"
     )
     regime = models.CharField("regime tributário", max_length=20, choices=RegimeTributario.choices)
-    vigencia_inicio = models.DateField("vigência (início)")
+    # RC-81 (teto em hoje, confirmado) e HI-07 (piso em 2000, HIPÓTESE) como
+    # validador de CAMPO, e não só em `registrar_regime_tributario`: o
+    # `HistoricoRegimeTributarioInline` do admin (apps/empresas/admin.py)
+    # grava por `ModelForm`, chama `full_clean()` e NUNCA passa pelo serviço
+    # — é a segunda, e única outra, superfície de escrita deste campo hoje
+    # (item 2 da DE-034). Ver `apps.empresas.validators`, fonte única da
+    # faixa e da mensagem.
+    vigencia_inicio = models.DateField("vigência (início)", validators=[validar_vigencia_de_regime])
     vigencia_fim = models.DateField("vigência (fim)", null=True, blank=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 

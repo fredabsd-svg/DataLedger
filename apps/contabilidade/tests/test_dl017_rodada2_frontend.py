@@ -435,66 +435,49 @@ def test_adicionar_linha_sem_linha_incompleta_nao_mostra_aviso(client, cen):
 
 
 def test_recusa_por_teto_preserva_os_valores_digitados_na_mensagem(client, cen):
-    """R2-10: 22 partidas enviadas (as 20 primeiras batendo, e as 2
-    últimas TAMBÉM batendo em 77,00/77,00). A recusa por teto está
+    """R2-10: `teto + 2` partidas enviadas (as `teto` primeiras batendo, e
+    as 2 últimas TAMBÉM batendo em 77,00/77,00). A recusa por teto está
     correta (nada é gravado — é o ponto do achado 5), mas antes desta
     correção os valores das duas linhas excedentes desapareciam da
-    RESPOSTA inteira: a tela só re-exibia as 20 primeiras, e a mensagem
+    RESPOSTA inteira: a tela só re-exibia as `teto` primeiras, e a mensagem
     mandava "grave em dois lançamentos" sem repetir o que não coube.
+
+    RC-79/BL-160 (rodada 6): derivado de
+    `views_web.LINHAS_MAXIMAS_LANCAMENTO`, nunca de "22" escrito à mão — o
+    teto de negócio passou para 200 e este teste voltaria a medir um lote
+    LEGÍTIMO, devolvendo 302 e falhando por motivo errado.
     """
     _login(client, cen)
     empresa = cen["empresa"]
-    contas_debito = [
-        Conta.objects.create(
-            empresa=empresa,
-            codigo=f"1.{i}",
-            nome=f"Conta débito R2-10 {i}",
-            tipo=TipoConta.ATIVO,
-            natureza=NaturezaConta.DEVEDORA,
-        )
-        for i in range(1, 12)
-    ]
-    contas_credito = [
-        Conta.objects.create(
-            empresa=empresa,
-            codigo=f"2.{i}",
-            nome=f"Conta crédito R2-10 {i}",
-            tipo=TipoConta.PATRIMONIO_LIQUIDO,
-            natureza=NaturezaConta.CREDORA,
-        )
-        for i in range(1, 12)
-    ]
+    teto = views_web.LINHAS_MAXIMAS_LANCAMENTO
     dados = {
         "acao": "gravar",
-        "num_linhas": "22",
+        "num_linhas": str(teto + 2),
         "data": timezone.localdate().isoformat(),
-        "historico": "R2-10: 22 partidas",
+        "historico": f"R2-10: {teto + 2} partidas",
         "chave_idempotencia": "r2-10-preserva",
     }
-    for i in range(1, 11):
-        dados[f"conta_{i}"] = str(contas_debito[i - 1].id)
-        dados[f"tipo_{i}"] = "debito"
+    for i in range(1, teto + 1):
+        e_debito = i <= teto // 2
+        dados[f"conta_{i}"] = str((cen["caixa"] if e_debito else cen["receita"]).id)
+        dados[f"tipo_{i}"] = "debito" if e_debito else "credito"
         dados[f"valor_{i}"] = "10,00"
-    for i in range(11, 21):
-        dados[f"conta_{i}"] = str(contas_credito[i - 11].id)
-        dados[f"tipo_{i}"] = "credito"
-        dados[f"valor_{i}"] = "10,00"
-    dados["conta_21"] = str(contas_debito[10].id)
-    dados["tipo_21"] = "debito"
-    dados["valor_21"] = "77,00"
-    dados["conta_22"] = str(contas_credito[10].id)
-    dados["tipo_22"] = "credito"
-    dados["valor_22"] = "77,00"
+    dados[f"conta_{teto + 1}"] = str(cen["caixa"].id)
+    dados[f"tipo_{teto + 1}"] = "debito"
+    dados[f"valor_{teto + 1}"] = "77,00"
+    dados[f"conta_{teto + 2}"] = str(cen["receita"].id)
+    dados[f"tipo_{teto + 2}"] = "credito"
+    dados[f"valor_{teto + 2}"] = "77,00"
 
     resposta = client.post(reverse("contabilidade_web:lancamento_novo", args=[empresa.id]), dados)
     assert resposta.status_code == 400
     assert LancamentoContabil.objects.count() == 0
     conteudo = resposta.content.decode()
     # Antes desta correção, "77,00" simplesmente não existia na resposta
-    # inteira — as linhas 21 e 22 desapareciam por completo.
+    # inteira — as duas linhas excedentes desapareciam por completo.
     assert "77,00" in conteudo
     assert "Linhas que não couberam" in conteudo
-    assert "linha 21" in conteudo and "linha 22" in conteudo
+    assert f"linha {teto + 1}" in conteudo and f"linha {teto + 2}" in conteudo
 
 
 # ---------------------------------------------------------------------------

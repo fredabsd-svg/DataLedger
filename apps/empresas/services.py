@@ -4,7 +4,9 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
+from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+from apps.empresas.validators import mensagem_de_vigencia_de_regime_fora_da_faixa
 
 # Nome real da constraint de unicidade de cnpj no Postgres (confirmado via
 # pg_constraint), mapeado ao modelo correspondente. Usado para traduzir a
@@ -154,3 +156,116 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
     return HistoricoRegimeTributario.objects.create(
         empresa=empresa, regime=regime, vigencia_inicio=vigencia_inicio
     )
+
+
+class ExclusaoDeRegimeInvalida(Exception):
+    """Levantada quando a exclusão pedida não é a do ÚLTIMO período.
+
+    Tipo próprio, e não `ValueError`, por um motivo de contrato: quem chama
+    precisa distinguir "esta exclusão é proibida por regra" (400, com
+    mensagem útil ao contador) de qualquer outro `ValueError` que possa vir
+    de outro lugar da pilha. `registrar_regime_tributario` usa `ValueError`
+    por história — não repetir a escolha em código novo.
+    """
+
+
+@transaction.atomic
+def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request=None):
+    """Apaga o ÚLTIMO período de regime tributário da empresa (RC-82/DE-035).
+
+    Contexto, porque a escolha aqui não é técnica e não é minha: o achado
+    R6-6 mostrou que um dígito errado em `vigencia_inicio` deixava a empresa
+    **sem nenhum caminho de correção pelo produto**. O Fred decidiu, em
+    2026-09-15, que a correção **apaga** o registro errado (RC-82) — contra a
+    recomendação do `arquiteto-senior` de registrar uma correção no molde do
+    estorno. Regime tributário é dado **cadastral**, não escrituração.
+
+    A fronteira, que é o que impede esta decisão de contaminar o resto
+    (DE-035): isto vale para CADASTRO. **Não** se estende a lançamento
+    contábil efetivado — ali a correção segue por estorno rastreável e
+    apagar continua proibido (`LancamentoImutavelError`, em
+    `apps.contabilidade.models`). O teste da fronteira é a pergunta "isto é
+    escrituração?"; se for, não se apaga.
+
+    Três garantias, todas do alcance técnico fixado na DE-035:
+
+    1. **Só o último período** — o que não tem sucessor. Apagar um período do
+       meio abriria buraco na linha do tempo: o antecessor já teve a
+       `vigencia_fim` recortada para o dia anterior ao sucessor, e sem o
+       sucessor aquele intervalo fica **sem regime nenhum**. Empresa sem
+       regime numa competência é pior que empresa com regime errado, porque a
+       apuração não tem nem o que conferir. Pedido assim é RECUSADO
+       (`ExclusaoDeRegimeInvalida`), nunca executado.
+    2. **O período anterior volta a ser vigente** — a `vigencia_fim` recortada
+       volta a `None`. Sem isso, apagar deixaria a empresa sem regime
+       corrente, que é exatamente o estado que a exclusão existe para
+       consertar. É o ponto onde o defeito silencioso mora: sem esta linha,
+       tudo "funciona" e a empresa fica sem regime vigente sem nada acusar.
+    3. **O evento é gravado em `RegistroAuditoria`**, com os valores antigos e
+       o autor. Isto **não** contraria o "apagar" do Fred, e a distinção foi
+       apresentada a ele e confirmada ("Concordo com você", 2026-09-15): o
+       **registro** sai do histórico do produto — nenhuma tela, relatório ou
+       apuração volta a ver aquele período —, e o que fica é a **trilha
+       técnica**, que o `AGENTS.md` torna obrigatória ("trilha de auditoria
+       protegida, suficiente") e que não é dispensável por pedido. Ele
+       escolheu o que o produto mostra, não o que o log guarda.
+
+    `select_for_update()` sobre TODOS os períodos da empresa: duas exclusões
+    simultâneas do mesmo último período não podem as duas passar pela
+    checagem "este é o último" antes de qualquer gravação, e a reabertura da
+    `vigencia_fim` do anterior precisa da linha travada.
+
+    Devolve o `dict` com os valores do período apagado (já em texto, como
+    foram para a trilha), porque depois do `delete()` o objeto não é mais
+    fonte confiável — quem chama monta a resposta a partir dele.
+    """
+    periodos = list(
+        HistoricoRegimeTributario.objects.select_for_update()
+        .filter(empresa=empresa)
+        .order_by("-vigencia_inicio", "-id")
+    )
+    if not periodos:
+        raise ExclusaoDeRegimeInvalida("Esta empresa não tem regime tributário registrado.")
+
+    ultimo = periodos[0]
+    if registro.pk != ultimo.pk:
+        raise ExclusaoDeRegimeInvalida(
+            "Só o último período de regime tributário pode ser apagado. O período "
+            f"de {registro.vigencia_inicio.strftime('%d/%m/%Y')} tem um período "
+            f"posterior ({ultimo.vigencia_inicio.strftime('%d/%m/%Y')}), e apagá-lo "
+            "deixaria a empresa sem regime nenhum no intervalo entre os dois. "
+            "Apague primeiro o período mais recente."
+        )
+
+    valores_antigos = {
+        "id": ultimo.pk,
+        "empresa_id": empresa.pk,
+        "regime": ultimo.regime,
+        "vigencia_inicio": ultimo.vigencia_inicio.isoformat(),
+        "vigencia_fim": ultimo.vigencia_fim.isoformat() if ultimo.vigencia_fim else None,
+    }
+
+    anterior = periodos[1] if len(periodos) > 1 else None
+    if anterior is not None:
+        # Garantia 2 da DE-035. `vigencia_fim` do anterior foi recortada por
+        # `registrar_regime_tributario` quando o período agora apagado
+        # entrou; desfazer o recorte é o que devolve a empresa a um estado
+        # consistente. Guardamos o valor anterior na trilha para que o
+        # evento seja reconstituível.
+        valores_antigos["vigencia_fim_reaberta_do_periodo_anterior"] = (
+            anterior.vigencia_fim.isoformat() if anterior.vigencia_fim else None
+        )
+        anterior.vigencia_fim = None
+        anterior.save(update_fields=["vigencia_fim"])
+
+    # `registrar()` ANTES do `delete()`: depois da exclusão o `pk` da
+    # instância é `None`, e a trilha registraria um objeto sem identificação.
+    registrar(
+        acao="regime_tributario.excluido",
+        objeto=ultimo,
+        usuario=usuario,
+        request=request,
+        detalhes=valores_antigos,
+    )
+    ultimo.delete()
+    return valores_antigos

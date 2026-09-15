@@ -27,13 +27,32 @@ POST e campo desconhecido eram ignorados em silêncio em `conta_nova`,
 
 ## Os cinco dicionários, e o que este módulo faz com cada um
 
-| Dicionário | Como é julgado aqui |
-| --- | --- |
-| Arquivos (`request.FILES`) | Recusado por completo, a não ser que o contrato declare `aceita_arquivo=True`. |
-| Querystring (`request.GET` / `query_params`) | Recusada num POST, a não ser que o contrato declare `aceita_querystring=True`. |
-| Cabeçalhos (`request.headers` / `META`) | Só os NOMEADOS em `cabecalhos_ignorados` são recusados — a requisição tem dezenas de cabeçalhos legítimos (`Cookie`, `Accept`, `User-Agent`), e recusar "todo cabeçalho não contratado" quebraria qualquer navegador. O contrato nomeia os cabeçalhos que **aquela superfície ignora de propósito** e que, por isso, precisam falhar alto em vez de baixo (o caso real: `Idempotency-Key` na tela, que não usa cabeçalho para idempotência e produzia DUPLICIDADE em silêncio). |
-| Corpo já decodificado (`request.POST` na tela, `request.data` na API) | Toda chave fora de `campos` é recusada, nomeando a chave. |
-| Corpo bruto | **Não** é lido aqui, e é decisão, não esquecimento: o corpo bruto só chega a este sistema pelo decodificador da superfície (formulário ou parser do DRF). Um corpo que o decodificador não entenda não fica "ignorado em silêncio" — ou o parser já recusa (400), ou o dicionário decodificado sai vazio e a validação de campo obrigatório recusa. Não existe, hoje, caminho em que um corpo bruto não lido produza gravação com aparência de sucesso; se algum dia existir (ex.: `application/octet-stream` aceito por alguma rota), é aqui que a checagem entra. |
+**1. Arquivos (`request.FILES`).** Recusado por completo, a não ser que o
+contrato declare `aceita_arquivo=True`.
+
+**2. Querystring (`request.GET` / `query_params`).** Recusada, a não ser que o
+contrato declare `aceita_querystring=True`.
+
+**3. Cabeçalhos (`request.headers` / `META`).** Só os NOMEADOS em
+`cabecalhos_ignorados` são recusados. Uma requisição real tem dezenas de
+cabeçalhos legítimos (`Cookie`, `Accept`, `User-Agent`), e recusar "todo
+cabeçalho não contratado" quebraria qualquer navegador. O contrato nomeia os
+cabeçalhos que **aquela superfície ignora de propósito** e que, por isso,
+precisam falhar alto em vez de baixo — o caso real é `Idempotency-Key` na
+tela, que não usa cabeçalho para idempotência e produzia DUPLICIDADE em
+silêncio para quem o enviava.
+
+**4. Corpo já decodificado** (`request.POST` na tela, `request.data` na API).
+Toda chave fora de `campos` é recusada, nomeando a chave.
+
+**5. Corpo bruto.** **Não** é lido aqui, e isso é decisão, não esquecimento: o
+corpo bruto só chega a este sistema pelo decodificador da superfície
+(formulário ou parser do DRF). Um corpo que o decodificador não entenda não
+fica "ignorado em silêncio" — ou o parser já recusa com 400, ou o dicionário
+decodificado sai vazio e a validação de campo obrigatório recusa. Não existe,
+hoje, caminho em que um corpo bruto não lido produza gravação com aparência de
+sucesso; se algum dia existir (ex.: uma rota que aceite
+`application/octet-stream`), é aqui que a checagem entra.
 
 ## Ordem de avaliação — DECLARADA, porque a mensagem depende dela
 
@@ -140,7 +159,13 @@ class ContratoDeRequisicao:
       ONDE estava a chave recusada num corpo com estrutura aninhada.
     """
 
-    __slots__ = ("campos", "aceita_arquivo", "aceita_querystring", "cabecalhos_ignorados", "contexto")
+    __slots__ = (
+        "campos",
+        "aceita_arquivo",
+        "aceita_querystring",
+        "cabecalhos_ignorados",
+        "contexto",
+    )
 
     def __init__(
         self,
@@ -159,7 +184,7 @@ class ContratoDeRequisicao:
 
 
 def _com_contexto(contexto):
-    """" no lançamento" a partir de "no lançamento" — ou "" se não houver."""
+    """Devolve " no lançamento" a partir de "no lançamento" — ou "" se vazio."""
     return f" {contexto}" if contexto else ""
 
 
