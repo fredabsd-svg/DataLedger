@@ -631,6 +631,17 @@ ocorrência do padrão BL-115 nesta equipe.
 | BL-182 | **A9: marca de gerado herdada por cópia** (copiar um `.toml` gerado para um nome pessoal faz o gerador apagá-lo) e **hard link invisível ao guarda**. | baixa | `desenvolvedor-pleno` | encaminhado | Cópia com nome pessoal é preservada e relatada; hard link é relatado em `verificar()`. |
 | BL-183 | **A10: RC-81 ainda enumerava quatro ferramentas.** Resíduo do achado 4 — `requisitos.md` não estava na lista da rodada 1. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep` por Gemini e Copilot em `requisitos.md` só devolve ocorrência com negação explícita. |
 
+| BL-184 | **Encontrado por mim em 2026-09-15, depois das duas auditorias, varrendo o repositório inteiro em vez de a lista de arquivos de cada achado.** Três afirmações desmentidas continuavam vivas: (a) `CLAUDE.md` ainda dizia que a fonte gera "os formatos de Codex, Copilot e Gemini" — **terceira** ocorrência do meu erro do achado 4, num arquivo que nenhuma das duas rodadas tinha na lista; (b) `.github/copilot-instructions.md` e (c) `docs/planos/DL-014-guardas-de-processo.md` afirmavam que o **Gemini CLI lê `AGENTS.md` nativamente** — **não lê**, usa `GEMINI.md`; a afirmação foi escrita na DL-014 **sem fonte** e a pesquisa da DL-019 a desmentiu. | média | `arquiteto-senior` | **corrigido em 2026-09-15** | **A classe é:** afirmação desmentida não sobrevive em nenhum arquivo do repositório, e a varredura é **por repositório inteiro**, não pela lista de arquivos do achado. *Exemplos*: os três corrigidos com nota datada; `grep` por `Copilot`/`Gemini` em todo o repositório só devolve negação explícita, tabela de fontes ou registro histórico de auditoria. |
+
+**Lição que BL-184 impõe ao meu próprio método, registrada porque é a mesma
+classe da [DE-034](decisoes.md):** corrigir um achado pela **lista de arquivos
+que o auditor citou** deixa vivo o mesmo defeito em todo arquivo que ele não
+abriu. A DE-034 já dizia isso para código — "a varredura de uma classe começa
+no CAMPO, não na linha". Vale igual para documentação: a varredura começa na
+**afirmação**, não no arquivo. Foram precisas três ocorrências do mesmo erro
+meu, em três commits diferentes, para eu aplicar a regra que o projeto já tinha
+escrito.
+
 **Item de processo, sem número de achado:** o auditor encontrou em `/tmp`
 cópias de segurança manuais das fontes, feitas entre os dois commits. Indica
 correção feita na árvore real com backup fora do controle de versão — a mesma

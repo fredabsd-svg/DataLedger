@@ -278,6 +278,26 @@ auditoria independente — que é exatamente o motivo de ela existir.
    que reprova clone limpo em máquina de usuário comum, com remediação que não
    converge.
 
+   **BLOQUEIO OPERACIONAL EM 2026-09-15, e não é falha técnica:** o
+   `desenvolvedor-pleno` foi interrompido pelo **limite de uso da plataforma**
+   (HTTP 429, `claude-sonnet-5`) **antes de começar** as correções da rodada 3.
+   Nada foi alterado por ele; a árvore está no estado de `500dbee`. Os
+   auxiliares usam o mesmo modelo e estão sob o mesmo limite. **Quem pode
+   implementar sem esbarrar nisso sou eu**, que rodo em `opus` — e isso não
+   quebra a separação essencial, porque a independência que importa é a do
+   `auditor-qa`, que não implementou nada e continua validando. Está registrado
+   aqui para não virar decisão silenciosa.
+
+   **Achado meu, encontrado depois das duas auditorias (BL-184):** varri o
+   repositório **inteiro** em vez da lista de arquivos de cada achado, e
+   encontrei três afirmações desmentidas ainda vivas — `CLAUDE.md` dizendo que
+   geramos formatos para Copilot e Gemini (terceira ocorrência do mesmo erro
+   meu), e dois arquivos afirmando que o **Gemini CLI lê `AGENTS.md`
+   nativamente**, o que é falso e foi escrito na DL-014 **sem fonte**. A
+   [DE-034](../projeto/decisoes.md) já mandava varrer pela **classe** e não pela
+   linha; levei três repetições para aplicar a regra que o projeto já tinha
+   escrito, agora também para documentação.
+
    **A dimensão medida foi a viagem do conteúdo**, e o veredito separa bem as
    duas metades: *"a promessa de fonte única é sólida na mecânica de geração e
    frágil na honestidade do texto gerado. O que reprova é o conteúdo que viaja,

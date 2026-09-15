@@ -136,6 +136,7 @@ limitações reais em [docs/agents/equipe.md](docs/agents/equipe.md).
 
 Desde a [DL-019](docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md),
 `.claude/agents/*.md` é **arquivo gerado**: a fonte de cada papel está em
-`docs/agents/papeis/`, e dela saem também os formatos de Codex, Copilot e
-Gemini. Editar o arquivo gerado é erro, e o teste acusa — altere a fonte e rode
-`python scripts/gerar_agentes.py --escrever`.
+`docs/agents/papeis/`, e dela sai também o formato do **Codex CLI**
+(`.codex/agents/*.toml`). São **só esses dois** — Copilot e Gemini ficaram de
+fora por decisão (DE-037). Editar o arquivo gerado é erro, e o teste acusa —
+altere a fonte e rode `python scripts/gerar_agentes.py --escrever`.

@@ -20,5 +20,13 @@ Resumo do que é imposto tecnicamente, e não só pedido:
 - A branch `main` só recebe alteração por pull request com as verificações
   verdes.
 
-Ferramentas que leem `AGENTS.md` nativamente (Cursor, Codex, Gemini CLI e
-outras) já encontram as regras sem este arquivo.
+Ferramentas que leem `AGENTS.md` nativamente já encontram as regras sem este
+arquivo. Levantamento em documentação oficial, de 2026-09-15
+([DL-019](../docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md)):
+Cursor, Codex, Google Jules, OpenCode, Zed, Roo Code, Cline e Kiro leem.
+
+**Correção de uma afirmação desta página:** até 2026-09-15 este arquivo
+afirmava que o **Gemini CLI** lê `AGENTS.md` nativamente. **Não lê** — ele usa
+`GEMINI.md`, e só lê `AGENTS.md` com a chave `context.fileName` configurada
+fora do repositório. A afirmação vinha da DL-014, sem fonte, e a pesquisa da
+DL-019 a desmentiu.
