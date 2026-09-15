@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **Reprovada em 5 rodadas**, com os 8 achados da [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) corrigidos e integrados. **766 testes** em árvore limpa; a CI voltou ao verde no job de testes. Rodada 6 em execução |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,27 +248,27 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — rodada 6 da
-   auditoria, EM EXECUÇÃO.** Os 8 achados da
-   [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) estão corrigidos e
-   integrados. Verificado por mim em árvore limpa, sem concorrência: **766
-   testes** e a sequência do workflow limpa. Duas mutações minhas, reaplicadas
-   e medidas: tirar o julgador do campo `regime` derruba **7** testes; devolver
-   o `conta` do item direto ao ORM derruba **10**. Desfeitas, `sha256` idêntico
-   nos dois arquivos.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — APROVADA COM
+   RESSALVAS na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md).**
+   Primeira aprovação em seis rodadas. O auditor escreveu como ela deve ser
+   lida, e vale citar: *"não é 'está pronto', é 'está certo o suficiente para
+   integrar, com dez coisas nomeadas que ainda faltam, nenhuma delas capaz de
+   corromper dado, vazar entre empresas, desbalancear um lançamento ou derrubar
+   o servidor'."*
 
-   **O bloqueador que eu criei está fechado**: a CI de `128b6e7` voltou ao verde
-   (`681 passed, 2 skipped`), e os dois testes de navegador voltaram a **pular
-   com motivo** em vez de falhar.
+   **Decisão pendente do Fred:** integrar agora ou corrigir as dez ressalvas
+   antes. O argumento a favor de integrar é que a `main` hoje está **pior** —
+   ela tem o `1.000` gravado como `1,00` e não sobe em Python 3.12/3.13, e as
+   duas coisas estão corrigidas na branch.
 
-   **Cinco módulos julgadores** agora, e o desenho está completo:
-   `dinheiro.py`, `datas.py`, `identificadores.py`, `escolhas.py` e
-   `restricoes.py` — nenhuma camada interpreta dado tipado de cliente, e
-   nenhuma violação de invariante do modelo chega ao cliente como 5xx.
+   **Antes de integrar, dois itens meus:** preencher o corpo do PR #19 (o check
+   `Regras do projeto` está vermelho pela quarta vez — BL-147) e decidir se a
+   `main` ganha proteção antes (BL-02, ação administrativa dele).
 
-   **Nada disso é aprovação.** Quem aprova é a rodada 6, com **o tempo** como
-   dimensão indicada: faixa de data de lançamento e o que acontece quando
-   período encerrado existir.
+   **Cuidado registrado em letras grandes, R6-1:** a correção óbvia do
+   instrumento de navegador (subir o timeout) **reabre o bloqueador da rodada
+   5**. Tirar o descarte do perfil da região julgada vem primeiro. Nunca o
+   contrário.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -332,6 +332,34 @@ cliente — não depois.
    apresentação de uma conta devedora com **saldo credor**, que aparece na
    captura do Balancete sem nenhuma sinalização.
 
+**Três itens acrescentados pelo `auditor-qa` na rodada 6**, que julgou a lista
+acima *"correta em tudo o que afirma, e incompleta em três pontos"*:
+
+7. **Há portas que aceitam e descartam sem avisar.** Enviar um campo do
+   formulário como **arquivo**, na tela de conta, grava a conta na **raiz do
+   plano** com mensagem de sucesso — muda a indentação, o nível e o Balancete
+   por nível. Querystring num POST e campo desconhecido no corpo são ignorados
+   em silêncio em 5 das 7 superfícies de escrita; só a tela de lançamento
+   recusa.
+8. **Registrar regime tributário com vigência no ano 9999 é irreversível pelo
+   produto.** Nenhum regime pode mais ser registrado para aquela empresa, e não
+   há edição nem exclusão — só acesso direto ao banco desfaz.
+9. **A chave de idempotência nunca expira.** Reusar a mesma chave meses depois
+   devolve o lançamento antigo em vez de criar um novo. É coerente com o
+   desenho; **não está decidido nem documentado como decisão**.
+
+E dois itens da lista ficaram **incompletos**, não errados:
+
+- **Item 2, faixa de data:** falta o **efeito**, que é o que importa. Um ano
+  digitado errado (um `9` no lugar de um `2`) põe o lançamento em `9999-12-31`,
+  e ele **não aparece em nenhuma tela de operação normal** — nem Diário, nem
+  Razão, nem Balancete, nem Conferência — e **nada avisa que existe movimento
+  fora do período**. O balancete do período concilia, então nenhuma conferência
+  aponta. Para achar, é preciso suspeitar e alargar o período até o ano 9999.
+- **Item 3, estorno:** o estorno recebe **sempre a data de hoje**, nunca a do
+  original, e **pode ficar anterior ao lançamento que estorna** — sem aviso e
+  sem teste.
+
 O auditor declarou, e eu subscrevo: **ninguém aqui afirma que o sistema está
 livre de defeitos, que é seguro, ou que está em conformidade legal.** Afirmamos
 o que medimos, e está registrado o que não medimos.
@@ -350,9 +378,11 @@ o que medimos, e está registrado o que não medimos.
   **variar a dimensão medida** — rodada 2 variou o texto do valor; rodada 3
   cronometrou o tempo e variou a forma do nome do campo; rodada 4 variou o
   **transporte** da requisição e o **comprimento** de um identificador. Achou
-  nas três. **A dimensão indicada para a rodada 5 é concorrência real** — duas
-  conexões simultâneas sobre a mesma chave de idempotência e a mesma conta,
-  que segue verificada só por requisições sequenciais.
+  nas três. **A dimensão indicada para a rodada seguinte fica em "Próximo passo",
+  e só lá** — repetir aqui foi o que produziu a divergência do achado R6-8:
+  este parágrafo afirmava "concorrência real" depois de ela já ter sido varrida
+  e aprovada. É a instrução permanente do Fred, de 2026-09-13, cobrando de
+  novo: texto repetido diverge assim que alguém atualiza um.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado.
