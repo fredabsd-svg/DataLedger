@@ -1178,6 +1178,14 @@ _CORPOS_COM_MARCADOR_INVALIDO = {
     "rotulos_minusculos": "{{MECANISMO}}\nclaude:\na\ncodex:\nb\n{{/MECANISMO}}\n",
     "ordem_invertida": "{{MECANISMO}}\nCODEX:\nb\nCLAUDE:\na\n{{/MECANISMO}}\n",
     "rotulo_solto_sem_bloco": "Texto normal.\n\nCODEX:\nisto não está em bloco nenhum\n",
+    # Achado R3-1 (rodada 3, ALTA): o caso que a correção da rodada 2 não
+    # previu, porque não estava na lista de exemplos do auditor. Dois pares de
+    # rótulos no MESMO bloco — o erro natural de quem lê "toda afirmação de
+    # mecanismo vai dentro de um bloco" e tem duas afirmações a fazer.
+    "dois_pares_de_rotulos_no_mesmo_bloco": (
+        "{{MECANISMO}}\nCLAUDE:\nprimeira claude\nCODEX:\nprimeira codex\n"
+        "CLAUDE:\nsegunda claude\nCODEX:\nsegunda codex\n{{/MECANISMO}}\n"
+    ),
     "dois_blocos_primeiro_incompleto": (
         "{{MECANISMO}}\nCLAUDE:\nprimeiro\n{{/MECANISMO}}\n\n"
         "REGRA CRITICA QUE NAO PODE SUMIR\n\n"
@@ -1242,6 +1250,15 @@ def test_nenhum_derivado_real_contem_marcador_de_mecanismo():
         assert "MECANISMO" not in conteudo, (
             f"{caminho.relative_to(REPO_ROOT)} contém o marcador literal — ele deveria "
             "ter sido resolvido na geração"
+        )
+        # Achado R3-1: o vazamento não precisa levar a palavra MECANISMO junto.
+        # Com dois pares de rótulos no mesmo bloco, o que chegava ao derivado
+        # era um `CLAUDE:` sozinho numa linha — texto de controle lido como
+        # regra, sem nenhuma pista de que era controle.
+        rotulos = re.findall(r"(?m)^(?:CLAUDE|CODEX):[ \t]*$", conteudo)
+        assert not rotulos, (
+            f"{caminho.relative_to(REPO_ROOT)} contém rótulo de controle {rotulos} "
+            "vazado para o texto que o modelo lê"
         )
 
 
@@ -1380,6 +1397,18 @@ def test_verificar_relata_hard_link_no_lugar_do_derivado(tmp_path):
             },
             "não concede Agent",
         ),
+        # Achado R3-3 (rodada 3): o quarto ramo, que a correção do A6
+        # acrescentou por simetria e que o auditor não tinha tabelado — ficou
+        # sem teste, e mutá-lo para `if False:` não matava nada. Terceira
+        # repetição do padrão "defesa declarada, sem teste que a exercite"
+        # nesta demanda.
+        (
+            {
+                "  delega_para: []": "  delega_para: [papel-teste]",
+                '  tools: "Read"': '  tools: "Read, Agent"',
+            },
+            "proíbe Agent",
+        ),
     ],
 )
 def test_perfil_nao_pode_prometer_capacidade_que_o_claude_nega(
@@ -1510,4 +1539,30 @@ def test_procedimento_publicado_de_criar_e_remover_papel_funciona_como_escrito(t
     procedimento = COMO_CRIAR.read_text(encoding="utf-8")
     assert "não é apagado" in procedimento or "à mão" in procedimento, (
         "docs/agents/como-criar-um-papel.md precisa avisar que o .md do Claude sai à mão"
+    )
+
+
+def test_rodape_nao_sugere_escrever_quando_escrever_nao_resolve(tmp_path, capsys):
+    """Achado R3-7 (rodada 3): o rodapé de `main()` mandava rodar `--escrever`
+    logo abaixo da linha que diz que `--escrever` NÃO remove aquele arquivo.
+
+    A informação certa estava na tela e era desmentida pela última linha — que
+    é a que o olho procura. O teste existe porque a correção da mensagem por
+    problema (A4) deixou o rodapé global para trás, e porque mutar a condição
+    de volta para incondicional não matava teste nenhum: terceira vez, nesta
+    demanda, que uma defesa ficou sem quem a exercitasse.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    # Um `.md` órfão é exatamente o caso que `--escrever` não resolve.
+    (diretorios.claude / "papel-que-ninguem-gerou.md").write_text("# x\n", encoding="utf-8")
+    codigo = ga.main(["--verificar"], diretorios)
+    saida = capsys.readouterr().err
+
+    assert codigo == 1
+    assert "exigem ação manual" in saida, (
+        "quando o único problema é um arquivo que --escrever não remove, o rodapé "
+        "precisa dizer isso"
+    )
+    assert "Para corrigir" not in saida, (
+        "sugerir um comando que não corrige foi o defeito A4; repeti-lo no rodapé é o R3-7"
     )

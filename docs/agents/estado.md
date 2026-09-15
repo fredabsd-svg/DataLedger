@@ -217,7 +217,7 @@ diverge.
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
-| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **REPROVADA em duas rodadas** ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md)). Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **ENCERRADA reprovada**, em três rodadas ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md), [3](../auditorias/2026-09-15-dl-019-rodada-3.md)), por decisão do Fred e pela régua da DE-038. Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -250,7 +250,37 @@ auditoria independente — que é exatamente o motivo de ela existir.
 ## Próximo passo
 
 0. **[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) —
-   REPROVADA duas vezes.** [Rodada
+   ENCERRADA em 2026-09-15, reprovada em três rodadas, por decisão do Fred.**
+
+   **Como ler esse encerramento, sem eufemismo:** a etapa **não foi aprovada**.
+   A [rodada 3](../auditorias/2026-09-15-dl-019-rodada-3.md) reprovou por um
+   achado alto — o marcador ainda perdia conteúdo e vazava texto de controle,
+   por uma sintaxe que a correção anterior não previu. Esse achado **foi
+   corrigido** antes do encerramento, com prova por mutação. Os outros oito são
+   de gravidade baixa; quatro foram corrigidos e **quatro ficam abertos**, em
+   BL-190 a BL-194. Nada disso corrompe dado, erra cálculo, vaza entre
+   empresas, desbalanceia lançamento, altera período encerrado ou derruba
+   servidor — que é a régua da [DE-038](../projeto/decisoes.md), escrita nesta
+   etapa justamente porque ela consumiu horas do Fred sem precisar.
+
+   **O que o Fred tem funcionando:** os sete papéis em `.claude/agents/` e
+   `.codex/agents/`, fonte única com gerador e guarda de sincronia, o
+   `AGENTS.md` apresentando a equipe a qualquer ferramenta, procedimento de
+   criar papel executado do zero pelo próprio auditor, guarda contra
+   truncamento silencioso do `AGENTS.md` no Codex, e **849 testes**.
+
+   **A frase que resume a etapa inteira, do auditor:** *"O transporte está
+   sólido. O que reprova, outra vez, é o conteúdo que viaja."*
+
+   **A lição mais dura, e ela é sobre mim:** implementei as correções da rodada
+   2 e o auditor mediu que eu tinha corrigido **contra a lista de exemplos
+   dele**, não contra a propriedade que a lista ilustrava — por isso o nono
+   caso passou. Nas palavras dele: *"Não digo que foi deliberado; digo que o
+   resultado é indistinguível."* É o argumento empírico a favor de o
+   implementador e o auditor não serem a mesma cabeça, produzido dentro da
+   própria etapa.
+
+   **Histórico das três rodadas:** [Rodada
    1](../auditorias/2026-09-15-dl-019-rodada-1.md) em `ab1ec4e`: 12 achados
    (BL-162 a BL-173). [Rodada
    2](../auditorias/2026-09-15-dl-019-rodada-2.md) em `6667db1`: 10 achados

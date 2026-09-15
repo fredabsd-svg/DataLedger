@@ -610,6 +610,29 @@ Registrado para não ser confundido com esquecimento:
 - Conciliação bancária, centros de custo, Balanço Patrimonial, DRE, ECD e ECF —
   explicitamente adiados no plano da DL-006.
 
+## P2 — achados da rodada 3 da auditoria da DL-019 (REPROVADA, e a etapa encerrou)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-3.md](../auditorias/2026-09-15-dl-019-rodada-3.md).
+**A DL-019 encerrou reprovada**, por decisão combinada com o Fred e registrada
+em [DE-038](decisoes.md): o rigor é proporcional ao dano possível, e nenhum
+destes achados corrompe dado, erra cálculo, vaza entre empresas, desbalanceia
+lançamento, altera período encerrado ou derruba servidor. O achado **alto** foi
+corrigido antes do encerramento; os quatro de gravidade baixa ficam aqui,
+**abertos e escritos como abertos**.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-186 | **R3-1: o marcador perdia parágrafo e vazava texto de controle por uma nona sintaxe** — dois pares `CLAUDE:`/`CODEX:` no mesmo bloco, que é o erro natural de quem lê "toda afirmação de mecanismo vai dentro de um bloco" e tem duas afirmações. Os oito casos recusados eram **a lista de exemplos do auditor**, não a propriedade que ela ilustrava. | **alta** | `arquiteto-senior` | **corrigido em 2026-09-15** | Cada bloco carrega exatamente um par de rótulos, na ordem; a reprodução do auditor levanta `ErroFrontmatter` citando a linha do rótulo repetido; nenhum derivado contém linha igual a `CLAUDE:` ou `CODEX:`. |
+| BL-187 | **R3-3: o quarto ramo da coerência permissiva não tinha teste** — `if False:` não matava nada. Terceira repetição do padrão "defesa declarada sem teste" nesta demanda. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | Mutar o ramo mata ao menos um teste. |
+| BL-188 | **R3-7: o rodapé mandava rodar `--escrever` logo abaixo da linha que diz que `--escrever` não resolve.** Sobreviveu à minha primeira mutação — quarta repetição do mesmo padrão. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | Com um `.md` órfão como único problema, a saída diz "exigem ação manual" e não contém "Para corrigir". |
+| BL-189 | **R3-8: quinta ocorrência da afirmação desmentida sobre o Gemini**, dentro do próprio plano que contém a pesquisa que a desmentiu, depois de eu declarar em BL-184 que tinha varrido o repositório inteiro. Não tinha. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep -n "Gemini"` no plano só devolve ocorrência com retificação explícita. |
+| BL-190 | **R3-2: a marca de "arquivo gerado" é forjável e fecha o `cp`, não a classe.** `cp` seguido de renomeação do papel dentro do arquivo (o caminho mais útil para criar um agente pessoal) faz o gerador apagá-lo. | baixa | a definir | **ABERTO** | Prova por **origem**, não por conteúdo: só se remove o que se tem prova de ter gerado. As três formas de criar arquivo pessoal terminam em "preservado e relatado". |
+| BL-191 | **R3-4: a coerência permissiva reprova configuração legítima** — papel que escreve e proíbe `NotebookEdit` de propósito é recusado com a afirmação falsa de que "perfil e claude estão em desacordo". | baixa | a definir | **ABERTO** | `escreve_arquivos: sim` exige **pelo menos uma** ferramenta de escrita concedida e não proibida; as mensagens citam o conjunto, não a dupla fixa. |
+| BL-192 | **R3-5: o `chmod` de `escrever()` não tem tratamento de erro** — falha deixa a árvore parcialmente regenerada, com traceback. E a checagem "não executável" troca a dependência do `umask` por dependência da semântica de modo do sistema de arquivos: em `/mnt/c` do WSL sem `metadata`, um clone limpo reprovaria. **Risco analisado, não reproduzido** — o auditor foi explícito nisso. | baixa | a definir | **ABERTO — depende de resposta do Fred** | Confirmar se alguém roda o projeto em `/mnt/c` (WSL). Se sim, tolerar o bit de execução quando **todos** os arquivos o tiverem (assinatura de montagem, não de edição). E `chmod` em `try/except OSError`. |
+| BL-193 | **R3-6: `{{MECANISMO}}` no frontmatter não é validado** e vaza para a `description` dos dois derivados. Detectado pela suíte, não por `--escrever`/`--verificar`, que é o que se roda primeiro. | baixa | a definir | **ABERTO** | A mesma validação roda sobre o frontmatter, com `linha_base = 1`. |
+| BL-194 | **Onde a pendência do BL-181 está declarada.** O auditor concordou com a decisão de não inventar a lista de nomes de ferramenta, e discordou do **lugar**: está no backlog e no estado, não em `gerar_agentes.py` nem em `como-criar-um-papel.md` — os arquivos que alguém lê no momento em que escreve `tools:`. | baixa | a definir | **ABERTO** | Comentário em `_tokens_de_ferramentas` e linha no procedimento avisando que a lista não é validada. |
+
 ## P1 — achados da rodada 2 da auditoria da DL-019 (REPROVADA)
 
 Relatório integral em

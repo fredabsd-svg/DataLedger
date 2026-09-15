@@ -21,7 +21,17 @@ A equipe de agentes do DataLedger existe em **um formato só**: sete arquivos em
 `.claude/agents/*.md`, com frontmatter do Claude Code. Quem abrir o repositório
 com ChatGPT/Codex, Gemini ou Copilot encontra as regras do
 [AGENTS.md](../../AGENTS.md) — que é padrão aberto e já é lido por várias
-ferramentas —, mas **não encontra os papéis**: não sabe que existe um auditor
+ferramentas —, mas **não encontra os papéis**:
+
+> **Retificação de 2026-09-15, achado R3-8 da [rodada
+> 3](../auditorias/2026-09-15-dl-019-rodada-3.md).** O parágrafo acima é o
+> diagnóstico original e inclui o **Gemini** entre quem "encontra as regras do
+> `AGENTS.md`". **Não encontra:** o Gemini CLI usa `GEMINI.md` e só lê
+> `AGENTS.md` com `context.fileName` configurado fora do repositório — como a
+> própria tabela de fontes deste plano registra. É a **quinta** ocorrência
+> dessa afirmação desmentida, encontrada dentro do documento que contém a
+> pesquisa que a desmentiu, depois de eu declarar em BL-184 que tinha varrido o
+> repositório inteiro. Não tinha. não sabe que existe um auditor
 que não corrige implementação, um auxiliar que não delega, nem por que essas
 restrições existem.
 

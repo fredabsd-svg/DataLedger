@@ -621,13 +621,44 @@ def _validar_marcadores_de_mecanismo(corpo: str, caminho: Path, linha_base: int)
     derivado errado. ``linha_base`` é a linha do arquivo onde o corpo começa,
     para que a mensagem aponte a linha real e não a posição dentro do corpo.
     """
-    intervalos = [(m.start(), m.end()) for m in _MECANISMO_RE.finditer(corpo)]
+    blocos = list(_MECANISMO_RE.finditer(corpo))
+    intervalos = [(m.start(), m.end()) for m in blocos]
 
     def dentro_de_bloco(posicao: int) -> bool:
         return any(inicio <= posicao < fim for inicio, fim in intervalos)
 
     def linha_de(posicao: int) -> int:
         return linha_base + corpo.count("\n", 0, posicao)
+
+    # Achado R3-1 (auditoria rodada 3, ALTA): a validação anterior isentava
+    # TODO rótulo que caísse dentro de um bloco casado. Com dois pares
+    # `CLAUDE:`/`CODEX:` no mesmo bloco — o erro natural de quem lê "toda
+    # afirmação de mecanismo vai dentro de um bloco" e tem duas afirmações a
+    # fazer — o bloco casava, o segundo par ficava "dentro" dele e ninguém
+    # reclamava. Resultado medido pelo auditor: o derivado do Claude perdia um
+    # parágrafo inteiro e o do Codex recebia o rótulo literal MAIS uma frase
+    # de mecanismo falsa. Eram os dois modos de falha do achado original,
+    # vivos de novo.
+    #
+    # A lição, e é a razão de esta checagem existir assim: as oito sintaxes
+    # recusadas antes eram **a lista de exemplos do auditor**, não a
+    # propriedade que ela ilustrava. A propriedade é "cada bloco carrega
+    # exatamente um par de rótulos, nesta ordem" — verificá-la fecha a classe
+    # inteira, inclusive os casos que ninguém enumerou.
+    for bloco in blocos:
+        for rotulo in ("claude", "codex"):
+            extra = _ROTULO_SOLTO_RE.search(bloco.group(rotulo))
+            if extra is None:
+                continue
+            posicao = bloco.start(rotulo) + extra.start()
+            raise ErroFrontmatter(
+                f"{caminho}: linha {linha_de(posicao)}: rótulo {extra.group(0)!r} "
+                "repetido dentro de um mesmo bloco {{MECANISMO}}. Cada bloco leva "
+                "exatamente um `CLAUDE:` e um `CODEX:`, nesta ordem. Se você tem duas "
+                "afirmações de mecanismo a fazer, use **dois blocos** consecutivos — "
+                "senão o texto entre os rótulos extras some de um derivado e vaza "
+                "literal no outro."
+            )
 
     for ocorrencia in _MARCADOR_RESIDUAL_RE.finditer(corpo):
         if dentro_de_bloco(ocorrencia.start()):
@@ -1126,7 +1157,16 @@ def verificar(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> 
     return sorted(set(problemas))
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, diretorios: Diretorios | None = None) -> int:
+    """CLI. ``diretorios`` existe para o teste do rodapé (achado R3-7).
+
+    Sem ele, ``main`` só poderia ser exercitada contra a raiz real — e os
+    testes deste projeto não escrevem na árvore de trabalho. Um valor padrão
+    de parâmetro é resolvido na definição da função, então nem monkeypatch da
+    constante global alcançaria; passar explicitamente é o mesmo padrão já
+    usado por ``escrever`` e ``verificar``.
+    """
+    diretorios = diretorios if diretorios is not None else DIRETORIOS_REPO
     parser = argparse.ArgumentParser(description=__doc__)
     grupo = parser.add_mutually_exclusive_group(required=True)
     grupo.add_argument(
@@ -1140,11 +1180,11 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = parser.parse_args(argv)
 
     try:
-        papeis = carregar_papeis()
+        papeis = carregar_papeis(diretorios)
         if argumentos.escrever:
-            escrever(papeis)
+            escrever(papeis, diretorios)
             return 0
-        problemas = verificar(papeis)
+        problemas = verificar(papeis, diretorios)
     except ErroFrontmatter as erro:
         print(f"Fonte inválida, nada foi gravado: {erro}", file=sys.stderr)
         return 2
@@ -1153,10 +1193,22 @@ def main(argv: list[str] | None = None) -> int:
         print("Derivados fora de sincronia com docs/agents/papeis/:", file=sys.stderr)
         for problema in problemas:
             print(f"  - {problema}", file=sys.stderr)
-        print(
-            "\nPara corrigir: .venv/bin/python scripts/gerar_agentes.py --escrever",
-            file=sys.stderr,
-        )
+        # Achado R3-7 (rodada 3): este rodapé era incondicional e aparecia logo
+        # abaixo da linha que diz "este NÃO é removido por --escrever". A
+        # informação certa estava na tela e era desmentida pela última linha —
+        # que é a que o olho procura. Só sugere o comando quando ele resolve
+        # pelo menos um dos problemas listados.
+        if any("NÃO é removido por --escrever" not in problema for problema in problemas):
+            print(
+                "\nPara corrigir: .venv/bin/python scripts/gerar_agentes.py --escrever",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "\nOs problemas acima exigem ação manual — leia cada linha; "
+                "--escrever não os resolve.",
+                file=sys.stderr,
+            )
         return 1
     print(f"OK: {len(papeis)} papéis, todos os derivados sincronizados.")
     return 0
