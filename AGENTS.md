@@ -318,7 +318,8 @@ ela existe para impedir.
   `.codex/agents/`, `.github/agents/`, `.gemini/agents/` — são **gerados** dali
   por `scripts/gerar_agentes.py`. **Não os edite à mão**; a integração contínua
   reprova divergência ([DL-019](docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md)).
-- Para criar um papel novo: `docs/agents/como-criar-um-papel.md`.
+- Para criar um papel novo:
+  [docs/agents/como-criar-um-papel.md](docs/agents/como-criar-um-papel.md).
 
 Restrição técnica e instrução de comportamento não são a mesma coisa, e a
 diferença **muda conforme a ferramenta**. O que é imposto em uma pode ser apenas

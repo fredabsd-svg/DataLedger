@@ -217,7 +217,7 @@ diverge.
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
-| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code, Codex, Copilot e Gemini | **Em execução em 2026-09-15**, a pedido do Fred. Não toca em código de negócio |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Implementada em 2026-09-15, aguardando auditoria.** Escopo reduzido a duas ferramentas em execução (DE-037), depois de o Fred responder que usa "Codex pelo terminal". Não toca em código de negócio. **18 testes novos**; a resposta do Fred revelou o risco de truncamento do `AGENTS.md` (RC-84) |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -248,6 +248,28 @@ cliente), e uma decisão que afirmava funcionar em produção sem que o
 auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
+
+0. **[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) —
+   implementada em 2026-09-15, aguardando o parecer do `auditor-qa`.** Os sete
+   papéis passaram a ter uma fonte única em `docs/agents/papeis/`, com
+   `.claude/agents/` e `.codex/agents/` **gerados** por
+   `scripts/gerar_agentes.py` e guardados por 18 testes. A extração não alterou
+   **um byte** dos arquivos que a equipe Claude já usava.
+
+   **Dimensão indicada para a auditoria desta etapa:** a **viagem do conteúdo**.
+   As rodadas anteriores acharam defeito variando a dimensão medida, nunca a
+   contagem de testes. Aqui a pergunta é se um papel sai da fonte e chega
+   **íntegro** aos dois formatos — com acento, aspas, `"""` (que é o
+   delimitador do TOML), link relativo e corpo longo — e se o guarda de
+   sincronia realmente reprova quando alguém edita um derivado à mão.
+
+   **Dois defeitos já encontrados antes da auditoria, e vale saber por quem:**
+   o gerador não removia derivado órfão — achado pelo **desenvolvedor ao
+   executar** o procedimento de criar um papel, em vez de só escrevê-lo; e a
+   suíte escrevia em arquivos versionados do repositório real, com `finally`
+   que não sobrevive a `SIGKILL` — achado por **mim na revisão do diff**, e
+   agravado pelo arquivo corrompido ser justamente o do `auditor-qa`. Ambos
+   corrigidos; o segundo tem trava automática que reprova a reincidência.
 
 1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — APROVADA COM
    RESSALVAS na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md).**

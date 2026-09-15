@@ -35,6 +35,19 @@ Uso:
 (``apps/core/tests/test_agentes_multiplataforma.py``): ele não deve depender
 de banco de dados nem gravar nada em disco.
 
+Toda função pública abaixo que precisa saber "onde fica o repositório" recebe
+um :class:`Diretorios` explícito, com um valor padrão que aponta para a raiz
+real (calculada a partir deste arquivo). Isso existe por um motivo concreto,
+não estético: achado do arquiteto-senior revisando esta etapa — os testes que
+reproduzem os cenários de "derivado editado à mão" e "papel removido"
+escreviam e apagavam arquivos rastreados de verdade, confiando em um bloco
+``finally`` para desfazer. ``finally`` não roda sob ``SIGKILL``/OOM/timeout de
+CI, e o ambiente de desenvolvimento é efêmero — um estado corrompido no meio
+de um teste podia ser commitado por outro processo sem ninguém perceber.
+Threading explícito de :class:`Diretorios` é o que permite aos testes operar
+sobre uma cópia isolada em ``tmp_path`` sem duplicar toda a lógica do
+gerador.
+
 Por que não usamos PyYAML: o projeto não tem essa dependência hoje
 (``requirements/base.txt`` e ``requirements/dev.txt`` não a listam) e a regra
 do time é não acrescentar dependência nova só para isto. O frontmatter neutro
@@ -53,17 +66,42 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+
+@dataclass(frozen=True)
+class Diretorios:
+    """Onde ficam a fonte e os dois derivados, relativos a uma raiz.
+
+    A raiz normalmente é a raiz real do repositório (:data:`REPO_ROOT`), mas
+    os testes constroem uma instância apontando para uma cópia isolada em
+    ``tmp_path`` — nunca para o repositório de verdade — quando precisam de
+    um cenário que grava ou apaga um derivado.
+    """
+
+    raiz: Path
+    fonte: Path
+    claude: Path
+    codex: Path
+
+    @classmethod
+    def para_raiz(cls, raiz: Path) -> Diretorios:
+        return cls(
+            raiz=raiz,
+            fonte=raiz / "docs" / "agents" / "papeis",
+            claude=raiz / ".claude" / "agents",
+            codex=raiz / ".codex" / "agents",
+        )
+
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FONTE_DIR = REPO_ROOT / "docs" / "agents" / "papeis"
-CLAUDE_DIR = REPO_ROOT / ".claude" / "agents"
-CODEX_DIR = REPO_ROOT / ".codex" / "agents"
+DIRETORIOS_REPO = Diretorios.para_raiz(REPO_ROOT)
 
 # Caminho (relativo à raiz do repositório) do procedimento para criar um
 # papel novo. Citado no derivado Codex (ver `_bloco_como_criar_um_papel`) e
 # na skill `.agents/skills/criar-um-papel/SKILL.md`. O lado Claude é
 # responsabilidade do `docs/agents/equipe.md`, que não é gerado por este
 # script — ver o próprio `como-criar-um-papel.md` para a divisão de
-# responsabilidade.
+# responsabilidade. É só texto inserido no corpo gerado, não um caminho que
+# este script abre — por isso não faz parte de `Diretorios`.
 COMO_CRIAR_UM_PAPEL = "docs/agents/como-criar-um-papel.md"
 
 LINK_MARKDOWN_RE = re.compile(r"(\[[^\]]+\]\()([^)]+)(\))")
@@ -282,18 +320,18 @@ def carregar_papel(caminho: Path) -> Papel:
     )
 
 
-def carregar_papeis() -> list[Papel]:
+def carregar_papeis(diretorios: Diretorios = DIRETORIOS_REPO) -> list[Papel]:
     """Carrega e valida **todos** os papéis antes de qualquer escrita.
 
     A validação acontece toda aqui, de propósito: se um dos sete arquivos
     tiver frontmatter inválido, o processo inteiro falha antes de tocar em
     qualquer arquivo gerado — não existe "gerou 5 de 7 e quebrou".
     """
-    if not FONTE_DIR.is_dir():
-        raise ErroFrontmatter(f"diretório da fonte não encontrado: {FONTE_DIR}")
-    arquivos = sorted(FONTE_DIR.glob("*.md"))
+    if not diretorios.fonte.is_dir():
+        raise ErroFrontmatter(f"diretório da fonte não encontrado: {diretorios.fonte}")
+    arquivos = sorted(diretorios.fonte.glob("*.md"))
     if not arquivos:
-        raise ErroFrontmatter(f"nenhum papel encontrado em {FONTE_DIR}")
+        raise ErroFrontmatter(f"nenhum papel encontrado em {diretorios.fonte}")
     return [carregar_papel(caminho) for caminho in arquivos]
 
 
@@ -314,13 +352,13 @@ def recalcular_links(corpo: str, origem_dir: str, destino_dir: str) -> str:
     """Recalcula todo link relativo do corpo para a pasta de destino.
 
     ``origem_dir`` e ``destino_dir`` são caminhos relativos à raiz do
-    repositório, em formato POSIX. Para o formato "navegável como
-    documento" (Claude Code), ``destino_dir`` é a pasta onde o arquivo
-    gerado mora. Para o TOML do Codex — que não é um documento Markdown
-    navegado por caminho relativo, e cuja ferramenta roda com o diretório
-    de trabalho na raiz — o chamador passa ``destino_dir="."``, o que
-    produz links relativos à raiz do repositório (regra 1 do plano
-    DL-019).
+    repositório (ou da raiz isolada em teste), em formato POSIX. Para o
+    formato "navegável como documento" (Claude Code), ``destino_dir`` é a
+    pasta onde o arquivo gerado mora. Para o TOML do Codex — que não é um
+    documento Markdown navegado por caminho relativo, e cuja ferramenta roda
+    com o diretório de trabalho na raiz — o chamador passa
+    ``destino_dir="."``, o que produz links relativos à raiz do repositório
+    (regra 1 do plano DL-019).
     """
 
     def substituir(correspondencia: re.Match[str]) -> str:
@@ -334,8 +372,10 @@ def recalcular_links(corpo: str, origem_dir: str, destino_dir: str) -> str:
     return LINK_MARKDOWN_RE.sub(substituir, corpo)
 
 
-def _origem_dir_relativa(papel: Papel) -> str:
-    return posixpath.relpath(papel.arquivo_fonte.parent.as_posix(), start=REPO_ROOT.as_posix())
+def _origem_dir_relativa(papel: Papel, diretorios: Diretorios) -> str:
+    return posixpath.relpath(
+        papel.arquivo_fonte.parent.as_posix(), start=diretorios.raiz.as_posix()
+    )
 
 
 # --------------------------------------------------------------------------
@@ -377,7 +417,7 @@ def _bloco_como_criar_um_papel() -> str:
     )
 
 
-def _corpo_codex(papel: Papel) -> str:
+def _corpo_codex(papel: Papel, diretorios: Diretorios) -> str:
     """Corpo do ``developer_instructions`` do Codex: links relativos à raiz.
 
     Único derivado não-Claude do escopo atual (ver docstring do módulo), por
@@ -385,7 +425,7 @@ def _corpo_codex(papel: Papel) -> str:
     procedimento de criar papel — o lado Claude fica byte a byte igual ao
     que já existia (critério 1 do plano DL-019).
     """
-    origem = _origem_dir_relativa(papel)
+    origem = _origem_dir_relativa(papel, diretorios)
     corpo = recalcular_links(papel.corpo, origem, destino_dir=".")
     if papel.precisa_aviso_de_honestidade:
         corpo = corpo.rstrip("\n") + "\n" + _bloco_aviso_de_honestidade(papel)
@@ -398,7 +438,7 @@ def _corpo_codex(papel: Papel) -> str:
 # --------------------------------------------------------------------------
 
 
-def construir_claude(papel: Papel) -> str:
+def construir_claude(papel: Papel, diretorios: Diretorios = DIRETORIOS_REPO) -> str:
     """Reconstrói o frontmatter no formato exato de ``.claude/agents/``.
 
     A ordem dos campos é fixa (critério 1 do plano DL-019):
@@ -421,8 +461,8 @@ def construir_claude(papel: Papel) -> str:
     linhas.append("---")
     frontmatter = "\n".join(linhas) + "\n"
 
-    origem = _origem_dir_relativa(papel)
-    destino = posixpath.relpath(CLAUDE_DIR.as_posix(), start=REPO_ROOT.as_posix())
+    origem = _origem_dir_relativa(papel, diretorios)
+    destino = posixpath.relpath(diretorios.claude.as_posix(), start=diretorios.raiz.as_posix())
     corpo = recalcular_links(papel.corpo, origem, destino)
     return frontmatter + corpo
 
@@ -434,7 +474,7 @@ def _escapar_toml(valor: str) -> str:
     return valor.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def construir_codex_toml(papel: Papel) -> str:
+def construir_codex_toml(papel: Papel, diretorios: Diretorios = DIRETORIOS_REPO) -> str:
     """``.codex/agents/<papel>.toml``.
 
     Só ``name``, ``description`` e ``developer_instructions`` — os únicos
@@ -447,7 +487,7 @@ def construir_codex_toml(papel: Papel) -> str:
     configuração). Quando isso for confirmado, adicione o campo aqui — não
     presuma.
     """
-    corpo = _corpo_codex(papel)
+    corpo = _corpo_codex(papel, diretorios)
     nome = _escapar_toml(papel.nome)
     descricao = _escapar_toml(papel.descricao)
     instrucoes = _escapar_toml(corpo)
@@ -469,11 +509,19 @@ class ArquivoGerado:
     conteudo: str
 
 
-def _arquivos_esperados(papeis: list[Papel]) -> list[ArquivoGerado]:
+def _arquivos_esperados(papeis: list[Papel], diretorios: Diretorios) -> list[ArquivoGerado]:
     gerados: list[ArquivoGerado] = []
     for papel in papeis:
-        gerados.append(ArquivoGerado(CLAUDE_DIR / f"{papel.nome}.md", construir_claude(papel)))
-        gerados.append(ArquivoGerado(CODEX_DIR / f"{papel.nome}.toml", construir_codex_toml(papel)))
+        gerados.append(
+            ArquivoGerado(
+                diretorios.claude / f"{papel.nome}.md", construir_claude(papel, diretorios)
+            )
+        )
+        gerados.append(
+            ArquivoGerado(
+                diretorios.codex / f"{papel.nome}.toml", construir_codex_toml(papel, diretorios)
+            )
+        )
     return gerados
 
 
@@ -488,7 +536,7 @@ def _validar_toml(arquivo: ArquivoGerado) -> None:
     tomllib.loads(arquivo.conteudo)
 
 
-def _orfaos(papeis: list[Papel]) -> list[Path]:
+def _orfaos(papeis: list[Papel], diretorios: Diretorios) -> list[Path]:
     """Deriva existente cujo papel já não está na fonte.
 
     Usado tanto por ``verificar`` (para relatar) quanto por ``escrever``
@@ -500,8 +548,8 @@ def _orfaos(papeis: list[Papel]) -> list[Path]:
     nomes_esperados = {papel.nome for papel in papeis}
     encontrados: list[Path] = []
     for diretorio, sufixo in (
-        (CLAUDE_DIR, ".md"),
-        (CODEX_DIR, ".toml"),
+        (diretorios.claude, ".md"),
+        (diretorios.codex, ".toml"),
     ):
         if not diretorio.is_dir():
             continue
@@ -514,8 +562,8 @@ def _orfaos(papeis: list[Papel]) -> list[Path]:
     return encontrados
 
 
-def escrever(papeis: list[Papel]) -> None:
-    gerados = _arquivos_esperados(papeis)
+def escrever(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> None:
+    gerados = _arquivos_esperados(papeis, diretorios)
     for arquivo in gerados:
         if arquivo.caminho.suffix == ".toml":
             _validar_toml(arquivo)
@@ -527,35 +575,38 @@ def escrever(papeis: list[Papel]) -> None:
         temporario.write_text(arquivo.conteudo, encoding="utf-8")
         temporario.replace(arquivo.caminho)
 
-    orfaos = _orfaos(papeis)
+    orfaos = _orfaos(papeis, diretorios)
     for caminho in orfaos:
         caminho.unlink()
 
-    mensagem = f"Gerados {len(gerados)} arquivos a partir de {len(papeis)} papéis em {FONTE_DIR}."
+    mensagem = (
+        f"Gerados {len(gerados)} arquivos a partir de {len(papeis)} papéis em {diretorios.fonte}."
+    )
     if orfaos:
-        relativos = ", ".join(str(c.relative_to(REPO_ROOT)) for c in orfaos)
+        relativos = ", ".join(str(c.relative_to(diretorios.raiz)) for c in orfaos)
         mensagem += f" Removidos {len(orfaos)} derivado(s) órfão(s): {relativos}."
     print(mensagem)
 
 
-def verificar(papeis: list[Papel]) -> list[str]:
+def verificar(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> list[str]:
     """Retorna a lista de problemas encontrados (vazia = tudo sincronizado).
 
     Cobre os cenários 2 (derivado editado à mão), 3 (papel novo faltando
-    derivado) e 4 (derivado órfão) do plano DL-019.
+    derivado) e 4 (derivado órfão) do plano DL-019. Só lê arquivos — nunca
+    grava nem apaga nada, por isso é seguro chamar sobre o repositório real.
     """
     problemas: list[str] = []
-    esperados = _arquivos_esperados(papeis)
+    esperados = _arquivos_esperados(papeis, diretorios)
     for arquivo in esperados:
         if not arquivo.caminho.exists():
-            problemas.append(f"ausente: {arquivo.caminho.relative_to(REPO_ROOT)}")
+            problemas.append(f"ausente: {arquivo.caminho.relative_to(diretorios.raiz)}")
             continue
         atual = arquivo.caminho.read_text(encoding="utf-8")
         if atual != arquivo.conteudo:
-            problemas.append(f"divergente: {arquivo.caminho.relative_to(REPO_ROOT)}")
+            problemas.append(f"divergente: {arquivo.caminho.relative_to(diretorios.raiz)}")
 
-    for caminho in _orfaos(papeis):
-        relativo = caminho.relative_to(REPO_ROOT)
+    for caminho in _orfaos(papeis, diretorios):
+        relativo = caminho.relative_to(diretorios.raiz)
         problemas.append(f"órfão (sem papel correspondente na fonte): {relativo}")
     return sorted(set(problemas))
 

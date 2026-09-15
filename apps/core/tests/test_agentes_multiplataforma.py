@@ -16,16 +16,30 @@ primeiro ajuste — é a mesma causa (duplicação, não distração) que motivo
 aplicada aos papéis em vez de ao estado do projeto.
 
 Este módulo não precisa de banco de dados: como ``test_documentacao_do_estado.py``,
-ele lê e valida arquivos do repositório. Os testes que "sujam" o repositório
-de propósito (para reproduzir os cenários do plano DL-019: derivado editado
-à mão, papel novo, papel removido, frontmatter inválido) sempre restauram o
-estado original em bloco ``finally``, mesmo se a asserção falhar no meio.
+ele lê e valida arquivos do repositório.
+
+**A árvore de trabalho real nunca é escrita, apagada nem renomeada por
+nenhum teste aqui.** Uma versão anterior deste arquivo corrompia
+``.claude/agents/auditor-qa.md`` de propósito e confiava num bloco
+``finally`` para desfazer — achado do arquiteto-senior revisando a entrega:
+``finally`` não roda sob ``SIGKILL``/OOM/timeout de CI, o ambiente de
+desenvolvimento é efêmero, e um estado corrompido no meio de um teste podia
+ser preservado por outro processo sem ninguém perceber. Os cenários que
+precisam de um derivado divergente, de um papel novo ou de um papel ausente
+(cenários 2, 3 e 4 do plano DL-019) agora operam sobre uma **cópia isolada
+em ``tmp_path``** (ver ``_copiar_repositorio_isolado``), nunca sobre os
+arquivos reais — e a fixture ``_protege_a_arvore_de_trabalho_real`` abaixo,
+que envolve todo teste deste módulo, prova isso em execução: compara um
+instantâneo de ``git status`` antes e depois de cada teste e reprova,
+apontando o teste exato, se algo mudou.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -75,6 +89,69 @@ def _carregar_gerador():
 
 
 ga = _carregar_gerador()
+
+
+# --------------------------------------------------------------------------
+# Trava de segurança: nenhum teste deste módulo pode sujar o repositório real
+# --------------------------------------------------------------------------
+
+# Escopo deliberadamente restrito aos diretórios que este módulo e o gerador
+# tocam. Um `git status` sobre o repositório inteiro pegaria também edições
+# legítimas de outro agente rodando em paralelo (o arquiteto-senior, por
+# exemplo, edita `docs/planos/` e `docs/agents/estado.md` na mesma janela de
+# tempo) e produziria falso positivo sem relação com este arquivo de teste.
+_CAMINHOS_MONITORADOS = ("docs/agents/papeis", ".claude/agents", ".codex/agents")
+
+
+def _instantaneo_git_status() -> str:
+    resultado = subprocess.run(
+        ["git", "status", "--porcelain", "--", *_CAMINHOS_MONITORADOS],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return resultado.stdout
+
+
+@pytest.fixture(autouse=True)
+def _protege_a_arvore_de_trabalho_real(request):
+    """Prova, em execução, que nenhum teste escreve fora de ``tmp_path``.
+
+    Envolve TODO teste deste módulo (``autouse=True``). Complementa a
+    correção de verdade (operar sobre cópias isoladas — ver
+    ``_copiar_repositorio_isolado``), não a substitui: mesmo que um teste
+    futuro reintroduza a prática de escrever no repositório real, esta
+    fixture reprova a suíte e aponta exatamente qual teste foi, em vez de
+    deixar a corrupção passar em silêncio até alguém notar um `git diff`
+    inesperado depois.
+    """
+    antes = _instantaneo_git_status()
+    yield
+    depois = _instantaneo_git_status()
+    assert antes == depois, (
+        f"{request.node.nodeid} alterou a árvore de trabalho real em um dos "
+        f"caminhos monitorados ({', '.join(_CAMINHOS_MONITORADOS)}). Testes "
+        "deste módulo só podem escrever dentro de tmp_path — use "
+        "_copiar_repositorio_isolado(tmp_path) em vez de tocar nos arquivos "
+        f"reais.\ngit status antes:\n{antes!r}\ngit status depois:\n{depois!r}"
+    )
+
+
+def _copiar_repositorio_isolado(tmp_path: Path) -> ga.Diretorios:
+    """Copia a fonte e os dois derivados reais para dentro de ``tmp_path``.
+
+    Usada pelos cenários 2, 3 e 4 do plano DL-019 (derivado editado à mão,
+    papel novo, papel removido): eles precisam de um repositório "de
+    verdade" para operar, mas nunca podem ser o repositório de verdade. A
+    cópia mora inteiramente em ``tmp_path``, que o pytest apaga sozinho ao
+    final — não depende de nenhum código deste arquivo para ser limpa.
+    """
+    raiz_isolada = tmp_path / "repo"
+    for origem in (FONTE_DIR, CLAUDE_DIR, CODEX_DIR):
+        destino = raiz_isolada / origem.relative_to(REPO_ROOT)
+        shutil.copytree(origem, destino)
+    return ga.Diretorios.para_raiz(raiz_isolada)
 
 
 # --------------------------------------------------------------------------
@@ -221,7 +298,9 @@ def test_derivados_estao_sincronizados_com_a_fonte():
 
     Esta é a verificação que reprova o build (critério 7 do plano DL-019)
     quando alguém edita um derivado à mão em vez da fonte, ou esquece de
-    rodar o gerador depois de mudar um papel.
+    rodar o gerador depois de mudar um papel. `verificar()` só lê arquivos
+    (ver docstring dela em scripts/gerar_agentes.py), por isso é seguro
+    chamá-la sobre o repositório real sem cópia isolada.
     """
     problemas = ga.verificar(ga.carregar_papeis())
     assert not problemas, (
@@ -231,98 +310,91 @@ def test_derivados_estao_sincronizados_com_a_fonte():
     )
 
 
-def test_derivado_editado_a_mao_reprova_a_sincronia():
+def test_derivado_editado_a_mao_reprova_a_sincronia(tmp_path):
     """Cenário 2 do plano DL-019, como regressão automatizada.
 
-    Corrompe um derivado real, confirma que `verificar()` acusa exatamente
-    aquele arquivo, e restaura o conteúdo original em `finally` — mesmo que
-    a asserção falhe, o repositório não fica sujo.
+    Roda inteiramente sobre uma cópia isolada em `tmp_path` (ver
+    `_copiar_repositorio_isolado`) — o `.claude/agents/auditor-qa.md` real
+    nunca é tocado.
     """
-    alvo = CLAUDE_DIR / "auditor-qa.md"
-    original = alvo.read_text(encoding="utf-8")
-    try:
-        alvo.write_text(original + "\n<!-- edição manual indevida -->\n", encoding="utf-8")
-        problemas = ga.verificar(ga.carregar_papeis())
-        caminho_relativo = str(alvo.relative_to(REPO_ROOT))
-        assert any(caminho_relativo in problema for problema in problemas), (
-            f"Editar {alvo} à mão deveria ter sido detectado por verificar(), "
-            f"mas os problemas relatados foram: {problemas}"
-        )
-    finally:
-        alvo.write_text(original, encoding="utf-8")
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    alvo = diretorios.claude / "auditor-qa.md"
+    alvo.write_text(
+        alvo.read_text(encoding="utf-8") + "\n<!-- edição manual indevida -->\n", encoding="utf-8"
+    )
 
-    # Depois de restaurar, a sincronia volta a valer.
-    assert not ga.verificar(ga.carregar_papeis())
+    problemas = ga.verificar(ga.carregar_papeis(diretorios), diretorios)
+    caminho_relativo = str(alvo.relative_to(diretorios.raiz))
+    assert any(caminho_relativo in problema for problema in problemas), (
+        f"Editar {alvo} à mão deveria ter sido detectado por verificar(), "
+        f"mas os problemas relatados foram: {problemas}"
+    )
 
 
-def test_papel_novo_so_na_fonte_reprova_ate_os_derivados_existirem():
-    """Cenário 3 do plano DL-019: papel acrescentado só na fonte."""
+def test_papel_novo_so_na_fonte_reprova_ate_os_derivados_existirem(tmp_path):
+    """Cenário 3 do plano DL-019: papel acrescentado só na fonte.
+
+    Também sobre a cópia isolada — o novo papel nunca chega a existir em
+    `docs/agents/papeis/` de verdade.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
     nome_temporario = "papel-teste-temporario-pytest"
-    caminho_temporario = FONTE_DIR / f"{nome_temporario}.md"
-    assert not caminho_temporario.exists(), "colisão com um arquivo de teste anterior não removido"
-    try:
-        caminho_temporario.write_text(
-            "---\n"
-            f"nome: {nome_temporario}\n"
-            "descricao: >-\n"
-            "  Papel temporário criado só durante este teste automatizado.\n"
-            "perfil:\n"
-            "  raciocinio: equilibrado\n"
-            "  esforco: medio\n"
-            "  escreve_arquivos: nao\n"
-            "  memoria_de_projeto: nao\n"
-            "  delega_para: []\n"
-            "claude:\n"
-            "  model: sonnet\n"
-            "  effort: medium\n"
-            "  color: cyan\n"
-            '  tools: "Read"\n'
-            "---\n\n# Papel temporário de teste\n\nSó existe durante o teste.\n",
-            encoding="utf-8",
-        )
-        problemas = ga.verificar(ga.carregar_papeis())
-        assert any(nome_temporario in problema for problema in problemas), (
-            f"Um papel novo só na fonte deveria aparecer como derivado ausente, "
-            f"problemas encontrados: {problemas}"
-        )
-    finally:
-        caminho_temporario.unlink(missing_ok=True)
-
-    assert not ga.verificar(ga.carregar_papeis())
+    (diretorios.fonte / f"{nome_temporario}.md").write_text(
+        "---\n"
+        f"nome: {nome_temporario}\n"
+        "descricao: >-\n"
+        "  Papel temporário criado só durante este teste automatizado.\n"
+        "perfil:\n"
+        "  raciocinio: equilibrado\n"
+        "  esforco: medio\n"
+        "  escreve_arquivos: nao\n"
+        "  memoria_de_projeto: nao\n"
+        "  delega_para: []\n"
+        "claude:\n"
+        "  model: sonnet\n"
+        "  effort: medium\n"
+        "  color: cyan\n"
+        '  tools: "Read"\n'
+        "---\n\n# Papel temporário de teste\n\nSó existe durante o teste.\n",
+        encoding="utf-8",
+    )
+    problemas = ga.verificar(ga.carregar_papeis(diretorios), diretorios)
+    assert any(nome_temporario in problema for problema in problemas), (
+        f"Um papel novo só na fonte deveria aparecer como derivado ausente, "
+        f"problemas encontrados: {problemas}"
+    )
 
 
-def test_papel_removido_da_fonte_deixa_derivado_orfao_detectavel():
-    """Cenário 4 do plano DL-019: papel removido da fonte."""
+def test_papel_removido_da_fonte_deixa_derivado_orfao_detectavel(tmp_path):
+    """Cenário 4 do plano DL-019: papel removido da fonte.
+
+    Apaga o arquivo só na cópia isolada — `auxiliar-verificacao.md` real
+    nunca é removido.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
     papel = "auxiliar-verificacao"
-    caminho_fonte = FONTE_DIR / f"{papel}.md"
-    backup = caminho_fonte.read_text(encoding="utf-8")
-    try:
-        caminho_fonte.unlink()
-        problemas = ga.verificar(ga.carregar_papeis())
-        assert any("órfão" in problema and papel in problema for problema in problemas), (
-            f"Remover {caminho_fonte} da fonte deveria deixar os derivados "
-            f"órfãos detectáveis; problemas encontrados: {problemas}"
-        )
-    finally:
-        caminho_fonte.write_text(backup, encoding="utf-8")
+    (diretorios.fonte / f"{papel}.md").unlink()
 
-    assert not ga.verificar(ga.carregar_papeis())
+    problemas = ga.verificar(ga.carregar_papeis(diretorios), diretorios)
+    assert any("órfão" in problema and papel in problema for problema in problemas), (
+        f"Remover {papel}.md da fonte deveria deixar os derivados órfãos "
+        f"detectáveis; problemas encontrados: {problemas}"
+    )
 
 
-def test_fonte_com_frontmatter_invalido_nao_grava_nada(tmp_path, monkeypatch):
+def test_fonte_com_frontmatter_invalido_nao_grava_nada(tmp_path):
     """Cenário 5: frontmatter inválido falha alto e claro, sem gravar.
 
-    Usa um `FONTE_DIR` isolado em `tmp_path` (via monkeypatch do módulo)
-    para não arriscar o diretório real, e confere que nenhum arquivo de
-    saída foi criado no destino isolado.
+    Usa uma raiz isolada inteiramente dentro de `tmp_path` — nunca toca no
+    diretório real, nem precisa (`carregar_papeis` só lê).
     """
-    fonte_isolada = tmp_path / "papeis"
-    fonte_isolada.mkdir()
+    fonte_isolada = tmp_path / "docs" / "agents" / "papeis"
+    fonte_isolada.mkdir(parents=True)
     (fonte_isolada / "quebrado.md").write_text("isto não começa com '---'\n", encoding="utf-8")
 
-    monkeypatch.setattr(ga, "FONTE_DIR", fonte_isolada)
+    diretorios = ga.Diretorios.para_raiz(tmp_path)
     with pytest.raises(ga.ErroFrontmatter, match="'---'"):
-        ga.carregar_papeis()
+        ga.carregar_papeis(diretorios)
 
 
 # --------------------------------------------------------------------------

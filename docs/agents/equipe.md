@@ -260,7 +260,7 @@ teste.
 **Não edite um desses arquivos à mão.** Altere a fonte e rode
 `python scripts/gerar_agentes.py --escrever`; um teste da integração contínua
 reprova o build quando um derivado diverge. Para criar um papel novo, siga
-`docs/agents/como-criar-um-papel.md`.
+[como-criar-um-papel.md](como-criar-um-papel.md).
 
 ### O que muda de ferramenta para ferramenta, e não pode ser escondido
 
