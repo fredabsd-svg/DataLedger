@@ -128,7 +128,7 @@ e o padrão do usuário prevalece.
 | 7 | Um teste reprova o build quando qualquer derivado divergir da fonte | Alterar um derivado à mão e ver o teste falhar; reverter e ver passar |
 | 8 | Um teste reprova o build quando um papel existir na fonte e faltar em um dos quatro formatos | Remover um derivado e ver o teste falhar |
 | 9 | Ferramenta que não impõe restrição de escrita recebe o aviso explícito no corpo | Teste que exige a frase-marcador nos formatos sem restrição técnica |
-| 10 | `GEMINI.md` e `.agents/skills/` existem como **ponteiro**, sem copiar regra do `AGENTS.md` | Teste que reprova se o texto de regra do `AGENTS.md` aparecer duplicado |
+| 10 | `.agents/skills/` existe como **ponteiro**, sem copiar regra do `AGENTS.md` | Teste que reprova se o texto de regra do `AGENTS.md` aparecer duplicado. ~~`GEMINI.md`~~ **fora do escopo** desde 2026-09-15 (DE-037) — o critério foi corrigido tarde, e a incoerência virou o achado 4 da rodada 1 |
 | 11 | Qualquer ferramenta consegue **criar um papel novo** seguindo um procedimento escrito | `docs/agents/como-criar-um-papel.md` existe, é citado nos quatro formatos e o procedimento foi executado de ponta a ponta uma vez |
 | 12 | Nenhuma regressão na suíte | `pytest`, `ruff check`, `ruff format --check`, `python manage.py check` |
 | 13 | O estado do projeto é atualizado | `DL-019` presente no README e em `docs/agents/estado.md` |

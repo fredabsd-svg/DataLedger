@@ -1674,10 +1674,20 @@ modelos também consigam trabalhar no repositório, em
 ao lado de `.claude`.
 
 **Decisão:** o conteúdo de cada papel vive em `docs/agents/papeis/<papel>.md`,
-em formato independente de fornecedor, e os arquivos de cada ferramenta —
-`.claude/agents/`, `.codex/agents/`, `.github/agents/`, `.gemini/agents/` — são
+em formato independente de fornecedor, e os arquivos de cada ferramenta são
 **gerados** por `scripts/gerar_agentes.py`, com teste que reprova o build quando
 um derivado diverge da fonte.
+
+> **Corrigido em 2026-09-15, achado 4 da [rodada 1 da auditoria
+> DL-019](../auditorias/2026-09-15-dl-019-rodada-1.md).** Esta decisão foi
+> escrita listando quatro destinos — `.claude/agents/`, `.codex/agents/`,
+> `.github/agents/` e `.gemini/agents/`. **São dois:** os dois primeiros. A
+> [DE-037](#de-037--formato-de-agente-só-se-gera-para-ferramenta-que-alguém-usa),
+> tomada horas depois, reduziu o escopo, e eu atualizei o plano e esqueci daqui,
+> do `README.md` e do `AGENTS.md`. A afirmação errada ficou em **três** lugares
+> — o mesmo número do incidente de 2026-09-13 que originou a instrução
+> permanente do Fred. Quem escreveu a decisão contra duplicação cometeu o erro
+> dela no mesmo commit; fica registrado em vez de apagado.
 
 **Motivo:** o pedido literal criaria três cópias do mesmo papel. A instrução
 permanente do Fred, de 2026-09-13, nasceu exatamente disso — o estado do projeto
@@ -1709,8 +1719,15 @@ confirmados em documentação oficial.
 **Decisão:** o `AGENTS.md` continua sendo o único lugar onde as regras de
 desenvolvimento existem. Ferramenta que não o lê nativamente ganha um arquivo
 fino que **aponta** para ele — como `.github/copilot-instructions.md` já faz
-desde a [DL-014](../planos/DL-014-guardas-de-processo.md) e como `GEMINI.md`
-passa a fazer. Geração automática fica restrita à definição de papel.
+desde a [DL-014](../planos/DL-014-guardas-de-processo.md). Geração automática
+fica restrita à definição de papel.
+
+> **Corrigido em 2026-09-15, mesmo achado 4 da [rodada
+> 1](../auditorias/2026-09-15-dl-019-rodada-1.md).** O texto original terminava
+> com "e como `GEMINI.md` passa a fazer". **`GEMINI.md` não existe e não será
+> criado**: o Gemini saiu do escopo pela DE-037. Quem cumpre o papel de ponteiro
+> hoje, além do arquivo do Copilot, são as duas skills em `.agents/skills/`,
+> lidas pelo Codex a partir do repositório.
 
 **Motivo:** a regra é um documento longo, lido por sete ferramentas por
 convenção aberta; copiá-lo multiplicaria o risco e o tamanho. O papel é um

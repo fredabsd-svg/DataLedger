@@ -314,10 +314,12 @@ ela existe para impedir.
 
 - Papéis, permissões e limitações reais: [docs/agents/equipe.md](docs/agents/equipe.md).
 - Conteúdo de cada papel, em formato independente de fornecedor:
-  `docs/agents/papeis/`. Os arquivos de cada ferramenta — `.claude/agents/`,
-  `.codex/agents/`, `.github/agents/`, `.gemini/agents/` — são **gerados** dali
-  por `scripts/gerar_agentes.py`. **Não os edite à mão**; a integração contínua
+  `docs/agents/papeis/`. Os arquivos de cada ferramenta — hoje `.claude/agents/`
+  e `.codex/agents/`, e **só esses dois** — são **gerados** dali por
+  `scripts/gerar_agentes.py`. **Não os edite à mão**; a integração contínua
   reprova divergência ([DL-019](docs/planos/DL-019-portabilidade-entre-ferramentas-de-ia.md)).
+  Copilot e Gemini têm formato confirmado e ficaram **de fora de propósito**
+  (DE-037): não procure `.github/agents/` nem `.gemini/`, e não os crie.
 - Para criar um papel novo:
   [docs/agents/como-criar-um-papel.md](docs/agents/como-criar-um-papel.md).
 

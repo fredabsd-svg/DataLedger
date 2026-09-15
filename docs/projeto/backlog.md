@@ -610,6 +610,27 @@ Registrado para não ser confundido com esquecimento:
 - Conciliação bancária, centros de custo, Balanço Patrimonial, DRE, ECD e ECF —
   explicitamente adiados no plano da DL-006.
 
+## P1 — achados da rodada 1 da auditoria da DL-019 (REPROVADA)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-1.md](../auditorias/2026-09-15-dl-019-rodada-1.md).
+Todos encaminhados na mesma data; a etapa volta para a rodada 2.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-162 | **Os arquivos gerados para o Codex afirmam "Essa restrição é técnica" sobre restrição que lá não existe** — 6 ocorrências em 4 dos 7 papéis. O aviso correto existe, 5 KB abaixo e como ressalva genérica, e o teste do critério 9 passa com o arquivo se contradizendo. | **alta** | `desenvolvedor-pleno` | encaminhado | **A classe é:** nenhum arquivo de papel afirma mecanismo que não exista na ferramenta de destino. *Exemplos*: o texto neutro da fonte descreve dever, e cada gerador insere como aquilo é imposto ali; o aviso vem **antes** do corpo; o marcador do aviso cita a ferramenta certa (`Agent` no papel cuja restrição é de delegação); teste reprova se `restrição técnica` aparecer num `.toml` fora do bloco de aviso. |
+| BL-163 | **`nome` sem validação: `--escrever` grava fora dos diretórios de destino.** O auditor gravou em `/tmp` com `nome: ../../../ESCAPOU`. O fluxo é o que o projeto convida qualquer ferramenta externa a usar. | **alta** | `desenvolvedor-pleno` | encaminhado | **A classe é:** nenhum dado vindo de arquivo do repositório determina caminho de escrita sem validação. *Exemplos*: `nome` casa `^[a-z0-9]+(-[a-z0-9]+)*$` e é igual ao `stem` do arquivo; `escrever` confirma que todo caminho resolvido é descendente do destino; as duas defesas, não uma. |
+| BL-164 | **`--escrever` apaga qualquer `.md`/`.toml` não gerado no destino.** A correção do órfão excedeu o alvo: um agente local foi removido só por alguém rodar o gerador. Padrão BL-115 — correção que cria defeito novo. | média | `desenvolvedor-pleno` | encaminhado | Só se remove arquivo que o próprio gerador assina; órfão sem assinatura é **relatado**, nunca apagado. |
+| BL-165 | **Documentação afirmava quatro formatos gerados; são dois.** Em `README.md`, `AGENTS.md` e duas decisões — três lugares, o mesmo número do incidente de 2026-09-13. | média | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep` por `.gemini`, `GEMINI.md` e `.github/agents` fora das auditorias só devolve negação explícita, tabela de fontes ou critério riscado. |
+| BL-166 | **A trava contra sujar a árvore tem ponto cego**: monitora três diretórios e não vê escrita em `AGENTS.md`, `docs/agents/equipe.md` nem `.agents/`, que o próprio módulo lê. | média | `desenvolvedor-pleno` | encaminhado | A sonda do auditor, com dois testes maliciosos, reprova **os dois**, não só um. |
+| BL-167 | **`perfil` e `claude` podem se contradizer sem nada acusar.** Dá para conceder `Write` ao `auditor-qa` mantendo `escreve_arquivos: nao`: 18 testes verdes e os dois derivados continuam afirmando a restrição. | média | `desenvolvedor-pleno` | encaminhado | Incoerência entre intenção declarada e ferramentas concedidas levanta `ErroFrontmatter`; `delega_para` só aceita papel existente. |
+| BL-168 | Caractere de controle na fonte derruba o gerador com traceback bruto, sem citar o arquivo — ao contrário do que o procedimento publicado promete. | baixa | `desenvolvedor-pleno` | encaminhado | Ou escapa e o conteúdo volta íntegro, ou recusa citando arquivo e linha. |
+| BL-169 | Chave desconhecida no frontmatter é descartada em silêncio: a fonte afirma, o derivado não diz. | baixa | `desenvolvedor-pleno` | encaminhado | Chave desconhecida em `perfil` ou `claude` é recusada, nomeando a chave e as aceitas. |
+| BL-170 | Guarda de sincronia não detecta divergência de fim de linha (CRLF): bytes mudam e `verificar()` diz "sincronizado". | baixa | `desenvolvedor-pleno` | encaminhado | Comparação por **bytes**; derivado convertido para CRLF é relatado como divergente. |
+| BL-171 | Symlink, permissão, subdiretório e extensão alternativa escapam do guarda. O symlink é o pior: o papel passa a apontar para fora do controle de versão e o guarda aprova. | baixa | `desenvolvedor-pleno` | encaminhado | `verificar` exige arquivo regular, não symlink, com modo esperado; `_orfaos` varre recursivamente e **relata** o inesperado. |
+| BL-172 | Os links dentro dos `.toml` não são validados por mecanismo nenhum — `validate-docs.ps1` só olha `.md`. | baixa | `desenvolvedor-pleno` | encaminhado | Renomear um alvo citado faz o teste reprovar. |
+| BL-173 | O guarda de tamanho cobre só o `AGENTS.md` da raiz; o limite do Codex vale para o conjunto concatenado. | baixa | `desenvolvedor-pleno` | encaminhado | A soma de todos os `AGENTS.md` do repositório é comparada com a margem. |
+
 ## P2 — portabilidade entre ferramentas de IA ([DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md))
 
 Itens que a DL-019 deixa em aberto por decisão, não por esquecimento. A faixa
