@@ -413,6 +413,37 @@ auditoria independente — que é exatamente o motivo de ela existir.
    de suíte verde diz em que árvore foi medida, e a árvore que vale é a limpa.**
    Mecanismo em **BL-180**, cumprida pela primeira vez nesta revisão.
 
+   ### Rodada 3 e a correção — estado em `2d1bc37`
+
+   **Rodada 3 (`05c2a6d`): REPROVADO**, um achado ALTA (C1) e seis menores.
+   **B1 a B8 fechados**, todos verificados pelo auditor com mutante próprio.
+
+   **O padrão que três rodadas revelaram, e que vale mais que os três achados:**
+   as três fugas moram **no mesmo lugar** — a fronteira entre o que a varredura
+   **lê** e o que o framework **faz em tempo de execução**. `getattr(classe,
+   "post")` em vez do que o roteador liga; `initkwargs["actions"]` em vez de
+   `callback.actions`; `http_method_names` da classe em vez do da rota.
+   **Exigência permanente que decorre disso:** toda leitura estática de
+   comportamento de framework precisa de **teste de precedência** — dois valores
+   que existem, divergem, e o teste prova qual vence **por comportamento**.
+
+   **Estado em `2d1bc37`:**
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Cópia limpa da revisão gravada (`git status` vazio, **zero** ignorados) | **1105 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1103 passed, 2 skipped**, 62,68 s |
+
+   Eram 1077. Os 2 pulos continuam sendo as medições de CSS (BL-182).
+
+   **Uma quebra de regra declarada pelo implementador**, e verificada por mim:
+   ele rodou `ruff format` sem `--check`, o que é proibido. Peguei o arquivo na
+   revisão anterior e rodei `ruff format --check` nele — *"1 file already
+   formatted"*. Como a base já estava formatada, o comando **só pôde tocar
+   linhas dele**. Dano nulo, e o registro fica porque ele registrou em vez de
+   esconder.
+
    ### A DE-034 percorrida item por item — achado A4 da auditoria
 
    Este é o **critério 2 da etapa**, que eu escrevi e **não cumpri**: o auditor
