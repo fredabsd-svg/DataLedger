@@ -98,67 +98,98 @@ def _post_lancamento(client, cenario, *, conta, chave):
 
 # ---------------------------------------------------------------------------
 # `item["conta"]` — a tabela do auditor refeita.
+#
+# Cuidado de método, em TODOS os testes abaixo: nunca uso o inteiro literal
+# `1`/`2` para representar "o PK da conta 1/2". O banco de teste é
+# COMPARTILHADO entre todos os arquivos da suíte, na mesma sessão — a
+# sequência de PKs do Postgres NÃO é resetada por teste (só a transação é
+# desfeita; `nextval()` de uma sequência não é transacional), então "1"
+# pode já ter sido consumido por uma Conta de outro teste, de OUTRA
+# empresa, muito antes deste rodar. Um teste que assumisse `conta_1.id ==
+# 1` só passaria por acidente de ORDEM DE EXECUÇÃO — a mesma classe de
+# fragilidade que a própria auditoria desta rodada nomeou para o teste de
+# permissão de `apps.tenancy` (override_settings dependente de ordem).
+# Todo valor usado abaixo deriva do PK REAL de `cenario["conta_1"]`/
+# `cenario["conta_2"]`, nunca de um número escolhido a dedo.
 # ---------------------------------------------------------------------------
 
-CONTAS_REINTERPRETADAS = [
-    pytest.param(1.9, id="numero-json-fracionario"),
-    pytest.param(True, id="booleano"),
-    pytest.param(" 1 ", id="com-espacos"),
-    pytest.param("+1", id="com-sinal"),
-]
 
-CONTAS_REINTERPRETADAS_PARA_CONTA_2 = [
-    pytest.param("١", id="digito-indico-arabico"),  # "1" arábico-índico
-    pytest.param("１", id="digito-fullwidth"),  # "1" fullwidth
-]
+def _fullwidth(n):
+    return str(n).translate(str.maketrans("0123456789", "０１２３４５６７８９"))
 
 
-@pytest.mark.parametrize("conta_bruta", CONTAS_REINTERPRETADAS)
-def test_conta_reinterpretada_em_silencio_agora_e_recusada(client, cenario, conta_bruta):
-    """Antes, os quatro valores abaixo eram gravados na conta 1, com 201,
-    sem uma palavra — o lote fecha balanceado (débito na conta 1, crédito
-    na conta 2), nenhuma conferência aponta. Agora: 400, nada gravado."""
+def _arabico_indico(n):
+    return str(n).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+
+
+def test_conta_com_numero_json_fracionario_e_recusada(client, cenario):
+    """Antes, um número JSON fracionário era truncado por `int()` (Python:
+    `int(1.9) == 1`) e gravava na conta cujo PK batesse com a parte
+    inteira — sempre 201, sem aviso. Agora: 400, nada gravado."""
     _cliente_autenticado(client, cenario)
+    pk_real = cenario["conta_1"].id
     antes = LancamentoContabil.objects.count()
 
-    resposta = _post_lancamento(client, cenario, conta=conta_bruta, chave=f"bl142-{conta_bruta!r}")
+    resposta = _post_lancamento(client, cenario, conta=pk_real + 0.9, chave="bl142-fracionario")
 
-    assert resposta.status_code == 400, (conta_bruta, resposta.status_code, resposta.content)
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
     assert LancamentoContabil.objects.count() == antes
     assert _sem_nada_gravado()
 
 
-@pytest.mark.parametrize("conta_bruta", CONTAS_REINTERPRETADAS_PARA_CONTA_2)
-def test_conta_com_digito_unicode_nao_e_reinterpretada_para_outra_conta(
-    client, cenario, conta_bruta
-):
-    """`"١"`/`"１"` (dígito Unicode "1" em outro script) eram gravados na
-    conta 1 mesmo escrevendo o dígito de "1" em outro alfabeto — o achado
-    original do auditor usou `"٢"`/`"２"` (dígito "2") para o efeito ficar
-    óbvio (grava na conta 2 quando o cliente pediu conta 1). Reproduzo o
-    caso equivalente com o dígito "1": qualquer um dos dois, gravado ou
-    recusado, tem que ser o MESMO veredito de `para_id("1")` — recusado,
-    porque só ASCII é aceito.
-    """
+@pytest.mark.parametrize("modelo", [" {pk} ", "+{pk}"])
+def test_conta_com_espaco_ou_sinal_e_recusada(client, cenario, modelo):
+    """`" 1 "`/`"+1"` (com espaço ou sinal) eram aceitos por `int()` e
+    gravavam na conta correspondente, sem aviso. Agora: 400."""
     _cliente_autenticado(client, cenario)
+    pk_real = cenario["conta_1"].id
+    conta_bruta = modelo.format(pk=pk_real)
     antes = LancamentoContabil.objects.count()
 
     resposta = _post_lancamento(client, cenario, conta=conta_bruta, chave=f"bl142-{conta_bruta}")
 
     assert resposta.status_code == 400, (conta_bruta, resposta.status_code, resposta.content)
     assert LancamentoContabil.objects.count() == antes
+    assert _sem_nada_gravado()
 
 
-def test_digito_unicode_gravaria_na_conta_errada_se_nao_fosse_recusado(client, cenario):
-    """Reprodução literal do achado: `"٢"` (dígito arábico-índico de "2")
-    tem que ser recusado — e ANTES da correção, teria gravado na conta 2
-    mesmo quando a intenção do índice não era essa. Prova por mutação
-    (não aqui): a matriz de verificação desta entrega reverte `para_id`
-    para o `.get(pk=...)` direto e mostra a conta 2 sendo gravada.
+def test_conta_booleana_e_recusada_por_tipo(client, cenario):
+    """`bool` é recusado por TIPO (`para_id` recusa `bool` explicitamente
+    — subclasse de `int` em Python, mesmo motivo de `para_decimal`) —
+    não depende de `True == 1` coincidir com o PK de conta nenhuma."""
+    _cliente_autenticado(client, cenario)
+    antes = LancamentoContabil.objects.count()
+
+    resposta = _post_lancamento(client, cenario, conta=True, chave="bl142-booleano")
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    assert LancamentoContabil.objects.count() == antes
+    assert _sem_nada_gravado()
+
+
+@pytest.mark.parametrize(
+    "transformar", [_fullwidth, _arabico_indico], ids=["fullwidth", "arabico-indico"]
+)
+def test_conta_com_digito_unicode_nao_e_reinterpretada_para_outra_conta(
+    client, cenario, transformar
+):
+    """Reprodução literal do achado, amarrada ao PK REAL da conta 2 (não
+    ao literal `"2"`): o dígito Unicode do PK de `conta_2`, escrito em
+    fullwidth ou índico-arábico, é aceito por `int()` e gravaria
+    EXATAMENTE na conta 2 — mesmo quando a intenção do índice não era
+    essa (o achado original usa `"٢"`/`"２"` para "2" com o mesmo efeito,
+    mas fixo em bases pequenas; aqui o dígito é derivado do PK real,
+    então o teste vale qualquer que seja esse PK).
     """
     _cliente_autenticado(client, cenario)
-    resposta = _post_lancamento(client, cenario, conta="٢", chave="bl142-digito-2-arabico")
-    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    pk_conta_2 = cenario["conta_2"].id
+    conta_bruta = transformar(pk_conta_2)
+    antes = LancamentoContabil.objects.count()
+
+    resposta = _post_lancamento(client, cenario, conta=conta_bruta, chave=f"bl142-{conta_bruta}")
+
+    assert resposta.status_code == 400, (conta_bruta, resposta.status_code, resposta.content)
+    assert LancamentoContabil.objects.count() == antes
     assert _sem_nada_gravado()
 
 
@@ -216,12 +247,53 @@ def _post_conta(client, cenario, *, conta_pai, codigo="1.1"):
     )
 
 
-@pytest.mark.parametrize("conta_pai_bruta", [1.9, True, " 1 ", "+1", "٢", "２"])
-def test_conta_pai_reinterpretada_em_silencio_agora_e_recusada(client, cenario, conta_pai_bruta):
-    """Mesma tabela do `item["conta"]`, agora em `conta_pai`: antes, `1.9`
-    resolvia para a conta 1 como pai, e `"٢"`/`"２"` resolviam para a
-    conta 2 — sempre 201, sem aviso. Agora: 400, nenhuma conta criada."""
+def test_conta_pai_com_numero_json_fracionario_e_recusada(client, cenario):
+    """Mesma classe do `item["conta"]`, agora em `conta_pai`: antes, um
+    número JSON fracionário resolvia para a conta cujo PK batesse com a
+    parte truncada — sempre 201, sem aviso. Amarrado ao PK REAL (não ao
+    literal `1`), pelo mesmo motivo do bloco de comentário acima."""
     _cliente_autenticado(client, cenario)
+    pk_real = cenario["conta_1"].id
+    antes = Conta.objects.count()
+
+    resposta = _post_conta(client, cenario, conta_pai=pk_real + 0.9)
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    assert Conta.objects.count() == antes
+
+
+@pytest.mark.parametrize("modelo", [" {pk} ", "+{pk}"])
+def test_conta_pai_com_espaco_ou_sinal_e_recusada(client, cenario, modelo):
+    _cliente_autenticado(client, cenario)
+    pk_real = cenario["conta_1"].id
+    conta_pai_bruta = modelo.format(pk=pk_real)
+    antes = Conta.objects.count()
+
+    resposta = _post_conta(client, cenario, conta_pai=conta_pai_bruta)
+
+    assert resposta.status_code == 400, (conta_pai_bruta, resposta.status_code, resposta.content)
+    assert Conta.objects.count() == antes
+
+
+def test_conta_pai_booleana_e_recusada_por_tipo(client, cenario):
+    _cliente_autenticado(client, cenario)
+    antes = Conta.objects.count()
+
+    resposta = _post_conta(client, cenario, conta_pai=True)
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    assert Conta.objects.count() == antes
+
+
+@pytest.mark.parametrize(
+    "transformar", [_fullwidth, _arabico_indico], ids=["fullwidth", "arabico-indico"]
+)
+def test_conta_pai_com_digito_unicode_nao_e_reinterpretada(client, cenario, transformar):
+    """Amarrado ao PK REAL de `conta_2` — o dígito Unicode do PK
+    resolveria, sob o mutante, EXATAMENTE para a conta 2 como pai."""
+    _cliente_autenticado(client, cenario)
+    pk_conta_2 = cenario["conta_2"].id
+    conta_pai_bruta = transformar(pk_conta_2)
     antes = Conta.objects.count()
 
     resposta = _post_conta(client, cenario, conta_pai=conta_pai_bruta)

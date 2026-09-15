@@ -80,6 +80,37 @@ _PADRAO_NIVEL_SIMPLES = re.compile(r"^[0-9]+$")
 # níveis — ver docs/projeto/mapa-funcional-contabil.md).
 NIVEL_MAXIMO = 50
 
+# Achado R5-6 da auditoria DL-017 rodada 5 (BL-145, minha parte — a
+# política combinada com o especialista-frontend, que já aplica a mesma
+# recusa na tela): campo desconhecido no corpo do POST de lançamento era
+# aceito e IGNORADO em silêncio (`empresa`, `id`, `criado_por`,
+# `estornado` no topo; `xpto` dentro de um item) — enquanto a tela já
+# recusa (medido pelo auditor: `valor_total`/`estorno` → 400). É a MESMA
+# classe do achado 5 (BL-116, "nenhum dado enviado numa requisição deixa
+# de ser lido ou recusado"), só que pela superfície da API. O agravante
+# concreto: quem manda `chave_idempotencia` NO CORPO (em vez do cabeçalho
+# `Idempotency-Key`, o único contrato válido) não era avisado e recebia a
+# DUPLICIDADE que a chave existe para impedir — `chave_idempotencia` no
+# corpo é, por construção, um "campo desconhecido" e cai nesta mesma
+# recusa, fechando o buraco sem precisar de um caso especial.
+CAMPOS_PERMITIDOS_LANCAMENTO = frozenset({"data", "historico", "itens"})
+CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
+
+
+def _sem_campos_desconhecidos(dados, campos_permitidos, *, contexto):
+    """Recusa (`DRFValidationError`, nomeando a chave) se `dados` for um
+    `dict` com alguma chave fora de `campos_permitidos`. Não faz nada se
+    `dados` não for um `dict` — outra checagem, mais adiante, já recusa
+    tipo errado com sua própria mensagem (não duplicar aqui)."""
+    if not isinstance(dados, dict):
+        return
+    desconhecidos = set(dados) - campos_permitidos
+    if desconhecidos:
+        raise DRFValidationError(
+            f"Campo(s) não reconhecido(s) {contexto}: {', '.join(sorted(desconhecidos))}. "
+            f"Campos aceitos: {', '.join(sorted(campos_permitidos))}."
+        )
+
 
 def _como_moeda(valor):
     """Formata um Decimal monetário como string com duas casas.
@@ -308,6 +339,8 @@ def _extrair_itens(payload_itens, empresa):
 
     itens = []
     for item in payload_itens:
+        _sem_campos_desconhecidos(item, CAMPOS_PERMITIDOS_ITEM, contexto="em um item")
+
         try:
             conta_bruta = item["conta"]
         except (KeyError, TypeError) as exc:
@@ -428,6 +461,7 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         empresa = self.get_empresa()
         dados = request.data
+        _sem_campos_desconhecidos(dados, CAMPOS_PERMITIDOS_LANCAMENTO, contexto="no lançamento")
         itens = _extrair_itens(dados.get("itens"), empresa)
 
         historico = dados.get("historico", "")

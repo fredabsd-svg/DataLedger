@@ -215,7 +215,7 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **Reprovada em 5 rodadas.** A [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) fechou **os 12 achados da rodada 4** e varreu **concorrência real**, que passou inteira — mas trouxe um **bloqueador que eu criei** (a CI está vermelha: a instalação de navegador que eu fiz transformou 2 testes pulados em 2 falhando) e dois achados ALTA. Correção em curso, BL-140 a BL-147 |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **Reprovada em 5 rodadas**, com os 8 achados da [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) corrigidos e integrados. **766 testes** em árvore limpa; a CI voltou ao verde no job de testes. Rodada 6 em execução |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,28 +248,27 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — corrigir a
-   rodada 5 e reauditar.** A [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md)
-   **reprovou**, e o auditor fez questão de registrar que *"o parecer negativo
-   esconde o tamanho do avanço: esta é, de longe, a melhor entrega das cinco"*.
+1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — rodada 6 da
+   auditoria, EM EXECUÇÃO.** Os 8 achados da
+   [rodada 5](../auditorias/2026-09-14-dl-017-rodada-5.md) estão corrigidos e
+   integrados. Verificado por mim em árvore limpa, sem concorrência: **766
+   testes** e a sequência do workflow limpa. Duas mutações minhas, reaplicadas
+   e medidas: tirar o julgador do campo `regime` derruba **7** testes; devolver
+   o `conta` do item direto ao ORM derruba **10**. Desfeitas, `sha256` idêntico
+   nos dois arquivos.
 
-   **O que fechou:** os 12 achados da rodada 4, todos, medidos por mutação dele
-   — inclusive dois que sobreviviam havia três rodadas. E **concorrência real
-   foi varrida pela primeira vez e a contabilidade passou inteira**: 8
-   requisições simultâneas com a mesma chave produzem 1 lançamento; 2 estornos
-   simultâneos, 1 estorno; 10 lançamentos concorrentes fecham o balancete em
-   100,00 exatos; 4 duplos cliques na tela, 1 lançamento.
+   **O bloqueador que eu criei está fechado**: a CI de `128b6e7` voltou ao verde
+   (`681 passed, 2 skipped`), e os dois testes de navegador voltaram a **pular
+   com motivo** em vez de falhar.
 
-   **O que reprova:** um **bloqueador que eu criei** — a instalação de navegador
-   no workflow puxou o snap, que roda confinado e não lê `/tmp`, transformando 2
-   testes pulados em 2 **falhando** (BL-140, workflow já corrigido nesta
-   entrega) — e dois achados **ALTA**: o campo `regime` aceita lixo e grava
-   (BL-141), e o `conta` do item na API vai direto ao ORM, gravando `1.9` na
-   conta 1 e `"٢"` na conta 2 com HTTP 201 (BL-142).
+   **Cinco módulos julgadores** agora, e o desenho está completo:
+   `dinheiro.py`, `datas.py`, `identificadores.py`, `escolhas.py` e
+   `restricoes.py` — nenhuma camada interpreta dado tipado de cliente, e
+   nenhuma violação de invariante do modelo chega ao cliente como 5xx.
 
-   **A regra que fica, e é a sucessora da DE-032:** a varredura de uma classe
-   começa no **CAMPO**, não na linha. Os três resíduos estavam, todos, a **um
-   campo de distância** do que foi consertado. Virou **DE-034**.
+   **Nada disso é aprovação.** Quem aprova é a rodada 6, com **o tempo** como
+   dimensão indicada: faixa de data de lançamento e o que acontece quando
+   período encerrado existir.
 
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
@@ -343,7 +342,7 @@ o que medimos, e está registrado o que não medimos.
   A e B** — esta última integrada por autorização expressa do Fred **antes** de
   a auditoria voltar, e depois reprovada. Não repetir: a ordem do projeto é
   auditar e só então integrar.
-- **Suíte: 683 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
+- **Suíte: 766 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
   em árvore limpa. **Suíte verde não é sistema correto**, e esta etapa tem a
   série completa como prova: 487 testes passavam com o bloqueador do `1.000` em
   vigor; 559 passavam com a negação de serviço em vigor; 608 passavam com a API
