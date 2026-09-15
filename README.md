@@ -176,6 +176,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [ ] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
 - [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
+- [ ] **DL-019** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
 - [ ] **DL-018** — primeiro acesso de uma instalação nova, pelo produto e sem admin técnico
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**

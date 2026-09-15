@@ -216,6 +216,7 @@ diverge.
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
+| [DL-019](../planos/DL-019-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as quatro regras contábeis confirmadas pelo Fred | **Em execução** — planejada e delegada em 2026-09-15. Vem antes da DL-010 por um motivo só: **BL-151**, o lançamento com data errada que não aparece em tela nenhuma |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -248,29 +249,24 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — INTEGRADA na
-   `main` (PR #19), e as dez ressalvas viram a rodada seguinte.** Aprovada com
-   ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois
-   de cinco reprovações; integrada em 2026-09-15 por autorização do Fred, com o
-   trade-off apresentado por escrito.
+1. **[DL-019](../planos/DL-019-consolidacao-pos-auditoria.md) — consolidação,
+   EM EXECUÇÃO.** Catorze itens: as dez ressalvas da rodada 6 (BL-148 a BL-157)
+   e as quatro regras que o Fred confirmou (BL-158 a BL-161). A
+   [DL-017](../planos/DL-017-interface-da-contabilidade.md) está **integrada na
+   `main`** (PR #19, `60cbcff`).
 
-   **O que entra agora, e é a próxima entrega:** as dez ressalvas (BL-148 a
-   BL-157) mais as quatro regras que o Fred acabou de confirmar — faixa de data
-   (RC-77), estorno nunca anterior ao original (RC-78), teto de 200 partidas
-   (RC-79) e conta sem contas-mãe avisando (RC-80).
+   **Por que esta etapa vem antes da DL-010**, e o motivo é um só: **BL-151 — um
+   lançamento com a data errada não aparece em nenhuma tela de operação
+   normal**, e o balancete do período concilia, então nenhuma conferência acusa.
+   É o único item aberto em que o usuário **não consegue conferir o que não
+   aparece**. Decisão apresentada ao Fred com as três opções e o trade-off; ele
+   mandou seguir a recomendação.
 
-   **Cuidado registrado em letras grandes, R6-1:** a correção óbvia do
-   instrumento de navegador (subir o timeout de 10 s) **reabre o bloqueador da
-   rodada 5**. Tirar o descarte do diretório de perfil da região julgada vem
-   **primeiro**. Nunca o contrário.
+   **⚠️ BL-148 tem ordem obrigatória:** tirar o descarte do perfil da região
+   julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da
+   rodada 5 — medido 3 de 3 pelo auditor.
 
-   **E o que o dado do `_DIAGNOSTICO_CHROMIUM` revelou**, contra a hipótese de
-   todos nós três: o navegador do runner **funciona**. `OSError(39)` não pode
-   vir de `subprocess.run` — vem do descarte do perfil, depois de o navegador
-   rodar. As duas medições de CSS por efeito **nunca rodaram na CI**, em
-   nenhuma rodada.
-
-2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
+2. **BL-125 — o primeiro acesso2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
    vínculo, a tela explica corretamente e a única saída é o admin do Django.
    Nenhuma das três auditorias viu, porque todas partem de cenário já montado.
