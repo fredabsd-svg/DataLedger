@@ -1,10 +1,11 @@
 import hashlib
 import json
 from collections import defaultdict
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, DecimalField, F, Q, Sum
+from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
 from apps.contabilidade.models import (
@@ -34,6 +35,45 @@ _CAMPO_SOMA_MONETARIA = DecimalField(max_digits=18, decimal_places=2)
 # Arredondamento fica a cargo dos MOTORES de cálculo (fiscal, folha,
 # honorários), onde existe uma regra legal que diz qual política usar.
 ESCALA_MAXIMA_LANCAMENTO_MANUAL = 2
+
+# RC-77, confirmado pelo Fred em 2026-09-15 (docs/projeto/requisitos.md):
+# a data de um lançamento fica entre 01/01/2000 e hoje + 30 dias.
+#
+# Esta é a FONTE ÚNICA da faixa, e é aqui por decisão do arquiteto-senior na
+# DL-019: as duas superfícies (tela e API) importam daqui, nenhuma declara
+# 2000 nem 30 por conta própria. A mínima é constante porque não se move; a
+# máxima é FUNÇÃO porque se move todo dia, e uma constante calculada no
+# import congelaria a faixa no momento em que o processo subiu (um servidor
+# de longa duração passaria a recusar o dia seguinte).
+#
+# Por que existe um teto superior, e por que ele é o item que faz a DL-019
+# existir (achado R6-4 da auditoria da rodada 6): um `9` digitado no lugar
+# de um `2` grava o lançamento em `9999-12-31`, e ele **não aparece em
+# nenhuma tela de operação normal** — nem Diário, nem Razão, nem Balancete,
+# nem Conferência. O balancete do período CONCILIA, então nenhuma
+# conferência acusa: para achar o valor o contador precisa suspeitar e
+# alargar o período até o ano 9999. Os 30 dias à frente cobrem lançamento
+# programado (razão dada pelo Fred).
+#
+# O piso de 2000 foi proposta do arquiteto-senior aceita pelo Fred; se
+# aparecer escrituração anterior para importar (DL-010), **revalidar com
+# ele** em vez de alargar por conta própria.
+DATA_MINIMA_LANCAMENTO = date(2000, 1, 1)
+DIAS_FUTUROS_MAXIMOS_LANCAMENTO = 30
+
+# RC-79, confirmado pelo Fred em 2026-09-15: teto de 200 partidas por
+# lançamento, com recusa explícita — NUNCA truncamento (BL-91).
+#
+# O teto é regra de NEGÓCIO e mora aqui, não na tela (item 2 da DE-034, e o
+# defeito concreto que a BL-160 fecha): até a DL-019 ele existia só como
+# `LINHAS_MAXIMAS_LANCAMENTO` em `views_web.py`, e por isso a API **não
+# tinha teto nenhum** — o mesmo campo, sem a mesma regra, na superfície ao
+# lado. `criar_lancamento` é o único ponto por onde tela e API passam para
+# gravar, então a recusa aqui fecha as duas de uma vez. A tela importa esta
+# constante e mantém, do lado dela, o teto de segurança de LEITURA (BL-120),
+# que é outro número e serve para outra coisa: impedir que o servidor leia
+# mais linhas do que o negócio aceita.
+LIMITE_PARTIDAS_POR_LANCAMENTO = 200
 
 
 class LancamentoInvalido(Exception):
@@ -65,6 +105,49 @@ class HierarquiaInconsistente(Exception):
     devolva uma resposta controlada (409) em vez de um 500 mudo, e para que
     a conferência (BL-64) consiga apontar o problema em vez de quebrar.
     """
+
+
+def data_maxima_lancamento():
+    """Última data aceita para um lançamento: hoje + `DIAS_FUTUROS_MAXIMOS_
+    LANCAMENTO` (RC-77).
+
+    Função, não constante, porque o valor se MOVE (ver o comentário de
+    `DATA_MINIMA_LANCAMENTO`). Usa `timezone.localdate()`, o mesmo "hoje"
+    que `estornar_lancamento` já usa — nunca `date.today()`, que ignora o
+    fuso configurado.
+    """
+    return timezone.localdate() + timedelta(days=DIAS_FUTUROS_MAXIMOS_LANCAMENTO)
+
+
+def validar_data_de_lancamento(data):
+    """Aplica a faixa do RC-77 a `data`, levantando `LancamentoInvalido`.
+
+    Julgador de DOMÍNIO, separado da gramática: `apps.core.datas.para_data`
+    decide se o TEXTO é uma data (formato, tipo, dia existente) e não sabe
+    nada de contabilidade; esta função decide se aquela data é PLAUSÍVEL
+    para um lançamento contábil. As duas superfícies chamam a primeira na
+    fronteira e esta pelo serviço, e nenhuma das duas repete a faixa.
+
+    Recusa também o que não é `datetime.date` puro — inclusive
+    `datetime.datetime`, que é subclasse de `date`: o campo do modelo é
+    `DateField`, então um `datetime` seria TRUNCADO na gravação (perda
+    silenciosa da hora que o chamador achava estar registrando) e, pior,
+    quebraria a comparação de faixa abaixo com `TypeError` cru em vez de
+    erro de domínio.
+    """
+    if isinstance(data, datetime) or not isinstance(data, date):
+        raise LancamentoInvalido(
+            f"A data do lançamento deve ser uma data (datetime.date); recebido "
+            f"{type(data).__name__} ({data!r})."
+        )
+    maxima = data_maxima_lancamento()
+    if data < DATA_MINIMA_LANCAMENTO or data > maxima:
+        raise LancamentoInvalido(
+            f"A data do lançamento ({data.strftime('%d/%m/%Y')}) está fora da faixa "
+            f"aceita: de {DATA_MINIMA_LANCAMENTO.strftime('%d/%m/%Y')} até "
+            f"{maxima.strftime('%d/%m/%Y')} (hoje + {DIAS_FUTUROS_MAXIMOS_LANCAMENTO} "
+            "dias). Confira o ano digitado."
+        )
 
 
 def _impressao_digital(*, empresa_id, data, historico, itens):
@@ -173,6 +256,25 @@ def criar_lancamento(
     """
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
+
+    # RC-79 / BL-160: teto de NEGÓCIO, verificado aqui porque este é o ponto
+    # por onde a tela e a API passam (ver o comentário de
+    # `LIMITE_PARTIDAS_POR_LANCAMENTO`). Recusa NOMEANDO a quantidade
+    # recebida e o teto — nunca truncar a lista e gravar um lote menor do
+    # que o enviado, que é a perda silenciosa que a BL-91 proíbe e que
+    # deixaria o lote desbalanceado em silêncio.
+    if len(itens) > LIMITE_PARTIDAS_POR_LANCAMENTO:
+        raise LancamentoInvalido(
+            f"Um lançamento aceita no máximo {LIMITE_PARTIDAS_POR_LANCAMENTO} partidas; "
+            f"foram enviadas {len(itens)}. Nenhuma partida foi gravada — divida o "
+            "lançamento ou use importação."
+        )
+
+    # RC-77 / BL-158: faixa de data, na mesma função e antes de qualquer
+    # gravação. A gramática da data já foi julgada na fronteira de cada
+    # superfície (`apps.core.datas.para_data`); o que falta, e que só o
+    # domínio sabe, é se a data é plausível — ver `validar_data_de_lancamento`.
+    validar_data_de_lancamento(data)
 
     # Byte nulo (achado R2-4 da auditoria DL-017, rodada 2): o PostgreSQL
     # recusa `\x00` em coluna de texto com `DataError: PostgreSQL text
@@ -382,6 +484,37 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         if lancamento.estornos.exists():
             raise LancamentoInvalido("Este lançamento já foi estornado.")
 
+        # RC-78 / BL-159, confirmado pelo Fred em 2026-09-15: o estorno NUNCA
+        # pode ser datado antes do lançamento que ele reverte — recusar, e
+        # não "permitir desde que registrado" (a escolha foi dele).
+        #
+        # O defeito medido (achado R6-4c da rodada 6): a data do estorno era
+        # `timezone.localdate()` SEMPRE, sem nenhuma comparação com o
+        # original. Um lançamento datado no futuro (o que a faixa do RC-77
+        # continua permitindo até hoje + 30 dias) estornado hoje produzia um
+        # estorno ANTERIOR ao fato, e o Diário mostrava a reversão
+        # acontecendo antes do que ela reverte. O mutante que faz o estorno
+        # HERDAR a data do original sobrevivia a 766 testes: a regra não
+        # tinha teste em NENHUM dos dois sentidos.
+        #
+        # `data` é calculada aqui, uma vez, e passada explicitamente a
+        # `criar_lancamento` — antes o `data or timezone.localdate()` ficava
+        # na própria chamada, e por isso não havia onde comparar.
+        data_do_estorno = data or timezone.localdate()
+        # `validar_data_de_lancamento` ANTES da comparação, e não só por
+        # causa do RC-77: é ela que garante que `data_do_estorno` é um
+        # `date` puro, sem o que a comparação abaixo poderia estourar
+        # `TypeError` cru (texto, `datetime`) em vez de erro de domínio.
+        validar_data_de_lancamento(data_do_estorno)
+        if data_do_estorno < lancamento.data:
+            raise LancamentoInvalido(
+                "O estorno não pode ter data anterior à do lançamento que ele "
+                f"reverte: o lançamento {lancamento.pk} é de "
+                f"{lancamento.data.strftime('%d/%m/%Y')} e o estorno ficaria em "
+                f"{data_do_estorno.strftime('%d/%m/%Y')}. Informe uma data igual "
+                "ou posterior à do lançamento original."
+            )
+
         itens_invertidos = [
             {
                 "conta": item.conta,
@@ -396,7 +529,7 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         try:
             return criar_lancamento(
                 empresa=lancamento.empresa,
-                data=data or timezone.localdate(),
+                data=data_do_estorno,
                 historico=historico or f"Estorno do lançamento {lancamento.pk}",
                 itens=itens_invertidos,
                 criado_por=criado_por,
@@ -981,6 +1114,114 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         "total_debitos": totais["debitos"],
         "total_creditos": totais["creditos"],
     }
+
+
+def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
+    """Existe movimento da empresa FORA de [inicio, fim]? (BL-151, achado R6-4b.)
+
+    É a razão de a DL-019 existir. O auditor mediu: um lançamento de
+    5.000,00 datado `9999-12-31`, ao lado de um de 100,00 de hoje, **não
+    aparece em nenhuma saída de uso normal** — Diário, Razão, Balancete e
+    Conferência todos respondem "não" para ele — e o balancete do período
+    CONCILIA, porque os totais do período estão certos. Nada avisa que
+    existe mais. Validar a entrada (RC-77) fecha a porta para o futuro; esta
+    consulta é o que ACENDE A LUZ sobre o que já está gravado.
+
+    Devolve `None` quando não há nada fora do período (o caso normal, para a
+    tela não precisar comparar dicionário vazio) e, quando há:
+
+        {"anteriores":  {"quantidade": int, "data_extrema": date} | None,
+         "posteriores": {"quantidade": int, "data_extrema": date} | None}
+
+    `data_extrema` é a data MAIS DISTANTE de cada lado (a mais antiga antes
+    do período, a mais recente depois) — é o que permite à saída dizer "há
+    movimento até 31/12/9999" e oferecer um período que o alcance.
+    `quantidade` conta LANÇAMENTOS, não partidas.
+
+    Deliberadamente NÃO devolve valor somado: o aviso não é um saldo, e um
+    total parcial ao lado do total do período convidaria a somar os dois —
+    que é justamente a conciliação errada. Quem quer ver o movimento alarga
+    o período e vê pelo Diário, com os lançamentos de origem.
+
+    `conta` opcional: quando informada, o recorte é o MESMO conjunto de
+    contas que `apurar_razao` usa (a conta e todas as descendentes,
+    `_descendentes_de`), para o aviso do Razão falar da conta que está na
+    tela e não da empresa inteira. Sem ela, o recorte é a empresa (Diário e
+    Balancete). Levanta `HierarquiaInconsistente` no mesmo caso em que
+    `apurar_razao` já levanta (ciclo alcançável a partir da conta) — quem
+    chama já trata isso na mesma requisição.
+
+    Custo: duas consultas agregadas de tamanho constante (uma por lado),
+    mais as de `_descendentes_de` quando há `conta`. Nenhuma delas cresce
+    com a quantidade de lançamentos.
+    """
+    if conta is None:
+        base = LancamentoContabil.objects.filter(empresa=empresa)
+        campo_data = "data"
+        contagem = Count("id", distinct=True)
+    else:
+        ids_contas = _descendentes_de(conta, empresa)
+        base = ItemLancamento.objects.filter(
+            conta_id__in=ids_contas, lancamento__empresa=empresa
+        )
+        campo_data = "lancamento__data"
+        # `distinct=True` é o que faz a contagem ser de LANÇAMENTOS: um
+        # lançamento com débito e crédito na mesma subárvore tem dois itens
+        # e contaria duas vezes sem isto.
+        contagem = Count("lancamento", distinct=True)
+
+    anteriores = base.filter(**{f"{campo_data}__lt": inicio}).aggregate(
+        quantidade=contagem, data_extrema=Min(campo_data)
+    )
+    posteriores = base.filter(**{f"{campo_data}__gt": fim}).aggregate(
+        quantidade=contagem, data_extrema=Max(campo_data)
+    )
+
+    def _lado(agregado):
+        if not agregado["quantidade"]:
+            return None
+        return {
+            "quantidade": agregado["quantidade"],
+            "data_extrema": agregado["data_extrema"],
+        }
+
+    lados = {"anteriores": _lado(anteriores), "posteriores": _lado(posteriores)}
+    if lados["anteriores"] is None and lados["posteriores"] is None:
+        return None
+    return lados
+
+
+def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
+    """Lançamentos já GRAVADOS com data fora da faixa do RC-77 (BL-151).
+
+    A Conferência não tem período — uma base torta é torta em qualquer
+    recorte —, então o aviso de "movimento fora do período" não se aplica a
+    ela. O equivalente, e o que fecha o buraco do achado R6-4b para o dado
+    que JÁ EXISTE, é este: listar o que está fora da faixa plausível
+    (`DATA_MINIMA_LANCAMENTO` .. `data_maxima_lancamento()`).
+
+    É a única saída em que o `9999-12-31` aparece sem o contador precisar
+    suspeitar primeiro. A validação de entrada não conserta o passado, e a
+    DL-019 declara o reparo de dado já gravado fora de escopo: a Conferência
+    é onde esse passado fica visível, com o lançamento nomeado, para o
+    contador decidir o que fazer (estorno, ajuste) pelos caminhos normais.
+
+    O limite superior se MOVE com "hoje": um lançamento programado para
+    hoje + 40 dias aparece aqui hoje e deixa de aparecer daqui a dez dias,
+    quando entrar na faixa. É o comportamento pretendido — a faixa descreve
+    plausibilidade na data da consulta, não um selo permanente.
+
+    Devolve lista (não queryset): a Conferência sempre consome tudo, e a
+    lista deixa explícito que não há paginação aqui — em base sadia ela é
+    vazia.
+    """
+    return list(
+        LancamentoContabil.objects.filter(empresa=empresa)
+        .filter(
+            Q(data__lt=DATA_MINIMA_LANCAMENTO) | Q(data__gt=data_maxima_lancamento())
+        )
+        .order_by("data", "id")
+    )
 
 
 def localizar_lotes_desbalanceados(*, empresa):

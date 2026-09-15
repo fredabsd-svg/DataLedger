@@ -680,15 +680,30 @@ def _perfil_de_navegador_descartavel():
         _descartar_caminho_temporario(perfil)
 
 
-# PASSO 3 do BL-148, ainda NÃO aplicado neste ponto da edição: o timeout
-# só pode ser revisto depois de (1) o descarte sair da região julgada nas
-# duas funções e (2) existir teste que force falha de limpeza e exija
-# pulo. Enquanto os dois não estiverem verificados, este número fica onde
-# estava.
-_TIMEOUT_VERIFICACAO_DE_SESSAO_S = 10
+# PASSO 3 do BL-148 — aplicado só DEPOIS de (1) o descarte do perfil sair
+# da região julgada nas duas funções e (2) os quatro testes de falha de
+# limpeza (no fim deste arquivo) terem sido vistos falhar contra os
+# mutantes que os removem. Nesta ordem, e não na outra: subir o timeout
+# sozinho faz a medição rodar e a `ENOTEMPTY` do descarte reprovar a
+# suíte, que é o bloqueador da rodada 5 reaberto.
+#
+# O teto era 10s, e o dado mostrou que o limiar curto era ELE MESMO uma
+# fonte de falso negativo: dos dois jobs de `38efbf9f`, um acusou `timeout
+# de 10s` e o OUTRO, do mesmo commit, chegou a renderizar — o binário é
+# capaz de responder dentro de 10s ÀS VEZES, e um limiar instável não é
+# prova de navegador quebrado. Agora a checagem e a medição usam o MESMO
+# número: se o navegador presta para medir, ele presta para a checagem, e
+# não existem dois tetos que possam divergir. O preço é uma sessão de teste
+# esperar até 30s num ambiente sem navegador; o preço do erro oposto foi
+# duas medições de CSS que nunca rodaram na integração contínua.
+#
+# Quem precisa de um teto curto passa `timeout=` explicitamente — é o que
+# o teste do binário que trava faz, para não somar 30s à suíte.
+_TIMEOUT_MEDICAO_S = 30
+_TIMEOUT_VERIFICACAO_DE_SESSAO_S = _TIMEOUT_MEDICAO_S
 
 
-def _chromium_funciona(caminho):
+def _chromium_funciona(caminho, *, timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S):
     """Confirma que o binário não só EXISTE, mas RENDERIZA de verdade —
     pelo MESMO mecanismo que a medição real usa.
 
@@ -722,10 +737,18 @@ def _chromium_funciona(caminho):
     pula os testes de efeito com motivo, e a CI fica verde em vez de
     vermelha.
 
-    Faz UMA tentativa, com timeout CURTO
-    (`_TIMEOUT_VERIFICACAO_DE_SESSAO_S`, bem menor que o das medições
-    reais) e confirma que voltou a MARCA esperada no DOM — não só "algum"
-    DOM. Qualquer falha aqui — timeout, código de saída diferente de
+    R6-1/BL-148 (rodada 6): o descarte do `--user-data-dir` NÃO fica mais
+    dentro da região julgada por esta função — ver
+    `_perfil_de_navegador_descartavel`. Uma falha de LIMPEZA do perfil não
+    é incapacidade do navegador, e era relatada como se fosse ("erro de
+    sistema operacional ao executar", com o navegador tendo rodado
+    perfeitamente). E o `timeout` deixou de ser um limiar curto próprio:
+    por padrão é o MESMO da medição real (ver `_TIMEOUT_MEDICAO_S`), porque
+    o limiar curto reprovava um navegador bom em metade dos jobs. Quem
+    precisa de teto curto passa `timeout=` explicitamente.
+
+    Faz UMA tentativa e confirma que voltou a MARCA esperada no DOM — não
+    só "algum" DOM. Qualquer falha aqui — timeout, código de saída diferente de
     zero, exceção do sistema operacional, marca ausente (a assinatura do
     snap: o `<title>` existe, mas é a URL, não a marca) — vira `False`,
     NUNCA uma exceção que reprovaria a suíte. Chamada UMA VEZ por sessão
@@ -763,7 +786,7 @@ def _chromium_funciona(caminho):
                 ],
                 capture_output=True,
                 text=True,
-                timeout=_TIMEOUT_VERIFICACAO_DE_SESSAO_S,
+                timeout=timeout,
             )
     # R3-4: forma com parênteses — ver o comentário equivalente em
     # views_web.py. É a que funciona na versão mínima declarada
@@ -773,7 +796,7 @@ def _chromium_funciona(caminho):
     # `test_target_version_do_ruff_bate_com_requires_python`
     # (apps/core/tests/test_versao_minima_python.py).
     except subprocess.TimeoutExpired:
-        _DIAGNOSTICO_CHROMIUM = f"{caminho}: timeout de {_TIMEOUT_VERIFICACAO_DE_SESSAO_S}s"
+        _DIAGNOSTICO_CHROMIUM = f"{caminho}: timeout de {timeout}s"
         return False
     except OSError as exc:
         _DIAGNOSTICO_CHROMIUM = f"{caminho}: erro de sistema operacional ao executar: {exc!r}"
@@ -1079,7 +1102,7 @@ def _renderizar_e_medir(corpo_html, seletor, *, css_texto=None):
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=_TIMEOUT_MEDICAO_S,
                 )
             except (subprocess.TimeoutExpired, OSError) as exc:
                 pytest.skip(f"Chromium presente mas não funcionou ao medir: {exc!r}")
@@ -1305,10 +1328,9 @@ def test_binario_presente_mas_quebrado_e_detectado_sem_travar(tmp_path, comporta
     """Prova da CLASSE de correção — não só do caso — pedida na revisão
     depois da queda da CI em `aa10f20`: um executável chamado
     "chromium" que EXISTE mas não FUNCIONA precisa fazer
-    `_chromium_funciona` devolver `False`, RAPIDAMENTE (dentro do
-    timeout curto da própria checagem de sessão, nunca herdando os 30s
-    das medições reais) e SEM lançar exceção — exatamente o cenário do
-    runner do GitHub: binário presente, navegador não funcional.
+    `_chromium_funciona` devolver `False`, **dentro do timeout que ela
+    recebeu** e SEM lançar exceção — exatamente o cenário do runner do
+    GitHub: binário presente, navegador não funcional.
 
     Os dois comportamentos cobrem as duas classes clássicas de falha
     citadas pelo arquiteto-senior: travar (o processo nunca retorna —
@@ -1316,20 +1338,32 @@ def test_binario_presente_mas_quebrado_e_detectado_sem_travar(tmp_path, comporta
     sandbox/`/dev/shm`) e sair com erro (`exit 1`, no lugar de uma
     falha de inicialização que o Chromium real reportaria com código
     diferente de zero).
+
+    R6-1/BL-148: o timeout passa a ser EXPLÍCITO neste teste (2s), e a
+    afirmação é "respeita o teto que recebeu", não mais "tem um teto
+    curto próprio, menor que o das medições". O padrão da função subiu
+    para os mesmos 30s da medição (ver `_TIMEOUT_MEDICAO_S` e o motivo
+    medido lá); herdar esse padrão aqui somaria 30s de `sleep` à suíte
+    para provar a mesma coisa. A promessa escrita e o que o teste
+    entrega ficam iguais — é a família de defeito desta etapa inteira.
     """
+    teto_curto_s = 2
     script = tmp_path / "chromium-quebrado"
     if comportamento == "dormir_alem_do_timeout":
-        script.write_text(f"#!/bin/sh\nsleep {_TIMEOUT_VERIFICACAO_DE_SESSAO_S + 30}\n")
+        script.write_text(f"#!/bin/sh\nsleep {teto_curto_s + 30}\n")
     else:
         script.write_text("#!/bin/sh\nexit 1\n")
     script.chmod(0o755)
 
     inicio = time.monotonic()
-    assert _chromium_funciona(str(script)) is False
+    assert _chromium_funciona(str(script), timeout=teto_curto_s) is False
     duracao = time.monotonic() - inicio
-    # A checagem tem teto CURTO — não pode herdar os 30s das medições
-    # reais, nem travar além disso.
-    assert duracao < _TIMEOUT_VERIFICACAO_DE_SESSAO_S + 5, duracao
+    assert duracao < teto_curto_s + 5, duracao
+    if comportamento == "dormir_alem_do_timeout":
+        # O diagnóstico precisa nomear o teto REALMENTE usado — era ele
+        # que, fixo em 10s, fazia o `-rs` da CI acusar "timeout de 10s"
+        # para um binário que o outro job do mesmo commit conseguiu usar.
+        assert f"timeout de {teto_curto_s}s" in _DIAGNOSTICO_CHROMIUM
 
 
 # ---------------------------------------------------------------------------
@@ -1412,6 +1446,123 @@ def test_renderizar_e_medir_pula_quando_title_nao_e_json(monkeypatch, tmp_path):
     with pytest.raises(pytest.skip.Exception) as excinfo:
         _renderizar_e_medir("<p></p>", "p", css_texto="")
     assert "json" in str(excinfo.value).lower() or "não é json" in str(excinfo.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# R6-1/BL-148 (rodada 6) — a OUTRA METADE do par acima: falha na LIMPEZA do
+# recurso temporário. O `test_renderizar_e_medir_pula_quando_title_nao_e_
+# json` cobre "o navegador respondeu coisa errada"; os quatro testes a
+# seguir cobrem "o navegador respondeu certo e o DESCARTE do perfil
+# falhou", que é o que de fato acontece no runner do GitHub.
+#
+# A falha é forçada substituindo `shutil.rmtree` por uma função que levanta
+# a MESMA exceção medida na integração contínua (`OSError(39,
+# 'Directory not empty')`). É deliberado NÃO reproduzir a corrida real
+# (um navegador falso que deixa um processo filho gravando no perfil):
+# ela depende de o filho vencer o descarte, e um teste cuja evidência
+# depende de quem chega primeiro é a família de defeito que esta etapa
+# passou seis rodadas pagando. A corrida real foi reproduzida à mão, 3 de
+# 3, antes da correção; o que fica versionado é o efeito, determinístico.
+# ---------------------------------------------------------------------------
+
+
+_ENOTEMPTY_DO_RUNNER = OSError(39, "Directory not empty")
+
+
+def _fazer_a_limpeza_falhar(monkeypatch):
+    """Substitui `shutil.rmtree` por uma função que SEMPRE levanta a
+    exceção medida no runner. Afeta tanto `_descartar_caminho_temporario`
+    quanto o `__exit__` de um eventual `tempfile.TemporaryDirectory` (que
+    também descarta por `shutil.rmtree`) — é o que faz o mutante "voltar a
+    usar `TemporaryDirectory`" morrer nestes testes.
+    """
+
+    def rmtree_que_falha(*args, **kwargs):
+        raise _ENOTEMPTY_DO_RUNNER
+
+    monkeypatch.setattr(shutil, "rmtree", rmtree_que_falha)
+
+
+def test_descarte_de_temporario_nunca_levanta_mesmo_quando_a_limpeza_falha(monkeypatch, tmp_path):
+    """Unidade do ponto único de descarte: com a limpeza falhando, a
+    função devolve normalmente — nunca propaga `OSError`. É a classe
+    inteira em uma linha ("falha na limpeza do recurso não reprova a
+    suíte"), no nível mais baixo em que ela pode ser afirmada.
+    """
+    _fazer_a_limpeza_falhar(monkeypatch)
+    diretorio = tmp_path / "perfil"
+    diretorio.mkdir()
+    _descartar_caminho_temporario(str(diretorio))  # não deve levantar
+
+
+def test_perfil_descartavel_de_fato_apaga_o_diretorio_quando_consegue():
+    """Controle do teste acima — sem ele, um `_descartar_caminho_
+    temporario` que não fizesse NADA passaria em todos os outros testes
+    deste bloco, e o instrumento passaria a vazar um diretório de perfil
+    por medição.
+    """
+    with _perfil_de_navegador_descartavel() as perfil:
+        assert os.path.isdir(perfil)
+        Path(perfil, "algum-arquivo-de-perfil").write_text("x", encoding="utf-8")
+    assert not os.path.exists(perfil)
+
+
+def test_chromium_funciona_aceita_navegador_bom_com_limpeza_de_perfil_falhando(
+    monkeypatch, tmp_path
+):
+    """O FALSO NEGATIVO medido na integração contínua, como teste: um
+    navegador que renderiza CERTO (código 0 e a marca esperada no DOM)
+    continua sendo aceito mesmo quando o descarte do `--user-data-dir`
+    falha. Antes da correção, esta situação devolvia `False` com o
+    diagnóstico "erro de sistema operacional AO EXECUTAR" — e por isso as
+    duas medições de CSS por efeito nunca rodaram na integração contínua,
+    em nenhuma rodada.
+    """
+    script = tmp_path / "chromium-bom-com-limpeza-ruim"
+    script.write_text("#!/bin/bash\necho '<title>sessao-de-verificacao-por-arquivo</title>'\n")
+    script.chmod(0o755)
+    _fazer_a_limpeza_falhar(monkeypatch)
+
+    assert _chromium_funciona(str(script)) is True
+
+
+def test_renderizar_e_medir_mede_normalmente_com_limpeza_de_perfil_falhando(monkeypatch, tmp_path):
+    """A ARMADILHA, como teste: com o descarte do perfil falhando, uma
+    medição BEM-SUCEDIDA continua devolvendo a medida — nunca um `OSError`
+    cru. Era exatamente isto que estouraria na integração contínua no
+    instante em que alguém subisse o timeout sem tirar o descarte da
+    região julgada (medido pelo auditor, 3 de 3).
+    """
+    script = tmp_path / "chromium-que-mede-com-limpeza-ruim"
+    script.write_text("#!/bin/bash\necho '<title>[\"12px\"]</title>'\n")
+    script.chmod(0o755)
+
+    import apps.contabilidade.tests.test_dl017_rodada2_frontend as este_modulo
+
+    monkeypatch.setattr(este_modulo, "_CHROMIUM", str(script))
+    _fazer_a_limpeza_falhar(monkeypatch)
+
+    assert _renderizar_e_medir("<p></p>", "p", css_texto="") == ["12px"]
+
+
+def test_renderizar_e_medir_pula_quando_limpeza_falha_e_o_titulo_nao_serve(monkeypatch, tmp_path):
+    """As duas falhas SOMADAS — ambiente com navegador inútil E descarte
+    de perfil falhando. O desfecho exigido é o pulo com motivo (a falha de
+    AMBIENTE que o instrumento já sabia relatar), nunca o `OSError` da
+    limpeza, que chegaria ANTES e esconderia o motivo real.
+    """
+    script = tmp_path / "chromium-inutil-com-limpeza-ruim"
+    script.write_text('#!/bin/bash\nultimo="${!#}"\necho "<title>$ultimo</title>"\nexit 0\n')
+    script.chmod(0o755)
+
+    import apps.contabilidade.tests.test_dl017_rodada2_frontend as este_modulo
+
+    monkeypatch.setattr(este_modulo, "_CHROMIUM", str(script))
+    _fazer_a_limpeza_falhar(monkeypatch)
+
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        _renderizar_e_medir("<p></p>", "p", css_texto="")
+    assert "json" in str(excinfo.value).lower()
 
 
 # ---------------------------------------------------------------------------
