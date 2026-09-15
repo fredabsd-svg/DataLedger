@@ -217,6 +217,7 @@ diverge.
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **ENCERRADA reprovada**, em três rodadas ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md), [3](../auditorias/2026-09-15-dl-019-rodada-3.md)), por decisão do Fred e pela régua da DE-038. Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -247,6 +248,128 @@ cliente), e uma decisão que afirmava funcionar em produção sem que o
 auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
+
+0. **[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) —
+   ENCERRADA em 2026-09-15, reprovada em três rodadas, por decisão do Fred.**
+
+   **Como ler esse encerramento, sem eufemismo:** a etapa **não foi aprovada**.
+   A [rodada 3](../auditorias/2026-09-15-dl-019-rodada-3.md) reprovou por um
+   achado alto — o marcador ainda perdia conteúdo e vazava texto de controle,
+   por uma sintaxe que a correção anterior não previu. Esse achado **foi
+   corrigido** antes do encerramento, com prova por mutação. Os outros oito são
+   de gravidade baixa; quatro foram corrigidos e **quatro ficam abertos**, em
+   BL-190 a BL-194. Nada disso corrompe dado, erra cálculo, vaza entre
+   empresas, desbalanceia lançamento, altera período encerrado ou derruba
+   servidor — que é a régua da [DE-038](../projeto/decisoes.md), escrita nesta
+   etapa justamente porque ela consumiu horas do Fred sem precisar.
+
+   **O que o Fred tem funcionando:** os sete papéis em `.claude/agents/` e
+   `.codex/agents/`, fonte única com gerador e guarda de sincronia, o
+   `AGENTS.md` apresentando a equipe a qualquer ferramenta, procedimento de
+   criar papel executado do zero pelo próprio auditor, guarda contra
+   truncamento silencioso do `AGENTS.md` no Codex, e **849 testes**.
+
+   **A frase que resume a etapa inteira, do auditor:** *"O transporte está
+   sólido. O que reprova, outra vez, é o conteúdo que viaja."*
+
+   **A lição mais dura, e ela é sobre mim:** implementei as correções da rodada
+   2 e o auditor mediu que eu tinha corrigido **contra a lista de exemplos
+   dele**, não contra a propriedade que a lista ilustrava — por isso o nono
+   caso passou. Nas palavras dele: *"Não digo que foi deliberado; digo que o
+   resultado é indistinguível."* É o argumento empírico a favor de o
+   implementador e o auditor não serem a mesma cabeça, produzido dentro da
+   própria etapa.
+
+   **Histórico das três rodadas:** [Rodada
+   1](../auditorias/2026-09-15-dl-019-rodada-1.md) em `ab1ec4e`: 12 achados
+   (BL-162 a BL-173). [Rodada
+   2](../auditorias/2026-09-15-dl-019-rodada-2.md) em `6667db1`: 10 achados
+   (BL-174 a BL-183). **Dos 12 da rodada 1, seis fecharam e nenhum voltou** —
+   o que reprova agora são **defeitos criados pelas próprias correções**,
+   terceira ocorrência do padrão BL-115.
+
+   **O resultado mais importante da rodada 2 não é achado, é medição:** o
+   auditor removeu **15 defesas, uma por vez**, e contou quais testes morriam.
+   **14 das 15 mataram teste.** Os testes desta etapa exercitam o defeito que
+   dizem cobrir — pergunta que este projeto já errou antes. A única exceção
+   virou BL-180.
+
+   **O auditor deu razão ao implementador numa discordância e declarou a
+   própria recomendação errada** (achado 9 da rodada 1, sobre `newline=""`),
+   com um argumento melhor que o do implementador: `\r` isolado é caractere
+   ilegal em string TOML, então a recomendação original teria **criado** uma
+   falha de geração. Registro porque auditoria que nunca volta atrás vira
+   carimbo.
+
+   **Dimensão indicada para a rodada 3:** o **efeito colateral de cada
+   correção**. As rodadas 1 e 2 mediram o conteúdo e a mentira; a 3 mede o
+   troco. De cada correção: *o que ela passa a reprovar que antes passava, e o
+   que passa a aceitar que antes reprovava?* O A3 é o caso exemplar — um guarda
+   que reprova clone limpo em máquina de usuário comum, com remediação que não
+   converge.
+
+   **BLOQUEIO OPERACIONAL EM 2026-09-15, e não é falha técnica:** o
+   `desenvolvedor-pleno` foi interrompido pelo **limite de uso da plataforma**
+   (HTTP 429, `claude-sonnet-5`) **antes de começar** as correções da rodada 3.
+   Nada foi alterado por ele; a árvore estava no estado de `500dbee`. Os
+   auxiliares usam o mesmo modelo e estavam sob o mesmo limite. **O Fred
+   autorizou que eu assumisse a implementação**, e assumi: as nove correções
+   dos achados da rodada 2 são minhas. A separação essencial permanece — a
+   independência que importa é a do `auditor-qa`, que não escreveu nada disto e
+   é quem valida. Registrado para não virar decisão silenciosa: **nesta rodada,
+   quem implementou foi o líder.**
+
+   **Correções da rodada 2, concluídas em 2026-09-15.** Nove achados fechados
+   (BL-174 a BL-180, BL-182, BL-183); BL-181 fica como **pendência declarada**,
+   porque exige confirmar em documentação oficial quais nomes de ferramenta o
+   Claude Code aceita — e o projeto não valida contra lista inventada. A suíte
+   foi de **817 para 846 testes**.
+
+   **Prova por mutação, feita por mim antes de devolver à auditoria:** removi
+   uma a uma as nove defesas novas e medi quais testes morriam. Oito mataram de
+   imediato. **A nona não matou nenhum** — e isso virou BL-185: ao corrigir o
+   A3, o `chmod` que fixa o modo do arquivo não tinha teste próprio, porque os
+   testes de `umask` passavam só pela tolerância do verificador. Era o **padrão
+   do achado A7 se repetindo dentro da correção do A3**. Corrigido, e agora
+   mutar o `chmod` mata o teste. Registro porque é o argumento inteiro desta
+   etapa: *sem a mutação, eu teria entregado a mesma classe de defeito que
+   estava corrigindo.*
+
+   **Achado meu, encontrado depois das duas auditorias (BL-184):** varri o
+   repositório **inteiro** em vez da lista de arquivos de cada achado, e
+   encontrei três afirmações desmentidas ainda vivas — `CLAUDE.md` dizendo que
+   geramos formatos para Copilot e Gemini (terceira ocorrência do mesmo erro
+   meu), e dois arquivos afirmando que o **Gemini CLI lê `AGENTS.md`
+   nativamente**, o que é falso e foi escrito na DL-014 **sem fonte**. A
+   [DE-034](../projeto/decisoes.md) já mandava varrer pela **classe** e não pela
+   linha; levei três repetições para aplicar a regra que o projeto já tinha
+   escrito, agora também para documentação.
+
+   **A dimensão medida foi a viagem do conteúdo**, e o veredito separa bem as
+   duas metades: *"a promessa de fonte única é sólida na mecânica de geração e
+   frágil na honestidade do texto gerado. O que reprova é o conteúdo que viaja,
+   não o transporte."*
+
+   **Passou:** fidelidade do TOML sob `"""`, emoji, BOM e linha de 600
+   caracteres; idempotência; ordem estável; critério 1 confirmado de forma
+   independente; procedimento de criar papel executado do zero pelo auditor,
+   sem resíduo; suíte sem rastro na árvore.
+
+   **Reprovou:** os arquivos do Codex afirmam `Essa restrição é **técnica**`
+   sobre restrição que lá não existe (BL-162), e o gerador aceitava `nome` sem
+   validação, gravando fora do destino (BL-163).
+
+   **Dimensão indicada para a rodada 2:** o **caminho inverso** — não se o
+   conteúdo chega íntegro, mas se o que chega **mente**. Cruzar cada afirmação
+   de mecanismo dos derivados com a ferramenta de destino, e cada campo
+   declarado na fonte com o que o arquivo gerado realmente concede.
+
+   **Três defeitos achados por três caminhos diferentes, que é o argumento da
+   equipe existir:** o órfão não removido, pelo **desenvolvedor ao executar** o
+   procedimento em vez de só escrevê-lo; a suíte sujando a árvore, por **mim na
+   revisão do diff**; e a mentira no texto gerado, pelo **auditor**, que é o
+   único que não participou de escrever nada disso. Nenhum dos três apareceria
+   pelos outros dois caminhos.
 
 1. **[DL-017](../planos/DL-017-interface-da-contabilidade.md) — APROVADA COM
    RESSALVAS na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md).**
