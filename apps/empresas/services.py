@@ -131,7 +131,7 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
     necessário para reproduzir apurações antigas.
 
     Faixa de `vigencia_inicio` (BL-200, achado R6-6): teto em HOJE, regra
-    confirmada (RC-81); piso em 01/01/2000, **hipótese declarada** (HI-07).
+    confirmada (RC-85); piso em 01/01/2000, **hipótese declarada** (HI-07).
     Ver o comentário em `apps.empresas.validators`, que é a fonte única da
     faixa e da mensagem — este serviço só traduz para `ValueError`, que é o
     que a API já converte em 400.
@@ -171,12 +171,12 @@ class ExclusaoDeRegimeInvalida(Exception):
 
 @transaction.atomic
 def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request=None):
-    """Apaga o ÚLTIMO período de regime tributário da empresa (RC-82/DE-039).
+    """Apaga o ÚLTIMO período de regime tributário da empresa (RC-86/DE-039).
 
     Contexto, porque a escolha aqui não é técnica e não é minha: o achado
     R6-6 mostrou que um dígito errado em `vigencia_inicio` deixava a empresa
     **sem nenhum caminho de correção pelo produto**. O Fred decidiu, em
-    2026-09-15, que a correção **apaga** o registro errado (RC-82) — contra a
+    2026-09-15, que a correção **apaga** o registro errado (RC-86) — contra a
     recomendação do `arquiteto-senior` de registrar uma correção no molde do
     estorno. Regime tributário é dado **cadastral**, não escrituração.
 

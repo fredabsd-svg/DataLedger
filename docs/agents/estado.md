@@ -1,8 +1,8 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-15**, com a `main` em `60cbcff` (PR #19 integrado).
-Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, recriada a
-partir da `main` depois da integração.
+Atualizado em **2026-09-15**, com a `main` em `7e9dc56` (PR #20 integrado).
+Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, com a `main`
+atual incorporada e o PR #21 aberto.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -215,10 +215,10 @@ diverge.
 | [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
-| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-195 a BL-204), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
-| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as quatro regras contábeis confirmadas pelo Fred | **Em execução** — planejada e delegada em 2026-09-15. Vem antes da DL-010 por um motivo só: **BL-198**, o lançamento com data errada que não aparece em tela nenhuma |
+| [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
+| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Em validação (PR #21)** — a retomada encontrou BL-242: `RC-81`, `RC-82` e `PE-44` tinham dois significados. Renumerar para `RC-85`, `RC-86` e `PE-46`, validar e devolver à auditoria antes do merge |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
-| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **ENCERRADA reprovada**, em três rodadas ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md), [3](../auditorias/2026-09-15-dl-019-rodada-3.md)), por decisão do Fred e pela régua da DE-038. Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -381,7 +381,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    o servidor'."*
 
 1. **[DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) — consolidação,
-   EM EXECUÇÃO.** Catorze itens: as dez ressalvas da rodada 6 (BL-195 a BL-204)
+   EM VALIDAÇÃO no PR #21.** Catorze itens: as dez ressalvas da rodada 6 (BL-195 a BL-204)
    e as quatro regras que o Fred confirmou (BL-205 a BL-208). A
    [DL-017](../planos/DL-017-interface-da-contabilidade.md) está **integrada na
    `main`** (PR #19, `60cbcff`).
@@ -392,6 +392,13 @@ auditoria independente — que é exatamente o motivo de ela existir.
    É o único item aberto em que o usuário **não consegue conferir o que não
    aparece**. Decisão apresentada ao Fred com as três opções e o trade-off; ele
    mandou seguir a recomendação.
+
+   **Retomada de 2026-09-15 — BL-242:** a revisão encontrou `RC-81`, `RC-82`
+   e `PE-44` definidos duas vezes, com significados diferentes nas DL-019 e
+   DL-020. A CI de `d15e72c` estava verde e não detectava isso. Os requisitos
+   de regime passam a `RC-85`, `RC-86` e `PE-46`; as auditorias históricas
+   ficam intactas, a tradução entra no plano e um teste passa a impor a
+   unicidade. Até nova validação e auditoria, a etapa não volta a `em revisão`.
 
    **⚠️ BL-195 tem ordem obrigatória:** tirar o descarte do perfil da região
    julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da
@@ -624,7 +631,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
    **Aberto e nomeado:** BL-235 (a antiga A9), BL-236 (o mecanismo da leitura da
    CI — **ato, não mecanismo**), BL-238, BL-239, BL-237 na parte opcional,
-   BL-229, e **BL-164 com A2 e A3**, que *não devem atravessar a DL-010*.
+   BL-229, e **BL-211 com A2 e A3**, que *não devem atravessar a DL-010*.
 
    ### A DE-034 percorrida item por item — achado A4 da auditoria
 
@@ -635,7 +642,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
    auditor, de uma rodada anterior, e ela se cumpriu em cima de mim.
 
    Os campos que a DL-020 corrigiu são **quatro**: `data` de lançamento (RC-77),
-   `vigencia_inicio` de regime (RC-81), o número de partidas (RC-79) e o
+   `vigencia_inicio` de regime (RC-85), o número de partidas (RC-79) e o
    conjunto inteiro que a política dos cinco dicionários julga.
 
    **Item 1 — os demais campos do mesmo dicionário da requisição.**
@@ -749,20 +756,20 @@ auditoria independente — que é exatamente o motivo de ela existir.
    não eram de sim ou não foram reescritas por mim como proposta concreta antes
    de perguntar — presumir regra contábil é o que o projeto proíbe.
 
-   **Quinta decisão, no mesmo dia: RC-81** — o escritório **não** registra
+   **Quinta decisão, no mesmo dia: RC-85** — o escritório **não** registra
    regime tributário com vigência futura, então `vigencia_inicio` nunca é
-   posterior a hoje. Fecha a alínea (a) da PE-44 e, com ela, a "porta de mão
+   posterior a hoje. Fecha a alínea (a) da PE-46 e, com ela, a "porta de mão
    única" do achado R6-6 **por construção**: com o teto em "hoje", `date.max`
    nunca entra e amanhã sempre existe data posterior à última registrada — a
    regra de vigência crescente deixa de poder travar a empresa para sempre.
    O **piso** de `01/01/2000` é **HI-07**, hipótese minha herdada do RC-77, que
    fala de data de lançamento e não de regime. Declarada como tal no código.
 
-   **Sexta decisão, também em 2026-09-15: RC-82** — regime tributário errado se
+   **Sexta decisão, também em 2026-09-15: RC-86** — regime tributário errado se
    corrige **apagando** o registro, não registrando uma correção que o
    substitui. O Fred escolheu isso **contra a minha recomendação**, e a escolha
    dele é a que vale: regime é dado **cadastral**, não escrituração, e é ele
-   quem precisa provar coisas a cliente e a fisco. **Fecha a PE-44 por
+   quem precisa provar coisas a cliente e a fisco. **Fecha a PE-46 por
    completo.** O alcance técnico é meu e está em **DE-039**: apaga-se só o
    **último** período, a exclusão devolve o anterior à condição de vigente, e o
    **evento** de exclusão é gravado em `RegistroAuditoria`. O registro sai do
@@ -772,8 +779,8 @@ auditoria independente — que é exatamente o motivo de ela existir.
    antes de a apuração existir, de propósito. **Nada disso vale para lançamento
    efetivado:** ali a correção segue por estorno e apagar continua proibido.
 9. **Decisões que dependem do Fred:** **HI-07** (o piso de `01/01/2000` para
-   vigência de regime é hipótese minha, não confirmação dele — a PE-44 está
-   fechada nas duas alíneas, por RC-81 e RC-82, mas o piso nunca foi
+   vigência de regime é hipótese minha, não confirmação dele — a PE-46 está
+   fechada nas duas alíneas, por RC-85 e RC-86, mas o piso nunca foi
    perguntado), PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
    e prejuízos acumulados na implantação), PE-20, PE-21, PE-22, PE-23, PE-25,
    PE-30 a PE-35.
@@ -840,32 +847,27 @@ o que medimos, e está registrado o que não medimos.
 
 ## Estado do repositório
 
-- **`main` em `60cbcff`**, com DL-002 a DL-009, DL-011 a DL-015 e **DL-017
-  completa** — as seis telas da contabilidade, aprovadas com ressalvas na
-  [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de **cinco
-  reprovações**. Integrada em 2026-09-15 por autorização do Fred, **desta vez
-  na ordem certa**: auditar, aprovar, e só então integrar.
-  - O bloqueador que mais custou — a tela gravando `1.000` como `1,00` — **saiu
-    da `main`**. E com ele a incompatibilidade com Python 3.12/3.13, que fazia
-    o site inteiro não subir apesar de o README prometer 3.12+.
-  - Squash com `expectedHeadSha`, então o que entrou é comprovadamente a
-    revisão auditada `0ec31ed` — nada além dela. 65 arquivos, +11.870/−257.
-- **Suíte: 766 testes** na branch de trabalho (446 na `main`), rodando em ~35 s
-  em árvore limpa. **Suíte verde não é sistema correto**, e esta etapa tem a
-  série completa como prova: 487 testes passavam com o bloqueador do `1.000` em
-  vigor; 559 passavam com a negação de serviço em vigor; 608 passavam com a API
-  gravando data errada em silêncio. O que encontra defeito não é contagem, é
-  **variar a dimensão medida** — rodada 2 variou o texto do valor; rodada 3
-  cronometrou o tempo e variou a forma do nome do campo; rodada 4 variou o
-  **transporte** da requisição e o **comprimento** de um identificador. Achou
-  nas três. **A dimensão indicada para a rodada seguinte fica em "Próximo passo",
-  e só lá** — repetir aqui foi o que produziu a divergência do achado R6-8:
-  este parágrafo afirmava "concorrência real" depois de ela já ter sido varrida
-  e aprovada. É a instrução permanente do Fred, de 2026-09-13, cobrando de
-  novo: texto repetido diverge assim que alguém atualiza um.
+- **`main` em `7e9dc56`**, com a DL-017 integrada pelo PR #19 e a DL-019
+  (portabilidade dos papéis de agentes) integrada pelo PR #20.
+- **PR #21 em validação**, branch
+  `claude/accounting-agent-team-setup-mn6lyf`. O `head` remoto ainda é
+  `d15e72c`; a retomada encontrou e corrigiu localmente o bloqueador BL-242,
+  acrescentou a guarda de unicidade de `RC-xx`/`PE-xx` e registrou a orientação
+  de produto DE-040. A etapa só volta a `em revisão` depois de commit, push,
+  CI do novo `head` e auditoria independente.
+- **Suíte do snapshot com a correção local:** **1194 passed, 2 skipped** em
+  109,98 s, Python 3.14.7/Linux e PostgreSQL 16 descartável. Os 43 pontos de
+  escrita descobertos pela varredura chegaram à política de autorização.
+  O teste documental específico passou 8/8 no Windows; uma mutação temporária
+  com `RC-84` duplicado fez a nova guarda reprovar e foi removida antes da
+  validação final.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
-  um relatório errado.
+  um relatório errado. Nesta retomada o transporte Windows→Linux converteu
+  finais de linha e levou `__pycache__` com caminhos absolutos; esses artefatos
+  foram removidos **somente do snapshot temporário**, os derivados foram
+  regenerados pelo script oficial e `--verificar` confirmou 7 papéis/14
+  arquivos antes da execução válida.
 - Pendência herdada da DL-002: a proteção da branch `main` nunca foi
   configurada.
 
@@ -881,11 +883,7 @@ qual é a última revisão com auditoria completa. Não confunda com entrega.
 
 Registrado para quem for reproduzir:
 
-- O contêiner padrão traz `python3` 3.11, e **o projeto não instala nele**:
-  `Django==6.1.1` exige 3.12 ou superior. Use `python3.13` (ou 3.12/3.14).
-- PostgreSQL 16 está disponível localmente; o Docker está instalado mas **sem
-  daemon em execução**. A suíte foi rodada contra um cluster PostgreSQL
-  descartável iniciado à mão.
-- PowerShell **não** está instalado, então `scripts/validate-docs.ps1` não pôde
-  ser executado aqui. As mesmas regras foram verificadas por uma
-  reimplementação equivalente; a execução oficial é a da integração contínua.
+- Windows 11, Python 3.14.7 em `.venv`, pip 26.2.1, Ruff 0.16.7 e pytest 9.1.1.
+- Docker Desktop 4.90.0, engine 29.7.2 e PostgreSQL 16 em contêiner descartável.
+- `scripts/validate-docs.ps1` foi executado no PowerShell local e aprovou os 79
+  arquivos Markdown; a CI do novo commit ainda é evidência pendente.

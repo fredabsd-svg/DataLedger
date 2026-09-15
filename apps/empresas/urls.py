@@ -27,7 +27,7 @@ urlpatterns = [
         HistoricoRegimeTributarioListCreateView.as_view(),
         name="api-regime-tributario",
     ),
-    # BL-209 (RC-82/DE-039): exclusão do ÚLTIMO período de regime tributário,
+    # BL-209 (RC-86/DE-039): exclusão do ÚLTIMO período de regime tributário,
     # o caminho de correção que faltava (achado R6-6 — sem ele, um dígito
     # errado em `vigencia_inicio` congelava o histórico para sempre).
     path(

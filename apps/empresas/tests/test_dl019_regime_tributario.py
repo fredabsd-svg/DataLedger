@@ -1,5 +1,5 @@
-"""BL-200 (faixa do RC-81 + hipótese HI-07) e BL-209 (exclusão do último
-período, RC-82/DE-039) — achado R6-6 da auditoria DL-017 rodada 6.
+"""BL-200 (faixa do RC-85 + hipótese HI-07) e BL-209 (exclusão do último
+período, RC-86/DE-039) — achado R6-6 da auditoria DL-017 rodada 6.
 
 **O defeito medido:** `POST regime-tributario {"vigencia_inicio":
 "9999-12-31"}` respondia **201**. `9999-12-31` é `date.max`, não existe data
@@ -11,7 +11,7 @@ congelava para sempre o histórico do dado que governa a apuração fiscal.
 **Duas metades, com origens diferentes, e isto está escrito porque a diferença
 importa:**
 
-- O **teto em hoje** é regra confirmada (RC-81, Fred em 2026-09-15, resposta
+- O **teto em hoje** é regra confirmada (RC-85, Fred em 2026-09-15, resposta
   literal "Não" a "o escritório registra regime com vigência futura?"). Fecha a
   armadilha por construção: `date.max` não entra, e amanhã sempre existe data
   posterior à última registrada.
@@ -20,7 +20,7 @@ importa:**
   testes do piso existem para fixar o comportamento ATUAL, não para afirmar
   regra — se o Fred baixar o piso, eles mudam junto com a hipótese.
 
-A **exclusão** segue RC-82 ("apagar", decisão do Fred contra a recomendação do
+A **exclusão** segue RC-86 ("apagar", decisão do Fred contra a recomendação do
 `arquiteto-senior`) com o alcance da DE-039: só o último período, o anterior
 volta a vigente, e o evento vai para `RegistroAuditoria` — o registro sai do
 produto, a trilha técnica fica.
@@ -51,21 +51,21 @@ SENHA = "senha-forte-123"
 
 @pytest.fixture
 def cenario():
-    escritorio = Escritorio.objects.create(nome="Escritório RC-81", cnpj="88888888000188")
+    escritorio = Escritorio.objects.create(nome="Escritório RC-85", cnpj="88888888000188")
     empresa = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Empresa RC-81 Ltda", cnpj="11222333000181"
+        escritorio=escritorio, razao_social="Empresa RC-85 Ltda", cnpj="11222333000181"
     )
     outra = Empresa.objects.create(
-        escritorio=escritorio, razao_social="Outra RC-81 Ltda", cnpj="ab123cde000155"
+        escritorio=escritorio, razao_social="Outra RC-85 Ltda", cnpj="ab123cde000155"
     )
     gestora = get_user_model().objects.create_user(
-        username="gestora-rc81", email="gestora-rc81@escritorio.com.br", password=SENHA
+        username="gestora-rc85", email="gestora-rc85@escritorio.com.br", password=SENHA
     )
     VinculoUsuarioEscritorio.objects.create(
         usuario=gestora, escritorio=escritorio, papel=Papel.GESTOR
     )
     analista = get_user_model().objects.create_user(
-        username="analista-rc81", email="analista-rc81@escritorio.com.br", password=SENHA
+        username="analista-rc85", email="analista-rc85@escritorio.com.br", password=SENHA
     )
     VinculoUsuarioEscritorio.objects.create(
         usuario=analista, escritorio=escritorio, papel=Papel.ANALISTA
@@ -91,7 +91,7 @@ def _url_detalhe(cenario, registro, empresa=None):
 
 
 # ---------------------------------------------------------------------------
-# RC-81 — teto em hoje (regra confirmada)
+# RC-85 — teto em hoje (regra confirmada)
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ def test_vigencia_de_hoje_e_aceita(cenario):
 
 @pytest.mark.parametrize("vigencia", ["9999-12-31", "2099-01-01"])
 def test_api_recusa_vigencia_futura_com_400(client, cenario, vigencia):
-    assert client.login(username="gestora-rc81", password=SENHA)
+    assert client.login(username="gestora-rc85", password=SENHA)
 
     resposta = client.post(
         _url_lista(cenario),
@@ -142,7 +142,7 @@ def test_api_recusa_vigencia_futura_com_400(client, cenario, vigencia):
 
 
 def test_api_continua_aceitando_vigencia_passada(client, cenario):
-    assert client.login(username="gestora-rc81", password=SENHA)
+    assert client.login(username="gestora-rc85", password=SENHA)
 
     resposta = client.post(
         _url_lista(cenario),
@@ -213,9 +213,9 @@ def test_admin_recusa_vigencia_futura_no_inline_e_nao_grava(client, cenario):
     `registrar_regime_tributario`: sem o validador de campo, o admin era a
     porta por onde `9999-12-31` continuava entrando."""
     get_user_model().objects.create_superuser(
-        username="admin-rc81", email="admin-rc81@escritorio.com.br", password=SENHA
+        username="admin-rc85", email="admin-rc85@escritorio.com.br", password=SENHA
     )
-    assert client.login(username="admin-rc81", password=SENHA)
+    assert client.login(username="admin-rc85", password=SENHA)
     empresa = cenario["empresa"]
 
     resposta = client.post(
@@ -252,9 +252,9 @@ def test_admin_grava_vigencia_passada_no_inline(client, cenario):
     faltando, permissão, formset mal montado) — e eu concluiria "o validador
     funciona" a partir de um 200 que não tem nada a ver com ele."""
     get_user_model().objects.create_superuser(
-        username="admin2-rc81", email="admin2-rc81@escritorio.com.br", password=SENHA
+        username="admin2-rc85", email="admin2-rc85@escritorio.com.br", password=SENHA
     )
-    assert client.login(username="admin2-rc81", password=SENHA)
+    assert client.login(username="admin2-rc85", password=SENHA)
     empresa = cenario["empresa"]
 
     resposta = client.post(
@@ -285,7 +285,7 @@ def test_admin_grava_vigencia_passada_no_inline(client, cenario):
 
 
 # ---------------------------------------------------------------------------
-# BL-209 / RC-82 / DE-039 — exclusão do último período
+# BL-209 / RC-86 / DE-039 — exclusão do último período
 # ---------------------------------------------------------------------------
 
 
@@ -394,7 +394,7 @@ def test_exclusao_grava_trilha_com_os_valores_antigos_e_o_autor(cenario):
 
 
 def test_api_apaga_o_ultimo_periodo(client, cenario):
-    assert client.login(username="gestora-rc81", password=SENHA)
+    assert client.login(username="gestora-rc85", password=SENHA)
     primeiro, segundo = _dois_periodos(cenario)
 
     resposta = client.delete(_url_detalhe(cenario, segundo))
@@ -407,7 +407,7 @@ def test_api_apaga_o_ultimo_periodo(client, cenario):
 
 
 def test_api_recusa_exclusao_de_periodo_do_meio(client, cenario):
-    assert client.login(username="gestora-rc81", password=SENHA)
+    assert client.login(username="gestora-rc85", password=SENHA)
     primeiro, _ = _dois_periodos(cenario)
 
     resposta = client.delete(_url_detalhe(cenario, primeiro))
@@ -419,7 +419,7 @@ def test_api_recusa_exclusao_de_periodo_do_meio(client, cenario):
 def test_papel_sem_gestao_recebe_recusa_no_servidor(client, cenario):
     """Autorização no SERVIDOR, não ausência de botão: o ANALISTA não tem
     `PodeGerenciarEmpresa` e recebe 403 mesmo chamando a rota direto."""
-    assert client.login(username="analista-rc81", password=SENHA)
+    assert client.login(username="analista-rc85", password=SENHA)
     _, segundo = _dois_periodos(cenario)
 
     resposta = client.delete(_url_detalhe(cenario, segundo))
@@ -431,7 +431,7 @@ def test_papel_sem_gestao_recebe_recusa_no_servidor(client, cenario):
 def test_registro_de_outra_empresa_nao_e_apagado(client, cenario):
     """Isolamento: `registro_id` de outra empresa responde 404 e não apaga
     nada, mesmo com o escritório ativo correto."""
-    assert client.login(username="gestora-rc81", password=SENHA)
+    assert client.login(username="gestora-rc85", password=SENHA)
     da_outra = registrar_regime_tributario(
         cenario["outra_empresa"], RegimeTributario.LUCRO_REAL, date(2024, 5, 1)
     )

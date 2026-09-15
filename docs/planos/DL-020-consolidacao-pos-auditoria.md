@@ -1,7 +1,9 @@
 # DL-020 — Consolidação pós-auditoria e as quatro regras confirmadas
 
-**Estado:** planejada em 2026-09-15, logo após a integração da
-[DL-017](DL-017-interface-da-contabilidade.md) na `main` (PR #19, `60cbcff`).
+**Estado:** em validação no PR #21. A conferência anterior aprovou o
+encerramento com ressalvas em `d15e72c`, mas a revisão de retomada encontrou a
+colisão de requisitos BL-242; a etapa só volta a `em revisão` depois da
+renumeração, das verificações e de nova auditoria independente.
 
 ## Por que esta etapa existe, e por que ela vem antes da DL-010
 
@@ -155,6 +157,9 @@ O Fred autorizou renumerar **esta**, por ser a que ainda não estava integrada.
 | `docs/auditorias/2026-09-15-dl-019-rodada-{1,2,3,4}.md` | `…-dl-020-rodada-{1,2,3,4}.md` |
 | `BL-148` a `BL-193` | **`BL-195` a `BL-240`** (deslocamento de **+47**) |
 | `DE-035` (regime errado se corrige apagando) | **`DE-039`** |
+| `RC-81` (regime nunca futuro) | **`RC-85`** |
+| `RC-82` (regime errado se apaga) | **`RC-86`** |
+| `PE-44` (correção do regime) | **`PE-46`** |
 
 Para converter qualquer número citado nos relatórios: **some 47**. `BL-148` virou
 `BL-195`; `BL-183` virou `BL-230`; `BL-193` virou `BL-240`.
@@ -215,3 +220,59 @@ dele, *"essa metade é silenciosa: o Git não avisa"*. Os arquivos brigariam alt
 as citações, não. **A renumeração do código foi feita no mesmo passo**, por
 substituição em duas fases com marcador intermediário, para nenhuma troca
 reescrever outra.
+
+### BL-242 — a renumeração não cobriu RC e PE
+
+Encontrada na retomada do PR #21, antes do merge: a etapa de portabilidade já
+usava `RC-81`, `RC-82` e `PE-44`, e esta etapa reutilizou os mesmos três
+identificadores para regras de regime tributário. A CI estava verde porque não
+existia guarda de unicidade para requisitos e pendências.
+
+Os identificadores desta etapa foram movidos para os próximos números livres:
+`RC-85`, `RC-86` e `PE-46`. As quatro auditorias da DL-020 permanecem
+inalteradas e continuam citando a numeração vigente quando foram escritas; esta
+tabela é o caminho de tradução. Código, testes e documentação operacional usam
+a numeração nova. Um teste de documentação passa a reprovar definições
+duplicadas de `RC-xx` ou `PE-xx`, para fechar a classe e não só estes três
+casos.
+
+Os trechos do backlog que transcrevem medições das rodadas anteriores também
+podem citar `RC-81`/`RC-82` no sentido histórico. Eles são lidos pela mesma
+tabela de tradução; critérios e referências operacionais novos usam apenas os
+IDs atuais.
+
+### Diretriz de produto recebida durante a validação
+
+O Fred indicou `C:\Users\Frederico\Downloads\manuais` como acervo local de
+consulta dos processos do Domínio. A orientação foi registrada de forma
+durável em [DE-040](../projeto/decisoes.md): consultar os manuais quando houver
+dúvida de negócio ou de fluxo, sem copiar layout ou identidade visual, e usar a
+análise para simplificar o processo e propor recursos próprios. Esta inclusão é
+documental; não muda a regra de regime tributário nem o código da DL-020.
+
+### Evidências da retomada — antes do commit
+
+- Guarda documental: 8 testes passaram; a mutação temporária que repetiu uma
+  definição de `RC-84` reprovou exatamente o novo teste e foi removida antes da
+  execução final.
+- Snapshot Linux/PostgreSQL 16, Python 3.14.7: **1194 passed, 2 skipped** em
+  109,98 s; os 43 pontos de escrita descobertos pela varredura chegaram à
+  política de autorização.
+- Ruff: `check` aprovado e 156 arquivos já formatados no snapshot.
+- Django: `manage.py check` sem problemas; `makemigrations --check --dry-run`
+  informou "No changes detected" sem aviso na repetição final. Uma tentativa
+  anterior perdeu a conexão porque o banco temporário reiniciou durante a
+  consulta de histórico; ela não conta como aprovação. A suíte posterior
+  também aplicou todas as migrações numa base vazia.
+- Documentação: `scripts/validate-docs.ps1` aprovado depois do registro da
+  DE-040, com 79 arquivos Markdown verificados no repositório real.
+- Execuções contaminadas por `.env`, finais de linha do transporte ou processos
+  concorrentes foram diagnosticadas e **não contam como aprovação**. Nenhum
+  arquivo do repositório foi regenerado para esconder essas falhas; a limpeza
+  ocorreu somente no snapshot descartável.
+
+**Revisão do diff:** os 14 arquivos alterados foram conferidos; nenhum relatório
+de auditoria foi modificado, não há arquivo temporário no `git status` e
+`git diff --check` passou. **Ainda pendente:** commit, push, CI no novo `head` e
+uma auditoria independente da correção BL-242. Enquanto isso o estado correto é
+`em validação`.

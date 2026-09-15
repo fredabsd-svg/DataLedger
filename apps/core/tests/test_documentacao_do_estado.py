@@ -28,10 +28,46 @@ RAIZ = Path(__file__).resolve().parents[3]
 README = RAIZ / "README.md"
 ESTADO = RAIZ / "docs" / "agents" / "estado.md"
 PLANOS = RAIZ / "docs" / "planos"
+REQUISITOS = RAIZ / "docs" / "projeto" / "requisitos.md"
 
 
 def _texto(caminho):
     return caminho.read_text(encoding="utf-8")
+
+
+def _identificadores_de_requisito_duplicados(texto):
+    """Retorna só IDs definidos em linhas de tabela mais de uma vez.
+
+    BL-242: citações a um requisito dentro da explicação são legítimas; o que
+    torna o contrato ambíguo é haver duas linhas que definem o mesmo RC ou PE.
+    Por isso a expressão ancora no começo da linha e no primeiro campo da
+    tabela, em vez de contar todas as ocorrências no documento.
+    """
+    definidos = re.findall(r"^\|\s*((?:RC|PE)-\d+)\s*\|", texto, flags=re.MULTILINE)
+    return sorted(
+        {identificador for identificador in definidos if definidos.count(identificador) > 1}
+    )
+
+
+def test_requisitos_e_pendencias_tem_identificadores_unicos():
+    """Um RC/PE nunca pode voltar a nomear dois contratos diferentes."""
+    duplicados = _identificadores_de_requisito_duplicados(_texto(REQUISITOS))
+    assert not duplicados, (
+        "Identificadores definidos mais de uma vez em docs/projeto/requisitos.md: "
+        f"{', '.join(duplicados)}. Renumere a definição mais nova e atualize "
+        "suas referências sem reescrever auditorias históricas (BL-242)."
+    )
+
+
+def test_guarda_de_ids_distingue_definicao_de_citacao():
+    """Prova a classe: duas definições colidem; citações no texto não."""
+    exemplo = """\
+| RC-01 | Primeira definição |
+| RC-02 | Cita RC-01 sem redefini-lo |
+| RC-01 | Segunda definição conflitante |
+| PE-01 | Pergunta que cita RC-01 |
+"""
+    assert _identificadores_de_requisito_duplicados(exemplo) == ["RC-01"]
 
 
 def test_todo_plano_de_etapa_aparece_no_readme():

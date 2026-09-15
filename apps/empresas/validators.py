@@ -171,7 +171,7 @@ def validar_cnpj(valor):
 
 
 # ---------------------------------------------------------------------------
-# Faixa de `vigencia_inicio` de regime tributário (RC-81 confirmado, HI-07
+# Faixa de `vigencia_inicio` de regime tributário (RC-85 confirmado, HI-07
 # hipótese) — achado R6-6 da auditoria DL-017 rodada 6, BL-200.
 #
 # O defeito medido: `POST regime-tributario {"vigencia_inicio":"9999-12-31"}`
@@ -181,7 +181,7 @@ def validar_cnpj(valor):
 # errado congelava para sempre o histórico do dado que governa toda a
 # apuração fiscal da empresa, e só acesso direto ao banco desfazia.
 #
-# LIMITE SUPERIOR — REGRA CONFIRMADA (RC-81, Fred em 2026-09-15, resposta
+# LIMITE SUPERIOR — REGRA CONFIRMADA (RC-85, Fred em 2026-09-15, resposta
 # literal "Não" a "o escritório registra regime com vigência futura?"):
 # `vigencia_inicio` nunca é posterior a HOJE. Isto fecha a armadilha por
 # construção, não por vigilância: `date.max` não entra mais, e amanhã sempre
@@ -200,7 +200,7 @@ VIGENCIA_REGIME_MINIMA = date(2000, 1, 1)
 
 
 def vigencia_regime_maxima():
-    """Hoje — a última `vigencia_inicio` aceita para um regime (RC-81).
+    """Hoje — a última `vigencia_inicio` aceita para um regime (RC-85).
 
     Função, não constante: "hoje" se move, e uma constante calculada no
     import congelaria o teto no momento em que o processo subiu (um servidor

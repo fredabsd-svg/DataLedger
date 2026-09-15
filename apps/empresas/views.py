@@ -397,13 +397,13 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
 
 
 class HistoricoRegimeTributarioDetailView(EmpresaEscopadaMixin, APIView):
-    """Exclusão do ÚLTIMO período de regime tributário (BL-209, RC-82/DE-039).
+    """Exclusão do ÚLTIMO período de regime tributário (BL-209, RC-86/DE-039).
 
     Existe porque o achado R6-6 mostrou uma porta de mão única: um dígito
     errado em `vigencia_inicio` deixava a empresa sem NENHUM caminho de
     correção pelo produto — não havia `PUT`, `DELETE` nem edição na tela, e
     só acesso direto ao banco desfazia. O Fred decidiu, em 2026-09-15, que a
-    correção **apaga** o registro (RC-82); o alcance está na DE-039 e a regra
+    correção **apaga** o registro (RC-86); o alcance está na DE-039 e a regra
     inteira mora em `apps.empresas.services.excluir_ultimo_regime_tributario`
     — esta view só traduz o veredito para HTTP.
 

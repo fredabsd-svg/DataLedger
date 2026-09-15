@@ -152,7 +152,7 @@ class HistoricoRegimeTributario(models.Model):
         Empresa, on_delete=models.CASCADE, related_name="historico_regime_tributario"
     )
     regime = models.CharField("regime tributário", max_length=20, choices=RegimeTributario.choices)
-    # RC-81 (teto em hoje, confirmado) e HI-07 (piso em 2000, HIPÓTESE) como
+    # RC-85 (teto em hoje, confirmado) e HI-07 (piso em 2000, HIPÓTESE) como
     # validador de CAMPO, e não só em `registrar_regime_tributario`: o
     # `HistoricoRegimeTributarioInline` do admin (apps/empresas/admin.py)
     # grava por `ModelForm`, chama `full_clean()` e NUNCA passa pelo serviço

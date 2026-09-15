@@ -24,7 +24,7 @@ Duas consequências, medidas pelo auditor e piores que a falha em si:
    rodada anterior estava desligado lá.
 2. O par de controle do admin escondia metade: o teste **negativo** espera 200
    e por isso **renderiza** o template → estourava; o **positivo** termina em
-   302 e **não renderiza** → passava. Na CI, a metade que defende o RC-81 no
+   302 e **não renderiza** → passava. Na CI, a metade que defende o RC-85 no
    admin nunca rodou, e o positivo ficava verde provando menos do que parece.
 
 ## A correção, e o que ela NÃO faz
