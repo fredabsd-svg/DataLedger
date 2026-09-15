@@ -279,6 +279,48 @@ auditoria independente — que é exatamente o motivo de ela existir.
    Nenhum dos dois commita: a integração é do `arquiteto-senior`, porque dois
    agentes mexendo no índice ao mesmo tempo corrompem o commit.
 
+   **⚠️ O contêiner da sessão reiniciou em 2026-09-15 e matou os dois
+   implementadores no meio do trabalho, sem relatório.** O sistema de arquivos
+   sobreviveu, então o código está todo no repositório (commits de preservação),
+   mas **a declaração de o que estava pronto, não**. Isso foi resolvido por
+   **inventário por execução**, não por confiança. Estado medido pelo
+   `arquiteto-senior`, sozinho na máquina, na revisão de integração:
+
+   | Verificação | Resultado |
+   | --- | --- |
+   | `ruff check .` | 0 |
+   | `ruff format --check .` | 0 |
+   | `python manage.py check` | 0, sem problemas |
+   | `python manage.py makemigrations --check --dry-run` | `No changes detected` |
+   | `pytest -q -rs` | **907 passed**, 0 falhas, 0 pulos |
+
+   A suíte era de **766** testes quando a DL-017 foi integrada. **`pwsh` não
+   existe neste contêiner**, então `scripts/validate-docs.ps1` está
+   **Bloqueado** e só a CI o executa.
+
+   **O que o inventário mediu, item por item** (a etiqueta é do inventário, não
+   minha): **Testados** — BL-148, BL-153, BL-158, BL-159, BL-160, BL-162.
+   **Parciais** — BL-149, BL-151, BL-157. **Código sem teste** — BL-152, BL-156,
+   BL-161. **Testado com a defesa demonstrada** — só a **BL-150**. A evidência
+   de cada um está no próprio item do [backlog](../projeto/backlog.md), com
+   arquivo e linha.
+
+   **Dois erros meus nesta etapa, registrados porque são a classe que ela
+   ataca:**
+
+   1. **Afirmei ao Fred que o admin do Django permitia criar lançamento datado
+      `9999-12-31`**, e chamei isso de "o mais grave" na BL-164. **É falso.**
+      `LancamentoContabilAdmin.has_add_permission` devolve `False`
+      (`apps/contabilidade/admin.py:83`), e já era assim em `60cbcff`. Eu inferi
+      o buraco de "o admin registra o modelo" **sem abrir o `ModelAdmin`** —
+      afirmar sem medir, no item mais sensível da etapa. Corrigido no backlog.
+   2. **Lancei um agente que escrevia e outro que media ao mesmo tempo, na mesma
+      árvore e no mesmo banco.** "Medição concorrente não é medição" já estava
+      registrado neste projeto e eu o repeti. O inventário salvou o resultado
+      porque detectou a árvore se movendo e separou duas medições (estado A,
+      `1 failed, 894 passed`; estado B, `907 passed`) — mas isso foi mérito dele,
+      não desenho meu.
+
    **Três contratos que eu fixei na distribuição**, para os dois não negociarem
    no meio do caminho — e para nenhum número de negócio ficar declarado em dois
    lugares, que é como a documentação divergiu três vezes:

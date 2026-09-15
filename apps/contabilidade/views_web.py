@@ -1739,15 +1739,33 @@ def lancamento_detalhe(request, empresa_id, lancamento_id):
 # ---------------------------------------------------------------------------
 
 
-def _aviso_de_movimento_fora_do_periodo(request, empresa, inicio, fim, *, conta=None):
+def _aviso_de_movimento_fora_do_periodo(
+    request, empresa, inicio, fim, *, conta=None, ids_contas=None
+):
     """Contexto do aviso, ou `None` quando não há nada fora do período.
 
-    `conta` recorta pelo MESMO conjunto que o Razão apura (a conta e as
-    descendentes), para o aviso concordar com os números que a tela está
-    mostrando. Pode levantar `HierarquiaInconsistente` nos mesmos casos que
-    `apurar_razao` — por isso, no Razão, esta chamada fica no mesmo `try`.
+    Os dois parâmetros do Razão têm papéis DIFERENTES, e é por isso que ele
+    passa os dois (BL-165):
+
+    - `ids_contas` é o que CONSULTA: o conjunto de contas já apurado por
+      `apurar_razao` (chave `ids_contas` do resultado), reaproveitado para o
+      aviso recortar pelo MESMO conjunto que a tela está somando sem
+      percorrer a subárvore uma segunda vez — `_descendentes_de` faz uma
+      consulta por nível de profundidade, e recomputá-lo aqui dobrava esse
+      custo e estourava o teto de consultas do Razão.
+    - `conta` é o que APRESENTA: a chave `"conta"` do contexto é a única
+      coisa que faz o parcial dizer "esta conta (incluindo as subordinadas)"
+      em vez de "esta empresa". Nenhuma consulta depende dela quando
+      `ids_contas` vem, e o link que alarga o período também não — ele sai de
+      `request.path` mais os parâmetros da tela.
+
+    Sem nenhum dos dois, o recorte é a empresa inteira (Diário, Balancete).
+    Com `conta` sem `ids_contas`, `movimento_fora_do_periodo` ainda recorta
+    pela subárvore — pagando a travessia; nenhuma tela faz isso hoje.
     """
-    fora = movimento_fora_do_periodo(empresa=empresa, inicio=inicio, fim=fim, conta=conta)
+    fora = movimento_fora_do_periodo(
+        empresa=empresa, inicio=inicio, fim=fim, conta=conta, ids_contas=ids_contas
+    )
     if not fora:
         return None
     anteriores = fora.get("anteriores")
@@ -1852,19 +1870,28 @@ def razao(request, empresa_id, conta_id):
 
     try:
         apuracao = apurar_razao(conta=conta, empresa=empresa, inicio=inicio, fim=fim)
-        # BL-151 (b): no MESMO `try` que a apuração, de propósito — a
-        # consulta recortada por conta percorre a mesma hierarquia e
-        # levanta o mesmo erro nos mesmos casos (ciclo, conta_pai de outra
-        # empresa). Fora do `try`, um plano inconsistente viraria 500 aqui
-        # depois de a apuração já ter respondido 409 corretamente.
-        aviso_fora_do_periodo = _aviso_de_movimento_fora_do_periodo(
-            request, empresa, inicio, fim, conta=conta
-        )
     except HierarquiaInconsistente as exc:
         # Ciclo ou conta_pai de outra empresa: resposta controlada,
         # nomeando a conta, nunca um 500 mudo (mesmo tratamento da API).
         messages.error(request, str(exc))
         return render(request, "contabilidade/razao.html", contexto, status=409)
+
+    # BL-151 (b) + BL-165: DEPOIS da apuração e FORA do `try`, de propósito.
+    # Esta chamada já não percorre a hierarquia — ela reaproveita o conjunto
+    # de contas que a apuração acabou de percorrer (`apuracao["ids_contas"]`),
+    # então não há mais `HierarquiaInconsistente` a tratar aqui; o que a
+    # protege é depender de `apuracao`, que só existe quando o plano está
+    # consistente. Antes da BL-165 ela recomputava `_descendentes_de` (uma
+    # consulta por NÍVEL de profundidade), dobrando o custo do Razão de um
+    # plano profundo e estourando o teto de consultas. `conta` continua
+    # sendo passada, mas só para a APRESENTAÇÃO: é a chave "conta" do
+    # contexto, e é só ela que faz o aviso dizer "esta conta (incluindo as
+    # subordinadas)" em vez de "esta empresa". O link que alarga o período
+    # não depende dela — ele nasce de `request.path`, que no Razão já traz o
+    # `conta_id`.
+    aviso_fora_do_periodo = _aviso_de_movimento_fora_do_periodo(
+        request, empresa, inicio, fim, conta=conta, ids_contas=apuracao["ids_contas"]
+    )
 
     itens = []
     for linha in apuracao["itens"]:

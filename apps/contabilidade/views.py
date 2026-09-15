@@ -180,7 +180,7 @@ def _como_moeda(valor):
     return str(Decimal(valor).quantize(Decimal("0.01")))
 
 
-def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
+def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, ids_contas=None):
     """Serializa `movimento_fora_do_periodo` para a resposta JSON (BL-151).
 
     Devolve `None` quando não há nada fora do período — a chave existe SEMPRE
@@ -198,8 +198,16 @@ def _aviso_de_movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None):
     As datas saem em `isoformat()` (AAAA-MM-DD), como todas as outras datas
     desta API — nunca `date` cru, que o encoder JSON do DRF converteria por
     conta própria.
+
+    O recorte por conta entra aqui como `ids_contas` — o conjunto já apurado
+    por `apurar_razao` (chave `ids_contas`, BL-165) —, nunca como a `Conta`:
+    esta serialização não mostra nada da conta, então receber a conta só
+    serviria para `movimento_fora_do_periodo` percorrer a subárvore uma
+    SEGUNDA vez (uma consulta por nível de profundidade), que é a regressão
+    de desempenho da BL-165. Sem `ids_contas`, o recorte é a empresa inteira
+    (Diário e Balancete).
     """
-    fora = movimento_fora_do_periodo(empresa=empresa, inicio=inicio, fim=fim, conta=conta)
+    fora = movimento_fora_do_periodo(empresa=empresa, inicio=inicio, fim=fim, ids_contas=ids_contas)
     if fora is None:
         return None
 
@@ -864,11 +872,14 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
                 "saldo_final_natureza": saldo_final_natureza,
                 "itens": itens,
                 # BL-151, recortado pela CONTA consultada (e pelas
-                # descendentes, o mesmo conjunto que `apurar_razao` usa): o
-                # aviso do Razão fala da conta que está na tela, não da
-                # empresa inteira.
+                # descendentes): o aviso do Razão fala da conta que está na
+                # tela, não da empresa inteira. O recorte é LITERALMENTE o
+                # conjunto que esta apuração somou — `apuracao["ids_contas"]`,
+                # o mesmo objeto, não uma segunda travessia da subárvore
+                # (BL-165: recomputá-lo dobra a consulta por nível de
+                # profundidade e estourou o teto de consultas do Razão).
                 "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
-                    empresa=empresa, inicio=inicio, fim=fim, conta=conta
+                    empresa=empresa, inicio=inicio, fim=fim, ids_contas=apuracao["ids_contas"]
                 ),
             }
         )

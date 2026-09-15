@@ -727,7 +727,19 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     (lista de dicts com `lancamento_id`, `data`, `historico`, `conta`,
     `conta_nome`, `tipo`, `valor`, `saldo`, todos com valores em `Decimal` —
     a formatação para string de moeda é responsabilidade da view),
-    `total_debito`, `total_credito` (do período) e `saldo_final`.
+    `total_debito`, `total_credito` (do período), `saldo_final` e
+    `ids_contas`.
+
+    `ids_contas` (BL-165) é o conjunto EXATO de ids que esta apuração somou
+    — a conta e todas as descendentes, o que `_descendentes_de` devolveu.
+    Está no resultado porque quem acabou de apurar o Razão costuma precisar
+    do MESMO recorte para outra consulta da mesma requisição (hoje, o aviso
+    de movimento fora do período, BL-151), e `_descendentes_de` faz UMA
+    CONSULTA POR NÍVEL de profundidade: recomputá-lo DOBRARIA o custo do
+    Razão de um plano profundo. Devolver o conjunto é o que permite à
+    segunda consulta ser barata — ver `movimento_fora_do_periodo`, que o
+    aceita em `ids_contas`, e o teto de consultas declarado em função da
+    profundidade em `test_dl015_saidas_com_periodo.py`.
     """
     zero = Decimal("0")
 
@@ -805,6 +817,12 @@ def apurar_razao(*, conta, empresa, inicio, fim):
         "total_debito": total_debito,
         "total_credito": total_credito,
         "saldo_final": saldo,
+        # BL-165: o recorte de contas desta apuração, para quem precisar do
+        # MESMO conjunto na mesma requisição sem pagar de novo a consulta
+        # por nível de `_descendentes_de`. `frozenset` de propósito: é um
+        # fato já apurado, e ninguém que o receba deve poder alterar o
+        # conjunto que declaradamente foi somado aqui.
+        "ids_contas": frozenset(ids_contas),
     }
 
 
@@ -1108,21 +1126,30 @@ def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=No
     que é justamente a conciliação errada. Quem quer ver o movimento alarga
     o período e vê pelo Diário, com os lançamentos de origem.
 
-    `conta` opcional: quando informada, o recorte é o MESMO conjunto de
-    contas que `apurar_razao` usa (a conta e todas as descendentes,
-    `_descendentes_de`), para o aviso do Razão falar da conta que está na
-    tela e não da empresa inteira. Sem ela, o recorte é a empresa (Diário e
-    Balancete). Levanta `HierarquiaInconsistente` no mesmo caso em que
-    `apurar_razao` já levanta (ciclo alcançável a partir da conta) — quem
-    chama já trata isso na mesma requisição.
+    `conta` opcional: quando informada (e sem `ids_contas`), o recorte é o
+    MESMO conjunto de contas que `apurar_razao` usa (a conta e todas as
+    descendentes, `_descendentes_de`), para um aviso por conta falar da conta
+    consultada e não da empresa inteira. Sem ela, o recorte é a empresa
+    (Diário e Balancete). Neste caminho — e SÓ nele — a função levanta
+    `HierarquiaInconsistente` no mesmo caso em que `apurar_razao` já levanta
+    (ciclo alcançável a partir da conta); quem chamar por aqui precisa tratar
+    isso na mesma requisição. Nenhuma superfície chama por aqui hoje: as duas
+    do Razão passam `ids_contas` (BL-165), que não percorre hierarquia
+    nenhuma e por isso não levanta.
 
     `ids_contas` é a versão BARATA do recorte por conta, para quem acabou de
     chamar `apurar_razao` e já tem o conjunto pronto (ele vem no resultado,
-    na chave `ids_contas`): evita percorrer a subárvore uma segunda vez.
-    Isso não é micro-otimização — `_descendentes_de` faz UMA CONSULTA POR
-    NÍVEL de profundidade, então recomputar DOBRARIA o custo do Razão de um
-    plano profundo, e existe teste de teto de consulta declarado em função da
-    profundidade justamente para isso (`test_dl015_saidas_com_periodo.py`).
+    na chave `ids_contas` — BL-165): evita percorrer a subárvore uma segunda
+    vez. Isso não é micro-otimização — `_descendentes_de` faz UMA CONSULTA
+    POR NÍVEL de profundidade, então recomputar DOBRARIA o custo do Razão de
+    um plano profundo, e existe teste de teto de consulta declarado em função
+    da profundidade justamente para isso
+    (`test_dl015_saidas_com_periodo.py`). A frase acima já foi FALSA uma vez:
+    `apurar_razao` não devolvia `ids_contas`, as duas superfícies do Razão
+    chamaram o caminho caro e o teto de consultas reprovou (24 onde o teto
+    era 17). Por isso as duas metades desta promessa têm teste próprio em
+    `test_dl019_razao_reaproveita_ids_contas.py`: que a chave existe, e que
+    nenhuma das duas superfícies percorre a subárvore duas vezes.
     Quando os dois vêm, `ids_contas` vence e `conta` é ignorada.
 
     Custo: **uma** consulta agregada de tamanho constante, com as quatro
