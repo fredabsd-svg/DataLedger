@@ -677,6 +677,101 @@ Registrado para não ser confundido com esquecimento:
 - Conciliação bancária, centros de custo, Balanço Patrimonial, DRE, ECD e ECF —
   explicitamente adiados no plano da DL-006.
 
+## P2 — achados da rodada 3 da auditoria da DL-019 (REPROVADA, e a etapa encerrou)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-3.md](../auditorias/2026-09-15-dl-019-rodada-3.md).
+**A DL-019 encerrou reprovada**, por decisão combinada com o Fred e registrada
+em [DE-038](decisoes.md): o rigor é proporcional ao dano possível, e nenhum
+destes achados corrompe dado, erra cálculo, vaza entre empresas, desbalanceia
+lançamento, altera período encerrado ou derruba servidor. O achado **alto** foi
+corrigido antes do encerramento; os quatro de gravidade baixa ficam aqui,
+**abertos e escritos como abertos**.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-186 | **R3-1: o marcador perdia parágrafo e vazava texto de controle por uma nona sintaxe** — dois pares `CLAUDE:`/`CODEX:` no mesmo bloco, que é o erro natural de quem lê "toda afirmação de mecanismo vai dentro de um bloco" e tem duas afirmações. Os oito casos recusados eram **a lista de exemplos do auditor**, não a propriedade que ela ilustrava. | **alta** | `arquiteto-senior` | **corrigido em 2026-09-15** | Cada bloco carrega exatamente um par de rótulos, na ordem; a reprodução do auditor levanta `ErroFrontmatter` citando a linha do rótulo repetido; nenhum derivado contém linha igual a `CLAUDE:` ou `CODEX:`. |
+| BL-187 | **R3-3: o quarto ramo da coerência permissiva não tinha teste** — `if False:` não matava nada. Terceira repetição do padrão "defesa declarada sem teste" nesta demanda. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | Mutar o ramo mata ao menos um teste. |
+| BL-188 | **R3-7: o rodapé mandava rodar `--escrever` logo abaixo da linha que diz que `--escrever` não resolve.** Sobreviveu à minha primeira mutação — quarta repetição do mesmo padrão. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | Com um `.md` órfão como único problema, a saída diz "exigem ação manual" e não contém "Para corrigir". |
+| BL-189 | **R3-8: quinta ocorrência da afirmação desmentida sobre o Gemini**, dentro do próprio plano que contém a pesquisa que a desmentiu, depois de eu declarar em BL-184 que tinha varrido o repositório inteiro. Não tinha. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep -n "Gemini"` no plano só devolve ocorrência com retificação explícita. |
+| BL-190 | **R3-2: a marca de "arquivo gerado" é forjável e fecha o `cp`, não a classe.** `cp` seguido de renomeação do papel dentro do arquivo (o caminho mais útil para criar um agente pessoal) faz o gerador apagá-lo. | baixa | a definir | **ABERTO** | Prova por **origem**, não por conteúdo: só se remove o que se tem prova de ter gerado. As três formas de criar arquivo pessoal terminam em "preservado e relatado". |
+| BL-191 | **R3-4: a coerência permissiva reprova configuração legítima** — papel que escreve e proíbe `NotebookEdit` de propósito é recusado com a afirmação falsa de que "perfil e claude estão em desacordo". | baixa | a definir | **ABERTO** | `escreve_arquivos: sim` exige **pelo menos uma** ferramenta de escrita concedida e não proibida; as mensagens citam o conjunto, não a dupla fixa. |
+| BL-192 | **R3-5: o `chmod` de `escrever()` não tem tratamento de erro** — falha deixa a árvore parcialmente regenerada, com traceback. E a checagem "não executável" troca a dependência do `umask` por dependência da semântica de modo do sistema de arquivos: em `/mnt/c` do WSL sem `metadata`, um clone limpo reprovaria. **Risco analisado, não reproduzido** — o auditor foi explícito nisso. | baixa | a definir | **ABERTO — depende de resposta do Fred** | Confirmar se alguém roda o projeto em `/mnt/c` (WSL). Se sim, tolerar o bit de execução quando **todos** os arquivos o tiverem (assinatura de montagem, não de edição). E `chmod` em `try/except OSError`. |
+| BL-193 | **R3-6: `{{MECANISMO}}` no frontmatter não é validado** e vaza para a `description` dos dois derivados. Detectado pela suíte, não por `--escrever`/`--verificar`, que é o que se roda primeiro. | baixa | a definir | **ABERTO** | A mesma validação roda sobre o frontmatter, com `linha_base = 1`. |
+| BL-194 | **Onde a pendência do BL-181 está declarada.** O auditor concordou com a decisão de não inventar a lista de nomes de ferramenta, e discordou do **lugar**: está no backlog e no estado, não em `gerar_agentes.py` nem em `como-criar-um-papel.md` — os arquivos que alguém lê no momento em que escreve `tools:`. | baixa | a definir | **ABERTO** | Comentário em `_tokens_de_ferramentas` e linha no procedimento avisando que a lista não é validada. |
+
+## P1 — achados da rodada 2 da auditoria da DL-019 (REPROVADA)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-2.md](../auditorias/2026-09-15-dl-019-rodada-2.md).
+**Dos 12 achados da rodada 1, 6 fecharam e nenhum voltou.** Os dois que
+reprovam agora são **defeitos criados pelas próprias correções** — terceira
+ocorrência do padrão BL-115 nesta equipe.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-174 | **A1: o marcador `{{MECANISMO}}`, criado para corrigir o achado mais grave da rodada 1, é a única parte da entrega sem nenhum teste** (`grep MECANISMO` nos testes: zero) e falha em silêncio de duas formas opostas — o `.*?` com `DOTALL` atravessa blocos e **apaga parágrafos inteiros** do derivado Codex; sintaxe errada faz o texto de controle **vazar** para o derivado Claude. Nos dois casos, `--escrever`, `--verificar` e 52 testes ficam verdes. O gatilho é o procedimento que o projeto publica para qualquer IA, e que não documenta o marcador. | **alta** | `desenvolvedor-pleno` | **corrigido em 2026-09-15** pelo `arquiteto-senior` (implementador bloqueado por limite da plataforma) | **A classe é:** nenhum mecanismo de transformação do conteúdo falha sem erro. *Exemplos*: marcador residual no corpo resolvido levanta `ErroFrontmatter` com arquivo e linha; o casamento não atravessa blocos; bloco sem `CLAUDE:` ou sem `CODEX:` é recusado; nenhum dos 14 derivados contém a substring `MECANISMO`; o marcador é documentado no procedimento. |
+| BL-175 | **A3: a checagem de permissão `0o644` reprova clone limpo sob `umask` ≠ 022** — padrão de usuário comum em Debian/Ubuntu. Sem uma linha alterada. E a remediação impressa pela própria mensagem **não converge**. O Git não versiona 664 × 644, então `git diff` fica limpo e a falha é indiagnosticável. | **alta** | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | `--escrever` seguido de `--verificar` termina em `rc=0` sob `umask` 022, 002 e 077; `chmod 0o755` e `0o666` continuam reprovando. |
+| BL-176 | **A2: `arquiteto-senior.toml` afirma "Você tem memória de projeto. Registre…"** — capacidade que no Codex não existe. A varredura do achado 1 não pegou porque procura afirmação de **restrição**, e esta é de **capacidade**. A mentira é permissiva: o agente conclui que registrou, e o registro se perde. | média | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | Nenhum derivado afirma capacidade que a ferramenta de destino não tem; a varredura do critério 9 cobre capacidade além de restrição. |
+| BL-177 | **A4: a correção do achado 3 tornou falso o passo 5 do procedimento publicado.** Remover a fonte não remove mais o derivado do Claude; o resultado é build vermelho com instrução de correção que não corrige. Na rodada 1 o auditor executou esse passo e registrou "zero resíduo". | média | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | Teste de ponta a ponta executa os passos publicados e afirma o estado final descrito; enquanto o texto disser "desaparecem junto", reprova. |
+| BL-178 | **A5: a fixture mede "o arquivo mudou" e acusa "o teste escreveu"** — culpa teste inocente quando o `arquiteto-senior` edita `AGENTS.md` em paralelo. Reproduzido. E `test_instantaneo_monitorado_nao_inclui_equipe_md_ou_estado_md` é tautológico e **fixa a limitação como requisito**: corrigir no futuro exigirá apagar um teste verde. | média | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | A falha nomeia os arquivos alterados e levanta a hipótese de edição concorrente; o teste tautológico sai ou é reescrito. |
+| BL-179 | **A6: a coerência só valida a direção restritiva.** Um papel pode prometer escrita ou delegação que o Claude Code nega, sem aviso de honestidade e com todos os guardas verdes — é a direção que o A2 mostra viva hoje. | média | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | Os três casos sintéticos do relatório levantam `ErroFrontmatter`; a coerência dos sete papéis reais continua verde. |
+| BL-180 | **A7: `_confinar_no_destino`, que o próprio comentário declara "segunda defesa independente", não tem teste nenhum.** Substituí-la por `if False:` não mata teste algum — a primeira defesa barra antes. | baixa | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | Removida a função, ao menos um teste morre. |
+| BL-181 | **A8: grafias e nomes alternativos de ferramenta escapam da coerência** (`MultiEdit`, `Task`, `write` minúsculo). O auditor **não confirmou** se são nomes válidos e recusou-se a supor. | baixa | `desenvolvedor-pleno` | **pendência declarada** | Confirmar a lista de nomes em documentação antes de validar contra conjunto fechado. Sem confirmação, **não** implementar lista inventada. |
+| BL-182 | **A9: marca de gerado herdada por cópia** (copiar um `.toml` gerado para um nome pessoal faz o gerador apagá-lo) e **hard link invisível ao guarda**. | baixa | `desenvolvedor-pleno` | **corrigido em 2026-09-15** | Cópia com nome pessoal é preservada e relatada; hard link é relatado em `verificar()`. |
+| BL-183 | **A10: RC-81 ainda enumerava quatro ferramentas.** Resíduo do achado 4 — `requisitos.md` não estava na lista da rodada 1. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep` por Gemini e Copilot em `requisitos.md` só devolve ocorrência com negação explícita. |
+
+| BL-184 | **Encontrado por mim em 2026-09-15, depois das duas auditorias, varrendo o repositório inteiro em vez de a lista de arquivos de cada achado.** Três afirmações desmentidas continuavam vivas: (a) `CLAUDE.md` ainda dizia que a fonte gera "os formatos de Codex, Copilot e Gemini" — **terceira** ocorrência do meu erro do achado 4, num arquivo que nenhuma das duas rodadas tinha na lista; (b) `.github/copilot-instructions.md` e (c) `docs/planos/DL-014-guardas-de-processo.md` afirmavam que o **Gemini CLI lê `AGENTS.md` nativamente** — **não lê**, usa `GEMINI.md`; a afirmação foi escrita na DL-014 **sem fonte** e a pesquisa da DL-019 a desmentiu. | média | `arquiteto-senior` | **corrigido em 2026-09-15** | **A classe é:** afirmação desmentida não sobrevive em nenhum arquivo do repositório, e a varredura é **por repositório inteiro**, não pela lista de arquivos do achado. *Exemplos*: os três corrigidos com nota datada; `grep` por `Copilot`/`Gemini` em todo o repositório só devolve negação explícita, tabela de fontes ou registro histórico de auditoria. |
+
+**Lição que BL-184 impõe ao meu próprio método, registrada porque é a mesma
+classe da [DE-034](decisoes.md):** corrigir um achado pela **lista de arquivos
+que o auditor citou** deixa vivo o mesmo defeito em todo arquivo que ele não
+abriu. A DE-034 já dizia isso para código — "a varredura de uma classe começa
+no CAMPO, não na linha". Vale igual para documentação: a varredura começa na
+**afirmação**, não no arquivo. Foram precisas três ocorrências do mesmo erro
+meu, em três commits diferentes, para eu aplicar a regra que o projeto já tinha
+escrito.
+
+| BL-185 | **Achado meu sobre a minha própria correção, por mutação.** Ao corrigir o A3, mutei `escrever()` para não fixar o modo do arquivo e **nenhum teste morreu**: os testes de `umask` passavam só pela tolerância do `verificar()`. Era o padrão do **A7 se repetindo dentro da correção do A3** — defesa declarada em comentário, sem teste que a exercite. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `test_escrever_produz_modo_estavel_independente_do_umask`; mutar o `chmod` para no-op mata esse teste. |
+
+**Item de processo, sem número de achado:** o auditor encontrou em `/tmp`
+cópias de segurança manuais das fontes, feitas entre os dois commits. Indica
+correção feita na árvore real com backup fora do controle de versão — a mesma
+prática que o defeito do `finally` condenou. Encaminhado ao
+`desenvolvedor-pleno` como disciplina, não como defeito de código.
+
+## P1 — achados da rodada 1 da auditoria da DL-019 (REPROVADA)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-1.md](../auditorias/2026-09-15-dl-019-rodada-1.md).
+Todos encaminhados na mesma data; a etapa volta para a rodada 2.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-162 | **Os arquivos gerados para o Codex afirmam "Essa restrição é técnica" sobre restrição que lá não existe** — 6 ocorrências em 4 dos 7 papéis. O aviso correto existe, 5 KB abaixo e como ressalva genérica, e o teste do critério 9 passa com o arquivo se contradizendo. | **alta** | `desenvolvedor-pleno` | encaminhado | **A classe é:** nenhum arquivo de papel afirma mecanismo que não exista na ferramenta de destino. *Exemplos*: o texto neutro da fonte descreve dever, e cada gerador insere como aquilo é imposto ali; o aviso vem **antes** do corpo; o marcador do aviso cita a ferramenta certa (`Agent` no papel cuja restrição é de delegação); teste reprova se `restrição técnica` aparecer num `.toml` fora do bloco de aviso. |
+| BL-163 | **`nome` sem validação: `--escrever` grava fora dos diretórios de destino.** O auditor gravou em `/tmp` com `nome: ../../../ESCAPOU`. O fluxo é o que o projeto convida qualquer ferramenta externa a usar. | **alta** | `desenvolvedor-pleno` | encaminhado | **A classe é:** nenhum dado vindo de arquivo do repositório determina caminho de escrita sem validação. *Exemplos*: `nome` casa `^[a-z0-9]+(-[a-z0-9]+)*$` e é igual ao `stem` do arquivo; `escrever` confirma que todo caminho resolvido é descendente do destino; as duas defesas, não uma. |
+| BL-164 | **`--escrever` apaga qualquer `.md`/`.toml` não gerado no destino.** A correção do órfão excedeu o alvo: um agente local foi removido só por alguém rodar o gerador. Padrão BL-115 — correção que cria defeito novo. | média | `desenvolvedor-pleno` | encaminhado | Só se remove arquivo que o próprio gerador assina; órfão sem assinatura é **relatado**, nunca apagado. |
+| BL-165 | **Documentação afirmava quatro formatos gerados; são dois.** Em `README.md`, `AGENTS.md` e duas decisões — três lugares, o mesmo número do incidente de 2026-09-13. | média | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep` por `.gemini`, `GEMINI.md` e `.github/agents` fora das auditorias só devolve negação explícita, tabela de fontes ou critério riscado. |
+| BL-166 | **A trava contra sujar a árvore tem ponto cego**: monitora três diretórios e não vê escrita em `AGENTS.md`, `docs/agents/equipe.md` nem `.agents/`, que o próprio módulo lê. | média | `desenvolvedor-pleno` | encaminhado | A sonda do auditor, com dois testes maliciosos, reprova **os dois**, não só um. |
+| BL-167 | **`perfil` e `claude` podem se contradizer sem nada acusar.** Dá para conceder `Write` ao `auditor-qa` mantendo `escreve_arquivos: nao`: 18 testes verdes e os dois derivados continuam afirmando a restrição. | média | `desenvolvedor-pleno` | encaminhado | Incoerência entre intenção declarada e ferramentas concedidas levanta `ErroFrontmatter`; `delega_para` só aceita papel existente. |
+| BL-168 | Caractere de controle na fonte derruba o gerador com traceback bruto, sem citar o arquivo — ao contrário do que o procedimento publicado promete. | baixa | `desenvolvedor-pleno` | encaminhado | Ou escapa e o conteúdo volta íntegro, ou recusa citando arquivo e linha. |
+| BL-169 | Chave desconhecida no frontmatter é descartada em silêncio: a fonte afirma, o derivado não diz. | baixa | `desenvolvedor-pleno` | encaminhado | Chave desconhecida em `perfil` ou `claude` é recusada, nomeando a chave e as aceitas. |
+| BL-170 | Guarda de sincronia não detecta divergência de fim de linha (CRLF): bytes mudam e `verificar()` diz "sincronizado". | baixa | `desenvolvedor-pleno` | encaminhado | Comparação por **bytes**; derivado convertido para CRLF é relatado como divergente. |
+| BL-171 | Symlink, permissão, subdiretório e extensão alternativa escapam do guarda. O symlink é o pior: o papel passa a apontar para fora do controle de versão e o guarda aprova. | baixa | `desenvolvedor-pleno` | encaminhado | `verificar` exige arquivo regular, não symlink, com modo esperado; `_orfaos` varre recursivamente e **relata** o inesperado. |
+| BL-172 | Os links dentro dos `.toml` não são validados por mecanismo nenhum — `validate-docs.ps1` só olha `.md`. | baixa | `desenvolvedor-pleno` | encaminhado | Renomear um alvo citado faz o teste reprovar. |
+| BL-173 | O guarda de tamanho cobre só o `AGENTS.md` da raiz; o limite do Codex vale para o conjunto concatenado. | baixa | `desenvolvedor-pleno` | encaminhado | A soma de todos os `AGENTS.md` do repositório é comparada com a margem. |
+
+## P2 — portabilidade entre ferramentas de IA ([DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md))
+
+Itens que a DL-019 deixa em aberto por decisão, não por esquecimento. A faixa
+BL-148 a BL-157 está reservada às dez ressalvas da rodada 6 da DL-017 e não é
+usada aqui.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-160 | **Podar ou ampliar os formatos gerados conforme o uso real.** A DL-019 cobre quatro ferramentas por terem caminho e formato confirmados, não por termos confirmado que o Fred usa as quatro (PE-44). Cada formato é manutenção permanente. | `arquiteto-senior` | PE-44 | aguardando resposta do Fred | Formatos gerados correspondem às ferramentas de fato usadas; a remoção de um formato tira também seu teste e sua menção em `equipe.md`. |
+| BL-161 | **Reconferir as convenções antes de cada mudança nos formatos.** Caminho e campo de arquivo de agente são convenção de fornecedor e mudam sem aviso — os prompts customizados do Codex já foram descontinuados em favor de skills. O repositório grava a data do levantamento (2026-09-15) e a fonte. | `arquiteto-senior` | — | pendente | Antes de alterar um formato gerado, a documentação oficial correspondente é reconsultada e a data registrada no plano. Campo não confirmado **não** é escrito. |
+
 ## Observação sobre o estado do repositório
 
 Os PRs #7, #8 e #9 **já foram mesclados**: a `main` contém DL-002 a DL-006. O

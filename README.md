@@ -178,6 +178,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
 - [ ] **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
 - [ ] **DL-018** — primeiro acesso de uma instalação nova, pelo produto e sem admin técnico
+- [ ] **DL-019** — portabilidade entre ferramentas de IA: os papéis da equipe em um formato só, gerados para Claude Code e Codex CLI
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
@@ -212,6 +213,7 @@ Fluxo esperado: **branch própria → implementação pequena → testes → rev
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | Regras obrigatórias de desenvolvimento |
 | [`CLAUDE.md`](CLAUDE.md) | Resumo operacional para agentes de IA |
+| [`docs/agents/equipe.md`](docs/agents/equipe.md) | Papéis da equipe de agentes, em todas as ferramentas suportadas |
 | [`docs/agents/estado.md`](docs/agents/estado.md) | Estado atual e retomada do trabalho — fonte única |
 | [`docs/escopo.md`](docs/escopo.md) | Escopo funcional do sistema |
 | [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) | Requisitos e hipóteses |

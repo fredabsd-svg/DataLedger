@@ -29,7 +29,7 @@ declara com honestidade onde não é.
 | **Atestado no PR** | Workflow `.github/workflows/regras-do-projeto.yml`: reprova o PR se a caixa "Li o AGENTS.md" não estiver marcada, se a caixa de estado do projeto não estiver marcada, ou se nenhum plano `DL-xxx` for citado. | Integrar sem ao menos atestar que leu as regras e sem plano da etapa. |
 | **Estado não diverge** | `apps/core/tests/test_documentacao_do_estado.py` (já existia): etapa com plano ausente do README ou de `estado.md` reprova o build. | README e estado ficarem para trás. |
 | **`main` só por PR** | Proteção da branch `main` exigindo pull request e as três verificações verdes (`Lint e testes`, `Validar documentação`, `Regras do projeto`), sem push direto, sem *force push*, sem apagar. | O caminho que a outra sessão usou. |
-| **Outras ferramentas de IA** | `.github/copilot-instructions.md` apontando para o `AGENTS.md`. Cursor, Codex e Gemini CLI leem `AGENTS.md` nativamente. | Ferramenta que não é o Claude Code ignorar as regras por não saber onde estão. |
+| **Outras ferramentas de IA** | `.github/copilot-instructions.md` apontando para o `AGENTS.md`. Cursor e Codex leem `AGENTS.md` nativamente. **Correção de 2026-09-15 (DL-019):** esta linha afirmava que o **Gemini CLI** também lê. Não lê — usa `GEMINI.md`, e só lê `AGENTS.md` com configuração fora do repositório. A afirmação foi escrita aqui sem fonte e ficou dois dias no repositório. | Ferramenta que não é o Claude Code ignorar as regras por não saber onde estão. |
 
 ## O que continua sendo só instrução — declarado, não escondido
 

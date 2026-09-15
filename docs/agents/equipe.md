@@ -239,10 +239,75 @@ como integrante, mesmo sem pedido explícito de equipe. Para voltar ao
 comportamento de subagente, basta trocar
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` para `"0"`.
 
+## A mesma equipe fora do Claude Code
+
+Desde a [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) os
+sete papéis não pertencem mais a uma ferramenta só. O conteúdo de cada um vive
+em `docs/agents/papeis/<papel>.md` e é **gerado** para o formato de cada
+ferramenta (DE-035):
+
+| Ferramenta | Arquivo gerado |
+| --- | --- |
+| Claude Code | `.claude/agents/<papel>.md` |
+| Codex CLI, no terminal | `.codex/agents/<papel>.toml` |
+
+São duas porque são as duas em uso (RC-83). Copilot e Gemini têm formato
+confirmado e foram deixados de fora de propósito (DE-037): formato gerado é
+manutenção permanente, e capacidade confirmada não é necessidade demonstrada.
+Acrescentar um terceiro é uma entrada na tabela do gerador mais um caso de
+teste.
+
+**Não edite um desses arquivos à mão.** Altere a fonte e rode
+`python scripts/gerar_agentes.py --escrever`; um teste da integração contínua
+reprova o build quando um derivado diverge. Para criar um papel novo, siga
+[como-criar-um-papel.md](como-criar-um-papel.md).
+
+### O que muda de ferramenta para ferramenta, e não pode ser escondido
+
+A tabela de restrições técnicas deste documento vale **para o Claude Code**. No
+Codex não há campo equivalente confirmado:
+
+| Restrição | Claude Code | Codex CLI |
+| --- | --- | --- |
+| `auditor-qa` sem `Write`/`Edit` | **Técnica** (ausência das ferramentas) | **Só instrução.** Nenhum campo confirmado impõe isso |
+| Auxiliares não delegam | **Técnica** (`disallowedTools: Agent`) | **Só instrução** |
+| Lista fechada de tipos acionáveis | **Técnica** para a thread principal | **Só instrução** |
+
+O agente customizado do Codex aceita `sandbox_mode`, que **poderia** dar uma
+restrição real de escrita. Os valores que ele admite **não foram confirmados**
+em documentação oficial, e o projeto não escreve campo com valor presumido.
+Enquanto não forem, a restrição do auditor no Codex é comportamental — e está
+dito assim no arquivo gerado, em vez de sugerir uma proteção que não existe.
+
+Por isso cada arquivo gerado para essas ferramentas carrega o aviso no próprio
+corpo. Um papel que promete isolamento inexistente é pior que papel nenhum — e
+a advertência que já valia aqui vale em dobro lá: **instrução em linguagem
+natural não é isolamento de segurança garantido.**
+
+Os derivados também **não fixam nome de modelo** fora do Claude Code.
+Identificador de modelo muda com frequência, e este projeto não inventa
+identificador: onde o campo é opcional, ele fica ausente e vale o padrão de
+quem estiver usando a ferramenta.
+
+### Quem já encontra as regras sozinho
+
+O [AGENTS.md](../../AGENTS.md) é padrão aberto. Em levantamento de 2026-09-15
+na documentação oficial, leem-no nativamente: Cursor, Google Jules, OpenCode,
+Zed, Roo Code, Cline, Kiro e — com suporte parcial, que varia por produto —
+GitHub Copilot. Gemini CLI, Amazon Q, Aider e Windsurf usam arquivo próprio e
+**não** foram cobertos — nenhum deles está em uso aqui.
+
+O Codex, que é a segunda ferramenta em uso, lê o `AGENTS.md` nativamente e
+**para de ler ao atingir 32.768 bytes**. Daí o guarda de tamanho do critério 14
+da DL-019: passar do limite não dá erro, dá regra truncada em silêncio.
+
+Não há convenção confirmada de arquivo para o **ChatGPT no navegador** com
+conector de GitHub. O repositório não afirma que existe.
+
 ## Manutenção destes arquivos
 
 `scripts/validate-docs.ps1` roda na integração contínua e valida **todos** os
-`.md` do repositório, inclusive `.claude/agents/*.md`. Ao criar ou editar
-qualquer definição de agente, garanta: título `# ` no corpo do arquivo, UTF-8
-válido, sem espaço no fim de linha, nova linha final, e links relativos que
-existam de verdade.
+`.md` do repositório, inclusive `.claude/agents/*.md` e `docs/agents/papeis/`.
+Ao criar ou editar qualquer definição de agente, garanta: título `# ` no corpo
+do arquivo, UTF-8 válido, sem espaço no fim de linha, nova linha final, e links
+relativos que existam de verdade.

@@ -1664,6 +1664,165 @@ conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
 ser conferível por teste** — se X não usa, o teste reprova. Registrado como
 BL-146.
 
+## DE-035 — Papel de agente tem uma fonte e formatos gerados, nunca cópias paralelas
+
+**Data:** 2026-09-15. Contexto: pedido do Fred para que ChatGPT/Codex e outros
+modelos também consigam trabalhar no repositório, em
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md).
+
+**O que foi pedido:** uma pasta por ferramenta, cada uma com os agentes dentro,
+ao lado de `.claude`.
+
+**Decisão:** o conteúdo de cada papel vive em `docs/agents/papeis/<papel>.md`,
+em formato independente de fornecedor, e os arquivos de cada ferramenta são
+**gerados** por `scripts/gerar_agentes.py`, com teste que reprova o build quando
+um derivado diverge da fonte.
+
+> **Corrigido em 2026-09-15, achado 4 da [rodada 1 da auditoria
+> DL-019](../auditorias/2026-09-15-dl-019-rodada-1.md).** Esta decisão foi
+> escrita listando quatro destinos — `.claude/agents/`, `.codex/agents/`,
+> `.github/agents/` e `.gemini/agents/`. **São dois:** os dois primeiros. A
+> [DE-037](#de-037--formato-de-agente-só-se-gera-para-ferramenta-que-alguém-usa),
+> tomada horas depois, reduziu o escopo, e eu atualizei o plano e esqueci daqui,
+> do `README.md` e do `AGENTS.md`. A afirmação errada ficou em **três** lugares
+> — o mesmo número do incidente de 2026-09-13 que originou a instrução
+> permanente do Fred. Quem escreveu a decisão contra duplicação cometeu o erro
+> dela no mesmo commit; fica registrado em vez de apagado.
+
+**Motivo:** o pedido literal criaria três cópias do mesmo papel. A instrução
+permanente do Fred, de 2026-09-13, nasceu exatamente disso — o estado do projeto
+afirmado em quatro lugares e já divergente. A causa registrada à época não foi
+distração, foi **duplicação**. Um papel de auditor descrito em três arquivos
+diverge no primeiro ajuste, e cada modelo passa a acreditar numa versão
+diferente de quem ele é.
+
+**Alternativas descartadas:**
+
+- **Cópias mantidas à mão**, como pedido: entrega o mesmo resultado hoje e
+  diverge na primeira manutenção, sem nada acusar.
+- **`.claude/agents/` como fonte canônica**, gerando os demais a partir dela:
+  custaria menos, mas consagraria um fornecedor como dono do formato — o oposto
+  do que a etapa existe para resolver.
+- **Arquivos-ponteiro finos** em cada pasta, do tipo "leia o papel em
+  `docs/`": funciona para regra de processo, não para definição de papel —
+  várias ferramentas carregam o arquivo do agente como prompt e não seguem o
+  ponteiro.
+
+**Consequência:** editar `.claude/agents/*.md` à mão passa a ser erro, e o teste
+acusa. Ferramenta nova só entra no conjunto com o caminho e o formato
+confirmados em documentação oficial.
+
+## DE-036 — Regra de processo aponta; só papel é gerado
+
+**Data:** 2026-09-15.
+
+**Decisão:** o `AGENTS.md` continua sendo o único lugar onde as regras de
+desenvolvimento existem. Ferramenta que não o lê nativamente ganha um arquivo
+fino que **aponta** para ele — como `.github/copilot-instructions.md` já faz
+desde a [DL-014](../planos/DL-014-guardas-de-processo.md). Geração automática
+fica restrita à definição de papel.
+
+> **Corrigido em 2026-09-15, mesmo achado 4 da [rodada
+> 1](../auditorias/2026-09-15-dl-019-rodada-1.md).** O texto original terminava
+> com "e como `GEMINI.md` passa a fazer". **`GEMINI.md` não existe e não será
+> criado**: o Gemini saiu do escopo pela DE-037. Quem cumpre o papel de ponteiro
+> hoje, além do arquivo do Copilot, são as duas skills em `.agents/skills/`,
+> lidas pelo Codex a partir do repositório.
+
+**Motivo:** a regra é um documento longo, lido por sete ferramentas por
+convenção aberta; copiá-lo multiplicaria o risco e o tamanho. O papel é um
+prompt curto que a ferramenta carrega diretamente, e aí o ponteiro não serve.
+
+**Alternativas descartadas:** gerar cópias do `AGENTS.md` por ferramenta —
+duplicação sem ganho, com o agravante de o Codex ter limite padrão de 32 KiB
+para os arquivos de instrução que concatena.
+
+**Consequência:** um teste reprova o build se um trecho literal e longo do
+`AGENTS.md` aparecer duplicado em outro arquivo.
+
+## DE-037 — Formato de agente só se gera para ferramenta que alguém usa
+
+**Data:** 2026-09-15. Contexto: execução da
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md).
+
+**O que aconteceu:** o plano nasceu cobrindo quatro ferramentas — Claude Code,
+Codex, GitHub Copilot e Gemini CLI — escolhidas por terem caminho e formato
+**confirmados em documentação oficial**. Isso responde "dá para fazer?", que é
+a pergunta errada. A pergunta certa é "alguém usa?". Perguntei ao Fred, e a
+resposta foi *"Codex pelo terminal"*.
+
+**Decisão:** o repositório gera definição de papel apenas para **Claude Code** e
+**Codex CLI**. Copilot e Gemini saem. `.github/copilot-instructions.md`
+permanece, porque é ponteiro de custo zero que já existia desde a DL-014 e
+continua servindo a quem abrir o projeto pelo GitHub.
+
+**Motivo:** cada formato gerado é manutenção permanente, mais uma superfície
+onde a documentação pode passar a mentir e mais um arquivo que o auditor tem de
+conferir. Capacidade confirmada não é necessidade demonstrada.
+
+**Alternativas descartadas:** manter os quatro "porque já estava pronto" — é
+como o projeto acumula peso morto; e deixar os dois formatos extras no gerador,
+desligados por configuração — seria código morto, proibido pelo AGENTS.md §8.
+
+**Consequência, e ela é barata:** acrescentar uma ferramenta depois é uma
+entrada na tabela do gerador mais um caso de teste. A decisão é reversível em
+minutos, e por isso não precisou de mais discussão.
+
+**Efeito colateral valioso:** a resposta do Fred transformou uma nota de rodapé
+em risco medido. O Codex trunca os arquivos de instrução em 32.768 bytes por
+padrão, e o `AGENTS.md` está em 22.601 — 69% do limite, crescendo a cada etapa.
+Virou o critério 14 da DL-019, com teste que reprova acima de 30.000 bytes.
+**Nenhuma das quatro ferramentas teria revelado isso; a pergunta ao usuário
+revelou.**
+
+## DE-038 — O rigor do processo é proporcional ao dano possível, não ao gosto do arquiteto
+
+**Data:** 2026-09-15. Contexto: cobrança do Fred ao fim da
+[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md), e ela
+estava certa.
+
+**O que aconteceu:** o Fred pediu pastas para que outras ferramentas de IA
+trabalhassem no repositório. Eu transformei o pedido numa etapa completa —
+fonte única, gerador, 29 testes novos, **três rodadas de auditoria** e duas
+reprovações — e consumi horas dele num item que não toca dado de cliente,
+cálculo, período fechado nem isolamento entre empresas. Ele resumiu assim:
+*"Tá difícil assim? você está a horas nisso e não consegue resolver"*.
+
+O [AGENTS.md](../../AGENTS.md) já mandava dimensionar "na proporção necessária
+à demanda", e a §4 já diz que demanda pequena adapta a quantidade de etapas. Eu
+não apliquei. Não foi zelo: foi **falta de calibragem**, e o custo caiu sobre o
+tempo do responsável pelo produto.
+
+**Decisão:** o ciclo completo — auditoria independente por rodada, correção,
+reauditoria até aprovação — vale para mudança que possa **corromper dado,
+errar cálculo, vazar informação entre empresas, desbalancear lançamento,
+alterar período encerrado ou derrubar o servidor**. Para o restante —
+ferramental interno, documentação, configuração de agente, script de apoio —
+vale **uma rodada de auditoria**; o que ela achar e não estiver nessa lista de
+danos vira item de backlog nomeado, e a etapa fecha.
+
+**Motivo:** processo tem custo, e o custo é o tempo do Fred. Rigor gasto onde o
+dano possível é pequeno é rigor que falta onde o dano é grande. Esta etapa
+produziu achados reais (travessia de caminho no gerador, build reprovando em
+clone limpo), mas produziu também rodadas que só refinaram o que já não
+machucava ninguém.
+
+**Alternativas descartadas:** manter o ciclo completo para tudo — foi o que
+fizemos, e o resultado está registrado acima; abandonar a auditoria
+independente em itens menores — ela achou, na primeira rodada desta mesma
+etapa, um defeito que gravava arquivo fora do repositório. Uma rodada é o
+equilíbrio.
+
+**Consequência, e é ela que muda o comportamento:** quem escreve o plano
+declara, no próprio plano, em qual das duas faixas a demanda está, **antes** de
+começar. Faixa declarada depois do primeiro parecer é escolha influenciada pelo
+resultado.
+
+**O que esta decisão NÃO afrouxa:** a honestidade dos relatórios, a exigência
+de teste executado, a proibição de apresentar hipótese como requisito
+confirmado e a preservação integral dos achados de auditoria. Nada disso é
+proporcional a risco — é condição de o registro valer alguma coisa.
+
 ## DE-039 — Regime tributário errado se apaga, e a exclusão é um fato registrado
 
 **Data:** 2026-09-15. **Origem:** achado R6-6 da
