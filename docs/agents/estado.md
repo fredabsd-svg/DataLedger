@@ -217,7 +217,7 @@ diverge.
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Fases A e B integradas (PR #18)** e **reprovadas em três rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md)). O bloqueador do `1.000` **fechou** na rodada 3, medido em 55 textos — mas **continua vivo na `main`**, que ainda é `9b22b03`. A rodada 3 achou BL-115 (ALTA, negação de serviço) **criada pela correção da rodada 2**. **Reprovada em 4 rodadas** ([1](../auditorias/2026-09-14-dl-017-rodada-1.md), [2](../auditorias/2026-09-14-dl-017-rodada-2.md), [3](../auditorias/2026-09-14-dl-017-rodada-3.md), [4](../auditorias/2026-09-14-dl-017-rodada-4.md)). **APROVADA COM RESSALVAS** na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md), depois de **cinco reprovações**. Nenhum bloqueador, nenhuma gravidade alta, **2.931 requisições hostis sem um único 5xx**. Dez ressalvas nomeadas (BL-148 a BL-157), nenhuma capaz de corromper dado, vazar entre empresas, desbalancear lançamento ou derrubar o servidor. **766 testes** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
-| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **REPROVADA na [rodada 1](../auditorias/2026-09-15-dl-019-rodada-1.md)**, em `ab1ec4e`: 12 achados, 2 de gravidade alta (BL-162 e BL-163). A mecânica de geração passou inteira; o que reprovou foi o **texto que viaja** — os arquivos do Codex afirmam restrição técnica que lá não existe. Escopo reduzido a duas ferramentas (DE-037) depois de o Fred responder "Codex pelo terminal". Em correção |
+| [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **REPROVADA em duas rodadas** ([1](../auditorias/2026-09-15-dl-019-rodada-1.md), [2](../auditorias/2026-09-15-dl-019-rodada-2.md)). Seis dos 12 achados da rodada 1 fecharam e nenhum voltou; o que reprova agora são **defeitos criados pelas correções**. Escopo reduzido a duas ferramentas (DE-037). **817 testes**, e 14 de 15 defesas morrem com o teste que as cobre. Em correção |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
 
@@ -250,8 +250,33 @@ auditoria independente — que é exatamente o motivo de ela existir.
 ## Próximo passo
 
 0. **[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) —
-   REPROVADA na [rodada 1](../auditorias/2026-09-15-dl-019-rodada-1.md),
-   correções encaminhadas.** 12 achados: BL-162 a BL-173.
+   REPROVADA duas vezes.** [Rodada
+   1](../auditorias/2026-09-15-dl-019-rodada-1.md) em `ab1ec4e`: 12 achados
+   (BL-162 a BL-173). [Rodada
+   2](../auditorias/2026-09-15-dl-019-rodada-2.md) em `6667db1`: 10 achados
+   (BL-174 a BL-183). **Dos 12 da rodada 1, seis fecharam e nenhum voltou** —
+   o que reprova agora são **defeitos criados pelas próprias correções**,
+   terceira ocorrência do padrão BL-115.
+
+   **O resultado mais importante da rodada 2 não é achado, é medição:** o
+   auditor removeu **15 defesas, uma por vez**, e contou quais testes morriam.
+   **14 das 15 mataram teste.** Os testes desta etapa exercitam o defeito que
+   dizem cobrir — pergunta que este projeto já errou antes. A única exceção
+   virou BL-180.
+
+   **O auditor deu razão ao implementador numa discordância e declarou a
+   própria recomendação errada** (achado 9 da rodada 1, sobre `newline=""`),
+   com um argumento melhor que o do implementador: `\r` isolado é caractere
+   ilegal em string TOML, então a recomendação original teria **criado** uma
+   falha de geração. Registro porque auditoria que nunca volta atrás vira
+   carimbo.
+
+   **Dimensão indicada para a rodada 3:** o **efeito colateral de cada
+   correção**. As rodadas 1 e 2 mediram o conteúdo e a mentira; a 3 mede o
+   troco. De cada correção: *o que ela passa a reprovar que antes passava, e o
+   que passa a aceitar que antes reprovava?* O A3 é o caso exemplar — um guarda
+   que reprova clone limpo em máquina de usuário comum, com remediação que não
+   converge.
 
    **A dimensão medida foi a viagem do conteúdo**, e o veredito separa bem as
    duas metades: *"a promessa de fonte única é sólida na mecânica de geração e

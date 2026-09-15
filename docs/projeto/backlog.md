@@ -610,6 +610,33 @@ Registrado para não ser confundido com esquecimento:
 - Conciliação bancária, centros de custo, Balanço Patrimonial, DRE, ECD e ECF —
   explicitamente adiados no plano da DL-006.
 
+## P1 — achados da rodada 2 da auditoria da DL-019 (REPROVADA)
+
+Relatório integral em
+[docs/auditorias/2026-09-15-dl-019-rodada-2.md](../auditorias/2026-09-15-dl-019-rodada-2.md).
+**Dos 12 achados da rodada 1, 6 fecharam e nenhum voltou.** Os dois que
+reprovam agora são **defeitos criados pelas próprias correções** — terceira
+ocorrência do padrão BL-115 nesta equipe.
+
+| ID | Achado | Gravidade | Responsável | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-174 | **A1: o marcador `{{MECANISMO}}`, criado para corrigir o achado mais grave da rodada 1, é a única parte da entrega sem nenhum teste** (`grep MECANISMO` nos testes: zero) e falha em silêncio de duas formas opostas — o `.*?` com `DOTALL` atravessa blocos e **apaga parágrafos inteiros** do derivado Codex; sintaxe errada faz o texto de controle **vazar** para o derivado Claude. Nos dois casos, `--escrever`, `--verificar` e 52 testes ficam verdes. O gatilho é o procedimento que o projeto publica para qualquer IA, e que não documenta o marcador. | **alta** | `desenvolvedor-pleno` | encaminhado | **A classe é:** nenhum mecanismo de transformação do conteúdo falha sem erro. *Exemplos*: marcador residual no corpo resolvido levanta `ErroFrontmatter` com arquivo e linha; o casamento não atravessa blocos; bloco sem `CLAUDE:` ou sem `CODEX:` é recusado; nenhum dos 14 derivados contém a substring `MECANISMO`; o marcador é documentado no procedimento. |
+| BL-175 | **A3: a checagem de permissão `0o644` reprova clone limpo sob `umask` ≠ 022** — padrão de usuário comum em Debian/Ubuntu. Sem uma linha alterada. E a remediação impressa pela própria mensagem **não converge**. O Git não versiona 664 × 644, então `git diff` fica limpo e a falha é indiagnosticável. | **alta** | `desenvolvedor-pleno` | encaminhado | `--escrever` seguido de `--verificar` termina em `rc=0` sob `umask` 022, 002 e 077; `chmod 0o755` e `0o666` continuam reprovando. |
+| BL-176 | **A2: `arquiteto-senior.toml` afirma "Você tem memória de projeto. Registre…"** — capacidade que no Codex não existe. A varredura do achado 1 não pegou porque procura afirmação de **restrição**, e esta é de **capacidade**. A mentira é permissiva: o agente conclui que registrou, e o registro se perde. | média | `desenvolvedor-pleno` | encaminhado | Nenhum derivado afirma capacidade que a ferramenta de destino não tem; a varredura do critério 9 cobre capacidade além de restrição. |
+| BL-177 | **A4: a correção do achado 3 tornou falso o passo 5 do procedimento publicado.** Remover a fonte não remove mais o derivado do Claude; o resultado é build vermelho com instrução de correção que não corrige. Na rodada 1 o auditor executou esse passo e registrou "zero resíduo". | média | `desenvolvedor-pleno` | encaminhado | Teste de ponta a ponta executa os passos publicados e afirma o estado final descrito; enquanto o texto disser "desaparecem junto", reprova. |
+| BL-178 | **A5: a fixture mede "o arquivo mudou" e acusa "o teste escreveu"** — culpa teste inocente quando o `arquiteto-senior` edita `AGENTS.md` em paralelo. Reproduzido. E `test_instantaneo_monitorado_nao_inclui_equipe_md_ou_estado_md` é tautológico e **fixa a limitação como requisito**: corrigir no futuro exigirá apagar um teste verde. | média | `desenvolvedor-pleno` | encaminhado | A falha nomeia os arquivos alterados e levanta a hipótese de edição concorrente; o teste tautológico sai ou é reescrito. |
+| BL-179 | **A6: a coerência só valida a direção restritiva.** Um papel pode prometer escrita ou delegação que o Claude Code nega, sem aviso de honestidade e com todos os guardas verdes — é a direção que o A2 mostra viva hoje. | média | `desenvolvedor-pleno` | encaminhado | Os três casos sintéticos do relatório levantam `ErroFrontmatter`; a coerência dos sete papéis reais continua verde. |
+| BL-180 | **A7: `_confinar_no_destino`, que o próprio comentário declara "segunda defesa independente", não tem teste nenhum.** Substituí-la por `if False:` não mata teste algum — a primeira defesa barra antes. | baixa | `desenvolvedor-pleno` | encaminhado | Removida a função, ao menos um teste morre. |
+| BL-181 | **A8: grafias e nomes alternativos de ferramenta escapam da coerência** (`MultiEdit`, `Task`, `write` minúsculo). O auditor **não confirmou** se são nomes válidos e recusou-se a supor. | baixa | `desenvolvedor-pleno` | **pendência declarada** | Confirmar a lista de nomes em documentação antes de validar contra conjunto fechado. Sem confirmação, **não** implementar lista inventada. |
+| BL-182 | **A9: marca de gerado herdada por cópia** (copiar um `.toml` gerado para um nome pessoal faz o gerador apagá-lo) e **hard link invisível ao guarda**. | baixa | `desenvolvedor-pleno` | encaminhado | Cópia com nome pessoal é preservada e relatada; hard link é relatado em `verificar()`. |
+| BL-183 | **A10: RC-81 ainda enumerava quatro ferramentas.** Resíduo do achado 4 — `requisitos.md` não estava na lista da rodada 1. | baixa | `arquiteto-senior` | **corrigido em 2026-09-15** | `grep` por Gemini e Copilot em `requisitos.md` só devolve ocorrência com negação explícita. |
+
+**Item de processo, sem número de achado:** o auditor encontrou em `/tmp`
+cópias de segurança manuais das fontes, feitas entre os dois commits. Indica
+correção feita na árvore real com backup fora do controle de versão — a mesma
+prática que o defeito do `finally` condenou. Encaminhado ao
+`desenvolvedor-pleno` como disciplina, não como defeito de código.
+
 ## P1 — achados da rodada 1 da auditoria da DL-019 (REPROVADA)
 
 Relatório integral em
