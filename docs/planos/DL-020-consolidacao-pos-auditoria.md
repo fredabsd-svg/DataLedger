@@ -171,6 +171,41 @@ Para converter qualquer número citado nos relatórios: **some 47**. `BL-148` vi
    um prefixo desatualizado. Os arquivos `test_dl019_*` pertencem à etapa hoje
    chamada DL-020.
 
+### ⚠️ Um QUINTO relatório foi editado, e eu havia declarado que nenhum fora
+
+A seção acima diz que os quatro relatórios **desta** etapa foram renomeados e não
+editados. **É verdade — e é incompleto.** A conferência de encerramento mediu que
+o commit da renumeração (`e5d6db2`) também alterou **uma linha** de
+`docs/auditorias/2026-09-15-dl-017-rodada-6.md`, que é relatório de auditoria de
+**outra** etapa:
+
+```
+-Entram como **BL-148 a BL-157**.
++Entram como **BL-195 a BL-204**.
+```
+
+O script renumerava todo arquivo versionado fora da lista de intocáveis, e a
+lista tinha só os quatro daqui. **A regra que eu mesmo escrevi — "relatório de
+auditoria não se reescreve para caber em decisão posterior" — foi quebrada pelo
+meu próprio mecanismo, e eu declarei o contrário sem conferir.**
+
+**Por que o número novo fica**, em vez de eu reverter: aquele parágrafo é
+encaminhamento operacional, e apontar para itens que já não existem com aquele
+nome seria pior para quem for procurá-los. O que estava errado não era o número —
+era **eu não ter declarado a edição**. Está declarado aqui.
+
+A consequência mais séria estava no `backlog.md`, e foi corrigida: a frase levou o
+mesmo deslocamento e passou a afirmar que **o corpo do PR #19 citava
+`BL-195 a BL-204`**. Ele cita `BL-148 a BL-157`, e o corpo de um pedido de
+integração já mesclado é **histórico público imutável** — o repositório afirmava
+algo falso sobre ele. O auditor foi ler o PR pela API antes de me dizer isso.
+
+**E havia mais duas, que eu encontrei ao corrigir estas:** o item que *descreve a
+colisão* dizia "duas demandas **DL-020**" e "também chamada **DL-020**". As duas
+se chamavam **DL-019**; foi esta que se moveu. A renumeração mecânica não
+distingue **o que usa** um identificador do **que narra a história** dele, e o
+segundo caso precisa de leitura humana. Fica como limite conhecido do método.
+
 ### A metade que o auditor viu e o arquiteto não
 
 Os identificadores `BL-xxx` são citados **dentro do código de teste**, como
