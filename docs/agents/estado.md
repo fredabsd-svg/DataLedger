@@ -297,6 +297,19 @@ auditoria independente — que é exatamente o motivo de ela existir.
       `desenvolvedor-pleno`, em `services.py`; a renderização do aviso nas
       quatro saídas é do `especialista-frontend`.
 
+   **Correção do contrato 2, em 2026-09-15, por um achado do
+   `desenvolvedor-pleno`:** o **admin do Django** também grava, sem passar pelo
+   serviço — ele encontrou `HistoricoRegimeTributarioInline` escrevendo
+   `vigencia_inicio` por fora de `registrar_regime_tributario`, e eu conferi que
+   `LancamentoContabilAdmin` tem o mesmo problema para a data. Consequência:
+   **pelo admin dá para criar lançamento datado `9999-12-31`, invisível nas
+   quatro saídas** — o BL-151 por uma porta que ninguém tinha olhado. Logo a
+   faixa do RC-77 precisa existir no **modelo**, e `models.py` não pode importar
+   de `services.py` (import circular). O lugar canônico da faixa passa a ser um
+   módulo **puro, sem ORM**, com `services.py` importando de lá e mantendo
+   reexport para não quebrar o `especialista-frontend` no meio do trabalho. A
+   varredura completa do admin é a **BL-164**, e **não** é desta etapa.
+
 2. **BL-125 — o primeiro acesso de uma instalação nova só existe pelo admin
    técnico.** Encontrado pelo Fred ao subir o sistema: sem escritório e sem
    vínculo, a tela explica corretamente e a única saída é o admin do Django.
