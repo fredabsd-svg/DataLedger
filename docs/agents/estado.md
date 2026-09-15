@@ -1,8 +1,7 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-15**, com a `main` em `7e9dc56` (PR #20 integrado).
-Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`, com a `main`
-atual incorporada e o PR #21 aberto.
+Atualizado em **2026-09-15**, com a `main` em **`0dd07b4`** (PR #21 integrado — DL-020).
+Branch de trabalho `claude/dl-021-gerador-windows`, aberta para a próxima etapa.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -216,7 +215,8 @@ diverge.
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
-| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Em validação (PR #21)** — a retomada encontrou BL-242: `RC-81`, `RC-82` e `PE-44` tinham dois significados. Renumerar para `RC-85`, `RC-86` e `PE-46`, validar e devolver à auditoria antes do merge |
+| [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Integrada (PR #21, `0dd07b4`)** — quatro rodadas de auditoria, fechamento do BL-242 com renumeração para `RC-85`, `RC-86`, `PE-46`, e conferência de encerramento. Resumo do auditor: *"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no produto."* Itens abertos preservados: **BL-211** (dois defeitos do admin — não devem atravessar a DL-010), **BL-229** (medições de CSS que pulam na CI), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241** |
+| [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Planejada, não iniciada** — identificada na retomada da DL-020 em 2026-09-15, em branch própria `claude/dl-021-gerador-windows`, a partir de `0dd07b4`. O verificador byte-strict (achado 9 do DL-019) continua intacto |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
@@ -381,24 +381,49 @@ auditoria independente — que é exatamente o motivo de ela existir.
    o servidor'."*
 
 1. **[DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) — consolidação,
-   EM VALIDAÇÃO no PR #21.** Catorze itens: as dez ressalvas da rodada 6 (BL-195 a BL-204)
-   e as quatro regras que o Fred confirmou (BL-205 a BL-208). A
+   INTEGRADA em 2026-09-15 (PR #21, `0dd07b4`).** Catorze itens: as dez
+   ressalvas da rodada 6 (BL-195 a BL-204) e as quatro regras que o Fred
+   confirmou (BL-205 a BL-208). A
    [DL-017](../planos/DL-017-interface-da-contabilidade.md) está **integrada na
    `main`** (PR #19, `60cbcff`).
 
-   **Por que esta etapa vem antes da DL-010**, e o motivo é um só: **BL-198 — um
+   **Por que esta etapa veio antes da DL-010**, e o motivo é um só: **BL-198 — um
    lançamento com a data errada não aparece em nenhuma tela de operação
    normal**, e o balancete do período concilia, então nenhuma conferência acusa.
    É o único item aberto em que o usuário **não consegue conferir o que não
    aparece**. Decisão apresentada ao Fred com as três opções e o trade-off; ele
    mandou seguir a recomendação.
 
-   **Retomada de 2026-09-15 — BL-242:** a revisão encontrou `RC-81`, `RC-82`
-   e `PE-44` definidos duas vezes, com significados diferentes nas DL-019 e
-   DL-020. A CI de `d15e72c` estava verde e não detectava isso. Os requisitos
-   de regime passam a `RC-85`, `RC-86` e `PE-46`; as auditorias históricas
-   ficam intactas, a tradução entra no plano e um teste passa a impor a
-   unicidade. Até nova validação e auditoria, a etapa não volta a `em revisão`.
+   **A renumeração do BL-242 fechou o último bloqueador.** `RC-81`, `RC-82` e
+   `PE-44` tinham dois significados nas DL-019 e DL-020. Renumerados para
+   `RC-85`, `RC-86` e `PE-46`, com tradução registrada no plano, e o teste de
+   unicidade agora impede a recorrência. Os quatro relatórios de auditoria da
+   DL-020 e os três da DL-019 ficam preservados sem edição; nenhum dos sete foi
+   descartado.
+
+   **Itens abertos que atravessam etapas seguintes, sem afetar o
+   encerramento:** **BL-211** (os dois defeitos do admin — não devem atravessar
+   a DL-010), **BL-229** (medições de CSS que pulam na CI, registrado pelo
+   auditor), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241**. A linha da
+   BL-211 é a próxima entrada da sequência recomendada.
+
+2. **[DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) — robustez do
+   gerador de papéis em ambiente Windows, PRÓXIMA ETAPA em branch
+   `claude/dl-021-gerador-windows`.** Identificada na retomada da DL-020, em
+   2026-09-15, quando o verificador byte-strict (achado 9 do DL-019) reportou
+   14 derivados "fora de sincronia". Diagnóstico: o gerador grava via
+   `Path.write_text` que, em Windows, converte `\n` em `\r\n` na escrita, e o
+   `core.autocrlf=true` do clone do Fred normaliza o `git diff` em silêncio,
+   escondendo o problema. Correção: trocar a escrita para `write_bytes(...)
+   com a codificação UTF-8 explícita, e adicionar `.gitattributes` com
+   `*.md text eol=lf` e `*.toml text eol=lf` como rede de segurança.
+   **Porque entra agora, antes do Passo 1 (BL-83 + BL-211):** rodar
+   `--verificar` no Windows depois de mesclar a DL-020 é **necessidade
+   operacional**, não cosmético. O Fred registrou a regra em 2026-09-15 —
+   *"guarda que grita sem motivo é pior que guarda nenhuma, porque quando
+   gritar com motivo ninguém olha. E há o cenário pior — numa máquina com outra
+   configuração, o CRLF entra no repositório."* — e ela vale também como
+   guarda contra um arquivo CRLF versionado por engano.
 
    **⚠️ BL-195 tem ordem obrigatória:** tirar o descarte do perfil da região
    julgada **antes** de mexer no timeout. O contrário reabre o bloqueador da

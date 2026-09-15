@@ -1566,3 +1566,137 @@ def test_rodape_nao_sugere_escrever_quando_escrever_nao_resolve(tmp_path, capsys
     assert "Para corrigir" not in saida, (
         "sugerir um comando que não corrige foi o defeito A4; repeti-lo no rodapé é o R3-7"
     )
+
+
+# --------------------------------------------------------------------------
+# DL-021: gerador não produz CRLF em ambiente Windows
+# --------------------------------------------------------------------------
+#
+# Reprodução direta do defeito que motivou o plano: `Path.write_text(...)` em
+# Windows converte `\n` em `\r\n` na escrita (comportamento da API de texto do
+# sistema), contaminando os derivados do gerador com CRLF. O verificador
+# byte-strict (achado 9 do DL-019) detecta a divergência em qualquer clone com
+# `core.autocrlf=false`. A correção troca `write_text` por `write_bytes` com
+# codificação UTF-8 explícita — `encode()` produz bytes literais que não
+# passam pela camada de texto da plataforma.
+
+
+def test_escrever_grava_apenas_lf_em_ambiente_windows(tmp_path, monkeypatch):
+    """O gerador grava bytes literais em qualquer sistema operacional.
+
+    Força `os.linesep` para `\\r\\n` (o que o Windows usa) e exige que os
+    derivados saiam **apenas** com `\\n` (sem `\\r`), provando que o caminho
+    de escrita não passa pela camada de texto da plataforma. Se um futuro
+    mantenedor voltar a chamar `write_text`, este teste reprova em qualquer
+    ambiente que respeite `os.linesep`.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    monkeypatch.setattr("os.linesep", "\r\n", raising=True)
+
+    papeis = ga.carregar_papeis(diretorios)
+    ga.escrever(papeis, diretorios)
+
+    for papel in papeis:
+        for derivado in (
+            diretorios.claude / f"{papel.nome}.md",
+            diretorios.codex / f"{papel.nome}.toml",
+        ):
+            conteudo = derivado.read_bytes()
+            assert b"\r" not in conteudo, (
+                f"{derivado.relative_to(diretorios.raiz)} contém bytes 0x0D — o "
+                "gerador voltou a passar pela camada de texto da plataforma e o "
+                "verificador byte-strict vai divergir. Rever DL-021 e o uso de "
+                "write_text/write_bytes."
+            )
+            # Toda linha de um derivado termina com LF, não CRLF.
+            assert conteudo.count(b"\r\n") == 0, (
+                f"{derivado.relative_to(diretorios.raiz)} contém \\r\\n — ver mensagem acima"
+            )
+
+
+def test_escrever_e_idempotente_entre_duas_execucoes_em_windows(tmp_path, monkeypatch):
+    """Rodar `--escrever` duas vezes seguidas produz os mesmos bytes.
+
+    Pré-condição da idempotência: o conteúdo gerado em memória é determinístico
+    (não depende de estado externo), e a escrita é literal (não passa por
+    normalização da plataforma). Combinadas, as duas garantem que a saída de
+    uma segunda execução bate byte a byte com a primeira.
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+    monkeypatch.setattr("os.linesep", "\r\n", raising=True)
+
+    papeis = ga.carregar_papeis(diretorios)
+    ga.escrever(papeis, diretorios)
+    primeiras = {
+        str((diretorios.claude / f"{p.nome}.md").relative_to(diretorios.raiz)): (
+            diretorios.claude / f"{p.nome}.md"
+        ).read_bytes()
+        for p in papeis
+    }
+    primeiras.update(
+        {
+            str((diretorios.codex / f"{p.nome}.toml").relative_to(diretorios.raiz)): (
+                diretorios.codex / f"{p.nome}.toml"
+            ).read_bytes()
+            for p in papeis
+        }
+    )
+
+    ga.escrever(papeis, diretorios)
+    for caminho, conteudo_anterior in primeiras.items():
+        conteudo_atual = (diretorios.raiz / caminho).read_bytes()
+        assert conteudo_atual == conteudo_anterior, (
+            f"{caminho} mudou entre duas execuções consecutivas — a escrita não é "
+            "idempotente, e isso quebra o pressuposto do verificador byte-strict"
+        )
+
+
+def test_verificador_ainda_rejeita_crlf_forcado(tmp_path):
+    """O verificador continua byte-strict (achado 9 do DL-019).
+
+    Escreve CRLF propositalmente num derivado e exige que `verificar()` o
+    aponte como divergente. Garante que o fix da DL-021 **não** amoleceu o
+    verificador — o que distinguiria "gerador deixa de produzir CRLF" de
+    "verificador deixa de detectar CRLF" (defeito simétrico, igualmente
+    perigoso).
+    """
+    diretorios = _copiar_repositorio_isolado(tmp_path)
+
+    # Carrega o conteúdo "certo" e polui o derivado com CRLF propositais.
+    papeis = ga.carregar_papeis(diretorios)
+    ga.escrever(papeis, diretorios)
+    derivado = diretorios.claude / f"{papeis[0].nome}.md"
+    conteudo_correto = derivado.read_bytes()
+    poluido = conteudo_correto.replace(b"\n", b"\r\n")
+    assert poluido != conteudo_correto, "a poluição com CRLF precisa mudar os bytes"
+    derivado.write_bytes(poluido)
+
+    problemas = ga.verificar(papeis, diretorios)
+    relatos = [p for p in problemas if derivado.name in p and "divergente" in p]
+    assert relatos, (
+        "verificador deixou de detectar CRLF — o byte-strict do achado 9 do DL-019 "
+        "foi amolecido junto com o fix da DL-021. Rever o `atual != esperado` "
+        "na função verificar()."
+    )
+
+
+def test_gitattributes_neutraliza_core_autocrlf_para_papeis_e_markdown(tmp_path):
+    """O `.gitattributes` da raiz lista `*.md` e `*.toml` com `eol=lf`.
+
+    Rede de segurança: mesmo que um `core.autocrlf=true` no clone de outro
+    usuário converta na checkout, o `eol=lf` impede que CRLF seja marcado
+    como normalizado em silêncio. Sem esta lista, o fix do gerador (acima)
+    bastaria **dentro** do nosso fluxo, mas um clone externo ainda sofreria.
+    """
+    atributos = REPO_ROOT / ".gitattributes"
+    assert atributos.is_file(), (
+        ".gitattributes ausente na raiz — sem ele, o fix do gerador não tem "
+        "rede de segurança para clones com core.autocrlf=true"
+    )
+    texto = atributos.read_text(encoding="utf-8")
+    assert re.search(r"^\*\.[Mm][Dd]\s+text\s+eol=lf\s*$", texto, re.MULTILINE), (
+        ".gitattributes precisa ter '*.md text eol=lf' (case-insensitive)"
+    )
+    assert re.search(r"^\*\.[Tt][Oo][Mm][Ll]\s+text\s+eol=lf\s*$", texto, re.MULTILINE), (
+        ".gitattributes precisa ter '*.toml text eol=lf' (case-insensitive)"
+    )
