@@ -73,6 +73,40 @@ não virar outro defeito:
    (`...ImportacaoViewSet.importar.post`), que é o que impede duas ações
    ligadas ao mesmo método HTTP de se apagarem.
 
+## A sexta lição, e ela é a TERCEIRA da mesma família (BL-183)
+
+Três rodadas, três fugas, **todas na mesma fronteira**: o que a varredura
+**lê** contra o que o framework **faz em tempo de execução**.
+
+| rodada | leu | o framework usa |
+| --- | --- | --- |
+| 1 | `getattr(classe, "post")` | o que o roteador liga |
+| 2 | `initkwargs["actions"]` | `callback.actions` |
+| 3 | `http_method_names` da **classe** | o `http_method_names` da **rota** |
+
+`View.as_view(**initkwargs)` guarda os `initkwargs` e o `view()` interno faz
+`setattr(self, chave, valor)` em cada requisição: `dispatch()` consulta o valor
+**da instância**, isto é, o da rota. Uma `APIView` com
+`http_method_names = ["get"]` na classe, um `post` que grava a partir de
+`request.data` e a rota
+`as_view(http_method_names=["get", "post"])` respondia **201 e gravava** com a
+varredura acusando **nada** — a mesma assinatura do B1, medida pelo auditor.
+
+A regra que sai daqui, e que vale para toda leitura estática de comportamento
+de framework: **ela só é defesa se vier com um teste de precedência** — dois
+valores que existem, DIVERGEM, e o teste mede qual vence. É o que
+`test_a_fonte_das_acoes_e_o_callback_e_o_initkwargs_e_so_retaguarda` já fazia
+para o DRF e o que `test_o_django_deixa_a_rota_ampliar_http_method_names`
+passa a fazer para o Django (405 pela rota estreita, 201 pela ampla, medidos
+sobre a mesma classe).
+
+E a generalização, porque `http_method_names` não é o único `initkwargs` capaz
+de mudar o despacho — `as_view(post=outra_funcao)` também é aceito pelo Django
+quando `post` não está no `http_method_names` da classe, e troca o handler na
+instância: todo `initkwargs` que a varredura não resolva **reprova nomeando a
+rota**, em vez de ser ignorado. Errar para o lado estrito é o que este arquivo
+faz em todo lugar; era aqui que ele não fazia.
+
 ## O que esta varredura exige
 
 **1. Toda superfície de escrita aplica a política.** Superfície de escrita é o
@@ -88,9 +122,20 @@ HTTP e o par faria uma apagar a outra. Descoberta assim:
   `initkwargs["actions"]`, que o roteador **nunca** preenche — o fato está
   preso por `test_o_roteador_do_drf_poe_actions_no_callback_e_nao_no_
   initkwargs`, medido sobre um `DefaultRouter` de verdade.
-- **Demais classes** (`APIView`, `generics.*`, `django.views.View`):
-  `http_method_names` cruzado com os handlers que a classe de fato tem — é
-  exatamente assim que `dispatch()` escolhe o handler em tempo de execução.
+- **Demais classes** (`APIView`, `generics.*`, `django.views.View`): os
+  handlers que a classe de fato tem, cruzados com os métodos que o DESPACHO
+  permite. E o despacho lê `http_method_names` **da rota**: a varredura
+  resolve `initkwargs.get("http_method_names", classe.http_method_names)`,
+  que é literalmente como `dispatch()` resolve, **une** o resultado das várias
+  rotas do mesmo alvo e soma o valor da classe — a soma é o lado estrito, e
+  serve à classe descoberta sem rota nenhuma. O fato do Django está preso por
+  `test_o_django_deixa_a_rota_ampliar_http_method_names` (BL-183/C1).
+- **Qualquer outro `initkwargs` da rota**: ou está na lista curta do que a
+  varredura sabe resolver (`http_method_names`, `actions`) ou na lista, também
+  declarada, do que comprovadamente não muda o despacho (o que o roteador do
+  DRF passa: `suffix`, `basename`, `detail`, `name`, `description`) — ou a
+  rota entra em `nao_classificadas` e **reprova nomeada**, como forma não
+  suportada. Não há ramo que ignore em silêncio um `initkwargs` desconhecido.
 - **View de função**: pelos métodos que o **decorador declara**
   (`@require_POST`, `@require_http_methods`, `@require_safe`), lidos do
   objeto. Nunca por substring do fonte.
@@ -192,10 +237,13 @@ from typing import NamedTuple
 import pytest
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.urls import get_resolver
+from django.urls import get_resolver, path
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 from rest_framework import routers, viewsets
 from rest_framework.decorators import action, api_view
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 
 # `conftest.py` da raiz. Importado — e não reimplementado — porque a fronteira
@@ -237,6 +285,32 @@ NOME_DA_LISTA_DE_METODOS_DO_DJANGO = "request_method_list"
 # suíte reprova alto e nomeado, em vez de a varredura voltar a ler `None` para
 # sempre.
 NOME_DO_ATRIBUTO_DE_ACOES_DO_DRF = "actions"
+
+# Nome do atributo que `View.dispatch` consulta para decidir se o método da
+# requisição é aceito. Ele é lido **da instância**, e `View.as_view` faz
+# `setattr(self, chave, valor)` para cada `initkwargs` antes do `dispatch`:
+# logo quem manda é o valor DA ROTA, e o da classe é só o padrão de quando a
+# rota não passa nada (BL-183/C1). Ler o da classe era a terceira fuga da
+# mesma família, e `test_o_django_deixa_a_rota_ampliar_http_method_names` mede
+# a precedência em vez de afirmá-la.
+NOME_DO_ATRIBUTO_DE_METODOS_DO_DISPATCH = "http_method_names"
+
+# Os `initkwargs` que esta varredura sabe RESOLVER — isto é, cujo efeito sobre
+# "qual handler responde a qual método HTTP" ela reproduz.
+INITKWARGS_RESOLVIDOS_PELA_VARREDURA = frozenset(
+    {NOME_DO_ATRIBUTO_DE_METODOS_DO_DISPATCH, NOME_DO_ATRIBUTO_DE_ACOES_DO_DRF}
+)
+
+# Os `initkwargs` que o roteador do DRF passa e que NÃO mudam o despacho:
+# `suffix`/`name`/`description` só nomeiam a view na API navegável, `basename`
+# é o prefixo dos nomes de rota e `detail` diz se a rota é de item ou de lista.
+# Nenhum deles altera qual método HTTP chega a qual handler — o que altera é
+# `actions`, que está na lista de cima. A lista é DECLARADA, e não presumida:
+# `test_todo_initkwargs_que_o_roteador_do_drf_passa_e_conhecido` mede as chaves
+# que um `DefaultRouter` real produz e reprova nomeando se aparecer uma nova.
+INITKWARGS_SEM_EFEITO_NO_DESPACHO = frozenset(
+    {"suffix", "basename", "detail", "name", "description"}
+)
 
 # Nome que `rest_framework.decorators.api_view` dá à classe que cria por
 # `type(...)`. Ele ajusta `__name__` e `__module__` da classe para os da função
@@ -553,10 +627,19 @@ class AlvoAlcancavel(NamedTuple):
     `acoes_por_metodo` é `{"post": {"create", "importar"}}` — a UNIÃO das ações
     de todas as rotas do mesmo alvo — ou `None` quando não há rota de `ViewSet`
     (view de função, `APIView`, ou `ViewSet` ainda não roteado).
+
+    `initkwargs_das_rotas` é a tupla dos `initkwargs` de CADA rota deste alvo,
+    guardados um a um e nunca fundidos: `dispatch()` resolve por rota, e duas
+    rotas do mesmo alvo podem permitir métodos diferentes. Descartá-los aqui
+    foi o BL-183/C1 — a rota ampliava `http_method_names`, a varredura lia o da
+    classe, e a superfície de escrita ficava invisível. O campo é OBRIGATÓRIO
+    de propósito: com um padrão, o próximo caminho de construção voltaria ao
+    comportamento antigo sem ninguém decidir.
     """
 
     alvo: object
     acoes_por_metodo: dict | None
+    initkwargs_das_rotas: tuple
 
 
 def _alvos_de(rotas):
@@ -568,6 +651,12 @@ def _alvos_de(rotas):
     detalhe —, e a atribuição simples que existia aqui fazia a segunda apagar a
     primeira, levando junto o POST de `create` (BL-176/B3, forma a; medido pelo
     auditor).
+
+    O mesmo molde vale para os `initkwargs` (BL-183/C1): eles são ACUMULADOS,
+    rota a rota. Duas rotas do mesmo alvo, uma com `http_method_names` ampliado
+    e outra sem, precisam somar os métodos — se a segunda sobrescrevesse a
+    primeira, a superfície de escrita ampliada sumiria, que é exatamente o
+    defeito que se está corrigindo, só que por outra porta.
     """
     alvos = {}
     for rota in rotas:
@@ -585,7 +674,8 @@ def _alvos_de(rotas):
             acoes = acoes or {}
             for metodo, nome_da_acao in rota.acoes.items():
                 acoes.setdefault(metodo.lower(), set()).add(nome_da_acao)
-        alvos[caminho] = AlvoAlcancavel(rota.alvo, acoes)
+        initkwargs = (anterior.initkwargs_das_rotas if anterior else ()) + (dict(rota.initkwargs),)
+        alvos[caminho] = AlvoAlcancavel(rota.alvo, acoes, initkwargs)
     return alvos
 
 
@@ -630,7 +720,7 @@ def _alvos_alcancaveis():
 
     for classe in _apiviews_definidas_no_repositorio():
         alvos.setdefault(
-            f"{classe.__module__}.{nome_do_alvo(classe)}", AlvoAlcancavel(classe, None)
+            f"{classe.__module__}.{nome_do_alvo(classe)}", AlvoAlcancavel(classe, None, ())
         )
 
     return alvos
@@ -708,15 +798,41 @@ def acoes_de_escrita_ligadas(classe, acoes_por_metodo):
     return ligadas
 
 
-def _handlers_por_http_method_names(classe):
-    """`{"post": handler, ...}` para classe que NÃO é `ViewSet`:
-    `http_method_names` cruzado com os handlers existentes — exatamente como
-    `dispatch()` escolhe o handler em tempo de execução, tanto no `View` do
-    Django quanto na `APIView` do DRF. Cobre também o `@api_view`, cujo
-    `WrappedAPIView` tem `http_method_names` restrito ao que foi declarado."""
+def metodos_permitidos_pelo_despacho(classe, initkwargs_das_rotas=()):
+    """Os métodos HTTP que o `dispatch()` desta classe aceita, considerando
+    TODAS as rotas por onde ela é alcançável.
+
+    Por rota, é literalmente a conta que o `dispatch()` faz:
+    `initkwargs.get("http_method_names", classe.http_method_names)` — porque
+    `View.as_view` faz `setattr(self, chave, valor)` e o `dispatch()` lê a
+    instância. Entre rotas, **união**: a classe é alcançável por todas elas, e
+    basta uma permitir o POST para o POST existir.
+
+    O valor da CLASSE entra sempre na união, e isso é decisão de direção do
+    erro, não descuido: uma classe descoberta sem rota (`APIView` escrita hoje,
+    roteada amanhã) responde pelo próprio valor, e uma rota que RESTRINJA não
+    apaga o handler de escrita que a classe declara — no máximo exigimos
+    contrato de uma superfície que aquela rota específica recusaria com 405.
+    Exigir contrato a mais custa uma linha; deixar de exigir foi o C1.
+    """
     permitidos = {
-        metodo.lower() for metodo in getattr(classe, "http_method_names", METODOS_DE_ESCRITA)
+        metodo.lower()
+        for metodo in getattr(classe, NOME_DO_ATRIBUTO_DE_METODOS_DO_DISPATCH, METODOS_DE_ESCRITA)
     }
+    for initkwargs in initkwargs_das_rotas:
+        da_rota = initkwargs.get(NOME_DO_ATRIBUTO_DE_METODOS_DO_DISPATCH)
+        if da_rota is None:
+            continue
+        permitidos |= {metodo.lower() for metodo in da_rota}
+    return permitidos
+
+
+def _handlers_por_http_method_names(classe, initkwargs_das_rotas=()):
+    """`{"post": handler, ...}` para classe que NÃO é `ViewSet`: os handlers
+    que a classe tem, cruzados com o que o despacho permite. Cobre também o
+    `@api_view`, cujo `WrappedAPIView` tem `http_method_names` restrito ao que
+    foi declarado."""
+    permitidos = metodos_permitidos_pelo_despacho(classe, initkwargs_das_rotas)
     handlers = {}
     for metodo in METODOS_DE_ESCRITA:
         if metodo not in permitidos:
@@ -727,15 +843,43 @@ def _handlers_por_http_method_names(classe):
     return handlers
 
 
+def initkwargs_nao_suportados(initkwargs_das_rotas):
+    """As chaves de `initkwargs` que esta varredura não sabe resolver e não
+    declarou inofensivas.
+
+    `as_view(**initkwargs)` aceita qualquer nome que já seja atributo da
+    classe, e o efeito pode ser qualquer um — inclusive trocar o handler:
+    `as_view(post=outra_funcao)` é aceito pelo Django quando `post` não está no
+    `http_method_names` da classe, e aí quem responde ao POST é a função da
+    rota, que a varredura nunca leu. Como não dá para enumerar o efeito de
+    todos, a lista é ao contrário: o que não está declarado REPROVA nomeado.
+    """
+    conhecidas = INITKWARGS_RESOLVIDOS_PELA_VARREDURA | INITKWARGS_SEM_EFEITO_NO_DESPACHO
+    desconhecidas = set()
+    for initkwargs in initkwargs_das_rotas:
+        desconhecidas |= set(initkwargs) - conhecidas
+    return desconhecidas
+
+
 class Superficie(NamedTuple):
     """Uma superfície de escrita descoberta.
 
     `nome_efetivo` é o nome pelo qual o ELO DE EXECUÇÃO (BL-171) reconhece esta
-    superfície na pilha: `modulo.Classe.atributo` para classe,
-    `modulo.funcao` para view de função. Ele é da CLASSE ROTEADA, não do
-    código que define o handler — duas rotas que compartilhem o handler de um
-    mixin têm nomes efetivos diferentes, e exercitar uma não marca a outra
-    (BL-179/B6).
+    superfície na pilha, e ele identifica a superfície INTEIRA — os mesmos
+    segmentos da chave, método HTTP incluído:
+    `modulo.Classe.metodo`, `modulo.Classe.acao.metodo`, `modulo.funcao.metodo`.
+
+    Duas correções moram nisso, e as duas são da mesma classe ("evidência de
+    execução valendo para superfície que ninguém tocou"):
+
+    - o nome é da CLASSE ROTEADA, não do código que define o handler — duas
+      rotas que compartilhem o handler de um mixin têm nomes distintos
+      (BL-179/B6);
+    - o nome carrega o MÉTODO — um handler ligado a POST e a PUT tem duas
+      superfícies e dois nomes, e exercitar uma não marca a outra (BL-185/C3).
+
+    Que `nome_efetivo` coincida com a chave é invariante, e está preso por
+    `test_o_nome_efetivo_de_toda_superficie_e_a_propria_chave`.
     """
 
     handler: object
@@ -762,32 +906,50 @@ def superficies_de_escrita(alvos):
     superficies = {}
     nao_classificadas = {}
 
-    for caminho, (alvo, acoes_por_metodo) in sorted(alvos.items()):
+    for caminho, (alvo, acoes_por_metodo, initkwargs_das_rotas) in sorted(alvos.items()):
         escopo = _escopo_da_indirecao(alvo)
+        desconhecidas = initkwargs_nao_suportados(initkwargs_das_rotas)
+        if desconhecidas:
+            # Reprova NOMEANDO, e as superfícies que a varredura consegue ver
+            # continuam sendo emitidas logo abaixo: o desconhecido acrescenta
+            # uma acusação, nunca retira uma exigência.
+            nao_classificadas[caminho] = (
+                f"a rota passa initkwargs que esta varredura não resolve: "
+                f"{sorted(desconhecidas)} — `as_view(**initkwargs)` faz "
+                "`setattr` na instância e pode mudar qual handler responde a "
+                "qual método HTTP (é o caso de `http_method_names`, resolvido, "
+                "e de `post=outra_funcao`, que o Django aceita). Resolva a "
+                "chave na varredura ou declare-a em "
+                "INITKWARGS_SEM_EFEITO_NO_DESPACHO, com a razão escrita"
+            )
         if isinstance(alvo, type):
             ligadas = acoes_de_escrita_ligadas(alvo, acoes_por_metodo)
             if ligadas is None:
-                for metodo, handler in _handlers_por_http_method_names(alvo).items():
+                for metodo, handler in _handlers_por_http_method_names(
+                    alvo, initkwargs_das_rotas
+                ).items():
                     nome = f"{caminho}.{metodo}"
                     superficies[nome] = Superficie(handler, escopo, nome)
                 continue
             for metodo, nomes in sorted(ligadas.items()):
                 for nome_da_acao in sorted(nomes):
-                    nome_efetivo = f"{caminho}.{nome_da_acao}"
+                    # O MÉTODO entra no nome efetivo (BL-185/C3): uma `@action`
+                    # ligada a POST e a PUT tem duas superfícies e precisa de
+                    # dois nomes, senão exercitar uma marca a outra no elo da
+                    # BL-171.
+                    nome = f"{caminho}.{nome_da_acao}.{metodo}"
                     handler = getattr(alvo, nome_da_acao, None)
                     if handler is None:
                         # O roteador ligou um nome que a classe não tem. Não
                         # deveria acontecer com os roteadores do DRF; se
                         # acontecer, a varredura não sabe o que ler e reprova.
-                        nao_classificadas[f"{nome_efetivo}.{metodo}"] = (
+                        nao_classificadas[nome] = (
                             f"o roteador liga {metodo.upper()} à ação {nome_da_acao!r}, "
                             "que não existe nesta classe — a varredura não tem handler "
                             "para ler"
                         )
                         continue
-                    superficies[f"{nome_efetivo}.{metodo}"] = Superficie(
-                        handler, escopo, nome_efetivo
-                    )
+                    superficies[nome] = Superficie(handler, escopo, nome)
             continue
 
         declarados = metodos_http_declarados(alvo)
@@ -799,7 +961,11 @@ def superficies_de_escrita(alvos):
             )
             continue
         for metodo in sorted(declarados & METODOS_DE_ESCRITA_EM_MAIUSCULAS):
-            superficies[f"{caminho}.{metodo.lower()}"] = Superficie(alvo, escopo, caminho)
+            # Idem BL-185/C3 para a view de função: `@require_http_methods(
+            # ["POST", "PUT"])` produz duas superfícies, e o nome efetivo sem o
+            # método fazia um teste de POST marcar o PUT como exercitado.
+            nome = f"{caminho}.{metodo.lower()}"
+            superficies[nome] = Superficie(alvo, escopo, nome)
 
     return superficies, nao_classificadas
 
@@ -849,7 +1015,23 @@ def superficies_de_escrita_sem_politica(alvos=None):
             escopo = sys.modules.get(getattr(embrulhada, "__module__", "") or "")
         try:
             fonte = inspect.getsource(handler)
-        except (OSError, TypeError):  # pragma: no cover - fonte indisponível
+        except (OSError, TypeError) as erro:
+            # BL-184/C2. `continue` aqui APROVAVA: a superfície era descoberta
+            # e sumia da acusação, em silêncio, e este era o único ramo do
+            # arquivo a errar para o lado permissivo — marcado, ainda por
+            # cima, como declaradamente não exercitado. Handler sem fonte
+            # nasce de fábrica de views, `functools.partial` ou código gerado
+            # em tempo de execução, e a DL-010, com um importador por formato,
+            # é candidata natural a isso. A regra do arquivo inteiro é "não
+            # sei classificar → reprova nomeando", e agora ela vale aqui
+            # também.
+            faltando[nome] = (
+                "a varredura não conseguiu ler o fonte do handler que responde a esta "
+                f"superfície ({type(erro).__name__}: {erro}) — e ela não aprova o que "
+                "não conseguiu ler. Um handler construído em tempo de execução (fábrica "
+                "de views, partial, exec) precisa expor fonte legível ou ser roteado por "
+                "uma função de módulo que a varredura consiga ler"
+            )
             continue
         if aplica_a_politica(fonte, _resolvedor_de_indirecao(escopo)):
             continue
@@ -1059,13 +1241,18 @@ def test_toda_view_de_funcao_alcancavel_declara_os_metodos_que_aceita():
     }
 
     assert not nao_autorizadas, (
-        "View de função alcançável por requisição sem declaração de métodos:\n"
+        "A varredura não sabe classificar isto, e não presume leitura:\n"
         + "\n".join(f"  {nome}: {motivo}" for nome, motivo in sorted(nao_autorizadas.items()))
-        + "\n\nDecore a view com @require_safe (só leitura), @require_POST ou "
-        "@require_http_methods([...]). A declaração é o que permite a esta "
-        "varredura saber se a view é superfície de escrita sem depender de "
-        "procurar 'request.POST' no fonte — heurística que o auditor da "
-        "rodada 1 contornou com uma view que grava lendo request.body."
+        + "\n\nSe for view de função sem declaração de métodos: decore com "
+        "@require_safe (só leitura), @require_POST ou @require_http_methods("
+        "[...]). A declaração é o que permite a esta varredura saber se a view "
+        "é superfície de escrita sem depender de procurar 'request.POST' no "
+        "fonte — heurística que o auditor da rodada 1 contornou com uma view "
+        "que grava lendo request.body.\n"
+        "Se for forma de roteamento não suportada (initkwargs desconhecido, "
+        "ação que a classe não tem), o motivo acima diz qual, e a saída é "
+        "resolver a forma na varredura — o registro de exceções abaixo é só "
+        "para view de função."
     )
 
 
@@ -1226,6 +1413,17 @@ def _mutante_conta_nova_json_com_politica(
 
 
 @login_required
+@require_http_methods(["POST", "PUT"])
+def _mutante_importar_por_post_e_put(request):  # pragma: no cover - objeto de medição
+    """View de função ligada a DOIS métodos de escrita (BL-185/C3): duas
+    superfícies, e antes da correção um só nome efetivo para as duas."""
+    from apps.core.requisicao import recusar_dado_nao_contratado
+
+    recusar_dado_nao_contratado(request, _CONTRATO_FICTICIO)
+    return None
+
+
+@login_required
 def _mutante_tela_sem_declaracao_de_metodos(request):  # pragma: no cover - objeto de medição
     """View de função alcançável e sem declarar método nenhum: o caso em que a
     varredura não SABE classificar."""
@@ -1252,7 +1450,9 @@ def test_a_varredura_enxerga_view_de_funcao_que_grava_sem_mencionar_request_post
     assert "request.method" not in fonte
     assert "request.POST" not in fonte
 
-    alvos = {"apps.ficticio.views.conta_nova_json": AlvoAlcancavel(_mutante_conta_nova_json, None)}
+    alvos = {
+        "apps.ficticio.views.conta_nova_json": AlvoAlcancavel(_mutante_conta_nova_json, None, ())
+    }
     superficies, nao_classificadas = superficies_de_escrita(alvos)
 
     assert set(superficies) == {"apps.ficticio.views.conta_nova_json.post"}
@@ -1265,7 +1465,7 @@ def test_a_varredura_enxerga_view_de_funcao_que_grava_sem_mencionar_request_post
 def test_a_varredura_aprova_a_mesma_view_de_funcao_quando_ela_aplica_a_politica():
     alvos = {
         "apps.ficticio.views.conta_nova_json": AlvoAlcancavel(
-            _mutante_conta_nova_json_com_politica, None
+            _mutante_conta_nova_json_com_politica, None, ()
         ),
     }
     superficies, _ = superficies_de_escrita(alvos)
@@ -1277,7 +1477,7 @@ def test_a_varredura_aprova_a_mesma_view_de_funcao_quando_ela_aplica_a_politica(
 def test_a_varredura_reprova_view_de_funcao_sem_declaracao_de_metodos():
     alvos = {
         "apps.ficticio.views.tela_nova": AlvoAlcancavel(
-            _mutante_tela_sem_declaracao_de_metodos, None
+            _mutante_tela_sem_declaracao_de_metodos, None, ()
         )
     }
     superficies, nao_classificadas = superficies_de_escrita(alvos)
@@ -1346,6 +1546,7 @@ def test_a_varredura_enxerga_o_viewset_pelo_que_o_roteador_liga():
         "apps.ficticio.views.ContaViewSet": AlvoAlcancavel(
             _MutanteContaViewSetSemContrato,
             {"post": {"create"}, "delete": {"destroy"}},
+            (),
         )
     }
 
@@ -1370,7 +1571,9 @@ def test_a_varredura_enxerga_o_viewset_mesmo_sem_rota_registrada():
     retaguarda erra para o lado de EXIGIR contrato — que é o lado certo.
     """
     alvos = {
-        "apps.ficticio.views.ContaViewSet": AlvoAlcancavel(_MutanteContaViewSetSemContrato, None)
+        "apps.ficticio.views.ContaViewSet": AlvoAlcancavel(
+            _MutanteContaViewSetSemContrato, None, ()
+        )
     }
 
     superficies, _ = superficies_de_escrita(alvos)
@@ -1386,7 +1589,7 @@ def test_a_varredura_enxerga_o_viewset_mesmo_sem_rota_registrada():
 def test_a_varredura_aprova_o_viewset_que_aplica_a_politica():
     alvos = {
         "apps.ficticio.views.ContaViewSet": AlvoAlcancavel(
-            _MutanteContaViewSetComContrato, {"post": {"create"}, "delete": {"destroy"}}
+            _MutanteContaViewSetComContrato, {"post": {"create"}, "delete": {"destroy"}}, ()
         )
     }
 
@@ -1561,7 +1764,7 @@ def test_a_retaguarda_enxerga_action_de_nome_proprio_em_viewset_sem_rota():
     """
     alvos = {
         "apps.ficticio.views.ImportacaoViewSet": AlvoAlcancavel(
-            _MutanteImportacaoViewSetSemContrato, None
+            _MutanteImportacaoViewSetSemContrato, None, ()
         )
     }
     superficies, _ = superficies_de_escrita(alvos)
@@ -1701,7 +1904,9 @@ def test_api_view_que_aplica_a_politica_nao_e_acusada():
     )
     assert embrulhada.__name__ == "_mutante_importar_sped"
 
-    alvos = {"apps.ficticio.views.importar_sped": AlvoAlcancavel(_mutante_importar_sped.cls, None)}
+    alvos = {
+        "apps.ficticio.views.importar_sped": AlvoAlcancavel(_mutante_importar_sped.cls, None, ())
+    }
     superficies, _ = superficies_de_escrita(alvos)
 
     assert set(superficies) == {"apps.ficticio.views.importar_sped.post"}
@@ -1710,7 +1915,9 @@ def test_api_view_que_aplica_a_politica_nao_e_acusada():
 
 def test_api_view_que_nao_aplica_a_politica_continua_acusada():
     """Par negativo do anterior: desembrulhar não pode virar dispensa."""
-    alvos = {"apps.ficticio.views.importar_xml": AlvoAlcancavel(_mutante_importar_xml.cls, None)}
+    alvos = {
+        "apps.ficticio.views.importar_xml": AlvoAlcancavel(_mutante_importar_xml.cls, None, ())
+    }
 
     assert set(superficies_de_escrita_sem_politica(alvos)) == {
         "apps.ficticio.views.importar_xml.post"
@@ -1750,8 +1957,8 @@ def test_duas_superficies_com_o_mesmo_handler_tem_nomes_efetivos_distintos():
     efetivos diferem.
     """
     alvos = {
-        "apps.ficticio.views.ImportarXmlView": AlvoAlcancavel(_MutanteImportarXmlView, None),
-        "apps.ficticio.views.ImportarSpedView": AlvoAlcancavel(_MutanteImportarSpedView, None),
+        "apps.ficticio.views.ImportarXmlView": AlvoAlcancavel(_MutanteImportarXmlView, None, ()),
+        "apps.ficticio.views.ImportarSpedView": AlvoAlcancavel(_MutanteImportarSpedView, None, ()),
     }
     superficies, _ = superficies_de_escrita(alvos)
 
@@ -1780,3 +1987,415 @@ def test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo():
         f"{proprios}. Decida se o novo é superfície de escrita e atualize a "
         "seção — não deixe a fronteira afirmar mais do que o repositório tem."
     )
+
+
+# --- BL-183/C1: o `http_method_names` que a ROTA amplia ---------------------
+#
+# A terceira fuga da mesma família, e a razão de esta seção existir com um
+# teste de PRECEDÊNCIA na frente dos mutantes: enquanto "é assim que o
+# `dispatch()` escolhe o handler" foi prosa, ela ficou falsa por três rodadas.
+# Aqui os dois valores existem, divergem, e o teste mede qual vence.
+#
+# As rotas destes mutantes vêm de `path()` de verdade — passar `initkwargs` à
+# mão foi o que deixou a BL-174 se esconder por uma rodada inteira.
+
+
+class _MutanteEstreitaViewSemContrato(APIView):
+    """`APIView` que RESTRINGE `http_method_names` na classe e mesmo assim tem
+    um `post` que grava a partir de `request.data`, sem a política.
+
+    É o M-C1 do auditor: roteada com `as_view(http_method_names=["get",
+    "post"])`, ela respondia **201 e gravava** enquanto a varredura acusava
+    nada — `TOTAL 14, ACUSADAS {}`, a assinatura do B1.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    http_method_names = ["get"]
+
+    def get(self, request):  # pragma: no cover - objeto de medição
+        return Response({"ok": True})
+
+    def post(self, request):  # pragma: no cover - objeto de medição
+        _gravar_conta_ficticia(1, request.data["codigo"], request.data["nome"])
+        return Response({"gravou": True}, status=201)
+
+
+class _MutanteEstreitaViewComContrato(APIView):
+    """A mesma view, com a política. Sem o par, uma varredura que acusasse
+    TUDO passaria na metade de cima."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    http_method_names = ["get"]
+
+    def get(self, request):  # pragma: no cover - objeto de medição
+        return Response({"ok": True})
+
+    def post(self, request):  # pragma: no cover - objeto de medição
+        from apps.core.requisicao import recusar_dado_nao_contratado
+
+        recusar_dado_nao_contratado(request, _CONTRATO_FICTICIO)
+        _gravar_conta_ficticia(1, request.data["codigo"], request.data["nome"])
+        return Response({"gravou": True}, status=201)
+
+
+def _rotas_de_um_path_real(*views):
+    """As rotas que `path()` de verdade produz para estas views, lidas pelo
+    mesmo `_percorrer_callbacks` do teste principal.
+
+    Recebe o resultado de `as_view(...)`, que é onde os `initkwargs` entram —
+    o ponto exato em que a produção os cria, e não uma imitação deles.
+    """
+    return _percorrer_callbacks(
+        [
+            path(f"mutante-{indice}/", view, name=f"mutante-{indice}")
+            for indice, view in enumerate(views)
+        ]
+    )
+
+
+_PREFIXO_DOS_MUTANTES = "apps.core.tests.test_dl019_varredura_de_contratos"
+
+
+def test_o_django_deixa_a_rota_ampliar_http_method_names():
+    """**O teste de precedência do `http_method_names`**, o molde que faltava.
+
+    Dois valores existem e DIVERGEM: `["get"]` na classe e `["get", "post"]`
+    nos `initkwargs` da rota. O que este teste afirma sobre o Django é que
+    vence o da ROTA — porque `View.as_view` guarda os `initkwargs` e o `view()`
+    interno faz `setattr(self, chave, valor)` antes do `dispatch()`, que lê a
+    instância.
+
+    Medido pelos dois lados, com a MESMA classe: a rota estreita responde
+    **405** ao POST e a ampliada responde **201**. Se o Django mudar essa
+    resolução, isto falha alto e nomeado — em vez de a varredura voltar a ler
+    o valor da classe para sempre, que é o achado C1.
+    """
+    fabrica = APIRequestFactory()
+    estreita = _MutanteEstreitaViewSemContrato.as_view()
+    ampla = _MutanteEstreitaViewSemContrato.as_view(http_method_names=["get", "post"])
+
+    # Os dois valores, e a divergência entre eles.
+    assert _MutanteEstreitaViewSemContrato.http_method_names == ["get"]
+    assert estreita.initkwargs == {}
+    assert ampla.initkwargs == {"http_method_names": ["get", "post"]}
+
+    # Qual vence, em tempo de execução.
+    corpo = {"codigo": "1.1.1", "nome": "Caixa"}
+    assert estreita(fabrica.post("/x/", corpo, format="json")).status_code == 405
+    assert ampla(fabrica.post("/x/", corpo, format="json")).status_code == 201
+
+    # E a classe continua intocada: quem foi alterado é a INSTÂNCIA de cada
+    # requisição, que é por que ler a classe não responde à pergunta.
+    assert _MutanteEstreitaViewSemContrato.http_method_names == ["get"]
+
+
+def test_a_varredura_le_o_http_method_names_da_rota_e_nao_o_da_classe():
+    """**O mutante M-C1, reconstruído aqui dentro, com rota de `path()`
+    real.**
+
+    Antes da correção este caso produzia ZERO superfícies: a rota era
+    descoberta, os `initkwargs` eram até guardados em `RotaDescoberta` — e
+    `_alvos_de` os jogava fora. Agora a superfície aparece e é acusada.
+    """
+    rotas = _rotas_de_um_path_real(
+        _MutanteEstreitaViewSemContrato.as_view(http_method_names=["get", "post"])
+    )
+
+    # O que torna isto um teste de DESCOBERTA e não de classificação: os
+    # `initkwargs` vieram do `as_view` real, pela rota real.
+    assert [rota.initkwargs for rota in rotas] == [{"http_method_names": ["get", "post"]}]
+
+    alvos = _alvos_de(rotas)
+    assert [alvo.initkwargs_das_rotas for alvo in alvos.values()] == [
+        ({"http_method_names": ["get", "post"]},)
+    ]
+
+    superficies, nao_classificadas = superficies_de_escrita(alvos)
+    esperada = f"{_PREFIXO_DOS_MUTANTES}._MutanteEstreitaViewSemContrato.post"
+
+    assert set(superficies) == {esperada}
+    assert nao_classificadas == {}
+    assert set(superficies_de_escrita_sem_politica(alvos)) == {esperada}
+
+
+def test_a_varredura_aprova_a_mesma_view_estreita_quando_ela_aplica_a_politica():
+    alvos = _alvos_de(
+        _rotas_de_um_path_real(
+            _MutanteEstreitaViewComContrato.as_view(http_method_names=["get", "post"])
+        )
+    )
+    superficies, _ = superficies_de_escrita(alvos)
+
+    assert set(superficies) == {f"{_PREFIXO_DOS_MUTANTES}._MutanteEstreitaViewComContrato.post"}
+    assert superficies_de_escrita_sem_politica(alvos) == {}
+
+
+def test_a_rota_que_restringe_nao_apaga_a_rota_que_amplia():
+    """BL-183, item 1: rotas do mesmo alvo UNEM os métodos, nunca
+    sobrescrevem — o mesmo molde já usado para as ações de `ViewSet`.
+
+    Duas rotas para a mesma classe, uma sem `initkwargs` e outra ampliando, nas
+    DUAS ordens: se a segunda sobrescrevesse a primeira, o POST sumiria numa
+    das ordens e o defeito voltaria por outra porta.
+    """
+    esperada = f"{_PREFIXO_DOS_MUTANTES}._MutanteEstreitaViewSemContrato.post"
+
+    for views in (
+        (
+            _MutanteEstreitaViewSemContrato.as_view(),
+            _MutanteEstreitaViewSemContrato.as_view(http_method_names=["get", "post"]),
+        ),
+        (
+            _MutanteEstreitaViewSemContrato.as_view(http_method_names=["get", "post"]),
+            _MutanteEstreitaViewSemContrato.as_view(),
+        ),
+    ):
+        alvos = _alvos_de(_rotas_de_um_path_real(*views))
+        superficies, _ = superficies_de_escrita(alvos)
+
+        assert len(alvos) == 1
+        assert len(next(iter(alvos.values())).initkwargs_das_rotas) == 2
+        assert set(superficies) == {esperada}
+
+
+def test_o_valor_da_classe_continua_valendo_quando_a_rota_nao_diz_nada():
+    """Par negativo da resolução: sem `initkwargs`, quem responde é o valor da
+    classe — que é o `dispatch()` de novo, e é o caso das 14 superfícies de
+    hoje. Sem isto, "a varredura lê a rota" poderia ter virado "a varredura
+    deixou de ler a classe"."""
+    assert metodos_permitidos_pelo_despacho(_MutanteEstreitaViewSemContrato, ()) == {"get"}
+    assert metodos_permitidos_pelo_despacho(
+        _MutanteEstreitaViewSemContrato, ({"http_method_names": ["get", "post"]},)
+    ) == {"get", "post"}
+    assert "post" in metodos_permitidos_pelo_despacho(_MutanteImportarXmlView, ())
+
+
+def _outro_post(request):  # pragma: no cover - objeto de medição
+    """Handler injetado pela ROTA, que a varredura nunca leu — e que responde
+    ao POST de verdade (medido no teste abaixo)."""
+    return Response({"handler": "o da rota"}, status=202)
+
+
+def test_a_varredura_reprova_initkwargs_que_ela_nao_sabe_resolver():
+    """BL-183, item 2: a generalização.
+
+    `http_method_names` não é o único `initkwargs` capaz de mudar o despacho.
+    `as_view(post=outra_funcao)` é ACEITO pelo Django sempre que `post` não
+    está no `http_method_names` da classe — e o handler da rota passa a
+    responder, com fonte que a varredura nunca abriu. Não dá para enumerar o
+    efeito de todo atributo de classe; dá para exigir que o desconhecido
+    reprove nomeado, que é o que o arquivo faz em todo lugar menos aqui.
+    """
+    fabrica = APIRequestFactory()
+    view = _MutanteEstreitaViewSemContrato.as_view(
+        http_method_names=["get", "post"], post=_outro_post
+    )
+
+    # O fato do Django, preso como asserção: aceito, e é ele que responde.
+    assert sorted(view.initkwargs) == ["http_method_names", "post"]
+    resposta = view(fabrica.post("/x/", {"codigo": "1", "nome": "n"}, format="json"))
+    assert resposta.status_code == 202
+
+    alvos = _alvos_de(_rotas_de_um_path_real(view))
+    caminho = f"{_PREFIXO_DOS_MUTANTES}._MutanteEstreitaViewSemContrato"
+    _, nao_classificadas = superficies_de_escrita(alvos)
+
+    assert set(nao_classificadas) == {caminho}
+    assert "'post'" in nao_classificadas[caminho]
+
+
+def test_todo_initkwargs_que_o_roteador_do_drf_passa_e_conhecido():
+    """A outra ponta da generalização: ela não pode acusar o uso NORMAL.
+
+    O roteador do DRF passa `suffix`/`name`/`description`/`basename`/`detail`
+    em toda rota de `ViewSet`. Nenhum muda qual método chega a qual handler —
+    quem faz isso é `actions`, que a varredura resolve. Este teste mede as
+    chaves que um `DefaultRouter` de verdade produz: se o DRF passar uma chave
+    nova, ela aparece aqui NOMEADA, em vez de o `ViewSet` inteiro começar a
+    reprovar sem explicação (ou, pior, a chave nova mudar o despacho sem
+    ninguém olhar).
+    """
+    rotas = [
+        rota
+        for rota in _rotas_de_um_roteador_real(_MutanteImportacaoViewSetSemContrato, "importacao3")
+        if getattr(rota.alvo, "__module__", "").startswith("apps.")
+    ]
+    chaves = {chave for rota in rotas for chave in rota.initkwargs}
+
+    assert chaves == {"name", "description", "basename", "detail"}, sorted(chaves)
+    assert initkwargs_nao_suportados([rota.initkwargs for rota in rotas]) == set()
+    # A rota de lista de um `ViewSet` com `create` traz `suffix`; o mutante
+    # acima só tem `@action`, então o conjunto acima não o exercita.
+    assert "suffix" in {
+        chave
+        for rota in _rotas_de_um_roteador_real(_MutanteContaViewSetSemContrato, "conta3")
+        for chave in rota.initkwargs
+    }
+
+
+def test_nenhuma_rota_do_urlconf_real_usa_initkwargs_desconhecido():
+    """A generalização aplicada ao urlconf de verdade. Hoje NENHUMA rota deste
+    produto passa `initkwargs` — estado mais forte possível, e é este teste que
+    faz a primeira que passar ser uma decisão de alguém."""
+    por_alvo = {
+        caminho: alvo.initkwargs_das_rotas for caminho, alvo in _alvos_alcancaveis().items()
+    }
+    desconhecidos = {
+        caminho: sorted(initkwargs_nao_suportados(initkwargs))
+        for caminho, initkwargs in por_alvo.items()
+        if initkwargs_nao_suportados(initkwargs)
+    }
+
+    assert not desconhecidos, (
+        "Estas rotas passam initkwargs que a varredura não resolve, e um "
+        "initkwargs pode mudar qual handler responde a qual método HTTP:\n"
+        f"{desconhecidos}"
+    )
+
+
+# --- BL-184/C2: fonte ilegível reprova, e não aprova em silêncio ------------
+
+
+class _MutanteSemFonteView(APIView):
+    """Classe cujo `post` é instalado abaixo a partir de código COMPILADO em
+    memória — `inspect.getsource` não tem arquivo para ler.
+
+    É a forma que nasce com fábrica de views, `functools.partial` ou handler
+    montado em tempo de execução, e a DL-010, com um importador por formato, é
+    candidata natural a isso.
+    """
+
+
+class _MutanteComFonteView(APIView):
+    """O par legível da classe acima: mesmo desenho, fonte que existe, e a
+    política aplicada."""
+
+    def post(self, request):  # pragma: no cover - objeto de medição
+        from apps.core.requisicao import recusar_dado_nao_contratado
+
+        recusar_dado_nao_contratado(request, _CONTRATO_FICTICIO)
+        return None
+
+
+def _handler_compilado_em_memoria():
+    """Um handler de verdade, sem arquivo de origem. `exec` é o jeito mais
+    curto de produzir exatamente a condição que o auditor mediu."""
+    espaco = {}
+    exec(
+        compile(
+            "def post(self, request):\n    return request.data\n",
+            "<gerado em tempo de execução>",
+            "exec",
+        ),
+        espaco,
+    )
+    return espaco["post"]
+
+
+_MutanteSemFonteView.post = _handler_compilado_em_memoria()
+
+
+def test_a_varredura_reprova_a_superficie_cujo_fonte_ela_nao_consegue_ler():
+    """BL-184/C2. `except (OSError, TypeError): continue` APROVAVA: a
+    superfície era descoberta e sumia da acusação, em silêncio, no único ramo
+    do arquivo que errava para o lado permissivo."""
+    with pytest.raises((OSError, TypeError)):
+        inspect.getsource(_MutanteSemFonteView.post)
+
+    alvos = {"apps.ficticio.views.SemFonte": AlvoAlcancavel(_MutanteSemFonteView, None, ())}
+    superficies, _ = superficies_de_escrita(alvos)
+    faltando = superficies_de_escrita_sem_politica(alvos)
+
+    # Descoberta: ela existe para a varredura...
+    assert set(superficies) == {"apps.ficticio.views.SemFonte.post"}
+    # ...e agora também para a ACUSAÇÃO, que é a metade que faltava.
+    assert set(faltando) == {"apps.ficticio.views.SemFonte.post"}
+    assert "não conseguiu ler o fonte" in faltando["apps.ficticio.views.SemFonte.post"]
+
+
+def test_a_varredura_aprova_a_mesma_superficie_quando_o_fonte_existe_e_tem_politica():
+    """Par positivo: "não consegui ler" não pode ter virado "reprovo todo
+    mundo"."""
+    alvos = {"apps.ficticio.views.ComFonte": AlvoAlcancavel(_MutanteComFonteView, None, ())}
+    superficies, _ = superficies_de_escrita(alvos)
+
+    assert set(superficies) == {"apps.ficticio.views.ComFonte.post"}
+    assert inspect.getsource(_MutanteComFonteView.post)
+    assert superficies_de_escrita_sem_politica(alvos) == {}
+
+
+# --- BL-185/C3: o nome efetivo carrega o método HTTP ------------------------
+
+
+class _MutanteDoisMetodosViewSet(viewsets.ViewSet):
+    """`@action` ligada a DOIS métodos de escrita — o caso em que o par (alvo,
+    ação) deixa de identificar a superfície.
+
+    A varredura já produzia duas CHAVES aqui; o que colapsava era o
+    `nome_efetivo`, que é o nome pelo qual o elo de execução (BL-171) reconhece
+    a superfície. Duas chaves e um nome efetivo faziam exercitar o POST marcar
+    o PUT como exercitado.
+    """
+
+    @action(detail=False, methods=["post", "put"])
+    def importar(self, request):  # pragma: no cover - objeto de medição
+        from apps.core.requisicao import recusar_dado_nao_contratado
+
+        recusar_dado_nao_contratado(request, _CONTRATO_FICTICIO)
+        return _gravar_conta_ficticia(1, request.data["codigo"], request.data["nome"])
+
+
+def test_um_handler_ligado_a_dois_metodos_tem_dois_nomes_efetivos():
+    """BL-185/C3, a metade da varredura. Medido pelo auditor antes da
+    correção: `chaves distintas = 2, nomes_efetivos distintos = 1`."""
+    rotas = _rotas_de_um_roteador_real(_MutanteDoisMetodosViewSet, "dois-metodos")
+
+    # O fato que produz o caso: uma rota só, ligando os dois métodos à MESMA
+    # ação — não é invenção do teste, é o que o `@action` gera.
+    assert {"post": "importar", "put": "importar"} in [rota.acoes for rota in rotas if rota.acoes]
+
+    superficies, _ = superficies_de_escrita(_alvos_de(rotas))
+    prefixo = f"{_PREFIXO_DOS_MUTANTES}._MutanteDoisMetodosViewSet.importar"
+
+    assert set(superficies) == {f"{prefixo}.post", f"{prefixo}.put"}
+    assert {superficie.nome_efetivo for superficie in superficies.values()} == {
+        f"{prefixo}.post",
+        f"{prefixo}.put",
+    }
+
+
+def test_uma_view_de_funcao_com_dois_metodos_tem_dois_nomes_efetivos():
+    """A outra forma que o auditor mediu com o mesmo resultado: view de função
+    com `@require_http_methods(["POST", "PUT"])`."""
+    alvos = {
+        "apps.ficticio.views.importar": AlvoAlcancavel(_mutante_importar_por_post_e_put, None, ())
+    }
+    superficies, _ = superficies_de_escrita(alvos)
+
+    assert set(superficies) == {
+        "apps.ficticio.views.importar.post",
+        "apps.ficticio.views.importar.put",
+    }
+    assert {superficie.nome_efetivo for superficie in superficies.values()} == set(superficies)
+
+
+def test_o_nome_efetivo_de_toda_superficie_e_a_propria_chave():
+    """O invariante, no urlconf REAL: a chave que a varredura julga e o nome
+    que o elo de execução exige são o mesmo texto.
+
+    Enquanto os dois divergiam, a diferença era silenciosa — a conferência da
+    BL-171 continuava verde marcando uma superfície por outra. Aqui a
+    coincidência é verificada nas três formas de uma vez (view de função,
+    classe comum e ação de `ViewSet`, se houver)."""
+    superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
+
+    divergentes = {
+        chave: superficie.nome_efetivo
+        for chave, superficie in superficies.items()
+        if superficie.nome_efetivo != chave
+    }
+
+    assert not divergentes, divergentes
+    assert len(superficies) >= len(SUPERFICIES_DE_ESCRITA_CONHECIDAS)

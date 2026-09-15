@@ -48,6 +48,25 @@ arquivo reproduz a árvore limpa **de dentro** da árvore suja: remover a fixtur
 reprova a suíte aqui também, em qualquer máquina. Sem isso, a defesa dependeria
 de alguém lembrar de clonar o repositório antes de declarar verde — que é
 exatamente o que não aconteceu por quatro relatórios seguidos.
+
+## O que esta fixture CUSTA — declarado, porque é custo e não defeito (BL-187)
+
+A fixture é `scope="session", autouse=True` no `conftest.py` da **raiz**: vale
+para a suíte inteira e não é desligável por arquivo. O preço disso, medido:
+
+**Nenhum teste desta suíte valida mais referência de `{% static %}`.** Sob o
+`StaticFilesStorage` simples, `{% static "css/nao-existe.css" %}` renderiza
+`/static/css/nao-existe.css` **em silêncio**, porque esse backend não confere
+existência; sob o manifesto, uma referência desconhecida estoura. E
+`collectstatic` não lê template nenhum, então a CI também não pega. O teste
+abaixo mede esse silêncio, para que a declaração não seja prosa.
+
+O que se perdeu, porém, **nunca foi verificação**: era o efeito colateral de o
+teste do admin estourar quando o manifesto faltava — o acidente que produziu o
+B5. E na CI ele nunca funcionou em direção nenhuma, porque lá **toda**
+renderização falhava. A troca foi um acidente por um custo declarado; se um dia
+alguém quiser a verificação de verdade, ela é um teste próprio que renderize os
+templates do produto sob o backend de manifesto, e não o retorno desta fixture.
 """
 
 import pytest
@@ -120,3 +139,21 @@ def test_a_integracao_continua_continua_coletando_estaticos_depois_do_pytest():
         "CI passar com um `{% static %}` que falharia fora dela — CI mais "
         "permissiva que o ambiente local, que é a direção que a DE-012 recusou."
     )
+
+
+def test_a_suite_deixou_de_validar_referencia_de_static_e_isso_esta_declarado():
+    """BL-187/C7. A fronteira declarada acima, medida.
+
+    Sob o backend da suíte, uma referência a arquivo inexistente **passa**. É
+    o custo da fixture, e ele fica aqui — onde se lê o que não é coberto — em
+    vez de ficar implícito. Se alguém devolver o manifesto à suíte, este teste
+    reprova e obriga a rever a seção, em vez de a declaração virar mentira em
+    silêncio (a família de defeito que a DL-019 inteira existe para matar).
+    """
+    from django.template import Context, Template
+
+    renderizado = Template(
+        '{% load static %}{% static "css/arquivo-que-nao-existe-em-lugar-nenhum.css" %}'
+    ).render(Context({}))
+
+    assert renderizado.endswith("/css/arquivo-que-nao-existe-em-lugar-nenhum.css"), renderizado

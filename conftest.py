@@ -61,16 +61,30 @@ ser testada com entradas sintéticas — sem isso, "a conferência nunca roda"
 seria uma falha silenciosa indistinguível de "a conferência passou". E a
 sessão **anuncia** o que decidiu, inclusive quando decide não conferir.
 
-## O que o registro guarda, e por que a classe da instância importa
+## O que o registro guarda, e por que a classe da instância e o método importam
 
-O registro guarda, de cada quadro de produção da pilha, **dois** nomes: o do
-código (`modulo.ClasseQueDefine.metodo`) e o **efetivo**
-(`modulo.ClasseDaInstancia.metodo`). A conferência só aceita o efetivo. Sem
-isso, duas superfícies que compartilhassem o handler de um mixin
-compartilhariam o único nome guardado, e exercitar uma marcaria a outra como
-exercitada, sem ninguém a ter tocado (BL-179/B6). Não há instância viva hoje —
-os 14 handlers foram mapeados e nenhum se repete —, e o desenho é provável para
-a DL-010, com duas rotas de importação e o mesmo `post`.
+O registro guarda, de cada quadro de produção da pilha, o nome do código
+(`modulo.ClasseQueDefine.metodo`), o **efetivo**
+(`modulo.ClasseDaInstancia.metodo`) e os dois **com o método HTTP da
+requisição em curso**. A conferência só aceita o nome que identifica a
+superfície inteira.
+
+Duas correções da mesma classe — "evidência de execução valendo para
+superfície que ninguém tocou" — moram aí:
+
+- **a classe da instância** (BL-179/B6): duas superfícies que compartilhassem
+  o handler de um mixin compartilhariam o único nome guardado, e exercitar uma
+  marcaria a outra;
+- **o método HTTP** (BL-185/C3): um handler ligado a POST e a PUT — uma
+  `@action(methods=["post","put"])`, uma view de função com
+  `@require_http_methods(["POST","PUT"])` — tinha duas superfícies na varredura
+  e um só nome aqui, e um teste de POST marcava o PUT. Um handler que aplique a
+  política só num ramo (`if request.method == "POST": ...`) era dado por
+  exercitado nos dois.
+
+Não há instância viva de nenhuma das duas hoje — os 14 handlers foram mapeados,
+nenhum se repete e nenhum responde a dois métodos de escrita —, e os dois
+desenhos são prováveis na DL-010, com um importador por formato.
 
 **Limite declarado:** o registro é um conjunto em memória do processo. Sob
 execução distribuída (`pytest-xdist`, que este projeto NÃO usa — ver
@@ -97,6 +111,18 @@ CHAMADORES_DA_POLITICA = set()
 _ATRIBUTO_DE_INSTRUMENTACAO = "instrumentada_para_o_elo_de_execucao"
 
 
+# Nome do pacote de testes, e prefixo de arquivo de teste. O prefixo NÃO é
+# opinião desta função: é o `python_files = ["test_*.py"]` do
+# `pyproject.toml`, isto é, o que o pytest de fato coleta. Um
+# `apps/fiscal/test_helpers.py` é coletado como módulo de teste queira o autor
+# ou não, e por isso ele é teste aqui também.
+# `test_a_fronteira_entre_teste_e_producao_segue_o_python_files_do_pytest`
+# prende os dois lados: se o `pyproject.toml` mudar, a divergência reprova
+# nomeada em vez de esta fronteira envelhecer sozinha.
+NOME_DO_PACOTE_DE_TESTES = "tests"
+PREFIXO_DE_ARQUIVO_DE_TESTE = "test_"
+
+
 def e_codigo_de_teste(nome_pontilhado):
     """`True` quando `nome_pontilhado` é módulo (ou caminho) de teste.
 
@@ -105,32 +131,67 @@ def e_codigo_de_teste(nome_pontilhado):
     política de dentro de um teste unitário dela.
 
     Esta função é a ÚNICA resposta do repositório para essa pergunta, e a
-    varredura de contratos a importa daqui (BL-181/B7). Antes havia duas
-    regras diferentes para a mesma pergunta, e as duas tinham o mesmo buraco:
-    a marca `".tests."` não casa `apps.foo.tests` — o leiaute `tests.py`
-    padrão do Django —, porque falta o ponto final, e aquele módulo seria
-    tratado como produção. Hoje nenhum app usa `tests.py` e o `pyproject.toml`
-    fixa `python_files = ["test_*.py"]`, então o buraco era latente; o que o
-    tornava achado era a fronteira ser mais estreita do que a sua redação.
+    varredura de contratos a importa daqui (BL-181/B7).
+
+    A regra tem DUAS metades, e cada uma existe por um defeito medido:
+
+    1. **Qualquer segmento igual a `tests`** — o pacote de testes. A marca
+       `".tests."` da primeira versão não casava `apps.foo.tests` (faltava o
+       ponto final), e aquele módulo era tratado como produção: era a fronteira
+       mais ESTREITA do que a sua redação (BL-181/B7).
+    2. **O ÚLTIMO segmento começando por `test_`** — e só o último. A segunda
+       versão casava qualquer segmento, e com isso `apps.test_utils.views` e
+       `apps.test_utils.services` — módulos de PRODUÇÃO perfeitamente
+       plausíveis — saíam da varredura de contratos e do registro do elo
+       (BL-186/C5). Essa é a direção perigosa: mais larga faz código de
+       produção SUMIR, enquanto mais estreita só o fazia sobrar. O último
+       segmento é exatamente o que o `python_files` do pytest coleta, então
+       aqui a fronteira passa a ser a do próprio coletor, e não um palpite.
     """
     partes = nome_pontilhado.split(".")
-    return "tests" in partes or any(parte.startswith("test_") for parte in partes)
+    return NOME_DO_PACOTE_DE_TESTES in partes or (
+        bool(partes) and partes[-1].startswith(PREFIXO_DE_ARQUIVO_DE_TESTE)
+    )
 
 
-def _nomes_registraveis_do_quadro(quadro):
+def metodo_http_da_chamada(args, kwargs):
+    """O método HTTP da requisição que está chegando à política, em
+    minúsculas, ou `None` quando não dá para saber.
+
+    A política é `recusar_dado_nao_contratado(requisicao, contrato)`, então a
+    requisição é o primeiro argumento — e pode vir por nome. `None` quando o
+    objeto não expõe `method`: aí o registro guarda só os nomes sem método, e
+    a conferência reprova por falta, que é o lado certo de errar (BL-185/C3).
+    """
+    requisicao = kwargs.get("requisicao", args[0] if args else None)
+    metodo = getattr(requisicao, "method", None)
+    return metodo.lower() if isinstance(metodo, str) else None
+
+
+def _nomes_registraveis_do_quadro(quadro, metodo_http=None):
     """Os nomes com que este quadro da pilha entra no registro.
 
-    Dois, quando o quadro é de um método: o nome do CÓDIGO
-    (`modulo.ClasseQueDefine.metodo`) e o nome EFETIVO
-    (`modulo.ClasseDaInstancia.metodo`, lido de `self.__class__`).
+    Dois eixos, e cada um nasceu de um achado:
 
-    O nome efetivo é o que a conferência usa, e é a correção do BL-179/B6:
-    duas superfícies que compartilhem o handler de um mixin têm o MESMO nome
-    de código, e aceitar esse nome fazia exercitar uma marcar a outra como
-    exercitada, sem ninguém tê-la tocado. Com a classe da instância, cada rota
-    responde por si. O nome do código continua sendo registrado porque é ele
-    que identifica as pontes de módulo (`_recusar_dado_nao_contratado`) e as
-    views de função, que não têm `self`.
+    1. **De quem é o nome** (BL-179/B6): o do CÓDIGO
+       (`modulo.ClasseQueDefine.metodo`) e o EFETIVO
+       (`modulo.ClasseDaInstancia.metodo`, lido de `self.__class__`). Duas
+       superfícies que compartilhem o handler de um mixin têm o MESMO nome de
+       código, e aceitar esse nome fazia exercitar uma marcar a outra. O nome
+       do código continua registrado porque é ele que identifica as pontes de
+       módulo (`_recusar_dado_nao_contratado`) e as views de função, que não
+       têm `self`.
+    2. **Por qual MÉTODO HTTP** (BL-185/C3): cada nome entra também com o
+       método da requisição em curso (`...importar.post`). Sem isso, um
+       handler ligado a POST e a PUT — uma `@action(methods=["post","put"])`,
+       uma view de função com `@require_http_methods(["POST","PUT"])` — tinha
+       duas superfícies na varredura e **um só** nome aqui, e exercitar o POST
+       marcava o PUT como exercitado. É a classe do B6 num lugar novo: o que
+       se perde é justamente o elo de execução que a BL-171 existe para dar.
+
+    O nome SEM método continua sendo registrado porque é ele que casa com a
+    superfície de uma classe comum (`...EmpresaDetailView.put`), onde o
+    segmento já é o método e não há colapso possível.
     """
     nome_modulo = quadro.f_globals.get("__name__", "") or ""
     if not nome_modulo.startswith("apps.") or e_codigo_de_teste(nome_modulo):
@@ -143,15 +204,18 @@ def _nomes_registraveis_do_quadro(quadro):
         if classe is not None and getattr(classe, "__module__", "").startswith("apps."):
             metodo = codigo.co_qualname.rsplit(".", 1)[-1]
             nomes.append(f"{classe.__module__}.{classe.__qualname__}.{metodo}")
+    if metodo_http:
+        nomes += [f"{nome}.{metodo_http}" for nome in list(nomes)]
     return nomes
 
 
 def _politica_instrumentada(original):
     @functools.wraps(original)
     def envolvida(*args, **kwargs):
+        metodo_http = metodo_http_da_chamada(args, kwargs)
         quadro = sys._getframe(1)
         while quadro is not None:
-            CHAMADORES_DA_POLITICA.update(_nomes_registraveis_do_quadro(quadro))
+            CHAMADORES_DA_POLITICA.update(_nomes_registraveis_do_quadro(quadro, metodo_http))
             quadro = quadro.f_back
         return original(*args, **kwargs)
 
@@ -217,25 +281,34 @@ def conferencia_de_execucao_se_aplica(argumentos, palavra_chave, expressao_de_ma
     return not alvos or alvos == [str(diretorio)]
 
 
-def superficies_nao_exercitadas(chamadores):
+def superficies_nao_exercitadas(chamadores, superficies=None):
     """`{superficie: motivo}` para cada superfície de escrita que a varredura
-    descobre e que nunca chegou à política durante a sessão."""
+    descobre e que nunca chegou à política durante a sessão.
+
+    `superficies` é parâmetro pelo mesmo motivo que `alvos` é parâmetro em
+    `superficies_de_escrita` (molde da BL-150): permite reconstruir o caso sob
+    medição — um handler ligado a POST e a PUT, exercitado só por POST — sem
+    tocar em view real nenhuma. Em produção fica `None` e a varredura responde.
+    """
     from apps.core.tests.test_dl019_varredura_de_contratos import (
         _alvos_alcancaveis,
         superficies_de_escrita,
     )
 
-    superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
+    if superficies is None:
+        superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
     faltando = {}
     for nome, superficie in superficies.items():
-        # `nome_efetivo` é o nome da CLASSE ROTEADA mais o atributo que
-        # responde (`apps.empresas.views.EmpresaDetailView.put`), ou o da view
-        # de função. O handler pode vir de um mixin do projeto, e nesse caso o
-        # quadro da pilha traz o qualname do MIXIN — que é compartilhado. O
-        # registro resolve isso pela classe da instância (ver
-        # `_nomes_registraveis_do_quadro`), e aqui só se aceita o nome
-        # efetivo: exercitar uma rota não marca outra que use o mesmo mixin
-        # (BL-179/B6).
+        # `nome_efetivo` identifica a superfície INTEIRA: a classe roteada (ou
+        # a view de função), o atributo que responde e o MÉTODO HTTP —
+        # `apps.empresas.views.EmpresaDetailView.put`,
+        # `apps.x.views.ImportacaoViewSet.importar.post`. Duas correções estão
+        # nisso: o handler pode vir de um mixin do projeto, e aí o quadro da
+        # pilha traz o qualname do MIXIN, que é compartilhado (BL-179/B6); e o
+        # mesmo handler pode responder a dois métodos de escrita, e aí um nome
+        # sem método marcaria os dois (BL-185/C3). O registro resolve o
+        # primeiro pela classe da instância e o segundo pelo método da
+        # requisição em curso — ver `_nomes_registraveis_do_quadro`.
         if superficie.nome_efetivo not in chamadores:
             faltando[nome] = (
                 "nenhuma requisição de teste desta sessão fez esta superfície chegar a "

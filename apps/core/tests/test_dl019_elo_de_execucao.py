@@ -128,10 +128,11 @@ def test_a_conferencia_aprova_quando_o_registro_cobre_a_superficie():
     )
 
     superficies, _ = superficies_de_escrita(_alvos_alcancaveis())
-    # O nome EFETIVO de cada superfície: `modulo.Classe.atributo` para classe,
-    # `modulo.funcao` para view de função. É a forma em que a superfície
-    # aparece na pilha depois da BL-179/B6 — a classe da instância, não o
-    # qualname do código, que pode ser de um mixin compartilhado.
+    # O nome EFETIVO de cada superfície: `modulo.Classe.metodo`,
+    # `modulo.Classe.acao.metodo` ou `modulo.funcao.metodo`. É a forma em que
+    # a superfície aparece na pilha depois da BL-179/B6 (a classe da
+    # instância, não o qualname do código, que pode ser de um mixin
+    # compartilhado) e da BL-185/C3 (o método HTTP da requisição em curso).
     chamadores = {superficie.nome_efetivo for superficie in superficies.values()}
 
     assert conftest.superficies_nao_exercitadas(chamadores) == {}
@@ -159,16 +160,32 @@ class ImportarXmlView(MixinDeImportacao):
 
 class ImportarSpedView(MixinDeImportacao):
     pass
+
+
+class ImportacaoViewSet:
+    def importar(self, request):
+        return espiar(request)
 """
 
 
-def _espiar_o_quadro_do_chamador():
+def _espiar_o_quadro_do_chamador(requisicao=None):
     """Devolve os nomes com que o quadro de quem chamou entraria no registro —
     é o mesmo `_nomes_registraveis_do_quadro` que a política instrumentada usa,
-    lido do mesmo lugar (`sys._getframe(1)`)."""
+    lido do mesmo lugar (`sys._getframe(1)`) e com o método HTTP resolvido pela
+    mesma função (`metodo_http_da_chamada`)."""
     import sys
 
-    return conftest._nomes_registraveis_do_quadro(sys._getframe(1))
+    return conftest._nomes_registraveis_do_quadro(
+        sys._getframe(1), conftest.metodo_http_da_chamada((requisicao,), {})
+    )
+
+
+class RequisicaoFalsa:
+    """O mínimo de que o registro precisa: o método HTTP. Objeto de medição —
+    não substitui requisição real em teste nenhum de comportamento."""
+
+    def __init__(self, metodo):
+        self.method = metodo
 
 
 def _modulo_ficticio_de_producao():
@@ -218,6 +235,61 @@ def test_o_registro_ignora_quadro_de_modulo_de_teste():
 
 
 @pytest.mark.parametrize(
+    ("nome", "e_teste"),
+    [
+        # Os dez casos que o auditor mediu na rodada 3 (BL-186/C5), virados
+        # parametrização. Os dois últimos são o achado: um módulo de PRODUÇÃO
+        # chamado `apps/test_utils/views.py` era classificado como teste e
+        # sumia da varredura de contratos e do registro do elo.
+        ("apps.foo.tests", True),
+        ("apps.foo.tests.test_bar", True),
+        ("apps.foo.tests.utilidades", True),
+        ("apps.foo.test_bar", True),
+        ("apps.foo.views", False),
+        ("apps.contabilidade.tests_web", False),
+        ("apps.core.protestos.views", False),
+        ("apps.latests.views", False),
+        ("apps.test_utils.views", False),
+        ("apps.test_utils.services", False),
+    ],
+)
+def test_a_fronteira_entre_teste_e_producao_nao_engole_modulo_de_producao(nome, e_teste):
+    """BL-186/C5. A correção do B7 abriu o buraco OPOSTO, e na direção
+    perigosa: casar `test_` em qualquer segmento faz `apps.test_utils.views`
+    virar "teste" e desaparecer — enquanto o defeito anterior apenas fazia
+    módulo de teste sobrar como produção.
+
+    `apps.test_utils.views` como PRODUÇÃO é o caso nomeado no critério de
+    aceite, e está aqui por nome.
+    """
+    assert conftest.e_codigo_de_teste(nome) is e_teste
+
+
+def test_a_fronteira_entre_teste_e_producao_segue_o_python_files_do_pytest():
+    """O prefixo `test_` não é opinião desta fronteira: é o que o pytest
+    COLETA, declarado em `python_files` no `pyproject.toml`.
+
+    Por isso `apps.fiscal.test_helpers` é teste — o pytest o coleta como
+    módulo de teste queira o autor ou não —, e por isso a regra olha só o
+    ÚLTIMO segmento: é ele que vira nome de arquivo. Se o `python_files`
+    mudar, esta divergência reprova nomeada em vez de a fronteira envelhecer
+    em silêncio (molde da BL-172).
+    """
+    import pathlib
+    import tomllib
+
+    raiz = pathlib.Path(__file__).resolve().parents[3]
+    configuracao = tomllib.loads((raiz / "pyproject.toml").read_text(encoding="utf-8"))
+    padroes = configuracao["tool"]["pytest"]["ini_options"]["python_files"]
+
+    assert padroes == [f"{conftest.PREFIXO_DE_ARQUIVO_DE_TESTE}*.py"], padroes
+    # E o efeito, nos dois sentidos: o que o pytest coleta é teste; o que ele
+    # não coleta é produção.
+    assert conftest.e_codigo_de_teste("apps.fiscal.test_helpers") is True
+    assert conftest.e_codigo_de_teste("apps.fiscal.helpers") is False
+
+
+@pytest.mark.parametrize(
     ("argumentos", "palavra_chave", "marca", "esperado"),
     [
         # `pytest` puro, que é o que a integração contínua executa.
@@ -246,3 +318,79 @@ def test_a_regra_de_quando_conferir_e_a_que_esta_escrita(
         conftest.conferencia_de_execucao_se_aplica(argumentos, palavra_chave, marca, "/repo")
         is esperado
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-185 (achado C3): a evidência de execução é por MÉTODO HTTP
+# ---------------------------------------------------------------------------
+
+
+def test_o_registro_guarda_o_metodo_http_da_requisicao_em_curso():
+    """C3, metade do registro. É a classe do B6 num lugar novo: um handler
+    ligado a POST e a PUT tinha duas superfícies na varredura e um só nome
+    aqui, e o POST marcava o PUT.
+
+    O nome sem método continua sendo guardado — é ele que casa com a
+    superfície de uma classe comum (`...EmpresaDetailView.put`), onde o
+    segmento já É o método.
+    """
+    ficticio = _modulo_ficticio_de_producao()
+
+    nomes = ficticio["ImportacaoViewSet"]().importar(RequisicaoFalsa("POST"))
+
+    assert "apps.ficticio.views.ImportacaoViewSet.importar.post" in nomes
+    assert "apps.ficticio.views.ImportacaoViewSet.importar.put" not in nomes
+    assert "apps.ficticio.views.ImportacaoViewSet.importar" in nomes
+
+
+def test_o_registro_sem_metodo_legivel_nao_inventa_um():
+    """Par negativo: quando a chamada não traz requisição reconhecível, o
+    registro guarda só os nomes sem método — e a conferência reprova por
+    FALTA, que é o lado certo de errar. O contrário (chutar `post`) marcaria
+    superfície que ninguém tocou."""
+    ficticio = _modulo_ficticio_de_producao()
+
+    nomes = ficticio["ImportacaoViewSet"]().importar(object())
+
+    # Conjunto, e não lista: o nome do código e o nome efetivo coincidem
+    # quando a classe é a que define o método, e o registro é um conjunto.
+    assert set(nomes) == {"apps.ficticio.views.ImportacaoViewSet.importar"}
+    assert conftest.metodo_http_da_chamada((), {}) is None
+    assert conftest.metodo_http_da_chamada((RequisicaoFalsa("PUT"),), {}) == "put"
+    assert conftest.metodo_http_da_chamada((), {"requisicao": RequisicaoFalsa("PATCH")}) == "patch"
+
+
+def test_a_conferencia_reprova_o_put_quando_so_o_post_foi_exercitado():
+    """C3 fechado de ponta a ponta, e é o teste que o auditor pediu: um
+    handler ligado a POST e a PUT, exercitado só por POST, faz a conferência
+    **reprovar nomeando o PUT**.
+
+    As duas metades entram pelo caminho de produção: as superfícies saem de
+    `superficies_de_escrita`, e os chamadores saem do mesmo
+    `_nomes_registraveis_do_quadro` que a política instrumentada usa.
+    """
+    from apps.core.tests.test_dl019_varredura_de_contratos import (
+        AlvoAlcancavel,
+        superficies_de_escrita,
+    )
+
+    ficticio = _modulo_ficticio_de_producao()
+    alvos = {
+        "apps.ficticio.views.ImportacaoViewSet": AlvoAlcancavel(
+            ficticio["ImportacaoViewSet"], {"post": {"importar"}, "put": {"importar"}}, ()
+        )
+    }
+    superficies, _ = superficies_de_escrita(alvos)
+    assert len(superficies) == 2, sorted(superficies)
+
+    # Uma requisição POST, e só ela.
+    chamadores = set(ficticio["ImportacaoViewSet"]().importar(RequisicaoFalsa("POST")))
+
+    faltando = conftest.superficies_nao_exercitadas(chamadores, superficies)
+
+    assert set(faltando) == {"apps.ficticio.views.ImportacaoViewSet.importar.put"}
+
+    # Par positivo: com o PUT também exercitado, a conferência aprova — sem
+    # isto, uma conferência que reprovasse sempre passaria na metade de cima.
+    chamadores |= set(ficticio["ImportacaoViewSet"]().importar(RequisicaoFalsa("PUT")))
+    assert conftest.superficies_nao_exercitadas(chamadores, superficies) == {}
