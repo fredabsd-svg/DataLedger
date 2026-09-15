@@ -1663,3 +1663,62 @@ descrevê-la mal. Por isso a regra ganha um par verificável, e não fica no
 conselho: **toda frase de comentário do tipo "o mesmo julgador que X usa" deve
 ser conferível por teste** — se X não usa, o teste reprova. Registrado como
 BL-146.
+
+## DE-035 — Regime tributário errado se apaga, e a exclusão é um fato registrado
+
+**Data:** 2026-09-15. **Origem:** achado R6-6 da
+[auditoria DL-017 rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md),
+pendência PE-44, requisitos **RC-81** e **RC-82**.
+
+### O que o Fred decidiu, e o que eu decidi
+
+O Fred decidiu o **comportamento de produto**: quando o contador erra a vigência
+ou o regime de um período, a correção **apaga** o registro errado. Ele escolheu
+isso contra a minha recomendação de registrar uma correção rastreável no molde
+do estorno, e a escolha é dele — é ele quem precisa provar coisas a cliente e a
+fisco, e regime tributário é **dado cadastral**, não escrituração.
+
+Eu decidi o **alcance técnico**, porque "apagar" sozinho é ambíguo em três
+pontos e cada ambiguidade é um defeito futuro:
+
+1. **Apaga-se somente o último período** — aquele que não tem sucessor. Apagar um
+   período do meio abriria um **buraco na linha do tempo**: o antecessor já teve
+   a `vigencia_fim` recortada para o dia anterior ao sucessor, e sem o sucessor
+   não existe regime vigente naquele intervalo. Uma empresa sem regime numa
+   competência é pior que uma empresa com regime errado, porque a apuração não
+   tem nem o que conferir.
+2. **A exclusão devolve o período anterior à condição de vigente**: a
+   `vigencia_fim` que havia sido recortada volta a ficar aberta. Sem isso,
+   apagar deixaria a empresa sem regime corrente, que é exatamente o estado que
+   a exclusão existe para consertar.
+3. **O evento de exclusão é gravado em `RegistroAuditoria`**, com os valores
+   antigos, quem apagou e quando.
+
+### Por que o item 3 não contraria o "apagar" do Fred
+
+São duas coisas diferentes, e confundi-las é o erro:
+
+| O que sai | O que fica |
+| --- | --- |
+| O **registro** do período errado sai do histórico de regime da empresa. Nenhuma tela, relatório ou apuração volta a enxergar aquele período. | O **fato de alguém ter apagado** fica na trilha técnica, que `apps/auditoria/models.py` já mantém para que o escritório não apague o histórico de auditoria. |
+
+O `AGENTS.md` exige trilha de auditoria "protegida, suficiente e sem expor
+segredos" como regra de engenharia **obrigatória**. Não é uma preferência que eu
+possa dispensar por pedido, e não é o que o Fred estava escolhendo quando disse
+"apagar" — ele estava escolhendo o que o produto mostra. O produto mostra o
+histórico limpo; a trilha guarda quem mexeu.
+
+### O que continua proibido, e a diferença que importa
+
+Isto vale para **regime tributário**, que é cadastro. **Não** se estende a
+lançamento contábil efetivado: ali a correção segue por estorno rastreável, e
+apagar continua proibido. A fronteira é a pergunta "isto é escrituração?" — se
+for, não se apaga.
+
+### Uma armadilha que ainda não existe, e por isso está registrada agora
+
+Hoje não há apuração fiscal no sistema, então apagar um período de regime não
+tem consequência a jusante. **Quando a DL-010 e a apuração existirem, apagar o
+regime de um período que já tem apuração calculada muda a base de um cálculo já
+entregue.** Registrado como **BL-163** para que a guarda nasça junto com a
+apuração, e não depois de alguém descobrir pelo cliente.

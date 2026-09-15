@@ -343,12 +343,24 @@ auditoria independente — que é exatamente o motivo de ela existir.
    regra de vigência crescente deixa de poder travar a empresa para sempre.
    O **piso** de `01/01/2000` é **HI-07**, hipótese minha herdada do RC-77, que
    fala de data de lançamento e não de regime. Declarada como tal no código.
-9. **Decisões que dependem do Fred:** **PE-44(b)** (quando o contador erra o
-   regime de um período **já vigente**, a correção apaga o registro errado ou
-   registra uma correção rastreável? A alínea (a) foi respondida — ver RC-81 no
-   item 8 —, esta não, e ela não é reversível depois de aplicada a dado real),
-   **HI-07** (o piso de `01/01/2000` para vigência de regime é hipótese minha,
-   não confirmação dele), PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
+
+   **Sexta decisão, também em 2026-09-15: RC-82** — regime tributário errado se
+   corrige **apagando** o registro, não registrando uma correção que o
+   substitui. O Fred escolheu isso **contra a minha recomendação**, e a escolha
+   dele é a que vale: regime é dado **cadastral**, não escrituração, e é ele
+   quem precisa provar coisas a cliente e a fisco. **Fecha a PE-44 por
+   completo.** O alcance técnico é meu e está em **DE-035**: apaga-se só o
+   **último** período, a exclusão devolve o anterior à condição de vigente, e o
+   **evento** de exclusão é gravado em `RegistroAuditoria`. O registro sai do
+   histórico do produto; a trilha técnica fica, porque o `AGENTS.md` a torna
+   obrigatória e ela não é o que ele estava escolhendo. Virou **BL-162**, e a
+   guarda para quando existir apuração fiscal virou **BL-163** — registrada
+   antes de a apuração existir, de propósito. **Nada disso vale para lançamento
+   efetivado:** ali a correção segue por estorno e apagar continua proibido.
+9. **Decisões que dependem do Fred:** **HI-07** (o piso de `01/01/2000` para
+   vigência de regime é hipótese minha, não confirmação dele — a PE-44 está
+   fechada nas duas alíneas, por RC-81 e RC-82, mas o piso nunca foi
+   perguntado), PE-36 (quem lê contabilidade e se há vínculo usuário-empresa), PE-38 (lucros
    e prejuízos acumulados na implantação), PE-20, PE-21, PE-22, PE-23, PE-25,
    PE-30 a PE-35.
 10. **BL-02 — proteção da branch `main`.** Ação administrativa no GitHub: a API
