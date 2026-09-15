@@ -575,6 +575,57 @@ auditoria independente — que é exatamente o motivo de ela existir.
    linhas dele**. Dano nulo, e o registro fica porque ele registrou em vez de
    esconder.
 
+   ### Rodada 4, a renumeração e o estado final desta etapa
+
+   **Rodada 4 (`b2f6112`): REPROVADO — e com recomendação de ENCERRAR.** O
+   auditor entregou as duas metades sem arredondar uma na outra: *"reprovar aqui
+   não é dizer 'faça de novo'; é dizer **não integre assim**"*. Motivo da
+   reprovação: **D4**, a colisão de numeração — **não o código**.
+
+   **C1, C2, C3, C5 e C7 fechados**, verificados por ele. A frase dele que
+   resume o custo e a entrega da etapa:
+
+   > **"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no
+   > produto."**
+
+   #### A renumeração (D4), autorizada pelo Fred
+
+   Duas sessões partiram de `60cbcff` usando **DL-019**. A outra integrou
+   primeiro (PR #20), então **esta se moveu**: `DL-019` → **`DL-020`**,
+   `BL-148..BL-193` → **`BL-195..BL-240`** (some 47), `DE-035` → **`DE-039`**,
+   e os quatro relatórios renomeados. Tabela de correspondência no fim do
+   [plano](../planos/DL-020-consolidacao-pos-auditoria.md).
+
+   **O auditor detectou a colisão sozinho, sem ser informado**, e chegou à mesma
+   recomendação. E viu a metade que eu **não** tinha visto: os `BL-xxx` citados
+   **dentro do código de teste** — *"essa metade é silenciosa: o Git não
+   avisa"*. Eu tratava como higiene; é rastreabilidade.
+
+   **A `main` foi integrada ANTES do PR**, como ele exigiu. Dois conflitos, os
+   dois em documentação, **resolvidos mantendo os dois lados**. O `backlog.md`
+   **mesclou sozinho** — a renumeração pagando o próprio custo. **Os sete
+   relatórios sobreviveram**: três da outra etapa, quatro desta. Nenhum
+   descartado, **nenhum editado**.
+
+   #### Estado medido em `deacd1d`
+
+   | Onde | Resultado |
+   | --- | --- |
+   | Cópia limpa da revisão gravada (`git status` vazio, **zero** ignorados) | **1196 passed, exit 0** |
+   | **CI, `check-runs` da revisão exata** | `Lint e testes = success`, `Validar documentação = success` |
+   | **CI, log do job** | **1194 passed, 2 skipped**, 62,69 s |
+
+   Os 2 pulos continuam sendo as medições de CSS (**BL-229**).
+
+   **BL-237/D1 fechada na parte que era condição** — a fronteira do despacho
+   deixou de ser silenciosa, com tabela de efeito medido e três testes que
+   **medem o silêncio**. O mecanismo segue **opcional e aberto**, por decisão
+   declarada do auditor.
+
+   **Aberto e nomeado:** BL-235 (a antiga A9), BL-236 (o mecanismo da leitura da
+   CI — **ato, não mecanismo**), BL-238, BL-239, BL-237 na parte opcional,
+   BL-229, e **BL-164 com A2 e A3**, que *não devem atravessar a DL-010*.
+
    ### A DE-034 percorrida item por item — achado A4 da auditoria
 
    Este é o **critério 2 da etapa**, que eu escrevi e **não cumpri**: o auditor
