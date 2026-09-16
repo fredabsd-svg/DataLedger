@@ -203,3 +203,117 @@ def test_patch_multiplos_campos_gera_trilha_com_cada_campo_no_diff():
     reg = RegistroAuditoria.objects.filter(acao="empresa.atualizada").get()
     assert reg.detalhes["valores_anteriores"] == {"razao_social": "A", "ativo": True}
     assert reg.detalhes["valores_novos"] == {"razao_social": "A2", "ativo": False}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_puts_sucessivos_registram_diffs_independentes():
+    """Dois PUTs sucessivos devem gerar dois eventos, cada um com apenas
+    o campo que mudou naquela operação."""
+    from django.contrib.auth import get_user_model
+    from django.test import Client
+    from django.urls import reverse
+
+    from apps.auditoria.models import RegistroAuditoria
+    from apps.empresas.models import Empresa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    escritorio = Escritorio.objects.create(nome="E BL-57 PUT", cnpj="10101010000110")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-bl57-put", password="senha-forte-123"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Original",
+        nome_fantasia="Fantasia",
+        cnpj="12121212000112",
+    )
+    client = Client()
+    client.login(username="gestor-bl57-put", password="senha-forte-123")
+    url = reverse("empresas:api-detalhe", args=[empresa.id])
+
+    resposta_cnpj = client.put(
+        url,
+        data={
+            "razao_social": "Original",
+            "nome_fantasia": "Fantasia",
+            "cnpj": "13131313000113",
+            "ativo": True,
+        },
+        content_type="application/json",
+    )
+    resposta_razao = client.put(
+        url,
+        data={
+            "razao_social": "Atualizada",
+            "nome_fantasia": "Fantasia",
+            "cnpj": "13131313000113",
+            "ativo": True,
+        },
+        content_type="application/json",
+    )
+
+    assert resposta_cnpj.status_code == 200, resposta_cnpj.content
+    assert resposta_razao.status_code == 200, resposta_razao.content
+    registros = list(
+        RegistroAuditoria.objects.filter(acao="empresa.atualizada").order_by("criado_em", "id")
+    )
+    assert len(registros) == 2
+    assert registros[0].detalhes == {
+        "valores_anteriores": {"cnpj": "12121212000112"},
+        "valores_novos": {"cnpj": "13131313000113"},
+    }
+    assert registros[1].detalhes == {
+        "valores_anteriores": {"razao_social": "Original"},
+        "valores_novos": {"razao_social": "Atualizada"},
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+def test_put_campo_adicionado_ao_serializer_entra_na_trilha(monkeypatch, client):
+    """A mutação adiciona um campo gravável ao serializer, sem tocar na
+    lista de produção; o diff precisa acompanhá-lo por contrato."""
+    from django.contrib.auth import get_user_model
+    from django.urls import reverse
+    from rest_framework import serializers
+
+    from apps.auditoria.models import RegistroAuditoria
+    from apps.empresas.models import Empresa
+    from apps.empresas.serializers import EmpresaSerializer
+    from apps.empresas.views import EmpresaDetailView
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    class SerializerComCampoDerivado(EmpresaSerializer):
+        apelido = serializers.CharField(required=False)
+
+        class Meta(EmpresaSerializer.Meta):
+            fields = [*EmpresaSerializer.Meta.fields, "apelido"]
+
+    escritorio = Escritorio.objects.create(nome="E BL-57 contrato", cnpj="14141414000114")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-bl57-contrato", password="senha-forte-123"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Contrato", cnpj="15151515000115"
+    )
+    monkeypatch.setattr(Empresa, "apelido", "", raising=False)
+    monkeypatch.setattr(EmpresaDetailView, "serializer_class", SerializerComCampoDerivado)
+    client.login(username="gestor-bl57-contrato", password="senha-forte-123")
+
+    resposta = client.patch(
+        reverse("empresas:api-detalhe", args=[empresa.id]),
+        data={"apelido": "Campo novo"},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 200, resposta.content
+    registro = RegistroAuditoria.objects.get(acao="empresa.atualizada")
+    assert registro.detalhes == {
+        "valores_anteriores": {"apelido": ""},
+        "valores_novos": {"apelido": "Campo novo"},
+    }

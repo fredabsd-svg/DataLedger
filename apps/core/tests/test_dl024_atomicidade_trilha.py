@@ -230,6 +230,33 @@ def test_registrar_escritorio_ativado_fbv_dentro_do_transaction_atomic():
     )
 
 
+def test_registrar_estabelecimento_criado_dentro_do_transaction_atomic():
+    """A criação de estabelecimento e sua trilha precisam compartilhar a
+    mesma transação; o INSERT do estabelecimento não pode sobreviver a uma
+    falha posterior do `registrar()`."""
+    from apps.empresas.views import EstabelecimentoListCreateView
+
+    source = inspect.getsource(EstabelecimentoListCreateView.perform_create)
+    bloco = _texto_do_bloco_transaction_atomic(source)
+    assert _tem_registrar_dentro(bloco, "estabelecimento.criado"), (
+        "BL-14: `registrar(acao='estabelecimento.criado', ...)` precisa estar "
+        "dentro do transaction.atomic de EstabelecimentoListCreateView."
+    )
+
+
+def test_registrar_regime_tributario_criado_dentro_do_transaction_atomic():
+    """A transação externa precisa abranger o serviço de regime e a trilha,
+    porque o serviço retorna depois do seu savepoint interno."""
+    from apps.empresas.views import HistoricoRegimeTributarioListCreateView
+
+    source = inspect.getsource(HistoricoRegimeTributarioListCreateView.post)
+    bloco = _texto_do_bloco_transaction_atomic(source)
+    assert _tem_registrar_dentro(bloco, "regime_tributario.registrado"), (
+        "BL-14: `registrar(acao='regime_tributario.registrado', ...)` precisa "
+        "estar dentro do transaction.atomic de HistoricoRegimeTributarioListCreateView."
+    )
+
+
 # -----------------------------------------------------------------------
 # 2. Runtime — `RegistroAuditoria.objects.create` falha, a operação reverte.
 #    Estes testes exigem PostgreSQL (`transaction=True`).
@@ -324,5 +351,81 @@ def test_criar_conta_api_reverte_se_registrar_falha(client):
 
     assert Conta.objects.count() == 0, (
         "BL-14: Conta foi gravada mas a trilha falhou — atomicidade quebrada."
+    )
+    assert resposta.status_code != 201
+
+
+@pytest.mark.django_db(transaction=True)
+def test_criar_estabelecimento_reverte_se_registrar_falha(client):
+    """Prova runtime do BL-14 para estabelecimento."""
+    from django.contrib.auth import get_user_model
+    from django.db import IntegrityError
+    from django.urls import reverse
+
+    from apps.auditoria.models import RegistroAuditoria
+    from apps.empresas.models import Empresa, Estabelecimento
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    escritorio = Escritorio.objects.create(nome="Escr Estab", cnpj="55555555000155")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-estab", password="senha-forte-123"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="E Estab", cnpj="66666666000166"
+    )
+    client.login(username="gestor-estab", password="senha-forte-123")
+
+    with mock.patch.object(
+        RegistroAuditoria.objects, "create", side_effect=IntegrityError("audit falhou")
+    ):
+        resposta = client.post(
+            reverse("empresas:api-estabelecimentos", args=[empresa.id]),
+            data={"tipo": "matriz", "nome": "Matriz", "cnpj": "77777777000177"},
+            content_type="application/json",
+        )
+
+    assert Estabelecimento.objects.count() == 0, (
+        "BL-14: Estabelecimento foi gravado mas a trilha falhou — atomicidade quebrada."
+    )
+    assert resposta.status_code != 201
+
+
+@pytest.mark.django_db(transaction=True)
+def test_criar_regime_reverte_se_registrar_falha(client):
+    """Prova runtime do BL-14 para o serviço de regime tributário."""
+    from django.contrib.auth import get_user_model
+    from django.db import IntegrityError
+    from django.urls import reverse
+
+    from apps.auditoria.models import RegistroAuditoria
+    from apps.empresas.models import Empresa, HistoricoRegimeTributario
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    escritorio = Escritorio.objects.create(nome="Escr Regime", cnpj="88888888000188")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-regime", password="senha-forte-123"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="E Regime", cnpj="99999999000199"
+    )
+    client.login(username="gestor-regime", password="senha-forte-123")
+
+    with mock.patch.object(
+        RegistroAuditoria.objects, "create", side_effect=IntegrityError("audit falhou")
+    ):
+        resposta = client.post(
+            reverse("empresas:api-regime-tributario", args=[empresa.id]),
+            data={"regime": "simples_nacional", "vigencia_inicio": "2026-01-01"},
+            content_type="application/json",
+        )
+
+    assert HistoricoRegimeTributario.objects.count() == 0, (
+        "BL-14: regime foi gravado mas a trilha falhou — atomicidade quebrada."
     )
     assert resposta.status_code != 201

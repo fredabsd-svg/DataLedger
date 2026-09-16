@@ -11,11 +11,11 @@ continuava aberto:
 - `RegistroAuditoria.objects.filter(acao='login.sucesso').update(acao='foo')`
   retornava `3` e reescrevia o histórico sem deixar rastro.
 
-`apps/auditoria/admin.py` cobre a INTERFACE; este módulo cobre o MODELO.
-A defesa mora no signal handler (Django não tem `delete_enabled`/`update_enabled`
-nativo no `Meta`), e os dois caminhos (delete em massa, update em massa)
-precisam falhar o mais cedo possível para que `registrar()` na camada
-de serviço (BL-14) também não seja capaz de reescrever o histórico.
+`apps/auditoria/admin.py` cobre a INTERFACE; o manager do modelo cobre
+`QuerySet.update()`/`delete()`/`bulk_update()`, que não emitem signals; e
+este módulo cobre os caminhos de instância. Os dois níveis precisam falhar
+o mais cedo possível para que `registrar()` na camada de serviço (BL-14)
+também não seja capaz de reescrever o histórico.
 
 Quem NÃO é bloqueado:
 - `RegistroAuditoria.objects.create(...)` continua funcionando — novos
@@ -52,7 +52,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
-from apps.auditoria.models import RegistroAuditoria
+from apps.auditoria.models import MENSAGEM_IMUTABILIDADE, RegistroAuditoria
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import Conta
 from apps.core.current_request import get_current_request
@@ -62,13 +62,15 @@ from apps.tenancy.models import Escritorio, VinculoUsuarioEscritorio
 # --- BL-16 ----------------------------------------------------------------
 
 MENSAGEM_DELETE = (
-    "RegistroAuditoria: registros de auditoria são imutáveis — "
+    f"{MENSAGEM_IMUTABILIDADE}: "
+    "registros de auditoria são imutáveis — "
     "delete (incluindo o do QuerySet em massa) é proibido. "
     "Se a trilha precisa ser corrigida, registre um novo evento, "
     "não reescreva o histórico."
 )
 MENSAGEM_UPDATE = (
-    "RegistroAuditoria: registros de auditoria são imutáveis — "
+    f"{MENSAGEM_IMUTABILIDADE}: "
+    "registros de auditoria são imutáveis — "
     "update (incluindo o do QuerySet em massa) é proibido. "
     "Se a trilha precisa ser corrigida, registre um novo evento, "
     "não reescreva o histórico."

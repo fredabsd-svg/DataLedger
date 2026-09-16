@@ -385,6 +385,11 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
                 ),
             ):
                 estabelecimento = serializer.save(empresa=self.get_empresa())
+                registrar(
+                    acao="estabelecimento.criado",
+                    objeto=estabelecimento,
+                    request=self.request,
+                )
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
@@ -392,7 +397,6 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
             # `exc.nome`, nunca o texto da mensagem (ver `RestricaoViolada`).
             campo = "cnpj" if exc.nome == "estabelecimento_cnpj_canonico" else "tipo"
             raise DRFValidationError({campo: [str(exc)]}) from exc
-        registrar(acao="estabelecimento.criado", objeto=estabelecimento, request=self.request)
 
 
 class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
@@ -458,16 +462,21 @@ class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.Lis
             raise DRFValidationError(f"'vigencia_inicio' inválido: {exc}") from exc
 
         try:
-            registro = registrar_regime_tributario(empresa, regime, data_inicio)
+            # BL-14 (DL-024): o serviço já tem uma transação própria, mas
+            # ela termina antes de retornar. A transação externa mantém a
+            # criação do período e o `registrar()` no mesmo commit; se a
+            # trilha falhar, o período também volta atrás.
+            with transaction.atomic():
+                registro = registrar_regime_tributario(empresa, regime, data_inicio)
+                registrar(
+                    acao="regime_tributario.registrado",
+                    objeto=registro,
+                    request=request,
+                    detalhes={"regime": regime, "vigencia_inicio": vigencia_inicio},
+                )
         except ValueError as exc:
             raise DRFValidationError(str(exc)) from exc
 
-        registrar(
-            acao="regime_tributario.registrado",
-            objeto=registro,
-            request=request,
-            detalhes={"regime": regime, "vigencia_inicio": vigencia_inicio},
-        )
         serializer = self.get_serializer(registro)
         return Response(serializer.data, status=201)
 

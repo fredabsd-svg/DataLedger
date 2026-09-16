@@ -11,10 +11,11 @@ continuava aberto:
 - `RegistroAuditoria.objects.filter(...).update(...)` retornava a
   contagem e reescrevia o histórico sem deixar rastro.
 
-A defesa mora em `apps/auditoria/signals.py`: `pre_delete` e `pre_save`
-levantam `PermissionDenied` (com distinção entre create e update via
-`_state.adding`). O `create()` continua funcionando — novos registros
-são o que a trilha é feita de.
+A defesa combina o manager de `RegistroAuditoria` com
+`apps/auditoria/signals.py`: o `QuerySet` bloqueia `update()`,
+`bulk_update()` e `delete()` em massa, enquanto `pre_delete` e `pre_save`
+protegem os caminhos de instância. O `create()` continua funcionando —
+novos registros são o que a trilha é feita de.
 
 Testes:
 
@@ -129,6 +130,31 @@ def test_apps_auditoria_importa_signals_em_ready():
     )
 
 
+def test_queryset_de_registroauditoria_bloqueia_mutacoes_em_massa():
+    """O ORM em massa não emite signals; o manager precisa fechar esses
+    métodos diretamente, inclusive `bulk_update()` fora do aceite mínimo."""
+    from django.db import models
+
+    from apps.auditoria.models import RegistroAuditoriaQuerySet
+
+    assert RegistroAuditoriaQuerySet.update is not models.QuerySet.update
+    assert RegistroAuditoriaQuerySet.bulk_update is not models.QuerySet.bulk_update
+    assert RegistroAuditoriaQuerySet.delete is not models.QuerySet.delete
+
+
+def test_manager_recusa_update_e_delete_antes_de_consultar_o_banco():
+    """A defesa do manager é exercitável sem conexão: nenhum SQL deve ser
+    necessário para recusar as duas mutações em massa."""
+    from django.core.exceptions import PermissionDenied
+
+    from apps.auditoria.models import RegistroAuditoria
+
+    with pytest.raises(PermissionDenied, match="registro de auditoria é imutável"):
+        RegistroAuditoria.objects.all().update(acao="fraude")
+    with pytest.raises(PermissionDenied, match="registro de auditoria é imutável"):
+        RegistroAuditoria.objects.all().delete()
+
+
 # -----------------------------------------------------------------------
 # 2. Runtime — paths bloqueados pelo ORM de verdade (CI only)
 # -----------------------------------------------------------------------
@@ -211,3 +237,22 @@ def test_registroauditoria_save_em_instancia_persistida_e_bloqueado():
     reg.acao = "foo"
     with pytest.raises(PermissionDenied):
         reg.save()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_set_null_de_referencias_preserva_o_evento_ao_excluir_escritorio():
+    """A limpeza referencial de `SET_NULL` é a única atualização interna
+    permitida: o vínculo some, mas o evento continua no histórico."""
+    from django.contrib.auth import get_user_model
+
+    from apps.auditoria.services import registrar
+    from apps.tenancy.models import Escritorio
+
+    escritorio = Escritorio.objects.create(nome="E BL-16 SET NULL", cnpj="16161616000116")
+    usuario = get_user_model().objects.create_user(username="u-bl16-set-null")
+    registro = registrar(acao="login.teste", escritorio=escritorio, usuario=usuario)
+
+    escritorio.delete()
+
+    registro.refresh_from_db()
+    assert registro.escritorio_id is None
