@@ -1,7 +1,10 @@
 # DL-022 — Plano mestre de evolução e reconciliação do estado
 
-**Estado:** **em validação.** Aberta em 2026-09-16, a partir da `main` em
-`b8c66a6` (PR #22 integrado).
+**Estado:** **em validação, no PR #23.** Aberta em 2026-09-16, a partir da `main`
+em `b8c66a6` (PR #22 integrado). As cinco verificações da integração contínua
+ficaram verdes na revisão `40bc0c2`, lidas pelos `check-runs` daquela revisão
+exata. A situação atual mora no
+[estado](../agents/estado.md) — este plano não a repete.
 
 **Natureza da etapa:** **documental.** Nenhuma linha de código de produto,
 nenhuma migração, nenhum teste novo de negócio. O que entra é plano, registro

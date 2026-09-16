@@ -255,7 +255,11 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-16: [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md)
 — o plano mestre entrou no repositório e a documentação divergente foi
-reconciliada.** Etapa **documental**: nenhuma linha de código de produto. O Fred
+reconciliada. PR #23 aberto, aguardando a palavra do Fred para mesclar.** Etapa
+**documental**: nenhuma linha de código de produto. As **cinco** verificações da
+integração contínua ficaram verdes na revisão `40bc0c2` — lidas pelos
+`check-runs` daquela revisão exata, não por suposição (é a regra da BL-137, e o
+mecanismo que falta é a BL-236). O Fred
 entregou um plano mestre de evolução por módulos medido sobre `b8c66a6` e pediu
 análise mais publicação; o documento está preservado **sem edição** em
 [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), com a análise do
