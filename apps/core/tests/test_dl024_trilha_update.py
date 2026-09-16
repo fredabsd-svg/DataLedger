@@ -228,7 +228,7 @@ def test_puts_sucessivos_registram_diffs_independentes():
         escritorio=escritorio,
         razao_social="Original",
         nome_fantasia="Fantasia",
-        cnpj="12121212000112",
+        cnpj="11122233000183",
     )
     client = Client()
     client.login(username="gestor-bl57-put", password="senha-forte-123")
@@ -239,7 +239,7 @@ def test_puts_sucessivos_registram_diffs_independentes():
         data={
             "razao_social": "Original",
             "nome_fantasia": "Fantasia",
-            "cnpj": "13131313000113",
+            "cnpj": "44455566000183",
             "ativo": True,
         },
         content_type="application/json",
@@ -249,7 +249,7 @@ def test_puts_sucessivos_registram_diffs_independentes():
         data={
             "razao_social": "Atualizada",
             "nome_fantasia": "Fantasia",
-            "cnpj": "13131313000113",
+            "cnpj": "44455566000183",
             "ativo": True,
         },
         content_type="application/json",
@@ -262,8 +262,8 @@ def test_puts_sucessivos_registram_diffs_independentes():
     )
     assert len(registros) == 2
     assert registros[0].detalhes == {
-        "valores_anteriores": {"cnpj": "12121212000112"},
-        "valores_novos": {"cnpj": "13131313000113"},
+        "valores_anteriores": {"cnpj": "11122233000183"},
+        "valores_novos": {"cnpj": "44455566000183"},
     }
     assert registros[1].detalhes == {
         "valores_anteriores": {"razao_social": "Original"},

@@ -419,6 +419,10 @@ def test_criar_regime_reverte_se_registrar_falha(client):
     with mock.patch.object(
         RegistroAuditoria.objects, "create", side_effect=IntegrityError("audit falhou")
     ):
+        # A falha da trilha deve propagar como erro do servidor; desabilitar
+        # o relançamento do Client permite verificar o rollback sem mascarar
+        # a exceção como falha do próprio teste.
+        client.raise_request_exception = False
         resposta = client.post(
             reverse("empresas:api-regime-tributario", args=[empresa.id]),
             data={"regime": "simples_nacional", "vigencia_inicio": "2026-01-01"},

@@ -163,7 +163,7 @@ def test_save_de_empresa_via_admin_gera_trilha():
             "escritorio": escritorio.pk,
             "razao_social": "R BL-244",
             "nome_fantasia": "F BL-244",
-            "cnpj": "22222222000122",
+            "cnpj": "11122233000183",
             "ativo": "on",
         },
         follow=False,
@@ -196,7 +196,7 @@ def test_change_de_empresa_via_admin_gera_trilha_com_diff():
         escritorio=escritorio,
         razao_social="Original",
         nome_fantasia="F Original",
-        cnpj="44444444000144",
+        cnpj="44455566000183",
     )
 
     client = Client()
@@ -208,7 +208,7 @@ def test_change_de_empresa_via_admin_gera_trilha_com_diff():
             "escritorio": escritorio.pk,
             "razao_social": "Atualizada",
             "nome_fantasia": "F Original",
-            "cnpj": "44444444000144",
+            "cnpj": "44455566000183",
             "ativo": "on",
         },
         follow=False,
