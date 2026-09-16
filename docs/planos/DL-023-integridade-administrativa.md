@@ -27,6 +27,39 @@ admin de lançamentos **já recusa** inclusão, alteração e exclusão: não h�
 terceiro caso de lançamento arbitrário, e afirmar que havia foi erro do
 `arquiteto-senior`, registrado na BL-211.
 
+## Inventário da superfície, medido na abertura da etapa
+
+Varredura feita pelo `auxiliar-pesquisa` em `24f6bbc`, por leitura de código
+(declarada como estática onde foi estática). **Onze** superfícies de escrita
+registradas: `EmpresaAdmin`, `EstabelecimentoInline`,
+`HistoricoRegimeTributarioInline`, `ContaAdmin`, `ItemLancamentoInline`,
+`LancamentoContabilAdmin`, `EscritorioAdmin`, `VinculoInline`,
+`VinculoUsuarioEscritorioAdmin`, `UserAdmin` e `RegistroAuditoriaAdmin`.
+
+**O que o inventário confirmou dos itens já conhecidos:** `Conta.clean()`
+(`apps/contabilidade/models.py:64-131`) defende `conta_pai` (empresa diferente e
+ciclo) e a reclassificação para sintética — **e não olha `empresa`, `natureza`
+nem `tipo`**. `Empresa` **não tem `clean()` nenhum**; só `save()` normalizando
+CNPJ. `HistoricoRegimeTributario` não tem `clean()` nem
+`Meta.constraints` — o validador de campo cobre só a **faixa** de data, e o
+fechamento do período anterior existe apenas dentro de
+`registrar_regime_tributario`, que o inline **não chama**.
+
+**Três achados que o inventário acrescentou, e que esta etapa passa a
+carregar:**
+
+| Achado | Medido | Decisão do `arquiteto-senior` |
+| --- | --- | --- |
+| **`RegistroAuditoriaAdmin` não bloqueia exclusão.** `has_add_permission` e `has_change_permission` devolvem `False`, e todos os campos são `readonly` — mas `has_delete_permission` **não é sobrescrito**, então a exclusão fica sujeita só à permissão de modelo | `apps/auditoria/admin.py:7-18`, por leitura; **sem nenhum teste por requisição** cobrindo | **Entra nesta etapa.** A trilha de auditoria é o que resta quando todo o resto falha; deixar a porta aberta sabendo dela seria escolher não fechar. O que **não** entra é o resto da **BL-16/BL-14/BL-57** (atomicidade da trilha e proteção fora do admin), que segue no pacote 3 |
+| **Nenhuma alteração feita pelo admin gera `RegistroAuditoria`.** Nenhum `admin.py` chama `registrar()`, nenhum sobrescreve `save_model`/`delete_model`/`save_formset`, e não há signal genérico | grep em `apps/**/admin.py` e `apps/*/signals.py` | **Registrado como BL-244**, e o critério 11 desta etapa foi **estreitado** de acordo: aqui se exige o registro nas operações que esta etapa governa e a **declaração explícita** da ausência nas demais. Prometer trilha completa no admin nesta etapa seria escopo do pacote 3 disfarçado |
+| **Seis superfícies não têm teste algum por requisição autenticada:** `EmpresaAdmin`, `EstabelecimentoInline`, `ContaAdmin`, `EscritorioAdmin`/`VinculoInline`, `VinculoUsuarioEscritorioAdmin`, `UserAdmin` e `RegistroAuditoriaAdmin` | busca por `/admin/` em `apps/**/tests/**`: só quatro arquivos contêm a string | É a prova de que a BL-211 é **classe**, não caso. O critério 12 (varredura enumerativa) passa a exigir que **cada** uma das onze superfícies tenha decisão registrada: defendida, deliberadamente livre, ou fora do produto |
+
+**O que o inventário declarou não ter medido**, e continua valendo como limite:
+se o `LogEntry` nativo do Django está gravando; o comportamento efetivo de
+`has_*_permission` herdado, fora dos casos com teste; e se cada
+`Meta.constraints` já está migrada no banco. Nada disso vira afirmação desta
+etapa sem execução.
+
 ## A classe do problema, não os casos
 
 > **A classe é:** nenhuma regra de negócio vale apenas na porta pela qual ela
@@ -60,7 +93,8 @@ e tarefa em segundo plano.
 | 5 | Períodos de regime **não se sobrepõem**, e a escolha do "último" é determinística. | BL-211/A2 + DE-039 |
 | 6 | Gravação de regime tributário passa **pelo serviço** em qualquer porta, ou a porta deixa de existir. | BL-211/A2 |
 | 7 | Vigência de regime respeita o teto "hoje" (**RC-85**) e o caminho de exclusão do **RC-86/DE-039**, também no admin. | RC-85, RC-86, DE-039 |
-| 8 | Alteração relevante feita pelo admin gera **`RegistroAuditoria`**, não só `LogEntry` do Django. | BL-211/A3, BL-57 |
+| 8 | Alteração relevante feita pelo admin gera **`RegistroAuditoria`**, não só `LogEntry` do Django — **nesta etapa, nas operações que ela governa**; a cobertura completa do admin é **BL-244** e fica no pacote 3. Onde a trilha não existir, a ausência é **declarada**, não silenciosa. | BL-211/A3, BL-57, BL-244 |
+| 9 | Registro de auditoria **não se apaga pelo admin**. | Inventário de `24f6bbc`; família da BL-16 |
 
 ### Hipóteses declaradas
 
@@ -106,17 +140,26 @@ conferido depois da resposta.
 10. Vigência futura continua recusada no admin (**RC-85**), e a exclusão segue o
     alcance do **RC-86/DE-039** (só o último período; o anterior volta a
     vigente; o evento vai para `RegistroAuditoria`).
-11. Cada recusa dos itens 1 a 10 grava, ou deixa de precisar gravar,
-    `RegistroAuditoria` de forma **declarada** — e cada alteração
-    **bem-sucedida** de campo estruturante grava.
+11. **Trilha: o que esta etapa promete, medido, e nada além.** Está medido que
+    **nenhuma** alteração feita pelo admin gera `RegistroAuditoria` hoje
+    (**BL-244**). Aqui se exige: (a) o registro nas operações que esta etapa
+    governa; (b) a **ausência declarada**, no código e no relatório, onde ela
+    permanece. Prometer trilha completa do admin nesta etapa seria o pacote 3
+    disfarçado — e promessa maior que a defesa é a família de defeitos que este
+    projeto mais repetiu.
 12. **Inventário da varredura versionado**: existe teste que enumera todo
     `ModelAdmin` e `Inline` registrado e **reprova nomeadamente** quando aparece
-    superfície nova sem decisão registrada. Superfície nova sem dono é o defeito,
-    não a exceção.
-13. **Prova por mutação**: para cada defesa nova, remover a defesa mata ao menos
+    superfície nova sem decisão registrada. As **onze** superfícies de `24f6bbc`
+    entram com decisão explícita: defendida, deliberadamente livre, ou fora do
+    produto. Superfície nova sem dono é o defeito, não a exceção.
+13. **A exclusão de registro de auditoria pelo admin é recusada**, provada por
+    requisição autenticada: `has_delete_permission` devolve `False` em
+    `RegistroAuditoriaAdmin`, o POST de exclusão individual **e** a ação em lote
+    são recusados, e o registro continua no banco depois da tentativa.
+14. **Prova por mutação**: para cada defesa nova, remover a defesa mata ao menos
     um teste. Defesa cuja remoção não mata teste **não está defendida** — é a
     medição que a DL-019 e a DL-020 tornaram obrigatória.
-14. `ruff check`, `ruff format --check`, `manage.py check`,
+15. `ruff check`, `ruff format --check`, `manage.py check`,
     `makemigrations --check --dry-run` e `pytest` verdes, medidos em **cópia
     limpa** (`git archive <hash> | tar -x`), e os `check-runs` da revisão exata
     lidos antes de qualquer declaração de "verde".
@@ -138,7 +181,7 @@ Conjuntos **disjuntos**, para que dois agentes nunca editem o mesmo arquivo.
 
 | Responsável | Pode editar |
 | --- | --- |
-| `desenvolvedor-pleno` | `apps/contabilidade/models.py`, `apps/contabilidade/admin.py`, `apps/empresas/models.py`, `apps/empresas/admin.py`, `apps/empresas/services.py`, migrações novas em `apps/*/migrations/`, testes novos `apps/*/tests/test_dl023_*.py` |
+| `desenvolvedor-pleno` | `apps/contabilidade/models.py`, `apps/contabilidade/admin.py`, `apps/empresas/models.py`, `apps/empresas/admin.py`, `apps/empresas/services.py`, **`apps/auditoria/admin.py`** (só o bloqueio de exclusão do critério 13), migrações novas em `apps/*/migrations/`, testes novos `apps/*/tests/test_dl023_*.py` |
 | `auditor-qa` | Nada. Audita a versão integrada e **não corrige** |
 | `arquiteto-senior` | `docs/**`, `README.md`, integração e commit |
 
