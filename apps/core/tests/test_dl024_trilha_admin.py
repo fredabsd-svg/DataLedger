@@ -165,6 +165,10 @@ def test_save_de_empresa_via_admin_gera_trilha():
             "nome_fantasia": "F BL-244",
             "cnpj": "11122233000183",
             "ativo": "on",
+            "estabelecimentos-TOTAL_FORMS": "0",
+            "estabelecimentos-INITIAL_FORMS": "0",
+            "estabelecimentos-MIN_NUM_FORMS": "0",
+            "estabelecimentos-MAX_NUM_FORMS": "1000",
         },
         follow=False,
     )
@@ -210,6 +214,10 @@ def test_change_de_empresa_via_admin_gera_trilha_com_diff():
             "nome_fantasia": "F Original",
             "cnpj": "44455566000183",
             "ativo": "on",
+            "estabelecimentos-TOTAL_FORMS": "0",
+            "estabelecimentos-INITIAL_FORMS": "0",
+            "estabelecimentos-MIN_NUM_FORMS": "0",
+            "estabelecimentos-MAX_NUM_FORMS": "1000",
         },
         follow=False,
     )
