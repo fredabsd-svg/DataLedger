@@ -1,6 +1,6 @@
 # DL-024 — Trilha íntegra e processo: log à prova de desvio e processo à prova de descuido
 
-**Estado:** **em validação, rodada 1 bloqueada localmente**, aberto em
+**Estado:** **em validação, CA-4 bloqueada por divergência de superfície**, aberto em
 2026-09-16 a partir da `main` em `1b828e7` (PR #27 integrado — DL-018 +
 rodadas 4 e 6 da DL-023). A execução segue na branch
 `claude/dl-024-execucao`; os critérios de aceite abaixo permanecem intactos.
@@ -310,7 +310,7 @@ acesso já está em need-to-know com dois papéis. Quem confirma é ele.
 
 ## Git
 
-- **Branch de trabalho:** `claude/dl-024-trilha-integra-e-processo`, aberta
+- **Branch de trabalho:** `claude/dl-024-execucao`, aberta
   a partir de `1b828e7`.
 - **Branch de destino:** `main`, por PR. **O PR é parte da entrega** (achado
   A7/BL-260 herdado da DL-023): sem ele, o workflow "Regras do projeto" não
@@ -371,6 +371,12 @@ acesso já está em need-to-know com dois papéis. Quem confirma é ele.
   preservada por migração; e as gravações de estabelecimento e regime
   tributário passaram a compartilhar a transação com sua trilha. Foram
   acrescentados os testes de mutação correspondentes e os casos faltantes
-  da CA-3. A prova runtime em PostgreSQL e a conciliação da lista de
-  ModelAdmin da CA-4 continuam pendentes; ver a [auditoria rodada 1]
+  da CA-3. A prova runtime local ficou pendente, mas foi fechada pela CI
+  posterior; a conciliação da lista de ModelAdmin da CA-4 continua pendente;
+  ver a [auditoria rodada 1]
   (../auditorias/2026-09-16-dl-024-rodada-1.md).
+- 2026-09-16: o PR #28 executou a suíte completa no head `5af2c19`.
+  Após as correções dos cenários runtime (`2613343`, `da59b19` e
+  `5af2c19`), o Backend passou com 1.345 testes e 2 pulados; Documentação e
+  Regras do projeto também passaram. A validação runtime está fechada na CI;
+  a etapa segue em validação pela divergência de CA-4 e pela revisão humana.
