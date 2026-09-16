@@ -157,7 +157,7 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 
 ## 🗺️ Roadmap real do repositório
 
-A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração.
+A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração. A **sequência do que vem depois**, módulo por módulo e com critérios de conclusão, está em [`docs/projeto/plano-mestre.md`](docs/projeto/plano-mestre.md).
 
 - [x] **DL-001** — documentação inicial e regras de contribuição
 - [x] **DL-002** — arquitetura e fundação técnica
@@ -176,11 +176,11 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [x] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
 - [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
-- [ ] **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
 - [ ] **DL-018** — primeiro acesso de uma instalação nova, pelo produto e sem admin técnico
 - [x] **DL-019** — portabilidade entre ferramentas de IA: os papéis da equipe em um formato só, gerados para Claude Code e Codex CLI
 - [x] **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
-- [ ] **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
+- [x] **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
+- [ ] **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
@@ -200,6 +200,7 @@ Contribuições técnicas são bem-vindas, mas o projeto possui regras rígidas 
 Comece por estes documentos:
 
 - [`docs/agents/estado.md`](docs/agents/estado.md) — **onde o projeto está** e qual é o próximo passo.
+- [`docs/projeto/plano-mestre.md`](docs/projeto/plano-mestre.md) — **para onde o projeto vai**: sequência de entregas por módulo, com os critérios de conclusão. É mapa de decomposição, não fonte de estado.
 - [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) — requisitos confirmados, hipóteses e pendências.
 - [`docs/projeto/backlog.md`](docs/projeto/backlog.md) — prioridades, dependências e critérios de aceite.
 - [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) — decisões arquiteturais e justificativas.
@@ -218,6 +219,7 @@ Fluxo esperado: **branch própria → implementação pequena → testes → rev
 | [`docs/agents/equipe.md`](docs/agents/equipe.md) | Papéis da equipe de agentes, em todas as ferramentas suportadas |
 | [`docs/agents/estado.md`](docs/agents/estado.md) | Estado atual e retomada do trabalho — fonte única |
 | [`docs/escopo.md`](docs/escopo.md) | Escopo funcional do sistema |
+| [`docs/projeto/plano-mestre.md`](docs/projeto/plano-mestre.md) | Sequência de evolução por módulo e critérios de conclusão |
 | [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) | Requisitos e hipóteses |
 | [`docs/projeto/backlog.md`](docs/projeto/backlog.md) | Backlog priorizado |
 | [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) | Registro de decisões |
