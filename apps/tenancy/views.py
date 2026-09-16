@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import redirect, render
 
 # BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
@@ -168,14 +169,23 @@ class EscritorioAtivoView(APIView):
         if not tem_vinculo:
             return Response({"detail": "Escritório inválido ou sem vínculo ativo."}, status=403)
 
+        # BL-14 (DL-024): o `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava o `RegistroAuditoria`. Antes, se
+        # o INSERT da trilha falhasse, a troca de escritório ativo
+        # continuava válida e a auditoria ficava silenciosamente vazia.
+        # **Limitação:** a `request.session` não reverte por
+        # `transaction.atomic()` (ver comentário equivalente em
+        # `ativar_escritorio`). A defesa cobre o RegistroAuditoria.
+        with transaction.atomic():
+            # request.escritorio ainda reflete o valor de antes da troca (o
+            # middleware já rodou nesta requisição): busca o novo explicitamente.
+            escritorio = Escritorio.objects.get(pk=escritorio_id)
+            registrar(
+                acao="escritorio.ativado",
+                usuario=request.user,
+                escritorio=escritorio,
+            )
         request.session["escritorio_id"] = escritorio_id
-        # request.escritorio ainda reflete o valor de antes da troca (o
-        # middleware já rodou nesta requisição): busca o novo explicitamente.
-        registrar(
-            acao="escritorio.ativado",
-            usuario=request.user,
-            escritorio=Escritorio.objects.get(pk=escritorio_id),
-        )
         return Response({"status": "ok"})
 
 
@@ -250,9 +260,21 @@ def ativar_escritorio(request):
             messages.error(request, "Escritório inválido ou sem vínculo ativo com o seu usuário.")
             return redirect("tenancy:painel")
 
+        # BL-14 (DL-024): `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava o `RegistroAuditoria`. Antes, se
+        # o INSERT da trilha falhasse, a troca de escritório ativo
+        # continuava válida e a auditoria ficava silenciosamente vazia —
+        # a sessão dizia uma coisa, a trilha dizia outra. Agora ambos
+        # são uma só operação atômica; qualquer exceção do `registrar()`
+        # propaga e a transação reverte. **Limitação:** a `request.session`
+        # não é revertida por `transaction.atomic()` — a troca fica
+        # registrada no cookie mesmo se a trilha falhar. Quem precisa de
+        # reversão completa da sessão precisa de abordagem diferente
+        # (fora do escopo do BL-14, registro como pendência para DL futura).
+        with transaction.atomic():
+            escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
+            registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
         request.session["escritorio_id"] = escritorio_id_valido
-        escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
-        registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
         messages.success(request, f"Escritório ativo: {escritorio.nome}.")
     else:
         # BL-23/A9: GET nesta URL (link direto, favorito, back do navegador)

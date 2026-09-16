@@ -21,8 +21,8 @@ foreach ($relativePath in $requiredDocuments) {
 
 # A leitura estrita impede que bytes inválidos sejam silenciosamente substituídos.
 $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
-$documents = @(Get-ChildItem -LiteralPath $repositoryRoot -Recurse -Force -File -Filter '*.md' |
-    Where-Object { $_.FullName -notmatch '[\\/](\.git|node_modules|\.venv|venv|__pycache__|staticfiles|[^\\/]+\.(dist-info|egg-info))[\\/]' })
+$documents = @(Get-ChildItem -LiteralPath $repositoryRoot -Recurse -Force -File -Filter '*.md' -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '[\\/](\.git|node_modules|\.venv|venv|__pycache__|\.pytest_cache|staticfiles|[^\\/]+\.(dist-info|egg-info))[\\/]' })
 
 foreach ($document in $documents) {
     $displayPath = [System.IO.Path]::GetRelativePath($repositoryRoot, $document.FullName)

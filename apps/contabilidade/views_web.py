@@ -682,12 +682,21 @@ def conta_nova(request, empresa_id):
                 # detecta duplicidade aqui — não apenas defesa de corrida,
                 # como é em apps.empresas (onde o formulário já cobre
                 # 'cnpj' inteiro).
+                #
+                # BL-14 (DL-024): o `registrar()` foi MOVIDO para dentro do
+                # mesmo `transaction.atomic()` que grava a Conta. Antes,
+                # qualquer falha no INSERT do `RegistroAuditoria` deixava a
+                # Conta gravada e a trilha silenciosamente vazia — o plano
+                # de contas dizia uma coisa, a trilha dizia outra. Agora
+                # ambos são uma só operação atômica; o `else:` (que só roda
+                # em caso de sucesso no `try:`) garante que a auditoria
+                # só é tentada se a gravação passou.
                 with transaction.atomic():
                     conta = form.save()
+                    registrar(acao="conta.criada", objeto=conta, request=request)
             except IntegrityError:
                 form.add_error("codigo", "Já existe uma conta com este código nesta empresa.")
             else:
-                registrar(acao="conta.criada", objeto=conta, request=request)
                 messages.success(request, f"Conta “{conta}” criada com sucesso.")
                 return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
     else:
@@ -1636,47 +1645,65 @@ def lancamento_novo(request, empresa_id):
         # gravado.
         if not erros and len(itens) >= 2 and totais_batem and data_lancamento is not None:
             try:
-                lancamento = criar_lancamento(
-                    empresa=empresa,
-                    data=data_lancamento,
-                    historico=historico,
-                    itens=itens,
-                    criado_por=request.user,
-                    chave_idempotencia=chave_idempotencia,
-                )
-            except ChaveIdempotenciaConflitante as exc:
-                erros.append(str(exc))
-            except LancamentoInvalido as exc:
-                erros.append(str(exc))
-            else:
-                # O serviço informa se de fato criou ou reaproveitou um
-                # lançamento existente (mesma Idempotency-Key) — a trilha
-                # de auditoria e a mensagem precisam refletir o resultado
-                # real (mesmo cuidado da API, ver views.py).
-                if lancamento.criado_agora:
-                    registrar(acao="lancamento.criado", objeto=lancamento, request=request)
-                    messages.success(request, "Lançamento gravado com sucesso.")
-                else:
-                    registrar(
-                        acao="lancamento.criacao_repetida",
-                        objeto=lancamento,
-                        request=request,
-                        detalhes={
-                            "chave_idempotencia_hash": hashlib.sha256(
-                                chave_idempotencia.encode("utf-8")
-                            ).hexdigest()[:12]
-                        },
-                    )
-                    messages.info(
-                        request,
-                        "Este lançamento já havia sido gravado (nova tentativa com o "
-                        "mesmo envio, sem duplicar).",
-                    )
-                return redirect(
-                    "contabilidade_web:lancamento_detalhe",
-                    empresa_id=empresa.id,
-                    lancamento_id=lancamento.id,
-                )
+                # BL-14 (DL-024): o `with transaction.atomic()` envolve
+                # tanto a chamada a `criar_lancamento` quanto o `registrar()`
+                # da trilha. Antes, qualquer falha no INSERT do
+                # `RegistroAuditoria` deixava o lançamento gravado e a
+                # trilha silenciosamente vazia — o Diário dizia uma coisa,
+                # a trilha dizia outra. O `transaction.atomic()` é
+                # REENTRANTE: o serviço `criar_lancamento` é
+                # `@transaction.atomic` por si, e o aninhamento resulta em
+                # savepoint, e a falha do `registrar()` reverte o savepoint
+                # E o commit do `criar_lancamento` que ainda não subiu.
+                with transaction.atomic():
+                    try:
+                        lancamento = criar_lancamento(
+                            empresa=empresa,
+                            data=data_lancamento,
+                            historico=historico,
+                            itens=itens,
+                            criado_por=request.user,
+                            chave_idempotencia=chave_idempotencia,
+                        )
+                    except ChaveIdempotenciaConflitante as exc:
+                        erros.append(str(exc))
+                    except LancamentoInvalido as exc:
+                        erros.append(str(exc))
+                    else:
+                        # O serviço informa se de fato criou ou reaproveitou um
+                        # lançamento existente (mesma Idempotency-Key) — a trilha
+                        # de auditoria e a mensagem precisam refletir o resultado
+                        # real (mesmo cuidado da API, ver views.py).
+                        if lancamento.criado_agora:
+                            registrar(acao="lancamento.criado", objeto=lancamento, request=request)
+                            messages.success(request, "Lançamento gravado com sucesso.")
+                        else:
+                            registrar(
+                                acao="lancamento.criacao_repetida",
+                                objeto=lancamento,
+                                request=request,
+                                detalhes={
+                                    "chave_idempotencia_hash": hashlib.sha256(
+                                        chave_idempotencia.encode("utf-8")
+                                    ).hexdigest()[:12]
+                                },
+                            )
+                            messages.info(
+                                request,
+                                "Este lançamento já havia sido gravado (nova tentativa com o "
+                                "mesmo envio, sem duplicar).",
+                            )
+                        return redirect(
+                            "contabilidade_web:lancamento_detalhe",
+                            empresa_id=empresa.id,
+                            lancamento_id=lancamento.id,
+                        )
+            except IntegrityError:
+                # Defesa residual: se uma constraint que não foi prevista
+                # levantar aqui (mudança de modelo, regressão), a operação
+                # inteira — `criar_lancamento` + trilha — reverte junta, e
+                # o usuário vê o erro em vez de acreditar num sucesso falso.
+                erros.append("Não foi possível concluir a gravação do lançamento.")
         elif not erros:
             if len(itens) < 2:
                 erros.append("Informe ao menos duas partidas.")
