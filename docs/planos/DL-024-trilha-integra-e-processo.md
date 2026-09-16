@@ -1,8 +1,10 @@
 # DL-024 — Trilha íntegra e processo: log à prova de desvio e processo à prova de descuido
 
-**Estado:** **em planejamento, aguardando início**, aberto em 2026-09-16 a
-partir da `main` em `1b828e7` (PR #27 integrado — DL-018 + rodadas 4 e 6 da
-DL-023). Pacote 3 da fila do plano mestre (seção 16, item 3):
+**Estado:** **em validação, rodada 1 bloqueada localmente**, aberto em
+2026-09-16 a partir da `main` em `1b828e7` (PR #27 integrado — DL-018 +
+rodadas 4 e 6 da DL-023). A execução segue na branch
+`claude/dl-024-execucao`; os critérios de aceite abaixo permanecem intactos.
+Pacote 3 da fila do plano mestre (seção 16, item 3):
 "BL-14/16/57, proteção da main e decisão do suporte SQLite". Inclui
 **BL-244** (trilha do painel administrativo) por correção do Fred em
 2026-09-16, e mantém **BL-50** (teste do gate SQLite/PostgreSQL).
@@ -362,3 +364,13 @@ acesso já está em need-to-know com dois papéis. Quem confirma é ele.
   é `valores_anteriores` / `valores_novos` (não aninhado), matriz de
   acesso de `/auditoria/` fica FIXADA por teste e não mexida; **BL-244**
   entra no pacote.
+- 2026-09-16: execução retomada na branch `claude/dl-024-execucao`.
+  `febdc9f` corrige dois desvios encontrados na revisão da rodada 1:
+  `QuerySet.update()`/`delete()`/`bulk_update()` agora são bloqueados no
+  manager de `RegistroAuditoria`, com limpeza referencial `SET_NULL`
+  preservada por migração; e as gravações de estabelecimento e regime
+  tributário passaram a compartilhar a transação com sua trilha. Foram
+  acrescentados os testes de mutação correspondentes e os casos faltantes
+  da CA-3. A prova runtime em PostgreSQL e a conciliação da lista de
+  ModelAdmin da CA-4 continuam pendentes; ver a [auditoria rodada 1]
+  (../auditorias/2026-09-16-dl-024-rodada-1.md).
