@@ -289,9 +289,7 @@ def test_painel_tem_link_bootstrap_quando_sem_vinculo(client):
     é renderizado no painel quando `escritorios` é vazio — não há
     como chegar no formulário por engano."""
     User = get_user_model()
-    User.objects.create_user(
-        username="painel", email="painel@dl018.local", password=SENHA
-    )
+    User.objects.create_user(username="painel", email="painel@dl018.local", password=SENHA)
     assert client.login(username="painel", password=SENHA)
     resposta = client.get(reverse("tenancy:painel"))
     assert resposta.status_code == 200
