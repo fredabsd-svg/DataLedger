@@ -1,0 +1,29 @@
+# Força LF em arquivos de texto versionados, independente de `core.autocrlf`.
+#
+# Origem: DL-021 (https://.../docs/planos/DL-021-robustez-do-gerador-no-windows.md).
+# Sem isto, um clone com `core.autocrlf=true` checkout os arquivos em CRLF
+# em silêncio, e o verificador byte-strict do gerador de papéis (achado 9 do
+# DL-019) reporta "fora de sincronia" mesmo quando o conteúdo lógico é o
+# mesmo. `eol=lf` torna a regra operacional (rede de segurança) em vez de
+# depender de cada clone configurar `core.autocrlf=false` à mão.
+#
+# Cobertura:
+# - `*.md` cobre a documentação e a fonte dos papéis em `docs/agents/papeis/`.
+# - `*.toml` cobre os derivados gerados para Codex CLI em `.codex/agents/`.
+# - `*.py` é rede de segurança para qualquer arquivo Python gerado por
+#   ferramenta no futuro; não normaliza arquivos já versionados em CRLF
+#   proposital.
+# - O próprio `.gitattributes` e `.gitignore` também seguem LF (caso
+#   contrário, a primeira regra de qualquer um seria aplicada sobre o
+#   próprio arquivo em CRLF, e a "rede de segurança" falharia por si mesma).
+#
+# O gerador de papéis (`scripts/gerar_agentes.py`) tem defesa própria
+# (`write_bytes` em vez de `write_text`, testado em
+# `apps/core/tests/test_agentes_multiplataforma.py`); este arquivo é a
+# segunda linha de defesa para qualquer outro gerador que um dia escreva
+# texto no repositório.
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.py text eol=lf

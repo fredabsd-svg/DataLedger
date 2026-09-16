@@ -1032,7 +1032,13 @@ def escrever(papeis: list[Papel], diretorios: Diretorios = DIRETORIOS_REPO) -> N
         # Escreve em arquivo temporário e troca de nome: uma falha no meio da
         # escrita não deixa um arquivo pela metade em cima do anterior.
         temporario = arquivo.caminho.with_suffix(arquivo.caminho.suffix + ".tmp")
-        temporario.write_text(arquivo.conteudo, encoding="utf-8")
+        # Achado da DL-021: `write_text` em Windows converte `\n` para `\r\n`
+        # na escrita, contaminando os derivados com CRLF e fazendo o
+        # verificador byte-strict (achado 9 do DL-019) reportar divergência
+        # em qualquer clone Windows. `write_bytes` grava os bytes literais
+        # que `arquivo.conteudo.encode("utf-8")` produz — sempre LF, em
+        # qualquer sistema operacional.
+        temporario.write_bytes(arquivo.conteudo.encode("utf-8"))
         temporario.replace(arquivo.caminho)
         # Achado A3 (BL-175): `write_text` cria com `0o666 & ~umask`, então o
         # modo do arquivo gerado dependia do umask de quem rodou o comando —
