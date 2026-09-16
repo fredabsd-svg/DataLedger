@@ -271,10 +271,10 @@ agora:
 | **CA-6** matriz de acesso de `/auditoria/` FIXADA por teste | `1671415` | 0/0 estáticos + 8 runtime (CI) |
 | **BL-50** teste do gate SQLite/PostgreSQL | já passa (test_configuracao_producao.py — fixado pelo bug do `.env`) | ✅ 5/5 passam |
 | **correções da rodada 1** | `febdc9f`, `2613343`, `da59b19`, `5af2c19` | ✅ 1.345 testes na CI, 2 pulados por navegador; migração em banco vazio, lint, formatação e checks verdes |
-| **docs** rodada 1 + auditoria | `7b11f90` + atualização desta rodada | ✅ guardas de documentação e Regras do projeto verdes; PR #28 em rascunho |
+| **docs** rodada 1 + auditoria | `7b11f90`, `973250b` | ✅ guardas de documentação e Regras do projeto verdes; PR #28 em rascunho |
 
 Branch `claude/dl-024-execucao` está pushed em
-`1671415..5af2c19`. **Pendências da DL-024 que entram na rodada 1 da
+`1671415..973250b`. **Pendências da DL-024 que entram na rodada 1 da
 auditoria e validação (próximo passo):**
 
 - BL-57 cobre todos os campos derivados de `_campos_gravaveis`, não só
@@ -318,7 +318,7 @@ existe arquivo de "rodada 2" nem de "rodada 4" nem de "rodada 6".
 
 Para a execução atual da DL-024, o relatório da auditoria de integração está
 em [DL-024 rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md), baseado em
-`5af2c19` e nos quatro commits funcionais anteriores.
+`5af2c19` (código validado na CI) e no registro documental final `973250b`.
 
 **Correção factual, em 2026-09-16, do que escrevi acima ao fechar a DL-018:**
 eu disse que "as correções das rodadas 4 e 6 continuam **só na branch**",
