@@ -99,8 +99,19 @@ class Conta(models.Model):
         ficaria maior do que deveria, o que é o lado ESTRITO de errar,
         nunca o contrário.
         """
+        # BL-265 (achado P5 da auditoria DL-023 rodada 3): nomes de TABELA
+        # já vinham do `_meta` (`db_table`), mas os de COLUNA estavam
+        # escritos à mão (`conta_pai_id`, `conta_id`) — hoje corretos, mas
+        # em assimetria com o resto da consulta, e frágeis a um
+        # `db_column=` futuro numa das duas FKs (o projeto já tem
+        # precedente de migração corretiva de coluna, BL-47). Perguntar ao
+        # `_meta` os quatro identificadores fecha a assimetria com o mesmo
+        # custo: nenhuma consulta a mais, é resolvido em Python antes do
+        # SQL.
         tabela_conta = Conta._meta.db_table
         tabela_item = ItemLancamento._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        coluna_conta_do_item = ItemLancamento._meta.get_field("conta").column
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -108,11 +119,11 @@ class Conta(models.Model):
                     SELECT id FROM {tabela_conta} WHERE id = %s
                     UNION
                     SELECT c.id FROM {tabela_conta} c
-                    INNER JOIN arvore a ON c.conta_pai_id = a.id
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
                 )
                 SELECT EXISTS (
                     SELECT 1 FROM {tabela_item}
-                    WHERE conta_id IN (SELECT id FROM arvore)
+                    WHERE {coluna_conta_do_item} IN (SELECT id FROM arvore)
                 )
                 """,
                 [self.pk],
@@ -238,7 +249,27 @@ class Conta(models.Model):
                     # regra de movimento/filhas abaixo (critério 4
                     # preservado: conta livre continua podendo mudar de
                     # empresa no mesmo escritório).
-                    if original["empresa__escritorio_id"] != self.empresa.escritorio_id:
+                    # BL-264 (achado P4/DoesNotExist da auditoria DL-023
+                    # rodada 3, introduzido nesta etapa): `self.empresa.
+                    # escritorio_id` resolve a FK via `self.empresa`, que
+                    # levanta `Empresa.DoesNotExist` — não `ValidationError`
+                    # — quando `empresa_id` aponta para um registro
+                    # inexistente (`conta.empresa_id = 999999`). Isso não é
+                    # alcançável pelo admin (o `ModelChoiceField` já recusa
+                    # a FK antes de `clean()` rodar), mas é alcançável por
+                    # qualquer `full_clean()` direto — candidato: a
+                    # importação em lote da DL-010, que grava por
+                    # `bulk_create`/lote e pode chamar `full_clean()` linha
+                    # a linha. Mesmo padrão que `original` já usa duas
+                    # linhas acima: `.values_list(...).first()` nunca
+                    # levanta `DoesNotExist` — devolve `None` — e não
+                    # carrega a linha inteira de `Empresa`.
+                    escritorio_novo_id = (
+                        Empresa.objects.filter(pk=self.empresa_id)
+                        .values_list("escritorio_id", flat=True)
+                        .first()
+                    )
+                    if original["empresa__escritorio_id"] != escritorio_novo_id:
                         raise ValidationError(
                             "Não é possível mudar esta conta para uma empresa de outro "
                             "escritório: contas não atravessam a fronteira de isolamento "
