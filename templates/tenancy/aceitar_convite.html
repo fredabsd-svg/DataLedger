@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block titulo %}Aceitar convite{% endblock %}
+
+{% block content %}
+    <h1>Aceitar convite</h1>
+
+    {% if not convite %}
+        <p>Este convite é inexistente, expirou ou já foi consumido.</p>
+    {% elif convite.expirado %}
+        <p>Este convite expirou (7 dias após a emissão). Peça ao ADMINISTRADOR do seu escritório para emitir outro.</p>
+    {% else %}
+        <p>Você foi convidado pelo ADMINISTRADOR do escritório <strong>{{ convite.escritorio.nome }}</strong> para entrar como <strong>{{ convite.get_papel_inicial_display }}</strong>.</p>
+        <form method="post" action="{% url 'tenancy:aceitar-convite' token=token %}" class="formulario">
+            {% csrf_token %}
+            <button type="submit">Aceitar e entrar</button>
+        </form>
+    {% endif %}
+{% endblock %}

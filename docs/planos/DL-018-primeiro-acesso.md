@@ -1,8 +1,13 @@
 # DL-018 — Primeiro acesso de uma instalação nova
 
-**Estado:** planejada, **não iniciada**. Depende de a
-[DL-017](DL-017-interface-da-contabilidade.md) fechar — não se amplia escopo de
-etapa em correção.
+**Estado:** **em desenvolvimento**, branch
+`claude/dl-018-primeiro-acesso` aberta a partir de `bfe9814` (PR #25
+integrado — cabeçalho do estado pós-DL-023). Respostas das três
+perguntas ao Fred registradas em
+[DE-042](../projeto/decisoes.md#de-042--dl-018-primeiro-acesso-via-produto-as-três-perguntas-respondidas)
+(2026-09-16). Dependências anteriores resolvidas: a DL-017 fechou e a
+DL-023 entrou na main pela rodada 2 — não há mais nada bloqueando
+esta etapa.
 
 ## Como isto apareceu
 
@@ -75,18 +80,29 @@ Nenhuma destas é presumível, e duas são de sigilo — a resposta muda o desen
    administrador, ou vínculo manual? Isso já roça a **PE-36** (quem lê
    contabilidade e se há vínculo usuário-empresa), que está aberta com você.
 
-Enquanto não houver resposta, **nada é presumido** — a etapa não começa.
+**Respostas registradas em [DE-042](../projeto/decisoes.md#de-042--dl-018-primeiro-acesso-via-produto-as-três-perguntas-respondidas)
+(2026-09-16):** autocadastro assistido (o próprio usuário sem vínculo cria
+o primeiro escritório) + primeiro usuário vira ADMINISTRADOR + convite
+por e-mail para o segundo funcionário (papel inicial ANALISTA). Veja o
+texto da DE-042 para os limites e a reversibilidade por bandeira
+futura, se a auditoria da rodada 1 reprovar a hipótese.
 
 ## Hipóteses de trabalho, marcadas como tal
 
-- **HI:** a instalação típica é de **um escritório por instalação**, e quem
-  instala é quem vai administrar. Se for verdade, o caminho mais simples serve:
-  usuário sem vínculo cria o primeiro escritório e torna-se seu administrador.
-- **HI:** a criação de escritório é ação **rara** — uma vez por instalação, ou
-  uma por cliente do DataLedger. Não precisa ser cômoda; precisa existir e ser
-  auditada.
+- **HI-1** ✅ **confirmada por DE-042:** a instalação típica é de **um
+  escritório por instalação**, e quem instala é quem vai administrar. O
+  caminho mais simples serve — usuário sem vínculo cria o primeiro
+  escritório e torna-se seu administrador.
+- **HI-2** ✅ **confirmada por DE-042:** a criação de escritório é
+  ação **rara** — uma vez por instalação, ou uma por cliente do
+  DataLedger. Não precisa ser cômoda; precisa existir e ser auditada.
 
-As duas precisam de confirmação do Fred antes de virar comportamento.
+Ambas confirmadas em 2026-09-16. A DE-042 registra os limites (papel
+GESTOR/FINANCEIRO/PARALEGAL/CLIENTE não entram agora; SMTP real para
+envio do convite fica para etapa posterior; PE-36 fica em aberto) e a
+reversibilidade (se a auditoria reprovar o autocadastro, a DE-042 é
+revogada e voltamos para convite obrigatório antes do primeiro
+escritório).
 
 ## Critérios de aceite (rascunho, a fechar depois das respostas)
 

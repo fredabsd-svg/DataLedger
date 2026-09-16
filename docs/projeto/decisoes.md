@@ -1962,3 +1962,61 @@ regra nasce **antes** de o problema acontecer, de propósito.
 Ele é uma fotografia da revisão `b8c66a6` com uma proposta de execução, e
 envelhece como qualquer fotografia. O que ela impede é que envelhecer **produza
 contradição sobre o estado** — porque sobre estado ele não fala.
+
+## DE-042 — DL-018 (primeiro acesso via produto): as três perguntas, respondidas
+
+**Data:** 2026-09-16. **Origem:** destrava a
+[DL-018](../planos/DL-018-primeiro-acesso.md), que está em
+"Planejada, não iniciada" porque o plano explicitamente diz
+"enquanto não houver resposta, **nada é presumido** — a etapa não começa".
+Aprovada por decisão explícita do Fred em 2026-09-16 ("Sim, seguir com
+as HI") depois da pergunta por questionário. **Referência local:**
+[DL-018-primeiro-acesso.md:62-89](../planos/DL-018-primeiro-acesso.md)
+para o contexto da pergunta e das duas hipóteses declaradas no plano.
+
+**Decisão — as três respostas, com o caminho mais simples:**
+
+1. **Quem cria o escritório no mundo real?** **O próprio usuário sem
+   vínculo** — autocadastro assistido pela tela de "primeiro acesso".
+   É o caminho da HI-1: a instalação típica é de um escritório por
+   instalação, e quem instala é quem vai administrar. **Inverso do
+   caminho contrário** (alguém do DataLedger convidar o primeiro
+   escritório) — esse caminho existe em outro produto, não aqui; o
+   DataLedger não tem operação comercial própria.
+
+2. **O primeiro usuário vira administrador do escritório que criou?**
+   **Sim**, e isso vem gravado no modelo (`VinculoUsuarioEscritorio.
+   papel = ADMINISTRADOR`) e exposto na trilha
+   (`RegistroAuditoria.acao="escritorio.criado_pelo_primeiro_usuario"`).
+   O risco da HI-1 (qualquer um que consiga criar conta pode criar
+   escritório) **é aceito por decisão consciente** — a superfície de
+   criação fica atrás de `IsAuthenticated`, e a sequência de criação
+   é uma ação rara, auditada e rastreável; ninguém vai automatizar isso
+   por engano.
+
+3. **Como entra o segundo funcionário?** **Convite por e-mail** — o
+   administrador cadastra o e-mail do segundo, e o sistema envia (ou
+   registra localmente, se e-mail externo ainda não estiver configurado)
+   um token de aceitação de vínculo. Decisão cobre o caminho mínimo:
+   não é autocadastro público, não é cadastro manual pelo admin do
+   Django, não é PE-36 inteira (essa fica para a etapa da PE-36).
+
+**Consequência operacional:** a DL-018 sai de "Planejada, não iniciada"
+para **"Em desenvolvimento"** no `docs/agents/estado.md` (em branch
+própria, `claude/dl-018-primeiro-acesso`). Se a rodada 1 da auditoria
+desta etapa reprovar a hipótese do autocadastro, esta decisão é
+revogada — voltaríamos a "convite por e-mail obrigatório antes do
+primeiro escritório", que é o caminho inverso. **Nada se constrói
+contra essa reversibilidade**: o código da DL-018 trata autocadastro
+e convite como duas formas paralelas, e desativar o autocadastro é
+uma flag, não uma reescrita.
+
+**Limites desta decisão:** ela cobre o **fluxo mínimo** da DL-018.
+Não cobre: convite por e-mail com SMTP real (a DL-018 pode entregar
+o token no banco e deixar SMTP para uma etapa posterior); recuperação
+de senha (PE-36); autocadastro público sem convite (decisão explícita
+de não fazer); papel de **GESTOR** (a DL-018 só vai entregar
+**ADMINISTRADOR** e **ANALISTA** como pontos de entrada; os outros
+papeis ficam para etapa posterior). Cada um desses itens é ponto de
+abertura na DL-018, **não** desta decisão.
+

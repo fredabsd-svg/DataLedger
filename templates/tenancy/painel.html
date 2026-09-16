@@ -11,7 +11,13 @@
         <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
     {% else %}
         <h1>Nenhum escritório ativo</h1>
-        <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade. Contate quem administra o cadastro para receber acesso.</p>
+        <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
+        {% comment %} DL-018 — primeira superfície para o usuário sem
+        vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
+        O link só aparece aqui quando o usuário ainda não tem vínculo —
+        a própria view `bootstrap_primeiro_acesso` redireciona para o
+        painel se o usuário já tiver. {% endcomment %}
+        <p><a href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a></p>
     {% endif %}
 
     {% if escritorios|length > 1 %}
