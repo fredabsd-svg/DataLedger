@@ -1,7 +1,9 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-15**, com a `main` em **`0dd07b4`** (PR #21 integrado — DL-020).
-Branch de trabalho `claude/dl-021-gerador-windows`, aberta para a próxima etapa.
+Atualizado em **2026-09-16**, com a `main` em **`b8c66a6`** (PR #22 integrado —
+DL-021; o PR #21, da DL-020, entrou antes em `0dd07b4`). Branch de trabalho
+`claude/accounting-agent-team-setup-mn6lyf`, reiniciada a partir de
+`origin/main` para a **DL-022** (plano mestre e reconciliação da documentação).
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -216,7 +218,8 @@ diverge.
 | [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
 | [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Integrada (PR #21, `0dd07b4`)** — quatro rodadas de auditoria, fechamento do BL-242 com renumeração para `RC-85`, `RC-86`, `PE-46`, e conferência de encerramento. Resumo do auditor: *"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no produto."* Itens abertos preservados: **BL-211** (dois defeitos do admin — não devem atravessar a DL-010), **BL-229** (medições de CSS que pulam na CI), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241** |
-| [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Planejada, não iniciada** — identificada na retomada da DL-020 em 2026-09-15, em branch própria `claude/dl-021-gerador-windows`, a partir de `0dd07b4`. O verificador byte-strict (achado 9 do DL-019) continua intacto |
+| [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Integrada (PR #22, `b8c66a6`)** — o verificador byte-strict (achado 9 do DL-019) continua intacto. ⚠️ **Limitação declarada e ainda aberta:** o que fechou foi a **quebra de linha**; rodar `--verificar` no Windows continua reportando `permissão 0o666` nos 14 derivados, por motivo independente ligado ao achado A3 (**BL-175**). Não ler como "compatibilidade Windows comprovada". Este arquivo e o próprio plano diziam "planejada, não iniciada" **depois** da integração; quem mediu a divergência foi o plano mestre, e a correção é a DL-022 |
+| [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Em validação** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
@@ -249,6 +252,32 @@ cliente), e uma decisão que afirmava funcionar em produção sem que o
 auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
+
+**AGORA, em 2026-09-16: [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md)
+— o plano mestre entrou no repositório e a documentação divergente foi
+reconciliada. PR #23 aberto, aguardando a palavra do Fred para mesclar.** Etapa
+**documental**: nenhuma linha de código de produto. As **cinco** verificações da
+integração contínua ficaram verdes na revisão `40bc0c2` — lidas pelos
+`check-runs` daquela revisão exata, não por suposição (é a regra da BL-137, e o
+mecanismo que falta é a BL-236). O Fred
+entregou um plano mestre de evolução por módulos medido sobre `b8c66a6` e pediu
+análise mais publicação; o documento está preservado **sem edição** em
+[`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), com a análise do
+`arquiteto-senior` **depois** dele.
+
+**O que o plano mestre mediu e estava errado aqui, agora corrigido:** o README
+duplicava a DL-020 com marcações contraditórias; a DL-021 estava descrita como
+"planejada, não iniciada" **depois** de integrada, neste arquivo e no plano dela;
+e a descrição do defeito da **BL-211** dizia `.first()` "sem `order_by`" quando
+existe `Meta.ordering` — o risco real é **sobreposição e falta de desempate**.
+Registros novos: **DE-041** (o plano mestre é mapa, não fonte de estado),
+**RC-87**, **PE-47** e **BL-243**.
+
+**O que decide a próxima etapa de código é a PE-47:** se a "primeira fila de
+execução" da seção 16 do plano mestre é ordem aprovada pelo Fred. Enquanto ela
+não for respondida, a sequência que vale é a deste arquivo — e ela **coincide**
+com a fila nos dois primeiros itens: fechar **BL-83** e **BL-211** (bloqueadores
+de implantação no admin) vem antes de qualquer módulo novo.
 
 0. **[DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) —
    ENCERRADA em 2026-09-15, reprovada em três rodadas, por decisão do Fred.**
@@ -408,8 +437,10 @@ auditoria independente — que é exatamente o motivo de ela existir.
    BL-211 é a próxima entrada da sequência recomendada.
 
 2. **[DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) — robustez do
-   gerador de papéis em ambiente Windows, PRÓXIMA ETAPA em branch
-   `claude/dl-021-gerador-windows`.** Identificada na retomada da DL-020, em
+   gerador de papéis em ambiente Windows, INTEGRADA em 2026-09-15 pelo PR #22
+   (`main` em `b8c66a6`).** O que fechou foi a **quebra de linha**; a pendência
+   de **permissão `0o666` no Windows** continua aberta, declarada no plano e
+   ligada ao achado A3 (BL-175). Identificada na retomada da DL-020, em
    2026-09-15, quando o verificador byte-strict (achado 9 do DL-019) reportou
    14 derivados "fora de sincronia". Diagnóstico: o gerador grava via
    `Path.write_text` que, em Windows, converte `\n` em `\r\n` na escrita, e o
@@ -872,20 +903,21 @@ o que medimos, e está registrado o que não medimos.
 
 ## Estado do repositório
 
-- **`main` em `7e9dc56`**, com a DL-017 integrada pelo PR #19 e a DL-019
-  (portabilidade dos papéis de agentes) integrada pelo PR #20.
-- **PR #21 em validação**, branch
-  `claude/accounting-agent-team-setup-mn6lyf`. O `head` remoto ainda é
-  `d15e72c`; a retomada encontrou e corrigiu localmente o bloqueador BL-242,
+- **`main` em `b8c66a6`**, medida por consulta ao remoto em 2026-09-16: DL-017
+  pelo PR #19, DL-019 pelo PR #20, **DL-020 pelo PR #21** (`0dd07b4`) e
+  **DL-021 pelo PR #22**.
+- **Suíte na CI de `b8c66a6`:** **1200 passed, 2 skipped**, Python 3.14 e
+  PostgreSQL 16. Os 2 pulados são as medições de CSS que exigem navegador
+  (**BL-229**). Registro honesto: essa contagem é a da **integração contínua**,
+  não a de uma árvore de trabalho — foi justamente declarar suíte verde medindo
+  na árvore suja que produziu um relatório errado quatro vezes na DL-020.
+- **Branch de trabalho `claude/accounting-agent-team-setup-mn6lyf`**, reiniciada
+  a partir de `origin/main` para a **DL-022**. A etapa anterior dessa mesma
+  branch (DL-020) já está mesclada; nada foi empilhado sobre histórico
+  mesclado.
+- **Histórico:** antes disso, a retomada da DL-020 corrigiu o bloqueador BL-242,
   acrescentou a guarda de unicidade de `RC-xx`/`PE-xx` e registrou a orientação
-  de produto DE-040. A etapa só volta a `em revisão` depois de commit, push,
-  CI do novo `head` e auditoria independente.
-- **Suíte do snapshot com a correção local:** **1194 passed, 2 skipped** em
-  109,98 s, Python 3.14.7/Linux e PostgreSQL 16 descartável. Os 43 pontos de
-  escrita descobertos pela varredura chegaram à política de autorização.
-  O teste documental específico passou 8/8 no Windows; uma mutação temporária
-  com `RC-84` duplicado fez a nova guarda reprovar e foi removida antes da
-  validação final.
+  de produto DE-040, com **1194 passed, 2 skipped** medidos em cópia limpa.
 - A verificação que vale é em **árvore limpa**: `git archive <hash> | tar -x` em
   diretório vazio, e rodar ali (BL-81). Medir na árvore de trabalho já produziu
   um relatório errado. Nesta retomada o transporte Windows→Linux converteu
@@ -894,7 +926,12 @@ o que medimos, e está registrado o que não medimos.
   regenerados pelo script oficial e `--verificar` confirmou 7 papéis/14
   arquivos antes da execução válida.
 - Pendência herdada da DL-002: a proteção da branch `main` nunca foi
-  configurada.
+  configurada. **Medido outra vez em 2026-09-16**, por consulta à API do GitHub:
+  `protected: false`, sem rulesets. **BL-02** continua aberta e é ação
+  administrativa do Fred — nenhum agente pode fechá-la.
+- **Onde ler para onde o projeto vai:**
+  [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md). Ele é **mapa de
+  decomposição, não fonte de estado** (**DE-041**): estado é aqui.
 
 ### Sobre os commits marcados como "preservação, não entrega"
 

@@ -137,6 +137,12 @@ permite rodar os dois em paralelo sem risco para o escritório.
 | RC-33 | Validação de documentação por `scripts/validate-docs.ps1` na integração contínua. | `.github/workflows/documentation.yml` |
 | RC-34 | Interface em templates Django, em `templates/`. | Código integrado |
 
+### Confirmados em 2026-09-16 — direção de evolução
+
+| ID | Requisito | Por que | Origem |
+| --- | --- | --- | --- |
+| RC-87 | **A direção de evolução é: corrigir primeiro os bloqueadores de isolamento, auditoria e implantação, e depois intercalar a Contabilidade (fechamento e rastreabilidade) com a recepção e conferência de NFS-e.** A recepção pode andar em paralelo porque **não altera escrituração**; a contabilização automática só é liberada depois de fechamento, origem, efetivação e contrato de integração. | Entrega utilidade visível mais cedo sem prometer Fiscal completo antes de haver apuração, nem Contabilidade completa antes de haver fechamento e demonstrações. E mantém os bloqueadores nomeados (BL-83, BL-211, BL-02) na frente de qualquer dado real de cliente. | [Plano mestre](plano-mestre.md), seções 4 e 16, entregue pelo Fred em 2026-09-16 com a instrução de publicá-lo. ⚠️ **Origem declarada:** o documento registra essa escolha como fala do Fred em **outra sessão**; o `arquiteto-senior` desta sessão não a ouviu. O que resta em aberto — se a fila numerada da seção 16 é **ordem aprovada** — é a **PE-47** |
+
 ## Hipóteses
 
 Itens presumidos a partir do repositório, **ainda não confirmados pelo Fred**.
@@ -205,6 +211,12 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 
 | PE-44 | **Quais ferramentas de IA o Fred usa de fato?** | **Resolvida em 2026-09-15**, por RC-83: *"Codex pelo terminal"*. Copilot e Gemini saíram do escopo (DE-037), e a resposta revelou o risco de truncamento do `AGENTS.md` que virou o critério 14 da DL-019. |
 | PE-45 | ~~Gemini CLI: configuração de projeto.~~ | **Sem objeto** desde DE-037: o Gemini saiu do escopo. Se voltar, a pergunta volta com ele. |
+
+### Aberta em 2026-09-16
+
+| ID | Pendência | Impacto se não for resolvida |
+| --- | --- | --- |
+| PE-47 | **A "primeira fila de execução" do [plano mestre](plano-mestre.md) (seção 16) é ordem aprovada, ou recomendação sujeita à palavra do Fred?** Em especial: o pacote 2 — fechar **BL-83** e **BL-211** com teste por requisição ao admin e concorrência em PostgreSQL — começa agora? | Decide qual é a próxima etapa de **código**. Sem a resposta, a sequência que vale continua sendo a do [estado](../agents/estado.md), que hoje coincide com a fila nos dois primeiros itens — então o risco não é paralisia, é **executar dez pacotes numa ordem que o Fred não escolheu**. A pergunta existe porque o documento atribui a direção a uma conversa que esta sessão não presenciou (ver a ressalva (d) das notas do plano mestre). |
 
 ## Como atualizar
 

@@ -1,7 +1,18 @@
 # DL-021 — Robustez do gerador de papéis em ambiente Windows
 
-**Estado:** **planejada, não iniciada.** Identificada em 2026-09-15, antes da
-retomada da DL-020.
+**Estado:** **integrada** pelo PR #22, na `main` em `b8c66a6`. Identificada em
+2026-09-15, antes da retomada da DL-020, e executada no mesmo dia.
+
+> **Limitação remanescente, declarada e ainda aberta:** o que esta etapa
+> resolveu foi a **quebra de linha** — o gerador grava LF em qualquer sistema
+> operacional. Rodar `--verificar` no Windows **continua** reportando
+> `permissão 0o666` nos 14 derivados, por um motivo independente, descrito na
+> seção "Descoberta durante a execução" mais abaixo e ligado ao achado A3
+> (BL-175). Ler este cabeçalho como "compatibilidade Windows comprovada"
+> seria errado: a compatibilidade comprovada é a de **finais de linha**. O
+> cabeçalho ficou dizendo "planejada, não iniciada" depois da integração, e
+> quem mediu a divergência foi o plano mestre — corrigido aqui na
+> [DL-022](DL-022-plano-mestre-e-reconciliacao.md).
 
 ## Como isto apareceu
 

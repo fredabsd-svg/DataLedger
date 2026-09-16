@@ -1920,3 +1920,45 @@ ser declarada em vez de a regra ser inventada.
 foi consultado, a seção relevante e quais simplificações ou recursos próprios
 foram propostos. Nenhum artefato visual do Domínio entra como referência de
 design.
+
+## DE-041 — O plano mestre é mapa de decomposição, nunca segunda fonte de estado
+
+**Data:** 2026-09-16. **Origem:** incorporação do plano mestre entregue pelo
+Fred, na [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md).
+
+**Decisão:** [`docs/projeto/plano-mestre.md`](plano-mestre.md) descreve
+**sequência, decomposição e critérios de conclusão** por módulo. Ele **não**
+descreve em que pé está nada. O estado de qualquer etapa continua morando num
+lugar só, [`docs/agents/estado.md`](../agents/estado.md), e é para lá que todo
+documento aponta em vez de repetir.
+
+**Por que isto precisa estar escrito.** Em 2026-09-13 o Fred encontrou o README
+afirmando, no topo, que o sistema era "apenas um esqueleto sem módulo de
+negócio" enquanto o mesmo arquivo, mais abaixo, documentava a contabilidade
+funcionando — e a afirmação obsoleta estava em **quatro** lugares. A causa não
+foi distração, foi **duplicação**: texto repetido diverge assim que alguém
+atualiza um lugar e esquece os outros. Um plano mestre com doze famílias de
+códigos e mais de cem etapas é o candidato natural a ser o quinto lugar. A
+regra nasce **antes** de o problema acontecer, de propósito.
+
+**Alcance, em quatro itens:**
+
+1. Nenhuma linha do plano mestre afirma que uma etapa está iniciada, em
+   validação, integrada, aprovada ou reprovada. Onde essa informação for
+   necessária, o plano **aponta** para o `estado.md`.
+2. Os códigos `ORG`, `BAS`, `CON`, `FIS`, `FOL`, `OBR`, `HON`, `PAR`, `POR`,
+   `IA`, `MCP` e `OPS` são endereços **deste mapa**. Não substituem, não
+   renumeram e não aposentam `DL`, `BL`, `RC` e `DE`.
+3. Trabalho executável continua nascendo como **etapa `DL-xxx` com plano
+   próprio**: objetivo, requisitos classificados, critérios de aceite
+   numerados, divisão de arquivos e auditoria da versão integrada. Linha de
+   tabela do plano mestre **não é** item de backlog e não ganha dono por
+   existir.
+4. Quando um pacote do plano mestre virar etapa, o plano da etapa cita o código
+   de origem (`CON-01`, `FIS-03`) para que a rastreabilidade não dependa de
+   memória de sessão.
+
+**Limite honesto desta decisão:** ela não impede o plano mestre de envelhecer.
+Ele é uma fotografia da revisão `b8c66a6` com uma proposta de execução, e
+envelhece como qualquer fotografia. O que ela impede é que envelhecer **produza
+contradição sobre o estado** — porque sobre estado ele não fala.
