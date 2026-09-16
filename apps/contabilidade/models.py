@@ -99,8 +99,19 @@ class Conta(models.Model):
         ficaria maior do que deveria, o que é o lado ESTRITO de errar,
         nunca o contrário.
         """
+        # BL-265 (achado P5 da auditoria DL-023 rodada 3): nomes de TABELA
+        # já vinham do `_meta` (`db_table`), mas os de COLUNA estavam
+        # escritos à mão (`conta_pai_id`, `conta_id`) — hoje corretos, mas
+        # em assimetria com o resto da consulta, e frágeis a um
+        # `db_column=` futuro numa das duas FKs (o projeto já tem
+        # precedente de migração corretiva de coluna, BL-47). Perguntar ao
+        # `_meta` os quatro identificadores fecha a assimetria com o mesmo
+        # custo: nenhuma consulta a mais, é resolvido em Python antes do
+        # SQL.
         tabela_conta = Conta._meta.db_table
         tabela_item = ItemLancamento._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        coluna_conta_do_item = ItemLancamento._meta.get_field("conta").column
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -108,11 +119,11 @@ class Conta(models.Model):
                     SELECT id FROM {tabela_conta} WHERE id = %s
                     UNION
                     SELECT c.id FROM {tabela_conta} c
-                    INNER JOIN arvore a ON c.conta_pai_id = a.id
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
                 )
                 SELECT EXISTS (
                     SELECT 1 FROM {tabela_item}
-                    WHERE conta_id IN (SELECT id FROM arvore)
+                    WHERE {coluna_conta_do_item} IN (SELECT id FROM arvore)
                 )
                 """,
                 [self.pk],
@@ -238,7 +249,94 @@ class Conta(models.Model):
                     # regra de movimento/filhas abaixo (critério 4
                     # preservado: conta livre continua podendo mudar de
                     # empresa no mesmo escritório).
-                    if original["empresa__escritorio_id"] != self.empresa.escritorio_id:
+                    # BL-264 (achado P4/DoesNotExist da auditoria DL-023
+                    # rodada 3, introduzido nesta etapa): a primeira versão
+                    # deste guard lia `self.empresa.escritorio_id`, que
+                    # resolve a FK via `self.empresa` e levanta `Empresa.
+                    # DoesNotExist` — não `ValidationError` — quando
+                    # `empresa_id` aponta para um registro inexistente
+                    # (`conta.empresa_id = 999999`). Isso não é alcançável
+                    # pelo admin (o `ModelChoiceField` já recusa a FK antes
+                    # de `clean()` rodar), mas é alcançável por qualquer
+                    # `full_clean()` direto — candidato: a importação em
+                    # lote da DL-010, que pode chamar `full_clean()` linha a
+                    # linha. Mesmo padrão que `original` já usa duas linhas
+                    # acima: `.values_list(...).first()` nunca levanta
+                    # `DoesNotExist` — devolve `None` — e não carrega a
+                    # linha inteira de `Empresa`.
+                    #
+                    # Segunda correção, ainda na rodada 4: a versão anterior
+                    # deste guard tratava `escritorio_novo_id is None` como
+                    # "empresa de outro escritório" — mensagem que nomeia a
+                    # causa ERRADA quando o que houve foi FK apontando para
+                    # registro inexistente. É a mesma família de defeito da
+                    # BL-142 (comentário falso) e da BL-246 (cobertura
+                    # declarada que não existia): afirmação que não
+                    # corresponde ao que aconteceu — só que agora na
+                    # mensagem que o contador lê, não num comentário interno.
+                    # Os dois casos são distintos e têm mensagem própria.
+                    #
+                    # Rodada 6 (achado P1 da auditoria focada): a sonda do
+                    # auditor comparou três revisões e achou que a BL-264
+                    # fechou a forma MENOS provável (`empresa_id` grande
+                    # demais, `2**70`, já tratado acima por devolver `None`
+                    # do `.filter(...).first()`) e deixou aberta a MAIS
+                    # provável — `empresa_id` de um TIPO que a coluna
+                    # inteira de `Empresa.pk` não aceita (`"abc"`, `"1e3"`,
+                    # `"  "`, `[]`). O candidato que o comentário acima já
+                    # nomeia (importação em lote da DL-010, `full_clean()`
+                    # linha a linha de uma planilha) é justamente onde texto
+                    # numa coluna numérica é mais comum do que um id inteiro
+                    # que só não existe. Sem este `try`, `Empresa.objects.
+                    # filter(pk=self.empresa_id)` levanta `ValueError`
+                    # (string) ou `TypeError` (lista) na hora de montar a
+                    # consulta — antes de `.first()` devolver `None` — e
+                    # esse erro NÃO é `ValidationError`: vaza como 500 em
+                    # qualquer `full_clean()` direto, o mesmo dano que a
+                    # BL-264 original já tinha para FK inexistente. Mensagem
+                    # PRÓPRIA (terceira causa, terceira mensagem — mesmo
+                    # princípio de "uma causa, uma mensagem" das duas
+                    # acima): não é "não existe" (isso pressupõe um
+                    # identificador válido que não bate com nenhum
+                    # registro) nem "outro escritório" (pressupõe um
+                    # registro real).
+                    #
+                    # `empresa_id = None` é uma QUARTA causa, e não é papel
+                    # deste guard reportá-la: `empresa` não é `null=True`
+                    # (linha ~37), então `clean_fields()` — chamado por
+                    # `full_clean()` ANTES de `clean()`, e que continua
+                    # rodando mesmo se `clean()` também levantar erro, os
+                    # dois acumulam no mesmo dicionário — já acusa a
+                    # ausência com a mensagem padrão de campo obrigatório.
+                    # Antes desta linha, o valor caía direto no `try`
+                    # abaixo: `Empresa.objects.filter(pk=None)` não levanta
+                    # nada, devolve `None` de `.first()` como qualquer id
+                    # inexistente, e este guard relançava "a empresa
+                    # informada não existe" — mensagem que nomeia a causa
+                    # errada (nada foi *informado*; é a mesma família de
+                    # defeito de cima, agora entre "ausente" e
+                    # "inexistente"). Não relançar aqui evita a mensagem
+                    # duplicada/confusa sem abrir mão da recusa: o campo
+                    # nulo já barra a gravação por outra via.
+                    if self.empresa_id is None:
+                        return
+                    try:
+                        escritorio_novo_id = (
+                            Empresa.objects.filter(pk=self.empresa_id)
+                            .values_list("escritorio_id", flat=True)
+                            .first()
+                        )
+                    except (TypeError, ValueError):
+                        raise ValidationError(
+                            "Não é possível mudar esta conta: o identificador de "
+                            "empresa informado não é válido."
+                        ) from None
+                    if escritorio_novo_id is None:
+                        raise ValidationError(
+                            "Não é possível mudar esta conta: a empresa informada não "
+                            "existe. Confira o identificador enviado."
+                        )
+                    if original["empresa__escritorio_id"] != escritorio_novo_id:
                         raise ValidationError(
                             "Não é possível mudar esta conta para uma empresa de outro "
                             "escritório: contas não atravessam a fronteira de isolamento "

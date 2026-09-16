@@ -1,6 +1,8 @@
 # DL-023 — Integridade administrativa: nenhuma regra vale só na porta pela qual foi escrita
 
-**Estado:** **em desenvolvimento** — rodada 1 **REPROVADA**. Aberta em
+**Estado:** **em validação** — rodada 1 REPROVADA, rodada 2 corrigiu os dez
+itens, rodada 3 (segunda auditoria) **APROVOU COM RESSALVAS** em `a612604`;
+rodada 4 curta em curso com três itens baratos. Aberta em
 2026-09-16, a partir da `main` em `24f6bbc` (PR #23 integrado — DL-022).
 Situação atual, sempre, em [docs/agents/estado.md](../agents/estado.md).
 
@@ -263,6 +265,37 @@ só o que mudou e **não** tem `ModelAdmin`, logo não é apagável pelo admin.
 fenda do registro de restrições ficam **registrados e fora da rodada 2**, com o
 motivo escrito em cada item do backlog — corrigir sem medição é o que produziu o
 P2.
+
+## Rodada 3 — APROVADA COM RESSALVAS em `a612604`
+
+Relatório integral em
+[docs/auditorias/2026-09-16-dl-023-rodada-3.md](../auditorias/2026-09-16-dl-023-rodada-3.md).
+**Os dez itens da rodada 2 foram verificados um a um**; oito estão fechados, o
+BL-248 **parcialmente** e o BL-254 fechado só nos arquivos de `empresas`.
+
+**Fechado e provado por execução do auditor:** a sintética com filha movimentada
+recebe `200` e a linha do grupo continua `+1000,00`; o guard novo resiste a
+profundidade 1200, a **ciclo pré-existente** (termina sozinho em 0,8 ms — a
+afirmação sobre o `UNION` procede) e a subárvore inconsistente, errando para o
+lado estrito; a corrida `3 POST + 3 DELETE` que dava **500 em 6 de 8** deu
+**zero 5xx em 12 rodadas**, mais 10 rodadas de seis formas diferentes e 8 de
+conferência da linha do tempo, sem sobreposição nem buraco; a migração `0005` é
+`no-op` nos dois sentidos, aplicada, revertida e reaplicada; nenhum 5xx novo em
+14 telas; conciliação, isolamento e idempotência sem regressão; e a prova por
+mutação passou de 9/9 para **11/11**.
+
+**As ressalvas, e o que foi feito com cada uma:**
+
+| Ressalva | Destino |
+| --- | --- |
+| **BL-261** — terceiro caminho do mesmo dano: reparentar conta movimentada para grupo de natureza oposta | **Pergunta ao Fred.** Retificadora é exatamente natureza mista num grupo; software não distingue a legítima do erro de classificação, e o auditor parou onde devia |
+| **BL-262** — o admin não tem isolamento por escritório em **nenhuma** superfície; uma de seis foi fechada, e o `/admin/autocomplete/` é inalcançável pela camada instalada | **Etapa própria.** A classe é maior que a BL-248 e nunca foi escopo desta etapa |
+| **BL-264**, **BL-265**, **BL-266** | **Rodada 4**, curta: um `DoesNotExist` que esta etapa introduziu, dois nomes de coluna literais, e um teste que mede a camada errada |
+| **BL-263** (contra o `arquiteto-senior`), **BL-267**, **BL-268**, **BL-269** | Backlog nomeado, sem rodada |
+
+**Correção da classificação da varredura, feita por causa do achado P2:** a
+decisão "defendida" para `contabilidade.Conta` passou a **nomear o que fica de
+fora** — foi exatamente essa omissão que transformou a BL-248 em achado.
 
 ## Git
 
