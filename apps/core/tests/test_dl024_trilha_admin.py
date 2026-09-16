@@ -142,7 +142,7 @@ import pytest  # noqa: E402
 @pytest.mark.django_db(transaction=True)
 def test_save_de_empresa_via_admin_gera_trilha():
     """`POST /admin/empresas/empresa/add/` resulta em um `RegistroAuditoria`
-    com `acao='empresa.empresa.admin_criado'`."""
+    com `acao='empresas.empresa.admin_criado'`."""
     from django.contrib.auth import get_user_model
     from django.test import Client
 
@@ -175,9 +175,8 @@ def test_save_de_empresa_via_admin_gera_trilha():
     # 302 = redirect para a página de "object saved" do admin.
     assert resposta.status_code == 302, resposta.content
 
-    regs = RegistroAuditoria.objects.filter(acao__endswith="admin_criado")
+    regs = RegistroAuditoria.objects.filter(acao="empresas.empresa.admin_criado")
     assert regs.count() >= 1
-    assert any(r.acao.startswith("empresa.") for r in regs)
 
 
 @pytest.mark.django_db(transaction=True)
