@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import connection, models
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa
@@ -60,6 +60,65 @@ class Conta(models.Model):
 
     def __str__(self):
         return f"{self.codigo} — {self.nome}"
+
+    def _tem_movimento_proprio_ou_de_descendente(self):
+        """`True` se esta conta OU qualquer descendente (profundidade
+        qualquer) tem ao menos uma partida gravada.
+
+        BL-245 (achado P1 da auditoria DL-023 rodada 1): uma conta
+        SINTÉTICA (`aceita_lancamento=False`) sem movimento PRÓPRIO, mas
+        com filha movimentada, trocava de natureza/tipo livremente pelo
+        admin — e `apurar_balancete` aplica a natureza da conta
+        APRESENTADA (a sintética) uma única vez, no fim, sobre o
+        CONSOLIDADO de toda a subárvore (próprio + descendentes). Olhar só
+        `self.itens_lancamento` cumpria o texto do requisito antigo
+        ("conta com movimento") e não o dano que a BL-83 nomeia (inverter
+        o sinal de todo o histórico do GRUPO). O requisito passou a ser
+        "movimento próprio OU de descendente" (decisão do
+        `arquiteto-senior`, rodada 2).
+
+        UMA consulta só — `WITH RECURSIVE` sobe a árvore inteira dentro do
+        PRÓPRIO PostgreSQL — em vez de um laço em Python que desce nível a
+        nível (o padrão que `apps.contabilidade.services._descendentes_de`
+        usa para o Razão). Custo importa aqui: `Conta.clean()` já paga
+        consultas extra por `full_clean()` de conta persistida (achado P9/
+        BL-253), e multiplicar por uma consulta por NÍVEL da árvore
+        agravaria exatamente o que aquele achado já registra. `UNION`
+        (não `UNION ALL`) deduplica ids já visitados, o que também torna a
+        recursão seguro contra um CICLO pré-existente na hierarquia
+        (alcançável só por ORM/SQL direto, contornando o guard de ciclo de
+        `clean()` acima): sem novos ids para adicionar, o `WITH RECURSIVE`
+        termina sozinho, sem loop infinito nem exceção — não é papel deste
+        guard diagnosticar ciclo, é papel de
+        `localizar_inconsistencias_de_hierarquia` (BL-64/conferência).
+
+        Não filtra por `empresa`: `self.pk` já identifica uma conta de UMA
+        empresa, e `conta_pai_id` só aponta para outra empresa em estado
+        já inconsistente (o guard de `conta_pai`/empresa em `clean()`
+        acima impede isso pelo caminho validado) — se existir, a subárvore
+        ficaria maior do que deveria, o que é o lado ESTRITO de errar,
+        nunca o contrário.
+        """
+        tabela_conta = Conta._meta.db_table
+        tabela_item = ItemLancamento._meta.db_table
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE id = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.conta_pai_id = a.id
+                )
+                SELECT EXISTS (
+                    SELECT 1 FROM {tabela_item}
+                    WHERE conta_id IN (SELECT id FROM arvore)
+                )
+                """,
+                [self.pk],
+            )
+            (existe,) = cursor.fetchone()
+        return existe
 
     def clean(self):
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
@@ -172,7 +231,16 @@ class Conta(models.Model):
 
                 mudou_natureza = original["natureza"] != self.natureza
                 mudou_tipo = original["tipo"] != self.tipo
-                if tem_movimento and (mudou_natureza or mudou_tipo):
+                # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
+                # só roda quando natureza OU tipo de fato mudaram (short-
+                # circuit: a consulta recursiva de `_tem_movimento_proprio_
+                # ou_de_descendente` custa mais que `itens_lancamento.
+                # exists()`, e não há razão para pagá-la numa gravação que
+                # não toca nenhum dos dois campos). Movimento de QUALQUER
+                # descendente conta, não só o próprio: é a correção do
+                # requisito, não só do código — ver o docstring do método.
+                mudou_algo = mudou_natureza or mudou_tipo
+                if mudou_algo and self._tem_movimento_proprio_ou_de_descendente():
                     campo = (
                         "a natureza"
                         if mudou_natureza and not mudou_tipo
@@ -181,10 +249,11 @@ class Conta(models.Model):
                         )
                     )
                     raise ValidationError(
-                        f"Não é possível mudar {campo} desta conta: ela já tem "
-                        "lançamento próprio gravado — a troca inverteria o sinal (ou a "
-                        "classificação) de todo o histórico da conta. Estorne o "
-                        "movimento antes de reclassificar, ou cadastre uma conta nova."
+                        f"Não é possível mudar {campo} desta conta: ela ou uma conta "
+                        "descendente já tem lançamento gravado — a troca inverteria o "
+                        "sinal (ou a classificação) do histórico da conta ou do grupo no "
+                        "Balancete. Estorne o movimento antes de reclassificar, ou "
+                        "cadastre uma conta nova."
                     )
 
 
