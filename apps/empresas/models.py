@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Upper
 
@@ -132,6 +133,63 @@ class Empresa(models.Model):
     def __str__(self):
         return self.nome_fantasia or self.razao_social
 
+    def clean(self):
+        # DL-023, critério 5 (BL-211/A3): `EmpresaAdmin` deixava mover uma
+        # empresa inteira de escritório com um POST — medido: `302`,
+        # levando junto plano de contas, escrituração e estabelecimentos,
+        # sem nenhum `RegistroAuditoria`. A pendência P1 (transferir empresa
+        # entre escritórios é operação real?) segue em aberto; enquanto não
+        # houver resposta do Fred, o lado seguro e reversível é RECUSAR.
+        #
+        # Só dispara na TRANSIÇÃO desta gravação (o `escritorio_id` GRAVADO
+        # no banco é diferente do que está sendo salvo agora) — mesmo
+        # padrão do guard de `aceita_lancamento` em `Conta.clean()`: uma
+        # empresa nova (`self.pk` ainda None) não tem transição nenhuma, e
+        # fica livre no `add` (H1).
+        #
+        # "Escrituração" é checada pelas TRÊS relações reversas que a
+        # etapa nomeia — plano de contas, lançamento e estabelecimento —
+        # via `related_name`, sem importar `apps.contabilidade.models` aqui
+        # (evitaria import circular: `apps.contabilidade.models` já importa
+        # `Empresa` deste módulo). `self.contas`/`self.lancamentos` são
+        # resolvidos pelo registro de apps do Django em tempo de chamada,
+        # não em tempo de import.
+        #
+        # Limite conhecido, e não é novo neste projeto (mesmo risco já
+        # aceito e documentado em `Conta.clean()`, DE-008): `full_clean()`
+        # só é chamado por `ModelForm`/admin, nunca por `.save()` puro nem
+        # por `QuerySet.update()` — esta guarda não impede ORM direto. Hoje
+        # a ÚNICA porta que expõe `escritorio` como campo editável é o
+        # `ModelForm` gerado pelo `EmpresaAdmin` (a API não inclui
+        # `escritorio` em `EmpresaSerializer.Meta.fields`), e o admin
+        # também trava esse campo por `readonly_fields` no `change` — ver
+        # `EmpresaAdmin.get_readonly_fields`. As duas camadas continuam
+        # coexistindo de propósito (defesa em profundidade, mesmo padrão do
+        # resto do projeto): esta é a que protegeria qualquer ModelForm
+        # futuro que voltasse a expor o campo sem repetir a decisão.
+        #
+        # Critério 11 da DL-023 (trilha), AUSÊNCIA DECLARADA: a recusa
+        # levantada aqui NÃO grava `RegistroAuditoria` — mesmo motivo do
+        # guard equivalente em `Conta.clean()` (nada foi alterado, e
+        # nenhum `admin.py` deste projeto chama `registrar()` hoje;
+        # BL-244, pacote 3, endereça trilha genérica do admin).
+        if self.pk:
+            escritorio_gravado = (
+                Empresa.objects.filter(pk=self.pk).values_list("escritorio_id", flat=True).first()
+            )
+            if escritorio_gravado is not None and escritorio_gravado != self.escritorio_id:
+                tem_plano_de_contas = self.contas.exists()
+                tem_lancamentos = self.lancamentos.exists()
+                tem_estabelecimentos = self.estabelecimentos.exists()
+                if tem_plano_de_contas or tem_lancamentos or tem_estabelecimentos:
+                    raise ValidationError(
+                        "Não é possível mudar o escritório desta empresa: ela já tem "
+                        "escrituração gravada (plano de contas, lançamento contábil "
+                        "ou estabelecimento). Transferir empresa entre escritórios "
+                        "não é suportado pelo cadastro comum — fale com o "
+                        "arquiteto-senior se este for um caso real do escritório."
+                    )
+
 
 class RegimeTributario(models.TextChoices):
     SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
@@ -167,6 +225,35 @@ class HistoricoRegimeTributario(models.Model):
         verbose_name = "histórico de regime tributário"
         verbose_name_plural = "históricos de regime tributário"
         ordering = ["-vigencia_inicio"]
+        constraints = [
+            # DL-023, critério 1 (a defesa que vale em TODA porta, e por
+            # isso vem primeiro na ordem obrigatória de execução da etapa):
+            # BL-211/A2 mediu, pelo admin, dois períodos ABERTOS ao mesmo
+            # tempo para a mesma empresa (`vigencia_fim IS NULL` nas duas
+            # linhas) — o "último regime", justamente o que o RC-86/DE-039
+            # autoriza apagar, deixava de ser único. `registrar_regime_
+            # tributario` já serializa por `select_for_update()`, mas isso
+            # só protege quem passa por ele; o admin (antes desta etapa) e
+            # qualquer ORM direto não passavam. Esta restrição vale para
+            # TODAS as portas, inclusive shell e importação futura — é a
+            # camada 1 da DE-008. A `condition` restringe a unicidade às
+            # linhas com `vigencia_fim` nulo, para que várias linhas
+            # FECHADAS (histórico) continuem coexistindo sem violar nada;
+            # só o período ABERTO precisa ser único por empresa.
+            #
+            # Efeito colateral desejado: como nenhuma outra superfície de
+            # escrita deste campo passa por ModelForm hoje (o inline saiu do
+            # admin — ver apps/empresas/admin.py), a única forma de violar
+            # esta constraint por cliente é concorrência dentro do próprio
+            # `registrar_regime_tributario`, e `apps.empresas.services`
+            # traduz o `IntegrityError` correspondente para `ValueError`
+            # (400), no mesmo molde de `erro_de_cnpj_duplicado_como_400`.
+            models.UniqueConstraint(
+                fields=["empresa"],
+                condition=models.Q(vigencia_fim__isnull=True),
+                name="um_periodo_de_regime_aberto_por_empresa",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.empresa} — {self.get_regime_display()} desde {self.vigencia_inicio}"

@@ -97,13 +97,26 @@ MENSAGENS_DE_RESTRICAO = {
 # e é chamável (um caminho que alguém renomeie ou apague reprova a suíte).
 #
 # Nenhuma delas pode ser movida para o mapa acima sem revisar o ponto citado:
-# as três traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
+# elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+    # DL-023 (BL-211/A2): a restrição que garante UM período de regime
+    # tributário aberto por empresa. A tradução mora dentro de
+    # `registrar_regime_tributario`, e não em `restricao_como_400`, porque a
+    # checagem de negócio acontece ANTES: o serviço fecha o período vigente
+    # anterior e só chega a violar a restrição na **corrida residual** — duas
+    # requisições simultâneas quando ainda não existe linha alguma para o
+    # `select_for_update()` travar. Nesse caminho o serviço converte o
+    # `IntegrityError` em `ValueError`, que a view já devolve como 400: a
+    # classe da BL-144 ("nenhuma violação de invariante chega ao cliente como
+    # 5xx") vale também para a perdedora da corrida.
+    "um_periodo_de_regime_aberto_por_empresa": (
+        "apps.empresas.services.registrar_regime_tributario"
+    ),
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:

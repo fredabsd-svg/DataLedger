@@ -205,83 +205,55 @@ def test_validador_de_campo_recusa_vigencia_futura(cenario):
     validar_vigencia_de_regime(timezone.localdate())  # não levanta
 
 
-def test_admin_recusa_vigencia_futura_no_inline_e_nao_grava(client, cenario):
-    """Exercita o ADMIN de verdade, com POST autenticado — `full_clean()` verde
-    não prova que o admin chama `full_clean()`.
+def test_o_admin_nao_tem_mais_porta_de_escrita_para_regime_tributario():
+    """Substitui os dois testes que mediam o `HistoricoRegimeTributarioInline`.
 
-    O `HistoricoRegimeTributarioInline` grava por `ModelForm` e NUNCA passa por
-    `registrar_regime_tributario`: sem o validador de campo, o admin era a
-    porta por onde `9999-12-31` continuava entrando."""
-    get_user_model().objects.create_superuser(
-        username="admin-rc85", email="admin-rc85@escritorio.com.br", password=SENHA
+    **Eles existiam, passavam, e a DL-023 removeu o que eles mediam.** Eram
+    `test_admin_recusa_vigencia_futura_no_inline_e_nao_grava` (negativo) e
+    `test_admin_grava_vigencia_passada_no_inline` (controle positivo do mesmo
+    caminho). Os dois exercitavam o inline por requisição autenticada e
+    provavam que o validador de campo fazia a **faixa** do RC-85 valer no
+    admin.
+
+    O que a DL-023 mediu depois disso (BL-211/A2): a faixa valia ali, mas o
+    **fechamento do período anterior** não — o inline gravava por `ModelForm`,
+    nunca passava por `registrar_regime_tributario`, e nasciam **dois períodos
+    abertos ao mesmo tempo** para a mesma empresa. Metade da regra valia na
+    porta, metade não. A etapa fechou a porta: o inline saiu do
+    `EmpresaAdmin`, e toda gravação de regime passa pela API, que chama o
+    serviço.
+
+    **Por que este teste substitui os dois, e não é o caso de "apagar teste
+    para ficar verde":** a propriedade que interessa ficou mais forte, não mais
+    fraca. Não se mede mais "o admin recusa vigência futura"; mede-se que **o
+    admin não grava regime tributário de jeito nenhum**. A prova por
+    requisição — POST com exatamente os campos do antigo inline, e nada é
+    criado — está em
+    `apps/empresas/tests/test_dl023_regime_tributario_periodo_unico.py`, e a
+    faixa do RC-85 continua defendida pelo validador de campo
+    (`test_validador_de_campo_recusa_vigencia_futura`, logo acima) e pela API
+    (`test_bl133_data_regime_tributario.py`, `test_dl019_politica_api.py`).
+
+    Este teste guarda a **estrutura**: se alguém reintroduzir o inline ou
+    registrar um `ModelAdmin` próprio para o modelo, ele reprova aqui, no
+    endereço do RC-85, e não só na varredura da DL-023.
+    """
+    from django.contrib import admin as django_admin
+
+    from apps.empresas.admin import EmpresaAdmin
+
+    modelos_dos_inlines = [inline.model for inline in EmpresaAdmin.inlines]
+    assert HistoricoRegimeTributario not in modelos_dos_inlines, (
+        "O HistoricoRegimeTributarioInline voltou ao EmpresaAdmin. Ele grava por "
+        "ModelForm sem passar por registrar_regime_tributario — é o defeito "
+        "BL-211/A2, e a UniqueConstraint agora recusa o segundo período aberto "
+        "com IntegrityError em vez de mensagem de negócio."
     )
-    assert client.login(username="admin-rc85", password=SENHA)
-    empresa = cenario["empresa"]
-
-    resposta = client.post(
-        f"/admin/empresas/empresa/{empresa.pk}/change/",
-        {
-            "escritorio": cenario["escritorio"].pk,
-            "razao_social": empresa.razao_social,
-            "nome_fantasia": "",
-            "cnpj": empresa.cnpj,
-            "ativo": "on",
-            "estabelecimentos-TOTAL_FORMS": "0",
-            "estabelecimentos-INITIAL_FORMS": "0",
-            "estabelecimentos-MIN_NUM_FORMS": "0",
-            "estabelecimentos-MAX_NUM_FORMS": "1000",
-            "historico_regime_tributario-TOTAL_FORMS": "1",
-            "historico_regime_tributario-INITIAL_FORMS": "0",
-            "historico_regime_tributario-MIN_NUM_FORMS": "0",
-            "historico_regime_tributario-MAX_NUM_FORMS": "1000",
-            "historico_regime_tributario-0-regime": "simples_nacional",
-            "historico_regime_tributario-0-vigencia_inicio": "9999-12-31",
-            "historico_regime_tributario-0-vigencia_fim": "",
-            "_continue": "Salvar e continuar editando",
-        },
+    assert HistoricoRegimeTributario not in django_admin.site._registry, (
+        "Regime tributário voltou a ter ModelAdmin próprio. Se a intenção for uma "
+        "tela só-leitura, ela precisa de decisão registrada na varredura da DL-023 "
+        "e de teste por requisição provando que não grava."
     )
-
-    # 200 = formulário reapresentado com erro (302 seria "salvou e redirecionou").
-    assert resposta.status_code == 200, resposta.status_code
-    assert not HistoricoRegimeTributario.objects.exists()
-
-
-def test_admin_grava_vigencia_passada_no_inline(client, cenario):
-    """Controle positivo do MESMO caminho: sem ele, o teste acima passaria
-    igual se o admin estivesse quebrado por qualquer outro motivo (campo
-    faltando, permissão, formset mal montado) — e eu concluiria "o validador
-    funciona" a partir de um 200 que não tem nada a ver com ele."""
-    get_user_model().objects.create_superuser(
-        username="admin2-rc85", email="admin2-rc85@escritorio.com.br", password=SENHA
-    )
-    assert client.login(username="admin2-rc85", password=SENHA)
-    empresa = cenario["empresa"]
-
-    resposta = client.post(
-        f"/admin/empresas/empresa/{empresa.pk}/change/",
-        {
-            "escritorio": cenario["escritorio"].pk,
-            "razao_social": empresa.razao_social,
-            "nome_fantasia": "",
-            "cnpj": empresa.cnpj,
-            "ativo": "on",
-            "estabelecimentos-TOTAL_FORMS": "0",
-            "estabelecimentos-INITIAL_FORMS": "0",
-            "estabelecimentos-MIN_NUM_FORMS": "0",
-            "estabelecimentos-MAX_NUM_FORMS": "1000",
-            "historico_regime_tributario-TOTAL_FORMS": "1",
-            "historico_regime_tributario-INITIAL_FORMS": "0",
-            "historico_regime_tributario-MIN_NUM_FORMS": "0",
-            "historico_regime_tributario-MAX_NUM_FORMS": "1000",
-            "historico_regime_tributario-0-regime": "simples_nacional",
-            "historico_regime_tributario-0-vigencia_inicio": "2024-03-01",
-            "historico_regime_tributario-0-vigencia_fim": "",
-            "_continue": "Salvar e continuar editando",
-        },
-    )
-
-    assert resposta.status_code == 302, resposta.status_code
-    assert HistoricoRegimeTributario.objects.count() == 1
 
 
 # ---------------------------------------------------------------------------

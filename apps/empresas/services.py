@@ -153,9 +153,35 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
         periodo_vigente.vigencia_fim = vigencia_inicio - timedelta(days=1)
         periodo_vigente.save(update_fields=["vigencia_fim"])
 
-    return HistoricoRegimeTributario.objects.create(
-        empresa=empresa, regime=regime, vigencia_inicio=vigencia_inicio
-    )
+    # DL-023, critério 8 (concorrência, BL-211/A2): quando `periodo_vigente`
+    # é `None` para DUAS requisições concorrentes (nenhuma linha existe
+    # ainda para o `select_for_update()` travar), as duas passam pela
+    # checagem acima e as duas tentam criar. A `UniqueConstraint`
+    # "um_periodo_de_regime_aberto_por_empresa" (Meta de
+    # HistoricoRegimeTributario) garante que só UMA das duas grava; a outra
+    # recebe `IntegrityError` aqui. Sem tradução, isso subiria cru: a view
+    # só captura `ValueError` (apps/empresas/views.py), e o cliente
+    # concorrente perdedor receberia 500 — exatamente a classe de defeito
+    # que a BL-144 existe para impedir ("nenhuma violação de invariante
+    # chega ao cliente como 5xx"). `transaction.atomic()` aqui dentro cria
+    # um SAVEPOINT (a função inteira já está em `@transaction.atomic`): o
+    # `IntegrityError` propagado FORA deste bloco interno só desfaz o
+    # savepoint, não a transação inteira, e a conexão continua utilizável
+    # depois — mesmo desenho de `erro_de_cnpj_duplicado_como_400`.
+    try:
+        with transaction.atomic():
+            return HistoricoRegimeTributario.objects.create(
+                empresa=empresa, regime=regime, vigencia_inicio=vigencia_inicio
+            )
+    except IntegrityError as exc:
+        nome_constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
+        if nome_constraint != "um_periodo_de_regime_aberto_por_empresa":
+            raise
+        raise ValueError(
+            "Esta empresa já tem um período de regime tributário aberto, criado por "
+            "outra requisição ao mesmo tempo. Recarregue e confira o regime atual "
+            "antes de tentar de novo."
+        ) from exc
 
 
 class ExclusaoDeRegimeInvalida(Exception):
@@ -255,8 +281,6 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
         valores_antigos["vigencia_fim_reaberta_do_periodo_anterior"] = (
             anterior.vigencia_fim.isoformat() if anterior.vigencia_fim else None
         )
-        anterior.vigencia_fim = None
-        anterior.save(update_fields=["vigencia_fim"])
 
     # `registrar()` ANTES do `delete()`: depois da exclusão o `pk` da
     # instância é `None`, e a trilha registraria um objeto sem identificação.
@@ -267,5 +291,21 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
         request=request,
         detalhes=valores_antigos,
     )
+
+    # DL-023, critério 1 (efeito colateral da UniqueConstraint "um_periodo_
+    # de_regime_aberto_por_empresa"): `ultimo` (o período apagado) e
+    # `anterior` (o período que volta a vigente) têm os DOIS
+    # `vigencia_fim IS NULL` no instante entre "reabrir o anterior" e
+    # "apagar o último" — se a reabertura acontecesse ANTES da exclusão,
+    # as duas linhas violariam a constraint ao mesmo tempo (medido: a
+    # suíte reprovava aqui, `IntegrityError` na própria exclusão, depois
+    # de a constraint entrar). A ORDEM que evita a violação é apagar
+    # PRIMEIRO — assim nunca existem duas linhas abertas na mesma
+    # transação — e só depois reabrir o anterior. A trilha já foi gravada
+    # acima com os valores corretos, então a ordem de escrita no banco não
+    # muda o que fica registrado.
     ultimo.delete()
+    if anterior is not None:
+        anterior.vigencia_fim = None
+        anterior.save(update_fields=["vigencia_fim"])
     return valores_antigos

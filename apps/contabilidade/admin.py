@@ -42,6 +42,21 @@ class ContaAdmin(admin.ModelAdmin):
     delete()` e por isso não valia para a ação em lote. O risco residual
     (apagar conta SEM movimento e SEM filhas, plano de contas mal montado
     por engano) é aceitável para uma tela de cadastro/manutenção.
+
+    O risco de ALTERAÇÃO (não só o de exclusão, que o parágrafo acima já
+    cobria) foi corrigido na DL-023 (BL-83, achado novo 1 da auditoria
+    DL-015 rodada 4): este admin deixava mover conta COM movimento para
+    OUTRA empresa e trocar a NATUREZA/TIPO de conta já movimentada — o
+    balancete da empresa de origem passava a fechar torto (zero de débito
+    contra mil de crédito) sem nenhuma das quatro categorias da conferência
+    acusar, e a troca de natureza invertia o sinal de todo o histórico da
+    conta. A defesa mora em `Conta.clean()` (apps/contabilidade/models.py),
+    não aqui: um validador de MODELO vale para este `ModelForm` e para
+    qualquer outro caminho que chame `full_clean()`, e não só para esta
+    tela — é o padrão da etapa ("regra que o admin tem que respeitar mora
+    no modelo"). Conta SEM movimento e SEM filhas continua totalmente
+    editável (critério 4 da DL-023): a defesa só dispara na TRANSIÇÃO de um
+    estado que já tem o que proteger.
     """
 
     list_display = ["codigo", "nome", "tipo", "natureza", "empresa", "aceita_lancamento", "ativo"]
