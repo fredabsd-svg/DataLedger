@@ -250,25 +250,40 @@ class Conta(models.Model):
                     # preservado: conta livre continua podendo mudar de
                     # empresa no mesmo escritório).
                     # BL-264 (achado P4/DoesNotExist da auditoria DL-023
-                    # rodada 3, introduzido nesta etapa): `self.empresa.
-                    # escritorio_id` resolve a FK via `self.empresa`, que
-                    # levanta `Empresa.DoesNotExist` — não `ValidationError`
-                    # — quando `empresa_id` aponta para um registro
-                    # inexistente (`conta.empresa_id = 999999`). Isso não é
-                    # alcançável pelo admin (o `ModelChoiceField` já recusa
-                    # a FK antes de `clean()` rodar), mas é alcançável por
-                    # qualquer `full_clean()` direto — candidato: a
-                    # importação em lote da DL-010, que grava por
-                    # `bulk_create`/lote e pode chamar `full_clean()` linha
-                    # a linha. Mesmo padrão que `original` já usa duas
-                    # linhas acima: `.values_list(...).first()` nunca
-                    # levanta `DoesNotExist` — devolve `None` — e não
-                    # carrega a linha inteira de `Empresa`.
+                    # rodada 3, introduzido nesta etapa): a primeira versão
+                    # deste guard lia `self.empresa.escritorio_id`, que
+                    # resolve a FK via `self.empresa` e levanta `Empresa.
+                    # DoesNotExist` — não `ValidationError` — quando
+                    # `empresa_id` aponta para um registro inexistente
+                    # (`conta.empresa_id = 999999`). Isso não é alcançável
+                    # pelo admin (o `ModelChoiceField` já recusa a FK antes
+                    # de `clean()` rodar), mas é alcançável por qualquer
+                    # `full_clean()` direto — candidato: a importação em
+                    # lote da DL-010, que pode chamar `full_clean()` linha a
+                    # linha. Mesmo padrão que `original` já usa duas linhas
+                    # acima: `.values_list(...).first()` nunca levanta
+                    # `DoesNotExist` — devolve `None` — e não carrega a
+                    # linha inteira de `Empresa`.
                     escritorio_novo_id = (
                         Empresa.objects.filter(pk=self.empresa_id)
                         .values_list("escritorio_id", flat=True)
                         .first()
                     )
+                    # Segunda correção, ainda na rodada 4: a versão anterior
+                    # deste guard tratava `escritorio_novo_id is None` como
+                    # "empresa de outro escritório" — mensagem que nomeia a
+                    # causa ERRADA quando o que houve foi FK apontando para
+                    # registro inexistente. É a mesma família de defeito da
+                    # BL-142 (comentário falso) e da BL-246 (cobertura
+                    # declarada que não existia): afirmação que não
+                    # corresponde ao que aconteceu — só que agora na
+                    # mensagem que o contador lê, não num comentário interno.
+                    # Os dois casos são distintos e têm mensagem própria.
+                    if escritorio_novo_id is None:
+                        raise ValidationError(
+                            "Não é possível mudar esta conta: a empresa informada não "
+                            "existe. Confira o identificador enviado."
+                        )
                     if original["empresa__escritorio_id"] != escritorio_novo_id:
                         raise ValidationError(
                             "Não é possível mudar esta conta para uma empresa de outro "

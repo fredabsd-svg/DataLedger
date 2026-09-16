@@ -149,6 +149,13 @@ def _post_change(client, conta, dados):
 
 
 def test_admin_recusa_trocar_empresa_de_conta_com_partidas(client, cenario):
+    """BL-266 (achado A1 da auditoria DL-023 rodada 3): não basta `200` +
+    objeto inalterado — um FORMULÁRIO QUEBRADO por outro motivo (ex.: CNPJ
+    inválido em outro campo) também produz esse par, sem a defesa ter
+    disparado. A mensagem do MODELO no corpo é o que distingue "recusei de
+    propósito" de "quebrei": aqui, `outra_empresa` está no MESMO escritório
+    (dentro do `queryset` do dropdown), então quem recusa é `Conta.clean()`
+    — a mensagem do modelo precisa aparecer."""
     conta = _com_movimento(cenario, _conta(cenario["empresa"], codigo="1"))
     estado_antes = (conta.empresa_id, conta.natureza, conta.tipo, conta.codigo, conta.nome)
     _login_admin(client, cenario)
@@ -159,6 +166,8 @@ def test_admin_recusa_trocar_empresa_de_conta_com_partidas(client, cenario):
     # redirecionou") — mesmo critério já usado no resto do projeto para
     # distinguir recusa de sucesso no admin.
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    assert "lançamento próprio" in corpo, corpo
     conta.refresh_from_db()
     # "byte a byte": empresa, natureza e tipo — os três campos que o
     # critério 1 nomeia — continuam exatamente como estavam.
@@ -171,6 +180,9 @@ def test_admin_recusa_trocar_empresa_de_conta_com_partidas(client, cenario):
 
 
 def test_admin_recusa_trocar_empresa_de_conta_com_filhas(client, cenario):
+    """BL-266: mensagem do modelo no corpo, não só status — `outra_empresa`
+    está no mesmo escritório (dentro do `queryset` do dropdown), então quem
+    recusa é `Conta.clean()`."""
     pai = _conta(cenario["empresa"], codigo="1", tipo=TipoConta.ATIVO)
     _conta(cenario["empresa"], codigo="1.1", pai=pai, nome="Filha")
     _login_admin(client, cenario)
@@ -178,6 +190,8 @@ def test_admin_recusa_trocar_empresa_de_conta_com_filhas(client, cenario):
     resposta = _post_change(client, pai, {"empresa": cenario["outra_empresa"].id})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    assert "conta filha" in corpo, corpo
     pai.refresh_from_db()
     assert pai.empresa_id == cenario["empresa"].id
 
@@ -203,6 +217,10 @@ def test_admin_recusa_trocar_natureza_de_conta_com_movimento(client, cenario):
     resposta = _post_change(client, conta, {"natureza": NaturezaConta.CREDORA})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    # BL-266: mensagem do modelo no corpo — o campo `natureza` não é
+    # restringido por nenhum `formfield_for_foreignkey` (não é FK), então
+    # só `Conta.clean()` pode ter recusado este POST.
+    assert "a natureza" in resposta.content.decode()
     conta.refresh_from_db()
     assert conta.natureza == NaturezaConta.DEVEDORA
     balancete_depois = apurar_balancete(empresa=cenario["empresa"], **periodo)
@@ -217,12 +235,15 @@ def test_admin_recusa_trocar_natureza_de_conta_com_movimento(client, cenario):
 
 
 def test_admin_recusa_trocar_tipo_de_conta_com_movimento(client, cenario):
+    """BL-266: mensagem do modelo no corpo — `tipo` não é FK, ninguém além
+    de `Conta.clean()` pode ter recusado este POST."""
     conta = _com_movimento(cenario, _conta(cenario["empresa"], codigo="1", tipo=TipoConta.ATIVO))
     _login_admin(client, cenario)
 
     resposta = _post_change(client, conta, {"tipo": TipoConta.DESPESA})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    assert "o tipo" in resposta.content.decode()
     conta.refresh_from_db()
     assert conta.tipo == TipoConta.ATIVO
 
@@ -258,6 +279,8 @@ def test_admin_recusa_trocar_natureza_de_sintetica_com_filha_movimentada(client,
     resposta = _post_change(client, pai, {"natureza": NaturezaConta.CREDORA})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    # BL-266: mensagem do modelo no corpo.
+    assert "a natureza" in resposta.content.decode()
     pai.refresh_from_db()
     assert pai.natureza == NaturezaConta.DEVEDORA
     balancete_depois = apurar_balancete(empresa=cenario["empresa"], **periodo)
@@ -279,6 +302,7 @@ def test_admin_recusa_trocar_tipo_de_sintetica_com_filha_movimentada(client, cen
     resposta = _post_change(client, pai, {"tipo": TipoConta.DESPESA})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    assert "o tipo" in resposta.content.decode()  # BL-266: mensagem do modelo no corpo
     pai.refresh_from_db()
     assert pai.tipo == TipoConta.ATIVO
 
@@ -297,6 +321,7 @@ def test_admin_recusa_trocar_natureza_de_neta_com_bisneta_movimentada(client, ce
     resposta = _post_change(client, avo, {"natureza": NaturezaConta.CREDORA})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    assert "a natureza" in resposta.content.decode()  # BL-266: mensagem do modelo no corpo
     avo.refresh_from_db()
     assert avo.natureza == NaturezaConta.DEVEDORA
 
@@ -316,6 +341,25 @@ def test_admin_continua_editando_sintetica_com_filha_sem_movimento_nenhum(client
     assert resposta.status_code == 302, (resposta.status_code, resposta.content)
     pai.refresh_from_db()
     assert pai.natureza == NaturezaConta.CREDORA
+
+
+# ---------------------------------------------------------------------------
+# BL-265 (achado P5 da auditoria DL-023 rodada 3): o `WITH RECURSIVE` de
+# `_tem_movimento_proprio_ou_de_descendente` lê o NOME DE COLUNA das duas FKs
+# pelo `_meta`, não mais por literal escrito à mão — fecha a assimetria com
+# os nomes de TABELA, que já vinham do `_meta.db_table`.
+# ---------------------------------------------------------------------------
+
+
+def test_query_recursiva_le_nomes_de_coluna_pelo_meta_nao_por_literal():
+    from apps.contabilidade.models import ItemLancamento
+
+    # Os valores de HOJE são os mesmos que os literais antigos continham —
+    # o que este teste prova é a FONTE (o `_meta`), não um valor diferente.
+    # Um `db_column=` futuro nessas FKs muda o que estas duas linhas
+    # devolvem, e a consulta acompanha automaticamente.
+    assert Conta._meta.get_field("conta_pai").column == "conta_pai_id"
+    assert ItemLancamento._meta.get_field("conta").column == "conta_id"
 
 
 # ---------------------------------------------------------------------------
@@ -356,13 +400,44 @@ def test_admin_continua_editando_conta_sem_movimento_e_sem_filhas(client, cenari
 # ---------------------------------------------------------------------------
 
 
-def test_admin_recusa_mover_conta_livre_para_empresa_de_outro_escritorio(client, cenario):
+def test_admin_recusa_via_formulario_mover_conta_livre_para_empresa_de_outro_escritorio(
+    client, cenario
+):
+    """BL-266 (achado A1 da auditoria DL-023 rodada 3): este teste tinha o
+    NOME do guard de `Conta.clean()`, mas media outra coisa. Medido pelo
+    auditor, por requisição: a única mensagem no corpo é a de "escolha
+    válida" do `ModelChoiceField` — "fronteira de isolamento" (a mensagem
+    do MODELO) não aparece. Motivo estrutural, não descuido: o dropdown de
+    `empresa` (`ContaAdmin.formfield_for_foreignkey`, BL-248) restringe o
+    `queryset` ao escritório ATUAL da conta, então qualquer POST com
+    empresa de outro escritório já é rejeitado pelo `ModelChoiceField`
+    ANTES de `Conta.clean()` receber o valor novo — `construct_instance()`
+    só atribui campos presentes em `cleaned_data`, e um campo com erro de
+    validação não entra lá. Isso vale para QUALQUER POST, não só para o
+    que o HTML renderiza: a restrição é no `queryset`, não na marcação.
+
+    Consequência, e por que ela é aceitável: não existe cenário de
+    requisição ao admin em que o guard de escritório do MODELO seja o que
+    recusa — ele é MAIS FORTE, cobrindo o que a porta única de escrita de
+    hoje (o `ModelForm`) não alcançaria sozinha, e continua provado
+    isoladamente por `full_clean()` direto, logo abaixo
+    (`test_full_clean_recusa_mover_conta_para_empresa_de_outro_escritorio`)
+    — que é o teste que o mutante do GUARD DO MODELO mata. Este teste aqui
+    é do guard do FORMULÁRIO (dropdown), e é o que o mutante do
+    `formfield_for_foreignkey` mata."""
     conta = _conta(cenario["empresa"], codigo="9")
     _login_admin(client, cenario)
 
     resposta = _post_change(client, conta, {"empresa": cenario["empresa_outro_escritorio"].id})
 
     assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    # A camada que recusou É o formulário — a mensagem exata do Django
+    # para valor fora do queryset de um ModelChoiceField (pt-br).
+    assert "Faça uma escolha válida" in corpo, corpo
+    # E NÃO a mensagem do modelo: ela nunca chega a ser levantada aqui,
+    # porque Conta.clean() nunca vê o valor novo (ver docstring acima).
+    assert "fronteira de isolamento" not in corpo
     conta.refresh_from_db()
     assert conta.empresa_id == cenario["empresa"].id
 
@@ -382,13 +457,80 @@ def test_admin_change_nao_lista_empresa_de_outro_escritorio_no_dropdown(client, 
 
 
 def test_full_clean_recusa_mover_conta_para_empresa_de_outro_escritorio(cenario):
+    """BL-266: este é o teste que prova o guard de escritório do MODELO —
+    chamando `full_clean()` direto, sem passar pelo `ModelForm`/dropdown do
+    admin, que restringiria o valor antes de `clean()` rodar (ver o
+    docstring de `test_admin_recusa_via_formulario_mover_conta_livre_para_
+    empresa_de_outro_escritorio`, acima). É este teste que o mutante que
+    neutraliza o guard do MODELO mata."""
     from django.core.exceptions import ValidationError
 
     conta = _conta(cenario["empresa"], codigo="9")
     conta.empresa = cenario["empresa_outro_escritorio"]
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as excinfo:
         conta.full_clean()
+
+    # A mensagem nomeia a causa certa: empresa REAL, de OUTRO escritório —
+    # não confundir com BL-264 (empresa que não existe), logo abaixo.
+    assert "outro" in str(excinfo.value) and "escritório" in str(excinfo.value)
+    assert "não existe" not in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# BL-264 (achado P4 da auditoria DL-023 rodada 3, INTRODUZIDO pela rodada 2):
+# `self.empresa.escritorio_id` carregava a linha inteira e estourava
+# `Empresa.DoesNotExist` (não `ValidationError`) quando `empresa_id` apontava
+# para registro inexistente — 500 em qualquer `full_clean()` direto (não
+# alcançável pelo admin, mas alcançável por importação em lote, DL-010).
+#
+# Correção da RODADA 4 do arquiteto: a primeira versão desta correção reusava
+# a mensagem de "outro escritório" também para FK inexistente — mensagem que
+# nomeia a causa ERRADA. Os dois testes abaixo distinguem os dois casos.
+# ---------------------------------------------------------------------------
+
+
+def test_full_clean_recusa_conta_com_empresa_inexistente_com_mensagem_propria(cenario):
+    """O cenário exato que o auditor mediu: `empresa_id` aponta para um
+    registro que não existe. Antes da correção: `Empresa.DoesNotExist`
+    (não é `ValidationError`, 500 em quem chamar). Depois: `ValidationError`
+    com mensagem de EMPRESA INEXISTENTE — não de "outro escritório", que
+    seria a causa errada (a empresa não existe; não há como saber a que
+    escritório ela pertenceria)."""
+    from django.core.exceptions import ValidationError
+
+    conta = _conta(cenario["empresa"], codigo="9")
+    conta.empresa_id = 999999  # não existe nenhuma Empresa com este id
+
+    with pytest.raises(ValidationError) as excinfo:
+        conta.full_clean()
+
+    mensagem = str(excinfo.value)
+    assert "não existe" in mensagem
+    # E NÃO a mensagem do caso vizinho (empresa real, outro escritório) —
+    # é exatamente a confusão que a rodada 4 corrigiu.
+    assert "fronteira de isolamento" not in mensagem
+
+
+def test_full_clean_distingue_empresa_inexistente_de_empresa_de_outro_escritorio(cenario):
+    """As DUAS causas, lado a lado, para deixar a distinção impossível de
+    reintroduzir por acidente: mensagens DIFERENTES para causas DIFERENTES."""
+    from django.core.exceptions import ValidationError
+
+    conta_com_empresa_inexistente = _conta(cenario["empresa"], codigo="9")
+    conta_com_empresa_inexistente.empresa_id = 999999
+
+    conta_com_outro_escritorio = _conta(cenario["empresa"], codigo="10")
+    conta_com_outro_escritorio.empresa = cenario["empresa_outro_escritorio"]
+
+    with pytest.raises(ValidationError) as erro_inexistente:
+        conta_com_empresa_inexistente.full_clean()
+    with pytest.raises(ValidationError) as erro_outro_escritorio:
+        conta_com_outro_escritorio.full_clean()
+
+    assert str(erro_inexistente.value) != str(erro_outro_escritorio.value)
+    assert "não existe" in str(erro_inexistente.value)
+    assert "escritório" in str(erro_outro_escritorio.value)
 
 
 # ---------------------------------------------------------------------------
