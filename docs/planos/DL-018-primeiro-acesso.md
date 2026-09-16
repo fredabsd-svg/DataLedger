@@ -1,13 +1,11 @@
 # DL-018 — Primeiro acesso de uma instalação nova
 
-**Estado:** **em desenvolvimento**, branch
-`claude/dl-018-primeiro-acesso` aberta a partir de `bfe9814` (PR #25
-integrado — cabeçalho do estado pós-DL-023). Respostas das três
-perguntas ao Fred registradas em
+**Estado:** **integrada em 2026-09-16** pelo PR #27, merge commit
+`1b828e7`, com 5/5 checks verdes no GitHub. Respostas das três perguntas
+ao Fred registradas em
 [DE-042](../projeto/decisoes.md#de-042--dl-018-primeiro-acesso-via-produto-as-três-perguntas-respondidas)
 (2026-09-16). Dependências anteriores resolvidas: a DL-017 fechou e a
-DL-023 entrou na main pela rodada 2 — não há mais nada bloqueando
-esta etapa.
+DL-023 entrou na main pela rodada 3.
 
 ## Como isto apareceu
 
@@ -139,6 +137,10 @@ aqui em dobro.
 
 ## Git
 
-- **Branch de trabalho:** a mesma da sessão, ou branch nova a partir da `main`
-  depois que a DL-017 for integrada.
+- **Branch de trabalho:** `claude/dl-018-primeiro-acesso`, aberta a partir
+  de `bfe9814` (cabeçalho pós-DL-023).
 - **Branch de destino:** `main`.
+- **PR:** #27, merge commit `1b828e7`, 5/5 checks verdes.
+- **Commits notáveis:** `6321bc3` feat, `8bca8f2` style, `926c243`
+  fix (varredura de contratos e de restrições), `4543873` test (view-por-POST
+  para a BL-218).

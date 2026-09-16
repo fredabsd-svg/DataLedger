@@ -1,9 +1,11 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-16**, com a `main` em **`8235635`** (PR #24 integrado —
-DL-023, integridade administrativa, rodada 2). DL-023 entrou na `main` pela
-rodada 2 após auditoria reprovada na rodada 1; detalhes do que mudou entre
-uma e outra estão na tabela de etapas e no histórico de commits.
+Atualizado em **2026-09-16**, com a `main` em **`1b828e7`** (PR #27 integrado —
+**DL-018, primeiro acesso**, branch `claude/dl-018-primeiro-acesso`). DL-018
+entrou na `main` com **5/5 checks verdes** (`MERGEABLE` no GitHub) depois das
+duas varreduras do implementador (contratos e restrições), da reformatação
+automática de `ruff`, e da rodada de testes por POST real para a BL-218.
+DL-023 entrou na `main` antes (PR #24, `8235635`), ainda no estado da rodada 3.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -221,7 +223,7 @@ diverge.
 | [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Integrada (PR #22, `b8c66a6`)** — o verificador byte-strict (achado 9 do DL-019) continua intacto. ⚠️ **Limitação declarada e ainda aberta:** o que fechou foi a **quebra de linha**; rodar `--verificar` no Windows continua reportando `permissão 0o666` nos 14 derivados, por motivo independente ligado ao achado A3 (**BL-175**). Não ler como "compatibilidade Windows comprovada". Este arquivo e o próprio plano diziam "planejada, não iniciada" **depois** da integração; quem mediu a divergência foi o plano mestre, e a correção é a DL-022 |
 | [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em validação — APROVADA COM RESSALVAS na rodada 3**, revisão `a612604` ([relatório](../auditorias/2026-09-16-dl-023-rodada-3.md); a [rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) foi REPROVADA em `96284a4`). Pacote 2 da fila aprovada pelo Fred (**RC-88**). Os **dois achados altos estão fechados**, provados por execução do auditor: a sintética com filha movimentada agora recebe `200`, e a corrida que dava **500 em 6 de 8** deu **zero 5xx em 12**. Suíte **1269 passed, 0 pulados** em cópia limpa; prova por mutação **11 de 11**, com mutantes do auditor. Ressalvas abertas: **BL-261** (terceiro caminho do dano, e a decisão é **contábil, do Fred**), **BL-262** (o admin não tem isolamento por escritório em nenhuma superfície — etapa própria), **BL-263** (contra o arquiteto: caixa do PR marcada com o estado desatualizado), **BL-264 a BL-269**. Rodada 5 (auditoria **focada**) **APROVOU COM RESSALVAS** em `edae1bf` ([relatório](../auditorias/2026-09-16-dl-023-rodada-5.md)): BL-266 fechado, BL-265 fechado no código, **BL-264 fechado pela metade** (BL-270), e o teste da BL-265 não exercitava o código (BL-271). ⚠️ **O Fred mesclou o PR #24**, então a `main` está no estado da **rodada 3**, com as três ressalvas abertas; as correções das rodadas 4 e 6 seguem na branch, aguardando PR novo com os três checks |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
-| [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
+| [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -254,12 +256,9 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-16:
-[DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
-administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. Rodada 1
-REPROVADA em `96284a4`; rodada 2 corrigiu os dez itens; RODADA 3 — a segunda
-auditoria — APROVOU COM RESSALVAS na revisão `a612604`.** Rodada 4, curta, em
-curso: três itens baratos (**BL-264**, **BL-265**, **BL-266**). Relatórios
+**AGORA, em 2026-09-16: DL-018 integrada (PR #27, `1b828e7`, 5/5 checks
+verdes). Próxima etapa de código: as correções das rodadas 4 e 6 da
+DL-023 que ficaram na branch**, com os três checks da CI. Relatórios
 integrais e preservados:
 [rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) e
 [rodada 3](../auditorias/2026-09-16-dl-023-rodada-3.md) — nesta etapa o número
