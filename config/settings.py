@@ -60,6 +60,10 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "apps.tenancy.middleware.EscritorioAtivoMiddleware",
+    # BL-244 (DL-024): expõe a `request` corrente aos signals do ORM via
+    # `apps.core.current_request`. Posicionada após AuthenticationMiddleware
+    # para que `request.user` já esteja disponível quando a view rodar.
+    "apps.core.middleware.CurrentRequestMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
