@@ -21,6 +21,7 @@ from django.urls import reverse
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.tenancy.models import (
+    ConviteEscritorio,
     Escritorio,
     Papel,
     VinculoUsuarioEscritorio,
@@ -401,3 +402,91 @@ def test_vinculo_de_um_escritorio_nao_da_acesso_a_outro(client):
     dados = json.loads(resposta.content)
     assert len(dados) == 1
     assert dados[0]["nome"] == "Escritório I"
+
+
+# ---------------------------------------------------------------------------
+# Critério BL-218 — views exercitadas por POST real
+# ---------------------------------------------------------------------------
+#
+# As três views da DL-018 são cobertas por testes de service (acima)
+# E por testes de view via `client.post` (estes). Os testes de view
+# são os que alimentam o elo de execução da BL-218 — uma chamada
+# direta ao service não põe o quadro da view na pilha, e a BL-218
+# reporta a superfície como não-exercitada.
+
+
+def test_emitir_convite_por_view_chama_recusar_dado_nao_contratado(client):
+    """BL-218: o handler POST do `emitir_convite` chega a
+    `apps.core.requisicao.recusar_dado_nao_contratado`. O elo de
+    execução da BL-218 confere essa trajetória na
+    `pytest_sessionfinish`."""
+    User = get_user_model()
+    escritorio = Escritorio.objects.create(nome="Escritório BL218", cnpj="77777777000177")
+    admin = User.objects.create_user(
+        username="admin-bl218-emitir", email="abe@dl018.local", password=SENHA
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=admin,
+        escritorio=escritorio,
+        papel=Papel.ADMINISTRADOR,
+        ativo=True,
+    )
+
+    assert client.login(username="admin-bl218-emitir", password=SENHA)
+    resposta = client.post(
+        reverse("tenancy:emitir-convite"),
+        {"escritorio_id": escritorio.pk, "email": "convidado-view@dl018.local"},
+    )
+    assert resposta.status_code == 302
+    assert ConviteEscritorio.objects.filter(email="convidado-view@dl018.local").exists()
+
+
+def test_aceitar_convite_por_view_chama_recusar_dado_nao_contratado(client):
+    """BL-218: o handler POST do `aceitar_convite` chega a
+    `apps.core.requisicao.recusar_dado_nao_contratado`."""
+    User = get_user_model()
+    escritorio = Escritorio.objects.create(nome="Escritório Convite", cnpj="88888888000188")
+    admin = User.objects.create_user(
+        username="admin-bl218-aceitar", email="aba@dl018.local", password=SENHA
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=admin,
+        escritorio=escritorio,
+        papel=Papel.ADMINISTRADOR,
+        ativo=True,
+    )
+
+    convite = emitir_convite_para_escritorio(
+        escritorio=escritorio,
+        email_convidado="convidado-vista@dl018.local",
+        convidador=admin,
+    )
+
+    User.objects.create_user(
+        username="convidado-vista",
+        email="convidado-vista@dl018.local",
+        password=SENHA,
+    )
+    client.logout()
+    assert client.login(username="convidado-vista", password=SENHA)
+
+    resposta = client.post(reverse("tenancy:aceitar-convite", kwargs={"token": convite.token}))
+    assert resposta.status_code == 302
+    convite.refresh_from_db()
+    assert convite.consumido_em is not None
+
+
+def test_bootstrap_primeiro_acesso_por_view_chama_recusar_dado_nao_contratado(
+    client,
+):
+    """BL-218: o handler POST do `bootstrap_primeiro_acesso` chega a
+    `apps.core.requisicao.recusar_dado_nao_contratado`."""
+    User = get_user_model()
+    User.objects.create_user(username="bootstrap-bl218", email="bb@dl018.local", password=SENHA)
+    assert client.login(username="bootstrap-bl218", password=SENHA)
+
+    resposta = client.post(
+        reverse("tenancy:bootstrap-primeiro-acesso"),
+        {"nome": "Outro Escritório", "cnpj": "99999999000199"},
+    )
+    assert resposta.status_code == 302
