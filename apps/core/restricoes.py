@@ -108,12 +108,26 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # tributário aberto por empresa. A tradução mora dentro de
     # `registrar_regime_tributario`, e não em `restricao_como_400`, porque a
     # checagem de negócio acontece ANTES: o serviço fecha o período vigente
-    # anterior e só chega a violar a restrição na **corrida residual** — duas
+    # anterior e só chega a violar a restrição na corrida residual — duas
     # requisições simultâneas quando ainda não existe linha alguma para o
     # `select_for_update()` travar. Nesse caminho o serviço converte o
-    # `IntegrityError` em `ValueError`, que a view já devolve como 400: a
-    # classe da BL-144 ("nenhuma violação de invariante chega ao cliente como
-    # 5xx") vale também para a perdedora da corrida.
+    # `IntegrityError` em `ValueError`, que a view devolve como 400.
+    #
+    # ⚠️ CORREÇÃO DE UMA AFIRMAÇÃO FALSA QUE ESTAVA AQUI (achado P2 da rodada 1
+    # da auditoria DL-023, BL-246). Este comentário dizia que "a classe da
+    # BL-144 vale TAMBÉM para a perdedora da corrida". O auditor mediu:
+    # **não valia**. Esta restrição tem DOIS caminhos de escrita capazes de
+    # violá-la — `registrar_regime_tributario` (traduzido) e
+    # `excluir_ultimo_regime_tributario`, que reabre o período anterior e
+    # colide com a linha criada por um POST concorrente. O segundo devolvia
+    # **500**, reproduzido em 6 execuções de 8. A correção está na BL-246.
+    #
+    # E a lição de mecanismo, registrada como BL-256: este registro é
+    # `nome -> UM ponteiro`, então a varredura confere que o ponteiro existe e
+    # é chamável, mas nunca pergunta QUANTOS caminhos de escrita alcançam a
+    # restrição e se todos traduzem. Foi por essa fenda que o 500 passou
+    # verde. Enquanto a estrutura for de ponteiro único, o que está escrito
+    # aqui é "onde a tradução mora", nunca "a cobertura está completa".
     "um_periodo_de_regime_aberto_por_empresa": (
         "apps.empresas.services.registrar_regime_tributario"
     ),

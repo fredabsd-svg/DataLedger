@@ -219,7 +219,7 @@ diverge.
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
 | [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Integrada (PR #21, `0dd07b4`)** — quatro rodadas de auditoria, fechamento do BL-242 com renumeração para `RC-85`, `RC-86`, `PE-46`, e conferência de encerramento. Resumo do auditor: *"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no produto."* Itens abertos preservados: **BL-211** (dois defeitos do admin — não devem atravessar a DL-010), **BL-229** (medições de CSS que pulam na CI), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241** |
 | [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Integrada (PR #22, `b8c66a6`)** — o verificador byte-strict (achado 9 do DL-019) continua intacto. ⚠️ **Limitação declarada e ainda aberta:** o que fechou foi a **quebra de linha**; rodar `--verificar` no Windows continua reportando `permissão 0o666` nos 14 derivados, por motivo independente ligado ao achado A3 (**BL-175**). Não ler como "compatibilidade Windows comprovada". Este arquivo e o próprio plano diziam "planejada, não iniciada" **depois** da integração; quem mediu a divergência foi o plano mestre, e a correção é a DL-022 |
-| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em execução** — pacote 2 da fila aprovada pelo Fred (**RC-88**), aberta a partir de `24f6bbc`. Os dois são **bloqueadores de implantação**: não deve existir dado real de cliente num sistema onde são possíveis |
+| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em desenvolvimento — rodada 1 REPROVADA** em `96284a4` ([relatório](../auditorias/2026-09-16-dl-023-rodada-1.md)). Pacote 2 da fila aprovada pelo Fred (**RC-88**). Suíte **1251 passed** em cópia limpa e prova por mutação **9 de 9**, refeitas pelo auditor — o que reprova são **dois achados altos**: **BL-245** (sintética com filha movimentada ainda troca de natureza, e o Balancete do grupo inverte) e **BL-246** (a etapa **introduziu** um 500 no `DELETE` de regime sob concorrência, 6 de 8). Achados de mecanismo contra o `arquiteto-senior`: **BL-254** (14 testes passam com formulário impossível) e **BL-260** (sem PR, a verificação "Regras do projeto" não rodou). Rodada 2 distribuída |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -256,13 +256,43 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-16:
 [DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
-administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada.** Fecha **BL-83** e
-os dois casos vivos da **BL-211**. A ordem interna é **obrigatória**: restrição
-de banco primeiro, defesas de modelo depois, admin em terceiro, varredura
-enumerativa e prova por mutação no fim. Fazer o admin antes da restrição produz
-a armadilha que este projeto já encontrou três vezes — a regra passa a valer
-**na porta** e continua falhando por ORM direto, com teste verde escondendo
-isso.
+administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. RODADA 1
+REPROVADA** na revisão `96284a4`; **rodada 2 em correção**. Relatório integral
+e preservado em
+[docs/auditorias/2026-09-16-dl-023-rodada-1.md](../auditorias/2026-09-16-dl-023-rodada-1.md).
+
+**Como ler essa reprovação, sem eufemismo.** A etapa **entregou** a restrição de
+banco (um período de regime aberto por empresa), e o auditor confirmou por
+execução própria que ela resiste a ORM direto, `bulk_create` e SQL cru; que a
+troca de ordem da exclusão é atômica e sem janela, com trilha correta até sob
+falha induzida; e que as 9 defesas novas matam teste, 9 de 9. **O que reprova
+são dois casos que a defesa não alcança**, e os dois estão dentro do que a etapa
+existe para fechar:
+
+- **BL-245 (ALTA):** conta **sintética** com filha movimentada ainda troca
+  natureza e tipo pelo admin. A linha do grupo no Balancete vai de `+1000` para
+  `-1000` **com o rodapé continuando a fechar**. O requisito dizia "conta com
+  movimento", e a sintética não tem movimento próprio — escrevi a regra pelo
+  mecanismo em vez do efeito proibido, contra a **DE-032**. O requisito mudou:
+  movimento **próprio ou de descendente**.
+- **BL-246 (ALTA):** a etapa **introduziu** um 5xx. `DELETE` de regime sob
+  concorrência com o `POST` devolve **500**, em 6 execuções de 8. Não corrompe
+  nada (reverte inteiro), mas é a classe da **BL-144** que esta própria etapa
+  declarava fechada — e o comentário que eu escrevi em `apps/core/restricoes.py`
+  afirmava cobertura que o auditor mediu não existir.
+
+**Dois achados são contra o `arquiteto-senior`, e ficam registrados nesses
+termos:** **BL-254** — eu aprovei catorze testes de admin que passam com um
+formulário deliberadamente inválido, porque aceitam `status in (200, 302)` e
+depois afirmam "nada mudou"; as duas metades são satisfeitas por formulário
+quebrado. E **BL-260** — eu declarei a revisão entregue **sem PR**, então dos
+três mecanismos que o `AGENTS.md` impõe rodaram dois: a verificação "Regras do
+projeto" só roda em `pull_request` e **não foi exercitada**. Quarta ocorrência
+da família da BL-147.
+
+A ordem interna da etapa continua **obrigatória**: restrição de banco primeiro,
+defesas de modelo depois, admin em terceiro, varredura e prova por mutação no
+fim.
 
 **Antes dela, e já integrada:
 [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) (PR #23,

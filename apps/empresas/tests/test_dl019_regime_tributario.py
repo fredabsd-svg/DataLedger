@@ -234,9 +234,22 @@ def test_o_admin_nao_tem_mais_porta_de_escrita_para_regime_tributario():
     (`test_validador_de_campo_recusa_vigencia_futura`, logo acima) e pela API
     (`test_bl133_data_regime_tributario.py`, `test_dl019_politica_api.py`).
 
-    Este teste guarda a **estrutura**: se alguém reintroduzir o inline ou
-    registrar um `ModelAdmin` próprio para o modelo, ele reprova aqui, no
-    endereço do RC-85, e não só na varredura da DL-023.
+    Este teste guarda a **estrutura declarada**: o atributo `inlines` da classe
+    e o registro do admin.
+
+    ⚠️ **Limite medido, e ele corrige o que esta docstring afirmava antes**
+    (achado A4 da rodada 1 da auditoria DL-023, BL-257). A frase anterior dizia
+    "se alguém reintroduzir o inline, ele reprova aqui". O auditor mutou o
+    código reintroduzindo o inline por **`get_inlines()`** — resolução dinâmica,
+    com o atributo `inlines` intacto — e este teste **não viu**. A varredura do
+    critério 12 da DL-023 também não, pelo mesmo motivo: as duas leem o
+    atributo de classe, não o valor efetivo. Quem matou o mutante foi o teste
+    **por requisição** (`test_dl023_regime_tributario_periodo_unico.py`), que é
+    o que prova comportamento.
+
+    Então o que este teste cobre é: reintrodução **estática** do inline, e
+    registro de `ModelAdmin` próprio. Reintrodução dinâmica é coberta pelo teste
+    por requisição, e fazer a varredura resolver `get_inlines()` é a BL-257.
     """
     from django.contrib import admin as django_admin
 

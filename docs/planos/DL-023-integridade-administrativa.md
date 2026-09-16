@@ -1,7 +1,12 @@
 # DL-023 — Integridade administrativa: nenhuma regra vale só na porta pela qual foi escrita
 
-**Estado:** **em execução.** Aberta em 2026-09-16, a partir da `main` em
-`24f6bbc` (PR #23 integrado — DL-022).
+**Estado:** **em desenvolvimento** — rodada 1 **REPROVADA**. Aberta em
+2026-09-16, a partir da `main` em `24f6bbc` (PR #23 integrado — DL-022).
+Situação atual, sempre, em [docs/agents/estado.md](../agents/estado.md).
+
+> **O cabeçalho dizia "em execução", termo que não existe no vocabulário do
+> `AGENTS.md` §3** e que nenhum outro plano do projeto usa. Quem mediu foi o
+> auditor (achado A7, BL-260). Corrigido para `em desenvolvimento`.
 
 **Origem:** pacote 2 da fila de execução do
 [plano mestre](../projeto/plano-mestre.md), aprovada pelo Fred em 2026-09-16
@@ -66,10 +71,33 @@ etapa sem execução.
 > foi escrita, e nenhuma alteração de dado estruturante acontece sem trilha.
 
 Os três casos acima são **exemplos**. O que a etapa precisa entregar é a
-propriedade: regra que o admin tem de respeitar mora no **modelo** (validador,
-`clean()` ou restrição de banco), não só no serviço — porque o serviço defende
-uma porta, e o modelo defende todas, inclusive ORM direto, `shell`, importação
-e tarefa em segundo plano.
+propriedade: regra que o admin tem de respeitar mora no **modelo**, não só no
+serviço — porque o serviço defende uma porta e o modelo alcança mais de uma.
+
+> **Correção de uma frase FALSA que estava aqui, medida pelo auditor (achado
+> P3, BL-247).** Este parágrafo afirmava que "o modelo defende **todas** as
+> portas, inclusive ORM direto, `shell`, importação e tarefa em segundo plano".
+> Isso é **falso para `clean()`**, e a **DE-008** deste projeto já dizia: ele só
+> roda quando alguém chama `full_clean()`, o que na prática significa
+> `ModelForm` e admin. O auditor mediu a invariante caindo por `.save()`,
+> `QuerySet.update()` e `bulk_update`, com o balancete indo a `0 D × 1.000 C`.
+>
+> **As duas camadas não são equivalentes, e a diferença é esta:**
+>
+> | Camada | Alcance real |
+> | --- | --- |
+> | Restrição de banco (`Meta.constraints`) | **Toda** porta, inclusive ORM direto, `shell`, SQL cru e importação. O auditor confirmou nos três |
+> | `Model.clean()` | Só quem chama `full_clean()` — `ModelForm` e admin |
+> | Serviço | Só quem chama o serviço |
+>
+> Nesta etapa, o regime tributário ganhou a camada de **banco**; a conta e a
+> empresa ficaram com `clean()`. Hoje **não existe porta de cliente** para
+> `Conta.empresa`, `Conta.natureza` nem `Empresa.escritorio` — o auditor
+> conferiu a API, a tela e os serializadores. A camada de banco para esses dois
+> casos está registrada como **BL-247**, com a **DL-010** (importação em lote)
+> como gatilho: é o primeiro caminho que grava sem `full_clean()`. O limite
+> passa a estar escrito aqui, na DE-008 e nos comentários do código — nos três
+> lugares dizendo a mesma coisa.
 
 ## Objetivo
 
@@ -87,7 +115,7 @@ e tarefa em segundo plano.
 | # | Requisito | Origem |
 | --- | --- | --- |
 | 1 | Conta **com movimento ou com filhas** não muda de empresa. | BL-83 |
-| 2 | Conta **com movimento** não muda de natureza nem de tipo. | BL-83 |
+| 2 | Conta com movimento **próprio ou de qualquer descendente** não muda de natureza nem de tipo. | BL-83; **corrigido na rodada 1** pelo achado P1/BL-245 — a redação anterior dizia só "com movimento", e a sintética com filha movimentada passava. A natureza da sintética é a que governa a apresentação do grupo no Balancete, então recortar pelo movimento próprio foi escrever a regra pelo mecanismo em vez do efeito proibido, contra a **DE-032** |
 | 3 | Empresa **com escrituração** (plano de contas, lançamento ou estabelecimento) não muda de escritório pelo uso cotidiano. | BL-211/A3 |
 | 4 | Uma empresa tem, no máximo, **um** período de regime tributário aberto. | BL-211/A2 |
 | 5 | Períodos de regime **não se sobrepõem**, e a escolha do "último" é determinística. | BL-211/A2 + DE-039 |
@@ -201,8 +229,45 @@ Fazer o admin antes da restrição produz a armadilha que este projeto já
 encontrou três vezes: a regra passa a valer **na porta** e continua falhando
 por ORM direto, e o teste verde esconde isso.
 
+## Rodada 1 — REPROVADA em `96284a4`
+
+Relatório integral, preservado sem edição, em
+[docs/auditorias/2026-09-16-dl-023-rodada-1.md](../auditorias/2026-09-16-dl-023-rodada-1.md).
+
+O auditor refez por execução própria o lint, o formato, o `manage.py check`, o
+`makemigrations --check` e a suíte inteira em cópia limpa (**1251 passed**), e
+refez a **prova por mutação completa**: as **9** defesas novas matam teste,
+9 de 9. O que reprova **não é falta de defesa** — são dois casos que a defesa
+não alcança, e os dois estão dentro do que a etapa existe para fechar:
+
+| Achado | Gravidade | O que é |
+| --- | --- | --- |
+| **P1 / BL-245** | ALTA | Conta **sintética** com filha movimentada troca natureza e tipo pelo admin (`302`), e a linha do grupo no Balancete vai de `+1000` para `-1000` com o rodapé continuando a fechar |
+| **P2 / BL-246** | ALTA | A etapa **introduziu** um 5xx: `DELETE` de regime sob concorrência com o `POST` devolve **500**, reproduzido 6 vezes em 8. Sem corrupção — reverte inteiro —, mas é a classe da BL-144 que esta etapa declarava fechada |
+| **P3 / BL-247** | MÉDIA | A defesa de conta e empresa vale só na porta do `ModelForm`; e o **plano afirmava o contrário do que a DE-008 já dizia** (corrigido acima) |
+| **P4 / BL-248** | MÉDIA | Fronteira de **escritório** não é checada ao mover conta, e o formulário lista empresas de outros escritórios |
+| **A1 / BL-254** | MÉDIA | **Achado contra o `arquiteto-senior`:** os 14 testes de admin de `empresas` passam com `payload` impossível — nenhum distingue "a defesa recusou" de "o formulário quebrou" |
+| P5–P9, A2–A7 | BAIXA a MÉDIA | BL-249 a BL-253 e BL-255 a BL-260 |
+
+**O que o auditor confirmou funcionando, e não aceitou de declaração:** a
+restrição de banco é real (índice conferido no banco) e resiste a ORM direto,
+`bulk_create` e SQL cru; 8 `POST` simultâneos dão `201` + sete `400`, sem 5xx;
+a troca de ordem da exclusão é **atômica e sem janela**, com trilha correta
+inclusive sob falha induzida no meio; o critério 13 funciona de fato; e o
+`LogEntry` nativo — que este plano havia declarado "não medido" — grava, registra
+só o que mudou e **não** tem `ModelAdmin`, logo não é apagável pelo admin.
+
+**Distribuição da rodada 2:** P1, P2, P4, P5, P7, A1, A2, A5, A6 ao
+`desenvolvedor-pleno` (são arquivos dele, inclusive os de teste); A3, A4
+(docstring), A7 e o texto deste plano ao `arquiteto-senior`. P3, P6, P8, P9 e a
+fenda do registro de restrições ficam **registrados e fora da rodada 2**, com o
+motivo escrito em cada item do backlog — corrigir sem medição é o que produziu o
+P2.
+
 ## Git
 
 - **Branch de trabalho:** `claude/accounting-agent-team-setup-mn6lyf`, a partir
   de `24f6bbc`.
-- **Branch de destino:** `main`, por PR.
+- **Branch de destino:** `main`, por PR. **O PR é parte da entrega** (achado
+  A7/BL-260: sem ele, o workflow "Regras do projeto" não roda, e dos três
+  mecanismos impostos só dois foram exercitados nesta revisão).
