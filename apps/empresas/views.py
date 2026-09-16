@@ -73,6 +73,37 @@ def _campos_gravaveis(serializer):
     return frozenset(nome for nome, campo in serializer.fields.items() if not campo.read_only)
 
 
+def _diff_dos_campos_gravaveis(serializer, instance):
+    """Devolve o diff entre o estado atual da `instance` e os valores
+    submetidos pelo cliente, restrito aos campos graváveis do serializer.
+
+    Retorna dois dicts alinhados por chave de campo:
+    - `valores_anteriores`: valor que o campo tinha ANTES do save.
+    - `valores_novos`: valor submetido pelo cliente.
+    Só campos que MUDARAM aparecem nos dois dicts. Campos que o cliente
+    não enviou (PATCH parcial) são ignorados — não há "mudança" a
+    registrar.
+
+    Os dicts são flat (mesma forma de `valores_antigos` em
+    `excluir_ultimo_regime_tributario`, `apps/empresas/services.py:305`),
+    não aninhados. O `registrar()` da BL-14 recebe o par direto.
+    """
+    valores_anteriores = {}
+    valores_novos = {}
+    gravaveis = _campos_gravaveis(serializer)
+    for campo in gravaveis:
+        if campo not in serializer.validated_data:
+            # PATCH parcial não mencionou este campo — não há mudança
+            # a registrar.
+            continue
+        novo = serializer.validated_data[campo]
+        antigo = getattr(instance, campo)
+        if novo != antigo:
+            valores_anteriores[campo] = antigo
+            valores_novos[campo] = novo
+    return valores_anteriores, valores_novos
+
+
 def _recusar_dado_nao_contratado(request, contrato):
     """Ponte única entre `apps.core.requisicao` (que julga) e o DRF (que
     responde) neste app — ver o módulo para o contrato completo."""
@@ -247,6 +278,30 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         # `empresa_cnpj_canonico` também aqui (BL-204): mesma constraint, mesmo
         # `Meta`, e a atualização é o outro caminho de gravação do mesmo campo
         # — ver o comentário em `perform_create`.
+        #
+        # BL-57 (DL-024): o `registrar()` foi ADICIONADO dentro do mesmo
+        # `transaction.atomic()` da gravação, com `detalhes` no formato
+        # `valores_anteriores` / `valores_novos` (mesmo padrão de
+        # `valores_antigos` em `apps/empresas/services.py:305`, na
+        # `excluir_ultimo_regime_tributario`). A lista de campos
+        # auditados é derivada do CONTRATO, não escrita à mão:
+        # `_campos_gravaveis(serializer)` (`apps/empresas/views.py:72`) já
+        # é a fonte única dos campos graváveis do serializer (BL-196/DE-034).
+        # Aqui isso é exatamente `{razao_social, nome_fantasia, cnpj, ativo}`
+        # — `id` não é gravável, `regime_atual` é read-only,
+        # `escritorio` não está no serializer (forçado pela requisição,
+        # travado pelo modelo desde a DL-023/BL-211/A3), e
+        # `regime_tributario` tem rota própria com trilha (RC-86/DE-039).
+        # Campo novo no serializer amanhã entra na trilha sozinho, e o
+        # teste de derivação (com `monkeypatch` no serializer) cobre isso.
+        # Só os campos que MUDARAM aparecem nos dois dicts (diff, não
+        # retrato). PUT/PATCH que não altera nada (mesmo payload reenviado)
+        # NÃO gera registro — anti-P8 da DL-011 rodada 3.
+        # `ativo: true → false` é material: o diff trata a desativação
+        # como qualquer outra mudança.
+        original = serializer.instance
+        diff_anterior, diff_novo = _diff_dos_campos_gravaveis(serializer, original)
+
         try:
             with (
                 transaction.atomic(),
@@ -254,6 +309,16 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
                 restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
             ):
                 serializer.save()
+                if diff_anterior:  # houve mudança em algum campo
+                    registrar(
+                        acao="empresa.atualizada",
+                        objeto=original,  # após save(), é a instância atualizada
+                        request=self.request,
+                        detalhes={
+                            "valores_anteriores": diff_anterior,
+                            "valores_novos": diff_novo,
+                        },
+                    )
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
