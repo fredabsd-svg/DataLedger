@@ -166,7 +166,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # concorrente comita) e uma delas estoura IntegrityError na
         # constraint do banco. O savepoint de transaction.atomic() isola
         # esse erro: se ele ocorrer, só o INSERT é desfeito, e a conexão
-        # continua utilizável para o registrar() de auditoria abaixo.
+        # continua utilizável.
         # erro_de_cnpj_duplicado_como_400 (apps/empresas/services.py)
         # concentra a detecção de qual IntegrityError é a violação da
         # constraint de cnpj — ver o comentário lá sobre por que isso mora
@@ -181,6 +181,17 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # e já existe teste provando que esses caminhos vazam
         # `IntegrityError` cru. A armadilha estava armada para a etapa
         # seguinte; o mapeamento a desarma antes de a importação existir.
+        #
+        # BL-14 (DL-024): o `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava a Empresa. Antes, um
+        # `IntegrityError` no INSERT do `RegistroAuditoria` deixava a
+        # Empresa gravada e a trilha silenciosamente vazia — a
+        # contabilidade dizia uma coisa, a trilha dizia outra. Agora
+        # ambos são uma só operação atômica: se a trilha falha, a
+        # Empresa não foi gravada, e o cliente vê o erro em vez de
+        # acreditar num 201 falso. O `CNPJDuplicado` e o `RestricaoViolada`
+        # continuam sendo traduzidos para 400 como antes; qualquer outra
+        # exceção (incluindo a do `registrar()`) propaga como 500.
         try:
             with (
                 transaction.atomic(),
@@ -188,11 +199,11 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
                 restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
             ):
                 empresa = serializer.save()
+                registrar(acao="empresa.criada", objeto=empresa, request=self.request)
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
             raise DRFValidationError({"cnpj": [str(exc)]}) from exc
-        registrar(acao="empresa.criada", objeto=empresa, request=self.request)
 
 
 class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
