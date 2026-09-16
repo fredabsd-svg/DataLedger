@@ -1,9 +1,9 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-16**, com a `main` em **`24f6bbc`** (PR #23 integrado —
-DL-022, plano mestre e reconciliação da documentação). Branch de trabalho
-`claude/accounting-agent-team-setup-mn6lyf`, reiniciada a partir de
-`origin/main` para a **DL-023** (integridade administrativa: BL-83 e BL-211).
+Atualizado em **2026-09-16**, com a `main` em **`8235635`** (PR #24 integrado —
+DL-023, integridade administrativa, rodada 2). DL-023 entrou na `main` pela
+rodada 2 após auditoria reprovada na rodada 1; detalhes do que mudou entre
+uma e outra estão na tabela de etapas e no histórico de commits.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
