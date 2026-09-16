@@ -29,6 +29,7 @@ from apps.tenancy.models import (
 from apps.tenancy.services.primeiro_acesso import (
     ConvidanteNaoEhAdministrador,
     ConviteInvalido,
+    ConviteTokenColidiu,
     PrimeiroEscritorioJaExiste,
     aceitar_convite_e_criar_vinculo,
     criar_primeiro_escritorio_e_vinculo_admin,
@@ -51,6 +52,34 @@ CONTRATO_ESCRITORIO_ATIVO = ContratoDeRequisicao(
     campos={"escritorio_id"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na troca de escritório ativo",
+)
+
+
+# DL-018 — contratos do fluxo de bootstrap e convite (DL-018).
+# Os campos `csrfmiddlewaretoken` aparecem no `request.POST` das views
+# de função porque o Django injeta o token CSRF como campo do form
+# automaticamente — não é dado de cliente, é mecanismo de defesa contra
+# CSRF. Por isso ele entra em `campos` aqui: o `recusar_dado_nao_contratado`
+# confere a forma do payload como um todo, e este campo é parte esperada
+# do form.
+CONTRATO_BOOTSTRAP_PRIMEIRO_ESCRITORIO = ContratoDeRequisicao(
+    campos={"nome", "cnpj", "csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no bootstrap do primeiro escritório (DL-018)",
+)
+
+
+CONTRATO_EMITIR_CONVITE = ContratoDeRequisicao(
+    campos={"escritorio_id", "email", "csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na emissão de convite por ADMINISTRADOR (DL-018)",
+)
+
+
+CONTRATO_ACEITAR_CONVITE = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no aceite de convite por usuário autenticado (DL-018)",
 )
 
 
@@ -276,6 +305,12 @@ def bootstrap_primeiro_acesso(request):
         return redirect("tenancy:painel")
 
     if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_BOOTSTRAP_PRIMEIRO_ESCRITORIO)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return render(request, "tenancy/primeiro_acesso.html", {})
+
         nome = (request.POST.get("nome") or "").strip()
         cnpj = (request.POST.get("cnpj") or "").strip()
         if not nome or not cnpj:
@@ -314,6 +349,12 @@ def emitir_convite(request):
     — a próxima etapa que envia por e-mail de verdade (SMTP) entra
     aqui.
     """
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_EMITIR_CONVITE)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return redirect("tenancy:painel")
+
     escritorio_id_raw = request.POST.get("escritorio_id")
     email = (request.POST.get("email") or "").strip()
 
@@ -346,6 +387,15 @@ def emitir_convite(request):
             "Se você é o segundo funcionário, aguarde o convite.",
         )
         return redirect("tenancy:painel")
+    except ConviteTokenColidiu:
+        # Provavelmente impossível (~1 em 2^190). Tentar de novo — o
+        # `save()` do modelo vai gerar outro token. Não é 5xx: o cliente
+        # PODE retentar com o mesmo payload.
+        messages.warning(
+            request,
+            "Colisão rara de token. Tente novamente — o sistema gerou outro token automaticamente.",
+        )
+        return redirect("tenancy:painel")
 
     messages.success(
         request,
@@ -364,6 +414,12 @@ def aceitar_convite(request, token: str):
     rota permanece a mesma.
     """
     if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ACEITAR_CONVITE)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect("tenancy:painel")
+
         try:
             aceitar_convite_e_criar_vinculo(token=token, usuario=request.user)
         except ConviteInvalido:

@@ -54,6 +54,14 @@ class ConviteInvalido(Exception):
     (token inexistente) ou 410 (já consumido/expirado)."""
 
 
+class ConviteTokenColidiu(Exception):
+    """`get_random_string` retornou um token que já existe. Probabilidade
+    ~1 em 2^190, mas o `save()` do modelo tem um loop defensivo que
+    gera um novo candidato e re-tenta; este erro só seria levantado se
+    o loop esgotasse, o que é praticamente impossível. View traduz para
+    503 (retry com novo token é o caminho correto)."""
+
+
 @dataclass
 class ResultadoBootstrap:
     escritorio: Escritorio
@@ -131,12 +139,21 @@ def emitir_convite_para_escritorio(
             "Convite só pode ser emitido por ADMINISTRADOR ativo do escritório."
         )
 
-    convite = ConviteEscritorio.objects.create(
-        escritorio=escritorio,
-        email=email_convidado,
-        papel_inicial=papel_inicial,
-        emitido_por=convidador,
-    )
+    from django.db import IntegrityError
+
+    try:
+        convite = ConviteEscritorio.objects.create(
+            escritorio=escritorio,
+            email=email_convidado,
+            papel_inicial=papel_inicial,
+            emitido_por=convidador,
+        )
+    except IntegrityError as exc:
+        # Defesa em camada 2 (modelo.save já tentou colidir internamente
+        # e o loop defensivo esgotou): converte para exceção de domínio
+        # em vez de propagar 500. View traduz para 503 — retry com novo
+        # token é o caminho correto.
+        raise ConviteTokenColidiu("Colisão de token de convite — raro, tente novamente.") from exc
 
     registrar(
         acao="convite.escritorio.emitido",

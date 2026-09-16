@@ -92,6 +92,7 @@ INDICES_UNICOS_IMPLICITOS_CONHECIDOS = {
     "accounts_usuario_username_key",
     "accounts_usuario_email_key",
     "tenancy_escritorio_cnpj_key",
+    "tenancy_conviteescritorio_token_key",  # DL-018 — token de convite
     "empresas_empresa_cnpj_key",
     "empresas_estabelecimento_cnpj_key",
 }

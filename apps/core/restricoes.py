@@ -104,6 +104,17 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+    # DL-018 — token do convite é gerado com `get_random_string(32)` (~190
+    # bits de entropia). A colisão é praticamente impossível, mas não
+    # impossível; o `save()` do modelo tem um loop defensivo e o
+    # `IntegrityError` daí é convertido para `ConviteTokenColidiu`
+    # pelo service `emitir_convite_para_escritorio` — que a view
+    # `emitir_convite` traduz para 503 (não 409, porque retry com novo
+    # token é o caminho correto). O caminho de escrita por cliente é o
+    # POST /convites/emitir/, exclusivo para ADMINISTRADOR do escritório.
+    "tenancy_conviteescritorio_token_key": (
+        "apps.tenancy.services.primeiro_acesso.emitir_convite_para_escritorio"
+    ),
     # DL-023 (BL-211/A2): a restrição que garante UM período de regime
     # tributário aberto por empresa. A tradução mora dentro de
     # `registrar_regime_tributario`, e não em `restricao_como_400`, porque a
