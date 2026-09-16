@@ -97,13 +97,40 @@ MENSAGENS_DE_RESTRICAO = {
 # e é chamável (um caminho que alguém renomeie ou apague reprova a suíte).
 #
 # Nenhuma delas pode ser movida para o mapa acima sem revisar o ponto citado:
-# as três traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
+# elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+    # DL-023 (BL-211/A2): a restrição que garante UM período de regime
+    # tributário aberto por empresa. A tradução mora dentro de
+    # `registrar_regime_tributario`, e não em `restricao_como_400`, porque a
+    # checagem de negócio acontece ANTES: o serviço fecha o período vigente
+    # anterior e só chega a violar a restrição na corrida residual — duas
+    # requisições simultâneas quando ainda não existe linha alguma para o
+    # `select_for_update()` travar. Nesse caminho o serviço converte o
+    # `IntegrityError` em `ValueError`, que a view devolve como 400.
+    #
+    # ⚠️ CORREÇÃO DE UMA AFIRMAÇÃO FALSA QUE ESTAVA AQUI (achado P2 da rodada 1
+    # da auditoria DL-023, BL-246). Este comentário dizia que "a classe da
+    # BL-144 vale TAMBÉM para a perdedora da corrida". O auditor mediu:
+    # **não valia**. Esta restrição tem DOIS caminhos de escrita capazes de
+    # violá-la — `registrar_regime_tributario` (traduzido) e
+    # `excluir_ultimo_regime_tributario`, que reabre o período anterior e
+    # colide com a linha criada por um POST concorrente. O segundo devolvia
+    # **500**, reproduzido em 6 execuções de 8. A correção está na BL-246.
+    #
+    # E a lição de mecanismo, registrada como BL-256: este registro é
+    # `nome -> UM ponteiro`, então a varredura confere que o ponteiro existe e
+    # é chamável, mas nunca pergunta QUANTOS caminhos de escrita alcançam a
+    # restrição e se todos traduzem. Foi por essa fenda que o 500 passou
+    # verde. Enquanto a estrutura for de ponteiro único, o que está escrito
+    # aqui é "onde a tradução mora", nunca "a cobertura está completa".
+    "um_periodo_de_regime_aberto_por_empresa": (
+        "apps.empresas.services.registrar_regime_tributario"
+    ),
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:

@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import connection, models
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa
@@ -60,6 +60,65 @@ class Conta(models.Model):
 
     def __str__(self):
         return f"{self.codigo} — {self.nome}"
+
+    def _tem_movimento_proprio_ou_de_descendente(self):
+        """`True` se esta conta OU qualquer descendente (profundidade
+        qualquer) tem ao menos uma partida gravada.
+
+        BL-245 (achado P1 da auditoria DL-023 rodada 1): uma conta
+        SINTÉTICA (`aceita_lancamento=False`) sem movimento PRÓPRIO, mas
+        com filha movimentada, trocava de natureza/tipo livremente pelo
+        admin — e `apurar_balancete` aplica a natureza da conta
+        APRESENTADA (a sintética) uma única vez, no fim, sobre o
+        CONSOLIDADO de toda a subárvore (próprio + descendentes). Olhar só
+        `self.itens_lancamento` cumpria o texto do requisito antigo
+        ("conta com movimento") e não o dano que a BL-83 nomeia (inverter
+        o sinal de todo o histórico do GRUPO). O requisito passou a ser
+        "movimento próprio OU de descendente" (decisão do
+        `arquiteto-senior`, rodada 2).
+
+        UMA consulta só — `WITH RECURSIVE` sobe a árvore inteira dentro do
+        PRÓPRIO PostgreSQL — em vez de um laço em Python que desce nível a
+        nível (o padrão que `apps.contabilidade.services._descendentes_de`
+        usa para o Razão). Custo importa aqui: `Conta.clean()` já paga
+        consultas extra por `full_clean()` de conta persistida (achado P9/
+        BL-253), e multiplicar por uma consulta por NÍVEL da árvore
+        agravaria exatamente o que aquele achado já registra. `UNION`
+        (não `UNION ALL`) deduplica ids já visitados, o que também torna a
+        recursão seguro contra um CICLO pré-existente na hierarquia
+        (alcançável só por ORM/SQL direto, contornando o guard de ciclo de
+        `clean()` acima): sem novos ids para adicionar, o `WITH RECURSIVE`
+        termina sozinho, sem loop infinito nem exceção — não é papel deste
+        guard diagnosticar ciclo, é papel de
+        `localizar_inconsistencias_de_hierarquia` (BL-64/conferência).
+
+        Não filtra por `empresa`: `self.pk` já identifica uma conta de UMA
+        empresa, e `conta_pai_id` só aponta para outra empresa em estado
+        já inconsistente (o guard de `conta_pai`/empresa em `clean()`
+        acima impede isso pelo caminho validado) — se existir, a subárvore
+        ficaria maior do que deveria, o que é o lado ESTRITO de errar,
+        nunca o contrário.
+        """
+        tabela_conta = Conta._meta.db_table
+        tabela_item = ItemLancamento._meta.db_table
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE id = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.conta_pai_id = a.id
+                )
+                SELECT EXISTS (
+                    SELECT 1 FROM {tabela_item}
+                    WHERE conta_id IN (SELECT id FROM arvore)
+                )
+                """,
+                [self.pk],
+            )
+            (existe,) = cursor.fetchone()
+        return existe
 
     def clean(self):
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
@@ -129,6 +188,97 @@ class Conta(models.Model):
                     "lançamento próprio gravado. Estorne ou mova o movimento "
                     "antes de reclassificar."
                 )
+
+        # DL-023, critérios 1-4 (BL-83): `ContaAdmin` deixava mover conta COM
+        # movimento para outra empresa e trocar a NATUREZA de conta já
+        # movimentada — medido: o balancete da empresa de origem passava a
+        # mostrar zero de débito contra mil de crédito, com o Diário
+        # continuando a fechar e nenhuma das quatro categorias da
+        # conferência acusando nada; trocar a natureza inverte o sinal de
+        # todo o histórico da conta.
+        #
+        # Mesmo padrão de TRANSIÇÃO do guard de `aceita_lancamento` acima:
+        # só dispara quando o valor GRAVADO no banco é diferente do que
+        # está sendo salvo agora — uma conta já em estado legado (mudada
+        # por `.update()` direto, contornando esta guarda) não é reportada
+        # aqui de novo, e uma conta SEM movimento e SEM filhas continua
+        # livre para editar `empresa`, `natureza` e `tipo` (critério 4: a
+        # defesa não pode engessar o cadastro legítimo).
+        #
+        # Critério 11 da DL-023 (trilha), AUSÊNCIA DECLARADA: uma recusa
+        # levantada aqui NÃO grava `RegistroAuditoria` — nada foi alterado,
+        # `clean()` não tem acesso a `request`/`usuario`, e nenhum
+        # `admin.py` deste projeto chama `registrar()` hoje (BL-244,
+        # pacote 3, é quem endereça trilha genérica do admin). Só a
+        # exclusão de regime tributário (RC-86/DE-039), que já gravava
+        # antes desta etapa, continua gravando.
+        if self.pk:
+            original = (
+                Conta.objects.filter(pk=self.pk)
+                .values("empresa_id", "natureza", "tipo", "empresa__escritorio_id")
+                .first()
+            )
+            if original is not None:
+                tem_movimento = self.itens_lancamento.exists()
+                tem_filhas = self.subcontas.exists()
+
+                if original["empresa_id"] != self.empresa_id:
+                    # BL-248 (achado P4, auditoria DL-023 rodada 1): nenhuma
+                    # camada checava a fronteira de ESCRITÓRIO ao mover
+                    # conta — só a de empresa. Uma conta LIVRE (sem
+                    # movimento e sem filhas) podia ser movida para uma
+                    # empresa de OUTRO escritório inteiro, porque o guard
+                    # abaixo só recusa quando há movimento/filhas. Cruzar a
+                    # fronteira de escritório é sempre recusado, MESMO SEM
+                    # movimento — é a mesma fronteira que a Empresa.clean()
+                    # protege para "trocar de escritório", e trocar a
+                    # empresa de uma conta para um escritório diferente é a
+                    # mesma operação por outra porta. Troca de empresa
+                    # DENTRO do mesmo escritório continua sujeita só à
+                    # regra de movimento/filhas abaixo (critério 4
+                    # preservado: conta livre continua podendo mudar de
+                    # empresa no mesmo escritório).
+                    if original["empresa__escritorio_id"] != self.empresa.escritorio_id:
+                        raise ValidationError(
+                            "Não é possível mudar esta conta para uma empresa de outro "
+                            "escritório: contas não atravessam a fronteira de isolamento "
+                            "entre escritórios pelo cadastro comum."
+                        )
+                    if tem_movimento or tem_filhas:
+                        motivo = "lançamento próprio" if tem_movimento else "conta filha"
+                        raise ValidationError(
+                            f"Não é possível mudar a empresa desta conta: ela já tem {motivo} "
+                            "gravado. O balancete da empresa de origem deixaria de fechar. "
+                            "Estorne o movimento (ou mova as contas filhas) antes de "
+                            "reclassificar, ou cadastre uma conta nova na empresa de destino."
+                        )
+
+                mudou_natureza = original["natureza"] != self.natureza
+                mudou_tipo = original["tipo"] != self.tipo
+                # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
+                # só roda quando natureza OU tipo de fato mudaram (short-
+                # circuit: a consulta recursiva de `_tem_movimento_proprio_
+                # ou_de_descendente` custa mais que `itens_lancamento.
+                # exists()`, e não há razão para pagá-la numa gravação que
+                # não toca nenhum dos dois campos). Movimento de QUALQUER
+                # descendente conta, não só o próprio: é a correção do
+                # requisito, não só do código — ver o docstring do método.
+                mudou_algo = mudou_natureza or mudou_tipo
+                if mudou_algo and self._tem_movimento_proprio_ou_de_descendente():
+                    campo = (
+                        "a natureza"
+                        if mudou_natureza and not mudou_tipo
+                        else (
+                            "o tipo" if mudou_tipo and not mudou_natureza else "a natureza e o tipo"
+                        )
+                    )
+                    raise ValidationError(
+                        f"Não é possível mudar {campo} desta conta: ela ou uma conta "
+                        "descendente já tem lançamento gravado — a troca inverteria o "
+                        "sinal (ou a classificação) do histórico da conta ou do grupo no "
+                        "Balancete. Estorne o movimento antes de reclassificar, ou "
+                        "cadastre uma conta nova."
+                    )
 
 
 class LancamentoContabil(models.Model):

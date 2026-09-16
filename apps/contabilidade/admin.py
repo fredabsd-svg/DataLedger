@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.empresas.models import Empresa
 
 
 class ItemLancamentoInline(admin.TabularInline):
@@ -42,11 +43,68 @@ class ContaAdmin(admin.ModelAdmin):
     delete()` e por isso não valia para a ação em lote. O risco residual
     (apagar conta SEM movimento e SEM filhas, plano de contas mal montado
     por engano) é aceitável para uma tela de cadastro/manutenção.
+
+    O risco de ALTERAÇÃO (não só o de exclusão, que o parágrafo acima já
+    cobria) foi corrigido na DL-023 (BL-83, achado novo 1 da auditoria
+    DL-015 rodada 4): este admin deixava mover conta COM movimento para
+    OUTRA empresa e trocar a NATUREZA/TIPO de conta já movimentada — o
+    balancete da empresa de origem passava a fechar torto (zero de débito
+    contra mil de crédito) sem nenhuma das quatro categorias da conferência
+    acusar, e a troca de natureza invertia o sinal de todo o histórico da
+    conta. A defesa mora em `Conta.clean()` (apps/contabilidade/models.py),
+    não aqui: um validador de MODELO vale para este `ModelForm` e para
+    qualquer outro caminho que chame `full_clean()`, e não só para esta
+    tela — é o padrão da etapa ("regra que o admin tem que respeitar mora
+    no modelo"). Conta SEM movimento e SEM filhas continua totalmente
+    editável (critério 4 da DL-023): a defesa só dispara na TRANSIÇÃO de um
+    estado que já tem o que proteger.
     """
 
     list_display = ["codigo", "nome", "tipo", "natureza", "empresa", "aceita_lancamento", "ativo"]
     list_filter = ["empresa", "tipo", "ativo"]
     search_fields = ["codigo", "nome"]
+
+    def _escritorio_da_conta_em_edicao(self, request):
+        """`escritorio_id` da empresa ATUAL da conta sendo editada, ou
+        `None` no `add` (não há conta ainda) — usado por
+        `formfield_for_foreignkey` para restringir o dropdown de `empresa`
+        (BL-248, achado P4 da auditoria DL-023 rodada 1).
+
+        Lido da URL resolvida (`request.resolver_match.kwargs["object_id"]`),
+        não de `self.model.objects.get(...)` adivinhado de outro jeito — é o
+        mesmo mecanismo que o próprio Django usa internamente para saber
+        qual objeto a view de `change` está editando.
+        """
+        resolver_match = getattr(request, "resolver_match", None)
+        object_id = resolver_match.kwargs.get("object_id") if resolver_match else None
+        if not object_id:
+            return None
+        return (
+            Conta.objects.filter(pk=object_id)
+            .values_list("empresa__escritorio_id", flat=True)
+            .first()
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "empresa":
+            escritorio_id = self._escritorio_da_conta_em_edicao(request)
+            if escritorio_id is not None:
+                # BL-248: sem isto, o dropdown listava a razão social de
+                # TODAS as empresas de TODOS os escritórios — vazamento
+                # pré-existente que a varredura do critério 12 tinha
+                # classificado como "defendida" sem nomear (medido pelo
+                # auditor: `CLIENTE SIGILOSO`, de outro escritório,
+                # aparecia no corpo do formulário reapresentado). Restringe
+                # ao escritório da empresa ATUAL da conta:
+                # `Conta.clean()` já recusa a GRAVAÇÃO de uma empresa de
+                # outro escritório (defesa de modelo, camada 2); isto é a
+                # defesa de FORMULÁRIO — nem oferece a opção no dropdown
+                # (camada 1, evita o vazamento em si, não só a gravação).
+                # No `add` (`escritorio_id is None`, sem conta ainda para
+                # ancorar a restrição), o campo continua livre — mesmo
+                # limite que o `add` de `EmpresaAdmin` já tem (H1).
+                kwargs["queryset"] = Empresa.objects.filter(escritorio_id=escritorio_id)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(LancamentoContabil)
