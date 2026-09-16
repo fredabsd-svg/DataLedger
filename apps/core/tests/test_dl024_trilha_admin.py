@@ -37,7 +37,6 @@ Testes:
 
 import inspect
 
-
 # -----------------------------------------------------------------------
 # 1. Fonte estático — estrutura da correção
 # -----------------------------------------------------------------------
@@ -104,12 +103,10 @@ def test_handlers_de_admin_existem_e_estao_anexados_a_post_save_pre_save_pre_del
 
     src = inspect.getsource(signals)
     assert "@receiver(pre_save)" in src, (
-        "BL-244: handler `_admin_pre_save_snapshot` precisa estar "
-        "anexado a `@receiver(pre_save)`"
+        "BL-244: handler `_admin_pre_save_snapshot` precisa estar anexado a `@receiver(pre_save)`"
     )
     assert "@receiver(post_save)" in src, (
-        "BL-244: handler `_admin_post_save_registra` precisa estar "
-        "anexado a `@receiver(post_save)`"
+        "BL-244: handler `_admin_post_save_registra` precisa estar anexado a `@receiver(post_save)`"
     )
     assert "@receiver(pre_delete)" in src, (
         "BL-244: handler `_admin_pre_delete_registra` precisa estar "
@@ -153,7 +150,7 @@ def test_save_de_empresa_via_admin_gera_trilha():
     from apps.tenancy.models import Escritorio
 
     escritorio = Escritorio.objects.create(nome="E BL-244", cnpj="11111111000111")
-    superuser = get_user_model().objects.create_superuser(
+    get_user_model().objects.create_superuser(
         username="admin", password="senha-forte-123", email="a@a.com"
     )
 
@@ -192,7 +189,7 @@ def test_change_de_empresa_via_admin_gera_trilha_com_diff():
     from apps.tenancy.models import Escritorio
 
     escritorio = Escritorio.objects.create(nome="E BL-244c", cnpj="33333333000133")
-    superuser = get_user_model().objects.create_superuser(
+    get_user_model().objects.create_superuser(
         username="admin2", password="senha-forte-123", email="b@b.com"
     )
     empresa = Empresa.objects.create(
