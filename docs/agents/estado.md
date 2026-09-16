@@ -219,7 +219,7 @@ diverge.
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
 | [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Integrada (PR #21, `0dd07b4`)** — quatro rodadas de auditoria, fechamento do BL-242 com renumeração para `RC-85`, `RC-86`, `PE-46`, e conferência de encerramento. Resumo do auditor: *"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no produto."* Itens abertos preservados: **BL-211** (dois defeitos do admin — não devem atravessar a DL-010), **BL-229** (medições de CSS que pulam na CI), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241** |
 | [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Integrada (PR #22, `b8c66a6`)** — o verificador byte-strict (achado 9 do DL-019) continua intacto. ⚠️ **Limitação declarada e ainda aberta:** o que fechou foi a **quebra de linha**; rodar `--verificar` no Windows continua reportando `permissão 0o666` nos 14 derivados, por motivo independente ligado ao achado A3 (**BL-175**). Não ler como "compatibilidade Windows comprovada". Este arquivo e o próprio plano diziam "planejada, não iniciada" **depois** da integração; quem mediu a divergência foi o plano mestre, e a correção é a DL-022 |
-| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em desenvolvimento — rodada 1 REPROVADA** em `96284a4` ([relatório](../auditorias/2026-09-16-dl-023-rodada-1.md)). Pacote 2 da fila aprovada pelo Fred (**RC-88**). Suíte **1251 passed** em cópia limpa e prova por mutação **9 de 9**, refeitas pelo auditor — o que reprova são **dois achados altos**: **BL-245** (sintética com filha movimentada ainda troca de natureza, e o Balancete do grupo inverte) e **BL-246** (a etapa **introduziu** um 500 no `DELETE` de regime sob concorrência, 6 de 8). Achados de mecanismo contra o `arquiteto-senior`: **BL-254** (14 testes passam com formulário impossível) e **BL-260** (sem PR, a verificação "Regras do projeto" não rodou). Rodada 2 distribuída |
+| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em validação — APROVADA COM RESSALVAS na rodada 3**, revisão `a612604` ([relatório](../auditorias/2026-09-16-dl-023-rodada-3.md); a [rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) foi REPROVADA em `96284a4`). Pacote 2 da fila aprovada pelo Fred (**RC-88**). Os **dois achados altos estão fechados**, provados por execução do auditor: a sintética com filha movimentada agora recebe `200`, e a corrida que dava **500 em 6 de 8** deu **zero 5xx em 12**. Suíte **1269 passed, 0 pulados** em cópia limpa; prova por mutação **11 de 11**, com mutantes do auditor. Ressalvas abertas: **BL-261** (terceiro caminho do dano, e a decisão é **contábil, do Fred**), **BL-262** (o admin não tem isolamento por escritório em nenhuma superfície — etapa própria), **BL-263** (contra o arquiteto: caixa do PR marcada com o estado desatualizado), **BL-264 a BL-269**. Rodada 4 curta em curso |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -256,10 +256,33 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-16:
 [DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
-administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. RODADA 1
-REPROVADA** na revisão `96284a4`; **rodada 2 em correção**. Relatório integral
-e preservado em
-[docs/auditorias/2026-09-16-dl-023-rodada-1.md](../auditorias/2026-09-16-dl-023-rodada-1.md).
+administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. Rodada 1
+REPROVADA em `96284a4`; rodada 2 corrigiu os dez itens; RODADA 3 — a segunda
+auditoria — APROVOU COM RESSALVAS na revisão `a612604`.** Rodada 4, curta, em
+curso: três itens baratos (**BL-264**, **BL-265**, **BL-266**). Relatórios
+integrais e preservados:
+[rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) e
+[rodada 3](../auditorias/2026-09-16-dl-023-rodada-3.md) — nesta etapa o número
+conta **rodadas de trabalho**, não auditorias, e por isso não existe arquivo de
+"rodada 2".
+
+**O que a rodada 3 mediu, e vale como estado atual:** suíte **1269 passed, 0
+falhas, 0 pulados** em cópia limpa; prova por mutação **11 de 11**, com mutantes
+escritos pelo auditor; as cinco verificações da integração contínua verdes em
+`a612604`, **incluindo "Regras do projeto"** — os três mecanismos impostos
+rodaram, contra dois na rodada 1. **Os dois achados altos estão fechados**, e os
+dois foram reprovados por execução, não por leitura: a sintética com filha
+movimentada agora recebe `200` com a linha do grupo intacta, e a corrida que
+dava **500 em 6 de 8** deu **zero 5xx em 12 rodadas**.
+
+**As ressalvas, e a mais importante não é de engenharia:** **BL-261** — existe um
+**terceiro** caminho para o mesmo dano (reparentar conta movimentada para grupo
+de natureza oposta), e o auditor **parou onde devia**: retificadora é
+exatamente isso, e software não distingue a retificadora legítima do erro de
+classificação. **É pergunta para o Fred**, com duas saídas propostas.
+**BL-262** — o admin não tem isolamento por escritório em **nenhuma**
+superfície; a DL-023 fechou uma de seis, e o `/admin/autocomplete/` é
+estruturalmente inalcançável pela camada instalada. Vira etapa própria.
 
 **Como ler essa reprovação, sem eufemismo.** A etapa **entregou** a restrição de
 banco (um período de regime aberto por empresa), e o auditor confirmou por
