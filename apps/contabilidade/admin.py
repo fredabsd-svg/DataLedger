@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.empresas.models import Empresa
 
 
 class ItemLancamentoInline(admin.TabularInline):
@@ -62,6 +63,48 @@ class ContaAdmin(admin.ModelAdmin):
     list_display = ["codigo", "nome", "tipo", "natureza", "empresa", "aceita_lancamento", "ativo"]
     list_filter = ["empresa", "tipo", "ativo"]
     search_fields = ["codigo", "nome"]
+
+    def _escritorio_da_conta_em_edicao(self, request):
+        """`escritorio_id` da empresa ATUAL da conta sendo editada, ou
+        `None` no `add` (não há conta ainda) — usado por
+        `formfield_for_foreignkey` para restringir o dropdown de `empresa`
+        (BL-248, achado P4 da auditoria DL-023 rodada 1).
+
+        Lido da URL resolvida (`request.resolver_match.kwargs["object_id"]`),
+        não de `self.model.objects.get(...)` adivinhado de outro jeito — é o
+        mesmo mecanismo que o próprio Django usa internamente para saber
+        qual objeto a view de `change` está editando.
+        """
+        resolver_match = getattr(request, "resolver_match", None)
+        object_id = resolver_match.kwargs.get("object_id") if resolver_match else None
+        if not object_id:
+            return None
+        return (
+            Conta.objects.filter(pk=object_id)
+            .values_list("empresa__escritorio_id", flat=True)
+            .first()
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "empresa":
+            escritorio_id = self._escritorio_da_conta_em_edicao(request)
+            if escritorio_id is not None:
+                # BL-248: sem isto, o dropdown listava a razão social de
+                # TODAS as empresas de TODOS os escritórios — vazamento
+                # pré-existente que a varredura do critério 12 tinha
+                # classificado como "defendida" sem nomear (medido pelo
+                # auditor: `CLIENTE SIGILOSO`, de outro escritório,
+                # aparecia no corpo do formulário reapresentado). Restringe
+                # ao escritório da empresa ATUAL da conta:
+                # `Conta.clean()` já recusa a GRAVAÇÃO de uma empresa de
+                # outro escritório (defesa de modelo, camada 2); isto é a
+                # defesa de FORMULÁRIO — nem oferece a opção no dropdown
+                # (camada 1, evita o vazamento em si, não só a gravação).
+                # No `add` (`escritorio_id is None`, sem conta ainda para
+                # ancorar a restrição), o campo continua livre — mesmo
+                # limite que o `add` de `EmpresaAdmin` já tem (H1).
+                kwargs["queryset"] = Empresa.objects.filter(escritorio_id=escritorio_id)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(LancamentoContabil)

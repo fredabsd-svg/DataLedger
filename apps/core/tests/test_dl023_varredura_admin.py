@@ -22,18 +22,33 @@ projeto o menciona). São **doze** superfícies de nível 1 (mais os
 ## O que a varredura exige
 
 Toda `ModelAdmin` registrada em `admin.site._registry` e todo `Inline`
-listado no atributo `inlines` de cada uma delas aparece em `DECISOES`, com
-uma categoria (`"defendida"`, `"deliberadamente livre"` ou
-`"fora do produto"`) e uma razão com pelo menos 40 caracteres — mesmo piso
-que `apps.core.restricoes.RESTRICOES_SEM_CAMINHO_DE_CLIENTE` já usa para o
-mesmo tipo de declaração. Superfície nova sem decisão **reprova nomeada**;
-não existe categoria "ainda não olhamos".
+EFETIVAMENTE anexado a cada uma delas (`get_inlines(request)` — não o
+atributo `inlines` da classe) aparece em `DECISOES`, com uma categoria
+(`"defendida"`, `"deliberadamente livre"` ou `"fora do produto"`) e uma
+razão com pelo menos 40 caracteres — mesmo piso que `apps.core.restricoes.
+RESTRICOES_SEM_CAMINHO_DE_CLIENTE` já usa para o mesmo tipo de declaração.
+Superfície nova sem decisão **reprova nomeada**; não existe categoria
+"ainda não olhamos".
 
-`_modeladmins`/`_inlines`/`_todas_as_superficies` recebem o registro como
-PARÂMETRO (não o buscam sozinhas) para que o mutante "superfície nova sem
-decisão" possa ser reconstruído dentro do próprio teste, no molde da BL-197
-— sem registrar nenhuma `ModelAdmin` real no `admin.site` global (que
-vazaria para o resto da suíte).
+**BL-257 (achado A4 da auditoria DL-023 rodada 1):** a primeira versão
+desta varredura lia `modeladmin.inlines` — o ATRIBUTO de classe — direto.
+O auditor reintroduziu `HistoricoRegimeTributarioInline` por
+`get_inlines()` sobrescrito (resolução DINÂMICA, com o atributo `inlines`
+intacto e vazio) e esta varredura **não viu** — quem matou o mutante foi
+`test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_
+inline` (teste POR REQUISIÇÃO, em `test_dl023_regime_tributario_periodo_
+unico.py`), não a varredura estrutural. A correção é chamar
+`modeladmin.get_inlines(request)` — o método que o Django REALMENTE chama
+para montar a tela do `change` (o padrão da classe-base só devolve
+`self.inlines`, mas uma subclasse pode sobrescrevê-lo, e foi exatamente
+isso que escapou) — e nunca o atributo diretamente.
+
+`_modeladmins`/`_inlines`/`_todas_as_superficies` recebem o registro (e um
+`request`, para `_inlines`) como PARÂMETRO — não os buscam sozinhas — para
+que o mutante "superfície nova sem decisão" E o mutante "inline por
+`get_inlines()` dinâmico" possam ser reconstruídos dentro do próprio
+teste, no molde da BL-197, sem registrar nenhuma `ModelAdmin` real no
+`admin.site` global (que vazaria para o resto da suíte).
 
 O `HistoricoRegimeTributarioInline` que existia em `24f6bbc` NÃO aparece
 mais: foi REMOVIDO do `EmpresaAdmin` nesta etapa (BL-211/A2) — ver o
@@ -43,6 +58,8 @@ de decisão registrada aqui; só as que continuam existindo precisam.
 
 import pytest
 from django.contrib import admin
+from django.contrib.auth.models import AnonymousUser
+from django.test import RequestFactory
 
 from apps.accounts.admin import Usuario
 from apps.auditoria.admin import RegistroAuditoriaAdmin
@@ -55,6 +72,18 @@ from apps.tenancy.admin import EscritorioAdmin, VinculoInline, VinculoUsuarioEsc
 # ---------------------------------------------------------------------------
 
 
+def _requisicao_para_varredura():
+    """Uma requisição mínima, só para `get_inlines(request)` ter o que
+    pedir — a implementação padrão do Django (`ModelAdmin.get_inlines`)
+    nem olha para dentro dela, mas uma subclasse PODE (é exatamente o que
+    a defesa desta varredura precisa suportar, e não presumir). Usuário
+    anônimo: nenhum `get_inlines` deste projeto precisa de usuário
+    autenticado, e isso evita depender do banco só para varrer estrutura."""
+    request = RequestFactory().get("/admin/")
+    request.user = AnonymousUser()
+    return request
+
+
 def _modeladmins(registro):
     """`{"app_label.ModelName": modeladmin_ou_classe}` para cada entrada de
     nível 1 do registro do admin."""
@@ -64,9 +93,10 @@ def _modeladmins(registro):
     return resultado
 
 
-def _inlines(registro):
-    """`{"modulo.Classe": inline_cls}` para cada `Inline` listado em
-    `modeladmin.inlines`, de todas as `ModelAdmin` do registro.
+def _inlines(registro, request):
+    """`{"modulo.Classe": inline_cls}` para cada `Inline` EFETIVAMENTE
+    anexado (`get_inlines(request)`, não o atributo `inlines`), de todas
+    as `ModelAdmin` do registro — ver BL-257 no docstring do módulo.
 
     Chaveado pela classe do INLINE (não pelo pai): é assim que o inventário
     do `arquiteto-senior` nomeia cada um (`EstabelecimentoInline`,
@@ -77,14 +107,28 @@ def _inlines(registro):
     """
     resultado = {}
     for modeladmin in registro.values():
-        for inline_cls in getattr(modeladmin, "inlines", []):
+        obter_inlines = getattr(modeladmin, "get_inlines", None)
+        if callable(obter_inlines):
+            # `obj=None`: mesma chamada que o Django faz para a tela de
+            # `add` (`ModelAdmin.get_inline_instances`, sem instância
+            # ainda) — a varredura estrutural não tem um objeto real para
+            # oferecer, e não deveria precisar de um para saber QUAIS
+            # classes de inline existem.
+            inlines = obter_inlines(request, None)
+        else:
+            # Retaguarda só para os `ModelAdmin` FALSOS dos testes de
+            # mutação abaixo, que não precisam imitar a classe inteira do
+            # Django — qualquer `ModelAdmin` real sempre tem `get_inlines`
+            # (é método da classe-base).
+            inlines = getattr(modeladmin, "inlines", [])
+        for inline_cls in inlines:
             resultado[f"{inline_cls.__module__}.{inline_cls.__qualname__}"] = inline_cls
     return resultado
 
 
-def _todas_as_superficies(registro):
+def _todas_as_superficies(registro, request=None):
     superficies = _modeladmins(registro)
-    superficies.update(_inlines(registro))
+    superficies.update(_inlines(registro, request or _requisicao_para_varredura()))
     return superficies
 
 
@@ -267,6 +311,43 @@ def test_a_varredura_enxerga_inline_novo_sem_decisao_registrada():
 
     assert "app_ficticio.admin.InlineFalso" in superficies
     assert "app_ficticio.admin.InlineFalso" not in DECISOES
+
+
+def test_a_varredura_enxerga_inline_anexado_por_get_inlines_dinamico():
+    """BL-257 (achado A4): reconstrução do mutante exato do auditor — um
+    `ModelAdmin` com `inlines = []` ESTÁTICO (vazio, de propósito) que
+    sobrescreve `get_inlines(request)` para devolver um inline mesmo assim.
+    Ler só o atributo `inlines` (a versão anterior desta varredura) via
+    `getattr(modeladmin, "inlines", [])` devolveria `[]` e o mutante
+    passaria em silêncio — é exatamente essa fuga que o achado mediu."""
+
+    class _ModeloFalso:
+        class _meta:
+            app_label = "app_ficticio"
+            object_name = "ModeloComInlineDinamico"
+
+    class _InlineDinamicoFalso:
+        pass
+
+    _InlineDinamicoFalso.__module__ = "app_ficticio.admin"
+    _InlineDinamicoFalso.__qualname__ = "InlineDinamicoFalso"
+
+    class _ModelAdminComInlineDinamico:
+        inlines = []  # ESTÁTICO vazio, de propósito — é o que engana a leitura ingênua
+
+        def get_inlines(self, request, obj=None):
+            return [_InlineDinamicoFalso]
+
+    registro_falso = {_ModeloFalso: _ModelAdminComInlineDinamico()}
+
+    # Confere primeiro que a leitura ESTÁTICA (a versão antiga) não veria
+    # nada — é o que prova que o mutante É invisível por esse caminho.
+    assert list(_ModelAdminComInlineDinamico.inlines) == []
+
+    superficies = _todas_as_superficies(registro_falso, _requisicao_para_varredura())
+
+    assert "app_ficticio.admin.InlineDinamicoFalso" in superficies
+    assert "app_ficticio.admin.InlineDinamicoFalso" not in DECISOES
 
 
 # ---------------------------------------------------------------------------

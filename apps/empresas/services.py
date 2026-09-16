@@ -121,6 +121,32 @@ def erro_de_cnpj_duplicado_como_400():
         raise CNPJDuplicado({"cnpj": [mensagem]}) from exc
 
 
+# DL-023, BL-246 (achado P2 da auditoria rodada 1): nome da constraint que
+# governa "no máximo um período de regime aberto por empresa" (Meta de
+# HistoricoRegimeTributario, apps/empresas/models.py). Ponto ÚNICO de onde
+# esse nome é comparado — antes da rodada 2, `registrar_regime_tributario`
+# tinha essa comparação embutida no próprio corpo, e
+# `excluir_ultimo_regime_tributario` não tinha NENHUMA: o `DELETE` de um
+# regime, concorrente com um `POST` que abre outro período, reabre o
+# período anterior bem no instante em que o `POST` concorrente já comitou
+# a linha nova — as duas ficam com `vigencia_fim IS NULL` ao mesmo tempo, a
+# constraint recusa, e o `IntegrityError` subia CRU (500), porque a
+# exclusão só capturava `ExclusaoDeRegimeInvalida`. Medido pelo auditor: 6
+# de 8 execuções de 3 `POST` + 3 `DELETE` simultâneos devolviam 500.
+_NOME_CONSTRAINT_PERIODO_UNICO = "um_periodo_de_regime_aberto_por_empresa"
+
+
+def _e_violacao_de_periodo_unico(exc):
+    """`True` quando `exc` (um `IntegrityError`) é a violação da
+    `UniqueConstraint` acima — usada pelos DOIS caminhos de escrita que
+    podem colidir com ela (`registrar_regime_tributario` e
+    `excluir_ultimo_regime_tributario`), para que a tradução seja um
+    PONTO ÚNICO, não uma cópia colada em cada caminho (é essa cópia que
+    faltou na exclusão e produziu o P2)."""
+    nome_constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
+    return nome_constraint == _NOME_CONSTRAINT_PERIODO_UNICO
+
+
 @transaction.atomic
 def registrar_regime_tributario(empresa, regime, vigencia_inicio):
     """Registra um novo período de regime tributário para a empresa.
@@ -174,8 +200,7 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
                 empresa=empresa, regime=regime, vigencia_inicio=vigencia_inicio
             )
     except IntegrityError as exc:
-        nome_constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
-        if nome_constraint != "um_periodo_de_regime_aberto_por_empresa":
+        if not _e_violacao_de_periodo_unico(exc):
             raise
         raise ValueError(
             "Esta empresa já tem um período de regime tributário aberto, criado por "
@@ -185,7 +210,21 @@ def registrar_regime_tributario(empresa, regime, vigencia_inicio):
 
 
 class ExclusaoDeRegimeInvalida(Exception):
-    """Levantada quando a exclusão pedida não é a do ÚLTIMO período.
+    """Levantada quando a exclusão pedida não pode ser concluída como
+    negócio — duas causas, as duas convertidas para 400 por
+    `HistoricoRegimeTributarioDetailView.delete` (apps/empresas/views.py),
+    que já captura este tipo:
+
+    1. A exclusão pedida não é a do ÚLTIMO período (regra original,
+       RC-86/DE-039).
+    2. **BL-246 (achado P2, auditoria DL-023 rodada 1):** a reabertura do
+       período ANTERIOR colidiu, sob concorrência, com um `POST` que abriu
+       outro período para a mesma empresa ao mesmo tempo — violação da
+       `UniqueConstraint` "um_periodo_de_regime_aberto_por_empresa"
+       traduzida por `_e_violacao_de_periodo_unico`. Reaproveitar este
+       tipo (em vez de um novo) é o que permite corrigir o 500 sem tocar
+       em `apps/empresas/views.py`: a view já sabe traduzir este tipo para
+       400, e nenhuma view nova precisa aprender a fazer isso.
 
     Tipo próprio, e não `ValueError`, por um motivo de contrato: quem chama
     precisa distinguir "esta exclusão é proibida por regra" (400, com
@@ -306,6 +345,42 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
     # muda o que fica registrado.
     ultimo.delete()
     if anterior is not None:
-        anterior.vigencia_fim = None
-        anterior.save(update_fields=["vigencia_fim"])
+        # BL-246 (achado P2, auditoria DL-023 rodada 1): mesmo com a ORDEM
+        # corrigida acima, esta linha ainda pode colidir com a constraint
+        # sob CONCORRÊNCIA — não com `ultimo` (já apagado nesta mesma
+        # transação), mas com um `POST` concorrente que abriu um período
+        # NOVO para a mesma empresa. O `select_for_update()` do início
+        # desta função trava as linhas que EXISTIAM no momento da consulta;
+        # a linha nova do `POST` concorrente não existia ainda (ou não é
+        # alcançada pelo lock), então esta transação segue sem saber dela
+        # até tentar o UPDATE abaixo. Medido pelo auditor: 6 de 8 execuções
+        # de 3 POST + 3 DELETE simultâneos devolviam 500 aqui, porque este
+        # `IntegrityError` subia cru — a exclusão só capturava
+        # `ExclusaoDeRegimeInvalida`.
+        #
+        # `transaction.atomic()` aqui dentro cria um SAVEPOINT (a função
+        # inteira já está em `@transaction.atomic`, e há um `delete()` e um
+        # `registrar()` já executados nesta transação que não podem virar
+        # savepoint quebrado): o `IntegrityError` propagado FORA deste
+        # bloco interno desfaz só o savepoint. Mas como o que se propaga
+        # DAQUI é `ExclusaoDeRegimeInvalida` — não mais o `IntegrityError`
+        # —, a exceção sobe para FORA do `@transaction.atomic` da função
+        # inteira, e o Django reverte a transação por completo: o
+        # `ultimo.delete()` e o `registrar()` de auditoria voltam atrás
+        # junto. É o comportamento correto — a exclusão inteira falhou, não
+        # só a reabertura —, e é o mesmo padrão já medido pelo auditor
+        # ("trilha sob falha induzida no meio": atômico, sem trilha parcial).
+        try:
+            with transaction.atomic():
+                anterior.vigencia_fim = None
+                anterior.save(update_fields=["vigencia_fim"])
+        except IntegrityError as exc:
+            if not _e_violacao_de_periodo_unico(exc):
+                raise
+            raise ExclusaoDeRegimeInvalida(
+                "Não foi possível concluir a exclusão: outra requisição abriu um "
+                "novo período de regime tributário para esta empresa ao mesmo "
+                "tempo. Nada foi alterado — recarregue e confira o regime atual "
+                "antes de tentar de novo."
+            ) from exc
     return valores_antigos

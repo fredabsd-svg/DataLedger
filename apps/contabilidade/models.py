@@ -214,20 +214,44 @@ class Conta(models.Model):
         # antes desta etapa, continua gravando.
         if self.pk:
             original = (
-                Conta.objects.filter(pk=self.pk).values("empresa_id", "natureza", "tipo").first()
+                Conta.objects.filter(pk=self.pk)
+                .values("empresa_id", "natureza", "tipo", "empresa__escritorio_id")
+                .first()
             )
             if original is not None:
                 tem_movimento = self.itens_lancamento.exists()
                 tem_filhas = self.subcontas.exists()
 
-                if original["empresa_id"] != self.empresa_id and (tem_movimento or tem_filhas):
-                    motivo = "lançamento próprio" if tem_movimento else "conta filha"
-                    raise ValidationError(
-                        f"Não é possível mudar a empresa desta conta: ela já tem {motivo} "
-                        "gravado. O balancete da empresa de origem deixaria de fechar. "
-                        "Estorne o movimento (ou mova as contas filhas) antes de "
-                        "reclassificar, ou cadastre uma conta nova na empresa de destino."
-                    )
+                if original["empresa_id"] != self.empresa_id:
+                    # BL-248 (achado P4, auditoria DL-023 rodada 1): nenhuma
+                    # camada checava a fronteira de ESCRITÓRIO ao mover
+                    # conta — só a de empresa. Uma conta LIVRE (sem
+                    # movimento e sem filhas) podia ser movida para uma
+                    # empresa de OUTRO escritório inteiro, porque o guard
+                    # abaixo só recusa quando há movimento/filhas. Cruzar a
+                    # fronteira de escritório é sempre recusado, MESMO SEM
+                    # movimento — é a mesma fronteira que a Empresa.clean()
+                    # protege para "trocar de escritório", e trocar a
+                    # empresa de uma conta para um escritório diferente é a
+                    # mesma operação por outra porta. Troca de empresa
+                    # DENTRO do mesmo escritório continua sujeita só à
+                    # regra de movimento/filhas abaixo (critério 4
+                    # preservado: conta livre continua podendo mudar de
+                    # empresa no mesmo escritório).
+                    if original["empresa__escritorio_id"] != self.empresa.escritorio_id:
+                        raise ValidationError(
+                            "Não é possível mudar esta conta para uma empresa de outro "
+                            "escritório: contas não atravessam a fronteira de isolamento "
+                            "entre escritórios pelo cadastro comum."
+                        )
+                    if tem_movimento or tem_filhas:
+                        motivo = "lançamento próprio" if tem_movimento else "conta filha"
+                        raise ValidationError(
+                            f"Não é possível mudar a empresa desta conta: ela já tem {motivo} "
+                            "gravado. O balancete da empresa de origem deixaria de fechar. "
+                            "Estorne o movimento (ou mova as contas filhas) antes de "
+                            "reclassificar, ou cadastre uma conta nova na empresa de destino."
+                        )
 
                 mudou_natureza = original["natureza"] != self.natureza
                 mudou_tipo = original["tipo"] != self.tipo

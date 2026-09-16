@@ -86,21 +86,42 @@ def _login_admin(client, cenario):
     assert client.login(username="admin-dl023-empresa", password=SENHA)
 
 
+def _post_change(client, empresa, dados):
+    """POST no `change` de `empresa`, com um payload sempre VÁLIDO por
+    padrão — `dados` sobrescreve só os campos que o teste quer alterar.
+
+    BL-254 (achado A1, auditoria DL-023 rodada 1): o payload-base precisa
+    validar de verdade, senão "200 ou 302" + "nada mudou" fica satisfeito
+    tanto por uma recusa de NEGÓCIO quanto por um formulário QUEBRADO
+    (medido pelo auditor: trocar o CNPJ por "CNPJ-INVALIDO-!!" não matava
+    nenhum dos testes antigos, porque nenhum exigia status EXATO nem
+    conferia que outro campo do MESMO POST foi gravado de verdade)."""
+    payload = {
+        "escritorio": empresa.escritorio_id,
+        "razao_social": empresa.razao_social,
+        "nome_fantasia": empresa.nome_fantasia,
+        "cnpj": empresa.cnpj,
+        "ativo": "on" if empresa.ativo else "",
+        "estabelecimentos-TOTAL_FORMS": "0",
+        "estabelecimentos-INITIAL_FORMS": "0",
+        "estabelecimentos-MIN_NUM_FORMS": "0",
+        "estabelecimentos-MAX_NUM_FORMS": "1000",
+        "_continue": "Salvar e continuar editando",
+    }
+    payload.update(dados)
+    return client.post(f"/admin/empresas/empresa/{empresa.pk}/change/", payload)
+
+
 def _post_change_escritorio(client, empresa, novo_escritorio):
-    return client.post(
-        f"/admin/empresas/empresa/{empresa.pk}/change/",
-        {
-            "escritorio": novo_escritorio.id,
-            "razao_social": empresa.razao_social,
-            "nome_fantasia": empresa.nome_fantasia,
-            "cnpj": empresa.cnpj,
-            "ativo": "on" if empresa.ativo else "",
-            "estabelecimentos-TOTAL_FORMS": "0",
-            "estabelecimentos-INITIAL_FORMS": "0",
-            "estabelecimentos-MIN_NUM_FORMS": "0",
-            "estabelecimentos-MAX_NUM_FORMS": "1000",
-            "_continue": "Salvar e continuar editando",
-        },
+    """Tenta trocar `escritorio` E `razao_social` no MESMO POST — a
+    segunda mudança é o controle positivo (BL-254): se o formulário
+    estivesse quebrado por qualquer outro motivo (CNPJ inválido, campo
+    obrigatório faltando), `razao_social` TAMBÉM não mudaria, e o teste
+    que só olhasse `escritorio` não distinguiria os dois casos."""
+    return _post_change(
+        client,
+        empresa,
+        {"escritorio": novo_escritorio.id, "razao_social": "Nome alterado pelo teste Ltda"},
     )
 
 
@@ -118,11 +139,19 @@ def test_admin_recusa_trocar_escritorio_de_empresa_com_escrituracao(client, cena
 
     # A tentativa não é recusada com erro de FORMULÁRIO (o campo está
     # readonly, então o Django simplesmente ignora o valor enviado para
-    # ele e salva o resto — 302, "sucesso", mas SEM mudar o escritório):
-    # é essa a forma real de "recusa" pelo readonly_fields.
-    assert resposta.status_code in (200, 302), (resposta.status_code, resposta.content)
+    # ele e salva o resto — 302 EXATO, "sucesso", mas SEM mudar o
+    # escritório): é essa a forma real de "recusa" pelo readonly_fields.
+    # Status EXATO (não "in (200, 302)"): um payload quebrado por outro
+    # motivo (BL-254) daria 200, nunca 302 — exigir 302 já distingue os
+    # dois casos.
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
     empresa.refresh_from_db()
     assert empresa.escritorio_id == cenario["origem"].id
+    # Controle positivo NO MESMO POST (BL-254): `razao_social` FOI
+    # gravada de verdade — prova que o formulário validou e salvou, e que
+    # o `escritorio` inalterado é efeito do `readonly_fields`, não de um
+    # formulário quebrado por inteiro.
+    assert empresa.razao_social == "Nome alterado pelo teste Ltda"
     # A consulta pelo escritório de ORIGEM continua devolvendo a empresa, o
     # plano de contas e os lançamentos — nada migrou.
     assert Empresa.objects.filter(escritorio=cenario["origem"], pk=empresa.pk).exists()
@@ -144,9 +173,10 @@ def test_admin_recusa_trocar_escritorio_de_empresa_com_so_estabelecimento(client
 
     resposta = _post_change_escritorio(client, empresa, cenario["destino"])
 
-    assert resposta.status_code in (200, 302), (resposta.status_code, resposta.content)
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
     empresa.refresh_from_db()
     assert empresa.escritorio_id == cenario["origem"].id
+    assert empresa.razao_social == "Nome alterado pelo teste Ltda"
 
 
 # ---------------------------------------------------------------------------
@@ -167,9 +197,26 @@ def test_admin_recusa_trocar_escritorio_mesmo_sem_escrituracao(client, cenario):
 
     resposta = _post_change_escritorio(client, empresa, cenario["destino"])
 
-    assert resposta.status_code in (200, 302), (resposta.status_code, resposta.content)
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
     empresa.refresh_from_db()
     assert empresa.escritorio_id == cenario["origem"].id
+    assert empresa.razao_social == "Nome alterado pelo teste Ltda"
+
+
+def test_admin_grava_razao_social_de_verdade_pela_mesma_url(client, cenario):
+    """Controle positivo DEDICADO (BL-254): a mesma URL, com um payload que
+    não mexe em `escritorio`, grava de verdade. Sem este teste, um "200 ou
+    302" + "nada mudou" nos testes de recusa não prova que a URL funciona —
+    só que ela não fez nada, o que também é verdade para um formulário
+    quebrado."""
+    empresa = cenario["empresa"]
+    _login_admin(client, cenario)
+
+    resposta = _post_change(client, empresa, {"razao_social": "Empresa DL-023-E Renomeada Ltda"})
+
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    empresa.refresh_from_db()
+    assert empresa.razao_social == "Empresa DL-023-E Renomeada Ltda"
 
 
 def test_get_readonly_fields_trava_escritorio_no_change_e_libera_no_add(cenario):
@@ -180,6 +227,38 @@ def test_get_readonly_fields_trava_escritorio_no_change_e_libera_no_add(cenario)
 
     assert modeladmin.get_readonly_fields(None, obj=None) == []
     assert modeladmin.get_readonly_fields(None, obj=cenario["empresa"]) == ["escritorio"]
+
+
+# ---------------------------------------------------------------------------
+# BL-258 (achado A5 da auditoria DL-023 rodada 1): H1 ("escritorio livre no
+# add") só tinha prova UNITÁRIA (o teste acima) — nenhuma requisição ao
+# `add` de EmpresaAdmin era exercida em lugar nenhum da suíte. Como H1 é a
+# metade PERMISSIVA da decisão, é ela que precisa de prova por requisição.
+# ---------------------------------------------------------------------------
+
+
+def test_admin_add_grava_empresa_no_escritorio_escolhido(client, cenario):
+    _login_admin(client, cenario)
+
+    resposta = client.post(
+        "/admin/empresas/empresa/add/",
+        {
+            "escritorio": cenario["destino"].id,
+            "razao_social": "Empresa nascida no add Ltda",
+            "nome_fantasia": "",
+            "cnpj": "11122233000183",
+            "ativo": "on",
+            "estabelecimentos-TOTAL_FORMS": "0",
+            "estabelecimentos-INITIAL_FORMS": "0",
+            "estabelecimentos-MIN_NUM_FORMS": "0",
+            "estabelecimentos-MAX_NUM_FORMS": "1000",
+            "_continue": "Salvar e continuar editando",
+        },
+    )
+
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    nova = Empresa.objects.get(razao_social="Empresa nascida no add Ltda")
+    assert nova.escritorio_id == cenario["destino"].id
 
 
 # ---------------------------------------------------------------------------

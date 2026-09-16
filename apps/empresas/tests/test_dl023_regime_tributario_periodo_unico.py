@@ -138,6 +138,12 @@ def test_orm_direto_aceita_periodo_aberto_de_outra_empresa(cenario):
 def test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_inline(
     client, cenario
 ):
+    """BL-254 (achado A1, auditoria DL-023 rodada 1): status EXATO (302,
+    não "in (200, 302)") e `razao_social` como controle positivo NO MESMO
+    POST — sem isso, um payload quebrado por qualquer outro motivo (CNPJ
+    inválido, por exemplo) também daria "200 ou 302" + "nada de regime
+    criado", e o teste não distinguiria "a porta está fechada" de "o
+    formulário quebrou"."""
     empresa = cenario["empresa"]
     assert client.login(username="admin-dl023r", password=SENHA)
 
@@ -145,7 +151,7 @@ def test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_in
         f"/admin/empresas/empresa/{empresa.pk}/change/",
         {
             "escritorio": cenario["escritorio"].pk,
-            "razao_social": empresa.razao_social,
+            "razao_social": "Empresa DL-023-R renomeada Ltda",
             "nome_fantasia": "",
             "cnpj": empresa.cnpj,
             "ativo": "on",
@@ -166,7 +172,9 @@ def test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_in
         },
     )
 
-    assert resposta.status_code in (200, 302), (resposta.status_code, resposta.content)
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    empresa.refresh_from_db()
+    assert empresa.razao_social == "Empresa DL-023-R renomeada Ltda"
     assert not HistoricoRegimeTributario.objects.filter(empresa=empresa).exists()
 
 
@@ -180,6 +188,8 @@ def test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_in
 
 
 def test_admin_nao_cria_regime_tributario_com_vigencia_futura(client, cenario):
+    """BL-254: mesmo cuidado do teste acima — status exato e controle
+    positivo de `razao_social` no mesmo POST."""
     empresa = cenario["empresa"]
     assert client.login(username="admin-dl023r", password=SENHA)
 
@@ -187,7 +197,7 @@ def test_admin_nao_cria_regime_tributario_com_vigencia_futura(client, cenario):
         f"/admin/empresas/empresa/{empresa.pk}/change/",
         {
             "escritorio": cenario["escritorio"].pk,
-            "razao_social": empresa.razao_social,
+            "razao_social": "Empresa DL-023-R renomeada de novo Ltda",
             "nome_fantasia": "",
             "cnpj": empresa.cnpj,
             "ativo": "on",
@@ -206,7 +216,9 @@ def test_admin_nao_cria_regime_tributario_com_vigencia_futura(client, cenario):
         },
     )
 
-    assert resposta.status_code in (200, 302), (resposta.status_code, resposta.content)
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    empresa.refresh_from_db()
+    assert empresa.razao_social == "Empresa DL-023-R renomeada de novo Ltda"
     assert not HistoricoRegimeTributario.objects.filter(empresa=empresa).exists()
 
 
@@ -346,3 +358,154 @@ def test_duas_requisicoes_simultaneas_abrindo_regime_resultam_em_um_periodo_sem_
         HistoricoRegimeTributario.objects.filter(empresa=empresa, vigencia_fim__isnull=True).count()
         == 1
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-246 (achado P2 da auditoria DL-023 rodada 1): a etapa introduziu um
+# 500 alcançável por cliente — `DELETE` de regime concorrente com `POST`
+# reproduzia 500 em 6 de 8 execuções sem sincronização artificial. A
+# tradução do `IntegrityError` passou a ser um PONTO ÚNICO
+# (`_e_violacao_de_periodo_unico`, apps/empresas/services.py), usado pelos
+# DOIS caminhos que podem violar a constraint: `registrar_regime_tributario`
+# (já medido acima) e `excluir_ultimo_regime_tributario` (aqui).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_post_e_delete_de_regime_concorrentes_nunca_dao_5xx():
+    """Reproduz o entrelaçamento do achado P2: um DELETE do período ABERTO
+    (que reabriria o período ANTERIOR) concorrente com um POST que abre um
+    período NOVO. Repetido em várias rodadas — o auditor mediu 6 de 8 sem
+    nenhuma sincronização artificial — porque o entrelaçamento depende da
+    ordem em que o PostgreSQL libera os locks, e uma única rodada pode não
+    pegá-lo."""
+    escritorio = Escritorio.objects.create(nome="Escritório DL-023-R BL-246", cnpj="80808080000155")
+    usuario = get_user_model().objects.create_user(
+        username="gestor-dl023r-bl246",
+        email="gestor-dl023r-bl246@escritorio.com.br",
+        password=SENHA,
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+
+    status_vistos = set()
+    RODADAS = 15
+    cnpjs_base = 90000000000100  # avança a cada rodada para CNPJ único
+
+    for rodada in range(RODADAS):
+        empresa = Empresa.objects.create(
+            escritorio=escritorio,
+            razao_social=f"Empresa DL-023-R BL-246 {rodada}",
+            cnpj=str(cnpjs_base + rodada * 111),
+        )
+        # Período FECHADO (o "anterior" que a exclusão vai reabrir) e
+        # período ABERTO (o "último", alvo do DELETE).
+        registrar_regime_tributario(empresa, RegimeTributario.SIMPLES_NACIONAL, date(2024, 1, 1))
+        ultimo = registrar_regime_tributario(
+            empresa, RegimeTributario.LUCRO_PRESUMIDO, date(2025, 1, 1)
+        )
+
+        barreira = threading.Barrier(2)
+        resultados = {}
+
+        # `empresa`/`ultimo`/`resultados` como PARÂMETRO PADRÃO — não como
+        # variável livre do laço — para cada thread capturar o valor desta
+        # ITERAÇÃO, não o da última (B023: closure sobre variável de laço
+        # é um bug clássico, mesmo aqui, onde as threads são unidas antes
+        # da próxima iteração começar).
+        def _deletar(empresa=empresa, ultimo=ultimo, resultados=resultados, barreira=barreira):
+            try:
+                cliente = Client(raise_request_exception=False)
+                cliente.login(username="gestor-dl023r-bl246", password=SENHA)
+                barreira.wait()
+                resposta = cliente.delete(
+                    reverse(
+                        "empresas:api-regime-tributario-detalhe",
+                        args=[empresa.id, ultimo.pk],
+                    )
+                )
+                resultados["delete"] = resposta.status_code
+            finally:
+                connection.close()
+
+        def _postar(empresa=empresa, resultados=resultados, barreira=barreira):
+            try:
+                cliente = Client(raise_request_exception=False)
+                cliente.login(username="gestor-dl023r-bl246", password=SENHA)
+                barreira.wait()
+                resposta = cliente.post(
+                    reverse("empresas:api-regime-tributario", args=[empresa.id]),
+                    {"regime": "lucro_real", "vigencia_inicio": "2025-06-01"},
+                    content_type="application/json",
+                )
+                resultados["post"] = resposta.status_code
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=_deletar), threading.Thread(target=_postar)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        status_vistos.update(resultados.values())
+        # Nenhum 5xx NESTA rodada — a asserção fica DENTRO do laço para que
+        # a mensagem de falha aponte a rodada exata, não só o agregado.
+        assert set(resultados.values()) <= {200, 201, 400, 409}, (rodada, resultados)
+        # Estado final consistente: no máximo 1 período aberto (a
+        # constraint de banco é a rede debaixo de tudo, mesmo se a
+        # tradução falhasse).
+        assert (
+            HistoricoRegimeTributario.objects.filter(
+                empresa=empresa, vigencia_fim__isnull=True
+            ).count()
+            <= 1
+        )
+
+    # Controle de que o teste testou alguma coisa: pelo menos um 400 (ou
+    # 409) apareceu em alguma rodada — senão as duas operações nunca
+    # colidiram em rodada nenhuma, e o teste não teria exercitado a defesa.
+    assert status_vistos & {400, 409}, status_vistos
+
+
+# ---------------------------------------------------------------------------
+# BL-251 (achado P7 da auditoria DL-023 rodada 1): o desempate
+# `(-vigencia_inicio, -id)` precisa valer também pela ROTA DE LISTAGEM, não
+# só dentro de `excluir_ultimo_regime_tributario`.
+# ---------------------------------------------------------------------------
+
+
+def test_listagem_desempata_periodos_de_mesmo_inicio_de_forma_deterministica(client, cenario):
+    empresa = cenario["empresa"]
+    mais_antigo = HistoricoRegimeTributario.objects.create(
+        empresa=empresa,
+        regime=RegimeTributario.SIMPLES_NACIONAL,
+        vigencia_inicio=date(2024, 1, 1),
+        vigencia_fim=date(2024, 6, 30),
+    )
+    mais_novo = HistoricoRegimeTributario.objects.create(
+        empresa=empresa,
+        regime=RegimeTributario.LUCRO_PRESUMIDO,
+        vigencia_inicio=date(2024, 1, 1),
+        vigencia_fim=date(2024, 12, 31),
+    )
+    assert client.login(username="gestor-dl023r", password=SENHA)
+
+    ordens = []
+    for _ in range(10):
+        resposta = client.get(reverse("empresas:api-regime-tributario", args=[empresa.id]))
+        assert resposta.status_code == 200, resposta.status_code
+        ordens.append([item["id"] for item in resposta.json()])
+
+    # Sempre a MESMA ordem em execuções repetidas, e o mais novo (maior id)
+    # sempre primeiro — mesmo desempate que `excluir_ultimo_regime_
+    # tributario` já usava, agora também pela rota de listagem.
+    assert all(ordem == [mais_novo.pk, mais_antigo.pk] for ordem in ordens), ordens
+
+
+def test_meta_ordering_tem_desempate_por_id(cenario):
+    """Unidade direta do `Meta`, matavelmente distinta da consulta com
+    `order_by()` explícito que `excluir_ultimo_regime_tributario` usa —
+    prova que o DESEMPATE mora no lugar que TODOS os caminhos leem."""
+    assert HistoricoRegimeTributario._meta.ordering == ["-vigencia_inicio", "-id"]

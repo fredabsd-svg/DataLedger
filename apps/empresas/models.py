@@ -186,8 +186,9 @@ class Empresa(models.Model):
                         "Não é possível mudar o escritório desta empresa: ela já tem "
                         "escrituração gravada (plano de contas, lançamento contábil "
                         "ou estabelecimento). Transferir empresa entre escritórios "
-                        "não é suportado pelo cadastro comum — fale com o "
-                        "arquiteto-senior se este for um caso real do escritório."
+                        "não é suportado pelo cadastro comum — registre a solicitação "
+                        "com o responsável técnico do sistema, se este for um caso "
+                        "real do escritório."
                     )
 
 
@@ -224,7 +225,21 @@ class HistoricoRegimeTributario(models.Model):
     class Meta:
         verbose_name = "histórico de regime tributário"
         verbose_name_plural = "históricos de regime tributário"
-        ordering = ["-vigencia_inicio"]
+        # BL-251 (achado P7, auditoria DL-023 rodada 1): o desempate
+        # `(-vigencia_inicio, -id)` existia só DENTRO de
+        # `excluir_ultimo_regime_tributario` (apps/empresas/services.py),
+        # que sobrescreve este `Meta.ordering` com o próprio `order_by()`.
+        # A rota de LISTAGEM (`HistoricoRegimeTributarioListCreateView.
+        # get_queryset`, apps/empresas/views.py) usa a ordenação do `Meta`
+        # tal como está — com dois períodos de mesmo `vigencia_inicio`
+        # (dado herdado/importado, nunca produzido por
+        # `registrar_regime_tributario`), a ordem devolvida ao CLIENTE era
+        # indefinida no PostgreSQL (sem `-id`, o banco pode devolver
+        # qualquer uma das duas primeiro, e pode mudar entre chamadas). O
+        # requisito 5 da etapa ("a escolha do 'último' é determinística")
+        # cobria só o caminho medido (a exclusão); agora cobre TODO
+        # caminho que lê este `Meta.ordering`.
+        ordering = ["-vigencia_inicio", "-id"]
         constraints = [
             # DL-023, critério 1 (a defesa que vale em TODA porta, e por
             # isso vem primeiro na ordem obrigatória de execução da etapa):

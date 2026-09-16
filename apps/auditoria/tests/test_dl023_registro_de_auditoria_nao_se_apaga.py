@@ -66,6 +66,12 @@ def test_exclusao_individual_pelo_admin_e_recusada(client, registro, superusuari
 
 
 def test_exclusao_em_lote_pelo_admin_e_recusada(client, registro, superusuario):
+    """BL-255 (achado A2, auditoria DL-023 rodada 1): o POST precisa trazer
+    `post=yes` — a CONFIRMAÇÃO da exclusão em lote, não só a SELEÇÃO. Sem
+    `post=yes`, o Django sempre responde 200 com a página de confirmação
+    (apaga ou não apaga a defesa: o comportamento é IDÊNTICO), e o mutante
+    que remove `has_delete_permission` sobrevivia exatamente por isso — o
+    teste media a seleção, nunca a confirmação."""
     _login(client, superusuario)
 
     resposta = client.post(
@@ -73,6 +79,7 @@ def test_exclusao_em_lote_pelo_admin_e_recusada(client, registro, superusuario):
         {
             "action": "delete_selected",
             "_selected_action": [str(registro.pk)],
+            "post": "yes",
         },
     )
 
@@ -82,6 +89,42 @@ def test_exclusao_em_lote_pelo_admin_e_recusada(client, registro, superusuario):
     # apagar nada.
     assert resposta.status_code in (200, 403), (resposta.status_code, resposta.content)
     assert RegistroAuditoria.objects.filter(pk=registro.pk).exists()
+
+
+def test_exclusao_em_lote_com_select_across_pelo_admin_e_recusada(client, registro, superusuario):
+    """Variante medida separadamente pelo auditor: `select_across=1` é o
+    "selecionar TODOS os N registros que casam o filtro", não só a página
+    atual — outro caminho pelo qual o Django monta a mesma ação."""
+    _login(client, superusuario)
+
+    resposta = client.post(
+        "/admin/auditoria/registroauditoria/",
+        {
+            "action": "delete_selected",
+            "_selected_action": [str(registro.pk)],
+            "select_across": "1",
+            "post": "yes",
+        },
+    )
+
+    assert resposta.status_code in (200, 403), (resposta.status_code, resposta.content)
+    assert RegistroAuditoria.objects.filter(pk=registro.pk).exists()
+
+
+def test_nenhuma_acao_de_exclusao_e_oferecida_na_listagem(registro, superusuario):
+    """`get_actions()` do `ModelAdmin` já remove `delete_selected` sozinho
+    quando `has_delete_permission` é `False` — confirma o MECANISMO por
+    trás dos dois testes de requisição acima, não só o efeito."""
+    from django.contrib import admin as django_admin
+    from django.test import RequestFactory
+
+    from apps.auditoria.admin import RegistroAuditoriaAdmin
+
+    modeladmin = RegistroAuditoriaAdmin(RegistroAuditoria, django_admin.site)
+    request = RequestFactory().get("/admin/auditoria/registroauditoria/")
+    request.user = superusuario
+
+    assert modeladmin.get_actions(request) == {}
 
 
 def test_has_delete_permission_devolve_false(registro, superusuario):
