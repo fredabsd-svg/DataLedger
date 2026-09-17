@@ -378,6 +378,38 @@ class Conta(models.Model):
                         "cadastre uma conta nova."
                     )
 
+        # BL-261 (terceiro caminho da BL-83, achado novo 1 da auditoria DL-023
+        # rodada 3): o guard acima protege natureza e tipo da própria conta e
+        # o guard de empresa protege o reparentamento entre empresas, mas o
+        # admin deixava trocar SOMENTE `conta_pai` de uma conta com movimento
+        # para um grupo de natureza oposta. Efeito medido: o Balancete da
+        # empresa continuava fechando (débito = crédito), mas a linha do
+        # grupo de destino mostrava -R$ 1.000,00 enquanto a do grupo de
+        # origem mostrava R$ 0,00 — e nenhuma das cinco categorias da
+        # conferência acusava. A correção segue o MESMO PADRÃO de transição
+        # do guard de natureza/tipo acima: só dispara quando o GRAVADO é
+        # diferente do novo E a conta (ou descendente) tem movimento.
+        if (
+            self.pk
+            and original["conta_pai_id"] != self.conta_pai_id
+            and self.conta_pai_id is not None
+            and self._tem_movimento_proprio_ou_de_descendente()
+        ):
+            natureza_pai_novo = (
+                Conta.objects.filter(pk=self.conta_pai_id)
+                .values_list("natureza", flat=True)
+                .first()
+            )
+            if natureza_pai_novo is not None and natureza_pai_novo != original["natureza"]:
+                raise ValidationError(
+                    "Não é possível reparentar esta conta para um grupo de natureza "
+                    "oposta: ela ou uma conta descendente já tem lançamento gravado. "
+                    "O movimento herdado mudaria de lado no Balancete, sem que nenhum "
+                    "lançamento novo fosse gerado. Estorne o movimento (ou mova as "
+                    "contas filhas) antes de reclassificar, ou cadastre uma conta "
+                    "nova."
+                )
+
 
 class LancamentoContabil(models.Model):
     """Lançamento contábil por partidas dobradas.
