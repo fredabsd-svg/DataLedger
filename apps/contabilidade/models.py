@@ -226,7 +226,7 @@ class Conta(models.Model):
         if self.pk:
             original = (
                 Conta.objects.filter(pk=self.pk)
-                .values("empresa_id", "natureza", "tipo", "empresa__escritorio_id")
+                .values("empresa_id", "natureza", "tipo", "conta_pai_id", "empresa__escritorio_id")
                 .first()
             )
             if original is not None:
