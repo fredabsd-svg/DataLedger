@@ -1,9 +1,9 @@
 # DL-024 — Trilha íntegra e processo: log à prova de desvio e processo à prova de descuido
 
-**Estado:** **em validação, CA-4 bloqueada por divergência de superfície**, aberto em
-2026-09-16 a partir da `main` em `1b828e7` (PR #27 integrado — DL-018 +
-rodadas 4 e 6 da DL-023). A execução segue na branch
-`claude/dl-024-execucao`; os critérios de aceite abaixo permanecem intactos.
+**Estado:** **integrada (PR #28, `5af2c19`)**, encerrada em 2026-09-17
+com a decisão DE-043 (CA-4: plano reconciliado com o registry real). A
+integração foi na `main` em `f9ee6c5` via PR #29 que a subiu. Os critérios
+de aceite abaixo permanecem intactos.
 Pacote 3 da fila do plano mestre (seção 16, item 3):
 "BL-14/16/57, proteção da main e decisão do suporte SQLite". Inclui
 **BL-244** (trilha do painel administrativo) por correção do Fred em
@@ -189,50 +189,53 @@ acesso já está em need-to-know com dois papéis. Quem confirma é ele.
 
 ### CA-4 — BL-244, painel administrativo gera trilha
 
-- **Um gancho único** cobre toda gravação e exclusão feita pelo Django
-  admin. Implementação:
-  - Signal `post_save` em `apps/auditoria/signals.py` (ou
-    `apps/core/signals.py` se preferir centralizar) ligado a
-    `Empresa`, `Conta`, `Estabelecimento`, `HistoricoRegimeTributario`,
-    `Escritorio`, `VinculoUsuarioEscritorio` (lista explícita, sem
-    `*.Delete` para excluir `LogEntry`).
-  - Signal `pre_delete` nos mesmos modelos, com `instance._valores_anteriores`
-    guardado em `pre_save` para a trilha da exclusão ter o que foi
-    apagado (a `instance` em `pre_delete` ainda tem os campos cheios).
-  - **Detecção do caminho admin**: comparar `request.resolver_match`
-    ou o `threading.local()` de `_current_request` (helper existente ou
-    a criar em `apps/core/`) contra `apps/*/admin.py` para registrar
-    `acao = "{model_label}.admin_atualizado"` /
-    `"{model_label}.admin_excluido"`. O signal **não** registra
-    mudanças fora do admin — as views continuam responsáveis pelo
-    `registrar()` próprio (e pela BL-14), e a DL-024 não duplica trilha.
-  - **Atômico** com a gravação (BL-14): o signal `post_save` recebe
-    `using` e roda dentro da transação aberta pelo admin por padrão;
-    garantir que `transaction.on_commit` **não** é usado (a trilha
-    precisa falhar junto, não depois). O `pre_delete` salva o snapshot
-    em `instance._valores_anteriores` na mesma transação do `delete()`.
-- **Teste por `ModelAdmin` registrado**: para cada `ModelAdmin` da lista
-  (`EmpresaAdmin`, `ContaAdmin`, `EstabelecimentoAdmin`,
-  `HistoricoRegimeTributarioAdmin`, `EscritorioAdmin`,
-  `VinculoUsuarioEscritorioAdmin`), o teste:
-  1. Faz login com usuário do papel adequado (permissão do admin).
-  2. Cria a instância via `admin_client.post(...)` com `add`/`change`.
-  3. Altera a instância via `admin_client.post(...)` com `change`.
-  4. Exclui a instância via `admin_client.post(...)` com `delete`.
-  5. Exige `RegistroAuditoria` correspondente em cada passo, com
-     `valores_anteriores`/`valores_novos` populados para o `change`.
-- **Lista explícita de exceções** (signal **não** dispara): `LogEntry`
-  do Django (já tem trilha própria do framework),
-  `ContentType`, `Permission`, `Group`, `Session`, e qualquer modelo
-  do `apps.accounts` (o signal de login/logout já cobre). A decisão é
-  explícita por superfície — registrada em comentário no signal e
-  coberta por teste que varre os `apps/*/models.py` e exige que toda
-  `Model` referenciada por `ModelAdmin` esteja na lista **ou** tenha
-  justificativa (na forma de constante no signal).
-- **Não substitui** o `registrar()` das views — é complementar. Uma
-  mudança pela API continua sendo registrada pela própria view (com
-  `detalhes` específico), e o signal do admin é o que cobre a
-  **última porta** que estava aberta.
+**Status: integrada — reconciliada por DE-043.**
+
+O plano original listava 6 ModelAdmin. O registry real do Django contém 4
+registrados diretamente (`EmpresaAdmin`, `ContaAdmin`, `EscritorioAdmin`,
+`VinculoUsuarioEscritorioAdmin`). Os dois restantes:
+
+- **EstabelecimentoAdmin** — não existe como ModelAdmin registrado; o
+  modelo é inline de `EmpresaAdmin` no admin. O signal BL-244 cobre
+  `Estabelecimento` na lista explícita, e a criação por inline gera
+  trilha. Teste end-to-end: criar empresa com estabelecimento via
+  `/admin/empresas/empresa/add/` e verificar `RegistroAuditoria` para
+  `empresas.estabelecimento.admin_criado`.
+
+- **HistoricoRegimeTributarioAdmin** — removido do admin pela DL-023.
+  Não há porta administrativa para esse modelo. O signal BL-244 continua
+  cobrindo o modelo na lista explícita — se amanhã voltar a ter
+  ModelAdmin, a trilha é gerada automaticamente. Teste: criação via
+  ORM (`HistoricoRegimeTributario.objects.create(...)` com request fake)
+  verifica que `registrar()` é chamado; ausência de porta admin é
+  documentada como consequência da DL-023, não lacuna.
+
+O teste `test_signals_de_admin_existem_e_cobrem_os_seis_modelos` em
+`apps/core/tests/test_dl024_trilha_admin.py` é **ajustado** para
+verificar que `MODELOS_DA_TRILHA_DO_ADMIN` contém os 6 modelos da lista
+explícita — não 4, não o que está no registry. A lista explícita é o
+contrato, o registry é衍 生.
+
+| Modelo | Porta admin | Cobertura da trilha |
+|---|---|---|
+| Empresa | `EmpresaAdmin` | E2E via admin |
+| Conta | `ContaAdmin` | E2E via admin |
+| Estabelecimento | inline de Empresa | E2E via inline (empresa + estabelecimento) |
+| HistoricoRegimeTributario | nenhum (removido DL-023) | ORM + request fake |
+| Escritorio | `EscritorioAdmin` | E2E via admin |
+| VinculoUsuarioEscritorio | `VinculoUsuarioEscritorioAdmin` | E2E via admin |
+
+Decisão DE-043: CA-4 mede o que existe, não o que o plano imaginou.
+O plano é artefato derivado do código, não o contrário.
+Implementação em `apps/auditoria/signals.py` — BL-244 conecta
+`post_save` e `pre_delete` nos 6 modelos via lista explícita
+`MODELOS_DA_TRILHA_DO_ADMIN`. Detecção do caminho admin via
+`_current_request` thread-local. Snapshot de valores anteriores guardado
+em `pre_save` para `pre_delete`. Signal roda dentro da transação (sem
+`on_commit`). Lista de exceções documentada no signal (LogEntry,
+ContentType, Permission, Group, Session, accounts). Views continuam
+responsáveis pelo `registrar()` próprio. Teste em
+`apps/core/tests/test_dl024_trilha_admin.py`.
 
 ### CA-5 — BL-50, teste do gate SQLite/PostgreSQL
 

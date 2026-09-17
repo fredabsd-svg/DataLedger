@@ -2020,3 +2020,51 @@ de não fazer); papel de **GESTOR** (a DL-018 só vai entregar
 papeis ficam para etapa posterior). Cada um desses itens é ponto de
 abertura na DL-018, **não** desta decisão.
 
+## DE-043 — DL-024 (CA-4): o plano é artefato derivado do código, não o contrário
+
+**Data:** 2026-09-17. **Origem:** destrava a CA-4 da [DL-024](../planos/DL-024-trilha-integra-e-processo.md),
+que estava "bloqueada por divergência de superfície". O plano original
+decomponha 6 ModelAdmin para o BL-244 (trilha do painel administrativo).
+O registry real do Django contém 4 registrados diretamente:
+`EmpresaAdmin`, `ContaAdmin`, `EscritorioAdmin`,
+`VinculoUsuarioEscritorioAdmin`. Os dois restantes:
+
+- **EstabelecimentoAdmin** — não existe como ModelAdmin registrado; o
+  modelo é inline de `EmpresaAdmin`. O signal BL-244 cobre
+  `Estabelecimento` na lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`, e
+  a criação por inline gera trilha. Teste: criar empresa com
+  estabelecimento via `/admin/empresas/empresa/add/` e verificar
+  `RegistroAuditoria` para `empresas.estabelecimento.admin_criado`.
+
+- **HistoricoRegimeTributarioAdmin** — removido do admin pela DL-023.
+  Não há porta administrativa para esse modelo. O signal BL-244 continua
+  cobrindo o modelo na lista explícita — se amanhã voltar a ter
+  ModelAdmin, a trilha é gerada automaticamente. Teste: criação via ORM
+  com request fake verifica que `registrar()` é chamado; ausência de porta
+  admin é documentada como consequência da DL-023, não lacuna.
+
+**Opção escolhida:** reconciliar o plano com a realidade — atualizar o
+documento DL-024 para refletir que a lista explícita de modelos é o
+contrato, e o registry do Django é o artefato衍 生.
+
+**Alternativas descartadas:**
+
+1. Criar `EstabelecimentoAdmin` fantasma só para o teste passar.
+   Descartada porque: viola RC-041 (plano é mapa de decomposição, não
+   segunda fonte de estado) e geraria artefato código sem uso.
+
+2. Deixar CA-4 em aberto até decisão posterior. Descartada porque:
+   atrasa entrega sem benefício — a trilha existe e funciona, o teste
+   pode verificar a lista explícita sem depender do registry.
+
+**Consequência operacional:** a DL-024 sai de "em validação, CA-4
+bloqueada" para **integrada**. O teste
+`test_signals_de_admin_existem_e_cobrem_os_seis_modelos` em
+`apps/core/tests/test_dl024_trilha_admin.py` verifica que
+`MODELOS_DA_TRILHA_DO_ADMIN` contém os 6 modelos — não 4, não o que
+está no registry. A lista explícita é o contrato.
+
+**Limites desta decisão:** não altera código de produto (o signal já
+cobre os 6 modelos via lista explícita). Não adiciona nem remove
+ModelAdmin. Só reconcilia o plano com o que existe.
+
