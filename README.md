@@ -183,6 +183,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [x] **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
 - [x] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita (rodadas 1/3/5/7 do auditor; correções das rodadas 4 e 6 integradas via PR #27; ressalvas contábeis BL-261/262/263 ainda abertas)
 - [ ] **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
+- [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
