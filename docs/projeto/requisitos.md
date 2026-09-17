@@ -38,6 +38,7 @@ refletidos em código já integrado ou em planos aprovados.
 | RC-82 | Definição de papel tem **uma** fonte e formatos gerados; cópia paralela mantida à mão é proibida, e a integração contínua reprova divergência. | DE-035, decorrente da instrução permanente do Fred de 2026-09-13 |
 | RC-83 | As ferramentas de IA em uso pelo Fred são **Claude Code** e **Codex pelo terminal**. Só elas recebem definição de papel gerada. | Resposta do Fred em 2026-09-15; DE-037 |
 | RC-84 | O `AGENTS.md` não pode ultrapassar 30.000 bytes, por causa do limite de 32.768 em que o Codex trunca arquivos de instrução **em silêncio**. | Decorre de RC-83; critério 14 da [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) |
+| RC-89 | Uma ordem direta de Fred na conversa é demanda formal e autoriza a execução do escopo pedido. O agente não exige ticket, frase especial ou confirmação repetida; preserva controles específicos para ações destrutivas, alto impacto e produção. | Fred, 2026-09-17; [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) |
 
 ### Engenharia obrigatória
 

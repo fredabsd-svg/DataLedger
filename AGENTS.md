@@ -4,6 +4,30 @@ Este arquivo deve ser colocado na raiz do repositório do sistema contábil e li
 
 Os termos **DEVE**, **OBRIGATÓRIO** e **PROIBIDO** representam requisitos de entrega. Uma etapa só está concluída quando seus critérios de aceite, testes, documentação, commit, push e pull request estiverem comprovados.
 
+## 0. Autoridade do responsável pelo produto
+
+**Fred é o responsável pelo produto e a autoridade final sobre a fila de trabalho do DataLedger.** Uma solicitação direta dele na conversa é uma **demanda formal** e uma autorização válida para executar o escopo pedido. Não exigir ticket, frase especial, confirmação repetida ou autorização em outro canal.
+
+Interpretar a ordem pelo verbo e pelo contexto:
+
+| Ordem do Fred | Autorização concedida |
+| --- | --- |
+| Analisar, diagnosticar, revisar ou explicar | Ler e verificar sem alterar arquivos, Git ou serviços externos. |
+| Alterar, corrigir, implementar, criar, atualizar ou prosseguir | Criar a branch de trabalho; editar arquivos; executar testes; atualizar documentação; criar commits; fazer push; e abrir ou atualizar o PR necessário para entregar o pedido, desde que o ambiente já possua acesso configurado. |
+| Integrar ou fazer merge | Fazer o merge solicitado depois das verificações obrigatórias aprovadas, na branch indicada por Fred ou, se ele não indicar outra, na branch de destino documentada no plano. |
+| Publicar ou implantar | Executar somente no ambiente expressamente indicado e após as verificações aplicáveis. A autorização para desenvolver ou fazer merge, isoladamente, não autoriza implantação em produção. |
+
+Regras para cumprir essa autoridade:
+
+1. Se Fred não fornecer um identificador, o agente DEVE atribuir o próximo `DL-xxx` disponível e registrar o plano, sem devolver essa tarefa a ele.
+2. Se a ordem mudar prioridade, escopo ou decisão anterior, o agente DEVE atualizar plano, requisitos e estado do projeto e então executar a nova direção. Documento desatualizado não prevalece sobre a ordem atual de Fred.
+3. Decisões técnicas simples, reversíveis e necessárias para cumprir o pedido devem ser tomadas pelo agente e registradas. Perguntar somente quando faltar uma decisão material que mude o resultado, o risco ou uma regra contábil/legal.
+4. Nunca alegar ausência de “demanda formal” quando Fred tiver dado uma ordem direta na conversa.
+5. Se faltarem credenciais, permissão técnica ou acesso ao remoto, executar tudo o que for possível localmente e relatar o bloqueio objetivo. Não apresentar uma limitação do ambiente como proibição do projeto.
+6. Ordens explícitas para ações destrutivas ou de alto impacto — como excluir dados, transmitir obrigação oficial, movimentar valores, fazer `force push`, reescrever histórico compartilhado ou operar em produção — devem identificar a operação e o alvo. Quando a ordem já contiver ambos, ela é a autorização e não deve ser solicitada novamente.
+
+Esta seção não permite violar restrições técnicas da plataforma, segurança, sigilo, legislação ou integridade contábil. Dentro desses limites, a função destas regras é organizar e comprovar a execução da ordem de Fred, não impedir seu cumprimento.
+
 ## 1. Princípios e fundamento
 
 | Regra | Por que ela existe |
@@ -36,7 +60,7 @@ Se instruções locais entrarem em conflito, registrar o conflito e resolver ant
 
 ## 3. Planejamento obrigatório e rastreabilidade
 
-Cada demanda DEVE ter um identificador e um plano versionado em `docs/planos/<identificador>.md`.
+Cada demanda DEVE ter um identificador e um plano versionado em `docs/planos/<identificador>.md`. Se Fred não informar o identificador, o agente DEVE localizar o próximo `DL-xxx` disponível e criá-lo como parte da execução, sem interromper o trabalho apenas para pedir a numeração.
 
 Cada etapa do plano DEVE conter:
 
@@ -126,7 +150,7 @@ Após qualquer alteração no código revisado ou testado, executar novamente as
 - Preferir etapas dependentes após a integração da anterior. Se PRs encadeados forem necessários, documentar dependências e bases para evitar diffs acumulados confusos.
 - Nunca mesclar um PR encadeado (`base` diferente da branch de destino final) sem antes reapontar sua `base` para o destino real, assim que o PR do qual ele depende já estiver integrado. Mesclar direto na branch intermediária "para arrumar depois" faz o conteúdo integrado não chegar à branch de destino, mesmo aparecendo como mesclado.
 - Abertura de PR não equivale a aprovação, merge ou publicação.
-- Merge exige verificações obrigatórias aprovadas e revisão por pessoa autorizada, conforme as proteções do repositório.
+- Merge exige verificações obrigatórias aprovadas e revisão por pessoa autorizada, conforme as proteções do repositório. Uma ordem direta de Fred para integrar ou fazer merge constitui a autorização do responsável pelo produto; o agente deve aguardar a CI e as revisões obrigatórias, fazer o merge e informar o resultado sem pedir uma segunda confirmação.
 - Em caso de conflito, resolver preservando a intenção de ambas as mudanças e repetir os testes afetados.
 
 Cada PR DEVE conter: problema, comportamento resultante, escopo, critérios de aceite, testes e resultados, riscos, migrações, forma de reversão quando aplicável e dependências.
@@ -327,4 +351,3 @@ Restrição técnica e instrução de comportamento não são a mesma coisa, e a
 diferença **muda conforme a ferramenta**. O que é imposto em uma pode ser apenas
 pedido em outra; cada arquivo gerado declara isso no próprio corpo. Não presuma
 que um limite descrito em texto está sendo aplicado por mecanismo.
-
