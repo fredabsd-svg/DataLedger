@@ -781,10 +781,15 @@ def test_admin_recusa_reparentar_conta_movimentada_para_grupo_de_natureza_oposta
     assert "natureza oposta" in corpo, corpo
     conta_movimentada.refresh_from_db()
     assert conta_movimentada.conta_pai_id == grupo_origem.pk  # inalterada
-    assert (conta_movimentada.conta_pai_id, conta_movimentada.natureza, conta_movimentada.tipo) == estado_antes
+    estado_final = (
+        conta_movimentada.conta_pai_id,
+        conta_movimentada.natureza,
+        conta_movimentada.tipo,
+    )
+    assert estado_final == estado_antes
 
 
-def test_admin_continua_reparentando_conta_sem_movimento_para_grupo_de_natureza_oposta(client, cenario):
+def test_admin_reparentando_sem_movimento_para_natureza_oposta(client, cenario):
     """Controle positivo: sem movimento, reparentar para qualquer grupo é
     operação legítima — a defesa não pode engessar o cadastro."""
     grupo_origem = _conta(
@@ -812,7 +817,7 @@ def test_admin_continua_reparentando_conta_sem_movimento_para_grupo_de_natureza_
     assert conta_livre.conta_pai_id == grupo_destino.pk
 
 
-def test_admin_continua_reparentando_conta_movimentada_para_grupo_da_mesma_natureza(client, cenario):
+def test_admin_reparentando_com_movimento_para_mesma_natureza(client, cenario):
     """Com movimento, reparentar para grupo da MESMA natureza é operação
     legítima — a defesa não pode proibir o que é seguro."""
     grupo_origem = _conta(
