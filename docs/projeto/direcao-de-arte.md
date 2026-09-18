@@ -152,11 +152,49 @@ Valem para todo módulo, e são medidas por mecanismo (§5).
    prestes a ser cobrado contra um número que a tela de referência não
    alcança.
 
-   **O piso, hoje, é o que a referência entrega: 9 linhas no balancete, 14 no
-   plano de contas, 11 no diário.** Os **15 continuam como meta**, com a causa
-   nomeada — o bloco de filtro ocupa 411px antes da primeira linha — e com item
-   de backlog próprio. Abaixar a meta para caber no resultado seria trocar a
-   medição pela conveniência; fingir que o piso é 15 seria pior.
+   **O piso, hoje, é o que a referência entrega, com o método junto:**
+
+   | Tela | Piso medido | Em que estado |
+   | --- | --- | --- |
+   | Balancete | **9** | **com período filtrado** |
+   | Balancete | **4** | **entrada padrão, mês sem movimento** |
+   | Plano de contas | **14** | — |
+   | Diário | **11** | — |
+
+   **Método, sem o qual os números acima não valem nada:** 1280×800, base
+   sintética de **73 contas em 4 níveis e 60 lançamentos**, contando linha
+   **inteiramente** visível (`rect.top >= 0 && rect.bottom <= innerHeight`),
+   Chromium.
+
+   **A base é reproduzível:**
+   [`scripts/semear_base_de_medicao.py`](../../scripts/semear_base_de_medicao.py),
+   com semente fixa. Até a rodada 2 ela morava fora do repositório, no
+   scratchpad de quem mediu — o achado B2 chamou isso de *"medição que só uma
+   pessoa consegue repetir"*, e tinha razão. A contagem é feita pelo juiz do
+   gauntlet, que **não roda na integração contínua** porque exige Chromium.
+   Logo: **rodar a medição antes de fechar etapa que mexa na altura acima da
+   primeira linha** — faixa, filtro, aviso, título — é obrigação escrita, não
+   automatizada. Foi uma mudança desse tipo que derrubou a densidade de 9 para
+   6 sem nenhum teste acusar.
+
+   ⚠️ **Esta regra já errou duas vezes, e as duas por publicar número sem
+   método.** Primeiro dizia "pelo menos 15", que eram do **protótipo** do
+   gauntlet e não do produto (achado M1 da [rodada
+   1](../auditorias/2026-09-18-dl-024-rodada-1.md)). Corrigido para 9 — e o
+   texto corrigido **continuou sem dizer** quantas contas, qual largura e, o
+   que mais importa, que os 9 são **com período filtrado**: a entrada padrão
+   entrega **4** (achado B1 da [rodada
+   2](../auditorias/2026-09-18-dl-024-rodada-2.md)). Quem fosse construir o
+   Fiscal e medisse "o balancete" como ele abre encontraria 4 e concluiria que
+   a referência não cumpre o próprio piso.
+
+   **A lição é a do parágrafo acima, que já exigia o método e não foi
+   obedecido pelo parágrafo seguinte:** número sem método é opinião com casas
+   decimais — inclusive quando o número está certo.
+
+   Os **15 continuam como meta**, com a causa nomeada e item de backlog
+   próprio. Abaixar a meta para caber no resultado seria trocar a medição pela
+   conveniência; fingir que o piso é 15 seria pior.
 9. **pt-BR em tudo**: `1.234,56`, `dd/mm/aaaa`, e o termo que o contador usa.
 10. **O que já foi auditado não regride.** Contraste, foco, estados e mensagens
     de erro custaram rodadas de auditoria nas DL-009, DL-017 e DL-024.

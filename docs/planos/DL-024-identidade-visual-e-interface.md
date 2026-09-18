@@ -116,6 +116,18 @@ documentação e fórum. Está declarado assim de propósito.
    menos **o dobro** de linhas do estado atual — e o número medido vai no
    relatório, nos dois casos.
 4. Totalizador **alcançável sem rolar a tabela inteira**.
+
+   **Leitura decidida em 2026-09-18 (achado B5 da rodada 2), porque o texto era
+   ambíguo e ambiguidade vira conformidade por interpretação conveniente:** o
+   critério vale para as **telas nomeadas no critério 1** — moldura, Balancete
+   e Lançamento —, e está atendido nas três. **Diário e Razão ficam de fora
+   desta etapa**, com a limitação medida (1604px de rolagem até o total) e
+   escrita no próprio `static/css/base.css`, não escondida.
+
+   Isto é **conformidade parcial declarada**, e a declaração é a diferença: o
+   achado A3 da rodada 1 foi um comentário que afirmava atender um critério que
+   descumpria. Afirmar que se descumpre é o oposto disso. A extensão às duas
+   telas restantes tem item próprio no backlog, com responsável e medição.
 5. "Fecha ou não fecha" é respondido no lançamento **antes de gravar**, sem
    depender de JavaScript para a informação existir.
 6. Estados desenhados: vazio, carregando, erro, sucesso e **sem permissão**.
