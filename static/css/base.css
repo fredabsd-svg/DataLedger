@@ -783,7 +783,12 @@ button:disabled {
     flex-wrap: wrap;
     align-items: center;
     gap: var(--esp-5);
-    margin-bottom: var(--esp-4);
+    /* BL-284 (rodada 3, DL-024): esp-3 em vez de esp-4 — 4px que fazem
+       falta para a 9ª linha do balancete caber em 1280×800 (medido: a
+       linha 9 terminava em 804px, 4px acima do piso de 800px, depois da
+       correção do BL-277). `.faixa-fechamento` só existe no Balancete —
+       ajuste sem risco para outra tela. */
+    margin-bottom: var(--esp-3);
     padding: var(--esp-3) var(--esp-4);
     border: var(--traco-fina) solid var(--sucesso);
     border-left-width: var(--traco-destaque);
@@ -817,7 +822,13 @@ button:disabled {
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--esp-4);
-    margin-bottom: var(--esp-4);
+    /* BL-284 (rodada 3, DL-024): esp-3 em vez de esp-4 — mesmo motivo do
+       ajuste em `.faixa-fechamento` logo acima. Classe COMPARTILHADA com
+       Diário e Razão: o efeito lá é só ganhar 4px de densidade também
+       (nunca perder — a régua não desce em nenhuma tela por causa
+       disto), porque nenhuma delas depende deste espaçamento para outra
+       coisa. */
+    margin-bottom: var(--esp-3);
     padding: var(--esp-2) var(--esp-3);
     border: var(--traco-fina) solid var(--borda-hairline);
     border-radius: var(--raio);
@@ -830,6 +841,30 @@ button:disabled {
 
 .formulario-periodo input[type="date"] {
     font-family: var(--fonte-numerica);
+}
+
+/* BL-277/BL-284 (rodada 3, DL-024): parágrafo de ajuda de formato de data
+   COMPARTILHADO entre os campos "Início" e "Fim" do Balancete — ver o
+   comentário em templates/contabilidade/balancete.html sobre por que
+   repetir o mesmo texto em cada `.campo` custava uma linha inteira do
+   filtro (o parágrafo, sem largura própria, inflava o `.campo` até o
+   "max-content" da sentença). `flex-basis: 100%` faz este item ocupar
+   sozinho a própria linha dentro do `.formulario-periodo` (flex-wrap),
+   em vez de disputar largura com os campos de data. `margin-top: 0`
+   porque o espaçamento vertical já vem do `gap` do formulário
+   (`--esp-4`); somar a margem própria do `.texto-apoio` por cima
+   duplicaria a distância.
+
+   Classe PRÓPRIA, não uma regra em `.formulario-periodo .texto-apoio`:
+   aquele seletor estrutural também alcançaria o texto de ajuda por campo
+   do Diário e da Razão (mesma marcação, um parágrafo por campo) — essas
+   duas telas não fazem parte desta correção (fora dos arquivos
+   permitidos nesta etapa) e mudar o comportamento delas sem medir não
+   seria correção, seria risco novo. Esta classe só existe onde o
+   template a aplica de propósito. */
+.ajuda-formato-data {
+    flex-basis: 100%;
+    margin-top: 0;
 }
 
 /* Formulário de lançamento: os campos de conta/tipo/valor moram dentro de

@@ -166,17 +166,39 @@
                     antes da primeira linha preenchida não há "fecha" nem
                     "não fecha" para responder, só "ainda não conferido".
 
-                    A DIFERENÇA numérica ("Não fecha, faltam R$ X") não
-                    está aqui: nenhuma view desta etapa expõe essa
-                    subtração pronta (só os dois totais formatados
-                    separadamente), e calcular a diferença de dois valores
-                    monetários já formatados em pt-BR dentro do template
-                    violaria a regra do projeto contra aritmética
-                    financeira fora do motor determinístico (AGENTS.md
-                    §10 — "não use ponto flutuante binário... defina
-                    escala, precisão e arredondamento"). Pendência
-                    registrada para o desenvolvedor-pleno: ver o relatório
-                    desta etapa.
+                    BL-286 (rodada 3 da DL-024): a diferença numérica
+                    ("Não fecha, faltam X") agora existe —
+                    `diferenca_fechamento_ptbr` chega PRONTA da view
+                    (`_contexto_form_lancamento`, apps/contabilidade/
+                    views_web.py), já calculada em `Decimal` sobre os
+                    totais de ORIGEM (nunca sobre `total_debito_ptbr`/
+                    `total_credito_ptbr`, que são texto) e já formatada
+                    em pt-BR pelo MESMO `_valor_ptbr` que formata os dois
+                    totais. Este template só EXIBE — nenhuma subtração
+                    acontece aqui, o que continuaria violando a regra do
+                    AGENTS.md contra aritmética financeira fora do motor
+                    determinístico. `diferenca_fechamento_ptbr` é sempre
+                    o MÓDULO da diferença (nunca negativo) — o lado maior
+                    vem à parte, em `lado_faltante_fechamento` ("débito"
+                    ou "crédito"), como palavra, nunca como sinal.
+
+                    O número da diferença é exibido dentro da célula do
+                    lado que FALTA — a mesma célula, já com a classe
+                    valor-monetario, que mostra "Débito: X"/"Crédito: X"
+                    — não dentro da célula colspan=2 do veredito ("Não
+                    fecha"): a varredura de interface (apps/core/tests/
+                    test_dl024_varredura_de_interface.py, achado A1 —
+                    "todo _ptbr dentro de célula precisa da classe
+                    valor-monetario") reprovaria um valor monetário novo
+                    dentro da célula do veredito, que não carrega aquela
+                    classe — e acrescentá-la ali mudaria o alinhamento e a
+                    quebra de linha do rótulo "Total conferido antes de
+                    gravar" (a classe fixa alinhamento à direita e
+                    impede quebra de linha, pensada para uma célula que é
+                    SÓ número, não para uma célula com rótulo + veredito).
+                    Um estilo novo para acomodar isso não foi criado nesta
+                    etapa — nenhuma regra do BL-286 pede um, e criar CSS é
+                    escopo do especialista-frontend, não desta tarefa.
                     {% endcomment %}
                     {% comment %}
                     A comparação dos dois totais fica FORA de qualquer
@@ -239,8 +261,8 @@
                             <br>
                             <strong class="veredito-fechamento">Não fecha</strong>
                         </td>
-                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
-                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}{% if lado_faltante_fechamento == "débito" %} (faltam {{ diferenca_fechamento_ptbr }}){% endif %}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}{% if lado_faltante_fechamento == "crédito" %} (faltam {{ diferenca_fechamento_ptbr }}){% endif %}</td>
                     </tr>
                         {% endif %}
                     {% else %}

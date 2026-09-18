@@ -17,7 +17,18 @@
 
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
-    <h1>Balancete de verificação — {{ empresa.razao_social }}</h1>
+    {% comment %}
+    BL-284 (rodada 3, DL-024): o <h1> repetia o nome da empresa que a
+    faixa de contexto do cabeçalho já mostra, dois blocos acima ("Empresa
+    — {{ empresa.razao_social }}"). Repetir não ajuda quem lê — quem
+    chegou até aqui já sabe em que empresa está — e é um dos itens que a
+    revisão integrada 2307de6 nomeou na decomposição dos 569px acima da
+    primeira linha do balancete (achado que fez a densidade cair de 9
+    para 6 linhas, §4.8 da direção de arte). O nome da empresa continua
+    no <title> da aba (block titulo, acima) e na faixa de contexto; sai
+    só da repetição dentro do conteúdo.
+    {% endcomment %}
+    <h1>Balancete de verificação</h1>
 
     {% if linhas %}
         {% comment %}
@@ -66,48 +77,86 @@
         </div>
     {% endif %}
 
+    {% comment %}
+    BL-277/BL-284 (rodada 3, DL-024): o texto de ajuda do formato de data
+    aparecia DUAS VEZES — um parágrafo dentro de cada `.campo` (Início e
+    Fim), com o texto idêntico. Além da repetição em si (o mesmo fato
+    contado duas vezes ensina a pessoa a pular o segundo), cada parágrafo
+    forçava o próprio `.campo` a crescer até a largura da sentença inteira
+    em uma linha só — nem `.campo` nem `.formulario-periodo input` têm
+    largura própria, e um item de flexbox sem largura fixa cresce até o
+    "max-content" do filho mais largo. Medido na revisão integrada
+    2307de6: os campos "Início"/"Fim" ficavam com 516px cada um só por
+    causa do parágrafo, o suficiente para ocupar a linha inteira sozinhos
+    e empurrar "Nível" e o botão para uma SEGUNDA linha — o filtro caía de
+    ~84px (uma linha) para 177px (duas).
+
+    A correção não é encolher fonte nem campo (proibido pela direção de
+    arte, e trocaria legibilidade por contagem de linha): é não repetir o
+    mesmo texto duas vezes. Um parágrafo só, referenciado pelos DOIS
+    campos via `aria-describedby` — o mesmo `id` pode ser apontado por
+    mais de um elemento, é uso correto do atributo, não gambiarra — em
+    largura cheia (`.ajuda-formato-data`, `flex-basis: 100%` em
+    base.css), para não voltar a inflar a largura dos campos de data.
+
+    DE-031/A5 permanece o porquê de existir este texto (o rótulo do campo
+    de data não pode afirmar um formato que não controla — o de
+    `<input type="date">` vem do navegador; ver o comentário completo em
+    lancamento_form.html).
+    {% endcomment %}
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
-                   aria-describedby="id_inicio_ajuda">
-            <p class="texto-apoio" id="id_inicio_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_fim">Fim</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
-                   aria-describedby="id_fim_ajuda">
-            <p class="texto-apoio" id="id_fim_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_nivel">Nível (opcional)</label>
             <input type="text" inputmode="numeric" id="id_nivel" name="nivel" value="{{ nivel|default:"" }}">
         </div>
         <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
     </form>
 
     {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
 
-    {% if sem_movimento_no_periodo %}
-        {% comment %}
-        R6-9/BL-203 — critério 13, texto literal: "empresa sem lançamento no
-        período mostra MENSAGEM, não tabela vazia sem explicação". Diário,
-        Razão e Conferência cumpriam; o Balancete mostrava 3 linhas e 8
-        zeros, sem uma palavra. Levantado na rodada 5 como observação, ficou
-        fora do backlog e chegou intacto à rodada 6.
+    {% comment %}
+    BL-285 (rodada 3, DL-024): quando a empresa tem movimento FORA do
+    período (bloco acima) E o período consultado está zerado, mostrar
+    TAMBÉM o parágrafo "Nenhum movimento neste período" empilhava dois
+    avisos dizendo quase a mesma coisa antes de qualquer linha da tabela —
+    medido na revisão integrada 2307de6: 138px do aviso de movimento fora
+    do período mais 64px desta mensagem, na entrada padrão (mês corrente,
+    sem filtro). É exatamente o estado do dia 1º de todo mês recém-aberto
+    em qualquer escritório real: sem movimento ainda neste mês, com o
+    movimento do mês anterior do lado de fora do período — não é artefato
+    da base de teste.
 
-        A mensagem vem ANTES da tabela e NÃO a substitui: um balancete
-        zerado (ou com saldo anterior e sem movimento no mês) é informação
-        contábil legítima, e esconder a tabela trocaria um defeito de
-        explicação por um de omissão. `role="status"`, não `alert`: não é
-        erro nem anomalia — é a resposta correta para um período sem
-        movimento.
-        {% endcomment %}
+    O aviso de cima já diz O QUE aconteceu (há movimento da empresa, fora
+    do período consultado, não somado em nenhuma linha nem total desta
+    tela) e O QUE fazer (o link que amplia o período até incluir esse
+    movimento) — é o "um aviso só, com ação" que o critério pede. Por
+    isso este parágrafo só aparece quando NÃO há aviso de movimento fora
+    do período: nesse caso ele é a ÚNICA explicação disponível para a
+    tabela zerada (R6-9/BL-203, critério 13: "empresa sem lançamento no
+    período mostra MENSAGEM, não tabela vazia sem explicação"), e
+    removê-lo deixaria a tela muda.
+
+    A mensagem, quando aparece, vem ANTES da tabela e NÃO a substitui: um
+    balancete zerado (ou com saldo anterior e sem movimento no mês) é
+    informação contábil legítima, e esconder a tabela trocaria um defeito
+    de explicação por um de omissão. `role="status"`, não `alert`: não é
+    erro nem anomalia — é a resposta correta para um período sem
+    movimento.
+    {% endcomment %}
+    {% if sem_movimento_no_periodo and not movimento_fora_do_periodo %}
         <p class="mensagem mensagem-info" role="status">
             <strong>Nenhum movimento neste período</strong>
             ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}): nenhum lançamento desta

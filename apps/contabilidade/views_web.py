@@ -969,6 +969,41 @@ def _contexto_form_lancamento(
             conta_id, tipo, valor_texto = "", "", ""
         linhas.append({"indice": i, "conta_id": conta_id, "tipo": tipo, "valor_texto": valor_texto})
 
+    # BL-286 (rodada 3 da DL-024, corrige o M2 da rodada 1): o veredito
+    # "Não fecha" precisa dizer DE QUANTO, e quem calcula é o SERVIDOR, não
+    # o template — o `especialista-frontend` já tinha parado exatamente
+    # aqui, porque só recebia os dois totais como TEXTO pt-BR já formatado
+    # (`total_debito_ptbr`/`total_credito_ptbr`), e subtrair dois valores
+    # monetários já formatados dentro do template violaria a regra do
+    # AGENTS.md contra aritmética financeira fora do motor determinístico.
+    #
+    # A subtração abaixo acontece em `Decimal`, sobre os totais de ORIGEM
+    # (`total_debito`/`total_credito`, ainda não formatados) — nunca sobre
+    # `total_debito_ptbr`/`total_credito_ptbr`. Ela NÃO passa por
+    # `apps.core.dinheiro.quantizar`: essa função existe para reduzir a
+    # ESCALA de um valor segundo uma política de arredondamento (DE-010,
+    # obrigatória quando a redução pode perder informação), e aqui não há
+    # redução nenhuma — cada item já foi recusado por `criar_lancamento`/
+    # `_decimal_do_formulario` se tivesse mais de
+    # `ESCALA_MAXIMA_LANCAMENTO_MANUAL` (2) casas decimais, então
+    # `total_debito` e `total_credito` já chegam aqui com, no máximo, 2
+    # casas — a diferença de dois valores com a MESMA escala máxima é
+    # EXATA, sem arredondamento a decidir (mesmo raciocínio já aplicado a
+    # `_saldo_por_natureza`/`_saldo_por_natureza_item`, em services.py, que
+    # também subtraem débito e crédito em `Decimal` puro, sem política).
+    # `_valor_ptbr` continua sendo o ÚNICO formatador pt-BR desta tela —
+    # reaproveitado aqui, não reimplementado.
+    diferenca_fechamento_ptbr = None
+    lado_faltante_fechamento = None
+    if total_debito is not None and total_credito is not None and total_debito != total_credito:
+        diferenca_fechamento = abs(total_debito - total_credito)
+        diferenca_fechamento_ptbr = _valor_ptbr(diferenca_fechamento)
+        # O lado que "falta" é o menor total — é ELE que precisa crescer
+        # para fechar. Nunca um valor negativo exibido (critério 1 do
+        # BL-286): a diferença já sai em módulo acima, e o lado vem à
+        # parte, como palavra, não como sinal.
+        lado_faltante_fechamento = "débito" if total_debito < total_credito else "crédito"
+
     return {
         "empresa": empresa,
         "contas": contas_disponiveis,
@@ -1000,6 +1035,11 @@ def _contexto_form_lancamento(
         "data_maxima_ptbr": data_maxima_lancamento(),
         "total_debito_ptbr": _valor_ptbr(total_debito) if total_debito is not None else None,
         "total_credito_ptbr": _valor_ptbr(total_credito) if total_credito is not None else None,
+        # BL-286: `None` quando os totais fecham (ou ainda não existem) —
+        # nunca "0,00", que seria ruído (critério 2). Só a variante "não
+        # fecha" do template usa estas duas chaves.
+        "diferenca_fechamento_ptbr": diferenca_fechamento_ptbr,
+        "lado_faltante_fechamento": lado_faltante_fechamento,
         # R2-5: quantas linhas ficaram FORA da soma acima (conta/tipo/valor
         # incompletos, ou valor/conta inválidos) — a conferência precisa
         # ANUNCIAR a exclusão, nunca só mostrar um total plausível e
