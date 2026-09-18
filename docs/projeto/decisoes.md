@@ -2112,3 +2112,49 @@ workflow) confirmou que o regex antigo só casava com `**` literal dentro
 da frase, e que o regex novo casa com texto natural. Testado com corpo
 do template corrigido e com corpo atual do PR #31.
 
+## DE-045 — Auditoria independente do PR #32 (gate fix)
+
+**Data:** 2026-09-18
+
+**Decisão:** o PR #32 (`docs/fix-gate-regex`, commit `496b184`) é
+**APROVADO** pra merge em `main`, com 3 ressalvas registradas.
+
+**Auditor:** DeepSeek, modo auditor independente, sem acesso ao histórico
+de discussão que originou o patch. Recebeu apenas o diff e a função
+`marcado()` do workflow como contexto.
+
+**Perguntas da auditoria e respostas:**
+1. *Intenção preservada?* Sim. O regex novo (`sem **`) casa com texto
+   natural marcado com `[x]`, atendendo ao objetivo do check. A exigência
+   de citação `DL-\d{3}` foi preservada.
+2. *Regressão semântica?* Não. O regex continua exigindo `[x]` antes do
+   texto; a única mudança é a remoção de `**` literais da string
+   procurada.
+3. *Bypass possível?* Pré-existente e fora do escopo: o regex não ancora
+   em início de linha, então texto fora de checkbox (ex.: em code block
+   ou citação) pode casar. Comportamento idêntico ao anterior.
+
+**Ressalvas registradas:**
+- **R1 (mitigada):** PRs abertos com o template antigo (com `**`) podem
+  falhar no gate novo. Hoje só o PR #31, que já estava falhando. Após
+  merge deste PR, o autor do #31 ajusta o corpo em novo push.
+- **R2 (pré-existente, fora do escopo):** regex sem âncora de início de
+  linha permite match em qualquer posição.
+- **R3 (pré-existente, fora do escopo):** match em code block/quote não
+  distingue contexto Markdown.
+
+**Por que não consultar de novo:** o raciocínio do auditor (capturado
+via `reasoning_content` porque `finish_reason: length` consumiu o budget
+de `max_tokens` em raciocínio) cobriu as 4 perguntas e convergiu pra
+APROVADO com as 3 ressalvas descritas. Reconsultar pra extrair texto
+idêntico custaria mais latência sem ganho de informação.
+
+**Evidência da CI do próprio PR #32:** `Regras do projeto: completed /
+success`, `Validar documentação: success`, `Lint e testes: success`. O
+gate passa no PR que corrigiu o gate — confirmação empírica forte de que
+a correção está sintaticamente correta.
+
+**Consequência:** PR #32 mergeado. Gate em `main` passa a aceitar texto
+natural. Próximo passo (F1.13): ajustar corpo do PR #31, re-rodar CI,
+fazer merge.
+
