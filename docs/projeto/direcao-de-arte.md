@@ -140,9 +140,23 @@ Valem para todo módulo, e são medidas por mecanismo (§5).
    remota (DE-011). Fonte auto-hospedada vem com a licença junto.
 6. **JavaScript é enfeite.** Nenhum dado existe só porque um script rodou.
 7. **Sem rolagem horizontal em 1280px.**
-8. **Densidade medida, não alegada.** A tela de tabela de um módulo novo mostra
-   **pelo menos 15 linhas** em 1280×800 sem rolar. O número existe porque foi
-   medido: o estado anterior mostrava ~8, e a direção escolhida mostra 15.
+8. **Densidade medida, não alegada — e o número de referência é o do PRODUTO.**
+   A tela de tabela de um módulo novo é medida em 1280×800, com base
+   realista, contando linha **inteiramente** visível sem rolar, e o método vai
+   escrito junto (quantas contas, qual tela, qual largura).
+
+   ⚠️ **Esta regra dizia "pelo menos 15 linhas" e estava errada.** Os 15 vinham
+   do **protótipo** do gauntlet; a auditoria mediu o **produto** e achou **9** no
+   balancete com período filtrado (achado M1 da [rodada
+   1](../auditorias/2026-09-18-dl-024-rodada-1.md)). Um módulo novo estava
+   prestes a ser cobrado contra um número que a tela de referência não
+   alcança.
+
+   **O piso, hoje, é o que a referência entrega: 9 linhas no balancete, 14 no
+   plano de contas, 11 no diário.** Os **15 continuam como meta**, com a causa
+   nomeada — o bloco de filtro ocupa 411px antes da primeira linha — e com item
+   de backlog próprio. Abaixar a meta para caber no resultado seria trocar a
+   medição pela conveniência; fingir que o piso é 15 seria pior.
 9. **pt-BR em tudo**: `1.234,56`, `dd/mm/aaaa`, e o termo que o contador usa.
 10. **O que já foi auditado não regride.** Contraste, foco, estados e mensagens
     de erro custaram rodadas de auditoria nas DL-009, DL-017 e DL-024.
@@ -187,6 +201,10 @@ ou do Lalur:
   contraste recalculado, não por inversão automática.
 - **Celular é consulta, não operação.** A direção é desenhada para 1280px ou
   mais; telas pequenas recebem leitura, não lançamento.
-- A régua de 15 linhas vale para **1280×800**. Em monitor maior o ganho é
-  proporcional, e em telas menores a regra precisa ser revista com medição
-  nova — não por estimativa.
+- A régua de densidade vale para **1280×800**, e o piso é o **medido no
+  produto** (§4.8), não o do protótipo. Em monitor maior o ganho é
+  proporcional; em tela menor a regra precisa de medição nova, não de
+  estimativa.
+- **Os HTML dos três protótipos do gauntlet não estão versionados** — só as
+  capturas. A medição que escolheu a direção **não é reproduzível hoje**, e
+  isso é limite desta decisão, não detalhe de arquivo.
