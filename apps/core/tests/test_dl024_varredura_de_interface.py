@@ -205,9 +205,28 @@ NOMES_QUE_NAO_SAO_TINTA = {
 _PADRAO_DECLARACAO = re.compile(r":\s*([^;{}]+)[;}]")
 
 # Estilo embutido: `style="..."` (aspas duplas), `style='...'` (BL-274 #5,
-# aspas simples escapavam) e `<style>...</style>` embutido no template.
+# aspas simples escapavam), `style=valor-sem-aspas` (M1/BL-292, auditoria
+# DL-024 rodada 2 — HTML5 aceita atributo sem aspas desde que o valor não
+# tenha espaço, aspas, `=`, `<`, `>` nem crase, e o Chromium aplica: `<td
+# style=color:red;font-size:22px>` renderizava vermelho de verdade e
+# escapava, ao mesmo tempo, deste detector, do de cor e do de medida — a
+# tríade inteira do critério 13, com uma sabotagem só) e `<style>...</style>`
+# embutido no template.
+#
+# `(?<![\w-])` na frente de `style` fecha o FALSO POSITIVO que o commit
+# `d8ec169` registrou como impossível e não era: sem o lookbehind, o padrão
+# batia dentro de `data-style="cor"` (a substring `style="cor"` está
+# LITERALMENTE contida em `data-style="cor"`) porque `re.search` não exige
+# que o casamento comece no início do atributo. O lookbehind nega qualquer
+# caractere de palavra ou hífen imediatamente antes de `style`, então
+# `data-style=`/`aria-style=` (terminam em "-style") não casam, mas
+# `style=` no início de atributo (depois de espaço, `<` ou início da
+# string) casa normalmente.
 PADRAO_ESTILO_EMBUTIDO = re.compile(
-    r"""style\s*=\s*"[^"]*" | style\s*=\s*'[^']*' | <style\b[^>]*>.*?</style>""",
+    r"""
+    (?<![\w-]) style \s* = \s* (?: "[^"]*" | '[^']*' | [^\s"'=<>`]+ )
+    | <style\b[^>]*>.*?</style>
+    """,
     re.IGNORECASE | re.DOTALL | re.VERBOSE,
 )
 
@@ -236,16 +255,30 @@ NOME_DO_MODULO_NA_TABELA = {
 # Propriedades de medida cobertas pelo critério 13 ("cor, tamanho ou
 # espaçamento fora dos tokens") — BL-274, o detector que nunca existiu.
 # `(?:-[a-z]+)*` cobre as variantes de lado/eixo com SUFIXO citadas na tarefa
-# (`padding-left`, `margin-top`, `border-bottom-width`, e também as formas de
-# propriedade lógica de dois segmentos como `margin-inline-start`). `gap` é o
-# único caso real de PREFIXO no CSS (`row-gap`, `column-gap`).
+# (`padding-left`, `margin-top`, e também as formas de propriedade lógica de
+# dois segmentos como `margin-inline-start`). `gap` é o único caso real de
+# PREFIXO no CSS (`row-gap`, `column-gap`).
+#
+# M2/BL-293 (auditoria DL-024 rodada 2) acrescentou `width`/`height`,
+# `line-height`, `letter-spacing`, `inset`/`top`/`left`/`right`/`bottom`, e
+# generalizou `border(?:-[a-z]+)*-width` para `border(?:-[a-z]+)*` (cobre
+# TAMBÉM o atalho `border: 3px solid ...`, que não tem sufixo "-width" nenhum
+# — medido pelo auditor com `61 passed` sozinho) e o mesmo para `outline`.
+# Capturar `border-color`/`border-style` de brinde não é problema: o
+# detector só ACUSA se o VALOR tiver uma unidade de medida literal dentro —
+# uma cor ou `solid` sozinhos nunca casam com `_PADRAO_MEDIDA_LITERAL`.
 _PADRAO_PROPRIEDADE_DE_MEDIDA = re.compile(
     r"(?<![\w-])("
     r"(?:row-|column-)?gap"
     r"|padding(?:-[a-z]+)*"
     r"|margin(?:-[a-z]+)*"
     r"|font-size"
-    r"|border(?:-[a-z]+)*-width"
+    r"|line-height"
+    r"|letter-spacing"
+    r"|width|height"
+    r"|inset|top|left|right|bottom"
+    r"|border(?:-[a-z]+)*"
+    r"|outline(?:-[a-z]+)*"
     r")\s*:\s*([^;{}]+)[;}]",
     re.IGNORECASE,
 )
@@ -253,7 +286,41 @@ _PADRAO_PROPRIEDADE_DE_MEDIDA = re.compile(
 # nunca `var(...)`. Valores sem unidade (`0`), percentuais (`100%`), `auto`,
 # `1fr` e o que estiver dentro do próprio bloco `:root` (onde o token NASCE)
 # não caem aqui por construção — nenhuma exceção adicional foi necessária.
-_PADRAO_MEDIDA_LITERAL = re.compile(r"(?<![\w.-])\d*\.?\d+(?:px|rem|em)\b", re.IGNORECASE)
+#
+# M2/BL-293: a lista de unidades era só `px|rem|em` — `pt`/`pc`/`ch`/`ex`/
+# `vw`/`vh`/`vmin`/`vmax`/`cm`/`mm`/`in`/`q` passavam batido (medido:
+# `padding: 12pt; gap: 3ch; font-size: 4vh; margin: 2cm` → `61 passed`), e
+# `pt`/`cm` são exatamente o que aparece em folha de impressão, que este
+# produto tem (BL-282). Lista completa das unidades de comprimento do CSS
+# (Values and Units, níveis 3/4), exceto as relativas a fonte-raiz que já
+# tinham cobertura (`rem`) e as de ângulo/tempo/frequência, que não são
+# medida de tela.
+_PADRAO_MEDIDA_LITERAL = re.compile(
+    r"(?<![\w.-])\d*\.?\d+(?:px|rem|em|pt|pc|ch|ex|vw|vh|vmin|vmax|cm|mm|in|q)\b",
+    re.IGNORECASE,
+)
+
+
+def _sem_variavel_css_preservando_fallback(valor):
+    """Remove só a REFERÊNCIA `var(--nome, fallback)`, preservando o
+    FALLBACK — M2/BL-293 (auditoria DL-024 rodada 2): `re.sub(r"var\\(
+    [^)]*\\)", "", valor)` apagava a variável E o fallback JUNTOS, então
+    `var(--x, 37px)` e `var(--x, red)` desapareciam inteiros e a medida (ou
+    cor) de reserva — o valor que o NAVEGADOR usa de verdade quando o token
+    não existe — escapava tanto do detector de medida quanto do de cor.
+
+    `var(--nome)` sem fallback continua virando string vazia (nada a
+    preservar). O nome da variável CSS custom property sempre começa com
+    `--`; exigir isso evita tratar uma função qualquer chamada `var(...)`
+    (não existe no CSS real, mas closes a mesma classe de suposição
+    implícita que já motivou outras guardas deste arquivo) como referência
+    de token.
+    """
+
+    def _troca(m):
+        return m.group(1) if m.group(1) is not None else ""
+
+    return re.sub(r"var\(\s*--[\w-]+\s*(?:,\s*([^)]*))?\)", _troca, valor)
 
 
 def _templates():
@@ -311,9 +378,12 @@ def _cores_fora_dos_tokens(texto):
     for declaracao in _PADRAO_DECLARACAO.finditer(limpo):
         # `var(...)` pode conter qualquer coisa no NOME da variável
         # (`var(--cor-red-alerta)`) sem que isso seja uma cor nomeada de
-        # verdade; remove antes de tokenizar. String e `url()` também não são
-        # cor nomeada literal.
-        valor = re.sub(r"var\([^)]*\)", "", declaracao.group(1))
+        # verdade; remove a REFERÊNCIA antes de tokenizar, preservando o
+        # FALLBACK (M2/BL-293 — ver o docstring de
+        # `_sem_variavel_css_preservando_fallback`: `var(--x, red)` tinha a
+        # cor de reserva apagada junto com a variável e escapava). String e
+        # `url()` também não são cor nomeada literal.
+        valor = _sem_variavel_css_preservando_fallback(declaracao.group(1))
         if "url(" in valor or '"' in valor or "'" in valor:
             continue
         for token in re.findall(r"[a-zA-Z]+", valor):
