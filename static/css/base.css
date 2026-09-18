@@ -743,19 +743,19 @@ button:disabled {
    templates/contabilidade/lancamento_form.html, na MESMA `<tr
    class="linha-total">` que já mostra os dois totais — não é uma linha
    nova, é a linha existente ganhando veredito. */
-.linha-total--fecha td:first-child {
+.linha-total__veredito--fecha {
     border-left: var(--traco-destaque) solid var(--sucesso);
 }
 
-.linha-total--fecha .veredito-fechamento {
+.linha-total__veredito--fecha .veredito-fechamento {
     color: var(--sucesso);
 }
 
-.linha-total--nao-fecha td:first-child {
+.linha-total__veredito--nao-fecha {
     border-left: var(--traco-destaque) solid var(--erro);
 }
 
-.linha-total--nao-fecha .veredito-fechamento {
+.linha-total__veredito--nao-fecha .veredito-fechamento {
     color: var(--erro);
 }
 

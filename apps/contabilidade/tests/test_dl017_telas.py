@@ -535,12 +535,21 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
 
+    # BL-276/BL-278 (rodada 2 da auditoria DL-024): a `.faixa-fechamento`
+    # no topo da página (fora da tabela) TAMBÉM usa a classe
+    # "valor-monetario" nos seus dois totais — é dinheiro, tem que
+    # tabular, a regra não abre exceção por estar fora de `<table>`. Por
+    # isso a extração abaixo passa a ser escopada à PRÓPRIA tabela: sem
+    # isso, os dois valores da faixa entrariam na contagem do "corpo" e
+    # deslocariam a fatia de 6 em 6 usada logo adiante.
+    tabela = re.search(r"<table\b.*?</table>", conteudo, re.DOTALL).group(0)
+
     # Extrai as colunas "Débitos próprios" e "Créditos próprios" pela
     # classe compartilhada "valor-monetario": cada linha do corpo tem 6
     # valores monetários, na ordem em que o template os escreve (saldo
     # anterior, débitos, créditos, débitos próprios, créditos próprios,
     # saldo final). O rodapé tem 2 (total débitos, total créditos).
-    todos_os_valores = _extrair_valores_ptbr(conteudo)
+    todos_os_valores = _extrair_valores_ptbr(tabela)
     # Descobre o total do rodapé (as duas últimas ocorrências antes do fim
     # da tabela) usando o texto ao redor, que é mais robusto do que contar
     # posições: procura os dois <td class="valor-monetario"> dentro de

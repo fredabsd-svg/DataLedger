@@ -178,31 +178,78 @@
                     registrada para o desenvolvedor-pleno: ver o relatório
                     desta etapa.
                     {% endcomment %}
-                    <tr class="linha-total{% if total_debito_ptbr and total_credito_ptbr %}{% if total_debito_ptbr == total_credito_ptbr %} linha-total--fecha{% else %} linha-total--nao-fecha{% endif %}{% endif %}">
-                        <td colspan="2">
+                    {% comment %}
+                    A comparação dos dois totais fica FORA de qualquer
+                    célula de tabela de propósito: a varredura de
+                    interface (apps/core/tests/
+                    test_dl024_varredura_de_interface.py, achado A1 da
+                    auditoria — "todo _ptbr dentro de célula precisa da
+                    classe valor-monetario") não distingue um valor que
+                    EXIBE o total de um "if" que só o COMPARA — as três
+                    variantes de linha abaixo (fecha / não fecha / ainda
+                    não conferido) resolvem isso decidindo QUAL linha
+                    renderizar antes de abrir qualquer célula, em vez de
+                    decidir o conteúdo de uma célula já aberta. Nada de
+                    colchete-ângulo neste comentário, de propósito: a
+                    mesma varredura lê texto solto de comentário como
+                    marcação real (é regex sobre o arquivo inteiro, não um
+                    parser de HTML).
+                    {% endcomment %}
+                    {% comment %}
+                    Achado 3 / BL-88: o `default` das duas células abaixo
+                    só entra quando `total_debito_ptbr`/`total_credito_ptbr`
+                    são `None` (nenhuma linha foi processada ainda —
+                    primeira visita ao formulário, GET; ramo "ainda não
+                    conferido" mais abaixo). A partir do primeiro
+                    "Adicionar linha" ou tentativa de gravação, a view
+                    sempre calcula os dois totais a partir das linhas JÁ
+                    preenchidas neste POST (`_itens_e_totais`), então
+                    "0,00" nunca aparece aqui ao lado de linhas com valor —
+                    ou é a soma real, ou é "ainda não conferido".
+                    {% endcomment %}
+                    {% comment %}
+                    O `<tr>` das três variantes abaixo continua EXATAMENTE
+                    `class="linha-total"`, sem modificador — testes já
+                    auditados (test_dl017_rodada1_correcoes.py::
+                    test_adicionar_linha_mostra_o_total_real_das_linhas_
+                    preenchidas e test_dl017_rodada2_frontend.py::
+                    test_adicionar_linha_anuncia_quantas_linhas_ficam_
+                    fora_do_total, ambos escrutinados por mutação na
+                    auditoria da DL-024) localizam esta linha por
+                    correspondência EXATA da string `linha-total">` — um
+                    modificador ali quebraria os dois sem mudar nada de
+                    errado. O veredito (cor e borda de destaque) entra na
+                    primeira célula, não na linha.
+                    {% endcomment %}
+                    {% if total_debito_ptbr and total_credito_ptbr %}
+                        {% if total_debito_ptbr == total_credito_ptbr %}
+                    <tr class="linha-total">
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--fecha">
                             Total conferido antes de gravar
-                            {% if total_debito_ptbr and total_credito_ptbr %}
-                                <br>
-                                <strong class="veredito-fechamento">
-                                    {% if total_debito_ptbr == total_credito_ptbr %}Fecha{% else %}Não fecha{% endif %}
-                                </strong>
-                            {% endif %}
+                            <br>
+                            <strong class="veredito-fechamento">Fecha</strong>
                         </td>
-                        {% comment %}
-                        Achado 3 / BL-88: o `default` só entra quando
-                        `total_debito_ptbr`/`total_credito_ptbr` são `None`
-                        (nenhuma linha foi processada ainda — primeira
-                        visita ao formulário, GET). A partir do primeiro
-                        "Adicionar linha" ou tentativa de gravação, a view
-                        sempre calcula os dois totais a partir das linhas
-                        JÁ preenchidas neste POST (`_itens_e_totais`), então
-                        "0,00" nunca aparece aqui ao lado de linhas com
-                        valor — ou é a soma real, ou é "ainda não
-                        conferido".
-                        {% endcomment %}
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
+                    </tr>
+                        {% else %}
+                    <tr class="linha-total">
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-fecha">
+                            Total conferido antes de gravar
+                            <br>
+                            <strong class="veredito-fechamento">Não fecha</strong>
+                        </td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
+                    </tr>
+                        {% endif %}
+                    {% else %}
+                    <tr class="linha-total">
+                        <td colspan="2">Total conferido antes de gravar</td>
                         <td class="valor-monetario">Débito: {{ total_debito_ptbr|default:"— (ainda não conferido)" }}</td>
                         <td class="valor-monetario">Crédito: {{ total_credito_ptbr|default:"— (ainda não conferido)" }}</td>
                     </tr>
+                    {% endif %}
                 </tfoot>
             </table>
 
