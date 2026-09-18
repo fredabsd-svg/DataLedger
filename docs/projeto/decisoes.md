@@ -2110,3 +2110,50 @@ fica alinhada com o resto do projeto. Cabeçalho do
 aconteceu (escrita original só com `py_compile`; correção de fixture
 neste turno). Nenhuma mudança em código de produção ou em asserts dos
 testes.
+
+## DE-047 — Registro das 3 constraints de Competencia + DECISOES do admin
+
+**Data:** 2026-09-18
+
+**Decisão:** registrar as três restrições do modelo `Competencia` (DL-016
+/ F1) em `apps/core/restricoes.py:204-237` como
+`RESTRICOES_SEM_CAMINHO_DE_CLIENTE`, e adicionar
+`contabilidade.Competencia` em `DECISOES` do
+`apps/core/tests/test_dl023_varredura_admin.py:166` como categoria
+`"defendida"`.
+
+**Contexto:** segunda rodada da CI do PR #31 reprovou em mais 5 testes
+(1353 passaram). Dois eram bugs reais dos meus testes de Competência
+(`assertRaises` sem savepoint, e `.order_by()` cancelando `Meta.ordering`)
+— corrigidos no `test_competencia.py`. Os outros dois eram os testes de
+**varredura** da DL-019 (`test_toda_constraint_de_meta_aparece_em_um_dos_
+tres_registros`) e da DL-023 (`test_toda_superficie_do_admin_registrado_
+tem_decisao`) fazendo exatamente o papel que foram criados para fazer:
+detectaram que as 3 constraints novas e o model novo no admin não
+estavam registrados. Corrigidos.
+
+**Por que `RESTRICOES_SEM_CAMINHO_DE_CLIENTE` (e não
+`MENSAGENS_DE_RESTRICAO`):** o único caminho de escrita por produto é o
+`Competencia.objects.get_or_create(...)` dentro de
+`apps/contabilidade/services.py:387-411` (F2 da DL-016), que captura
+`IntegrityError` em savepoint próprio e reconsulta via `get()` — a
+violação é tratada como CORRIDA INTERNA entre requisições concorrentes,
+não como erro de negócio pra traduzir em 400. Idem para os dois
+`CheckConstraint` de faixa (ano/mês): `criar_lancamento` só cria
+competências a partir de `data.year`/`data.month` de um lançamento, que
+são sempre válidos por construção.
+
+**Gatilho de revisão:** o importador em massa da DL-010 pode vir a
+chamar `bulk_create` direto sobre `Competencia` (mencionado no
+comentário do próprio modelo de Empresa como caminho natural para
+importação). Quando isso acontecer, as 3 restrições saem de
+`RESTRICOES_SEM_CAMINHO_DE_CLIENTE` e viram tradução para 400 — mesmo
+desenho das duas de canonização de CNPJ (BL-204/220).
+
+**Por que `defendida` no admin:** as invariantes de `Competencia`
+moram em `Meta.constraints` do modelo (testadas em
+`test_competencia.py`); não há invariante a mais a defender no admin
+(equivalente a BL-83/BL-211).
+
+**Consequência:** CI deve passar os dois testes de varredura. Cabeçalho
+do `test_competencia.py` atualizado com histórico das duas correções.

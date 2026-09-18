@@ -163,6 +163,18 @@ DECISOES = {
         "Coberto por apps/contabilidade/tests/test_dl015_saidas_com_"
         "periodo.py e test_dl019_faixa_de_data.py.",
     ),
+    "contabilidade.Competencia": (
+        "defendida",
+        "DL-016 (F1): as três invariantes de `Competencia` (ano 1970..2999, "
+        "mês 1..12, unicidade por empresa/ano/mês) moram em `Meta.constraints` "
+        "do modelo e são testadas em apps/contabilidade/tests/test_competencia."
+        "py. As três estão registradas em apps/core/restricoes."
+        "RESTRICOES_SEM_CAMINHO_DE_CLIENTE — nenhuma rota de cliente cria "
+        "`Competencia` diretamente hoje (a única gravação por caminho do "
+        "produto é o `get_or_create(...)` dentro de `criar_lancamento`, que "
+        "trata `IntegrityError` como corrida interna, não como erro de "
+        "negócio). Sem invariante adicional a defender no admin."
+    ),
     "auditoria.RegistroAuditoria": (
         "defendida",
         "DL-023 (critério 13): has_add_permission e has_change_permission já "
