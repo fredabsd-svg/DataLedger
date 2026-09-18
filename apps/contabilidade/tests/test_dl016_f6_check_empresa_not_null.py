@@ -46,11 +46,11 @@ class CheckEmpresaNotNullTests(TestCase):
     def setUpTestData(cls):
         cls.escritorio = Escritorio.objects.create(
             nome="Escritório F6",
-            cnpj="11.222.333/0001-81",
+            cnpj="11111111000111",
         )
         cls.empresa = Empresa.objects.create(
             escritorio=cls.escritorio,
-            cnpj="22.333.444/0001-72",
+            cnpj="22222222000122",
             razao_social="Empresa F6 LTDA",
         )
 
