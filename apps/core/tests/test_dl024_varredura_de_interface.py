@@ -323,8 +323,46 @@ def _sem_variavel_css_preservando_fallback(valor):
     return re.sub(r"var\(\s*--[\w-]+\s*(?:,\s*([^)]*))?\)", _troca, valor)
 
 
-def _templates():
-    return sorted(TEMPLATES.rglob("*.html"))
+def _arquivos_do_projeto(raiz, padrao_glob):
+    """Todo arquivo que bate com `padrao_glob` (ex.: `"*.css"`, `"*.html"`)
+    sob `raiz`, em QUALQUER subpasta — excluindo só o que nunca é o
+    PRODUTO: as pastas nomeadas em `PASTAS_SEM_CSS_DO_PROJETO` (o nome
+    ficou da época em que só servia a CSS; ver o comentário de
+    `_folhas_de_estilo_do_projeto`) e qualquer ambiente virtual Python
+    (`_dentro_de_ambiente_virtual`).
+
+    Extraído aqui pelo A3/BL-291 (auditoria DL-024 rodada 2): o mecanismo de
+    exclusão já existia neste arquivo, mas só do lado do CSS
+    (`_folhas_de_estilo_do_projeto`) — `_templates()` fazia
+    `TEMPLATES.rglob("*.html")`, olhando SÓ `templates/` na raiz, enquanto
+    `config/settings.py` declara `"APP_DIRS": True` e o Django resolve
+    `apps/<app>/templates/<app>/*.html` normalmente. O auditor criou
+    `apps/fiscal/templates/fiscal/apuracao.html` violando seis guardas de
+    uma vez — extends ausente, caption ausente, `<th>` sem `scope`, valor
+    sem a classe, estilo embutido e cor solta — e a suíte deu `1363 passed`
+    porque a varredura nunca lia o arquivo que o Django já servia. Não é
+    variante de regex: é a mesma cegueira ESTRUTURAL do `_folhas_de_estilo_
+    do_projeto` antes do BL-274 #2/#3, agora do lado dos templates.
+    """
+    achados = []
+    for caminho in sorted(raiz.rglob(padrao_glob)):
+        partes = caminho.relative_to(raiz).parts
+        if partes[0] in PASTAS_SEM_CSS_DO_PROJETO:
+            continue
+        if _dentro_de_ambiente_virtual(caminho, raiz):
+            continue
+        achados.append(caminho)
+    return achados
+
+
+def _templates(raiz):
+    """Todo `.html` de TEMPLATE do projeto, em qualquer subpasta de `raiz`
+    — não só `templates/` (ver o docstring de `_arquivos_do_projeto` para o
+    achado que motivou isto, BL-291). `raiz` é parâmetro explícito (não o
+    global `RAIZ`) para que o controle positivo abaixo possa provar o
+    alcance em `tmp_path`, sem depender de nada existir ou deixar de
+    existir na árvore real."""
+    return _arquivos_do_projeto(raiz, "*.html")
 
 
 def _e_parcial(caminho):
@@ -404,7 +442,10 @@ def _medidas_literais_fora_dos_tokens(texto):
     achados = []
     for declaracao in _PADRAO_PROPRIEDADE_DE_MEDIDA.finditer(limpo):
         propriedade, valor = declaracao.group(1), declaracao.group(2)
-        valor_sem_var = re.sub(r"var\([^)]*\)", "", valor)
+        # M2/BL-293: preserva o FALLBACK do `var()` em vez de apagá-lo junto
+        # com a variável — ver o docstring de
+        # `_sem_variavel_css_preservando_fallback`.
+        valor_sem_var = _sem_variavel_css_preservando_fallback(valor)
         for literal in _PADRAO_MEDIDA_LITERAL.finditer(valor_sem_var):
             achados.append(f"{propriedade}: {literal.group(0)}")
     return achados
@@ -444,17 +485,10 @@ def _folhas_de_estilo_do_projeto(raiz):
     `PASTAS_SEM_CSS_DO_PROJETO`, mais qualquer ambiente virtual Python
     detectado por `_dentro_de_ambiente_virtual` — sem essas duas exclusões,
     o admin do Django coletado e o Bootstrap do DRF entrariam na varredura
-    do produto.
+    do produto. Mesmo mecanismo agora compartilhado com `_templates()` via
+    `_arquivos_do_projeto` (BL-291, auditoria DL-024 rodada 2).
     """
-    achadas = []
-    for caminho in sorted(raiz.rglob("*.css")):
-        partes = caminho.relative_to(raiz).parts
-        if partes[0] in PASTAS_SEM_CSS_DO_PROJETO:
-            continue
-        if _dentro_de_ambiente_virtual(caminho, raiz):
-            continue
-        achadas.append(caminho)
-    return achadas
+    return _arquivos_do_projeto(raiz, "*.css")
 
 
 def _estilos_embutidos(texto):
@@ -463,6 +497,20 @@ def _estilos_embutidos(texto):
     contraste: ninguém encontra aquele valor depois."""
     limpo = _sem_comentarios_de_template(texto)
     return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(limpo)]
+
+
+# M3/BL-294 (auditoria DL-024 rodada 2): elementos VAZIOS do HTML5 — nunca
+# têm tag de fechamento, por definição da especificação (WHATWG "void
+# elements"). `_involucro_cobre_valor` (abaixo) tratava a AUSÊNCIA de
+# `</tag>` como "invólucro ainda aberto, cobre o valor" — para um elemento
+# vazio isso é SEMPRE verdadeiro e SEMPRE errado: `<br class="valor-
+# monetario">{{ x_ptbr }}</td>` não pode envolver nada, porque não tem
+# conteúdo entre abertura e o (inexistente) fechamento. Medido pelo
+# auditor: a coluna perdia `tabular-nums` — o defeito exato que esta guarda
+# existe para impedir — com `61 passed`.
+ELEMENTOS_VAZIOS_HTML = frozenset(
+    "area base br col embed hr img input link meta source track wbr".split()
+)
 
 
 def _involucro_cobre_valor(texto, inicio, fim):
@@ -480,6 +528,11 @@ def _involucro_cobre_valor(texto, inicio, fim):
     já fechou antes do valor não cobre nada — ver o teste de controle
     correspondente).
 
+    Um elemento VAZIO (`ELEMENTOS_VAZIOS_HTML` acima) nunca conta como
+    invólucro, mesmo que carregue a classe: ele não tem conteúdo para
+    envolver, então nunca "cobre" o valor que vem depois dele no texto
+    (M3/BL-294).
+
     Não é um parser de HTML completo (mesma limitação, já documentada,
     deste arquivo inteiro): olha o PRIMEIRO invólucro com a classe
     encontrado na janela e confere se o seu fechamento (`</mesma-tag>`, a
@@ -492,6 +545,8 @@ def _involucro_cobre_valor(texto, inicio, fim):
         if not _tem_classe(abertura.group(0), "valor-monetario"):
             continue
         tag = abertura.group(1)
+        if tag.lower() in ELEMENTOS_VAZIOS_HTML:
+            continue
         fechamento = texto.find(f"</{tag}>", abertura.end())
         if fechamento == -1 or fechamento >= fim:
             return True
@@ -582,7 +637,7 @@ def test_toda_tela_estende_a_moldura_comum():
     """
     fora = [
         str(t.relative_to(RAIZ))
-        for t in _templates()
+        for t in _templates(RAIZ)
         if t.name != "base.html"
         and not _e_parcial(t)
         and "{% extends" not in _sem_comentarios_de_template(t.read_text(encoding="utf-8"))
@@ -610,7 +665,7 @@ def test_toda_tabela_declara_legenda():
     `<caption>` em outro lugar do mesmo arquivo.
     """
     faltando = []
-    for t in _templates():
+    for t in _templates(RAIZ):
         texto = _sem_comentarios_de_template(t.read_text(encoding="utf-8"))
         tabelas = len(re.findall(r"<table\b", texto, re.IGNORECASE))
         legendas = len(re.findall(r"<caption\b", texto, re.IGNORECASE))
@@ -623,7 +678,7 @@ def test_todo_cabecalho_de_tabela_declara_escopo():
     """`<th>` sem `scope` faz o leitor de tela ler "1.234,56" sem dizer de qual
     coluna e de qual conta. Em tabela contábil, é o mesmo que não ler nada."""
     faltando = []
-    for t in _templates():
+    for t in _templates(RAIZ):
         for cabecalho in _cabecalhos_sem_escopo(t.read_text(encoding="utf-8")):
             faltando.append(f"{t.relative_to(RAIZ)}: {cabecalho}")
     assert not faltando, "Cabeçalhos de tabela sem scope: " + "; ".join(faltando)
@@ -643,7 +698,7 @@ def test_todo_valor_em_celula_usa_a_classe_do_sistema():
     instruir alguém a tabular algarismos de uma data.
     """
     ofensores = []
-    for t in _templates():
+    for t in _templates(RAIZ):
         for celula, valor in _valores_sem_classe(t.read_text(encoding="utf-8")):
             ofensores.append(f"{t.relative_to(RAIZ)}: {valor} em {celula}")
     assert not ofensores, (
@@ -720,7 +775,7 @@ def test_nenhum_estilo_embutido_no_template():
     """`style="..."`, `style='...'` e `<style>` embutido escapam do sistema de
     tokens e da auditoria de contraste: ninguém encontra aquele valor depois."""
     embutidos = []
-    for t in _templates():
+    for t in _templates(RAIZ):
         for achado in _estilos_embutidos(t.read_text(encoding="utf-8")):
             embutidos.append(f"{t.relative_to(RAIZ)}: {achado}")
     assert not embutidos, "Estilo embutido em template: " + "; ".join(embutidos)
@@ -816,15 +871,97 @@ def test_controle_positivo_detector_de_medida_literal(css_ruim, propriedade):
 
 
 def test_controle_negativo_detector_de_medida_literal():
-    limpo = ".bloco { padding: var(--esp-3); margin: 0; width: 100%; height: 12px; }"
+    # M2/BL-293 ACRESCENTOU `width`/`height` à lista de propriedades — este
+    # controle negativo não pode mais usar nenhuma das duas como exemplo de
+    # "propriedade fora da lista" (era o caso antes da correção, com
+    # `height: 12px` propositalmente fora do alcance); `color` continua
+    # genuinamente fora, porque não é medida.
+    limpo = ".bloco { padding: var(--esp-3); margin: 0; width: 100%; color: red; }"
     achados = _medidas_literais_fora_dos_tokens(limpo)
     assert achados == [], (
-        "token via var(), valor sem unidade, percentual e propriedade fora da "
-        f"lista (height) não podiam ter sido acusados: {achados}"
+        "token via var() sem fallback, valor sem unidade, percentual e "
+        f"propriedade que não é medida (color) não podiam ter sido acusados: {achados}"
     )
     # Dentro do :root é a própria definição do token — não é violação.
     token = ":root { --esp-3: 12px; --tipo-lg: 1.2rem; }"
     assert _medidas_literais_fora_dos_tokens(token) == []
+
+
+# ---------------------------------------------------------------------------
+# M2/BL-293 (auditoria DL-024 rodada 2): as CINCO linhas de sabotagem do
+# relatório, cada uma reproduzida aqui isolada — cada uma dava "61 passed"
+# ANTES desta correção, sozinha em static/css/base.css. Ver a tabela do
+# achado M2 em docs/auditorias/2026-09-18-dl-024-rodada-2.md.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # Unidades fora de px/rem/em — pt/cm são justamente o que aparece
+        # em folha de impressão (BL-282), que este produto tem.
+        (".sab { padding: 12pt; }", "padding: 12pt"),
+        (".sab { gap: 3ch; }", "gap: 3ch"),
+        (".sab { font-size: 4vh; }", "font-size: 4vh"),
+        (".sab { margin: 2cm; }", "margin: 2cm"),
+    ],
+)
+def test_controle_positivo_detector_de_medida_literal_cobre_unidades_do_m2(css_ruim, esperado):
+    achados = _medidas_literais_fora_dos_tokens(css_ruim)
+    assert esperado in achados, (
+        f"medida '{esperado}' escapou do detector (unidade fora de px/rem/em): {achados}"
+    )
+
+
+def test_controle_positivo_detector_de_medida_literal_preserva_fallback_do_var():
+    """`var(--nao-existe, 37px)` tinha a variável E o fallback apagados
+    juntos por `re.sub(r"var\\([^)]*\\)", "", valor)` — o valor que o
+    navegador usa de verdade quando o token não existe escapava por
+    inteiro."""
+    css = ".sab { padding: var(--nao-existe, 37px); gap: var(--tb, 9px); }"
+    achados = _medidas_literais_fora_dos_tokens(css)
+    assert "padding: 37px" in achados, achados
+    assert "gap: 9px" in achados, achados
+
+
+def test_controle_positivo_detector_de_medida_literal_cobre_propriedades_novas_do_m2():
+    """`width`/`line-height`/`letter-spacing`/`border-radius`/`inset`/`top`
+    não estavam na lista de propriedades — nenhuma das seis dava achado."""
+    css = (
+        ".sab { width: 517px; line-height: 31px; letter-spacing: 0.37em; "
+        "border-radius: 9px; inset: 13px; top: 7rem; }"
+    )
+    achados = _medidas_literais_fora_dos_tokens(css)
+    for esperado in (
+        "width: 517px",
+        "line-height: 31px",
+        "letter-spacing: 0.37em",
+        "border-radius: 9px",
+        "inset: 13px",
+        "top: 7rem",
+    ):
+        assert esperado in achados, f"'{esperado}' escapou do detector: {achados}"
+
+
+def test_controle_positivo_detector_de_medida_literal_cobre_atalho_border_e_outline():
+    """`border: 3px solid ...`/`outline: 5px solid ...` são o ATALHO mais
+    comum de escrever largura de borda — a lista antiga só tinha
+    `border(?:-[a-z]+)*-width`, que não casa o atalho sem sufixo."""
+    css = ".sab { border: 3px solid var(--cor-borda); outline: 5px solid var(--cor-borda); }"
+    achados = _medidas_literais_fora_dos_tokens(css)
+    assert "border: 3px" in achados, achados
+    assert "outline: 5px" in achados, achados
+
+
+def test_controle_positivo_detector_de_cor_preserva_fallback_do_var():
+    """Mesma causa do M2 acima, no detector de COR: `color: var(--x, red)`
+    tinha a cor de reserva apagada junto com a variável."""
+    css = (
+        ":root { --a: #fff; }\n.sab { color: var(--nao-existe, red); background: var(--x, white); }"
+    )
+    achados = _cores_fora_dos_tokens(css)
+    assert "red" in achados, achados
+    assert "white" in achados, achados
 
 
 def test_controle_positivo_detector_de_css_em_qualquer_subpasta(tmp_path):
@@ -844,6 +981,69 @@ def test_controle_positivo_detector_de_css_em_qualquer_subpasta(tmp_path):
     assert "static/css/modulos/fiscal.css" in achadas, "CSS em subpasta de static/css/ escapou"
     assert "static/tema.css" in achadas, "CSS fora de static/css/ escapou"
     assert "static/css/base.css" in achadas
+
+
+# ---------------------------------------------------------------------------
+# A3/BL-291 (auditoria DL-024 rodada 2): a varredura de TEMPLATES só olhava
+# `templates/` na raiz, cega para `apps/<app>/templates/` — que
+# `config/settings.py` (`"APP_DIRS": True`) faz o Django resolver
+# normalmente. Reprodução da sabotagem exata do auditor, isolada em
+# `tmp_path`.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
+    """`apps/fiscal/templates/fiscal/apuracao.html` — a tela exata que o
+    auditor criou, resolvida pelo Django e nunca lida pela varredura.
+    Confirma que `_templates()` agora ALCANÇA o arquivo e que, alcançado,
+    cada guarda de conteúdo aplicável reprova nomeando-o: sem `{% extends
+    %}`, sem `<caption>`, `<th>` sem `scope`, valor `_ptbr` em célula sem a
+    classe do sistema, e estilo embutido."""
+    pasta = tmp_path / "apps" / "fiscal" / "templates" / "fiscal"
+    pasta.mkdir(parents=True)
+    arquivo = pasta / "apuracao.html"
+    arquivo.write_text(
+        '<html><body style="color:#ff0000">\n'
+        "<table>\n"
+        "<tr><th>Doc</th><th>Valor</th></tr>\n"
+        "<tr><td>NF</td><td>{{ nota.valor_ptbr }}</td></tr>\n"
+        "</table>\n"
+        "</body></html>",
+        encoding="utf-8",
+    )
+
+    achados = {str(p.relative_to(tmp_path)) for p in _templates(tmp_path)}
+    caminho_relativo = "apps/fiscal/templates/fiscal/apuracao.html"
+    assert caminho_relativo in achados, (
+        "a varredura de templates continua cega para apps/<app>/templates/"
+    )
+
+    texto = arquivo.read_text(encoding="utf-8")
+
+    # 1) extends ausente
+    assert "{% extends" not in _sem_comentarios_de_template(texto)
+    # 2) caption ausente (tem <table>, não tem <caption>)
+    limpo = _sem_comentarios_de_template(texto)
+    assert len(re.findall(r"<table\b", limpo, re.IGNORECASE)) > len(
+        re.findall(r"<caption\b", limpo, re.IGNORECASE)
+    )
+    # 3) <th> sem scope
+    assert _cabecalhos_sem_escopo(texto), "os dois <th> sem scope não foram detectados"
+    # 4) valor _ptbr em célula sem a classe do sistema
+    assert _valores_sem_classe(texto), (
+        "a célula com {{ nota.valor_ptbr }} sem classe não foi detectada"
+    )
+    # 5) estilo embutido
+    assert _estilos_embutidos(texto), "o style embutido no <body> não foi detectado"
+
+    # E o relato, quando esta guarda roda de verdade contra a árvore, NOMEIA
+    # o arquivo — mesmo formato que `test_controle_involucro_nao_afrouxa_o_
+    # relato_por_arquivo` já prova para o detector de valor sem classe.
+    ofensores_valor = [
+        f"{arquivo.relative_to(tmp_path)}: {valor} em {celula}"
+        for celula, valor in _valores_sem_classe(texto)
+    ]
+    assert ofensores_valor and caminho_relativo in ofensores_valor[0]
 
 
 def test_controle_negativo_detector_de_css_ignora_pastas_de_dependencia_e_build(tmp_path):
@@ -897,9 +1097,39 @@ def test_controle_positivo_detector_de_estilo_embutido():
     assert _estilos_embutidos("<style>.x{color:red}</style>"), "<style> embutido não detectado"
 
 
+# ---------------------------------------------------------------------------
+# M1/BL-292 (auditoria DL-024 rodada 2): as QUATRO amostras exatas do
+# relatório — `style=` sem aspas é HTML5 válido (sem espaço/aspas/=/<>/
+# crase) e o Chromium aplica; `<div data-style="cor">` continha a
+# substring `style="cor"` e era um falso POSITIVO real. Confirmado pelo
+# auditor: `<td id=alvo style=color:red;font-size:22px>` renderizava
+# `rgb(255, 0, 0)` no Chromium 1194.
+# ---------------------------------------------------------------------------
+
+
 def test_controle_negativo_detector_de_estilo_embutido_ignora_atributos_comuns():
-    limpo = '<div class="valor-monetario" data-style-alvo="x">y</div>'
-    assert _estilos_embutidos(limpo) == []
+    """`data-style="x"` (não `data-style-alvo`, que NUNCA disparava o
+    defeito e por isso não provava nada) é o caso que o commit `d8ec169`
+    errou: a substring `style="x"` está contida em `data-style="x"`, e sem
+    o lookbehind `(?<![\\w-])` a guarda achava que era um `style=` real."""
+    limpo = '<div class="valor-monetario" data-style="x">y</div>'
+    assert _estilos_embutidos(limpo) == [], (
+        "falso positivo: 'data-style=\"x\"' foi confundido com 'style=\"x\"' real"
+    )
+
+
+def test_controle_positivo_detector_de_estilo_embutido_sem_aspas():
+    """`<td style=color:red>` era um falso NEGATIVO real: valor de atributo
+    sem aspas é HTML5 válido, e escapava ao mesmo tempo do detector de
+    estilo, do de cor e do de medida — a tríade inteira do critério 13."""
+    assert _estilos_embutidos("<td style=color:red>1</td>"), "style sem aspas não detectado"
+    assert _estilos_embutidos('<td STYLE="color:red">1</td>'), "STYLE maiúsculo não detectado"
+    assert _estilos_embutidos('<td style = "color:red">1</td>'), (
+        "style com espaço ao redor do '=' não detectado"
+    )
+    assert _estilos_embutidos("<td style=color:red;font-size:22px>1</td>"), (
+        "a amostra exata confirmada no Chromium pelo auditor não foi detectada"
+    )
 
 
 def test_controle_positivo_detector_de_valor_sem_classe():
@@ -951,6 +1181,49 @@ def test_controle_negativo_detector_de_involucro_que_ja_fechou_nao_cobre_o_valor
     assert _valores_sem_classe(fechado_antes_do_valor), (
         "um invólucro já fechado antes do valor não pode cobrir o valor"
     )
+
+
+# ---------------------------------------------------------------------------
+# M3/BL-294 (auditoria DL-024 rodada 2): elemento VAZIO (`<br>`, `<img>`,
+# `<input>`, `<hr>` — nunca têm tag de fechamento) tratado como "invólucro
+# que nunca fecha, então cobre tudo". Introduzido pela mudança da rodada 3
+# que passou a aceitar invólucro em linha; os três controles daquela rodada
+# cobrem o invólucro que fecha CEDO DEMAIS, nenhum cobre o que NÃO FECHA
+# NUNCA.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_negativo_involucro_vazio_nao_cobre_nada():
+    """`<td><br class="valor-monetario">{{ x_ptbr }}</td>` tem de reprovar —
+    `<br>` não tem `</br>`, e `find` devolvia `-1`, que a checagem antiga
+    lia como "ainda aberto, cobre o valor". Medido pelo auditor: a coluna
+    perdia `tabular-nums` com `61 passed`."""
+    com_br = '<table><tr><td><br class="valor-monetario">{{ linha.saldo_ptbr }}</td></tr></table>'
+    assert _valores_sem_classe(com_br), (
+        "invólucro <br> (elemento vazio) cobriu o valor por engano — a coluna perderia tabular-nums"
+    )
+
+
+def test_controle_negativo_involucro_vazio_img_nao_cobre_nada():
+    com_img = (
+        '<table><tr><td><img class="valor-monetario" src="x" alt="">'
+        "{{ linha.saldo_ptbr }}</td></tr></table>"
+    )
+    assert _valores_sem_classe(com_img), (
+        "invólucro <img> (elemento vazio) cobriu o valor por engano"
+    )
+
+
+def test_controle_positivo_involucro_real_continua_protegendo_o_valor():
+    """Controle de que a correção do M3 não afrouxou o caso que a rodada 3
+    introduziu: um invólucro de VERDADE (`<span>`, que tem fechamento)
+    continua protegendo o valor."""
+    com_span = (
+        "<table><tr><td>"
+        '<span class="valor-monetario">{{ linha.saldo_ptbr }}</span>'
+        "</td></tr></table>"
+    )
+    assert not _valores_sem_classe(com_span), "invólucro real (<span>) parou de proteger o valor"
 
 
 def test_controle_involucro_nao_afrouxa_o_relato_por_arquivo(tmp_path):

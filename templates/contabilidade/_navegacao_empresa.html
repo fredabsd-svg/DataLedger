@@ -13,10 +13,19 @@ B3/BL-283 (auditoria DL-024, rodada 1): até a rodada 2, este comentário
 dizia "toda tela de contabilidade" e listava só SEIS — conta_form.html e
 lancamento_detalhe.html tinham ficado de fora, e um comentário que diz
 "toda" sem cobrir todas é o mesmo defeito da família BL-142/BL-246. Cada
-novo template de tela deste diretório PRECISA entrar nesta lista E incluir
-esta parcial — o teste em
-apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py reprova
-quando um dos dois deixa de bater com o outro.
+novo template de tela deste diretório PRECISA incluir esta parcial.
+
+M5/BL-296 (auditoria DL-024, rodada 2): esta frase dizia antes que "o
+teste em apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py
+reprova quando um dos dois deixa de bater com o outro" — MENTIRA: aquele
+teste é parametrizado por uma LISTA LITERAL de oito nomes, e nada em
+apps/ enumerava esta pasta. Um nono template, sem a parcial e sem entrar
+em lista nenhuma, passava a suíte inteira. Quem de fato reprova uma tela
+nova sem a parcial é
+apps/contabilidade/tests/test_bl296_navegacao_cobre_todas_as_telas.py —
+ele VARRE templates/contabilidade/*.html (ignorando parciais, prefixo
+`_`), então uma tela nova não depende de ninguém lembrar de acrescentar o
+nome dela em lugar nenhum, aqui ou lá.
 
 Antes desta parcial, cada template listava um subconjunto diferente de
 links à mão (o Balancete tinha três, o Diário quatro, a Razão só dois) —

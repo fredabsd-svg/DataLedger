@@ -54,6 +54,7 @@ from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
 from apps.contabilidade.services import criar_lancamento
+from apps.core.marcacao import tem_classe, tokens_de_atributo
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -80,8 +81,40 @@ pytestmark = [pytest.mark.django_db, pytest.mark.urls(__name__)]
 # Detectores — funções puras sobre HTML já renderizado
 # ---------------------------------------------------------------------------
 
-PADRAO_TECLA = re.compile(r'<kbd\b[^>]*class="tecla"[^>]*>', re.IGNORECASE)
-PADRAO_ACCESSKEY = re.compile(r'<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\baccesskey="([a-zA-Z])"[^>]*>')
+# M4/BL-295 (rodada 4 da auditoria DL-024,
+# docs/auditorias/2026-09-18-dl-024-rodada-2.md): a versão anterior deste
+# padrão casava `class="tecla"` por IGUALDADE do valor INTEIRO do
+# atributo — `class="tecla destaque"` (uma segunda classe, adicionada por
+# qualquer alteração de CSS sem pensar duas vezes) escapava por COMPLETO
+# do alcance da guarda, e junto dela a exigência de `aria-hidden`
+# (`teclas_sem_aria_hidden` abaixo). Medido pelo auditor na árvore de
+# acessibilidade do Chromium: o mutante anunciava `link nome='Plano de
+# contas Alt+C'` — o achado A2 da rodada 1 de volta — com 15 passed.
+#
+# Agora o padrão encontra QUALQUER `<kbd ...>` e `teclas_sem_aria_hidden`
+# decide, por `tem_classe` (apps.core.marcacao — casamento por TOKEN do
+# atributo `class`, compartilhado com a varredura de interface e com
+# `test_dl017_rodada2_frontend.descricoes_de_data_sem_defesa`, para não
+# escrever esta lógica uma terceira vez), se o elemento carrega a classe
+# "tecla" — não importa quantas outras classes tenha.
+PADRAO_TAG_KBD = re.compile(r"<kbd\b[^>]*>", re.IGNORECASE)
+
+# M4/BL-295: o mesmo defeito valia para `accesskey` — o padrão antigo só
+# reconhecia um valor de EXATAMENTE uma letra (`accesskey="([a-zA-Z])"`).
+# Um valor com mais de um token, como `accesskey="c d"` (dois atalhos
+# alternativos — válido pela HTML Living Standard, mas fora da convenção
+# deste produto, que usa sempre UM atalho por elemento), não casava com o
+# padrão NENHUMA vez: o elemento inteiro desaparecia das guardas de
+# coerência (`accesskeys_incoerentes`) e de duplicidade
+# (`accesskeys_duplicados`), em vez de ser REPROVADO por não seguir a
+# convenção. Agora o padrão encontra qualquer TAG que declare `accesskey`
+# (com qualquer conteúdo entre aspas) e `_accesskey_de` (abaixo) decide,
+# por `tokens_de_atributo`, se o valor é uma letra ASCII só —
+# `accesskeys_malformados` reprova quando não é.
+PADRAO_TAG_COM_ACCESSKEY = re.compile(
+    r'<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\saccesskey\s*=\s*(?:"[^"]*"|\'[^\']*\')[^>]*>',
+    re.IGNORECASE,
+)
 
 # As cinco páginas fixas de templates/contabilidade/_navegacao_empresa.html,
 # na ordem em que a parcial as lista.
@@ -98,17 +131,45 @@ def teclas_sem_aria_hidden(html):
     """Todo `kbd.tecla` precisa de `aria-hidden="true"` — sem isso, o
     atalho ("Alt+L") vaza para o nome acessível do link (achado A2)."""
     return [
-        m.group(0) for m in PADRAO_TECLA.finditer(html) if 'aria-hidden="true"' not in m.group(0)
+        m.group(0)
+        for m in PADRAO_TAG_KBD.finditer(html)
+        if tem_classe(m.group(0), "tecla") and 'aria-hidden="true"' not in m.group(0)
+    ]
+
+
+def _accesskey_de(tag):
+    """Tecla ÚNICA declarada no `accesskey` de `tag`, ou `None` se o valor
+    não for exatamente uma letra ASCII (convenção deste produto: nunca mais
+    de um atalho alternativo por elemento — ver o comentário de
+    `PADRAO_TAG_COM_ACCESSKEY`)."""
+    tokens = tokens_de_atributo(tag, "accesskey")
+    if len(tokens) != 1 or not re.fullmatch(r"[a-zA-Z]", tokens[0]):
+        return None
+    return tokens[0]
+
+
+def accesskeys_malformados(html):
+    """`accesskey` que não é uma letra ASCII só — inclusive o caso do
+    achado M4/BL-295 (mais de um token, ex. `accesskey="c d"`), que antes
+    desaparecia por completo da varredura em vez de ser reprovado."""
+    return [
+        m.group(0)[:120]
+        for m in PADRAO_TAG_COM_ACCESSKEY.finditer(html)
+        if _accesskey_de(m.group(0)) is None
     ]
 
 
 def accesskeys_incoerentes(html):
-    """Todo elemento com `accesskey="x"` precisa do `aria-keyshortcuts`
-    correspondente ("Alt+X") NA MESMA TAG — sem isso, quem usa leitor de
-    tela não fica sabendo que o atalho existe."""
+    """Todo elemento com `accesskey="x"` (uma letra só) precisa do
+    `aria-keyshortcuts` correspondente ("Alt+X") NA MESMA TAG — sem isso,
+    quem usa leitor de tela não fica sabendo que o atalho existe. Um
+    `accesskey` MALFORMADO (mais de um token) já é reprovado por
+    `accesskeys_malformados`; não entra aqui de novo."""
     achados = []
-    for m in PADRAO_ACCESSKEY.finditer(html):
-        tecla = m.group(1)
+    for m in PADRAO_TAG_COM_ACCESSKEY.finditer(html):
+        tecla = _accesskey_de(m.group(0))
+        if tecla is None:
+            continue
         esperado = f'aria-keyshortcuts="Alt+{tecla.upper()}"'
         if esperado not in m.group(0):
             achados.append(m.group(0)[:120])
@@ -123,8 +184,11 @@ def accesskeys_duplicados(html):
     guarda."""
     vistos = set()
     duplicados = []
-    for m in PADRAO_ACCESSKEY.finditer(html):
-        tecla = m.group(1).lower()
+    for m in PADRAO_TAG_COM_ACCESSKEY.finditer(html):
+        tecla = _accesskey_de(m.group(0))
+        if tecla is None:
+            continue
+        tecla = tecla.lower()
         if tecla in vistos and tecla not in duplicados:
             duplicados.append(tecla)
         vistos.add(tecla)
@@ -162,6 +226,9 @@ def atalhos_ausentes(html):
 def assert_pagina_acessivel(html):
     assert not teclas_sem_aria_hidden(html), "kbd.tecla sem aria-hidden='true': " + repr(
         teclas_sem_aria_hidden(html)
+    )
+    assert not accesskeys_malformados(html), "accesskey não é uma letra ASCII só: " + repr(
+        accesskeys_malformados(html)
     )
     assert not accesskeys_incoerentes(html), "accesskey sem aria-keyshortcuts coerente: " + repr(
         accesskeys_incoerentes(html)
@@ -320,6 +387,49 @@ def test_mutacao_colisao_de_accesskey_e_detectada(client, cenario):
     assert duplicados == ["c"], f"a mutação (colisão de accesskey) não foi detectada: {duplicados}"
 
 
+def test_mutacao_kbd_com_segunda_classe_e_detectada(client, cenario):
+    """M4/BL-295 (rodada 4 da auditoria DL-024): repete a sabotagem do
+    auditor — `class="tecla" aria-hidden="true"` vira `class="tecla
+    destaque"` (perde o `aria-hidden` junto), nos cinco `kbd` da parcial de
+    navegação. Medido pelo auditor na árvore de acessibilidade do
+    Chromium: o link passava a se chamar 'Plano de contas Alt+C' em vez de
+    'Plano de contas' — o achado A2 da rodada 1 de volta. Antes desta
+    correção (PADRAO_TECLA casando por igualdade do valor inteiro), a
+    suíte inteira devolvia 15 passed. Agora `tem_classe` casa por TOKEN e a
+    mutação tem que continuar sendo detectada.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not teclas_sem_aria_hidden(html), "controle: a página real já deveria estar limpa"
+
+    mutado = html.replace('class="tecla" aria-hidden="true"', 'class="tecla destaque"')
+    assert 'class="tecla destaque"' in mutado, "controle: a substituição precisa ter ocorrido"
+    achados = teclas_sem_aria_hidden(mutado)
+    assert achados, "a mutação (kbd com segunda classe) não foi detectada — o A2 voltaria"
+
+
+def test_mutacao_accesskey_com_dois_tokens_e_detectada(client, cenario):
+    """M4/BL-295: o mesmo defeito de casamento por igualdade valia para
+    `PADRAO_ACCESSKEY`, que só reconhecia `accesskey` de UMA letra —
+    `accesskey="c d"` (dois tokens) desaparecia por completo das guardas
+    de coerência e duplicidade em vez de ser reprovado. Agora
+    `accesskeys_malformados` (apps.core.marcacao.tokens_de_atributo) tem
+    que reprovar.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_malformados(html), (
+        "controle: a página real não deveria ter accesskey malformado"
+    )
+
+    mutado = html.replace(
+        'accesskey="c" aria-keyshortcuts="Alt+C"', 'accesskey="c d" aria-keyshortcuts="Alt+C"'
+    )
+    assert 'accesskey="c d"' in mutado, "controle: a substituição precisa ter ocorrido"
+    achados = accesskeys_malformados(mutado)
+    assert achados, "a mutação (accesskey com dois tokens) não foi detectada"
+
+
 def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
     """Repete a classe de defeito da BL-283(c): uma tela que deixa de
     incluir `_navegacao_empresa.html` perde os cinco atalhos em silêncio.
@@ -351,6 +461,31 @@ def test_controle_positivo_tecla_sem_aria_hidden():
     sujo = '<kbd class="tecla">Alt+L</kbd>'
     assert not teclas_sem_aria_hidden(limpo)
     assert teclas_sem_aria_hidden(sujo)
+
+
+def test_controle_positivo_tecla_com_segunda_classe():
+    """BL-295: `class="tecla destaque"` continua sendo alcançada pela
+    guarda (com `tem_classe`, casamento por token) — reprova sem
+    `aria-hidden`, passa com ele, igual a `class="tecla"` sozinha."""
+    com_aria_hidden = '<kbd class="tecla destaque" aria-hidden="true">Alt+C</kbd>'
+    sem_aria_hidden = '<kbd class="tecla destaque">Alt+C</kbd>'
+    assert not teclas_sem_aria_hidden(com_aria_hidden)
+    assert teclas_sem_aria_hidden(sem_aria_hidden)
+
+
+def test_controle_positivo_accesskey_malformado():
+    """BL-295: `accesskey` de uma letra só passa; com mais de um token
+    (`"c d"`) ou mais de um caractere colado (`"cd"`) é malformado."""
+    valido = '<a href="#" accesskey="c" aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    dois_tokens = '<a href="#" accesskey="c d" aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    colado = '<a href="#" accesskey="cd" aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    assert not accesskeys_malformados(valido)
+    assert accesskeys_malformados(dois_tokens)
+    assert accesskeys_malformados(colado)
+    # Um accesskey malformado não entra em accesskeys_incoerentes/
+    # accesskeys_duplicados de novo — accesskeys_malformados já cobre.
+    assert not accesskeys_incoerentes(dois_tokens)
+    assert not accesskeys_duplicados(dois_tokens)
 
 
 def test_controle_positivo_accesskey_incoerente():

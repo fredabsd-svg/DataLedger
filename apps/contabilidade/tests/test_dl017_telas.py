@@ -29,6 +29,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path, reverse
 from django.utils import timezone
 
+from apps.contabilidade import views_web
 from apps.contabilidade.models import (
     Conta,
     LancamentoContabil,
@@ -574,6 +575,31 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     assert soma_debitos_proprios == total_debitos_rodape == Decimal("1700.00")
     assert soma_creditos_proprios == total_creditos_rodape == Decimal("1700.00")
 
+    # BL-290 (achado A2 da auditoria DL-024, rodada 2): a faixa de
+    # fechamento (fora da <table>, por isso extraída separadamente) tem
+    # que mostrar os MESMOS dois números do rodapé — é a mesma dupla de
+    # totais em dois lugares da tela (BL-276/BL-278), não dois cálculos
+    # independentes que por acaso deveriam bater. Antes desta correção,
+    # nenhum teste conferia isso: o auditor trocou o crédito da faixa pelo
+    # débito e fixou o veredito em "Fecha" — 1363 passed.
+    faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
+    assert faixa, "controle: a faixa de fechamento precisa estar presente com movimento"
+    valores_faixa = _extrair_valores_ptbr(faixa.group(0))
+    assert len(valores_faixa) == 2, valores_faixa
+    assert _ptbr_para_decimal(valores_faixa[0]) == total_debitos_rodape == Decimal("1700.00")
+    assert _ptbr_para_decimal(valores_faixa[1]) == total_creditos_rodape == Decimal("1700.00")
+
+    # E o veredito é "Fecha" — ramo ALCANÇADO de verdade (os totais fecham
+    # por construção, partida dobrada — ver o comentário do template), não
+    # decidido por comparação de texto pt-BR (BL-289/BL-290: o "if" agora
+    # ramifica por `veredito_balancete`, uma palavra vinda da view em
+    # `Decimal`, nunca por igualdade de `total_debitos_ptbr`/
+    # `total_creditos_ptbr`).
+    assert "Fecha" in faixa.group(0)
+    assert "Não fecha" not in faixa.group(0)
+    assert "faixa-fechamento--nao-fecha" not in faixa.group(0)
+    assert "faixa-fechamento--nada-a-conferir" not in faixa.group(0)
+
 
 # ---------------------------------------------------------------------------
 # Critérios 7, 8 e 9 — datas, contexto e período
@@ -662,6 +688,120 @@ def test_periodo_invalido_da_mensagem_util_nao_quebra(client, cenario):
     )
     assert resposta.status_code == 400
     assert "não pode ser posterior" in resposta.content.decode()
+
+
+def test_balancete_erro_de_periodo_oferece_saida_navegavel(client, cenario):
+    """BL-301 (achado B3 da auditoria DL-024, rodada 2): o estado de erro
+    do Balancete deixava a tela quase vazia — 397px de 800, sem tabela e
+    sem saída, só a mensagem de erro e o formulário de período. Esta
+    correção não muda o comportamento da VIEW (que continua recusando o
+    período inválido com 400 e a mensagem de erro): acrescenta, no
+    TEMPLATE, um link de volta ao período padrão — a mesma URL sem
+    querystring, que a própria view já resolve para o mês corrente — como
+    saída navegável equivalente à que o estado vazio já oferece (link para
+    o plano de contas).
+    """
+    _autenticar(client, cenario["escritorio_a"])
+    empresa_id = cenario["empresa_a"].id
+    url_balancete_sem_querystring = reverse("contabilidade_web:balancete", args=[empresa_id])
+
+    resposta = client.get(url_balancete_sem_querystring + "?inicio=abacaxi&fim=2026-03-31")
+    assert resposta.status_code == 400
+    conteudo = resposta.content.decode()
+    assert "Data inválida" in conteudo
+    # A saída: um link para a MESMA URL, sem querystring — reproduzível
+    # sem depender do texto exato do restante da frase.
+    assert f'<a href="{url_balancete_sem_querystring}">' in conteudo
+    # Controle negativo: o estado de SUCESSO (período válido) não mostra
+    # este aviso — ele é exclusivo do estado de erro.
+    hoje = timezone.localdate()
+    inicio = hoje.replace(day=1).isoformat()
+    fim = hoje.isoformat()
+    resposta_ok = client.get(
+        url_balancete_sem_querystring + f"?inicio={inicio}&fim={fim}"
+    )
+    assert resposta_ok.status_code == 200
+    assert (
+        f'<a href="{url_balancete_sem_querystring}">' not in resposta_ok.content.decode()
+    )
+
+    # E o link de fato funciona: segui-lo devolve 200 com uma resposta
+    # válida (o período padrão, mês corrente) — não é um link decorativo.
+    resposta_recuperada = client.get(url_balancete_sem_querystring)
+    assert resposta_recuperada.status_code == 200
+
+
+def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(client, cenario, monkeypatch):
+    """BL-290 (achado A2 da auditoria DL-024, rodada 2): o ramo "Não
+    fecha" da faixa de fechamento é uma REDE DE SEGURANÇA — a apuração do
+    Balancete garante débito igual a crédito por construção (partida
+    dobrada dos lançamentos de origem), então esse ramo é INALCANÇÁVEL por
+    qualquer fluxo legítimo da aplicação. "Inalcançável" não pode
+    significar "não testado": o auditor mutou os dois valores da faixa e o
+    veredito, e a suíte inteira devolveu 1363 passed, porque NADA
+    exercitava o ramo "Não fecha".
+
+    Este teste força a divergência sem corromper nenhum dado real: troca
+    `apurar_balancete` (apps.contabilidade.services, importado por
+    `apps.contabilidade.views_web`) por uma versão que devolve totais
+    PROPOSITALMENTE diferentes — o mesmo tipo de defeito que o ramo existe
+    para denunciar (corrupção de dado ou falha de agregação), simulado sem
+    tocar no banco.
+    """
+    empresa = cenario["empresa_a"]
+    hoje = timezone.localdate()
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Movimento para o cenário de divergência forçada",
+        itens=[
+            {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("300.00")},
+            {"conta": cenario["capital"], "tipo": TipoPartida.CREDITO, "valor": Decimal("300.00")},
+        ],
+    )
+
+    apuracao_real = views_web.apurar_balancete(
+        empresa=empresa,
+        inicio=hoje.replace(day=1),
+        fim=hoje,
+        nivel=None,
+    )
+
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+        # As LINHAS continuam vindo da apuração real (para a tabela e a
+        # soma "própria" do rodapé baterem entre si, como já testado por
+        # test_balancete_soma_das_linhas_proprias_bate_com_rodape) — só o
+        # TOTAL que a faixa mostra é corrompido, propositalmente, para
+        # forçar o ramo que nenhum lançamento balanceado alcança.
+        divergente = dict(apuracao_real)
+        divergente["total_creditos"] = apuracao_real["total_creditos"] + Decimal("0.01")
+        return divergente
+
+    monkeypatch.setattr(views_web, "apurar_balancete", _apuracao_divergente)
+
+    _autenticar(client, cenario["escritorio_a"])
+    url = (
+        reverse("contabilidade_web:balancete", args=[empresa.id])
+        + f"?inicio={hoje.replace(day=1).isoformat()}&fim={hoje.isoformat()}"
+    )
+    resposta = client.get(url)
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+
+    faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
+    assert faixa, "controle: a faixa precisa estar presente"
+    assert "faixa-fechamento--nao-fecha" in faixa.group(0), (
+        "o ramo 'Não fecha' não foi exercitado: " + faixa.group(0)
+    )
+    assert "Não fecha" in faixa.group(0)
+    assert "Fecha</strong>" not in faixa.group(0).replace("Não fecha", "")
+    # O rodapé (dentro da <table>) continua mostrando os totais
+    # DIVERGENTES tal como a view os recebeu — a tela não esconde a
+    # inconsistência, denuncia.
+    tabela = re.search(r"<table\b.*?</table>", conteudo, re.DOTALL).group(0)
+    rodape = re.search(r'<tr class="linha-total">.*?</tr>', tabela, re.DOTALL).group(0)
+    valores_rodape = _extrair_valores_ptbr(rodape)
+    assert _ptbr_para_decimal(valores_rodape[0]) != _ptbr_para_decimal(valores_rodape[1])
 
 
 # ---------------------------------------------------------------------------

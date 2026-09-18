@@ -759,6 +759,22 @@ button:disabled {
     color: var(--erro);
 }
 
+/* BL-289 (rodada 4 da auditoria DL-024, achado A1): terceiro estado do
+   veredito — "ainda não conferido", NUNCA "Fecha". Antes desta correção o
+   template comparava os dois totais em TEXTO pt-BR e "0,00" == "0,00" é
+   verdadeiro: formulário em branco, todas as linhas descartadas, total
+   zerado e total negativo caíam todos no ramo "Fecha" (em verde, com a
+   borda de --sucesso). Cor NEUTRA (--info, a mesma de "mensagem-info") —
+   nem sucesso nem erro: não há lançamento nenhum para fechar ou não
+   fechar ainda. */
+.linha-total__veredito--nao-conferido {
+    border-left: var(--traco-destaque) solid var(--info);
+}
+
+.linha-total__veredito--nao-conferido .veredito-fechamento {
+    color: var(--info);
+}
+
 /* A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de fechamento
    do Balancete — resolve as DUAS coisas na mesma superfície, porque são a
    mesma pergunta ("os totais fecham?") em duas roupagens (critério 4:
@@ -801,6 +817,21 @@ button:disabled {
     background: var(--erro-fundo);
 }
 
+/* BL-302 (rodada 4 da auditoria DL-024, achado B4): terceiro estado da
+   faixa — "nada a conferir", para quando os dois totais do período são
+   ZERO (empresa sem movimento no mês, o estado em que o Balancete abre no
+   dia 1º de todo mês). Antes desta correção, `total_debitos_ptbr ==
+   total_creditos_ptbr` também era verdadeiro para 0,00 == 0,00, e a
+   resposta mais destacada da tela virava um "Fecha" verde sobre nada — a
+   versão branda do A1, onde o veredito vira ruído ambiente e deixa de ser
+   lido quando de fato importa. Cor NEUTRA (--info), a mesma do terceiro
+   estado do lançamento (.linha-total__veredito--nao-conferido) — mesma
+   decisão de três estados, nas duas telas. */
+.faixa-fechamento--nada-a-conferir {
+    border-color: var(--info);
+    background: var(--info-fundo);
+}
+
 .faixa-fechamento__veredito {
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-md);
@@ -810,6 +841,10 @@ button:disabled {
 
 .faixa-fechamento--nao-fecha .faixa-fechamento__veredito {
     color: var(--erro);
+}
+
+.faixa-fechamento--nada-a-conferir .faixa-fechamento__veredito {
+    color: var(--info);
 }
 
 /* Formulário de período (Diário, Razão, Balancete): disposição em linha,

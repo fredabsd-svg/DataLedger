@@ -43,6 +43,7 @@ from django.utils import timezone
 
 from apps.contabilidade import views_web
 from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoConta
+from apps.core.marcacao import tem_classe
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -642,14 +643,27 @@ def descricoes_de_data_sem_defesa(html, ids_de_campo):
                 )
                 continue
             _tag, atributos, texto_interno = elemento
-            if "texto-apoio" not in atributos:
+            # M6/BL-297 (rodada 4 da auditoria DL-024): as duas checagens
+            # abaixo eram substring (`"texto-apoio" in atributos` /
+            # "visualmente-oculto" in atributos`) — `class="texto-apoio-
+            # legenda"` é uma classe CSS DIFERENTE (o seletor `.texto-apoio`
+            # não a alcança, o parágrafo perde o estilo) e PASSAVA. `tem_classe`
+            # (apps.core.marcacao, casamento por TOKEN do atributo `class` —
+            # a mesma função que a varredura de interface e a guarda de
+            # atalhos usam, extraída para não ser escrita uma quarta vez)
+            # exige o nome INTEIRO como um dos tokens.
+            # `tem_classe` usa `re.search` internamente (não `re.match`):
+            # não precisa da tag de abertura inteira, só do trecho que
+            # contém `class="..."` — `atributos` (o grupo capturado por
+            # `_elemento_por_id`, ver acima) já serve como está.
+            if not tem_classe(atributos, "texto-apoio"):
                 problemas.append(
                     f"#{id_campo}: '#{alvo}' não tem a classe texto-apoio "
                     "(nada garante que fique visível)"
                 )
             if 'aria-hidden="true"' in atributos:
                 problemas.append(f"#{id_campo}: '#{alvo}' está aria-hidden")
-            if "visualmente-oculto" in atributos:
+            if tem_classe(atributos, "visualmente-oculto"):
                 problemas.append(f"#{id_campo}: '#{alvo}' está visualmente-oculto")
             textos.append(texto_interno)
 
@@ -716,6 +730,45 @@ def test_mutacao_aria_describedby_pendurado_e_detectada(client, cen):
     achados = descricoes_de_data_sem_defesa(mutado, ["id_inicio"])
     assert achados, "a mutação (aria-describedby pendurado) não foi detectada — a guarda não guarda"
     assert any("não existe no documento" in achado for achado in achados), achados
+
+
+def test_mutacao_classe_texto_apoio_por_substring_e_detectada(client, cen):
+    """M6/BL-297 (rodada 4 da auditoria DL-024): repete a sabotagem do
+    auditor no parágrafo COMPARTILHADO do Balancete (BL-277) —
+    `class="texto-apoio ajuda-formato-data"` vira `class="texto-apoio-
+    legenda ajuda-formato-data"`, uma classe CSS DIFERENTE que o seletor
+    `.texto-apoio` não alcança (o parágrafo perde o estilo que a guarda
+    existe para garantir). Antes desta correção (checagem por substring,
+    `"texto-apoio" in atributos`), a mutação passava — 61 passed. Agora
+    `tem_classe` (apps.core.marcacao) casa por TOKEN e a mutação tem que
+    continuar sendo detectada.
+    """
+    _login(client, cen)
+    url = reverse("contabilidade_web:balancete", args=[cen["empresa"].id])
+    conteudo = client.get(url).content.decode()
+
+    assert not descricoes_de_data_sem_defesa(conteudo, ["id_inicio"]), (
+        "controle: a página real não deveria ter problema nenhum"
+    )
+
+    mutado = conteudo.replace(
+        'class="texto-apoio ajuda-formato-data"', 'class="texto-apoio-legenda ajuda-formato-data"', 1
+    )
+    assert mutado != conteudo, "controle: a mutação precisa mudar alguma coisa no HTML real"
+
+    achados = descricoes_de_data_sem_defesa(mutado, ["id_inicio"])
+    assert achados, "a mutação (texto-apoio-legenda por substring) não foi detectada"
+    assert any("não tem a classe texto-apoio" in achado for achado in achados), achados
+
+
+def test_controle_tem_classe_texto_apoio_distingue_token_de_substring():
+    """Controle sintético, sem banco: os três casos do critério de
+    verificação do BL-297 — `class="texto-apoio-legenda"` reprova;
+    `class="texto-apoio"` e `class="texto-apoio ajuda-formato-data"`
+    continuam passando."""
+    assert not tem_classe(' class="texto-apoio-legenda"', "texto-apoio")
+    assert tem_classe(' class="texto-apoio"', "texto-apoio")
+    assert tem_classe(' class="texto-apoio ajuda-formato-data"', "texto-apoio")
 
 
 # ---------------------------------------------------------------------------

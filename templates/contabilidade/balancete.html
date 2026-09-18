@@ -30,6 +30,36 @@
     {% endcomment %}
     <h1>Balancete de verificação</h1>
 
+    {% comment %}
+    BL-301 (achado B3 da auditoria DL-024, rodada 2,
+    docs/auditorias/2026-09-18-dl-024-rodada-2.md): até esta correção, um
+    período inválido (`?inicio=abacaxi&fim=...`) deixava a tela quase
+    vazia — a mensagem de erro (renderizada por `templates/base.html`, a
+    partir de `messages.error`) e o formulário de período, mais nada:
+    397px de 800 usados, sem tabela, sem link, sem saída. `inicio`/`fim`
+    só chegam `None` neste caso específico — a view
+    (`apps.contabilidade.views_web.balancete`) devolve os dois `None`
+    exclusivamente quando `_periodo_do_formulario` rejeita a entrada;
+    qualquer período válido (o padrão do mês corrente incluído) sempre
+    preenche os dois. Por isso este `{% if %}` não precisa de uma chave
+    nova de contexto: reaproveita um invariante que a view já garante.
+
+    A correção escolhida é a "saída navegável equivalente à do estado
+    vazio" (a alternativa que o achado B3 registra, ao lado de "trazer de
+    volta o período válido com a tabela") — sem depender de a VIEW mudar
+    de comportamento nesta etapa: um link de volta ao período padrão (a
+    mesma URL sem querystring, que a view já resolve para o mês corrente)
+    devolve a pessoa a um estado com tabela, sem exigir que ela lembre a
+    sintaxe AAAA-MM-DD nem ache o seletor de novo.
+    {% endcomment %}
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver o balancete, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
     {% if linhas %}
         {% comment %}
         A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de
@@ -54,18 +84,42 @@
         todos os débitos próprios do plano inteiro SEMPRE fecha com a soma
         de todos os créditos próprios, salvo corrupção de dado. O ramo
         "Não fecha" existe como rede de segurança visível, não como
-        caminho esperado — e por isso não mostra um valor de diferença
-        calculado: nenhuma view desta etapa expõe essa subtração pronta, e
-        fazer aritmética monetária dentro do template violaria a regra do
-        projeto contra cálculo financeiro fora do motor determinístico
-        (AGENTS.md §10). Pendência registrada para o desenvolvedor-pleno:
-        ver o relatório desta etapa.
+        caminho esperado.
         {% endcomment %}
-        <div class="faixa-fechamento{% if total_debitos_ptbr != total_creditos_ptbr %} faixa-fechamento--nao-fecha{% endif %}"
-             role="status">
-            <strong class="faixa-fechamento__veredito">
-                {% if total_debitos_ptbr == total_creditos_ptbr %}Fecha{% else %}Não fecha{% endif %}
-            </strong>
+        {% comment %}
+        BL-290/BL-302 (achados A2 e B4 da auditoria DL-024, rodada 2): até
+        esta correção, o veredito da faixa era decidido AQUI, comparando
+        `total_debitos_ptbr`/`total_creditos_ptbr` em TEXTO pt-BR — a
+        MESMA classe de defeito do A1/BL-289 no lançamento (ver o
+        comentário lá): "0,00" == "0,00" é verdadeiro, então a entrada
+        padrão de todo dia 1º de mês (empresa sem movimento ainda) exibia
+        um "Fecha" verde sobre 0,00/0,00 — não é FALSO (zero fecha com
+        zero), mas é a resposta mais destacada da tela virando ruído
+        ambiente, no exato lugar que a DE-042 §3 reserva para a pergunta
+        central.
+
+        A correção move a decisão para a VIEW: `veredito_balancete` chega
+        PRONTO (`apps.contabilidade.views_web.balancete`) como uma de três
+        palavras — "fecha", "nao_fecha" ou "nada_a_conferir" (este último
+        quando os dois totais do período são ZERO — o mesmo terceiro
+        estado do BL-289, aplicado aqui) — decidida em `Decimal` sobre os
+        totais de ORIGEM, nunca sobre o texto pt-BR. `diferenca_
+        balancete_ptbr` só existe quando "nao_fecha" (o ramo que hoje é
+        rede de segurança: a apuração garante débito igual a crédito por
+        construção, salvo corrupção de dado — ver o comentário acima). O
+        template ramifica pela PALAVRA, nunca por igualdade nem subtração
+        de valor monetário.
+        {% endcomment %}
+        {% if veredito_balancete == "fecha" %}
+        <div class="faixa-fechamento" role="status">
+            <strong class="faixa-fechamento__veredito">Fecha</strong>
+        {% elif veredito_balancete == "nao_fecha" %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">Não fecha — diferença de <span class="valor-monetario">{{ diferenca_balancete_ptbr }}</span> entre débitos e créditos próprios do período</strong>
+        {% else %}
+        <div class="faixa-fechamento faixa-fechamento--nada-a-conferir" role="status">
+            <strong class="faixa-fechamento__veredito">Nada a conferir neste período</strong>
+        {% endif %}
             <span class="contexto-item">
                 <span class="contexto-rotulo">Débitos próprios do período</span>
                 <strong class="valor-monetario">{{ total_debitos_ptbr }}</strong>

@@ -160,11 +160,16 @@
                     fechar e não fechar — a subtração ficava para a cabeça
                     de quem digitou.
 
-                    O veredito só aparece quando os dois totais já
-                    existem (`total_debito_ptbr`/`total_credito_ptbr` não
-                    são `None` — ver o comentário do `default` abaixo):
-                    antes da primeira linha preenchida não há "fecha" nem
-                    "não fecha" para responder, só "ainda não conferido".
+                    O veredito sempre aparece, em um de TRÊS estados —
+                    "fecha", "não fecha" ou "ainda não conferido" — porque
+                    os três precisam ser DESENHADOS, não só os dois óbvios
+                    (direcao-de-arte §2B). Antes da primeira linha
+                    preenchida (ou com o formulário todo inválido) não há
+                    "fecha" nem "não fecha" para responder, só "ainda não
+                    conferido" — ver o comentário do BL-289 mais abaixo,
+                    perto do "if" que escolhe o ramo, sobre POR QUE isso
+                    passou a ser decidido pela VIEW, nunca por uma
+                    comparação de texto aqui.
 
                     BL-286 (rodada 3 da DL-024): a diferença numérica
                     ("Não fecha, faltam X no crédito/débito") agora existe
@@ -247,6 +252,42 @@
                     ou é a soma real, ou é "ainda não conferido".
                     {% endcomment %}
                     {% comment %}
+                    BL-289 (achado A1 da auditoria DL-024, rodada 2,
+                    docs/auditorias/2026-09-18-dl-024-rodada-2.md): até
+                    esta correção, o "if" abaixo comparava os dois totais
+                    em TEXTO pt-BR — `total_debito_ptbr ==
+                    total_credito_ptbr`. `_valor_ptbr(Decimal("0"))`
+                    devolve "0,00", que é uma string não vazia (VERDADEIRA
+                    em template Django), e "0,00" == "0,00" é verdadeiro:
+                    formulário em branco, todas as linhas descartadas por
+                    conta/tipo/valor inválidos, os dois totais ZERADOS e os
+                    dois NEGATIVOS caíam todos no ramo "Fecha", em verde —
+                    inclusive o estado em que a própria tela, duas linhas
+                    acima, acabara de avisar que nada entrou no total.
+
+                    A correção não é "comparar melhor" o texto: é parar de
+                    COMPARAR VALOR aqui. `veredito_fechamento` chega PRONTO
+                    da view (`_contexto_form_lancamento`, apps/
+                    contabilidade/views_web.py) como uma de três palavras —
+                    "fecha", "nao_fecha" ou "nao_conferido" — decidida em
+                    `Decimal` sobre as MESMAS condições que a view já exige
+                    para permitir gravar (débito igual a crédito, total
+                    maior que zero, zero linhas descartadas, pelo menos
+                    duas partidas válidas). O template só ramifica por essa
+                    PALAVRA — nunca por igualdade nem subtração de valor
+                    monetário, que é exatamente a regra do AGENTS.md contra
+                    aritmética financeira (e contra COMPARAÇÃO financeira,
+                    mesmo raciocínio) fora do motor determinístico.
+
+                    "ainda não conferido" é um TERCEIRO estado, não uma
+                    variação de "não fecha": não existe lançamento
+                    incompleto ou inválido para "não fechar" — não há nada
+                    para fechar ainda. Cor neutra (--info), nunca a cor de
+                    erro (BL-289, direcao-de-arte §2B: os cinco estados
+                    antes do caminho feliz precisam ser DESENHADOS, não
+                    reaproveitar o desenho do estado vizinho).
+                    {% endcomment %}
+                    {% comment %}
                     O `<tr>` das três variantes abaixo continua EXATAMENTE
                     `class="linha-total"`, sem modificador — testes já
                     auditados (test_dl017_rodada1_correcoes.py::
@@ -260,8 +301,7 @@
                     errado. O veredito (cor e borda de destaque) entra na
                     primeira célula, não na linha.
                     {% endcomment %}
-                    {% if total_debito_ptbr and total_credito_ptbr %}
-                        {% if total_debito_ptbr == total_credito_ptbr %}
+                    {% if veredito_fechamento == "fecha" %}
                     <tr class="linha-total">
                         <td colspan="2" class="linha-total__veredito linha-total__veredito--fecha">
                             Total conferido antes de gravar
@@ -271,7 +311,7 @@
                         <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
                         <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
                     </tr>
-                        {% else %}
+                    {% elif veredito_fechamento == "nao_fecha" %}
                     <tr class="linha-total">
                         <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-fecha">
                             Total conferido antes de gravar
@@ -281,10 +321,13 @@
                         <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
                         <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
                     </tr>
-                        {% endif %}
                     {% else %}
                     <tr class="linha-total">
-                        <td colspan="2">Total conferido antes de gravar</td>
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-conferido">
+                            Total conferido antes de gravar
+                            <br>
+                            <strong class="veredito-fechamento">Ainda não conferido</strong>
+                        </td>
                         <td class="valor-monetario">Débito: {{ total_debito_ptbr|default:"— (ainda não conferido)" }}</td>
                         <td class="valor-monetario">Crédito: {{ total_credito_ptbr|default:"— (ainda não conferido)" }}</td>
                     </tr>
