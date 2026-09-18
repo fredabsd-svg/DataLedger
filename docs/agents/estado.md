@@ -257,33 +257,76 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-18:
 [DL-024](../planos/DL-024-identidade-visual-e-interface.md) — identidade visual.
-Rodada 1 REPROVADA em `5c7303e`
-([relatório](../auditorias/2026-09-18-dl-024-rodada-1.md), preservado
-integralmente). **Rodada 2 distribuída**, em duas frentes com arquivos
-disjuntos, executando em paralelo:**
+RODADA 4 EM EXECUÇÃO.** Duas auditorias, **as duas REPROVARAM**, e as duas
+acharam coisa real:
 
-| Frente | Responsável | Itens | Arquivos |
+| Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
-| Produto | `especialista-frontend` | BL-275, BL-276, BL-278, BL-279, BL-280, BL-283 | `templates/**`, `static/css/**` e o teste novo `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py` |
-| Mecanismo | `desenvolvedor-pleno` | BL-274 (as seis cegueiras da varredura + o detector de medidas que o critério 13 promete) | **só** `apps/core/tests/test_dl024_varredura_de_interface.py` |
+| [Rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md) | `5c7303e` | REPROVADO | 3 altos, 6 médios, 4 baixos |
+| [Rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md) | `c71bd55` | REPROVADO | 3 altos, 7 médios, 5 baixos |
 
-Três decisões de coordenação, todas com motivo:
+Os três altos abertos, e o primeiro é o mais grave da etapa inteira:
 
-1. **Os conjuntos de arquivos não se tocam.** A varredura é do
-   `desenvolvedor-pleno`; as telas e o CSS são do `especialista-frontend`.
-   Nenhum dos dois encosta no arquivo do outro.
-2. **O `desenvolvedor-pleno` não commita.** A integração é minha, depois que as
-   duas metades voltarem — o detector novo de medidas literais **reprova contra
-   a árvore atual** enquanto o **BL-279** (medidas soltas no `base.css`) não
-   fechar, e as duas coisas fecham juntas ou nenhuma.
-3. **Medição concorrente não vira relatório** (**BL-273**): com dois agentes
-   rodando, resultado anômalo em massa se repete sozinho antes de ser
-   reportado. Já aconteceu aqui — `1279 errors` numa revisão que, sozinha, deu
-   `1279 passed`.
+- **BL-289** — o veredito **"Fecha" MENTE** em quatro estados alcançáveis do
+  lançamento, **um deles o formulário em branco**, outro logo abaixo do aviso
+  de que as linhas foram descartadas. Causa: o template comparava **textos**
+  pt-BR, e `"0,00" == "0,00"`. Nenhum lançamento errado é gravado — o servidor
+  recusa —, mas a frase que o contador lê **antes de gravar** estava errada.
+  ⚠️ Foi **introduzido pela correção** do achado da rodada 1.
+- **BL-290** — a faixa de fechamento do balancete nasceu **sem teste nenhum**:
+  o auditor trocou os dois números e fixou o veredito, e a suíte deu
+  `1363 passed`.
+- **BL-291** — a varredura é **cega para `apps/<app>/templates/`**, que o
+  Django resolve por `APP_DIRS`. Uma tela violando **seis** guardas de uma vez
+  passou verde. **É o caminho pelo qual o Fiscal nasceria inteiramente fora da
+  direção de arte com a integração contínua verde** — o único dos quinze
+  achados que é porta aberta, não defeito.
 
-Fora da rodada 2, por decisão registrada: **BL-277** (o filtro de 411px),
-**BL-281** (parênteses no balancete — muda a view, não o template) e **BL-282**
-(timbre do escritório na impressão).
+Distribuição da rodada 4, arquivos disjuntos, contrato de contexto fixado por
+mim **antes** para os dois trabalharem em paralelo sem esperar um pelo outro:
+
+| Frente | Responsável | Itens |
+| --- | --- | --- |
+| Servidor e mecanismo | `desenvolvedor-pleno` | BL-289 (a decisão na view), BL-291, BL-292, BL-293, BL-294, BL-298 |
+| Telas e guardas de tela | `especialista-frontend` | BL-289 (o ramo do template), BL-290, BL-295, BL-296, BL-297, BL-301, BL-302 |
+| Documentação e processo | `arquiteto-senior` | BL-299, BL-300, BL-303, BL-304 — **concluídos** em `7720e5f` |
+
+**Contrato de contexto** (nomes fixos, não negociáveis sozinho):
+`veredito_fechamento` ∈ `fecha` / `nao_fecha` / `nao_conferido` no lançamento;
+`veredito_balancete` ∈ `fecha` / `nao_fecha` / `nada_a_conferir`. **Nenhuma
+comparação de valor no template** — foi comparar texto que produziu o BL-289.
+
+Decisões de coordenação que continuam valendo desde a rodada 2:
+
+1. **Os conjuntos de arquivos não se tocam.**
+2. **Os especialistas não commitam.** A integração e a medição solo são minhas.
+3. **Medição concorrente não vira relatório** (**BL-273**): resultado anômalo
+   em massa se repete sozinho antes de ser reportado. Já aconteceu — `1279
+   errors` numa revisão que, sozinha, deu `1279 passed`.
+4. **Preservação adiciona arquivo por caminho, nunca `git add -A`** — um
+   retrato meu já levou junto trabalho alheio sem descrever (registrado em
+   `c71bd55`).
+5. **Pedido de auditoria leva o SHA e o `git status` conferidos na hora**
+   (**BL-304**, e a regra está em [equipe.md](equipe.md)).
+
+**Decisão do Fred, 2026-09-18, sobre quando mesclar.** Ele pediu "commitar
+tudo, abrir os PR e mesclar para não perdermos nada", ouviu a recomendação
+contrária e **aprovou esperar**. O que está registrado, porque a distinção é o
+ponto: **commitar e publicar é o que preserva; mesclar é declarar pronto.** A
+preservação já está garantida e medida (HEAD local e `origin` no mesmo SHA).
+Mesclar antes da auditoria levaria para a `main` um veredito de fechamento que
+mente na tela vazia. **Sequência aprovada:** integrar → medir sozinho →
+auditar → abrir o PR → merge do Fred com o parecer em mãos.
+
+Precedente que motivou a recomendação: o **PR #24 foi mesclado** estando
+marcado como rascunho e com "não deve ser mesclado" escrito no corpo —
+rascunho no GitHub **não impede** merge, e a `main` carrega a DL-023 com três
+pendências abertas por causa disso.
+
+Fora da rodada 4, por decisão registrada: **BL-277** (o filtro do balancete),
+**BL-281** (parênteses no balancete — muda a view), **BL-282** (timbre do
+escritório na impressão) e **BL-287** (a ajuda de data unificada só no
+balancete; Diário, Razão e Lançamento seguem duplicando).
 
 **Antes, em 2026-09-16:
 [DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
