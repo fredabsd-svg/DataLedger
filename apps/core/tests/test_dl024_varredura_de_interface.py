@@ -101,6 +101,47 @@ PADRAO_COR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)|\bhsla?\([^)]*\)"
 # invólucro — ver `_involucro_cobre_valor` abaixo.
 PADRAO_TAG_ABERTURA = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*>")
 
+# Sabotagem 3 da rodada 3 (BL-286): a checagem original, escrita na rodada 2
+# (revisão `3941452`) e copiada hoje para o caminho do invólucro, era
+# `"valor-monetario" in tag` — SUBSTRING pura sobre o texto inteiro da tag.
+# `class="valor-monetario-legenda"` CONTÉM a string `valor-monetario` e
+# passava, sendo uma classe CSS diferente (o seletor `.valor-monetario` do
+# CSS não casa `.valor-monetario-legenda` — são duas classes distintas). É
+# a MESMA família de defeito do BL-274 #6 (substring no lugar de casamento
+# de TOKEN) — ali era o nome do módulo num documento inteiro, aqui é o nome
+# da classe dentro do atributo `class`. `_PADRAO_ATRIBUTO_CLASS` extrai só
+# o VALOR do atributo `class` da tag (aspas duplas OU simples — a
+# sabotagem de aspas simples já pegou o detector de estilo embutido,
+# BL-274 #5, não repetir aqui); `\s` OBRIGATÓRIO antes de `class` evita
+# casar um atributo com outro NOME que só termina em "class" (não há caso
+# real disso hoje, mas é a mesma prevenção do `scope=` abaixo — ver
+# `_PADRAO_ATRIBUTO_SCOPE`). `_tem_classe` então divide o valor por espaço
+# (`str.split()`) e compara cada pedaço por IGUALDADE, nunca por `in`.
+_PADRAO_ATRIBUTO_CLASS = re.compile(r'\sclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', re.IGNORECASE)
+
+
+def _tem_classe(tag, classe):
+    """`True` se `classe` está entre os nomes de classe CSS do atributo
+    `class` de `tag` (o texto de UMA tag de abertura, ex.: `<td class="a
+    valor-monetario b">`) — casada como TOKEN inteiro, separado por
+    espaço, nunca como substring do atributo. Ver o comentário acima de
+    `_PADRAO_ATRIBUTO_CLASS` para o achado que motivou isto (rodada 3,
+    BL-286, sabotagem 3)."""
+    atributo = _PADRAO_ATRIBUTO_CLASS.search(tag)
+    if not atributo:
+        return False
+    valor = atributo.group(1) if atributo.group(1) is not None else atributo.group(2)
+    return classe in valor.split()
+
+
+# Mesma família, no atributo `scope` do `<th>` (`_cabecalhos_sem_escopo`
+# abaixo): a checagem original era `"scope=" not in tag`, e um atributo
+# como `data-scope="x"` ou `aria-scope="x"` CONTÉM a substring `scope=` e
+# fazia a guarda pensar que o `<th>` tinha declarado `scope` de verdade.
+# `\s` obrigatório antes de `scope` garante que é o NOME do atributo, não
+# o final de um nome maior conectado por hífen.
+_PADRAO_ATRIBUTO_SCOPE = re.compile(r"\sscope\s*=", re.IGNORECASE)
+
 # Achado 2 da revisão do arquiteto-senior sobre o `PADRAO_VALOR` acima: a
 # amplitude fica (ela é o que fecha a cegueira do `{% include %}`), mas a
 # MENSAGEM não pode instruir alguém a colocar `valor-monetario` numa DATA.
@@ -378,7 +419,7 @@ def _involucro_cobre_valor(texto, inicio, fim):
     marcação.
     """
     for abertura in PADRAO_TAG_ABERTURA.finditer(texto, inicio, fim):
-        if "valor-monetario" not in abertura.group(0):
+        if not _tem_classe(abertura.group(0), "valor-monetario"):
             continue
         tag = abertura.group(1)
         fechamento = texto.find(f"</{tag}>", abertura.end())
@@ -404,7 +445,7 @@ def _valores_sem_classe(texto):
         fechamento = limpo.find(f"</{celula.group(1)}>", celula.end())
         if fechamento != -1 and fechamento < valor.start():
             continue
-        if "valor-monetario" in celula.group(0):
+        if _tem_classe(celula.group(0), "valor-monetario"):
             continue
         if _involucro_cobre_valor(limpo, celula.end(), valor.start()):
             continue
@@ -415,7 +456,7 @@ def _valores_sem_classe(texto):
 def _cabecalhos_sem_escopo(texto):
     limpo = _sem_comentarios_de_template(texto)
     achados = re.finditer(r"<th\b[^>]*>", limpo)
-    return [m.group(0)[:70] for m in achados if "scope=" not in m.group(0)]
+    return [m.group(0)[:70] for m in achados if not _PADRAO_ATRIBUTO_SCOPE.search(m.group(0))]
 
 
 def _secao_do_momento_da_verdade(texto_direcao_de_arte):
@@ -458,13 +499,23 @@ def test_toda_tela_estende_a_moldura_comum():
     É assim que um módulo novo começa a divergir: alguém copia um HTML inteiro
     "só para testar" e ele fica. A moldura carrega marca, contexto de empresa e
     competência, navegação e os tokens — sair dela é sair da direção de arte.
+
+    Achado da inspeção da rodada 3 (BL-286, mesma família da sabotagem 3):
+    esta checagem lia `t.read_text(...)` CRU, sem `_sem_comentarios_de_
+    template` — um `{% comment %}` que mencionasse `` `{% extends
+    "base.html" %}` `` em PROSA (documentando a própria tela, como o
+    `lancamento_form.html` já faz para outras marcas) faria a tela passar
+    mesmo SEM a tag `{% extends %}` real. Mesmo mecanismo do achado que
+    motivou `_sem_comentarios_de_template` (docstring dela, achado descoberto
+    ao endurecer `PADRAO_VALOR`) — só que este caminho nunca tinha recebido
+    a mesma correção.
     """
     fora = [
         str(t.relative_to(RAIZ))
         for t in _templates()
         if t.name != "base.html"
         and not _e_parcial(t)
-        and "{% extends" not in t.read_text(encoding="utf-8")
+        and "{% extends" not in _sem_comentarios_de_template(t.read_text(encoding="utf-8"))
     ]
     assert not fora, (
         "Telas que não estendem a moldura comum: "
@@ -480,10 +531,17 @@ def test_toda_tabela_declara_legenda():
     no Balancete ou no Razão. É requisito da própria W3C para tabela de dados, e
     o projeto já a tem em todas — esta guarda impede o próximo módulo de chegar
     sem.
+
+    Mesmo achado da inspeção da rodada 3 (BL-286): a contagem de `<table`/
+    `<caption` lia o texto CRU do template, sem tirar `{% comment %}`
+    primeiro — um comentário que citasse `` `<table>` `` ou `` `<caption>`
+    `` em prosa inflava a contagem de LEGENDAS sem existir tabela nem
+    legenda real nenhuma ali, mascarando uma tabela de verdade sem
+    `<caption>` em outro lugar do mesmo arquivo.
     """
     faltando = []
     for t in _templates():
-        texto = t.read_text(encoding="utf-8")
+        texto = _sem_comentarios_de_template(t.read_text(encoding="utf-8"))
         tabelas = len(re.findall(r"<table\b", texto, re.IGNORECASE))
         legendas = len(re.findall(r"<caption\b", texto, re.IGNORECASE))
         if tabelas > legendas:
@@ -531,11 +589,18 @@ def test_a_classe_de_valor_tabula_algarismos():
 
     Guarda contra o defeito exato da BL-271: o nome certo no lugar certo, e a
     propriedade que importa removida sem ninguém perceber.
+
+    Mesma família do achado da inspeção da rodada 3 (BL-286): o corpo do
+    bloco `.valor-monetario` era lido SEM tirar comentário CSS primeiro —
+    um comentário `/* tabular-nums */` sobrevivendo sozinho, com a
+    declaração REAL já removida, teria enganado esta guarda. `_sem_
+    comentarios_css` (já usada pelos detectores de cor/medida) fecha o
+    mesmo buraco aqui.
     """
     css = (ESTILOS / "base.css").read_text(encoding="utf-8")
     bloco = re.search(r"\.valor-monetario\s*\{(.*?)\}", css, flags=re.S)
     assert bloco, "A classe .valor-monetario sumiu de static/css/base.css"
-    corpo = bloco.group(1)
+    corpo = _sem_comentarios_css(bloco.group(1))
     assert "tabular-nums" in corpo or "mono" in corpo.lower(), (
         "A classe .valor-monetario existe mas não tabula algarismos. "
         "Sem isso as colunas de valor voltam a dançar: " + corpo.strip()[:120]
@@ -836,6 +901,172 @@ def test_controle_involucro_nao_afrouxa_o_relato_por_arquivo(tmp_path):
     ]
     assert ofensores, "a varredura deixou de reprovar o arquivo sintético"
     assert "tela_ruim.html" in ofensores[0], "a mensagem de erro parou de nomear o arquivo"
+
+
+# ---------------------------------------------------------------------------
+# Sabotagem 3 da rodada 3 (BL-286): `"valor-monetario" in tag` era SUBSTRING,
+# não TOKEN — `class="valor-monetario-legenda"` continha a string certa e
+# passava, sendo uma classe CSS diferente. Bateria nos DOIS caminhos (célula
+# e invólucro), pedida pelo arquiteto-senior: a classe "parecida" tem de
+# reprovar nos dois, a classe exata (sozinha, com vizinhas, ou com aspas
+# simples) tem de continuar passando nos dois.
+# ---------------------------------------------------------------------------
+
+
+def _celula_com_classe(classe_do_atributo):
+    return (
+        '<table><tr><td class="' + classe_do_atributo + '">{{ linha.saldo_ptbr }}</td></tr></table>'
+    )
+
+
+@pytest.mark.parametrize(
+    "classe_do_atributo, deve_reprovar",
+    [
+        # A sabotagem em si: classe PARECIDA, não a classe certa.
+        ("valor-monetario-legenda", True),
+        # A classe certa, sozinha — já valia antes, continua valendo.
+        ("valor-monetario", False),
+        # A classe certa entre outras — `class="celula valor-monetario
+        # destaque"` é o formato real que o produto já usa (ex.: `<td
+        # class="valor-monetario">` puro é raro; células combinam classes).
+        ("celula valor-monetario destaque", False),
+    ],
+)
+def test_controle_classe_da_celula_casa_como_token_nao_como_substring(
+    classe_do_atributo, deve_reprovar
+):
+    """Achado do arquiteto-senior (rodada 3, sabotagem 3): a checagem tem
+    de casar `valor-monetario` como NOME DE CLASSE inteiro dentro do
+    atributo `class`, nunca como substring da tag inteira."""
+    ofensores = _valores_sem_classe(_celula_com_classe(classe_do_atributo))
+    if deve_reprovar:
+        assert ofensores, f"classe '{classe_do_atributo}' deveria reprovar e passou"
+    else:
+        assert not ofensores, f"classe '{classe_do_atributo}' deveria passar e reprovou"
+
+
+def test_controle_classe_da_celula_aceita_aspas_simples():
+    """A sabotagem de aspas simples já pegou o detector de estilo embutido
+    (BL-274 #5) — confirmando aqui que `_tem_classe` não repete o erro."""
+    html = "<table><tr><td class='valor-monetario'>{{ linha.saldo_ptbr }}</td></tr></table>"
+    assert not _valores_sem_classe(html), "classe com aspas simples não foi reconhecida"
+
+
+def _involucro_com_classe(classe_do_atributo):
+    return (
+        '<table><tr><td class="linha-total__veredito">texto '
+        '<span class="' + classe_do_atributo + '">{{ diferenca_fechamento_ptbr }}</span>'
+        " fim</td></tr></table>"
+    )
+
+
+@pytest.mark.parametrize(
+    "classe_do_atributo, deve_reprovar",
+    [
+        ("valor-monetario-legenda", True),
+        ("valor-monetario", False),
+        ("celula valor-monetario destaque", False),
+    ],
+)
+def test_controle_classe_do_involucro_casa_como_token_nao_como_substring(
+    classe_do_atributo, deve_reprovar
+):
+    """Mesma sabotagem, mesmo achado, no SEGUNDO caminho (o invólucro que a
+    própria rodada 3 introduziu) — a checagem original copiou o defeito de
+    origem (`"valor-monetario" not in abertura.group(0)`) para cá."""
+    ofensores = _valores_sem_classe(_involucro_com_classe(classe_do_atributo))
+    if deve_reprovar:
+        assert ofensores, f"invólucro com classe '{classe_do_atributo}' deveria reprovar e passou"
+    else:
+        assert not ofensores, (
+            f"invólucro com classe '{classe_do_atributo}' deveria passar e reprovou"
+        )
+
+
+def test_controle_classe_do_involucro_aceita_aspas_simples():
+    html = (
+        '<table><tr><td class="linha-total__veredito">texto '
+        "<span class='valor-monetario'>{{ diferenca_fechamento_ptbr }}</span>"
+        " fim</td></tr></table>"
+    )
+    assert not _valores_sem_classe(html), "invólucro com aspas simples não foi reconhecido"
+
+
+# ---------------------------------------------------------------------------
+# Mesma família, achada na mesma inspeção: o atributo `scope` do `<th>`
+# também era casado por substring (`"scope=" not in tag`) — `data-scope=`/
+# `aria-scope=` continham a substring certa e a guarda achava que o `<th>`
+# tinha declarado `scope` de verdade.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "atributo, deve_reprovar",
+    [
+        ('<th data-scope="x">Conta</th>', True),
+        ('<th aria-scope="x">Conta</th>', True),
+        ("<th>Conta</th>", True),
+        ('<th scope="col">Conta</th>', False),
+        ("<th scope='col'>Conta</th>", False),
+    ],
+)
+def test_controle_atributo_scope_casa_como_atributo_nao_como_substring(atributo, deve_reprovar):
+    """`data-scope`/`aria-scope` são atributos DIFERENTES de `scope` — um
+    `<th>` que só tem um deles não declarou o `scope` que o leitor de tela
+    precisa, e a guarda não pode achar que declarou."""
+    achados = _cabecalhos_sem_escopo(atributo)
+    if deve_reprovar:
+        assert achados, f"'{atributo}' deveria reprovar (sem scope real) e passou"
+    else:
+        assert not achados, f"'{atributo}' deveria passar (scope real presente) e reprovou"
+
+
+# ---------------------------------------------------------------------------
+# Mesma inspeção: três checagens que liam texto CRU (template ou CSS) sem
+# tirar comentário primeiro — a MESMA classe de defeito que motivou
+# `_sem_comentarios_de_template` (docstring dela), só que aplicada só a
+# `PADRAO_CELULA`/`PADRAO_VALOR` e nunca generalizada para estes três
+# lugares vizinhos.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_extends_ignora_prosa_dentro_de_comentario():
+    """Um `{% comment %}` que MENCIONA `{% extends %}` em prosa (documentando
+    a própria tela) não pode contar como a tela realmente estendendo
+    `base.html` — só a tag REAL, fora de comentário."""
+    so_em_comentario = (
+        '{% comment %}Esta tela deveria ter {% extends "base.html" %} no topo, '
+        "mas alguém removeu.{% endcomment %}<html></html>"
+    )
+    assert "{% extends" not in _sem_comentarios_de_template(so_em_comentario), (
+        "a prosa dentro do comentário sobreviveu à limpeza"
+    )
+    tag_real = '{% extends "base.html" %}<html></html>'
+    assert "{% extends" in _sem_comentarios_de_template(tag_real)
+
+
+def test_controle_caption_ignora_prosa_dentro_de_comentario():
+    """Um comentário que cita `<table>`/`<caption>` em prosa não pode contar
+    como tabela nem como legenda de verdade — só a marcação REAL."""
+    texto = (
+        "{% comment %}Toda <table> precisa de <caption>.{% endcomment %}"
+        "<table><tr><td>1</td></tr></table>"
+    )
+    limpo = _sem_comentarios_de_template(texto)
+    tabelas = len(re.findall(r"<table\b", limpo, re.IGNORECASE))
+    legendas = len(re.findall(r"<caption\b", limpo, re.IGNORECASE))
+    assert tabelas == 1, "a tabela real não foi contada"
+    assert legendas == 0, "a prosa do comentário foi contada como <caption> real"
+
+
+def test_controle_tabular_nums_ignora_comentario_css():
+    """Um comentário CSS que CITA `tabular-nums` sem a declaração real ao
+    lado não pode fazer a guarda pensar que a classe tabula algarismos."""
+    corpo_so_com_comentario = "/* deveria ter tabular-nums aqui, mas sumiu */"
+    limpo = _sem_comentarios_css(corpo_so_com_comentario)
+    assert "tabular-nums" not in limpo, "o comentário sobreviveu à limpeza"
+    corpo_real = "font-variant-numeric: tabular-nums;"
+    assert "tabular-nums" in _sem_comentarios_css(corpo_real)
 
 
 def test_controle_negativo_detector_de_valor_ignora_prosa_dentro_de_comentario():
