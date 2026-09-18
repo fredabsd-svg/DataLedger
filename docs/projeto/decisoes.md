@@ -2068,3 +2068,47 @@ está no registry. A lista explícita é o contrato.
 cobre os 6 modelos via lista explícita). Não adiciona nem remove
 ModelAdmin. Só reconcilia o plano com o que existe.
 
+## DE-044 — Regex do gate não exige `**` literais; template alinhado
+
+**Data:** 2026-09-18
+
+**Decisão:** o regex do workflow `.github/workflows/regras-do-projeto.yml`
+procura agora `"Atualizei o estado do projeto"` (sem `**`), e o template
+`.github/pull_request_template.md` foi ajustado pra remover `**` ao redor
+de "estado do projeto" na checkbox correspondente. Os dois ficam
+consistentes.
+
+**Motivo:** o regex antigo `re.escape("Atualizei o **estado do projeto**")`
+gerava um padrão que exigia `**` literais dentro do texto que o humano
+escreve. Como nenhum autor humano coloca `**` antes de "estado" numa frase
+natural, o 2º checkbox do template NUNCA casava, mesmo com `[x]` marcado.
+O template ensinava o uso errado (`**` ao redor) ao mesmo tempo em que o
+regex tentava casar esse uso errado — um bug estrutural latente desde que
+o gate foi adicionado em DL-014. Ele só não foi detectado antes porque o
+PR que adicionou o gate possuía `**` literal no corpo.
+
+**Alternativas descartadas:**
+1. Workaround local no PR travado (adicionar `- [x] Atualizei o **estado do projeto**` com `**` literal) — DeepSeek advertiu que isso cria precedente de adaptar corpo ao regex e, se a correção definitiva reprovasse, viraria permanente. Descartada por isso.
+2. Tentar outras regex sem mudar o texto procurado (ex.: `re.search("estado do projeto", corpo)` sem `\s*\[x\]`) — enfraquece o check: passaria a casar sem exigir `[x]`. Descartada por regressão semântica.
+3. Substituir o check por uma chamada a um script externo — overhead desproporcional para um fix de 1 linha. Descartada.
+
+**Senior Opinion (DeepSeek, modo consultoria):** "Sequenciar A→B.
+Abrir PR do gate primeiro, em paralelo com auditoria. B só entra como
+contingência se A estourar SLA." — A foi seguido (PR #32). B descartado
+porque A fechou dentro do SLA esperado.
+
+**Decisão final:** corrigir regex E template no mesmo PR, manter o check
+semântico (`[x]` obrigatório, plano DL-NNN obrigatório).
+
+**Consequência:**
+- PRs futuros vão conseguir marcar as duas caixas sem precisar conhecer
+  o detalhe do regex.
+- PR #31 (DL-016) continua com `**` no corpo; após merge de #32, o autor
+  do #31 ajusta o corpo pra alinhar com o template novo, re-rodando CI.
+- Auditoria independente obrigatória antes do merge de #32 (DE-004).
+
+**Evidência:** validação empírica em Python (com a função `marcado` do
+workflow) confirmou que o regex antigo só casava com `**` literal dentro
+da frase, e que o regex novo casa com texto natural. Testado com corpo
+do template corrigido e com corpo atual do PR #31.
+
