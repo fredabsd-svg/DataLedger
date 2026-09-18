@@ -10,35 +10,47 @@ O QUE A COMMAND FAZ, EM ORDEM:
   1. Itera sobre `LancamentoContabil.objects.filter(competencia__isnull=True)`
      em batches via `.iterator(chunk_size=batch_size)`.
   2. Para cada lançamento, deriva `(empresa_id, ano, mes)` de
-     `lancamento.empresa_id` e `lancamento.data`. Lançamentos sem
-     `empresa_id` válida viram "órfãos" — contados, logados, pulados.
+     `lancamento.empresa_id` e `lancamento.data`. NOTA: como
+     `LancamentoContabil.empresa` e NOT NULL por schema desde DL-006
+     (FK com `on_delete=PROTECT` e sem `null=True`), todo lancamento
+     analisado aqui ja tem `empresa_id` valida. Nao ha cenario de
+     orfao possivel em caminhos oficiais, e o codigo NAO tem branch
+     para trata-los (branch morto por design).
   3. Faz `Competencia.objects.get_or_create(...)` — a
      `UniqueConstraint` em `Meta.constraints` (DE-008 camada 1)
      garante que duas tentativas simultâneas para a mesma chave
-     resultem em UMA Competencia, não em race condition.
+     resultem em UMA Competencia, nao em race condition.
   4. Faz `LancamentoContabil.objects.filter(id__in=batch_ids,
      competencia__isnull=True).update(competencia=comp)` no fim da
      passada — um único UPDATE por batch, mantendo locks curtos.
-  5. Repete 1-4 `max_passes` vezes (default 2). A segunda passada é
+  5. Repete 1-4 `max_passes` vezes (default 2). A segunda passada e
      curta e serve apenas para reduzir a janela em que um
      `criar_lancamento` concorrente (F2) consegue inserir um
-     lançamento que ESCAPA da primeira passada.
+     lancamento que ESCAPA da primeira passada.
 
 CONTRATO:
-  - Por padrão, `--dry-run` está ligado: nada é alterado, apenas
-    contado e logado. É o modo seguro para qualquer ambiente.
-  - `--apply` efetiva. Exige confirmação consciente do operador.
-  - A command é IDEMPOTENTE: rodar duas vezes seguidas não muda nada
-    na segunda passada, porque a cláusula `competencia__isnull=True`
+  - Por padrao, `--dry-run` esta ligado: nada e alterado, apenas
+    contado e logado. E o modo seguro para qualquer ambiente.
+  - `--apply` efetiva. Exige confirmacao consciente do operador.
+  - A command e IDEMPOTENTE: rodar duas vezes seguidas nao muda nada
+    na segunda passada, porque a clausula `competencia__isnull=True`
     limita o queryset.
-  - Órfãos NÃO causam exit code != 0. O relatório fica para revisão
-    manual antes de aplicar em produção.
 
 FORA DO ESCOPO (declarado no plano docs/planos/DL-016-F5-backfill-competencia.md):
-  - Nao vira a FK em `null=False`. Isso e uma DL separada (F6) que
-    depende do relatorio desta command mostrar zero orfaos em prod.
+  - Nao vira a FK em `null=False`. Isso e uma DL separada (F6).
   - Nao fecha nem reabre competencias (F3, F4).
   - Nao migra competencias entre empresas.
+
+VERIFICACAO OPERACIONAL DE ORFAOS EM PROD:
+Como o branch de orfao foi removido por ser inalcancavel via ORM, a
+rede de seguranca contra INSERT direto via shell-admin nao existe
+mais dentro da command. Por isso, antes de rodar `--apply` em
+producao, executar:
+    SELECT COUNT(*) FROM contabilidade_lancamentocontabil
+        WHERE empresa_id IS NULL;
+Se > 0, abortar e investigar origem. Este procedimento precisa estar
+no runbook de deploy do F5. Este compromisso e tambem pendencia
+nominal para DL-016 F6 (ja documentada no plano).
 """
 
 from collections import Counter
@@ -104,7 +116,6 @@ class Command(BaseCommand):
             lidos=0,
             fks_atribuidas=0,
             competencias_criadas=0,
-            orfaos_pulados=0,
         )
 
         tempo_inicio = monotonic()
@@ -126,8 +137,7 @@ class Command(BaseCommand):
                     f"{numero_passada}/{max_passes} concluida: "
                     f"lidos={contadores_passada['lidos']}, "
                     f"fks_atribuidas={contadores_passada['fks_atribuidas']}, "
-                    f"competencias_criadas={contadores_passada['competencias_criadas']}, "
-                    f"orfaos_pulados={contadores_passada['orfaos_pulados']}"
+                    f"competencias_criadas={contadores_passada['competencias_criadas']}"
                 )
             )
             # Se nao ha mais nada para processar, nao precisa de mais passadas.
@@ -147,8 +157,7 @@ class Command(BaseCommand):
                 f"[backfill_lancamento_competencia] CONCLUIDO em {duracao:.2f}s. "
                 f"TOTAIS: lidos={totais['lidos']}, "
                 f"fks_atribuidas={totais['fks_atribuidas']}, "
-                f"competencias_criadas={totais['competencias_criadas']}, "
-                f"orfaos_pulados={totais['orfaos_pulados']}. "
+                f"competencias_criadas={totais['competencias_criadas']}. "
                 f"Modo: {mode}."
             )
         )
@@ -167,13 +176,11 @@ class Command(BaseCommand):
             lidos=0,
             fks_atribuidas=0,
             competencias_criadas=0,
-            orfaos_pulados=0,
         )
 
         # Filtramos aqui para garantir idempotencia: a segunda passada
         # naturalmente so enxerga o que sobrou (lancamentos concorrentes
-        # que entraram DURANTE a primeira passada, ou lancamentos com
-        # empresa nula que foram pulados mas agora tem empresa).
+        # que entraram DURANTE a primeira passada).
         queryset = LancamentoContabil.objects.filter(competencia__isnull=True).order_by("id")
 
         # Buffer para acumular IDs do batch atual ate atingirmos
@@ -189,19 +196,13 @@ class Command(BaseCommand):
         for lancamento in queryset.iterator(chunk_size=batch_size):
             contadores["lidos"] += 1
 
-            empresa_id = lancamento.empresa_id
-            if empresa_id is None:
-                # Orfao: lancamento sem empresa. Conta, loga, pula.
-                contadores["orfaos_pulados"] += 1
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"  [passada {numero_passada}] orfao: lancamento "
-                        f"id={lancamento.id} sem empresa_id; pulando."
-                    )
-                )
-                continue
-
-            chave = (empresa_id, lancamento.data.year, lancamento.data.month)
+            # LancamentoContabil.empresa e NOT NULL por schema (FK com
+            # PROTECT, sem null=True, desde DL-006). Aqui assumimos
+            # `empresa_id` ja preenchido; se um INSERT direto no banco
+            # burlar essa garantia, a `IntegrityError` na FK do get_or_create
+            # Competencia vai aparecer e ser visivel no log. Nao ha branch
+            # de "orfao" explicito por design (ver docstring no topo).
+            chave = (lancamento.empresa_id, lancamento.data.year, lancamento.data.month)
             competencia = cache_chaves.get(chave)
             if competencia is None:
                 # Cache miss para esta chave. get_or_create: idempotente
@@ -209,7 +210,7 @@ class Command(BaseCommand):
                 # competencias novas; apenas checamos se ja existe.
                 if apply:
                     competencia, criada = Competencia.objects.get_or_create(
-                        empresa_id=empresa_id,
+                        empresa_id=chave[0],
                         ano=chave[1],
                         mes=chave[2],
                     )
@@ -218,7 +219,7 @@ class Command(BaseCommand):
                 else:
                     # Dry-run: so consulta, nunca cria.
                     competencia = Competencia.objects.filter(
-                        empresa_id=empresa_id, ano=chave[1], mes=chave[2]
+                        empresa_id=chave[0], ano=chave[1], mes=chave[2]
                     ).first()
                     if competencia is None:
                         # Em dry-run, contamos como "competencia que SERIA

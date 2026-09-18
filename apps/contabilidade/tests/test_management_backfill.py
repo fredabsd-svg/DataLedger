@@ -5,23 +5,28 @@ Escopo deste arquivo: SOMENTE o comportamento da command. O modelo
 vinculacao automatica em `criar_lancamento` (F2) tem
 `test_services.py:class CompetenciaNoLancamentoTests`.
 
-Os 4 cenarios cobertos aqui:
+Os 5 cenarios cobertos aqui:
 
-1. **Orfao pulado:** Lancamento com `empresa=None` (forcado em teste)
-   -> contador orfaos += 1, FK permanece None, exit 0.
-2. **Competencia ja existe:** `Competencia(2026, 9)` criada; lancamento
+1. **Competencia ja existe:** `Competencia(2026, 9)` criada; lancamento
    de set/2026 sem FK -> Competencia count nao muda; FK atribuida.
-3. **Competencia a criar:** Lancamento de ago/2026 sem FK ->
+2. **Competencia a criar:** Lancamento de ago/2026 sem FK ->
    `Competencia(2026, 8)` criada, FK atribuida.
-4. **Dry-run nao altera o banco:** Lancamento sem FK, rodar com
+3. **Dry-run nao altera o banco:** Lancamento sem FK, rodar com
    dry-run -> Competencia count nao muda, FK permanece None, exit 0.
+4. **Idempotencia:** rodar --apply duas vezes seguidas, a 2a nao
+   altera nada (coberto pela clausula `competencia__isnull=True`).
+5. **Concorrencia:** lancamento criado ENTRE duas passadas eh pego
+   pela 2a passada.
 
-Para o cenario "orfao pulado": o `LancamentoContabil.empresa` e
-`on_delete=PROTECT`, e na pratica nunca deveria ter `empresa=None`
-em producao (a FK e parte do modelo desde DL-006 e a coluna nunca
-foi alterada para null=True). Porem, o teste cria o orfao por uma
-via que burla o caminho de negocio (`objects.update` direto na FK)
-para confirmar que a command trata o caso sem quebrar.
+NOTA SOBRE ORFAOS: Este arquivo NAO cobre o caso "lancamento sem
+empresa". O `LancamentoContabil.empresa` e `ForeignKey(Empresa,
+on_delete=PROTECT)` sem `null=True` desde DL-006 - ou seja, NOT NULL
+por schema, e portanto e fisicamente impossivel criar um lancamento
+orfao via ORM. A command deliberadamente NAO tem branch de orfao
+(branch morto por design). A cobertura contra orfaos reais passa a
+ser uma CHECK constraint em `empresa_id IS NOT NULL` em DL-016 F6,
+e um `SELECT COUNT(*) ... WHERE empresa_id IS NULL` no runbook de
+deploy do F5 (ver docstring da command).
 
 O padrao de fixtures segue o que o PR #31 da DL-016 (F1) ja
 estabeleceu em `test_competencia.py`:
@@ -62,8 +67,7 @@ class BackfillCompetenciaTests(TestCase):
             razao_social="ACME Backfill LTDA",
             cnpj="11.444.777/0001-61",
         )
-        # Uma conta para associar aos lancamentos (a FK nao e NOT NULL
-        # em LancamentoContabil, mas ItemLancamento exige conta).
+        # Uma conta para associar aos lancamentos (ItemLancamento exige conta).
         cls.conta_caixa = Conta.objects.create(
             empresa=cls.empresa,
             codigo="1.1.1.01",
@@ -76,15 +80,22 @@ class BackfillCompetenciaTests(TestCase):
         self,
         *,
         data: datetime.date,
-        empresa=None,
+        empresa: Empresa | None = None,
         historico: str = "lancamento de teste",
     ) -> LancamentoContabil:
         """Cria LancamentoContabil sem FK competencia e com 1 ItemLancamento.
 
-        `empresa=None` permite simular o cenario de orfao.
+        `empresa` NAO tem default None explicito no call site: como
+        `LancamentoContabil.empresa` e NOT NULL por schema desde
+        DL-006, o default interno `self.empresa` garante que o teste
+        sempre cria lancamentos validos. Para passar uma empresa
+        diferente (cenarios multi-empresa, se viermos a ter), basta
+        passar o argumento `empresa=...`.
         """
+        if empresa is None:
+            empresa = self.empresa
         lancamento = LancamentoContabil.objects.create(
-            empresa=empresa,  # pode ser None para teste de orfao
+            empresa=empresa,
             data=data,
             historico=historico,
         )
@@ -97,53 +108,7 @@ class BackfillCompetenciaTests(TestCase):
         return lancamento
 
     # ------------------------------------------------------------------
-    # Cenario 1: orfao pulado
-    # ------------------------------------------------------------------
-    def test_orfao_sem_empresa_e_pulado_sem_quebrar(self):
-        """Lancamento com empresa=None nao vira Competencia; FK continua None."""
-        # Forca a criacao de um lancamento orfao. Na pratica nunca
-        # acontece (FK obrigatoria desde DL-006), mas o teste confirma
-        # que a command trata o caso sem crashar.
-        orfao = self._criar_lancamento_sem_competencia(
-            data=datetime.date(2026, 1, 15),
-            empresa=None,
-            historico="orfao forcado para teste",
-        )
-
-        # Sanidade: o lancamento existe sem FK.
-        self.assertIsNone(orfao.competencia_id)
-        self.assertIsNone(orfao.empresa_id)
-        competencias_antes = Competencia.objects.count()
-
-        # Roda a command em dry-run (default).
-        call_command("backfill_lancamento_competencia")
-
-        # O orfao continua sem FK. Nenhuma Competencia foi criada.
-        orfao.refresh_from_db()
-        self.assertIsNone(
-            orfao.competencia_id,
-            "Orfao (empresa=None) NAO deve receber FK de Competencia.",
-        )
-        self.assertEqual(Competencia.objects.count(), competencias_antes)
-
-    def test_orfao_nao_falha_em_apply(self):
-        """Em apply, orfao tambem nao quebra a command. FK continua None."""
-        orfao = self._criar_lancamento_sem_competencia(
-            data=datetime.date(2026, 1, 15),
-            empresa=None,
-            historico="orfao forcado para teste em apply",
-        )
-        competencias_antes = Competencia.objects.count()
-
-        # Roda em --apply.
-        call_command("backfill_lancamento_competencia", "--apply")
-
-        orfao.refresh_from_db()
-        self.assertIsNone(orfao.competencia_id)
-        self.assertEqual(Competencia.objects.count(), competencias_antes)
-
-    # ------------------------------------------------------------------
-    # Cenario 2: competencia ja existe
+    # Cenario 1: competencia ja existe
     # ------------------------------------------------------------------
     def test_competencia_existente_e_reaproveitada(self):
         """Se a Competencia(2026, 9) ja existe, a FK e atribuida sem criar nova."""
@@ -164,7 +129,7 @@ class BackfillCompetenciaTests(TestCase):
         self.assertEqual(lanc.competencia_id, comp_existente.id)
 
     # ------------------------------------------------------------------
-    # Cenario 3: competencia a criar
+    # Cenario 2: competencia a criar
     # ------------------------------------------------------------------
     def test_competencia_a_criar_e_criada_e_atribuida(self):
         """Lancamento de ago/2026 sem FK cria Competencia(2026, 8)."""
@@ -184,7 +149,7 @@ class BackfillCompetenciaTests(TestCase):
         self.assertEqual(lanc.competencia_id, comp_criada.id)
 
     # ------------------------------------------------------------------
-    # Cenario 4: dry-run nao altera o banco
+    # Cenario 3: dry-run nao altera o banco
     # ------------------------------------------------------------------
     def test_dry_run_nao_cria_competencia_nem_atribui_fk(self):
         """Dry-run (default) nao cria Competencia nem preenche FK."""
@@ -206,7 +171,7 @@ class BackfillCompetenciaTests(TestCase):
         )
 
     # ------------------------------------------------------------------
-    # Idempotencia: rodar duas vezes seguidas nao muda nada na 2a
+    # Cenario 4: Idempotencia - rodar duas vezes seguidas nao muda nada
     # ------------------------------------------------------------------
     def test_idempotencia_em_apply(self):
         """Rodar --apply duas vezes: a 2a passada nao altera nada."""
@@ -227,8 +192,8 @@ class BackfillCompetenciaTests(TestCase):
         self.assertEqual(Competencia.objects.count(), competencias_pos_p1)
 
     # ------------------------------------------------------------------
-    # Concorrentes: lancamento criado durante a 1a passada eh pego na 2a
-    # (simulado criando-se apos a 1a passada manual)
+    # Cenario 5: Concorrencia - lancamento criado durante a 1a passada
+    # eh pego na 2a (simulado criando-se apos a 1a passada manual)
     # ------------------------------------------------------------------
     def test_segunda_passada_pega_lancamento_criado_no_meio(self):
         """Lancamento criado ENTRE as passadas eh pego na 2a passada.
