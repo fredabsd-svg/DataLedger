@@ -717,13 +717,9 @@ def test_balancete_erro_de_periodo_oferece_saida_navegavel(client, cenario):
     hoje = timezone.localdate()
     inicio = hoje.replace(day=1).isoformat()
     fim = hoje.isoformat()
-    resposta_ok = client.get(
-        url_balancete_sem_querystring + f"?inicio={inicio}&fim={fim}"
-    )
+    resposta_ok = client.get(url_balancete_sem_querystring + f"?inicio={inicio}&fim={fim}")
     assert resposta_ok.status_code == 200
-    assert (
-        f'<a href="{url_balancete_sem_querystring}">' not in resposta_ok.content.decode()
-    )
+    assert f'<a href="{url_balancete_sem_querystring}">' not in resposta_ok.content.decode()
 
     # E o link de fato funciona: segui-lo devolve 200 com uma resposta
     # válida (o período padrão, mês corrente) — não é um link decorativo.
@@ -731,7 +727,9 @@ def test_balancete_erro_de_periodo_oferece_saida_navegavel(client, cenario):
     assert resposta_recuperada.status_code == 200
 
 
-def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(client, cenario, monkeypatch):
+def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
+    client, cenario, monkeypatch
+):
     """BL-290 (achado A2 da auditoria DL-024, rodada 2): o ramo "Não
     fecha" da faixa de fechamento é uma REDE DE SEGURANÇA — a apuração do
     Balancete garante débito igual a crédito por construção (partida

@@ -40,6 +40,7 @@ documentada, de todo o resto da varredura de interface deste projeto.
 
 import re
 
+
 # `\s` OBRIGATÓRIO antes do nome do atributo: evita casar um atributo com
 # outro NOME que só termina com o mesmo sufixo (ex.: `data-class="x"`
 # contém a substring "class=", mas não é o atributo `class`) — a mesma

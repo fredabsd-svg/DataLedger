@@ -752,7 +752,9 @@ def test_mutacao_classe_texto_apoio_por_substring_e_detectada(client, cen):
     )
 
     mutado = conteudo.replace(
-        'class="texto-apoio ajuda-formato-data"', 'class="texto-apoio-legenda ajuda-formato-data"', 1
+        'class="texto-apoio ajuda-formato-data"',
+        'class="texto-apoio-legenda ajuda-formato-data"',
+        1,
     )
     assert mutado != conteudo, "controle: a mutação precisa mudar alguma coisa no HTML real"
 

@@ -88,9 +88,7 @@ def test_varredura_por_pasta_pega_tela_nova_sem_precisar_de_lista(tmp_path):
     contra o repositório real ao mesmo tempo (BL-273).
     """
     (tmp_path / "balancete.html").write_text(
-        "{% extends 'base.html' %}\n"
-        + INCLUDE_ESPERADO
-        + ' with pagina_atual="balancete" %}\n',
+        "{% extends 'base.html' %}\n" + INCLUDE_ESPERADO + ' with pagina_atual="balancete" %}\n',
         encoding="utf-8",
     )
     (tmp_path / "exportacao.html").write_text(
