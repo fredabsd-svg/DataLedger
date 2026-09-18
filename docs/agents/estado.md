@@ -255,7 +255,37 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-16:
+**AGORA, em 2026-09-18:
+[DL-024](../planos/DL-024-identidade-visual-e-interface.md) — identidade visual.
+Rodada 1 REPROVADA em `5c7303e`
+([relatório](../auditorias/2026-09-18-dl-024-rodada-1.md), preservado
+integralmente). **Rodada 2 distribuída**, em duas frentes com arquivos
+disjuntos, executando em paralelo:**
+
+| Frente | Responsável | Itens | Arquivos |
+| --- | --- | --- | --- |
+| Produto | `especialista-frontend` | BL-275, BL-276, BL-278, BL-279, BL-280, BL-283 | `templates/**`, `static/css/**` e o teste novo `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py` |
+| Mecanismo | `desenvolvedor-pleno` | BL-274 (as seis cegueiras da varredura + o detector de medidas que o critério 13 promete) | **só** `apps/core/tests/test_dl024_varredura_de_interface.py` |
+
+Três decisões de coordenação, todas com motivo:
+
+1. **Os conjuntos de arquivos não se tocam.** A varredura é do
+   `desenvolvedor-pleno`; as telas e o CSS são do `especialista-frontend`.
+   Nenhum dos dois encosta no arquivo do outro.
+2. **O `desenvolvedor-pleno` não commita.** A integração é minha, depois que as
+   duas metades voltarem — o detector novo de medidas literais **reprova contra
+   a árvore atual** enquanto o **BL-279** (medidas soltas no `base.css`) não
+   fechar, e as duas coisas fecham juntas ou nenhuma.
+3. **Medição concorrente não vira relatório** (**BL-273**): com dois agentes
+   rodando, resultado anômalo em massa se repete sozinho antes de ser
+   reportado. Já aconteceu aqui — `1279 errors` numa revisão que, sozinha, deu
+   `1279 passed`.
+
+Fora da rodada 2, por decisão registrada: **BL-277** (o filtro de 411px),
+**BL-281** (parênteses no balancete — muda a view, não o template) e **BL-282**
+(timbre do escritório na impressão).
+
+**Antes, em 2026-09-16:
 [DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
 administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. Rodada 1
 REPROVADA em `96284a4`; rodada 2 corrigiu os dez itens; RODADA 3 — a segunda
