@@ -5,17 +5,30 @@ Comportamento transacional em `criar_lancamento` (F2) tem seu próprio
 arquivo em `test_services.py` (`class CompetenciaNoLancamentoTests`),
 e F3/F4 trarão `test_encerramento.py` e `test_reabertura.py`.
 
-ESTADO DESTE ARQUIVO: IMPORT-ONLY.
+ESTADO DESTE ARQUIVO: IMPORT-ONLY na escrita original; CORRIGIDO EM CI após
+primeira rodada de CI do PR #31 (commit posterior a `31bbfc9`).
 
-Este arquivo NÃO foi executado neste turno. O ambiente do agente não
-dispunha de Python 3.12+ (exigido por Django 6.1.1) — o sandbox roda
-Python 3.11, e o `pip install -r requirements/dev.txt` falha
-com `ERROR: Could not find a version that satisfies the requirement
-Django==6.1.1`. Por isso, este arquivo só foi validado por
-`python -m py_compile`, NÃO por `manage.py test`. Os testes foram
-escritos para serem executados em CI ou em máquina do Fred com
-Python 3.12+, e a expectativa é de que passem sem ajustes. Se algo
-falhar no CI, o problema é de implementação dos testes, não de design.
+Este arquivo foi escrito em turno onde o ambiente do agente não dispunha
+de Python 3.12+ (exigido por Django 6.1.1) — o sandbox rodava Python 3.11,
+e o `pip install -r requirements/dev.txt` falha com `ERROR: Could not
+find a version that satisfies the requirement Django==6.1.1`. Por isso,
+na escrita original o arquivo só foi validado por `python -m py_compile`,
+NÃO por `manage.py test`.
+
+O `setUpTestData` foi escrito com `Empresa.objects.create(razao_social=...,
+cnpj=...)` SEM `escritorio`. Na CI real (Python 3.14.7 + PostgreSQL),
+o setup falhou com `psycopg.errors.NotNullViolation: null value in column
+"escritorio_id" of relation "empresas_empresa"` — porque a FK
+`Empresa.escritorio` (introduzida em DL-009, ver `apps/empresas/models.py:66`)
+é `NOT NULL` desde então.
+
+CORREÇÃO APLICADA (neste turno):
+- Adicionado `from apps.tenancy.models import Escritorio`.
+- Os dois `setUpTestData` (de `CompetenciaModelTests` e
+  `CompetenciaOrderingTests`) agora criam `Escritorio` antes da `Empresa`,
+  seguindo o mesmo padrão de `apps/contabilidade/tests/test_services.py`
+  e `apps/core/tests/test_dl024_*.py`.
+- Nenhuma alteração nos testes em si — só nas fixtures.
 
 Por que mesmo assim eu os escrevo:
 - A auditoria da DL-016 (DE-008, camada 1) pediu defesa de unicidade
@@ -35,6 +48,7 @@ from django.test import TestCase
 
 from apps.contabilidade.models import Competencia, EstadoCompetencia
 from apps.empresas.models import Empresa
+from apps.tenancy.models import Escritorio
 
 
 class CompetenciaModelTests(TestCase):
@@ -44,7 +58,14 @@ class CompetenciaModelTests(TestCase):
     def setUpTestData(cls):
         # Empresa mínima; `cnpj` válido pelo algoritmo, mas o que importa
         # aqui é que `Empresa.save()` não reclame de validação de campo.
+        # `escritorio` é obrigatório desde DL-009/DL-015 (FK NOT NULL);
+        # ver `apps/empresas/models.py:66`.
+        cls.escritorio = Escritorio.objects.create(
+            nome="Escritório DL-016 F1",
+            cnpj="11111111000111",
+        )
         cls.empresa = Empresa.objects.create(
+            escritorio=cls.escritorio,
             razao_social="ACME LTDA",
             cnpj="11.444.777/0001-61",
         )
@@ -99,7 +120,12 @@ class CompetenciaOrderingTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        cls.escritorio = Escritorio.objects.create(
+            nome="Escritório DL-016 F1 ordering",
+            cnpj="22222222000122",
+        )
         cls.empresa = Empresa.objects.create(
+            escritorio=cls.escritorio,
             razao_social="ACME LTDA",
             cnpj="11.444.777/0001-61",
         )

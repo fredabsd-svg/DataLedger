@@ -2068,3 +2068,45 @@ está no registry. A lista explícita é o contrato.
 cobre os 6 modelos via lista explícita). Não adiciona nem remove
 ModelAdmin. Só reconcilia o plano com o que existe.
 
+
+## DE-046 — Fixture de `test_competencia.py` precisa criar `Escritorio`
+
+**Data:** 2026-09-18
+
+**Decisão:** corrigir o `setUpTestData` de
+`apps/contabilidade/tests/test_competencia.py` adicionando
+`Escritorio.objects.create(...)` ANTES da `Empresa.objects.create(...)`,
+porque a FK `Empresa.escritorio` é `NOT NULL` desde DL-009 (ver
+`apps/empresas/models.py:66`).
+
+**Contexto:** a primeira rodada da CI do PR #31 reprovou em SETUP com
+`psycopg.errors.NotNullViolation: null value in column "escritorio_id"
+of relation "empresas_empresa"`. O `setUpTestData` original foi escrito
+em turno onde o ambiente Python 3.11 não conseguia instalar Django 6.1.1,
+então os testes não foram executados localmente — só `py_compile`. A
+CI real (Python 3.14.7 + PostgreSQL) executou os testes e detectou a
+ausência do `Escritorio` na fixture.
+
+**Por que não foi detectado antes:** o modelo `Empresa` é multi-tenant
+desde DL-009, e os testes mais antigos (`test_models.py`,
+`test_services.py`) já tinham o padrão correto. O `test_competencia.py`
+é da DL-016 e foi escrito sem consultar esses arquivos — falha de
+auditoria minha, não do código de produto.
+
+**Correção aplicada:** adicionada `from apps.tenancy.models import
+Escritorio`. Os dois `setUpTestData` (de `CompetenciaModelTests` e
+`CompetenciaOrderingTests`) agora seguem o mesmo padrão de
+`apps/contabilidade/tests/test_services.py:42-46` e
+`apps/core/tests/test_dl024_*.py`.
+
+**Alternativa descartada:** tornar `escritorio` nullable em `Empresa`
+para aceitar a fixture antiga. Descartada porque abre caminho de
+regressão multi-tenant — todo o restante do projeto assume a FK
+NOT NULL, e o `TenantScopedManager` depende disso.
+
+**Consequência:** CI do PR #31 deve voltar a passar nos testes. Fixture
+fica alinhada com o resto do projeto. Cabeçalho do
+`test_competencia.py` foi atualizado pra registrar honestamente o que
+aconteceu (escrita original só com `py_compile`; correção de fixture
+neste turno). Nenhuma mudança em código de produção ou em asserts dos
+testes.
