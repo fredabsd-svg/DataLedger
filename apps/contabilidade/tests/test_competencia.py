@@ -30,6 +30,7 @@ Por que mesmo assim eu os escrevo:
 # deste arquivo não falhe por ausência do Django no ambiente do agente.
 # O `import django` no topo garante erro claro se este módulo for
 # carregado sem Django configurado.
+from django.db import IntegrityError
 from django.test import TestCase
 
 from apps.contabilidade.models import Competencia, EstadoCompetencia
@@ -50,17 +51,13 @@ class CompetenciaModelTests(TestCase):
 
     def test_estado_padrao_e_aberta(self):
         """`Competencia.objects.create` simples nasce com `estado='aberta'`."""
-        comp = Competencia.objects.create(
-            empresa=self.empresa, ano=2026, mes=11
-        )
+        comp = Competencia.objects.create(empresa=self.empresa, ano=2026, mes=11)
         self.assertEqual(comp.estado, EstadoCompetencia.ABERTA)
         self.assertEqual(comp.estado, "aberta")  # valor bruto, não o label
 
     def test_str_em_portugues(self):
         """`__str__` devolve mês por extenso + ano + empresa."""
-        comp = Competencia.objects.create(
-            empresa=self.empresa, ano=2026, mes=11
-        )
+        comp = Competencia.objects.create(empresa=self.empresa, ano=2026, mes=11)
         texto = str(comp)
         # Verifica os três componentes sem depender de formatação
         # exata (espaços, separadores, ordem). O mês de novembro é o
@@ -72,28 +69,22 @@ class CompetenciaModelTests(TestCase):
     def test_unica_por_empresa_ano_mes(self):
         """Tentar criar segunda `Competencia` com mesma chave única falha."""
         Competencia.objects.create(empresa=self.empresa, ano=2026, mes=11)
-        with self.assertRaises(Exception):
-            # `Exception` em vez de `IntegrityError` para não importar
-            # `django.db` no topo (mantém o `py_compile` feliz sem Django).
+        with self.assertRaises(IntegrityError):
             Competencia.objects.create(empresa=self.empresa, ano=2026, mes=11)
 
     def test_mes_fora_da_faixa_recusado(self):
         """Mês = 0 e mês = 13 devem ser recusados pelo CheckConstraint."""
         for mes_invalido in (0, 13):
             with self.subTest(mes=mes_invalido):
-                with self.assertRaises(Exception):
-                    Competencia.objects.create(
-                        empresa=self.empresa, ano=2026, mes=mes_invalido
-                    )
+                with self.assertRaises(IntegrityError):
+                    Competencia.objects.create(empresa=self.empresa, ano=2026, mes=mes_invalido)
 
     def test_ano_fora_da_faixa_recusado(self):
         """Ano < 1970 e ano > 2999 devem ser recusados pelo CheckConstraint."""
         for ano_invalido in (1969, 3000):
             with self.subTest(ano=ano_invalido):
-                with self.assertRaises(Exception):
-                    Competencia.objects.create(
-                        empresa=self.empresa, ano=ano_invalido, mes=11
-                    )
+                with self.assertRaises(IntegrityError):
+                    Competencia.objects.create(empresa=self.empresa, ano=ano_invalido, mes=11)
 
     def test_competencias_da_mesma_empresa_em_meses_diferentes_coexistem(self):
         """Janeiro e fevereiro do mesmo ano SÃO linhas distintas."""
@@ -117,9 +108,7 @@ class CompetenciaOrderingTests(TestCase):
         Competencia.objects.create(empresa=cls.empresa, ano=2026, mes=3)
 
     def test_listagem_ordenada_mais_recente_primeiro(self):
-        resultado = list(
-            Competencia.objects.values_list("ano", "mes").order_by()
-        )
+        resultado = list(Competencia.objects.values_list("ano", "mes").order_by())
         # Aplica a ordenação do Meta na mão para comparar:
         ordenadas = sorted(resultado, key=lambda t: (t[0], t[1]), reverse=True)
         self.assertEqual(resultado, ordenadas)

@@ -52,9 +52,7 @@ class Competencia(models.Model):
       (ano, mês), não a data. Manter o par explícito reduz surpresa.
     """
 
-    empresa = models.ForeignKey(
-        Empresa, on_delete=models.PROTECT, related_name="competencias"
-    )
+    empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="competencias")
     ano = models.IntegerField("ano")
     mes = models.IntegerField("mês")
     estado = models.CharField(
