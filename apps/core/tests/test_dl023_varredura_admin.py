@@ -173,7 +173,7 @@ DECISOES = {
         "`Competencia` diretamente hoje (a única gravação por caminho do "
         "produto é o `get_or_create(...)` dentro de `criar_lancamento`, que "
         "trata `IntegrityError` como corrida interna, não como erro de "
-        "negócio). Sem invariante adicional a defender no admin."
+        "negócio). Sem invariante adicional a defender no admin.",
     ),
     "auditoria.RegistroAuditoria": (
         "defendida",

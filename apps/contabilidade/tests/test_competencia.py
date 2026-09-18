@@ -111,9 +111,7 @@ class CompetenciaModelTests(TestCase):
         for mes_invalido in (0, 13):
             with self.subTest(mes=mes_invalido):
                 with self.assertRaises(IntegrityError), transaction.atomic():
-                    Competencia.objects.create(
-                        empresa=self.empresa, ano=2026, mes=mes_invalido
-                    )
+                    Competencia.objects.create(empresa=self.empresa, ano=2026, mes=mes_invalido)
 
     def test_ano_fora_da_faixa_recusado(self):
         """Ano < 1970 e ano > 2999 devem ser recusados pelo CheckConstraint.
@@ -123,9 +121,7 @@ class CompetenciaModelTests(TestCase):
         for ano_invalido in (1969, 3000):
             with self.subTest(ano=ano_invalido):
                 with self.assertRaises(IntegrityError), transaction.atomic():
-                    Competencia.objects.create(
-                        empresa=self.empresa, ano=ano_invalido, mes=11
-                    )
+                    Competencia.objects.create(empresa=self.empresa, ano=ano_invalido, mes=11)
 
     def test_competencias_da_mesma_empresa_em_meses_diferentes_coexistem(self):
         """Janeiro e fevereiro do mesmo ano SÃO linhas distintas."""
