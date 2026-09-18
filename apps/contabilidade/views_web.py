@@ -2126,6 +2126,46 @@ def razao(request, empresa_id, conta_id):
 # ---------------------------------------------------------------------------
 
 
+def _veredito_balancete(total_debitos, total_creditos):
+    """Decide, em `Decimal`, um de três estados — `"fecha"`, `"nao_fecha"`
+    ou `"nada_a_conferir"` — para a faixa de fechamento no topo do
+    balancete (`total_debitos`/`total_creditos`: as colunas "próprios" do
+    PERÍODO, DE-024 §2 — as mesmas que já alimentam `total_debitos_ptbr`/
+    `total_creditos_ptbr`).
+
+    BL-290 (A2 da auditoria DL-024 rodada 2): o TEMPLATE decidia sozinho,
+    comparando `total_debitos_ptbr == total_creditos_ptbr` — texto pt-BR,
+    não `Decimal` (a mesma classe de defeito do BL-289/A1, só que na tela
+    do balancete). Além de comparar texto, o ramo "Fecha" cobria também o
+    caso `0,00 == 0,00` sem NENHUM movimento no período — o estado em que a
+    tela abre no dia 1º de todo mês (BL-302/B4) —, mostrando um "Fecha"
+    verde sobre nada. Um sinal que aparece sempre deixa de ser sinal.
+
+    `"nada_a_conferir"`: os dois totais são zero — não há o que fechar
+    neste período (sem movimento próprio nenhum). `"fecha"`: os totais
+    batem E há movimento (pelo menos um dos dois maior que zero — na
+    prática os dois, porque toda partida tem os dois lados). `"nao_fecha"`:
+    os totais DIVERGEM.
+
+    Por construção de partidas dobradas — todo lançamento EFETIVADO tem
+    débito igual a crédito (`apps.contabilidade.services.criar_lancamento`)
+    —, a soma de todos os débitos próprios do período sempre bate com a
+    soma de todos os créditos próprios, salvo CORRUPÇÃO de dado. O ramo
+    `"nao_fecha"` é, por isso, rede de segurança: hoje inalcançável em uso
+    normal do produto (nenhum caminho de escrita deixa os totais
+    divergirem), mas é exatamente no dia em que algo corromper o dado que
+    esta tela precisa gritar — e uma rede que ninguém nunca viu funcionar
+    não é rede (ver o teste que força a divergência via
+    `monkeypatch.setattr(views_web, "apurar_balancete", ...)`, já que não
+    existe caminho de escrita real para produzi-la).
+    """
+    if total_debitos == 0 and total_creditos == 0:
+        return "nada_a_conferir"
+    if total_debitos == total_creditos:
+        return "fecha"
+    return "nao_fecha"
+
+
 @login_required
 @require_safe
 def balancete(request, empresa_id):
@@ -2196,11 +2236,30 @@ def balancete(request, empresa_id):
             }
         )
 
+    # BL-290 (A2 da auditoria DL-024 rodada 2): veredito da faixa de
+    # fechamento, calculado em `Decimal` sobre os totais de ORIGEM
+    # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre o
+    # texto pt-BR logo abaixo. Ver o docstring de `_veredito_balancete`.
+    veredito_balancete = _veredito_balancete(apuracao["total_debitos"], apuracao["total_creditos"])
+    diferenca_balancete_ptbr = None
+    if veredito_balancete == "nao_fecha":
+        diferenca_balancete_ptbr = _valor_ptbr(
+            abs(apuracao["total_debitos"] - apuracao["total_creditos"])
+        )
+
     contexto.update(
         {
             "linhas": linhas,
             "total_debitos_ptbr": _valor_ptbr(apuracao["total_debitos"]),
             "total_creditos_ptbr": _valor_ptbr(apuracao["total_creditos"]),
+            # BL-290: chave ÚNICA de decisão para a faixa — "fecha" /
+            # "nao_fecha" / "nada_a_conferir". O template ramifica por ela;
+            # não volta a comparar `total_debitos_ptbr`/`total_creditos_
+            # ptbr` (texto) entre si.
+            "veredito_balancete": veredito_balancete,
+            # `None` fora do ramo "nao_fecha" — nunca "0,00", que seria
+            # ruído (mesma política do BL-286/BL-289 no lançamento).
+            "diferenca_balancete_ptbr": diferenca_balancete_ptbr,
             # R6-9/BL-203 (rodada 6) — critério 13, texto literal: "empresa
             # sem lançamento no período mostra MENSAGEM, não tabela vazia
             # sem explicação". Diário, Razão e Conferência cumpriam; o

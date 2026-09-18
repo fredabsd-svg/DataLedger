@@ -167,6 +167,51 @@ def _ptbr_para_decimal(texto):
     return Decimal(texto.strip().replace(".", "").replace(",", "."))
 
 
+def _exige_veredito_balancete(contexto, esperado):
+    """BL-290/BL-302 (rodada 4 da auditoria DL-024): `veredito_balancete`
+    tem que EXISTIR no contexto de renderização e valer EXATAMENTE
+    `esperado` — nunca aceito por AUSÊNCIA. `contexto["chave"]` levanta
+    `KeyError` quando a chave não existe em NENHUM dos contextos
+    renderizados (é o comportamento de `django.test.client.ContextList`,
+    que soma os contextos de `base.html` e `balancete.html`); deixamos
+    subir, de propósito — não convertemos em `False`/`None` nem
+    engolimos, porque "a chave não existe" e "a chave existe e está
+    errada" são dois defeitos DIFERENTES e os dois precisam reprovar.
+
+    Correção pedida pelo arquiteto-senior nesta rodada: um teste que só
+    lesse o TEXTO renderizado da faixa continuaria verde mesmo com a
+    chave AUSENTE, porque o template (de propósito — ver o comentário em
+    balancete.html) cai no mesmo ramo visual de "nada a conferir" quando
+    `veredito_balancete` não bate com "fecha" nem "nao_fecha". Comportamento
+    certo POR ACIDENTE (a ausência da chave) é indistinguível de
+    comportamento certo POR DECISÃO até o dia em que a causa acidental
+    muda sem que a tela mude — e nenhum teste que só olhasse o texto
+    saberia a diferença. Esta função força a leitura pela CHAVE, não pelo
+    efeito visual dela.
+    """
+    valor = contexto["veredito_balancete"]
+    assert valor == esperado, f"veredito_balancete = {valor!r}, esperado {esperado!r}"
+
+
+def test_controle_exige_veredito_balancete_distingue_ausencia_de_valor_errado():
+    """Controle de `_exige_veredito_balancete` — prova, por mutação
+    SINTÉTICA (não tocando em `views_web.py`, fora do meu escopo de
+    arquivos nesta rodada), os três casos que a função precisa distinguir:
+    chave ausente reprova (`KeyError`), chave certa passa, chave presente
+    mas com o valor ERRADO reprova (`AssertionError`). Sem este controle,
+    a própria guarda poderia estar "de enfeite" sem que nada acusasse —
+    lição repetida desta rodada (A2/BL-290: mecanismo que declara guardar
+    e não guarda).
+    """
+    with pytest.raises(KeyError):
+        _exige_veredito_balancete({}, "nada_a_conferir")
+
+    _exige_veredito_balancete({"veredito_balancete": "nada_a_conferir"}, "nada_a_conferir")
+
+    with pytest.raises(AssertionError):
+        _exige_veredito_balancete({"veredito_balancete": "fecha"}, "nada_a_conferir")
+
+
 # ---------------------------------------------------------------------------
 # Critérios 1, 2 e 3 — autorização e sigilo
 # ---------------------------------------------------------------------------
@@ -594,7 +639,12 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     # decidido por comparação de texto pt-BR (BL-289/BL-290: o "if" agora
     # ramifica por `veredito_balancete`, uma palavra vinda da view em
     # `Decimal`, nunca por igualdade de `total_debitos_ptbr`/
-    # `total_creditos_ptbr`).
+    # `total_creditos_ptbr`). A checagem pela CHAVE do contexto
+    # (`_exige_veredito_balancete`) vem primeiro, de propósito: ela
+    # reprova tanto a ausência da chave quanto um valor errado — olhar só
+    # o TEXTO da faixa não distingue "está certo por decisão" de "está
+    # certo por acidente" (ver o docstring da função).
+    _exige_veredito_balancete(resposta.context, "fecha")
     assert "Fecha" in faixa.group(0)
     assert "Não fecha" not in faixa.group(0)
     assert "faixa-fechamento--nao-fecha" not in faixa.group(0)
@@ -786,6 +836,11 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
 
+    # Pela CHAVE primeiro (ver o docstring de `_exige_veredito_balancete`):
+    # reprova ausência de `veredito_balancete` ou valor errado, não só o
+    # texto que o ramo "Não fecha" produz na tela.
+    _exige_veredito_balancete(resposta.context, "nao_fecha")
+
     faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
     assert faixa, "controle: a faixa precisa estar presente"
     assert "faixa-fechamento--nao-fecha" in faixa.group(0), (
@@ -800,6 +855,40 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', tabela, re.DOTALL).group(0)
     valores_rodape = _extrair_valores_ptbr(rodape)
     assert _ptbr_para_decimal(valores_rodape[0]) != _ptbr_para_decimal(valores_rodape[1])
+
+
+def test_balancete_sem_movimento_diz_nada_a_conferir_por_decisao(client, cenario):
+    """BL-302 (achado B4 da auditoria DL-024, rodada 2): a entrada padrão
+    do Balancete — empresa com contas cadastradas, mês corrente sem
+    NENHUM movimento ainda (o estado em que a tela abre no dia 1º de todo
+    mês, em qualquer escritório real) — não pode dizer "Fecha": zero
+    fecha com zero, não é FALSO, mas é a resposta mais destacada da tela
+    virando ruído ambiente, no lugar que a DE-042 §3 reserva para a
+    pergunta central. O veredito correto é "nada_a_conferir", vindo da
+    VIEW pela chave `veredito_balancete` — `_exige_veredito_balancete`
+    reprova tanto a ausência da chave quanto um valor incorreto (ver o
+    controle acima e o docstring da função).
+    """
+    empresa = cenario["empresa_a"]  # tem 5 contas, NENHUM lançamento nesta fixture
+    _autenticar(client, cenario["escritorio_a"])
+    hoje = timezone.localdate()
+    inicio = hoje.replace(day=1).isoformat()
+    fim = hoje.isoformat()
+    resposta = client.get(
+        reverse("contabilidade_web:balancete", args=[empresa.id]) + f"?inicio={inicio}&fim={fim}"
+    )
+    assert resposta.status_code == 200
+    _exige_veredito_balancete(resposta.context, "nada_a_conferir")
+
+    conteudo = resposta.content.decode()
+    faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
+    assert faixa, (
+        "controle: mesmo sem movimento, a empresa tem contas cadastradas — a faixa aparece"
+    )
+    assert "Nada a conferir" in faixa.group(0)
+    assert "Fecha</strong>" not in faixa.group(0)
+    assert "faixa-fechamento--nada-a-conferir" in faixa.group(0)
+    assert "faixa-fechamento--nao-fecha" not in faixa.group(0)
 
 
 # ---------------------------------------------------------------------------
