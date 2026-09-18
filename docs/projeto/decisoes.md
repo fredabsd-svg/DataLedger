@@ -2348,3 +2348,100 @@ a correção está sintaticamente correta.
 **Consequência:** PR #32 mergeado. Gate em `main` passa a aceitar texto
 natural. Próximo passo (F1.13): ajustar corpo do PR #31, re-rodar CI,
 fazer merge.
+
+## DE-050 — Fechamento da Onda 1 da DL-016 (merge em main, F3/F4/F5 no backlog)
+
+**Data:** 2026-09-18
+
+**Decisão:** a Onda 1 (F1 + F2) da DL-016 é **INTEGRADA** em `main`.
+PR #31 mergeado via squash no commit `fa15cf1` com a mensagem descrita
+na auditoria rodada 1. Branch de feature
+`claude/dl-016-competencia-e-fechamento` deixa de existir após o merge.
+
+**Contexto:** o fechamento encerra o ciclo da DL-016 neste escopo
+(F1 modelo + F2 vinculação automática em `criar_lancamento`).
+A auditoria rodada 1 já aprovou com 1 achado menor corrigido no
+próprio PR (DE-049 / A2). CI verde no último push (`a0e0859`)
+antes do merge confirmou todos os 6 checks: `Regras do projeto`,
+`Validar documentação`, `Lint e testes` — todos `success`.
+
+**Pendências declaradas e transferidas para o backlog:**
+
+1. **Migration 0004 — regeneração no primeiro deploy real
+   (Python 3.12+ + Django 6.1.1).** A migration foi escrita à mão
+   porque o ambiente do agente é Python 3.11; o cabeçalho já
+   declara a conta. Quem fizer o primeiro `migrate` real deve
+   rodar `python manage.py makemigrations` e comparar diff
+   item-a-item com o escrito. Se `makemigrations` não produzir
+   mudanças, o arquivo está correto (mais provável); se produzir,
+   revisar com cuidado — não dar `--merge` cegamente.
+
+2. **F3 — Encerramento de competência.** Service que move
+   `EstadoCompetencia.aberta → em_encerramento → encerrada`, com
+   invariantes de domínio: ao encerrar, todos os lançamentos
+   do mês devem estar conferidos; ninguém pode criar/editar/
+   estornar lançamento com `competencia.estado == 'encerrada'`.
+   BL relacionado a abrir no backlog.
+
+3. **F4 — Reabertura autorizada e auditada.** Service inverso
+   do F3 (`encerrada → em_encerramento → aberta`), com trilha
+   de auditoria obrigatória (quem, quando, por quê, aprovado
+   por quem). É o ponto sensível que dá nome à DL-016 — a
+   reabertura de um mês fechado é o ato contábil que precisa
+   de mais guarda.
+
+4. **F5 — Backfill de `LancamentoContabil.competencia`.** A FK
+   foi criada como `null=True` justamente para permitir o
+   backfill em separado. Estratégia sugerida: management command
+   que percorre `LancamentoContabil.competencia IS NULL` em
+   batches, agrupa por `(empresa, data.year, data.month)`, e
+   faz `get_or_create` na `Competencia` correspondente — usando
+   o mesmo padrão de savepoint do F2. Quando todos os
+   lançamentos antigos tiverem FK preenchida, o modelo pode
+   virar `null=False` em uma DL-XXX de aperto.
+
+5. **RC-95 (registro de restrição a revisar).** A faixa
+   `ano 1970..2999` é arbitrária (DL-016 rodada 1, A4). Se o
+   produto começar a atender escritórios que digitalizam livros
+   dos anos 60, isso volta como RC-96.
+
+**Por que F3/F4/F5 não entraram neste PR:** a Onda 1 era o
+mínimo necessário para o produto passar a registrar **a qual
+mês contábil pertence cada lançamento**. F2 fecha isso
+automaticamente em lançamentos novos. O backfill (F5) pode
+ser diferido — lançamentos antigos continuam com `competencia
+= NULL` até a management command rodar, e isso é seguro porque
+a coluna é nullable. O encerramento (F3) só faz sentido depois
+de F5 existir — caso contrário, encerrar uma competência que
+ainda tem lançamentos sem FK quebraria invariantes de contagem.
+A reabertura (F4) depende de F3 existir para reabrir.
+
+**Consequência para o backlog:**
+- BL-242 (consolidação pós-auditoria, DL-020) está fechado.
+- Próxima DL no caminho natural: **DL-016-F3 (encerramento)**,
+  precisa de plano novo e BL novo.
+- DL-010 (importador em massa, que é o gatilho de revisão da
+  decisão RESTRICOES_SEM_CAMINHO_DE_CLIENTE para as 3 constraints
+  de Competencia) continua como planejada, depende do importador.
+
+**Auditoria independente da onda 1:** rodada 1 já feita em
+`docs/auditorias/2026-09-18-dl-016-rodada-1.md`, parecer APROVADO.
+Rodada 2 só abre se eu for propor mudanças estruturais (F3, F4, F5).
+
+**Não foi preciso alterar:**
+- `apps/core/restricoes.py` (as 3 entradas já estão lá).
+- `apps/core/tests/test_dl023_varredura_admin.DECISOES` (já tem
+  `contabilidade.Competencia: "defendida"`).
+- `apps/core/tests/test_dl019_varredura_de_restricoes.py` (já
+  expandido para 10 no commit `135ccd1`).
+- Schema do banco (migration já está em `main`).
+
+**Não foi feito (e não é omissão):** validação por
+`makemigrations --check` em ambiente Python 3.12+ real — o
+sandbox do agente é 3.11 e não tem Django 6.1.1 instalável.
+A CI do PR rodou em Python 3.14.7 + PostgreSQL e os 1353 testes
+passaram, então a migration está pelo menos sintaticamente
+aceitável — mas a regeneração com `makemigrations` é o que
+garante que reflete exatamente o que o ORM atual produziria.
+**Transferido como item explícito do backlog.**
+
