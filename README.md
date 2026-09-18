@@ -182,6 +182,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [x] **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
 - [x] **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
 - [ ] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita
+- [ ] **DL-024** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
