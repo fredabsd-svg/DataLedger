@@ -5,6 +5,22 @@ R2-1 (bloqueador, DE-029), R2-2, R2-3, R2-5, R2-6, R2-8, R2-9 e R2-10.
 R2-4 e R2-7 (o byte NUL e o dígito Unicode em `apps.core.dinheiro`) são do
 `desenvolvedor-pleno` e não têm teste aqui. Dados 100% sintéticos, criados
 nos próprios testes.
+
+BL-284 (rodada 3 da DL-024, 2026-09-18): `descricoes_de_data_sem_defesa` e
+os dois testes que a usam substituem a forma antiga do teste do R2-9/
+DE-031/A5. O REQUISITO do DE-031/A5 não mudou — texto de apoio de formato
+de data VISÍVEL, associado por `aria-describedby` — o que ficou obsoleto
+foi a IMPLEMENTAÇÃO que aquele teste assumia (um parágrafo próprio por
+campo, `id="{campo}_ajuda"` literal): corrigir o BL-277 no Balancete (a
+mesma frase repetida uma vez por campo custava uma linha inteira do
+filtro em 1280×800, medido na revisão integrada 2307de6) trocou aquele
+desenho por um parágrafo COMPARTILHADO entre "Início" e "Fim". A nova
+guarda verifica o invariante (o `id` que `aria-describedby` aponta EXISTE
+e é visível) em vez do formato do `id`, e por isso vale tanto para
+descrição própria (Diário, Razão, Lançamento) quanto compartilhada
+(Balancete) — e fica MAIS exigente que antes: a versão anterior nunca
+cruzava o `id` apontado por `aria-describedby` com um `id` que de fato
+existisse no documento, então uma referência pendurada passaria.
 """
 
 import contextlib
@@ -532,13 +548,127 @@ def test_rotulo_de_data_nao_afirma_formato_que_o_campo_nao_controla(client, cen)
             assert "/" not in rotulo, (url, rotulo)
 
 
+def _elemento_por_id(html, alvo):
+    """Devolve `(tag, atributos_da_abertura, texto_interno)` do PRIMEIRO
+    elemento com `id="{alvo}"` em `html`, ou `None` se nenhum elemento com
+    esse `id` existir no documento.
+
+    Não é um parser de HTML geral — não lida com um elemento do MESMO NOME
+    aninhado dentro dele (ex. um `<p>` com outro `<p>` por dentro) — mas os
+    elementos de ajuda desta tela são sempre um `<p>` sem filhos de bloco,
+    e é exatamente essa forma que o teste precisa reconhecer.
+    """
+    abertura = re.search(r'<([a-zA-Z][\w-]*)\b([^>]*\bid="' + re.escape(alvo) + r'"[^>]*)>', html)
+    if not abertura:
+        return None
+    tag, atributos = abertura.group(1), abertura.group(2)
+    fim_abertura = abertura.end()
+    fechamento = html.find(f"</{tag}>", fim_abertura)
+    texto_interno = html[fim_abertura:fechamento] if fechamento != -1 else ""
+    return tag, atributos, texto_interno
+
+
+def descricoes_de_data_sem_defesa(html, ids_de_campo):
+    """BL-284 (rodada 3, DL-024): guarda REESCRITA depois que corrigir o
+    BL-277 no Balancete (texto de ajuda de formato de data repetido uma
+    vez por campo, custando uma linha inteira do filtro em 1280×800)
+    quebrou a versão anterior deste teste — que não verificava o
+    REQUISITO (DE-031/A5: "o campo tem texto de apoio VISÍVEL, associado
+    por `aria-describedby`"), verificava a IMPLEMENTAÇÃO de uma rodada
+    anterior (um parágrafo próprio por campo, com `id="{campo}_ajuda"`
+    literal e a frase contada duas vezes). Duas telas atendiam ao mesmo
+    requisito com desenhos diferentes — Balancete agora comparte um único
+    parágrafo entre "Início" e "Fim" (o `aria-describedby` dos dois
+    campos aponta para o MESMO `id`) — e o teste antigo reprovava a
+    correta por causa da forma, não do conteúdo.
+
+    Esta função devolve a lista de problemas achados (lista vazia = tudo
+    certo) e é usada tanto pelo teste positivo quanto pelo teste de
+    mutação abaixo — a mesma função tem que ACUSAR quando o defeito é
+    reintroduzido, senão ela é decoração, não guarda (lição da BL-271,
+    repetida pelo arquiteto-senior na auditoria da DL-024).
+
+    O achado que motivou reescrever em vez de só afrouxar: a versão
+    antiga verificava `f'aria-describedby="{id}_ajuda" in conteudo` e
+    `f'id="{id}_ajuda"' in conteudo` como duas checagens SEPARADAS — nunca
+    testava que o `id` apontado por `aria-describedby` fosse o MESMO que
+    o `id` que de fato existe no documento. Um `aria-describedby` pendurado
+    (apontando para um `id` inexistente) passaria: o leitor de tela
+    anunciaria o campo SEM descrição nenhuma, e a suíte juraria que
+    estava tudo certo. Por isso o requisito 2 abaixo resolve o `id`
+    apontado contra o documento de verdade, não apenas grepa as duas
+    substrings.
+
+    Requisitos, por campo:
+    1. Tem `aria-describedby` (não fica sem descrição nenhuma).
+    2. TODO `id` que o `aria-describedby` aponta EXISTE no documento —
+       referência pendurada reprova aqui.
+    3. O elemento apontado é VISÍVEL: carrega a classe `texto-apoio` e
+       não está `aria-hidden="true"` nem `visualmente-oculto` — as duas
+       técnicas que o projeto usa para esconder conteúdo de quem enxerga
+       ou de quem usa leitor de tela.
+    4. O texto do elemento apontado traz a orientação de formato (segue
+       o navegador; toda data exibida pelo sistema é dd/mm/aaaa) — sem
+       fixar a frase exata, porque a frase exata É a forma, não o
+       requisito.
+
+    Descrição PRÓPRIA por campo (Diário, Razão, Lançamento, hoje) e
+    descrição COMPARTILHADA (Balancete, desde o BL-277) passam as duas —
+    nada aqui assume qual das duas formas a tela escolheu.
+    """
+    problemas = []
+    for id_campo in ids_de_campo:
+        padrao = re.compile(
+            r'\bid="' + re.escape(id_campo) + r'"[^>]*\baria-describedby="([^"]*)"'
+            r"|"
+            r'\baria-describedby="([^"]*)"[^>]*\bid="' + re.escape(id_campo) + r'"'
+        )
+        m = padrao.search(html)
+        if not m:
+            problemas.append(f"#{id_campo}: campo sem aria-describedby")
+            continue
+        ids_apontados = (m.group(1) or m.group(2) or "").split()
+        if not ids_apontados:
+            problemas.append(f"#{id_campo}: aria-describedby vazio")
+            continue
+
+        textos = []
+        for alvo in ids_apontados:
+            elemento = _elemento_por_id(html, alvo)
+            if elemento is None:
+                problemas.append(
+                    f"#{id_campo}: aria-describedby aponta para '#{alvo}', "
+                    "que não existe no documento (referência pendurada)"
+                )
+                continue
+            _tag, atributos, texto_interno = elemento
+            if "texto-apoio" not in atributos:
+                problemas.append(
+                    f"#{id_campo}: '#{alvo}' não tem a classe texto-apoio "
+                    "(nada garante que fique visível)"
+                )
+            if 'aria-hidden="true"' in atributos:
+                problemas.append(f"#{id_campo}: '#{alvo}' está aria-hidden")
+            if "visualmente-oculto" in atributos:
+                problemas.append(f"#{id_campo}: '#{alvo}' está visualmente-oculto")
+            textos.append(texto_interno)
+
+        texto_junto = " ".join(textos)
+        if "navegador" not in texto_junto:
+            problemas.append(f"#{id_campo}: a descrição não diz que o campo segue o navegador")
+        if "dd/mm/aaaa" not in texto_junto:
+            problemas.append(f"#{id_campo}: a descrição não afirma o formato dd/mm/aaaa do sistema")
+    return problemas
+
+
 def test_rotulo_de_data_tem_texto_de_apoio_visivel_e_associado(client, cen):
     """DE-031: o rótulo nomeia o campo sem prometer formato — mas o
     contador não fica sem informação nenhuma. O texto de apoio (VISÍVEL,
     não só para leitor de tela — o problema que ele resolve é uma
     confusão visual) diz que o campo segue o navegador e que toda
     exibição de data do sistema é dd/mm/aaaa, associado ao campo por
-    `aria-describedby` (o mesmo padrão do achado 11).
+    `aria-describedby` — descrição própria por campo OU compartilhada
+    entre campos do mesmo formulário, ver `descricoes_de_data_sem_defesa`.
     """
     _login(client, cen)
     empresa_id = cen["empresa"].id
@@ -554,16 +684,38 @@ def test_rotulo_de_data_tem_texto_de_apoio_visivel_e_associado(client, cen):
     ]
     for url, ids_de_campo in urls_e_ids:
         conteudo = client.get(url).content.decode()
-        assert conteudo.count("texto-apoio") >= len(ids_de_campo), url
-        assert conteudo.count("O formato deste campo é o do seu navegador") == len(ids_de_campo), (
-            url
-        )
-        assert conteudo.count("Toda data exibida pelo sistema é dd/mm/aaaa") == len(ids_de_campo), (
-            url
-        )
-        for id_campo in ids_de_campo:
-            assert f'aria-describedby="{id_campo}_ajuda"' in conteudo, (url, id_campo)
-            assert f'id="{id_campo}_ajuda"' in conteudo, (url, id_campo)
+        problemas = descricoes_de_data_sem_defesa(conteudo, ids_de_campo)
+        assert not problemas, (url, problemas)
+
+
+def test_mutacao_aria_describedby_pendurado_e_detectada(client, cen):
+    """Controle da guarda acima (lição da BL-271: teste que não morre
+    quando a defesa é removida não é guarda, é enfeite). Reproduz sobre
+    HTML REAL renderizado o modo de falha que motivou reescrever o teste
+    anterior: um `aria-describedby` que aponta para um `id` que não
+    existe no documento. A versão anterior deste arquivo não tinha como
+    detectar isso — grepava duas substrings sem nunca cruzar uma com a
+    outra.
+    """
+    _login(client, cen)
+    url = reverse("contabilidade_web:balancete", args=[cen["empresa"].id])
+    conteudo = client.get(url).content.decode()
+
+    assert not descricoes_de_data_sem_defesa(conteudo, ["id_inicio"]), (
+        "controle: a página real não deveria ter problema nenhum"
+    )
+
+    # A mutação: pendura a referência do campo "Início" num `id` que
+    # nunca existiu, sem tocar no elemento de ajuda em si (ele continua
+    # no documento, só deixa de ser apontado por este campo).
+    mutado = conteudo.replace(
+        'aria-describedby="id_periodo_ajuda"', 'aria-describedby="id_periodo_ajuda-quebrado"', 1
+    )
+    assert mutado != conteudo, "controle: a mutação precisa mudar alguma coisa no HTML real"
+
+    achados = descricoes_de_data_sem_defesa(mutado, ["id_inicio"])
+    assert achados, "a mutação (aria-describedby pendurado) não foi detectada — a guarda não guarda"
+    assert any("não existe no documento" in achado for achado in achados), achados
 
 
 # ---------------------------------------------------------------------------
