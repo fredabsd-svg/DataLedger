@@ -262,6 +262,14 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
     Por isso: 1) uma requisição a mais para consumir a mensagem antes de
     verificar; 2) a asserção usa a marcação específica do cabeçalho
     (`contexto-rotulo`), não o texto solto.
+
+    Tocado na DL-024 (identidade visual): o rótulo do cabeçalho perdeu o
+    ":" final — a direção "papel e tinta" usa rótulo em versalete (maiúsculas
+    pequenas, letter-spacing) numa linha própria acima do valor, sem
+    pontuação, e o valor foi para dentro de um `<strong>` (mesmo padrão dos
+    demais itens de `.contexto-item`). O que o teste defende — o cabeçalho
+    precisa dizer o escritório ativo em toda página autenticada — continua
+    idêntico; só o texto exato do rótulo mudou.
     """
     client.login(username="ana", password="senha-forte-123")
     escritorio_a = usuario_com_dois_escritorios["escritorio_a"]
@@ -271,8 +279,8 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
     resposta = client.get(reverse("empresas:lista"))
 
     conteudo = resposta.content.decode()
-    assert '<span class="contexto-rotulo">Escritório ativo:</span>' in conteudo
-    assert "Escritório A" in conteudo
+    assert '<span class="contexto-rotulo">Escritório ativo</span>' in conteudo
+    assert "<strong>Escritório A</strong>" in conteudo
     assert "mensagem-success" not in conteudo  # garante que não sobrou flash
 
 

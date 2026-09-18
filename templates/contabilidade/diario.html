@@ -16,12 +16,7 @@
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
-        — <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
-    </p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="diario" %}
     <h1>Diário — {{ empresa.razao_social }}</h1>
 
     <form method="get" class="formulario-periodo">

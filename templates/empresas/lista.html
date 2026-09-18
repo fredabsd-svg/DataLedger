@@ -17,10 +17,21 @@
                 <th scope="col">Nome fantasia</th>
                 <th scope="col">CNPJ</th>
                 <th scope="col">Cadastrada em</th>
-                {# Porta de entrada da contabilidade (DL-017). As telas contábeis
-                   exigem `empresa_id`, então o link natural nasce aqui, na linha
-                   da empresa — e não na navegação do topo, que não sabe de qual
-                   empresa se trata. #}
+                {% comment %}
+                Porta de entrada da contabilidade (DL-017). As telas contábeis
+                exigem `empresa_id`, então o link natural nasce aqui, na linha
+                da empresa — e não na navegação do topo, que não sabe de qual
+                empresa se trata.
+
+                Corrigido na DL-024, achado incidental ao capturar telas reais
+                do servidor: `{# ... #}` do Django é comentário de UMA linha só
+                (o tokenizer usa regex sem DOTALL) — abrindo e fechando em
+                linhas diferentes, o texto inteiro, chaves incluídas, vazava
+                como célula de cabeçalho de verdade, visível na tela. Nenhum
+                teste indicava isso porque nenhum verifica o TEXTO literal do
+                cabeçalho da tabela de Empresas; achado ao tirar a captura real
+                desta tela para o relatório da etapa, não construído para ela.
+                {% endcomment %}
                 <th scope="col">Contabilidade</th>
             </tr>
         </thead>

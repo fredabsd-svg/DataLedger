@@ -340,8 +340,17 @@ def test_adicionar_linha_mostra_o_total_real_das_linhas_preenchidas(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
+    # Tocado na DL-024 (DE-042/RC-89): a célula do total passou a carregar
+    # a classe do sistema (`valor-monetario`) diretamente no `<td>`, não
+    # mais num `<span>` interno só com o número — achado da própria
+    # varredura de interface da DL-024 (`test_todo_valor_em_celula_usa_a_
+    # classe_do_sistema`), que reprovava exatamente esta célula por a
+    # classe estar no lugar errado para a tabulação valer para a célula
+    # inteira. O texto agora inclui o rótulo ("Débito: "/"Crédito: ")
+    # dentro da própria célula tabulada — o que este teste defende (o
+    # total é a soma REAL das linhas preenchidas) não mudou.
     valores_rodape = re.findall(r'class="valor-monetario">([^<]+)<', rodape)
-    assert valores_rodape == ["1.500,00", "1.500,00"], valores_rodape
+    assert valores_rodape == ["Débito: 1.500,00", "Crédito: 1.500,00"], valores_rodape
     # As linhas continuam preenchidas na mesma página (nada foi gravado).
     assert LancamentoContabil.objects.count() == 0
     assert re.findall(r'name="valor_\d+" value="([^"]*)"', conteudo)[:2] == [

@@ -10,12 +10,8 @@
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'empresas:lista' %}">Voltar para empresas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
-    </p>
+    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="plano_de_contas" %}
     <h1>Plano de contas — {{ empresa.razao_social }}</h1>
 
     {% if pode_escriturar %}

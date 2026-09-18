@@ -16,11 +16,7 @@
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
-    </p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     <h1>Balancete de verificação — {{ empresa.razao_social }}</h1>
 
     <form method="get" class="formulario-periodo">
@@ -75,25 +71,37 @@
     {% endif %}
 
     {% if linhas %}
-        <table class="tabela-dados">
+        {% comment %}
+        Cabeçalho de coluna em dois níveis (enxerto da variante C do
+        gauntlet, DE-042/RC-89): "Movimento do período" agrupa as duas
+        colunas consolidadas (Débitos/Créditos — achado 10/BL-96, nunca
+        somáveis no rodapé) e "Lançamento próprio" agrupa as duas que só
+        contam o que foi lançado direto nesta conta (DE-024 §2, as que
+        fecham com o rodapé). As colunas já existiam; o que muda aqui é só
+        o agrupamento visual — nenhum dado novo, nenhuma coluna a mais.
+        `.tabela-dois-niveis` liga o CSS que dá "top" próprio a cada linha
+        do cabeçalho (duas linhas de célula de cabeçalho sticky não têm o mesmo "top").
+        {% endcomment %}
+        <table class="tabela-dados tabela-dois-niveis">
             <caption class="visualmente-oculto">Balancete de verificação de {{ empresa.razao_social }} no período</caption>
             <thead>
                 <tr>
-                    <th scope="col">Nível</th>
-                    <th scope="col">Código</th>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Saldo anterior</th>
-                    <th scope="col" class="coluna-nao-somavel">
-                        Débitos
-                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Débitos próprios")</span>
+                    <th scope="col" rowspan="2">Nível</th>
+                    <th scope="col" rowspan="2">Código</th>
+                    <th scope="col" rowspan="2">Nome</th>
+                    <th scope="col" rowspan="2">Saldo anterior</th>
+                    <th scope="colgroup" colspan="2" class="coluna-nao-somavel">
+                        Movimento do período
+                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Lançamento próprio")</span>
                     </th>
-                    <th scope="col" class="coluna-nao-somavel">
-                        Créditos
-                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Créditos próprios")</span>
-                    </th>
-                    <th scope="col">Débitos próprios</th>
-                    <th scope="col">Créditos próprios</th>
-                    <th scope="col">Saldo final</th>
+                    <th scope="colgroup" colspan="2">Lançamento próprio</th>
+                    <th scope="col" rowspan="2">Saldo final</th>
+                </tr>
+                <tr>
+                    <th scope="col" class="coluna-nao-somavel">Débitos</th>
+                    <th scope="col" class="coluna-nao-somavel">Créditos</th>
+                    <th scope="col">Débitos</th>
+                    <th scope="col">Créditos</th>
                 </tr>
             </thead>
             <tbody>

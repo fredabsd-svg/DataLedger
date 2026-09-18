@@ -24,37 +24,89 @@
     <a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
 
     <header class="cabecalho">
-        <p class="marca"><a href="{% url 'tenancy:painel' %}">DataLedger</a></p>
+        <div class="cabecalho__topo">
+            <div class="marca">
+                <a href="{% url 'tenancy:painel' %}">DataLedger<span class="marca__ponto">.</span></a>
 
-        {% if request.user.is_authenticated %}
-            <div class="contexto-operacao">
-                <span class="contexto-item">
-                    <span class="contexto-rotulo">Usuário:</span>
-                    {{ request.user.get_username }}
-                </span>
-                {% if request.escritorio %}
-                    <span class="contexto-item">
-                        <span class="contexto-rotulo">Escritório ativo:</span>
-                        {{ request.escritorio.nome }}
-                    </span>
+                {% if request.user.is_authenticated %}
+                    {% comment %}
+                    Atalhos de teclado à mostra na navegação (enxerto da
+                    variante B do gauntlet, DE-042/RC-89, confirmado pelo
+                    arquiteto-senior em 2026-09-18 com três ajustes:
+
+                    1. Nenhum atalho em "Sair" — é ação destrutiva de sessão
+                       (trabalho não salvo se perde), e tecla fácil para sair
+                       é convite ao acidente.
+                    2. accesskey colide com atalho nativo do navegador e,
+                       potencialmente, do leitor de tela — não escolhemos
+                       "a inicial de cada palavra", escolhemos letras SEM
+                       colisão conhecida: D/E/F colidem em Chrome/Edge
+                       (barra de endereço e menu); e no Firefox também
+                       colidem F/E/V/S/B/T/H (mnemônicos do menu clássico —
+                       Arquivo/Editar/Ver/Histórico/Favoritos/Ferramentas/
+                       Ajuda). Por isso "Diário" usa Alt+I (não Alt+D),
+                       "Balancete" usa Alt+L (não Alt+B), "Conferência" usa
+                       Alt+K (arbitrária, documentada como tal — melhor uma
+                       tecla arbitrária declarada que uma falsa mnemônica),
+                       "Empresas" usa Alt+M e "trocar" usa Alt+R (não
+                       Alt+T). Não testamos Safari nem leitor de tela real
+                       com este mecanismo.
+                    3. accesskey por si só é recurso que a literatura de
+                       acessibilidade critica há anos, exatamente por causa
+                       dessa colisão. Usamos porque é o único caminho SEM
+                       JavaScript (R6 do brief da DL-024: "JavaScript é
+                       enfeite, nenhum dado depende dele") — restrição
+                       nossa, não uma virtude universal do recurso.
+
+                    O texto do atalho (kbd.tecla) é aria-hidden: o nome
+                    acessível do link não pode incluir "Alt+P" folheado ao
+                    texto "Painel" — um leitor de tela concatenaria os dois
+                    e anunciaria "Painel Alt P" como se fosse o rótulo.
+                    aria-keyshortcuts é o atributo correto para declarar o
+                    atalho sem contaminar o nome acessível — medido pelo
+                    NOME ACESSÍVEL CALCULADO, não pela aparência.
+                    {% endcomment %}
+                    <nav class="navegacao-principal" aria-label="Navegação principal">
+                        <ul>
+                            <li>
+                                <a href="{% url 'tenancy:painel' %}" accesskey="p" aria-keyshortcuts="Alt+P">
+                                    Painel <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M">
+                                    Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
                 {% endif %}
-                {% block contexto_extra %}{% endblock %}
+            </div>
+
+            {% if request.user.is_authenticated %}
                 <form method="post" action="{% url 'logout' %}" class="form-sair">
                     {% csrf_token %}
                     <button type="submit">Sair</button>
                 </form>
+            {% endif %}
+        </div>
+
+        {% if request.user.is_authenticated %}
+            <div class="cabecalho__contexto">
+                <span class="contexto-item">
+                    <span class="contexto-rotulo">Usuário</span>
+                    <strong>{{ request.user.get_username }}</strong>
+                </span>
+                {% if request.escritorio %}
+                    <span class="contexto-item">
+                        <span class="contexto-rotulo">Escritório ativo</span>
+                        <strong>{{ request.escritorio.nome }}</strong>
+                    </span>
+                {% endif %}
+                {% block contexto_extra %}{% endblock %}
             </div>
         {% endif %}
     </header>
-
-    {% if request.user.is_authenticated %}
-        <nav class="navegacao-principal" aria-label="Navegação principal">
-            <ul>
-                <li><a href="{% url 'tenancy:painel' %}">Painel</a></li>
-                <li><a href="{% url 'empresas:lista' %}">Empresas</a></li>
-            </ul>
-        </nav>
-    {% endif %}
 
     <main id="conteudo" class="conteudo-principal">
         {% if messages %}

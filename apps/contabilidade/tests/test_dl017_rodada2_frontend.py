@@ -390,10 +390,15 @@ def test_adicionar_linha_anuncia_quantas_linhas_ficam_fora_do_total(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
+    # Tocado na DL-024 (DE-042/RC-89) — mesmo motivo do teste equivalente em
+    # test_dl017_rodada1_correcoes.py: a classe `valor-monetario` migrou do
+    # `<span>` interno para o `<td>` que já continha o rótulo, para fechar o
+    # achado da varredura de interface (classe no lugar certo para tabular a
+    # célula inteira). O texto agora vem com o rótulo embutido.
     valores_rodape = re.findall(r'class="valor-monetario">([^<]+)<', rodape)
     # A soma PARCIAL continua correta (a intenção da correção da rodada 1
     # é preservada) — só as duas linhas completas entram.
-    assert valores_rodape == ["1.000,00", "1.000,00"], valores_rodape
+    assert valores_rodape == ["Débito: 1.000,00", "Crédito: 1.000,00"], valores_rodape
     # E agora a exclusão é ANUNCIADA — antes esta asserção não tinha como
     # passar, porque não existia texto nenhum sobre exclusão na página.
     assert "1 linha" in conteudo
@@ -934,13 +939,51 @@ def _pular_se_chromium_nao_funcional():
 
 
 _REGRA_NIVEL_PREFIXADA = re.compile(
-    r"\.tabela-dados td\.nivel-(\d+)\s*\{\s*padding-left:\s*([0-9.]+)rem;?\s*\}"
+    r"\.tabela-dados td\.nivel-(\d+)\s*\{\s*padding-left:\s*([0-9.a-z()\-]+?);?\s*\}"
 )
 # Detecta a FORMA do mutante ME2 diretamente: um seletor ".nivel-N" cuja
 # especificidade não veio de ".tabela-dados td" na frente — o lookbehind
 # de largura fixa "td" (2 caracteres) é exatamente o que a substituição
 # do mutante apaga.
 _REGRA_NIVEL_SEM_PREFIXO = re.compile(r"(?<!td)\.nivel-\d+\s*\{")
+
+# DL-024/DE-042: o CSS virou sistema de tokens (docs/projeto/
+# direcao-de-arte.md §1 — "nenhuma cor ou medida solta fora das
+# variáveis"). O padding da célula comum, que antes era um número `rem`
+# literal na própria regra, agora é `var(--esp-N)` apontando para o
+# :root. Resolver a variável ANTES de comparar mantém o teste medindo o
+# EFEITO (o valor final em rem) — a invariante que ele defende (aditivo,
+# prefixado, estritamente crescente) não mudou; só a representação do
+# valor-base mudou, e um parser cego a `var()` não é mais able a "ler o
+# CSS como texto" de verdade. Tocado nesta etapa (DL-024): relatado no
+# fechamento da etapa, não é enfraquecimento — os mesmos limites
+# (nivel-0/1 == padding_base; passo == 1.25rem; estritamente crescente)
+# continuam verificados, e o defeito original (ME2, especificidade sem
+# prefixo) continua coberto por `_REGRA_NIVEL_SEM_PREFIXO` sem alteração.
+_TOKEN_NO_ROOT = re.compile(r"--([\w-]+):\s*([0-9.]+)rem")
+
+
+def _tokens_do_root(css_texto):
+    """`{nome-sem-'--': Decimal(valor-em-rem)}` para todo token do :root
+    declarado em rem (a escala de espaçamento inteira é assim)."""
+    return {nome: Decimal(valor) for nome, valor in _TOKEN_NO_ROOT.findall(css_texto)}
+
+
+def _resolver_rem(bruto, tokens):
+    """Aceita tanto `1.25rem` (literal) quanto `var(--esp-3)` (token) e
+    devolve o Decimal em rem dos dois jeitos — é a MESMA grandeza, só a
+    representação difere."""
+    bruto = bruto.strip()
+    casamento_var = re.fullmatch(r"var\(--([\w-]+)\)", bruto)
+    if casamento_var:
+        nome = casamento_var.group(1)
+        assert nome in tokens, f"token --{nome} não está declarado no :root"
+        return tokens[nome]
+    casamento_literal = re.fullmatch(r"([0-9.]+)rem", bruto)
+    assert casamento_literal, (
+        f"valor de padding não reconhecido (nem rem literal, nem var()): {bruto!r}"
+    )
+    return Decimal(casamento_literal.group(1))
 
 
 def _parse_indentacao_do_css(css_texto):
@@ -949,21 +992,24 @@ def _parse_indentacao_do_css(css_texto):
     navegador nenhum. `padding_base_rem` vem da regra genérica
     `.tabela-dados th, .tabela-dados td { padding: Y X; ... }` (o
     segundo valor do atalho `padding` é o `padding-left`/`padding-right`
-    na forma de duas grandezas). Cada entrada de `niveis` só existe se a
-    regra `.nivel-N` correspondente estiver PREFIXADA por
-    `.tabela-dados td` — é a mesma checagem de especificidade que o
-    comentário do CSS documenta, agora verificada por texto.
+    na forma de duas grandezas, literal ou `var(--esp-N)`). Cada entrada
+    de `niveis` só existe se a regra `.nivel-N` correspondente estiver
+    PREFIXADA por `.tabela-dados td` — é a mesma checagem de
+    especificidade que o comentário do CSS documenta, agora verificada
+    por texto.
     """
+    tokens = _tokens_do_root(css_texto)
+
     casamento_base = re.search(
-        r"\.tabela-dados td\s*\{[^}]*padding:\s*[0-9.]+rem\s+([0-9.]+)rem",
+        r"\.tabela-dados td\s*\{[^}]*padding:\s*[0-9.a-z()\-]+?\s+([0-9.a-z()\-]+?);",
         css_texto,
     )
     assert casamento_base, "não encontrei a regra de padding da célula comum (.tabela-dados td)"
-    padding_base = Decimal(casamento_base.group(1))
+    padding_base = _resolver_rem(casamento_base.group(1), tokens)
 
     niveis = {}
     for casamento in _REGRA_NIVEL_PREFIXADA.finditer(css_texto):
-        niveis[int(casamento.group(1))] = Decimal(casamento.group(2))
+        niveis[int(casamento.group(1))] = _resolver_rem(casamento.group(2), tokens)
     return padding_base, niveis
 
 

@@ -101,27 +101,15 @@ def _cabecalhos_sem_escopo(texto):
     return [m.group(0)[:70] for m in achados if "scope=" not in m.group(0)]
 
 
-DIVIDA_VALOR = (
-    "DÍVIDA MEDIDA, com prazo por dependência: 4 células de TOTALIZADOR estão "
-    "fora da classe do sistema — `total_debito_ptbr` e `total_credito_ptbr` em "
-    "lancamento_form.html e em razao.html. É o número mais importante da tela "
-    "desalinhado da coluna que ele soma. O conserto pertence à implementação "
-    "da DL-024, em curso nesses mesmos arquivos: mexer neles agora seria dois "
-    "agentes no mesmo arquivo, que é o que este projeto proíbe."
-)
-
-DIVIDA_COR = (
-    "DÍVIDA MEDIDA, com prazo por dependência: 5 cores soltas em "
-    "static/css/base.css (#ffffff duas vezes, #f4f6f8 três), fora do :root. O "
-    "arquivo está sendo reescrito pela implementação da DL-024, que converte "
-    "tudo em tokens."
-)
-
-# `strict=True` NÃO é conveniência: é tripé nos dois sentidos. Enquanto a
-# dívida existir, o teste falha e isso é esperado; no instante em que a
-# implementação consertar, o teste passa a REPROVAR POR PASSAR, e quem estiver
-# aqui é obrigado a apagar a marca. Guarda que não incomoda não guarda nada —
-# e dívida sem prazo vira paisagem.
+# As duas dívidas que este bloco registrava (DIVIDA_VALOR: 4 células de
+# totalizador fora da classe do sistema em lancamento_form.html e razao.html;
+# DIVIDA_COR: 5 cores soltas em static/css/base.css) foram FECHADAS pela
+# implementação real da DL-024 (DE-042) nesta etapa — `strict=True` fez
+# exatamente o que o comentário original previa: "no instante em que a
+# implementação consertar, o teste passa a REPROVAR POR PASSAR, e quem
+# estiver aqui é obrigado a apagar a marca". As duas marcas de
+# `xfail` saíram das guardas abaixo; elas agora correm como guarda normal,
+# sem rede de segurança para a dívida — porque a dívida não existe mais.
 
 # ---------------------------------------------------------------------------
 # As guardas
@@ -177,7 +165,6 @@ def test_todo_cabecalho_de_tabela_declara_escopo():
     assert not faltando, "Cabeçalhos de tabela sem scope: " + "; ".join(faltando)
 
 
-@pytest.mark.xfail(strict=True, reason=DIVIDA_VALOR)
 def test_todo_valor_em_celula_usa_a_classe_do_sistema():
     """Coluna de valor sem a classe do sistema perde a tabulação de algarismos.
 
@@ -210,7 +197,6 @@ def test_a_classe_de_valor_tabula_algarismos():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=DIVIDA_COR)
 def test_nenhuma_cor_declarada_fora_dos_tokens():
     """Cor solta é o começo de quatro azuis diferentes (DE-042)."""
     soltas = []

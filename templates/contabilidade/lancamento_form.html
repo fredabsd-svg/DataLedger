@@ -10,10 +10,7 @@
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-    </p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="lancamento_novo" %}
     <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
 
     {% if not contas %}
@@ -167,8 +164,8 @@
                         valor — ou é a soma real, ou é "ainda não
                         conferido".
                         {% endcomment %}
-                        <td>Débito: <span class="valor-monetario">{{ total_debito_ptbr|default:"— (ainda não conferido)" }}</span></td>
-                        <td>Crédito: <span class="valor-monetario">{{ total_credito_ptbr|default:"— (ainda não conferido)" }}</span></td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr|default:"— (ainda não conferido)" }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr|default:"— (ainda não conferido)" }}</td>
                     </tr>
                 </tfoot>
             </table>

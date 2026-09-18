@@ -1,0 +1,36 @@
+{% comment %}
+Saldo com indicador D/C (RC-61) e, quando o saldo é INVERTIDO em relação à
+natureza CADASTRADA da conta, entre parênteses — convenção contábil mais
+antiga que a tinta vermelha e mais difícil de adulterar: um traço vira
+"+" com um toque de caneta, um parêntese não se desfaz (DE-042/RC-89,
+enxerto trazido da variante A do gauntlet para a implementação real).
+
+Variáveis esperadas: `valor` (string pt-BR já formatada pela view),
+`natureza` (dict {letra, extenso} ou None — None quando o saldo é zero,
+RC-61: zero não tem lado), `conta` (objeto com `.natureza`,
+"devedora"/"credora").
+
+Só é incluída no Razão: é a única tela cujo contexto de view já expõe a
+conta CADASTRADA junto de cada linha (`conta` vem da própria URL). O
+Balancete tem a mesma necessidade (RC-89 pede a mesma convenção em toda a
+tela) mas cada linha da view só carrega o sinal COMPUTADO
+(`saldo_final_natureza`), não a natureza cadastrada da conta daquela
+linha — expor isso é mudança em `views_web.py`, fora do que esta etapa
+autoriza o especialista-frontend a tocar. Fica registrado como pendência
+para o desenvolvedor-pleno; ver o relatório da etapa.
+
+Django Template Language não deixa misturar `and`/`or` no mesmo `if`
+(TemplateSyntaxError), por isso os dois casos (devedora/credora) são
+ramos separados, não uma condição composta.
+{% endcomment %}
+{% if natureza %}
+    {% if conta.natureza == "devedora" and natureza.letra == "C" %}
+        <span class="valor-invertido">(<span class="valor-monetario">{{ valor }}</span>)</span><span class="indicador-natureza">{{ natureza.letra }}<span class="visualmente-oculto"> ({{ natureza.extenso }}) — invertido em relação à natureza cadastrada da conta (devedora); confira os lançamentos</span></span><abbr class="visualmente-oculto" title="saldo invertido">*</abbr>
+    {% elif conta.natureza == "credora" and natureza.letra == "D" %}
+        <span class="valor-invertido">(<span class="valor-monetario">{{ valor }}</span>)</span><span class="indicador-natureza">{{ natureza.letra }}<span class="visualmente-oculto"> ({{ natureza.extenso }}) — invertido em relação à natureza cadastrada da conta (credora); confira os lançamentos</span></span><abbr class="visualmente-oculto" title="saldo invertido">*</abbr>
+    {% else %}
+        <span class="valor-monetario">{{ valor }}</span><span class="indicador-natureza">{{ natureza.letra }}<span class="visualmente-oculto"> ({{ natureza.extenso }})</span></span>
+    {% endif %}
+{% else %}
+    <span class="valor-monetario">{{ valor }}</span>
+{% endif %}
