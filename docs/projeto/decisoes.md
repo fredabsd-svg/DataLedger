@@ -2442,6 +2442,126 @@ sandbox do agente é 3.11 e não tem Django 6.1.1 instalável.
 A CI do PR rodou em Python 3.14.7 + PostgreSQL e os 1353 testes
 passaram, então a migration está pelo menos sintaticamente
 aceitável — mas a regeneração com `makemigrations` é o que
-garante que reflete exatamente o que o ORM atual produziria.
+garanta que reflete exatamente o que o ORM atual produziria.
 **Transferido como item explícito do backlog.**
+
+## DE-051 — Fechamento da DL-016-F5 (backfill da FK LancamentoContabil.competencia)
+
+**Data:** 2026-09-18
+
+**Decisão:** a DL-016-F5 é **INTEGRADA** em `main`. PR #33 mergeado
+via squash no commit `700a50b`. Branch de feature
+`claude/dl-016-f5-backfill-competencia` deixa de existir após o merge.
+
+**Contexto:** o fechamento encerra o ciclo F5 da DL-016 (criação
+da management command de backfill que preenche `competencia` em
+lançamentos antigos que ficaram com a FK nula entre F2 e o rodar
+desta command). A auditoria rodada 1 já aprovou (parcer em
+`docs/auditorias/2026-09-18-dl-016-f5-rodada-1.md`, parecer
+**APROVADO** com 3 achados — 1 informativo + 2 menores, nenhum
+bloqueante). CI verde no commit `b108c8b` confirmou todos os 5
+check-runs: `Regras do projeto`, `Validar documentação` (×2),
+`Lint e testes` (×2).
+
+**Estratégia do backfill (resumo do plano):**
+
+1. Management command `backfill_lancamento_competencia` em
+   `apps/contabilidade/management/commands/`. Dry-run default;
+   `--apply` opt-in (regra DE-007 — destrutivo precisa de confirmação
+   explícita). Idempotência garantida por `.filter(competencia__isnull=True)`
+   no iterator + `Competencia.objects.update()` por batch de IDs.
+2. Estratégia de passadas curtas: a command roda até 2 passadas.
+   A primeira cobre tudo que existe no momento do start; a
+   segunda (curta, só sobre o que sobrou) cobre lançamentos
+   criados via `criar_lancamento` (F2) entre as duas passadas.
+   Sem lock pessimista — o `select_for_update()` não é necessário
+   porque o `filter(competencia__isnull=True)` é naturalmente
+   estável (lançamentos novos recebem FK em F2 antes de virar
+   visíveis à command).
+3. Modo de flush: agrupa por `(empresa_id, data.year, data.month)`,
+   usa cache `dict[chave, Competencia]` para evitar `get_or_create`
+   repetido, e faz `LancamentoContabil.objects.filter(id__in=batch)
+   .update(competencia=cache[chave])` por batch de até 500.
+4. Logs estruturados não-JSON (regra do projeto): totais por
+   passada, totais finais, aviso dry-run, e breakdown por estado
+   (criadas / reutilizadas / atribuídas).
+
+**Decisão de design registrada nesta onda:**
+
+- **Remoção do branch de "órfão".** O plano original da F5
+  previa um branch defensivo para lançamentos com `empresa_id =
+  NULL` (contador `orfaos_pulados`, log "[passada N] orfao: ...",
+  teste cobrindo o cenário). Investigação demonstrou que o
+  cenário é fisicamente impossível via ORM desde DL-006:
+  `LancamentoContabil.empresa = ForeignKey(Empresa, on_delete=PROTECT)`
+  sem `null=True`, coluna NOT NULL em produção, dev e test.
+  Os 2 testes correspondentes forçavam `empresa=None` em
+  `LancamentoContabil.objects.create(empresa=None, ...)`, e o
+  ORM rejeitava com `IntegrityError` antes do `call_command` rodar
+  — daí os 7 failed na CI (5 testes normais + 2 de órfão +
+  um efeito colateral em test_orfao_nao_falha_em_apply).
+  Decisão: remover o branch + os 2 testes do código de produção
+  (código morto + teste de cenário inalcançável = acoplamento
+  ruim). Rede de segurança migrou para procedimento operacional
+  no runbook de deploy (`SELECT COUNT(*) ... WHERE empresa_id IS NULL`
+  antes de `--apply`) + CHECK constraint `empresa_id IS NOT NULL`
+  em **DL-016-F6** (transferida para o backlog).
+- **Sem type hint estrito.** `# type: ignore[arg-type]` na linha
+  251 do command é desnecessário (o flush final só roda quando
+  `ids_pendentes` não-vazio, e nesse ponto `competencia` é
+  garantido não-None), mas mypy não está configurado no projeto
+  e ruff não reclama. Registrado como achado menor A2 na auditoria,
+  não corrigido nesta onda para respeitar o escopo (DE-007).
+  Issue menor a abrir quando mypy entrar no projeto.
+
+**Pendências declaradas e transferidas para o backlog:**
+
+1. **Runbook de deploy (`docs/runbooks/DL-016-F5-deploy.md`).**
+   Frederico precisa criar com: (a) pré-checks `SELECT COUNT(*)
+   ... WHERE empresa_id IS NULL`, (b) dry-run + análise do
+   relatório, (c) `--apply`, (d) plano de rollback.
+2. **DL-016-F6: CHECK constraint `empresa_id IS NOT NULL`** em
+   `LancamentoContabil`. Cinto-e-suspensórios contra INSERT direto
+   via shell-admin que burle o ORM.
+3. **A2 — remover `# type: ignore[arg-type]`** do command
+   (`apps/contabilidade/management/commands/backfill_lancamento_competencia.py:251`).
+4. **A3 — tipar `Counter` como TypedDict** se mypy entrar no
+   projeto. Cosmético, só importa se rigor de tipos aumentar.
+5. **Migration `0004` da Onda 1 (pendente de DE-050).** Continua
+   pendente — primeiro deploy Python 3.12+ precisa rodar
+   `makemigrations` e comparar diff. Sem relação direta com F5,
+   mas citada para não se perder.
+
+**Consequência para o backlog:**
+
+- F5 deixa de ser pendência. DL-016 fica com F3 (encerramento)
+  e F4 (reabertura) ainda abertas como sub-DLs dependentes.
+- Próxima DL natural no caminho: DL-016-F3 ou DL-010 (importador
+  em massa), por critério de Frederico.
+- BL-242 (consolidação DL-020) continua fechado.
+
+**Auditoria independente da F5:** rodada 1 em
+`docs/auditorias/2026-09-18-dl-016-f5-rodada-1.md`, parecer
+**APROVADO** com 3 achados (1 informativo + 2 menores). Rodada 2
+só abre se eu for propor mudanças estruturais no command.
+
+**Não foi preciso alterar:**
+
+- `apps/contabilidade/models.py` (sem mudança de schema nesta onda;
+  F5 só lê e atualiza dados, não toca estrutura).
+- `apps/contabilidade/services/criar_lancamento.py` (F2 já estava
+  preenchendo `competencia` corretamente — F5 só cobre o backlog).
+- Schema do banco (nenhuma nova migration).
+- `apps/core/restricoes.py` e `DECISOES` da DL-023 (sem novas
+  constraints nesta onda).
+
+**Não foi feito (e não é omissão):** validação local via
+`pytest apps/contabilidade/tests/test_management_backfill.py`
+em ambiente Python 3.12+ — o sandbox do agente é 3.11. A CI
+do PR rodou em Python 3.14.7 + PostgreSQL e os 5 testes da
+suíte nova + regressão completa passaram (a regressão de 1353
+testes da Onda 1 continua intacta), o que dá evidência
+empírica suficiente para o merge. A reprodução local por
+Frederico no ambiente oficial continua recomendada como
+checagem adicional antes de rodar `--apply` em produção.
 
