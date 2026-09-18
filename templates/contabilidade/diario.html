@@ -4,13 +4,13 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
     {% if inicio and fim %}
         <span class="contexto-item">
-            <span class="contexto-rotulo">Período:</span>
-            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
 {% endblock %}

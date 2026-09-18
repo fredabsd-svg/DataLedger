@@ -1,11 +1,22 @@
 {% comment %}
 Navegação contextual da empresa: Plano de contas, Diário, Balancete,
-Conferência e Novo lançamento. Parcial ÚNICA incluída por toda tela de
-contabilidade (Balancete, Diário, Razão, Plano de contas, Conferência e o
-formulário de lançamento), para que os MESMOS cinco atalhos de teclado
+Conferência e Novo lançamento. Parcial ÚNICA incluída por TODA tela de
+contabilidade — as OITO que existem hoje em templates/contabilidade/:
+balancete.html, diario.html, razao.html, plano_de_contas.html,
+conferencia.html, lancamento_form.html, conta_form.html e
+lancamento_detalhe.html — para que os MESMOS cinco atalhos de teclado
 funcionem identicamente em qualquer uma delas — exigência do
 arquiteto-senior ao aprovar o enxerto de atalhos da DL-024/DE-042:
 "atalho que só existe numa tela não é atalho, é decoração".
+
+B3/BL-283 (auditoria DL-024, rodada 1): até a rodada 2, este comentário
+dizia "toda tela de contabilidade" e listava só SEIS — conta_form.html e
+lancamento_detalhe.html tinham ficado de fora, e um comentário que diz
+"toda" sem cobrir todas é o mesmo defeito da família BL-142/BL-246. Cada
+novo template de tela deste diretório PRECISA entrar nesta lista E incluir
+esta parcial — o teste em
+apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py reprova
+quando um dos dois deixa de bater com o outro.
 
 Antes desta parcial, cada template listava um subconjunto diferente de
 links à mão (o Balancete tinha três, o Diário quatro, a Razão só dois) —

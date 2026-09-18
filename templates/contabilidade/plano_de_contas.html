@@ -4,8 +4,8 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
@@ -19,6 +19,16 @@
     {% endif %}
 
     {% if linhas %}
+        {% comment %}
+        M4/BL-280 (auditoria DL-024, rodada 1): mesma legenda e mesma
+        classe `.conta-sintetica` do Balancete — ver o comentário completo
+        lá. Aqui "aceita lançamento" já é a própria coluna exibida mais
+        abaixo; a classe só faz o peso tipográfico seguir o mesmo dado.
+        {% endcomment %}
+        <p class="texto-apoio">
+            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+            indica conta analítica (aceita lançamento).
+        </p>
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
             <thead>
@@ -37,7 +47,7 @@
                     <tr>
                         <td>{{ linha.nivel|default:"—" }}</td>
                         <td>{{ linha.conta.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}">{{ linha.conta.nome }}</td>
+                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
                         <td>{{ linha.conta.get_tipo_display }}</td>
                         <td>{{ linha.conta.get_natureza_display }}</td>
                         <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>

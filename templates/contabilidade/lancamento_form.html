@@ -4,8 +4,8 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
@@ -150,8 +150,44 @@
                             </td>
                         </tr>
                     {% endif %}
-                    <tr class="linha-total">
-                        <td colspan="2">Total conferido antes de gravar</td>
+                    {% comment %}
+                    M2/BL-278 (auditoria DL-024, rodada 1): "fecha ou não
+                    fecha" — DE-042 §3, "é a segunda coisa que o olho
+                    encontra, no balancete e no lançamento, antes de
+                    qualquer ação de gravar". Antes desta correção o
+                    rodapé mostrava os dois totais lado a lado sem
+                    veredito, sem diferença e sem mudança visual entre
+                    fechar e não fechar — a subtração ficava para a cabeça
+                    de quem digitou.
+
+                    O veredito só aparece quando os dois totais já
+                    existem (`total_debito_ptbr`/`total_credito_ptbr` não
+                    são `None` — ver o comentário do `default` abaixo):
+                    antes da primeira linha preenchida não há "fecha" nem
+                    "não fecha" para responder, só "ainda não conferido".
+
+                    A DIFERENÇA numérica ("Não fecha, faltam R$ X") não
+                    está aqui: nenhuma view desta etapa expõe essa
+                    subtração pronta (só os dois totais formatados
+                    separadamente), e calcular a diferença de dois valores
+                    monetários já formatados em pt-BR dentro do template
+                    violaria a regra do projeto contra aritmética
+                    financeira fora do motor determinístico (AGENTS.md
+                    §10 — "não use ponto flutuante binário... defina
+                    escala, precisão e arredondamento"). Pendência
+                    registrada para o desenvolvedor-pleno: ver o relatório
+                    desta etapa.
+                    {% endcomment %}
+                    <tr class="linha-total{% if total_debito_ptbr and total_credito_ptbr %}{% if total_debito_ptbr == total_credito_ptbr %} linha-total--fecha{% else %} linha-total--nao-fecha{% endif %}{% endif %}">
+                        <td colspan="2">
+                            Total conferido antes de gravar
+                            {% if total_debito_ptbr and total_credito_ptbr %}
+                                <br>
+                                <strong class="veredito-fechamento">
+                                    {% if total_debito_ptbr == total_credito_ptbr %}Fecha{% else %}Não fecha{% endif %}
+                                </strong>
+                            {% endif %}
+                        </td>
                         {% comment %}
                         Achado 3 / BL-88: o `default` só entra quando
                         `total_debito_ptbr`/`total_credito_ptbr` são `None`

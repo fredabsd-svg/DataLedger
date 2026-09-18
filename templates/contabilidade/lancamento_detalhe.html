@@ -4,13 +4,21 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
 {% block content %}
     <p><a href="{% url 'contabilidade_web:diario' empresa.id %}">Voltar para o Diário</a></p>
+    {% comment %}
+    B3/BL-283 (auditoria DL-024, rodada 1): é justamente esta tela — onde
+    se chega clicando numa linha do Razão ou do Diário — que ficava sem os
+    cinco atalhos, obrigando a pessoa a voltar antes de navegar de novo.
+    Sem `pagina_atual`: o detalhe de um lançamento não é uma das cinco
+    páginas fixas do subnível.
+    {% endcomment %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
     <h1>Lançamento nº {{ lancamento.id }}</h1>
     <p>
         <strong>Data:</strong> {{ lancamento.data|date:"d/m/Y" }}<br>

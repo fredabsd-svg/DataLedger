@@ -4,13 +4,13 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
     {% if inicio and fim %}
         <span class="contexto-item">
-            <span class="contexto-rotulo">Período:</span>
-            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
 {% endblock %}
@@ -18,6 +18,53 @@
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     <h1>Balancete de verificação — {{ empresa.razao_social }}</h1>
+
+    {% if linhas %}
+        {% comment %}
+        A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de
+        fechamento, no TOPO da página — segunda coisa depois do título,
+        ANTES do formulário de período. Resolve as duas coisas na mesma
+        superfície:
+
+        - Critério 4 ("totalizador alcançável sem rolar a tabela
+          inteira"): medido antes desta correção, alcançar o total do
+          balancete exigia 2153px de rolagem com 73 contas — passar pelas
+          73 linhas. Aqui a rolagem para ver o total é zero, porque o
+          total já está antes da tabela, não depois dela.
+        - DE-042 §3 ("fecha ou não fecha é a segunda coisa que o olho
+          encontra, no balancete e no lançamento, antes de qualquer ação
+          de gravar"): antes desta correção, as palavras "fecha" e
+          "diferen" não apareciam em nenhuma tela do módulo.
+
+        `total_debitos_ptbr`/`total_creditos_ptbr` são as colunas
+        "próprias" do rodapé da tabela (achado 10/BL-96, DE-024 §2) — por
+        construção, todo lançamento efetivado tem débito igual a crédito
+        (apps.contabilidade.services.criar_lancamento), então a soma de
+        todos os débitos próprios do plano inteiro SEMPRE fecha com a soma
+        de todos os créditos próprios, salvo corrupção de dado. O ramo
+        "Não fecha" existe como rede de segurança visível, não como
+        caminho esperado — e por isso não mostra um valor de diferença
+        calculado: nenhuma view desta etapa expõe essa subtração pronta, e
+        fazer aritmética monetária dentro do template violaria a regra do
+        projeto contra cálculo financeiro fora do motor determinístico
+        (AGENTS.md §10). Pendência registrada para o desenvolvedor-pleno:
+        ver o relatório desta etapa.
+        {% endcomment %}
+        <div class="faixa-fechamento{% if total_debitos_ptbr != total_creditos_ptbr %} faixa-fechamento--nao-fecha{% endif %}"
+             role="status">
+            <strong class="faixa-fechamento__veredito">
+                {% if total_debitos_ptbr == total_creditos_ptbr %}Fecha{% else %}Não fecha{% endif %}
+            </strong>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Débitos próprios do período</span>
+                <strong class="valor-monetario">{{ total_debitos_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Créditos próprios do período</span>
+                <strong class="valor-monetario">{{ total_creditos_ptbr }}</strong>
+            </span>
+        </div>
+    {% endif %}
 
     <form method="get" class="formulario-periodo">
         <div class="campo">
@@ -82,6 +129,20 @@
         `.tabela-dois-niveis` liga o CSS que dá "top" próprio a cada linha
         do cabeçalho (duas linhas de célula de cabeçalho sticky não têm o mesmo "top").
         {% endcomment %}
+        {% comment %}
+        M4/BL-280 (auditoria DL-024, rodada 1): DE-042 §1 — "a hierarquia
+        do plano de contas vem de peso e recuo, não de uma coluna 'Nível'
+        nem de cor". Legenda em TEXTO, porque peso sozinho tem o mesmo
+        problema de "cor sozinha" para quem não distingue as duas
+        visualmente (direcao-de-arte §4.3: "cor nunca é o único canal";
+        aqui o mesmo raciocínio vale para peso). A coluna "Nível" continua
+        existindo — nenhuma informação é escondida — mas deixa de ser o
+        único sinal.
+        {% endcomment %}
+        <p class="texto-apoio">
+            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+            indica conta analítica (aceita lançamento).
+        </p>
         <table class="tabela-dados tabela-dois-niveis">
             <caption class="visualmente-oculto">Balancete de verificação de {{ empresa.razao_social }} no período</caption>
             <thead>
@@ -109,7 +170,7 @@
                     <tr>
                         <td>{{ linha.nivel }}</td>
                         <td>{{ linha.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}">
+                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.analitica %} conta-sintetica{% endif %}">
                             {% if linha.conta_id %}
                                 <a href="{% url 'contabilidade_web:razao' empresa.id linha.conta_id %}?inicio={{ inicio|date:'Y-m-d' }}&fim={{ fim|date:'Y-m-d' }}">
                                     {{ linha.nome }}
@@ -166,6 +227,17 @@
             </tfoot>
         </table>
     {% elif inicio and fim %}
-        <p>Esta empresa ainda não tem nenhuma conta cadastrada.</p>
+        {% comment %}
+        B4/BL-283 (auditoria DL-024, rodada 1): o estado vazio deixava a
+        tela quase toda em branco — mensagem, filtro e nada mais. O texto
+        já explicava o que faltava; o que faltava era o caminho de volta
+        para resolver, sem depender de a pessoa lembrar onde fica o plano
+        de contas.
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
     {% endif %}
 {% endblock %}

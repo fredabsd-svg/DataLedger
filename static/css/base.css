@@ -140,6 +140,74 @@
     --esp-7: 3rem;     /* 48px */
 
     --raio: 2px;       /* papel é plano; raio quase nulo, só suaviza clique */
+
+    /* --- Traço: largura de borda/contorno — escala PRÓPRIA, mais fina que
+       a de espaço (--esp-N começa em 4px; contorno de campo e divisória de
+       tabela precisam de valores sub-4px). Nunca usar --esp-N para largura
+       de borda, nem um valor de traço fora desta lista (achado M3/BL-279
+       da auditoria da DL-024, rodada 1: ~15 larguras soltas). --- */
+    --traco-fina: 1px;        /* hairline: contorno de campo, divisória leve */
+    --traco-media: 2px;       /* divisória forte de cabeçalho, sublinhado ativo */
+    --traco-grossa: 3px;      /* anel de foco (critério 4 da DL-024/DL-009) */
+    --traco-destaque: 5px;    /* barra lateral de mensagem e de faixa de veredito */
+    --traco-impressao: 1.5pt; /* impressão usa pt, não px (critério 9 da DL-024) */
+    --desloc-foco: 2px;       /* outline-offset do foco padrão */
+    --desloc-foco-campo: 1px; /* outline-offset do foco dentro de campo com borda própria */
+
+    /* --- Rastreamento (letter-spacing): só estes quatro valores no produto
+       inteiro — um quinto sem token é o mesmo erro que uma cor nova solta
+       (mesma regra da família Cor, aplicada a espaçamento de letra). --- */
+    --rastreio-cerrado: -0.01em;  /* títulos grandes (h1/h2/h3) */
+    --rastreio-leve: 0.02em;      /* rótulo de navegação e marca */
+    --rastreio-amplo: 0.05em;     /* cabeçalho de tabela em versalete */
+    --rastreio-maximo: 0.06em;    /* rótulo miúdo da faixa de contexto */
+
+    /* --- Espaço miúdo: abaixo do primeiro degrau da escala (--esp-1 =
+       4px), só para os casos em que 4px é grosso demais. `--esp-atalho` e
+       `--esp-indicador` ficam em `em` (não `rem`) DE PROPÓSITO: precisam
+       acompanhar o tamanho de fonte LOCAL (o mesmo afastamento visual em
+       contextos de fonte diferente — nav principal em --tipo-md, nav da
+       empresa em --tipo-sm), o que `rem` (sempre relativo à raiz) não
+       faz. --- */
+    --esp-minima: 0.1rem;   /* fresta rótulo/valor em coluna estreita da faixa de contexto */
+    --esp-atalho: 0.4em;    /* afastamento entre rótulo de link e atalho de teclado */
+    --esp-indicador: 0.3em; /* afastamento antes do indicador D/C */
+
+    /* --- Layout: largura máxima de CONTEÚDO — não é espaçamento interno
+       (--esp-N), é a régua que limita a linha de texto/tabela. --- */
+    --largura-conteudo: 75rem;    /* .conteudo-principal */
+    --largura-formulario: 32rem;  /* .formulario (cadastro simples) */
+
+    /* --- Técnica de acessibilidade consagrada (WebAIM): afastar da tela
+       ou reduzir a 1px sem tirar o elemento do fluxo do leitor de tela.
+       São os valores fixos da própria técnica, não uma medida de design —
+       nascem aqui do mesmo jeito, para não sobrar nenhum número fora do
+       :root. --- */
+    --fora-da-tela: -999px;
+    --tamanho-oculto: 1px;
+
+    /* --- Medido no Chromium, não calculado por fórmula CSS: altura real
+       da primeira linha do cabeçalho de duas linhas do Balancete, com
+       --tipo-2xs e o padding --esp-2 de `.tabela-dados th` — ver o
+       comentário completo em `.tabela-dois-niveis` mais abaixo, onde o
+       valor é usado. --- */
+    --altura-cabecalho-nivel-1: 1.85rem;
+
+    /* --- Escada de indentação do Plano de Contas/Balancete (achado 6 e
+       R2-9 da auditoria da DL-017): progressão ARITMÉTICA PRÓPRIA de
+       1.25rem por nível a partir do recuo padrão da célula (--esp-3), não
+       a escala de --esp-N — ver o comentário completo em
+       `.tabela-dados td.nivel-N` mais abaixo, onde os valores são
+       usados. --- */
+    --recuo-nivel-2: 2rem;
+    --recuo-nivel-3: 3.25rem;
+    --recuo-nivel-4: 4.5rem;
+    --recuo-nivel-5: 5.75rem;
+    --recuo-nivel-6: 7rem;
+    --recuo-nivel-7: 8.25rem;
+    --recuo-nivel-8: 9.5rem;
+    --recuo-nivel-9: 10.75rem;
+    --recuo-nivel-10: 12rem;
 }
 
 * {
@@ -162,7 +230,7 @@ body {
 
 h1, h2, h3 {
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: var(--rastreio-cerrado);
     margin: 0 0 var(--esp-3);
 }
 
@@ -195,14 +263,14 @@ select:focus,
 textarea:focus,
 summary:focus,
 [tabindex]:focus {
-    outline: 3px solid var(--acento);
-    outline-offset: 2px;
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco);
 }
 
 /* Atalho para o conteúdo (critério 8): fora da tela até receber foco. */
 .pular-para-conteudo {
     position: absolute;
-    left: -999px;
+    left: var(--fora-da-tela);
     top: 0;
     padding: var(--esp-2) var(--esp-4);
     background: var(--tinta);
@@ -218,8 +286,8 @@ summary:focus,
 
 .visualmente-oculto {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: var(--tamanho-oculto);
+    height: var(--tamanho-oculto);
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
@@ -232,7 +300,7 @@ summary:focus,
    faixa utilitária (marca/usuário/sair), nunca disputando atenção com ela.
    ========================================================================== */
 .cabecalho {
-    border-bottom: 1px solid var(--borda-forte);
+    border-bottom: var(--traco-fina) solid var(--borda-forte);
     background: var(--papel);
 }
 
@@ -243,7 +311,7 @@ summary:focus,
     justify-content: space-between;
     gap: var(--esp-4);
     padding: var(--esp-2) var(--esp-5);
-    border-bottom: 1px solid var(--borda-hairline);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
 }
 
 .marca {
@@ -256,7 +324,7 @@ summary:focus,
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-md);
     font-weight: 700;
-    letter-spacing: 0.02em;
+    letter-spacing: var(--rastreio-leve);
     color: var(--tinta);
     text-decoration: none;
 }
@@ -281,13 +349,13 @@ summary:focus,
 .navegacao-principal a {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.4em;
+    gap: var(--esp-atalho);
     font-size: var(--tipo-sm);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--rastreio-leve);
     color: var(--tinta-suave);
     text-decoration: none;
     padding: var(--esp-1) 0;
-    border-bottom: 2px solid transparent;
+    border-bottom: var(--traco-media) solid transparent;
 }
 
 .navegacao-principal a:hover {
@@ -314,11 +382,19 @@ summary:focus,
    templates/base.html e templates/contabilidade/_navegacao_empresa.html. */
 kbd.tecla {
     font-family: var(--fonte-numerica);
-    font-size: 0.72em;
+    /* B2/BL-283: era 0.72em sobre --tipo-sm = 9,36px medidos, o menor
+       texto da interface — pequeno demais para um atalho que existe para
+       ser lido. --tipo-2xs (11px) é o próprio piso legível já usado em
+       .contexto-rotulo; ganha em relação ao antigo E deixa de ser um
+       tamanho RELATIVO ao contexto (--tipo-sm na navegação da empresa,
+       --tipo-md na navegação principal — dois tamanhos finais diferentes
+       do mesmo "0.72em"), então o atalho fica com a mesma altura visual
+       nas duas navegações. */
+    font-size: var(--tipo-2xs);
     font-style: normal;
     font-weight: 400;
     color: var(--tinta-media);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--rastreio-leve);
 }
 
 /* Navegação contextual da empresa (Plano de contas/Diário/Balancete/
@@ -343,7 +419,7 @@ kbd.tecla {
 .navegacao-empresa a {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.4em;
+    gap: var(--esp-atalho);
     color: var(--acento);
     text-decoration: underline;
 }
@@ -355,7 +431,7 @@ kbd.tecla {
 .navegacao-empresa .item-atual {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.4em;
+    gap: var(--esp-atalho);
     color: var(--tinta);
     font-weight: 700;
 }
@@ -371,14 +447,14 @@ kbd.tecla {
 .contexto-item {
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
+    gap: var(--esp-minima);
     font-size: var(--tipo-sm);
 }
 
 .contexto-rotulo {
     font-size: var(--tipo-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: var(--rastreio-maximo);
     color: var(--tinta-media);
 }
 
@@ -403,7 +479,7 @@ kbd.tecla {
 .form-sair button {
     background: transparent;
     color: var(--tinta);
-    border: 1px solid var(--borda-input);
+    border: var(--traco-fina) solid var(--borda-input);
 }
 
 .form-sair button:hover {
@@ -413,7 +489,7 @@ kbd.tecla {
 }
 
 .conteudo-principal {
-    max-width: 75rem;
+    max-width: var(--largura-conteudo);
     margin: 0 auto;
     padding: var(--esp-5);
 }
@@ -431,8 +507,8 @@ kbd.tecla {
 
 .mensagem {
     padding: var(--esp-3) var(--esp-4);
-    border: 1px solid var(--borda-hairline);
-    border-left-width: 5px;
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-left-width: var(--traco-destaque);
     border-radius: var(--raio);
     font-size: var(--tipo-sm);
 }
@@ -466,7 +542,7 @@ kbd.tecla {
     display: flex;
     flex-direction: column;
     gap: var(--esp-4);
-    max-width: 32rem;
+    max-width: var(--largura-formulario);
 }
 
 .campo {
@@ -483,7 +559,7 @@ kbd.tecla {
 .campo input,
 .campo select {
     padding: var(--esp-2);
-    border: 1px solid var(--borda-input);
+    border: var(--traco-fina) solid var(--borda-input);
     border-radius: var(--raio);
     background: var(--papel-elevado);
     color: var(--tinta);
@@ -493,8 +569,8 @@ kbd.tecla {
 
 .campo input:focus,
 .campo select:focus {
-    outline: 3px solid var(--acento);
-    outline-offset: 1px;
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco-campo);
 }
 
 /* Texto de apoio VISÍVEL abaixo de um campo — diferente de
@@ -506,7 +582,7 @@ kbd.tecla {
    ser visível (não só para leitor de tela) porque o problema que ele
    resolve é uma confusão VISUAL, para quem enxerga a tela. */
 .texto-apoio {
-    margin: 0.25rem 0 0;
+    margin: var(--esp-1) 0 0;
     font-size: var(--tipo-xs);
     color: var(--tinta-media);
 }
@@ -516,7 +592,7 @@ button {
     padding: var(--esp-2) var(--esp-4);
     background: var(--acento);
     color: var(--acento-texto);
-    border: 1px solid var(--acento);
+    border: var(--traco-fina) solid var(--acento);
     border-radius: var(--raio);
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-base);
@@ -539,11 +615,25 @@ button:disabled {
    colunas — critério "não esconder informação em favor da estética".
    Cabeçalho fixo ao rolar (direcao-de-arte §2.A / arquétipo "tabela de
    consulta"): sem wrapper de rolagem interna (o gauntlet media isso com
-   altura de viewport fixa; aqui a página inteira rola, então o
-   totalizador do rodapé já é alcançável sem rolar "a tabela inteira" —
-   critério 4 da DL-024 — pelo scroll normal da página, sem precisar de
-   sticky no rodapé também).
-   ========================================================================== */
+   altura de viewport fixa; aqui a página inteira rola).
+
+   A3/BL-276 (auditoria DL-024, rodada 1): esta regra AFIRMAVA que "a
+   página inteira rola, então o totalizador do rodapé já é alcançável sem
+   rolar a tabela inteira — critério 4 da DL-024". Era falso, e medido: o
+   balancete com 73 contas exigia 2153px de rolagem — passar pelas 73
+   linhas — para alcançar o rodapé. `thead` sticky (abaixo) resolve o
+   CABEÇALHO, não o TOTALIZADOR; um comentário que cita o número do
+   critério para descrever o que não cumpre é a falha, não uma
+   interpretação generosa dela (família da BL-142/BL-246).
+
+   O `tfoot` desta tabela genérica CONTINUA sem ser sticky — nenhuma tela
+   depende mais disto para cumprir o critério 4. O Balancete (a tela onde
+   o totalizador é "fecha ou não fecha") resolve pelo caminho oposto:
+   `.faixa-fechamento`, no TOPO da página, antes do filtro — ver o
+   comentário dela em templates/contabilidade/balancete.html e a regra
+   logo abaixo desta seção. Diário, Razão e Plano de Contas não têm essa
+   faixa e HERDAM a mesma limitação que esta regra tinha antes: o total
+   deles só é alcançável rolando a tabela — registrado, não escondido. */
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
@@ -554,7 +644,7 @@ button:disabled {
 .tabela-dados th,
 .tabela-dados td {
     padding: var(--esp-2) var(--esp-3);
-    border-bottom: 1px solid var(--borda-hairline);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
     text-align: left;
     line-height: var(--lh-densa);
 }
@@ -563,12 +653,12 @@ button:disabled {
     position: sticky;
     top: 0;
     background: var(--papel-alt);
-    border-bottom: 2px solid var(--borda-forte);
+    border-bottom: var(--traco-media) solid var(--borda-forte);
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-2xs);
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: var(--rastreio-amplo);
     color: var(--tinta-suave);
     z-index: 2;
 }
@@ -579,21 +669,22 @@ button:disabled {
    que foi lançado direto nesta conta) sem alargar a tabela — as duas
    colunas já existiam (achado 10/BL-96, DE-024 §2); o que muda é o
    agrupamento visual. Sticky em duas linhas não é uma propriedade só: cada
-   <tr> precisa do próprio "top". O valor de 1.85rem foi MEDIDO no
-   Chromium (altura real da primeira linha do cabeçalho nesta tabela, com
-   --tipo-2xs e o padding --esp-2 do .tabela-dados th), não calculado por
-   fórmula CSS — mesmo método que o protótipo do gauntlet já documentava. */
+   <tr> precisa do próprio "top". O valor de --altura-cabecalho-nivel-1
+   foi MEDIDO no Chromium (altura real da primeira linha do cabeçalho
+   nesta tabela, com --tipo-2xs e o padding --esp-2 do .tabela-dados th),
+   não calculado por fórmula CSS — mesmo método que o protótipo do
+   gauntlet já documentava. */
 .tabela-dois-niveis thead tr:first-child th {
     top: 0;
 }
 
 .tabela-dois-niveis thead tr:last-child th {
-    top: 1.85rem;
+    top: var(--altura-cabecalho-nivel-1);
 }
 
 .tabela-dois-niveis th[scope="colgroup"] {
     text-align: center;
-    border-left: 1px solid var(--borda-hairline);
+    border-left: var(--traco-fina) solid var(--borda-hairline);
 }
 
 .tabela-dados tbody tr:hover {
@@ -621,7 +712,7 @@ button:disabled {
 .indicador-natureza {
     font-family: var(--fonte-editorial);
     font-weight: 700;
-    margin-left: 0.3em;
+    margin-left: var(--esp-indicador);
 }
 
 /* Saldo invertido (contrário à natureza cadastrada da conta): parênteses,
@@ -641,8 +732,79 @@ button:disabled {
    isso. */
 .linha-total td {
     font-weight: 700;
-    border-top: 2px solid var(--borda-forte);
+    border-top: var(--traco-media) solid var(--borda-forte);
     background: var(--papel-alt);
+}
+
+/* M2/BL-278 (auditoria DL-024, rodada 1): "fecha ou não fecha" no
+   lançamento, DE-042 §3 — texto primeiro (a palavra "Fecha"/"Não fecha"
+   está sempre no HTML), cor de reforço na primeira célula da linha via
+   este modificador, nunca o único canal. Aplicado em
+   templates/contabilidade/lancamento_form.html, na MESMA `<tr
+   class="linha-total">` que já mostra os dois totais — não é uma linha
+   nova, é a linha existente ganhando veredito. */
+.linha-total--fecha td:first-child {
+    border-left: var(--traco-destaque) solid var(--sucesso);
+}
+
+.linha-total--fecha .veredito-fechamento {
+    color: var(--sucesso);
+}
+
+.linha-total--nao-fecha td:first-child {
+    border-left: var(--traco-destaque) solid var(--erro);
+}
+
+.linha-total--nao-fecha .veredito-fechamento {
+    color: var(--erro);
+}
+
+/* A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de fechamento
+   do Balancete — resolve as DUAS coisas na mesma superfície, porque são a
+   mesma pergunta ("os totais fecham?") em duas roupagens (critério 4:
+   totalizador alcançável sem rolar a tabela inteira; DE-042 §3: "fecha ou
+   não fecha" é a segunda coisa que o olho encontra). Fica logo após o
+   `<h1>` do Balancete, ANTES do formulário de período — por isso é
+   alcançável com rolagem zero, e é literalmente a segunda coisa da tela
+   depois do título. Reaproveita `.contexto-item`/`.contexto-rotulo` (o
+   mesmo par da faixa de contexto do cabeçalho) em vez de inventar uma
+   variante nova.
+
+   Os dois totais que aparecem aqui (`total_debitos_ptbr`/
+   `total_creditos_ptbr`) são as colunas "próprias" do rodapé da tabela
+   (achado 10/BL-96, DE-024 §2) — por construção, todo lançamento
+   efetivado tem débito igual a crédito (services.criar_lancamento), então
+   a soma de todos os débitos próprios do plano SEMPRE fecha com a soma de
+   todos os créditos próprios, salvo corrupção de dado. O veredito
+   "Não fecha" existe como rede de segurança visível, não como caminho
+   esperado. */
+.faixa-fechamento {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--esp-5);
+    margin-bottom: var(--esp-4);
+    padding: var(--esp-3) var(--esp-4);
+    border: var(--traco-fina) solid var(--sucesso);
+    border-left-width: var(--traco-destaque);
+    border-radius: var(--raio);
+    background: var(--sucesso-fundo);
+}
+
+.faixa-fechamento--nao-fecha {
+    border-color: var(--erro);
+    background: var(--erro-fundo);
+}
+
+.faixa-fechamento__veredito {
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-md);
+    font-weight: 700;
+    color: var(--sucesso);
+}
+
+.faixa-fechamento--nao-fecha .faixa-fechamento__veredito {
+    color: var(--erro);
 }
 
 /* Formulário de período (Diário, Razão, Balancete): disposição em linha,
@@ -657,7 +819,7 @@ button:disabled {
     gap: var(--esp-4);
     margin-bottom: var(--esp-4);
     padding: var(--esp-2) var(--esp-3);
-    border: 1px solid var(--borda-hairline);
+    border: var(--traco-fina) solid var(--borda-hairline);
     border-radius: var(--raio);
 }
 
@@ -683,7 +845,7 @@ button:disabled {
 .formulario-lancamento .tabela-dados input {
     width: 100%;
     padding: var(--esp-1) var(--esp-2);
-    border: 1px solid var(--borda-input);
+    border: var(--traco-fina) solid var(--borda-input);
     border-radius: var(--raio);
     background: var(--papel-elevado);
     color: var(--tinta);
@@ -736,21 +898,48 @@ button:disabled {
    "nivel-1" (raiz do plano; e o caso degenerado de conta em ciclo, sem
    nível apurável) usam o MESMO `padding-left` da célula comum (--esp-3 —
    alinhados com o cabeçalho, sem indentação), e cada nível seguinte soma
-   exatamente 1.25rem (20px) a partir daí. Os valores continuam em `rem`
-   fixo (não em `--esp-N`): é uma progressão aritmética própria desta
-   escada, não a escala de espaçamento do resto da tela, e forçar as duas
-   a coincidir tornaria a fórmula menos legível sem ganho nenhum. */
+   exatamente 1.25rem (20px) a partir daí. Os valores moram em
+   `--recuo-nivel-N` (bloco `:root`), NÃO em `--esp-N`: é uma progressão
+   aritmética própria desta escada, não a escala de espaçamento do resto
+   da tela, e forçar as duas a coincidir tornaria a fórmula menos legível
+   sem ganho nenhum — mas um valor precisa nascer em ALGUMA variável do
+   :root (regra deste arquivo), nunca solto na regra de tela. */
 .tabela-dados td.nivel-0 { padding-left: var(--esp-3); }
 .tabela-dados td.nivel-1 { padding-left: var(--esp-3); }
-.tabela-dados td.nivel-2 { padding-left: 2rem; }
-.tabela-dados td.nivel-3 { padding-left: 3.25rem; }
-.tabela-dados td.nivel-4 { padding-left: 4.5rem; }
-.tabela-dados td.nivel-5 { padding-left: 5.75rem; }
-.tabela-dados td.nivel-6 { padding-left: 7rem; }
-.tabela-dados td.nivel-7 { padding-left: 8.25rem; }
-.tabela-dados td.nivel-8 { padding-left: 9.5rem; }
-.tabela-dados td.nivel-9 { padding-left: 10.75rem; }
-.tabela-dados td.nivel-10 { padding-left: 12rem; }
+.tabela-dados td.nivel-2 { padding-left: var(--recuo-nivel-2); }
+.tabela-dados td.nivel-3 { padding-left: var(--recuo-nivel-3); }
+.tabela-dados td.nivel-4 { padding-left: var(--recuo-nivel-4); }
+.tabela-dados td.nivel-5 { padding-left: var(--recuo-nivel-5); }
+.tabela-dados td.nivel-6 { padding-left: var(--recuo-nivel-6); }
+.tabela-dados td.nivel-7 { padding-left: var(--recuo-nivel-7); }
+.tabela-dados td.nivel-8 { padding-left: var(--recuo-nivel-8); }
+.tabela-dados td.nivel-9 { padding-left: var(--recuo-nivel-9); }
+.tabela-dados td.nivel-10 { padding-left: var(--recuo-nivel-10); }
+
+/* M4/BL-280 (auditoria DL-024, rodada 1): hierarquia por PESO, não só por
+   recuo — DE-042 §1: "a hierarquia do plano de contas vem de peso e
+   recuo, não de uma coluna 'Nível' nem de cor". Medido antes desta
+   correção: peso 400 nos quatro níveis do balancete, só o recuo
+   diferenciava, e a coluna "Nível" era o único sinal de verdade — embora
+   o comentário do bloco `.nivel-N` ACIMA já afirmasse "a hierarquia
+   agora também se apoia em PESO tipográfico... ver .conta-sintetica
+   abaixo" desde a implementação original: a classe nunca tinha sido
+   escrita. É a mesma classe de defeito da BL-142/BL-246 (comentário
+   descrevendo o que a etapa NÃO fez), só que em CSS em vez de prosa.
+
+   Conta SINTÉTICA (não aceita lançamento — é grupo/totalizador da
+   hierarquia) pesa mais que conta ANALÍTICA (aceita lançamento — é onde
+   o fato contábil pousa): o olho encontra o total do grupo sem precisar
+   ler a coluna "Nível", que passa a ser informação de apoio, não mais o
+   único sinal. Aplicada no `<td>` do nome da conta, junto da classe
+   `nivel-N` (recuo) — texto por extenso equivalente ("(grupo)") ou
+   legenda visível deve acompanhar em cada tela que usa isto (ver
+   templates/contabilidade/balancete.html e plano_de_contas.html), porque
+   peso sozinho tem o MESMO problema de "cor sozinha" para quem não
+   distingue as duas visualmente. */
+.conta-sintetica {
+    font-weight: 700;
+}
 
 /* Coluna consolidada do Balancete que NÃO é somável no rodapé (achado 10
    / BL-96: "Débitos"/"Créditos" contam cada lançamento uma vez por nível
@@ -797,15 +986,25 @@ button:disabled {
     /* Nenhuma faixa de destaque colorida sobrevive à impressão — tinta
        colorida gasta mais cartucho e nem toda impressora reproduz a cor da
        tela fielmente (mesmo raciocínio do :root, mas aplicado a TODO
-       elemento com fundo, não só à tabela). */
+       elemento com fundo, não só à tabela). A faixa de fechamento
+       (BL-276/BL-278) entra na mesma lista: o VEREDITO continua saindo —
+       é texto ("Fecha"/"Não fecha") — só a cor de fundo e a borda colorida
+       somem, junto com o resto das faixas de destaque. */
     .cabecalho,
     .cabecalho__topo,
     .cabecalho__contexto,
     .mensagem,
     .linha-total td,
     .coluna-nao-somavel,
+    .faixa-fechamento,
     .tabela-dados tbody tr:hover {
         background: var(--impressao-fundo) !important;
+        color: var(--impressao-tinta) !important;
+        border-color: var(--impressao-tinta) !important;
+    }
+
+    .faixa-fechamento__veredito,
+    .veredito-fechamento {
         color: var(--impressao-tinta) !important;
     }
 
@@ -813,7 +1012,7 @@ button:disabled {
         position: static;
         background: var(--impressao-fundo) !important;
         color: var(--impressao-tinta) !important;
-        border-bottom: 1.5pt solid var(--impressao-tinta);
+        border-bottom: var(--traco-impressao) solid var(--impressao-tinta);
     }
 
     .tabela-dados td,

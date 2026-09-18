@@ -611,7 +611,13 @@ def test_contexto_visivel_empresa_e_periodo(client, cenario):
     resposta = client.get(url)
     conteudo = resposta.content.decode()
     assert "Empresa A Ltda" in conteudo
-    assert "Período:" in conteudo
+    # BL-283(a)/rodada 2 da DL-024: o rótulo de contexto perdeu o
+    # dois-pontos e passou a envolver o valor em <strong> — mesma marcação
+    # que "Usuário"/"Escritório ativo" já usavam em base.html (a
+    # inconsistência era exatamente essa: metade da faixa em um padrão,
+    # metade em outro). O texto por extenso continua presente; só a
+    # marcação mudou.
+    assert '<span class="contexto-rotulo">Período</span>' in conteudo
     assert hoje.replace(day=1).strftime("%d/%m/%Y") in conteudo
 
 
