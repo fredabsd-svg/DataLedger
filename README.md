@@ -36,7 +36,7 @@ O DataLedger nasce para reunir as rotinas de um escritório contábil em uma pla
 
 | | Capacidade | Situação |
 | --- | --- | --- |
-| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md); identidade visual e direção de arte: [DL-024](docs/planos/DL-024-identidade-visual-e-interface.md) |
 | <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado e auditado |
 | <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado no servidor e trilha de alterações | ✅ Fundação implementada |
 | <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🗺️ Planejado — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
@@ -61,6 +61,10 @@ O núcleo usa **Python 3.12+ (a integração contínua roda em 3.14), Django 6.1
 </p>
 
 A engenharia do DataLedger trata software contábil como software crítico. Uma mudança não termina quando "funciona na máquina": ela passa por planejamento, testes, revisão do diff, **auditoria independente com teste de mutação**, integração contínua e registro das decisões. Na DL-011, por exemplo, foram **cinco rodadas de auditoria** — a primeira reprovou, e cada rodada seguinte encontrou algo que a anterior não tinha visto. Os relatórios estão em [`docs/auditorias/`](docs/auditorias/), preservados integralmente.
+
+O que a experiência ensinou é que **regra sem mecanismo é só pedido**. Por isso parte das regras deixou de depender de alguém lembrar: gancho que injeta as regras no início de cada sessão, verificação que reprova pull request sem atestado de leitura, teste que reprova quando o estado documentado diverge do repositório, e **varredura de interface** que reprova tela fora do contrato visual — cor, medida, tabulação de algarismos, legenda de tabela, moldura comum e o "momento da verdade" de cada módulo. O que é imposto por máquina e o que é só instrução está declarado no fim do [`AGENTS.md`](AGENTS.md).
+
+Essas guardas também são atacadas de propósito. Na [DL-024](docs/planos/DL-024-identidade-visual-e-interface.md), a auditoria sabotou a varredura de seis maneiras e passou nas seis; as seis viraram detector com prova de que reprovam. Guarda que nunca falhou em teste não é guarda confiável — é guarda que ainda não foi testada.
 
 ## 🧱 Princípios que não negociamos
 
