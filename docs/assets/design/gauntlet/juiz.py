@@ -43,8 +43,8 @@ def contraste(cor_a, cor_b):
     return (claro + 0.05) / (escuro + 0.05)
 
 
-SONDA = """
-() => {
+SONDA = r"""
+() =>{
     const resultado = {
         rolagem_horizontal: document.scrollingElement.scrollWidth > window.innerWidth + 1,
         largura_conteudo: document.scrollingElement.scrollWidth,
