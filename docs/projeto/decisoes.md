@@ -2157,3 +2157,40 @@ moram em `Meta.constraints` do modelo (testadas em
 
 **Consequência:** CI deve passar os dois testes de varredura. Cabeçalho
 do `test_competencia.py` atualizado com histórico das duas correções.
+
+## DE-048 — `ruff format --check` travou a CI do PR #31 antes do pytest rodar
+
+**Data:** 2026-09-18
+
+**Decisão:** a CI do projeto (`.github/workflows/ci.yml`) roda `ruff format
+--check .` ANTES de pytest, e como o step falha com exit code 1 **e** o
+shell tem `set -e`, o workflow morre ali e o pytest nem é invocado.
+
+**Contexto:** terceira rodada da CI do PR #31 parecia "quebrar testes"
+quando na verdade nem testes tinha rodado — só a checagem de
+formatação. Dois arquivos:
+
+- `apps/contabilidade/tests/test_competencia.py:113-115 e 123-125`:
+  `Competencia.objects.create(empresa=..., ano=..., mes=...)` partido
+  em três linhas dentro do `with self.assertRaises(...), transaction.
+  atomic()` — o `ruff format` quer em uma linha só.
+- `apps/core/tests/test_dl023_varredura_admin.py:176`: faltava
+  vírgula no fim do literal `"negócio). Sem invariante adicional a
+  defender no admin."`.
+
+**Por que aconteceu:** nas escritas anteriores, eu só validava com
+`python -m py_compile` (sintaxe) — não com `ruff format`. A CI
+captura coisas que o `py_compile` não vê.
+
+**Correção aplicada:** commit `7fda659`, formatado `ruff format`
+(invocando a versão 0.16.7, igual à da CI), commitado e push. CI
+verde em ambos os checks (`Validar documentação: success`,
+`Lint e testes: success`).
+
+**Consequência:** a partir desta DL, eu **sempre** rodo `ruff
+format --check .` localmente antes de empurrar — não só `py_compile`.
+Está no checklist mental de quem mexe em código Python do projeto.
+
+**Não foi preciso mexer na CI** (separar lint/format em jobs, ou
+tornar format warning-only) — isso seria uma decisão de processo
+mais ampla, e a regra atual é clara.
