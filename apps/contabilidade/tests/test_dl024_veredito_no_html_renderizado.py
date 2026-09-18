@@ -17,7 +17,7 @@ A1. Com o formulário em branco, a CHAVE do contexto continuava certa
 "Fecha" (`None == None` é verdadeiro em template Django). A suíte inteira,
 inclusive os 13 testes do BL-289, continuou verde.
 
-Este arquivo fecha essa lacuna. Duas coisas, para cada uma das duas telas
+Este arquivo fecha essa lacuna. Três coisas, para cada uma das duas telas
 (lançamento e balancete):
 
 1. Para cada um dos três estados, o texto do estado ESPERADO está
@@ -27,22 +27,162 @@ Este arquivo fecha essa lacuna. Duas coisas, para cada uma das duas telas
    `total_..._ptbr` em vez de ramificar pela chave) tem que produzir o
    texto ERRADO — a prova de que os testes do item 1, rodados contra um
    template mutado, morreriam.
+3. A PÁGINA REAL (seção "3" abaixo) — cliente de teste do Django, URL de
+   verdade, view de verdade, template de verdade. Achado do
+   `arquiteto-senior`, na revisão integrada `65af1dc` desta mesma sessão:
+   os itens 1 e 2 extraem o FRAGMENTO do `{% if %}` e o renderizam
+   ISOLADO — provam que o fragmento, SE EXECUTADO, produz o texto certo,
+   mas não provam que ele É executado. Uma sabotagem que envolve o bloco
+   inteiro (intacto por dentro) numa condição sempre falsa
+   (`{% if nunca_definido_no_contexto %}...{% endif %}`) não muda o
+   fragmento — a extração dos itens 1 e 2 continua achando o `{% if
+   veredito_... == "fecha" %}` de sempre — e o veredito INTEIRO some da
+   página renderizada de verdade. É a QUARTA vez, nesta mesma etapa, que
+   o teste fica um passo antes de onde o defeito aparece (a faixa nasceu
+   sem teste — A2; o balancete acertava por ausência de chave, não por
+   decisão — BL-302; a decisão foi testada e a entrega não — achado
+   anterior desta rodada). A seção 3 testa a ENTREGA: a resposta HTTP que
+   o contador de fato recebe.
 
-Método de mutação: extrai o FRAGMENTO do `{% if %}` do ARQUIVO REAL a cada
-chamada (nunca retypado à mão — a mesma lição do BL-296: cópia que
-descreve o original diverge assim que o original muda) e o RENDERIZA como
-STRING em memória, com `django.template.engines["django"].from_string`
-mais um contexto sintético — nunca escrevendo no arquivo do repositório.
-É o MESMO método que `test_dl017_rodada2_frontend.py` já usa para mutar
+Método de mutação dos itens 1 e 2: extrai o FRAGMENTO do `{% if %}` do
+ARQUIVO REAL a cada chamada (nunca retypado à mão — a mesma lição do
+BL-296: cópia que descreve o original diverge assim que o original muda)
+e o RENDERIZA como STRING em memória, com
+`django.template.engines["django"].from_string` mais um contexto
+sintético — nunca escrevendo no arquivo do repositório. É o MESMO método
+que `test_dl017_rodada2_frontend.py` já usa para mutar
 `static/css/base.css` ("aplica o mutante numa CÓPIA do CSS real, nunca o
 arquivo do repositório") — aqui aplicado a um fragmento de template em vez
 de uma folha de estilo.
+
+Método de mutação do item 3 (a condição sempre falsa): esta sabotagem é
+sobre o que a URL de verdade SERVE — não há como reproduzi-la sem que o
+Django resolva o template pelo NOME, através dos `loaders` configurados
+(`config/settings.py`, `APP_DIRS: True`), o que só acontece lendo do
+arquivo no disco. A mutação escreve no ARQUIVO REAL, dentro de um
+`try`/`finally` que restaura o conteúdo ORIGINAL (lido em memória ANTES de
+escrever) e confere, byte a byte, que a restauração foi perfeita — nunca
+deixa o repositório mutado, mesmo se a asserção do meio falhar.
+
+Achado próprio, ao escrever esta seção: o Django deste projeto usa
+`django.template.loaders.cached.Loader` por PADRÃO (`Engine.__init__`
+envolve os loaders default em `cached.Loader` sempre que ninguém passa
+`loaders=` explicitamente — independe de `DEBUG`, ao contrário do que a
+documentação costuma sugerir de memória). Escrever o arquivo mutado no
+disco SEM avisar o motor de template não muda nada: a primeira renderização
+desta MESMA sessão de teste já deixou o `Template` compilado em cache, e a
+troca do arquivo no disco fica invisível até o cache ser limpo. Por isso a
+mutação chama `django.template.autoreload.reset_loaders()` — a MESMA
+função pública que o `runserver` chama quando o autoreload detecta um
+`.html` mudando no disco — logo depois de escrever o arquivo mutado, e de
+novo depois de restaurar o original, para a próxima renderização (de
+qualquer teste que rode depois deste no mesmo processo) não herdar um
+cache apontando para o conteúdo mutado.
 """
 
 import re
+from decimal import Decimal
 from pathlib import Path
 
+import pytest
+from django.contrib.auth import get_user_model
 from django.template import engines as _template_engines
+from django.template.autoreload import reset_loaders
+from django.urls import reverse
+from django.utils import timezone
+
+from apps.contabilidade import views_web
+from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
+from apps.contabilidade.services import criar_lancamento
+from apps.empresas.models import Empresa
+from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+pytestmark = pytest.mark.django_db
+
+# Fixture e auxiliares da seção 3 (página real) — dados 100% sintéticos,
+# no MESMO padrão que todo outro arquivo desta suíte usa para o próprio
+# cenário (test_dl017_telas.py::cenario, test_bl289_veredito_fechamento.py
+# ::cen, test_bl290_veredito_balancete.py::cen): cada arquivo cria o seu.
+# Tentei reaproveitar `cen`/`_login`/`_url_tela` dos dois arquivos do
+# `desenvolvedor-pleno` por IMPORT (proibido editá-los, mas não importar
+# deles) — funciona para o pytest (que resolve fixture pelo nome no
+# namespace do módulo, não pelo `__name__` da função original), mas o
+# `ruff` não distingue "nome de parâmetro que o pytest injeta" de
+# "variável nunca lida", e sinaliza F401/F811 em cada função. Uma fixture
+# PRÓPRIA, pequena, evita a escolha entre calar o lint em cada função ou
+# deixar `ruff check` sujo.
+
+
+@pytest.fixture
+def cenario_pagina_real():
+    """Escritório, empresa e duas contas (uma devedora, uma credora) — o
+    mínimo para lançar (lançamento) e para o balancete ter movimento."""
+    escritorio = Escritorio.objects.create(
+        nome="Escritório veredito-na-página", cnpj="55555555000155"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa Veredito na Página Ltda",
+        cnpj="55566677000155",
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    receita = Conta.objects.create(
+        empresa=empresa,
+        codigo="2",
+        nome="Receita",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    usuario = get_user_model().objects.create_user(
+        username="gestora-veredito-pagina",
+        email="gestora-veredito-pagina@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    return {"escritorio": escritorio, "empresa": empresa, "caixa": caixa, "receita": receita}
+
+
+def _login(client):
+    assert client.login(username="gestora-veredito-pagina", password="senha-forte-123")
+
+
+def _url_lancamento(cenario):
+    return reverse("contabilidade_web:lancamento_novo", args=[cenario["empresa"].id])
+
+
+def _url_balancete(cenario, *, inicio=None, fim=None):
+    base = reverse("contabilidade_web:balancete", args=[cenario["empresa"].id])
+    if inicio is None or fim is None:
+        return base
+    return f"{base}?inicio={inicio.isoformat()}&fim={fim.isoformat()}"
+
+
+def _post_duas_linhas(client, cenario, *, acao, valor_debito, valor_credito, chave):
+    return client.post(
+        _url_lancamento(cenario),
+        {
+            "acao": acao,
+            "num_linhas": "2",
+            "data": timezone.localdate().isoformat(),
+            "historico": "Página real — veredito",
+            "chave_idempotencia": chave,
+            "conta_1": str(cenario["caixa"].id),
+            "tipo_1": "debito",
+            "valor_1": valor_debito,
+            "conta_2": str(cenario["receita"].id),
+            "tipo_2": "credito",
+            "valor_2": valor_credito,
+        },
+    )
+
 
 _RAIZ = Path(__file__).resolve().parents[3]
 _CAMINHO_LANCAMENTO = _RAIZ / "templates" / "contabilidade" / "lancamento_form.html"
@@ -286,3 +426,293 @@ def test_controle_fragmentos_extraidos_contem_os_tres_ramos():
     fragmento_balancete = _fragmento_veredito_balancete()
     for pedaco in ('veredito_balancete == "fecha"', "elif", "else", "faixa-fechamento__veredito"):
         assert pedaco in fragmento_balancete, (pedaco, fragmento_balancete)
+
+
+# ---------------------------------------------------------------------------
+# 3) A PÁGINA REAL — cliente de teste do Django, URL de verdade, view de
+# verdade, template de verdade. Ver o docstring do módulo para o achado
+# que motivou esta seção (a sabotagem da condição sempre falsa, que os
+# itens 1 e 2 acima não pegam).
+# ---------------------------------------------------------------------------
+
+
+def _veredito_lancamento_na_pagina(html):
+    """`None` quando o veredito SOME da página — é exatamente o efeito da
+    sabotagem "condição sempre falsa": o bloco continua no arquivo,
+    intacto, mas nunca é alcançado na renderização real."""
+    m = re.search(r'<strong class="veredito-fechamento">(.*?)</strong>', html, re.DOTALL)
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else None
+
+
+def _veredito_balancete_na_pagina(html):
+    m = re.search(r'<strong class="faixa-fechamento__veredito">(.*?)</strong>', html, re.DOTALL)
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else None
+
+
+def _exige_texto_do_estado_na_pagina(extrator, html, esperado_prefixo, *proibidos):
+    """Exige que o veredito EXISTA na página renderizada de verdade
+    (`None` reprova — a armadilha que o arquiteto-senior nomeou: um teste
+    que só confere "X not in html" passaria quando o veredito
+    simplesmente sumisse) e que o texto comece com `esperado_prefixo`; os
+    textos em `proibidos` (os OUTROS estados) não podem aparecer."""
+    texto = extrator(html)
+    assert texto is not None, "o veredito SUMIU da página renderizada — nenhum <strong> encontrado"
+    assert texto.startswith(esperado_prefixo), (
+        f"veredito na página = {texto!r}, esperado prefixo {esperado_prefixo!r}"
+    )
+    for proibido in proibidos:
+        assert proibido not in texto, (
+            f"veredito na página = {texto!r} não deveria conter {proibido!r}"
+        )
+    return texto
+
+
+# --- Lançamento — três estados, página real -------------------------------
+
+
+@pytest.mark.django_db
+def test_pagina_real_lancamento_fecha(client, cenario_pagina_real):
+    _login(client)
+    resposta = _post_duas_linhas(
+        client,
+        cenario_pagina_real,
+        acao="adicionar_linha",
+        valor_debito="777,77",
+        valor_credito="777,77",
+        chave="k-pagina-real-fecha",
+    )
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    _exige_texto_do_estado_na_pagina(
+        _veredito_lancamento_na_pagina, html, "Fecha", "Não fecha", "Ainda não conferido"
+    )
+
+
+@pytest.mark.django_db
+def test_pagina_real_lancamento_nao_fecha(client, cenario_pagina_real):
+    _login(client)
+    resposta = _post_duas_linhas(
+        client,
+        cenario_pagina_real,
+        acao="adicionar_linha",
+        valor_debito="1.500,00",
+        valor_credito="900,00",
+        chave="k-pagina-real-nao-fecha",
+    )
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    texto = _exige_texto_do_estado_na_pagina(
+        _veredito_lancamento_na_pagina, html, "Não fecha, faltam", "Ainda não conferido"
+    )
+    assert "600,00" in texto
+    assert texto != "Fecha"
+
+
+@pytest.mark.django_db
+def test_pagina_real_lancamento_ainda_nao_conferido_formulario_em_branco(
+    client, cenario_pagina_real
+):
+    _login(client)
+    resposta = client.get(_url_lancamento(cenario_pagina_real))
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    _exige_texto_do_estado_na_pagina(
+        _veredito_lancamento_na_pagina, html, "Ainda não conferido", "Fecha", "Não fecha"
+    )
+
+
+# --- Balancete — três estados, página real ---------------------------------
+
+
+@pytest.mark.django_db
+def test_pagina_real_balancete_fecha(client, cenario_pagina_real):
+    _login(client)
+    hoje = timezone.localdate()
+    criar_lancamento(
+        empresa=cenario_pagina_real["empresa"],
+        data=hoje,
+        historico="página real — fecha",
+        itens=[
+            {"conta": cenario_pagina_real["caixa"], "tipo": "debito", "valor": Decimal("500.00")},
+            {
+                "conta": cenario_pagina_real["receita"],
+                "tipo": "credito",
+                "valor": Decimal("500.00"),
+            },
+        ],
+        criado_por=None,
+        chave_idempotencia="k-pagina-real-bal-fecha",
+    )
+    resposta = client.get(_url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje))
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    _exige_texto_do_estado_na_pagina(
+        _veredito_balancete_na_pagina, html, "Fecha", "Não fecha", "Nada a conferir"
+    )
+
+
+@pytest.mark.django_db
+def test_pagina_real_balancete_nada_a_conferir(client, cenario_pagina_real):
+    _login(client)
+    resposta = client.get(_url_balancete(cenario_pagina_real))
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    _exige_texto_do_estado_na_pagina(
+        _veredito_balancete_na_pagina, html, "Nada a conferir", "Fecha", "Não fecha"
+    )
+
+
+@pytest.mark.django_db
+def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
+    client, cenario_pagina_real, monkeypatch
+):
+    """O ramo "não fecha" do balancete é uma REDE DE SEGURANÇA — partida
+    dobrada garante débito == crédito por construção; forçado aqui via
+    `monkeypatch` em `apurar_balancete`, mesmo padrão já usado em
+    `test_dl017_telas.py` e em `test_bl290_veredito_balancete.py`."""
+    _login(client)
+    hoje = timezone.localdate()
+    criar_lancamento(
+        empresa=cenario_pagina_real["empresa"],
+        data=hoje,
+        historico="página real — base para divergência",
+        itens=[
+            {"conta": cenario_pagina_real["caixa"], "tipo": "debito", "valor": Decimal("300.00")},
+            {
+                "conta": cenario_pagina_real["receita"],
+                "tipo": "credito",
+                "valor": Decimal("300.00"),
+            },
+        ],
+        criado_por=None,
+        chave_idempotencia="k-pagina-real-bal-divergente",
+    )
+    apuracao_real = views_web.apurar_balancete(
+        empresa=cenario_pagina_real["empresa"], inicio=hoje.replace(day=1), fim=hoje, nivel=None
+    )
+
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+        divergente = dict(apuracao_real)
+        divergente["total_creditos"] = apuracao_real["total_creditos"] + Decimal("0.01")
+        return divergente
+
+    monkeypatch.setattr(views_web, "apurar_balancete", _apuracao_divergente)
+
+    resposta = client.get(_url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje))
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    texto = _exige_texto_do_estado_na_pagina(
+        _veredito_balancete_na_pagina, html, "Não fecha", "Nada a conferir"
+    )
+    assert texto != "Fecha"
+
+
+# ---------------------------------------------------------------------------
+# Prova por mutação (b): a condição sempre falsa. Muta o ARQUIVO REAL —
+# não há outro jeito de sabotar o que a URL de verdade serve — dentro de
+# um `try`/`finally` que restaura o conteúdo ORIGINAL (lido em memória
+# ANTES de escrever) e confere, byte a byte, que a restauração foi
+# perfeita, mesmo que a asserção do meio reprove.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_lancamento(
+    client, cenario_pagina_real
+):
+    conteudo_original = _CAMINHO_LANCAMENTO.read_text(encoding="utf-8")
+    fragmento = _fragmento_veredito_lancamento()
+    conteudo_mutado = conteudo_original.replace(
+        fragmento,
+        "{% if nunca_definido_no_contexto %}" + fragmento + "{% endif %}",
+        1,
+    )
+    assert conteudo_mutado != conteudo_original, "controle: a mutação precisa mudar o arquivo"
+
+    try:
+        _CAMINHO_LANCAMENTO.write_text(conteudo_mutado, encoding="utf-8")
+        # O motor de template usa `cached.Loader` por padrão (ver o
+        # docstring do módulo) — sem isto, a renderização abaixo ainda
+        # serviria o `Template` já compilado de uma requisição ANTERIOR
+        # desta mesma sessão de teste, e a mutação no disco ficaria
+        # invisível. `reset_loaders` é a MESMA função pública que o
+        # `runserver` chama quando o autoreload detecta um `.html`
+        # mudando no disco.
+        reset_loaders()
+        _login(client)
+        resposta = client.get(_url_lancamento(cenario_pagina_real))
+        assert resposta.status_code == 200
+        texto = _veredito_lancamento_na_pagina(resposta.content.decode())
+        assert texto is None, (
+            "a mutação (condição sempre falsa) deveria fazer o veredito SUMIR da "
+            f"página, e não sumiu — achado: {texto!r}. A guarda da seção 3 não pegaria "
+            "esta sabotagem."
+        )
+    finally:
+        _CAMINHO_LANCAMENTO.write_text(conteudo_original, encoding="utf-8")
+        restaurado = _CAMINHO_LANCAMENTO.read_text(encoding="utf-8")
+        assert restaurado == conteudo_original, (
+            "A RESTAURAÇÃO DO ARQUIVO REAL FALHOU — o template pode ter ficado mutado "
+            "no repositório. Verifique templates/contabilidade/lancamento_form.html "
+            "manualmente."
+        )
+        # Limpa o cache de novo, para a PRÓXIMA renderização (de qualquer
+        # teste que rode depois deste no mesmo processo) não herdar o
+        # `Template` compilado a partir do conteúdo MUTADO.
+        reset_loaders()
+
+
+@pytest.mark.django_db
+def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_balancete(
+    client, cenario_pagina_real
+):
+    conteudo_original = _CAMINHO_BALANCETE.read_text(encoding="utf-8")
+    fragmento = _fragmento_veredito_balancete()
+    conteudo_mutado = conteudo_original.replace(
+        fragmento,
+        "{% if nunca_definido_no_contexto %}" + fragmento + "{% endif %}",
+        1,
+    )
+    assert conteudo_mutado != conteudo_original, "controle: a mutação precisa mudar o arquivo"
+
+    try:
+        _CAMINHO_BALANCETE.write_text(conteudo_mutado, encoding="utf-8")
+        reset_loaders()
+        _login(client)
+        hoje = timezone.localdate()
+        criar_lancamento(
+            empresa=cenario_pagina_real["empresa"],
+            data=hoje,
+            historico="mutação — condição sempre falsa",
+            itens=[
+                {
+                    "conta": cenario_pagina_real["caixa"],
+                    "tipo": "debito",
+                    "valor": Decimal("500.00"),
+                },
+                {
+                    "conta": cenario_pagina_real["receita"],
+                    "tipo": "credito",
+                    "valor": Decimal("500.00"),
+                },
+            ],
+            criado_por=None,
+            chave_idempotencia="k-mutacao-bal-sempre-falsa",
+        )
+        resposta = client.get(
+            _url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje)
+        )
+        assert resposta.status_code == 200
+        texto = _veredito_balancete_na_pagina(resposta.content.decode())
+        assert texto is None, (
+            "a mutação (condição sempre falsa) deveria fazer o veredito SUMIR da "
+            f"página, e não sumiu — achado: {texto!r}."
+        )
+    finally:
+        _CAMINHO_BALANCETE.write_text(conteudo_original, encoding="utf-8")
+        restaurado = _CAMINHO_BALANCETE.read_text(encoding="utf-8")
+        assert restaurado == conteudo_original, (
+            "A RESTAURAÇÃO DO ARQUIVO REAL FALHOU — o template pode ter ficado mutado "
+            "no repositório. Verifique templates/contabilidade/balancete.html manualmente."
+        )
+        reset_loaders()
