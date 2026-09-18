@@ -206,6 +206,7 @@ Comece por estes documentos:
 - [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) — requisitos confirmados, hipóteses e pendências.
 - [`docs/projeto/backlog.md`](docs/projeto/backlog.md) — prioridades, dependências e critérios de aceite.
 - [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) — decisões arquiteturais e justificativas.
+- [`docs/projeto/direcao-de-arte.md`](docs/projeto/direcao-de-arte.md) — **o contrato visual**: os cinco arquétipos de tela, as regras que não se negociam e o checklist para módulo novo.
 - [`docs/projeto/mapa-funcional-fiscal.md`](docs/projeto/mapa-funcional-fiscal.md) — visão funcional do domínio Fiscal.
 - [`docs/planos/`](docs/planos/) — planos versionados das demandas DL.
 - [`docs/auditorias/`](docs/auditorias/) — auditorias preservadas das etapas realizadas.
@@ -225,6 +226,7 @@ Fluxo esperado: **branch própria → implementação pequena → testes → rev
 | [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) | Requisitos e hipóteses |
 | [`docs/projeto/backlog.md`](docs/projeto/backlog.md) | Backlog priorizado |
 | [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) | Registro de decisões |
+| [`docs/projeto/direcao-de-arte.md`](docs/projeto/direcao-de-arte.md) | Direção de arte: o padrão visual de todos os módulos |
 | [`docs/planos/`](docs/planos/) | Histórico das etapas DL |
 | [`docs/auditorias/`](docs/auditorias/) | Relatórios de auditoria |
 

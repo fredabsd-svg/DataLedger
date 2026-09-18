@@ -126,6 +126,19 @@ documentação e fórum. Está declarado assim de propósito.
 10. Nada do que a DL-009 e a DL-017 conquistaram regride — a suíte existente
     continua verde, e os testes de interface continuam medindo o que mediam.
 11. Auditoria independente da versão integrada, como qualquer etapa.
+12. **A direção de arte existe como contrato do projeto, não como memória desta
+    etapa** — [`docs/projeto/direcao-de-arte.md`](../projeto/direcao-de-arte.md),
+    com os cinco arquétipos de tela, o "momento da verdade" de cada módulo e o
+    checklist de módulo novo. O produto vai ter Fiscal, Folha, Honorários,
+    Paralegal e Lalur: **um sistema que muda de cara a cada módulo obriga o
+    usuário a reaprender a ler**.
+13. **A varredura de interface reprova a integração contínua** quando um
+    template usa cor, tamanho ou espaçamento fora dos tokens; quando célula de
+    valor não tabula; quando tabela não tem `caption` nem `th[scope]`; quando
+    tela não estende a moldura comum; ou quando módulo novo aparece sem a sua
+    linha na tabela do "momento da verdade". **Enquanto essa varredura não
+    existir, a direção de arte é instrução, não garantia** — e é assim que ela
+    está escrita, de propósito.
 
 ## Fora do escopo
 
