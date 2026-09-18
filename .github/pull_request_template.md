@@ -25,7 +25,7 @@ Explique impacto em permissões, dados, regras de cálculo, contratos e desempen
 - [ ] Executei os testes pertinentes e registrei os resultados.
 - [ ] Verifiquei regressões, permissões e isolamento quando afetados.
 - [ ] Atualizei a documentação e revisei o diff completo.
-- [ ] Atualizei o **estado do projeto** em `docs/agents/estado.md` e conferi que o `README.md` não contradiz a realidade. O estado mora **num lugar só**; não o duplique.
+- [ ] Atualizei o estado do projeto em `docs/agents/estado.md` e conferi que o `README.md` não contradiz a realidade. O estado mora **num lugar só**; não o duplique.
 - [ ] Não incluí segredos, certificados privados ou dados reais de clientes.
 - [ ] Commit e envio da branch concluídos.
 - [ ] CI aprovada para o commit mais recente.

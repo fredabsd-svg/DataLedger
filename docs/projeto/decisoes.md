@@ -2068,3 +2068,93 @@ está no registry. A lista explícita é o contrato.
 cobre os 6 modelos via lista explícita). Não adiciona nem remove
 ModelAdmin. Só reconcilia o plano com o que existe.
 
+## DE-044 — Regex do gate não exige `**` literais; template alinhado
+
+**Data:** 2026-09-18
+
+**Decisão:** o regex do workflow `.github/workflows/regras-do-projeto.yml`
+procura agora `"Atualizei o estado do projeto"` (sem `**`), e o template
+`.github/pull_request_template.md` foi ajustado pra remover `**` ao redor
+de "estado do projeto" na checkbox correspondente. Os dois ficam
+consistentes.
+
+**Motivo:** o regex antigo `re.escape("Atualizei o **estado do projeto**")`
+gerava um padrão que exigia `**` literais dentro do texto que o humano
+escreve. Como nenhum autor humano coloca `**` antes de "estado" numa frase
+natural, o 2º checkbox do template NUNCA casava, mesmo com `[x]` marcado.
+O template ensinava o uso errado (`**` ao redor) ao mesmo tempo em que o
+regex tentava casar esse uso errado — um bug estrutural latente desde que
+o gate foi adicionado em DL-014. Ele só não foi detectado antes porque o
+PR que adicionou o gate possuía `**` literal no corpo.
+
+**Alternativas descartadas:**
+1. Workaround local no PR travado (adicionar `- [x] Atualizei o **estado do projeto**` com `**` literal) — DeepSeek advertiu que isso cria precedente de adaptar corpo ao regex e, se a correção definitiva reprovasse, viraria permanente. Descartada por isso.
+2. Tentar outras regex sem mudar o texto procurado (ex.: `re.search("estado do projeto", corpo)` sem `\s*\[x\]`) — enfraquece o check: passaria a casar sem exigir `[x]`. Descartada por regressão semântica.
+3. Substituir o check por uma chamada a um script externo — overhead desproporcional para um fix de 1 linha. Descartada.
+
+**Senior Opinion (DeepSeek, modo consultoria):** "Sequenciar A→B.
+Abrir PR do gate primeiro, em paralelo com auditoria. B só entra como
+contingência se A estourar SLA." — A foi seguido (PR #32). B descartado
+porque A fechou dentro do SLA esperado.
+
+**Decisão final:** corrigir regex E template no mesmo PR, manter o check
+semântico (`[x]` obrigatório, plano DL-NNN obrigatório).
+
+**Consequência:**
+- PRs futuros vão conseguir marcar as duas caixas sem precisar conhecer
+  o detalhe do regex.
+- PR #31 (DL-016) continua com `**` no corpo; após merge de #32, o autor
+  do #31 ajusta o corpo pra alinhar com o template novo, re-rodando CI.
+- Auditoria independente obrigatória antes do merge de #32 (DE-004).
+
+**Evidência:** validação empírica em Python (com a função `marcado` do
+workflow) confirmou que o regex antigo só casava com `**` literal dentro
+da frase, e que o regex novo casa com texto natural. Testado com corpo
+do template corrigido e com corpo atual do PR #31.
+
+## DE-045 — Auditoria independente do PR #32 (gate fix)
+
+**Data:** 2026-09-18
+
+**Decisão:** o PR #32 (`docs/fix-gate-regex`, commit `496b184`) é
+**APROVADO** pra merge em `main`, com 3 ressalvas registradas.
+
+**Auditor:** DeepSeek, modo auditor independente, sem acesso ao histórico
+de discussão que originou o patch. Recebeu apenas o diff e a função
+`marcado()` do workflow como contexto.
+
+**Perguntas da auditoria e respostas:**
+1. *Intenção preservada?* Sim. O regex novo (`sem **`) casa com texto
+   natural marcado com `[x]`, atendendo ao objetivo do check. A exigência
+   de citação `DL-\d{3}` foi preservada.
+2. *Regressão semântica?* Não. O regex continua exigindo `[x]` antes do
+   texto; a única mudança é a remoção de `**` literais da string
+   procurada.
+3. *Bypass possível?* Pré-existente e fora do escopo: o regex não ancora
+   em início de linha, então texto fora de checkbox (ex.: em code block
+   ou citação) pode casar. Comportamento idêntico ao anterior.
+
+**Ressalvas registradas:**
+- **R1 (mitigada):** PRs abertos com o template antigo (com `**`) podem
+  falhar no gate novo. Hoje só o PR #31, que já estava falhando. Após
+  merge deste PR, o autor do #31 ajusta o corpo em novo push.
+- **R2 (pré-existente, fora do escopo):** regex sem âncora de início de
+  linha permite match em qualquer posição.
+- **R3 (pré-existente, fora do escopo):** match em code block/quote não
+  distingue contexto Markdown.
+
+**Por que não consultar de novo:** o raciocínio do auditor (capturado
+via `reasoning_content` porque `finish_reason: length` consumiu o budget
+de `max_tokens` em raciocínio) cobriu as 4 perguntas e convergiu pra
+APROVADO com as 3 ressalvas descritas. Reconsultar pra extrair texto
+idêntico custaria mais latência sem ganho de informação.
+
+**Evidência da CI do próprio PR #32:** `Regras do projeto: completed /
+success`, `Validar documentação: success`, `Lint e testes: success`. O
+gate passa no PR que corrigiu o gate — confirmação empírica forte de que
+a correção está sintaticamente correta.
+
+**Consequência:** PR #32 mergeado. Gate em `main` passa a aceitar texto
+natural. Próximo passo (F1.13): ajustar corpo do PR #31, re-rodar CI,
+fazer merge.
+
