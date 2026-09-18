@@ -2565,3 +2565,101 @@ empírica suficiente para o merge. A reprodução local por
 Frederico no ambiente oficial continua recomendada como
 checagem adicional antes de rodar `--apply` em produção.
 
+
+## DE-052 — Fechamento da DL-016-F6 (CHECK constraint `LancamentoContabil.empresa_id` NOT NULL)
+
+**Data:** 2026-09-18
+**PR:** #34 mergeada em `main` (squash em `15f6a98`)
+**Auditoria rodada 1:** [`docs/auditorias/2026-09-18-dl-016-f6-rodada-1.md`](../auditorias/2026-09-18-dl-016-f6-rodada-1.md) — **APROVADA** com 1 achado positivo (A1)
+
+### Contexto
+
+A DE-051 (fechamento da DL-016-F5) prometeu: "F6 sub-DL dependente:
+adicionar CHECK constraint `empresa_id IS NOT NULL` como rede de
+segurança contra INSERT direto via shell-admin." Esta DE documenta o
+fechamento dessa promessa.
+
+### O que foi entregue
+
+- **Migration `0005_check_lancamento_empresa_not_null`** (hand-written):
+  - `AddConstraint` em `lancamentocontabil`.
+  - `CheckConstraint(Q(empresa_id__isnull=False), name="ck_lancamentocontabil_empresa_not_null")`.
+  - Gera `ALTER TABLE contabilidade_lancamentocontabil ADD CONSTRAINT ck_lancamentocontabil_empresa_not_null CHECK (empresa_id IS NOT NULL);`.
+- **Teste `apps/contabilidade/tests/test_dl016_f6_check_empresa_not_null.py`** com 4 cenários:
+  1. `test_constraint_existe_no_banco` — introspection via `information_schema.check_constraints`.
+  2. `test_insert_direto_sem_empresa_falha_com_mensagem_sobre_not_null_ou_check` — INSERT direto com `empresa_id=NULL` em condições normais. Aceita AMBAS as mensagens como prova de defesa em profundidade.
+  3. `test_insert_direto_sem_empresa_falha_apos_drop_not_null` — **teste novo, não estava no plano original**: simula o cenário real de bypass (`ALTER TABLE DROP NOT NULL` + INSERT NULL). Aqui o CHECK é a única defesa e a mensagem tem que mencionar `ck_lancamentocontabil_empresa_not_null` explicitamente. try/finally garante que o NOT NULL volta ao estado original.
+  4. `test_insert_direto_com_empresa_valida_passa` — sanity check do caminho feliz.
+
+### Decisões de design
+
+**Por que CHECK em vez de só NOT NULL (que já existe)?**
+
+A coluna `empresa_id` já é NOT NULL no schema porque Django gera
+coluna NOT NULL para `ForeignKey(...)` sem `null=True`. O CHECK é
+**defesa em profundidade** — explicita a invariante e protege contra:
+
+1. **INSERT direto via `psql`/shell-admin** que burle o ORM.
+2. **`ALTER TABLE` malicioso futuro** que tente `DROP NOT NULL` na coluna.
+3. **Migration descuidada** que adicione `null=True` em `empresa`.
+
+Sem o CHECK, esses cenários passariam em silêncio. Com o CHECK, o
+banco rejeita na hora com mensagem clara mencionando
+`ck_lancamentocontabil_empresa_not_null` (após o NOT NULL ser removido
+— cenário #2 e #3 acima).
+
+**Achado positivo A1 (capturado durante a auditoria):**
+
+A primeira versão do teste (commit `1f170bd`) afirmava que o INSERT
+direto com NULL levantaria `IntegrityError` mencionando
+`ck_lancamentocontabil_empresa_not_null`. A CI reprovou: **o PG avalia
+NOT NULL da coluna ANTES de CHECK constraints**, então a mensagem de
+erro vem do NOT NULL ("violates not-null constraint"), não do CHECK.
+
+Isso não significa que o CHECK não funciona — significa que o CHECK só
+pega DEPOIS que o NOT NULL é removido, que é exatamente o cenário de
+bypass documentado no DE-051. O teste #3 (`test_insert_direto_sem_empresa_falha_apos_drop_not_null`)
+foi adicionado para cobrir explicitamente esse cenário. **O teste
+final é mais rigoroso que o teste original do plano**, e prova que o
+CHECK faz o trabalho prometido.
+
+**Por que `AddConstraint` separado (não em `Meta.constraints` do model)?**
+
+A constraint precisa ser adicionada **sem** recriar a tabela (que já
+existe em produção com dados) e sem interferir com a migration 0004
+que rodou recentemente. `AddConstraint` é a forma idiomática do
+Django 5/6 de adicionar CHECK pós-criação, e gera um único
+`ALTER TABLE` no `migrate`.
+
+### Pendências declaradas
+
+**Bloqueantes do merge:** nenhuma.
+
+**Não-bloqueantes (transferidas para backlog):**
+
+1. **Migration 0004 (DE-050)**: ainda hand-written, precisa regeneração por `makemigrations` no primeiro deploy Python 3.12+. Independente desta F6.
+2. **A2 (type ignore F5)**: `# type: ignore[arg-type]` na linha 251 do command `backfill_lancamento_competencia`. Backlog.
+3. **A3 (TypedDict Counter F5)**: tipar Counter como TypedDict quando mypy entrar no projeto. Backlog.
+4. **Runbook DL-016-F5 deploy**: documentação de pré-check SELECT COUNT + dry-run + `--apply` + rollback. Não-bloqueante da F5 nem da F6.
+5. **DL-016-F3 (encerramento de competência)**: próxima sub-DL natural no caminho. Começa pelo plano, não pelo código — precisa decidir "encerrar = fechar pra sempre, ou tem janela de carência?" e "auditoria de quem fez o quê, onde mora?".
+6. **DL-016-F4 (reabertura)**: depende de F3.
+
+### O que não foi alterado
+
+- Models (nenhuma mudança de schema além da CHECK constraint).
+- Services (`criar_lancamento` continua o mesmo; F6 só lê schema).
+- `apps/core/restricoes.py` e `DECISOES` da DL-023 (CHECK constraint
+  fica no schema do banco, não na camada Python de validações).
+- Outras DLs em andamento (DL-010, DL-017, etc.) — F6 é independente.
+
+### Não foi feito (e não é omissão)
+
+- **Reprodução local em Python 3.12+ antes do merge**: sandbox do agente é Python 3.11. CI rodou em Python 3.14.7 + PostgreSQL e a regressão completa passou (1371 testes + 2 skipped), o que dá evidência empírica suficiente. Frederico pode reproduzir localmente antes do primeiro deploy de produção se quiser.
+- **Teste de carga com 1M de linhas**: F6 é só adição de CHECK constraint; performance é responsabilidade do planejador de query do PG, não desta DL.
+
+### Estado da DL-016
+
+Antes da F6: 2 ondas integradas (F1+F2 em `fa15cf1`, F5 em `700a50b`).
+Depois da F6: 3 ondas integradas (F1+F2, F5, F6). F3 e F4 seguem como
+sub-DLs dependentes no backlog. **Pendência herdada da F5 resolvida
+(declarada como "F6 sub-DL dependente" no DE-051, agora cumprida).**
