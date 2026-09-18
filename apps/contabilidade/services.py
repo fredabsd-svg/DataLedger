@@ -8,6 +8,7 @@ from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
 from apps.contabilidade.models import (
+    Competencia,
     Conta,
     ItemLancamento,
     LancamentoContabil,
@@ -368,6 +369,46 @@ def criar_lancamento(
     # (constraint `estorno_de_unico`, achado BL-41).
     try:
         with transaction.atomic():
+            # DL-016 / F2: garantir que exista uma `Competencia` para o (empresa,
+            # ano, mês) do lançamento ESTA linha é o que casa com a estratégia
+            # T1=A do plano (criar dentro do service, não via sinal pós-save
+            # externo): a mesma transação atômica que grava o lançamento
+            # também cria a competência; ou ambos gravam, ou nenhum grava.
+            # O sinal `post_save(LancamentoContabil)` de F2.4 fica como
+            # REDE DE SEGURANÇA para caminhos não-canônicos (ex.: importador
+            # em massa que chame `objects.create` direto contornando o
+            # service), mas o caminho do produto não depende dele. O
+            # `get_or_create` pode disparar `IntegrityError` quando dois
+            # lançamentos do MESMO (empresa, ano, mês) se cruzam em
+            # transações concorrentes — condição tão plausível quanto
+            # "duas requisições com a mesma Idempotency-Key" que o `try`
+            # acima já trata; capturamos em savepoint próprio para
+            # reconsultar (`get()`) e seguir se for mesmo a Competencia.
+            try:
+                with transaction.atomic():
+                    competencia, _ = Competencia.objects.get_or_create(
+                        empresa=empresa,
+                        ano=data.year,
+                        mes=data.month,
+                    )
+            except IntegrityError:
+                # Corrida: o outro lado gravou primeiro. Reconsulta dentro
+                # da MESMA transação (o `get_or_create` original teria
+                # visto o `None` inicial por causa da consistência da
+                # transação). Se o `None` persistir aqui, alguma coisa
+                # muito estranha aconteceu (a própria FK para Empresa não
+                # bate?); propaga como `LancamentoInvalido` em vez de
+                # deixar vazar 500.
+                competencia = Competencia.objects.filter(
+                    empresa=empresa, ano=data.year, mes=data.month
+                ).first()
+                if competencia is None:
+                    raise LancamentoInvalido(
+                        "Não foi possível preparar a competência contábil para "
+                        f"{data.year}-{data.month:02d}: a empresa informada não "
+                        "existe ou a corrida entre requisições deixou a "
+                        "competência em estado inconsistente. Tente novamente."
+                    ) from None
             lancamento = LancamentoContabil.objects.create(
                 empresa=empresa,
                 data=data,
@@ -376,6 +417,7 @@ def criar_lancamento(
                 estorno_de=estorno_de,
                 chave_idempotencia=chave_idempotencia,
                 chave_idempotencia_fingerprint=impressao,
+                competencia=competencia,
             )
             for item in itens:
                 ItemLancamento.objects.create(

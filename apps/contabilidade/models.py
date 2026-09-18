@@ -13,6 +13,110 @@ class LancamentoImutavelError(Exception):
     """Levantado ao tentar alterar ou excluir um lançamento já efetivado."""
 
 
+class EstadoCompetencia(models.TextChoices):
+    """Ciclo de vida da competência contábil de uma empresa.
+
+    O fluxo previsto é `aberta -> em_encerramento -> encerrada`, com
+    `em_encerramento` reservado para a janela em que alguém iniciou o
+    fechamento mas ainda não consolidou (F3 — fechamento). Por enquanto F1
+    só cria a coluna e o default: as regras de transição moram em F2 (abrir
+    automaticamente o mês corrente) e F3 (passar de aberta para encerrada).
+    O estado é persistido como texto curto, não como FK, porque o domínio é
+    fechado e a lista de valores é do próprio projeto (RC do DL-016).
+    """
+
+    ABERTA = "aberta", "Aberta"
+    EM_ENCERRAMENTO = "em_encerramento", "Em encerramento"
+    ENCERRADA = "encerrada", "Encerrada"
+
+
+class Competencia(models.Model):
+    """Um mês contábil de uma empresa — mês em que lançamentos podem existir.
+
+    Existe exatamente uma linha por (empresa, ano, mês) — a unicidade é
+    defendida por `UniqueConstraint` no `Meta` (camada 1 da DE-008). F1 só
+    cria a tabela; F2 é responsável por GARANTIR que, ao chegar o primeiro
+    lançamento de um mês, exista uma `Competencia` correspondente (estratégia
+    T1 do plano de execução: `Competencia.objects.get_or_create(...)` dentro
+    de `criar_lancamento`, opção A confirmada pelo Fred). F5 cuida do
+    backfill de competências anteriores ao deploy da DL-016.
+
+    O par (ano, mês) foi preferido a um único `DateField` porque:
+    - Validar a faixa de mês (1..12) e de ano (1970..2999) vira
+      `CheckConstraint`, não regra Python que pode ser esquecida em outro
+      caminho de escrita.
+    - Exibir "novembro de 2026" é trivial sem precisar de formatação de data
+      a cada leitura.
+    - Não há nada a ganhar com um único campo `DATE`: a data do PRIMEIRO dia
+      do mês seria convencional, e a regra de "mês fechado" sempre lê o par
+      (ano, mês), não a data. Manter o par explícito reduz surpresa.
+    """
+
+    empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="competencias")
+    ano = models.IntegerField("ano")
+    mes = models.IntegerField("mês")
+    estado = models.CharField(
+        "estado",
+        max_length=20,
+        choices=EstadoCompetencia.choices,
+        default=EstadoCompetencia.ABERTA,
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "competência"
+        verbose_name_plural = "competências"
+        ordering = ["-ano", "-mes"]
+        constraints = [
+            # DE-008 camada 1: no banco, só pode haver uma competência por
+            # (empresa, ano, mês). Sem isso, F2 (get_or_create) precisa
+            # confiar em índice de aplicação, e qualquer INSERT direto via
+            # admin/shell contorna.
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "mes"], name="competencia_unica_por_empresa_ano_mes"
+            ),
+            # Faixa do mês é parte do invariante, não convenção: 0 e 13 não
+            # existem no calendário gregoriano e, se aparecerem, quebram
+            # silenciosamente a apuração (consultas que assumem 1..12 vão
+            # tratar `0` como "antes de janeiro" sem avisar).
+            models.CheckConstraint(
+                condition=models.Q(mes__gte=1) & models.Q(mes__lte=12),
+                name="competencia_mes_entre_1_e_12",
+            ),
+            # Faixa de ano arbitrada em 1970..2999: recusa anos absurdos
+            # (0, 10000) sem fechar a porta para migrações contábeis muito
+            # antigas — escritórios que digitalizam livros dos anos 80 não
+            # cabem em `ano >= 2000`.
+            models.CheckConstraint(
+                condition=models.Q(ano__gte=1970) & models.Q(ano__lte=2999),
+                name="competencia_ano_entre_1970_e_2999",
+            ),
+        ]
+
+    def __str__(self):
+        # Exibição em PT-BR sem depender de locale do servidor (que pode
+        # estar em en_US.UTF-8 em produção): a lista está fixa e cobre os
+        # 12 meses. Em branco, devolve só o ano — não acontece na prática
+        # porque a CheckConstraint acima recusa `mes` fora de 1..12.
+        meses = [
+            "",
+            "janeiro",
+            "fevereiro",
+            "março",
+            "abril",
+            "maio",
+            "junho",
+            "julho",
+            "agosto",
+            "setembro",
+            "outubro",
+            "novembro",
+            "dezembro",
+        ]
+        nome_mes = meses[self.mes] if 1 <= self.mes <= 12 else f"mês {self.mes}"
+        return f"{nome_mes} de {self.ano} — {self.empresa}"
+
+
 class TipoConta(models.TextChoices):
     ATIVO = "ativo", "Ativo"
     PASSIVO = "passivo", "Passivo"
@@ -478,6 +582,28 @@ class LancamentoContabil(models.Model):
             "para outra coisa é 'corrupção por omissão', que não aparece na "
             "conciliação)."
         ),
+    )
+    # DL-016 (F1): ponteiro para a competência (mês contábil) em que este
+    # lançamento está sendo registrado. Nullable até F5 (backfill) — D1
+    # confirmada pelo Fred. Em F2, `criar_lancamento` preenche via
+    # `Competencia.objects.get_or_create(...)` a partir de `self.data`
+    # (estratégia T1=A). A constraint `unique(empresa, ano, mes)` em
+    # `Competencia.Meta` é a defesa de unicidade da própria FK.
+    #
+    # `on_delete=PROTECT` por dois motivos:
+    # 1. Mesmo princípio de `Conta.empresa` (BL-83): apagar uma competência
+    #    com lançamentos gravados quebraria o vínculo contábil sem aviso.
+    # 2. F3/F4 vão criar uma API de FECHAMENTO e REABERTURA — não de
+    #    exclusão. Se um dia for preciso apagar uma competência vazia (LGPD,
+    #    RC-52, BL-66), isso vira caso explícito em F+, não efeito
+    #    colateral de um admin distraído.
+    competencia = models.ForeignKey(
+        "Competencia",
+        on_delete=models.PROTECT,
+        related_name="lancamentos",
+        null=True,
+        blank=True,
+        verbose_name="competência",
     )
 
     class Meta:

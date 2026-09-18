@@ -201,6 +201,39 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "duplicado é o caso mais provável dos dois na prática, porque o usuário "
         "escolhe o nome mas não escolhe ter só um e-mail."
     ),
+    # DL-016 / F1 — três restrições do modelo `Competencia`. Nenhuma rota de
+    # cliente cria `Competencia` diretamente: a única gravação por caminho do
+    # produto é o `Competencia.objects.get_or_create(...)` dentro de
+    # `apps.contabilidade.services.criar_lancamento` (F2), que tem savepoint
+    # próprio e trata `IntegrityError` como CORRIDA INTERNA (reconsulta via
+    # `get()` e segue) — não traduz para 400, é consistência transacional do
+    # service. O importador em massa da DL-010 pode vir a chamar `bulk_create`
+    # direto sobre `Competencia` e expor estas restrições ao cliente; quando
+    # isso acontecer, saem daqui e viram tradução para 400, como as duas de
+    # canonização de CNPJ já viraram (mesmo desenho, mesma lição).
+    "competencia_ano_entre_1970_e_2999": (
+        "`CheckConstraint` do modelo `Competencia` (DL-016 / F1): garante "
+        "1970 <= ano <= 2999. Hoje `criar_lancamento` só cria competências a "
+        "partir de `data.year`/`data.month` de um lançamento, que são sempre "
+        "válidos por construção; nenhum caminho de cliente alcança esta "
+        "restrição com valor inválido. Ver nota do bloco sobre DL-010."
+    ),
+    "competencia_mes_entre_1_e_12": (
+        "`CheckConstraint` do modelo `Competencia` (DL-016 / F1): garante "
+        "1 <= mes <= 12. Mesma situação de `competencia_ano_entre_1970_e_2999`: "
+        "hoje inalcançável por caminho de cliente, e o importador em massa da "
+        "DL-010 é o gatilho natural para revisão."
+    ),
+    "competencia_unica_por_empresa_ano_mes": (
+        "`UniqueConstraint(empresa, ano, mes)` do modelo `Competencia` "
+        "(DL-016 / F1). O único caminho de escrita hoje é o "
+        "`get_or_create(...)` dentro de `criar_lancamento` "
+        "(`apps/contabilidade/services.py:387-411`), que captura "
+        "`IntegrityError` em savepoint próprio, reconsulta via `get()` e "
+        "segue — a violação é tratada como CORRIDA entre requisições "
+        "concorrentes, não como erro de negócio. Quando a DL-010 abrir "
+        "importação em lote, esta entrada precisa ser revisada."
+    ),
 }
 
 

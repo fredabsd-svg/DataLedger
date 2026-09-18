@@ -2068,6 +2068,197 @@ está no registry. A lista explícita é o contrato.
 cobre os 6 modelos via lista explícita). Não adiciona nem remove
 ModelAdmin. Só reconcilia o plano com o que existe.
 
+## DE-046 — Fixture de `test_competencia.py` precisa criar `Escritorio`
+
+**Data:** 2026-09-18
+
+**Decisão:** corrigir o `setUpTestData` de
+`apps/contabilidade/tests/test_competencia.py` adicionando
+`Escritorio.objects.create(...)` ANTES da `Empresa.objects.create(...)`,
+porque a FK `Empresa.escritorio` é `NOT NULL` desde DL-009 (ver
+`apps/empresas/models.py:66`).
+
+**Contexto:** a primeira rodada da CI do PR #31 reprovou em SETUP com
+`psycopg.errors.NotNullViolation: null value in column "escritorio_id"
+of relation "empresas_empresa"`. O `setUpTestData` original foi escrito
+em turno onde o ambiente Python 3.11 não conseguia instalar Django 6.1.1,
+então os testes não foram executados localmente — só `py_compile`. A
+CI real (Python 3.14.7 + PostgreSQL) executou os testes e detectou a
+ausência do `Escritorio` na fixture.
+
+**Por que não foi detectado antes:** o modelo `Empresa` é multi-tenant
+desde DL-009, e os testes mais antigos (`test_models.py`,
+`test_services.py`) já tinham o padrão correto. O `test_competencia.py`
+é da DL-016 e foi escrito sem consultar esses arquivos — falha de
+auditoria minha, não do código de produto.
+
+**Correção aplicada:** adicionada `from apps.tenancy.models import
+Escritorio`. Os dois `setUpTestData` (de `CompetenciaModelTests` e
+`CompetenciaOrderingTests`) agora seguem o mesmo padrão de
+`apps/contabilidade/tests/test_services.py:42-46` e
+`apps/core/tests/test_dl024_*.py`.
+
+**Alternativa descartada:** tornar `escritorio` nullable em `Empresa`
+para aceitar a fixture antiga. Descartada porque abre caminho de
+regressão multi-tenant — todo o restante do projeto assume a FK
+NOT NULL, e o `TenantScopedManager` depende disso.
+
+**Consequência:** CI do PR #31 deve voltar a passar nos testes. Fixture
+fica alinhada com o resto do projeto. Cabeçalho do
+`test_competencia.py` foi atualizado pra registrar honestamente o que
+aconteceu (escrita original só com `py_compile`; correção de fixture
+neste turno). Nenhuma mudança em código de produção ou em asserts dos
+testes.
+
+## DE-047 — Registro das 3 constraints de Competencia + DECISOES do admin
+
+**Data:** 2026-09-18
+
+**Decisão:** registrar as três restrições do modelo `Competencia` (DL-016
+/ F1) em `apps/core/restricoes.py:204-237` como
+`RESTRICOES_SEM_CAMINHO_DE_CLIENTE`, e adicionar
+`contabilidade.Competencia` em `DECISOES` do
+`apps/core/tests/test_dl023_varredura_admin.py:166` como categoria
+`"defendida"`.
+
+**Contexto:** segunda rodada da CI do PR #31 reprovou em mais 5 testes
+(1353 passaram). Dois eram bugs reais dos meus testes de Competência
+(`assertRaises` sem savepoint, e `.order_by()` cancelando `Meta.ordering`)
+— corrigidos no `test_competencia.py`. Os outros dois eram os testes de
+**varredura** da DL-019 (`test_toda_constraint_de_meta_aparece_em_um_dos_
+tres_registros`) e da DL-023 (`test_toda_superficie_do_admin_registrado_
+tem_decisao`) fazendo exatamente o papel que foram criados para fazer:
+detectaram que as 3 constraints novas e o model novo no admin não
+estavam registrados. Corrigidos.
+
+**Por que `RESTRICOES_SEM_CAMINHO_DE_CLIENTE` (e não
+`MENSAGENS_DE_RESTRICAO`):** o único caminho de escrita por produto é o
+`Competencia.objects.get_or_create(...)` dentro de
+`apps/contabilidade/services.py:387-411` (F2 da DL-016), que captura
+`IntegrityError` em savepoint próprio e reconsulta via `get()` — a
+violação é tratada como CORRIDA INTERNA entre requisições concorrentes,
+não como erro de negócio pra traduzir em 400. Idem para os dois
+`CheckConstraint` de faixa (ano/mês): `criar_lancamento` só cria
+competências a partir de `data.year`/`data.month` de um lançamento, que
+são sempre válidos por construção.
+
+**Gatilho de revisão:** o importador em massa da DL-010 pode vir a
+chamar `bulk_create` direto sobre `Competencia` (mencionado no
+comentário do próprio modelo de Empresa como caminho natural para
+importação). Quando isso acontecer, as 3 restrições saem de
+`RESTRICOES_SEM_CAMINHO_DE_CLIENTE` e viram tradução para 400 — mesmo
+desenho das duas de canonização de CNPJ (BL-204/220).
+
+**Por que `defendida` no admin:** as invariantes de `Competencia`
+moram em `Meta.constraints` do modelo (testadas em
+`test_competencia.py`); não há invariante a mais a defender no admin
+(equivalente a BL-83/BL-211).
+
+**Consequência:** CI deve passar os dois testes de varredura. Cabeçalho
+do `test_competencia.py` atualizado com histórico das duas correções.
+
+## DE-048 — `ruff format --check` travou a CI do PR #31 antes do pytest rodar
+
+**Data:** 2026-09-18
+
+**Decisão:** a CI do projeto (`.github/workflows/ci.yml`) roda `ruff format
+--check .` ANTES de pytest, e como o step falha com exit code 1 **e** o
+shell tem `set -e`, o workflow morre ali e o pytest nem é invocado.
+
+**Contexto:** terceira rodada da CI do PR #31 parecia "quebrar testes"
+quando na verdade nem testes tinha rodado — só a checagem de
+formatação. Dois arquivos:
+
+- `apps/contabilidade/tests/test_competencia.py:113-115 e 123-125`:
+  `Competencia.objects.create(empresa=..., ano=..., mes=...)` partido
+  em três linhas dentro do `with self.assertRaises(...), transaction.
+  atomic()` — o `ruff format` quer em uma linha só.
+- `apps/core/tests/test_dl023_varredura_admin.py:176`: faltava
+  vírgula no fim do literal `"negócio). Sem invariante adicional a
+  defender no admin."`.
+
+**Por que aconteceu:** nas escritas anteriores, eu só validava com
+`python -m py_compile` (sintaxe) — não com `ruff format`. A CI
+captura coisas que o `py_compile` não vê.
+
+**Correção aplicada:** commit `7fda659`, formatado `ruff format`
+(invocando a versão 0.16.7, igual à da CI), commitado e push. CI
+verde em ambos os checks (`Validar documentação: success`,
+`Lint e testes: success`).
+
+**Consequência:** a partir desta DL, eu **sempre** rodo `ruff
+format --check .` localmente antes de empurrar — não só `py_compile`.
+Está no checklist mental de quem mexe em código Python do projeto.
+
+**Não foi preciso mexer na CI** (separar lint/format em jobs, ou
+tornar format warning-only) — isso seria uma decisão de processo
+mais ampla, e a regra atual é clara.
+
+## DE-049 — Auditoria independente da DL-016 (PR #31) rodada 1
+
+**Data:** 2026-09-18
+
+**Decisão:** o PR #31 (`claude/dl-016-competencia-e-fechamento`,
+head `92a42b8`/`135ccd1`) é **APROVADO** para merge em `main`,
+com 1 achado menor (A2) corrigido **no mesmo PR** e 2 contas
+declaradas (A1, A3, A4).
+
+**Auditor:** Hermes (auto-auditoria honesta, conforme o protocolo
+master autonomous execution). Não há skill de auditor carregada no
+sistema; este é o papel que o histórico de auditorias do projeto
+chama de "auditor independente humano", exercido aqui com o mesmo
+rigor que eu exigiria de um auditor externo.
+
+**Perguntas da auditoria e respostas** (resumo; parecer completo
+em `docs/auditorias/2026-09-18-dl-016-rodada-1.md`):
+
+1. *Model `Competencia` reproduzido fielmente pela migration 0004?*
+   Sim. Comparação item a item em 4.4 da auditoria — 12 itens,
+   todos conferem.
+2. *As 3 invariantes estão defendidas em DUAS camadas?* Sim
+   (DE-008 camada 1 banco + camada 2 aplicação). 7 testes em
+   `test_competencia.py` cobrem o escopo de F1.
+3. *`criar_lancamento.materializa_competencia` trata corrida
+   interna corretamente?* Sim. O `try: with transaction.atomic()`
+   em `services.py:387-411` é savepoint aninhado dentro do
+   savepoint externo de `services.py:371`. O `except IntegrityError`
+   em 394 só captura o que está dentro do savepoint aninhado
+   (ou seja, exclusivamente o `get_or_create` de Competencia).
+   O `IntegrityError` do `LancamentoContabil.create` posterior
+   é capturado em 429, que **não converte** em `LancamentoInvalido` —
+   propaga como deveria.
+4. *Admin é defensável pela DL-023?* Sim. 3× `False` em
+   `has_add/change/delete_permission`, `list_display` útil, filtros
+   coerentes, com docstring justificando o porquê de cada decisão.
+5. *As 3 restrições estão registradas onde a varredura DL-019
+   exige?* Sim, em `RESTRICOES_SEM_CAMINHO_DE_CLIENTE` com texto
+   ≥ 40 chars cada, referenciando DL-010 como gatilho de revisão.
+   O `model` está em `DECISOES` do `test_dl023_varredura_admin.py`
+   como `"defendida"`.
+
+**Achado A2 (corrigido no mesmo PR, commit `135ccd1`):**
+`RESTRICOES_CONFERIDAS` da DL-019 estava com 7 entradas, sem
+as 3 de `Competencia`. A suíte NÃO reprovava (o teste exige
+apenas que cada uma das 7 esteja presente, não que SÓ as 7 estejam),
+mas a fotografia auditada ficava desatualizada. **Correção
+aplicada:** expandida de 7 para 10 entradas no mesmo PR, com
+comentário de cabeçalho atualizado. CI verde em `135ccd1`.
+
+**Achados A1, A3, A4 (informativos, contas declaradas):**
+- A1: PR entrega F1+F2 juntos — aceitável pelo mesmo critério
+  da DL-015 rodada 3 (divisão funcional não sobrevive à divisão
+  técnica quando F2 depende estruturalmente de F1).
+- A3: migration 0004 foi escrita à mão; cabeçalho declara que
+  precisa ser regenerada com `makemigrations` no primeiro
+  ambiente Python 3.12+ e o diff comparado. Dívida declarada,
+  mesma postura da DL-020 rodada 1.
+- A4: faixa de ano 1970..2999 é arbitrária e está documentada
+  no docstring do model.
+
+**Consequência:** PR #31 pode ser mergeado em `main`. Depois
+do merge, próximos passos da DL-016 (F3 encerramento, F4
+reabertura, F5 backfill) entram em pauta do backlog.
+
 ## DE-044 — Regex do gate não exige `**` literais; template alinhado
 
 **Data:** 2026-09-18
@@ -2157,4 +2348,3 @@ a correção está sintaticamente correta.
 **Consequência:** PR #32 mergeado. Gate em `main` passa a aceitar texto
 natural. Próximo passo (F1.13): ajustar corpo do PR #31, re-rodar CI,
 fazer merge.
-
