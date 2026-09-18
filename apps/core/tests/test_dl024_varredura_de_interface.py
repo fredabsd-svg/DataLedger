@@ -58,9 +58,15 @@ PASTAS_QUE_NAO_SAO_MODULO = {
 # Pastas do repositório que NUNCA guardam CSS do produto, mesmo quando têm
 # `.css` de verdade dentro — cada uma com o motivo, no mesmo padrão de
 # `PASTAS_QUE_NAO_SAO_MODULO`. Sem esta lista, a varredura recursiva (BL-274
-# #2/#3) sairia catalogando o Bootstrap do DRF e o admin do Django.
+# #2/#3) sairia catalogando o admin do Django coletado em `staticfiles/`.
+#
+# O ambiente virtual Python NÃO está aqui por NOME (ver `_dentro_de_ambiente_virtual`
+# abaixo) — achado do arquiteto-senior na revisão desta etapa: o `.gitignore`
+# do projeto autoriza `.venv/` **e** `venv/` (linhas 6-7), e uma lista de
+# nomes só resolve o apelido que alguém já viu. `staticfiles/` e `.git/` não
+# têm um marcador de comportamento equivalente a `pyvenv.cfg`, por isso
+# continuam aqui, por nome, com o motivo.
 PASTAS_SEM_CSS_DO_PROJETO = {
-    ".venv": "dependências Python de terceiros (Django, DRF); nunca é o CSS do produto",
     "staticfiles": "saída do collectstatic — cópia GERADA, gitignored; não é a fonte",
     ".git": "metadados do controle de versão",
 }
@@ -82,6 +88,22 @@ PASTAS_SEM_CSS_DO_PROJETO = {
 PADRAO_VALOR = re.compile(r"_ptbr\b")
 PADRAO_CELULA = re.compile(r"<(td|th)\b[^>]*>", re.IGNORECASE)
 PADRAO_COR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)|\bhsla?\([^)]*\)")
+
+# Achado 2 da revisão do arquiteto-senior sobre o `PADRAO_VALOR` acima: a
+# amplitude fica (ela é o que fecha a cegueira do `{% include %}`), mas a
+# MENSAGEM não pode instruir alguém a colocar `valor-monetario` numa DATA.
+# `_ptbr` não é exclusivo de dinheiro — `lancamento_form.html:80` já formata
+# data com esse sufixo, hoje fora de célula. No dia em que um módulo novo
+# puser `<td>{{ nota.emissao_ptbr }}</td>`, a guarda vai acusar de verdade
+# (correto: é `_ptbr` dentro de célula sem a classe) e a mensagem tem de
+# oferecer as DUAS saídas certas, não só "adicione a classe".
+MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE = (
+    "Se a célula é dinheiro, acrescente a classe 'valor-monetario'. Se NÃO é "
+    "(ex.: data formatada com o sufixo _ptbr, que a convenção também usa), "
+    "ela não devia carregar um valor com sufixo _ptbr dentro de célula de "
+    "tabela — repense a variável, ou traga o caso ao arquiteto-senior como "
+    "exceção nomeada, com o motivo."
+)
 
 # Cores nomeadas do CSS Color Module (níveis 3/4) — lista fechada, em
 # minúsculas. BL-274 #2: `PADRAO_COR` só via `#hex`/`rgb()`/`hsl()`; `color:
@@ -194,6 +216,24 @@ def _sem_comentarios_css(texto):
     return re.sub(r"/\*.*?\*/", "", texto, flags=re.S)
 
 
+def _sem_comentarios_de_template(texto):
+    """Remove `{% comment %}...{% endcomment %}` e `<!-- ... -->` antes de
+    qualquer varredura de marcação.
+
+    Achado descoberto ao endurecer `PADRAO_VALOR` (Achado 2 da revisão do
+    arquiteto-senior): `templates/contabilidade/lancamento_form.html` tem um
+    `{% comment %}` que EXPLICA esta própria guarda em prosa e cita, dentro
+    do comentário, o texto literal `` `<td>` `` — sem remover o comentário
+    primeiro, `PADRAO_CELULA` lia essa prosa como uma abertura de célula de
+    verdade, e tudo até o próximo `</td>` real (inclusive `_ptbr` de
+    comentários e de `{% if %}` seguintes) virava "dentro de uma célula sem
+    classe". Comentário de documentação não é marcação; sem esta limpeza,
+    documentar o comportamento da guarda quebra a guarda.
+    """
+    sem_django = re.sub(r"\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}", "", texto, flags=re.S)
+    return re.sub(r"<!--.*?-->", "", sem_django, flags=re.S)
+
+
 def _texto_sem_root(texto):
     """Remove comentários e o bloco `:root` — é onde os tokens NASCEM (DE-042);
     cor ou medida literal ali é a própria definição do token, não violação.
@@ -247,20 +287,48 @@ def _medidas_literais_fora_dos_tokens(texto):
     return achados
 
 
+def _dentro_de_ambiente_virtual(caminho, raiz):
+    """`caminho` mora dentro de um ambiente virtual Python, qualquer que
+    seja o NOME da pasta.
+
+    Detecção por comportamento, não por nome — achado do arquiteto-senior na
+    revisão desta etapa: o `.gitignore` autoriza `.venv/` **e** `venv/`
+    (linhas 6-7), e uma lista de nomes nunca cobre o próximo apelido (`env/`,
+    `.direnv/`, o ambiente que alguém chamou de jeito nenhum a ver com
+    "venv"). `pyvenv.cfg` é o marcador: todo ambiente virtual criado por
+    `venv`/`virtualenv` tem esse arquivo na sua raiz, e só ele. Sobe os
+    ancestrais entre o arquivo e a raiz do projeto procurando o marcador;
+    para em `raiz` (inclusive) para não escapar do repositório.
+    """
+    atual = caminho.parent
+    while True:
+        if (atual / "pyvenv.cfg").is_file():
+            return True
+        if atual == raiz:
+            return False
+        proximo = atual.parent
+        if proximo == atual:  # chegou na raiz do sistema de arquivos
+            return False
+        atual = proximo
+
+
 def _folhas_de_estilo_do_projeto(raiz):
     """Todo `.css` do projeto, em qualquer subpasta — não só `static/css/`.
 
     BL-274 #2/#3: o `glob("*.css")` não era recursivo (`static/css/modulos/`
     escapava) e só olhava `static/css/` (`static/tema.css` escapava). Varre o
-    repositório inteiro e exclui só as pastas de dependência/build, cada uma
-    com o motivo em `PASTAS_SEM_CSS_DO_PROJETO` — sem a exclusão, o Bootstrap
-    do DRF e o admin do Django (em `staticfiles/` e `.venv/`) entrariam na
-    varredura do produto.
+    repositório inteiro e exclui as pastas de dependência/build nomeadas em
+    `PASTAS_SEM_CSS_DO_PROJETO`, mais qualquer ambiente virtual Python
+    detectado por `_dentro_de_ambiente_virtual` — sem essas duas exclusões,
+    o admin do Django coletado e o Bootstrap do DRF entrariam na varredura
+    do produto.
     """
     achadas = []
     for caminho in sorted(raiz.rglob("*.css")):
         partes = caminho.relative_to(raiz).parts
         if partes[0] in PASTAS_SEM_CSS_DO_PROJETO:
+            continue
+        if _dentro_de_ambiente_virtual(caminho, raiz):
             continue
         achadas.append(caminho)
     return achadas
@@ -270,20 +338,22 @@ def _estilos_embutidos(texto):
     """`style="..."`, `style='...'` (BL-274 #5) e `<style>` embutido no
     template — todos escapam do sistema de tokens e da auditoria de
     contraste: ninguém encontra aquele valor depois."""
-    return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(texto)]
+    limpo = _sem_comentarios_de_template(texto)
+    return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(limpo)]
 
 
 def _valores_sem_classe(texto):
     """Valores `_ptbr` dentro de célula de tabela que não usam a classe do
     sistema. Devolve a lista dos trechos ofensores."""
+    limpo = _sem_comentarios_de_template(texto)
     ofensores = []
-    for valor in PADRAO_VALOR.finditer(texto):
-        anteriores = list(PADRAO_CELULA.finditer(texto, 0, valor.start()))
+    for valor in PADRAO_VALOR.finditer(limpo):
+        anteriores = list(PADRAO_CELULA.finditer(limpo, 0, valor.start()))
         if not anteriores:
             continue  # o valor não está dentro de célula: fora do alcance da regra
         celula = anteriores[-1]
         # A célula só vale se o valor estiver antes do próximo fechamento dela.
-        fechamento = texto.find(f"</{celula.group(1)}>", celula.end())
+        fechamento = limpo.find(f"</{celula.group(1)}>", celula.end())
         if fechamento != -1 and fechamento < valor.start():
             continue
         if "valor-monetario" not in celula.group(0):
@@ -292,7 +362,8 @@ def _valores_sem_classe(texto):
 
 
 def _cabecalhos_sem_escopo(texto):
-    achados = re.finditer(r"<th\b[^>]*>", texto)
+    limpo = _sem_comentarios_de_template(texto)
+    achados = re.finditer(r"<th\b[^>]*>", limpo)
     return [m.group(0)[:70] for m in achados if "scope=" not in m.group(0)]
 
 
@@ -385,13 +456,22 @@ def test_todo_valor_em_celula_usa_a_classe_do_sistema():
     O efeito é o que o gauntlet mediu e nomeou: as colunas **dançam**, porque
     `1` e `8` têm larguras diferentes em fonte proporcional, e o olho perde a
     referência vertical justamente onde a conferência acontece.
+
+    A mensagem de erro orienta as DUAS saídas possíveis (classe, ou remover o
+    sufixo `_ptbr` de valor de uma célula que não é dinheiro) — ver
+    `MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE`, achado 2 da revisão do
+    arquiteto-senior: `_ptbr` também é usado em data, e a guarda não pode
+    instruir alguém a tabular algarismos de uma data.
     """
     ofensores = []
     for t in _templates():
         for celula, valor in _valores_sem_classe(t.read_text(encoding="utf-8")):
             ofensores.append(f"{t.relative_to(RAIZ)}: {valor} em {celula}")
     assert not ofensores, (
-        "Valores em célula de tabela sem a classe 'valor-monetario': " + "; ".join(ofensores)
+        "Valores em célula de tabela sem a classe 'valor-monetario': "
+        + "; ".join(ofensores)
+        + ". "
+        + MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE
     )
 
 
@@ -582,11 +662,46 @@ def test_controle_positivo_detector_de_css_em_qualquer_subpasta(tmp_path):
 
 def test_controle_negativo_detector_de_css_ignora_pastas_de_dependencia_e_build(tmp_path):
     (tmp_path / ".venv" / "pacote").mkdir(parents=True)
+    (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
     (tmp_path / ".venv" / "pacote" / "vendor.css").write_text(".x{color:red}", encoding="utf-8")
     (tmp_path / "staticfiles").mkdir()
     (tmp_path / "staticfiles" / "coletado.css").write_text(".x{color:red}", encoding="utf-8")
     achadas = _folhas_de_estilo_do_projeto(tmp_path)
     assert achadas == [], "CSS de dependência/build entrou na varredura do produto"
+
+
+@pytest.mark.parametrize("nome_da_pasta", [".venv", "venv", "env", "ambiente-xyz"])
+def test_controle_positivo_detector_de_css_ignora_ambiente_virtual_de_nome_qualquer(
+    tmp_path, nome_da_pasta
+):
+    """Achado 1 da revisão do arquiteto-senior: o `.gitignore` autoriza
+    `.venv/` **e** `venv/` (linhas 6-7), e uma lista de nomes só cobre o
+    apelido já visto — `ambiente-xyz` e `env` provam que a exclusão não
+    depende de nenhum nome específico, só da presença real de `pyvenv.cfg`
+    (`_dentro_de_ambiente_virtual`)."""
+    ambiente = tmp_path / nome_da_pasta / "lib" / "site-packages" / "django" / "contrib" / "admin"
+    ambiente.mkdir(parents=True)
+    (tmp_path / nome_da_pasta / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (ambiente / "base.css").write_text(".x{color:#79aec8}", encoding="utf-8")
+    achadas = _folhas_de_estilo_do_projeto(tmp_path)
+    assert achadas == [], (
+        f"CSS dentro de ambiente virtual chamado '{nome_da_pasta}' entrou na varredura do produto"
+    )
+
+
+def test_controle_negativo_detector_de_css_nao_exclui_por_substring_venv_no_caminho(tmp_path):
+    """Pasta do PRODUTO cujo nome contém a substring 'venv' não pode ser
+    excluída por coincidência de texto — sem `pyvenv.cfg` de verdade, ela
+    continua sendo varrida."""
+    pasta = tmp_path / "static" / "css"
+    pasta.mkdir(parents=True)
+    (pasta / "venv-tema.css").write_text(
+        ":root { --a: #fff; }\n.z { color: red; }", encoding="utf-8"
+    )
+    achadas = {str(p.relative_to(tmp_path)) for p in _folhas_de_estilo_do_projeto(tmp_path)}
+    assert "static/css/venv-tema.css" in achadas, (
+        "CSS do produto foi excluído só por ter 'venv' no nome do arquivo, sem pyvenv.cfg"
+    )
 
 
 def test_controle_positivo_detector_de_estilo_embutido():
@@ -612,6 +727,48 @@ def test_controle_positivo_detector_de_valor_sem_classe():
     )
 
 
+def test_controle_negativo_detector_de_valor_ignora_prosa_dentro_de_comentario():
+    """Bug descoberto ao rodar o Achado 2 contra a árvore real:
+    `lancamento_form.html` tem um `{% comment %}` que EXPLICA esta guarda em
+    prosa e cita, entre crases, o texto `` `<td>` `` — sem limpar o
+    comentário primeiro, essa prosa era lida como abertura de célula real, e
+    tudo até o próximo `</td>` (inclusive `_ptbr` de outros comentários e de
+    `{% if %}`) virava falso positivo. O comentário reproduz a estrutura
+    exata: `<td>` em prosa dentro do comentário, seguido de uma célula REAL
+    sem classe mais adiante — só a real pode reprovar."""
+    com_comentario_inofensivo = (
+        "<table><tr>"
+        "{% comment %}"
+        "A comparação fica fora de qualquer `<td>` de propósito, e não exibe "
+        "total_debito_ptbr diretamente."
+        "{% endcomment %}"
+        '<td class="valor-monetario">{{ linha.saldo_ptbr }}</td>'
+        "</tr></table>"
+    )
+    assert not _valores_sem_classe(com_comentario_inofensivo), (
+        "texto de comentário foi lido como célula real"
+    )
+
+    com_comentario_e_celula_real_sem_classe = (
+        "<table><tr>"
+        "{% comment %}"
+        "A comparação fica fora de qualquer `<td>` de propósito."
+        "{% endcomment %}"
+        "<td>{{ linha.saldo_ptbr }}</td>"
+        "</tr></table>"
+    )
+    assert _valores_sem_classe(com_comentario_e_celula_real_sem_classe), (
+        "a célula REAL sem classe, depois do comentário, tem de continuar reprovando"
+    )
+
+
+def test_controle_negativo_detector_de_escopo_ignora_prosa_dentro_de_comentario():
+    com_comentario = (
+        '{% comment %}Todo `<th>` precisa de scope.{% endcomment %}<th scope="col">Conta</th>'
+    )
+    assert not _cabecalhos_sem_escopo(com_comentario)
+
+
 def test_controle_positivo_detector_de_valor_que_chega_por_include():
     """BL-274 #1/#5 — a cegueira real, aberta pelo próprio `_saldo.html`: o
     valor chega como `{% include ... with valor=item.saldo_ptbr %}`, sem
@@ -628,6 +785,17 @@ def test_controle_positivo_detector_de_valor_que_chega_por_include():
         "o detector não viu o valor que chega por {% include %} com kwarg _ptbr"
     )
     assert not _valores_sem_classe(bom)
+
+
+def test_mensagem_de_valor_sem_classe_orienta_o_caso_que_nao_e_dinheiro():
+    """Achado 2 da revisão do arquiteto-senior: `_ptbr` não é exclusivo de
+    dinheiro (`lancamento_form.html:80` já usa em data, hoje fora de
+    célula). Se um módulo novo puser data com `_ptbr` DENTRO de uma célula,
+    a mensagem de erro não pode instruir a colocar 'valor-monetario' numa
+    data — precisa oferecer a saída certa."""
+    assert "data" in MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE
+    assert "valor-monetario" in MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE
+    assert "exceção nomeada" in MENSAGEM_ORIENTACAO_VALOR_SEM_CLASSE
 
 
 def test_controle_positivo_detector_de_escopo():
