@@ -95,6 +95,18 @@ def _ptbr_para_decimal(texto):
     return Decimal(texto.strip().replace(".", "").replace(",", "."))
 
 
+# BL-286 (rodada 3, decisão do arquiteto-senior): a diferença NÃO vai entre
+# parênteses em nenhuma célula de valor — nesta tela, parêntese numa célula
+# de valor já tem um significado reservado, "valor invertido em relação à
+# natureza do registro" (docs/projeto/direcao-de-arte.md §2A). A diferença
+# entra como frase dentro da célula do veredito, com o NÚMERO embrulhado
+# num invólucro com a classe do sistema (`valor-monetario`) — nunca a
+# célula inteira, que misturaria texto corrido com fonte tabulada.
+_PADRAO_VEREDITO_NAO_FECHA = re.compile(
+    r'Não fecha, faltam <span class="valor-monetario">([^<]+)</span> no (débito|crédito)'
+)
+
+
 # ---------------------------------------------------------------------------
 # Critério 1 e 2: a diferença é sempre positiva em módulo, some quando fecha
 # ---------------------------------------------------------------------------
@@ -139,9 +151,15 @@ def test_adicionar_linha_mostra_a_diferenca_quando_nao_fecha(
 
     assert "linha-total__veredito--nao-fecha" in rodape
     assert "Não fecha" in rodape
+
+    achado = _PADRAO_VEREDITO_NAO_FECHA.search(rodape)
+    assert achado, rodape
+    diferenca_exibida, lado_exibido = achado.group(1), achado.group(2)
+
     # Nunca um sinal negativo na tela (critério 1) — a diferença é exibida
-    # em módulo, com o lado à parte.
-    assert "-" not in re.search(r"\(faltam ([^)]+)\)", rodape).group(1)
+    # em módulo, com o lado à parte, como PALAVRA.
+    assert "-" not in diferenca_exibida
+    assert lado_exibido == lado_esperado
 
     # O NÚMERO exibido bate com o Decimal calculado de forma independente
     # neste teste (critério de aceite 2), não só com o texto esperado —
@@ -152,16 +170,14 @@ def test_adicionar_linha_mostra_a_diferenca_quando_nao_fecha(
         - Decimal(valor_credito.replace(".", "").replace(",", "."))
     )
     assert diferenca_real == diferenca_esperada
+    assert _ptbr_para_decimal(diferenca_exibida) == diferenca_esperada
 
-    celula_do_lado_esperado = "Crédito:" if lado_esperado == "crédito" else "Débito:"
-    padrao = re.escape(celula_do_lado_esperado) + r" [^<(]+\(faltam ([^)]+)\)"
-    achado = re.search(padrao, rodape)
-    assert achado, rodape
-    assert _ptbr_para_decimal(achado.group(1)) == diferenca_esperada
-
-    # O outro lado não ganha o texto de diferença.
-    celula_do_outro_lado = "Débito:" if lado_esperado == "crédito" else "Crédito:"
-    assert not re.search(re.escape(celula_do_outro_lado) + r" [^<]+\(faltam", rodape)
+    # As duas células de total voltam a mostrar SÓ o valor — sem parênteses,
+    # que neste produto já significam "valor invertido" (direção de arte
+    # §2A), nunca "diferença que falta".
+    assert f"Débito: {valor_debito}</td>" in rodape
+    assert f"Crédito: {valor_credito}</td>" in rodape
+    assert "(" not in re.sub(_PADRAO_VEREDITO_NAO_FECHA, "", rodape)
 
     assert LancamentoContabil.objects.count() == 0
 
@@ -185,9 +201,11 @@ def test_gravar_recusado_por_nao_fechar_tambem_mostra_a_diferenca(client, cen):
     assert LancamentoContabil.objects.count() == 0
     rodape = _linha_total(resposta.content.decode())
     assert "Não fecha" in rodape
-    achado = re.search(r"Crédito: [^<(]+\(faltam ([^)]+)\)", rodape)
+    achado = _PADRAO_VEREDITO_NAO_FECHA.search(rodape)
     assert achado, rodape
+    assert achado.group(2) == "crédito"
     assert _ptbr_para_decimal(achado.group(1)) == Decimal("345.67")
+    assert "(" not in re.sub(_PADRAO_VEREDITO_NAO_FECHA, "", rodape)
 
 
 def test_fecha_nao_mostra_diferenca_nenhuma(client, cen):

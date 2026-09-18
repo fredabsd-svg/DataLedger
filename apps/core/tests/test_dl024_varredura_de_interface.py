@@ -89,6 +89,18 @@ PADRAO_VALOR = re.compile(r"_ptbr\b")
 PADRAO_CELULA = re.compile(r"<(td|th)\b[^>]*>", re.IGNORECASE)
 PADRAO_COR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)|\bhsla?\([^)]*\)")
 
+# Rodada 3 (BL-286, achado do arquiteto-senior): a exigência de
+# `valor-monetario` não pode ficar presa à CÉLULA — o BL-286 misturou frase
+# e número na mesma célula do veredito de fechamento ("Não fecha, faltam X
+# no crédito"), e marcar a célula inteira com a classe alinharia a FRASE
+# toda à direita, em fonte tabulada, o que é absurdo (a classe existe para
+# tabular ALGARISMO, não texto corrido). A tabulação pertence ao NÚMERO:
+# um invólucro em linha (`<span class="valor-monetario">`) só ao redor do
+# valor passa a satisfazer a regra também. `PADRAO_TAG_ABERTURA` localiza
+# qualquer tag de abertura genérica (não só `td`/`th`) para procurar esse
+# invólucro — ver `_involucro_cobre_valor` abaixo.
+PADRAO_TAG_ABERTURA = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*>")
+
 # Achado 2 da revisão do arquiteto-senior sobre o `PADRAO_VALOR` acima: a
 # amplitude fica (ela é o que fecha a cegueira do `{% include %}`), mas a
 # MENSAGEM não pode instruir alguém a colocar `valor-monetario` numa DATA.
@@ -342,9 +354,45 @@ def _estilos_embutidos(texto):
     return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(limpo)]
 
 
+def _involucro_cobre_valor(texto, inicio, fim):
+    """`True` se existir, entre as posições `inicio` e `fim` de `texto`, um
+    elemento ABERTO com a classe `valor-monetario` que ainda não tenha sido
+    fechado antes de `fim` — o invólucro em linha (ex.: `<span
+    class="valor-monetario">`) que a rodada 3 do BL-286 passou a aceitar
+    como alternativa à classe na própria célula, quando a célula mistura
+    texto corrido (rótulo, frase de veredito) com o número.
+
+    `inicio` é o fim da tag de ABERTURA da célula (`<td ...>`/`<th ...>`);
+    `fim` é a posição do PRÓPRIO valor `_ptbr` — nunca o começo da célula,
+    porque o que importa é se o invólucro ainda está aberto QUANDO o valor
+    aparece, não se ele existe em algum lugar da célula (um invólucro que
+    já fechou antes do valor não cobre nada — ver o teste de controle
+    correspondente).
+
+    Não é um parser de HTML completo (mesma limitação, já documentada,
+    deste arquivo inteiro): olha o PRIMEIRO invólucro com a classe
+    encontrado na janela e confere se o seu fechamento (`</mesma-tag>`, a
+    primeira ocorrência depois da abertura) vem depois de `fim`.
+    Suficiente para o padrão real deste projeto — um `<span>` simples
+    envolvendo só o número —, sem resolver aninhamento arbitrário de
+    marcação.
+    """
+    for abertura in PADRAO_TAG_ABERTURA.finditer(texto, inicio, fim):
+        if "valor-monetario" not in abertura.group(0):
+            continue
+        tag = abertura.group(1)
+        fechamento = texto.find(f"</{tag}>", abertura.end())
+        if fechamento == -1 or fechamento >= fim:
+            return True
+    return False
+
+
 def _valores_sem_classe(texto):
     """Valores `_ptbr` dentro de célula de tabela que não usam a classe do
-    sistema. Devolve a lista dos trechos ofensores."""
+    sistema — nem na própria célula, nem num invólucro em linha ao redor
+    do número (rodada 3, BL-286: a tabulação pertence ao NÚMERO, não
+    necessariamente à célula inteira). Devolve a lista dos trechos
+    ofensores."""
     limpo = _sem_comentarios_de_template(texto)
     ofensores = []
     for valor in PADRAO_VALOR.finditer(limpo):
@@ -356,8 +404,11 @@ def _valores_sem_classe(texto):
         fechamento = limpo.find(f"</{celula.group(1)}>", celula.end())
         if fechamento != -1 and fechamento < valor.start():
             continue
-        if "valor-monetario" not in celula.group(0):
-            ofensores.append((celula.group(0)[:70], valor.group(0)[:40]))
+        if "valor-monetario" in celula.group(0):
+            continue
+        if _involucro_cobre_valor(limpo, celula.end(), valor.start()):
+            continue
+        ofensores.append((celula.group(0)[:70], valor.group(0)[:40]))
     return ofensores
 
 
@@ -725,6 +776,66 @@ def test_controle_positivo_detector_de_valor_sem_classe():
     assert not _valores_sem_classe(fora_de_tabela), (
         "data em prosa não é coluna de valor; a regra vale dentro de célula de tabela"
     )
+
+
+def test_controle_a_mudanca_do_involucro_nao_afrouxa_o_caso_original():
+    """Rodada 3 (BL-286): aceitar um invólucro em volta do número não pode
+    afrouxar o caso ORIGINAL — célula sem a classe e SEM nenhum invólucro
+    continua reprovando exatamente como antes."""
+    ruim = "<table><tr><td>{{ linha.saldo_ptbr }}</td></tr></table>"
+    assert _valores_sem_classe(ruim), (
+        "célula sem classe e sem invólucro parou de reprovar depois da mudança"
+    )
+
+
+def test_controle_negativo_detector_de_valor_aceita_involucro_com_a_classe():
+    """BL-286: a célula do veredito de fechamento mistura frase e número
+    ("Não fecha, faltam X no crédito") — marcar a CÉLULA inteira com
+    `valor-monetario` alinharia a frase toda à direita, em fonte tabulada,
+    o que não faz sentido para texto corrido. Um `<span
+    class="valor-monetario">` só em volta do número passa a ser aceito.
+    """
+    bom = (
+        '<table><tr><td class="linha-total__veredito">'
+        "Não fecha, faltam "
+        '<span class="valor-monetario">{{ diferenca_fechamento_ptbr }}</span>'
+        " no crédito</td></tr></table>"
+    )
+    assert not _valores_sem_classe(bom), "invólucro com a classe não foi aceito"
+
+
+def test_controle_negativo_detector_de_involucro_que_ja_fechou_nao_cobre_o_valor():
+    """Controle dentro do controle: um invólucro com a classe que já FECHOU
+    antes do valor aparecer não pode cobri-lo — só protege o número
+    enquanto está ABERTO no ponto exato onde o `_ptbr` aparece."""
+    fechado_antes_do_valor = (
+        "<table><tr><td>"
+        '<span class="valor-monetario">rótulo</span> {{ diferenca_fechamento_ptbr }}'
+        "</td></tr></table>"
+    )
+    assert _valores_sem_classe(fechado_antes_do_valor), (
+        "um invólucro já fechado antes do valor não pode cobrir o valor"
+    )
+
+
+def test_controle_involucro_nao_afrouxa_o_relato_por_arquivo(tmp_path):
+    """BL-286: a mudança que aceita invólucro não pode enfraquecer o relato
+    que NOMEIA o arquivo ofensor — o mesmo formato de mensagem que
+    `test_todo_valor_em_celula_usa_a_classe_do_sistema` usa contra a árvore
+    real de templates, aqui provado contra um arquivo sintético isolado em
+    `tmp_path` (nunca a árvore real, para não depender de nada existir ou
+    deixar de existir em `templates/`)."""
+    pasta = tmp_path / "templates" / "modulo_sintetico"
+    pasta.mkdir(parents=True)
+    arquivo = pasta / "tela_ruim.html"
+    arquivo.write_text("<table><tr><td>{{ linha.saldo_ptbr }}</td></tr></table>", encoding="utf-8")
+
+    ofensores = [
+        f"{arquivo.relative_to(tmp_path)}: {valor} em {celula}"
+        for celula, valor in _valores_sem_classe(arquivo.read_text(encoding="utf-8"))
+    ]
+    assert ofensores, "a varredura deixou de reprovar o arquivo sintético"
+    assert "tela_ruim.html" in ofensores[0], "a mensagem de erro parou de nomear o arquivo"
 
 
 def test_controle_negativo_detector_de_valor_ignora_prosa_dentro_de_comentario():

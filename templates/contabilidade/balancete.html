@@ -125,38 +125,53 @@
         </p>
     </form>
 
-    {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
-
     {% comment %}
     BL-285 (rodada 3, DL-024): quando a empresa tem movimento FORA do
-    período (bloco acima) E o período consultado está zerado, mostrar
-    TAMBÉM o parágrafo "Nenhum movimento neste período" empilhava dois
-    avisos dizendo quase a mesma coisa antes de qualquer linha da tabela —
-    medido na revisão integrada 2307de6: 138px do aviso de movimento fora
-    do período mais 64px desta mensagem, na entrada padrão (mês corrente,
-    sem filtro). É exatamente o estado do dia 1º de todo mês recém-aberto
-    em qualquer escritório real: sem movimento ainda neste mês, com o
-    movimento do mês anterior do lado de fora do período — não é artefato
-    da base de teste.
+    período E o período consultado está zerado, mostrar o parágrafo cheio
+    "Nenhum movimento neste período" (64px, com borda e fundo próprios)
+    IMEDIATAMENTE ACIMA do aviso de movimento fora do período (138px,
+    também com borda e fundo próprios) empilhava dois blocos inteiros
+    dizendo quase a mesma coisa, antes de qualquer linha da tabela —
+    medido na revisão integrada 2307de6: 202px de blocos concorrentes, na
+    entrada padrão (mês corrente, sem filtro). É exatamente o estado do
+    dia 1º de todo mês recém-aberto em qualquer escritório real: sem
+    movimento ainda neste mês, com o movimento do mês anterior do lado de
+    fora do período — não é artefato da base de teste.
 
-    O aviso de cima já diz O QUE aconteceu (há movimento da empresa, fora
-    do período consultado, não somado em nenhuma linha nem total desta
-    tela) e O QUE fazer (o link que amplia o período até incluir esse
-    movimento) — é o "um aviso só, com ação" que o critério pede. Por
-    isso este parágrafo só aparece quando NÃO há aviso de movimento fora
-    do período: nesse caso ele é a ÚNICA explicação disponível para a
-    tabela zerada (R6-9/BL-203, critério 13: "empresa sem lançamento no
-    período mostra MENSAGEM, não tabela vazia sem explicação"), e
-    removê-lo deixaria a tela muda.
+    A correção: quando os dois fatos coincidem, o "nenhum movimento" vira
+    uma ÚNICA LINHA de texto simples (sem borda, sem fundo, sem padding
+    próprio — não é um segundo "bloco") logo acima do aviso de movimento
+    fora do período, que é quem já diz O QUE fazer (o link que amplia o
+    período). Continua sendo, na prática, UM aviso só — a linha de texto
+    é a abertura dele, não um segundo aviso empilhado. Fora deste caso
+    (sem movimento em lugar NENHUM, nem dentro nem fora do período), a
+    versão completa do parágrafo continua a única explicação disponível
+    (R6-9/BL-203, critério 13: "empresa sem lançamento no período mostra
+    MENSAGEM, não tabela vazia sem explicação") — removê-la deixaria a
+    tela muda nesse caso.
 
-    A mensagem, quando aparece, vem ANTES da tabela e NÃO a substitui: um
-    balancete zerado (ou com saldo anterior e sem movimento no mês) é
-    informação contábil legítima, e esconder a tabela trocaria um defeito
-    de explicação por um de omissão. `role="status"`, não `alert`: não é
-    erro nem anomalia — é a resposta correta para um período sem
-    movimento.
+    A mensagem, em qualquer das duas formas, vem ANTES da tabela e NÃO a
+    substitui: um balancete zerado (ou com saldo anterior e sem movimento
+    no mês) é informação contábil legítima, e esconder a tabela trocaria
+    um defeito de explicação por um de omissão.
     {% endcomment %}
+    {% if sem_movimento_no_periodo and movimento_fora_do_periodo %}
+        <p class="texto-apoio">
+            <strong>Nenhum movimento neste período</strong>
+            ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}) — o movimento desta empresa
+            está fora do período consultado; ver abaixo onde e como ampliar o período.
+        </p>
+    {% endif %}
+
+    {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
+
     {% if sem_movimento_no_periodo and not movimento_fora_do_periodo %}
+        {% comment %}
+        R6-9/BL-203 — critério 13, texto literal: "empresa sem lançamento
+        no período mostra MENSAGEM, não tabela vazia sem explicação".
+        `role="status"`, não `alert`: não é erro nem anomalia — é a
+        resposta correta para um período sem movimento.
+        {% endcomment %}
         <p class="mensagem mensagem-info" role="status">
             <strong>Nenhum movimento neste período</strong>
             ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}): nenhum lançamento desta

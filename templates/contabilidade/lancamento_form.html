@@ -167,38 +167,55 @@
                     "não fecha" para responder, só "ainda não conferido".
 
                     BL-286 (rodada 3 da DL-024): a diferença numérica
-                    ("Não fecha, faltam X") agora existe —
-                    `diferenca_fechamento_ptbr` chega PRONTA da view
+                    ("Não fecha, faltam X no crédito/débito") agora existe
+                    — `diferenca_fechamento_ptbr` e `lado_faltante_
+                    fechamento` chegam PRONTOS da view
                     (`_contexto_form_lancamento`, apps/contabilidade/
-                    views_web.py), já calculada em `Decimal` sobre os
-                    totais de ORIGEM (nunca sobre `total_debito_ptbr`/
-                    `total_credito_ptbr`, que são texto) e já formatada
-                    em pt-BR pelo MESMO `_valor_ptbr` que formata os dois
-                    totais. Este template só EXIBE — nenhuma subtração
-                    acontece aqui, o que continuaria violando a regra do
-                    AGENTS.md contra aritmética financeira fora do motor
-                    determinístico. `diferenca_fechamento_ptbr` é sempre
-                    o MÓDULO da diferença (nunca negativo) — o lado maior
-                    vem à parte, em `lado_faltante_fechamento` ("débito"
-                    ou "crédito"), como palavra, nunca como sinal.
+                    views_web.py), a diferença já calculada em `Decimal`
+                    sobre os totais de ORIGEM (nunca sobre
+                    `total_debito_ptbr`/`total_credito_ptbr`, que são
+                    texto) e já formatada em pt-BR pelo MESMO `_valor_ptbr`
+                    que formata os dois totais. Este template só EXIBE —
+                    nenhuma subtração acontece aqui, o que continuaria
+                    violando a regra do AGENTS.md contra aritmética
+                    financeira fora do motor determinístico.
+                    `diferenca_fechamento_ptbr` é sempre o MÓDULO da
+                    diferença (nunca negativo) — o lado maior vem à parte,
+                    em `lado_faltante_fechamento` ("débito" ou "crédito"),
+                    como palavra, nunca como sinal.
 
-                    O número da diferença é exibido dentro da célula do
-                    lado que FALTA — a mesma célula, já com a classe
-                    valor-monetario, que mostra "Débito: X"/"Crédito: X"
-                    — não dentro da célula colspan=2 do veredito ("Não
-                    fecha"): a varredura de interface (apps/core/tests/
-                    test_dl024_varredura_de_interface.py, achado A1 —
-                    "todo _ptbr dentro de célula precisa da classe
-                    valor-monetario") reprovaria um valor monetário novo
-                    dentro da célula do veredito, que não carrega aquela
-                    classe — e acrescentá-la ali mudaria o alinhamento e a
-                    quebra de linha do rótulo "Total conferido antes de
-                    gravar" (a classe fixa alinhamento à direita e
-                    impede quebra de linha, pensada para uma célula que é
-                    SÓ número, não para uma célula com rótulo + veredito).
-                    Um estilo novo para acomodar isso não foi criado nesta
-                    etapa — nenhuma regra do BL-286 pede um, e criar CSS é
-                    escopo do especialista-frontend, não desta tarefa.
+                    A primeira versão desta correção colocava a diferença
+                    dentro da célula "Débito: X"/"Crédito: X", entre
+                    parênteses — o arquiteto-senior reprovou: neste
+                    produto, número entre PARÊNTESES numa célula de valor
+                    já tem um significado reservado, "valor invertido em
+                    relação à natureza do registro" (docs/projeto/
+                    direcao-de-arte.md §2A, o mesmo padrão que o Razão usa
+                    e que o BL-281 estende ao Balancete). Reaproveitar o
+                    parêntese para "faltam X" ensinaria DUAS leituras
+                    opostas para o mesmo sinal gráfico, na mesma tela — a
+                    ambiguidade que a direção de arte existe para impedir.
+                    A diferença agora entra como FRASE, sem parênteses,
+                    dentro da própria célula do veredito: "Não fecha,
+                    faltam X no crédito". As duas células "Débito: X"/
+                    "Crédito: X" voltam a mostrar só o valor, como antes
+                    do BL-286.
+
+                    O NÚMERO da frase (não a frase inteira) vai dentro de
+                    um invólucro com a classe valor-monetario — um `span`
+                    só em volta do valor, não a célula do veredito
+                    inteira: marcar a célula inteira alinharia a frase
+                    TODA à direita, em fonte tabulada, o que não faz
+                    sentido para texto corrido ("Não fecha, faltam..." não
+                    é algarismo). A varredura de interface
+                    (apps/core/tests/test_dl024_varredura_de_interface.py)
+                    passou, na rodada 3, a aceitar esse invólucro como
+                    alternativa à classe na própria célula
+                    (`_involucro_cobre_valor`) — com controle positivo
+                    (célula sem classe e sem invólucro continua
+                    reprovando), controle negativo (invólucro com a
+                    classe passa) e um terceiro controle provando que um
+                    invólucro já FECHADO antes do valor não cobre nada.
                     {% endcomment %}
                     {% comment %}
                     A comparação dos dois totais fica FORA de qualquer
@@ -259,10 +276,10 @@
                         <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-fecha">
                             Total conferido antes de gravar
                             <br>
-                            <strong class="veredito-fechamento">Não fecha</strong>
+                            <strong class="veredito-fechamento">Não fecha, faltam <span class="valor-monetario">{{ diferenca_fechamento_ptbr }}</span> no {{ lado_faltante_fechamento }}</strong>
                         </td>
-                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}{% if lado_faltante_fechamento == "débito" %} (faltam {{ diferenca_fechamento_ptbr }}){% endif %}</td>
-                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}{% if lado_faltante_fechamento == "crédito" %} (faltam {{ diferenca_fechamento_ptbr }}){% endif %}</td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
                     </tr>
                         {% endif %}
                     {% else %}
