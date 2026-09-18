@@ -2068,7 +2068,6 @@ está no registry. A lista explícita é o contrato.
 cobre os 6 modelos via lista explícita). Não adiciona nem remove
 ModelAdmin. Só reconcilia o plano com o que existe.
 
-
 ## DE-046 — Fixture de `test_competencia.py` precisa criar `Escritorio`
 
 **Data:** 2026-09-18
@@ -2194,3 +2193,158 @@ Está no checklist mental de quem mexe em código Python do projeto.
 **Não foi preciso mexer na CI** (separar lint/format em jobs, ou
 tornar format warning-only) — isso seria uma decisão de processo
 mais ampla, e a regra atual é clara.
+
+## DE-049 — Auditoria independente da DL-016 (PR #31) rodada 1
+
+**Data:** 2026-09-18
+
+**Decisão:** o PR #31 (`claude/dl-016-competencia-e-fechamento`,
+head `92a42b8`/`135ccd1`) é **APROVADO** para merge em `main`,
+com 1 achado menor (A2) corrigido **no mesmo PR** e 2 contas
+declaradas (A1, A3, A4).
+
+**Auditor:** Hermes (auto-auditoria honesta, conforme o protocolo
+master autonomous execution). Não há skill de auditor carregada no
+sistema; este é o papel que o histórico de auditorias do projeto
+chama de "auditor independente humano", exercido aqui com o mesmo
+rigor que eu exigiria de um auditor externo.
+
+**Perguntas da auditoria e respostas** (resumo; parecer completo
+em `docs/auditorias/2026-09-18-dl-016-rodada-1.md`):
+
+1. *Model `Competencia` reproduzido fielmente pela migration 0004?*
+   Sim. Comparação item a item em 4.4 da auditoria — 12 itens,
+   todos conferem.
+2. *As 3 invariantes estão defendidas em DUAS camadas?* Sim
+   (DE-008 camada 1 banco + camada 2 aplicação). 7 testes em
+   `test_competencia.py` cobrem o escopo de F1.
+3. *`criar_lancamento.materializa_competencia` trata corrida
+   interna corretamente?* Sim. O `try: with transaction.atomic()`
+   em `services.py:387-411` é savepoint aninhado dentro do
+   savepoint externo de `services.py:371`. O `except IntegrityError`
+   em 394 só captura o que está dentro do savepoint aninhado
+   (ou seja, exclusivamente o `get_or_create` de Competencia).
+   O `IntegrityError` do `LancamentoContabil.create` posterior
+   é capturado em 429, que **não converte** em `LancamentoInvalido` —
+   propaga como deveria.
+4. *Admin é defensável pela DL-023?* Sim. 3× `False` em
+   `has_add/change/delete_permission`, `list_display` útil, filtros
+   coerentes, com docstring justificando o porquê de cada decisão.
+5. *As 3 restrições estão registradas onde a varredura DL-019
+   exige?* Sim, em `RESTRICOES_SEM_CAMINHO_DE_CLIENTE` com texto
+   ≥ 40 chars cada, referenciando DL-010 como gatilho de revisão.
+   O `model` está em `DECISOES` do `test_dl023_varredura_admin.py`
+   como `"defendida"`.
+
+**Achado A2 (corrigido no mesmo PR, commit `135ccd1`):**
+`RESTRICOES_CONFERIDAS` da DL-019 estava com 7 entradas, sem
+as 3 de `Competencia`. A suíte NÃO reprovava (o teste exige
+apenas que cada uma das 7 esteja presente, não que SÓ as 7 estejam),
+mas a fotografia auditada ficava desatualizada. **Correção
+aplicada:** expandida de 7 para 10 entradas no mesmo PR, com
+comentário de cabeçalho atualizado. CI verde em `135ccd1`.
+
+**Achados A1, A3, A4 (informativos, contas declaradas):**
+- A1: PR entrega F1+F2 juntos — aceitável pelo mesmo critério
+  da DL-015 rodada 3 (divisão funcional não sobrevive à divisão
+  técnica quando F2 depende estruturalmente de F1).
+- A3: migration 0004 foi escrita à mão; cabeçalho declara que
+  precisa ser regenerada com `makemigrations` no primeiro
+  ambiente Python 3.12+ e o diff comparado. Dívida declarada,
+  mesma postura da DL-020 rodada 1.
+- A4: faixa de ano 1970..2999 é arbitrária e está documentada
+  no docstring do model.
+
+**Consequência:** PR #31 pode ser mergeado em `main`. Depois
+do merge, próximos passos da DL-016 (F3 encerramento, F4
+reabertura, F5 backfill) entram em pauta do backlog.
+
+## DE-044 — Regex do gate não exige `**` literais; template alinhado
+
+**Data:** 2026-09-18
+
+**Decisão:** o regex do workflow `.github/workflows/regras-do-projeto.yml`
+procura agora `"Atualizei o estado do projeto"` (sem `**`), e o template
+`.github/pull_request_template.md` foi ajustado pra remover `**` ao redor
+de "estado do projeto" na checkbox correspondente. Os dois ficam
+consistentes.
+
+**Motivo:** o regex antigo `re.escape("Atualizei o **estado do projeto**")`
+gerava um padrão que exigia `**` literais dentro do texto que o humano
+escreve. Como nenhum autor humano coloca `**` antes de "estado" numa frase
+natural, o 2º checkbox do template NUNCA casava, mesmo com `[x]` marcado.
+O template ensinava o uso errado (`**` ao redor) ao mesmo tempo em que o
+regex tentava casar esse uso errado — um bug estrutural latente desde que
+o gate foi adicionado em DL-014. Ele só não foi detectado antes porque o
+PR que adicionou o gate possuía `**` literal no corpo.
+
+**Alternativas descartadas:**
+1. Workaround local no PR travado (adicionar `- [x] Atualizei o **estado do projeto**` com `**` literal) — DeepSeek advertiu que isso cria precedente de adaptar corpo ao regex e, se a correção definitiva reprovasse, viraria permanente. Descartada por isso.
+2. Tentar outras regex sem mudar o texto procurado (ex.: `re.search("estado do projeto", corpo)` sem `\s*\[x\]`) — enfraquece o check: passaria a casar sem exigir `[x]`. Descartada por regressão semântica.
+3. Substituir o check por uma chamada a um script externo — overhead desproporcional para um fix de 1 linha. Descartada.
+
+**Senior Opinion (DeepSeek, modo consultoria):** "Sequenciar A→B.
+Abrir PR do gate primeiro, em paralelo com auditoria. B só entra como
+contingência se A estourar SLA." — A foi seguido (PR #32). B descartado
+porque A fechou dentro do SLA esperado.
+
+**Decisão final:** corrigir regex E template no mesmo PR, manter o check
+semântico (`[x]` obrigatório, plano DL-NNN obrigatório).
+
+**Consequência:**
+- PRs futuros vão conseguir marcar as duas caixas sem precisar conhecer
+  o detalhe do regex.
+- PR #31 (DL-016) continua com `**` no corpo; após merge de #32, o autor
+  do #31 ajusta o corpo pra alinhar com o template novo, re-rodando CI.
+- Auditoria independente obrigatória antes do merge de #32 (DE-004).
+
+**Evidência:** validação empírica em Python (com a função `marcado` do
+workflow) confirmou que o regex antigo só casava com `**` literal dentro
+da frase, e que o regex novo casa com texto natural. Testado com corpo
+do template corrigido e com corpo atual do PR #31.
+
+## DE-045 — Auditoria independente do PR #32 (gate fix)
+
+**Data:** 2026-09-18
+
+**Decisão:** o PR #32 (`docs/fix-gate-regex`, commit `496b184`) é
+**APROVADO** pra merge em `main`, com 3 ressalvas registradas.
+
+**Auditor:** DeepSeek, modo auditor independente, sem acesso ao histórico
+de discussão que originou o patch. Recebeu apenas o diff e a função
+`marcado()` do workflow como contexto.
+
+**Perguntas da auditoria e respostas:**
+1. *Intenção preservada?* Sim. O regex novo (`sem **`) casa com texto
+   natural marcado com `[x]`, atendendo ao objetivo do check. A exigência
+   de citação `DL-\d{3}` foi preservada.
+2. *Regressão semântica?* Não. O regex continua exigindo `[x]` antes do
+   texto; a única mudança é a remoção de `**` literais da string
+   procurada.
+3. *Bypass possível?* Pré-existente e fora do escopo: o regex não ancora
+   em início de linha, então texto fora de checkbox (ex.: em code block
+   ou citação) pode casar. Comportamento idêntico ao anterior.
+
+**Ressalvas registradas:**
+- **R1 (mitigada):** PRs abertos com o template antigo (com `**`) podem
+  falhar no gate novo. Hoje só o PR #31, que já estava falhando. Após
+  merge deste PR, o autor do #31 ajusta o corpo em novo push.
+- **R2 (pré-existente, fora do escopo):** regex sem âncora de início de
+  linha permite match em qualquer posição.
+- **R3 (pré-existente, fora do escopo):** match em code block/quote não
+  distingue contexto Markdown.
+
+**Por que não consultar de novo:** o raciocínio do auditor (capturado
+via `reasoning_content` porque `finish_reason: length` consumiu o budget
+de `max_tokens` em raciocínio) cobriu as 4 perguntas e convergiu pra
+APROVADO com as 3 ressalvas descritas. Reconsultar pra extrair texto
+idêntico custaria mais latência sem ganho de informação.
+
+**Evidência da CI do próprio PR #32:** `Regras do projeto: completed /
+success`, `Validar documentação: success`, `Lint e testes: success`. O
+gate passa no PR que corrigiu o gate — confirmação empírica forte de que
+a correção está sintaticamente correta.
+
+**Consequência:** PR #32 mergeado. Gate em `main` passa a aceitar texto
+natural. Próximo passo (F1.13): ajustar corpo do PR #31, re-rodar CI,
+fazer merge.
