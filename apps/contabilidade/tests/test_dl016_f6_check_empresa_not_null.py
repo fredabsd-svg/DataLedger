@@ -14,22 +14,30 @@ O cenario coberto aqui:
    e diferente.
 
 2. **Insert direto via SQL bypassando o ORM falha com `IntegrityError`
-   "violates check constraint"** — e o cenario que a CHECK constraint da
-   F6 defende. Sem o CHECK, esse INSERT passa (a coluna e NOT NULL por
-   schema, mas em PG ha historico de bypass via `SET CONSTRAINTS ALL
-   DEFERRED` + raw SQL, alem de races em migracoes). Com o CHECK,
-   qualquer tentativa falha no banco, mesmo que o NOT NULL da coluna
-   tenha sido afrouxado por algum ALTER TABLE malicioso ou por uma
-   migration futura descuidada.
+   mencionando o ck_lancamentocontabil_empresa_not_null** — e o cenario
+   que a CHECK constraint da F6 defende, apos o NOT NULL da coluna ter
+   sido afrouxado (exatamente o cenario de bypass documentado no DE-051
+   e na migration 0005). Sem o CHECK, esse INSERT passa silenciosamente.
+   Com o CHECK, o banco rejeita com mensagem explicita mencionando o
+   nome da constraint.
 
 3. **Constraint nomeada existe na introspeccao do banco** — sanity check
    de que a migration 0005 foi aplicada e a constraint esta presente.
 
+4. **Sanity: caminho feliz nao e bloqueado** — INSERT direto com
+   empresa_id valido passa, provando que a constraint nao esta
+   bloqueando escritas legitimas.
+
+Importante: o teste #2 faz `ALTER TABLE ... DROP NOT NULL` em setup para
+simular o cenario de bypass que o CHECK defende. Em try/finally garante
+que a coluna volta a NOT NULL mesmo se o assertion falhar no meio. Sem
+isso, o teste polui o schema pra testes subsequentes na mesma sessao.
+
 O padrao de fixtures segue o que o PR #31 da DL-016 (F1) ja estabeleceu
 em `test_competencia.py`:
 - `setUpTestData` cria `Escritorio` antes da `Empresa`.
-- Empresa tem `cnpj` valido pelo algoritmo, mas o foco do teste
-  e a defesa do banco, nao a validacao do CNPJ.
+- CNPJ em 14 digitos sem mascara, em formato canonico aceito pela
+  CheckConstraint `empresa_cnpj_canonico` da Empresa.
 """
 
 from django.db import IntegrityError, connection, transaction
@@ -58,7 +66,6 @@ class CheckEmpresaNotNullTests(TestCase):
         """A constraint `ck_lancamentocontabil_empresa_not_null` deve estar
         presente na introspeccao do schema (psql: \\d contabilidade_lancamentocontabil)."""
         with connection.cursor() as cursor:
-            # PG-specific: information_schema.check_constraints
             cursor.execute(
                 """
                 SELECT constraint_name
@@ -73,17 +80,20 @@ class CheckEmpresaNotNullTests(TestCase):
             "nao encontrada no schema. A migration 0005 foi aplicada?",
         )
 
-    def test_insert_direto_com_empresa_null_falha(self):
-        """INSERT direto via SQL bypassando o ORM deve falhar com IntegrityError.
+    def test_insert_direto_sem_empresa_falha_com_mensagem_sobre_not_null_ou_check(self):
+        """INSERT direto via SQL bypassando o ORM deve falhar.
 
-        Sem a CHECK constraint, este INSERT passaria em cenarios onde o NOT NULL
-        da coluna tivesse sido afrouxado (ALTER TABLE malicioso, migration
-        descuidada) ou onde houvesse race com SET CONSTRAINTS DEFERRED.
-        Com a CHECK, o banco rejeita na hora.
+        Em PG, NOT NULL da coluna e avaliado antes de CHECK constraint, entao
+        a mensagem de erro vira do NOT NULL (mensagem "violates not-null
+        constraint"). O que importa e que o INSERT e rejeitado pelo banco
+        — sem o CHECK, um futuro DROP NOT NULL deixaria esse INSERT passar;
+        com o CHECK, mesmo apos DROP NOT NULL o INSERT continua sendo
+        rejeitado (e a mensagem vira "violates check constraint
+        ck_lancamentocontabil_empresa_not_null").
 
-        NOTA: usamos transacao savepoint para isolar o INSERT que vai falhar —
-        sem isso, o Django marcaria a transacao como broken e qualquer
-        assertAfter falharia por conexao suja.
+        Aceita AMBAS as mensagens como sinal de defesa em profundidade:
+        - 'violates not-null constraint' (situacao normal de hoje)
+        - 'ck_lancamentocontabil_empresa_not_null' (situacao apos bypass do NOT NULL)
         """
         with self.assertRaises(IntegrityError) as ctx:
             with transaction.atomic():
@@ -102,12 +112,55 @@ class CheckEmpresaNotNullTests(TestCase):
                 except IntegrityError:
                     transaction.savepoint_rollback(sid)
                     raise
-        # Sanidade: a mensagem menciona a constraint
-        self.assertIn(
-            "ck_lancamentocontabil_empresa_not_null",
-            str(ctx.exception),
-            f"Mensagem de erro deveria mencionar a constraint. Recebido: {ctx.exception}",
+        msg = str(ctx.exception)
+        self.assertTrue(
+            "violates not-null constraint" in msg
+            or "ck_lancamentocontabil_empresa_not_null" in msg,
+            f"Mensagem deveria mencionar not-null OU check. Recebido: {msg}",
         )
+
+    def test_insert_direto_sem_empresa_falha_apos_drop_not_null(self):
+        """Cenario real de bypass: apos ALTER TABLE DROP NOT NULL, o CHECK
+        constraint da F6 passa a ser a unica defesa. INSERT com empresa_id=NULL
+        deve falhar mencionando explicitamente `ck_lancamentocontabil_empresa_not_null`.
+
+        try/finally garante que mesmo se o assertion falhar, o NOT NULL
+        volta ao estado original (cleanup obrigatorio para nao quebrar
+        testes subsequentes na mesma sessao).
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE contabilidade_lancamentocontabil ALTER COLUMN empresa_id DROP NOT NULL"
+            )
+        try:
+            with self.assertRaises(IntegrityError) as ctx:
+                with transaction.atomic():
+                    sid = transaction.savepoint()
+                    try:
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                """
+                                INSERT INTO contabilidade_lancamentocontabil
+                                    (empresa_id, data, historico, criado_em)
+                                VALUES
+                                    (NULL, '2026-09-01', 'bypass check', NOW())
+                                """
+                            )
+                        transaction.savepoint_commit(sid)
+                    except IntegrityError:
+                        transaction.savepoint_rollback(sid)
+                        raise
+            self.assertIn(
+                "ck_lancamentocontabil_empresa_not_null",
+                str(ctx.exception),
+                f"Apos DROP NOT NULL, o CHECK deveria ser a defesa. Recebido: {ctx.exception}",
+            )
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER TABLE contabilidade_lancamentocontabil "
+                    "ALTER COLUMN empresa_id SET NOT NULL"
+                )
 
     def test_insert_direto_com_empresa_valida_passa(self):
         """INSERT direto via SQL com empresa_id valido deve passar (sanity check
@@ -124,5 +177,4 @@ class CheckEmpresaNotNullTests(TestCase):
                     """,
                     [self.empresa.pk],
                 )
-        # Conferindo que entrou
         self.assertTrue(LancamentoContabil.objects.filter(historico="bypass test happy").exists())
