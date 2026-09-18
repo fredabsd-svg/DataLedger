@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.contabilidade.models import Competencia, Conta, ItemLancamento, LancamentoContabil
 from apps.empresas.models import Empresa
 
 
@@ -161,4 +161,45 @@ class LancamentoContabilAdmin(admin.ModelAdmin):
         #
         # A DE-023 já dizia que o admin de lançamento é "somente leitura";
         # esta era a metade que faltava (a outra, alterar, já era False).
+        return False
+
+
+@admin.register(Competencia)
+class CompetenciaAdmin(admin.ModelAdmin):
+    """Consulta de competências pelo Django admin — só leitura.
+
+    F1 não tem API de gestão de competência: ela nasce em `criar_lancamento`
+    (F2, transação atômica), quando o escritório registra o primeiro
+    lançamento de um mês, e morre em `encerrar_competencia` (F3) ou volta a
+    ficar aberta em `reabrir_competencia` (F4). Pelo produto, a única
+    operação esperada do admin sobre competência é CONSULTAR (qual mês está
+    em aberto para qual empresa, qual está encerrado, quais lançamentos
+    pertencem a qual). Reproduzir a abertura/encerramento/reabertura no
+    admin duplicaria a regra de transição de estado que já vive nos
+    services (mesma razão que motivou o `has_add_permission=False` em
+    `LancamentoContabilAdmin` logo acima), e abriria um caminho de transição
+    que pula a validação de origem — a guarda de transição de estado é a
+    parte que a auditoria da DL-015 rodada 3 mais detalhou (achado novo 3,
+    gravidade alta) e que decidiu centralizar nos services. Aqui, listamos
+    e filtramos; mutações continuam pela API.
+    """
+
+    list_display = ["empresa", "ano", "mes", "estado", "criado_em"]
+    list_filter = ["estado", "ano", "mes"]
+    search_fields = ["empresa__razao_social"]
+
+    def has_add_permission(self, request):
+        # Não oferecemos o botão "Adicionar competência": competência nasce
+        # na F2 (criar_lancamento). Sem add aqui = sem caminho de criação
+        # via admin.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Não oferecemos edição: encerramento/reabertura passam pelos
+        # services de F3 e F4 (validação de transições + auditoria).
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Não oferecemos exclusão: competência não é descartável; o
+        # encerramento é via `encerrar_competencia` (F3).
         return False
