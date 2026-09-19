@@ -40,7 +40,12 @@ from pathlib import Path
 import pytest
 
 RAIZ = Path(__file__).resolve().parents[3]
-TEMPLATES = RAIZ / "templates"
+# BL-309 (A3 da auditoria DL-024 rodada 3): `TEMPLATES = RAIZ / "templates"`
+# existia aqui e alimentava só a guarda do "momento da verdade" — a única
+# que ainda enumerava a pasta antiga em vez de `_templates(RAIZ)`. Sem mais
+# usos depois da correção (ver `_pastas_de_modulo_com_tela`), removida:
+# mantê-la seria código morto e um convite a alguém voltar a usá-la por
+# engano no lugar de `_templates`.
 ESTILOS = RAIZ / "static" / "css"
 DIRECAO_DE_ARTE = RAIZ / "docs" / "projeto" / "direcao-de-arte.md"
 
@@ -363,6 +368,47 @@ def _templates(raiz):
     alcance em `tmp_path`, sem depender de nada existir ou deixar de
     existir na árvore real."""
     return _arquivos_do_projeto(raiz, "*.html")
+
+
+def _pastas_de_modulo_com_tela(raiz):
+    """Nome de cada pasta de MÓDULO que tem pelo menos um template — nas
+    DUAS origens que o Django resolve, exatamente como `_templates(raiz)`
+    já enxerga (`APP_DIRS: True` em `config/settings.py`):
+
+    - `templates/<modulo>/...` — a pasta única na raiz do projeto;
+    - `apps/<modulo>/templates/<modulo>/...` — a convenção de app do
+      Django (`apps/<app>/templates/<app>/arquivo.html`).
+
+    BL-309 (A3 da auditoria DL-024 rodada 3): até esta correção, a guarda
+    do "momento da verdade" (`test_modulo_novo_declara_o_seu_momento_da_
+    verdade`) enumerava `TEMPLATES.iterdir()` — só a primeira origem — CINCO
+    rodadas depois de o BL-291 já ter ligado as outras cinco guardas de
+    CONTEÚDO deste arquivo (extends, caption, scope, valor, estilo) a
+    `_templates()`, que enxerga as duas. O mesmo template, bem formado,
+    reprovava as cinco guardas de conteúdo em `apps/cobranca/templates/
+    cobranca/titulos.html` E em `templates/cobranca/titulos.html` — mas só
+    a sexta guarda, a desta função, era cega para a primeira origem: um
+    módulo inteiro podia nascer só em `apps/<app>/templates/`, com as
+    outras cinco guardas satisfeitas, e a CI continuar verde sem que
+    ninguém tivesse escrito a pergunta do módulo em `direcao-de-arte.md`
+    §3 — exatamente a superfície que o critério 13 promete cobrir.
+
+    Deriva as pastas dos ARQUIVOS que `_templates(raiz)` de fato encontra,
+    em vez de listar diretórios — um `.html` solto direto em `templates/`
+    (`base.html`, sem subpasta) não é módulo e não entra no resultado.
+    """
+    pastas = set()
+    for caminho in _templates(raiz):
+        partes = caminho.relative_to(raiz).parts
+        if partes[0] == "apps" and len(partes) >= 2:
+            # `apps/<modulo>/templates/<modulo>/arquivo.html` — o nome do
+            # MÓDULO é o nome do app (`partes[1]`), não a subpasta de
+            # template dentro dele (que hoje é sempre a mesma string, por
+            # convenção do Django, mas não é o que identifica o módulo).
+            pastas.add(partes[1])
+        elif partes[0] == "templates" and len(partes) >= 3:
+            pastas.add(partes[1])
+    return pastas
 
 
 def _e_parcial(caminho):
@@ -790,12 +836,19 @@ def test_modulo_novo_declara_o_seu_momento_da_verdade():
     — no Contábil, "débito é igual a crédito?". Quem não sabe responder pelo
     Fiscal, pela Folha ou pelo Lalur tem um problema de entendimento do
     domínio, e a hora de descobrir é antes da tela, não depois.
+
+    BL-309 (A3 da auditoria DL-024 rodada 3): a enumeração de módulos vem de
+    `_pastas_de_modulo_com_tela(RAIZ)` — que lê os arquivos que `_templates`
+    de fato encontra, nas DUAS origens (`templates/<modulo>/` e
+    `apps/<modulo>/templates/<modulo>/`) — nunca de `TEMPLATES.iterdir()`
+    (só a primeira origem, a cegueira que sobreviveu cinco rodadas depois de
+    as outras cinco guardas de conteúdo já terem sido corrigidas pelo
+    BL-291. Ver o docstring de `_pastas_de_modulo_com_tela`.
     """
     secao = _secao_do_momento_da_verdade(DIRECAO_DE_ARTE.read_text(encoding="utf-8"))
     assert secao, "A seção '## 3.' sumiu de docs/projeto/direcao-de-arte.md"
     sem_linha = []
-    for pasta in sorted(p for p in TEMPLATES.iterdir() if p.is_dir()):
-        nome = pasta.name
+    for nome in sorted(_pastas_de_modulo_com_tela(RAIZ)):
         if nome in PASTAS_QUE_NAO_SAO_MODULO:
             continue
         nome_na_tabela = NOME_DO_MODULO_NA_TABELA.get(nome, nome.capitalize())
@@ -998,7 +1051,17 @@ def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
     Confirma que `_templates()` agora ALCANÇA o arquivo e que, alcançado,
     cada guarda de conteúdo aplicável reprova nomeando-o: sem `{% extends
     %}`, sem `<caption>`, `<th>` sem `scope`, valor `_ptbr` em célula sem a
-    classe do sistema, e estilo embutido."""
+    classe do sistema, e estilo embutido.
+
+    BL-309 (A3 da auditoria DL-024 rodada 3): a SEXTA guarda — a de
+    EXISTÊNCIA de módulo (`test_modulo_novo_declara_o_seu_momento_da_
+    verdade`) — não estava neste controle, e era exatamente a única que
+    continuava cega para `apps/<app>/templates/`. Acrescenta um segundo
+    template, `apps/cobranca/templates/cobranca/titulos.html` — o caso
+    exato que o auditor mediu (`74 passed` nesta origem, `1 failed` na
+    origem antiga, para o MESMO arquivo) —, e prova que
+    `_pastas_de_modulo_com_tela` agora enxerga as duas pastas de módulo
+    desta árvore, apps-based e legada."""
     pasta = tmp_path / "apps" / "fiscal" / "templates" / "fiscal"
     pasta.mkdir(parents=True)
     arquivo = pasta / "apuracao.html"
@@ -1044,6 +1107,70 @@ def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
         for celula, valor in _valores_sem_classe(texto)
     ]
     assert ofensores_valor and caminho_relativo in ofensores_valor[0]
+
+    # 6) EXISTÊNCIA de módulo — a guarda que faltava neste controle. Um
+    # segundo módulo, "Cobrança", nascendo SÓ na origem apps-based: sem
+    # esta correção, `_pastas_de_modulo_com_tela` (herdeira de `TEMPLATES.
+    # iterdir()`) devolveria só o que existisse em `templates/` na raiz —
+    # neste `tmp_path`, nada — e "cobranca" nunca chegaria a ser cobrado
+    # pela guarda real.
+    pasta_cobranca = tmp_path / "apps" / "cobranca" / "templates" / "cobranca"
+    pasta_cobranca.mkdir(parents=True)
+    (pasta_cobranca / "titulos.html").write_text(
+        '{% extends "base.html" %}\n'
+        "{% block conteudo %}\n"
+        "<table><caption>Títulos</caption>\n"
+        '<tr><th scope="col">Valor</th></tr>\n'
+        '<tr><td class="valor-monetario">{{ titulo.valor_ptbr }}</td></tr>\n'
+        "</table>\n"
+        "{% endblock %}",
+        encoding="utf-8",
+    )
+    pastas = _pastas_de_modulo_com_tela(tmp_path)
+    assert pastas == {"fiscal", "cobranca"}, (
+        "a existência de módulo continua cega para apps/<app>/templates/: " + repr(pastas)
+    )
+
+
+def test_controle_a_existencia_de_modulo_reconhece_as_duas_origens_do_mesmo_nome(tmp_path):
+    """BL-309: o par exato que o auditor mediu — o MESMO módulo, "Cobrança",
+    servido pelas duas origens que o Django resolve. Reprodução literal da
+    tabela do achado A3 (`docs/auditorias/2026-09-18-dl-024-rodada-3.md`):
+    `apps/cobranca/templates/cobranca/titulos.html` (74 passed) contra
+    `templates/cobranca/titulos.html` (1 failed, MESMO arquivo). Prova as
+    duas metades: cada origem sozinha já basta para `_pastas_de_modulo_com_
+    tela` reconhecer "cobranca", e as duas JUNTAS não duplicam o módulo
+    (continua um `{"cobranca"}`, não `{"cobranca", "cobranca"}` — óbvio para
+    um `set`, mas é a garantia de que um módulo migrando de origem não vira
+    dois módulos na tabela)."""
+    conteudo = (
+        '{% extends "base.html" %}\n'
+        "{% block conteudo %}<table><caption>Títulos</caption>"
+        '<tr><th scope="col">Valor</th></tr>'
+        '<tr><td class="valor-monetario">{{ titulo.valor_ptbr }}</td></tr>'
+        "</table>{% endblock %}"
+    )
+
+    so_origem_nova = tmp_path / "nova"
+    pasta_nova = so_origem_nova / "apps" / "cobranca" / "templates" / "cobranca"
+    pasta_nova.mkdir(parents=True)
+    (pasta_nova / "titulos.html").write_text(conteudo, encoding="utf-8")
+    assert _pastas_de_modulo_com_tela(so_origem_nova) == {"cobranca"}
+
+    so_origem_legada = tmp_path / "legada"
+    pasta_legada = so_origem_legada / "templates" / "cobranca"
+    pasta_legada.mkdir(parents=True)
+    (pasta_legada / "titulos.html").write_text(conteudo, encoding="utf-8")
+    assert _pastas_de_modulo_com_tela(so_origem_legada) == {"cobranca"}
+
+    ambas = tmp_path / "ambas"
+    pasta_ambas_nova = ambas / "apps" / "cobranca" / "templates" / "cobranca"
+    pasta_ambas_nova.mkdir(parents=True)
+    (pasta_ambas_nova / "titulos.html").write_text(conteudo, encoding="utf-8")
+    pasta_ambas_legada = ambas / "templates" / "cobranca"
+    pasta_ambas_legada.mkdir(parents=True)
+    (pasta_ambas_legada / "titulos.html").write_text(conteudo, encoding="utf-8")
+    assert _pastas_de_modulo_com_tela(ambas) == {"cobranca"}
 
 
 def test_controle_negativo_detector_de_css_ignora_pastas_de_dependencia_e_build(tmp_path):

@@ -55,39 +55,55 @@ que `test_dl017_rodada2_frontend.py` já usa para mutar
 arquivo do repositório") — aqui aplicado a um fragmento de template em vez
 de uma folha de estilo.
 
-Método de mutação do item 3 (a condição sempre falsa): esta sabotagem é
-sobre o que a URL de verdade SERVE — não há como reproduzi-la sem que o
-Django resolva o template pelo NOME, através dos `loaders` configurados
-(`config/settings.py`, `APP_DIRS: True`), o que só acontece lendo do
-arquivo no disco. A mutação escreve no ARQUIVO REAL, dentro de um
-`try`/`finally` que restaura o conteúdo ORIGINAL (lido em memória ANTES de
-escrever) e confere, byte a byte, que a restauração foi perfeita — nunca
-deixa o repositório mutado, mesmo se a asserção do meio falhar.
+Método de mutação do item 3 (a condição sempre falsa) — CORRIGIDO pelo
+BL-311 (achado M2 da auditoria DL-024, rodada 3,
+docs/auditorias/2026-09-18-dl-024-rodada-3.md): esta sabotagem é sobre o
+que a URL de verdade SERVE — não há como reproduzi-la sem que o Django
+resolva o template pelo NOME, através dos `loaders` configurados
+(`config/settings.py`, `APP_DIRS: True`). A versão anterior (até a rodada
+4) fazia isso escrevendo o conteúdo MUTADO no ARQUIVO REAL do
+repositório, dentro de um `try`/`finally` que restaurava o conteúdo
+ORIGINAL. O auditor mediu, por instrumentação a cada 0,5 ms e por seis
+rodadas de execução concorrente na MESMA árvore, que essa técnica
+CORROMPE o repositório de forma ACUMULATIVA sob concorrência: a segunda
+execução lê como "original" o conteúdo já mutado pela primeira e
+restaura para ELE — rodar de novo não conserta —, e ao menos uma das
+execuções concorrentes termina com código de saída 0. O projeto tem
+BL-273 justamente porque agentes já escreveram na mesma árvore ao mesmo
+tempo.
 
-Achado próprio, ao escrever esta seção: o Django deste projeto usa
-`django.template.loaders.cached.Loader` por PADRÃO (`Engine.__init__`
-envolve os loaders default em `cached.Loader` sempre que ninguém passa
-`loaders=` explicitamente — independe de `DEBUG`, ao contrário do que a
-documentação costuma sugerir de memória). Escrever o arquivo mutado no
-disco SEM avisar o motor de template não muda nada: a primeira renderização
-desta MESMA sessão de teste já deixou o `Template` compilado em cache, e a
-troca do arquivo no disco fica invisível até o cache ser limpo. Por isso a
-mutação chama `django.template.autoreload.reset_loaders()` — a MESMA
-função pública que o `runserver` chama quando o autoreload detecta um
-`.html` mudando no disco — logo depois de escrever o arquivo mutado, e de
-novo depois de restaurar o original, para a próxima renderização (de
-qualquer teste que rode depois deste no mesmo processo) não herdar um
-cache apontando para o conteúdo mutado.
+A técnica atual prova a MESMA coisa — URL real, view real, loader real —
+sem nunca escrever no repositório: `_arvore_de_templates_com_mutacao`
+copia o diretório `templates/` INTEIRO (com `shutil.copytree`) para
+dentro do `tmp_path` que o pytest cria, ISOLADO e EXCLUSIVO por
+invocação de teste (inclusive entre execuções concorrentes do MESMO
+arquivo, que é exatamente o cenário que corrompia a árvore antes), e
+mutação vai só nessa CÓPIA. A requisição roda sob
+`django.test.override_settings(TEMPLATES=[...])`, apontando `DIRS` para
+a cópia mutada — o Django resolve a URL, a view e o `{% extends
+"base.html" %}` normalmente, através do MESMO mecanismo de loader que o
+`runserver` usa, só que lendo de um diretório temporário em vez do
+repositório. `override_settings` troca a configuração só durante o
+bloco `with` e a restaura ao sair (e dispara `setting_changed`, que o
+próprio Django usa para limpar o cache de `django.template.engines` —
+ver `django.test.signals.reset_template_engines` —, então a troca de
+`DIRS` é enxergada pela PRÓXIMA renderização sem precisar de
+`reset_loaders()` manual). Como nada é escrito fora de `tmp_path`, não
+há restauração a fazer nem risco de o repositório ficar mutado — a
+prova de concorrência (na seção de testes) roda o MESMO arquivo de teste
+duas vezes em paralelo, repetidas vezes, com `git status` limpo ao fim de
+todas.
 """
 
 import re
+import shutil
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.template import engines as _template_engines
-from django.template.autoreload import reset_loaders
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -608,37 +624,90 @@ def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
 
 
 # ---------------------------------------------------------------------------
-# Prova por mutação (b): a condição sempre falsa. Muta o ARQUIVO REAL —
-# não há outro jeito de sabotar o que a URL de verdade serve — dentro de
-# um `try`/`finally` que restaura o conteúdo ORIGINAL (lido em memória
-# ANTES de escrever) e confere, byte a byte, que a restauração foi
-# perfeita, mesmo que a asserção do meio reprove.
+# Prova por mutação (b): a condição sempre falsa — CORRIGIDA pelo BL-311
+# (achado M2 da auditoria DL-024, rodada 3): a versão anterior mutava o
+# ARQUIVO REAL (com try/finally e restauração byte a byte). O auditor
+# mediu que duas execuções concorrentes deste MESMO arquivo, na mesma
+# árvore, corrompem o repositório de forma ACUMULATIVA — a segunda
+# execução lê "original" o que a primeira já tinha mutado. A técnica
+# abaixo nunca escreve fora de `tmp_path`; ver o docstring do módulo para
+# a explicação completa (`_arvore_de_templates_com_mutacao`).
 # ---------------------------------------------------------------------------
+
+_RAIZ_TEMPLATES = _RAIZ / "templates"
+
+# As MESMAS opções de `config.settings.TEMPLATES` — só `DIRS` muda, para a
+# cópia mutada. Preservar `APP_DIRS` e os `context_processors` importa:
+# são eles que fazem `base.html` (herdado por `{% extends %}`) e o
+# contexto de autenticação/mensagens se comportarem OS MESMOS que em
+# produção; qualquer diferença aqui provaria menos do que a página real.
+_OPTIONS_TEMPLATES_ORIGINAIS = {
+    "context_processors": [
+        "django.template.context_processors.request",
+        "django.contrib.auth.context_processors.auth",
+        "django.contrib.messages.context_processors.messages",
+    ],
+}
+
+
+def _arvore_de_templates_com_mutacao(tmp_path, caminho_real, mutar):
+    """Copia `templates/` INTEIRO (com `shutil.copytree`) para dentro do
+    `tmp_path` que o pytest cria — ISOLADO e EXCLUSIVO por chamada de
+    teste, inclusive entre execuções concorrentes do MESMO arquivo de
+    teste — e aplica `mutar` (texto original -> texto mutado) só no
+    arquivo correspondente a `caminho_real`, DENTRO DA CÓPIA. O arquivo
+    do repositório é só LIDO, nunca escrito. Devolve o diretório
+    `templates/` da cópia, pronto para `TEMPLATES[0]["DIRS"]`.
+    """
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+
+    caminho_relativo = caminho_real.relative_to(_RAIZ_TEMPLATES)
+    caminho_na_copia = raiz_copia / caminho_relativo
+
+    conteudo_original = caminho_real.read_text(encoding="utf-8")  # leitura, nunca escrita
+    conteudo_mutado = mutar(conteudo_original)
+    assert conteudo_mutado != conteudo_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_na_copia.write_text(conteudo_mutado, encoding="utf-8")  # escreve SÓ na cópia
+
+    return raiz_copia
+
+
+def _templates_com_dirs(raiz_copia):
+    return [
+        {
+            "BACKEND": "django.template.backends.django.DjangoTemplates",
+            "DIRS": [raiz_copia],
+            "APP_DIRS": True,
+            "OPTIONS": _OPTIONS_TEMPLATES_ORIGINAIS,
+        }
+    ]
+
+
+def _mutacao_condicao_sempre_falsa(fragmento):
+    def _mutar(conteudo_original):
+        return conteudo_original.replace(
+            fragmento,
+            "{% if nunca_definido_no_contexto %}" + fragmento + "{% endif %}",
+            1,
+        )
+
+    return _mutar
 
 
 @pytest.mark.django_db
 def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_lancamento(
-    client, cenario_pagina_real
+    client, cenario_pagina_real, tmp_path
 ):
-    conteudo_original = _CAMINHO_LANCAMENTO.read_text(encoding="utf-8")
-    fragmento = _fragmento_veredito_lancamento()
-    conteudo_mutado = conteudo_original.replace(
-        fragmento,
-        "{% if nunca_definido_no_contexto %}" + fragmento + "{% endif %}",
-        1,
-    )
-    assert conteudo_mutado != conteudo_original, "controle: a mutação precisa mudar o arquivo"
+    conteudo_do_repositorio_antes = _CAMINHO_LANCAMENTO.read_text(encoding="utf-8")
 
-    try:
-        _CAMINHO_LANCAMENTO.write_text(conteudo_mutado, encoding="utf-8")
-        # O motor de template usa `cached.Loader` por padrão (ver o
-        # docstring do módulo) — sem isto, a renderização abaixo ainda
-        # serviria o `Template` já compilado de uma requisição ANTERIOR
-        # desta mesma sessão de teste, e a mutação no disco ficaria
-        # invisível. `reset_loaders` é a MESMA função pública que o
-        # `runserver` chama quando o autoreload detecta um `.html`
-        # mudando no disco.
-        reset_loaders()
+    raiz_copia = _arvore_de_templates_com_mutacao(
+        tmp_path,
+        _CAMINHO_LANCAMENTO,
+        _mutacao_condicao_sempre_falsa(_fragmento_veredito_lancamento()),
+    )
+
+    with override_settings(TEMPLATES=_templates_com_dirs(raiz_copia)):
         _login(client)
         resposta = client.get(_url_lancamento(cenario_pagina_real))
         assert resposta.status_code == 200
@@ -648,57 +717,60 @@ def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_lancamento(
             f"página, e não sumiu — achado: {texto!r}. A guarda da seção 3 não pegaria "
             "esta sabotagem."
         )
-    finally:
-        _CAMINHO_LANCAMENTO.write_text(conteudo_original, encoding="utf-8")
-        restaurado = _CAMINHO_LANCAMENTO.read_text(encoding="utf-8")
-        assert restaurado == conteudo_original, (
-            "A RESTAURAÇÃO DO ARQUIVO REAL FALHOU — o template pode ter ficado mutado "
-            "no repositório. Verifique templates/contabilidade/lancamento_form.html "
-            "manualmente."
-        )
-        # Limpa o cache de novo, para a PRÓXIMA renderização (de qualquer
-        # teste que rode depois deste no mesmo processo) não herdar o
-        # `Template` compilado a partir do conteúdo MUTADO.
-        reset_loaders()
+
+    # `override_settings` já restaurou `TEMPLATES` ao sair do `with` (e
+    # disparou o `setting_changed` que limpa o cache de
+    # `django.template.engines` — ver o docstring do módulo). Controle de
+    # que a mutação realmente rodou SOB a `override_settings` e não
+    # vazou para fora dela: a MESMA página, fora do bloco, volta a
+    # mostrar o veredito de verdade.
+    resposta_normal = client.get(_url_lancamento(cenario_pagina_real))
+    assert resposta_normal.status_code == 200
+    texto_normal = _veredito_lancamento_na_pagina(resposta_normal.content.decode())
+    assert texto_normal == "Ainda não conferido", texto_normal
+
+    # O arquivo do REPOSITÓRIO nunca foi escrito — nada a restaurar. Esta
+    # asserção é o que, nesta suíte, ocupa o lugar da antiga conferência
+    # byte a byte pós-restauração: aqui ela prova AUSÊNCIA de escrita, não
+    # sucesso de restauração.
+    assert _CAMINHO_LANCAMENTO.read_text(encoding="utf-8") == conteudo_do_repositorio_antes
 
 
 @pytest.mark.django_db
 def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_balancete(
-    client, cenario_pagina_real
+    client, cenario_pagina_real, tmp_path
 ):
-    conteudo_original = _CAMINHO_BALANCETE.read_text(encoding="utf-8")
-    fragmento = _fragmento_veredito_balancete()
-    conteudo_mutado = conteudo_original.replace(
-        fragmento,
-        "{% if nunca_definido_no_contexto %}" + fragmento + "{% endif %}",
-        1,
-    )
-    assert conteudo_mutado != conteudo_original, "controle: a mutação precisa mudar o arquivo"
+    conteudo_do_repositorio_antes = _CAMINHO_BALANCETE.read_text(encoding="utf-8")
 
-    try:
-        _CAMINHO_BALANCETE.write_text(conteudo_mutado, encoding="utf-8")
-        reset_loaders()
+    raiz_copia = _arvore_de_templates_com_mutacao(
+        tmp_path,
+        _CAMINHO_BALANCETE,
+        _mutacao_condicao_sempre_falsa(_fragmento_veredito_balancete()),
+    )
+
+    hoje = timezone.localdate()
+    criar_lancamento(
+        empresa=cenario_pagina_real["empresa"],
+        data=hoje,
+        historico="mutação — condição sempre falsa",
+        itens=[
+            {
+                "conta": cenario_pagina_real["caixa"],
+                "tipo": "debito",
+                "valor": Decimal("500.00"),
+            },
+            {
+                "conta": cenario_pagina_real["receita"],
+                "tipo": "credito",
+                "valor": Decimal("500.00"),
+            },
+        ],
+        criado_por=None,
+        chave_idempotencia="k-mutacao-bal-sempre-falsa",
+    )
+
+    with override_settings(TEMPLATES=_templates_com_dirs(raiz_copia)):
         _login(client)
-        hoje = timezone.localdate()
-        criar_lancamento(
-            empresa=cenario_pagina_real["empresa"],
-            data=hoje,
-            historico="mutação — condição sempre falsa",
-            itens=[
-                {
-                    "conta": cenario_pagina_real["caixa"],
-                    "tipo": "debito",
-                    "valor": Decimal("500.00"),
-                },
-                {
-                    "conta": cenario_pagina_real["receita"],
-                    "tipo": "credito",
-                    "valor": Decimal("500.00"),
-                },
-            ],
-            criado_por=None,
-            chave_idempotencia="k-mutacao-bal-sempre-falsa",
-        )
         resposta = client.get(
             _url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje)
         )
@@ -708,11 +780,12 @@ def test_mutacao_condicao_sempre_falsa_esconde_o_veredito_da_pagina_balancete(
             "a mutação (condição sempre falsa) deveria fazer o veredito SUMIR da "
             f"página, e não sumiu — achado: {texto!r}."
         )
-    finally:
-        _CAMINHO_BALANCETE.write_text(conteudo_original, encoding="utf-8")
-        restaurado = _CAMINHO_BALANCETE.read_text(encoding="utf-8")
-        assert restaurado == conteudo_original, (
-            "A RESTAURAÇÃO DO ARQUIVO REAL FALHOU — o template pode ter ficado mutado "
-            "no repositório. Verifique templates/contabilidade/balancete.html manualmente."
-        )
-        reset_loaders()
+
+    resposta_normal = client.get(
+        _url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje)
+    )
+    assert resposta_normal.status_code == 200
+    texto_normal = _veredito_balancete_na_pagina(resposta_normal.content.decode())
+    assert texto_normal == "Fecha", texto_normal
+
+    assert _CAMINHO_BALANCETE.read_text(encoding="utf-8") == conteudo_do_repositorio_antes

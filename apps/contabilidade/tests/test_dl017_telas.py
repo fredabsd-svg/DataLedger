@@ -663,7 +663,14 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     pedacos_de_linha = tabela.split("<tr>")
 
     def _proprios_da_conta(nome_conta):
-        trecho = next(pedaco for pedaco in pedacos_de_linha if nome_conta in pedaco)
+        # A ÚLTIMA linha do corpo (Capital) não tem outro "<tr>" depois
+        # dela antes do rodapé — o `<tr class="linha-total">` do `<tfoot>`
+        # NÃO casa com o split por "<tr>" exato (tem atributo), então o
+        # pedaço dela continuaria até o fim da tabela, absorvendo também
+        # os 2 valores do rodapé. Corta no primeiro "</tr>" PRÓPRIO da
+        # linha, que sempre existe (é a linha se fechando).
+        trecho_completo = next(pedaco for pedaco in pedacos_de_linha if nome_conta in pedaco)
+        trecho = trecho_completo.split("</tr>", 1)[0]
         valores = _extrair_valores_ptbr(trecho)
         assert len(valores) == 6, (nome_conta, valores)
         return _ptbr_para_decimal(valores[3]), _ptbr_para_decimal(valores[4])
@@ -683,12 +690,34 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     # independentes que por acaso deveriam bater. Antes desta correção,
     # nenhum teste conferia isso: o auditor trocou o crédito da faixa pelo
     # débito e fixou o veredito em "Fecha" — 1363 passed.
+    #
+    # ⚠️ BL-308 (achado A2 da rodada 3): ESTE bloco, sozinho, NÃO É GUARDA
+    # contra a troca "crédito da faixa pelo débito" — o estado é
+    # BALANCEADO (débito == crédito == 1700,00 por partida dobrada), e a
+    # troca de um pelo outro é INVISÍVEL quando os dois já são o mesmo
+    # número: o auditor mediu exatamente essa troca dando 1451 passed
+    # aqui. O que este bloco prova é outra coisa, legítima por si só — que
+    # a faixa e o rodapé mostram o MESMO valor sob rótulo equivalente
+    # (conciliação, critério 6) —, mas não prova QUAL rótulo tem qual
+    # valor. A extração agora é ANCORADA PELO RÓTULO (não mais pela
+    # posição: o estado "não fecha" tem um terceiro valor monetário — a
+    # diferença — que desloca a contagem). A guarda de verdade contra a
+    # troca débito/crédito só é possível no estado DIVERGENTE, onde os
+    # dois números são diferentes entre si por construção — ver
+    # `test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes`,
+    # logo abaixo, que é quem a exerce.
     faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
     assert faixa, "controle: a faixa de fechamento precisa estar presente com movimento"
-    valores_faixa = _extrair_valores_ptbr(faixa.group(0))
-    assert len(valores_faixa) == 2, valores_faixa
-    assert _ptbr_para_decimal(valores_faixa[0]) == total_debitos_rodape == Decimal("1700.00")
-    assert _ptbr_para_decimal(valores_faixa[1]) == total_creditos_rodape == Decimal("1700.00")
+    debitos_proprios_faixa = _extrair_valor_por_rotulo(
+        faixa.group(0), "Débitos próprios do período"
+    )
+    creditos_proprios_faixa = _extrair_valor_por_rotulo(
+        faixa.group(0), "Créditos próprios do período"
+    )
+    assert _ptbr_para_decimal(debitos_proprios_faixa) == total_debitos_rodape == Decimal("1700.00")
+    assert (
+        _ptbr_para_decimal(creditos_proprios_faixa) == total_creditos_rodape == Decimal("1700.00")
+    )
 
     # E o veredito é "Fecha" — ramo ALCANÇADO de verdade (os totais fecham
     # por construção, partida dobrada — ver o comentário do template), não
@@ -910,7 +939,46 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     tabela = re.search(r"<table\b.*?</table>", conteudo, re.DOTALL).group(0)
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', tabela, re.DOTALL).group(0)
     valores_rodape = _extrair_valores_ptbr(rodape)
-    assert _ptbr_para_decimal(valores_rodape[0]) != _ptbr_para_decimal(valores_rodape[1])
+    total_debitos_rodape = _ptbr_para_decimal(valores_rodape[0])
+    total_creditos_rodape = _ptbr_para_decimal(valores_rodape[1])
+    assert total_debitos_rodape != total_creditos_rodape
+
+    # BL-308 (achado A2 da auditoria DL-024, rodada 3) — A GUARDA DE
+    # VERDADE contra "o crédito da faixa foi trocado pelo débito" só
+    # existe AQUI, neste estado divergente: é o único em que os dois
+    # números não são iguais por construção, então é o único em que a
+    # troca de um pelo outro produz um resultado OBSERVÁVEL. O teste do
+    # estado balanceado
+    # (`test_balancete_soma_das_linhas_proprias_bate_com_rodape`) compara
+    # 1700,00 com 1700,00 — a mesma troca lá dá `1451 passed`, medido pelo
+    # auditor; não conta como guarda contra esta classe de sabotagem,
+    # ainda que sirva de conciliação (critério 6).
+    #
+    # Extração ANCORADA PELO RÓTULO (não pela posição do N-ésimo
+    # `class="valor-monetario"`): a faixa, no ramo "não fecha", tem um
+    # valor monetário A MAIS antes dos dois de sempre — a própria
+    # diferença, dentro do texto do veredito —, então contar posição
+    # pegaria o valor errado.
+    debitos_proprios_faixa = _extrair_valor_por_rotulo(
+        faixa.group(0), "Débitos próprios do período"
+    )
+    creditos_proprios_faixa = _extrair_valor_por_rotulo(
+        faixa.group(0), "Créditos próprios do período"
+    )
+    # Os dois números da faixa batem com os do rodapé, cada um sob o seu
+    # PRÓPRIO rótulo — não apenas "os dois conjuntos de números
+    # coincidem", que a troca de um pelo outro também satisfaria.
+    assert _ptbr_para_decimal(debitos_proprios_faixa) == total_debitos_rodape == Decimal("300.00")
+    assert _ptbr_para_decimal(creditos_proprios_faixa) == total_creditos_rodape == Decimal("300.01")
+    # E os dois são DIFERENTES entre si — a faixa não pode dizer "diferença
+    # de 0,01" e mostrar dois números iguais: é exatamente a contradição
+    # que o auditor mediu no produto (300,00 e 300,00 sob "diferença de
+    # 0,01"), e que este par de asserções torna impossível passar
+    # despercebido.
+    assert debitos_proprios_faixa != creditos_proprios_faixa, (
+        debitos_proprios_faixa,
+        creditos_proprios_faixa,
+    )
 
 
 def test_balancete_sem_movimento_diz_nada_a_conferir_por_decisao(client, cenario):
