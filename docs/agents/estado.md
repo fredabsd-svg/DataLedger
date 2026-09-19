@@ -268,10 +268,30 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em validação.** A rodada 5 foi mesclada na `main` pelo PR #35 (`d22c580`,
-`1.630 passed` na árvore combinada), e a branch de trabalho foi reiniciada a
-partir dela. A **rodada 6 está integrada e medida por mim**, e pede a quinta
-auditoria.
+Em desenvolvimento — rodada 7.** A rodada 5 foi mesclada na `main` pelo PR #35
+(`d22c580`, `1.630 passed` na árvore combinada), e a branch de trabalho foi
+reiniciada a partir dela. A **rodada 6 foi integrada, medida por mim e
+REPROVADA na quinta auditoria** (`53388c8`): dois ALTOS, os dois na impressão,
+que era a entrega principal.
+
+⚠️ **O auditor reproduziu todos os números que eu declarei**, inclusive os de
+densidade, com Chromium próprio e base semeada por ele, e registrou que a
+declaração do BL-277 (meta de 15 não alcançada, 10 medidas) **é honesta e não
+é conformidade por interpretação conveniente**. O que reprovou não foi o que
+foi implementado — foi o que a entrega **não garante** e o que o usuário
+**recebe de fato** ao apertar Ctrl+P:
+
+- **BL-331**: existe guarda para a marca do fornecedor **sair** do papel e
+  nenhuma para o timbre do escritório **entrar**. Apagando a regra do timbre,
+  o relatório sai sem identificação nenhuma e a suíte fica verde.
+- **BL-332**: com as opções **padrão** do navegador, o `<title>` da página vai
+  para o cabeçalho de toda folha — e o `<title>` termina em "DataLedger".
+  As duas medições (a do implementador e a do auditor) estão certas; elas
+  medem **artefatos diferentes**, e a que o contador produz é a do auditor.
+
+**Dois deles dependem de decisão do Fred** e estão com ele: o texto que
+substitui o nome do fornecedor no cabeçalho do documento (BL-332) e se o nome
+do **operador** deve sair na folha que vai para o cliente (BL-338).
 
 Ela teve duas partes: as correções da quarta auditoria (BL-305, BL-314, BL-318
 a BL-325) e, por pedido do Fred em 2026-09-19 — *"agora resolve os itens que
@@ -302,7 +322,7 @@ depois de eu ter proibido exatamente isso a dois agentes. A causa é do
 ambiente, não da disciplina de ninguém, e a regra foi reescrita para uma que
 seja cumprível.
 
-Quatro auditorias, **as quatro REPROVARAM**, e as quatro acharam coisa real:
+Cinco auditorias, **as cinco REPROVARAM**, e as cinco acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
@@ -310,6 +330,7 @@ Quatro auditorias, **as quatro REPROVARAM**, e as quatro acharam coisa real:
 | [Rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md) | `c71bd55` | REPROVADO | 3 altos, 7 médios, 5 baixos |
 | [Rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md) | `23c6ac8` | REPROVADO | 3 altos, 5 médios, 3 baixos |
 | [Rodada 4](../auditorias/2026-09-19-dl-024-rodada-4.md) | `8235635` | REPROVADO | 1 alto, 5 médios, 2 baixos |
+| [Rodada 5](../auditorias/2026-09-19-dl-026-rodada-5.md) | `53388c8` | REPROVADO | 2 altos, 5 médios, 3 baixos |
 
 ⚠️ **Os quatro relatórios dizem "DL-024" e continuam dizendo**: são documento
 histórico, e a etapa foi renumerada para DL-026 depois de eles existirem. O
