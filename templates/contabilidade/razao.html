@@ -17,6 +17,16 @@
 
 {% block content %}
     {% comment %}
+    BL-282: mesmo timbre de impressão do Balancete e do Diário — ver o
+    comentário completo em balancete.html.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
     Sem `pagina_atual`: a Razão não é uma das cinco páginas fixas do
     subnível (ela é acessada por conta específica, a partir de uma linha do
     Balancete ou do Diário), então os cinco links aparecem todos — inclusive
@@ -90,9 +100,18 @@
                         {% if consolidado %}<td>{{ item.conta_codigo }} — {{ item.conta_nome }}</td>{% endif %}
                         <td>{% if item.tipo == "debito" %}Débito{% else %}Crédito{% endif %}</td>
                         <td class="valor-monetario">{{ item.valor_ptbr }}</td>
-                        <td class="valor-monetario">
-                            {% include "contabilidade/_saldo.html" with valor=item.saldo_ptbr natureza=item.saldo_natureza conta=conta %}
-                        </td>
+                        {% comment %}
+                        BL-281/BL-282 (integração desta etapa): sem espaço
+                        entre `<td ...>` e `{% include %}` de propósito —
+                        ver o comentário completo em balancete.html sobre
+                        por que a extração posicional de valor monetário,
+                        usada por outra suíte de testes, ganha um achado
+                        vazio extra quando sobra espaço em branco entre o
+                        `<td>` que carrega a classe e o `<span>` que a
+                        parcial `_saldo.html` (já protegida por dentro com
+                        `{% spaceless %}`) desenha dentro dele.
+                        {% endcomment %}
+                        <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=item.saldo_ptbr natureza=item.saldo_natureza conta=conta %}</td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -101,9 +120,7 @@
                     <td colspan="{% if consolidado %}3{% else %}2{% endif %}">Total do período</td>
                     <td class="valor-monetario">Débitos {{ total_debito_ptbr }}</td>
                     <td class="valor-monetario">Créditos {{ total_credito_ptbr }}</td>
-                    <td class="valor-monetario">
-                        {% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}
-                    </td>
+                    <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}</td>
                 </tr>
             </tfoot>
         </table>

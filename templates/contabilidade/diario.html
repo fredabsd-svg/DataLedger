@@ -16,6 +16,18 @@
 {% endblock %}
 
 {% block content %}
+    {% comment %}
+    BL-282: mesmo timbre de impressão do Balancete — ver o comentário
+    completo em balancete.html. `.timbre-impressao` fica invisível na
+    tela (regra em base.css) e substitui a marca "DataLedger." (oculta em
+    `@media print` via `.cabecalho__topo`) só no papel.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="diario" %}
     <h1>Diário — {{ empresa.razao_social }}</h1>
 
