@@ -207,6 +207,7 @@ def _renderizar_paginas():
 
     from django.conf import settings
     from django.contrib.auth import get_user_model
+    from django.db.models import Count
     from django.test import Client
     from django.test.utils import setup_test_environment
 
@@ -235,9 +236,46 @@ def _renderizar_paginas():
             f"deste script.\nDetalhe: {exc}"
         )
 
-    conta = Conta.objects.filter(empresa=empresa, aceita_lancamento=True).order_by("codigo").first()
+    # Qual conta o Razão mede, e por que a escolha NÃO pode ser "a primeira
+    # por código" (decisão do `arquiteto-senior` ao integrar a rodada 7).
+    #
+    # A primeira versão deste script pegava `.order_by("codigo").first()`, o
+    # que nesta base cai em `1.1.1.01` (Caixa geral) e produz um Razão de
+    # **uma folha**. O próprio implementador sinalizou a consequência: o
+    # backlog dizia "Razão 4 folhas", medido antes com OUTRA conta, e os dois
+    # números ficaram se contradizendo sem que nenhum estivesse errado.
+    #
+    # A decisão: **a conta com mais partidas no período**, com empate desfeito
+    # pelo código para o resultado ser determinístico. O motivo não é estético
+    # — é que a coisa medida aqui é **paginação**, e paginação de um relatório
+    # que cabe numa folha não exercita nada do que interessa (repetição de
+    # cabeçalho entre folhas, linha partida ao meio, `break-inside`). Medir a
+    # conta mais movimentada é medir o caso em que o defeito existe.
+    #
+    # Isto é o BL-337 aplicado a si mesmo: instrumento publicado só vale se o
+    # número que ele devolve for o MESMO para quem rodar depois. "A primeira
+    # conta por código" é reproduzível; "a primeira conta por código" NÃO é
+    # significativo. As duas propriedades são exigidas, não uma delas.
+    conta = (
+        Conta.objects.filter(empresa=empresa, aceita_lancamento=True)
+        .annotate(total_de_partidas=Count("itens_lancamento"))
+        .order_by("-total_de_partidas", "codigo")
+        .first()
+    )
     if conta is None:
         sys.exit("Recusado: a empresa semeada não tem conta analítica nenhuma — base incompleta.")
+    if conta.total_de_partidas == 0:
+        sys.exit(
+            "Recusado: nenhuma conta analítica da empresa semeada tem partida — a medição de "
+            "paginação não teria o que paginar. Rode 'python scripts/semear_base_de_medicao.py' "
+            "contra o MESMO banco antes deste script."
+        )
+    print(
+        f"Razão medido na conta {conta.codigo} ({conta.nome}), "
+        f"com {conta.total_de_partidas} partida(s) — a mais movimentada da base. "
+        "A escolha vai impressa porque o número de folhas depende dela.",
+        file=sys.stderr,
+    )
 
     cliente = Client()
     # force_login não devolve nada — se falhar, lança exceção; nada a checar aqui.
