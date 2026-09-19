@@ -95,12 +95,14 @@ duas vezes em paralelo, repetidas vezes, com `git status` limpo ao fim de
 todas.
 """
 
+import copy
 import re
 import shutil
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.template import engines as _template_engines
 from django.test import override_settings
@@ -636,19 +638,6 @@ def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
 
 _RAIZ_TEMPLATES = _RAIZ / "templates"
 
-# As MESMAS opções de `config.settings.TEMPLATES` — só `DIRS` muda, para a
-# cópia mutada. Preservar `APP_DIRS` e os `context_processors` importa:
-# são eles que fazem `base.html` (herdado por `{% extends %}`) e o
-# contexto de autenticação/mensagens se comportarem OS MESMOS que em
-# produção; qualquer diferença aqui provaria menos do que a página real.
-_OPTIONS_TEMPLATES_ORIGINAIS = {
-    "context_processors": [
-        "django.template.context_processors.request",
-        "django.contrib.auth.context_processors.auth",
-        "django.contrib.messages.context_processors.messages",
-    ],
-}
-
 
 def _arvore_de_templates_com_mutacao(tmp_path, caminho_real, mutar):
     """Copia `templates/` INTEIRO (com `shutil.copytree`) para dentro do
@@ -674,14 +663,110 @@ def _arvore_de_templates_com_mutacao(tmp_path, caminho_real, mutar):
 
 
 def _templates_com_dirs(raiz_copia):
-    return [
-        {
-            "BACKEND": "django.template.backends.django.DjangoTemplates",
-            "DIRS": [raiz_copia],
-            "APP_DIRS": True,
-            "OPTIONS": _OPTIONS_TEMPLATES_ORIGINAIS,
-        }
-    ]
+    """As MESMAS opções de `django.conf.settings.TEMPLATES` — só `DIRS`
+    muda, para a cópia mutada. Preservar `APP_DIRS` e os
+    `context_processors` importa: são eles que fazem `base.html` (herdado
+    por `{% extends %}`) e o contexto de autenticação/mensagens se
+    comportarem OS MESMOS que em produção; qualquer diferença aqui
+    provaria menos do que a página real.
+
+    BL-325 (achado B2 da auditoria DL-026, rodada 4,
+    docs/auditorias/2026-09-19-dl-024-rodada-4.md): a versão anterior
+    desta função TRANSCREVIA `context_processors` à mão, numa constante de
+    módulo (`_OPTIONS_TEMPLATES_ORIGINAIS`) — a promessa do comentário
+    ("as MESMAS opções") já era uma CÓPIA, não uma LEITURA. O auditor
+    mediu: acrescentar `django.template.context_processors.static` a
+    `config/settings.py` deixava este teste rodando sob a lista ANTIGA —
+    `17 passed`, sem nada acusar, e a alegação "página real" passaria a
+    valer para uma configuração que a produção não usa mais.
+
+    `copy.deepcopy` porque `settings.TEMPLATES` é uma lista de
+    dicionários aninhados (`OPTIONS` é, por sua vez, outro dicionário com
+    uma lista dentro); sobrescrever `DIRS` num dicionário copiado por
+    REFERÊNCIA mutaria a configuração que `django.conf.settings` usa de
+    verdade — a mesma classe de acoplamento por compartilhamento que
+    motivou copiar a ÁRVORE inteira de templates em
+    `_arvore_de_templates_com_mutacao`, agora aplicada à CONFIGURAÇÃO em
+    vez de ao arquivo.
+    """
+    motor = copy.deepcopy(settings.TEMPLATES)
+    # Esta função só sabe substituir o `DIRS` de UM motor de template. Se
+    # o projeto um dia configurar um segundo motor (ex.: Jinja2), a
+    # escolha de qual `DIRS` a cópia isolada substitui precisa ser
+    # CONSCIENTE, não "o primeiro da lista" — por isso a asserção reprova
+    # em vez de ignorar o motor extra em silêncio.
+    assert len(motor) == 1, (
+        "settings.TEMPLATES tem mais de um motor configurado; "
+        "_templates_com_dirs precisa decidir explicitamente qual DIRS substituir "
+        f"(achei {len(motor)})"
+    )
+    motor[0]["DIRS"] = [raiz_copia]
+    return motor
+
+
+def test_templates_com_dirs_deriva_de_settings_e_nao_de_transcricao_manual(
+    client, cenario_pagina_real, tmp_path
+):
+    """Prova a leitura, não só a declara. BL-325: acrescenta
+    `django.template.context_processors.static` (que expõe `STATIC_URL`
+    no contexto de toda renderização) a uma CÓPIA de
+    `settings.TEMPLATES`, ativa essa cópia só para a duração deste teste
+    (`override_settings` — nunca escreve em `config/settings.py`, que é
+    arquivo de outro responsável) e confirma que a PÁGINA REAL, servida
+    pela árvore isolada de `_templates_com_dirs`, TRAZ `STATIC_URL` no
+    contexto.
+
+    Sob a transcrição manual anterior (`_OPTIONS_TEMPLATES_ORIGINAIS`),
+    esta asserção teria falhado: o processador acrescentado não estaria
+    na lista copiada, e a página real ficaria sem `STATIC_URL` mesmo com
+    `settings.TEMPLATES` pedindo por ele — o próprio silêncio que o
+    achado B2 descreve, agora convertido em teste que MORRE se a leitura
+    voltar a ser transcrição.
+    """
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+
+    # Simula "alguém acrescentou um processador a config/settings.py":
+    # nunca tocamos o arquivo real, só a CÓPIA de settings.TEMPLATES que
+    # override_settings vai instalar — settings.py é arquivo do
+    # desenvolvedor-pleno, fora do escopo desta etapa.
+    templates_com_processador_novo = copy.deepcopy(settings.TEMPLATES)
+    assert len(templates_com_processador_novo) == 1
+    templates_com_processador_novo[0]["OPTIONS"]["context_processors"].append(
+        "django.template.context_processors.static"
+    )
+
+    with override_settings(TEMPLATES=templates_com_processador_novo):
+        templates_da_copia = _templates_com_dirs(raiz_copia)
+        # Controle: _templates_com_dirs precisa ter LIDO o processador
+        # novo — se este `assert` falhar, o resto do teste não prova nada.
+        assert (
+            "django.template.context_processors.static"
+            in templates_da_copia[0]["OPTIONS"]["context_processors"]
+        ), "controle: _templates_com_dirs não refletiu o processador acrescentado a settings"
+
+        with override_settings(TEMPLATES=templates_da_copia):
+            _login(client)
+            resposta = client.get(_url_lancamento(cenario_pagina_real))
+            assert resposta.status_code == 200
+            assert resposta.context is not None, (
+                "controle: a renderização precisa ter usado RequestContext "
+                "para o teste conseguir inspecionar o contexto"
+            )
+            assert resposta.context.get("STATIC_URL") is not None, (
+                "o processador acrescentado a settings.TEMPLATES não chegou à "
+                "PÁGINA REAL — _templates_com_dirs está transcrevendo OPTIONS "
+                "em vez de derivar de settings.TEMPLATES (o defeito do BL-325)"
+            )
+
+    # Fora dos dois `with`: a página volta a não ter STATIC_URL no
+    # contexto (a configuração original não inclui o processador de
+    # static) — controle de que a mutação não vazou para fora do bloco.
+    resposta_normal = client.get(_url_lancamento(cenario_pagina_real))
+    assert resposta_normal.status_code == 200
+    assert resposta_normal.context.get("STATIC_URL") is None, (
+        "controle: fora do override, o processador de static não deveria estar ativo"
+    )
 
 
 def _mutacao_condicao_sempre_falsa(fragmento):

@@ -107,12 +107,45 @@ PADRAO_TAG_KBD = re.compile(r"<kbd\b[^>]*>", re.IGNORECASE)
 # padrão NENHUMA vez: o elemento inteiro desaparecia das guardas de
 # coerência (`accesskeys_incoerentes`) e de duplicidade
 # (`accesskeys_duplicados`), em vez de ser REPROVADO por não seguir a
-# convenção. Agora o padrão encontra qualquer TAG que declare `accesskey`
-# (com qualquer conteúdo entre aspas) e `_accesskey_de` (abaixo) decide,
-# por `tokens_de_atributo`, se o valor é uma letra ASCII só —
+# convenção. O padrão passou a encontrar qualquer TAG que declare
+# `accesskey` ENTRE ASPAS e `_accesskey_de` (abaixo) decide, por
+# `tokens_de_atributo`, se o valor é uma letra ASCII só —
 # `accesskeys_malformados` reprova quando não é.
+#
+# BL-323 (M5 da auditoria DL-026, rodada 4,
+# docs/auditorias/2026-09-19-dl-024-rodada-4.md): "entre aspas" continuava
+# sendo uma LISTA de duas formas (`"..."` e `'...'`), não o requisito —
+# que é NENHUM `accesskey` escapar da guarda, EM NENHUMA forma de escrita
+# que o navegador aceite. Medido pelo auditor: um link NOVO em
+# `base.html`, `accesskey=c` SEM ASPAS (HTML5 válido — o Chromium aplica:
+# `element.accessKey == 'c'`, IDÊNTICO à forma com aspas), colidindo com o
+# `Alt+C` já existente (Plano de contas) e SEM `aria-keyshortcuts` —
+# passava com a suíte inteira `1525 passed`. O padrão antigo não
+# reconhecia a TAG nenhuma vez: o elemento inteiro desaparecia das TRÊS
+# guardas (malformado, coerência, duplicidade), não só da terceira
+# alternativa de aspas que faltava dentro de `apps.core.marcacao`
+# (`marcacao._padrao_atributo` já aceitava valor sem aspas — o problema
+# era este padrão nunca CHEGAR a chamá-lo, porque exigia aspas para
+# considerar a tag candidata).
+#
+# A correção não acrescenta uma quarta alternativa de aspas ao próprio
+# padrão (aspas duplas | aspas simples | sem aspas | ...— a mesma lista
+# que ficaria "uma auditoria atrás" da próxima forma de escrever um
+# atributo HTML). Ela PARA DE EXIGIR VALOR AQUI: o padrão casa qualquer
+# TAG que contenha `accesskey` como atributo — com ou sem valor, com ou
+# sem aspas, de qualquer tipo —, exatamente como `PADRAO_TAG_KBD` já faz
+# para `<kbd>` (casa a TAG inteira, sem descrever a forma do atributo que
+# está procurando). A decisão sobre se o valor encontrado é uma letra
+# ASCII só continua inteira em `_accesskey_de`, que já delega para
+# `apps.core.marcacao.tokens_de_atributo` — uma implementação só de "o
+# que é um valor de atributo tokenizado válido", no módulo que existe
+# para isso, em vez de este arquivo reimplementar um quarto caso de
+# aspas. Um `accesskey` sem NENHUM valor (`<a accesskey>`, HTML inválido
+# mas que o Chromium ainda tenta processar) agora também é encontrado
+# aqui e cai, corretamente, em `accesskeys_malformados` — `_accesskey_de`
+# não encontra atributo com `=` para extrair e devolve `None`.
 PADRAO_TAG_COM_ACCESSKEY = re.compile(
-    r'<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\saccesskey\s*=\s*(?:"[^"]*"|\'[^\']*\')[^>]*>',
+    r"<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\saccesskey\b[^>]*>",
     re.IGNORECASE,
 )
 
@@ -150,8 +183,12 @@ def _accesskey_de(tag):
 
 def accesskeys_malformados(html):
     """`accesskey` que não é uma letra ASCII só — inclusive o caso do
-    achado M4/BL-295 (mais de um token, ex. `accesskey="c d"`), que antes
-    desaparecia por completo da varredura em vez de ser reprovado."""
+    achado M4/BL-295 (mais de um token, ex. `accesskey="c d"`) e o do
+    BL-323 (valor SEM ASPAS, ex. `accesskey=c`, ou SEM VALOR nenhum, ex.
+    `<a accesskey>` — este último não tem `=` para `tokens_de_atributo`
+    extrair, então `_accesskey_de` devolve `None` do mesmo jeito que um
+    valor de mais de uma letra), que antes desapareciam por completo da
+    varredura em vez de serem reprovados."""
     return [
         m.group(0)[:120]
         for m in PADRAO_TAG_COM_ACCESSKEY.finditer(html)
@@ -430,6 +467,115 @@ def test_mutacao_accesskey_com_dois_tokens_e_detectada(client, cenario):
     assert achados, "a mutação (accesskey com dois tokens) não foi detectada"
 
 
+# ---------------------------------------------------------------------------
+# BL-323 (M5 da auditoria DL-026, rodada 4): três formas de `accesskey`
+# SEM ASPAS que escapavam das três guardas antes desta correção. A
+# primeira reproduz LITERALMENTE o link do relatório do auditor; as duas
+# seguintes são formas que o relatório NÃO cita — o requisito é "nenhum
+# `accesskey` escapa, em nenhuma forma de escrita", não "este link
+# específico reprova". As três precisam nomear o elemento sabotado na
+# mensagem de falha (via `m.group(0)`, que as três funções devolvem —
+# nunca só a tecla) para a asserção ser útil quem lê o resultado, não só
+# o pytest.
+# ---------------------------------------------------------------------------
+
+
+def test_mutacao_accesskey_sem_aspas_e_detectada(client, cenario):
+    """Reproduz LITERALMENTE a sabotagem do relatório do auditor
+    (docs/auditorias/2026-09-19-dl-024-rodada-4.md, achado M5): um link
+    NOVO, `<a href="/relatorios/" accesskey=c>Relatórios</a>` — sem aspas,
+    colidindo com o `Alt+C` já existente (Plano de contas) e SEM
+    `aria-keyshortcuts`. Medido pelo auditor no produto: suíte inteira
+    `1525 passed`, e o Chromium confirmando `element.accessKey == 'c'`
+    IDÊNTICO ao link com aspas — os dois atalhos disputam a mesma tecla e
+    o segundo não anuncia nada a leitor de tela. Tem que reprovar em DUAS
+    guardas: duplicidade (a tecla "c" repete) e coerência (falta
+    `aria-keyshortcuts`) — e a segunda NOMEIA o elemento, porque devolve o
+    texto da tag, não só a tecla.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+    assert not accesskeys_incoerentes(html), "controle: a página real já deveria estar coerente"
+
+    link_sabotado = '<a href="/relatorios/" accesskey=c>Relatórios</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["c"], (
+        f"a mutação (accesskey=c sem aspas, colidindo) não foi detectada: {duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("/relatorios/" in achado for achado in incoerentes), (
+        "a mutação (accesskey=c sem aspas, sem aria-keyshortcuts) não nomeou o elemento "
+        f"sabotado: {incoerentes}"
+    )
+
+
+def test_mutacao_accesskey_sem_valor_e_detectado(client, cenario):
+    """Forma que o relatório do auditor NÃO cita: `accesskey` declarado
+    SEM VALOR nenhum — `<a href="/exportar-x9/" accesskey>Exportar</a>`.
+    HTML inválido (o atributo exige valor), mas o padrão antigo também não
+    reconhecia esta tag — ela exigia `accesskey\\s*=\\s*` seguido de aspas
+    para considerar a tag candidata, e sem `=` o elemento inteiro
+    desaparecia de TODAS as guardas, malformado incluso. Agora
+    `PADRAO_TAG_COM_ACCESSKEY` encontra a tag pelo TOKEN `accesskey`
+    sozinho, e `_accesskey_de` (via `tokens_de_atributo`) não encontra
+    valor para extrair — cai em `accesskeys_malformados`, nomeando o
+    elemento pelo `href`.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_malformados(html), "controle: a página real não tem accesskey malformado"
+
+    link_sabotado = '<a href="/exportar-x9/" accesskey>Exportar</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    malformados = accesskeys_malformados(mutado)
+    assert any("/exportar-x9/" in achado for achado in malformados), (
+        f"a mutação (accesskey sem valor nenhum) não foi detectada, nomeando o elemento: "
+        f"{malformados}"
+    )
+
+
+def test_mutacao_accesskey_sem_aspas_em_tag_multilinha_e_detectada(client, cenario):
+    """Terceira forma, também fora do relatório: `accesskey` SEM ASPAS
+    dentro de uma tag em VÁRIAS LINHAS (atributos quebrados, comuns em
+    marcação formatada por ferramenta), colidindo com um atalho de PÁGINA
+    (Diário, "i") em vez do atalho da moldura ("c") que o relatório usou —
+    prova que a correção não depende da tecla nem de a tag estar numa
+    linha só. `[^>]*` já cobre newline (classe negada inclui `\\n`); esta
+    prova exercita isso de verdade, não só por leitura do padrão.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+
+    link_sabotado = '<a\n    href="/relatorio-diario-alt/"\n    accesskey=i>Relatório diário</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["i"], (
+        f"a mutação (accesskey=i sem aspas, tag multilinha, colidindo) não foi detectada: "
+        f"{duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("relatorio-diario-alt" in achado for achado in incoerentes), (
+        "a mutação (tag multilinha sem aria-keyshortcuts) não nomeou o elemento sabotado: "
+        f"{incoerentes}"
+    )
+    # Controle negativo: o valor É uma letra ASCII só ("i"), então esta
+    # forma NÃO deveria cair em malformado — só em duplicidade/coerência.
+    # Sem este controle, um detector "acusa tudo" passaria disfarçado de
+    # correto.
+    assert not accesskeys_malformados(mutado), (
+        "accesskey=i sem aspas é um valor VÁLIDO (uma letra); não deveria ser malformado"
+    )
+
+
 def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
     """Repete a classe de defeito da BL-283(c): uma tela que deixa de
     incluir `_navegacao_empresa.html` perde os cinco atalhos em silêncio.
@@ -486,6 +632,51 @@ def test_controle_positivo_accesskey_malformado():
     # accesskeys_duplicados de novo — accesskeys_malformados já cobre.
     assert not accesskeys_incoerentes(dois_tokens)
     assert not accesskeys_duplicados(dois_tokens)
+
+
+def test_controle_positivo_accesskey_sem_aspas_e_sem_valor():
+    """BL-323: sobre HTML SINTÉTICO (sem passar pelo cliente de teste),
+    as três formas de escrita que escapavam da guarda antes desta
+    correção — cobrindo o requisito em unidade, não só na página real.
+
+    - `accesskey=c` (sem aspas) é um valor VÁLIDO: uma letra só. Tem que
+      ser tratado EXATAMENTE como `accesskey="c"` — mesmo resultado nas
+      três funções, para as duas formas.
+    - `accesskey='c'` (aspas simples) já funcionava antes desta rodada;
+      entra aqui como controle de que a correção não regrediu essa forma.
+    - `accesskey` sem `=` nenhum é malformado (nenhum valor para
+      extrair) — não é "letra colidindo", é "não há tecla".
+    - `accesskey=c/` (sem aspas, imediatamente antes de `/>` autofechante)
+      é registrado aqui como caso ACEITO como está: é a mesma limitação,
+      documentada em `apps.core.marcacao` (M4 da rodada 4, sobre `class=
+      valor-monetario/`), de que o valor sem aspas consome o `/` da tag
+      autofechante — direção conservadora (marca como malformado em vez
+      de aceitar "c"), sem caso real na base de templates deste projeto.
+    """
+    com_aspas_duplas = '<a href="#" accesskey="c" aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    sem_aspas = '<a href="#" accesskey=c aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    com_aspas_simples = "<a href='#' accesskey='c' aria-keyshortcuts=\"Alt+C\">Plano de contas</a>"
+    sem_valor = '<a href="#" accesskey>Plano de contas</a>'
+
+    for tag, rotulo in [
+        (com_aspas_duplas, "aspas duplas"),
+        (sem_aspas, "sem aspas"),
+        (com_aspas_simples, "aspas simples"),
+    ]:
+        assert not accesskeys_malformados(tag), f"{rotulo}: não deveria ser malformado"
+        assert not accesskeys_incoerentes(tag), f"{rotulo}: aria-keyshortcuts já é coerente"
+
+    assert accesskeys_malformados(sem_valor), "accesskey sem valor nenhum precisa ser malformado"
+
+    # Autofechante sem aspas: limitação herdada e documentada, medida
+    # aqui para não ser "descoberta" de novo por auditoria — mesma
+    # direção conservadora do M4/marcacao.py (acusa em vez de aceitar).
+    autofechante_sem_aspas = "<input accesskey=c/>"
+    assert accesskeys_malformados(autofechante_sem_aspas), (
+        "limitação conhecida: accesskey=c/ (autofechante, sem aspas) consome o '/' "
+        "e é tratado como malformado — se este assert falhar, a limitação mudou e "
+        "o comentário precisa ser revisto"
+    )
 
 
 def test_controle_positivo_accesskey_incoerente():
