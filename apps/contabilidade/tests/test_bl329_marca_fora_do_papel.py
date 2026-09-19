@@ -143,6 +143,28 @@ arquiteto revisar:
    numa ocultação que só ocorre com o mouse sobre o elemento, o que nunca
    é o caso ao imprimir).
 
+   ⚠️ **BL-362 (BLOQUEADOR H1, item 3, da auditoria DL-026, rodada 8,
+   docs/auditorias/2026-09-19-dl-026-rodada-8.md): esta decisão 2 estava
+   ERRADA para o lado do TIMBRE, e a rodada 12 a substitui.** "Qualquer
+   `:`" trata `:first-of-type`/`:first-child` (ESTRUTURAIS — posição na
+   árvore, ocorrem no papel exatamente como na tela) do mesmo jeito que
+   `:hover` (INTERAÇÃO — nunca ocorre no papel). O auditor mediu, em
+   Chromium real, `main:first-of-type .timbre-impressao { display: none }`
+   apagando o timbre do escritório com `1871 passed`: a candidata era
+   DESCARTADA (tratada como se fosse condicionada a ponteiro), e a guarda
+   concluía "nada esconde o timbre" quando o navegador mostrava o
+   contrário. A correção (mesmo princípio do BL-360: derivar do que o
+   motor SABE, não enumerar o que ele NÃO sabe): o conjunto de
+   pseudo-classes de INTERAÇÃO é pequeno e FECHADO —
+   `_PSEUDO_CLASSES_DE_INTERACAO`, abaixo — e só ELAS continuam sendo
+   descartadas como antes. Qualquer OUTRA pseudo-classe simples (que
+   `_display_efetivo` encontre numa candidata relevante) RECUSA JULGAR
+   (`_regra_tem_pseudo_classe_nao_classificada`): o motor não simula
+   posição entre irmãos, então não pode nem confiar que ela casa
+   (aprovar por engano) nem descartá-la como faria com `:hover`
+   (o MESMO engano, na direção oposta). Ver o comentário completo junto
+   a `_PSEUDO_CLASSES_DE_INTERACAO`.
+
 ⚠️ **BL-351 (bloqueador G1 + MÉDIA G3 da auditoria DL-026, rodada 7,
 docs/auditorias/2026-09-19-dl-026-rodada-7.md): o BL-343 corrigiu COMO
 decidir sobre uma at-rule aninhada; não corrigiu O QUE o detector VÊ.** O
@@ -490,10 +512,30 @@ def _extrair_bloco_media_print(css):
     `_algum_ancestral_removido_do_papel`, que valida essa premissa em vez de
     presumi-la (BL-333). At-rule de conteúdo FLAT (`@font-face`/`@page`)
     continua fora dessa checagem: `_extrair_regras_flat` já a descarta
-    corretamente por começar com `@`."""
+    corretamente por começar com `@`.
+
+    BL-365 (H4 da auditoria DL-026, rodada 8,
+    docs/auditorias/2026-09-19-dl-026-rodada-8.md): `@media` é INSENSÍVEL a
+    maiúsculas em CSS (especificação CSS Syntax: identificadores de at-rule
+    não diferenciam caixa), mas o marcador buscava só a grafia minúscula.
+    `@media PRINT { ... }` não era mais encontrado por esta regex, e a
+    guarda morria — mas no `assert` de CONTROLE logo abaixo, com mensagem
+    dizendo "não encontrado", que manda procurar um bloco que ESTÁ no
+    arquivo, só escrito de outro jeito (a mesma classe de defeito do H4:
+    "guarda cuja falha aponta para o vizinho errado"). `re.IGNORECASE`
+    resolve a busca; a mensagem passou a citar a caixa das letras
+    explicitamente, para quem ler o erro não perder tempo revisando se o
+    bloco "sumiu" quando ele só está com `PRINT`/`Print` em vez de
+    `print`."""
     css = _remover_comentarios(css)
-    marcador = re.search(r"@media\s+print\s*\{", css)
-    assert marcador, "controle: @media print não encontrado em base.css"
+    marcador = re.search(r"@media\s+print\s*\{", css, re.IGNORECASE)
+    assert marcador, (
+        "controle: @media print não encontrado em base.css — confira também a "
+        "CAIXA DAS LETRAS: '@media' e o tipo de mídia são INSENSÍVEIS a "
+        "maiúsculas em CSS (ex.: '@media PRINT' é válido e deveria ter sido "
+        "encontrado por esta busca, que já usa re.IGNORECASE — se isto disparou "
+        "mesmo assim, o bloco pode estar ausente de verdade)"
+    )
     inicio_chaves = marcador.end() - 1
     profundidade = 0
     fim = None
@@ -704,13 +746,63 @@ def _seletor_casa_com_no(compostos, indice_no, cadeia):
     return False
 
 
-def _regra_tem_pseudo_classe_condicional(regra):
-    """BL-333, decisão 2 (ver docstring do módulo): verdadeiro se ALGUM
-    composto do seletor da regra tiver pseudo-classe — qualquer `:`, a
-    mesma leitura que `_especificidade` já usa, porque este motor não
-    distingue pseudo-classes estruturais (`:first-child`) das de
-    INTERAÇÃO (`:hover`, `:focus`, `:active`), que nunca ocorrem no papel."""
-    return any(":" in composto for composto in regra.compostos)
+# BL-362 (item 3, ver a nota na docstring do módulo, junto à decisão 2 do
+# BL-333): distingue pseudo-classe de INTERAÇÃO (nunca ocorre no papel —
+# a candidata pode ser descartada com segurança) de qualquer OUTRA
+# pseudo-classe simples (o motor não simula posição entre irmãos nem
+# nenhuma outra condição estrutural, então RECUSA JULGAR em vez de
+# adivinhar dos dois lados possíveis). O conjunto abaixo é FECHADO — a
+# especificação CSS Selectors não cria uma pseudo-classe de interação
+# nova a cada ano, ao contrário de propriedade CSS (item 2) ou de forma
+# de esconder elemento (o eixo desta etapa inteira) — por isso NÃO é o
+# mesmo erro que este arquivo já corrigiu várias vezes: aqui a lista é do
+# que o motor SABE RECONHECER como seguro, pequena por natureza do
+# domínio (cinco nomes, todos ligados a estado de ponteiro/foco), não do
+# que ele precisa aprender a cada nova versão do CSS.
+_PSEUDO_CLASSES_DE_INTERACAO = frozenset(
+    {"hover", "focus", "active", "focus-visible", "focus-within"}
+)
+
+
+def _nomes_de_pseudo_classe_do_composto(composto):
+    """Nomes de pseudo-classe SIMPLES presentes em `composto`, sem os dois
+    pontos — ex. `"a:focus:hover"` devolve `["focus", "hover"]`. Só
+    encontra pseudo-classe SIMPLES (sem parênteses): uma FUNCIONAL
+    (`:nth-of-type(2)`, `:not(...)`) já reprova antes de qualquer `_Regra`
+    existir, pela gramática do BL-360 (`_seletor_bruto_tem_construcao_
+    nao_modelada`, aplicada ao SELETOR BRUTO dentro de `_extrair_regras_
+    flat`, antes da montagem da `_Regra`) — este motor nunca chega a
+    avaliar aqui um seletor com pseudo-classe funcional."""
+    return re.findall(r":([a-zA-Z-][\w-]*)", composto)
+
+
+def _regra_tem_apenas_pseudo_classes_de_interacao(regra):
+    """Verdadeiro se a regra TEM pseudo-classe e TODAS as que tem são de
+    INTERAÇÃO (`_PSEUDO_CLASSES_DE_INTERACAO`) — o caso original do
+    BL-333, decisão 2: uma candidata condicionada só a elas não pode
+    SATISFAZER `display:none`, porque a interação nunca ocorre ao
+    imprimir (contar com ela seria assumir escondido quando, sem
+    ponteiro, o elemento está visível o tempo todo)."""
+    nomes = [
+        p for composto in regra.compostos for p in _nomes_de_pseudo_classe_do_composto(composto)
+    ]
+    return bool(nomes) and all(p in _PSEUDO_CLASSES_DE_INTERACAO for p in nomes)
+
+
+def _regra_tem_pseudo_classe_nao_classificada(regra):
+    """BL-362 (item 3): verdadeiro se a regra tem alguma pseudo-classe que
+    NÃO é de interação — `:first-child`, `:first-of-type`, `:last-child`,
+    quase qualquer coisa que não esteja em `_PSEUDO_CLASSES_DE_INTERACAO`.
+    O motor não simula a árvore o suficiente para confirmar posição entre
+    IRMÃOS (nem tem, hoje, informação de irmãos na `_No` — só pai/filhos),
+    então não pode nem tratá-la como se sempre casasse (aprovar por
+    engano, o defeito que o auditor mediu com `:first-of-type`) nem
+    descartá-la como faria com `:hover` (o MESMO engano, na direção
+    oposta — deixaria de detectar uma ocultação estrutural real)."""
+    nomes = [
+        p for composto in regra.compostos for p in _nomes_de_pseudo_classe_do_composto(composto)
+    ]
+    return any(p not in _PSEUDO_CLASSES_DE_INTERACAO for p in nomes)
 
 
 def _display_efetivo(indice_no, cadeia, regras):
@@ -719,18 +811,38 @@ def _display_efetivo(indice_no, cadeia, regras):
     dentro do mesmo grupo, maior especificidade vence; empate, a de MAIOR
     ordem (mais tardia no arquivo) vence — a regra padrão do CSS.
 
-    BL-333, decisão 2: uma regra com pseudo-classe condicional
-    (`_regra_tem_pseudo_classe_condicional`) e `display: none` é
-    DESCARTADA do grupo de candidatas — ela não pode SATISFAZER a
-    ocultação (a interação nunca ocorre ao imprimir). A MESMA regra com
-    `display` diferente de `none` continua candidata normalmente — pode
-    DERRUBAR uma ocultação (o lado seguro: ver a docstring do módulo)."""
+    BL-333, decisão 2, CORRIGIDA pelo BL-362 (item 3 — ver a nota na
+    docstring do módulo): uma regra cujo seletor casa com o nó e declara
+    `display` pode ter pseudo-classe. Três casos, nesta ordem:
+    (a) sem pseudo-classe nenhuma → candidata normal, sempre;
+    (b) só pseudo-classe(s) de INTERAÇÃO
+        (`_regra_tem_apenas_pseudo_classes_de_interacao`) → se o valor for
+        `none`, DESCARTADA (não pode satisfazer ocultação — a interação
+        nunca ocorre ao imprimir); se for outro valor, candidata normal
+        (pode DERRUBAR uma ocultação — o lado seguro, ver a docstring do
+        módulo);
+    (c) alguma pseudo-classe NÃO classificada como interação
+        (`_regra_tem_pseudo_classe_nao_classificada`) → RECUSA JULGAR,
+        `!important` ou não, `display:none` ou não — o motor não sabe se
+        ela casa de verdade (estrutural, dependente de irmãos) nem pode
+        assumir que não casa (seria o bug que o BL-362 corrige)."""
     candidatas = []
     for regra in regras:
         if _seletor_casa_com_no(regra.compostos, indice_no, cadeia):
             decl = regra.declaracoes.get("display")
             if decl:
-                if decl.valor == "none" and _regra_tem_pseudo_classe_condicional(regra):
+                assert not _regra_tem_pseudo_classe_nao_classificada(regra), (
+                    f"a simulação de cascata (BL-329/BL-333/BL-362) encontrou uma "
+                    f"pseudo-classe que NÃO é de interação "
+                    f"({sorted(_PSEUDO_CLASSES_DE_INTERACAO)!r} é o conjunto "
+                    f"conhecido) numa regra que casa com o nó e declara display: "
+                    f"{regra.compostos!r} — pseudo-classe ESTRUTURAL depende de "
+                    f"posição entre irmãos, que este motor não simula; ela PRECISA "
+                    f"SER ESTENDIDA antes de confiar no resultado, em vez de tratar "
+                    f"como interação (aprovaria por engano) ou como sempre casando "
+                    f"(reprovaria por engano)"
+                )
+                if decl.valor == "none" and _regra_tem_apenas_pseudo_classes_de_interacao(regra):
                     continue
                 candidatas.append((regra, decl, _especificidade_seletor(regra.compostos)))
     if not candidatas:

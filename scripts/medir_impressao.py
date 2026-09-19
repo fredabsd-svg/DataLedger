@@ -209,23 +209,17 @@ def _exigir_python_do_sistema_com_playwright():
 # ---------------------------------------------------------------------------
 
 
-def _renderizar_paginas():
+def _configurar_django():
+    """`django.setup()` + `setup_test_environment()`, extraído (DL-028
+    fatia 1) porque `scripts/medir_identificacao_do_emitente.py` precisa
+    do MESMO passo antes de montar seu próprio cenário — nunca uma segunda
+    chamada reimplementada à parte."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
     import django
 
     django.setup()
 
-    from django.conf import settings
-    from django.contrib.auth import get_user_model
-    from django.db.models import Count
-    from django.test import Client
     from django.test.utils import setup_test_environment
-
-    from apps.contabilidade.models import Conta
-    from apps.empresas.models import Empresa
-    from apps.tenancy.models import Escritorio
-
-    _exigir_banco_descartavel(settings.DATABASES["default"]["NAME"])
 
     # Fora do pytest, ALLOWED_HOSTS não ganha "testserver" sozinho — é o
     # próprio Django quem faz isso em `setup_test_environment` (a mesma
@@ -234,38 +228,36 @@ def _renderizar_paginas():
     # este script, que não usa sinal nenhum do restante do ambiente de teste.
     setup_test_environment()
 
-    usuario_modelo = get_user_model()
-    try:
-        escritorio = Escritorio.objects.get(cnpj=CNPJ_ESCRITORIO_DE_MEDICAO)
-        empresa = Empresa.objects.get(cnpj=CNPJ_EMPRESA_DE_MEDICAO, escritorio=escritorio)
-        usuario = usuario_modelo.objects.get(username=USUARIO_DE_MEDICAO)
-    except (Escritorio.DoesNotExist, Empresa.DoesNotExist, usuario_modelo.DoesNotExist) as exc:
-        sys.exit(
-            "Recusado: base de medição não encontrada neste banco — rode primeiro "
-            "'python scripts/semear_base_de_medicao.py' contra o MESMO banco antes "
-            f"deste script.\nDetalhe: {exc}"
-        )
 
-    # Qual conta o Razão mede, e por que a escolha NÃO pode ser "a primeira
-    # por código" (decisão do `arquiteto-senior` ao integrar a rodada 7).
-    #
-    # A primeira versão deste script pegava `.order_by("codigo").first()`, o
-    # que nesta base cai em `1.1.1.01` (Caixa geral) e produz um Razão de
-    # **uma folha**. O próprio implementador sinalizou a consequência: o
-    # backlog dizia "Razão 4 folhas", medido antes com OUTRA conta, e os dois
-    # números ficaram se contradizendo sem que nenhum estivesse errado.
-    #
-    # A decisão: **a conta com mais partidas no período**, com empate desfeito
-    # pelo código para o resultado ser determinístico. O motivo não é estético
-    # — é que a coisa medida aqui é **paginação**, e paginação de um relatório
-    # que cabe numa folha não exercita nada do que interessa (repetição de
-    # cabeçalho entre folhas, linha partida ao meio, `break-inside`). Medir a
-    # conta mais movimentada é medir o caso em que o defeito existe.
-    #
-    # Isto é o BL-337 aplicado a si mesmo: instrumento publicado só vale se o
-    # número que ele devolve for o MESMO para quem rodar depois. "A primeira
-    # conta por código" é reproduzível; "a primeira conta por código" NÃO é
-    # significativo. As duas propriedades são exigidas, não uma delas.
+def _conta_mais_movimentada(empresa):
+    """Qual conta o Razão mede, e por que a escolha NÃO pode ser "a primeira
+    por código" (decisão do `arquiteto-senior` ao integrar a rodada 7).
+
+    A primeira versão deste script pegava `.order_by("codigo").first()`, o
+    que nesta base cai em `1.1.1.01` (Caixa geral) e produz um Razão de
+    **uma folha**. O próprio implementador sinalizou a consequência: o
+    backlog dizia "Razão 4 folhas", medido antes com OUTRA conta, e os dois
+    números ficaram se contradizendo sem que nenhum estivesse errado.
+
+    A decisão: **a conta com mais partidas no período**, com empate desfeito
+    pelo código para o resultado ser determinístico. O motivo não é estético
+    — é que a coisa medida aqui é **paginação**, e paginação de um relatório
+    que cabe numa folha não exercita nada do que interessa (repetição de
+    cabeçalho entre folhas, linha partida ao meio, `break-inside`). Medir a
+    conta mais movimentada é medir o caso em que o defeito existe.
+
+    Isto é o BL-337 aplicado a si mesmo: instrumento publicado só vale se o
+    número que ele devolve for o MESMO para quem rodar depois. "A primeira
+    conta por código" é reproduzível; "a primeira conta por código" NÃO é
+    significativo. As duas propriedades são exigidas, não uma delas.
+
+    Extraída (DL-028 fatia 1) para `scripts/medir_identificacao_do_emitente.py`
+    reusar a MESMA escolha ao montar a URL do Razão — duas seleções de "qual
+    conta medir" divergem assim que uma mudar sem a outra."""
+    from django.db.models import Count
+
+    from apps.contabilidade.models import Conta
+
     conta = (
         Conta.objects.filter(empresa=empresa, aceita_lancamento=True)
         .annotate(total_de_partidas=Count("itens_lancamento"))
@@ -280,6 +272,44 @@ def _renderizar_paginas():
             "paginação não teria o que paginar. Rode 'python scripts/semear_base_de_medicao.py' "
             "contra o MESMO banco antes deste script."
         )
+    return conta
+
+
+def _preparar_cliente_e_cenario_de_medicao():
+    """Django configurado, cliente de teste AUTENTICADO e o `(empresa,
+    conta)` da base semeada por `scripts/semear_base_de_medicao.py` — o
+    trecho comum a QUALQUER script de bancada que precise renderizar telas
+    reais do produto contra a base de medição. Extraída de
+    `_renderizar_paginas` (DL-028 fatia 1) para
+    `scripts/medir_identificacao_do_emitente.py` reusar a MESMA
+    autenticação e o MESMO cenário, sem reimplementar a busca de
+    escritório/empresa/usuário nem a seleção de conta (`_conta_mais_
+    movimentada`, acima) — só a derivação de QUAIS telas visitar muda
+    entre os dois scripts."""
+    _configurar_django()
+
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+    from django.test import Client
+
+    from apps.empresas.models import Empresa
+    from apps.tenancy.models import Escritorio
+
+    _exigir_banco_descartavel(settings.DATABASES["default"]["NAME"])
+
+    usuario_modelo = get_user_model()
+    try:
+        escritorio = Escritorio.objects.get(cnpj=CNPJ_ESCRITORIO_DE_MEDICAO)
+        empresa = Empresa.objects.get(cnpj=CNPJ_EMPRESA_DE_MEDICAO, escritorio=escritorio)
+        usuario = usuario_modelo.objects.get(username=USUARIO_DE_MEDICAO)
+    except (Escritorio.DoesNotExist, Empresa.DoesNotExist, usuario_modelo.DoesNotExist) as exc:
+        sys.exit(
+            "Recusado: base de medição não encontrada neste banco — rode primeiro "
+            "'python scripts/semear_base_de_medicao.py' contra o MESMO banco antes "
+            f"deste script.\nDetalhe: {exc}"
+        )
+
+    conta = _conta_mais_movimentada(empresa)
     print(
         f"Razão medido na conta {conta.codigo} ({conta.nome}), "
         f"com {conta.total_de_partidas} partida(s) — a mais movimentada da base. "
@@ -290,6 +320,23 @@ def _renderizar_paginas():
     cliente = Client()
     # force_login não devolve nada — se falhar, lança exceção; nada a checar aqui.
     cliente.force_login(usuario)
+    return cliente, empresa, conta
+
+
+def _com_css_local(html, caminho_css=None):
+    """Reescreve `href="/static/css/base.css"` para o caminho REAL do
+    arquivo no disco, via `file://` — o Chromium do subprocesso abre HTML
+    local sem servidor Django nenhum para resolver a URL absoluta. Nunca
+    uma CÓPIA do CSS à parte, que divergiria do arquivo de verdade assim
+    que alguém o editasse. Extraída (DL-028 fatia 1) para
+    `scripts/medir_identificacao_do_emitente.py` reusar a MESMA
+    reescrita."""
+    caminho_css = caminho_css or (RAIZ / "static" / "css" / "base.css").resolve()
+    return html.replace('href="/static/css/base.css"', f'href="file://{caminho_css}"')
+
+
+def _renderizar_paginas():
+    cliente, empresa, conta = _preparar_cliente_e_cenario_de_medicao()
 
     periodo = f"?inicio={PERIODO_INICIO}&fim={PERIODO_FIM}"
     rotas = {
@@ -298,7 +345,6 @@ def _renderizar_paginas():
         "razao": f"/contabilidade/painel/empresas/{empresa.id}/razao/{conta.id}/{periodo}",
     }
 
-    caminho_css = (RAIZ / "static" / "css" / "base.css").resolve()
     paginas = {}
     for nome, url in rotas.items():
         resposta = cliente.get(url)
@@ -307,17 +353,7 @@ def _renderizar_paginas():
                 f"Recusado: {nome} respondeu {resposta.status_code} em {url!r} — "
                 "a base semeada ou a rota mudou de forma incompatível com este script."
             )
-        html = resposta.content.decode()
-        # O Chromium do subprocesso abre o arquivo via file:// — sem
-        # servidor Django nenhum para resolver "/static/css/base.css".
-        # Reescreve para o caminho REAL do arquivo no disco (o mesmo que
-        # o servidor de desenvolvimento serve) — nunca uma cópia à parte,
-        # que divergiria do CSS de verdade assim que alguém o editasse.
-        html = html.replace(
-            'href="/static/css/base.css"',
-            f'href="file://{caminho_css}"',
-        )
-        paginas[nome] = html
+        paginas[nome] = _com_css_local(resposta.content.decode())
     return paginas
 
 
