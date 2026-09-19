@@ -163,6 +163,31 @@ def _extrair_valores_ptbr(html, classe="valor-monetario"):
     return [texto.strip() for texto in padrao.findall(html)]
 
 
+def _extrair_valor_por_rotulo(html, rotulo):
+    """BL-308 (achado A2 da auditoria DL-024, rodada 3): extrai o valor
+    monetário ANCORADO pelo rótulo de texto que o precede, em vez de pela
+    N-ésima ocorrência de `class="valor-monetario"` no trecho.
+
+    A extração POSICIONAL (`_extrair_valores_ptbr`) é frágil justamente
+    onde ela importa mais: no estado "não fecha", a faixa tem um TERCEIRO
+    valor monetário antes dos dois de sempre (a diferença, dentro do
+    próprio texto do veredito — ver `balancete.html`), o que desloca os
+    índices; e, mais grave, ela não prova QUAL rótulo está associado a
+    QUAL número — uma troca de `total_creditos_ptbr` por
+    `total_debitos_ptbr` no template não muda a CONTAGEM de valores, só
+    o CONTEÚDO sob um rótulo específico. Ancorar pelo rótulo é o que
+    permite a uma asserção dizer "o número sob 'Créditos' é X", que é a
+    afirmação que de fato importa aqui.
+    """
+    padrao = re.compile(
+        rf'<span class="contexto-rotulo">{re.escape(rotulo)}</span>\s*'
+        r'<strong class="valor-monetario">([^<]+)</strong>'
+    )
+    m = padrao.search(html)
+    assert m, f"rótulo {rotulo!r} não encontrado em: {html}"
+    return m.group(1).strip()
+
+
 def _ptbr_para_decimal(texto):
     return Decimal(texto.strip().replace(".", "").replace(",", "."))
 
@@ -619,6 +644,37 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
 
     assert soma_debitos_proprios == total_debitos_rodape == Decimal("1700.00")
     assert soma_creditos_proprios == total_creditos_rodape == Decimal("1700.00")
+
+    # BL-308 (achado A2 da auditoria DL-024, rodada 3): o par de
+    # asserções acima tem o MESMO vício que a faixa tinha — soma o
+    # débito próprio e o crédito próprio de TODAS as linhas e compara os
+    # dois totais contra o rodapé. Por partida dobrada, esses dois totais
+    # são SEMPRE iguais (1700,00 = 1700,00), então uma sabotagem que
+    # trocasse `debitos_proprios_ptbr` por `creditos_proprios_ptbr` (e
+    # vice-versa) em TODA linha do template não mudaria nenhuma das duas
+    # SOMAS — cada uma continuaria fechando em 1700,00, porque a soma dos
+    # débitos próprios de todo o plano é igual à soma dos créditos
+    # próprios de todo o plano, com ou sem a troca. As linhas
+    # individualmente, porém, são ASSIMÉTRICAS (Caixa só foi debitada;
+    # Capital só foi creditada — nenhuma das duas tem os dois lados
+    # iguais), e é isso que dá o poder de distinguir: uma checagem POR
+    # LINHA, ancorada pelo NOME da conta (não pela posição), pega a troca
+    # que a soma escondia.
+    pedacos_de_linha = tabela.split("<tr>")
+
+    def _proprios_da_conta(nome_conta):
+        trecho = next(pedaco for pedaco in pedacos_de_linha if nome_conta in pedaco)
+        valores = _extrair_valores_ptbr(trecho)
+        assert len(valores) == 6, (nome_conta, valores)
+        return _ptbr_para_decimal(valores[3]), _ptbr_para_decimal(valores[4])
+
+    debito_proprio_caixa, credito_proprio_caixa = _proprios_da_conta("Caixa")
+    assert debito_proprio_caixa == Decimal("1000.00"), debito_proprio_caixa
+    assert credito_proprio_caixa == Decimal("0.00"), credito_proprio_caixa
+
+    debito_proprio_capital, credito_proprio_capital = _proprios_da_conta("Capital Social")
+    assert debito_proprio_capital == Decimal("0.00"), debito_proprio_capital
+    assert credito_proprio_capital == Decimal("1700.00"), credito_proprio_capital
 
     # BL-290 (achado A2 da auditoria DL-024, rodada 2): a faixa de
     # fechamento (fora da <table>, por isso extraída separadamente) tem

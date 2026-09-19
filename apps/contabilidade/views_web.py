@@ -942,7 +942,12 @@ def _linhas_lancamento_do_post(post, num_linhas):
 
 
 def _veredito_fechamento(
-    total_debito, total_credito, linhas_excluidas_do_total, num_partidas_validas
+    total_debito,
+    total_credito,
+    linhas_excluidas_do_total,
+    num_partidas_validas,
+    *,
+    bloqueado_por_outro_erro=False,
 ):
     """Decide, em `Decimal`, um de três estados — `"fecha"`, `"nao_fecha"`
     ou `"nao_conferido"` — para o rodapé "Total conferido antes de gravar"
@@ -959,20 +964,39 @@ def _veredito_fechamento(
     que foi digitado não entrou na conta. Veredito é decisão de negócio;
     o template só EXIBE a chave que esta função devolve.
 
-    As quatro condições de `"fecha"` são EXATAMENTE as mesmas que
-    `totais_batem` mais `len(itens) >= 2`, mais abaixo nesta view, já
-    exigem para permitir `criar_lancamento` — não uma cópia paralela que
-    pode divergir: é o que garante a invariante exigida pela auditoria,
-    "se a tela diz Fecha, gravar com o mesmo corpo tem de devolver 302,
-    nunca 400" (ver `test_bl289_veredito_fechamento.py`,
-    `test_a_invariante_fecha_implica_gravar_302`).
+    As quatro condições de `"fecha"` cobrem `totais_batem` mais
+    `len(itens) >= 2`, mais abaixo nesta view — mas NÃO bastam sozinhas
+    para garantir a invariante exigida pela auditoria, "se a tela diz
+    Fecha, gravar com o mesmo corpo tem de devolver 302, nunca 400" (ver
+    `test_bl289_veredito_fechamento.py` e `test_bl307_*.py`). `criar_
+    lancamento` só é chamado quando, ALÉM de débito == crédito > 0 e duas
+    ou mais partidas, TAMBÉM não há nenhum outro erro (histórico maior que
+    o teto, chave de idempotência maior que o teto, data inválida) — três
+    condições que não têm relação nenhuma com débito, crédito ou linha
+    excluída, e por isso não podiam ser expressas pelos quatro parâmetros
+    originais desta função.
+    `bloqueado_por_outro_erro` é exatamente essa quinta condição (BL-307,
+    A1 da auditoria DL-024 rodada 3): quando `True`, "fecha" nunca é
+    devolvido, mesmo que as partidas batam — dizer "Fecha" sobre um
+    formulário que `criar_lancamento` vai recusar por um motivo alheio às
+    partidas seria a MESMA mentira que a ausência de `linhas_excluidas_do_
+    total` produzia, só que por outra causa. O padrão default (`False`)
+    preserva o comportamento do caminho "adicionar_linha", que nunca
+    valida histórico, chave ou data — ali "fecha" continua descrevendo
+    somente a conferência das partidas, que é a única pergunta que aquele
+    botão responde.
 
     `"nao_fecha"` exige duas ou mais partidas válidas e NENHUMA descartada
     — sem isso, "não fecha" seria dito sobre um total que ainda pode mudar
     assim que a linha pendente for corrigida, o que é ruído, não
-    conferência. Todo o resto (formulário em branco, linha descartada,
-    total zerado, negativo, ou só uma partida válida) é `"nao_conferido"`
-    — nunca "Fecha" nem "Não fecha".
+    conferência. `"nao_fecha"` NÃO depende de `bloqueado_por_outro_erro`:
+    débito e crédito genuinamente diferentes continuam sendo uma
+    divergência real, ainda que exista também um erro de histórico ou data
+    — não é uma afirmação falsa, é uma afirmação incompleta (o contador vê
+    o outro erro na lista de mensagens, ao lado). Todo o resto (formulário
+    em branco, linha descartada, total zerado, negativo, só uma partida
+    válida, ou bloqueado por outro erro) é `"nao_conferido"` — nunca
+    "Fecha" nem "Não fecha".
     """
     # `total_debito`/`total_credito` chegam `None` na primeira visita (GET
     # em branco) e nos ramos de erro que nunca calculam totais — tratados
@@ -986,6 +1010,7 @@ def _veredito_fechamento(
         and debito > 0
         and linhas_excluidas_do_total == 0
         and num_partidas_validas >= 2
+        and not bloqueado_por_outro_erro
     )
     if fecha:
         return "fecha"
@@ -1008,6 +1033,7 @@ def _contexto_form_lancamento(
     total_credito=None,
     linhas_excluidas_do_total=0,
     num_partidas_validas=0,
+    bloqueado_por_outro_erro=False,
 ):
     # R3-1 (BL-115): defesa em profundidade — ver o comentário equivalente
     # em `_linhas_lancamento_do_post`. Esta função monta o CONTEXTO de
@@ -1056,8 +1082,15 @@ def _contexto_form_lancamento(
     # `total_debito != total_credito` textualmente, mas mostrar "faltam X"
     # ali ensinaria um número que pode mudar assim que a linha pendente for
     # corrigida).
+    # BL-307: `bloqueado_por_outro_erro` propaga a quinta condição (ver o
+    # docstring de `_veredito_fechamento`) — sempre `False` no caminho
+    # "adicionar_linha", que não valida histórico, chave nem data.
     veredito_fechamento = _veredito_fechamento(
-        total_debito, total_credito, linhas_excluidas_do_total, num_partidas_validas
+        total_debito,
+        total_credito,
+        linhas_excluidas_do_total,
+        num_partidas_validas,
+        bloqueado_por_outro_erro=bloqueado_por_outro_erro,
     )
 
     diferenca_fechamento_ptbr = None
@@ -1697,6 +1730,18 @@ def lancamento_novo(request, empresa_id):
             return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
         linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas_leitura)
+        # BL-307 (A1 da auditoria DL-024 rodada 3): contagem separada, ANTES
+        # de `erros` receber qualquer mensagem que não seja sobre uma LINHA
+        # descartada (histórico grande demais, chave de idempotência grande
+        # demais) — essas duas não excluem partida nenhuma do total, e
+        # somá-las aqui inflaria `linhas_excluidas_do_total` com motivo que
+        # não é "linha fora da soma". O aviso R2-5 ("N linha(s) … ainda NÃO
+        # entram no total abaixo") e o veredito "Fecha" (`_veredito_
+        # fechamento`) dependem deste número estar certo NESTA MESMA
+        # resposta — não só no ramo "adicionar_linha" (ver o comentário
+        # abaixo, onde o valor é finalmente passado a `_contexto_form_
+        # lancamento`).
+        linhas_incompletas = len(erros)
 
         # Achado 4 / BL-90: mesmo teto do modelo (`historico =
         # CharField(max_length=300)`) verificado AQUI, antes de qualquer
@@ -1731,6 +1776,17 @@ def lancamento_novo(request, empresa_id):
             linhas_brutas, contas_por_id
         )
         erros = erros + erros_itens
+        # BL-307: as duas fontes de linha EXCLUÍDA da soma — incompleta
+        # (`linhas_incompletas`, capturada acima) e inválida (`erros_itens`,
+        # que acabou de sair de `_itens_e_totais`) — exatamente a mesma
+        # conta que "adicionar_linha" já passa (`len(erros_incompletas) +
+        # len(erros_itens_conf)`, mais acima nesta view). Antes desta
+        # correção este ramo não calculava nada e `_contexto_form_
+        # lancamento` recebia o padrão `linhas_excluidas_do_total=0` —
+        # fazendo o veredito "Fecha" aparecer numa resposta 400 sempre que
+        # débito e crédito das linhas VÁLIDAS batiam, mesmo com uma linha
+        # descartada ao lado (A1 da auditoria DL-024 rodada 3).
+        linhas_excluidas_do_total = linhas_incompletas + len(erros_itens)
 
         # R5-4/BL-143: mesmo julgador partilhado do período (ver o
         # comentário de `_periodo_do_formulario`) — `para_data`, nunca a
@@ -1821,6 +1877,22 @@ def lancamento_novo(request, empresa_id):
         for erro in erros:
             messages.error(request, erro)
 
+        # BL-307: as TRÊS condições que bloqueiam `criar_lancamento` mas não
+        # têm relação com débito, crédito, partida válida nem linha
+        # excluída (ver o docstring de `_veredito_fechamento`, quinta
+        # condição). Sem isto, um histórico grande demais, uma chave de
+        # idempotência grande demais ou uma data inválida — com as duas
+        # partidas restantes batendo perfeitamente — ainda fazia o veredito
+        # dizer "Fecha" nesta MESMA resposta 400 (os dois últimos casos da
+        # reprodução do achado A1: "histórico de 400 caracteres" e "data
+        # 'abacaxi'", nenhum dos dois descarta uma linha, então a correção
+        # de `linhas_excluidas_do_total` sozinha não bastava).
+        bloqueado_por_outro_erro = (
+            len(historico) > TAMANHO_MAXIMO_HISTORICO
+            or len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA
+            or data_lancamento is None
+        )
+
         contexto = _contexto_form_lancamento(
             empresa,
             contas_disponiveis,
@@ -1836,6 +1908,13 @@ def lancamento_novo(request, empresa_id):
             # mesma resposta (400) precisa refletir a MESMA decisão, nunca
             # uma cópia que possa divergir.
             num_partidas_validas=len(itens),
+            # BL-307: idem, para a contagem de linhas EXCLUÍDAS — sem isto
+            # o padrão da assinatura (`linhas_excluidas_do_total=0`) fazia
+            # `_veredito_fechamento` achar que nenhuma linha tinha sido
+            # descartada nesta resposta, mesmo quando `linhas_excluidas_do_
+            # total` (calculada acima) fosse maior que zero.
+            linhas_excluidas_do_total=linhas_excluidas_do_total,
+            bloqueado_por_outro_erro=bloqueado_por_outro_erro,
         )
         return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
