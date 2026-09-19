@@ -230,6 +230,64 @@ NOMES_QUE_NAO_SAO_TINTA = {
     "revert": "volta ao estilo do navegador/UA; não introduz cor",
 }
 
+# BL-335 (M3 da auditoria DL-026 rodada 5): a lição do BL-319 ("um detector
+# de cor não pode ficar preso a uma lista de casos relatados") tinha sido
+# aplicada só às FUNÇÕES de cor (`PADRAO_COR`, acima) — o lado das cores
+# NOMEADAS continuava usando `CORES_NOMEADAS_CSS`, que é o vocabulário do
+# CSS Color Module Level **3**. `Canvas`, `ButtonFace`, `AccentColor`,
+# `LinkText`... são do Level **4**, seção "CSS System Colors"
+# (w3.org/TR/css-color-4/#css-system-colors), e não estavam em NENHUM dos
+# dois padrões. `.sabotagem { color: Canvas; }` dava "1715 passed".
+#
+# Por que isto continua sendo LISTA e não INVERSÃO (ao contrário do que
+# `PADRAO_COR`/`_PADRAO_MEDIDA_LITERAL` fizeram com as funções/unidades): a
+# seção 8.1 do CSS Color Level 4 é um vocabulário FECHADO e ENUMERADO por
+# especificação — dezenove palavras-chave, nem uma a mais —, ao contrário de
+# uma função de cor (que aceita qualquer combinação de números: não há como
+# "inverter o lado" de um domínio contínuo). Enumerar aqui é o que a própria
+# especificação faz. O que MUDA quando o Level 5 (ou uma revisão do Level 4)
+# acrescentar palavras-chave novas: esta lista fica desatualizada como
+# `CORES_NOMEADAS_CSS` já fica hoje para o Level 4 — a mesma classe de
+# limitação, sempre existiu, sempre vai existir para vocabulário fechado por
+# nome. Quando isso acontecer, a entrada nasce aqui, nomeada, com a data e a
+# seção da especificação — nunca por engano.
+#
+# DECISÃO DELIBERADA, e não esquecimento: os DEZENOVE nomes abaixo são só a
+# seção "CSS System Colors" (§8.1, vocabulário ATUAL). A seção seguinte do
+# mesmo módulo (§8.2, "Deprecated System Colors" — `Menu`, `Window`,
+# `Background`, `Scrollbar`, `ButtonHighlight`, `CaptionText`...) tem o MESMO
+# problema de fundo (valor decidido pelo tema do sistema), mas fica de fora:
+# são palavras do inglês comum, com risco real de colidir com um IDENTIFICADOR
+# legítimo do projeto (nome de animação, linha de grid — `animation-name:
+# menu-open` tokeniza em "menu" e "open", e "menu" bateria) — exatamente o
+# risco que o BL-321 já ensinou a temer: falso alarme em CI é mais corrosivo
+# que a lacuna. `Canvas`/`ButtonFace`/`AccentColor` não têm esse problema:
+# são termos específicos, sem uso plausível como identificador de projeto. Se
+# uma cor de sistema DEPRECIADA aparecer de fato em CSS revisado por humano,
+# ela entra aqui por nome, pesando o mesmo risco de colisão.
+CORES_DE_SISTEMA_CSS = frozenset(
+    """
+    accentcolor accentcolortext activetext buttonborder buttonface
+    buttontext canvas canvastext field fieldtext graytext highlight
+    highlighttext linktext mark marktext selecteditem selecteditemtext
+    visitedtext
+    """.split()
+)
+
+# Mensagem da CATEGORIA PRÓPRIA (não "mais uma cor proibida"): o motivo pelo
+# qual cor de sistema é pior que hex errado é que ela não tem valor fixo, e
+# por isso o par texto/fundo que ela forma não é MEDÍVEL — quem ler a
+# reprovação daqui a seis meses precisa entender a diferença, não só saber
+# que `Canvas` está numa lista.
+MOTIVO_COR_DE_SISTEMA = (
+    "é uma cor de SISTEMA (CSS Color Level 4, seção 'CSS System Colors'): o "
+    "valor dela é decidido pelo sistema operacional e pelo tema do usuário, "
+    "não pelo projeto. Diferente de um hexadecimal errado (que é medível), o "
+    "par texto/fundo que ela forma não tem contraste CALCULÁVEL — o critério "
+    "de contraste da DE-053 deixa de valer para aquele par, sem que nada "
+    "avise. Substitua por um token de tinta do :root."
+)
+
 # Estilo embutido: `style="..."` (aspas duplas), `style='...'` (BL-274 #5,
 # aspas simples escapavam), `style=valor-sem-aspas` (M1/BL-292, auditoria
 # DL-026 rodada 2 — HTML5 aceita atributo sem aspas desde que o valor não
@@ -664,6 +722,42 @@ def _cores_fora_dos_tokens(texto):
     return achados
 
 
+def _cores_de_sistema_fora_dos_tokens(texto):
+    """Cor de SISTEMA (`CORES_DE_SISTEMA_CSS`) declarada fora do `:root`/
+    `@page` — categoria PRÓPRIA (BL-335/M3, auditoria DL-026 rodada 5),
+    separada de `_cores_fora_dos_tokens`: uma cor de sistema não é uma tinta
+    que o projeto ERROU (como um `red` solto), é uma tinta que o projeto NÃO
+    CONTROLA — o motivo está em `MOTIVO_COR_DE_SISTEMA`, e é ele que a
+    mensagem de reprovação precisa repetir, não só "cor fora dos tokens".
+
+    Mesma estrutura de `_cores_fora_dos_tokens` (declaração por declaração,
+    custom property sempre isenta por ser a DEFINIÇÃO do token — BL-321 —,
+    `var()` sem o fallback removido antes de tokenizar — M2/BL-293), porque a
+    forma de escapar dos tokens é a mesma; só a categoria do achado muda.
+    Devolve a grafia ORIGINAL encontrada (`"Canvas"`, não `"canvas"`), porque
+    é assim que ela aparece no CSS sabotado e é o que a mensagem de erro deve
+    mostrar a quem for corrigir.
+    """
+    limpo = _texto_sem_root(texto)
+    achados = []
+    for declaracao in _PADRAO_DECLARACAO_COM_PROPRIEDADE.finditer(limpo):
+        propriedade, valor_bruto = declaracao.group(1), declaracao.group(2)
+        if propriedade.strip().startswith("--"):
+            # BL-321: custom property é a DEFINIÇÃO do token, em qualquer
+            # bloco — mesmo quando o valor dela É uma cor de sistema (caso
+            # hipotético, nunca visto no projeto: alguém amarrando um token
+            # do :root a `Canvas` de propósito). A definição não é o que
+            # esta varredura precisa cobrar; o USO fora do token, sim.
+            continue
+        valor = _sem_variavel_css_preservando_fallback(valor_bruto)
+        if "url(" in valor or '"' in valor or "'" in valor:
+            continue
+        for token in re.findall(r"[a-zA-Z]+", valor):
+            if token.lower() in CORES_DE_SISTEMA_CSS:
+                achados.append(token)
+    return achados
+
+
 def _medidas_literais_fora_dos_tokens(texto):
     """Unidade de comprimento literal (`px`/`rem`/`em`/... — lista completa
     em `_PADRAO_MEDIDA_LITERAL`) em QUALQUER propriedade, fora do `:root`/
@@ -823,6 +917,33 @@ def _cores_e_medidas_em_atributos_de_template(texto):
                 ):
                     achados.append(f"{nome}={valor}")
 
+    return achados
+
+
+def _cores_de_sistema_em_atributos_de_template(texto):
+    """Cor de SISTEMA (`CORES_DE_SISTEMA_CSS`) escrita direto num ATRIBUTO
+    de apresentação de template — o mesmo caminho do BL-305
+    (`_cores_e_medidas_em_atributos_de_template`, acima), separado numa
+    função própria pela MESMA razão do lado CSS
+    (`_cores_de_sistema_fora_dos_tokens`): categoria com motivo próprio, não
+    mais um item de `CORES_NOMEADAS_CSS`.
+
+    Igual ao caminho de `atributos_da_tag`, sem lista de nomes de atributo
+    (`fill`, `stroke`, `color`, qualquer um): o valor de QUALQUER atributo
+    que bater EXATAMENTE (não substring — `atributos_da_tag` já devolve o
+    valor sem aspas, comparado inteiro) com uma palavra-chave de
+    `CORES_DE_SISTEMA_CSS`, em QUALQUER tag, é ofensor. Devolve
+    `"atributo=valor"`, no mesmo formato dos demais detectores de atributo
+    deste arquivo.
+    """
+    limpo = _sem_comentarios_de_template(texto)
+    achados = []
+    for tag in PADRAO_TAG_ABERTURA.finditer(limpo):
+        for nome, valor in atributos_da_tag(tag.group(0)):
+            if not valor:
+                continue
+            if valor.strip().lower() in CORES_DE_SISTEMA_CSS:
+                achados.append(f"{nome}={valor}")
     return achados
 
 
@@ -1074,6 +1195,26 @@ def test_nenhuma_cor_declarada_fora_dos_tokens():
     )
 
 
+def test_nenhuma_cor_de_sistema_declarada_fora_dos_tokens():
+    """BL-335 (M3 da auditoria DL-026 rodada 5): cor de sistema é uma
+    CATEGORIA PRÓPRIA de violação, não mais um nome esquecido na lista de
+    `test_nenhuma_cor_declarada_fora_dos_tokens` — ver `MOTIVO_COR_DE_
+    SISTEMA`. Reprodução da sabotagem exata do auditor
+    (`docs/auditorias/2026-09-19-dl-026-rodada-5.md`, achado M3):
+    `.sabotagem { color: Canvas; background: ButtonFace; border-color:
+    AccentColor; outline-color: LinkText; }` fora do `:root`."""
+    soltas = []
+    for folha in _folhas_de_estilo_do_projeto(RAIZ):
+        for cor in _cores_de_sistema_fora_dos_tokens(folha.read_text(encoding="utf-8")):
+            soltas.append(f"{folha.relative_to(RAIZ)}: {cor}")
+    assert not soltas, (
+        "Cor de sistema declarada fora do :root: "
+        + "; ".join(soltas)
+        + ". "
+        + MOTIVO_COR_DE_SISTEMA
+    )
+
+
 def test_nenhuma_medida_literal_fora_dos_tokens():
     """`px`/`rem`/`em` literais em padding/margin/gap/font-size/border-width —
     o detector que o critério 13 prometia ("cor, TAMANHO ou ESPAÇAMENTO fora
@@ -1122,6 +1263,23 @@ def test_nenhuma_cor_ou_medida_em_atributo_de_apresentacao_do_template():
     assert not ofensores, (
         "Cor ou medida literal em atributo de apresentação de template "
         "(critério 13 da DL-026): " + "; ".join(ofensores)
+    )
+
+
+def test_nenhuma_cor_de_sistema_em_atributo_de_apresentacao_do_template():
+    """BL-335 (M3, rodada 5): a mesma categoria própria do detector de CSS
+    (ver `test_nenhuma_cor_de_sistema_declarada_fora_dos_tokens`), agora no
+    caminho de ATRIBUTO que o BL-305 abriu — o item 2 do que este item
+    precisava entregar."""
+    ofensores = []
+    for t in _templates(RAIZ):
+        for achado in _cores_de_sistema_em_atributos_de_template(t.read_text(encoding="utf-8")):
+            ofensores.append(f"{t.relative_to(RAIZ)}: {achado}")
+    assert not ofensores, (
+        "Cor de sistema em atributo de apresentação de template: "
+        + "; ".join(ofensores)
+        + ". "
+        + MOTIVO_COR_DE_SISTEMA
     )
 
 
@@ -1254,6 +1412,120 @@ def test_controle_negativo_detector_de_cor_ignora_funcoes_sem_relacao_com_cor():
     )
     assert _cores_fora_dos_tokens(css) == [], (
         "funções sem relação com cor (transform/minmax/calc/var) não podiam ter sido acusadas"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-335 (M3 da auditoria DL-026 rodada 5): "o detector de cor AINDA
+# enumera" — `CORES_NOMEADAS_CSS` é o vocabulário do CSS Color Level 3; as
+# cores de SISTEMA (`Canvas`, `ButtonFace`, `AccentColor`, `LinkText`...) são
+# do Level 4 e não estavam em nenhum dos dois padrões. A correção não
+# acrescenta nomes a `CORES_NOMEADAS_CSS` — cria a categoria própria
+# `CORES_DE_SISTEMA_CSS`/`_cores_de_sistema_fora_dos_tokens`, com o motivo
+# em `MOTIVO_COR_DE_SISTEMA`: o valor de uma cor de sistema é decidido pelo
+# SO e pelo tema do usuário, então o par texto/fundo que ela forma não tem
+# contraste CALCULÁVEL — diferente de um hexadecimal errado, que é medível.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # As QUATRO propriedades da sabotagem exata do auditor (M3).
+        (":root { --a: #fff; }\n.x { color: Canvas; }", "Canvas"),
+        (":root { --a: #fff; }\n.x { background: ButtonFace; }", "ButtonFace"),
+        (":root { --a: #fff; }\n.x { border-color: AccentColor; }", "AccentColor"),
+        (":root { --a: #fff; }\n.x { outline-color: LinkText; }", "LinkText"),
+        # Casos NÃO citados pelo relatório — provam que a categoria cobre a
+        # seção INTEIRA da especificação (§8.1), não as quatro palavras do
+        # achado (a mesma exigência que o BL-319 já fez do lado das funções).
+        (":root { --a: #fff; }\n.x { color: Field; }", "Field"),
+        (":root { --a: #fff; }\n.x { color: Mark; }", "Mark"),
+        (":root { --a: #fff; }\n.x { color: SelectedItem; }", "SelectedItem"),
+        (":root { --a: #fff; }\n.x { color: GrayText; }", "GrayText"),
+    ],
+)
+def test_controle_positivo_detector_de_cor_de_sistema(css_ruim, esperado):
+    achados = _cores_de_sistema_fora_dos_tokens(css_ruim)
+    assert esperado in achados, f"cor de sistema '{esperado}' escapou do detector: {achados}"
+
+
+def test_controle_positivo_deteccao_de_cor_de_sistema_em_copia_do_base_css(tmp_path):
+    """Critério de aceite 1: a sabotagem EXATA do auditor, aplicada a uma
+    CÓPIA do `static/css/base.css` REAL do projeto — não um CSS sintético
+    qualquer. BL-311 proíbe mutar o repositório para testar; a sabotagem
+    acontece só na cópia, em `tmp_path`. Ler o arquivo real (não escrevê-lo)
+    é permitido: este arquivo é `apps/core/tests/test_dl024_varredura_de_
+    interface.py`, que já lê `static/css/base.css` em outras guardas
+    (`ESTILOS`, topo do arquivo) — só nunca o edita."""
+    original = (ESTILOS / "base.css").read_text(encoding="utf-8")
+    sabotado = original + (
+        "\n.sabotagem-cor-de-sistema {\n"
+        "    color: Canvas;\n"
+        "    background: ButtonFace;\n"
+        "    border-color: AccentColor;\n"
+        "    outline-color: LinkText;\n"
+        "}\n"
+    )
+    copia = tmp_path / "base.css"
+    copia.write_text(sabotado, encoding="utf-8")
+
+    achados = _cores_de_sistema_fora_dos_tokens(copia.read_text(encoding="utf-8"))
+    for esperado in ("Canvas", "ButtonFace", "AccentColor", "LinkText"):
+        assert esperado in achados, (
+            f"a sabotagem exata do auditor (M3, rodada 5) não foi detectada na cópia do "
+            f"base.css REAL do projeto: '{esperado}' ausente de {achados}"
+        )
+
+
+def test_controle_positivo_deteccao_de_cor_de_sistema_em_atributo_de_template():
+    """Critério de aceite 2: a mesma categoria, no caminho de ATRIBUTO que o
+    BL-305 abriu — `fill="Canvas"` num elemento de apresentação, sem CSS
+    envolvido nenhum."""
+    template = '<rect fill="Canvas" stroke="ButtonFace" width="10" height="10"></rect>'
+    achados = _cores_de_sistema_em_atributos_de_template(template)
+    assert "fill=Canvas" in achados, achados
+    assert "stroke=ButtonFace" in achados, achados
+
+
+def test_controle_negativo_detector_de_cor_de_sistema_token_do_projeto_continua_aprovando():
+    """Critério de aceite 3: `var(--tinta-principal)` — um token de verdade
+    — não pode ser confundido com cor de sistema."""
+    css = ":root { --tinta-principal: #1a1a1a; }\n.x { color: var(--tinta-principal); }"
+    assert _cores_de_sistema_fora_dos_tokens(css) == [], (
+        "um token do projeto (var(--tinta-principal)) não podia ter sido acusado de cor de sistema"
+    )
+
+
+def test_controle_negativo_detector_de_cor_de_sistema_ignora_cor_nomeada_comum():
+    """`red`/`white`/`blue` não são cor de SISTEMA — continuam sendo
+    responsabilidade de `_cores_fora_dos_tokens` (`CORES_NOMEADAS_CSS`), não
+    desta categoria. As duas guardas não podem se sobrepor nem se confundir
+    na mensagem de erro."""
+    css = ":root { --a: #fff; }\n.x { color: red; background: white; }"
+    assert _cores_de_sistema_fora_dos_tokens(css) == [], (
+        "cor nomeada comum (Level 3) não é cor de SISTEMA e não podia ter sido acusada aqui"
+    )
+
+
+def test_controle_negativo_detector_de_cor_de_sistema_respeita_a_definicao_de_token_bl321():
+    """Não quebra o BL-321: `--*` continua sendo definição de token onde
+    quer que esteja (mesmo hipoteticamente amarrada a uma cor de sistema), e
+    `@page` continua isento como bloco — a mesma exceção COMPARTILHADA
+    (`_texto_sem_root`) que os outros dois detectores já usam, nunca uma
+    reimplementação paralela que pudesse divergir dela."""
+    custom_property = ".x { --acento-especial: Canvas; }"
+    assert _cores_de_sistema_fora_dos_tokens(custom_property) == [], (
+        "custom property é a DEFINIÇÃO do token, em qualquer bloco — nunca uma violação (BL-321)"
+    )
+    dentro_do_root = ":root { --fundo: Canvas; }\n.x { color: var(--fundo); }"
+    assert _cores_de_sistema_fora_dos_tokens(dentro_do_root) == [], (
+        "cor de sistema DENTRO do :root é a definição do token, não uma fuga dele"
+    )
+    dentro_do_page = "@page { margin: 15mm; }\n.x { color: Canvas; }"
+    achados = _cores_de_sistema_fora_dos_tokens(dentro_do_page)
+    assert "Canvas" in achados, (
+        "@page é isento — mas a regra FORA dele (.x) continua sob a varredura normalmente"
     )
 
 
