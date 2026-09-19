@@ -84,6 +84,51 @@ arquiteto revisar:
    não sabe resolvê-la — mesmo que mencione "print" (dentro de um
    `@media print` já não faz sentido mencionar de novo, e a presença
    sozinha já é sinal de que o motor precisa crescer).
+
+   ⚠️ **BL-343 (F1 da auditoria DL-026, rodada 6,
+   docs/auditorias/2026-09-19-dl-026-rodada-6.md): esta decisão 1 estava
+   ERRADA, e a rodada 6 a substitui pela de baixo.** "Sem a palavra
+   'print' no prelúdio" NÃO é a mesma coisa que "nunca se aplica na
+   impressão" — é FALSO: uma media query SEM tipo de mídia vale para
+   `all` (que inclui `print`); `@supports` e `@layer` não falam de mídia
+   NENHUMA e valem SEMPRE, em qualquer mídia. O auditor MEDIU, em
+   Chromium e em PDF A4 reais, `@media (min-width: 20rem) { .cabecalho__
+   topo { display: flex } }` devolvendo a marca do fornecedor ao papel, e
+   `@supports (display: grid) { .timbre-impressao { display: none } }`
+   apagando o timbre do escritório — as duas com `1775 passed`. Uma LISTA
+   de uma palavra ("print") não deriva a propriedade "esta condição pode
+   valer durante a impressão"; ela só parece derivá-la até alguém escrever
+   a primeira at-rule cujo prelúdio não contém a palavra E cuja condição,
+   mesmo assim, vale ao imprimir — que é a maioria das media queries
+   responsivas do CSS real, o tipo de código mais banal que existe.
+
+   **A correção (F1): inverter o lado seguro.** Toda at-rule aninhada
+   (fora do `@media print` tratado, antes ou depois dele) REPROVA pedindo
+   extensão, SEMPRE — com uma única EXCEÇÃO NOMEADA, e só ela:
+   `@media screen`, puro (sem combinar com outro tipo de mídia por `,`/
+   `and`). `screen` EXCLUI `print` por definição (CSS Media Queries:
+   `screen` e `print` são tipos de mídia mutuamente exclusivos quando
+   usados sozinhos) — hospedar QUALQUER `display` ali dentro nunca pode
+   provar nem derrubar ocultação sob impressão, então pode ser removida
+   com segurança, exatamente como antes. `@supports`, `@layer`,
+   `@container`, `@scope` e qualquer media query SEM tipo de mídia (que
+   vale para `all`) NÃO são irrelevantes — não têm mais o benefício da
+   dúvida: reprovam pedindo extensão, mesmo sem mencionar "print", porque
+   a simulação não sabe (e nunca soube) se elas se aplicam à impressão —
+   o que mudou é só que agora ela ADMITE isso em vez de assumir que não.
+
+   **Agravante, registrado pelo próprio auditor contra mim:**
+   `test_media_query_responsiva_legitima_depois_do_media_print_nao_
+   reprova`, o teste que prova o lado "aprova" desta decisão, usava até
+   esta correção `@media (min-width: 80rem)` como exemplo de "código
+   legítimo" — um exemplo que EU dei ao arquiteto-senior, na rodada 5. O
+   auditor MEDIU que esse exemplo não é inofensivo: sob
+   `emulate_media(media="print")` a 1280px, ele reexibe
+   `.cabecalho__topo` mesmo imprimindo — só parecia inofensivo no PDF A4
+   do `juiz.py` por COINCIDÊNCIA de largura de página (~49,6rem). O
+   exemplo foi trocado por `@media screen`, o único caso realmente
+   inofensivo, porque exclui impressão por definição, não por sorte de
+   largura.
 2. **Pseudo-classe condicional** (`:hover`, `:focus`, `:active`, etc. — o
    mesmo padrão que `_especificidade` já usa para "qualquer `:`", porque
    este motor não distingue pseudo-classes estruturais das de interação)
@@ -221,6 +266,77 @@ def _percorrer(no):
         yield from _percorrer(filho)
 
 
+# BL-348 (F6 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): comentário de gabarito
+# (`{% comment %}...{% endcomment %}`) NUNCA chega ao HTML entregue — o
+# Django os descarta ao renderizar, e a varredura ESTÁTICA
+# (apps/core/tests/test_dl024_varredura_de_interface.py:622) já os remove
+# antes de varrer. Removidos AQUI, antes de alimentar o parser, em vez de
+# deixar o parser tolerante lidar com o texto bruto: uma palavra entre
+# "<" e ">" dentro de um desses blocos (nunca intenção de marcação) pode
+# colidir com "title"/"textarea" — os dois nomes de
+# `html.parser.HTMLParser.RCDATA_CONTENT_ELEMENTS` (stdlib) — e fazer o
+# parser tratar TUDO que vem depois como conteúdo de RCDATA sem
+# fechamento correspondente, descartando o resto do arquivo em silêncio.
+# Medido pelo auditor: com a palavra ANTES do bloco do timbre, a árvore
+# truncava sem nenhum teste reclamar (1775 passed).
+_PADRAO_BLOCO_COMMENT_DE_GABARITO = re.compile(
+    r"\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}", re.DOTALL
+)
+
+
+def _remover_comentarios_de_gabarito(texto):
+    """Remove todo bloco `{% comment %}...{% endcomment %}` de `texto` —
+    ver o comentário acima para o porquê. Aplicado tanto a TEXTO DE
+    TEMPLATE (fonte em disco) quanto a HTML JÁ RENDERIZADO: no segundo
+    caso é sempre uma operação NULA (o Django já removeu os comentários
+    ao renderizar), então aplicar sempre, sem distinguir os dois casos
+    no chamador, é seguro."""
+    return _PADRAO_BLOCO_COMMENT_DE_GABARITO.sub("", texto)
+
+
+def _parsear_html(texto):
+    """Ponto ÚNICO de entrada para transformar `texto` (fonte de
+    template OU HTML renderizado) em árvore: remove comentários de
+    gabarito (`_remover_comentarios_de_gabarito`) e alimenta
+    `_ConstrutorDeArvore`, com um CONTROLE DE NÃO-TRUNCAMENTO (BL-348/
+    F6): se o `feed` terminar com o parser ainda DENTRO de um elemento
+    RCDATA (`cdata_elem` não-`None` — `title`/`textarea` sem fechamento
+    correspondente ENCONTRADO, não sem fechamento nenhum: o atributo só
+    fica não-`None` quando o parser NUNCA achou a tag de fechamento até o
+    fim do texto), o parse foi truncado e tudo que vem depois do ponto de
+    truncamento foi descartado em silêncio — reprova nomeando O TEMPLATE
+    como a causa provável, não pedindo para mexer neste arquivo."""
+    construtor = _ConstrutorDeArvore()
+    construtor.feed(_remover_comentarios_de_gabarito(texto))
+    assert construtor.cdata_elem is None, (
+        f"o parse deste template TRUNCOU dentro de <{construtor.cdata_elem}> sem "
+        f"fechamento correspondente encontrado — isto quase sempre significa uma "
+        f"palavra entre '<' e '>' no TEMPLATE fonte, fora de um bloco "
+        f"{{% comment %}}/{{% endcomment %}} bem formado (que já é removido antes "
+        f"do parse), colidindo com 'title' ou 'textarea'. CONFIRA O TEMPLATE — "
+        f"tudo que vem depois do ponto de truncamento foi descartado da árvore em "
+        f"silêncio, e os testes deste arquivo não podem ver o que não está na árvore"
+    )
+    return construtor.raiz
+
+
+def _tem_timbre_impressao(raiz):
+    """Verdadeiro se ALGUM nó da árvore `raiz` (já parseada) tiver a
+    classe `timbre-impressao` — presença ESTRUTURAL no HTML, nunca uma
+    lista de nomes de tela escrita à mão. Responde "esta página é um
+    DOCUMENTO?" (BL-282: só telas com timbre de impressão são documentos
+    que saem do escritório para o cliente) — a MESMA pergunta que
+    test_bl332_titulo_sem_marca_do_fornecedor.py (BL-344/F2) e
+    test_bl338_operador_fora_do_papel.py (BL-338) precisam responder,
+    cada um sobre uma consequência diferente da mesma propriedade;
+    compartilhada AQUI, no módulo-base que os dois já importam, em vez de
+    duplicada nos dois — a lição do BL-296/BL-325 (uma cópia diverge do
+    original assim que ele mudar), aplicada pelo auditor a este par de
+    guardas (F2)."""
+    return any("timbre-impressao" in no.classes for no in _percorrer(raiz))
+
+
 def _achar_no_da_marca(raiz):
     """Localiza o `<a>` filho direto do `<div class="marca">` — o link que
     carrega o NOME DO PRODUTO. Encontrado pela ESTRUTURA (classe `marca`,
@@ -251,9 +367,8 @@ def _cadeia_de_ancestrais(no):
 
 def _cadeia_da_marca():
     html_bruto = _BASE_HTML.read_text(encoding="utf-8")
-    construtor = _ConstrutorDeArvore()
-    construtor.feed(html_bruto)
-    no_marca = _achar_no_da_marca(construtor.raiz)
+    raiz = _parsear_html(html_bruto)
+    no_marca = _achar_no_da_marca(raiz)
     assert no_marca is not None, (
         "controle: não achei, em templates/base.html, nenhum <a> dentro de um "
         "elemento de classe 'marca' — a estrutura que este teste espera "
@@ -476,22 +591,45 @@ def _spans_de_at_rule_com_bloco_aninhado(texto):
     return achados
 
 
+def _prelude_e_media_screen_puro(prelude):
+    """BL-343/F1: a ÚNICA exceção nomeada — `@media screen`, sozinho, sem
+    combinar com outro tipo de mídia (`,`/`and`, ex. `@media screen and
+    (min-width: 20rem)` NÃO entra aqui: a condição extra pode, em tese,
+    valer também para `print` combinado com outro tipo por engano de
+    quem escreve — a exceção só é segura na forma mais estrita). `prelude`
+    vem de `_spans_de_at_rule_com_bloco_aninhado` com a chave de abertura
+    ainda no fim (`"@media screen {"`); removida aqui antes de comparar.
+    `screen` exclui `print` por definição (CSS Media Queries: os dois são
+    tipos de mídia mutuamente exclusivos quando usados sozinhos) — é a
+    ÚNICA condição deste motor que é comprovadamente irrelevante para a
+    impressão, nunca "parece" irrelevante por coincidência."""
+    sem_chave = prelude.rsplit("{", 1)[0]
+    normalizado = re.sub(r"\s+", " ", sem_chave).strip().lower()
+    return normalizado == "@media screen"
+
+
 def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total):
-    """BL-333, decisão 1 (ver docstring do módulo): valida a premissa que
-    antes só existia em prosa — que `texto` não tem at-rule aninhada que a
-    extração flat não saiba tratar — e, quando é seguro, remove essa
-    at-rule em vez de deixá-la ser içada por engano.
+    """BL-333, decisão 1, CORRIGIDA pelo BL-343/F1 (ver docstring do
+    módulo — a decisão original estava ERRADA e por quê): valida a
+    premissa que antes só existia em prosa — que `texto` não tem at-rule
+    aninhada que a extração flat não saiba tratar — e, quando (e só
+    quando) é SEGURO, remove essa at-rule em vez de deixá-la ser içada
+    por engano.
 
     - `exigir_ausencia_total=True` (uso: DENTRO do próprio `@media print`
       já extraído): QUALQUER at-rule aninhada ali reprova pedindo extensão
       — a simulação não tenta adivinhar se ela se aplica ou não quando já
       está dentro do contexto de impressão.
     - `exigir_ausencia_total=False` (uso: fora do `@media print`, antes ou
-      depois dele): at-rule aninhada cujo PRELÚDIO não menciona "print" é
-      removida (nunca se aplica ao imprimir, então não pode nem provar
-      nem derrubar ocultação) — devolvida como texto LIMPO. At-rule cujo
-      prelúdio MENCIONA "print" reprova pedindo extensão, porque a
-      simulação não sabe avaliar essa condição."""
+      depois dele): LADO SEGURO INVERTIDO (F1) — toda at-rule aninhada
+      REPROVA pedindo extensão, SEMPRE, EXCETO a única exceção NOMEADA e
+      comprovadamente irrelevante para impressão (`_prelude_e_media_
+      screen_puro`): essa é removida do texto (nunca pode provar nem
+      derrubar ocultação, então pode ser descartada com segurança). Não
+      existe mais a ideia de "prelúdio sem a palavra 'print' = nunca se
+      aplica" — essa premissa era FALSA (media query sem tipo de mídia
+      vale para `all`, que inclui `print`; `@supports`/`@layer` valem
+      sempre) e o auditor mediu o efeito real dela em Chromium/PDF."""
     spans = _spans_de_at_rule_com_bloco_aninhado(texto)
     if not spans:
         return texto
@@ -503,12 +641,13 @@ def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total):
             f"(silenciosamente) errado"
         )
         return texto
-    relacionadas_a_impressao = [p for p, *_ in spans if "print" in p.lower()]
-    assert not relacionadas_a_impressao, (
-        f"a simulação de cascata (BL-329/BL-333) encontrou at-rule(s) MENCIONANDO "
-        f"'print' {onde}, fora do único @media print já tratado, e não sabe avaliá-la(s): "
-        f"{relacionadas_a_impressao!r} — ela PRECISA SER ESTENDIDA antes de confiar no "
-        f"resultado, em vez de julgar (silenciosamente) errado"
+    nao_isentas = [(p, i, f) for p, i, f in spans if not _prelude_e_media_screen_puro(p)]
+    assert not nao_isentas, (
+        f"a simulação de cascata (BL-329/BL-333/BL-343) encontrou at-rule(s) aninhada(s) "
+        f"{onde} que NÃO são a exceção nomeada '@media screen' (a ÚNICA condição "
+        f"comprovadamente irrelevante para impressão), e não sabe avaliá-la(s): "
+        f"{[p for p, *_ in nao_isentas]!r} — ela PRECISA SER ESTENDIDA antes de confiar "
+        f"no resultado, em vez de assumir (silenciosamente) que são irrelevantes"
     )
     limpo = texto
     for _prelude, inicio, fim in reversed(spans):
@@ -760,7 +899,17 @@ def test_sabotagem_regra_dentro_de_media_screen_mata_a_guarda(tmp_path):
 def test_sabotagem_regra_dentro_de_supports_mata_a_guarda(tmp_path):
     """S8 do achado M1: a mesma sabotagem de S7, agora dentro de `@supports
     (display: grid)` — outra at-rule aninhada, condição diferente (suporte
-    de funcionalidade, não mídia), mesmo defeito e mesma correção."""
+    de funcionalidade, não mídia), mesmo defeito.
+
+    ⚠️ Resultado ATUALIZADO pelo BL-343/F1: antes, `@supports` sem a
+    palavra "print" era silenciosamente IGNORADA (mesmo tratamento de
+    `@media screen`) e a guarda morria por retornar `removido_depois is
+    False`. Desde F1, `@supports` NÃO é mais a exceção nomeada (só
+    `@media screen` é — `@supports` não fala de mídia e vale SEMPRE,
+    inclusive ao imprimir) — a guarda continua MORRENDO, mas agora por
+    REPROVAR PEDINDO EXTENSÃO (a simulação recusa julgar em vez de supor
+    que é irrelevante), a mesma escolha de "reprovar pedindo extensão em
+    vez de aprovar por engano"."""
     _, cadeia = _cadeia_da_marca()
     css_original = _BASE_CSS.read_text(encoding="utf-8")
 
@@ -783,21 +932,28 @@ def test_sabotagem_regra_dentro_de_supports_mata_a_guarda(tmp_path):
     )
     caminho_mutado.write_text(css_mutado, encoding="utf-8")
 
-    removido_depois, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
-    assert removido_depois is False, (
-        "a sabotagem @supports deveria ter feito a guarda MORRER, e ela continuou aprovando"
-    )
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
 
 
 def test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova(tmp_path):
-    """S9 do achado M1 — o FALSO ALARME: uma `@media (min-width: 80rem)`
-    perfeitamente legítima (do tipo que qualquer evolução responsiva desta
-    tela vai trazer), acrescentada DEPOIS do `@media print` já correto e
-    INTACTO. Antes da correção BL-333, o motor içava
-    `.cabecalho__topo { display: flex; }` para o conjunto incondicional,
-    ele vencia a cascata por ordem (mais tardio no arquivo) e a guarda
-    REPROVAVA código correto. Agora essa at-rule (prelúdio sem 'print') é
-    REMOVIDA antes da extração — o `@media print` original, intocado,
+    """S9 do achado M1, CORRIGIDO pelo BL-343/F1 (ver docstring do módulo).
+
+    O exemplo original deste teste usava `@media (min-width: 80rem)` como
+    "código legítimo" — um exemplo que o `arquiteto-senior` deu, na
+    rodada 5. O auditor da rodada 6 MEDIU que esse exemplo NÃO é
+    inofensivo: sob `emulate_media(media="print")` a 1280px, ele reexibe
+    `.cabecalho__topo` mesmo imprimindo (media query sem tipo de mídia
+    vale para `all`, que inclui `print`) — só parecia inofensivo no PDF
+    A4 do `juiz.py` por COINCIDÊNCIA de largura de página (~49,6rem), não
+    por propriedade. Era, portanto, uma aprovação ERRADA fixada em teste
+    obrigatório.
+
+    O caso legítimo de VERDADE é `@media screen`, acrescentado DEPOIS do
+    `@media print` já correto e INTACTO: `screen` EXCLUI `print` por
+    definição, então nada ali dentro pode provar ou derrubar ocultação
+    sob impressão — `_preparar_para_simulacao` remove essa at-rule (a
+    ÚNICA exceção nomeada) antes da extração, o `@media print` original
     continua decidindo sozinho, e a guarda PASSA.
 
     ⚠️ Falso alarme na CI é, pelo argumento do BL-321, mais corrosivo que
@@ -807,7 +963,7 @@ def test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova(tmp_p
 
     caminho_mutado = tmp_path / "base-mutado.css"
     css_mutado = css_original + (
-        "\n\n@media (min-width: 80rem) {\n"
+        "\n\n@media screen {\n"
         "    .cabecalho__topo {\n        display: flex;\n    }\n"
         "}\n"
     )
@@ -816,7 +972,7 @@ def test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova(tmp_p
 
     removido_depois, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
     assert removido_depois is True, (
-        "a media query responsiva legítima, com o @media print intacto, NÃO deveria "
+        "a media query @media screen legítima, com o @media print intacto, NÃO deveria "
         "fazer a guarda reprovar — e ela reprovou"
     )
 
@@ -827,16 +983,84 @@ def test_at_rule_mencionando_print_fora_do_bloco_tratado_reprova_pedindo_extensa
     `_extrair_bloco_media_print`, não pode ser silenciosamente ignorado —
     a simulação não sabe se ele reforça ou desfaz o resultado do primeiro.
     Em vez de adivinhar, `_preparar_para_simulacao` reprova pedindo
-    extensão. Sobre CSS sintético em memória — não precisa de `tmp_path`
-    porque não mexe no arquivo real, só chama a função pura."""
+    extensão — continua valendo depois do BL-343/F1 (um `@media print
+    and (...)` não é `@media screen` puro, então nunca seria a exceção
+    nomeada de qualquer forma; só a MENSAGEM da falha mudou de texto).
+    Sobre CSS sintético em memória — não precisa de `tmp_path` porque não
+    mexe no arquivo real, só chama a função pura."""
     css_sintetico = (
         "@media print {\n    .cabecalho__topo {\n        display: none;\n    }\n}\n\n"
         "@media print and (min-width: 40rem) {\n"
         "    .cabecalho__topo {\n        display: flex;\n    }\n"
         "}\n"
     )
-    with pytest.raises(AssertionError, match="MENCIONANDO 'print'"):
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
         _algum_ancestral_removido_do_papel(_cadeia_da_marca()[1], css_sintetico)
+
+
+# ---------------------------------------------------------------------------
+# BL-343 (F1 da auditoria DL-026, rodada 6): a tabela de sete construções
+# que o auditor mediu em Chromium/PDF A4 reais — reproduzidas aqui sobre
+# uma CÓPIA do `base.css` REAL (BL-311), do jeito EXATO que ele mediu
+# (acréscimo ao FIM do arquivo, com o @media print original intocado). As
+# SEIS primeiras MUDAM o papel de verdade e precisam matar a suíte —
+# agora reprovando PEDINDO EXTENSÃO, o lado seguro invertido — em vez de
+# serem silenciosamente ignoradas. A sétima (`@media screen`) é a ÚNICA
+# exceção nomeada e continua aprovando — coberta acima por
+# `test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova`
+# e por `test_sabotagem_regra_dentro_de_media_screen_mata_a_guarda`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "rotulo,bloco_css",
+    [
+        (
+            "@media (min-width: 20rem) reexibindo a marca",
+            "@media (min-width: 20rem) {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
+        ),
+        (
+            "@supports (display: grid) reexibindo a marca",
+            "@supports (display: grid) {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
+        ),
+        (
+            "@media all reexibindo a marca",
+            "@media all {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
+        ),
+        (
+            "@layer reexibindo a marca",
+            "@layer {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
+        ),
+        (
+            "@media (min-width: 20rem) escondendo o timbre",
+            "@media (min-width: 20rem) {\n    .timbre-impressao {\n        display: none;\n    }\n}\n",
+        ),
+        (
+            "@supports (display: grid) escondendo o timbre",
+            "@supports (display: grid) {\n    .timbre-impressao {\n        display: none;\n    }\n}\n",
+        ),
+    ],
+)
+def test_f1_construcoes_que_mudam_o_papel_reprovam_pedindo_extensao(tmp_path, rotulo, bloco_css):
+    """BL-343/F1: as SEIS construções da tabela do achado (Chromium 1194 +
+    PDF A4 reais, docs/auditorias/2026-09-19-dl-026-rodada-6.md) que a
+    guarda ANTIGA tratava como "nunca se aplicam à impressão" só porque o
+    prelúdio não continha a palavra "print" — e que, medidas de verdade,
+    mudam o papel (a marca do fornecedor reaparece, ou o timbre do
+    escritório some). Reproduzidas sobre uma CÓPIA do `base.css` real
+    (acréscimo ao FIM, o `@media print` original intocado — exatamente
+    como o auditor mediu). Precisam reprovar PEDINDO EXTENSÃO agora, não
+    ser silenciosamente descartadas nem aprovadas por engano."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
 
 
 def test_at_rule_aninhada_dentro_do_media_print_reprova_pedindo_extensao():

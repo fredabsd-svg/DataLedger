@@ -50,8 +50,8 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _RAIZ,
     _algum_ancestral_removido_do_papel,
     _cadeia_de_ancestrais,
-    _ConstrutorDeArvore,
     _escrever_css_mutado,
+    _parsear_html,
     _percorrer,
 )
 
@@ -68,9 +68,8 @@ def _no_do_conteudo_principal():
     ancestrais REAIS de qualquer elemento do bloco de conteúdo continua
     naturalmente a partir daqui."""
     html_bruto = _BASE_HTML.read_text(encoding="utf-8")
-    construtor = _ConstrutorDeArvore()
-    construtor.feed(html_bruto)
-    for no in _percorrer(construtor.raiz):
+    raiz = _parsear_html(html_bruto)
+    for no in _percorrer(raiz):
         if no.tag == "main" and "conteudo-principal" in no.classes:
             return no
     raise AssertionError(
@@ -89,9 +88,8 @@ def _no_do_timbre_do_escritorio():
     vêm de `Escritorio.linhas_do_timbre`, do banco, e nunca aparecem
     literalmente no template nem neste arquivo Python."""
     html_bruto = _BALANCETE_HTML.read_text(encoding="utf-8")
-    construtor = _ConstrutorDeArvore()
-    construtor.feed(html_bruto)
-    for no in _percorrer(construtor.raiz):
+    raiz = _parsear_html(html_bruto)
+    for no in _percorrer(raiz):
         if "timbre-impressao" in no.classes:
             return no
     raise AssertionError(

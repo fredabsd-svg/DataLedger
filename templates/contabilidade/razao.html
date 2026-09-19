@@ -1,15 +1,23 @@
 {% extends "base.html" %}
 
-{% block titulo %}Razão — {{ conta.codigo }} {{ conta.nome }}{% endblock %}
+{% block titulo %}Razão — {{ empresa.razao_social }}{% endblock %}
 {% comment %}
-BL-332: mesma correção do Balancete e do Diário — ver o comentário
-completo em balancete.html e em templates/base.html. O sufixo do
-fornecedor some; o resto da tag title (conta, não razão social da
-empresa) não muda nesta etapa — decisão registrada no relatório, para o
-arquiteto revisar: o formato "relatório — razão social" da decisão do
-Fred cabe sem ambiguidade no Balancete/Diário (uma tela por empresa); o
-Razão já distingue MÚLTIPLAS abas pelo código/nome da CONTA, que a razão
-social sozinha não substituiria sem perder essa distinção.
+BL-332/RC-97/RC-98 (F10 da auditoria DL-026, rodada 6,
+docs/auditorias/2026-09-19-dl-026-rodada-6.md): a tag title do Razão
+passa a trazer a RAZÃO SOCIAL da empresa, como Balancete e Diário —
+"<relatório> — <razão social>", sem exceção entre os três documentos.
+
+Isto NÃO é um erro corrigido — é uma decisão declarada, revista pelo
+responsável pelo produto. A redação anterior deste comentário registrava,
+de propósito, uma DIVERGÊNCIA: o Razão trazia código/nome da CONTA em vez
+da razão social, porque múltiplas abas de Razão (uma por conta) ficam
+indistinguíveis só pela razão social. Essa divergência foi levada ao
+arquiteto-senior no relatório da etapa, que a levou ao Fred (RC-98,
+2026-09-19): "a razão social da empresa" — quem identifica o DOCUMENTO é
+o cliente, não a conta. A conta continua identificada no CORPO do
+documento — `<h1>` da página e cabeçalho impresso (linha abaixo) — então
+nada se perde para quem está lendo, só para quem olha várias abas do
+navegador ao mesmo tempo.
 
 ⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
 neste arquivo — ver o comentário completo em templates/base.html.

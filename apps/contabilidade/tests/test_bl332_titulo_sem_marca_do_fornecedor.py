@@ -166,9 +166,13 @@ def test_titulo_do_documento_nao_contem_a_marca_do_fornecedor(client, cen, tela)
     titulo = _titulo_renderizado(resposta.content.decode())
     assert "DataLedger" not in titulo, (tela, titulo)
     # Controle contra um "passa" vazio por acidente: a tag title continua
-    # com CONTEÚDO de verdade — o nome do relatório e, exceto no Razão
-    # (ver a decisão registrada em razao.html), a razão social do cliente.
+    # com CONTEÚDO de verdade — o nome do relatório E a razão social do
+    # cliente, nos TRÊS documentos (RC-98/F10 da auditoria DL-026, rodada
+    # 6: o Razão passou a seguir o MESMO formato de Balancete/Diário — ver
+    # o comentário completo em templates/contabilidade/razao.html sobre a
+    # divergência anterior, declarada e revertida pelo Fred).
     assert titulo.strip() != "", (tela, titulo)
+    assert cen["empresa"].razao_social in titulo, (tela, titulo)
 
 
 def test_titulo_de_tela_sem_cliente_continua_com_a_marca_do_produto(client, cen):
