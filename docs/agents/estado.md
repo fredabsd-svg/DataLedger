@@ -268,13 +268,39 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento — rodada 6 em curso.** A rodada 5 foi mesclada na `main`
-pelo PR #35 (`d22c580`, `1.630 passed` na árvore combinada), e a branch de
-trabalho foi reiniciada a partir dela. A rodada 6 tem duas partes rodando ao
-mesmo tempo: as correções da quarta auditoria e, por pedido do Fred em
-2026-09-19 (*"agora resolve os itens que ficaram abertos no backlog"*), os
-quatro itens de produto que as rodadas anteriores tinham deixado abertos **por
-decisão declarada**. Detalhe da distribuição no "Próximo passo" mais abaixo.
+Em validação.** A rodada 5 foi mesclada na `main` pelo PR #35 (`d22c580`,
+`1.630 passed` na árvore combinada), e a branch de trabalho foi reiniciada a
+partir dela. A **rodada 6 está integrada e medida por mim**, e pede a quinta
+auditoria.
+
+Ela teve duas partes: as correções da quarta auditoria (BL-305, BL-314, BL-318
+a BL-325) e, por pedido do Fred em 2026-09-19 — *"agora resolve os itens que
+ficaram abertos no backlog"* —, os quatro itens de produto que as rodadas
+anteriores tinham deixado abertos **por decisão declarada** (BL-277, BL-281,
+BL-282, BL-287).
+
+**Medição minha, com a máquina livre:** `1715 passed, 12 skipped` em 48,8s;
+`ruff check` limpo; `ruff format --check` 199 arquivos; `manage.py check`
+limpo.
+
+**Dez sabotagens refeitas por mim**, sempre em cópia isolada da árvore (nunca
+no repositório — BL-311), e **uma delas encontrou defeito**: devolver a marca
+do fornecedor ao relatório impresso deixava a suíte inteira verde (**BL-329**,
+quinta ocorrência da guarda posta um passo antes da entrega). Reprovei,
+devolvi ao responsável com o requisito escrito como **propriedade** em vez do
+caso que eu tinha achado, e a guarda nova morre nas quatro saídas — três
+provadas por ele, a quarta por mim.
+
+Dois achados novos que não vieram de auditoria: **BL-328** (a integração
+contínua não pode ligar `makemigrations --check`, e por isso nada impede o
+esquema do banco de divergir do código) e **BL-330** (um invariante **contábil**
+— a conciliação do balancete — depende hoje de espaço em branco no HTML).
+
+Registro honesto: **BL-327**, a credencial do banco de desenvolvimento exposta
+três vezes no mesmo dia, por três mecanismos diferentes, a terceira por mim,
+depois de eu ter proibido exatamente isso a dois agentes. A causa é do
+ambiente, não da disciplina de ninguém, e a regra foi reescrita para uma que
+seja cumprível.
 
 Quatro auditorias, **as quatro REPROVARAM**, e as quatro acharam coisa real:
 
