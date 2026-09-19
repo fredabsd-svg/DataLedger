@@ -1042,52 +1042,130 @@ def test_item2_tabela_dados_fora_da_cadeia_do_timbre_nao_recusa():
     )
 
 
-def test_item2_color_na_regra_do_timbre_tambem_recusa_e_isso_diverge_da_de056():
-    """⚠️ Este teste documenta um CONFLITO, não uma correção fechada — ver
-    o comentário completo acima e o relatório desta rodada.
+def test_item2_color_real_do_timbre_tambem_recusa_prova_que_nao_ha_lista_que_resolva():
+    """⚠️ CORREÇÃO (rodada 12, segunda passada): a versão anterior deste
+    teste usava `var(--tinta-principal)` — um token que **não existe** em
+    `static/css/base.css`. Foi erro do arquiteto-senior no PEDIDO da
+    DE-056 (o mesmo que o `desenvolvedor-pleno` já tinha apontado noutra
+    frente), não um defeito desta guarda. O token REAL, já usado dentro do
+    próprio `@media print` (`body { color: var(--impressao-tinta); }`,
+    `static/css/base.css`), é `--impressao-tinta` — usado abaixo.
 
-    A DE-056 pede que `.timbre-impressao { color: var(--tinta-principal)
-    }` PASSE ("declaração que não reduz visibilidade nenhuma não pode
-    virar falso alarme"). A LEITURA LITERAL do item 2 ("qualquer
-    declaração que não seja display, em regra que casa, recusa") não abre
-    exceção nenhuma para `color` — e a regra REAL `.timbre-impressao {
-    margin-bottom: var(--esp-4); }` já teria o mesmo problema (ver medição
-    no relatório). Este teste registra o comportamento ATUAL (recusa
-    também) em vez de forçar silenciosamente uma exceção sem derivação —
-    a decisão de como reconciliar os dois pedidos fica para o
-    arquiteto-senior confirmar."""
+    A "divergência" que a versão anterior registrava contra a DE-056
+    **dissolveu junto com o token inventado**: não havia conflito entre a
+    DE-056 e o item 2; havia uma construção de controle mal derivada. Com
+    o token corrigido, o resultado NÃO muda — `color` continua recusando,
+    porque o mecanismo (BL-362, item 2) nunca dependeu do NOME do token,
+    só da PROPRIEDADE (`color` ≠ `display`). Isso é, na verdade, a MESMA
+    prova da medição #2 do comentário acima, só que pelo eixo do VALOR em
+    vez do eixo do IDENTIFICADOR: nem restringir por propriedade "seguem
+    valendo declarações de layout legítimas sobre o timbre" (medição #2)
+    nem trocar o valor por um token real (este teste) fazem o falso alarme
+    sumir — é o INSTRUMENTO que não sabe separar "cor que não muda nada"
+    de "cor que apaga o texto" sem uma lista, e a lista é exatamente o que
+    o pedido original proibiu construir."""
     cadeia, _ = _cadeia_do_timbre_do_escritorio(_BALANCETE_HTML)
     css_sintetico = _CSS_SINTETICO_TIMBRE_MINIMO.replace(
-        "display: block;", "display: block;\n        color: var(--tinta-principal);"
+        "display: block;", "display: block;\n        color: var(--impressao-tinta);"
     )
     recusa, motivo = _alguma_declaracao_alem_de_display_reduz_visibilidade(cadeia, css_sintetico)
     assert recusa, (
-        "comportamento ATUAL (documentado, não o desejado pela DE-056): a leitura "
-        "literal do item 2 recusa também para 'color', por não haver uma forma "
-        "DERIVADA (sem lista) de excluir só esta propriedade"
+        "com o token REAL (--impressao-tinta), o item 2 continua recusando para "
+        "'color' — se isto passou a False, o mecanismo mudou; confira antes de "
+        "supor que agora existe uma forma derivada (sem lista) de excluir 'color'"
     )
 
 
-def test_item2_base_css_real_dispara_hoje_sem_sabotagem_nenhuma():
-    """Medição OBRIGATÓRIA (pedido do arquiteto-senior: "meça você mesmo
-    antes de confiar") — quantas vezes a leitura literal do item 2 dispara
-    contra o `static/css/base.css` REAL de hoje, sem nenhuma sabotagem.
-    Fixa o número MEDIDO (não zero) como uma PINAGEM CONHECIDA — se este
-    teste um dia falhar porque o número MUDOU, é sinal para reler o
-    relatório desta rodada antes de alargar ou estreitar qualquer coisa,
-    não para ajustar o número às cegas.
+def test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_tres_vezes():
+    """Medição #2 do comentário acima: mesmo restringindo a relevância a
+    regras que MENCIONAM o identificador `timbre-impressao` (não "casam
+    estruturalmente com algum nó da cadeia" — elimina `:root`/`html`/
+    `body`/`p`/`.conteudo-principal`, que nunca mencionam esse nome),
+    sobram TRÊS declarações reais e legítimas dentro do `@media print`:
+    margem entre linhas (`.timbre-impressao p { margin }`) e peso da
+    primeira linha (`.timbre-impressao p:first-child { font-weight;
+    font-size }`), além da margem do próprio contêiner (`.timbre-impressao
+    { margin-bottom }`). Esta é a prova de que NENHUMA das duas
+    formulações mais estreitas que o arquiteto-senior tentou (cadeia
+    completa, ou só o identificador do timbre) chega a zero — o limite é
+    do instrumento, não do esforço em restringir o escopo."""
+    identificador_do_timbre = {"timbre-impressao"}
+    css_texto = _remover_comentarios(_BASE_CSS.read_text(encoding="utf-8"))
+    antes, dentro, depois = _extrair_bloco_media_print(css_texto)
 
-    Por isso a função do item 2 NÃO está ligada ao veredito da guarda:
-    ligá-la faria a suíte ficar vermelha SEM sabotagem nenhuma, o oposto
-    do que a guarda deveria fazer."""
+    achados_por_trecho = {}
+    for nome, trecho in (("antes", antes), ("dentro", dentro), ("depois", depois)):
+        achados = []
+        for evento in _eventos_de_nivel_superior(trecho):
+            if not isinstance(evento, _EventoBloco) or evento.aninhado:
+                continue
+            seletor_bruto = evento.prelude.strip()
+            if not seletor_bruto or seletor_bruto.startswith("@"):
+                continue
+            outras = [
+                (prop, valor)
+                for prop, valor in _declaracoes_de_regra_flat(evento.corpo)
+                if prop != "display"
+            ]
+            if not outras:
+                continue
+            for seletor in seletor_bruto.split(","):
+                seletor = seletor.strip()
+                if _identificadores_do_seletor(seletor) & identificador_do_timbre:
+                    achados.append((seletor, outras))
+        achados_por_trecho[nome] = achados
+
+    assert achados_por_trecho["antes"] == [], (
+        f"esperava ZERO regras ANTES do @media print mencionando 'timbre-impressao' "
+        f"— achei {achados_por_trecho['antes']!r}"
+    )
+    assert achados_por_trecho["depois"] == [], (
+        f"esperava ZERO regras DEPOIS do @media print mencionando 'timbre-impressao' "
+        f"— achei {achados_por_trecho['depois']!r}"
+    )
+    assert len(achados_por_trecho["dentro"]) == 3, (
+        f"esperava EXATAMENTE 3 regras DENTRO do @media print mencionando "
+        f"'timbre-impressao' e declarando algo além de display (margin-bottom do "
+        f"contêiner, margin do <p>, font-weight/font-size do :first-child) — achei "
+        f"{len(achados_por_trecho['dentro'])}: {achados_por_trecho['dentro']!r} — se "
+        f"este número mudou, o CSS real do timbre mudou; confira antes de supor que "
+        f"a medição está desatualizada"
+    )
+
+
+def test_o_motor_simulado_nao_consegue_decidir_visibilidade_sem_falso_alarme():
+    """Medição #1 do comentário acima (a leitura LITERAL do pedido
+    original: qualquer nó da CADEIA INTEIRA, não só o identificador do
+    timbre) — a mais ampla das três, e a que dá o número que abriu esta
+    discussão: quantas vezes o item 2 dispara contra o `static/css/
+    base.css` REAL de hoje, SEM sabotagem nenhuma. Fixa o número MEDIDO
+    (não zero) como PINAGEM CONHECIDA — se este teste um dia falhar porque
+    o número MUDOU, é sinal para reler o comentário acima e o relatório da
+    rodada 12 antes de alargar ou estreitar qualquer coisa, não para
+    ajustar o número às cegas.
+
+    ESTE É O RESULTADO CENTRAL DO BL-362: não existe extensão do motor
+    simulado — nem restringindo por propriedade (viraria a lista que o
+    pedido original proibiu), nem por identificador do timbre (teste
+    acima: ainda sobram 3), nem por token real em vez de inventado (teste
+    acima: o resultado não muda) — que decida "o timbre está visível?"
+    sem ou (a) exigir uma lista que cresce com a linguagem, ou (b) acusar
+    CSS real e correto. Por isso a guarda central deste arquivo
+    (`test_timbre_do_escritorio_continua_visivel_sob_impressao`) responde
+    só à condição NECESSÁRIA ("nenhum nó tem display:none"), e a condição
+    SUFICIENTE ("o timbre aparece de verdade") fica para o instrumento de
+    navegador da DL-028 — ver a docstring do módulo, no topo deste
+    arquivo."""
     cadeia, _ = _cadeia_do_timbre_do_escritorio(_BALANCETE_HTML)
     recusa, motivo = _alguma_declaracao_alem_de_display_reduz_visibilidade(
         cadeia, _BASE_CSS.read_text(encoding="utf-8")
     )
     assert recusa, (
-        "esperava que o base.css REAL de hoje já disparasse o item 2 (regras "
-        "conhecidas: margin-bottom em .timbre-impressao, margin/font-weight/"
-        "font-size em .timbre-impressao p) — se isto passou a False, o CSS real "
-        "mudou; confira ANTES de supor que o conflito com a DE-056 sumiu"
+        "esperava que o base.css REAL de hoje já disparasse o item 2 pela cadeia "
+        "inteira (regras conhecidas: toda a folha de :root, html/body/p, "
+        "margin-bottom em .timbre-impressao, margin/font-weight/font-size em "
+        ".timbre-impressao p) — se isto passou a False, o CSS real mudou; confira "
+        "antes de supor que o limite do instrumento sumiu"
     )
+    assert motivo is not None
     assert motivo is not None

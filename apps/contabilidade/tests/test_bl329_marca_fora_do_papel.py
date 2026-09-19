@@ -552,6 +552,56 @@ def _extrair_bloco_media_print(css):
 
 
 # ---------------------------------------------------------------------------
+# BL-365 (BAIXA H4 da auditoria DL-026, rodada 8,
+# docs/auditorias/2026-09-19-dl-026-rodada-8.md): `@media` é INSENSÍVEL a
+# maiúsculas em CSS — `@media PRINT` é tão válido quanto `@media print`.
+# Antes da correção, `_extrair_bloco_media_print` só encontrava a grafia
+# minúscula, e a guarda morria no `assert` de CONTROLE ("não encontrado"),
+# mandando procurar um bloco que ESTÁ no arquivo, só escrito de outro
+# jeito — a mesma classe de "guarda cuja falha aponta para o vizinho
+# errado" do H4. `re.IGNORECASE` resolve a busca.
+# ---------------------------------------------------------------------------
+
+
+def test_bl365_media_print_maiusculo_e_encontrado_pela_busca_insensivel_a_caixa():
+    """`@media PRINT { ... }` (todo maiúsculo) precisa ser encontrado e
+    extraído normalmente — sem cair no `assert` de controle "não
+    encontrado". CSS sintético mínimo, com a marca do fornecedor escondida
+    dentro do bloco maiúsculo: a guarda inteira (`_algum_ancestral_
+    removido_do_papel`) precisa continuar funcionando de ponta a ponta,
+    não só `_extrair_bloco_media_print` isoladamente."""
+    no_marca, cadeia = _cadeia_da_marca()
+    css_sintetico = "@media PRINT {\n    .cabecalho__topo {\n        display: none;\n    }\n}\n"
+    removido, no_vencedor = _algum_ancestral_removido_do_papel(cadeia, css_sintetico)
+    assert removido, (
+        "'@media PRINT' (maiúsculo) deveria ter sido reconhecido como o bloco de "
+        "impressão, e a marca deveria sair como escondida — a busca não achou o "
+        "bloco (ou achou errado)"
+    )
+    assert no_vencedor is not None
+
+
+def test_bl365_media_print_misto_tambem_e_encontrado():
+    """`@media Print` (só a inicial maiúscula) — variação mais comum de
+    erro de digitação do que o TUDO MAIÚSCULO do teste acima — precisa dar
+    o mesmo resultado."""
+    _, cadeia = _cadeia_da_marca()
+    css_sintetico = "@media Print {\n    .cabecalho__topo {\n        display: none;\n    }\n}\n"
+    removido, _ = _algum_ancestral_removido_do_papel(cadeia, css_sintetico)
+    assert removido, "'@media Print' deveria ter sido reconhecido como o bloco de impressão"
+
+
+def test_bl365_mensagem_de_controle_cita_a_caixa_das_letras_quando_nao_acha_de_verdade():
+    """Controle do controle: quando o bloco de impressão REALMENTE não
+    existe (nem maiúsculo nem minúsculo), a mensagem do `assert` precisa
+    orientar quem lê a CONFERIR a caixa das letras antes de concluir que o
+    bloco sumiu — em vez de simplesmente "não encontrado", que manda
+    procurar sem dizer onde o erro mais comum costuma estar."""
+    with pytest.raises(AssertionError, match="CAIXA DAS LETRAS"):
+        _extrair_bloco_media_print("body { color: red; }\n")
+
+
+# ---------------------------------------------------------------------------
 # BL-360 (ALTA da auditoria DL-026, rodada 8 — a nona ocorrência da classe
 # desta etapa: prelúdio (BL-343) → caractere de abertura (BL-351) →
 # GRAMÁTICA DO SELETOR, agora). O auditor furou a correção do BL-351 por um
