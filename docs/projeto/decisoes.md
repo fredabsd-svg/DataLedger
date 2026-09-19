@@ -2786,3 +2786,119 @@ muda é que o produto não fica refém enquanto o andaime é polido.
   confiável.
 - **Auditoria de software não substitui a validação profissional das regras
   contábeis e legais.**
+
+## DE-055 — Verificação de correção inclui construção que o relatório NÃO nomeou
+
+**Decidido pelo `arquiteto-senior` em 2026-09-19**, acatando recomendação do
+`auditor-qa` no §6 da [rodada 7](../auditorias/2026-09-19-dl-026-rodada-7.md).
+É correção de um defeito do **meu** método, não do trabalho da equipe.
+
+### O que ele mediu
+
+> *"Nas rodadas 5, 6 e 7, as sabotagens que o arquiteto refez para declarar uma
+> correção verificada são **as sabotagens que eu escrevi no relatório
+> anterior**. Correção feita para matar uma sabotagem específica mata essa
+> sabotagem. Os achados G1 e G2 deste relatório são exatamente isso: passaram
+> em todas as provas que a rodada 6 encomendou e morreram na primeira
+> construção que ninguém tinha escrito."*
+
+Ele está certo, e o dano é mensurável: o **G1** é um **bloqueador** que atravessou
+uma rodada inteira de correção e chegou à `main`. A correção do BL-343 passou
+nas sete construções que o relatório da rodada 6 nomeou — e morreu na primeira
+que não estava lá, que por acaso é a forma **recomendada** de se escrever CSS
+hoje.
+
+O vício é sutil porque parece rigor: refazer a sabotagem do auditor **é**
+necessário. Só não é **suficiente**, e eu vinha tratando como se fosse.
+
+### A regra
+
+**Toda verificação de correção inclui pelo menos uma construção que o relatório
+de auditoria NÃO nomeou.** E, para que ela não nasça viciada:
+
+1. **Quem escolhe a construção nova não pode ser quem escreveu a correção.** Na
+   prática: eu a escolho ao integrar, ou um agente que não participou da
+   correção a escolhe.
+2. A construção nova é escolhida **pela classe do defeito**, não por criatividade
+   — se o achado é "a guarda enumera em vez de derivar", a construção nova é o
+   **item seguinte da enumeração**, procurado de propósito.
+3. Se a construção nova **não** matar a guarda, isso é **achado**, e entra no
+   backlog antes de a correção ser declarada fechada.
+
+### O que isso não é
+
+**Não é desconfiança do implementador.** Os relatórios desta etapa mostram o
+contrário: eles acharam sozinhos exclusões que eu não citei, discordaram de
+critério de aceite meu **com evidência**, e relataram efeito colateral sem
+ninguém perguntar. O vício é do **método de verificação**, e o método é meu.
+
+### Custo declarado
+
+Cada verificação fica mais cara, e algumas construções novas não vão achar
+nada. É o preço de não confundir *"passou nas provas encomendadas"* com
+*"a propriedade está garantida"* — que é a confusão que esta etapa vem pagando
+desde a rodada 5.
+
+## DE-056 — A construção nova mira um eixo que o relatório NÃO discutiu
+
+**Data:** 2026-09-19. **Origem:** §6 do relatório da oitava auditoria
+([2026-09-19-dl-026-rodada-8.md](../auditorias/2026-09-19-dl-026-rodada-8.md)),
+recomendação do `auditor-qa` **contra a aplicação que eu dei à DE-055**.
+**Emenda ao item 2 da DE-055**, registrada logo acima neste mesmo arquivo.
+
+### O que aconteceu
+
+A DE-055 funcionou na primeira aplicação: das dezessete construções que o
+`arquiteto-senior` guardou, dezesseis confirmaram e **uma furou**, e o BL-360
+foi registrado como ALTA **antes** da auditoria em vez de por ela. Foi a
+primeira vez, em sete auditorias, que o defeito seguinte apareceu antes do
+auditor.
+
+Mas as dezessete cobriam **um eixo só**: *o que o motor consegue LER*. O
+auditor foi olhar o eixo **ao lado** — o conjunto de **propriedades** que o
+motor considera — e achou um bloqueador em `_PROPRIEDADES_DE_INTERESSE =
+("display",)`, uma lista de **um item**, a quinze linhas de um motor que tinha
+sido reescrito **três vezes** sem ninguém encostar nela.
+
+O motivo de ela ter sobrevivido é o que torna esta emenda necessária, e não é
+descuido: ela está **declarada** na docstring, com uma justificativa **boa** —
+e a justificativa é boa **para a guarda da marca**. Quando a guarda do timbre
+reusou o mesmo motor "por composição em vez de repetição" (decisão de
+engenharia correta), a declaração viajou junto e ninguém perguntou se ela
+continuava valendo do **outro lado** da propriedade.
+
+### A decisão
+
+Ao item 2 da DE-055 — *"a construção nova é escolhida pela classe do defeito"* —
+acrescenta-se:
+
+1. **Pelo menos uma das construções novas mira um eixo que o relatório de
+   auditoria NÃO discutiu.** A classe nunca é *"a guarda enumera construções
+   CSS"*; é **"a guarda enumera"**. Procurar o item seguinte da enumeração que
+   o relatório apontou é necessário e **não é suficiente**: exaurir um eixo não
+   é convergir, é exaurir um eixo.
+2. **A pergunta operacional para achar esse eixo é:** *"que lista existe neste
+   arquivo que a correção desta rodada não tocou?"*. Em
+   `test_bl329_marca_fora_do_papel.py` ela devolve `_PROPRIEDADES_DE_INTERESSE`,
+   `_ELEMENTOS_VAZIOS`, `_BALANCETE_HTML` e a exceção nomeada `@media screen`.
+   **Três das quatro viraram achado** na oitava auditoria.
+3. **Limite declarado não é limite fechado.** Um limite herdado por composição
+   é um limite cuja justificativa ficou para trás: quando uma guarda reusa o
+   motor de outra, a estreiteza precisa ser **reavaliada contra a propriedade
+   nova**, não herdada com ele. Estreito num sentido pode ser **frouxo** no
+   sentido oposto.
+
+### Consequência aceita
+
+Mais uma pergunta por rodada, e ela é desconfortável de propósito: obriga a
+olhar para onde ninguém apontou. O custo de não fazê-la está medido — onze
+rodadas percorrendo um eixo, com o achado encolhendo a cada passo, e um
+bloqueador intacto no eixo vizinho o tempo todo.
+
+### O que esta decisão NÃO resolve
+
+O auditor registra, e eu concordo, que **tamanho de achado mede onde se
+procurou, não quanto sobrou**. A emenda melhora a busca; ela não substitui a
+decisão maior sobre o **instrumento**, que está em aberto com o Fred e
+registrada no
+[estado.md](../agents/estado.md).

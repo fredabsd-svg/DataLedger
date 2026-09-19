@@ -269,19 +269,162 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento — o produto FOI MESCLADO na `main`, a etapa NÃO foi declarada fechada.** Decisão do Fred em 2026-09-19 (**DE-054**), escolhendo explicitamente a opção A depois de perguntar se a auditoria era necessária: **mesclar agora e auditar em paralelo**. O motivo, medido: 35 commits estavam parados na branch — parênteses de saldo invertido, timbre do escritório, filtro mais baixo — enquanto as rodadas polavam **guardas**, e o auditor havia escrito, nas duas últimas, que **o produto está certo**. A guarda também é software, logo também pode ser auditada, logo o ciclo não tinha ponto final. Os itens de guarda **continuam abertos** no backlog, com dono.** A sexta auditoria **REPROVOU** `8aa84b6` com dois ALTOS, e os dois são as correções da rodada anterior **não segurando a propriedade que prometem** — o produto está certo, a garantia é que não existe. ⚠️ O auditor foi explícito sobre mesclar: o conteúdo desta branch é *"estritamente melhor"* que a `main` no comportamento observável, mas a entrega da rodada **são as guardas**, e mesclar registraria no histórico que os dois ALTOS da rodada 5 foram corrigidos quando o que existe é o produto certo por enquanto e a guarda que aprova o produto errado. Um dos dois achados (**BL-343**) é **contra mim**: o exemplo de "CSS legítimo" que eu mandei virar teste obrigatório estava errado. A
-rodada 5 foi mesclada na `main` pelo PR #35
-(`d22c580`, `1.630 passed` na árvore combinada), e a branch de trabalho foi
-reiniciada a partir dela. A **rodada 6 foi integrada, medida por mim e
-REPROVADA na quinta auditoria** (`53388c8`): dois ALTOS, os dois na impressão,
-que era a entrega principal.
+Em desenvolvimento.**
 
-⚠️ **O auditor reproduziu todos os números que eu declarei**, inclusive os de
-densidade, com Chromium próprio e base semeada por ele, e registrou que a
-declaração do BL-277 (meta de 15 não alcançada, 10 medidas) **é honesta e não
-é conformidade por interpretação conveniente**. O que reprovou não foi o que
-foi implementado — foi o que a entrega **não garante** e o que o usuário
-**recebe de fato** ao apertar Ctrl+P:
+**A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
+etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o
+que está no ar lê essas duas.
+
+**A etapa NÃO está fechada, e o merge não a fechou.** São duas perguntas
+diferentes desde a [DE-054](../projeto/decisoes.md): *"isto melhora o produto?"*
+decide o merge; *"isto está garantido?"* decide a etapa. O Fred respondeu a
+primeira em 2026-09-19, escolhendo a opção A — mesclar e auditar em paralelo —
+depois de perguntar se a auditoria era necessária e de ouvir o custo medido:
+**35 commits com melhoria pronta parados numa branch** enquanto as rodadas
+poliam **guardas**.
+
+**A sétima auditoria (`920822a`) REPROVOU o fechamento**, com um **bloqueador** e
+um alto. Relatório integral em
+[2026-09-19-dl-026-rodada-7.md](../auditorias/2026-09-19-dl-026-rodada-7.md).
+Ele é explícito sobre o merge não ter sido erro — mediu o produto mais a fundo
+que em qualquer rodada anterior e o encontrou **correto em tudo que conseguiu
+medir**. O que falta é **garantia**: três construções banais de CSS, uma delas a
+forma recomendada de se escrever CSS hoje, devolvem a marca do fornecedor ao
+papel ou apagam o timbre do escritório **com a suíte inteira verde**.
+
+⚠️ **O que está em vigor na `main`, portanto:** o produto certo, e a guarda que
+aprovaria o produto errado. **BL-351**, **BL-352**, **BL-353**, **BL-360** e
+**BL-361** estão corrigidos na branch e **ainda não na `main`**; **BL-354** a
+**BL-359** seguem como ressalvas declaradas, com dono e momento no backlog.
+
+## A oitava auditoria, e a decisão de instrumento que está com o Fred
+
+**A oitava auditoria (`55d5d63`, PR #37) REPROVOU o fechamento**, com um
+**bloqueador** e um alto. Relatório integral em
+[2026-09-19-dl-026-rodada-8.md](../auditorias/2026-09-19-dl-026-rodada-8.md).
+
+**Os cinco itens das rodadas 10 e 11 FECHARAM**, e o auditor fechou os cinco
+**por execução**: BL-351, BL-352, BL-353, BL-360 e BL-361. Os números conferem,
+o produto continua correto em tudo que ele conseguiu medir, e a conciliação bate
+em três fontes independentes.
+
+⚠️ **O que reprova é um eixo novo, e é o eixo ANTERIOR ao que onze rodadas
+percorreram.** Não *o que o motor consegue ler* — esse está fechado —, mas **o
+conjunto de propriedades que ele considera** e **onde a cadeia termina**.
+`_PROPRIEDADES_DE_INTERESSE = ("display",)` é uma lista de **um item**, a quinze
+linhas de um motor reescrito **três vezes**, e ela sobreviveu às três porque as
+três atacaram o **seletor**. Resultado medido em Chromium e em PDF A4 do produto:
+**onze construções banais apagam a identificação do escritório da folha que o
+contador entrega ao cliente, com a suíte inteira verde** (BL-362, bloqueador), e
+a cadeia do timbre é derivada só do Balancete — Diário e Razão são cobertos por
+uma cadeia que não é a deles (BL-363, alto). BL-364 e BL-365 ficam como
+ressalvas declaradas.
+
+**A causa de a lista ter sobrevivido não foi descuido, e isso importa:** ela
+está **declarada** na docstring, com justificativa **boa** — boa para a guarda
+da **marca**, cuja propriedade é *"esconda-se"*. A guarda do **timbre** reusou o
+mesmo motor por composição (decisão de engenharia correta) para a propriedade
+**oposta**, *"apareça"* — e o oposto lógico de uma regra estreita é uma regra
+**frouxa**. A simetria era de mecanismo; ninguém reavaliou a estreiteza. Virou a
+[DE-056](../projeto/decisoes.md): *limite declarado não é limite fechado*, e a
+construção nova de toda verificação passa a mirar também um eixo que o relatório
+**não** discutiu.
+
+### A decisão que está com o Fred, e ela não é de engenharia
+
+O auditor **não recomenda mais uma rodada de polimento do motor simulado**, e o
+argumento dele é medido, não estético: `test_bl329_marca_fora_do_papel.py` tem
+**1803 linhas** para responder a uma pergunta que o navegador responde com uma
+chamada; a linguagem que ele simula **cresce todo ano**; e **todo bloqueador
+desta etapa foi encontrado abrindo um Chromium e olhando o PDF**. O sinal
+"os achados estão encolhendo" era artefato do lugar onde se procurava — bastou
+olhar o eixo ao lado para o achado voltar ao tamanho de bloqueador.
+
+Ele recomenda **trocar o instrumento**, e metade da troca já está escrita e
+paga: `visivelDeVerdade` (`docs/assets/design/gauntlet/juiz.py`) já é a
+derivação certa — três medições gerais, limites medidos e declarados — e cobre
+as onze construções **sem saber que elas existem**; `scripts/medir_impressao.py`
+já sobe o produto real e gera PDF A4. O que falta é **apontar o juiz para o
+produto em vez de para os protótipos** e pôr a medição no ciclo.
+
+**São três caminhos, e os três custam:**
+
+1. **Navegador na integração contínua** — contraria a decisão deliberada de não
+   ter essa dependência, e o Chromium de caminho fixo é acidente deste ambiente,
+   não configuração do projeto.
+2. **Medição de bancada obrigatória com evidência registrada**, por etapa que
+   toque `static/css/base.css` ou crie tela imprimível — é **disciplina**, que é
+   exatamente o que o projeto decidiu não usar como garantia quando criou as
+   guardas.
+3. **Continuar polindo o motor simulado** — que nunca vai estar completo.
+
+**O que não é defensável é a quarta:** declarar a etapa fechada afirmando que o
+critério 9 está garantido, quando construções banais o derrubam com a suíte
+verde. **A escolha entre as três é do Fred**, e as três são defensáveis.
+
+**A rodada 10 está integrada em `20da1fa`**, na branch
+`claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
+aberto até a rodada 11 fechar. Duas correções de **guarda**, nenhuma mudança de
+produto (`static/css/base.css` e `templates/**` intocados): **BL-351** junto com
+**BL-353** (o detector passa a decidir pelo **conteúdo** do bloco, não pelo
+prelúdio nem pelo caractere de abertura — CSS Nesting nativo passa a ser visto, e
+media query irrelevante deixa de dar falso alarme) e **BL-352** (o universo de
+telas vira módulo compartilhado, `universo_de_telas.py`, e cada guarda declara o
+seu recorte com motivo próprio em vez de herdar por acidente o da vizinha).
+
+Medição minha, com banco próprio: **1861 passed, 14 skipped** em 66,9s; `ruff
+check` limpo; `ruff format --check` 204 arquivos; `manage.py check` limpo.
+
+**A [DE-055](../projeto/decisoes.md) entrou em vigor e valeu a pena.** Entreguei
+ao implementador quatro construções que o relatório da auditoria **não** nomeou,
+e **guardei sete** para medir sozinho na integração. As sete passaram — sete de
+sete. É a primeira vez nesta etapa que uma correção sobrevive às construções que
+o autor dela não conhecia.
+
+⚠️ **E a oitava construção, de outro eixo, furou:** registrei o **BL-360**
+(ALTA), achado meu na integração. O motor de cascata **julga seletor que não sabe
+ler**, e sempre para o lado de aprovar — a gramática que ele modela é tipo +
+classe + combinador descendente, e diante de `[class]` ele conclui "casa com
+tudo, especificidade zero" quando o valor real é o de uma classe. Medido em
+Chromium com `emulate_media("print")` sobre o `base.css` real: **duas
+construções devolvem a marca do fornecedor ao papel com a guarda aprovando**. O
+caso principal é **anterior** à rodada 10 e nunca esteve no escopo do BL-351 —
+não é regressão. É a **nona** ocorrência de "lista em vez de propriedade" nesta
+etapa: prelúdio (BL-343) → caractere de abertura (BL-351) → gramática do seletor.
+
+**A rodada 11 fechou os dois**, na mesma branch. O BL-360 foi corrigido pela
+**recusa**, não pela extensão da gramática: regra que declare propriedade de
+interesse com seletor que o motor não sabe ler faz a guarda **recusar julgar** —
+o mesmo mecanismo que o arquivo já usava para at-rule. O conjunto do que se
+recusa é **derivado do que o motor sabe ler**, não uma lista do que ele não sabe:
+apara tipo, classe e pseudo-classe simples, e o que sobrar recusa. A linguagem
+cresce; a lista do que ele sabe ler, não. O **BL-361** tirou a última lista do
+caminho: a guarda de título roda sobre o universo inteiro e pula, **nomeando a
+rota e o código**, só quando a resposta é redirecionamento.
+
+Custo da recusa, **medido por mim antes de pedi-la**: o `base.css` real tem 5
+seletores de atributo e 1 universal, e **nenhum declara `display`** — a recusa,
+delimitada por propriedade de interesse, dispara **zero** vezes hoje. Não é falso
+alarme (BL-321); é recusa onde o motor de fato não sabe.
+
+**Verificação minha da rodada 11, com a máquina livre:** os dois falsos conformes
+viraram recusa; o controle **sem** sabotagem continua aprovando; as sete
+construções que eu guardara na rodada 10 continuam corretas; e **dez construções
+novas**, que nenhuma das duas rodadas conhecia, saíram **dez de dez** — quatro
+delas mirando especificamente a divergência entre as **duas** noções de *"declara
+propriedade de interesse"*, que é a classe do BL-352. Suíte: **1871 passed, 15
+skipped** em 67,2s; `ruff check` limpo; `ruff format --check` 204 arquivos;
+`manage.py check` limpo.
+
+**Decisão do Fred em 2026-09-19, depois de eu recomendar esperar:** nenhum
+trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
+da contabilidade, começa antes de BL-351 e BL-352 estarem corrigidos. Custa uma
+rodada; a alternativa era apostar em disciplina, que é justamente o que
+decidimos não fazer quando criamos as proteções.
+
+### O que a rodada 6 encontrou sobre o papel que sai da impressora
+
+Duas descobertas sobre o que o contador **recebe de fato** ao apertar Ctrl+P:
 
 - **BL-331**: existe guarda para a marca do fornecedor **sair** do papel e
   nenhuma para o timbre do escritório **entrar**. Apagando a regra do timbre,
@@ -294,6 +437,8 @@ foi implementado — foi o que a entrega **não garante** e o que o usuário
 **Dois deles dependem de decisão do Fred** e estão com ele: o texto que
 substitui o nome do fornecedor no cabeçalho do documento (BL-332) e se o nome
 do **operador** deve sair na folha que vai para o cliente (BL-338).
+
+### A rodada 6, que originou o que hoje está na `main`
 
 Ela teve duas partes: as correções da quarta auditoria (BL-305, BL-314, BL-318
 a BL-325) e, por pedido do Fred em 2026-09-19 — *"agora resolve os itens que
@@ -324,7 +469,7 @@ depois de eu ter proibido exatamente isso a dois agentes. A causa é do
 ambiente, não da disciplina de ninguém, e a regra foi reescrita para uma que
 seja cumprível.
 
-Seis auditorias, **as seis REPROVARAM**, e as seis acharam coisa real:
+Sete auditorias, **as sete REPROVARAM**, e as sete acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
@@ -334,6 +479,7 @@ Seis auditorias, **as seis REPROVARAM**, e as seis acharam coisa real:
 | [Rodada 4](../auditorias/2026-09-19-dl-024-rodada-4.md) | `8235635` | REPROVADO | 1 alto, 5 médios, 2 baixos |
 | [Rodada 5](../auditorias/2026-09-19-dl-026-rodada-5.md) | `53388c8` | REPROVADO | 2 altos, 5 médios, 3 baixos |
 | [Rodada 6](../auditorias/2026-09-19-dl-026-rodada-6.md) | `8aa84b6` | REPROVADO | 2 altos, 4 médios, 4 baixos |
+| [Rodada 7](../auditorias/2026-09-19-dl-026-rodada-7.md) | `920822a` | REPROVADO | 1 bloqueador, 1 alto, 4 médios, 3 baixos |
 
 ⚠️ **Os quatro relatórios dizem "DL-024" e continuam dizendo**: são documento
 histórico, e a etapa foi renumerada para DL-026 depois de eles existirem. O

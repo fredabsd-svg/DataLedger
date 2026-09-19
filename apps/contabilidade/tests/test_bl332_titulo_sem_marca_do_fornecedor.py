@@ -70,9 +70,10 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _parsear_html,
     _tem_timbre_impressao,
 )
-from apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade import (
-    NOMES_DE_TELA_DE_CONTABILIDADE,
+from apps.contabilidade.tests.universo_de_telas import (
+    UNIVERSO_DE_ROTAS_DE_TELA,
     _urls_de_contabilidade,
+    url_por_nome_de_rota,
 )
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -270,15 +271,35 @@ def test_sabotagem_remover_a_sobrescrita_do_bloco_faz_a_marca_voltar(
 # O arquivo IRMÃO escrito no MESMO DIA (test_bl338_operador_fora_do_
 # papel.py) já tinha a derivação CERTA para a MESMA pergunta ("esta tela é
 # documento?"): presença ESTRUTURAL de `.timbre-impressao` no HTML
-# RENDERIZADO, parametrizada sobre `NOMES_DE_TELA_DE_CONTABILIDADE`. A
-# guarda abaixo COMPARTILHA essa derivação — `_tem_timbre_impressao`,
-# movida para test_bl329_marca_fora_do_papel.py (o módulo-base que os
-# dois arquivos já importam) — em vez de duplicá-la: a propriedade é
+# RENDERIZADO — mas parametrizada sobre a UNIÃO de duas listas de telas,
+# não só as OITO de contabilidade. A guarda abaixo COMPARTILHA a
+# derivação de "documento?" — `_tem_timbre_impressao`, de
+# test_bl329_marca_fora_do_papel.py — em vez de duplicá-la: a propriedade é
 # *"toda tela cujo HTML contém `.timbre-impressao` tem `<title>` SEM o
 # nome do fornecedor; toda tela SEM `.timbre-impressao` tem `<title>` COM
-# ele"*, testada sobre as OITO telas de `NOMES_DE_TELA_DE_CONTABILIDADE`
-# (não só as três documentos — o controle negativo das outras cinco entra
-# de graça, pela MESMA parametrização).
+# ele"*.
+#
+# ⚠️ BL-352 (achado G2 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): até esta correção, a
+# parametrização rodava só sobre as OITO telas de `NOMES_DE_TELA_DE_
+# CONTABILIDADE` — a guarda irmã acima, ESCRITA NO MESMO COMMIT, já sabia
+# que a pergunta "esta tela existe no produto?" precisa da UNIÃO com as
+# SEIS telas de `NOMES_DE_TELA_FORA_DA_CONTABILIDADE` (14 ao todo). O
+# auditor mediu:
+# transformar `templates/empresas/lista.html` numa tela de documento
+# COERENTE (timbre + sobrescrita certa do bloco do escritório) e esquecer
+# o sufixo do título fazia o navegador receber "Relação de Empresas —
+# DataLedger" sem NENHUMA guarda de título morrer — porque a guarda
+# simplesmente não olhava para aquela rota. A correção: o RECORTE desta
+# guarda (`_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO`, abaixo) parte da UNIÃO
+# completa (`UNIVERSO_DE_ROTAS_DE_TELA`, importado de
+# apps/contabilidade/tests/universo_de_telas.py — o módulo de apoio que
+# promove o universo compartilhado, para as duas guardas nunca mais
+# divergirem) — e NÃO herda o recorte da guarda vizinha
+# (`_TELAS_SEM_REQUEST_ESCRITORIO`, em test_bl338: aquela exclusão é sobre
+# `request.escritorio` ausente, uma razão que não tem nada a ver com
+# título). A única exclusão desta guarda tem motivo PRÓPRIO, escrito junto
+# dela.
 # ---------------------------------------------------------------------------
 
 
@@ -330,37 +351,83 @@ def cenario_bl344():
     return {"escritorio": escritorio, "empresa": empresa, "caixa": caixa, "lancamento": lancamento}
 
 
-@pytest.mark.parametrize("nome_tela", sorted(NOMES_DE_TELA_DE_CONTABILIDADE))
-def test_titulo_reflete_se_a_tela_e_documento_ou_produto(client, cenario_bl344, nome_tela):
-    """BL-344/F2: a propriedade central, DERIVADA do HTML renderizado —
-    nunca de uma lista de nomes escrita à mão. Roda sobre as OITO telas
-    de `NOMES_DE_TELA_DE_CONTABILIDADE`: as três que têm timbre hoje
-    (Balancete/Diário/Razão) precisam continuar sem a marca; as cinco que
-    não têm (Plano de contas, Nova conta, Conferência, Novo lançamento,
-    Detalhe do lançamento) precisam continuar COM ela — e uma sexta tela
-    nova, futura, que ganhe timbre sem que ninguém lembre de atualizar
-    esta lista, é pega pela MESMA pergunta, porque a pergunta é sobre o
-    HTML, não sobre o nome da rota."""
-    assert client.login(username="gestora-bl344", password="senha-forte-123")
-    url = _urls_de_contabilidade(cenario_bl344)[nome_tela]
-    resposta = client.get(url)
-    assert resposta.status_code == 200, f"{nome_tela}: {resposta.status_code}"
-    html = resposta.content.decode()
+# BL-361 (BAIXA da auditoria DL-026, rodada 8,
+# docs/auditorias/2026-09-19-dl-026-rodada-8.md): a versão anterior desta
+# guarda subtraía `tenancy:bootstrap-primeiro-acesso` do universo por uma
+# LISTA nomeada (`_ROTAS_EXCLUIDAS_DA_GUARDA_DE_TITULO`) — a justificativa
+# ("sob este cenário, ela sempre redireciona") era CORRETA, mas o
+# MECANISMO era o mesmo defeito da classe: no dia em que essa rota deixar
+# de redirecionar (a view passar a servir 200 também para quem já tem
+# vínculo, por exemplo), ela continuaria fora da guarda, EM SILÊNCIO —
+# nada avisaria.
+#
+# A correção: SEM lista nenhuma. `_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO`
+# é o UNIVERSO INTEIRO — nenhuma rota é tirada dele por nome. A condição
+# "esta rota não tem <title> para julgar sob este cenário" é verificada
+# em TEMPO DE EXECUÇÃO, dentro do teste: se a resposta for redirecionamento
+# (3xx), `pytest.skip` NOMEANDO a rota e o código de status — não é uma
+# exclusão permanente, é um resultado observado NESTA execução, que
+# desaparece sozinho no dia em que a rota passar a responder 200. Rota que
+# deixar de redirecionar passa a ser JULGADA, sem ninguém precisar lembrar
+# de tirar um nome de uma lista.
+_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO = sorted(UNIVERSO_DE_ROTAS_DE_TELA)
 
+
+def _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html):
+    """A propriedade central desta guarda, extraída para função — chamada
+    tanto pelo teste parametrizado abaixo quanto pelas provas por mutação,
+    para as duas nunca divergirem sobre O QUE conta como "guarda morreu".
+    Reprova NOMEANDO `nome_de_rota` (BL-352: o auditor exigiu que a falha
+    nomeie a rota, não só descreva o sintoma)."""
     tem_timbre = _tem_timbre_impressao(_parsear_html(html))
     titulo = _titulo_renderizado(html)
-    assert titulo.strip() != "", (nome_tela, titulo)
+    assert titulo.strip() != "", (nome_de_rota, titulo)
 
     if tem_timbre:
         assert "DataLedger" not in titulo, (
-            f"{nome_tela} TEM timbre de impressão (é DOCUMENTO), mas o <title> "
+            f"{nome_de_rota} TEM timbre de impressão (é DOCUMENTO), mas o <title> "
             f"continua trazendo a marca do fornecedor: {titulo!r}"
         )
     else:
         assert "DataLedger" in titulo, (
-            f"{nome_tela} NÃO TEM timbre de impressão (é tela de PRODUTO), mas "
+            f"{nome_de_rota} NÃO TEM timbre de impressão (é tela de PRODUTO), mas "
             f"o <title> perdeu a marca do fornecedor: {titulo!r}"
         )
+
+
+@pytest.mark.parametrize("nome_de_rota", _ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO)
+def test_titulo_reflete_se_a_tela_e_documento_ou_produto(client, cenario_bl344, nome_de_rota):
+    """BL-344/F2, estendida pelo BL-352/G2 e corrigida pelo BL-361: a
+    propriedade central, DERIVADA do HTML renderizado — nunca de uma
+    lista de nomes escrita à mão. Roda sobre `_ROTAS_COBERTAS_PELA_
+    GUARDA_DE_TITULO`, o UNIVERSO INTEIRO, SEM exclusão nomeada nenhuma:
+    as telas com timbre hoje (Balancete/Diário/Razão) precisam continuar
+    sem a marca; TODAS as outras precisam continuar COM ela — e uma tela
+    nova, futura, de QUALQUER módulo, que ganhe timbre sem que ninguém
+    lembre de atualizar uma lista, é pega pela MESMA pergunta, porque a
+    pergunta é sobre o HTML, não sobre o nome da rota.
+
+    BL-361: se a rota REDIRECIONAR (3xx) sob este cenário — hoje só
+    `tenancy:bootstrap-primeiro-acesso`, porque `cenario_bl344` tem
+    vínculo ativo e a view manda quem já tem vínculo para o painel —,
+    não há `<title>` de documento/produto para julgar: `pytest.skip`,
+    NOMEANDO a rota e o código de status, em vez de uma lista de exclusão
+    escrita à mão. Isto não é permanente: no dia em que a rota deixar de
+    redirecionar sob este cenário, ela passa a ser JULGADA, sozinha, sem
+    ninguém precisar lembrar de tirar um nome de lista nenhuma. Qualquer
+    OUTRA rota do universo que não dê 200 quebra este teste com o código
+    de status na mensagem — não um `skip` silencioso disfarçado."""
+    assert client.login(username="gestora-bl344", password="senha-forte-123")
+    url = url_por_nome_de_rota(nome_de_rota, cenario_bl344)
+    resposta = client.get(url)
+    if 300 <= resposta.status_code < 400:
+        pytest.skip(
+            f"{nome_de_rota}: redirecionou ({resposta.status_code}) sob este cenário "
+            f"— sem <title> de documento/produto para julgar aqui"
+        )
+    assert resposta.status_code == 200, f"{nome_de_rota}: {resposta.status_code}"
+    html = resposta.content.decode()
+    _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html)
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +499,115 @@ def test_sabotagem_transformar_tela_em_documento_esquecendo_o_titulo_mata_a_guar
             "test_titulo_reflete_se_a_tela_e_documento_ou_produto REPROVAR para "
             f"{nome_tela!r} — a prova de que a guarda morre, nomeando a tela."
         )
+
+    # Fora do override: a tela volta ao normal, e o arquivo real nunca foi escrito.
+    resposta_normal = client.get(url)
+    titulo_normal = _titulo_renderizado(resposta_normal.content.decode())
+    assert "DataLedger" in titulo_normal
+    assert caminho_real.read_text(encoding="utf-8") == conteudo_antes
+
+
+# ---------------------------------------------------------------------------
+# BL-352 (achado G2 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): a sabotagem ACIMA só
+# reproduz o defeito dentro de `templates/contabilidade/`. O auditor mediu
+# a MESMA classe de defeito por FORA dessa pasta — e, desta vez, de forma
+# COERENTE: não só `.timbre-impressao` sozinho, mas TAMBÉM a sobrescrita
+# certa de `classe_escritorio_ativo_na_impressao` (a mesma que
+# `balancete.html` tem de verdade), provando que a guarda de título falha
+# por CONTA PRÓPRIA — não porque a tela ficou "malformada" de algum jeito
+# que outra guarda já pegaria. As duas rotas abaixo (`empresas:lista`,
+# `tenancy:painel`) são as que o relatório do auditor nomeou; `empresas:
+# criar` é construção MINHA (DE-055 — a verificação precisa incluir uma
+# construção que quem corrigiu não escolheu).
+# ---------------------------------------------------------------------------
+
+
+def _sabotar_tela_em_documento_coerente_esquecendo_o_titulo(conteudo, *, caminho_relativo):
+    """Aplica, sobre o TEXTO de um template (nunca no arquivo real — o
+    chamador só grava em `tmp_path`, BL-311), a sabotagem COERENTE que o
+    auditor mediu: acrescenta `.timbre-impressao` dentro de `{% block
+    content %}` (mesma técnica de
+    `test_sabotagem_transformar_tela_em_documento_esquecendo_o_titulo_
+    mata_a_guarda`, acima) E a sobrescrita CORRETA de `classe_escritorio_
+    ativo_na_impressao` antes de `{% block titulo %}` (mesma técnica de
+    `test_sabotagem_ocultar_escritorio_ativo_fora_da_contabilidade_mata_a_
+    guarda`, em test_bl338_operador_fora_do_papel.py) — mas NUNCA
+    sobrescreve `titulo_sufixo_do_fornecedor`: essa omissão é o próprio
+    defeito que esta prova por mutação precisa reproduzir. Devolve o texto
+    mutado."""
+    marcador_titulo = "{% block titulo %}"
+    assert marcador_titulo in conteudo, (
+        f"controle: marcador de titulo ausente em {caminho_relativo}"
+    )
+    com_escritorio = conteudo.replace(
+        marcador_titulo,
+        "{% block classe_escritorio_ativo_na_impressao %} "
+        "contexto-item--somente-tela{% endblock %}\n" + marcador_titulo,
+        1,
+    )
+
+    marcador_content = "{% block content %}"
+    assert marcador_content in com_escritorio, (
+        f"controle: marcador de content ausente em {caminho_relativo}"
+    )
+    mutado = com_escritorio.replace(
+        marcador_content,
+        marcador_content
+        + '\n    <div class="timbre-impressao"><p>Escritório sabotado (BL-352)</p></div>\n',
+        1,
+    )
+    assert mutado != conteudo, "controle: a mutação precisa mudar o conteúdo"
+    return mutado
+
+
+@pytest.mark.parametrize(
+    "nome_de_rota,caminho_relativo",
+    [
+        ("empresas:lista", "empresas/lista.html"),
+        ("tenancy:painel", "tenancy/painel.html"),
+        ("empresas:criar", "empresas/form.html"),  # DE-055
+    ],
+)
+def test_sabotagem_coerente_fora_da_contabilidade_esquecendo_o_titulo_mata_a_guarda(
+    client, cenario_bl344, tmp_path, nome_de_rota, caminho_relativo
+):
+    """BL-352/G2: reprodução da sabotagem que o auditor mediu contra
+    `templates/empresas/lista.html` — e, aqui, também contra `templates/
+    tenancy/painel.html` (a segunda rota que o relatório nomeou) e
+    `templates/empresas/form.html`/`empresas:criar` (construção própria,
+    DE-055). Chama a MESMA função que a guarda real usa
+    (`_assert_titulo_reflete_documento_ou_produto`) em vez de reafirmar em
+    paralelo o que ela "deveria" fazer — a prova de que a guarda MORRE,
+    NOMEANDO `nome_de_rota` na mensagem do `AssertionError`."""
+    caminho_real = _RAIZ_TEMPLATES / caminho_relativo
+    conteudo_antes = caminho_real.read_text(encoding="utf-8")
+    conteudo_mutado = _sabotar_tela_em_documento_coerente_esquecendo_o_titulo(
+        conteudo_antes, caminho_relativo=caminho_relativo
+    )
+
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+    (raiz_copia / caminho_relativo).write_text(conteudo_mutado, encoding="utf-8")
+
+    motor = copy.deepcopy(settings.TEMPLATES)
+    assert len(motor) == 1
+    motor[0]["DIRS"] = [raiz_copia]
+
+    assert client.login(username="gestora-bl344", password="senha-forte-123")
+    url = url_por_nome_de_rota(nome_de_rota, cenario_bl344)
+    with override_settings(TEMPLATES=motor):
+        resposta = client.get(url)
+        assert resposta.status_code == 200
+        html = resposta.content.decode()
+        # Controle: a sabotagem de fato introduziu timbre — sem isto, o
+        # resto do teste provaria outra coisa (uma tela que nunca deixou
+        # de ser "produto").
+        assert _tem_timbre_impressao(_parsear_html(html)), (
+            f"controle: a sabotagem em {caminho_relativo} não introduziu .timbre-impressao"
+        )
+        with pytest.raises(AssertionError, match=re.escape(nome_de_rota)):
+            _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html)
 
     # Fora do override: a tela volta ao normal, e o arquivo real nunca foi escrito.
     resposta_normal = client.get(url)

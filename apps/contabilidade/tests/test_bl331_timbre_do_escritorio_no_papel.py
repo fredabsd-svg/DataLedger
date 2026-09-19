@@ -57,6 +57,19 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _percorrer,
 )
 
+# BL-351 (bloqueador G1 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): `_algum_ancestral_
+# removido_do_papel` passou a classificar bloco aninhado por CONTEÚDO —
+# reprova só quando o bloco menciona algum identificador da CADEIA
+# recebida. A assinatura pública da função não mudou (continua
+# `(cadeia, css_texto)`); o que muda é que este arquivo agora precisa
+# das DUAS construções "escondendo o timbre" do achado F1 (BL-343), que
+# antes viviam em test_bl329_marca_fora_do_papel.py testadas contra a
+# cadeia da MARCA — sem sentido depois da correção por CONTEÚDO, porque
+# `.timbre-impressao` não é identificador daquela cadeia. Movidas para
+# cá, contra `_cadeia_do_timbre_do_escritorio()` — a cadeia que elas de
+# fato afetam.
+
 _BALANCETE_HTML = _RAIZ / "templates" / "contabilidade" / "balancete.html"
 
 
@@ -215,6 +228,104 @@ def test_sabotagem_remover_regra_que_reexibe_o_timbre_mata_a_guarda_pela_proprie
         "aprovando"
     )
     assert no_que_esconde is not None
+
+
+# ---------------------------------------------------------------------------
+# BL-343/F1 (auditoria DL-026, rodada 6) + BL-351 (rodada 7): as DUAS
+# construções "escondendo o timbre" da tabela do achado F1 — MOVIDAS de
+# test_bl329_marca_fora_do_papel.py para cá (ver comentário junto ao
+# import, no topo deste arquivo). `.timbre-impressao` É identificador da
+# cadeia do TIMBRE (`_cadeia_do_timbre_do_escritorio`), então a
+# classificação por CONTEÚDO (BL-351) reprova corretamente as duas —
+# ao contrário do que aconteceria se continuassem testadas contra a
+# cadeia da marca, em test_bl329.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "at_rule",
+    ["@media (min-width: 20rem)", "@supports (display: grid)"],
+)
+def test_f1_construcoes_que_escondem_o_timbre_reprovam_pedindo_extensao(tmp_path, at_rule):
+    """BL-343/F1, movida pelo BL-351: `{at_rule} { .timbre-impressao {
+    display: none; } }`, acrescentada ao FIM de uma CÓPIA do `base.css`
+    real (o `@media print` original intocado — exatamente como o auditor
+    mediu). Precisa reprovar PEDINDO EXTENSÃO: a simulação não sabe se
+    `{at_rule}` se aplica à impressão, e o bloco MENCIONA
+    `.timbre-impressao` — identificador da cadeia de interesse deste
+    arquivo."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = f"{at_rule} {{\n    .timbre-impressao {{\n        display: none;\n    }}\n}}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+# ---------------------------------------------------------------------------
+# BL-351 (bloqueador G1 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): a construção EXATA do
+# relatório do auditor que esconde o TIMBRE via CSS Nesting nativo, e a
+# variante de DOIS níveis de aninhamento (DE-055) que só a RECURSÃO da
+# classificação por conteúdo alcança.
+# ---------------------------------------------------------------------------
+
+
+def test_sabotagem_css_nesting_nativo_esconde_o_timbre_mata_a_guarda(tmp_path):
+    """G1 — a construção EXATA que o auditor mediu: `.conteudo-principal
+    { .timbre-impressao { display: none } }`, CSS Nesting NATIVO. Antes
+    do BL-351, o detector só abria o laço em `if texto[i] == "@"` — este
+    bloco nunca era visto, era içado como regra comum, e o timbre do
+    escritório saía apagado (folha sem emitente nenhum). Precisa
+    REPROVAR: `.timbre-impressao` é identificador da cadeia do timbre."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = ".conteudo-principal {\n    .timbre-impressao {\n        display: none;\n    }\n}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_sabotagem_css_nesting_dois_niveis_esconde_o_timbre_mata_a_guarda(tmp_path):
+    """DE-055 — construção MINHA: aninhamento de DOIS níveis
+    (`.conteudo-principal { .rodape { .timbre-impressao { display: none }
+    } }`), com a relevância só no bloco MAIS INTERNO — `.rodape` não é
+    identificador de interesse nenhum; só `.timbre-impressao`, dois
+    níveis abaixo do prelúdio externo, é. Prova que
+    `_identificadores_mencionados_no_bloco` de fato RECURSA (chama a si
+    mesma sobre cada bloco de nível superior do corpo) em vez de olhar só
+    um nível — se parasse no primeiro nível, veria só `conteudo-
+    principal`/`rodape` e classificaria o bloco como irrelevante por
+    engano, deixando o timbre desaparecer em silêncio."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = (
+        ".conteudo-principal {\n"
+        "    .rodape {\n"
+        "        .timbre-impressao {\n"
+        "            display: none;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
 
 
 # ---------------------------------------------------------------------------
