@@ -293,9 +293,9 @@ forma recomendada de se escrever CSS hoje, devolvem a marca do fornecedor ao
 papel ou apagam o timbre do escritório **com a suíte inteira verde**.
 
 ⚠️ **O que está em vigor na `main`, portanto:** o produto certo, e a guarda que
-aprovaria o produto errado. Os itens **continuam abertos** no backlog, com dono
-— **BL-351** (bloqueador) e **BL-352** em correção; **BL-353** a **BL-359** como
-ressalvas declaradas.
+aprovaria o produto errado. **BL-351**, **BL-352**, **BL-353**, **BL-360** e
+**BL-361** estão corrigidos na branch e **ainda não na `main`**; **BL-354** a
+**BL-359** seguem como ressalvas declaradas, com dono e momento no backlog.
 
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
@@ -327,12 +327,29 @@ caso principal é **anterior** à rodada 10 e nunca esteve no escopo do BL-351 �
 não é regressão. É a **nona** ocorrência de "lista em vez de propriedade" nesta
 etapa: prelúdio (BL-343) → caractere de abertura (BL-351) → gramática do seletor.
 
-**A rodada 11 está em curso**, com BL-360 e **BL-361** (o recorte da guarda de
-título voltou a ser lista; a condição *"não tem título para julgar"* é
-verificável em tempo de execução e vira `skip` nomeando a rota). Custo da
-correção do BL-360 **medido por mim antes de pedi-la**: o `base.css` real tem 5
+**A rodada 11 fechou os dois**, na mesma branch. O BL-360 foi corrigido pela
+**recusa**, não pela extensão da gramática: regra que declare propriedade de
+interesse com seletor que o motor não sabe ler faz a guarda **recusar julgar** —
+o mesmo mecanismo que o arquivo já usava para at-rule. O conjunto do que se
+recusa é **derivado do que o motor sabe ler**, não uma lista do que ele não sabe:
+apara tipo, classe e pseudo-classe simples, e o que sobrar recusa. A linguagem
+cresce; a lista do que ele sabe ler, não. O **BL-361** tirou a última lista do
+caminho: a guarda de título roda sobre o universo inteiro e pula, **nomeando a
+rota e o código**, só quando a resposta é redirecionamento.
+
+Custo da recusa, **medido por mim antes de pedi-la**: o `base.css` real tem 5
 seletores de atributo e 1 universal, e **nenhum declara `display`** — a recusa,
-delimitada por propriedade de interesse, dispara **zero** vezes hoje.
+delimitada por propriedade de interesse, dispara **zero** vezes hoje. Não é falso
+alarme (BL-321); é recusa onde o motor de fato não sabe.
+
+**Verificação minha da rodada 11, com a máquina livre:** os dois falsos conformes
+viraram recusa; o controle **sem** sabotagem continua aprovando; as sete
+construções que eu guardara na rodada 10 continuam corretas; e **dez construções
+novas**, que nenhuma das duas rodadas conhecia, saíram **dez de dez** — quatro
+delas mirando especificamente a divergência entre as **duas** noções de *"declara
+propriedade de interesse"*, que é a classe do BL-352. Suíte: **1871 passed, 15
+skipped** em 67,2s; `ruff check` limpo; `ruff format --check` 204 arquivos;
+`manage.py check` limpo.
 
 **Decisão do Fred em 2026-09-19, depois de eu recomendar esperar:** nenhum
 trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
