@@ -123,6 +123,44 @@ SELETOR_TIMBRE_FILHOS = ".timbre-impressao p"
 # se provam JUNTAS — uma sozinha não garante que o papel saiu identificado.
 MARCA_DO_FORNECEDOR = "DataLedger"
 
+# ---------------------------------------------------------------------------
+# Piso de regressão — LIMITE ESTRUTURAL da derivação, medido construindo o
+# instrumento (não hipotetizado), e a resposta ao eixo do BL-363 que o
+# arquiteto pediu para esta fatia: "reprova NOMEANDO a tela, sem ser uma
+# lista escrita à mão que a derivação existe para evitar".
+#
+# `_descobrir_telas_com_timbre` deriva o CRESCIMENTO corretamente (uma tela
+# nova que ganhe `.timbre-impressao` entra sozinha) — mas MEDIDO aqui,
+# sabotando `templates/contabilidade/razao.html` (removendo só o bloco do
+# timbre, nada de CSS): o instrumento saiu com "2 telas derivadas" e
+# **código 0** — a Razão não RECEBE nota reprovada, ela simplesmente
+# DEIXA DE EXISTIR para o instrumento, porque a única coisa que o
+# qualifica como candidata é a MESMA marca que a sabotagem apagou. Isso
+# vale para QUALQUER derivação por presença de marcador — inclusive a
+# varredura estática de `templates/**` que a correção do BL-363 no motor
+# simulado (rodada 12 da DL-026, arquivo disjunto) também usa: as duas
+# têm o MESMO limite estrutural, porque as duas partem do mesmo sinal.
+#
+# Não existe marcador estrutural independente e confiável para "esta tela
+# É um documento que precisa de timbre" — MEDIDO: `table.tabela-dados`
+# também aparece em Conferência, Plano de Contas e no detalhe do
+# lançamento, que CORRETAMENTE não têm timbre (H2/rodada 8: são telas de
+# TRABALHO, não documentos entregues ao cliente). Adotar essa classe como
+# universo produziria falso alarme nas telas de trabalho (BL-321).
+#
+# A saída, sem reintroduzir a lista proibida pelo BL-363 (aquela era o
+# ÚNICO lugar que decidia QUAIS telas existem — cresce e encolhe junto
+# com o produto sem ninguém tocar): um PISO pequeno, versionado à parte,
+# que decide só REGRESSÃO. `_descobrir_telas_com_timbre` continua sendo a
+# fonte para o que EXISTE (cresce sozinha); este conjunto é o mínimo que
+# TEM que continuar existindo — o critério 3 da DL-026 ("Balancete,
+# Diário, Razão"), já normativo hoje, sem esperar navegador nenhum para
+# ser verdade. Se o produto legitimamente aposentar uma dessas telas,
+# ALGUÉM edita esta linha — mudança visível, revisada, não divergência
+# silenciosa entre duas cópias da mesma lista (que É o que o BL-352/363
+# proíbe).
+TELAS_MINIMAS_COM_TIMBRE_ESPERADAS = frozenset({"balancete", "diario", "razao"})
+
 
 def _recusar(mensagem):
     """Saída de código `2` — FALHA DE INFRAESTRUTURA (ver a tabela de
@@ -459,6 +497,21 @@ def main(argv):
         file=sys.stderr,
     )
 
+    # Piso de regressão (ver o comentário de TELAS_MINIMAS_COM_TIMBRE_
+    # ESPERADAS): computado sobre o conjunto DERIVADO completo, sempre —
+    # independente de `--telas=`, que é um filtro de CONVENIÇÃO de bancada
+    # para a medição no navegador, não para esta checagem (barata, sem
+    # navegador nenhum). Uma tela do piso que a varredura NÃO achou vira
+    # reprovação de CONTEÚDO nomeada, mesmo sem HTML nenhum para medir —
+    # é exatamente o caso em que não HÁ HTML com o marcador para medir.
+    telas_do_piso_ausentes = sorted(TELAS_MINIMAS_COM_TIMBRE_ESPERADAS - telas.keys())
+    reprovacoes_do_piso = [
+        f"{nome}: tela do piso mínimo (critério 3 da DL-026) NÃO encontrada pela "
+        "varredura — o timbre pode ter sido removido inteiro do template, não só "
+        "escondido por CSS"
+        for nome in telas_do_piso_ausentes
+    ]
+
     nomes_para_medir = sorted(telas if filtro_telas is None else (telas.keys() & filtro_telas))
     if filtro_telas and not nomes_para_medir:
         _recusar(
@@ -540,6 +593,17 @@ def main(argv):
             if motivos:
                 reprovacoes.append(f"{nome}: {'; '.join(motivos)}")
 
+        for nome in telas_do_piso_ausentes:
+            relatorio[nome] = {
+                "url": None,
+                "rota": None,
+                "veredito": "AUSENTE (piso mínimo)",
+                "motivos": [
+                    "tela do piso mínimo (critério 3 da DL-026) não encontrada pela varredura"
+                ],
+            }
+        reprovacoes = reprovacoes_do_piso + reprovacoes
+
         tempo = time.monotonic() - inicio
         print(json.dumps(relatorio, ensure_ascii=False, indent=2))
         for nome, entrada in relatorio.items():
@@ -549,9 +613,10 @@ def main(argv):
             print(f"PDFs preservados em: {pasta_informada}", file=sys.stderr)
 
         if reprovacoes:
+            total_telas_consideradas = len(nomes_para_medir) + len(telas_do_piso_ausentes)
             detalhe = "\n".join(f"  - {linha}" for linha in reprovacoes)
             _reprovar_por_conteudo(
-                f"{len(reprovacoes)} de {len(nomes_para_medir)} tela(s) sem "
+                f"{len(reprovacoes)} de {total_telas_consideradas} tela(s) sem "
                 f"identificação completa do emitente no papel:\n{detalhe}"
             )
 

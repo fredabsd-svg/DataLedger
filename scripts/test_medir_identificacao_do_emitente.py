@@ -160,3 +160,22 @@ def test_com_saida_de_infraestrutura_nao_mascara_excecao_diferente_de_systemexit
 
     with pytest.raises(ValueError):
         instrumento._com_saida_de_infraestrutura(explode)
+
+
+# ---------------------------------------------------------------------------
+# Piso de regressão (TELAS_MINIMAS_COM_TIMBRE_ESPERADAS) — a resposta ao
+# eixo do BL-363 no instrumento novo (Fred/arquiteto-senior, DL-028 fatia
+# 2): MEDIDO construindo o instrumento que uma sabotagem em
+# `templates/contabilidade/razao.html` que remove o bloco do timbre
+# INTEIRO faz a derivação por presença de marcador simplesmente NÃO achar
+# a tela — sem este piso, o instrumento saía com código 0 (sucesso) e
+# "2 telas derivadas", nunca nomeando a Razão. Este teste não reproduz a
+# sabotagem (exigiria Django) — verifica só a CONSTANTE que ancora a
+# checagem, para que ninguém a esvazie ou apague sem notar.
+# ---------------------------------------------------------------------------
+
+
+def test_piso_de_telas_esperadas_tem_as_tres_telas_do_criterio_3_da_dl026():
+    assert instrumento.TELAS_MINIMAS_COM_TIMBRE_ESPERADAS == frozenset(
+        {"balancete", "diario", "razao"}
+    )
