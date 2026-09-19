@@ -315,7 +315,7 @@ conjunto de propriedades que ele considera** e **onde a cadeia termina**.
 `_PROPRIEDADES_DE_INTERESSE = ("display",)` é uma lista de **um item**, a quinze
 linhas de um motor reescrito **três vezes**, e ela sobreviveu às três porque as
 três atacaram o **seletor**. Resultado medido em Chromium e em PDF A4 do produto:
-**onze construções banais apagam a identificação do escritório da folha que o
+**dez construções banais apagam a identificação do escritório da folha que o
 contador entrega ao cliente, com a suíte inteira verde** (BL-362, bloqueador), e
 a cadeia do timbre é derivada só do Balancete — Diário e Razão são cobertos por
 uma cadeia que não é a deles (BL-363, alto). BL-364 e BL-365 ficam como
@@ -344,7 +344,7 @@ olhar o eixo ao lado para o achado voltar ao tamanho de bloqueador.
 Ele recomenda **trocar o instrumento**, e metade da troca já está escrita e
 paga: `visivelDeVerdade` (`docs/assets/design/gauntlet/juiz.py`) já é a
 derivação certa — três medições gerais, limites medidos e declarados — e cobre
-as onze construções **sem saber que elas existem**; `scripts/medir_impressao.py`
+as dez construções **sem saber que elas existem**; `scripts/medir_impressao.py`
 já sobe o produto real e gera PDF A4. O que falta é **apontar o juiz para o
 produto em vez de para os protótipos** e pôr a medição no ciclo.
 

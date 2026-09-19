@@ -2915,7 +2915,7 @@ execução: [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md).
 A DL-026 teve oito auditorias e onze rodadas. As onze percorreram **um eixo** —
 *o que o motor de cascata simulado consegue ler* — e o achado encolhia a cada
 passo, o que eu li como convergência. Na oitava auditoria o auditor olhou o eixo
-**ao lado** e o achado voltou a bloqueador: **onze construções banais de CSS
+**ao lado** e o achado voltou a bloqueador: **dez construções banais de CSS
 apagam a identificação do escritório da folha A4 que o contador entrega ao
 cliente, com a suíte inteira verde**, medidas em Chromium e em PDF do produto.
 

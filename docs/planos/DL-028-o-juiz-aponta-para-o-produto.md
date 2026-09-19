@@ -30,7 +30,7 @@ olhou o **eixo ao lado** e o achado voltou ao tamanho de bloqueador:
 `_PROPRIEDADES_DE_INTERESSE = ("display",)`, uma lista de **um item**, a quinze
 linhas de um motor reescrito **três vezes**.
 
-Resultado medido em Chromium e em PDF A4 do produto: **onze construções banais
+Resultado medido em Chromium e em PDF A4 do produto: **dez construções banais
 apagam a identificação do escritório da folha que o contador entrega ao
 cliente, com a suíte inteira verde.**
 
@@ -72,8 +72,19 @@ novo:
 - **`visivelDeVerdade`** (`docs/assets/design/gauntlet/juiz.py`) já é a
   derivação certa: `Element.checkVisibility({checkOpacity, checkVisibilityCSS})`
   **mais** área do retângulo **mais** alcançabilidade, com os limites medidos e
-  **declarados**. São três medições **gerais** — ela cobre as onze construções
-  do BL-362 **sem saber que elas existem**.
+  **declarados**. São três medições **gerais** — ela cobre **nove** das dez
+  construções do BL-362 **sem saber que elas existem**.
+
+  ⚠️ **Correção minha, medida pelo `desenvolvedor-pleno` ao executar a fatia
+  1:** a frase original deste plano dizia "as dez", e estava **errada**. A
+  décima é `color: transparent`, e ela escapa por **dois** caminhos ao mesmo
+  tempo: `checkVisibility` não muda com a tinta, e o `pdftotext` lê o **objeto**
+  de texto, não o pixel — o glifo continua no PDF, só pintado invisível. Ele
+  mediu (`"veredito": "PASSOU"` com a tinta zerada), fechou o buraco **fora** da
+  `visivelDeVerdade` — acrescentando a cor efetiva à sonda e uma checagem de
+  alfa zero — e **não** contaminou a função geral que o gauntlet também usa.
+  É o limite declarado dela sendo tratado como limite em vez de herdado em
+  silêncio: a [DE-056](../projeto/decisoes.md) aplicada sem que ninguém pedisse.
 - **`SONDA_IMPRESSAO`** e **`SONDA_IMPRESSAO_TIMBRE`** já fazem a pergunta sob
   `emulate_media("print")`.
 - **`scripts/medir_impressao.py`** já sobe o produto real com banco semeado e
@@ -94,7 +105,7 @@ para um módulo reutilizável; criar o ponto de entrada que sobe o produto real
 (reaproveitando `scripts/medir_impressao.py`), navega às telas com timbre e
 responde, **por medição do navegador**, se cada emitente exigido está
 efetivamente visível no papel. Sem CI ainda: a fatia entrega o instrumento e a
-prova de que ele pega as onze construções do BL-362.
+prova de que ele pega as dez construções do BL-362.
 
 **Fatia 2 — o instrumento entra no ciclo.** Job de integração contínua
 delimitado por `paths:`, instalando Chromium por `playwright install
@@ -114,7 +125,7 @@ existe, a guarda atual não pode continuar simplesmente errada.
 
 ## Critérios de aceite
 
-1. **As onze construções do BL-362 são pegas pelo instrumento novo**, medidas
+1. **As dez construções do BL-362 são pegas pelo instrumento novo**, medidas
    em Chromium com `emulate_media("print")`, e a prova está em PDF A4 lido com
    `pdftotext` — não só na afirmação do próprio instrumento.
 2. **O controle sem sabotagem passa.** Falso alarme na integração contínua é,
