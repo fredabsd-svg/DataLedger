@@ -44,6 +44,8 @@ Dados: nenhum. Este arquivo não usa banco de dados — só lê
 `tmp_path` (BL-311: nunca no arquivo real).
 """
 
+import pytest
+
 from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _BASE_CSS,
     _BASE_HTML,
@@ -213,3 +215,88 @@ def test_sabotagem_remover_regra_que_reexibe_o_timbre_mata_a_guarda_pela_proprie
         "aprovando"
     )
     assert no_que_esconde is not None
+
+
+# ---------------------------------------------------------------------------
+# BL-348 (F6 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): o parser tolerante
+# (`_parsear_html`, test_bl329_marca_fora_do_papel.py) TRUNCAVA em silêncio
+# quando um comentário de gabarito continha uma palavra entre "<" e ">"
+# que colidisse com "title"/"textarea" (html.parser.HTMLParser.
+# RCDATA_CONTENT_ELEMENTS) — e, quando reclamava (por ACIDENTE, via outro
+# controle), a mensagem mandava "ajustar `_no_do_timbre_do_escritorio`",
+# apontando para este arquivo em vez de para o TEMPLATE. Duas provas, nas
+# MESMAS duas posições que o auditor mediu (antes e depois do
+# `.timbre-impressao`):
+#
+# 1. A sabotagem EXATA que o auditor reproduziu — a palavra dentro de um
+#    `{% comment %}` de verdade — agora é NEUTRALIZADA: comentário de
+#    gabarito nunca chega ao HTML entregue, `_parsear_html` remove o
+#    bloco INTEIRO antes do parse, e a mesma sabotagem fica sem efeito
+#    algum (nem trunca, nem precisa reprovar — não há mais defeito).
+# 2. O CONTROLE DE NÃO-TRUNCAMENTO segura o que a remoção de comentários
+#    NÃO cobre, de propósito: a mesma palavra FORA de qualquer
+#    `{% comment %}` — marcação malformada de verdade, não comentário —,
+#    reprovando com mensagem que nomeia o TEMPLATE como causa.
+# ---------------------------------------------------------------------------
+
+
+def _balancete_mutado(tmp_path, *, sabotagem_antes="", sabotagem_depois=""):
+    """Cópia de `templates/contabilidade/balancete.html` (BL-311: nunca o
+    arquivo real) com texto arbitrário inserido imediatamente ANTES e/ou
+    DEPOIS do `<div class="timbre-impressao">`."""
+    conteudo = _BALANCETE_HTML.read_text(encoding="utf-8")
+    alvo = '<div class="timbre-impressao">'
+    assert alvo in conteudo, "controle: marcador do timbre não encontrado em balancete.html"
+    mutado = conteudo.replace(alvo, sabotagem_antes + alvo + sabotagem_depois, 1)
+    assert mutado != conteudo, "controle: a mutação precisa mudar o conteúdo"
+    caminho = tmp_path / "balancete-mutado.html"
+    caminho.write_text(mutado, encoding="utf-8")
+    return caminho
+
+
+@pytest.mark.parametrize("posicao", ["antes", "depois"])
+def test_palavra_entre_menor_e_maior_dentro_de_comment_de_gabarito_e_neutralizada(
+    tmp_path, posicao
+):
+    """Reprodução EXATA de S5a/S5c do achado F6: um bloco `{% comment %}`
+    contendo a palavra "title" entre "<" e ">", nas DUAS posições que o
+    auditor testou. ANTES desta correção: "depois" truncava a árvore em
+    silêncio (`1775 passed`, nada reclamava); "antes" reprovava só por
+    ACIDENTE, via outro controle não relacionado, com mensagem que mandava
+    mexer neste arquivo. Agora `_parsear_html` remove o bloco de
+    comentário INTEIRO antes do parse — comentário de gabarito nunca
+    chega ao HTML entregue —, então a MESMA sabotagem fica sem efeito
+    nenhum: o timbre continua sendo encontrado normalmente, nas duas
+    posições."""
+    comentario = "{% comment %}\nver <title> aqui\n{% endcomment %}\n"
+    caminho_mutado = _balancete_mutado(
+        tmp_path,
+        sabotagem_antes=comentario if posicao == "antes" else "",
+        sabotagem_depois=comentario if posicao == "depois" else "",
+    )
+    raiz = _parsear_html(caminho_mutado.read_text(encoding="utf-8"))
+    tem_timbre = any("timbre-impressao" in no.classes for no in _percorrer(raiz))
+    assert tem_timbre, (
+        f"posição {posicao!r}: o comentário de gabarito com uma palavra entre "
+        f"'<' e '>' NÃO deveria mais afetar o parse — e o timbre sumiu da árvore"
+    )
+
+
+@pytest.mark.parametrize("posicao", ["antes", "depois"])
+def test_palavra_entre_menor_e_maior_fora_de_comment_reprova_nomeando_o_template(tmp_path, posicao):
+    """Controle de NÃO-TRUNCAMENTO (BL-348/F6): a MESMA palavra, agora
+    FORA de qualquer bloco `{% comment %}` — marcação malformada de
+    VERDADE, o caso que a remoção de comentários não cobre, de propósito
+    (não é comentário de gabarito; é erro real de template) —, nas
+    mesmas duas posições. `_parsear_html` precisa REPROVAR (nunca truncar
+    em silêncio), com mensagem que NOMEIE o template como causa provável
+    — não "ajuste este arquivo de teste"."""
+    sabotagem = "texto solto <title> sem fechamento\n"
+    caminho_mutado = _balancete_mutado(
+        tmp_path,
+        sabotagem_antes=sabotagem if posicao == "antes" else "",
+        sabotagem_depois=sabotagem if posicao == "depois" else "",
+    )
+    with pytest.raises(AssertionError, match="CONFIRA O TEMPLATE"):
+        _parsear_html(caminho_mutado.read_text(encoding="utf-8"))

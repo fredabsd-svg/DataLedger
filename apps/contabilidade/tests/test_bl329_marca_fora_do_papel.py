@@ -963,9 +963,7 @@ def test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova(tmp_p
 
     caminho_mutado = tmp_path / "base-mutado.css"
     css_mutado = css_original + (
-        "\n\n@media screen {\n"
-        "    .cabecalho__topo {\n        display: flex;\n    }\n"
-        "}\n"
+        "\n\n@media screen {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n"
     )
     assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
     caminho_mutado.write_text(css_mutado, encoding="utf-8")
@@ -1013,35 +1011,19 @@ def test_at_rule_mencionando_print_fora_do_bloco_tratado_reprova_pedindo_extensa
 
 
 @pytest.mark.parametrize(
-    "rotulo,bloco_css",
+    "rotulo,at_rule,seletor,declaracao",
     [
-        (
-            "@media (min-width: 20rem) reexibindo a marca",
-            "@media (min-width: 20rem) {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
-        ),
-        (
-            "@supports (display: grid) reexibindo a marca",
-            "@supports (display: grid) {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
-        ),
-        (
-            "@media all reexibindo a marca",
-            "@media all {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
-        ),
-        (
-            "@layer reexibindo a marca",
-            "@layer {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n",
-        ),
-        (
-            "@media (min-width: 20rem) escondendo o timbre",
-            "@media (min-width: 20rem) {\n    .timbre-impressao {\n        display: none;\n    }\n}\n",
-        ),
-        (
-            "@supports (display: grid) escondendo o timbre",
-            "@supports (display: grid) {\n    .timbre-impressao {\n        display: none;\n    }\n}\n",
-        ),
+        ("reexibindo a marca", "@media (min-width: 20rem)", ".cabecalho__topo", "display: flex;"),
+        ("reexibindo a marca", "@supports (display: grid)", ".cabecalho__topo", "display: flex;"),
+        ("reexibindo a marca", "@media all", ".cabecalho__topo", "display: flex;"),
+        ("reexibindo a marca", "@layer", ".cabecalho__topo", "display: flex;"),
+        ("escondendo o timbre", "@media (min-width: 20rem)", ".timbre-impressao", "display: none;"),
+        ("escondendo o timbre", "@supports (display: grid)", ".timbre-impressao", "display: none;"),
     ],
 )
-def test_f1_construcoes_que_mudam_o_papel_reprovam_pedindo_extensao(tmp_path, rotulo, bloco_css):
+def test_f1_construcoes_que_mudam_o_papel_reprovam_pedindo_extensao(
+    tmp_path, rotulo, at_rule, seletor, declaracao
+):
     """BL-343/F1: as SEIS construções da tabela do achado (Chromium 1194 +
     PDF A4 reais, docs/auditorias/2026-09-19-dl-026-rodada-6.md) que a
     guarda ANTIGA tratava como "nunca se aplicam à impressão" só porque o
@@ -1054,6 +1036,7 @@ def test_f1_construcoes_que_mudam_o_papel_reprovam_pedindo_extensao(tmp_path, ro
     _, cadeia = _cadeia_da_marca()
     css_original = _BASE_CSS.read_text(encoding="utf-8")
 
+    bloco_css = f"{at_rule} {{\n    {seletor} {{\n        {declaracao}\n    }}\n}}\n"
     caminho_mutado = tmp_path / "base-mutado.css"
     css_mutado = css_original + "\n\n" + bloco_css
     assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"

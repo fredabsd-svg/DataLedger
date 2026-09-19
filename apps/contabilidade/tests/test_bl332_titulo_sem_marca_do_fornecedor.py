@@ -66,6 +66,14 @@ from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
 from apps.contabilidade.services import criar_lancamento
+from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
+    _parsear_html,
+    _tem_timbre_impressao,
+)
+from apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade import (
+    NOMES_DE_TELA_DE_CONTABILIDADE,
+    _urls_de_contabilidade,
+)
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -245,4 +253,188 @@ def test_sabotagem_remover_a_sobrescrita_do_bloco_faz_a_marca_voltar(
     resposta_normal = client.get(_urls(cen)[tela])
     titulo_normal = _titulo_renderizado(resposta_normal.content.decode())
     assert "DataLedger" not in titulo_normal
+    assert caminho_real.read_text(encoding="utf-8") == conteudo_antes
+
+
+# ---------------------------------------------------------------------------
+# BL-344 (F2 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): a guarda ACIMA
+# (`test_titulo_do_documento_nao_contem_a_marca_do_fornecedor`) é
+# parametrizada por uma LISTA de três nomes escritos à mão
+# (`["balancete", "diario", "razao"]`) — e o auditor mediu que uma QUARTA
+# tela transformada em documento (`.timbre-impressao` no HTML, exatamente
+# o que qualquer módulo novo vai fazer), ESQUECENDO de sobrescrever
+# `titulo_sufixo_do_fornecedor`, imprime "— DataLedger" em toda folha com
+# `1775 passed` — a suíte inteira verde.
+#
+# O arquivo IRMÃO escrito no MESMO DIA (test_bl338_operador_fora_do_
+# papel.py) já tinha a derivação CERTA para a MESMA pergunta ("esta tela é
+# documento?"): presença ESTRUTURAL de `.timbre-impressao` no HTML
+# RENDERIZADO, parametrizada sobre `NOMES_DE_TELA_DE_CONTABILIDADE`. A
+# guarda abaixo COMPARTILHA essa derivação — `_tem_timbre_impressao`,
+# movida para test_bl329_marca_fora_do_papel.py (o módulo-base que os
+# dois arquivos já importam) — em vez de duplicá-la: a propriedade é
+# *"toda tela cujo HTML contém `.timbre-impressao` tem `<title>` SEM o
+# nome do fornecedor; toda tela SEM `.timbre-impressao` tem `<title>` COM
+# ele"*, testada sobre as OITO telas de `NOMES_DE_TELA_DE_CONTABILIDADE`
+# (não só as três documentos — o controle negativo das outras cinco entra
+# de graça, pela MESMA parametrização).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cenario_bl344():
+    """Mesmo formato de `cenario_bl338`
+    (test_bl338_operador_fora_do_papel.py) — escritório, empresa, duas
+    contas e um lançamento — porque `_urls_de_contabilidade` (BL-334,
+    test_dl024_atalhos_e_acessibilidade.py) exige `empresa`, `caixa` e
+    `lancamento` para montar a URL das OITO telas de contabilidade, não
+    só as três documentos que a fixture `cen` (acima) cobria."""
+    escritorio = Escritorio.objects.create(nome="Escritório BL-344", cnpj="88899900000122")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa BL-344 Ltda", cnpj="88899900000213"
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2",
+        nome="Capital Social",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    usuario = get_user_model().objects.create_user(
+        username="gestora-bl344",
+        email="gestora-bl344@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    lancamento = criar_lancamento(
+        empresa=empresa,
+        data=timezone.localdate(),
+        historico="BL-344 — movimento para as telas terem o que mostrar",
+        itens=[
+            {"conta": caixa, "tipo": "debito", "valor": Decimal("100.00")},
+            {"conta": capital, "tipo": "credito", "valor": Decimal("100.00")},
+        ],
+        criado_por=usuario,
+        chave_idempotencia="k-bl344",
+    )
+    return {"escritorio": escritorio, "empresa": empresa, "caixa": caixa, "lancamento": lancamento}
+
+
+@pytest.mark.parametrize("nome_tela", sorted(NOMES_DE_TELA_DE_CONTABILIDADE))
+def test_titulo_reflete_se_a_tela_e_documento_ou_produto(client, cenario_bl344, nome_tela):
+    """BL-344/F2: a propriedade central, DERIVADA do HTML renderizado —
+    nunca de uma lista de nomes escrita à mão. Roda sobre as OITO telas
+    de `NOMES_DE_TELA_DE_CONTABILIDADE`: as três que têm timbre hoje
+    (Balancete/Diário/Razão) precisam continuar sem a marca; as cinco que
+    não têm (Plano de contas, Nova conta, Conferência, Novo lançamento,
+    Detalhe do lançamento) precisam continuar COM ela — e uma sexta tela
+    nova, futura, que ganhe timbre sem que ninguém lembre de atualizar
+    esta lista, é pega pela MESMA pergunta, porque a pergunta é sobre o
+    HTML, não sobre o nome da rota."""
+    assert client.login(username="gestora-bl344", password="senha-forte-123")
+    url = _urls_de_contabilidade(cenario_bl344)[nome_tela]
+    resposta = client.get(url)
+    assert resposta.status_code == 200, f"{nome_tela}: {resposta.status_code}"
+    html = resposta.content.decode()
+
+    tem_timbre = _tem_timbre_impressao(_parsear_html(html))
+    titulo = _titulo_renderizado(html)
+    assert titulo.strip() != "", (nome_tela, titulo)
+
+    if tem_timbre:
+        assert "DataLedger" not in titulo, (
+            f"{nome_tela} TEM timbre de impressão (é DOCUMENTO), mas o <title> "
+            f"continua trazendo a marca do fornecedor: {titulo!r}"
+        )
+    else:
+        assert "DataLedger" in titulo, (
+            f"{nome_tela} NÃO TEM timbre de impressão (é tela de PRODUTO), mas "
+            f"o <title> perdeu a marca do fornecedor: {titulo!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Prova por mutação (BL-311: sabotagem só em CÓPIA em tmp_path). Reprodução
+# EXATA da sabotagem que o auditor mediu contra `lancamento_detalhe`
+# (F2) — repetida também contra `conferencia`, como o critério de
+# aceite pede.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "nome_tela,caminho_relativo",
+    [
+        ("lancamento_detalhe", "contabilidade/lancamento_detalhe.html"),
+        ("conferencia", "contabilidade/conferencia.html"),
+    ],
+)
+def test_sabotagem_transformar_tela_em_documento_esquecendo_o_titulo_mata_a_guarda(
+    client, cenario_bl344, tmp_path, nome_tela, caminho_relativo
+):
+    """BL-344/F2: transforma `nome_tela` numa tela de DOCUMENTO —
+    ganha `.timbre-impressao` no HTML, exatamente como qualquer módulo
+    novo (Fiscal, Folha, Honorários...) vai fazer — e ESQUECE de
+    sobrescrever `titulo_sufixo_do_fornecedor`: a MESMA omissão que o
+    auditor mediu contra `lancamento_detalhe` (e, aqui, repetida também
+    contra `conferencia`, como o critério de aceite pede). Antes do
+    BL-344, a guarda de título só conhecia três nomes fixos — nenhuma das
+    duas telas estava nela — e a suíte ficava inteira verde com "—
+    DataLedger" saindo em toda folha. Agora a propriedade acima
+    (`test_titulo_reflete_se_a_tela_e_documento_ou_produto`) é DERIVADA
+    do HTML: este teste prova que a MESMA condição que a sabotagem produz
+    — timbre presente E marca do fornecedor no título — é exatamente a
+    que faz aquela guarda REPROVAR, nomeando a tela."""
+    caminho_real = _RAIZ_TEMPLATES / caminho_relativo
+    conteudo_antes = caminho_real.read_text(encoding="utf-8")
+
+    marcador = "{% block content %}"
+    assert marcador in conteudo_antes, (
+        f"controle: marcador de content não encontrado em {caminho_relativo}"
+    )
+    sobrescrita = (
+        marcador + '\n    <div class="timbre-impressao"><p>Escritório sabotado (BL-344)</p></div>\n'
+    )
+    conteudo_mutado = conteudo_antes.replace(marcador, sobrescrita, 1)
+    assert conteudo_mutado != conteudo_antes, "controle: a mutação precisa mudar o conteúdo"
+
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+    (raiz_copia / caminho_relativo).write_text(conteudo_mutado, encoding="utf-8")
+
+    motor = copy.deepcopy(settings.TEMPLATES)
+    assert len(motor) == 1
+    motor[0]["DIRS"] = [raiz_copia]
+
+    assert client.login(username="gestora-bl344", password="senha-forte-123")
+    url = _urls_de_contabilidade(cenario_bl344)[nome_tela]
+    with override_settings(TEMPLATES=motor):
+        resposta = client.get(url)
+        assert resposta.status_code == 200
+        html = resposta.content.decode()
+        tem_timbre = _tem_timbre_impressao(_parsear_html(html))
+        assert tem_timbre, "controle: a sabotagem precisa ter introduzido .timbre-impressao"
+        titulo = _titulo_renderizado(html)
+        assert "DataLedger" in titulo, (
+            "a sabotagem deveria ter reproduzido a omissão do achado F2 — tela "
+            "transformada em documento (tem timbre) mas com o título ainda trazendo "
+            f"a marca do fornecedor: {titulo!r}. Isto é EXATAMENTE o estado (tem_timbre="
+            "True e 'DataLedger' in titulo) que faz "
+            "test_titulo_reflete_se_a_tela_e_documento_ou_produto REPROVAR para "
+            f"{nome_tela!r} — a prova de que a guarda morre, nomeando a tela."
+        )
+
+    # Fora do override: a tela volta ao normal, e o arquivo real nunca foi escrito.
+    resposta_normal = client.get(url)
+    titulo_normal = _titulo_renderizado(resposta_normal.content.decode())
+    assert "DataLedger" in titulo_normal
     assert caminho_real.read_text(encoding="utf-8") == conteudo_antes

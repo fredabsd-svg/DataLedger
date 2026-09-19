@@ -133,6 +133,16 @@ USUARIO_DE_MEDICAO = "medicao"
 PERIODO_INICIO = "2026-03-01"
 PERIODO_FIM = "2026-03-31"
 
+# BL-347 (F5 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): nome da família
+# declarada nas `@font-face` de `static/css/base.css` — usado pelo
+# SUBPROCESSO (Python do sistema, que não importa nada deste projeto)
+# para conferir, no MOMENTO de gerar cada PDF, que a troca de
+# `font-display: swap` já aconteceu. Se o CSS renomear a família, este
+# script precisa mudar junto — o mesmo acoplamento que já existia, em
+# prosa, entre os dois arquivos (ver o comentário das `@font-face`).
+FAMILIA_DA_FONTE = "IBM Plex Serif"
+
 MODOS_DE_IMPRESSAO = {
     "sem-cabecalho": {
         "display_header_footer": False,
@@ -326,6 +336,31 @@ pasta_html = Path(especificacao["pasta_html"])
 pasta_saida = Path(especificacao["pasta_saida"])
 nomes = especificacao["nomes"]
 modos = especificacao["modos"]
+familia_da_fonte = especificacao["familia_da_fonte"]
+
+# BL-347 (F5 da auditoria DL-026, rodada 6): as @font-face de
+# static/css/base.css usam `font-display: swap` — o navegador pinta com a
+# fonte de RESERVA primeiro e troca DEPOIS; um `page.pdf()` disparado
+# antes da troca produz um PDF PERFEITAMENTE VÁLIDO com a fonte ERRADA
+# (altura de linha diferente -> contagem de página diferente), sem nada
+# denunciar isso. `goto(wait_until="networkidle")`, sozinho, NÃO espera
+# essa troca. Medido pelo auditor NELE MESMO, sem querer: mesmas páginas,
+# mesmo protocolo, só mudando a espera -> 18/9 linhas visíveis (fonte de
+# reserva) contra 14/5 (fonte certa, igual ao servidor real).
+#
+# A correção: esperar `document.fonts.ready` (a troca já aconteceu) E,
+# no MOMENTO de gerar cada PDF, CONFERIR que a família pedida está ativa
+# nos DOIS pesos que a tabela usa (regular para o corpo, negrito para o
+# cabeçalho) — um instrumento que mede precisa RECLAMAR quando sai da
+# faixa em que a medição é válida, nunca devolver um número calculado com
+# a fonte errada.
+_JS_FONTES_ATIVAS = '''
+(familia) => document.fonts.ready.then(() => (
+    [`1rem "${familia}"`, `bold 1rem "${familia}"`].every(
+        (consulta) => document.fonts.check(consulta)
+    )
+))
+'''
 
 pasta_saida.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as p:
@@ -333,6 +368,17 @@ with sync_playwright() as p:
     pagina = navegador.new_page()
     for nome in nomes:
         pagina.goto((pasta_html / f"{nome}.html").as_uri(), wait_until="networkidle")
+        fontes_ativas = pagina.evaluate(_JS_FONTES_ATIVAS, familia_da_fonte)
+        if not fontes_ativas:
+            print(
+                f"RECUSADO: a fonte {familia_da_fonte!r} (regular e/ou negrito) NAO "
+                f"estava ativa para {nome!r} mesmo depois de document.fonts.ready -- "
+                f"medir agora devolveria um numero com a fonte ERRADA (font-display: "
+                f"swap ainda na fonte de reserva, ou falha real de carregamento). Nao "
+                f"gerando PDF nenhum para esta pagina.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         for modo_nome, opcoes in modos.items():
             pagina.pdf(
                 path=str(pasta_saida / f"{nome}-{modo_nome}.pdf"),
@@ -353,6 +399,7 @@ def _gerar_pdfs(pasta_html, pasta_saida, nomes):
             "pasta_saida": str(pasta_saida),
             "nomes": nomes,
             "modos": MODOS_DE_IMPRESSAO,
+            "familia_da_fonte": FAMILIA_DA_FONTE,
         }
     )
     resultado = subprocess.run(
@@ -362,7 +409,11 @@ def _gerar_pdfs(pasta_html, pasta_saida, nomes):
     )
     if resultado.returncode != 0:
         sys.exit(
-            "Recusado: a geração de PDF (subprocesso do Python do sistema) falhou:\n"
+            "Recusado: a geração de PDF (subprocesso do Python do sistema) falhou "
+            "-- BL-347/F5: se a saída de erro abaixo começar com 'RECUSADO:', a "
+            "fonte (static/fontes/ibm-plex-serif/) não ficou ativa a tempo (ou "
+            "falhou de verdade) e o script recusou medir com ela errada; rode de "
+            "novo antes de suspeitar do ambiente:\n"
             f"saida padrao: {resultado.stdout}\nerro: {resultado.stderr}"
         )
 

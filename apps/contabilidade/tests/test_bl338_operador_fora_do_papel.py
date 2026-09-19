@@ -99,6 +99,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
@@ -109,12 +110,14 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _RAIZ,
     _algum_ancestral_removido_do_papel,
     _cadeia_de_ancestrais,
-    _ConstrutorDeArvore,
     _escrever_css_mutado,
+    _parsear_html,
     _percorrer,
+    _tem_timbre_impressao,
 )
 from apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade import (
     NOMES_DE_TELA_DE_CONTABILIDADE,
+    NOMES_DE_TELA_FORA_DA_CONTABILIDADE,
     _urls_de_contabilidade,
 )
 from apps.empresas.models import Empresa
@@ -134,10 +137,8 @@ _TELAS_COM_CONTEXTO_EXTRA = {
 
 
 def _arvore_de(caminho_ou_texto, *, de_arquivo=True):
-    construtor = _ConstrutorDeArvore()
     texto = caminho_ou_texto.read_text(encoding="utf-8") if de_arquivo else caminho_ou_texto
-    construtor.feed(texto)
-    return construtor.raiz
+    return _parsear_html(texto)
 
 
 def _no_por_rotulo(raiz, texto_rotulo):
@@ -300,9 +301,13 @@ def _tem_timbre_e_classe_do_escritorio_ativo(html):
     """Sobre o HTML RENDERIZADO de uma tela: devolve (tem_timbre,
     classes_do_item_escritorio_ativo). "Tem timbre" é ESTRUTURAL — a
     presença de `<div class="timbre-impressao">` no próprio HTML que o
-    navegador recebeu, não uma lista de nomes de tela decidida aqui."""
+    navegador recebeu, não uma lista de nomes de tela decidida aqui.
+    `_tem_timbre_impressao` vem de test_bl329_marca_fora_do_papel.py —
+    BL-344/F2: a MESMA derivação que test_bl332_titulo_sem_marca_do_
+    fornecedor.py usa para "esta tela é documento?", compartilhada em vez
+    de duplicada."""
     raiz = _arvore_de(html, de_arquivo=False)
-    tem_timbre = any("timbre-impressao" in no.classes for no in _percorrer(raiz))
+    tem_timbre = _tem_timbre_impressao(raiz)
     no_escritorio = _no_por_rotulo(raiz, "Escritório ativo")
     return tem_timbre, no_escritorio.classes
 
@@ -340,9 +345,210 @@ def test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre(client, cenario_
         )
 
 
+# ---------------------------------------------------------------------------
+# BL-345 (F3 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): a guarda ACIMA só corre
+# sobre as OITO telas de `NOMES_DE_TELA_DE_CONTABILIDADE`. O
+# `arquiteto-senior` já tinha declarado essa limitação (BL-342) e a
+# empurrado para a DL-027; o auditor mediu que a correção NÃO dependia
+# disso — `NOMES_DE_TELA_FORA_DA_CONTABILIDADE`, com as seis telas de
+# fora (login, empresas:lista, empresas:criar, tenancy:painel,
+# tenancy:aceitar-convite, tenancy:bootstrap-primeiro-acesso), já existe
+# no MESMO arquivo (test_dl024_atalhos_e_acessibilidade.py) de onde a
+# parametrização acima já importa `NOMES_DE_TELA_DE_CONTABILIDADE`.
+# Reprodução do auditor: `templates/empresas/lista.html` ganha a MESMA
+# sobrescrita condicional que `balancete.html` tem
+# (`classe_escritorio_ativo_na_impressao`), e a tela passa a imprimir SEM
+# identificação nenhuma de emitente — com `1775 passed`.
+#
+# A guarda abaixo estende a MESMA propriedade central para a UNIÃO dos
+# dois conjuntos. Duas das seis telas de fora NUNCA renderizam com
+# `request.escritorio` presente — não é limitação da guarda, é a FORMA da
+# rota, e por isso são exclusão NOMEADA, com o motivo escrito, em vez de
+# silenciosamente ignoradas:
+#
+# - "login": tela PRÉ-AUTENTICAÇÃO — `request.user.is_authenticated` é
+#   `False`, então nem o bloco `{% if request.escritorio %}` de
+#   `templates/base.html` chega a avaliar (o middleware
+#   `EscritorioAtivoMiddleware` só resolve `request.escritorio` para
+#   usuário autenticado) — o item "Escritório ativo" nem EXISTE no HTML,
+#   então não há nada para a propriedade "oculto se, e só se, tem timbre"
+#   avaliar.
+# - "tenancy:bootstrap-primeiro-acesso": a VIEW (apps/tenancy/views.py,
+#   `bootstrap_primeiro_acesso`) REDIRECIONA (302) para `tenancy:painel`
+#   sempre que o usuário JÁ tem vínculo ativo — só devolve 200 para quem
+#   ainda NÃO tem escritório nenhum. Logo, um 200 desta rota NUNCA tem
+#   `request.escritorio` presente — pela MESMA razão do login, não por
+#   acaso.
+# ---------------------------------------------------------------------------
+
+_TELAS_SEM_REQUEST_ESCRITORIO = {
+    "login": (
+        "tela pré-autenticação (request.user.is_authenticated é False) — "
+        "EscritorioAtivoMiddleware só resolve request.escritorio para usuário "
+        "autenticado, e o bloco 'Escritório ativo' de templates/base.html nem "
+        "existe no HTML sem ele"
+    ),
+    "tenancy:bootstrap-primeiro-acesso": (
+        "só renderiza 200 para usuário SEM vínculo nenhum — apps/tenancy/"
+        "views.py (bootstrap_primeiro_acesso) redireciona (302) para "
+        "tenancy:painel quando já existe vínculo ativo, então um 200 desta "
+        "rota nunca tem request.escritorio presente"
+    ),
+}
+
+# União dos dois conjuntos que test_dl024_atalhos_e_acessibilidade.py já
+# declara — nomes de ROTA COMPLETOS (namespace:nome), a mesma forma que
+# NOMES_DE_TELA_FORA_DA_CONTABILIDADE já usa como chave; os valores de
+# NOMES_DE_TELA_DE_CONTABILIDADE já SÃO nomes completos.
+_NOMES_DE_ROTA_COM_ESCRITORIO = (
+    set(NOMES_DE_TELA_DE_CONTABILIDADE.values()) | set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
+) - set(_TELAS_SEM_REQUEST_ESCRITORIO)
+
+# Args/query de cada rota de FORA da contabilidade — as de contabilidade
+# já vêm prontas de `_urls_de_contabilidade`; só as seis novas (menos as
+# duas excluídas acima) precisam de args próprios aqui.
+_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE = {
+    "empresas:lista": [],
+    "empresas:criar": [],
+    "tenancy:painel": [],
+    "tenancy:aceitar-convite": ["token-inexistente-bl345"],
+}
+
+
+def _url_por_nome_de_rota(nome_de_rota, cenario):
+    """URL completa para `nome_de_rota` (namespace:nome), cobrindo tanto
+    as rotas de `NOMES_DE_TELA_DE_CONTABILIDADE` (via
+    `_urls_de_contabilidade`, que já resolve `args`/query string a partir
+    do cenário) quanto as de `NOMES_DE_TELA_FORA_DA_CONTABILIDADE` (via
+    `_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE`, acima)."""
+    nomes_curtos_por_rota_completa = {
+        rota: curto for curto, rota in NOMES_DE_TELA_DE_CONTABILIDADE.items()
+    }
+    if nome_de_rota in nomes_curtos_por_rota_completa:
+        nome_curto = nomes_curtos_por_rota_completa[nome_de_rota]
+        return _urls_de_contabilidade(cenario)[nome_curto]
+    return reverse(nome_de_rota, args=_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE[nome_de_rota])
+
+
+@pytest.mark.parametrize("nome_de_rota", sorted(_NOMES_DE_ROTA_COM_ESCRITORIO))
+def test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre_em_toda_tela_do_produto(
+    client, cenario_bl338, nome_de_rota
+):
+    """BL-345/F3: a MESMA propriedade central de
+    `test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre`, agora
+    sobre a UNIÃO de `NOMES_DE_TELA_DE_CONTABILIDADE` e
+    `NOMES_DE_TELA_FORA_DA_CONTABILIDADE` — não só as oito telas de
+    contabilidade. O auditor mediu que a limitação declarada no BL-342
+    (adiada para a DL-027) não dependia dela: a fonte de derivação já
+    estava importada neste mesmo arquivo."""
+    url = _url_por_nome_de_rota(nome_de_rota, cenario_bl338)
+    resposta = client.get(url)
+    assert resposta.status_code == 200, f"{nome_de_rota}: {resposta.status_code}"
+    html = resposta.content.decode()
+
+    tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
+    oculto = "contexto-item--somente-tela" in classes_escritorio
+
+    if tem_timbre:
+        assert oculto, (
+            f"{nome_de_rota} TEM timbre de impressão, mas 'Escritório ativo' continua "
+            f"visível na faixa de tela — o escritório sairia DUAS vezes no papel "
+            f"(classes: {classes_escritorio!r})"
+        )
+    else:
+        assert not oculto, (
+            f"{nome_de_rota} NÃO TEM timbre de impressão, e 'Escritório ativo' está "
+            f"oculto na impressão — o documento sairia SEM identificação nenhuma do "
+            f"emitente (classes: {classes_escritorio!r})"
+        )
+
+
+@pytest.mark.parametrize(
+    "nome_de_rota,caminho_relativo",
+    [
+        ("empresas:lista", "empresas/lista.html"),
+        ("tenancy:painel", "tenancy/painel.html"),
+    ],
+)
+def test_sabotagem_ocultar_escritorio_ativo_fora_da_contabilidade_mata_a_guarda(
+    client, cenario_bl338, tmp_path, nome_de_rota, caminho_relativo
+):
+    """BL-345/F3: reprodução EXATA da sabotagem do achado — uma tela de
+    FORA da contabilidade (aqui, `empresas/lista.html` e
+    `tenancy/painel.html`, as duas que o auditor mediu) ganha a MESMA
+    sobrescrita condicional que `balancete.html` tem
+    (`classe_escritorio_ativo_na_impressao`), sem NUNCA ganhar timbre —
+    reproduzindo a regressão do BL-342 num diretório onde a guarda de
+    Camada 2 antiga (parametrizada só sobre `NOMES_DE_TELA_DE_
+    CONTABILIDADE`) não olhava. A guarda estendida acima PRECISA morrer:
+    a tela passaria a imprimir SEM identificação nenhuma de emitente."""
+    caminho_real = _RAIZ_TEMPLATES / caminho_relativo
+    conteudo_antes = caminho_real.read_text(encoding="utf-8")
+
+    marcador = "{% block titulo %}"
+    assert caminho_real.read_text(encoding="utf-8").count(marcador) >= 1, (
+        f"controle: marcador de título não encontrado em {caminho_relativo}"
+    )
+    sobrescrita_regressiva = (
+        "{% block classe_escritorio_ativo_na_impressao %} "
+        "contexto-item--somente-tela{% endblock %}\n" + marcador
+    )
+    conteudo_mutado = conteudo_antes.replace(marcador, sobrescrita_regressiva, 1)
+    assert conteudo_mutado != conteudo_antes, "controle: a mutação precisa mudar o conteúdo"
+
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+    (raiz_copia / caminho_relativo).write_text(conteudo_mutado, encoding="utf-8")
+
+    motor = copy.deepcopy(settings.TEMPLATES)
+    assert len(motor) == 1
+    motor[0]["DIRS"] = [raiz_copia]
+
+    url = _url_por_nome_de_rota(nome_de_rota, cenario_bl338)
+    with override_settings(TEMPLATES=motor):
+        resposta = client.get(url)
+        assert resposta.status_code == 200
+        html = resposta.content.decode()
+        tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
+        assert tem_timbre is False, "controle: a mutação não mexeu no timbre — continua sem"
+        oculto = "contexto-item--somente-tela" in classes_escritorio
+        assert oculto, (
+            "a sabotagem deveria ter reproduzido a regressão (tela SEM timbre "
+            "imprimindo SEM identificação de emitente), e 'Escritório ativo' continuou "
+            "visível — a mutação não teve efeito"
+        )
+        # `oculto is True` aqui é exatamente o valor que faz
+        # test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre_em_toda_tela_
+        # do_produto REPROVAR contra este mesmo HTML — a prova de que a guarda morre.
+
+    # Fora do override: a tela volta ao normal, e o arquivo real nunca foi escrito.
+    resposta_normal = client.get(url)
+    _, classes_normais = _tem_timbre_e_classe_do_escritorio_ativo(resposta_normal.content.decode())
+    assert "contexto-item--somente-tela" not in classes_normais
+    assert caminho_real.read_text(encoding="utf-8") == conteudo_antes
+
+
 # Controle positivo EXPLÍCITO (pedido do arquiteto: pelo menos duas das
 # cinco telas sem timbre, provando que o escritório sai no papel delas) —
 # além da cobertura genérica acima, que já inclui as cinco.
+#
+# ⚠️ BL-349 (F7 da auditoria DL-026, rodada 6,
+# docs/auditorias/2026-09-19-dl-026-rodada-6.md): a lista
+# `["plano_de_contas", "conferencia"]`, abaixo, é uma escolha de DUAS
+# telas para exercitar de propósito — não a fonte de verdade de "quem tem
+# timbre" (essa fonte é o HTML, em `_tem_timbre_e_classe_do_escritorio_
+# ativo`/`test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre`,
+# acima). O auditor mediu: transformar `conferencia` numa tela de
+# documento, de forma COERENTE (com timbre e ocultação certa), morre
+# `assert not tem_timbre` aqui — e é a coisa CERTA que aconteceu com o
+# produto, não um defeito. **A falha deste teste específico significa "a
+# composição do produto mudou — `nome_tela` deixou de ser uma tela sem
+# timbre; revise a lista acima" — NUNCA "há um defeito de impressão".**
+# Quem receber essa falha deve trocar a tela na lista (ou remover, se
+# sobrar só uma das cinco), não "corrigir" a implementação. A guarda que
+# DETECTA defeito de verdade é a genérica, acima — esta aqui é controle
+# de ESTRUTURA da própria suíte.
 @pytest.mark.parametrize("nome_tela", ["plano_de_contas", "conferencia"])
 def test_telas_sem_timbre_mostram_escritorio_ativo_na_impressao(client, cenario_bl338, nome_tela):
     url = _urls_de_contabilidade(cenario_bl338)[nome_tela]
@@ -351,7 +557,15 @@ def test_telas_sem_timbre_mostram_escritorio_ativo_na_impressao(client, cenario_
     html = resposta.content.decode()
 
     tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
-    assert not tem_timbre, f"controle: {nome_tela} não deveria ter timbre de impressão"
+    assert not tem_timbre, (
+        f"CONTROLE DE ESTRUTURA (não é defeito de impressão): {nome_tela!r} passou a "
+        f"ter .timbre-impressao — a composição do produto mudou, e esta tela não serve "
+        f"mais como exemplo de 'tela sem timbre' para este controle explícito. Troque "
+        f"{nome_tela!r} por outra das cinco telas sem timbre na parametrização acima "
+        f"(a guarda que detecta defeito de verdade é "
+        f"test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre, que já cobre "
+        f"todas as telas e não depende desta lista)"
+    )
     assert "contexto-item--somente-tela" not in classes_escritorio, (
         f"{nome_tela}: 'Escritório ativo' está oculto na impressão sem nenhum timbre "
         f"para substituí-lo — documento sem identificação de emitente"
