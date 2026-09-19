@@ -39,12 +39,22 @@ regras abaixo são do AGENTS.md e PREVALECEM sobre qualquer preferência de
 estilo. Depois delas vem o "Próximo passo" de docs/agents/estado.md, que é a
 fonte única do estado do projeto.
 
-Resumo do que é imposto tecnicamente, e não só pedido:
+O que RODA e fica vermelho — e leia o aviso logo abaixo antes de confiar:
   - PR sem a caixa "Li o AGENTS.md" marcada e sem plano DL citado REPROVA na CI
     (workflow "Regras do projeto").
   - Etapa com plano que não apareça no README e em estado.md REPROVA na CI
     (apps/core/tests/test_documentacao_do_estado.py).
-  - A branch main só recebe alteração por PR com as verificações verdes.
+  - O documento imprimível é medido no NAVEGADOR real e o job fica vermelho se
+    sair sem identificação do emitente (workflow "Identificação do emitente").
+
+*** ATENÇÃO: NENHUMA DAS TRÊS IMPEDE O MERGE HOJE. ***
+  A branch main NÃO TEM PROTEÇÃO — medido em três endpoints da API do GitHub na
+  nona auditoria (docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md, J2).
+  As verificações ficam vermelhas e NÃO BLOQUEIAM nada: são CONSELHO.
+  Até a proteção ser ligada e LIDA na API, não presuma imposição a partir da
+  existência de um workflow. A tabela no fim do AGENTS.md diz, linha por linha,
+  o que impede o merge e o que não impede, e como ligar o que falta.
+  Este bloco já afirmou o contrário, e era falso (BL-373).
 ================================================================================
 
 CABECALHO

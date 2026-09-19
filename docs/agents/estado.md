@@ -453,8 +453,8 @@ leitura do `yaml`, que é a única forma que valeria aqui:
 
 | Caso | Medido por disparo real |
 | --- | --- |
-| Commit tocando caminho vigiado (`c26f5d8`) | job roda **inteiro**, `0 de 9` passos caros pulados, **54 s**, verde |
-| Commit só de documentação (`7d6b60f`) | job roda, **`8 de 8`** passos caros **pulados**, **23 s**, verde |
+| Commit tocando caminho vigiado (`c26f5d8`) | job roda **inteiro**, `0 de 11` passos caros pulados, **54 s**, verde |
+| Commit só de documentação (`7d6b60f`) | job roda, **`11 de 11`** passos caros **pulados**, **23 s**, verde |
 | A medição em si, dentro dos 54 s | **3 s** |
 
 O caminho longo custa 54 s: containers 12 s, Chromium **20 s**, `poppler-utils`
