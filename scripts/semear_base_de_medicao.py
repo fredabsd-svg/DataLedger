@@ -95,14 +95,22 @@ def _exigir_banco_descartavel(nome_do_banco):
     confirmado = os.environ.get("DL_CONFIRMO_BANCO_DESCARTAVEL")
     if confirmado != nome_do_banco:
         sys.exit(
-            f"Recusado: este script grava 60 lançamentos no banco {nome_do_banco!r}.\n"
-            f"Para seguir, defina DL_CONFIRMO_BANCO_DESCARTAVEL={nome_do_banco!r}.\n"
-            "Exigir o NOME do banco, e não um 'sim', é deliberado: confirmação "
-            "genérica é aceita sem ler; digitar o nome obriga a olhar para ele."
+            f"Recusado: este script grava {TOTAL_DE_LANCAMENTOS} lançamentos, e "
+            "DL_CONFIRMO_BANCO_DESCARTAVEL não corresponde ao banco em uso.\n"
+            "Defina a variável com o nome EXATO do banco que você quer semear.\n"
+            "\n"
+            "O nome do banco NÃO é repetido aqui de propósito (BL-316): a "
+            "mensagem anterior entregava o valor pronto para copiar, enquanto "
+            "o comentário afirmava que a trava obrigava a olhar para o banco. "
+            "A defesa não era a que o texto descrevia — e comentário que "
+            "promete mais do que a defesa entrega é justamente o defeito que "
+            "este projeto persegue em todo lugar.\n"
+            "\n"
+            "Para descobrir o banco em uso, consulte a configuração:\n"
+            "  python manage.py shell -c "
+            '"from django.conf import settings; '
+            "print(settings.DATABASES['default']['NAME'])\""
         )
-
-
-DEVEDORA_CREDORA = None  # preenchido depois do django.setup()
 
 
 def _plano_de_contas(natureza, tipo):
@@ -201,7 +209,13 @@ def main():
     from django.conf import settings
     from django.contrib.auth import get_user_model
 
-    from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
+    from apps.contabilidade.models import (
+        Conta,
+        LancamentoContabil,
+        NaturezaConta,
+        TipoConta,
+        TipoPartida,
+    )
     from apps.contabilidade.services import criar_lancamento
     from apps.empresas.models import Empresa
     from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -220,7 +234,13 @@ def main():
         defaults={"nome": "Escritório Contábil Sintético ME"},
     )
     VinculoUsuarioEscritorio.objects.get_or_create(
-        usuario=usuario, escritorio=escritorio, defaults={"papel": Papel.values[0]}
+        usuario=usuario,
+        escritorio=escritorio,
+        # BL-316: era `Papel.values[0]` — o papel dependia da ORDEM DE
+        # DECLARAÇÃO do enum. Se ela mudasse, a base passaria a medir as telas
+        # sob outro papel, e `cliente` recebe 403 em quase tudo: a medição
+        # mudaria sem ninguém tocar na medição. Nomeado.
+        defaults={"papel": Papel.ADMINISTRADOR},
     )
     empresa, _ = Empresa.objects.get_or_create(
         cnpj="44555666000199",
@@ -252,7 +272,13 @@ def main():
     analiticas = [c for c in criadas.values() if c.aceita_lancamento]
     sorteio = random.Random(SEMENTE)
     ano, mes = COMPETENCIA
-    gravados = 0
+    # BL-316: "gravados" contava CHAMADAS, não escritas. Rodando duas vezes no
+    # mesmo banco, a segunda execução gravava zero e relatava 60 — porque a
+    # idempotência devolve o lançamento existente sem erro. Um instrumento
+    # criado para fechar um achado de honestidade de medição não pode relatar
+    # escrita que não houve. Agora o número vem da contagem real no banco.
+    antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    reaproveitados = 0
     recusados = []
     for i in range(TOTAL_DE_LANCAMENTOS):
         debitada, creditada = sorteio.sample(analiticas, 2)
@@ -270,20 +296,29 @@ def main():
                 # Idempotência: rodar de novo não duplica a base.
                 chave_idempotencia=f"base-de-medicao-{i}",
             )
-            gravados += 1
         except Exception as erro:  # noqa: BLE001 — o motivo é impresso, não engolido
             recusados.append(f"{i}: {erro}")
+
+    depois = LancamentoContabil.objects.filter(empresa=empresa).count()
+    gravados = depois - antes
+    reaproveitados = TOTAL_DE_LANCAMENTOS - gravados - len(recusados)
 
     contas = Conta.objects.filter(empresa=empresa).count()
     niveis = max(codigo.count(".") for codigo, *_ in plano) + 1
     print(f"contas: {contas}  níveis: {niveis}")
-    print(f"lançamentos gravados: {gravados}  empresa_id: {empresa.id}  usuário: medicao")
+    print(f"lançamentos no banco: {depois}  empresa_id: {empresa.id}  usuário: medicao")
+    print(f"  gravados agora: {gravados}")
+    if reaproveitados:
+        # Repetição idempotente: NÃO é recusa, e não cai na lista abaixo —
+        # `criar_lancamento` devolve o existente sem erro. Dizer isto em linha
+        # própria é o que impede o relatório de contar como escrita o que foi
+        # reaproveitamento.
+        print(f"  reaproveitados por idempotência: {reaproveitados}")
     if recusados:
-        # Falha visível: recusa de lançamento aparece, não fica escondida num
-        # contador. Repetição idempotente cai aqui e é esperada.
-        print(f"recusados ({len(recusados)}):")
+        # Falha visível: recusa aparece, não fica escondida num contador.
+        print(f"  recusados ({len(recusados)}):")
         for linha in recusados:
-            print(f"  {linha}")
+            print(f"    {linha}")
 
 
 if __name__ == "__main__":
