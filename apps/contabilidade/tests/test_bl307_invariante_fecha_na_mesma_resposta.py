@@ -273,7 +273,9 @@ def test_controle_positivo_gravar_com_sucesso_e_302_e_nao_renderiza_a_pagina(cli
     resposta = client.post(_url_tela(cen), corpo)
 
     assert resposta.status_code == 302
-    assert LancamentoContabil.objects.filter(chave_idempotencia="k-bl307-controle-positivo").exists()
+    assert LancamentoContabil.objects.filter(
+        chave_idempotencia="k-bl307-controle-positivo"
+    ).exists()
 
 
 def test_controle_positivo_adicionar_linha_com_partidas_batendo_diz_fecha_em_200(client, cen):

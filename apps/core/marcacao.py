@@ -47,7 +47,7 @@ aria-hidden="true">`), nunca um parser de HTML completo — mesma limitação,
 documentada, de todo o resto da varredura de interface deste projeto.
 
 **Limitação aceita, registrada (BL-317, B3 da auditoria DL-024 rodada 3):**
-`_padrao_atributo` casa `\s<nome>\s*=\s*...` em QUALQUER posição da string
+`_padrao_atributo` casa `\\s<nome>\\s*=\\s*...` em QUALQUER posição da string
 da tag — inclusive DENTRO do valor entre aspas de um OUTRO atributo. Uma
 tag como `<td title="ver class='valor-monetario' aqui">{{ x_ptbr }}</td>`
 faz `tem_classe(tag, "valor-monetario")` devolver `True` mesmo sem a célula
@@ -97,7 +97,7 @@ import re
 # ser feita duas vezes.
 def _padrao_atributo(nome_atributo):
     return re.compile(
-        rf'\s{re.escape(nome_atributo)}\s*=\s*'
+        rf"\s{re.escape(nome_atributo)}\s*=\s*"
         rf"(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
         re.IGNORECASE,
     )

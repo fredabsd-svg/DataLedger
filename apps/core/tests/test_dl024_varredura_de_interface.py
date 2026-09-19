@@ -39,6 +39,8 @@ from pathlib import Path
 
 import pytest
 
+from apps.core.marcacao import tem_classe as _tem_classe
+
 RAIZ = Path(__file__).resolve().parents[3]
 # BL-309 (A3 da auditoria DL-024 rodada 3): `TEMPLATES = RAIZ / "templates"`
 # existia aqui e alimentava só a guarda do "momento da verdade" — a única
@@ -114,29 +116,17 @@ PADRAO_TAG_ABERTURA = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*>")
 # CSS não casa `.valor-monetario-legenda` — são duas classes distintas). É
 # a MESMA família de defeito do BL-274 #6 (substring no lugar de casamento
 # de TOKEN) — ali era o nome do módulo num documento inteiro, aqui é o nome
-# da classe dentro do atributo `class`. `_PADRAO_ATRIBUTO_CLASS` extrai só
-# o VALOR do atributo `class` da tag (aspas duplas OU simples — a
-# sabotagem de aspas simples já pegou o detector de estilo embutido,
-# BL-274 #5, não repetir aqui); `\s` OBRIGATÓRIO antes de `class` evita
-# casar um atributo com outro NOME que só termina em "class" (não há caso
-# real disso hoje, mas é a mesma prevenção do `scope=` abaixo — ver
-# `_PADRAO_ATRIBUTO_SCOPE`). `_tem_classe` então divide o valor por espaço
-# (`str.split()`) e compara cada pedaço por IGUALDADE, nunca por `in`.
-_PADRAO_ATRIBUTO_CLASS = re.compile(r'\sclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', re.IGNORECASE)
-
-
-def _tem_classe(tag, classe):
-    """`True` se `classe` está entre os nomes de classe CSS do atributo
-    `class` de `tag` (o texto de UMA tag de abertura, ex.: `<td class="a
-    valor-monetario b">`) — casada como TOKEN inteiro, separado por
-    espaço, nunca como substring do atributo. Ver o comentário acima de
-    `_PADRAO_ATRIBUTO_CLASS` para o achado que motivou isto (rodada 3,
-    BL-286, sabotagem 3)."""
-    atributo = _PADRAO_ATRIBUTO_CLASS.search(tag)
-    if not atributo:
-        return False
-    valor = atributo.group(1) if atributo.group(1) is not None else atributo.group(2)
-    return classe in valor.split()
+# da classe dentro do atributo `class`.
+#
+# BL-310 (M1 da auditoria DL-024 rodada 3): `_tem_classe` (e o padrão que a
+# alimentava) era uma cópia local de `apps.core.marcacao.tem_classe`,
+# criado exatamente para acabar com essa duplicação (ver o docstring
+# daquele módulo) — o próprio docstring dele PROMETIA que "a varredura vai
+# passar a importar daqui" e a cópia local continuava, sem que ninguém
+# tivesse ligado os dois. Agora importa de verdade (topo do arquivo): um
+# defeito de casamento de atributo corrigido em `apps.core.marcacao` (como
+# o de atributo SEM ASPAS, achado nesta mesma rodada) passa a valer aqui
+# também, sem precisar de uma segunda correção manual.
 
 
 # Mesma família, no atributo `scope` do `<th>` (`_cabecalhos_sem_escopo`
@@ -257,51 +247,73 @@ NOME_DO_MODULO_NA_TABELA = {
     "ecf": "Lalur/ECF",
 }
 
-# Propriedades de medida cobertas pelo critério 13 ("cor, tamanho ou
-# espaçamento fora dos tokens") — BL-274, o detector que nunca existiu.
-# `(?:-[a-z]+)*` cobre as variantes de lado/eixo com SUFIXO citadas na tarefa
-# (`padding-left`, `margin-top`, e também as formas de propriedade lógica de
-# dois segmentos como `margin-inline-start`). `gap` é o único caso real de
-# PREFIXO no CSS (`row-gap`, `column-gap`).
+# BL-313 (M4 da auditoria DL-024 rodada 3): até esta correção, o detector só
+# acusava dentro de uma LISTA FECHADA de propriedades (`_PADRAO_PROPRIEDADE_
+# DE_MEDIDA`, removida nesta rodada). Cada rodada de auditoria encontrava
+# propriedades novas fora da lista — `max-width`/`min-width`/`max-height`/
+# `min-height` (o `(?<![\w-])` era negado pelo próprio hífen do prefixo
+# `max-`/`min-`), `box-shadow`, `flex-basis`, `text-indent`, `column-width`
+# — e a correção de cada rodada só acrescentava os nomes relatados,
+# deixando a PRÓXIMA propriedade esquecida de fora. O auditor apontou a
+# direção certa e o arquiteto concordou: um detector que ENUMERA casos
+# relatados está condenado a ficar sempre uma auditoria atrás.
 #
-# M2/BL-293 (auditoria DL-024 rodada 2) acrescentou `width`/`height`,
-# `line-height`, `letter-spacing`, `inset`/`top`/`left`/`right`/`bottom`, e
-# generalizou `border(?:-[a-z]+)*-width` para `border(?:-[a-z]+)*` (cobre
-# TAMBÉM o atalho `border: 3px solid ...`, que não tem sufixo "-width" nenhum
-# — medido pelo auditor com `61 passed` sozinho) e o mesmo para `outline`.
-# Capturar `border-color`/`border-style` de brinde não é problema: o
-# detector só ACUSA se o VALOR tiver uma unidade de medida literal dentro —
-# uma cor ou `solid` sozinhos nunca casam com `_PADRAO_MEDIDA_LITERAL`.
-_PADRAO_PROPRIEDADE_DE_MEDIDA = re.compile(
-    r"(?<![\w-])("
-    r"(?:row-|column-)?gap"
-    r"|padding(?:-[a-z]+)*"
-    r"|margin(?:-[a-z]+)*"
-    r"|font-size"
-    r"|line-height"
-    r"|letter-spacing"
-    r"|width|height"
-    r"|inset|top|left|right|bottom"
-    r"|border(?:-[a-z]+)*"
-    r"|outline(?:-[a-z]+)*"
-    r")\s*:\s*([^;{}]+)[;}]",
-    re.IGNORECASE,
-)
+# A inversão: qualquer declaração `propriedade: valor;` fora do `:root`
+# entra na varredura (mesma extração de `_PADRAO_DECLARACAO`, agora também
+# capturando o NOME da propriedade) — o que decide se é achado é só o
+# VALOR conter uma unidade de comprimento literal. Propriedades como
+# `color`/`content`/`font-family` nunca são acusadas não porque estão fora
+# de uma lista, mas porque o VALOR delas não bate com `_PADRAO_MEDIDA_
+# LITERAL` — o mesmo raciocínio que já valia para `border-color`/
+# `border-style` na lista antiga ("uma cor ou `solid` sozinhos nunca casam
+# com `_PADRAO_MEDIDA_LITERAL`"), agora aplicado a TODA propriedade, não só
+# às que alguém lembrou de nomear.
+#
+# `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` é o escape nomeado e comentado
+# — no padrão de `NOMES_QUE_NAO_SAO_TINTA`/`PASTAS_QUE_NAO_SAO_MODULO` — para
+# a propriedade que precisar, de fato, de um valor literal (`static/css/
+# base.css` declara, no próprio topo do arquivo, que NENHUMA medida solta
+# é aceita fora do `:root`; o auditor confirmou ZERO ocorrências com um
+# detector totalmente irrestrito). Vazia por enquanto: se um caso legítimo
+# aparecer, ele nasce aqui, nomeado e com o motivo — nunca por engano.
+PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL = {}
+
+# Mesma extração de `propriedade: valor;` de `_PADRAO_DECLARACAO`, agora
+# capturando os dois grupos (nome e valor) — precisa do NOME para consultar
+# `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` e para compor a mensagem
+# `"propriedade: valor"` que o achado devolve.
+_PADRAO_DECLARACAO_COM_PROPRIEDADE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;{}]+)[;}]")
+
 # `\d*\.?\d+` cobre inteiro e decimal (`4px`, `0.4em`); a unidade é literal,
 # nunca `var(...)`. Valores sem unidade (`0`), percentuais (`100%`), `auto`,
 # `1fr` e o que estiver dentro do próprio bloco `:root` (onde o token NASCE)
 # não caem aqui por construção — nenhuma exceção adicional foi necessária.
 #
-# M2/BL-293: a lista de unidades era só `px|rem|em` — `pt`/`pc`/`ch`/`ex`/
-# `vw`/`vh`/`vmin`/`vmax`/`cm`/`mm`/`in`/`q` passavam batido (medido:
-# `padding: 12pt; gap: 3ch; font-size: 4vh; margin: 2cm` → `61 passed`), e
-# `pt`/`cm` são exatamente o que aparece em folha de impressão, que este
-# produto tem (BL-282). Lista completa das unidades de comprimento do CSS
-# (Values and Units, níveis 3/4), exceto as relativas a fonte-raiz que já
-# tinham cobertura (`rem`) e as de ângulo/tempo/frequência, que não são
-# medida de tela.
+# M4/BL-313 (auditoria DL-024 rodada 3): a lista de unidades ainda estava
+# incompleta — `lh`/`rlh`/`cap`/`ic`/`rex`/`rch` passavam batido. Em vez de
+# só acrescentar essas seis (o mesmo erro de "lista que fica atrás" do lado
+# da propriedade), a lista abaixo é a enumeração COMPLETA das unidades de
+# comprimento do CSS Values and Units Module Level 4 (w3.org/TR/css-values-4,
+# §6-7) mais as unidades de consulta de contêiner (CSS Containment/
+# Conditional Rules) — absolutas, relativas a fonte (incluindo as
+# relativas à RAIZ, prefixo `r`: `rem`/`rex`/`rcap`/`rch`/`ric`/`rlh`),
+# relativas a viewport (com os quatro prefixos de viewport dinâmico:
+# nenhum/`s`/`l`/`d`) e relativas a contêiner (`cq*`). Fora, por decisão
+# deliberada (não esquecimento): unidades de ângulo/tempo/frequência/
+# resolução, que não medem TELA.
 _PADRAO_MEDIDA_LITERAL = re.compile(
-    r"(?<![\w.-])\d*\.?\d+(?:px|rem|em|pt|pc|ch|ex|vw|vh|vmin|vmax|cm|mm|in|q)\b",
+    r"(?<![\w.-])\d*\.?\d+(?:"
+    # Absolutas (§6.2)
+    r"px|cm|mm|q|in|pt|pc"
+    # Relativas a fonte, incluindo as relativas à raiz (§6.1/§6.3)
+    r"|rem|em|rex|ex|rcap|cap|rch|ch|ric|ic|rlh|lh"
+    # Relativas a viewport, com os quatro prefixos (§6.4)
+    r"|svw|lvw|dvw|vw|svh|lvh|dvh|vh"
+    r"|svi|lvi|dvi|vi|svb|lvb|dvb|vb"
+    r"|svmin|lvmin|dvmin|vmin|svmax|lvmax|dvmax|vmax"
+    # Relativas a contêiner (CSS Containment/Conditional Rules)
+    r"|cqw|cqh|cqi|cqb|cqmin|cqmax"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -478,16 +490,27 @@ def _cores_fora_dos_tokens(texto):
 
 
 def _medidas_literais_fora_dos_tokens(texto):
-    """`px`/`rem`/`em` literais em propriedade de espaço/tipo/borda, fora do
-    `:root`. Devolve `"propriedade: valor"` para cada ofensor.
+    """Unidade de comprimento literal (`px`/`rem`/`em`/... — lista completa
+    em `_PADRAO_MEDIDA_LITERAL`) em QUALQUER propriedade, fora do `:root`.
+    Devolve `"propriedade: valor"` para cada ofensor.
 
     O detector que o critério 13 prometia ("cor, TAMANHO ou ESPAÇAMENTO fora
     dos tokens") e nunca existia — BL-274, achado A1 da rodada 1.
+
+    BL-313 (M4 da auditoria DL-024 rodada 3): INVERTIDO — não filtra mais por
+    uma lista fechada de propriedades (ver o comentário de
+    `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` para a classe de defeito que
+    isto fecha). Toda declaração `propriedade: valor;` fora do `:root` é
+    examinada; só escapa a que estiver na lista de exceções NOMEADAS, ou
+    cujo valor genuinamente não contenha unidade de comprimento nenhuma
+    (uma cor, `solid`, `auto`, um percentual...).
     """
     limpo = _texto_sem_root(texto)
     achados = []
-    for declaracao in _PADRAO_PROPRIEDADE_DE_MEDIDA.finditer(limpo):
+    for declaracao in _PADRAO_DECLARACAO_COM_PROPRIEDADE.finditer(limpo):
         propriedade, valor = declaracao.group(1), declaracao.group(2)
+        if propriedade.lower() in PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL:
+            continue
         # M2/BL-293: preserva o FALLBACK do `var()` em vez de apagá-lo junto
         # com a variável — ver o docstring de
         # `_sem_variavel_css_preservando_fallback`.
@@ -1004,6 +1027,116 @@ def test_controle_positivo_detector_de_medida_literal_cobre_atalho_border_e_outl
     achados = _medidas_literais_fora_dos_tokens(css)
     assert "border: 3px" in achados, achados
     assert "outline: 5px" in achados, achados
+
+
+# ---------------------------------------------------------------------------
+# BL-313 (M4 da auditoria DL-024 rodada 3): o detector, ANTES da inversão,
+# fechava as CINCO sabotagens do relatório da rodada 2 e continuava cego
+# para a FAMÍLIA — a tabela abaixo é a reprodução literal das duas linhas
+# que o auditor mediu passando (`74 passed`), mais casos que o relatório
+# NÃO citou, para provar que a guarda agora está presa ao REQUISITO
+# ("nenhuma propriedade, nenhuma unidade escapa"), não à lista do achado.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # Reprodução EXATA da primeira linha do achado M4: `(?<![\w-])`
+        # antes de `width`/`height` era negado pelo próprio hífen de
+        # `max-`/`min-` — as quatro combinações citadas pelo auditor.
+        (".sab { max-width: 517px; }", "max-width: 517px"),
+        (".sab { min-width: 42px; }", "min-width: 42px"),
+        (".sab { max-height: 300px; }", "max-height: 300px"),
+        (".sab { min-height: 42px; }", "min-height: 42px"),
+        # Segunda linha do achado: propriedades inteiramente FORA da lista
+        # antiga (não eram variante de prefixo/sufixo de nada que já
+        # existisse lá).
+        (".sab { box-shadow: 0 0 7px var(--c); }", "box-shadow: 7px"),
+        (".sab { flex-basis: 250px; }", "flex-basis: 250px"),
+        (".sab { text-indent: 19px; }", "text-indent: 19px"),
+        (".sab { column-width: 12em; }", "column-width: 12em"),
+    ],
+)
+def test_controle_positivo_detector_de_medida_literal_cobre_a_familia_de_propriedades(
+    css_ruim, esperado
+):
+    achados = _medidas_literais_fora_dos_tokens(css_ruim)
+    assert esperado in achados, f"'{esperado}' escapou do detector invertido: {achados}"
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # Reprodução exata da segunda linha do achado M4: as seis unidades
+        # que a lista antiga não tinha.
+        (".sab { font-size: 2lh; }", "font-size: 2lh"),
+        (".sab { gap: 3rlh; }", "gap: 3rlh"),
+        (".sab { padding: 1.5cap; }", "padding: 1.5cap"),
+        (".sab { margin: 4ic; }", "margin: 4ic"),
+        (".sab { font-size: 1rex; }", "font-size: 1rex"),
+        (".sab { width: 5rch; }", "width: 5rch"),
+    ],
+)
+def test_controle_positivo_detector_de_medida_literal_cobre_as_unidades_do_m4(css_ruim, esperado):
+    achados = _medidas_literais_fora_dos_tokens(css_ruim)
+    assert esperado in achados, f"'{esperado}' escapou do detector invertido: {achados}"
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # CASOS NÃO CITADOS pelo relatório do auditor — provam que a
+        # inversão cobre a CLASSE, não a lista literal do achado. Nenhuma
+        # destas seis (nem a propriedade, nem a unidade) aparece na tabela
+        # do M4.
+        (".sab { transform: translateX(7px); }", "transform: 7px"),
+        (".sab { scroll-margin-top: 3em; }", "scroll-margin-top: 3em"),
+        (".sab { aspect-ratio: 16 / 9; }", None),  # controle negativo: sem unidade, não acusa
+        (".sab { grid-template-columns: 12rem 1fr; }", "grid-template-columns: 12rem"),
+        (".sab { background-position: 4px 9px; }", "background-position: 4px"),
+        (".sab { width: 3cqw; }", "width: 3cqw"),  # unidade de container query
+    ],
+)
+def test_controle_positivo_detector_de_medida_literal_cobre_casos_alem_do_relatorio(
+    css_ruim, esperado
+):
+    """Enunciado geral (BL-313): nenhuma medida literal escapa, em nenhuma
+    propriedade e nenhuma unidade — provado com propriedades e unidades
+    que NEM o relatório do auditor nem a lista antiga sequer mencionavam
+    (`transform`, `scroll-margin-top`, `grid-template-columns`,
+    `background-position`, e a unidade de consulta de contêiner `cqw`)."""
+    achados = _medidas_literais_fora_dos_tokens(css_ruim)
+    if esperado is None:
+        assert achados == [], f"valor sem unidade de medida não devia ter sido acusado: {achados}"
+    else:
+        assert esperado in achados, f"'{esperado}' escapou do detector invertido: {achados}"
+
+
+def test_controle_negativo_detector_de_medida_literal_respeita_a_lista_de_excecoes():
+    """`PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` é o escape nomeado — uma
+    propriedade nela declarada não é acusada, mesmo com unidade literal no
+    valor. O teste usa `monkeypatch` sobre a lista real (hoje vazia por
+    decisão: `static/css/base.css` não tem exceção nenhuma) para provar
+    que o MECANISMO de exceção funciona, sem depender de uma exceção real
+    existir hoje."""
+    import apps.core.tests.test_dl024_varredura_de_interface as modulo
+
+    original = dict(modulo.PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL)
+    try:
+        modulo.PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL["propriedade-de-teste"] = (
+            "exceção sintética só deste teste, nunca usada em produção"
+        )
+        achados = _medidas_literais_fora_dos_tokens(".sab { propriedade-de-teste: 12px; }")
+        assert achados == [], f"a exceção nomeada não impediu o achado: {achados}"
+        # Controle: a mesma unidade, em propriedade FORA da lista de
+        # exceções, continua sendo acusada — a exceção é NOMEADA, não
+        # afrouxa o detector inteiro.
+        achados_normais = _medidas_literais_fora_dos_tokens(".sab { padding: 12px; }")
+        assert achados_normais == ["padding: 12px"]
+    finally:
+        modulo.PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL.clear()
+        modulo.PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL.update(original)
 
 
 def test_controle_positivo_detector_de_cor_preserva_fallback_do_var():

@@ -111,7 +111,10 @@ def test_controle_as_cinco_condicoes_juntas_e_fecha(client, cen):
     resposta = client.post(
         _url_tela(cen),
         _duas_linhas(
-            cen, valor_debito="500,00", valor_credito="500,00", acao="adicionar_linha",
+            cen,
+            valor_debito="500,00",
+            valor_credito="500,00",
+            acao="adicionar_linha",
             chave="k-bl312-controle",
         ),
     )
@@ -135,7 +138,10 @@ def test_condicao1_debito_igual_credito_e_a_unica_que_decide(client, cen):
     resposta = client.post(
         _url_tela(cen),
         _duas_linhas(
-            cen, valor_debito="500,00", valor_credito="300,00", acao="adicionar_linha",
+            cen,
+            valor_debito="500,00",
+            valor_credito="300,00",
+            acao="adicionar_linha",
             chave="k-bl312-c1",
         ),
     )
@@ -159,7 +165,10 @@ def test_condicao2_debito_maior_que_zero_e_a_unica_que_decide(client, cen):
     resposta = client.post(
         _url_tela(cen),
         _duas_linhas(
-            cen, valor_debito="0,00", valor_credito="0,00", acao="adicionar_linha",
+            cen,
+            valor_debito="0,00",
+            valor_credito="0,00",
+            acao="adicionar_linha",
             chave="k-bl312-c2",
         ),
     )
@@ -183,7 +192,10 @@ def test_condicao3_linhas_excluidas_e_a_unica_que_decide(client, cen, acao):
     caminhos, e a correção do BL-307 cobre o `gravar` que faltava)."""
     _login(client)
     corpo = _duas_linhas(
-        cen, valor_debito="500,00", valor_credito="500,00", acao=acao,
+        cen,
+        valor_debito="500,00",
+        valor_credito="500,00",
+        acao=acao,
         chave=f"k-bl312-c3-{acao}",
     )
     corpo["num_linhas"] = "3"
@@ -198,7 +210,9 @@ def test_condicao3_linhas_excluidas_e_a_unica_que_decide(client, cen, acao):
     assert resposta.context["linhas_excluidas_do_total"] == 1
     assert resposta.context["veredito_fechamento"] == "nao_conferido"
     if acao == "gravar":
-        assert LancamentoContabil.objects.filter(chave_idempotencia=f"k-bl312-c3-{acao}").count() == 0
+        assert (
+            LancamentoContabil.objects.filter(chave_idempotencia=f"k-bl312-c3-{acao}").count() == 0
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +244,10 @@ def test_condicao4_duas_partidas_e_o_minimo_que_ainda_fecha(client, cen):
     resposta = client.post(
         _url_tela(cen),
         _duas_linhas(
-            cen, valor_debito="10,00", valor_credito="10,00", acao="adicionar_linha",
+            cen,
+            valor_debito="10,00",
+            valor_credito="10,00",
+            acao="adicionar_linha",
             chave="k-bl312-c4-minimo",
         ),
     )
@@ -283,8 +300,12 @@ def test_condicao5_bloqueado_por_outro_erro_e_a_unica_que_decide(client, cen):
     exatamente o achado A1 da auditoria DL-024 rodada 3)."""
     _login(client)
     corpo = _duas_linhas(
-        cen, valor_debito="500,00", valor_credito="500,00", acao="gravar",
-        chave="k-bl312-c5", historico="x" * (TAMANHO_MAXIMO_HISTORICO + 1),
+        cen,
+        valor_debito="500,00",
+        valor_credito="500,00",
+        acao="gravar",
+        chave="k-bl312-c5",
+        historico="x" * (TAMANHO_MAXIMO_HISTORICO + 1),
     )
 
     resposta = client.post(_url_tela(cen), corpo)
