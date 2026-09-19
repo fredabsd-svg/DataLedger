@@ -57,6 +57,48 @@ LARGURAS = [(1280, 800), (1920, 1080)]
 # medições GERAIS, não uma lista de `display`/`visibility`/`opacity`.
 MOMENTO_DA_VERDADE_SELETORES = [".veredito-fechamento", ".faixa-fechamento__veredito"]
 
+# BL-329: elemento que carrega a MARCA DO FORNECEDOR — o "DataLedger." que o
+# BL-282 tirou do papel (`templates/base.html`, dentro de `.marca`, dentro de
+# `.cabecalho__topo`). Mesma distinção do comentário acima: isto nomeia O QUE
+# checar (um elemento nomeado da tela pela classe que `static/css/base.css` e
+# `templates/base.html` já usam para o mesmo conceito), não COMO detectar
+# escondido — `visivelDeVerdade`, reaproveitada abaixo em
+# `JS_VISIVEL_DE_VERDADE`, é a mesma função GERAL usada pelo momento da
+# verdade contábil, agora também sob mídia de IMPRESSÃO (ver
+# `SONDA_IMPRESSAO` e o uso em `julgar_arquivo`).
+SELETOR_MARCA_DO_FORNECEDOR = ".marca"
+
+# BL-314/BL-329: a função `visivelDeVerdade` (visibilidade REAL via motor de
+# layout — ver o comentário completo, com as três medições e os limites
+# conhecidos, no ponto em que esta constante é interpolada dentro de SONDA)
+# passa a ser usada por DUAS sondas: SONDA (mídia de TELA, momento da
+# verdade contábil) e SONDA_IMPRESSAO (mídia de IMPRESSÃO, marca do
+# fornecedor — BL-329). Extraída para constante própria porque duas sondas
+# dependendo da MESMA lógica, escrita duas vezes, divergem assim que uma for
+# corrigida sem a outra (mesmo raciocínio de `fundoComposto`, dentro de
+# SONDA, comentado lá).
+JS_VISIVEL_DE_VERDADE = r"""
+    const visivelDeVerdade = (el) => {
+        const suportaApi = typeof el.checkVisibility === 'function';
+        const apiDiz = suportaApi
+            ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
+            : true;
+        const r = el.getBoundingClientRect();
+        const temArea = r.width > 0 && r.height > 0;
+        const alcancavelPorRolagem = r.right > 0 && r.bottom > 0
+            && r.left < document.scrollingElement.scrollWidth
+            && r.top < document.scrollingElement.scrollHeight;
+        return {
+            visivel: apiDiz && temArea && alcancavelPorRolagem,
+            suporta_check_visibility: suportaApi,
+            check_visibility: apiDiz,
+            tem_area: temArea,
+            alcancavel_por_rolagem: alcancavelPorRolagem,
+            retangulo: {largura: r.width, altura: r.height, esquerda: r.left, topo: r.top},
+        };
+    };
+"""
+
 
 def _luminancia(componentes):
     def canal(v):
@@ -263,28 +305,12 @@ SONDA = r"""
     // mas ESSE caso cai no cálculo de CONTRASTE abaixo (razão ~1:1 contra
     // o próprio fundo), então as duas medições juntas (visibilidade +
     // contraste) fecham mais do que qualquer uma sozinha.
-    const visivelDeVerdade = (el) => {
-        const suportaApi = typeof el.checkVisibility === 'function';
-        // Sem suporte à API (navegador antigo): a régua de retângulo decide
-        // sozinha, e o resultado fica marcado como tal (nunca finge certeza
-        // que não tem).
-        const apiDiz = suportaApi
-            ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
-            : true;
-        const r = el.getBoundingClientRect();
-        const temArea = r.width > 0 && r.height > 0;
-        const alcancavelPorRolagem = r.right > 0 && r.bottom > 0
-            && r.left < document.scrollingElement.scrollWidth
-            && r.top < document.scrollingElement.scrollHeight;
-        return {
-            visivel: apiDiz && temArea && alcancavelPorRolagem,
-            suporta_check_visibility: suportaApi,
-            check_visibility: apiDiz,
-            tem_area: temArea,
-            alcancavel_por_rolagem: alcancavelPorRolagem,
-            retangulo: {largura: r.width, altura: r.height, esquerda: r.left, topo: r.top},
-        };
-    };
+    // Sem suporte à API (navegador antigo): a régua de retângulo decide
+    // sozinha, e o resultado fica marcado como tal (nunca finge certeza que
+    // não tem). Definição de `visivelDeVerdade` interpolada de
+    // JS_VISIVEL_DE_VERDADE (Python, acima) — reaproveitada por
+    // SONDA_IMPRESSAO (BL-329), não retypada aqui.
+    __JS_VISIVEL_DE_VERDADE__
 
     resultado.momento_da_verdade = __MOMENTO_DA_VERDADE_SELETORES_JSON__.map(seletor => {
         const el = document.querySelector(seletor);
@@ -313,6 +339,30 @@ SONDA = r"""
 # desse defeito neste projeto).
 SONDA = SONDA.replace(
     "__MOMENTO_DA_VERDADE_SELETORES_JSON__", json.dumps(MOMENTO_DA_VERDADE_SELETORES)
+)
+SONDA = SONDA.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
+
+# BL-329: sonda DEDICADA, avaliada sob `page.emulate_media(media="print")`
+# (ver `julgar_arquivo`) — pergunta se o elemento que carrega a marca do
+# FORNECEDOR (`SELETOR_MARCA_DO_FORNECEDOR`, acima) continua visível quando a
+# página é IMPRESSA. Reaproveita `visivelDeVerdade` (a mesma função da
+# SONDA principal, interpolada da mesma constante Python) — não uma cópia
+# JS separada. Deliberadamente pequena: não reavalia densidade, contraste
+# nem o resto da sonda principal, que não fazem sentido sob mídia de
+# impressão (a paginação real só existe em `page.pdf()`, fora do escopo
+# deste juiz — ver a docstring do módulo).
+SONDA_IMPRESSAO = r"""
+() => {
+    __JS_VISIVEL_DE_VERDADE__
+    const seletor = __SELETOR_MARCA_DO_FORNECEDOR_JSON__;
+    const el = document.querySelector(seletor);
+    if (!el) return {seletor, encontrado: false};
+    return Object.assign({seletor, encontrado: true}, visivelDeVerdade(el));
+}
+"""
+SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
+SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace(
+    "__SELETOR_MARCA_DO_FORNECEDOR_JSON__", json.dumps(SELETOR_MARCA_DO_FORNECEDOR)
 )
 
 
@@ -386,6 +436,27 @@ def julgar_arquivo(pagina, caminho, largura, altura):
             return r1 !== r2;
         }
     """)
+
+    # BL-329: sob mídia de IMPRESSÃO (`page.emulate_media`), a marca do
+    # fornecedor continua visível? Esta é a MEDIDA QUE A CI NÃO PODE DAR — a
+    # suíte `pytest` (apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py)
+    # já cobre a metade que dá para provar sem navegador (cascata CSS
+    # simulada, `display: none` efetivo); esta metade responde à pergunta
+    # que só um motor de layout real decide: o contador VÊ a marca no papel?
+    # `visivelDeVerdade` (a MESMA função do momento da verdade contábil,
+    # acima) já cobre `display`, `visibility` e posicionamento fora da tela
+    # sem enumerar técnicas — ver o comentário completo dela, mais acima
+    # nesta sonda, e a decisão registrada na docstring do módulo de teste
+    # sobre por que a guarda de CI é mais estrita (exige `display: none`
+    # especificamente, não "invisível por qualquer meio").
+    pagina.emulate_media(media="print")
+    dados["marca_do_fornecedor_na_impressao"] = pagina.evaluate(SONDA_IMPRESSAO)
+    # Volta à mídia de TELA antes de qualquer outra medição/captura: sem
+    # isto, as capturas de imagem (mais abaixo, em `main`) e o teste de foco
+    # acima sairiam avaliados sob impressão, misturando as duas garantias
+    # numa só — exatamente o erro de redação que o BL-314 corrigiu (contar
+    # como uma camada o que eram duas).
+    pagina.emulate_media(media=None)
 
     # Desfaz o foco que a sonda acabou de aplicar: sem isso, a captura sai com
     # o atalho "Pular para o conteúdo" por cima da navegação, e quem olhasse a
