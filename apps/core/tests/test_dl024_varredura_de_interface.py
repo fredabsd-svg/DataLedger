@@ -252,20 +252,33 @@ NOMES_QUE_NAO_SAO_TINTA = {
 # nome. Quando isso acontecer, a entrada nasce aqui, nomeada, com a data e a
 # seção da especificação — nunca por engano.
 #
-# DECISÃO DELIBERADA, e não esquecimento: os DEZENOVE nomes abaixo são só a
-# seção "CSS System Colors" (§8.1, vocabulário ATUAL). A seção seguinte do
-# mesmo módulo (§8.2, "Deprecated System Colors" — `Menu`, `Window`,
-# `Background`, `Scrollbar`, `ButtonHighlight`, `CaptionText`...) tem o MESMO
-# problema de fundo (valor decidido pelo tema do sistema), mas fica de fora:
-# são palavras do inglês comum, com risco real de colidir com um IDENTIFICADOR
-# legítimo do projeto (nome de animação, linha de grid — `animation-name:
-# menu-open` tokeniza em "menu" e "open", e "menu" bateria) — exatamente o
-# risco que o BL-321 já ensinou a temer: falso alarme em CI é mais corrosivo
-# que a lacuna. `Canvas`/`ButtonFace`/`AccentColor` não têm esse problema:
-# são termos específicos, sem uso plausível como identificador de projeto. Se
-# uma cor de sistema DEPRECIADA aparecer de fato em CSS revisado por humano,
-# ela entra aqui por nome, pesando o mesmo risco de colisão.
-CORES_DE_SISTEMA_CSS = frozenset(
+# F4 da auditoria DL-026 rodada 6 (docs/auditorias/2026-09-19-dl-026-rodada-6.md):
+# a exclusão do §8.2 era mesmo DECISÃO DELIBERADA, com o motivo CERTO —
+# risco de colidir com um IDENTIFICADOR legítimo do projeto
+# (`animation-name: menu-open` tokeniza em "menu" e "menu" bateria) — mas
+# aplicada só ao conjunto que ficou de FORA. O auditor mediu: o MESMO risco
+# já valia para palavra do §8.1 que já estava DENTRO — `highlight`
+# (`animation-name: highlight-row`), `mark` (`animation-name: mark-in`,
+# `view-transition-name: mark`), `canvas` (`grid-area: canvas`), `field`
+# (`font-family: Field Sans`) — cinco falsos alarmes REAIS, porque o
+# detector varria QUALQUER declaração `propriedade: valor`, nunca só as que
+# aceitam cor. `highlight`/`mark`/`field`/`canvas` são tão palavra do inglês
+# comum quanto `menu`/`window`; a diferença nunca esteve na PALAVRA, esteve
+# em ONDE ela aparece — e essa segunda pergunta não estava sendo feita.
+#
+# A correção (`_propriedade_aceita_cor`, logo abaixo de `MOTIVO_COR_DE_
+# SISTEMA`): restringir a varredura às propriedades que aceitam cor —
+# `color`, `background` e derivadas, `border-*-color`, `outline-color`,
+# `fill`, `stroke`, `caret-color`, `text-decoration-color`,
+# `column-rule-color`, `accent-color`, `box-shadow`, `text-shadow`, entre
+# outras justificadas ali. Isso elimina os cinco falsos alarmes SEM lista de
+# exceção de PALAVRA — e com isso o motivo para excluir o §8.2 desaparece:
+# `Menu`/`Window`/`ActiveBorder`/`InactiveCaptionText`/`ThreeDFace`
+# renderizam no navegador com o MESMO contraste não calculável do §8.1, e só
+# entram na varredura onde `color`/`background`/`border-color`/
+# `outline-color` etc. os declaram — nunca em `animation-name`/`grid-area`/
+# `font-family`/`view-transition-name`. O §8.2 entra INTEIRO abaixo.
+CORES_DE_SISTEMA_ATUAIS_CSS = frozenset(
     """
     accentcolor accentcolortext activetext buttonborder buttonface
     buttontext canvas canvastext field fieldtext graytext highlight
@@ -273,6 +286,28 @@ CORES_DE_SISTEMA_CSS = frozenset(
     visitedtext
     """.split()
 )
+
+# §8.2 "Deprecated System Colors" (w3.org/TR/css-color-4/#deprecated-
+# system-colors) — vinte e três palavras-chave, o mesmo vocabulário FECHADO
+# e ENUMERADO por especificação que já justificava `CORES_DE_SISTEMA_
+# ATUAIS_CSS` ser lista em vez de inversão (ver o comentário do BL-335,
+# acima: um domínio contínuo se inverte, um vocabulário fechado por
+# especificação se enumera). "Deprecated" aqui é a especificação marcando o
+# uso como desaconselhado em página pública nova — não removendo a
+# palavra-chave da linguagem: todo navegador atual continua resolvendo
+# `Menu`/`Window`/... para uma cor de tema real, com o MESMO problema de
+# contraste não calculável do §8.1.
+CORES_DE_SISTEMA_DEPRECIADAS_CSS = frozenset(
+    """
+    activeborder activecaption appworkspace background buttonhighlight
+    buttonshadow captiontext inactiveborder inactivecaption
+    inactivecaptiontext infobackground infotext menu menutext scrollbar
+    threeddarkshadow threedface threedhighlight threedlightshadow
+    threedshadow window windowframe windowtext
+    """.split()
+)
+
+CORES_DE_SISTEMA_CSS = CORES_DE_SISTEMA_ATUAIS_CSS | CORES_DE_SISTEMA_DEPRECIADAS_CSS
 
 # Mensagem da CATEGORIA PRÓPRIA (não "mais uma cor proibida"): o motivo pelo
 # qual cor de sistema é pior que hex errado é que ela não tem valor fixo, e
@@ -287,6 +322,52 @@ MOTIVO_COR_DE_SISTEMA = (
     "de contraste da DE-053 deixa de valer para aquele par, sem que nada "
     "avise. Substitua por um token de tinta do :root."
 )
+
+# F4 da auditoria DL-026 rodada 6: o filtro que faltava em
+# `_cores_de_sistema_fora_dos_tokens` — cor de sistema só pode aparecer onde
+# a propriedade ACEITA cor. Sem isto, `re.findall(r"[a-zA-Z]+", valor)`
+# lia QUALQUER declaração (`animation-name: highlight-row`, `grid-area:
+# canvas`, `font-family: Field Sans`, `view-transition-name: mark`) como se
+# fosse uma lista de cores candidatas.
+#
+# `PROPRIEDADES_ATALHO_QUE_ACEITAM_COR` é a lista NOMEADA e comentada — no
+# padrão de `NOMES_QUE_NAO_SAO_TINTA`/`PASTAS_QUE_NAO_SAO_MODULO` deste
+# arquivo — dos atalhos que aceitam cor SEM terminar em "color" no nome:
+# `background`/`border`(+ quatro lados + dois eixos lógicos)/`outline`/
+# `column-rule` são propriedades de ATALHO cujo valor mistura largura,
+# estilo de linha E cor no mesmo lugar; `box-shadow`/`text-shadow` têm cor
+# como o ÚLTIMO componente da lista de valores; `text-decoration`/
+# `text-emphasis` são atalho da variante `-color`; `fill`/`stroke` são a
+# pintura do SVG (w3.org/TR/SVG2/, "Presentation attributes"). Tudo o que
+# TERMINA em "color" (`color`, `background-color`, `border-color` e as oito
+# variantes por lado/eixo lógico, `outline-color`, `caret-color`,
+# `accent-color`, `text-decoration-color`, `text-emphasis-color`,
+# `column-rule-color`, `scrollbar-color`, e as três de pintura do SVG —
+# `stop-color`/`flood-color`/`lighting-color`) é reconhecido por SUFIXO, sem
+# precisar enumerar cada combinação — e sem casar `color-scheme`,
+# `forced-color-adjust` nem `print-color-adjust`, que CONTÊM "color" mas não
+# TERMINAM com ele, e nenhuma delas aceita uma palavra-chave de cor de
+# sistema como valor.
+PROPRIEDADES_ATALHO_QUE_ACEITAM_COR = frozenset(
+    """
+    background border border-top border-right border-bottom border-left
+    border-block border-block-start border-block-end
+    border-inline border-inline-start border-inline-end
+    outline column-rule box-shadow text-shadow text-decoration text-emphasis
+    fill stroke
+    """.split()
+)
+
+
+def _propriedade_aceita_cor(nome):
+    """`True` se a propriedade CSS `nome` aceita um valor de cor — o filtro
+    da correção do achado F4 (auditoria DL-026 rodada 6): termina em
+    "color" (ver o comentário de `PROPRIEDADES_ATALHO_QUE_ACEITAM_COR` para
+    a lista coberta por sufixo) ou está na lista NOMEADA de atalhos que
+    aceitam cor sem "color" no nome."""
+    nome = nome.strip().lower()
+    return nome.endswith("color") or nome in PROPRIEDADES_ATALHO_QUE_ACEITAM_COR
+
 
 # Estilo embutido: `style="..."` (aspas duplas), `style='...'` (BL-274 #5,
 # aspas simples escapavam), `style=valor-sem-aspas` (M1/BL-292, auditoria
@@ -724,11 +805,23 @@ def _cores_fora_dos_tokens(texto):
 
 def _cores_de_sistema_fora_dos_tokens(texto):
     """Cor de SISTEMA (`CORES_DE_SISTEMA_CSS`) declarada fora do `:root`/
-    `@page` — categoria PRÓPRIA (BL-335/M3, auditoria DL-026 rodada 5),
-    separada de `_cores_fora_dos_tokens`: uma cor de sistema não é uma tinta
-    que o projeto ERROU (como um `red` solto), é uma tinta que o projeto NÃO
-    CONTROLA — o motivo está em `MOTIVO_COR_DE_SISTEMA`, e é ele que a
-    mensagem de reprovação precisa repetir, não só "cor fora dos tokens".
+    `@page`, numa propriedade que ACEITA cor — categoria PRÓPRIA (BL-335/M3,
+    auditoria DL-026 rodada 5), separada de `_cores_fora_dos_tokens`: uma
+    cor de sistema não é uma tinta que o projeto ERROU (como um `red`
+    solto), é uma tinta que o projeto NÃO CONTROLA — o motivo está em
+    `MOTIVO_COR_DE_SISTEMA`, e é ele que a mensagem de reprovação precisa
+    repetir, não só "cor fora dos tokens".
+
+    F4 da auditoria DL-026 rodada 6: até essa correção, a varredura lia
+    QUALQUER declaração `propriedade: valor`, e uma palavra do inglês comum
+    fora de contexto de cor virava falso alarme — `animation-name:
+    highlight-row`, `animation-name: mark-in`, `grid-area: canvas`,
+    `font-family: Field Sans`, `view-transition-name: mark`, medido pelo
+    auditor com `1 failed` numa mudança que não tem cor nenhuma. Agora só a
+    declaração cuja PROPRIEDADE aceita cor (`_propriedade_aceita_cor`) é
+    examinada — o mesmo raciocínio que já valia para `PROPRIEDADES_QUE_
+    ACEITAM_MEDIDA_LITERAL` do lado da medida, aplicado aqui do lado
+    contrário (uma lista de propriedades que ENTRAM, não que escapam).
 
     Mesma estrutura de `_cores_fora_dos_tokens` (declaração por declaração,
     custom property sempre isenta por ser a DEFINIÇÃO do token — BL-321 —,
@@ -748,6 +841,12 @@ def _cores_de_sistema_fora_dos_tokens(texto):
             # hipotético, nunca visto no projeto: alguém amarrando um token
             # do :root a `Canvas` de propósito). A definição não é o que
             # esta varredura precisa cobrar; o USO fora do token, sim.
+            continue
+        if not _propriedade_aceita_cor(propriedade):
+            # F4 (rodada 6): fora de uma propriedade que aceita cor, uma
+            # palavra do inglês comum (`highlight`, `mark`, `canvas`,
+            # `field`...) não é cor nenhuma — é nome de animação, área de
+            # grid, família de fonte, nome de view-transition.
             continue
         valor = _sem_variavel_css_preservando_fallback(valor_bruto)
         if "url(" in valor or '"' in valor or "'" in valor:
@@ -1478,6 +1577,31 @@ def test_controle_positivo_deteccao_de_cor_de_sistema_em_copia_do_base_css(tmp_p
         )
 
 
+def test_controle_positivo_deteccao_de_cor_de_sistema_em_copia_do_base_css_minusculas(tmp_path):
+    """Critério de aceite 2 do BL-346: a MESMA sabotagem, em minúsculas —
+    nome de CSS não diferencia caixa (o navegador resolve `color: canvas;`
+    exatamente como `color: Canvas;`), variante que o arquiteto-senior
+    acrescentou à rodada anterior de auditoria."""
+    original = (ESTILOS / "base.css").read_text(encoding="utf-8")
+    sabotado = original + (
+        "\n.sabotagem-cor-de-sistema-minuscula {\n"
+        "    color: canvas;\n"
+        "    background: buttonface;\n"
+        "    border-color: accentcolor;\n"
+        "    outline-color: linktext;\n"
+        "}\n"
+    )
+    copia = tmp_path / "base.css"
+    copia.write_text(sabotado, encoding="utf-8")
+
+    achados = _cores_de_sistema_fora_dos_tokens(copia.read_text(encoding="utf-8"))
+    for esperado in ("canvas", "buttonface", "accentcolor", "linktext"):
+        assert esperado in achados, (
+            f"a sabotagem em minúsculas não foi detectada na cópia do base.css REAL do "
+            f"projeto: '{esperado}' ausente de {achados}"
+        )
+
+
 def test_controle_positivo_deteccao_de_cor_de_sistema_em_atributo_de_template():
     """Critério de aceite 2: a mesma categoria, no caminho de ATRIBUTO que o
     BL-305 abriu — `fill="Canvas"` num elemento de apresentação, sem CSS
@@ -1526,6 +1650,108 @@ def test_controle_negativo_detector_de_cor_de_sistema_respeita_a_definicao_de_to
     achados = _cores_de_sistema_fora_dos_tokens(dentro_do_page)
     assert "Canvas" in achados, (
         "@page é isento — mas a regra FORA dele (.x) continua sob a varredura normalmente"
+    )
+
+
+# ---------------------------------------------------------------------------
+# F4 da auditoria DL-026 rodada 6 (docs/auditorias/2026-09-19-dl-026-rodada-6.md):
+# as DEZ linhas exatas que o auditor mediu — cinco declarações de PROPRIEDADE
+# QUE ACEITA COR com palavra do §8.2 (Deprecated System Colors), que agora
+# reprovam porque o motivo para excluir o §8.2 (risco de falso alarme)
+# desapareceu com a restrição de propriedade; e as cinco declarações que
+# eram FALSO ALARME antes desta correção (propriedade que NUNCA aceita cor),
+# que agora aprovam. Cada linha é a reprodução literal da tabela do achado.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        (":root { --a: #fff; }\n.aviso-do-sistema { color: Menu; }", "Menu"),
+        (":root { --a: #fff; }\n.aviso-do-sistema { background: Window; }", "Window"),
+        (
+            ":root { --a: #fff; }\n.aviso-do-sistema { border-color: ActiveBorder; }",
+            "ActiveBorder",
+        ),
+        (
+            ":root { --a: #fff; }\n.aviso-do-sistema { outline-color: InactiveCaptionText; }",
+            "InactiveCaptionText",
+        ),
+        (":root { --a: #fff; }\n.aviso-do-sistema { color: ThreeDFace; }", "ThreeDFace"),
+    ],
+)
+def test_controle_positivo_detector_de_cor_de_sistema_secao_8_2_depreciada(css_ruim, esperado):
+    """F4 (rodada 6): as CINCO reprovações da tabela do auditor — palavra do
+    §8.2 (`Menu`/`Window`/`ActiveBorder`/`InactiveCaptionText`/`ThreeDFace`)
+    numa propriedade que aceita cor de verdade (`color`/`background`/
+    `border-color`/`outline-color`). O motivo que excluía o §8.2 no BL-335
+    (risco de colidir com identificador legítimo) não se aplica aqui: nestas
+    quatro propriedades a palavra SÓ pode ser cor."""
+    achados = _cores_de_sistema_fora_dos_tokens(css_ruim)
+    assert esperado in achados, f"cor de sistema depreciada '{esperado}' escapou: {achados}"
+
+
+@pytest.mark.parametrize(
+    "css_bom",
+    [
+        ":root { --a: #fff; }\n.linha-destacada { animation-name: highlight-row; "
+        "animation-duration: 1s; }",
+        ":root { --a: #fff; }\n.marcador { animation-name: mark-in; }",
+        ":root { --a: #fff; }\n.layout { grid-area: canvas; }",
+        ":root { --a: #fff; }\n.titulo { font-family: Field Sans; }",
+        ":root { --a: #fff; }\n.transicao { view-transition-name: mark; }",
+    ],
+)
+def test_controle_negativo_detector_de_cor_de_sistema_ignora_palavra_fora_de_propriedade_de_cor(
+    css_bom,
+):
+    """F4 (rodada 6): as CINCO aprovações da tabela do auditor — a
+    reprodução exata do falso alarme medido na CI
+    (`printf '\\n.linha-destacada {\\n    animation-name: highlight-row;\\n'`
+    ..., `1 failed`). `highlight`/`mark`/`canvas`/`Field` são tão palavra do
+    inglês comum quanto `menu`/`window` já eram — a diferença é que
+    `animation-name`, `grid-area`, `font-family` e `view-transition-name`
+    NUNCA aceitam cor, então a palavra ali nunca podia ter sido lida como
+    tinta de sistema."""
+    achados = _cores_de_sistema_fora_dos_tokens(css_bom)
+    assert achados == [], f"falso alarme (F4): {achados}"
+
+
+@pytest.mark.parametrize(
+    "nome, esperado",
+    [
+        ("color", True),
+        ("background", True),
+        ("background-color", True),
+        ("border-color", True),
+        ("border-top-color", True),
+        ("border-inline-end-color", True),
+        ("outline-color", True),
+        ("outline", True),
+        ("fill", True),
+        ("stroke", True),
+        ("caret-color", True),
+        ("text-decoration-color", True),
+        ("column-rule-color", True),
+        ("accent-color", True),
+        ("box-shadow", True),
+        ("text-shadow", True),
+        ("COLOR", True),  # nome de propriedade não diferencia caixa
+        ("animation-name", False),
+        ("grid-area", False),
+        ("font-family", False),
+        ("view-transition-name", False),
+        ("color-scheme", False),  # contém "color" mas não TERMINA com ele
+        ("forced-color-adjust", False),
+        ("print-color-adjust", False),
+    ],
+)
+def test_propriedade_aceita_cor_classifica_corretamente(nome, esperado):
+    """Controle direto do filtro que a correção do F4 introduziu — cada
+    entrada da tabela é uma decisão que a função precisa acertar, não só o
+    resultado agregado dos detectores acima."""
+    assert _propriedade_aceita_cor(nome) is esperado, (
+        f"'{nome}' deveria classificar como aceita-cor={esperado}"
     )
 
 
