@@ -269,7 +269,7 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em validação — rodada 8 integrada e medida, pedindo a sexta auditoria.** A
+Em desenvolvimento — rodada 9.** A sexta auditoria **REPROVOU** `8aa84b6` com dois ALTOS, e os dois são as correções da rodada anterior **não segurando a propriedade que prometem** — o produto está certo, a garantia é que não existe. ⚠️ O auditor foi explícito sobre mesclar: o conteúdo desta branch é *"estritamente melhor"* que a `main` no comportamento observável, mas a entrega da rodada **são as guardas**, e mesclar registraria no histórico que os dois ALTOS da rodada 5 foram corrigidos quando o que existe é o produto certo por enquanto e a guarda que aprova o produto errado. Um dos dois achados (**BL-343**) é **contra mim**: o exemplo de "CSS legítimo" que eu mandei virar teste obrigatório estava errado. A
 rodada 5 foi mesclada na `main` pelo PR #35
 (`d22c580`, `1.630 passed` na árvore combinada), e a branch de trabalho foi
 reiniciada a partir dela. A **rodada 6 foi integrada, medida por mim e
@@ -324,7 +324,7 @@ depois de eu ter proibido exatamente isso a dois agentes. A causa é do
 ambiente, não da disciplina de ninguém, e a regra foi reescrita para uma que
 seja cumprível.
 
-Cinco auditorias, **as cinco REPROVARAM**, e as cinco acharam coisa real:
+Seis auditorias, **as seis REPROVARAM**, e as seis acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
@@ -333,6 +333,7 @@ Cinco auditorias, **as cinco REPROVARAM**, e as cinco acharam coisa real:
 | [Rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md) | `23c6ac8` | REPROVADO | 3 altos, 5 médios, 3 baixos |
 | [Rodada 4](../auditorias/2026-09-19-dl-024-rodada-4.md) | `8235635` | REPROVADO | 1 alto, 5 médios, 2 baixos |
 | [Rodada 5](../auditorias/2026-09-19-dl-026-rodada-5.md) | `53388c8` | REPROVADO | 2 altos, 5 médios, 3 baixos |
+| [Rodada 6](../auditorias/2026-09-19-dl-026-rodada-6.md) | `8aa84b6` | REPROVADO | 2 altos, 4 médios, 4 baixos |
 
 ⚠️ **Os quatro relatórios dizem "DL-024" e continuam dizendo**: são documento
 histórico, e a etapa foi renumerada para DL-026 depois de eles existirem. O
