@@ -268,14 +268,26 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-RODADA 5 INTEGRADA E MEDIDA, AGUARDANDO A QUARTA AUDITORIA.** Três auditorias,
-**as três REPROVARAM**, e as três acharam coisa real:
+Em desenvolvimento — rodada 6 em curso.** A rodada 5 foi mesclada na `main`
+pelo PR #35 (`d22c580`, `1.630 passed` na árvore combinada), e a branch de
+trabalho foi reiniciada a partir dela. A rodada 6 tem duas partes rodando ao
+mesmo tempo: as correções da quarta auditoria e, por pedido do Fred em
+2026-09-19 (*"agora resolve os itens que ficaram abertos no backlog"*), os
+quatro itens de produto que as rodadas anteriores tinham deixado abertos **por
+decisão declarada**. Detalhe da distribuição no "Próximo passo" mais abaixo.
+
+Quatro auditorias, **as quatro REPROVARAM**, e as quatro acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
 | [Rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md) | `5c7303e` | REPROVADO | 3 altos, 6 médios, 4 baixos |
 | [Rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md) | `c71bd55` | REPROVADO | 3 altos, 7 médios, 5 baixos |
 | [Rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md) | `23c6ac8` | REPROVADO | 3 altos, 5 médios, 3 baixos |
+| [Rodada 4](../auditorias/2026-09-19-dl-024-rodada-4.md) | `8235635` | REPROVADO | 1 alto, 5 médios, 2 baixos |
+
+⚠️ **Os quatro relatórios dizem "DL-024" e continuam dizendo**: são documento
+histórico, e a etapa foi renumerada para DL-026 depois de eles existirem. O
+plano da etapa explica a renumeração.
 
 ### A causa das três reprovações, e ela é de distribuição
 
@@ -361,10 +373,36 @@ marcado como rascunho e com "não deve ser mesclado" escrito no corpo —
 rascunho no GitHub **não impede** merge, e a `main` carrega a DL-023 com três
 pendências abertas por causa disso.
 
-Fora da rodada 4, por decisão registrada: **BL-277** (o filtro do balancete),
-**BL-281** (parênteses no balancete — muda a view), **BL-282** (timbre do
-escritório na impressão) e **BL-287** (a ajuda de data unificada só no
-balancete; Diário, Razão e Lançamento seguem duplicando).
+Ficaram fora das rodadas anteriores, por decisão registrada: **BL-277** (o
+filtro do balancete), **BL-281** (parênteses no balancete — muda a view),
+**BL-282** (timbre do escritório na impressão) e **BL-287** (a ajuda de data
+unificada só no balancete; Diário, Razão e Lançamento seguem duplicando).
+
+**Em 2026-09-19 o Fred mandou fechá-los** — *"agora resolve os itens que
+ficaram abertos no backlog"* —, então os quatro entraram na rodada 6. Dois
+deles são contábeis de verdade, não cosméticos: o parênteses de saldo
+invertido é a convenção que faz o contador enxergar anomalia no balancete, e o
+timbre é o que impede o relatório de sair com a marca do fornecedor em vez da
+do escritório.
+
+Distribuição da rodada 6, conjuntos de arquivos disjuntos e **um banco de
+dados por frente** (BL-273: duas execuções de `pytest` no mesmo banco produzem
+falha falsa):
+
+| Frente | Responsável | Itens | Banco |
+| --- | --- | --- | --- |
+| Varredura e marcação | `desenvolvedor-pleno` | BL-305, BL-319, BL-320, BL-321, BL-322 | `ci_r6` |
+| Telas e visibilidade | `especialista-frontend` | BL-314 (juiz), BL-323, BL-325 — entregues em `df711c7` | — |
+| Servidor dos itens de produto | `desenvolvedor-pleno` | BL-281 (contexto da view), BL-282 (timbre no modelo) | `ag_bal` |
+| Telas dos itens de produto | `especialista-frontend` | BL-287 agora; BL-277 e a renderização de BL-281/282 na onda seguinte | `ag_tela` |
+| Guardas do estado e redação | `arquiteto-senior` | BL-324, BL-326 (`de10963`), BL-314 redação (`eb62482`) | — |
+
+**Decisão de arquitetura tomada por mim nesta rodada, para não travar o
+BL-282:** o timbre do escritório é **texto**, não imagem. Upload de logotipo
+traz armazenamento de mídia, validação de tipo de arquivo e isolamento de
+mídia entre escritórios — três problemas que não cabem num item de backlog e
+que precisam de etapa própria. É limitação declarada, não esquecimento, e é
+reversível.
 
 **Antes, em 2026-09-16:
 [DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
