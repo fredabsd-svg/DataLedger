@@ -264,32 +264,59 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-18:
+**AGORA, em 2026-09-19:
 [DL-024](../planos/DL-024-identidade-visual-e-interface.md) — identidade visual.
-RODADA 4 EM EXECUÇÃO.** Duas auditorias, **as duas REPROVARAM**, e as duas
-acharam coisa real:
+RODADA 5 INTEGRADA E MEDIDA, AGUARDANDO A QUARTA AUDITORIA.** Três auditorias,
+**as três REPROVARAM**, e as três acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
 | [Rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md) | `5c7303e` | REPROVADO | 3 altos, 6 médios, 4 baixos |
 | [Rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md) | `c71bd55` | REPROVADO | 3 altos, 7 médios, 5 baixos |
+| [Rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md) | `23c6ac8` | REPROVADO | 3 altos, 5 médios, 3 baixos |
 
-Os três altos abertos, e o primeiro é o mais grave da etapa inteira:
+### A causa das três reprovações, e ela é de distribuição
 
-- **BL-289** — o veredito **"Fecha" MENTE** em quatro estados alcançáveis do
-  lançamento, **um deles o formulário em branco**, outro logo abaixo do aviso
-  de que as linhas foram descartadas. Causa: o template comparava **textos**
-  pt-BR, e `"0,00" == "0,00"`. Nenhum lançamento errado é gravado — o servidor
-  recusa —, mas a frase que o contador lê **antes de gravar** estava errada.
-  ⚠️ Foi **introduzido pela correção** do achado da rodada 1.
-- **BL-290** — a faixa de fechamento do balancete nasceu **sem teste nenhum**:
-  o auditor trocou os dois números e fixou o veredito, e a suíte deu
-  `1363 passed`.
-- **BL-291** — a varredura é **cega para `apps/<app>/templates/`**, que o
-  Django resolve por `APP_DIRS`. Uma tela violando **seis** guardas de uma vez
-  passou verde. **É o caminho pelo qual o Fiscal nasceria inteiramente fora da
-  direção de arte com a integração contínua verde** — o único dos quinze
-  achados que é porta aberta, não defeito.
+O auditor nomeou o que eu não tinha conseguido nomear:
+
+> *"A distância entre isto e a aprovação não é de esforço. É de **onde a guarda
+> é posta**: três vezes nesta rodada ela foi posta contra a frase do meu
+> relatório em vez de contra o requisito."*
+
+Eu vinha entregando aos implementadores **o achado**, com reprodução e "como
+verificar". A correção nascia do **tamanho exato do achado** — fechava aquele
+caso e nada mais, e a defesa ficava sempre uma auditoria atrás.
+
+**A rodada 5 entregou o REQUISITO**, com o achado como ilustração, e a ordem de
+serviço dizia: *"se a sua guarda fecha exatamente os casos citados e nada
+além, ela está errada mesmo passando"*. O resultado apareceu — os dois
+especialistas acharam, cada um, uma ocorrência que **ninguém tinha pedido**:
+
+- o `desenvolvedor-pleno` mediu que a causa do BL-307 era mais funda que a
+  relatada: passar `linhas_excluidas_do_total` fecharia só **2 dos 4** casos, e
+  os outros dois balanceiam as partidas válidas perfeitamente. Criou uma quinta
+  condição e quatro casos novos;
+- o `especialista-frontend` descobriu que a **soma por coluna** do balancete
+  também é igual por partida dobrada — uma troca em *todas* as linhas seria
+  invisível.
+
+### Medição da rodada 5, feita pelo `arquiteto-senior` com a máquina livre
+
+`1525 passed, 12 skipped` em 57,08s; `ruff check` limpo; `ruff format --check`
+178 arquivos; `manage.py check` limpo; `git diff -- templates/ static/` vazio.
+
+**As quatro sabotagens, refeitas pelo arquiteto em cópia da árvore:**
+
+| Sabotagem | Resultado |
+| --- | --- |
+| BL-307 — neutralizar a quinta condição do veredito | **6 failed** |
+| BL-308 — trocar o crédito da faixa pelo débito | **4 failed** |
+| BL-309 — módulo novo **bem formado** em `apps/<mod>/templates/`, sem linha no §3 | **1 failed** |
+| BL-313 — `max-width`, `min-height`, `box-shadow`, `2lh`, `1.5cap`, `translateX` | **1 failed** |
+
+A terceira é a que mais importa para a evolução por módulos: a tela **estende a
+moldura, tem legenda, escopo e classe de valor** — e reprova assim mesmo,
+porque o módulo não declarou a pergunta que ela responde antes de gravar.
 
 Distribuição da rodada 4, arquivos disjuntos, contrato de contexto fixado por
 mim **antes** para os dois trabalharem em paralelo sem esperar um pelo outro:
