@@ -41,6 +41,43 @@ mutações do próprio auditor são reproduzidas literalmente nos testes
 sintético — se a defesa correspondente for removida do produto, o teste de
 mutação PASSA A FALHAR (porque a mutação deixa de mudar nada), entregando o
 mesmo sinal que a remoção direta da guarda.
+
+BL-334 (M2 da auditoria DL-026, rodada 5,
+docs/auditorias/2026-09-19-dl-026-rodada-5.md): até esta correção, as
+guardas 1 a 3 (aria-hidden/coerência/duplicidade) só corriam contra as OITO
+telas de `templates/contabilidade/` — uma LISTA escrita à mão
+(`_urls_de_contabilidade`). O produto tem mais telas fora dessa pasta
+(`empresas/`, `tenancy/`, `registration/`, `erros/`), todas estendendo a
+MESMA moldura (`base.html`) com os MESMOS atalhos Painel/Empresas — e
+nenhuma delas tinha guarda nenhuma. Medido pelo auditor: um
+`<a href="#sabotagem" accesskey=p>` inserido em
+`templates/empresas/lista.html`, colidindo com o `Alt+P` do Painel e sem
+`aria-keyshortcuts`, passava com `1715 passed` — **literalmente o defeito
+do BL-323, um diretório ao lado**.
+
+A varredura ESTÁTICA (`apps/core/tests/test_dl024_varredura_de_interface.py`)
+já fazia isso certo desde o BL-320: deriva as raízes de
+`settings.TEMPLATES` e varre TODOS os templates. A guarda RENDERIZADA
+(este arquivo) ficou para trás, com uma lista.
+
+A correção deriva o conjunto de ROTAS (não de arquivos de template — o
+requisito é sobre o que o usuário RECEBE ao navegar, e mais de uma rota
+pode renderizar o mesmo template em estados diferentes, como
+`empresas:lista` → `empresas/lista.html` OU `empresas/sem_escritorio.html`
+conforme o vínculo do usuário) diretamente da urlconf REAL do produto
+(`config/urls.py`, via `django.urls.get_resolver`) — nunca retypada. Toda
+rota nomeada alcançável dali tem de estar em UM dos dois lados:
+
+- `NOMES_DE_TELA_DE_CONTABILIDADE`/`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`:
+  coberta por um teste real desta suíte, contra a renderização de verdade.
+- `EXCLUSOES_NOMEADAS_DE_TELA` (e a subárvore `SUBARVORES_EXCLUIDAS`, para
+  namespaces inteiros como o admin do Django): excluída, com o MOTIVO
+  escrito — no padrão de `PASTAS_QUE_NAO_SAO_MODULO`
+  (`apps/core/tests/test_dl024_varredura_de_interface.py`).
+
+`test_toda_rota_do_produto_esta_coberta_ou_excluida`, ao fim deste arquivo,
+é quem cobra isso: rota nova sem entrada em nenhum dos dois lados reprova a
+suíte, nomeando a rota que falta classificar.
 """
 
 import re
@@ -49,7 +86,8 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth import views as auth_views
-from django.urls import include, path, reverse
+from django.urls import get_resolver, include, path, reverse
+from django.urls.resolvers import URLPattern, URLResolver
 from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
@@ -107,12 +145,45 @@ PADRAO_TAG_KBD = re.compile(r"<kbd\b[^>]*>", re.IGNORECASE)
 # padrão NENHUMA vez: o elemento inteiro desaparecia das guardas de
 # coerência (`accesskeys_incoerentes`) e de duplicidade
 # (`accesskeys_duplicados`), em vez de ser REPROVADO por não seguir a
-# convenção. Agora o padrão encontra qualquer TAG que declare `accesskey`
-# (com qualquer conteúdo entre aspas) e `_accesskey_de` (abaixo) decide,
-# por `tokens_de_atributo`, se o valor é uma letra ASCII só —
+# convenção. O padrão passou a encontrar qualquer TAG que declare
+# `accesskey` ENTRE ASPAS e `_accesskey_de` (abaixo) decide, por
+# `tokens_de_atributo`, se o valor é uma letra ASCII só —
 # `accesskeys_malformados` reprova quando não é.
+#
+# BL-323 (M5 da auditoria DL-026, rodada 4,
+# docs/auditorias/2026-09-19-dl-024-rodada-4.md): "entre aspas" continuava
+# sendo uma LISTA de duas formas (`"..."` e `'...'`), não o requisito —
+# que é NENHUM `accesskey` escapar da guarda, EM NENHUMA forma de escrita
+# que o navegador aceite. Medido pelo auditor: um link NOVO em
+# `base.html`, `accesskey=c` SEM ASPAS (HTML5 válido — o Chromium aplica:
+# `element.accessKey == 'c'`, IDÊNTICO à forma com aspas), colidindo com o
+# `Alt+C` já existente (Plano de contas) e SEM `aria-keyshortcuts` —
+# passava com a suíte inteira `1525 passed`. O padrão antigo não
+# reconhecia a TAG nenhuma vez: o elemento inteiro desaparecia das TRÊS
+# guardas (malformado, coerência, duplicidade), não só da terceira
+# alternativa de aspas que faltava dentro de `apps.core.marcacao`
+# (`marcacao._padrao_atributo` já aceitava valor sem aspas — o problema
+# era este padrão nunca CHEGAR a chamá-lo, porque exigia aspas para
+# considerar a tag candidata).
+#
+# A correção não acrescenta uma quarta alternativa de aspas ao próprio
+# padrão (aspas duplas | aspas simples | sem aspas | ...— a mesma lista
+# que ficaria "uma auditoria atrás" da próxima forma de escrever um
+# atributo HTML). Ela PARA DE EXIGIR VALOR AQUI: o padrão casa qualquer
+# TAG que contenha `accesskey` como atributo — com ou sem valor, com ou
+# sem aspas, de qualquer tipo —, exatamente como `PADRAO_TAG_KBD` já faz
+# para `<kbd>` (casa a TAG inteira, sem descrever a forma do atributo que
+# está procurando). A decisão sobre se o valor encontrado é uma letra
+# ASCII só continua inteira em `_accesskey_de`, que já delega para
+# `apps.core.marcacao.tokens_de_atributo` — uma implementação só de "o
+# que é um valor de atributo tokenizado válido", no módulo que existe
+# para isso, em vez de este arquivo reimplementar um quarto caso de
+# aspas. Um `accesskey` sem NENHUM valor (`<a accesskey>`, HTML inválido
+# mas que o Chromium ainda tenta processar) agora também é encontrado
+# aqui e cai, corretamente, em `accesskeys_malformados` — `_accesskey_de`
+# não encontra atributo com `=` para extrair e devolve `None`.
 PADRAO_TAG_COM_ACCESSKEY = re.compile(
-    r'<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\saccesskey\s*=\s*(?:"[^"]*"|\'[^\']*\')[^>]*>',
+    r"<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\saccesskey\b[^>]*>",
     re.IGNORECASE,
 )
 
@@ -125,6 +196,22 @@ ATALHOS_CONTABILIDADE = [
     ("k", "Conferência"),
     ("n", "Novo lançamento"),
 ]
+
+# BL-334: nome CURTO (usado em `_urls_de_contabilidade`/no parametrize) →
+# nome COMPLETO da rota (namespace:nome), a mesma string que
+# `django.urls.reverse` aceita e a mesma que
+# `_nomes_de_rota_do_produto` devolve ao percorrer a urlconf real —
+# ÚNICA fonte para as duas pontas, para as duas nunca divergirem.
+NOMES_DE_TELA_DE_CONTABILIDADE = {
+    "plano_de_contas": "contabilidade_web:plano_de_contas",
+    "conta_nova": "contabilidade_web:conta_nova",
+    "diario": "contabilidade_web:diario",
+    "razao": "contabilidade_web:razao",
+    "balancete": "contabilidade_web:balancete",
+    "conferencia": "contabilidade_web:conferencia",
+    "lancamento_novo": "contabilidade_web:lancamento_novo",
+    "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
+}
 
 
 def teclas_sem_aria_hidden(html):
@@ -150,8 +237,12 @@ def _accesskey_de(tag):
 
 def accesskeys_malformados(html):
     """`accesskey` que não é uma letra ASCII só — inclusive o caso do
-    achado M4/BL-295 (mais de um token, ex. `accesskey="c d"`), que antes
-    desaparecia por completo da varredura em vez de ser reprovado."""
+    achado M4/BL-295 (mais de um token, ex. `accesskey="c d"`) e o do
+    BL-323 (valor SEM ASPAS, ex. `accesskey=c`, ou SEM VALOR nenhum, ex.
+    `<a accesskey>` — este último não tem `=` para `tokens_de_atributo`
+    extrair, então `_accesskey_de` devolve `None` do mesmo jeito que um
+    valor de mais de uma letra), que antes desapareciam por completo da
+    varredura em vez de serem reprovados."""
     return [
         m.group(0)[:120]
         for m in PADRAO_TAG_COM_ACCESSKEY.finditer(html)
@@ -223,7 +314,14 @@ def atalhos_ausentes(html):
     ]
 
 
-def assert_pagina_acessivel(html):
+def assert_moldura_acessivel(html):
+    """As QUATRO guardas gerais, válidas em QUALQUER tela do produto que
+    estenda `base.html` — não só as de `templates/contabilidade/`. BL-334:
+    extraída de `assert_pagina_acessivel` para poder ser aplicada às telas
+    de fora da contabilidade, que não incluem `_navegacao_empresa.html` e
+    portanto NÃO têm os cinco atalhos que `atalhos_ausentes` cobra (essa
+    quinta checagem reprovaria, incorretamente, toda tela que nunca teve
+    esses links)."""
     assert not teclas_sem_aria_hidden(html), "kbd.tecla sem aria-hidden='true': " + repr(
         teclas_sem_aria_hidden(html)
     )
@@ -236,6 +334,13 @@ def assert_pagina_acessivel(html):
     assert not accesskeys_duplicados(html), "accesskey repetido na mesma página: " + repr(
         accesskeys_duplicados(html)
     )
+
+
+def assert_pagina_acessivel(html):
+    """As quatro guardas gerais (`assert_moldura_acessivel`) MAIS a quinta,
+    específica das telas que incluem `_navegacao_empresa.html`: os cinco
+    atalhos da contabilidade precisam estar presentes."""
+    assert_moldura_acessivel(html)
     assert not atalhos_ausentes(html), "atalhos da contabilidade ausentes: " + repr(
         atalhos_ausentes(html)
     )
@@ -306,18 +411,22 @@ def _urls_de_contabilidade(cenario):
     inicio = timezone.localdate().replace(day=1).isoformat()
     fim = timezone.localdate().isoformat()
     periodo = f"?inicio={inicio}&fim={fim}"
+    # Nomes de rota vêm de NOMES_DE_TELA_DE_CONTABILIDADE (BL-334) — nunca
+    # retypados aqui —, só os `args`/query string (que dependem do cenário)
+    # continuam próprios de cada rota.
+    args_por_tela = {
+        "plano_de_contas": ([empresa_id], ""),
+        "conta_nova": ([empresa_id], ""),
+        "diario": ([empresa_id], periodo),
+        "razao": ([empresa_id, cenario["caixa"].id], periodo),
+        "balancete": ([empresa_id], periodo),
+        "conferencia": ([empresa_id], ""),
+        "lancamento_novo": ([empresa_id], ""),
+        "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
+    }
     return {
-        "plano_de_contas": reverse("contabilidade_web:plano_de_contas", args=[empresa_id]),
-        "conta_nova": reverse("contabilidade_web:conta_nova", args=[empresa_id]),
-        "diario": reverse("contabilidade_web:diario", args=[empresa_id]) + periodo,
-        "razao": reverse("contabilidade_web:razao", args=[empresa_id, cenario["caixa"].id])
-        + periodo,
-        "balancete": reverse("contabilidade_web:balancete", args=[empresa_id]) + periodo,
-        "conferencia": reverse("contabilidade_web:conferencia", args=[empresa_id]),
-        "lancamento_novo": reverse("contabilidade_web:lancamento_novo", args=[empresa_id]),
-        "lancamento_detalhe": reverse(
-            "contabilidade_web:lancamento_detalhe", args=[empresa_id, cenario["lancamento"].id]
-        ),
+        nome_curto: reverse(NOMES_DE_TELA_DE_CONTABILIDADE[nome_curto], args=args) + query
+        for nome_curto, (args, query) in args_por_tela.items()
     }
 
 
@@ -430,6 +539,115 @@ def test_mutacao_accesskey_com_dois_tokens_e_detectada(client, cenario):
     assert achados, "a mutação (accesskey com dois tokens) não foi detectada"
 
 
+# ---------------------------------------------------------------------------
+# BL-323 (M5 da auditoria DL-026, rodada 4): três formas de `accesskey`
+# SEM ASPAS que escapavam das três guardas antes desta correção. A
+# primeira reproduz LITERALMENTE o link do relatório do auditor; as duas
+# seguintes são formas que o relatório NÃO cita — o requisito é "nenhum
+# `accesskey` escapa, em nenhuma forma de escrita", não "este link
+# específico reprova". As três precisam nomear o elemento sabotado na
+# mensagem de falha (via `m.group(0)`, que as três funções devolvem —
+# nunca só a tecla) para a asserção ser útil quem lê o resultado, não só
+# o pytest.
+# ---------------------------------------------------------------------------
+
+
+def test_mutacao_accesskey_sem_aspas_e_detectada(client, cenario):
+    """Reproduz LITERALMENTE a sabotagem do relatório do auditor
+    (docs/auditorias/2026-09-19-dl-024-rodada-4.md, achado M5): um link
+    NOVO, `<a href="/relatorios/" accesskey=c>Relatórios</a>` — sem aspas,
+    colidindo com o `Alt+C` já existente (Plano de contas) e SEM
+    `aria-keyshortcuts`. Medido pelo auditor no produto: suíte inteira
+    `1525 passed`, e o Chromium confirmando `element.accessKey == 'c'`
+    IDÊNTICO ao link com aspas — os dois atalhos disputam a mesma tecla e
+    o segundo não anuncia nada a leitor de tela. Tem que reprovar em DUAS
+    guardas: duplicidade (a tecla "c" repete) e coerência (falta
+    `aria-keyshortcuts`) — e a segunda NOMEIA o elemento, porque devolve o
+    texto da tag, não só a tecla.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+    assert not accesskeys_incoerentes(html), "controle: a página real já deveria estar coerente"
+
+    link_sabotado = '<a href="/relatorios/" accesskey=c>Relatórios</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["c"], (
+        f"a mutação (accesskey=c sem aspas, colidindo) não foi detectada: {duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("/relatorios/" in achado for achado in incoerentes), (
+        "a mutação (accesskey=c sem aspas, sem aria-keyshortcuts) não nomeou o elemento "
+        f"sabotado: {incoerentes}"
+    )
+
+
+def test_mutacao_accesskey_sem_valor_e_detectado(client, cenario):
+    """Forma que o relatório do auditor NÃO cita: `accesskey` declarado
+    SEM VALOR nenhum — `<a href="/exportar-x9/" accesskey>Exportar</a>`.
+    HTML inválido (o atributo exige valor), mas o padrão antigo também não
+    reconhecia esta tag — ela exigia `accesskey\\s*=\\s*` seguido de aspas
+    para considerar a tag candidata, e sem `=` o elemento inteiro
+    desaparecia de TODAS as guardas, malformado incluso. Agora
+    `PADRAO_TAG_COM_ACCESSKEY` encontra a tag pelo TOKEN `accesskey`
+    sozinho, e `_accesskey_de` (via `tokens_de_atributo`) não encontra
+    valor para extrair — cai em `accesskeys_malformados`, nomeando o
+    elemento pelo `href`.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_malformados(html), "controle: a página real não tem accesskey malformado"
+
+    link_sabotado = '<a href="/exportar-x9/" accesskey>Exportar</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    malformados = accesskeys_malformados(mutado)
+    assert any("/exportar-x9/" in achado for achado in malformados), (
+        f"a mutação (accesskey sem valor nenhum) não foi detectada, nomeando o elemento: "
+        f"{malformados}"
+    )
+
+
+def test_mutacao_accesskey_sem_aspas_em_tag_multilinha_e_detectada(client, cenario):
+    """Terceira forma, também fora do relatório: `accesskey` SEM ASPAS
+    dentro de uma tag em VÁRIAS LINHAS (atributos quebrados, comuns em
+    marcação formatada por ferramenta), colidindo com um atalho de PÁGINA
+    (Diário, "i") em vez do atalho da moldura ("c") que o relatório usou —
+    prova que a correção não depende da tecla nem de a tag estar numa
+    linha só. `[^>]*` já cobre newline (classe negada inclui `\\n`); esta
+    prova exercita isso de verdade, não só por leitura do padrão.
+    """
+    url = _urls_de_contabilidade(cenario)["balancete"]
+    html = client.get(url).content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+
+    link_sabotado = '<a\n    href="/relatorio-diario-alt/"\n    accesskey=i>Relatório diário</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["i"], (
+        f"a mutação (accesskey=i sem aspas, tag multilinha, colidindo) não foi detectada: "
+        f"{duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("relatorio-diario-alt" in achado for achado in incoerentes), (
+        "a mutação (tag multilinha sem aria-keyshortcuts) não nomeou o elemento sabotado: "
+        f"{incoerentes}"
+    )
+    # Controle negativo: o valor É uma letra ASCII só ("i"), então esta
+    # forma NÃO deveria cair em malformado — só em duplicidade/coerência.
+    # Sem este controle, um detector "acusa tudo" passaria disfarçado de
+    # correto.
+    assert not accesskeys_malformados(mutado), (
+        "accesskey=i sem aspas é um valor VÁLIDO (uma letra); não deveria ser malformado"
+    )
+
+
 def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
     """Repete a classe de defeito da BL-283(c): uma tela que deixa de
     incluir `_navegacao_empresa.html` perde os cinco atalhos em silêncio.
@@ -488,6 +706,51 @@ def test_controle_positivo_accesskey_malformado():
     assert not accesskeys_duplicados(dois_tokens)
 
 
+def test_controle_positivo_accesskey_sem_aspas_e_sem_valor():
+    """BL-323: sobre HTML SINTÉTICO (sem passar pelo cliente de teste),
+    as três formas de escrita que escapavam da guarda antes desta
+    correção — cobrindo o requisito em unidade, não só na página real.
+
+    - `accesskey=c` (sem aspas) é um valor VÁLIDO: uma letra só. Tem que
+      ser tratado EXATAMENTE como `accesskey="c"` — mesmo resultado nas
+      três funções, para as duas formas.
+    - `accesskey='c'` (aspas simples) já funcionava antes desta rodada;
+      entra aqui como controle de que a correção não regrediu essa forma.
+    - `accesskey` sem `=` nenhum é malformado (nenhum valor para
+      extrair) — não é "letra colidindo", é "não há tecla".
+    - `accesskey=c/` (sem aspas, imediatamente antes de `/>` autofechante)
+      é registrado aqui como caso ACEITO como está: é a mesma limitação,
+      documentada em `apps.core.marcacao` (M4 da rodada 4, sobre `class=
+      valor-monetario/`), de que o valor sem aspas consome o `/` da tag
+      autofechante — direção conservadora (marca como malformado em vez
+      de aceitar "c"), sem caso real na base de templates deste projeto.
+    """
+    com_aspas_duplas = '<a href="#" accesskey="c" aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    sem_aspas = '<a href="#" accesskey=c aria-keyshortcuts="Alt+C">Plano de contas</a>'
+    com_aspas_simples = "<a href='#' accesskey='c' aria-keyshortcuts=\"Alt+C\">Plano de contas</a>"
+    sem_valor = '<a href="#" accesskey>Plano de contas</a>'
+
+    for tag, rotulo in [
+        (com_aspas_duplas, "aspas duplas"),
+        (sem_aspas, "sem aspas"),
+        (com_aspas_simples, "aspas simples"),
+    ]:
+        assert not accesskeys_malformados(tag), f"{rotulo}: não deveria ser malformado"
+        assert not accesskeys_incoerentes(tag), f"{rotulo}: aria-keyshortcuts já é coerente"
+
+    assert accesskeys_malformados(sem_valor), "accesskey sem valor nenhum precisa ser malformado"
+
+    # Autofechante sem aspas: limitação herdada e documentada, medida
+    # aqui para não ser "descoberta" de novo por auditoria — mesma
+    # direção conservadora do M4/marcacao.py (acusa em vez de aceitar).
+    autofechante_sem_aspas = "<input accesskey=c/>"
+    assert accesskeys_malformados(autofechante_sem_aspas), (
+        "limitação conhecida: accesskey=c/ (autofechante, sem aspas) consome o '/' "
+        "e é tratado como malformado — se este assert falhar, a limitação mudou e "
+        "o comentário precisa ser revisto"
+    )
+
+
 def test_controle_positivo_accesskey_incoerente():
     coerente = '<a href="#" accesskey="l" aria-keyshortcuts="Alt+L">Balancete</a>'
     incoerente_sem_atributo = '<a href="#" accesskey="l">Balancete</a>'
@@ -522,3 +785,310 @@ def test_controle_positivo_atalho_ausente():
     )
     assert not atalhos_ausentes(completo)
     assert atalhos_ausentes(faltando_um) == ["Diário"]
+
+
+# ---------------------------------------------------------------------------
+# BL-334 (M2 da auditoria DL-026, rodada 5): a guarda de telas deixa de
+# depender de uma lista de oito URLs escrita à mão e passa a cobrir TODA
+# rota nomeada da urlconf REAL do produto — coberta por um teste real, ou
+# excluída com o motivo escrito. Ver a docstring do módulo para o
+# raciocínio completo.
+# ---------------------------------------------------------------------------
+
+# Namespaces tratados como UM bloco só — o equivalente, em granularidade de
+# SUBÁRVORE, do que `PASTAS_QUE_NAO_SAO_MODULO` já faz por PASTA em
+# `apps/core/tests/test_dl024_varredura_de_interface.py`. Sem isto, o
+# admin do Django sozinho acrescentaria ~50 nomes gerados dinamicamente
+# (um `changelist`/`add`/`change`/`delete`/`history` por MODELO registrado),
+# nenhum deles um template do produto — e cresceria a cada novo `ModelAdmin`
+# registrado, sem relação nenhuma com este produto ou com esta guarda.
+SUBARVORES_EXCLUIDAS_DE_TELA = {
+    "admin": (
+        "admin embutido do Django (django.contrib.admin) — dezenas de rotas "
+        "geradas dinamicamente por modelo registrado, nenhuma delas um "
+        "template do produto que estenda base.html"
+    ),
+    "contabilidade": (
+        "API REST da contabilidade (apps.contabilidade.urls, DRF "
+        "generics/APIView) — respostas JSON; a TELA equivalente já está "
+        "coberta sob o namespace contabilidade_web (NOMES_DE_TELA_DE_CONTABILIDADE)"
+    ),
+}
+
+# Rotas FOLHA excluídas individualmente, com o motivo — mesmo padrão de
+# `PASTAS_QUE_NAO_SAO_MODULO`, em granularidade de ROTA em vez de pasta.
+EXCLUSOES_NOMEADAS_DE_TELA = {
+    **SUBARVORES_EXCLUIDAS_DE_TELA,
+    "logout": (
+        "LogoutView aceita só POST/OPTIONS (Django 6.1: "
+        "LogoutView.http_method_names) — GET não renderiza página, 405"
+    ),
+    "core:health": (
+        "sonda de saúde do processo (apps.core.views.health_check) — devolve JSON, não HTML"
+    ),
+    "auditoria:api-lista": "API REST de auditoria (RegistroAuditoriaListView, DRF) — JSON",
+    "empresas:api-lista": "API REST de empresas (EmpresaListCreateView, DRF) — JSON",
+    "empresas:api-detalhe": "API REST de empresas (EmpresaDetailView, DRF) — JSON",
+    "empresas:api-estabelecimentos": (
+        "API REST de estabelecimentos (EstabelecimentoListCreateView, DRF) — JSON"
+    ),
+    "empresas:api-regime-tributario": (
+        "API REST de regime tributário (HistoricoRegimeTributarioListCreateView, DRF) — JSON"
+    ),
+    "empresas:api-regime-tributario-detalhe": (
+        "API REST de regime tributário (HistoricoRegimeTributarioDetailView, DRF) — JSON"
+    ),
+    "tenancy:ativar": (
+        "sempre redireciona (302) para tenancy:painel, em GET e em POST "
+        "(apps.tenancy.views.ativar_escritorio) — nunca renderiza template próprio"
+    ),
+    "tenancy:emitir-convite": (
+        "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405"
+    ),
+    "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
+    "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",
+}
+
+# Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
+# dela. Cada valor é só documentação (nome do(s) teste(s), para quem lê);
+# a fonte de verdade da COBERTURA é a UNIÃO das chaves deste dicionário com
+# as de NOMES_DE_TELA_DE_CONTABILIDADE, comparada contra a urlconf real em
+# `test_toda_rota_do_produto_esta_coberta_ou_excluida`, abaixo. Limite
+# conhecido (declarado, não escondido): nada IMPEDE alguém de acrescentar
+# uma chave aqui sem escrever o teste correspondente — a mesma limitação
+# que qualquer lista nomeada de exclusão/cobertura já tem neste projeto
+# (ex. `PASTAS_QUE_NAO_SAO_MODULO`). O que esta guarda FECHA é o defeito
+# medido pelo auditor: uma rota nova ficar de fora dos DOIS lados, em
+# silêncio.
+NOMES_DE_TELA_FORA_DA_CONTABILIDADE = {
+    "login": "test_tela_de_login_e_acessivel",
+    "empresas:lista": (
+        "test_tela_empresas_lista_e_acessivel, "
+        "test_tela_empresas_sem_escritorio_e_acessivel, "
+        "test_mutacao_accesskey_colidente_em_empresas_lista_e_detectada"
+    ),
+    "empresas:criar": (
+        "test_tela_empresas_form_e_acessivel, test_tela_erro_sem_permissao_e_acessivel"
+    ),
+    "tenancy:painel": (
+        "test_tela_painel_e_acessivel, "
+        "test_mutacao_accesskey_colidente_em_tenancy_painel_e_detectada"
+    ),
+    "tenancy:aceitar-convite": "test_tela_aceitar_convite_e_acessivel",
+    "tenancy:bootstrap-primeiro-acesso": "test_tela_bootstrap_primeiro_acesso_e_acessivel",
+}
+
+
+def _nomes_de_rota_do_produto(urlconf="config.urls"):
+    """Nome COMPLETO (`namespace:nome`, ou só `nome` sem namespace) de TODA
+    rota NOMEADA alcançável a partir da urlconf REAL do produto
+    (`config/urls.py`) — nunca retypada à mão. Usa `django.urls.get_resolver`
+    com o `urlconf` explícito (não o urlconf ATIVO do teste — este arquivo
+    roda sob o espelho `apps.contabilidade.tests.test_dl024_atalhos_e_
+    acessibilidade` via `pytest.mark.urls`, mas a DERIVAÇÃO precisa ler a
+    urlconf de verdade, `config.urls`, senão uma rota nova acrescentada só
+    lá — nunca no espelho — ficaria invisível para esta guarda).
+
+    Não desce dentro das `SUBARVORES_EXCLUIDAS_DE_TELA` (ver o comentário
+    de lá) — cada uma vira UM nome só no resultado, em vez de dezenas de
+    folhas individuais."""
+    resolver = get_resolver(urlconf)
+    nomes = set()
+
+    def _percorrer(padroes, prefixo):
+        for padrao in padroes:
+            if isinstance(padrao, URLResolver):
+                namespace = padrao.namespace
+                if not prefixo and namespace in SUBARVORES_EXCLUIDAS_DE_TELA:
+                    nomes.add(namespace)
+                    continue
+                novo_prefixo = f"{prefixo}{namespace}:" if namespace else prefixo
+                _percorrer(padrao.url_patterns, novo_prefixo)
+            elif isinstance(padrao, URLPattern) and padrao.name:
+                nomes.add(f"{prefixo}{padrao.name}")
+
+    _percorrer(resolver.url_patterns, "")
+    return nomes
+
+
+def test_toda_rota_do_produto_esta_coberta_ou_excluida():
+    """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
+    alcançável a partir de `config/urls.py`, sem entrada em
+    `NOMES_DE_TELA_DE_CONTABILIDADE`/`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`
+    NEM em `EXCLUSOES_NOMEADAS_DE_TELA`, reprova — nomeando a rota que
+    falta classificar, para quem lê a falha saber exatamente o que fazer."""
+    nomes_reais = _nomes_de_rota_do_produto()
+    cobertas = set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE) | set(
+        NOMES_DE_TELA_DE_CONTABILIDADE.values()
+    )
+    excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
+
+    sobrepostas = cobertas & excluidas
+    assert not sobrepostas, f"rota classificada nos DOIS lados (coberta E excluída): {sobrepostas}"
+
+    nao_classificadas = nomes_reais - cobertas - excluidas
+    assert not nao_classificadas, (
+        "rota nova, sem entrada em NOMES_DE_TELA_DE_CONTABILIDADE/"
+        "NOMES_DE_TELA_FORA_DA_CONTABILIDADE nem em EXCLUSOES_NOMEADAS_DE_TELA: "
+        + repr(sorted(nao_classificadas))
+    )
+
+    # Controle inverso: nada declarado aqui pode ter deixado de existir na
+    # urlconf real — senão a lista de cobertura/exclusão estaria testando
+    # rota fantasma, e uma remoção de rota de verdade passaria em silêncio.
+    excedentes = (cobertas | excluidas) - nomes_reais
+    assert not excedentes, (
+        "nome declarado em NOMES_DE_TELA_*/EXCLUSOES_NOMEADAS_DE_TELA que não existe "
+        "(mais) na urlconf real: " + repr(sorted(excedentes))
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-334 — as telas de FORA de templates/contabilidade/, uma a uma.
+# ---------------------------------------------------------------------------
+
+
+def test_tela_de_login_e_acessivel(client):
+    """Tela SEM autenticação — a moldura de `base.html` não inclui os
+    atalhos Painel/Empresas (guardados por `request.user.is_authenticated`
+    em `templates/base.html`), então nem `kbd.tecla` nem `accesskey`
+    aparecem aqui; mesmo assim é uma tela real do produto e precisa estar
+    coberta, não esquecida."""
+    resposta = client.get(reverse("login"))
+    assert resposta.status_code == 200
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_empresas_lista_e_acessivel(client, cenario):
+    """`empresas/lista.html` — a tela EXATA que o auditor sabotou para
+    provar o achado M2 (accesskey=p colidindo com o Alt+P do Painel)."""
+    resposta = client.get(reverse("empresas:lista"))
+    assert resposta.status_code == 200
+    assert "empresas/lista.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_empresas_sem_escritorio_e_acessivel(client, django_user_model):
+    """Estado ALTERNATIVO da mesma rota `empresas:lista`: usuário
+    autenticado SEM vínculo de escritório nenhum recebe
+    `empresas/sem_escritorio.html` — outro template que ficava fora de
+    qualquer guarda renderizada."""
+    usuario = django_user_model.objects.create_user(
+        username="sem-vinculo-a11y", email="sv-a11y@escritorio.com.br", password="senha-forte-123"
+    )
+    assert client.login(username=usuario.username, password="senha-forte-123")
+    resposta = client.get(reverse("empresas:lista"))
+    assert resposta.status_code == 200
+    assert "empresas/sem_escritorio.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_empresas_form_e_acessivel(client, cenario):
+    """`empresas/form.html` (GET de `empresas:criar`)."""
+    resposta = client.get(reverse("empresas:criar"))
+    assert resposta.status_code == 200
+    assert "empresas/form.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_erro_sem_permissao_e_acessivel(client, cenario):
+    """Estado ALTERNATIVO de `empresas:criar`: papel sem autorização de
+    cadastro (CLIENTE, nem ADMINISTRADOR nem GESTOR) recebe
+    `erros/sem_permissao.html`, 403 — a varredura ESTÁTICA (BL-320) já
+    alcançava este template; a RENDERIZADA não."""
+    _usuario_com_papel(Papel.CLIENTE, cenario["escritorio"], "cliente-sem-permissao-a11y")
+    assert client.login(username="cliente-sem-permissao-a11y", password="senha-forte-123")
+    resposta = client.get(reverse("empresas:criar"))
+    assert resposta.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_painel_e_acessivel(client, cenario):
+    """`tenancy/painel.html` — a SEGUNDA tela que o auditor citou
+    explicitamente no achado M2 como alvo da mesma sabotagem."""
+    resposta = client.get(reverse("tenancy:painel"))
+    assert resposta.status_code == 200
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_aceitar_convite_e_acessivel(client, cenario):
+    """`tenancy/aceitar_convite.html` — renderiza mesmo com token
+    inexistente (a view resolve o convite como `None` e o template lida
+    com isso; a validação de verdade acontece no POST)."""
+    resposta = client.get(reverse("tenancy:aceitar-convite", args=["token-inexistente-a11y"]))
+    assert resposta.status_code == 200
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_bootstrap_primeiro_acesso_e_acessivel(client, django_user_model):
+    """`tenancy/primeiro_acesso.html` — só renderiza para usuário SEM
+    vínculo ativo nenhum (a view redireciona para o painel se já tiver)."""
+    usuario = django_user_model.objects.create_user(
+        username="sem-vinculo-bootstrap-a11y",
+        email="svb-a11y@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    assert client.login(username=usuario.username, password="senha-forte-123")
+    resposta = client.get(reverse("tenancy:bootstrap-primeiro-acesso"))
+    assert resposta.status_code == 200
+    assert "tenancy/primeiro_acesso.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# ---------------------------------------------------------------------------
+# BL-334 — reprodução das sabotagens do achado M2, sobre a renderização
+# REAL de cada tela (mutação em memória sobre o HTML já buscado — nunca no
+# template em disco, BL-311).
+# ---------------------------------------------------------------------------
+
+
+def test_mutacao_accesskey_colidente_em_empresas_lista_e_detectada(client, cenario):
+    """Reprodução LITERAL da sabotagem do achado M2:
+    `<a href="#sabotagem" accesskey=p>` inserido em
+    `templates/empresas/lista.html`, colidindo com o `Alt+P` do Painel da
+    moldura e sem `aria-keyshortcuts`. No produto medido pelo auditor
+    (`53388c8`), essa sabotagem deixava a suíte inteira verde — porque
+    `empresas/lista.html` não tinha teste NENHUM que buscasse a
+    renderização real dela. Agora `test_tela_empresas_lista_e_acessivel`
+    já busca essa renderização; esta mutação prova que, SE a sabotagem
+    real estivesse no template, a guarda morreria."""
+    resposta = client.get(reverse("empresas:lista"))
+    html = resposta.content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+    assert not accesskeys_incoerentes(html), "controle: a página real já deveria estar coerente"
+
+    link_sabotado = '<a href="#sabotagem" accesskey=p>Sabotagem</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["p"], (
+        f"a sabotagem do BL-334 (empresas/lista.html) não foi detectada: {duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("#sabotagem" in achado for achado in incoerentes), (
+        f"a sabotagem do BL-334 (empresas/lista.html) não nomeou o elemento sabotado: {incoerentes}"
+    )
+
+
+def test_mutacao_accesskey_colidente_em_tenancy_painel_e_detectada(client, cenario):
+    """Mesma reprodução, na SEGUNDA tela que o achado M2 citou:
+    `templates/tenancy/painel.html`."""
+    resposta = client.get(reverse("tenancy:painel"))
+    html = resposta.content.decode()
+    assert not accesskeys_duplicados(html), "controle: a página real não deveria colidir"
+    assert not accesskeys_incoerentes(html), "controle: a página real já deveria estar coerente"
+
+    link_sabotado = '<a href="#sabotagem" accesskey=p>Sabotagem</a>'
+    mutado = html.replace("</body>", link_sabotado + "</body>")
+    assert link_sabotado in mutado, "controle: a inserção precisa ter ocorrido"
+
+    duplicados = accesskeys_duplicados(mutado)
+    assert duplicados == ["p"], (
+        f"a sabotagem do BL-334 (tenancy/painel.html) não foi detectada: {duplicados}"
+    )
+    incoerentes = accesskeys_incoerentes(mutado)
+    assert any("#sabotagem" in achado for achado in incoerentes), (
+        f"a sabotagem do BL-334 (tenancy/painel.html) não nomeou o elemento sabotado: {incoerentes}"
+    )

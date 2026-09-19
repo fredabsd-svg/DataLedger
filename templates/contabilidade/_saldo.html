@@ -10,19 +10,60 @@ Variáveis esperadas: `valor` (string pt-BR já formatada pela view),
 RC-61: zero não tem lado), `conta` (objeto com `.natureza`,
 "devedora"/"credora").
 
-Só é incluída no Razão: é a única tela cujo contexto de view já expõe a
-conta CADASTRADA junto de cada linha (`conta` vem da própria URL). O
-Balancete tem a mesma necessidade (RC-90 pede a mesma convenção em toda a
-tela) mas cada linha da view só carrega o sinal COMPUTADO
-(`saldo_final_natureza`), não a natureza cadastrada da conta daquela
-linha — expor isso é mudança em `views_web.py`, fora do que esta etapa
-autoriza o especialista-frontend a tocar. Fica registrado como pendência
-para o desenvolvedor-pleno; ver o relatório da etapa.
+BL-281 (M5 da auditoria DL-026, rodada 1, docs/projeto/backlog.md): até
+esta correção, só o Razão incluía esta parcial — era a única tela cujo
+contexto de view já expunha a conta CADASTRADA junto de cada linha
+(`conta` vem da própria URL). O Balancete tinha a mesma necessidade
+(RC-90 pede a mesma convenção em toda a tela) mas cada linha da view só
+carregava o sinal COMPUTADO (`saldo_final_natureza`), não a natureza
+cadastrada da conta daquela linha — uma conta `1 ATIVO` (devedora) com
+saldo `13.366,61 C` saía sem marcação nenhuma, exatamente onde o
+contador procura anomalia. `apps.contabilidade.services.apurar_balancete`
+passou a expor `conta.natureza` por linha (a mesma natureza CADASTRADA
+que a view já consumia para calcular o sinal, só não repassava ao
+contexto), e o Balancete passou a incluir esta MESMA parcial nas colunas
+de saldo anterior e final — o parcial é o mecanismo que garante as duas
+telas lerem a convenção de parênteses da MESMA forma, sem duas
+implementações da mesma regra (AGENTS.md §8).
 
 Django Template Language não deixa misturar `and`/`or` no mesmo `if`
 (TemplateSyntaxError), por isso os dois casos (devedora/credora) são
 ramos separados, não uma condição composta.
-{% endcomment %}
+
+A tag "spaceless" do Django (BL-281, achado do `especialista-frontend`
+ao integrar o Balancete a esta parcial — a atribuição está corrigida
+aqui porque a primeira redação creditava o `arquiteto-senior`, que não
+achou nada disto) envolve o bloco abaixo por um motivo que NÃO é
+estético: sem ela, o texto entre o fechamento deste comentário e a
+primeira tag renderizada sobra como espaço em branco no INÍCIO do
+fragmento incluído — inofensivo visualmente (HTML condensa espaço em
+branco), mas quem inclui esta parcial dentro de um elemento que JÁ
+carrega a classe "valor-monetario" (o padrão que o Balancete e o Razão
+usam para as células de saldo) produz um SEGUNDO "achado" dessa classe,
+só com espaço em branco, para qualquer teste que extraia valor por essa
+classe posicionalmente — medido ao integrar o Balancete: a suíte de
+testes da tela foi de 32 para 42 valores extraídos, o excedente sendo
+string vazia. A tag remove o espaço em branco ENTRE tags (equivalente a
+aparar o bloco inteiro e depois colapsar "maior-que, espaço, menor-que"
+em "maior-que, menor-que" — comportamento documentado do próprio
+Django), sem tocar o TEXTO dentro de uma tag: o valor monetário em si
+continua intacto. Corrige o Balancete e o Razão ao mesmo tempo, porque os
+dois incluem esta MESMA parcial.
+
+CUIDADO para quem editar este comentário: por ser texto dentro de um
+bloco de comentário do Django, ele NÃO pode conter a sequência exata que
+fecha um comentário — o analisador de gabarito procura por ela em
+qualquer lugar do arquivo, mesmo dentro de texto explicativo, e fecha o
+comentário na primeira ocorrência. Por isso este parágrafo descreve a
+sintaxe das tags em PROSA, sem reproduzi-la entre chaves.
+
+O fechamento do comentário e a abertura da tag "spaceless" ficam na MESMA
+linha, sem quebra entre eles, de propósito: "spaceless" só apara o espaço
+em branco de DENTRO do próprio bloco — o texto (mesmo que seja só uma
+quebra de linha) entre o fim do comentário e o início do bloco continuaria
+sobrando no início do fragmento incluído se houvesse uma linha em branco
+aqui.
+{% endcomment %}{% spaceless %}
 {% if natureza %}
     {% if conta.natureza == "devedora" and natureza.letra == "C" %}
         <span class="valor-invertido">(<span class="valor-monetario">{{ valor }}</span>)</span><span class="indicador-natureza">{{ natureza.letra }}<span class="visualmente-oculto"> ({{ natureza.extenso }}) — invertido em relação à natureza cadastrada da conta (devedora); confira os lançamentos</span></span><abbr class="visualmente-oculto" title="saldo invertido">*</abbr>
@@ -34,3 +75,4 @@ ramos separados, não uma condição composta.
 {% else %}
     <span class="valor-monetario">{{ valor }}</span>
 {% endif %}
+{% endspaceless %}

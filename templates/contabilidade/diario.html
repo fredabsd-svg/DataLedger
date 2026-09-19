@@ -1,6 +1,21 @@
 {% extends "base.html" %}
 
 {% block titulo %}Diário — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332: mesma correção do Balancete — ver o comentário completo em
+balancete.html e em templates/base.html. Este bloco já é "nome do
+relatório — razão social do cliente"; o sufixo do fornecedor some.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+BL-338 (correção de regressão): esta tela TEM timbre de impressão — ver o
+comentário completo em balancete.html e em templates/base.html.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
@@ -16,28 +31,55 @@
 {% endblock %}
 
 {% block content %}
+    {% comment %}
+    BL-282: mesmo timbre de impressão do Balancete — ver o comentário
+    completo em balancete.html. `.timbre-impressao` fica invisível na
+    tela (regra em base.css) e substitui a marca "DataLedger." (oculta em
+    `@media print` via `.cabecalho__topo`) só no papel.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="diario" %}
     <h1>Diário — {{ empresa.razao_social }}</h1>
 
+    {% comment %}
+    BL-287 (etapa própria, depois da rodada 3 da DL-026): mesmo arranjo do
+    Balancete (BL-277/BL-284 — ver o comentário completo em
+    balancete.html) — um parágrafo de ajuda SÓ, compartilhado pelos dois
+    campos de data por `aria-describedby`, em vez de um parágrafo por
+    campo com o MESMO texto repetido duas vezes. Antes desta correção só
+    o Balancete tinha o arranjo compartilhado; Diário, Razão e Lançamento
+    mantinham a ajuda duplicada por campo — inconsistência entre telas do
+    MESMO módulo, exatamente o que a direção de arte existe para impedir
+    ("um sistema que muda de cara a cada tela obriga o usuário a
+    reaprender a ler"). DE-031/A5 continua sendo o porquê de este texto
+    existir (ver o comentário completo em lancamento_form.html); o que
+    muda aqui é só a FORMA de associá-lo aos dois campos.
+
+    Medição (1280×800, base sintética de 73 contas/60 lançamentos,
+    scripts/semear_base_de_medicao.py): 11 linhas visíveis antes desta
+    correção, topo da primeira linha a 415,3px — ver o relatório da etapa
+    para o número depois.
+    {% endcomment %}
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
-                   aria-describedby="id_inicio_ajuda">
-            <p class="texto-apoio" id="id_inicio_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_fim">Fim</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
-                   aria-describedby="id_fim_ajuda">
-            <p class="texto-apoio" id="id_fim_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
     </form>
 
     {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}

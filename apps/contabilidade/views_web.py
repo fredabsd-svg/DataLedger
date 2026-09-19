@@ -46,7 +46,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import Conta, LancamentoContabil, TipoPartida
+from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoPartida
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 
 # RC-77 (faixa de data) e RC-79 (teto de partidas) vêm de
@@ -2147,6 +2147,14 @@ def diario(request, empresa_id):
             "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
                 request, empresa, inicio, fim
             ),
+            # BL-282: linhas do timbre do ESCRITÓRIO da empresa consultada
+            # (nunca de outro — `empresa` já veio filtrada por
+            # `escritorio=request.escritorio` em `_empresa_do_escritorio_
+            # ativo`, então `empresa.escritorio` É o escritório ativo da
+            # sessão). Sai "de graça" nesta tela pelo mesmo contrato do
+            # Balancete (`Escritorio.linhas_do_timbre`), sem lógica de
+            # fallback duplicada aqui — ver o docstring da property.
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
         }
     )
     return render(request, "contabilidade/diario.html", contexto)
@@ -2235,6 +2243,9 @@ def razao(request, empresa_id, conta_id):
             "saldo_final_ptbr": _valor_ptbr(saldo_final_abs),
             "saldo_final_natureza": _indicador_natureza(saldo_final_nat),
             "movimento_fora_do_periodo": aviso_fora_do_periodo,
+            # BL-282: mesmo contrato do Balancete e do Diário — ver o
+            # comentário em `diario`.
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
         }
     )
     return render(request, "contabilidade/razao.html", contexto)
@@ -2326,9 +2337,52 @@ def balancete(request, empresa_id):
         saldo_final_abs, saldo_final_nat = _saldo_absoluto_com_natureza(
             linha["saldo_final"], linha["natureza"]
         )
+        # BL-281: `linha["natureza"]` É a natureza CADASTRADA da conta desta
+        # linha (`Conta.natureza`, não o sinal computado do saldo) — provado
+        # pelo comentário de origem em
+        # apps/contabilidade/services.py:1088-1099 (`apurar_balancete`):
+        # "Natureza CADASTRADA da conta (`Conta.natureza`) — exposta aqui só
+        # para permitir à VIEW converter saldo_anterior/saldo_final [...] em
+        # valor absoluto + natureza APURADA". A view já usava esse valor
+        # para calcular `saldo_final_nat` acima; faltava só REPASSÁ-LO ao
+        # contexto, no formato que `templates/contabilidade/_saldo.html` já
+        # sabe ler (`conta.natureza`) — o parcial é reaproveitado tal como
+        # está, sem mudança nele (fora do escopo desta etapa).
+        #
+        # Exposto como `dict`, não como o objeto `Conta`: a Django Template
+        # Language resolve `conta.natureza` tentando PRIMEIRO
+        # `conta["natureza"]` (lookup de dicionário) antes de tentar
+        # `getattr` — `Variable._resolve_lookup`, biblioteca padrão do
+        # Django — então `{"natureza": "devedora"}` resolve `conta.natureza`
+        # exatamente como um objeto seria. Preferido ao objeto `Conta`
+        # inteiro por dois motivos: (1) a view não tem o objeto aqui —
+        # `apurar_balancete` devolve campos agregados, não instâncias de
+        # `Conta`, e buscar uma consulta extra por linha para um único
+        # campo já lido seria N+1 sem necessidade; (2) um dict deliberadamente
+        # estreito não sugere ao template que outros atributos de `Conta`
+        # (ex.: `codigo`, `nome`) estão disponíveis nesta chave — só
+        # `natureza` está.
+        #
+        # `None` quando `linha["natureza"]` não é um dos dois valores de
+        # `NaturezaConta` (defesa contra dado corrompido fora do caminho
+        # validado — ex.: escrita direta no banco — já que o campo do
+        # modelo é obrigatório e usa `choices`, então em dado íntegro isto
+        # nunca acontece). Com `conta=None`, `_saldo.html` não marca
+        # parênteses: `None.natureza` não resolve a "devedora" nem
+        # "credora" em nenhum dos dois ramos do `{% if %}`, então cai no
+        # `{% else %}` (mostra o valor sem parênteses) — never inventa um
+        # lado para dado que o sistema não pode confirmar. Saldo ZERO já é
+        # tratado sem depender disto: `_saldo.html` primeiro confere
+        # `{% if natureza %}` (a natureza APURADA, `saldo_final_natureza`
+        # abaixo) e `_indicador_natureza` devolve `None` para saldo zero
+        # (RC-61) — o ramo de `conta.natureza` nunca é alcançado nesse caso.
+        conta_natureza_cadastrada = (
+            linha["natureza"] if linha["natureza"] in NaturezaConta.values else None
+        )
         linhas.append(
             {
                 "conta_id": ids_por_codigo.get(linha["conta"]),
+                "conta": {"natureza": conta_natureza_cadastrada},
                 "codigo": linha["conta"],
                 "nome": linha["nome"],
                 "nivel": linha["nivel"],
@@ -2401,6 +2455,10 @@ def balancete(request, empresa_id):
             "movimento_fora_do_periodo": _aviso_de_movimento_fora_do_periodo(
                 request, empresa, inicio, fim
             ),
+            # BL-282: o Balancete é a tela nomeada pelo critério 9 da DL-026
+            # para sair com a identidade do ESCRITÓRIO, não a do fornecedor
+            # — ver o comentário em `diario` para o contrato completo.
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
         }
     )
     return render(request, "contabilidade/balancete.html", contexto)

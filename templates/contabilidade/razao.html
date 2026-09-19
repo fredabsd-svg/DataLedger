@@ -1,6 +1,34 @@
 {% extends "base.html" %}
 
-{% block titulo %}Razão — {{ conta.codigo }} {{ conta.nome }}{% endblock %}
+{% block titulo %}Razão — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332/RC-97/RC-98 (F10 da auditoria DL-026, rodada 6,
+docs/auditorias/2026-09-19-dl-026-rodada-6.md): a tag title do Razão
+passa a trazer a RAZÃO SOCIAL da empresa, como Balancete e Diário —
+"<relatório> — <razão social>", sem exceção entre os três documentos.
+
+Isto NÃO é um erro corrigido — é uma decisão declarada, revista pelo
+responsável pelo produto. A redação anterior deste comentário registrava,
+de propósito, uma DIVERGÊNCIA: o Razão trazia código/nome da CONTA em vez
+da razão social, porque múltiplas abas de Razão (uma por conta) ficam
+indistinguíveis só pela razão social. Essa divergência foi levada ao
+arquiteto-senior no relatório da etapa, que a levou ao Fred (RC-98,
+2026-09-19): "a razão social da empresa" — quem identifica o DOCUMENTO é
+o cliente, não a conta. A conta continua identificada no CORPO do
+documento — `<h1>` da página e cabeçalho impresso (linha abaixo) — então
+nada se perde para quem está lendo, só para quem olha várias abas do
+navegador ao mesmo tempo.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+BL-338 (correção de regressão): esta tela TEM timbre de impressão — ver o
+comentário completo em balancete.html e em templates/base.html.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
@@ -17,6 +45,16 @@
 
 {% block content %}
     {% comment %}
+    BL-282: mesmo timbre de impressão do Balancete e do Diário — ver o
+    comentário completo em balancete.html.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
     Sem `pagina_atual`: a Razão não é uma das cinco páginas fixas do
     subnível (ela é acessada por conta específica, a partir de uma linha do
     Balancete ou do Diário), então os cinco links aparecem todos — inclusive
@@ -31,25 +69,31 @@
         <p><em>Esta conta consolida os valores das contas subordinadas a ela.</em></p>
     {% endif %}
 
+    {% comment %}
+    BL-287: mesmo arranjo compartilhado do Balancete e do Diário — ver o
+    comentário completo em diario.html. DE-031/A5 continua sendo o porquê
+    de este texto existir (comentário completo em lancamento_form.html).
+
+    Medição (1280×800, base sintética de 73 contas/60 lançamentos,
+    scripts/semear_base_de_medicao.py): 9 linhas visíveis antes desta
+    correção, topo da primeira linha a 480,9px — ver o relatório da etapa
+    para o número depois.
+    {% endcomment %}
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
-                   aria-describedby="id_inicio_ajuda">
-            <p class="texto-apoio" id="id_inicio_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_fim">Fim</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
-                   aria-describedby="id_fim_ajuda">
-            <p class="texto-apoio" id="id_fim_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
     </form>
 
     {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
@@ -84,9 +128,18 @@
                         {% if consolidado %}<td>{{ item.conta_codigo }} — {{ item.conta_nome }}</td>{% endif %}
                         <td>{% if item.tipo == "debito" %}Débito{% else %}Crédito{% endif %}</td>
                         <td class="valor-monetario">{{ item.valor_ptbr }}</td>
-                        <td class="valor-monetario">
-                            {% include "contabilidade/_saldo.html" with valor=item.saldo_ptbr natureza=item.saldo_natureza conta=conta %}
-                        </td>
+                        {% comment %}
+                        BL-281/BL-282 (integração desta etapa): sem espaço
+                        entre `<td ...>` e `{% include %}` de propósito —
+                        ver o comentário completo em balancete.html sobre
+                        por que a extração posicional de valor monetário,
+                        usada por outra suíte de testes, ganha um achado
+                        vazio extra quando sobra espaço em branco entre o
+                        `<td>` que carrega a classe e o `<span>` que a
+                        parcial `_saldo.html` (já protegida por dentro com
+                        `{% spaceless %}`) desenha dentro dele.
+                        {% endcomment %}
+                        <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=item.saldo_ptbr natureza=item.saldo_natureza conta=conta %}</td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -95,9 +148,7 @@
                     <td colspan="{% if consolidado %}3{% else %}2{% endif %}">Total do período</td>
                     <td class="valor-monetario">Débitos {{ total_debito_ptbr }}</td>
                     <td class="valor-monetario">Créditos {{ total_credito_ptbr }}</td>
-                    <td class="valor-monetario">
-                        {% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}
-                    </td>
+                    <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}</td>
                 </tr>
             </tfoot>
         </table>

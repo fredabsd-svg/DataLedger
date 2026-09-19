@@ -188,6 +188,49 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
 # ---------------------------------------------------------------------------
 
 
+# Os seis estados do AGENTS.md §3. Lista fechada de propósito: é o vocabulário
+# que o projeto já decidiu, não uma invenção deste teste.
+ESTADOS_CANONICOS = (
+    "planejada",
+    "em desenvolvimento",
+    "em validação",
+    "bloqueada",
+    "em revisão",
+    "integrada",
+)
+APONTADOR_PARA_O_PROXIMO_PASSO = "Próximo passo"
+
+# Dos seis, o único ESTADO TERMINAL: uma etapa integrada não muda mais de
+# estado a cada rodada, e é a mutabilidade — não a existência de prosa — que
+# faz a descrição em dois lugares divergir. Por isso a célula de uma etapa
+# integrada pode narrar a entrega (PR, revisão, ressalvas preservadas) sem
+# duplicar nada: não há segundo lugar que mude debaixo dela.
+#
+# Achado meu (`arquiteto-senior`) em 2026-09-19, atualizando o "Próximo passo"
+# para a rodada 6 da DL-026: escrevi no bloco **AGORA** que os relatórios de
+# auditoria continuam dizendo "DL-024" (o nome antigo desta etapa, preservado
+# de propósito) e a guarda reprovou a linha da DL-024 na tabela — que é OUTRA
+# etapa, a trilha íntegra, **integrada** desde o PR #28. O defeito era meu, na
+# guarda: "citada no bloco AGORA" foi usado como aproximação de "em curso", e
+# uma etapa concluída citada de passagem caía junto.
+#
+# ⚠️ Limitação declarada, não fechada: esta isenção aceita uma célula que
+# MINTA dizendo "Integrada" para uma etapa ainda em curso. Isso não é
+# duplicação (é afirmação falsa), e a defesa contra ele é outra —
+# `test_readme_e_estado_nao_contradizem_o_codigo`, que cruza a declaração com
+# o repositório. Escrever a limitação aqui é o que impede alguém de descobrir
+# de novo por auditoria.
+ESTADOS_TERMINAIS = ("integrada",)
+
+# Separadores que iniciam a NARRATIVA depois do estado declarado: parêntese de
+# referência (`Integrada (PR #11)`), travessão e vírgula. Usados só para achar
+# o estado declarado de uma célula TERMINAL — jamais para aceitar um estado
+# não terminal por prefixo. Essa distinção é o achado B3 do auditor sobre a
+# minha segunda tentativa de BL-324: "Em validação — rodada 2 REPROVADA"
+# começa com estado canônico e descreve estado em segundo lugar assim mesmo.
+_SEPARADORES_DE_NARRATIVA = re.compile(r"[(,]|—|--")
+
+
 def _cabecalho(texto):
     """O bloco antes da primeira seção `## ` — onde o defeito morava."""
     return texto.split("\n## ", 1)[0]
@@ -204,7 +247,17 @@ def _sem_citacoes(texto):
     return "\n".join(linha for linha in texto.split("\n") if not linha.lstrip().startswith(">"))
 
 
-PADRAO_REVISAO_DA_MAIN = re.compile(r"`main`\s+(?:em|est[áa]\s+em)\s+`[0-9a-f]{7,40}`")
+# BL-324: a versão anterior casava DUAS PREPOSIÇÕES ("em", "está em") e só o
+# cabeçalho — isto é, a FRASE do relatório que a originou. O auditor mediu:
+# com `"(hoje no commit \`8235635\`)"` o defeito voltava com 10 passed.
+#
+# A regra verdadeira não fala de preposição: **revisão de branch não se
+# escreve aqui**, em nenhuma redação, porque ela muda a cada merge — inclusive
+# pelo merge deste documento. Então: qualquer hash entre crases no mesmo
+# PERÍODO que a palavra `main`, em texto corrido, no arquivo inteiro.
+PADRAO_REVISAO_DA_MAIN = re.compile(
+    r"`main`[^.\n]{0,80}`[0-9a-f]{7,40}`|`[0-9a-f]{7,40}`[^.\n]{0,80}`main`"
+)
 
 
 def test_cabecalho_do_estado_nao_fixa_a_revisao_da_main():
@@ -224,6 +277,67 @@ def test_cabecalho_do_estado_nao_fixa_a_revisao_da_main():
     )
 
 
+def _etapas_que_descrevem_estado_em_andamento(texto):
+    """Devolve os identificadores das etapas cuja linha na tabela descreve
+    estado que ainda muda — a duplicação proibida.
+
+    Função separada do teste de propósito (BL-324): assim a regra pode ser
+    exercitada contra texto SINTÉTICO, e a prova de que ela mata as redações
+    do auditor deixa de depender de o arquivo real conter a redação errada.
+    Guarda que só se verifica contra o arquivo certo prova que o arquivo está
+    certo hoje, não que a guarda funciona.
+    """
+    # BL-324: a versão anterior procurava a string "Em desenvolvimento" — a
+    # FRASE do relatório. Qualquer outra redação ("Em validação — rodada 2
+    # REPROVADA") passava, e havia um caso vivo no arquivo.
+    #
+    # A regra verdadeira: a célula de estado de uma etapa OU diz um dos estados
+    # canônicos do AGENTS.md §3, e nada mais, OU aponta para o "Próximo passo",
+    # OU declara um estado TERMINAL (que não muda mais). Narrar rodada, parecer
+    # e pendência de etapa em andamento ali é descrever estado em segundo
+    # lugar — que é a duplicação que a instrução permanente de 2026-09-13
+    # proíbe.
+    #
+    # As etapas que o "Próximo passo" descreve — e que, por isso, NÃO podem
+    # ser descritas também na tabela. Para uma etapa concluída não há segundo
+    # lugar, e prosa na célula é legítima.
+    # "Em curso" é a etapa que o bloco **AGORA** nomeia — não toda etapa que
+    # o "Próximo passo" cita de passagem ao contar o histórico. Narrar uma
+    # etapa antiga ali é legítimo; o que não pode é a MESMA etapa ser descrita
+    # nos dois lugares.
+    proximo_passo = texto.split("## Próximo passo", 1)[-1]
+    bloco_agora = re.search(r"\*\*AGORA.*?(?=\n\*\*|\n---|\Z)", proximo_passo, re.S)
+    em_curso = set(re.findall(r"\bDL-\d{3}\b", bloco_agora.group(0) if bloco_agora else ""))
+
+    ofensoras = []
+    for linha in texto.split("\n"):
+        if not linha.startswith("| [DL-"):
+            continue
+        etapa = re.match(r"\| \[(DL-\d{3})\]", linha)
+        if not etapa or etapa.group(1) not in em_curso:
+            continue
+        celula = linha.split(" | ")[-1].strip("| ").strip()
+        if APONTADOR_PARA_O_PROXIMO_PASSO in celula:
+            continue
+        # Estado canônico SOZINHO — não como prefixo. "Em validação — rodada
+        # 2 REPROVADA, com BL-274/275/276 abertos" começa com um estado
+        # canônico e mesmo assim descreve estado em segundo lugar: foi essa
+        # redação que o auditor usou para provar que a guarda anterior casava
+        # a frase do relatório, não a regra.
+        sem_marcacao = re.sub(r"[*_`\[\]]", "", celula).strip().lower().rstrip(".")
+        if sem_marcacao in ESTADOS_CANONICOS:
+            continue
+        # Estado TERMINAL declarado: prosa é legítima, porque o estado não
+        # muda mais (ver ESTADOS_TERMINAIS). A extração pega só o que vem
+        # ANTES do primeiro separador de narrativa — e o resultado precisa
+        # ser um estado terminal INTEIRO, nunca "começa com".
+        estado_declarado = _SEPARADORES_DE_NARRATIVA.split(sem_marcacao, 1)[0]
+        if estado_declarado.strip().rstrip(".") in ESTADOS_TERMINAIS:
+            continue
+        ofensoras.append(etapa.group(1))
+    return ofensoras
+
+
 def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
     """A tabela de etapas diz O QUE cada etapa é; em que pé ela está vive no
     "Próximo passo", e só lá.
@@ -231,17 +345,56 @@ def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
     Sem isto, as duas descrições divergem no dia em que alguém atualiza uma —
     que foi exatamente o que aconteceu com a DL-026 entre a rodada 1 e a 4.
     """
-    ofensoras = [
-        linha.split(" | ")[0].strip("| ")
-        for linha in _texto(ESTADO).split("\n")
-        if linha.startswith("| [DL-") and "Em desenvolvimento" in linha
-    ]
+    ofensoras = _etapas_que_descrevem_estado_em_andamento(_texto(ESTADO))
     assert not ofensoras, (
         "Linhas da tabela de etapas descrevendo estado em andamento: "
         f"{ofensoras}. O estado de uma etapa muda a cada rodada e mora só no "
         '"Próximo passo" — descrevê-lo aqui também é a duplicação que a '
         "instrução permanente de 2026-09-13 proíbe, dentro de um arquivo só. "
         "A linha da tabela deve APONTAR para o Próximo passo."
+    )
+
+
+# Cada caso é uma CÉLULA de estado e o veredito esperado. As duas primeiras
+# redações são literais do auditor (achado B3 da rodada 4 da DL-026): foram
+# elas que provaram que as minhas duas primeiras tentativas de BL-324 casavam
+# a frase do relatório em vez da regra. As demais fixam a isenção terminal
+# acrescentada em 2026-09-19, inclusive o seu limite.
+CELULAS_DE_ESTADO = [
+    ("Em validação — rodada 2 REPROVADA, com BL-274/275/276 abertos", True),
+    ("**Em desenvolvimento**, rodada 6, aguardando a quinta auditoria", True),
+    ("Em validação", False),
+    ("**Integrada**", False),
+    ("**Integrada (PR #28 + PR #29, `f9ee6c5`)** — BL-14, BL-16, BL-57", False),
+    ("Situação em **[Próximo passo](#próximo-passo)** — não se descreve aqui", False),
+    # O limite da isenção: "integrada" como ADJETIVO no meio de uma narrativa
+    # de etapa em andamento não é estado declarado, e não isenta.
+    ("Rodada 6 em curso; a parte integrada até agora cobre BL-323", True),
+]
+
+
+@pytest.mark.parametrize("celula, deve_reprovar", CELULAS_DE_ESTADO)
+def test_guarda_de_etapas_julga_a_celula_e_nao_a_redacao(celula, deve_reprovar):
+    """Mutação: monta um `estado.md` sintético mínimo com a célula do caso e
+    confere o veredito.
+
+    Sem isto, a guarda só provaria que o arquivo real está certo HOJE — e foi
+    exatamente esse tipo de prova (arquivo certo, guarda frouxa) que o auditor
+    derrubou duas vezes trocando a redação.
+    """
+    documento = (
+        "| Etapa | Entrega | Situação |\n"
+        "| --- | --- | --- |\n"
+        f"| [DL-999](../planos/DL-999-sintetica.md) | Etapa sintética | {celula} |\n"
+        "\n"
+        "## Próximo passo\n"
+        "\n"
+        "**AGORA, em 2026-09-19: [DL-999](../planos/DL-999-sintetica.md) — "
+        "etapa sintética deste teste.**\n"
+    )
+    ofensoras = _etapas_que_descrevem_estado_em_andamento(documento)
+    assert ("DL-999" in ofensoras) is deve_reprovar, (
+        f"Célula {celula!r}: esperava reprovar={deve_reprovar}, guarda devolveu {ofensoras}."
     )
 
 

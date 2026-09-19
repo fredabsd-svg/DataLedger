@@ -1,6 +1,35 @@
 {% extends "base.html" %}
 
 {% block titulo %}Balancete — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332: este bloco já é "nome do relatório — razão social do cliente" — o
+formato que a decisão do Fred (RC-97) exige para a tag title de um
+DOCUMENTO impresso. Sobrescreve o sufixo do fornecedor como vazio (ver o
+comentário completo em templates/base.html) para o "DataLedger" não sair
+mais no cabeçalho de impressão do navegador (achado A2, auditoria DL-026
+rodada 5) — sem isto, esta tela herdaria " — DataLedger" do padrão.
+
+⚠️ Nunca escreva a palavra "title" (nem qualquer outra palavra) entre
+sinais de menor/maior neste arquivo, mesmo dentro de {% comment %} — ver o
+comentário completo em templates/base.html sobre por que isso apaga, em
+silêncio, tudo que vem depois para o parser tolerante a HTML de
+apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py (a suíte
+importada por test_bl331_timbre_do_escritorio_no_papel.py, que depende de
+achar o bloco do timbre logo abaixo, dentro de {% block content %}).
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+BL-338 (correção de regressão, arquiteto-senior, mesmo dia da rodada 8):
+esta tela TEM timbre de impressão (`.timbre-impressao`, logo abaixo, em
+`{% block content %}`) — o escritório já sai identificado no papel por
+ele. Por isso, e só por isso, "Escritório ativo" (a faixa de CONTEXTO DE
+TELA, em templates/base.html) pode ser ocultado na impressão sem deixar o
+documento sem identificação de emitente: ver o comentário completo em
+templates/base.html sobre por que o PADRÃO do bloco é vazio (escritório
+VISÍVEL) e só as telas COM timbre sobrescrevem.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
@@ -16,6 +45,44 @@
 {% endblock %}
 
 {% block content %}
+    {% comment %}
+    BL-282 (achado M6 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
+    até esta correção, a impressão saía limpa e legível E com
+    "DataLedger." no topo — a marca de quem VENDE o software, não a do
+    escritório que EMITE o relatório para o cliente dele; é o vício
+    nacional que a pesquisa do plano nomeou. `.marca` (o link
+    "DataLedger.") já sai de cena na impressão (ver `@media print` em
+    base.css: `.cabecalho__topo` inteiro entra na lista de elementos
+    ocultos), mas isso SOZINHO deixaria a folha impressa sem
+    identificação nenhuma no topo — pior que o defeito original.
+    `timbre_linhas` (contexto que a view já expõe —
+    `Escritorio.linhas_do_timbre`, com a decisão de "se o escritório não
+    cadastrou timbre, usar o NOME do escritório" já resolvida NO
+    SERVIDOR, nunca aqui) substitui a marca do fornecedor pela do
+    escritório: razão social, endereço e registro profissional, nesta
+    ordem, uma linha por parágrafo. Nunca vem vazia (garantia do
+    servidor), então este bloco sempre tem pelo menos uma linha para
+    mostrar.
+
+    Escondido na TELA por padrão (`.timbre-impressao { display: none }`
+    em base.css) e mostrado só dentro de `@media print`: DECISÃO do
+    especialista-frontend, registrada no relatório da etapa — não pedida
+    pelo backlog, que deixou a tela em aberto de propósito ("na tela a
+    decisão é sua"). Na tela, quem está em que escritório já aparece na
+    faixa de contexto do cabeçalho ("Escritório ativo"); repetir as
+    mesmas linhas em prosa, acima do título da página, custaria altura
+    exatamente na tela cuja densidade (§4.8 da direção de arte) já é
+    disputada linha a linha (BL-277/BL-284/BL-285). Na impressão essa
+    disputa não existe — o papel pagina sozinho — e é exatamente onde a
+    identidade do documento importa: quem recebe o balancete impresso não
+    vê a tela, só a folha.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     {% comment %}
     BL-284 (rodada 3, DL-026): o <h1> repetia o nome da empresa que a
@@ -25,8 +92,18 @@
     revisão integrada 2307de6 nomeou na decomposição dos 569px acima da
     primeira linha do balancete (achado que fez a densidade cair de 9
     para 6 linhas, §4.8 da direção de arte). O nome da empresa continua
-    no <title> da aba (block titulo, acima) e na faixa de contexto; sai
+    na tag title da aba (block titulo, acima) e na faixa de contexto; sai
     só da repetição dentro do conteúdo.
+
+    ⚠️ BL-332: a palavra "title" acima foi reescrita SEM sinais de
+    menor/maior ao redor nesta etapa — escrevê-la CERCADA por eles dentro
+    deste {% comment %} apagava, em silêncio, tudo que vem depois no HTML
+    para o parser tolerante de apps/contabilidade/tests/
+    test_bl329_marca_fora_do_papel.py (RCDATA de verdade para o
+    html.parser padrão do Python, que trata "title" como "textarea": sem
+    fechamento correspondente no arquivo, o parser engole o resto inteiro
+    como texto). Descoberto ao escrever a correção do BL-332 — ver o
+    comentário completo em templates/base.html.
     {% endcomment %}
     <h1>Balancete de verificação</h1>
 
@@ -297,18 +374,36 @@
                                 {{ linha.nome }}
                             {% endif %}
                         </td>
-                        <td class="valor-monetario">
-                            {{ linha.saldo_anterior_ptbr }}
-                            {% if linha.saldo_anterior_natureza %}<span class="indicador-natureza">{{ linha.saldo_anterior_natureza.letra }}<span class="visualmente-oculto"> ({{ linha.saldo_anterior_natureza.extenso }})</span></span>{% endif %}
-                        </td>
+                        {% comment %}
+                        BL-281: mesma parcial que o Razão já usava
+                        (`_saldo.html`) — `linha.conta` é a natureza
+                        CADASTRADA desta linha (`views_web.py::balancete`,
+                        ver o comentário ali), a mesma que
+                        `linha.saldo_anterior_natureza`/
+                        `linha.saldo_final_natureza` (a natureza APURADA)
+                        precisam para decidir se o saldo está invertido.
+
+                        Sem espaço nenhum entre `<td ...>` e `{% include
+                        %}` (as duas próximas linhas, e a de saldo final
+                        mais abaixo) de PROPÓSITO: `_saldo.html` já se
+                        protege por dentro com `{% spaceless %}`, mas o
+                        espaço em branco ENTRE este `<td>` e a chamada do
+                        `include` mora AQUI, fora do arquivo incluído —
+                        nenhum `spaceless` de lá alcança este lado. Sem
+                        isto, a extração posicional de
+                        `apps.contabilidade.tests.test_dl017_telas.
+                        _extrair_valores_ptbr` (que não pode ser editado
+                        nesta etapa) lê um achado a mais por célula, vazio,
+                        porque a marca `class="valor-monetario"` do `<td>`
+                        passa a ter um `<span>` dentro em vez de texto
+                        direto.
+                        {% endcomment %}
+                        <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=linha.saldo_anterior_ptbr natureza=linha.saldo_anterior_natureza conta=linha.conta %}</td>
                         <td class="valor-monetario">{{ linha.debitos_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.creditos_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.debitos_proprios_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.creditos_proprios_ptbr }}</td>
-                        <td class="valor-monetario">
-                            {{ linha.saldo_final_ptbr }}
-                            {% if linha.saldo_final_natureza %}<span class="indicador-natureza">{{ linha.saldo_final_natureza.letra }}<span class="visualmente-oculto"> ({{ linha.saldo_final_natureza.extenso }})</span></span>{% endif %}
-                        </td>
+                        <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=linha.saldo_final_ptbr natureza=linha.saldo_final_natureza conta=linha.conta %}</td>
                     </tr>
                 {% endfor %}
             </tbody>

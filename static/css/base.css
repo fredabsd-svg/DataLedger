@@ -856,7 +856,21 @@ button:disabled {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: var(--esp-4);
+    /* BL-277 (rodada 6, integração desta etapa): `gap` vira `column-gap`/
+       `row-gap` SEPARADOS — o espaço ENTRE os campos (coluna) continua em
+       `--esp-4` (16px, precisa ficar generoso: são campos de tipos
+       diferentes lado a lado), mas o espaço ENTRE a fila de campos e a
+       fila da ajuda de formato (linha, por causa do `flex-wrap` +
+       `flex-basis: 100%` da `.ajuda-formato-data`) cai para `--esp-2`
+       (8px) — as duas filas já são visualmente distintas pelo próprio
+       conteúdo (campo com borda vs. texto de apoio menor), um vão maior
+       aí não ajuda a leitura, só custa altura. Economia medida: 8px,
+       parte dos ~29px que tiraram o balancete de 9 para 10 linhas
+       inteiras em 1280×800 (73 contas, período filtrado) — o resto veio
+       da troca de rótulo-em-cima por rótulo-ao-lado, no comentário
+       abaixo. */
+    column-gap: var(--esp-4);
+    row-gap: var(--esp-2);
     /* BL-284 (rodada 3, DL-026): esp-3 em vez de esp-4 — mesmo motivo do
        ajuste em `.faixa-fechamento` logo acima. Classe COMPARTILHADA com
        Diário e Razão: o efeito lá é só ganhar 4px de densidade também
@@ -869,9 +883,30 @@ button:disabled {
     border-radius: var(--raio);
 }
 
+/* BL-277 (achado M1 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
+   rótulo ao LADO do campo, não acima dele — só neste formulário (a regra
+   geral de `.campo`, acima, continua rótulo-acima-do-campo para todo o
+   resto do produto; um formulário de documento como o de lançamento
+   PRECISA da hierarquia vertical rótulo/campo, que é mais fácil de
+   escanear numa lista de partidas). Aqui o filtro é 3 campos e um botão
+   numa fila só, e cada `.campo` em coluna (rótulo em cima, `--esp-1` de
+   vão, campo embaixo) custava a ALTURA do rótulo inteira (~23px) além da
+   altura do campo — a fila inteira de datas/nível já cabe de sobra em
+   largura (medido: ~780px ocupados de 1152px disponíveis), então trocar
+   rótulo-em-cima por rótulo-ao-lado recupera altura sem encolher fonte
+   nem campo, que a direção de arte proíbe (ver o comentário da
+   `.ajuda-formato-data` acima). Efeito colateral querido: o MESMO
+   ganho vale em Diário e Razão, que reaproveitam esta classe pelo mesmo
+   `.formulario-periodo`. */
 .formulario-periodo .campo {
-    gap: var(--esp-1);
+    flex-direction: row;
+    align-items: center;
+    gap: var(--esp-2);
     min-width: 0;
+}
+
+.formulario-periodo .campo label {
+    white-space: nowrap;
 }
 
 .formulario-periodo input[type="date"] {
@@ -892,11 +927,23 @@ button:disabled {
 
    Classe PRÓPRIA, não uma regra em `.formulario-periodo .texto-apoio`:
    aquele seletor estrutural também alcançaria o texto de ajuda por campo
-   do Diário e da Razão (mesma marcação, um parágrafo por campo) — essas
-   duas telas não fazem parte desta correção (fora dos arquivos
-   permitidos nesta etapa) e mudar o comportamento delas sem medir não
-   seria correção, seria risco novo. Esta classe só existe onde o
-   template a aplica de propósito. */
+   do Diário e da Razão (mesma marcação, um parágrafo por campo) — na
+   rodada 3 da DL-026 essas duas telas ainda não faziam parte da correção
+   (fora dos arquivos permitidos naquela etapa), e mudar o comportamento
+   delas sem medir não seria correção, seria risco novo. Esta classe só
+   existe onde o template a aplica de propósito.
+
+   BL-287 (etapa própria, depois da DL-026): a restrição acima terminou.
+   `templates/contabilidade/diario.html` e `razao.html` agora aplicam
+   esta MESMA classe, com o MESMO arranjo (parágrafo único, fora de
+   qualquer `.campo`, compartilhado pelos dois campos de data por
+   `aria-describedby`) — era exatamente essa consistência entre telas do
+   módulo que faltava. `lancamento_form.html` também passou a aplicar a
+   classe, mas por outro motivo: aquela tela tem um único campo de data,
+   então não há duplicação de PARÁGRAFO para consolidar — o parágrafo
+   continua dentro do `.campo`, e o `margin-top: 0` só remove a
+   sobreposição com o `gap` do próprio `.campo` (4px, --esp-1), sem
+   ganho de linha (ver o comentário no template). */
 .ajuda-formato-data {
     flex-basis: 100%;
     margin-top: 0;
@@ -1023,6 +1070,53 @@ button:disabled {
     color: var(--tinta-media);
 }
 
+/* BL-282: timbre do escritório para IMPRESSÃO — regra própria (não uma
+   regra em `.formulario-periodo .texto-apoio` nem reaproveitamento de
+   `.visualmente-oculto`: aquela técnica tira o elemento do FLUXO visual
+   mas o mantém alcançável por leitor de tela e por rolagem, que não é o
+   que se quer aqui — o timbre não é informação perdida na TELA, é
+   informação que só faz sentido no PAPEL). Escondido por padrão; a regra
+   dentro de `@media print`, mais abaixo, é quem o torna visível. Definida
+   ANTES do `@media print` de propósito: quem lê o arquivo de cima para
+   baixo encontra o padrão (tela) antes da exceção (impressão). */
+.timbre-impressao {
+    display: none;
+}
+
+/* BL-282 (achado M6 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
+   tamanho de página de impressão. `@page` é a ÚNICA forma de declarar isto
+   em CSS — não existe propriedade equivalente dentro de `@media print` — e
+   por isso vive FORA dele, como bloco de nível superior (é também o que a
+   varredura de interface espera: `@page` é isento de cor/medida literal
+   como BLOCO próprio, não como propriedade indexada). Sem margem própria
+   declarada: o padrão do navegador (~1,27cm/½" em cada lado nas
+   impressoras mais comuns) já é adequado para uma tabela contábil, e
+   declarar um valor aqui exigiria medi-lo contra impressora real — o que
+   esta etapa não fez (ver o relatório: a MEDIÇÃO de paginação é a de
+   contagem de página/quebra de linha, com `page.pdf()`, não a de margem). */
+@page {
+    size: A4;
+}
+
+/* BL-332 (achado A2 da auditoria DL-026, rodada 5,
+   docs/auditorias/2026-09-19-dl-026-rodada-5.md): LIMITE DECLARADO, ao lado
+   do `@page` acima de propósito — os dois são sobre a MESMA folha impressa,
+   e os dois têm um alcance que este projeto não controla por inteiro.
+
+   Com a caixa "Cabeçalhos e rodapés" do diálogo de impressão do navegador
+   MARCADA (o padrão do Chrome e do Edge), o navegador acrescenta, por
+   FORA do documento, uma linha com o `<title>` da página, a DATA/HORA de
+   impressão e a URL — numa faixa que nenhuma folha de estilo alcança.
+   `<title>` é o ÚNICO dos três que este projeto controla (ver
+   `templates/base.html`, bloco `titulo_sufixo_do_fornecedor` — por isso o
+   nome do fornecedor saiu de lá). DATA e URL são da MOLDURA do navegador:
+   não existe propriedade CSS, atributo HTML nem cabeçalho HTTP que as
+   suprima ou reescreva — ficam fora do alcance deste arquivo, e por isso
+   fora do alcance deste projeto. Quem precisar de uma folha sem nenhuma das
+   duas depende da própria pessoa desmarcar a caixa no diálogo do navegador
+   (que costuma lembrar a preferência) — não é algo que o DataLedger possa
+   fazer por ela. */
+
 /* ==========================================================================
    Impressão: o balancete (e qualquer tabela de dados) sai legível em A4,
    com a identidade do ESCRITÓRIO — critério 9 da DL-026. Sem cor de fundo
@@ -1030,22 +1124,98 @@ button:disabled {
    sticky vira estático (a impressão pagina por conta própria), e o que é
    só decorativo na tela (moldura do masthead) recua para não competir com
    o dado.
-   ========================================================================== */
+
+   BL-282 (M6, rodada 1): até esta correção a impressão saía limpa e
+   legível E com "DataLedger." no topo — a marca de quem VENDE o software,
+   não a do escritório que EMITE o relatório para o cliente dele. Duas
+   mudanças resolvem isto JUNTAS, nunca uma sem a outra: `.cabecalho__topo`
+   (que carrega `.marca`, "DataLedger.") entra na lista de elementos
+   ocultos abaixo — a mesma lista que já escondia navegação e botões —, e
+   `.timbre-impressao` (abaixo, ver o comentário completo em
+   templates/contabilidade/balancete.html) aparece no lugar dela com a
+   identificação do ESCRITÓRIO. Esconder a marca do fornecedor SEM pôr
+   nada no lugar deixaria o documento impresso sem identificação nenhuma —
+   pior que o defeito original. */
 @media print {
-    /* Fora do papel: navegação (de nada serve numa folha), atalho de
-       teclado (kbd.tecla — accesskey não existe em papel), botão de ação
-       (Sair, Consultar período, Adicionar linha...) e o formulário de
-       filtro inteiro (as datas do filtro já aparecem em texto, em
-       .cabecalho__contexto, que continua impresso). */
+    /* Fora do papel: a faixa utilitária inteira (marca "DataLedger.",
+       navegação, atalho de teclado — accesskey não existe em papel — e o
+       botão Sair), a navegação da empresa, os botões de ação (Consultar
+       período, Adicionar linha...) e o formulário de filtro inteiro (as
+       datas do filtro já aparecem em texto, em .cabecalho__contexto, que
+       continua impresso — ver a nota logo abaixo sobre o que, DENTRO dele,
+       some também). `.cabecalho__topo` substitui `.marca` nesta lista
+       (BL-282): esconder só o link e deixar o contêiner vazio no fluxo não
+       tinha vantagem nenhuma sobre esconder o contêiner inteiro. */
     .pular-para-conteudo,
-    .navegacao-principal,
+    .cabecalho__topo,
     .navegacao-empresa,
-    .form-sair,
     .formulario-periodo,
     .mensagens,
     kbd.tecla,
     button {
         display: none;
+    }
+
+    /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
+       docs/auditorias/2026-09-19-dl-026-rodada-5.md): DENTRO de
+       `.cabecalho__contexto` (que continua impresso — ver a nota acima),
+       "Usuário" é contexto de TELA, não identificação do DOCUMENTO — ver o
+       comentário completo em templates/base.html sobre o fundamento (NBC
+       ITG 2000, item 12). Regra própria, fora da lista acima, porque
+       aqueles seletores escondem o CONTÊINER inteiro — aqui só ITENS
+       dentro de um contêiner que continua parcialmente visível
+       (Empresa/Período, `{% block contexto_extra %}`, são identificação
+       OBRIGATÓRIA — RC-93 — e nunca levam esta classe).
+
+       ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia): esta classe
+       marca "Usuário" incondicionalmente, mas "Escritório ativo" só a
+       recebe CONDICIONALMENTE — pelo bloco
+       `classe_escritorio_ativo_na_impressao` de templates/base.html, que
+       as telas COM timbre (`.timbre-impressao`: Balancete/Diário/Razão)
+       sobrescrevem para acrescentá-la. Nas telas SEM timbre (Plano de
+       contas, Conferência, Novo lançamento, Nova conta, detalhe do
+       lançamento), "Escritório ativo" é a ÚNICA identificação de EMITENTE
+       que existe no papel — a primeira redação desta correção escondia a
+       classe para TODA tela, deixando essas cinco sem identificação
+       nenhuma (a mesma classe de defeito do achado A1/BL-331: esconder sem
+       repor). Ver o comentário completo em templates/base.html. */
+    .contexto-item--somente-tela {
+        display: none;
+    }
+
+    /* BL-282: timbre do ESCRITÓRIO — razão social, endereço e registro
+       profissional, uma linha por parágrafo (`Escritorio.linhas_do_timbre`,
+       decidido NO SERVIDOR; o template só itera — ver o comentário
+       completo em balancete.html). Escondido na TELA por padrão (regra
+       fora de `@media print`, abaixo) e mostrado só aqui: é o substituto
+       da marca do fornecedor, não um bloco que também disputa espaço na
+       tela cuja densidade já é escassa (§4.8 da direção de arte). */
+    .timbre-impressao {
+        display: block;
+        margin-bottom: var(--esp-4);
+    }
+
+    .timbre-impressao p {
+        margin: 0 0 var(--esp-1);
+    }
+
+    .timbre-impressao p:first-child {
+        font-weight: 700;
+        font-size: var(--tipo-md);
+    }
+
+    /* BL-282: cabeçalho de tabela repete em toda folha nova — sem isto,
+       só a primeira página de um balancete de várias páginas mostra o
+       nome das colunas, e uma tabela sem cabeçalho não se lê. */
+    .tabela-dados thead {
+        display: table-header-group;
+    }
+
+    /* BL-282: nenhuma linha é cortada ENTRE duas páginas — cada `<tr>`
+       inteira fica na mesma folha, mesmo que isso empurre a linha
+       inteira para a página seguinte. */
+    .tabela-dados tr {
+        break-inside: avoid;
     }
 
     body {

@@ -6,6 +6,32 @@ depois — e sobre variantes que já passaram no que é objetivo.
 
 Rode com o Python do sistema (tem playwright):
     /usr/bin/python3 juiz.py <pasta-da-variante> [...]
+
+**Este juiz NÃO roda na integração contínua.** Ele abre um Chromium de
+verdade (`CHROMIUM`, abaixo) — a suíte `pytest` do projeto não tem esse
+binário disponível, e não é objetivo deste instrumento ganhar essa
+dependência. É ferramenta de BANCADA: quem fecha uma etapa de design que
+mexa no "momento da verdade" de um módulo (contábil: débito/crédito; ver
+docs/projeto/direcao-de-arte.md §3) roda este script manualmente contra a
+tela renderizada antes de declarar a etapa pronta — a mesma obrigação que
+o BL-300 já registrou para a densidade de linhas. Nenhuma etapa deste
+projeto pode citar a saída deste juiz como prova de CI: é prova de bancada,
+com o nome de quem rodou e quando, como qualquer medição fora do pytest.
+
+BL-314 (achado M5 da auditoria DL-026, rodada 3;
+docs/auditorias/2026-09-19-dl-024-rodada-4.md, §3): o veredito "em três
+camadas" do módulo contábil (contexto do servidor, texto renderizado,
+mutação de condição sempre falsa — ver
+apps/contabilidade/tests/test_dl024_veredito_no_html_renderizado.py) são
+três formas de ler TEXTO em HTML; nenhuma pergunta se o contador **vê**
+alguma coisa. `display: none` no CSS derrota as três ao mesmo tempo e a
+suíte `pytest` inteira continua verde, porque nenhuma delas roda num
+motor de layout. Este juiz cobre exatamente essa lacuna, para os dois
+elementos do "momento da verdade" da contabilidade (`MOMENTO_DA_VERDADE_
+SELETORES`, abaixo) — visibilidade REAL (medida pelo motor de layout do
+Chromium, não por uma lista de propriedades CSS suspeitas — ver
+`visivelDeVerdade` na sonda) e contraste (reaproveitando a composição de
+camadas de transparência que já existia para o resto da tela).
 """
 
 import json
@@ -17,6 +43,71 @@ from playwright.sync_api import sync_playwright
 
 CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 LARGURAS = [(1280, 800), (1920, 1080)]
+
+# Os dois elementos do "momento da verdade" do módulo contábil (direção de
+# arte §3: "Débito é igual a crédito?") — os mesmos seletores que
+# `templates/contabilidade/lancamento_form.html` e
+# `templates/contabilidade/balancete.html` usam para o texto do veredito.
+# Isto É uma lista, mas ela lista O QUE checar (dois elementos nomeados da
+# TELA), não COMO detectar "escondido" — essa segunda lista é o que o
+# BL-314 pede para não existir, e `visivelDeVerdade` não enumera técnicas
+# de esconder: ela pergunta ao motor de layout se o elemento é visível
+# (`Element.checkVisibility`), se ocupa área na página
+# (`getBoundingClientRect`) e se essa área é alcançável por rolagem — três
+# medições GERAIS, não uma lista de `display`/`visibility`/`opacity`.
+MOMENTO_DA_VERDADE_SELETORES = [".veredito-fechamento", ".faixa-fechamento__veredito"]
+
+# BL-329: elemento que carrega a MARCA DO FORNECEDOR — o "DataLedger." que o
+# BL-282 tirou do papel (`templates/base.html`, dentro de `.marca`, dentro de
+# `.cabecalho__topo`). Mesma distinção do comentário acima: isto nomeia O QUE
+# checar (um elemento nomeado da tela pela classe que `static/css/base.css` e
+# `templates/base.html` já usam para o mesmo conceito), não COMO detectar
+# escondido — `visivelDeVerdade`, reaproveitada abaixo em
+# `JS_VISIVEL_DE_VERDADE`, é a mesma função GERAL usada pelo momento da
+# verdade contábil, agora também sob mídia de IMPRESSÃO (ver
+# `SONDA_IMPRESSAO` e o uso em `julgar_arquivo`).
+SELETOR_MARCA_DO_FORNECEDOR = ".marca"
+
+# BL-331 (achado A1 da auditoria DL-026, rodada 5): a metade SIMÉTRICA do
+# requisito do BL-329 — não basta a marca do FORNECEDOR sair do papel, o
+# timbre do ESCRITÓRIO precisa ENTRAR. `apps/contabilidade/tests/
+# test_bl331_timbre_do_escritorio_no_papel.py` já prova isto por simulação
+# de cascata CSS (sem Chromium); esta constante estende a MEDIÇÃO de
+# bancada (motor de layout real) ao mesmo elemento, ao lado de
+# `SELETOR_MARCA_DO_FORNECEDOR` — a classe que `static/css/base.css` e
+# `templates/contabilidade/balancete.html` já usam para o mesmo conceito.
+SELETOR_TIMBRE_DO_ESCRITORIO = ".timbre-impressao"
+
+# BL-314/BL-329: a função `visivelDeVerdade` (visibilidade REAL via motor de
+# layout — ver o comentário completo, com as três medições e os limites
+# conhecidos, no ponto em que esta constante é interpolada dentro de SONDA)
+# passa a ser usada por DUAS sondas: SONDA (mídia de TELA, momento da
+# verdade contábil) e SONDA_IMPRESSAO (mídia de IMPRESSÃO, marca do
+# fornecedor — BL-329). Extraída para constante própria porque duas sondas
+# dependendo da MESMA lógica, escrita duas vezes, divergem assim que uma for
+# corrigida sem a outra (mesmo raciocínio de `fundoComposto`, dentro de
+# SONDA, comentado lá).
+JS_VISIVEL_DE_VERDADE = r"""
+    const visivelDeVerdade = (el) => {
+        const suportaApi = typeof el.checkVisibility === 'function';
+        const apiDiz = suportaApi
+            ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
+            : true;
+        const r = el.getBoundingClientRect();
+        const temArea = r.width > 0 && r.height > 0;
+        const alcancavelPorRolagem = r.right > 0 && r.bottom > 0
+            && r.left < document.scrollingElement.scrollWidth
+            && r.top < document.scrollingElement.scrollHeight;
+        return {
+            visivel: apiDiz && temArea && alcancavelPorRolagem,
+            suporta_check_visibility: suportaApi,
+            check_visibility: apiDiz,
+            tem_area: temArea,
+            alcancavel_por_rolagem: alcancavelPorRolagem,
+            retangulo: {largura: r.width, altura: r.height, esquerda: r.left, topo: r.top},
+        };
+    };
+"""
 
 
 def _luminancia(componentes):
@@ -41,6 +132,19 @@ def contraste(cor_a, cor_b):
     a, b = _luminancia(cor_a), _luminancia(cor_b)
     claro, escuro = max(a, b), min(a, b)
     return (claro + 0.05) / (escuro + 0.05)
+
+
+def _limiar_de_contraste(tamanho_str, peso_str):
+    """4,5:1 para texto normal, 3:1 para texto GRANDE (WCAG 1.4.3): >= 24px,
+    ou >= 18,66px (~14pt) em negrito (peso >= 700). Extraído para função
+    (BL-314) porque a amostra geral de `pares_de_cor` e a checagem
+    dedicada do "momento da verdade" precisam da MESMA regra — reescrevê-la
+    duas vezes é o jeito de uma delas divergir da outra sem ninguém notar
+    (AGENTS.md §8)."""
+    tamanho = float(re.findall(r"[\d.]+", tamanho_str)[0])
+    peso = int(peso_str) if str(peso_str).isdigit() else 400
+    grande = tamanho >= 24 or (tamanho >= 18.66 and peso >= 700)
+    return 3.0 if grande else 4.5
 
 
 SONDA = r"""
@@ -114,26 +218,16 @@ SONDA = r"""
         }
     }
 
-    // Amostra de pares texto/fundo, subindo até achar fundo opaco.
-    // Só entra na amostra quem PINTA texto com a própria cor: elemento cujo
-    // texto vem de um filho (um <li> que contém um <a>) herda uma cor que não
-    // é usada em pixel nenhum. Foi o quarto defeito deste instrumento: ele
-    // acusava 1,19:1 num <li> cuja única "cor de texto" jamais é desenhada.
-    const temTextoProprio = e => [...e.childNodes].some(
-        n => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
-    const amostra = [...document.querySelectorAll(
-        'td, th, p, span, a, button, label, h1, h2, h3, li, small, legend, caption')]
-        .filter(e => temTextoProprio(e) && e.getClientRects().length);
-    const vistos = new Set();
-    for (const el of amostra) {
-        const estilo = getComputedStyle(el);
-        // CORRIGIDO depois do terceiro defeito deste instrumento: a versão
-        // anterior parava no primeiro fundo que não fosse totalmente
-        // transparente — e tomava um branco de 6% de opacidade como se fosse
-        // a cor final. Resultado: acusou 1,11:1 num link creme sobre verde
-        // escuro, que na verdade tem contraste alto (conferido pixel a pixel
-        // na captura). Agora as camadas são COMPOSTAS por alfa, de cima para
-        // baixo, até chegar numa opaca.
+    // Fundo composto por trás de UM elemento, subindo a árvore até achar um
+    // fundo opaco e compondo as camadas transparentes no caminho por ALFA.
+    // Extraído para função (BL-314) porque agora dois lugares precisam da
+    // MESMA composição — a amostra geral de contraste, abaixo, e a checagem
+    // dedicada do "momento da verdade" mais adiante — e a correção do
+    // terceiro defeito deste instrumento (parar no primeiro fundo NÃO
+    // transparente tratava um branco de 6% de opacidade como cor final,
+    // acusando 1,11:1 num par que tinha contraste alto de verdade) só vale
+    // se as duas chamadas usarem o MESMO código, não uma cópia cada uma.
+    const fundoComposto = (el) => {
         const camadas = [];
         let no = el;
         while (no) {
@@ -156,7 +250,23 @@ SONDA = r"""
                         g * a + composto[1] * (1 - a),
                         b * a + composto[2] * (1 - a)];
         }
-        const fundo = `rgb(${composto.map(v => Math.round(v)).join(', ')})`;
+        return `rgb(${composto.map(v => Math.round(v)).join(', ')})`;
+    };
+
+    // Amostra de pares texto/fundo, subindo até achar fundo opaco.
+    // Só entra na amostra quem PINTA texto com a própria cor: elemento cujo
+    // texto vem de um filho (um <li> que contém um <a>) herda uma cor que não
+    // é usada em pixel nenhum. Foi o quarto defeito deste instrumento: ele
+    // acusava 1,19:1 num <li> cuja única "cor de texto" jamais é desenhada.
+    const temTextoProprio = e => [...e.childNodes].some(
+        n => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
+    const amostra = [...document.querySelectorAll(
+        'td, th, p, span, a, button, label, h1, h2, h3, li, small, legend, caption')]
+        .filter(e => temTextoProprio(e) && e.getClientRects().length);
+    const vistos = new Set();
+    for (const el of amostra) {
+        const estilo = getComputedStyle(el);
+        const fundo = fundoComposto(el);
         const chave = estilo.color + '|' + fundo + '|' + estilo.fontSize + '|' + estilo.fontWeight;
         if (vistos.has(chave)) continue;
         vistos.add(chave);
@@ -171,9 +281,116 @@ SONDA = r"""
 
     resultado.focaveis = document.querySelectorAll(
         'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])').length;
+
+    // BL-314 (M5 da auditoria DL-026, rodada 3): visibilidade REAL do
+    // "momento da verdade" contábil — não uma lista de propriedades CSS
+    // suspeitas (display/visibility/opacity), e sim três medições GERAIS
+    // que o motor de layout do navegador já faz por conta própria:
+    //
+    // 1. `Element.checkVisibility({checkOpacity, checkVisibilityCSS})` —
+    //    a própria API do navegador para "este elemento está excluído da
+    //    árvore visual por display/visibility/content-visibility/opacidade
+    //    (do elemento OU de qualquer ancestral)". Delega a pergunta a quem
+    //    já resolve cascata e herança corretamente — não a este script.
+    // 2. `getBoundingClientRect()` tem ÁREA (largura E altura > 0) — pega
+    //    técnicas que `checkVisibility` não cobre por definição:
+    //    `width/height: 0`, `transform: scale(0)`. MEDIDO neste projeto
+    //    (não presumido): as duas passam por `checkVisibility` (que
+    //    devolve `true`) e são pegas SÓ pela área.
+    // 3. O retângulo é ALCANÇÁVEL por rolagem da página — pega
+    //    posicionamento fora da tela (`position: absolute; left: -9999px`),
+    //    que não muda `checkVisibility` nem zera a área.
+    //
+    // As três, JUNTAS, cobrem `display: none`, `visibility: hidden`,
+    // `opacity: 0` e "fora da tela" sem este script precisar SABER que
+    // essas são as técnicas — é o requisito ("qualquer forma de esconder"),
+    // não a lista de quatro exemplos.
+    //
+    // Limite MEDIDO e declarado, não descoberto por auditoria depois:
+    // `clip-path: inset(100%)` NÃO é pego por nenhuma das três — o
+    // elemento continua com `checkVisibility() === true` e a mesma área,
+    // porque `clip-path` recorta o PIXEL pintado, não a caixa de layout
+    // que `getBoundingClientRect` mede. Um texto ilegível por
+    // `color: transparent` (mesma cor do fundo) também não é pego aqui —
+    // mas ESSE caso cai no cálculo de CONTRASTE abaixo (razão ~1:1 contra
+    // o próprio fundo), então as duas medições juntas (visibilidade +
+    // contraste) fecham mais do que qualquer uma sozinha.
+    // Sem suporte à API (navegador antigo): a régua de retângulo decide
+    // sozinha, e o resultado fica marcado como tal (nunca finge certeza que
+    // não tem). Definição de `visivelDeVerdade` interpolada de
+    // JS_VISIVEL_DE_VERDADE (Python, acima) — reaproveitada por
+    // SONDA_IMPRESSAO (BL-329), não retypada aqui.
+    __JS_VISIVEL_DE_VERDADE__
+
+    resultado.momento_da_verdade = __MOMENTO_DA_VERDADE_SELETORES_JSON__.map(seletor => {
+        const el = document.querySelector(seletor);
+        if (!el) return {seletor, encontrado: false};
+        const visibilidade = visivelDeVerdade(el);
+        const item = Object.assign({seletor, encontrado: true}, visibilidade);
+        if (visibilidade.visivel) {
+            const estilo = getComputedStyle(el);
+            item.cor = estilo.color;
+            item.fundo = fundoComposto(el);
+            item.tamanho = estilo.fontSize;
+            item.peso = estilo.fontWeight;
+            item.texto = (el.textContent || '').trim().slice(0, 60);
+        }
+        return item;
+    });
+
     return resultado;
 }
 """
+
+# A lista de seletores só existe em `MOMENTO_DA_VERDADE_SELETORES` (Python,
+# topo do arquivo) — substituída aqui por SERIALIZAÇÃO, não retypada dentro
+# da string JS. Duas listas manuais da mesma coisa divergem assim que
+# alguém atualiza uma (BL-296, BL-325 e vizinhos são a família inteira
+# desse defeito neste projeto).
+SONDA = SONDA.replace(
+    "__MOMENTO_DA_VERDADE_SELETORES_JSON__", json.dumps(MOMENTO_DA_VERDADE_SELETORES)
+)
+SONDA = SONDA.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
+
+# BL-331: os DOIS elementos do critério 9 da DL-026 — a marca do
+# FORNECEDOR (que precisa SAIR do papel) e o timbre do ESCRITÓRIO (que
+# precisa ENTRAR) — nomeados aqui, não retypados dentro da sonda JS
+# (SELETORES_DE_IMPRESSAO_JSON, abaixo, serializa este dicionário do
+# mesmo jeito que MOMENTO_DA_VERDADE_SELETORES_JSON já faz para a SONDA
+# principal — duas listas manuais da mesma coisa divergem assim que
+# alguém atualiza uma, BL-296/BL-325).
+SELETORES_DE_IMPRESSAO = {
+    "marca_do_fornecedor": SELETOR_MARCA_DO_FORNECEDOR,
+    "timbre_do_escritorio": SELETOR_TIMBRE_DO_ESCRITORIO,
+}
+
+# BL-329/BL-331: sonda DEDICADA, avaliada sob `page.emulate_media(media=
+# "print")` (ver `julgar_arquivo`) — pergunta, para CADA seletor de
+# `SELETORES_DE_IMPRESSAO`, se o elemento continua visível quando a
+# página é IMPRESSA. Reaproveita `visivelDeVerdade` (a mesma função da
+# SONDA principal, interpolada da mesma constante Python) — não uma cópia
+# JS separada. Deliberadamente pequena: não reavalia densidade, contraste
+# nem o resto da sonda principal, que não fazem sentido sob mídia de
+# impressão (a paginação real só existe em `page.pdf()` — ver
+# `scripts/medir_impressao.py`, BL-337, fora do escopo deste juiz).
+SONDA_IMPRESSAO = r"""
+() => {
+    __JS_VISIVEL_DE_VERDADE__
+    const seletores = __SELETORES_DE_IMPRESSAO_JSON__;
+    const resultado = {};
+    for (const [nome, seletor] of Object.entries(seletores)) {
+        const el = document.querySelector(seletor);
+        resultado[nome] = el
+            ? Object.assign({seletor, encontrado: true}, visivelDeVerdade(el))
+            : {seletor, encontrado: false};
+    }
+    return resultado;
+}
+"""
+SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
+SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace(
+    "__SELETORES_DE_IMPRESSAO_JSON__", json.dumps(SELETORES_DE_IMPRESSAO)
+)
 
 
 def externo(url):
@@ -201,14 +418,34 @@ def julgar_arquivo(pagina, caminho, largura, altura):
             # escapar do contraste aparece neste número.
             isentos += 1
             continue
-        tamanho = float(re.findall(r"[\d.]+", par["tamanho"])[0])
-        peso = int(par["peso"]) if str(par["peso"]).isdigit() else 400
-        grande = tamanho >= 24 or (tamanho >= 18.66 and peso >= 700)
-        minimo = 3.0 if grande else 4.5
+        minimo = _limiar_de_contraste(par["tamanho"], par["peso"])
         if razao < minimo:
             piores.append({**par, "contraste": round(razao, 2), "minimo": minimo})
     dados["contrastes_reprovados"] = sorted(piores, key=lambda p: p["contraste"])[:8]
     dados["contrastes_isentos_por_desabilitado"] = isentos
+
+    # BL-314: para cada elemento do "momento da verdade" (contábil: veredito
+    # de fechamento do lançamento e faixa do balancete — ver
+    # MOMENTO_DA_VERDADE_SELETORES), acrescenta o veredito de CONTRASTE ao
+    # que a sonda já mediu de VISIBILIDADE. `contraste_ok` fica `None`
+    # quando a pergunta não se aplica — elemento ausente nesta variante, ou
+    # invisível (visibilidade É o achado; contraste de algo que não se vê
+    # não significa nada) —, nunca `False` por omissão: um `None`
+    # silencioso não pode virar "reprovado" nem "aprovado" por acidente de
+    # leitura de quem consome este relatório.
+    for item in dados.get("momento_da_verdade", []):
+        if not item.get("encontrado") or not item.get("visivel"):
+            item["contraste_ok"] = None
+            continue
+        cor, fundo = _rgb(item.get("cor")), _rgb(item.get("fundo"))
+        if not cor or not fundo:
+            item["contraste_ok"] = None
+            continue
+        razao = contraste(cor, fundo)
+        minimo = _limiar_de_contraste(item["tamanho"], item["peso"])
+        item["contraste"] = round(razao, 2)
+        item["contraste_minimo"] = minimo
+        item["contraste_ok"] = razao >= minimo
 
     # Foco visível: mede o primeiro focável de verdade, comparando o estilo
     # calculado antes e depois do foco. Sem isso, "tem :focus-visible no CSS"
@@ -226,6 +463,34 @@ def julgar_arquivo(pagina, caminho, largura, altura):
             return r1 !== r2;
         }
     """)
+
+    # BL-329/BL-331: sob mídia de IMPRESSÃO (`page.emulate_media`), a marca
+    # do FORNECEDOR continua visível (não deveria) e o timbre do ESCRITÓRIO
+    # continua visível (deveria)? Esta é a MEDIDA QUE A CI NÃO PODE DAR — a
+    # suíte `pytest` (test_bl329_marca_fora_do_papel.py e
+    # test_bl331_timbre_do_escritorio_no_papel.py) já cobre a metade que dá
+    # para provar sem navegador (cascata CSS simulada, `display: none`
+    # efetivo); esta metade responde à pergunta que só um motor de layout
+    # real decide: o contador VÊ a marca/o timbre no papel? `visivelDeVerdade`
+    # (a MESMA função do momento da verdade contábil, acima) já cobre
+    # `display`, `visibility` e posicionamento fora da tela sem enumerar
+    # técnicas — ver o comentário completo dela, mais acima nesta sonda, e a
+    # decisão registrada na docstring do módulo de teste sobre por que a
+    # guarda de CI é mais estrita (exige `display: none` especificamente,
+    # não "invisível por qualquer meio").
+    pagina.emulate_media(media="print")
+    impressao = pagina.evaluate(SONDA_IMPRESSAO)
+    # Nomes de chave PRESERVADOS (não um único `dados["impressao"]` novo):
+    # quem já consome o relatório deste juiz procurando
+    # "marca_do_fornecedor_na_impressao" continua encontrando-a.
+    dados["marca_do_fornecedor_na_impressao"] = impressao["marca_do_fornecedor"]
+    dados["timbre_do_escritorio_na_impressao"] = impressao["timbre_do_escritorio"]
+    # Volta à mídia de TELA antes de qualquer outra medição/captura: sem
+    # isto, as capturas de imagem (mais abaixo, em `main`) e o teste de foco
+    # acima sairiam avaliados sob impressão, misturando as duas garantias
+    # numa só — exatamente o erro de redação que o BL-314 corrigiu (contar
+    # como uma camada o que eram duas).
+    pagina.emulate_media(media=None)
 
     # Desfaz o foco que a sonda acabou de aplicar: sem isso, a captura sai com
     # o atalho "Pular para o conteúdo" por cima da navegação, e quem olhasse a

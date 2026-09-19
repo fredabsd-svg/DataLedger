@@ -3,7 +3,62 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block titulo %}DataLedger{% endblock %} — DataLedger</title>
+    {% comment %}
+    BL-332 (achado A2 da auditoria DL-026, rodada 5,
+    docs/auditorias/2026-09-19-dl-026-rodada-5.md): com as opções PADRÃO de
+    impressão do navegador (a caixa "Cabeçalhos e rodapés" vem MARCADA por
+    padrão no Chrome e no Edge), o conteúdo da tag title da página é
+    impresso no cabeçalho de TODA folha — e até esta correção esse
+    conteúdo sempre incluía " — DataLedger", a marca de quem VENDE o
+    software, no papel que o escritório entrega ao CLIENTE dele. É o mesmo
+    vício nacional que o BL-282 já eliminou do CORPO do documento; aqui é a
+    MESMA marca vazando por um canal diferente — a faixa do navegador, não
+    o HTML do relatório.
+
+    ⚠️ CUIDADO PARA QUEM EDITAR ESTE COMENTÁRIO: nunca escreva a palavra
+    "title" entre sinais de menor/maior (nem em prosa, nem em exemplo) —
+    mesmo dentro de {% comment %}. O parser tolerante a HTML usado por
+    apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py (e por todo
+    teste que o importa, inclusive o do próprio BL-332) NÃO sabe que isto é
+    um comentário Django: para ele, a palavra "title" cercada por sinais de
+    menor/maior abre uma tag de conteúdo RCDATA de verdade (Python stdlib,
+    html.parser.RCDATA_CONTENT_ELEMENTS
+    inclui "title" e "textarea"), que engole TODO o restante do arquivo,
+    em silêncio, até achar um fechamento correspondente — e este arquivo
+    não tem um segundo. Descoberto NESTA etapa: a primeira redação deste
+    comentário (e das mesmas correções em balancete.html/diario.html/
+    razao.html) escrevia justamente a palavra "title" entre sinais de
+    menor/maior, e placeholders como "nome do relatório"/"razão social"
+    também entre sinais de menor/maior — e isso apagou, em silêncio, a
+    árvore inteira que apps/contabilidade/tests/
+    test_bl331_timbre_do_escritorio_no_papel.py depende de encontrar
+    (o bloco do timbre do escritório, mais abaixo no arquivo). Mesmo
+    cuidado vale para qualquer texto entre sinais de menor/maior que
+    comece com letra: o parser tenta abrir tag também para ele.
+
+    DECISÃO (Fred, 2026-09-19, RC-97): o sufixo do fornecedor sai da tag
+    title de um DOCUMENTO — Balancete, Diário, Razão, as três telas com
+    timbre de impressão (BL-282) — porque nelas o bloco "titulo" já é
+    "nome do relatório — razão social do cliente"
+    ({{ empresa.razao_social }} no contexto de cada view), sem precisar de
+    sufixo nenhum. Para TODA OUTRA tela (login, painel, lista de empresas,
+    primeiro acesso...) o sufixo continua: essas telas não têm cliente no
+    contexto — não há razão social para pôr no lugar — e "DataLedger" ali
+    é legítimo, porque a tela não é um documento que sai do escritório para
+    o cliente, é a interface do PRODUTO. Essa distinção é resolvida por
+    `titulo_sufixo_do_fornecedor`: um segundo bloco, com o sufixo como
+    PADRÃO, que as três telas de documento sobrescrevem como vazio — nunca
+    a lista inversa (marcar cada tela SEM cliente), porque uma tela nova
+    sem cliente nasceria com o sufixo por PADRÃO em vez de precisar lembrar
+    de pedi-lo.
+
+    LIMITE DECLARADO (o mesmo do comentário do `@page`, em
+    static/css/base.css): a DATA e a URL que aparecem na mesma faixa do
+    navegador são da MOLDURA dele, não do documento — o projeto não as
+    controla e não pode removê-las. A tag title é o ÚNICO canal, nessa
+    faixa, que o projeto controla de ponta a ponta.
+    {% endcomment %}
+    <title>{% block titulo %}DataLedger{% endblock %}{% block titulo_sufixo_do_fornecedor %} — DataLedger{% endblock %}</title>
     {% comment %}
     Caminho fixo, sem a tag "static": ela exige o manifesto gerado por
     "collectstatic" (STORAGES usa ManifestStaticFilesStorage do WhiteNoise),
@@ -92,13 +147,73 @@
         </div>
 
         {% if request.user.is_authenticated %}
+            {% comment %}
+            BL-338 (achado B2 da auditoria DL-026, rodada 5,
+            docs/auditorias/2026-09-19-dl-026-rodada-5.md): sob impressão,
+            esta faixa era a PRIMEIRA coisa no papel — antes até do timbre
+            do escritório (BL-282/BL-331) — encabeçada por "USUÁRIO", com o
+            nome de quem operou a tela, e com o nome do escritório
+            aparecendo aqui DE NOVO, uma segunda vez (a primeira é o
+            timbre).
+
+            DECISÃO (Fred, 2026-09-19, RC-97), com fundamento NORMATIVO, não
+            estético: o documento contábil impresso identifica o
+            ESCRITÓRIO e o PROFISSIONAL responsável — NBC ITG 2000, item
+            12: "a escrituração contábil e a emissão de relatórios, peças,
+            análises, demonstrativos e demonstrações contábeis são de
+            atribuição e de responsabilidade EXCLUSIVAS do profissional da
+            contabilidade legalmente habilitado". Quem OPEROU a tela
+            (`request.user`) é trilha de auditoria — já registrada em
+            `apps/auditoria/`, nunca apagada por esta mudança — não
+            identificação do documento que sai para o cliente.
+
+            ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia): a
+            primeira redação desta correção escondia "Usuário" E
+            "Escritório ativo" incondicionalmente, em TODA tela autenticada
+            — inclusive Plano de contas, Conferência, Novo lançamento, Nova
+            conta e o detalhe do lançamento, que NÃO têm `.timbre-impressao`
+            (só Balancete/Diário/Razão têm, desde o BL-282). Nessas cinco
+            telas, "Escritório ativo" é a ÚNICA identificação do EMITENTE
+            que existe no papel — escondê-la sem repor nada no lugar é
+            EXATAMENTE o defeito que o comentário do BL-282, em
+            static/css/base.css, já nomeava para a marca do fornecedor:
+            "esconder... SEM pôr nada no lugar deixaria o documento
+            impresso sem identificação nenhuma — pior que o defeito
+            original". Mesma classe do achado A1 (BL-331): guarda derivada
+            só do lado de esconder, não do lado de "e alguma identificação
+            continua saindo".
+
+            A propriedade correta, então, tem DUAS regras DIFERENTES:
+
+            1. "Usuário" é SEMPRE oculto na impressão — incondicional,
+               continua com `contexto-item--somente-tela` direto. Quem
+               operou a tela é trilha de auditoria (`apps/auditoria/`), não
+               identificação do documento — isso não muda com timbre ou
+               sem timbre.
+            2. "Escritório ativo" só é oculto ONDE HÁ TIMBRE para
+               substituí-lo. A classe extra vem de
+               `classe_escritorio_ativo_na_impressao`: um bloco com PADRÃO
+               VAZIO (escritório VISÍVEL na impressão — o lado SEGURO, para
+               uma tela nova que ninguém lembrar de classificar nascer
+               COM identificação, não sem) — e
+               `contabilidade/balancete.html`/`diario.html`/`razao.html`
+               (as três telas que têm `.timbre-impressao`) sobrescrevem
+               esse bloco para acrescentar `contexto-item--somente-tela`,
+               porque nelas o timbre já identifica o escritório e a
+               repetição na faixa de tela é que é o achado B2 original
+               (duplicidade).
+
+            `{% block contexto_extra %}` (abaixo) — Empresa e Período —
+            nunca leva classe nenhuma: identificação OBRIGATÓRIA do
+            documento (RC-93), sempre visível, timbre ou não.
+            {% endcomment %}
             <div class="cabecalho__contexto">
-                <span class="contexto-item">
+                <span class="contexto-item contexto-item--somente-tela">
                     <span class="contexto-rotulo">Usuário</span>
                     <strong>{{ request.user.get_username }}</strong>
                 </span>
                 {% if request.escritorio %}
-                    <span class="contexto-item">
+                    <span class="contexto-item{% block classe_escritorio_ativo_na_impressao %}{% endblock %}">
                         <span class="contexto-rotulo">Escritório ativo</span>
                         <strong>{{ request.escritorio.nome }}</strong>
                     </span>

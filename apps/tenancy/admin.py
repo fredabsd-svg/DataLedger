@@ -12,6 +12,16 @@ class VinculoInline(admin.TabularInline):
 class EscritorioAdmin(admin.ModelAdmin):
     list_display = ["nome", "cnpj", "ativo", "criado_em"]
     search_fields = ["nome", "cnpj"]
+    # BL-282: campos de timbre editáveis junto do cadastro — sem eles aqui o
+    # único jeito de preencher o timbre seria acesso direto ao banco.
+    fields = [
+        "nome",
+        "cnpj",
+        "ativo",
+        "razao_social_no_timbre",
+        "endereco_no_timbre",
+        "registro_no_timbre",
+    ]
     inlines = [VinculoInline]
 
 
