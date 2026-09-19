@@ -160,7 +160,19 @@ Valem para todo módulo, e são medidas por mecanismo (§5).
    | Balancete | **5** | **entrada padrão, mês sem movimento** | `53388c8` |
    | Plano de contas | **14** | — | `53388c8` |
    | Diário | **14** | — | `53388c8` |
-   | Razão | **11** | conta consolidada, período filtrado | `53388c8` |
+   | Razão | **sem piso publicado** | ver a nota abaixo | — |
+
+   ⚠️ **A linha do Razão saiu desta tabela, e a razão é constrangedora para
+   mim.** Eu publiquei aqui "**11**, conta consolidada", e a sexta auditoria
+   registrou (**F8**) que **não conseguiu reproduzir o número** com a base
+   semeada: a conta mais movimentada dela rende 5 lançamentos. O 11 veio de
+   uma conta que eu não nomeei — e número sem o dado que o produz é
+   exatamente o defeito **M4** que eu acabara de fechar, cometido por mim na
+   mesma linha em que o fechei.
+
+   O Razão volta a ter piso quando a base de medição tiver uma conta
+   deliberadamente concentrada (**BL-339**, aberto). Até lá, **não há piso do
+   Razão**, e isso é melhor do que um piso que ninguém consegue conferir.
 
    ⚠️ **Esta tabela já divergiu uma vez, e a correção está aqui pelo motivo
    errado ter acontecido.** Até a rodada 6 ela dizia 9 / 4 / 14 / 11, e não
