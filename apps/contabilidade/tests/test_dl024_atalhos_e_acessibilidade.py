@@ -1,4 +1,4 @@
-"""BL-275 (achado A2 da auditoria DL-024, rodada 1): mecanismo para a
+"""BL-275 (achado A2 da auditoria DL-026, rodada 1): mecanismo para a
 exigência de acessibilidade dos atalhos de teclado que o `arquiteto-senior`
 impôs em `templates/base.html` e em
 `templates/contabilidade/_navegacao_empresa.html`.
@@ -81,7 +81,7 @@ pytestmark = [pytest.mark.django_db, pytest.mark.urls(__name__)]
 # Detectores — funções puras sobre HTML já renderizado
 # ---------------------------------------------------------------------------
 
-# M4/BL-295 (rodada 4 da auditoria DL-024,
+# M4/BL-295 (rodada 4 da auditoria DL-026,
 # docs/auditorias/2026-09-18-dl-024-rodada-2.md): a versão anterior deste
 # padrão casava `class="tecla"` por IGUALDADE do valor INTEIRO do
 # atributo — `class="tecla destaque"` (uma segunda classe, adicionada por
@@ -388,7 +388,7 @@ def test_mutacao_colisao_de_accesskey_e_detectada(client, cenario):
 
 
 def test_mutacao_kbd_com_segunda_classe_e_detectada(client, cenario):
-    """M4/BL-295 (rodada 4 da auditoria DL-024): repete a sabotagem do
+    """M4/BL-295 (rodada 4 da auditoria DL-026): repete a sabotagem do
     auditor — `class="tecla" aria-hidden="true"` vira `class="tecla
     destaque"` (perde o `aria-hidden` junto), nos cinco `kbd` da parcial de
     navegação. Medido pelo auditor na árvore de acessibilidade do

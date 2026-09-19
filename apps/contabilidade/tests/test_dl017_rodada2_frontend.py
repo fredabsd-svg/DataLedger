@@ -6,7 +6,7 @@ R2-4 e R2-7 (o byte NUL e o dígito Unicode em `apps.core.dinheiro`) são do
 `desenvolvedor-pleno` e não têm teste aqui. Dados 100% sintéticos, criados
 nos próprios testes.
 
-BL-284 (rodada 3 da DL-024, 2026-09-18): `descricoes_de_data_sem_defesa` e
+BL-284 (rodada 3 da DL-026, 2026-09-18): `descricoes_de_data_sem_defesa` e
 os dois testes que a usam substituem a forma antiga do teste do R2-9/
 DE-031/A5. O REQUISITO do DE-031/A5 não mudou — texto de apoio de formato
 de data VISÍVEL, associado por `aria-describedby` — o que ficou obsoleto
@@ -407,7 +407,7 @@ def test_adicionar_linha_anuncia_quantas_linhas_ficam_fora_do_total(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
-    # Tocado na DL-024 (DE-053/RC-89) — mesmo motivo do teste equivalente em
+    # Tocado na DL-026 (DE-053/RC-89) — mesmo motivo do teste equivalente em
     # test_dl017_rodada1_correcoes.py: a classe `valor-monetario` migrou do
     # `<span>` interno para o `<td>` que já continha o rótulo, para fechar o
     # achado da varredura de interface (classe no lugar certo para tabular a
@@ -570,7 +570,7 @@ def _elemento_por_id(html, alvo):
 
 
 def descricoes_de_data_sem_defesa(html, ids_de_campo):
-    """BL-284 (rodada 3, DL-024): guarda REESCRITA depois que corrigir o
+    """BL-284 (rodada 3, DL-026): guarda REESCRITA depois que corrigir o
     BL-277 no Balancete (texto de ajuda de formato de data repetido uma
     vez por campo, custando uma linha inteira do filtro em 1280×800)
     quebrou a versão anterior deste teste — que não verificava o
@@ -587,7 +587,7 @@ def descricoes_de_data_sem_defesa(html, ids_de_campo):
     certo) e é usada tanto pelo teste positivo quanto pelo teste de
     mutação abaixo — a mesma função tem que ACUSAR quando o defeito é
     reintroduzido, senão ela é decoração, não guarda (lição da BL-271,
-    repetida pelo arquiteto-senior na auditoria da DL-024).
+    repetida pelo arquiteto-senior na auditoria da DL-026).
 
     O achado que motivou reescrever em vez de só afrouxar: a versão
     antiga verificava `f'aria-describedby="{id}_ajuda" in conteudo` e
@@ -643,7 +643,7 @@ def descricoes_de_data_sem_defesa(html, ids_de_campo):
                 )
                 continue
             _tag, atributos, texto_interno = elemento
-            # M6/BL-297 (rodada 4 da auditoria DL-024): as duas checagens
+            # M6/BL-297 (rodada 4 da auditoria DL-026): as duas checagens
             # abaixo eram substring (`"texto-apoio" in atributos` /
             # "visualmente-oculto" in atributos`) — `class="texto-apoio-
             # legenda"` é uma classe CSS DIFERENTE (o seletor `.texto-apoio`
@@ -733,7 +733,7 @@ def test_mutacao_aria_describedby_pendurado_e_detectada(client, cen):
 
 
 def test_mutacao_classe_texto_apoio_por_substring_e_detectada(client, cen):
-    """M6/BL-297 (rodada 4 da auditoria DL-024): repete a sabotagem do
+    """M6/BL-297 (rodada 4 da auditoria DL-026): repete a sabotagem do
     auditor no parágrafo COMPARTILHADO do Balancete (BL-277) —
     `class="texto-apoio ajuda-formato-data"` vira `class="texto-apoio-
     legenda ajuda-formato-data"`, uma classe CSS DIFERENTE que o seletor
@@ -1154,7 +1154,7 @@ _REGRA_NIVEL_PREFIXADA = re.compile(
 # do mutante apaga.
 _REGRA_NIVEL_SEM_PREFIXO = re.compile(r"(?<!td)\.nivel-\d+\s*\{")
 
-# DL-024/DE-053: o CSS virou sistema de tokens (docs/projeto/
+# DL-026/DE-053: o CSS virou sistema de tokens (docs/projeto/
 # direcao-de-arte.md §1 — "nenhuma cor ou medida solta fora das
 # variáveis"). O padding da célula comum, que antes era um número `rem`
 # literal na própria regra, agora é `var(--esp-N)` apontando para o
@@ -1162,7 +1162,7 @@ _REGRA_NIVEL_SEM_PREFIXO = re.compile(r"(?<!td)\.nivel-\d+\s*\{")
 # EFEITO (o valor final em rem) — a invariante que ele defende (aditivo,
 # prefixado, estritamente crescente) não mudou; só a representação do
 # valor-base mudou, e um parser cego a `var()` não é mais able a "ler o
-# CSS como texto" de verdade. Tocado nesta etapa (DL-024): relatado no
+# CSS como texto" de verdade. Tocado nesta etapa (DL-026): relatado no
 # fechamento da etapa, não é enfraquecimento — os mesmos limites
 # (nivel-0/1 == padding_base; passo == 1.25rem; estritamente crescente)
 # continuam verificados, e o defeito original (ME2, especificidade sem

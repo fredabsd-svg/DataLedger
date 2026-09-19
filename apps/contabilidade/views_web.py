@@ -953,7 +953,7 @@ def _veredito_fechamento(
     ou `"nao_conferido"` — para o rodapé "Total conferido antes de gravar"
     do formulário de lançamento.
 
-    BL-289 (A1 da auditoria DL-024 rodada 2): o TEMPLATE decidia sozinho,
+    BL-289 (A1 da auditoria DL-026 rodada 2): o TEMPLATE decidia sozinho,
     comparando os dois valores já formatados em pt-BR
     (`total_debito_ptbr == total_credito_ptbr`) — string, não `Decimal`.
     `_valor_ptbr(Decimal("0"))` devolve `"0,00"`, que é verdadeiro em
@@ -976,7 +976,7 @@ def _veredito_fechamento(
     excluída, e por isso não podiam ser expressas pelos quatro parâmetros
     originais desta função.
     `bloqueado_por_outro_erro` é exatamente essa quinta condição (BL-307,
-    A1 da auditoria DL-024 rodada 3): quando `True`, "fecha" nunca é
+    A1 da auditoria DL-026 rodada 3): quando `True`, "fecha" nunca é
     devolvido, mesmo que as partidas batam — dizer "Fecha" sobre um
     formulário que `criar_lancamento` vai recusar por um motivo alheio às
     partidas seria a MESMA mentira que a ausência de `linhas_excluidas_do_
@@ -1050,7 +1050,7 @@ def _contexto_form_lancamento(
             conta_id, tipo, valor_texto = "", "", ""
         linhas.append({"indice": i, "conta_id": conta_id, "tipo": tipo, "valor_texto": valor_texto})
 
-    # BL-286 (rodada 3 da DL-024, corrige o M2 da rodada 1): o veredito
+    # BL-286 (rodada 3 da DL-026, corrige o M2 da rodada 1): o veredito
     # "Não fecha" precisa dizer DE QUANTO, e quem calcula é o SERVIDOR, não
     # o template — o `especialista-frontend` já tinha parado exatamente
     # aqui, porque só recebia os dois totais como TEXTO pt-BR já formatado
@@ -1074,7 +1074,7 @@ def _contexto_form_lancamento(
     # também subtraem débito e crédito em `Decimal` puro, sem política).
     # `_valor_ptbr` continua sendo o ÚNICO formatador pt-BR desta tela —
     # reaproveitado aqui, não reimplementado.
-    # BL-289 (A1 da auditoria DL-024 rodada 2): o veredito em si — ver o
+    # BL-289 (A1 da auditoria DL-026 rodada 2): o veredito em si — ver o
     # docstring de `_veredito_fechamento` para a classe de defeito que isto
     # substitui. Calculado ANTES da diferença abaixo porque a diferença só
     # pode ser exibida no ramo "nao_fecha" (nunca em "nao_conferido" — um
@@ -1730,7 +1730,7 @@ def lancamento_novo(request, empresa_id):
             return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
         linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas_leitura)
-        # BL-307 (A1 da auditoria DL-024 rodada 3): contagem separada, ANTES
+        # BL-307 (A1 da auditoria DL-026 rodada 3): contagem separada, ANTES
         # de `erros` receber qualquer mensagem que não seja sobre uma LINHA
         # descartada (histórico grande demais, chave de idempotência grande
         # demais) — essas duas não excluem partida nenhuma do total, e
@@ -1785,7 +1785,7 @@ def lancamento_novo(request, empresa_id):
         # lancamento` recebia o padrão `linhas_excluidas_do_total=0` —
         # fazendo o veredito "Fecha" aparecer numa resposta 400 sempre que
         # débito e crédito das linhas VÁLIDAS batiam, mesmo com uma linha
-        # descartada ao lado (A1 da auditoria DL-024 rodada 3).
+        # descartada ao lado (A1 da auditoria DL-026 rodada 3).
         linhas_excluidas_do_total = linhas_incompletas + len(erros_itens)
 
         # R5-4/BL-143: mesmo julgador partilhado do período (ver o
@@ -1853,7 +1853,7 @@ def lancamento_novo(request, empresa_id):
             if len(itens) < 2:
                 erros.append("Informe ao menos duas partidas.")
             elif total_debito != total_credito:
-                # BL-298 (M7 da auditoria DL-024 rodada 2): esta frase só
+                # BL-298 (M7 da auditoria DL-026 rodada 2): esta frase só
                 # cabe quando os totais REALMENTE divergem — mantida como
                 # estava.
                 erros.append(
@@ -2225,7 +2225,7 @@ def _veredito_balancete(total_debitos, total_creditos):
     PERÍODO, DE-024 §2 — as mesmas que já alimentam `total_debitos_ptbr`/
     `total_creditos_ptbr`).
 
-    BL-290 (A2 da auditoria DL-024 rodada 2): o TEMPLATE decidia sozinho,
+    BL-290 (A2 da auditoria DL-026 rodada 2): o TEMPLATE decidia sozinho,
     comparando `total_debitos_ptbr == total_creditos_ptbr` — texto pt-BR,
     não `Decimal` (a mesma classe de defeito do BL-289/A1, só que na tela
     do balancete). Além de comparar texto, o ramo "Fecha" cobria também o
@@ -2328,7 +2328,7 @@ def balancete(request, empresa_id):
             }
         )
 
-    # BL-290 (A2 da auditoria DL-024 rodada 2): veredito da faixa de
+    # BL-290 (A2 da auditoria DL-026 rodada 2): veredito da faixa de
     # fechamento, calculado em `Decimal` sobre os totais de ORIGEM
     # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre o
     # texto pt-BR logo abaixo. Ver o docstring de `_veredito_balancete`.

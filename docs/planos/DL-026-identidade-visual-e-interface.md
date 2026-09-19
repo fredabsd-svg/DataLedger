@@ -1,7 +1,37 @@
-# DL-024 — Identidade visual e redesenho da interface
+# DL-026 — Identidade visual e redesenho da interface
 
 **Estado:** **em desenvolvimento.** Aberta em 2026-09-18, a partir da `main`.
 Situação atual em [docs/agents/estado.md](../agents/estado.md).
+
+> ⚠️ **Esta etapa nasceu como DL-024 e foi renumerada para DL-026 em
+> 2026-09-19.** Ela e a etapa *"trilha íntegra e processo"*, que seguia em
+> outra frente, **criaram cada uma um DL-024** — nenhum dos dois lados errou:
+> cada um pegou o próximo número livre **que via**. A colisão só existe na
+> junção, e o Git **não acusa**, porque ela é semântica, não textual. É a mesma
+> razão pela qual numeração de documento fiscal não é controlada por cada
+> emissor isoladamente: **a unicidade não é propriedade de nenhuma das partes,
+> é do conjunto.**
+>
+> Renumerou-se a definição que ainda não estava no tronco — a regra do
+> **BL-242**, que o projeto já tinha escrito para um caso igual no registro de
+> requisitos. Na mesma junção, e pelo mesmo motivo, a decisão **DE-042** desta
+> etapa virou **DE-053**.
+>
+> **Os quatro relatórios de auditoria continuam dizendo "DL-024", e isso é
+> deliberado:** eles são documento histórico, preservados integralmente, e
+> reescrever o que um auditor registrou é exatamente o que este projeto existe
+> para impedir. Quem ler
+> [`docs/auditorias/2026-09-18-dl-024-rodada-1.md`](../auditorias/2026-09-18-dl-024-rodada-1.md)
+> e as três seguintes está lendo sobre **esta** etapa.
+>
+> Os arquivos de teste `test_dl024_*.py` **também mantêm o nome**, por decisão:
+> eles são identificadores de arquivo citados pelos relatórios preservados, e
+> renomeá-los quebraria essas referências sem mudar comportamento nenhum.
+>
+> A guarda que impede a repetição está em
+> `apps/core/tests/test_documentacao_do_estado.py` (**BL-326**): identificador
+> de decisão duplicado passa a reprovar a integração contínua, como já
+> acontecia com requisitos.
 
 > ⚠️ **Esta etapa não estava na fila aprovada, e isso fica registrado.** O
 > **RC-88** fixou a ordem do plano mestre, cujo pacote 3 seria a trilha íntegra

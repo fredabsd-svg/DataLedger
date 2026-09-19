@@ -1,4 +1,4 @@
-"""BL-296 (M5, rodada 4 da auditoria DL-024,
+"""BL-296 (M5, rodada 4 da auditoria DL-026,
 docs/auditorias/2026-09-18-dl-024-rodada-2.md): o comentário de
 `templates/contabilidade/_navegacao_empresa.html` afirmava que "o teste em
 apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py reprova

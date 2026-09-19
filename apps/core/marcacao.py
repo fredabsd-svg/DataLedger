@@ -3,7 +3,7 @@ usadas pelas guardas de teste que precisam confirmar que uma tag carrega um
 determinado TOKEN (de `class` ou de outro atributo tokenizado por espaço),
 nunca por substring nem por igualdade do valor inteiro.
 
-BL-295/BL-296/BL-297 (rodada 4 da auditoria da DL-024,
+BL-295/BL-296/BL-297 (rodada 4 da auditoria da DL-026,
 docs/auditorias/2026-09-18-dl-024-rodada-2.md, achados M4 e M6): a mesma
 lógica de "casar por TOKEN, nunca por substring nem por igualdade do valor
 inteiro" tinha sido escrita, de forma independente, em pelo menos três
@@ -28,7 +28,7 @@ corrigida sem as outras (AGENTS.md §8, "evitar duplicação de regras" —
 DE-026/DE-030 aplicam o mesmo raciocínio a regra de negócio). Este módulo
 existe para que exista uma implementação só, importada por quem precisar —
 inclusive `apps.core.tests.test_dl024_varredura_de_interface`, que **agora
-importa `tem_classe` daqui** (BL-310, auditoria DL-024 rodada 3, M1): antes
+importa `tem_classe` daqui** (BL-310, auditoria DL-026 rodada 3, M1): antes
 desta correção este parágrafo prometia isso e a varredura continuava com a
 cópia local (`_tem_classe`/`_PADRAO_ATRIBUTO_CLASS`) — comentário
 prometendo o que o código não fazia é o mesmo defeito que o AGENTS.md §9
@@ -46,7 +46,7 @@ abertura como `<td class="a valor-monetario b">` ou `<kbd class="tecla"
 aria-hidden="true">`), nunca um parser de HTML completo — mesma limitação,
 documentada, de todo o resto da varredura de interface deste projeto.
 
-**Limitação aceita, registrada (BL-317, B3 da auditoria DL-024 rodada 3):**
+**Limitação aceita, registrada (BL-317, B3 da auditoria DL-026 rodada 3):**
 `_padrao_atributo` casa `\\s<nome>\\s*=\\s*...` em QUALQUER posição da string
 da tag — inclusive DENTRO do valor entre aspas de um OUTRO atributo. Uma
 tag como `<td title="ver class='valor-monetario' aqui">{{ x_ptbr }}</td>`
@@ -79,7 +79,7 @@ import re
 # prevenção que `apps.core.tests.test_dl024_varredura_de_interface` já
 # aplica a `scope=`/`style=`.
 #
-# M1/BL-310 (auditoria DL-024 rodada 3): a TERCEIRA alternativa —
+# M1/BL-310 (auditoria DL-026 rodada 3): a TERCEIRA alternativa —
 # `[^\s"'=<>`]+`, valor SEM aspas — faltava aqui, embora `PADRAO_ESTILO_
 # EMBUTIDO` (test_dl024_varredura_de_interface.py) já a tivesse, corrigida
 # NO MESMO DIA, para `style=`. HTML5 aceita atributo sem aspas desde que o

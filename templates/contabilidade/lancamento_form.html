@@ -151,7 +151,7 @@
                         </tr>
                     {% endif %}
                     {% comment %}
-                    M2/BL-278 (auditoria DL-024, rodada 1): "fecha ou não
+                    M2/BL-278 (auditoria DL-026, rodada 1): "fecha ou não
                     fecha" — DE-053 §3, "é a segunda coisa que o olho
                     encontra, no balancete e no lançamento, antes de
                     qualquer ação de gravar". Antes desta correção o
@@ -171,7 +171,7 @@
                     passou a ser decidido pela VIEW, nunca por uma
                     comparação de texto aqui.
 
-                    BL-286 (rodada 3 da DL-024): a diferença numérica
+                    BL-286 (rodada 3 da DL-026): a diferença numérica
                     ("Não fecha, faltam X no crédito/débito") agora existe
                     — `diferenca_fechamento_ptbr` e `lado_faltante_
                     fechamento` chegam PRONTOS da view
@@ -252,7 +252,7 @@
                     ou é a soma real, ou é "ainda não conferido".
                     {% endcomment %}
                     {% comment %}
-                    BL-289 (achado A1 da auditoria DL-024, rodada 2,
+                    BL-289 (achado A1 da auditoria DL-026, rodada 2,
                     docs/auditorias/2026-09-18-dl-024-rodada-2.md): até
                     esta correção, o "if" abaixo comparava os dois totais
                     em TEXTO pt-BR — `total_debito_ptbr ==
@@ -295,7 +295,7 @@
                     preenchidas e test_dl017_rodada2_frontend.py::
                     test_adicionar_linha_anuncia_quantas_linhas_ficam_
                     fora_do_total, ambos escrutinados por mutação na
-                    auditoria da DL-024) localizam esta linha por
+                    auditoria da DL-026) localizam esta linha por
                     correspondência EXATA da string `linha-total">` — um
                     modificador ali quebraria os dois sem mudar nada de
                     errado. O veredito (cor e borda de destaque) entra na

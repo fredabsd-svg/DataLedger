@@ -44,7 +44,7 @@ python scripts/semear_base_de_medicao.py
 **Antes de fechar qualquer etapa que mexa na altura acima da primeira linha de
 uma tabela** — faixa nova, bloco de filtro, aviso, título. Foi exatamente esse
 tipo de mudança que derrubou a densidade de 9 para 6 linhas na rodada 2 da
-DL-024 **sem nenhum teste acusar**: dependeu de alguém desconfiar de uma
+DL-026 **sem nenhum teste acusar**: dependeu de alguém desconfiar de uma
 captura de tela.
 
 A contagem em si é feita pelo juiz do gauntlet

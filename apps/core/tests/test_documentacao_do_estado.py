@@ -169,7 +169,7 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
 
 
 # ---------------------------------------------------------------------------
-# BL-315 (achado B1 da rodada 3 da auditoria da DL-024)
+# BL-315 (achado B1 da rodada 3 da auditoria da DL-026)
 #
 # A instrução permanente do Fred, de 2026-09-13, tratou a duplicação ENTRE
 # arquivos: o mesmo fato em quatro lugares do README, já divergido. Os testes
@@ -180,7 +180,7 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
 #     mesclada 22 minutos depois PELO PR QUE INTEGROU ESTE ARQUIVO. Quando fui
 #     corrigir, já estava em `b588af9`. A afirmação nasceu falsa e envelhecia
 #     sozinha;
-#   - a tabela de etapas descrevia a DL-024 como "rodada 1 REPROVADA" enquanto
+#   - a tabela de etapas descrevia a DL-026 como "rodada 1 REPROVADA" enquanto
 #     o "Próximo passo", no mesmo documento, registrava a rodada 4.
 #
 # Os dois guardas abaixo são contra a CAUSA, não contra as duas ocorrências:
@@ -219,7 +219,7 @@ def test_cabecalho_do_estado_nao_fixa_a_revisao_da_main():
         "O cabeçalho de docs/agents/estado.md voltou a fixar a revisão da "
         f"`main`: {afirmacoes}. Ela muda a cada merge — inclusive pelo merge "
         "deste arquivo, que foi como a afirmação anterior nasceu falsa (B1 da "
-        "rodada 3 da DL-024). Quem precisa dela usa `git rev-parse origin/main`. "
+        "rodada 3 da DL-026). Quem precisa dela usa `git rev-parse origin/main`. "
         "Narrar o erro passado é permitido, em bloco de citação."
     )
 
@@ -229,7 +229,7 @@ def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
     "Próximo passo", e só lá.
 
     Sem isto, as duas descrições divergem no dia em que alguém atualiza uma —
-    que foi exatamente o que aconteceu com a DL-024 entre a rodada 1 e a 4.
+    que foi exatamente o que aconteceu com a DL-026 entre a rodada 1 e a 4.
     """
     ofensoras = [
         linha.split(" | ")[0].strip("| ")
@@ -249,7 +249,7 @@ def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
 # BL-326 — identificador de DECISÃO único.
 #
 # O registro de requisitos já tinha esta guarda (BL-242). O de decisões, não —
-# e na junção da DL-024 com a `main` apareceu o resultado: as duas linhas de
+# e na junção da DL-026 com a `main` apareceu o resultado: as duas linhas de
 # trabalho criaram, cada uma, uma **DE-042** diferente (primeiro acesso via
 # produto, de um lado; identidade visual, do outro). Nenhum dos dois lados
 # errou: cada um pegou o próximo número livre **que via**.

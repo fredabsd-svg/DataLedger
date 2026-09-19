@@ -263,7 +263,7 @@ def test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada(
     verificar; 2) a asserção usa a marcação específica do cabeçalho
     (`contexto-rotulo`), não o texto solto.
 
-    Tocado na DL-024 (identidade visual): o rótulo do cabeçalho perdeu o
+    Tocado na DL-026 (identidade visual): o rótulo do cabeçalho perdeu o
     ":" final — a direção "papel e tinta" usa rótulo em versalete (maiúsculas
     pequenas, letter-spacing) numa linha própria acima do valor, sem
     pontuação, e o valor foi para dentro de um `<strong>` (mesmo padrão dos

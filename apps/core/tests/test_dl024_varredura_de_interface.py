@@ -42,7 +42,7 @@ import pytest
 from apps.core.marcacao import tem_classe as _tem_classe
 
 RAIZ = Path(__file__).resolve().parents[3]
-# BL-309 (A3 da auditoria DL-024 rodada 3): `TEMPLATES = RAIZ / "templates"`
+# BL-309 (A3 da auditoria DL-026 rodada 3): `TEMPLATES = RAIZ / "templates"`
 # existia aqui e alimentava só a guarda do "momento da verdade" — a única
 # que ainda enumerava a pasta antiga em vez de `_templates(RAIZ)`. Sem mais
 # usos depois da correção (ver `_pastas_de_modulo_com_tela`), removida:
@@ -118,7 +118,7 @@ PADRAO_TAG_ABERTURA = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*>")
 # de TOKEN) — ali era o nome do módulo num documento inteiro, aqui é o nome
 # da classe dentro do atributo `class`.
 #
-# BL-310 (M1 da auditoria DL-024 rodada 3): `_tem_classe` (e o padrão que a
+# BL-310 (M1 da auditoria DL-026 rodada 3): `_tem_classe` (e o padrão que a
 # alimentava) era uma cópia local de `apps.core.marcacao.tem_classe`,
 # criado exatamente para acabar com essa duplicação (ver o docstring
 # daquele módulo) — o próprio docstring dele PROMETIA que "a varredura vai
@@ -201,7 +201,7 @@ _PADRAO_DECLARACAO = re.compile(r":\s*([^;{}]+)[;}]")
 
 # Estilo embutido: `style="..."` (aspas duplas), `style='...'` (BL-274 #5,
 # aspas simples escapavam), `style=valor-sem-aspas` (M1/BL-292, auditoria
-# DL-024 rodada 2 — HTML5 aceita atributo sem aspas desde que o valor não
+# DL-026 rodada 2 — HTML5 aceita atributo sem aspas desde que o valor não
 # tenha espaço, aspas, `=`, `<`, `>` nem crase, e o Chromium aplica: `<td
 # style=color:red;font-size:22px>` renderizava vermelho de verdade e
 # escapava, ao mesmo tempo, deste detector, do de cor e do de medida — a
@@ -232,7 +232,7 @@ PADRAO_SECAO_MOMENTO_DA_VERDADE = re.compile(r"^## 3\..*?(?=^## |\Z)", re.MULTIL
 
 # Nome do MÓDULO como ele aparece na tabela do §3, por pasta de `templates/`.
 # "contabilidade" é a única pasta real hoje (as demais ainda não existem —
-# Fora do escopo da DL-024); as outras chaves são a melhor aproximação do
+# Fora do escopo da DL-026); as outras chaves são a melhor aproximação do
 # nome que os módulos futuros devem usar. Pasta sem entrada aqui cai no
 # `.capitalize()` — aproximação, não garantia; quem criar o módulo confere a
 # tabela manualmente contra o nome real da pasta.
@@ -247,7 +247,7 @@ NOME_DO_MODULO_NA_TABELA = {
     "ecf": "Lalur/ECF",
 }
 
-# BL-313 (M4 da auditoria DL-024 rodada 3): até esta correção, o detector só
+# BL-313 (M4 da auditoria DL-026 rodada 3): até esta correção, o detector só
 # acusava dentro de uma LISTA FECHADA de propriedades (`_PADRAO_PROPRIEDADE_
 # DE_MEDIDA`, removida nesta rodada). Cada rodada de auditoria encontrava
 # propriedades novas fora da lista — `max-width`/`min-width`/`max-height`/
@@ -289,7 +289,7 @@ _PADRAO_DECLARACAO_COM_PROPRIEDADE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;{}]+)[;
 # `1fr` e o que estiver dentro do próprio bloco `:root` (onde o token NASCE)
 # não caem aqui por construção — nenhuma exceção adicional foi necessária.
 #
-# M4/BL-313 (auditoria DL-024 rodada 3): a lista de unidades ainda estava
+# M4/BL-313 (auditoria DL-026 rodada 3): a lista de unidades ainda estava
 # incompleta — `lh`/`rlh`/`cap`/`ic`/`rex`/`rch` passavam batido. Em vez de
 # só acrescentar essas seis (o mesmo erro de "lista que fica atrás" do lado
 # da propriedade), a lista abaixo é a enumeração COMPLETA das unidades de
@@ -320,7 +320,7 @@ _PADRAO_MEDIDA_LITERAL = re.compile(
 
 def _sem_variavel_css_preservando_fallback(valor):
     """Remove só a REFERÊNCIA `var(--nome, fallback)`, preservando o
-    FALLBACK — M2/BL-293 (auditoria DL-024 rodada 2): `re.sub(r"var\\(
+    FALLBACK — M2/BL-293 (auditoria DL-026 rodada 2): `re.sub(r"var\\(
     [^)]*\\)", "", valor)` apagava a variável E o fallback JUNTOS, então
     `var(--x, 37px)` e `var(--x, red)` desapareciam inteiros e a medida (ou
     cor) de reserva — o valor que o NAVEGADOR usa de verdade quando o token
@@ -348,7 +348,7 @@ def _arquivos_do_projeto(raiz, padrao_glob):
     `_folhas_de_estilo_do_projeto`) e qualquer ambiente virtual Python
     (`_dentro_de_ambiente_virtual`).
 
-    Extraído aqui pelo A3/BL-291 (auditoria DL-024 rodada 2): o mecanismo de
+    Extraído aqui pelo A3/BL-291 (auditoria DL-026 rodada 2): o mecanismo de
     exclusão já existia neste arquivo, mas só do lado do CSS
     (`_folhas_de_estilo_do_projeto`) — `_templates()` fazia
     `TEMPLATES.rglob("*.html")`, olhando SÓ `templates/` na raiz, enquanto
@@ -391,7 +391,7 @@ def _pastas_de_modulo_com_tela(raiz):
     - `apps/<modulo>/templates/<modulo>/...` — a convenção de app do
       Django (`apps/<app>/templates/<app>/arquivo.html`).
 
-    BL-309 (A3 da auditoria DL-024 rodada 3): até esta correção, a guarda
+    BL-309 (A3 da auditoria DL-026 rodada 3): até esta correção, a guarda
     do "momento da verdade" (`test_modulo_novo_declara_o_seu_momento_da_
     verdade`) enumerava `TEMPLATES.iterdir()` — só a primeira origem — CINCO
     rodadas depois de o BL-291 já ter ligado as outras cinco guardas de
@@ -497,7 +497,7 @@ def _medidas_literais_fora_dos_tokens(texto):
     O detector que o critério 13 prometia ("cor, TAMANHO ou ESPAÇAMENTO fora
     dos tokens") e nunca existia — BL-274, achado A1 da rodada 1.
 
-    BL-313 (M4 da auditoria DL-024 rodada 3): INVERTIDO — não filtra mais por
+    BL-313 (M4 da auditoria DL-026 rodada 3): INVERTIDO — não filtra mais por
     uma lista fechada de propriedades (ver o comentário de
     `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` para a classe de defeito que
     isto fecha). Toda declaração `propriedade: valor;` fora do `:root` é
@@ -555,7 +555,7 @@ def _folhas_de_estilo_do_projeto(raiz):
     detectado por `_dentro_de_ambiente_virtual` — sem essas duas exclusões,
     o admin do Django coletado e o Bootstrap do DRF entrariam na varredura
     do produto. Mesmo mecanismo agora compartilhado com `_templates()` via
-    `_arquivos_do_projeto` (BL-291, auditoria DL-024 rodada 2).
+    `_arquivos_do_projeto` (BL-291, auditoria DL-026 rodada 2).
     """
     return _arquivos_do_projeto(raiz, "*.css")
 
@@ -568,7 +568,7 @@ def _estilos_embutidos(texto):
     return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(limpo)]
 
 
-# M3/BL-294 (auditoria DL-024 rodada 2): elementos VAZIOS do HTML5 — nunca
+# M3/BL-294 (auditoria DL-026 rodada 2): elementos VAZIOS do HTML5 — nunca
 # têm tag de fechamento, por definição da especificação (WHATWG "void
 # elements"). `_involucro_cobre_valor` (abaixo) tratava a AUSÊNCIA de
 # `</tag>` como "invólucro ainda aberto, cobre o valor" — para um elemento
@@ -675,7 +675,7 @@ def _tem_linha_na_tabela(secao, nome_do_modulo):
 # As duas dívidas que este bloco registrava (DIVIDA_VALOR: 4 células de
 # totalizador fora da classe do sistema em lancamento_form.html e razao.html;
 # DIVIDA_COR: 5 cores soltas em static/css/base.css) foram FECHADAS pela
-# implementação real da DL-024 (DE-053) nesta etapa — `strict=True` fez
+# implementação real da DL-026 (DE-053) nesta etapa — `strict=True` fez
 # exatamente o que o comentário original previa: "no instante em que a
 # implementação consertar, o teste passa a REPROVAR POR PASSAR, e quem
 # estiver aqui é obrigado a apagar a marca". As duas marcas de
@@ -836,7 +836,7 @@ def test_nenhuma_medida_literal_fora_dos_tokens():
             soltas.append(f"{folha.relative_to(RAIZ)}: {achado}")
     assert not soltas, (
         "Medidas literais fora dos tokens (padding/margin/gap/font-size/"
-        "border-width, critério 13 da DL-024): " + "; ".join(soltas)
+        "border-width, critério 13 da DL-026): " + "; ".join(soltas)
     )
 
 
@@ -860,7 +860,7 @@ def test_modulo_novo_declara_o_seu_momento_da_verdade():
     Fiscal, pela Folha ou pelo Lalur tem um problema de entendimento do
     domínio, e a hora de descobrir é antes da tela, não depois.
 
-    BL-309 (A3 da auditoria DL-024 rodada 3): a enumeração de módulos vem de
+    BL-309 (A3 da auditoria DL-026 rodada 3): a enumeração de módulos vem de
     `_pastas_de_modulo_com_tela(RAIZ)` — que lê os arquivos que `_templates`
     de fato encontra, nas DUAS origens (`templates/<modulo>/` e
     `apps/<modulo>/templates/<modulo>/`) — nunca de `TEMPLATES.iterdir()`
@@ -964,7 +964,7 @@ def test_controle_negativo_detector_de_medida_literal():
 
 
 # ---------------------------------------------------------------------------
-# M2/BL-293 (auditoria DL-024 rodada 2): as CINCO linhas de sabotagem do
+# M2/BL-293 (auditoria DL-026 rodada 2): as CINCO linhas de sabotagem do
 # relatório, cada uma reproduzida aqui isolada — cada uma dava "61 passed"
 # ANTES desta correção, sozinha em static/css/base.css. Ver a tabela do
 # achado M2 em docs/auditorias/2026-09-18-dl-024-rodada-2.md.
@@ -1030,7 +1030,7 @@ def test_controle_positivo_detector_de_medida_literal_cobre_atalho_border_e_outl
 
 
 # ---------------------------------------------------------------------------
-# BL-313 (M4 da auditoria DL-024 rodada 3): o detector, ANTES da inversão,
+# BL-313 (M4 da auditoria DL-026 rodada 3): o detector, ANTES da inversão,
 # fechava as CINCO sabotagens do relatório da rodada 2 e continuava cego
 # para a FAMÍLIA — a tabela abaixo é a reprodução literal das duas linhas
 # que o auditor mediu passando (`74 passed`), mais casos que o relatório
@@ -1170,7 +1170,7 @@ def test_controle_positivo_detector_de_css_em_qualquer_subpasta(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A3/BL-291 (auditoria DL-024 rodada 2): a varredura de TEMPLATES só olhava
+# A3/BL-291 (auditoria DL-026 rodada 2): a varredura de TEMPLATES só olhava
 # `templates/` na raiz, cega para `apps/<app>/templates/` — que
 # `config/settings.py` (`"APP_DIRS": True`) faz o Django resolver
 # normalmente. Reprodução da sabotagem exata do auditor, isolada em
@@ -1186,7 +1186,7 @@ def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
     %}`, sem `<caption>`, `<th>` sem `scope`, valor `_ptbr` em célula sem a
     classe do sistema, e estilo embutido.
 
-    BL-309 (A3 da auditoria DL-024 rodada 3): a SEXTA guarda — a de
+    BL-309 (A3 da auditoria DL-026 rodada 3): a SEXTA guarda — a de
     EXISTÊNCIA de módulo (`test_modulo_novo_declara_o_seu_momento_da_
     verdade`) — não estava neste controle, e era exatamente a única que
     continuava cega para `apps/<app>/templates/`. Acrescenta um segundo
@@ -1358,7 +1358,7 @@ def test_controle_positivo_detector_de_estilo_embutido():
 
 
 # ---------------------------------------------------------------------------
-# M1/BL-292 (auditoria DL-024 rodada 2): as QUATRO amostras exatas do
+# M1/BL-292 (auditoria DL-026 rodada 2): as QUATRO amostras exatas do
 # relatório — `style=` sem aspas é HTML5 válido (sem espaço/aspas/=/<>/
 # crase) e o Chromium aplica; `<div data-style="cor">` continha a
 # substring `style="cor"` e era um falso POSITIVO real. Confirmado pelo
@@ -1444,7 +1444,7 @@ def test_controle_negativo_detector_de_involucro_que_ja_fechou_nao_cobre_o_valor
 
 
 # ---------------------------------------------------------------------------
-# M3/BL-294 (auditoria DL-024 rodada 2): elemento VAZIO (`<br>`, `<img>`,
+# M3/BL-294 (auditoria DL-026 rodada 2): elemento VAZIO (`<br>`, `<img>`,
 # `<input>`, `<hr>` — nunca têm tag de fechamento) tratado como "invólucro
 # que nunca fecha, então cobre tudo". Introduzido pela mudança da rodada 3
 # que passou a aceitar invólucro em linha; os três controles daquela rodada

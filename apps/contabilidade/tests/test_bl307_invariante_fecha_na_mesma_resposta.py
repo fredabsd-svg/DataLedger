@@ -1,4 +1,4 @@
-"""BL-307 (A1 da auditoria DL-024 rodada 3,
+"""BL-307 (A1 da auditoria DL-026 rodada 3,
 docs/auditorias/2026-09-18-dl-024-rodada-3.md): a correção do BL-289 cobriu
 `veredito_fechamento` no caminho `acao=adicionar_linha` e deixou o caminho
 `acao=gravar` (e qualquer outro valor de `acao`, tratado como tentativa de
@@ -307,7 +307,7 @@ def test_recusa_com_partidas_validas_batendo_nunca_diz_fecha(client, cen, nome_c
     html = resposta.content.decode("utf-8")
     assert MARCADOR_FECHA not in html, (
         f"invariante violada no caso {nome_caso!r}: resposta 400 contém "
-        '"Fecha" — a mesma mentira do achado A1 da auditoria DL-024 rodada 3'
+        '"Fecha" — a mesma mentira do achado A1 da auditoria DL-026 rodada 3'
     )
     # Nenhum lançamento gravado nesta tentativa, seja qual for a chave que
     # de fato foi enviada (o caso `chave_idempotencia_grande_demais`

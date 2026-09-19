@@ -1,4 +1,4 @@
-"""BL-286 (rodada 3 da DL-024): o veredito "Não fecha" precisa dizer DE
+"""BL-286 (rodada 3 da DL-026): o veredito "Não fecha" precisa dizer DE
 QUANTO — critério de aceite do BL-278 que ficou pendente na rodada 1
 (achado M2, docs/auditorias/2026-09-18-dl-024-rodada-1.md).
 

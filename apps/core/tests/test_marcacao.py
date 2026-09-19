@@ -1,4 +1,4 @@
-"""Testes de `apps.core.marcacao` (BL-310, M1 da auditoria DL-024 rodada 3,
+"""Testes de `apps.core.marcacao` (BL-310, M1 da auditoria DL-026 rodada 3,
 docs/auditorias/2026-09-18-dl-024-rodada-3.md).
 
 Este módulo foi criado na rodada 4 (BL-295/BL-296/BL-297) para unificar três
@@ -164,7 +164,7 @@ def test_tem_classe_sem_atributo_class_e_false():
 
 
 # ---------------------------------------------------------------------------
-# Limitação aceita e REGISTRADA (BL-317, B3 da auditoria DL-024 rodada 3):
+# Limitação aceita e REGISTRADA (BL-317, B3 da auditoria DL-026 rodada 3):
 # o casamento por regex sobre a STRING inteira da tag não distingue um
 # atributo `class` real de um atributo `class` que aparece, por acidente,
 # dentro do VALOR de outro atributo. Este teste fixa o comportamento ATUAL

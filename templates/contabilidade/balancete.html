@@ -18,7 +18,7 @@
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     {% comment %}
-    BL-284 (rodada 3, DL-024): o <h1> repetia o nome da empresa que a
+    BL-284 (rodada 3, DL-026): o <h1> repetia o nome da empresa que a
     faixa de contexto do cabeçalho já mostra, dois blocos acima ("Empresa
     — {{ empresa.razao_social }}"). Repetir não ajuda quem lê — quem
     chegou até aqui já sabe em que empresa está — e é um dos itens que a
@@ -31,7 +31,7 @@
     <h1>Balancete de verificação</h1>
 
     {% comment %}
-    BL-301 (achado B3 da auditoria DL-024, rodada 2,
+    BL-301 (achado B3 da auditoria DL-026, rodada 2,
     docs/auditorias/2026-09-18-dl-024-rodada-2.md): até esta correção, um
     período inválido (`?inicio=abacaxi&fim=...`) deixava a tela quase
     vazia — a mensagem de erro (renderizada por `templates/base.html`, a
@@ -62,7 +62,7 @@
 
     {% if linhas %}
         {% comment %}
-        A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de
+        A3/BL-276 + M2/BL-278 (auditoria DL-026, rodada 1): faixa de
         fechamento, no TOPO da página — segunda coisa depois do título,
         ANTES do formulário de período. Resolve as duas coisas na mesma
         superfície:
@@ -87,7 +87,7 @@
         caminho esperado.
         {% endcomment %}
         {% comment %}
-        BL-290/BL-302 (achados A2 e B4 da auditoria DL-024, rodada 2): até
+        BL-290/BL-302 (achados A2 e B4 da auditoria DL-026, rodada 2): até
         esta correção, o veredito da faixa era decidido AQUI, comparando
         `total_debitos_ptbr`/`total_creditos_ptbr` em TEXTO pt-BR — a
         MESMA classe de defeito do A1/BL-289 no lançamento (ver o
@@ -132,7 +132,7 @@
     {% endif %}
 
     {% comment %}
-    BL-277/BL-284 (rodada 3, DL-024): o texto de ajuda do formato de data
+    BL-277/BL-284 (rodada 3, DL-026): o texto de ajuda do formato de data
     aparecia DUAS VEZES — um parágrafo dentro de cada `.campo` (Início e
     Fim), com o texto idêntico. Além da repetição em si (o mesmo fato
     contado duas vezes ensina a pessoa a pular o segundo), cada parágrafo
@@ -180,7 +180,7 @@
     </form>
 
     {% comment %}
-    BL-285 (rodada 3, DL-024): quando a empresa tem movimento FORA do
+    BL-285 (rodada 3, DL-026): quando a empresa tem movimento FORA do
     período E o período consultado está zerado, mostrar o parágrafo cheio
     "Nenhum movimento neste período" (64px, com borda e fundo próprios)
     IMEDIATAMENTE ACIMA do aviso de movimento fora do período (138px,
@@ -248,7 +248,7 @@
         do cabeçalho (duas linhas de célula de cabeçalho sticky não têm o mesmo "top").
         {% endcomment %}
         {% comment %}
-        M4/BL-280 (auditoria DL-024, rodada 1): DE-053 §1 — "a hierarquia
+        M4/BL-280 (auditoria DL-026, rodada 1): DE-053 §1 — "a hierarquia
         do plano de contas vem de peso e recuo, não de uma coluna 'Nível'
         nem de cor". Legenda em TEXTO, porque peso sozinho tem o mesmo
         problema de "cor sozinha" para quem não distingue as duas
@@ -346,7 +346,7 @@
         </table>
     {% elif inicio and fim %}
         {% comment %}
-        B4/BL-283 (auditoria DL-024, rodada 1): o estado vazio deixava a
+        B4/BL-283 (auditoria DL-026, rodada 1): o estado vazio deixava a
         tela quase toda em branco — mensagem, filtro e nada mais. O texto
         já explicava o que faltava; o que faltava era o caminho de volta
         para resolver, sem depender de a pessoa lembrar onde fica o plano

@@ -1,5 +1,5 @@
 /*
- * Sistema de tokens do DataLedger (DE-053 / DL-024): identidade "papel e
+ * Sistema de tokens do DataLedger (DE-053 / DL-026): identidade "papel e
  * tinta", escolhida por medição no gauntlet de três variantes cegas — ver
  * docs/projeto/direcao-de-arte.md (fonte da direção) e
  * docs/assets/design/gauntlet/MEDICOES.md (evidência). CSS próprio e
@@ -103,7 +103,7 @@
     --borda-forte: #1C1A16;    /* mesma tinta principal — regra de tabela, divisória forte */
 
     /* --- Impressão: paleta PRÓPRIA, preto e branco puros, nunca a do
-       ecrã — critério 9 da DL-024 ("o balancete sai legível em A4"). Tinta
+       ecrã — critério 9 da DL-026 ("o balancete sai legível em A4"). Tinta
        colorida gasta mais cartucho e nem toda impressora reproduz a cor da
        tela fielmente; texto e regra em preto puro sobre papel branco puro
        é o padrão mais seguro para qualquer impressora. Só usados dentro de
@@ -145,12 +145,12 @@
        a de espaço (--esp-N começa em 4px; contorno de campo e divisória de
        tabela precisam de valores sub-4px). Nunca usar --esp-N para largura
        de borda, nem um valor de traço fora desta lista (achado M3/BL-279
-       da auditoria da DL-024, rodada 1: ~15 larguras soltas). --- */
+       da auditoria da DL-026, rodada 1: ~15 larguras soltas). --- */
     --traco-fina: 1px;        /* hairline: contorno de campo, divisória leve */
     --traco-media: 2px;       /* divisória forte de cabeçalho, sublinhado ativo */
-    --traco-grossa: 3px;      /* anel de foco (critério 4 da DL-024/DL-009) */
+    --traco-grossa: 3px;      /* anel de foco (critério 4 da DL-026/DL-009) */
     --traco-destaque: 5px;    /* barra lateral de mensagem e de faixa de veredito */
-    --traco-impressao: 1.5pt; /* impressão usa pt, não px (critério 9 da DL-024) */
+    --traco-impressao: 1.5pt; /* impressão usa pt, não px (critério 9 da DL-026) */
     --desloc-foco: 2px;       /* outline-offset do foco padrão */
     --desloc-foco-campo: 1px; /* outline-offset do foco dentro de campo com borda própria */
 
@@ -251,7 +251,7 @@ a:hover {
 }
 
 /* Foco visível, explícito e com contraste suficiente em qualquer elemento
-   navegável por teclado (critério 10 do plano DL-009, mantido pela DL-024
+   navegável por teclado (critério 10 do plano DL-009, mantido pela DL-026
    critério 7: "o estilo muda de fato ao focar"). Sem :focus-visible
    sozinho: o anel também aparece no clique de mouse — robustez acima de
    estética, e é o que o juiz mede (comparar estilo antes/depois do foco,
@@ -617,9 +617,9 @@ button:disabled {
    consulta"): sem wrapper de rolagem interna (o gauntlet media isso com
    altura de viewport fixa; aqui a página inteira rola).
 
-   A3/BL-276 (auditoria DL-024, rodada 1): esta regra AFIRMAVA que "a
+   A3/BL-276 (auditoria DL-026, rodada 1): esta regra AFIRMAVA que "a
    página inteira rola, então o totalizador do rodapé já é alcançável sem
-   rolar a tabela inteira — critério 4 da DL-024". Era falso, e medido: o
+   rolar a tabela inteira — critério 4 da DL-026". Era falso, e medido: o
    balancete com 73 contas exigia 2153px de rolagem — passar pelas 73
    linhas — para alcançar o rodapé. `thead` sticky (abaixo) resolve o
    CABEÇALHO, não o TOTALIZADOR; um comentário que cita o número do
@@ -695,7 +695,7 @@ button:disabled {
    (DL-017, fase B). O sinal (débito/crédito) NUNCA é só a cor: o
    indicador D/C ao lado (.indicador-natureza) é sempre texto, nunca só
    cor. Todo algarismo de valor usa a fonte numérica tabulada — a régua da
-   DL-024 mede isso por COMPORTAMENTO (duas larguras de dígito precisam
+   DL-026 mede isso por COMPORTAMENTO (duas larguras de dígito precisam
    ser iguais), não por declaração de fonte. Uma classe só, sem qualificar
    por `th`/`td` (a mesma classe alinha à direita e tabula em qualquer
    elemento — inclusive fora de tabela, ex.: o total do lançamento). */
@@ -736,7 +736,7 @@ button:disabled {
     background: var(--papel-alt);
 }
 
-/* M2/BL-278 (auditoria DL-024, rodada 1): "fecha ou não fecha" no
+/* M2/BL-278 (auditoria DL-026, rodada 1): "fecha ou não fecha" no
    lançamento, DE-053 §3 — texto primeiro (a palavra "Fecha"/"Não fecha"
    está sempre no HTML), cor de reforço na primeira célula da linha via
    este modificador, nunca o único canal. Aplicado em
@@ -759,7 +759,7 @@ button:disabled {
     color: var(--erro);
 }
 
-/* BL-289 (rodada 4 da auditoria DL-024, achado A1): terceiro estado do
+/* BL-289 (rodada 4 da auditoria DL-026, achado A1): terceiro estado do
    veredito — "ainda não conferido", NUNCA "Fecha". Antes desta correção o
    template comparava os dois totais em TEXTO pt-BR e "0,00" == "0,00" é
    verdadeiro: formulário em branco, todas as linhas descartadas, total
@@ -775,7 +775,7 @@ button:disabled {
     color: var(--info);
 }
 
-/* A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de fechamento
+/* A3/BL-276 + M2/BL-278 (auditoria DL-026, rodada 1): faixa de fechamento
    do Balancete — resolve as DUAS coisas na mesma superfície, porque são a
    mesma pergunta ("os totais fecham?") em duas roupagens (critério 4:
    totalizador alcançável sem rolar a tabela inteira; DE-053 §3: "fecha ou
@@ -799,7 +799,7 @@ button:disabled {
     flex-wrap: wrap;
     align-items: center;
     gap: var(--esp-5);
-    /* BL-284 (rodada 3, DL-024): esp-3 em vez de esp-4 — 4px que fazem
+    /* BL-284 (rodada 3, DL-026): esp-3 em vez de esp-4 — 4px que fazem
        falta para a 9ª linha do balancete caber em 1280×800 (medido: a
        linha 9 terminava em 804px, 4px acima do piso de 800px, depois da
        correção do BL-277). `.faixa-fechamento` só existe no Balancete —
@@ -817,7 +817,7 @@ button:disabled {
     background: var(--erro-fundo);
 }
 
-/* BL-302 (rodada 4 da auditoria DL-024, achado B4): terceiro estado da
+/* BL-302 (rodada 4 da auditoria DL-026, achado B4): terceiro estado da
    faixa — "nada a conferir", para quando os dois totais do período são
    ZERO (empresa sem movimento no mês, o estado em que o Balancete abre no
    dia 1º de todo mês). Antes desta correção, `total_debitos_ptbr ==
@@ -857,7 +857,7 @@ button:disabled {
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--esp-4);
-    /* BL-284 (rodada 3, DL-024): esp-3 em vez de esp-4 — mesmo motivo do
+    /* BL-284 (rodada 3, DL-026): esp-3 em vez de esp-4 — mesmo motivo do
        ajuste em `.faixa-fechamento` logo acima. Classe COMPARTILHADA com
        Diário e Razão: o efeito lá é só ganhar 4px de densidade também
        (nunca perder — a régua não desce em nenhuma tela por causa
@@ -878,7 +878,7 @@ button:disabled {
     font-family: var(--fonte-numerica);
 }
 
-/* BL-277/BL-284 (rodada 3, DL-024): parágrafo de ajuda de formato de data
+/* BL-277/BL-284 (rodada 3, DL-026): parágrafo de ajuda de formato de data
    COMPARTILHADO entre os campos "Início" e "Fim" do Balancete — ver o
    comentário em templates/contabilidade/balancete.html sobre por que
    repetir o mesmo texto em cada `.campo` custava uma linha inteira do
@@ -986,7 +986,7 @@ button:disabled {
 .tabela-dados td.nivel-9 { padding-left: var(--recuo-nivel-9); }
 .tabela-dados td.nivel-10 { padding-left: var(--recuo-nivel-10); }
 
-/* M4/BL-280 (auditoria DL-024, rodada 1): hierarquia por PESO, não só por
+/* M4/BL-280 (auditoria DL-026, rodada 1): hierarquia por PESO, não só por
    recuo — DE-053 §1: "a hierarquia do plano de contas vem de peso e
    recuo, não de uma coluna 'Nível' nem de cor". Medido antes desta
    correção: peso 400 nos quatro níveis do balancete, só o recuo
@@ -1025,7 +1025,7 @@ button:disabled {
 
 /* ==========================================================================
    Impressão: o balancete (e qualquer tabela de dados) sai legível em A4,
-   com a identidade do ESCRITÓRIO — critério 9 da DL-024. Sem cor de fundo
+   com a identidade do ESCRITÓRIO — critério 9 da DL-026. Sem cor de fundo
    (economiza tinta, e nem toda impressora reproduz cor fiel), cabeçalho
    sticky vira estático (a impressão pagina por conta própria), e o que é
    só decorativo na tela (moldura do masthead) recua para não competir com

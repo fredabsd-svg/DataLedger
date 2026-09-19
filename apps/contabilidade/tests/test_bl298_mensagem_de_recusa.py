@@ -1,4 +1,4 @@
-"""BL-298 (M7 da auditoria DL-024 rodada 2,
+"""BL-298 (M7 da auditoria DL-026 rodada 2,
 docs/auditorias/2026-09-18-dl-024-rodada-2.md): a mensagem de recusa do
 `acao=gravar` se contradizia quando os totais eram IGUAIS e não positivos.
 

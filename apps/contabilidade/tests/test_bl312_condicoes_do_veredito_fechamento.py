@@ -1,4 +1,4 @@
-"""BL-312 (M3 da auditoria DL-024 rodada 3,
+"""BL-312 (M3 da auditoria DL-026 rodada 3,
 docs/auditorias/2026-09-18-dl-024-rodada-3.md): `_veredito_fechamento`
 declara, no próprio docstring, um conjunto de condições que precisam ser
 TODAS verdadeiras para o rodapé dizer "Fecha". O auditor mediu que uma
@@ -297,7 +297,7 @@ def test_condicao5_bloqueado_por_outro_erro_e_a_unica_que_decide(client, cen):
     BL-307 identificou como não coberto pela correção de `linhas_
     excluidas_do_total` sozinha. Só a condição 5 falha — resultado
     `"nao_conferido"`, numa resposta 400 (não pode ser "fecha": é
-    exatamente o achado A1 da auditoria DL-024 rodada 3)."""
+    exatamente o achado A1 da auditoria DL-026 rodada 3)."""
     _login(client)
     corpo = _duas_linhas(
         cen,

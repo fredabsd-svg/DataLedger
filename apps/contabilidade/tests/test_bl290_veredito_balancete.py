@@ -1,4 +1,4 @@
-"""BL-290 (A2 da auditoria DL-024 rodada 2,
+"""BL-290 (A2 da auditoria DL-026 rodada 2,
 docs/auditorias/2026-09-18-dl-024-rodada-2.md): a faixa de fechamento do
 balancete comparava TEXTO pt-BR (`total_debitos_ptbr == total_creditos_ptbr`)
 em vez de `Decimal` — a mesma classe de defeito do BL-289/A1, agora na tela

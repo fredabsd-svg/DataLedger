@@ -197,13 +197,13 @@ Valem para todo módulo, e são medidas por mecanismo (§5).
    conveniência; fingir que o piso é 15 seria pior.
 9. **pt-BR em tudo**: `1.234,56`, `dd/mm/aaaa`, e o termo que o contador usa.
 10. **O que já foi auditado não regride.** Contraste, foco, estados e mensagens
-    de erro custaram rodadas de auditoria nas DL-009, DL-017 e DL-024.
+    de erro custaram rodadas de auditoria nas DL-009, DL-017 e DL-026.
 
 ## 5. Como isto é verificado, e não só pedido
 
 Regra sem mecanismo é só pedido — e este projeto já aprendeu isso três vezes.
 A verificação é a varredura de interface descrita na
-[DL-024](../planos/DL-024-identidade-visual-e-interface.md), que reprova a
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md), que reprova a
 integração contínua quando:
 
 - um template usa cor, tamanho ou espaçamento **fora dos tokens**;

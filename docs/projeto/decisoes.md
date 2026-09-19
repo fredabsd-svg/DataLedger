@@ -1966,7 +1966,7 @@ contradição sobre o estado** — porque sobre estado ele não fala.
 ## DE-053 — A identidade visual do DataLedger: "papel e tinta", com dois enxertos nomeados
 
 **Data:** 2026-09-18. **Origem:** rodada 1 do gauntlet da
-[DL-024](../planos/DL-024-identidade-visual-e-interface.md), com a escolha
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md), com a escolha
 confirmada pelo Fred (**RC-89**). Evidência em
 [`docs/assets/design/gauntlet/`](../assets/design/gauntlet/MEDICOES.md): as três
 variantes, as capturas, as medições e o juiz que as mediu.

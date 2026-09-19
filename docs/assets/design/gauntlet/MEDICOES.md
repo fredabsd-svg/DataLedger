@@ -1,4 +1,4 @@
-# Gauntlet DL-024 — medições da rodada 1
+# Gauntlet DL-026 — medições da rodada 1
 
 Tudo aqui foi **medido** por um programa que abre cada tela num Chromium real,
 em 1280×800 e 1920×1080. Nada foi estimado no olho. O programa está em

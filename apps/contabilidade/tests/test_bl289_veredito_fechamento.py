@@ -1,4 +1,4 @@
-"""BL-289 (A1 da auditoria DL-024 rodada 2,
+"""BL-289 (A1 da auditoria DL-026 rodada 2,
 docs/auditorias/2026-09-18-dl-024-rodada-2.md): o veredito "Fecha" do
 lançamento MENTIA em quatro estados alcançáveis, porque o template comparava
 TEXTO pt-BR (`total_debito_ptbr == total_credito_ptbr`) em vez de `Decimal`.

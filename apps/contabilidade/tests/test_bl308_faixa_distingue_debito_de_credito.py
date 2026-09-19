@@ -1,4 +1,4 @@
-"""BL-308 (achado A2 da auditoria DL-024, rodada 3,
+"""BL-308 (achado A2 da auditoria DL-026, rodada 3,
 docs/auditorias/2026-09-18-dl-024-rodada-3.md): o teste que fechou o
 BL-290 (`test_dl017_telas.py::test_balancete_soma_das_linhas_proprias_bate_
 com_rodape`) afirmava:

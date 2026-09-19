@@ -164,7 +164,7 @@ def _extrair_valores_ptbr(html, classe="valor-monetario"):
 
 
 def _extrair_valor_por_rotulo(html, rotulo):
-    """BL-308 (achado A2 da auditoria DL-024, rodada 3): extrai o valor
+    """BL-308 (achado A2 da auditoria DL-026, rodada 3): extrai o valor
     monetário ANCORADO pelo rótulo de texto que o precede, em vez de pela
     N-ésima ocorrência de `class="valor-monetario"` no trecho.
 
@@ -193,7 +193,7 @@ def _ptbr_para_decimal(texto):
 
 
 def _exige_veredito_balancete(contexto, esperado):
-    """BL-290/BL-302 (rodada 4 da auditoria DL-024): `veredito_balancete`
+    """BL-290/BL-302 (rodada 4 da auditoria DL-026): `veredito_balancete`
     tem que EXISTIR no contexto de renderização e valer EXATAMENTE
     `esperado` — nunca aceito por AUSÊNCIA. `contexto["chave"]` levanta
     `KeyError` quando a chave não existe em NENHUM dos contextos
@@ -606,7 +606,7 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
 
-    # BL-276/BL-278 (rodada 2 da auditoria DL-024): a `.faixa-fechamento`
+    # BL-276/BL-278 (rodada 2 da auditoria DL-026): a `.faixa-fechamento`
     # no topo da página (fora da tabela) TAMBÉM usa a classe
     # "valor-monetario" nos seus dois totais — é dinheiro, tem que
     # tabular, a regra não abre exceção por estar fora de `<table>`. Por
@@ -645,7 +645,7 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     assert soma_debitos_proprios == total_debitos_rodape == Decimal("1700.00")
     assert soma_creditos_proprios == total_creditos_rodape == Decimal("1700.00")
 
-    # BL-308 (achado A2 da auditoria DL-024, rodada 3): o par de
+    # BL-308 (achado A2 da auditoria DL-026, rodada 3): o par de
     # asserções acima tem o MESMO vício que a faixa tinha — soma o
     # débito próprio e o crédito próprio de TODAS as linhas e compara os
     # dois totais contra o rodapé. Por partida dobrada, esses dois totais
@@ -683,7 +683,7 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     assert debito_proprio_capital == Decimal("0.00"), debito_proprio_capital
     assert credito_proprio_capital == Decimal("1700.00"), credito_proprio_capital
 
-    # BL-290 (achado A2 da auditoria DL-024, rodada 2): a faixa de
+    # BL-290 (achado A2 da auditoria DL-026, rodada 2): a faixa de
     # fechamento (fora da <table>, por isso extraída separadamente) tem
     # que mostrar os MESMOS dois números do rodapé — é a mesma dupla de
     # totais em dois lugares da tela (BL-276/BL-278), não dois cálculos
@@ -781,7 +781,7 @@ def test_contexto_visivel_empresa_e_periodo(client, cenario):
     resposta = client.get(url)
     conteudo = resposta.content.decode()
     assert "Empresa A Ltda" in conteudo
-    # BL-283(a)/rodada 2 da DL-024: o rótulo de contexto perdeu o
+    # BL-283(a)/rodada 2 da DL-026: o rótulo de contexto perdeu o
     # dois-pontos e passou a envolver o valor em <strong> — mesma marcação
     # que "Usuário"/"Escritório ativo" já usavam em base.html (a
     # inconsistência era exatamente essa: metade da faixa em um padrão,
@@ -826,7 +826,7 @@ def test_periodo_invalido_da_mensagem_util_nao_quebra(client, cenario):
 
 
 def test_balancete_erro_de_periodo_oferece_saida_navegavel(client, cenario):
-    """BL-301 (achado B3 da auditoria DL-024, rodada 2): o estado de erro
+    """BL-301 (achado B3 da auditoria DL-026, rodada 2): o estado de erro
     do Balancete deixava a tela quase vazia — 397px de 800, sem tabela e
     sem saída, só a mensagem de erro e o formulário de período. Esta
     correção não muda o comportamento da VIEW (que continua recusando o
@@ -865,7 +865,7 @@ def test_balancete_erro_de_periodo_oferece_saida_navegavel(client, cenario):
 def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     client, cenario, monkeypatch
 ):
-    """BL-290 (achado A2 da auditoria DL-024, rodada 2): o ramo "Não
+    """BL-290 (achado A2 da auditoria DL-026, rodada 2): o ramo "Não
     fecha" da faixa de fechamento é uma REDE DE SEGURANÇA — a apuração do
     Balancete garante débito igual a crédito por construção (partida
     dobrada dos lançamentos de origem), então esse ramo é INALCANÇÁVEL por
@@ -943,7 +943,7 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     total_creditos_rodape = _ptbr_para_decimal(valores_rodape[1])
     assert total_debitos_rodape != total_creditos_rodape
 
-    # BL-308 (achado A2 da auditoria DL-024, rodada 3) — A GUARDA DE
+    # BL-308 (achado A2 da auditoria DL-026, rodada 3) — A GUARDA DE
     # VERDADE contra "o crédito da faixa foi trocado pelo débito" só
     # existe AQUI, neste estado divergente: é o único em que os dois
     # números não são iguais por construção, então é o único em que a
@@ -982,7 +982,7 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
 
 
 def test_balancete_sem_movimento_diz_nada_a_conferir_por_decisao(client, cenario):
-    """BL-302 (achado B4 da auditoria DL-024, rodada 2): a entrada padrão
+    """BL-302 (achado B4 da auditoria DL-026, rodada 2): a entrada padrão
     do Balancete — empresa com contas cadastradas, mês corrente sem
     NENHUM movimento ainda (o estado em que a tela abre no dia 1º de todo
     mês, em qualquer escritório real) — não pode dizer "Fecha": zero

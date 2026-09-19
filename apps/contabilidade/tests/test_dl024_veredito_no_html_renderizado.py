@@ -1,5 +1,5 @@
 """Achado do `arquiteto-senior`, revisão integrada `65af1dc`, rodada 4 da
-DL-024 (docs/auditorias/2026-09-18-dl-024-rodada-2.md, achado A1).
+DL-026 (docs/auditorias/2026-09-18-dl-024-rodada-2.md, achado A1).
 
 Os 13 testes de `apps/contabilidade/tests/test_bl289_veredito_fechamento.py`
 (do `desenvolvedor-pleno`) afirmam sobre a CHAVE do contexto de
@@ -56,7 +56,7 @@ arquivo do repositório") — aqui aplicado a um fragmento de template em vez
 de uma folha de estilo.
 
 Método de mutação do item 3 (a condição sempre falsa) — CORRIGIDO pelo
-BL-311 (achado M2 da auditoria DL-024, rodada 3,
+BL-311 (achado M2 da auditoria DL-026, rodada 3,
 docs/auditorias/2026-09-18-dl-024-rodada-3.md): esta sabotagem é sobre o
 que a URL de verdade SERVE — não há como reproduzi-la sem que o Django
 resolva o template pelo NOME, através dos `loaders` configurados
@@ -625,7 +625,7 @@ def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
 
 # ---------------------------------------------------------------------------
 # Prova por mutação (b): a condição sempre falsa — CORRIGIDA pelo BL-311
-# (achado M2 da auditoria DL-024, rodada 3): a versão anterior mutava o
+# (achado M2 da auditoria DL-026, rodada 3): a versão anterior mutava o
 # ARQUIVO REAL (com try/finally e restauração byte a byte). O auditor
 # mediu que duas execuções concorrentes deste MESMO arquivo, na mesma
 # árvore, corrompem o repositório de forma ACUMULATIVA — a segunda
