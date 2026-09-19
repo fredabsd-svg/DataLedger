@@ -22,19 +22,38 @@ telas medidas aqui são RENDERIZAÇÃO REAL do produto (dados de
 `scripts/semear_base_de_medicao.py`, usuário autenticado,
 `request.escritorio` resolvido pelo middleware de verdade) — o
 instrumento PRECISA estar dentro do processo Django para produzi-las. Só
-a geração do PDF em si depende de Chromium/Playwright, que não está nas
-dependências do projeto (`requirements/`) — a MESMA separação de ambiente
-que o próprio `juiz.py` já declara ("Rode com o Python do sistema (tem
-playwright)") e que o auditor precisou reproduzir manualmente com uma
-venv isolada. Este script orquestra as DUAS pontas com UM comando
+a geração do PDF em si depende de Chromium/Playwright — a MESMA separação
+de ambiente que o próprio `juiz.py` já declara ("Rode com o Python do
+sistema (tem playwright)") e que o auditor precisou reproduzir manualmente
+com uma venv isolada. Este script orquestra as DUAS pontas com UM comando
 publicado: renderiza com o Django do venv do projeto e delega só a
 geração do PDF a um subprocesso do PYTHON DO SISTEMA
 (`DL_PYTHON_DO_SISTEMA`, com o mesmo padrão de `CHROMIUM` do `juiz.py`).
 
+⚠️ **Atualizado na DL-028 fatia 2 (BL-357/BL-358, achado do arquiteto-senior
+sobre a fatia 2 — mensagem de guarda que mandava procurar o vizinho
+errado):** desde então, Playwright **é** dependência — de DESENVOLVIMENTO
+e de CI (`playwright==1.63.0` em `requirements/dev.txt`), nunca de
+PRODUTO (`base.txt` continua intocado, DE-011 preservada) — porque
+`scripts/medir_identificacao_do_emitente.py` (o instrumento que MEDE se o
+documento sai identificado, e que **roda na CI**, delimitado por caminho)
+reaproveita as funções deste arquivo (`_preparar_cliente_e_cenario_de_
+medicao`, `_com_css_local`, `_exigir_ferramentas_de_pdf`, `_exigir_python_
+do_sistema_com_playwright`). Este script (`medir_impressao.py`) em si
+continua sendo ferramenta de BANCADA — sua função `main()` não é chamada
+pela integração contínua —, mas suas funções auxiliares agora são
+importadas por um script que É chamado por ela. Quem lê esta docstring
+achando que nada aqui participa da CI está lendo uma afirmação que deixou
+de ser verdade no mesmo dia em que foi escrita.
+
 Medição de página (contagem de folhas, texto por página) usa
 `pdfinfo`/`pdftotext` (poppler-utils) via subprocesso — de propósito
-NENHUMA biblioteca Python de PDF nova em `requirements/` por uma
-ferramenta de BANCADA que não roda na CI.
+NENHUMA biblioteca Python de PDF nova em `requirements/`: é uma
+DEPENDÊNCIA DE SISTEMA (binário, não pacote Python), continua sendo a
+escolha certa mesmo agora que uma medição que a usa roda em CI — o job
+que a executa (`.github/workflows/identificacao-do-emitente.yml`) instala
+`poppler-utils` como pacote do SISTEMA operacional do runner, nunca via
+`requirements/`.
 
 ## Como usar
 
@@ -183,9 +202,12 @@ def _exigir_ferramentas_de_pdf():
         sys.exit(
             f"Recusado: {', '.join(faltando)} (poppler-utils) não encontrado(s) no "
             "PATH — este script mede paginação com pdfinfo/pdftotext DE PROPÓSITO, "
-            "para não acrescentar biblioteca Python de PDF a requirements/ por uma "
-            "ferramenta de bancada que não roda na CI (ver a docstring do módulo). "
-            "Instale poppler-utils (ex.: apt install poppler-utils)."
+            "para não acrescentar biblioteca Python de PDF a requirements/ (ver a "
+            "docstring do módulo). poppler-utils é DEPENDÊNCIA DE SISTEMA, não "
+            "pacote Python: instale-a no ambiente que roda este script — "
+            "localmente, 'apt install poppler-utils'; na integração contínua, é "
+            "um passo do job em .github/workflows/identificacao-do-emitente.yml, "
+            "nunca requirements/."
         )
 
 
