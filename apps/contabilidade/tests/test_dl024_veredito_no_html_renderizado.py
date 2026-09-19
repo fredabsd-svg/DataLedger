@@ -44,6 +44,44 @@ Este arquivo fecha essa lacuna. Três coisas, para cada uma das duas telas
    anterior desta rodada). A seção 3 testa a ENTREGA: a resposta HTTP que
    o contador de fato recebe.
 
+**O que estes três itens NÃO são: três camadas.** Correção de redação do
+`arquiteto-senior` (BL-314, achado M5 da auditoria DL-026 rodada 3,
+docs/auditorias/2026-09-18-dl-024-rodada-3.md), sobre texto que eu mesmo
+mandei escrever. A versão anterior descrevia o veredito como protegido
+"em três camadas", e quem lesse isso daqui a seis meses concluiria que
+existem três espécies de garantia. Não existem: os três itens leem
+**texto em HTML**, e nenhum deles pergunta se o contador **vê** alguma
+coisa. O auditor mediu a diferença acrescentando uma única regra ao
+`static/css/base.css` —
+
+    .veredito-fechamento, .faixa-fechamento { display: none }
+
+— e a suíte respondeu **1451 passed**. O veredito tinha sumido da tela e
+nada acusou.
+
+A redação honesta é **três pontos da mesma cadeia**, cada um mais perto
+da entrega que o anterior: o fragmento renderizado isolado (1 e 2), e a
+resposta HTTP inteira (3). O item 3 amplia o **alcance** — mata a
+sabotagem do bloco inalcançável, que os itens 1 e 2 não pegavam —, não a
+**natureza** da verificação. Contar como camada o que é do mesmo tipo
+infla a garantia declarada, e garantia inflada é pior que garantia
+ausente: ninguém procura o que acredita já ter.
+
+**Onde a visibilidade É medida, e por que não aqui.** A §4.8 do relatório
+da rodada 3 declara que navegador não roda na integração contínua deste
+projeto — então "o contador vê" não é uma pergunta que a CI possa
+responder. Quem a responde é o juiz do gauntlet,
+`docs/assets/design/gauntlet/juiz.py`, que abre a página em Chromium de
+verdade e consulta `MOMENTO_DA_VERDADE_SELETORES` com
+`Element.checkVisibility({checkOpacity, checkVisibilityCSS})` mais a área
+ocupada — delegando ao motor de layout em vez de enumerar as maneiras
+conhecidas de esconder um elemento (BL-314, parte do
+`especialista-frontend`). Isso é medição **fora da CI**, executada sob
+demanda, e está declarado assim de propósito: uma medição que roda fora
+da CI é uma medição que pode deixar de ser feita. Enquanto for assim, a
+garantia deste arquivo é "a decisão do servidor chega corretamente ao
+HTML entregue" — não "o contador enxerga o veredito".
+
 Método de mutação dos itens 1 e 2: extrai o FRAGMENTO do `{% if %}` do
 ARQUIVO REAL a cada chamada (nunca retypado à mão — a mesma lição do
 BL-296: cópia que descreve o original diverge assim que o original muda)
