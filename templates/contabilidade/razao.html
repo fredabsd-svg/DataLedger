@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 
 {% block titulo %}Razão — {{ conta.codigo }} {{ conta.nome }}{% endblock %}
+{% comment %}
+BL-332: mesma correção do Balancete e do Diário — ver o comentário
+completo em balancete.html e em templates/base.html. O sufixo do
+fornecedor some; o resto da tag title (conta, não razão social da
+empresa) não muda nesta etapa — decisão registrada no relatório, para o
+arquiteto revisar: o formato "relatório — razão social" da decisão do
+Fred cabe sem ambiguidade no Balancete/Diário (uma tela por empresa); o
+Razão já distingue MÚLTIPLAS abas pelo código/nome da CONTA, que a razão
+social sozinha não substituiria sem perder essa distinção.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">

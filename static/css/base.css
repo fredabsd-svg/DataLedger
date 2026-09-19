@@ -1098,6 +1098,25 @@ button:disabled {
     size: A4;
 }
 
+/* BL-332 (achado A2 da auditoria DL-026, rodada 5,
+   docs/auditorias/2026-09-19-dl-026-rodada-5.md): LIMITE DECLARADO, ao lado
+   do `@page` acima de propósito — os dois são sobre a MESMA folha impressa,
+   e os dois têm um alcance que este projeto não controla por inteiro.
+
+   Com a caixa "Cabeçalhos e rodapés" do diálogo de impressão do navegador
+   MARCADA (o padrão do Chrome e do Edge), o navegador acrescenta, por
+   FORA do documento, uma linha com o `<title>` da página, a DATA/HORA de
+   impressão e a URL — numa faixa que nenhuma folha de estilo alcança.
+   `<title>` é o ÚNICO dos três que este projeto controla (ver
+   `templates/base.html`, bloco `titulo_sufixo_do_fornecedor` — por isso o
+   nome do fornecedor saiu de lá). DATA e URL são da MOLDURA do navegador:
+   não existe propriedade CSS, atributo HTML nem cabeçalho HTTP que as
+   suprima ou reescreva — ficam fora do alcance deste arquivo, e por isso
+   fora do alcance deste projeto. Quem precisar de uma folha sem nenhuma das
+   duas depende da própria pessoa desmarcar a caixa no diálogo do navegador
+   (que costuma lembrar a preferência) — não é algo que o DataLedger possa
+   fazer por ela. */
+
 /* ==========================================================================
    Impressão: o balancete (e qualquer tabela de dados) sai legível em A4,
    com a identidade do ESCRITÓRIO — critério 9 da DL-026. Sem cor de fundo
@@ -1123,9 +1142,10 @@ button:disabled {
        botão Sair), a navegação da empresa, os botões de ação (Consultar
        período, Adicionar linha...) e o formulário de filtro inteiro (as
        datas do filtro já aparecem em texto, em .cabecalho__contexto, que
-       continua impresso). `.cabecalho__topo` substitui `.marca` nesta
-       lista (BL-282): esconder só o link e deixar o contêiner vazio no
-       fluxo não tinha vantagem nenhuma sobre esconder o contêiner inteiro. */
+       continua impresso — ver a nota logo abaixo sobre o que, DENTRO dele,
+       some também). `.cabecalho__topo` substitui `.marca` nesta lista
+       (BL-282): esconder só o link e deixar o contêiner vazio no fluxo não
+       tinha vantagem nenhuma sobre esconder o contêiner inteiro. */
     .pular-para-conteudo,
     .cabecalho__topo,
     .navegacao-empresa,
@@ -1133,6 +1153,25 @@ button:disabled {
     .mensagens,
     kbd.tecla,
     button {
+        display: none;
+    }
+
+    /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
+       docs/auditorias/2026-09-19-dl-026-rodada-5.md): DENTRO de
+       `.cabecalho__contexto` (que continua impresso — ver a nota acima),
+       "Usuário" e "Escritório ativo" são contexto de TELA, não
+       identificação do DOCUMENTO — ver o comentário completo em
+       templates/base.html sobre o fundamento (NBC ITG 2000, item 12) e por
+       que só estes dois itens levam esta classe: Empresa/Período (`{%
+       block contexto_extra %}`, dentro do mesmo `.cabecalho__contexto`)
+       são identificação OBRIGATÓRIA do documento (RC-93) e NÃO entram
+       aqui. Antes desta correção, a folha impressa começava por "USUÁRIO
+       <quem operou a tela>", acima até do timbre do escritório
+       (BL-282/BL-331), e o nome do escritório saía duas vezes (aqui e no
+       timbre). Regra própria, fora da lista acima, porque aqueles
+       seletores escondem o CONTÊINER inteiro — aqui só DOIS dos itens
+       dentro de um contêiner que continua parcialmente visível. */
+    .contexto-item--somente-tela {
         display: none;
     }
 

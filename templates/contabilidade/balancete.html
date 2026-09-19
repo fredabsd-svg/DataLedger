@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 
 {% block titulo %}Balancete — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332: este bloco já é "nome do relatório — razão social do cliente" — o
+formato que a decisão do Fred (RC-97) exige para a tag title de um
+DOCUMENTO impresso. Sobrescreve o sufixo do fornecedor como vazio (ver o
+comentário completo em templates/base.html) para o "DataLedger" não sair
+mais no cabeçalho de impressão do navegador (achado A2, auditoria DL-026
+rodada 5) — sem isto, esta tela herdaria " — DataLedger" do padrão.
+
+⚠️ Nunca escreva a palavra "title" (nem qualquer outra palavra) entre
+sinais de menor/maior neste arquivo, mesmo dentro de {% comment %} — ver o
+comentário completo em templates/base.html sobre por que isso apaga, em
+silêncio, tudo que vem depois para o parser tolerante a HTML de
+apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py (a suíte
+importada por test_bl331_timbre_do_escritorio_no_papel.py, que depende de
+achar o bloco do timbre logo abaixo, dentro de {% block content %}).
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
@@ -63,8 +80,18 @@
     revisão integrada 2307de6 nomeou na decomposição dos 569px acima da
     primeira linha do balancete (achado que fez a densidade cair de 9
     para 6 linhas, §4.8 da direção de arte). O nome da empresa continua
-    no <title> da aba (block titulo, acima) e na faixa de contexto; sai
+    na tag title da aba (block titulo, acima) e na faixa de contexto; sai
     só da repetição dentro do conteúdo.
+
+    ⚠️ BL-332: a palavra "title" acima foi reescrita SEM sinais de
+    menor/maior ao redor nesta etapa — escrevê-la CERCADA por eles dentro
+    deste {% comment %} apagava, em silêncio, tudo que vem depois no HTML
+    para o parser tolerante de apps/contabilidade/tests/
+    test_bl329_marca_fora_do_papel.py (RCDATA de verdade para o
+    html.parser padrão do Python, que trata "title" como "textarea": sem
+    fechamento correspondente no arquivo, o parser engole o resto inteiro
+    como texto). Descoberto ao escrever a correção do BL-332 — ver o
+    comentário completo em templates/base.html.
     {% endcomment %}
     <h1>Balancete de verificação</h1>
 

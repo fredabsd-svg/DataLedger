@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 
 {% block titulo %}Diário — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332: mesma correção do Balancete — ver o comentário completo em
+balancete.html e em templates/base.html. Este bloco já é "nome do
+relatório — razão social do cliente"; o sufixo do fornecedor some.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
