@@ -297,7 +297,26 @@ aprovaria o produto errado. Os itens **continuam abertos** no backlog, com dono
 — **BL-351** (bloqueador) e **BL-352** em correção; **BL-353** a **BL-359** como
 ressalvas declaradas.
 
-**recebe de fato** ao apertar Ctrl+P:
+**A rodada 10 foi despachada ao `especialista-frontend` em 2026-09-19**, sobre a
+revisão `b211af4` da branch `claude/accounting-agent-team-setup-mn6lyf`, com duas
+correções e **nenhuma mudança de produto**: BL-351 junto com BL-353 (classificar
+bloco de CSS pelo **conteúdo**, não pelo prelúdio nem pelo caractere de abertura,
+para que CSS Nesting nativo seja visto e media query irrelevante deixe de dar
+falso alarme) e BL-352 (parametrizar a guarda de título sobre o **universo**
+compartilhado de telas, não sobre a derivação sozinha). A verificação inclui
+quatro construções escolhidas por mim que o relatório **não** nomeou, e outras
+que eu guardei para medir na integração — é a [DE-055](../projeto/decisoes.md)
+em vigor pela primeira vez.
+
+**Decisão do Fred em 2026-09-19, depois de eu recomendar esperar:** nenhum
+trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
+da contabilidade, começa antes de BL-351 e BL-352 estarem corrigidos. Custa uma
+rodada; a alternativa era apostar em disciplina, que é justamente o que
+decidimos não fazer quando criamos as proteções.
+
+### O que a rodada 6 encontrou sobre o papel que sai da impressora
+
+Duas descobertas sobre o que o contador **recebe de fato** ao apertar Ctrl+P:
 
 - **BL-331**: existe guarda para a marca do fornecedor **sair** do papel e
   nenhuma para o timbre do escritório **entrar**. Apagando a regra do timbre,
@@ -310,6 +329,8 @@ ressalvas declaradas.
 **Dois deles dependem de decisão do Fred** e estão com ele: o texto que
 substitui o nome do fornecedor no cabeçalho do documento (BL-332) e se o nome
 do **operador** deve sair na folha que vai para o cliente (BL-338).
+
+### A rodada 6, que originou o que hoje está na `main`
 
 Ela teve duas partes: as correções da quarta auditoria (BL-305, BL-314, BL-318
 a BL-325) e, por pedido do Fred em 2026-09-19 — *"agora resolve os itens que
@@ -340,7 +361,7 @@ depois de eu ter proibido exatamente isso a dois agentes. A causa é do
 ambiente, não da disciplina de ninguém, e a regra foi reescrita para uma que
 seja cumprível.
 
-Seis auditorias, **as seis REPROVARAM**, e as seis acharam coisa real:
+Sete auditorias, **as sete REPROVARAM**, e as sete acharam coisa real:
 
 | Auditoria | Revisão | Parecer | Achados |
 | --- | --- | --- | --- |
@@ -350,6 +371,7 @@ Seis auditorias, **as seis REPROVARAM**, e as seis acharam coisa real:
 | [Rodada 4](../auditorias/2026-09-19-dl-024-rodada-4.md) | `8235635` | REPROVADO | 1 alto, 5 médios, 2 baixos |
 | [Rodada 5](../auditorias/2026-09-19-dl-026-rodada-5.md) | `53388c8` | REPROVADO | 2 altos, 5 médios, 3 baixos |
 | [Rodada 6](../auditorias/2026-09-19-dl-026-rodada-6.md) | `8aa84b6` | REPROVADO | 2 altos, 4 médios, 4 baixos |
+| [Rodada 7](../auditorias/2026-09-19-dl-026-rodada-7.md) | `920822a` | REPROVADO | 1 bloqueador, 1 alto, 4 médios, 3 baixos |
 
 ⚠️ **Os quatro relatórios dizem "DL-024" e continuam dizendo**: são documento
 histórico, e a etapa foi renumerada para DL-026 depois de eles existirem. O
