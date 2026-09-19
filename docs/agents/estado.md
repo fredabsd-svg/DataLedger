@@ -297,16 +297,42 @@ aprovaria o produto errado. Os itens **continuam abertos** no backlog, com dono
 — **BL-351** (bloqueador) e **BL-352** em correção; **BL-353** a **BL-359** como
 ressalvas declaradas.
 
-**A rodada 10 foi despachada ao `especialista-frontend` em 2026-09-19**, sobre a
-revisão `b211af4` da branch `claude/accounting-agent-team-setup-mn6lyf`, com duas
-correções e **nenhuma mudança de produto**: BL-351 junto com BL-353 (classificar
-bloco de CSS pelo **conteúdo**, não pelo prelúdio nem pelo caractere de abertura,
-para que CSS Nesting nativo seja visto e media query irrelevante deixe de dar
-falso alarme) e BL-352 (parametrizar a guarda de título sobre o **universo**
-compartilhado de telas, não sobre a derivação sozinha). A verificação inclui
-quatro construções escolhidas por mim que o relatório **não** nomeou, e outras
-que eu guardei para medir na integração — é a [DE-055](../projeto/decisoes.md)
-em vigor pela primeira vez.
+**A rodada 10 está integrada em `20da1fa`**, na branch
+`claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
+aberto até a rodada 11 fechar. Duas correções de **guarda**, nenhuma mudança de
+produto (`static/css/base.css` e `templates/**` intocados): **BL-351** junto com
+**BL-353** (o detector passa a decidir pelo **conteúdo** do bloco, não pelo
+prelúdio nem pelo caractere de abertura — CSS Nesting nativo passa a ser visto, e
+media query irrelevante deixa de dar falso alarme) e **BL-352** (o universo de
+telas vira módulo compartilhado, `universo_de_telas.py`, e cada guarda declara o
+seu recorte com motivo próprio em vez de herdar por acidente o da vizinha).
+
+Medição minha, com banco próprio: **1861 passed, 14 skipped** em 66,9s; `ruff
+check` limpo; `ruff format --check` 204 arquivos; `manage.py check` limpo.
+
+**A [DE-055](../projeto/decisoes.md) entrou em vigor e valeu a pena.** Entreguei
+ao implementador quatro construções que o relatório da auditoria **não** nomeou,
+e **guardei sete** para medir sozinho na integração. As sete passaram — sete de
+sete. É a primeira vez nesta etapa que uma correção sobrevive às construções que
+o autor dela não conhecia.
+
+⚠️ **E a oitava construção, de outro eixo, furou:** registrei o **BL-360**
+(ALTA), achado meu na integração. O motor de cascata **julga seletor que não sabe
+ler**, e sempre para o lado de aprovar — a gramática que ele modela é tipo +
+classe + combinador descendente, e diante de `[class]` ele conclui "casa com
+tudo, especificidade zero" quando o valor real é o de uma classe. Medido em
+Chromium com `emulate_media("print")` sobre o `base.css` real: **duas
+construções devolvem a marca do fornecedor ao papel com a guarda aprovando**. O
+caso principal é **anterior** à rodada 10 e nunca esteve no escopo do BL-351 —
+não é regressão. É a **nona** ocorrência de "lista em vez de propriedade" nesta
+etapa: prelúdio (BL-343) → caractere de abertura (BL-351) → gramática do seletor.
+
+**A rodada 11 está em curso**, com BL-360 e **BL-361** (o recorte da guarda de
+título voltou a ser lista; a condição *"não tem título para julgar"* é
+verificável em tempo de execução e vira `skip` nomeando a rota). Custo da
+correção do BL-360 **medido por mim antes de pedi-la**: o `base.css` real tem 5
+seletores de atributo e 1 universal, e **nenhum declara `display`** — a recusa,
+delimitada por propriedade de interesse, dispara **zero** vezes hoje.
 
 **Decisão do Fred em 2026-09-19, depois de eu recomendar esperar:** nenhum
 trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
