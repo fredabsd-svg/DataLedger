@@ -109,7 +109,7 @@ jobs:
       - name: Instalar o Chromium do Playwright
         run: playwright install --with-deps chromium
 
-      # BL-357/BL-358 (achado do arquiteto-senior sobre a primeira execução
+      # BL-370 (achado do arquiteto-senior sobre a primeira execução
       # real deste job, commits 8a06038/fc1bef3): faltava esta dependência
       # de SISTEMA, e o job morreu no passo de medição com "pdfinfo,
       # pdftotext (poppler-utils) não encontrado(s) no PATH". `--with-deps`
