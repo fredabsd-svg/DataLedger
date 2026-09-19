@@ -16,65 +16,93 @@ não o usuário que operou a tela — NBC ITG 2000, item 12: "a escrituração
 contábil e a emissão de relatórios [...] são de atribuição e de
 responsabilidade EXCLUSIVAS do profissional da contabilidade legalmente
 habilitado". Quem operou a tela é trilha de auditoria (`apps/auditoria/`),
-não identificação do documento. O comentário completo da correção está em
-templates/base.html, sobre o item "Usuário" e "Escritório ativo" da faixa
-`.cabecalho__contexto` (classe `contexto-item--somente-tela`, oculta sob
-impressão em static/css/base.css).
+não identificação do documento.
 
-O QUE ESTE ARQUIVO VERIFICA, com o MESMO motor de cascata CSS do BL-329
-(`_algum_ancestral_removido_do_papel` e companhia, importados de
-test_bl329_marca_fora_do_papel.py — nunca reescritos aqui: duas cópias do
-mesmo motor divergem assim que uma for corrigida sem a outra, a lição do
-BL-333 aplicada por composição):
+⚠️ REGRESSÃO CORRIGIDA (arquiteto-senior, mesmo dia da rodada 8, antes de
+integrar): a PRIMEIRA redação desta correção escondia "Usuário" E
+"Escritório ativo" incondicionalmente, em TODA tela autenticada — inclusive
+`plano_de_contas`, `conferencia`, `lancamento_novo`, `conta_nova` e
+`lancamento_detalhe`, que NÃO têm `.timbre-impressao` (só Balancete/Diário/
+Razão têm, desde o BL-282). Nessas cinco telas, "Escritório ativo" era a
+ÚNICA identificação de EMITENTE que existia no papel — a correção original
+a apagava sem repor nada, a MESMA classe do achado A1/BL-331 ("esconder
+sem repor é pior que o defeito original", texto do próprio comentário do
+BL-282 em `static/css/base.css`). Corrigido tornando a ocultação de
+"Escritório ativo" CONDICIONAL: `templates/base.html` define o bloco
+`classe_escritorio_ativo_na_impressao` com PADRÃO VAZIO (escritório
+VISÍVEL — o lado SEGURO para uma tela nova nascer identificada), e só
+`balancete.html`/`diario.html`/`razao.html` (as telas COM timbre)
+sobrescrevem esse bloco para ocultá-lo. "Usuário" continua INCONDICIONAL —
+não depende de timbre, porque quem operou a tela nunca é identificação do
+documento, com ou sem timbre.
 
-1. O item "Usuário" (nome de quem operou a tela) tem `display` efetivo
-   `none` sob impressão — CONTROLE POSITIVO da correção.
-2. O item "Escritório ativo" (a faixa de CONTEXTO DE TELA, não o timbre)
-   também tem `display` efetivo `none` sob impressão — fecha a metade do
-   achado B2 sobre a DUPLICIDADE: o escritório passa a aparecer uma única
-   vez no papel, só no timbre (BL-282/BL-331).
-3. CONTROLE NEGATIVO, exigido pelo próprio pedido desta etapa: "Empresa" e
-   "Período" (`{% block contexto_extra %}`, preenchido por
-   balancete.html/diario.html/razao.html) — identificação OBRIGATÓRIA do
-   documento (RC-93) — NÃO têm `display: none` efetivo sob impressão. Uma
-   correção apressada que escondesse `.contexto-item` inteiro (em vez de
-   só os DOIS itens de tela) apagaria Empresa e Período do papel junto —
-   e é exatamente essa forma de erro que a sabotagem 2, abaixo, prova que
-   este arquivo pega.
+O QUE ESTE ARQUIVO VERIFICA, em DUAS camadas:
 
-**Cadeia derivada, não retypada** — mesma técnica de
-test_bl331_timbre_do_escritorio_no_papel.py: "Usuário" e "Escritório
-ativo" vivem inteiramente em `templates/base.html` (não precisam de
-combinação entre arquivos); "Empresa"/"Período" vivem em
-`templates/contabilidade/<tela>.html`, injetados em `{% block
-contexto_extra %}` dentro de `.cabecalho__contexto` — a cadeia real
-combina as ancestrais de `.cabecalho__contexto` (base.html) com as
-ancestrais LOCAIS do item dentro da tela.
+**Camada 1 — cascata CSS estática** (mesmo motor do BL-329,
+`_algum_ancestral_removido_do_papel` e companhia, importados de
+test_bl329_marca_fora_do_papel.py — nunca reescritos aqui): usada para os
+itens cuja visibilidade NÃO depende de qual tela renderiza — "Usuário"
+(sempre oculto, vive inteiramente em `templates/base.html`) e "Empresa"/
+"Período" (sempre visíveis, `{% block contexto_extra %}`, combinando
+ancestrais de `.cabecalho__contexto` com as locais da tela — mesma técnica
+de test_bl331_timbre_do_escritorio_no_papel.py).
 
-Os nós são localizados pelo RÓTULO em texto ("Usuário", "Escritório
-ativo", "Empresa", "Período") — o mesmo texto que a PESSOA lê na tela —
-não pela classe CSS que ESTA correção introduziu
-(`contexto-item--somente-tela`): amarrar a busca à própria classe que a
-correção criou provaria a correção contra si mesma, não contra o
-REQUISITO (que é sobre o que aparece no papel, não sobre o nome interno
-da classe).
+**Camada 2 — renderização real** (cliente de teste do Django, URL de
+verdade, view de verdade): usada para "Escritório ativo", cuja classe final
+no HTML depende da COMPOSIÇÃO de dois arquivos (o bloco em
+`templates/base.html` MAIS a sobrescrita, quando existir, da tela) — algo
+que um parser de UM arquivo só (Camada 1) não reproduz corretamente, porque
+o conteúdo do bloco é substituído DENTRO do valor do atributo `class`
+através da herança de templates do Django, não por uma estrutura de nós
+que a árvore estática combine. A propriedade central, pedida pelo
+arquiteto: **"nenhum documento impresso sai sem identificação do
+emitente"** — verificada derivando, PARA CADA rota de contabilidade
+conhecida (`NOMES_DE_TELA_DE_CONTABILIDADE`, importado de
+test_dl024_atalhos_e_acessibilidade.py — a MESMA fonte que
+`test_toda_rota_do_produto_esta_coberta_ou_excluida`, naquele arquivo,
+usa para garantir que NENHUMA rota nova do produto fique de fora sem ser
+classificada — nunca uma lista de "telas sem timbre" escrita à mão aqui),
+se a página TEM timbre (presença estrutural de `.timbre-impressao` no
+HTML RENDERIZADO — não uma lista de nomes) e, a partir disso, se
+"Escritório ativo" está oculto (tem timbre) ou visível (não tem). Uma
+tela nova sem timbre que ganhasse a classe por engano reprovaria; uma tela
+nova COM timbre que esquecesse de ocultar também reprovaria.
 
 ⚠️ Nunca escreva a palavra "title" (nem outra) entre sinais de menor/maior
 nos textos deste módulo ou nos templates que ele lê — ver a docstring de
-BL-332 em templates/base.html: o parser tolerante a HTML usado aqui trata
-"title"/"textarea" como conteúdo RCDATA de verdade (Python stdlib) e
+BL-332 em templates/base.html: o parser tolerante a HTML usado na Camada 1
+trata "title"/"textarea" como conteúdo RCDATA de verdade (Python stdlib) e
 engole, em silêncio, todo o resto do arquivo sem fechamento correspondente.
+A Camada 2 usa o MESMO parser sobre HTML RENDERIZADO — mas ali o `<title>`
+real do documento é um par bem formado (abre e fecha na mesma linha), o
+que não é perigoso; o perigo é só texto SOLTO entre sinais de menor/maior
+dentro de comentário de template, que não existe em HTML renderizado.
 
 O QUE ESTE ARQUIVO NÃO VERIFICA — mesmo limite de
 test_bl329_marca_fora_do_papel.py/test_bl331_timbre_do_escritorio_no_papel.
 py: se o CONTADOR vê isso de verdade no papel (motor de layout real,
 Chromium) é responsabilidade de ferramenta de bancada
-(scripts/medir_impressao.py); este arquivo simula a cascata CSS em
-memória/`tmp_path`, sem banco de dados.
+(scripts/medir_impressao.py). A Camada 1 simula a cascata CSS em
+memória/`tmp_path`, sem banco de dados; a Camada 2 usa banco de dados
+sintético (cliente de teste do Django), mas não tem motor de CSS — ela só
+prova que a classe CERTA está (ou não está) no HTML que o navegador
+recebe, e a Camada 1 já provou, separadamente, que aquela classe É
+suficiente para produzir `display: none` sob impressão (mesma regra CSS,
+`.contexto-item--somente-tela`, usada pelos dois lados).
 """
 
-import pytest
+import copy
+import shutil
+from decimal import Decimal
 
+import pytest
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.test import override_settings
+from django.utils import timezone
+
+from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
+from apps.contabilidade.services import criar_lancamento
 from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _BASE_CSS,
     _BASE_HTML,
@@ -85,10 +113,18 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _escrever_css_mutado,
     _percorrer,
 )
+from apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade import (
+    NOMES_DE_TELA_DE_CONTABILIDADE,
+    _urls_de_contabilidade,
+)
+from apps.empresas.models import Empresa
+from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
-_BALANCETE_HTML = _RAIZ / "templates" / "contabilidade" / "balancete.html"
-_DIARIO_HTML = _RAIZ / "templates" / "contabilidade" / "diario.html"
-_RAZAO_HTML = _RAIZ / "templates" / "contabilidade" / "razao.html"
+_RAIZ_TEMPLATES = _RAIZ / "templates"
+_BALANCETE_HTML = _RAIZ_TEMPLATES / "contabilidade" / "balancete.html"
+_DIARIO_HTML = _RAIZ_TEMPLATES / "contabilidade" / "diario.html"
+_RAZAO_HTML = _RAIZ_TEMPLATES / "contabilidade" / "razao.html"
+_PLANO_DE_CONTAS_HTML = _RAIZ_TEMPLATES / "contabilidade" / "plano_de_contas.html"
 
 _TELAS_COM_CONTEXTO_EXTRA = {
     "balancete": _BALANCETE_HTML,
@@ -97,9 +133,10 @@ _TELAS_COM_CONTEXTO_EXTRA = {
 }
 
 
-def _arvore_de(caminho):
+def _arvore_de(caminho_ou_texto, *, de_arquivo=True):
     construtor = _ConstrutorDeArvore()
-    construtor.feed(caminho.read_text(encoding="utf-8"))
+    texto = caminho_ou_texto.read_text(encoding="utf-8") if de_arquivo else caminho_ou_texto
+    construtor.feed(texto)
     return construtor.raiz
 
 
@@ -125,8 +162,8 @@ def _no_por_rotulo(raiz, texto_rotulo):
 
 def _no_do_cabecalho_contexto():
     """Localiza `<div class="cabecalho__contexto">` em `templates/base.html`
-    — o contêiner onde `{% block contexto_extra %}` é injetado, e onde os
-    itens "Usuário"/"Escritório ativo" já vivem diretamente."""
+    — o contêiner onde `{% block contexto_extra %}` é injetado, e onde o
+    item "Usuário" já vive diretamente."""
     for no in _percorrer(_arvore_de(_BASE_HTML)):
         if "cabecalho__contexto" in no.classes:
             return no
@@ -138,8 +175,10 @@ def _no_do_cabecalho_contexto():
 
 def _cadeia_em_base_html(texto_rotulo):
     """Cadeia raiz→nó para um item que vive inteiramente em
-    `templates/base.html` (Usuário, Escritório ativo) — sem precisar
-    combinar árvores de dois arquivos."""
+    `templates/base.html`, com visibilidade que NÃO depende de qual tela
+    renderiza (hoje: só "Usuário" — "Escritório ativo" passou a depender
+    da tela, e por isso tem sua própria verificação, por RENDERIZAÇÃO,
+    mais abaixo)."""
     raiz = _arvore_de(_BASE_HTML)
     no = _no_por_rotulo(raiz, texto_rotulo)
     return _cadeia_de_ancestrais(no), no
@@ -161,33 +200,20 @@ def _cadeia_no_contexto_extra(caminho_template, texto_rotulo):
 
 
 # ---------------------------------------------------------------------------
-# Guarda central.
+# Camada 1 — cascata CSS estática (itens cuja visibilidade não varia por
+# tela: "Usuário", sempre oculto; "Empresa"/"Período", sempre visíveis).
 # ---------------------------------------------------------------------------
 
 
 def test_item_usuario_tem_display_none_efetivo_na_impressao():
     """CONTROLE POSITIVO do achado B2: o nome de quem operou a tela não sai
-    mais no papel."""
+    mais no papel — em NENHUMA tela, com ou sem timbre (incondicional)."""
     cadeia, no = _cadeia_em_base_html("Usuário")
     escondido, _ = _algum_ancestral_removido_do_papel(cadeia, _BASE_CSS.read_text(encoding="utf-8"))
     assert escondido, (
         f"o item 'Usuário' (cadeia: {[(n.tag, n.classes) for n in cadeia]}) NÃO tem "
         f"display:none efetivo sob impressão — o nome de quem operou a tela ainda "
         f"sai no papel"
-    )
-    assert no is not None
-
-
-def test_item_escritorio_ativo_da_faixa_de_tela_tem_display_none_efetivo_na_impressao():
-    """Fecha a metade do achado B2 sobre DUPLICIDADE: o "Escritório ativo"
-    da faixa de CONTEXTO DE TELA some do papel — o escritório continua
-    identificado, mas só uma vez, no timbre (BL-282/BL-331)."""
-    cadeia, no = _cadeia_em_base_html("Escritório ativo")
-    escondido, _ = _algum_ancestral_removido_do_papel(cadeia, _BASE_CSS.read_text(encoding="utf-8"))
-    assert escondido, (
-        f"o item 'Escritório ativo' (cadeia: {[(n.tag, n.classes) for n in cadeia]}) NÃO "
-        f"tem display:none efetivo sob impressão — o escritório continua saindo "
-        f"DUAS vezes no papel"
     )
     assert no is not None
 
@@ -214,11 +240,197 @@ def test_empresa_e_periodo_continuam_visiveis_sob_impressao(tela, rotulo):
 
 
 # ---------------------------------------------------------------------------
+# Camada 2 — renderização real. "Escritório ativo" depende da COMPOSIÇÃO de
+# templates/base.html com a tela; só a renderização real prova a classe
+# final. "Quem tem timbre" é derivado do PRÓPRIO HTML renderizado — nunca
+# de uma lista escrita à mão — e o conjunto de telas testadas vem de
+# NOMES_DE_TELA_DE_CONTABILIDADE (test_dl024_atalhos_e_acessibilidade.py),
+# a mesma fonte que aquele arquivo usa para garantir, separadamente
+# (test_toda_rota_do_produto_esta_coberta_ou_excluida), que nenhuma rota
+# nova do produto fica sem classificação.
+# ---------------------------------------------------------------------------
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def cenario_bl338(client):
+    escritorio = Escritorio.objects.create(nome="Escritório BL-338", cnpj="77788899000111")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa BL-338 Ltda", cnpj="77788899000202"
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2",
+        nome="Capital Social",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    usuario = get_user_model().objects.create_user(
+        username="gestora-bl338",
+        email="gestora-bl338@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+    assert client.login(username="gestora-bl338", password="senha-forte-123")
+    lancamento = criar_lancamento(
+        empresa=empresa,
+        data=timezone.localdate(),
+        historico="BL-338 — movimento para as telas terem o que mostrar",
+        itens=[
+            {"conta": caixa, "tipo": "debito", "valor": Decimal("100.00")},
+            {"conta": capital, "tipo": "credito", "valor": Decimal("100.00")},
+        ],
+        criado_por=usuario,
+        chave_idempotencia="k-bl338",
+    )
+    return {"escritorio": escritorio, "empresa": empresa, "caixa": caixa, "lancamento": lancamento}
+
+
+def _tem_timbre_e_classe_do_escritorio_ativo(html):
+    """Sobre o HTML RENDERIZADO de uma tela: devolve (tem_timbre,
+    classes_do_item_escritorio_ativo). "Tem timbre" é ESTRUTURAL — a
+    presença de `<div class="timbre-impressao">` no próprio HTML que o
+    navegador recebeu, não uma lista de nomes de tela decidida aqui."""
+    raiz = _arvore_de(html, de_arquivo=False)
+    tem_timbre = any("timbre-impressao" in no.classes for no in _percorrer(raiz))
+    no_escritorio = _no_por_rotulo(raiz, "Escritório ativo")
+    return tem_timbre, no_escritorio.classes
+
+
+@pytest.mark.parametrize("nome_tela", sorted(NOMES_DE_TELA_DE_CONTABILIDADE))
+def test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre(client, cenario_bl338, nome_tela):
+    """A propriedade central pedida pelo arquiteto: "nenhum documento
+    impresso sai sem identificação do emitente". Onde há timbre
+    (`.timbre-impressao` no HTML renderizado), "Escritório ativo" fica
+    OCULTO sob impressão — o timbre já identifica, e mantê-lo também
+    visível na faixa de tela é a DUPLICIDADE original do achado B2. Onde
+    NÃO há timbre, "Escritório ativo" tem que continuar VISÍVEL — é a
+    ÚNICA identificação do emitente que a tela tem no papel, e escondê-la
+    sem repor nada é a regressão que esta correção existe para não
+    repetir."""
+    url = _urls_de_contabilidade(cenario_bl338)[nome_tela]
+    resposta = client.get(url)
+    assert resposta.status_code == 200, f"{nome_tela}: {resposta.status_code}"
+    html = resposta.content.decode()
+
+    tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
+    oculto = "contexto-item--somente-tela" in classes_escritorio
+
+    if tem_timbre:
+        assert oculto, (
+            f"{nome_tela} TEM timbre de impressão, mas 'Escritório ativo' continua "
+            f"visível na faixa de tela — o escritório sairia DUAS vezes no papel "
+            f"(classes: {classes_escritorio!r})"
+        )
+    else:
+        assert not oculto, (
+            f"{nome_tela} NÃO TEM timbre de impressão, e 'Escritório ativo' está "
+            f"oculto na impressão — o documento sairia SEM identificação nenhuma do "
+            f"emitente (classes: {classes_escritorio!r})"
+        )
+
+
+# Controle positivo EXPLÍCITO (pedido do arquiteto: pelo menos duas das
+# cinco telas sem timbre, provando que o escritório sai no papel delas) —
+# além da cobertura genérica acima, que já inclui as cinco.
+@pytest.mark.parametrize("nome_tela", ["plano_de_contas", "conferencia"])
+def test_telas_sem_timbre_mostram_escritorio_ativo_na_impressao(client, cenario_bl338, nome_tela):
+    url = _urls_de_contabilidade(cenario_bl338)[nome_tela]
+    resposta = client.get(url)
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+
+    tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
+    assert not tem_timbre, f"controle: {nome_tela} não deveria ter timbre de impressão"
+    assert "contexto-item--somente-tela" not in classes_escritorio, (
+        f"{nome_tela}: 'Escritório ativo' está oculto na impressão sem nenhum timbre "
+        f"para substituí-lo — documento sem identificação de emitente"
+    )
+    # Controle de conteúdo: o NOME do escritório de fato está no HTML (não
+    # é só a classe que está certa; o valor precisa existir para a classe
+    # importar).
+    assert cenario_bl338["escritorio"].nome in html
+
+
+def test_sabotagem_reproduzir_a_regressao_original_mata_a_guarda_da_camada_2(
+    client, cenario_bl338, tmp_path
+):
+    """CRITÉRIO 1 do arquiteto, reproduzido literalmente: sobrescreve, numa
+    CÓPIA de `templates/contabilidade/plano_de_contas.html` (BL-311: nunca
+    no arquivo real), o bloco `classe_escritorio_ativo_na_impressao` com
+    `contexto-item--somente-tela` — exatamente a sobrescrita que
+    `balancete.html` tem, e que a PRIMEIRA redação desta correção aplicava,
+    por engano, a TODA tela (a regressão que o arquiteto apontou antes de
+    integrar). Plano de contas NÃO tem `.timbre-impressao` — reproduzir
+    essa sobrescrita nele tem que fazer a guarda de
+    `test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre`/
+    `test_telas_sem_timbre_mostram_escritorio_ativo_na_impressao` MORRER
+    (a tela passa a imprimir sem identificação nenhuma de emitente)."""
+    conteudo_antes = _PLANO_DE_CONTAS_HTML.read_text(encoding="utf-8")
+    marcador = "{% block titulo %}Plano de contas — {{ empresa.razao_social }}{% endblock %}"
+    assert marcador in conteudo_antes, "controle: marcador do título não encontrado"
+
+    sobrescrita_regressiva = (
+        marcador
+        + "\n{% block classe_escritorio_ativo_na_impressao %} "
+        + "contexto-item--somente-tela{% endblock %}"
+    )
+    conteudo_mutado = conteudo_antes.replace(marcador, sobrescrita_regressiva, 1)
+    assert conteudo_mutado != conteudo_antes, "controle: a mutação precisa mudar o conteúdo"
+
+    raiz_copia = tmp_path / "templates"
+    shutil.copytree(_RAIZ_TEMPLATES, raiz_copia)
+    (raiz_copia / "contabilidade" / "plano_de_contas.html").write_text(
+        conteudo_mutado, encoding="utf-8"
+    )
+
+    motor = copy.deepcopy(settings.TEMPLATES)
+    assert len(motor) == 1
+    motor[0]["DIRS"] = [raiz_copia]
+
+    url = _urls_de_contabilidade(cenario_bl338)["plano_de_contas"]
+    with override_settings(TEMPLATES=motor):
+        resposta = client.get(url)
+        assert resposta.status_code == 200
+        html = resposta.content.decode()
+        tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
+        assert tem_timbre is False, "controle: a mutação não mexeu no timbre — continua sem"
+        oculto = "contexto-item--somente-tela" in classes_escritorio
+        assert oculto, (
+            "a sabotagem deveria ter reproduzido a regressão (Plano de contas SEM timbre "
+            "imprimindo SEM identificação de emitente), e 'Escritório ativo' continuou "
+            "visível — a mutação não teve efeito"
+        )
+        # `oculto is True` aqui é exatamente o valor que faz
+        # `test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre`/
+        # `test_telas_sem_timbre_mostram_escritorio_ativo_na_impressao` REPROVAR
+        # contra este mesmo HTML — a prova de que a guarda morre.
+
+    # Fora do override: a tela volta ao normal, e o arquivo real nunca foi escrito.
+    resposta_normal = client.get(url)
+    _, classes_normais = _tem_timbre_e_classe_do_escritorio_ativo(resposta_normal.content.decode())
+    assert "contexto-item--somente-tela" not in classes_normais
+    assert _PLANO_DE_CONTAS_HTML.read_text(encoding="utf-8") == conteudo_antes
+
+
+# ---------------------------------------------------------------------------
 # Prova por mutação (BL-311: sabotagem só em CÓPIA dentro de `tmp_path`,
 # nunca no arquivo real). Controle POSITIVO (sabotagem 1: reverter a
 # correção faz o operador voltar) e NEGATIVO (sabotagem 2: uma correção
 # larga demais que apaga Empresa/Período junto tem que ser pega pelo teste
-# de controle negativo acima).
+# de controle negativo acima). As duas seguem válidas depois da correção
+# de regressão: a regra CSS (`.contexto-item--somente-tela`) não mudou,
+# só QUEM recebe a classe no HTML.
 # ---------------------------------------------------------------------------
 
 
@@ -226,8 +438,8 @@ def test_sabotagem_remover_a_regra_que_esconde_o_operador_mata_a_guarda(tmp_path
     """Sabotagem 1 — CONTROLE POSITIVO: remove, de uma CÓPIA de
     `static/css/base.css`, a regra `.contexto-item--somente-tela { display:
     none; }` inteira — reproduz o estado ANTES desta correção, em que
-    "Usuário" (e "Escritório ativo") continuavam saindo no papel. A guarda
-    do item "Usuário" PRECISA morrer (deixar de reportar `escondido`)."""
+    "Usuário" continuava saindo no papel. A guarda do item "Usuário"
+    PRECISA morrer (deixar de reportar `escondido`)."""
     cadeia, _ = _cadeia_em_base_html("Usuário")
     css_original = _BASE_CSS.read_text(encoding="utf-8")
 

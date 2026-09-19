@@ -167,22 +167,45 @@
             `apps/auditoria/`, nunca apagada por esta mudança — não
             identificação do documento que sai para o cliente.
 
-            Os dois itens de contexto abaixo ("Usuário" e "Escritório
-            ativo") existem para a TELA — respondem "quem está operando" e
-            "em que escritório", a régua do painel de período (direção de
-            arte §2.D). Ficam com `contexto-item--somente-tela`, ocultada
-            só sob impressão (`@media print`, static/css/base.css) — a
-            mesma técnica já usada para navegação e botões, nunca
-            `.visualmente-oculto` (que tira da TINTA sem tirar do leitor de
-            tela nem da tela em si, que não é o efeito desejado aqui: estes
-            dois itens continuam plenamente visíveis e operáveis na TELA).
+            ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia): a
+            primeira redação desta correção escondia "Usuário" E
+            "Escritório ativo" incondicionalmente, em TODA tela autenticada
+            — inclusive Plano de contas, Conferência, Novo lançamento, Nova
+            conta e o detalhe do lançamento, que NÃO têm `.timbre-impressao`
+            (só Balancete/Diário/Razão têm, desde o BL-282). Nessas cinco
+            telas, "Escritório ativo" é a ÚNICA identificação do EMITENTE
+            que existe no papel — escondê-la sem repor nada no lugar é
+            EXATAMENTE o defeito que o comentário do BL-282, em
+            static/css/base.css, já nomeava para a marca do fornecedor:
+            "esconder... SEM pôr nada no lugar deixaria o documento
+            impresso sem identificação nenhuma — pior que o defeito
+            original". Mesma classe do achado A1 (BL-331): guarda derivada
+            só do lado de esconder, não do lado de "e alguma identificação
+            continua saindo".
 
-            O que NÃO leva esta classe, de propósito: `{% block
-            contexto_extra %}` (abaixo) — Empresa e Período, que
-            `contabilidade/balancete.html`/`diario.html`/`razao.html`
-            preenchem. Essa é identificação OBRIGATÓRIA do documento
-            (RC-93), não contexto de tela — precisa continuar saindo no
-            papel, e continua: nada aqui a esconde.
+            A propriedade correta, então, tem DUAS regras DIFERENTES:
+
+            1. "Usuário" é SEMPRE oculto na impressão — incondicional,
+               continua com `contexto-item--somente-tela` direto. Quem
+               operou a tela é trilha de auditoria (`apps/auditoria/`), não
+               identificação do documento — isso não muda com timbre ou
+               sem timbre.
+            2. "Escritório ativo" só é oculto ONDE HÁ TIMBRE para
+               substituí-lo. A classe extra vem de
+               `classe_escritorio_ativo_na_impressao`: um bloco com PADRÃO
+               VAZIO (escritório VISÍVEL na impressão — o lado SEGURO, para
+               uma tela nova que ninguém lembrar de classificar nascer
+               COM identificação, não sem) — e
+               `contabilidade/balancete.html`/`diario.html`/`razao.html`
+               (as três telas que têm `.timbre-impressao`) sobrescrevem
+               esse bloco para acrescentar `contexto-item--somente-tela`,
+               porque nelas o timbre já identifica o escritório e a
+               repetição na faixa de tela é que é o achado B2 original
+               (duplicidade).
+
+            `{% block contexto_extra %}` (abaixo) — Empresa e Período —
+            nunca leva classe nenhuma: identificação OBRIGATÓRIA do
+            documento (RC-93), sempre visível, timbre ou não.
             {% endcomment %}
             <div class="cabecalho__contexto">
                 <span class="contexto-item contexto-item--somente-tela">
@@ -190,7 +213,7 @@
                     <strong>{{ request.user.get_username }}</strong>
                 </span>
                 {% if request.escritorio %}
-                    <span class="contexto-item contexto-item--somente-tela">
+                    <span class="contexto-item{% block classe_escritorio_ativo_na_impressao %}{% endblock %}">
                         <span class="contexto-rotulo">Escritório ativo</span>
                         <strong>{{ request.escritorio.nome }}</strong>
                     </span>

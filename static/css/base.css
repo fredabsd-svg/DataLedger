@@ -1159,18 +1159,26 @@ button:disabled {
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
        docs/auditorias/2026-09-19-dl-026-rodada-5.md): DENTRO de
        `.cabecalho__contexto` (que continua impresso — ver a nota acima),
-       "Usuário" e "Escritório ativo" são contexto de TELA, não
-       identificação do DOCUMENTO — ver o comentário completo em
-       templates/base.html sobre o fundamento (NBC ITG 2000, item 12) e por
-       que só estes dois itens levam esta classe: Empresa/Período (`{%
-       block contexto_extra %}`, dentro do mesmo `.cabecalho__contexto`)
-       são identificação OBRIGATÓRIA do documento (RC-93) e NÃO entram
-       aqui. Antes desta correção, a folha impressa começava por "USUÁRIO
-       <quem operou a tela>", acima até do timbre do escritório
-       (BL-282/BL-331), e o nome do escritório saía duas vezes (aqui e no
-       timbre). Regra própria, fora da lista acima, porque aqueles
-       seletores escondem o CONTÊINER inteiro — aqui só DOIS dos itens
-       dentro de um contêiner que continua parcialmente visível. */
+       "Usuário" é contexto de TELA, não identificação do DOCUMENTO — ver o
+       comentário completo em templates/base.html sobre o fundamento (NBC
+       ITG 2000, item 12). Regra própria, fora da lista acima, porque
+       aqueles seletores escondem o CONTÊINER inteiro — aqui só ITENS
+       dentro de um contêiner que continua parcialmente visível
+       (Empresa/Período, `{% block contexto_extra %}`, são identificação
+       OBRIGATÓRIA — RC-93 — e nunca levam esta classe).
+
+       ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia): esta classe
+       marca "Usuário" incondicionalmente, mas "Escritório ativo" só a
+       recebe CONDICIONALMENTE — pelo bloco
+       `classe_escritorio_ativo_na_impressao` de templates/base.html, que
+       as telas COM timbre (`.timbre-impressao`: Balancete/Diário/Razão)
+       sobrescrevem para acrescentá-la. Nas telas SEM timbre (Plano de
+       contas, Conferência, Novo lançamento, Nova conta, detalhe do
+       lançamento), "Escritório ativo" é a ÚNICA identificação de EMITENTE
+       que existe no papel — a primeira redação desta correção escondia a
+       classe para TODA tela, deixando essas cinco sem identificação
+       nenhuma (a mesma classe de defeito do achado A1/BL-331: esconder sem
+       repor). Ver o comentário completo em templates/base.html. */
     .contexto-item--somente-tela {
         display: none;
     }

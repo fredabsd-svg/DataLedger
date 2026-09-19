@@ -11,6 +11,12 @@ neste arquivo — ver o comentário completo em templates/base.html.
 {% endcomment %}
 {% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
+{% comment %}
+BL-338 (correção de regressão): esta tela TEM timbre de impressão — ver o
+comentário completo em balancete.html e em templates/base.html.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
 {% block contexto_extra %}
     <span class="contexto-item">
         <span class="contexto-rotulo">Empresa</span>

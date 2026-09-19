@@ -19,6 +19,18 @@ achar o bloco do timbre logo abaixo, dentro de {% block content %}).
 {% endcomment %}
 {% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
+{% comment %}
+BL-338 (correção de regressão, arquiteto-senior, mesmo dia da rodada 8):
+esta tela TEM timbre de impressão (`.timbre-impressao`, logo abaixo, em
+`{% block content %}`) — o escritório já sai identificado no papel por
+ele. Por isso, e só por isso, "Escritório ativo" (a faixa de CONTEXTO DE
+TELA, em templates/base.html) pode ser ocultado na impressão sem deixar o
+documento sem identificação de emitente: ver o comentário completo em
+templates/base.html sobre por que o PADRÃO do bloco é vazio (escritório
+VISÍVEL) e só as telas COM timbre sobrescrevem.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
 {% block contexto_extra %}
     <span class="contexto-item">
         <span class="contexto-rotulo">Empresa</span>
