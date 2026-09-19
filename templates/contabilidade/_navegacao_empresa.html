@@ -1,0 +1,102 @@
+{% comment %}
+Navegação contextual da empresa: Plano de contas, Diário, Balancete,
+Conferência e Novo lançamento. Parcial ÚNICA incluída por TODA tela de
+contabilidade — as OITO que existem hoje em templates/contabilidade/:
+balancete.html, diario.html, razao.html, plano_de_contas.html,
+conferencia.html, lancamento_form.html, conta_form.html e
+lancamento_detalhe.html — para que os MESMOS cinco atalhos de teclado
+funcionem identicamente em qualquer uma delas — exigência do
+arquiteto-senior ao aprovar o enxerto de atalhos da DL-026/DE-053:
+"atalho que só existe numa tela não é atalho, é decoração".
+
+B3/BL-283 (auditoria DL-026, rodada 1): até a rodada 2, este comentário
+dizia "toda tela de contabilidade" e listava só SEIS — conta_form.html e
+lancamento_detalhe.html tinham ficado de fora, e um comentário que diz
+"toda" sem cobrir todas é o mesmo defeito da família BL-142/BL-246. Cada
+novo template de tela deste diretório PRECISA incluir esta parcial.
+
+M5/BL-296 (auditoria DL-026, rodada 2): esta frase dizia antes que "o
+teste em apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py
+reprova quando um dos dois deixa de bater com o outro" — MENTIRA: aquele
+teste é parametrizado por uma LISTA LITERAL de oito nomes, e nada em
+apps/ enumerava esta pasta. Um nono template, sem a parcial e sem entrar
+em lista nenhuma, passava a suíte inteira. Quem de fato reprova uma tela
+nova sem a parcial é
+apps/contabilidade/tests/test_bl296_navegacao_cobre_todas_as_telas.py —
+ele VARRE templates/contabilidade/*.html (ignorando parciais, prefixo
+`_`), então uma tela nova não depende de ninguém lembrar de acrescentar o
+nome dela em lugar nenhum, aqui ou lá.
+
+Antes desta parcial, cada template listava um subconjunto diferente de
+links à mão (o Balancete tinha três, o Diário quatro, a Razão só dois) —
+nenhuma das seis telas tinha a mesma lista, e é exatamente o tipo de texto
+repetido que o AGENTS.md manda evitar ("texto duplicado diverge assim que
+alguém atualiza um lugar").
+
+Variável esperada no contexto: `empresa` (todas as seis views já a
+passam). Variável opcional: `pagina_atual`, um destes valores —
+"plano_de_contas", "diario", "balancete", "conferencia", "lancamento_novo"
+— que faz o item correspondente aparecer como texto simples, com
+aria-current="page", em vez de link (a página não linka para si mesma).
+Sem `pagina_atual`, os cinco aparecem como link (caso da Razão, que não
+tem "página atual" entre estas cinco).
+
+Teclas escolhidas evitando as que colidem com o próprio navegador —
+D/E/F em Chrome/Edge (barra de endereço e menu) e, no Firefox, também
+F/E/V/S/B/T/H (mnemônicos do menu clássico: Arquivo/Editar/Ver/
+Histórico/Favoritos/Ferramentas/Ajuda). Não testamos Safari nem leitor de
+tela real com accesskey — é recurso que a literatura de acessibilidade
+critica por causa exatamente desta colisão; usamos porque é o único
+caminho sem JavaScript (R6 da DL-026). O texto do atalho é aria-hidden e
+o link carrega aria-keyshortcuts, para o nome acessível continuar sendo
+só o rótulo (ver o comentário completo em templates/base.html).
+{% endcomment %}
+<nav class="navegacao-empresa" aria-label="Contabilidade — {{ empresa.razao_social }}">
+    <ul>
+        <li>
+            {% if pagina_atual == "plano_de_contas" %}
+                <span class="item-atual" aria-current="page">Plano de contas</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}" accesskey="c" aria-keyshortcuts="Alt+C">
+                    Plano de contas <kbd class="tecla" aria-hidden="true">Alt+C</kbd>
+                </a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "diario" %}
+                <span class="item-atual" aria-current="page">Diário</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:diario' empresa.id %}" accesskey="i" aria-keyshortcuts="Alt+I">
+                    Diário <kbd class="tecla" aria-hidden="true">Alt+I</kbd>
+                </a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "balancete" %}
+                <span class="item-atual" aria-current="page">Balancete</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:balancete' empresa.id %}" accesskey="l" aria-keyshortcuts="Alt+L">
+                    Balancete <kbd class="tecla" aria-hidden="true">Alt+L</kbd>
+                </a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "conferencia" %}
+                <span class="item-atual" aria-current="page">Conferência</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:conferencia' empresa.id %}" accesskey="k" aria-keyshortcuts="Alt+K">
+                    Conferência <kbd class="tecla" aria-hidden="true">Alt+K</kbd>
+                </a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "lancamento_novo" %}
+                <span class="item-atual" aria-current="page">Novo lançamento</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}" accesskey="n" aria-keyshortcuts="Alt+N">
+                    Novo lançamento <kbd class="tecla" aria-hidden="true">Alt+N</kbd>
+                </a>
+            {% endif %}
+        </li>
+    </ul>
+</nav>

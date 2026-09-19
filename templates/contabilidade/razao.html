@@ -4,22 +4,28 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
     {% if inicio and fim %}
         <span class="contexto-item">
-            <span class="contexto-rotulo">Período:</span>
-            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-    </p>
+    {% comment %}
+    Sem `pagina_atual`: a Razão não é uma das cinco páginas fixas do
+    subnível (ela é acessada por conta específica, a partir de uma linha do
+    Balancete ou do Diário), então os cinco links aparecem todos — inclusive
+    Balancete e Diário, de onde normalmente se chega aqui. Requisito do
+    arquiteto-senior ao aprovar os atalhos: "Novo lançamento merece a
+    melhor tecla... garanta que ela funciona de dentro do balancete e do
+    razão" — Alt+N (e os outros quatro) agora existem aqui também.
+    {% endcomment %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
     <h1>Razão — {{ conta.codigo }} {{ conta.nome }}</h1>
     {% if consolidado %}
         <p><em>Esta conta consolida os valores das contas subordinadas a ela.</em></p>
@@ -50,10 +56,7 @@
 
     <p>
         <strong>Saldo anterior:</strong>
-        <span class="valor-monetario">{{ saldo_anterior_ptbr }}</span>
-        {% if saldo_anterior_natureza %}
-            <span class="indicador-natureza">{{ saldo_anterior_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_anterior_natureza.extenso }})</span></span>
-        {% endif %}
+        {% include "contabilidade/_saldo.html" with valor=saldo_anterior_ptbr natureza=saldo_anterior_natureza conta=conta %}
     </p>
 
     {% if itens %}
@@ -82,21 +85,18 @@
                         <td>{% if item.tipo == "debito" %}Débito{% else %}Crédito{% endif %}</td>
                         <td class="valor-monetario">{{ item.valor_ptbr }}</td>
                         <td class="valor-monetario">
-                            {{ item.saldo_ptbr }}
-                            {% if item.saldo_natureza %}<span class="indicador-natureza">{{ item.saldo_natureza.letra }}<span class="visualmente-oculto"> ({{ item.saldo_natureza.extenso }})</span></span>{% endif %}
+                            {% include "contabilidade/_saldo.html" with valor=item.saldo_ptbr natureza=item.saldo_natureza conta=conta %}
                         </td>
                     </tr>
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr class="linha-total">
-                    <td colspan="{% if consolidado %}5{% else %}4{% endif %}">
-                        Total do período — Débitos <span class="valor-monetario">{{ total_debito_ptbr }}</span>
-                        / Créditos <span class="valor-monetario">{{ total_credito_ptbr }}</span>
-                    </td>
+                    <td colspan="{% if consolidado %}3{% else %}2{% endif %}">Total do período</td>
+                    <td class="valor-monetario">Débitos {{ total_debito_ptbr }}</td>
+                    <td class="valor-monetario">Créditos {{ total_credito_ptbr }}</td>
                     <td class="valor-monetario">
-                        {{ saldo_final_ptbr }}
-                        {% if saldo_final_natureza %}<span class="indicador-natureza">{{ saldo_final_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_final_natureza.extenso }})</span></span>{% endif %}
+                        {% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}
                     </td>
                 </tr>
             </tfoot>
@@ -105,8 +105,7 @@
         <p>
             Nenhum lançamento nesta conta no período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}.
             O saldo permanece
-            <span class="valor-monetario">{{ saldo_final_ptbr }}</span>
-            {% if saldo_final_natureza %}<span class="indicador-natureza">{{ saldo_final_natureza.letra }}<span class="visualmente-oculto"> ({{ saldo_final_natureza.extenso }})</span></span>{% endif %}.
+            {% include "contabilidade/_saldo.html" with valor=saldo_final_ptbr natureza=saldo_final_natureza conta=conta %}.
         </p>
     {% endif %}
 {% endblock %}

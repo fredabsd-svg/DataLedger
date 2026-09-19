@@ -36,7 +36,7 @@ O DataLedger nasce para reunir as rotinas de um escritório contábil em uma pla
 
 | | Capacidade | Situação |
 | --- | --- | --- |
-| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md) |
+| <img src="docs/assets/icons/ledger.svg" alt="" width="28" /> | **Contabilidade** — plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período | ✅ Implementada. Interface no navegador: [DL-017](docs/planos/DL-017-interface-da-contabilidade.md); identidade visual e direção de arte: [DL-026](docs/planos/DL-026-identidade-visual-e-interface.md) |
 | <img src="docs/assets/icons/building.svg" alt="" width="28" /> | **Multiempresa** — escritórios, empresas, estabelecimentos e isolamento de dados | ✅ Implementado e auditado |
 | <img src="docs/assets/icons/shield.svg" alt="" width="28" /> | **Permissões e auditoria** — acesso controlado no servidor e trilha de alterações | ✅ Fundação implementada |
 | <img src="docs/assets/icons/file-code.svg" alt="" width="28" /> | **Fiscal** — recepção de XML, ZIP e SPED; depois escrituração, apuração e integração contábil | 🗺️ Planejado — [DL-010](docs/planos/DL-010-recepcao-de-documentos-fiscais.md) |
@@ -61,6 +61,10 @@ O núcleo usa **Python 3.12+ (a integração contínua roda em 3.14), Django 6.1
 </p>
 
 A engenharia do DataLedger trata software contábil como software crítico. Uma mudança não termina quando "funciona na máquina": ela passa por planejamento, testes, revisão do diff, **auditoria independente com teste de mutação**, integração contínua e registro das decisões. Na DL-011, por exemplo, foram **cinco rodadas de auditoria** — a primeira reprovou, e cada rodada seguinte encontrou algo que a anterior não tinha visto. Os relatórios estão em [`docs/auditorias/`](docs/auditorias/), preservados integralmente.
+
+O que a experiência ensinou é que **regra sem mecanismo é só pedido**. Por isso parte das regras deixou de depender de alguém lembrar: gancho que injeta as regras no início de cada sessão, verificação que reprova pull request sem atestado de leitura, teste que reprova quando o estado documentado diverge do repositório, e **varredura de interface** que reprova tela fora do contrato visual — cor, medida, tabulação de algarismos, legenda de tabela, moldura comum e o "momento da verdade" de cada módulo. O que é imposto por máquina e o que é só instrução está declarado no fim do [`AGENTS.md`](AGENTS.md).
+
+Essas guardas também são atacadas de propósito. Na [DL-026](docs/planos/DL-026-identidade-visual-e-interface.md), a auditoria sabotou a varredura de seis maneiras e passou nas seis; as seis viraram detector com prova de que reprovam. Guarda que nunca falhou em teste não é guarda confiável — é guarda que ainda não foi testada.
 
 ## 🧱 Princípios que não negociamos
 
@@ -184,6 +188,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [x] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita (rodadas 1/3/5/7 do auditor; correções das rodadas 4 e 6 integradas via PR #27; ressalvas contábeis BL-261/262/263 ainda abertas)
 - [ ] **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
 - [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
+- [ ] **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
@@ -207,6 +212,7 @@ Comece por estes documentos:
 - [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) — requisitos confirmados, hipóteses e pendências.
 - [`docs/projeto/backlog.md`](docs/projeto/backlog.md) — prioridades, dependências e critérios de aceite.
 - [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) — decisões arquiteturais e justificativas.
+- [`docs/projeto/direcao-de-arte.md`](docs/projeto/direcao-de-arte.md) — **o contrato visual**: os cinco arquétipos de tela, as regras que não se negociam e o checklist para módulo novo.
 - [`docs/projeto/mapa-funcional-fiscal.md`](docs/projeto/mapa-funcional-fiscal.md) — visão funcional do domínio Fiscal.
 - [`docs/planos/`](docs/planos/) — planos versionados das demandas DL.
 - [`docs/auditorias/`](docs/auditorias/) — auditorias preservadas das etapas realizadas.
@@ -226,6 +232,7 @@ Fluxo esperado: **branch própria → implementação pequena → testes → rev
 | [`docs/projeto/requisitos.md`](docs/projeto/requisitos.md) | Requisitos e hipóteses |
 | [`docs/projeto/backlog.md`](docs/projeto/backlog.md) | Backlog priorizado |
 | [`docs/projeto/decisoes.md`](docs/projeto/decisoes.md) | Registro de decisões |
+| [`docs/projeto/direcao-de-arte.md`](docs/projeto/direcao-de-arte.md) | Direção de arte: o padrão visual de todos os módulos |
 | [`docs/planos/`](docs/planos/) | Histórico das etapas DL |
 | [`docs/auditorias/`](docs/auditorias/) | Relatórios de auditoria |
 

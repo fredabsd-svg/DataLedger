@@ -4,16 +4,13 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-    </p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="lancamento_novo" %}
     <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
 
     {% if not contas %}
@@ -153,23 +150,188 @@
                             </td>
                         </tr>
                     {% endif %}
+                    {% comment %}
+                    M2/BL-278 (auditoria DL-026, rodada 1): "fecha ou não
+                    fecha" — DE-053 §3, "é a segunda coisa que o olho
+                    encontra, no balancete e no lançamento, antes de
+                    qualquer ação de gravar". Antes desta correção o
+                    rodapé mostrava os dois totais lado a lado sem
+                    veredito, sem diferença e sem mudança visual entre
+                    fechar e não fechar — a subtração ficava para a cabeça
+                    de quem digitou.
+
+                    O veredito sempre aparece, em um de TRÊS estados —
+                    "fecha", "não fecha" ou "ainda não conferido" — porque
+                    os três precisam ser DESENHADOS, não só os dois óbvios
+                    (direcao-de-arte §2B). Antes da primeira linha
+                    preenchida (ou com o formulário todo inválido) não há
+                    "fecha" nem "não fecha" para responder, só "ainda não
+                    conferido" — ver o comentário do BL-289 mais abaixo,
+                    perto do "if" que escolhe o ramo, sobre POR QUE isso
+                    passou a ser decidido pela VIEW, nunca por uma
+                    comparação de texto aqui.
+
+                    BL-286 (rodada 3 da DL-026): a diferença numérica
+                    ("Não fecha, faltam X no crédito/débito") agora existe
+                    — `diferenca_fechamento_ptbr` e `lado_faltante_
+                    fechamento` chegam PRONTOS da view
+                    (`_contexto_form_lancamento`, apps/contabilidade/
+                    views_web.py), a diferença já calculada em `Decimal`
+                    sobre os totais de ORIGEM (nunca sobre
+                    `total_debito_ptbr`/`total_credito_ptbr`, que são
+                    texto) e já formatada em pt-BR pelo MESMO `_valor_ptbr`
+                    que formata os dois totais. Este template só EXIBE —
+                    nenhuma subtração acontece aqui, o que continuaria
+                    violando a regra do AGENTS.md contra aritmética
+                    financeira fora do motor determinístico.
+                    `diferenca_fechamento_ptbr` é sempre o MÓDULO da
+                    diferença (nunca negativo) — o lado maior vem à parte,
+                    em `lado_faltante_fechamento` ("débito" ou "crédito"),
+                    como palavra, nunca como sinal.
+
+                    A primeira versão desta correção colocava a diferença
+                    dentro da célula "Débito: X"/"Crédito: X", entre
+                    parênteses — o arquiteto-senior reprovou: neste
+                    produto, número entre PARÊNTESES numa célula de valor
+                    já tem um significado reservado, "valor invertido em
+                    relação à natureza do registro" (docs/projeto/
+                    direcao-de-arte.md §2A, o mesmo padrão que o Razão usa
+                    e que o BL-281 estende ao Balancete). Reaproveitar o
+                    parêntese para "faltam X" ensinaria DUAS leituras
+                    opostas para o mesmo sinal gráfico, na mesma tela — a
+                    ambiguidade que a direção de arte existe para impedir.
+                    A diferença agora entra como FRASE, sem parênteses,
+                    dentro da própria célula do veredito: "Não fecha,
+                    faltam X no crédito". As duas células "Débito: X"/
+                    "Crédito: X" voltam a mostrar só o valor, como antes
+                    do BL-286.
+
+                    O NÚMERO da frase (não a frase inteira) vai dentro de
+                    um invólucro com a classe valor-monetario — um `span`
+                    só em volta do valor, não a célula do veredito
+                    inteira: marcar a célula inteira alinharia a frase
+                    TODA à direita, em fonte tabulada, o que não faz
+                    sentido para texto corrido ("Não fecha, faltam..." não
+                    é algarismo). A varredura de interface
+                    (apps/core/tests/test_dl024_varredura_de_interface.py)
+                    passou, na rodada 3, a aceitar esse invólucro como
+                    alternativa à classe na própria célula
+                    (`_involucro_cobre_valor`) — com controle positivo
+                    (célula sem classe e sem invólucro continua
+                    reprovando), controle negativo (invólucro com a
+                    classe passa) e um terceiro controle provando que um
+                    invólucro já FECHADO antes do valor não cobre nada.
+                    {% endcomment %}
+                    {% comment %}
+                    A comparação dos dois totais fica FORA de qualquer
+                    célula de tabela de propósito: a varredura de
+                    interface (apps/core/tests/
+                    test_dl024_varredura_de_interface.py, achado A1 da
+                    auditoria — "todo _ptbr dentro de célula precisa da
+                    classe valor-monetario") não distingue um valor que
+                    EXIBE o total de um "if" que só o COMPARA — as três
+                    variantes de linha abaixo (fecha / não fecha / ainda
+                    não conferido) resolvem isso decidindo QUAL linha
+                    renderizar antes de abrir qualquer célula, em vez de
+                    decidir o conteúdo de uma célula já aberta. Nada de
+                    colchete-ângulo neste comentário, de propósito: a
+                    mesma varredura lê texto solto de comentário como
+                    marcação real (é regex sobre o arquivo inteiro, não um
+                    parser de HTML).
+                    {% endcomment %}
+                    {% comment %}
+                    Achado 3 / BL-88: o `default` das duas células abaixo
+                    só entra quando `total_debito_ptbr`/`total_credito_ptbr`
+                    são `None` (nenhuma linha foi processada ainda —
+                    primeira visita ao formulário, GET; ramo "ainda não
+                    conferido" mais abaixo). A partir do primeiro
+                    "Adicionar linha" ou tentativa de gravação, a view
+                    sempre calcula os dois totais a partir das linhas JÁ
+                    preenchidas neste POST (`_itens_e_totais`), então
+                    "0,00" nunca aparece aqui ao lado de linhas com valor —
+                    ou é a soma real, ou é "ainda não conferido".
+                    {% endcomment %}
+                    {% comment %}
+                    BL-289 (achado A1 da auditoria DL-026, rodada 2,
+                    docs/auditorias/2026-09-18-dl-024-rodada-2.md): até
+                    esta correção, o "if" abaixo comparava os dois totais
+                    em TEXTO pt-BR — `total_debito_ptbr ==
+                    total_credito_ptbr`. `_valor_ptbr(Decimal("0"))`
+                    devolve "0,00", que é uma string não vazia (VERDADEIRA
+                    em template Django), e "0,00" == "0,00" é verdadeiro:
+                    formulário em branco, todas as linhas descartadas por
+                    conta/tipo/valor inválidos, os dois totais ZERADOS e os
+                    dois NEGATIVOS caíam todos no ramo "Fecha", em verde —
+                    inclusive o estado em que a própria tela, duas linhas
+                    acima, acabara de avisar que nada entrou no total.
+
+                    A correção não é "comparar melhor" o texto: é parar de
+                    COMPARAR VALOR aqui. `veredito_fechamento` chega PRONTO
+                    da view (`_contexto_form_lancamento`, apps/
+                    contabilidade/views_web.py) como uma de três palavras —
+                    "fecha", "nao_fecha" ou "nao_conferido" — decidida em
+                    `Decimal` sobre as MESMAS condições que a view já exige
+                    para permitir gravar (débito igual a crédito, total
+                    maior que zero, zero linhas descartadas, pelo menos
+                    duas partidas válidas). O template só ramifica por essa
+                    PALAVRA — nunca por igualdade nem subtração de valor
+                    monetário, que é exatamente a regra do AGENTS.md contra
+                    aritmética financeira (e contra COMPARAÇÃO financeira,
+                    mesmo raciocínio) fora do motor determinístico.
+
+                    "ainda não conferido" é um TERCEIRO estado, não uma
+                    variação de "não fecha": não existe lançamento
+                    incompleto ou inválido para "não fechar" — não há nada
+                    para fechar ainda. Cor neutra (--info), nunca a cor de
+                    erro (BL-289, direcao-de-arte §2B: os cinco estados
+                    antes do caminho feliz precisam ser DESENHADOS, não
+                    reaproveitar o desenho do estado vizinho).
+                    {% endcomment %}
+                    {% comment %}
+                    O `<tr>` das três variantes abaixo continua EXATAMENTE
+                    `class="linha-total"`, sem modificador — testes já
+                    auditados (test_dl017_rodada1_correcoes.py::
+                    test_adicionar_linha_mostra_o_total_real_das_linhas_
+                    preenchidas e test_dl017_rodada2_frontend.py::
+                    test_adicionar_linha_anuncia_quantas_linhas_ficam_
+                    fora_do_total, ambos escrutinados por mutação na
+                    auditoria da DL-026) localizam esta linha por
+                    correspondência EXATA da string `linha-total">` — um
+                    modificador ali quebraria os dois sem mudar nada de
+                    errado. O veredito (cor e borda de destaque) entra na
+                    primeira célula, não na linha.
+                    {% endcomment %}
+                    {% if veredito_fechamento == "fecha" %}
                     <tr class="linha-total">
-                        <td colspan="2">Total conferido antes de gravar</td>
-                        {% comment %}
-                        Achado 3 / BL-88: o `default` só entra quando
-                        `total_debito_ptbr`/`total_credito_ptbr` são `None`
-                        (nenhuma linha foi processada ainda — primeira
-                        visita ao formulário, GET). A partir do primeiro
-                        "Adicionar linha" ou tentativa de gravação, a view
-                        sempre calcula os dois totais a partir das linhas
-                        JÁ preenchidas neste POST (`_itens_e_totais`), então
-                        "0,00" nunca aparece aqui ao lado de linhas com
-                        valor — ou é a soma real, ou é "ainda não
-                        conferido".
-                        {% endcomment %}
-                        <td>Débito: <span class="valor-monetario">{{ total_debito_ptbr|default:"— (ainda não conferido)" }}</span></td>
-                        <td>Crédito: <span class="valor-monetario">{{ total_credito_ptbr|default:"— (ainda não conferido)" }}</span></td>
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--fecha">
+                            Total conferido antes de gravar
+                            <br>
+                            <strong class="veredito-fechamento">Fecha</strong>
+                        </td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
                     </tr>
+                    {% elif veredito_fechamento == "nao_fecha" %}
+                    <tr class="linha-total">
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-fecha">
+                            Total conferido antes de gravar
+                            <br>
+                            <strong class="veredito-fechamento">Não fecha, faltam <span class="valor-monetario">{{ diferenca_fechamento_ptbr }}</span> no {{ lado_faltante_fechamento }}</strong>
+                        </td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr }}</td>
+                    </tr>
+                    {% else %}
+                    <tr class="linha-total">
+                        <td colspan="2" class="linha-total__veredito linha-total__veredito--nao-conferido">
+                            Total conferido antes de gravar
+                            <br>
+                            <strong class="veredito-fechamento">Ainda não conferido</strong>
+                        </td>
+                        <td class="valor-monetario">Débito: {{ total_debito_ptbr|default:"— (ainda não conferido)" }}</td>
+                        <td class="valor-monetario">Crédito: {{ total_credito_ptbr|default:"— (ainda não conferido)" }}</td>
+                    </tr>
+                    {% endif %}
                 </tfoot>
             </table>
 

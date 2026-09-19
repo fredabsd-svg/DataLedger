@@ -2663,3 +2663,63 @@ Antes da F6: 2 ondas integradas (F1+F2 em `fa15cf1`, F5 em `700a50b`).
 Depois da F6: 3 ondas integradas (F1+F2, F5, F6). F3 e F4 seguem como
 sub-DLs dependentes no backlog. **Pendência herdada da F5 resolvida
 (declarada como "F6 sub-DL dependente" no DE-051, agora cumprida).**
+## DE-053 — A identidade visual do DataLedger: "papel e tinta", com dois enxertos nomeados
+
+**Data:** 2026-09-18. **Origem:** rodada 1 do gauntlet da
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md), com a escolha
+confirmada pelo Fred (**RC-90**). Evidência em
+[`docs/assets/design/gauntlet/`](../assets/design/gauntlet/MEDICOES.md): as três
+variantes, as capturas, as medições e o juiz que as mediu.
+
+**Decisão:** a identidade do produto é a da variante **A — "papel e tinta"**,
+com dois enxertos explícitos das variantes eliminadas.
+
+**O que a direção afirma, e por quê:**
+
+1. **Tipografia é a estrutura; a cor é quase ausente.** Nomes de conta e prosa
+   em serifada; **algarismos em monoespaçada tabulada**, sempre. Uma única
+   tinta de acento para ação e foco. A hierarquia do plano de contas vem de
+   **peso e recuo**, não de uma coluna "Nível" nem de cor.
+2. **O número é o herói da tela.** Coluna de valor alinhada à direita, largura
+   de dígito constante, e saldo invertido **entre parênteses** — convenção
+   contábil mais antiga que a tinta vermelha e mais resistente a adulteração:
+   um traço transforma `-` em `+`; um parêntese não se desfaz.
+3. **A resposta "fecha ou não fecha" é a segunda coisa que o olho encontra**,
+   no balancete e no lançamento, antes de qualquer ação de gravar.
+4. **Cor nunca é o único canal.** `D`/`C` é texto; erro tem texto; estado tem
+   texto. Isso não é preferência estética: ~8% dos homens têm deficiência de
+   visão de cor, e o projeto já tinha essa regra por acessibilidade.
+
+**Os dois enxertos, e de onde vieram:**
+
+- **Da variante B — atalhos de teclado à mostra na navegação.** Quem passa oito
+  horas por dia aprende o atalho sem manual, se ele estiver escrito ao lado do
+  item. Junto vem a promessa visível de que a exportação sai com a marca **do
+  escritório**, não do fornecedor — que é um vício real do mercado nacional.
+- **Da variante C — cabeçalho de coluna em dois níveis**, separando "movimento
+  do período" de "lançamento próprio". Resolve, de graça, a simplificação que a
+  variante A tinha feito ao descartar as colunas de movimento próprio: elas
+  voltam **sem alargar a tabela**.
+
+**Por que A e não B ou C, com o número que decidiu:** linhas de conta visíveis
+sem rolar, em 1280×800, medidas pelo mesmo instrumento — **A: 15, B: 10, C: 9**,
+contra ~8 do estado atual. O produto é usado seis a oito horas por dia; densidade
+legível é a função-objetivo, e A ganhou onde mais dói sem perder legibilidade.
+
+**Limites declarados desta decisão:**
+
+- A variante A tinha **um** par de contraste reprovado (um travessão a 3,54:1) e
+  **4 de 8** números da conferência fora da tabulação. Os dois são dívida da
+  escolha e **entram corrigidos** na implementação — não se herda defeito
+  medido só porque a variante venceu.
+- O juiz que produziu esses números **errou quatro vezes antes de acertar**, e
+  os quatro erros estão registrados em
+  [`MEDICOES.md`](../assets/design/gauntlet/MEDICOES.md). A decisão se apoia na
+  medição **posterior** aos consertos.
+- Nenhum leitor de tela real foi usado por ninguém, e só o Chromium foi testado.
+  Isso não é "acessível, ponto": é "mede-se o que se mediu".
+
+**Consequência operacional:** a implementação traduz esta direção para
+`templates/` e `static/css/` sem biblioteca externa (DE-011) e sem etapa de
+build. Nenhuma cor ou medida solta fora das variáveis CSS. O que a DL-009 e a
+DL-017 conquistaram — contraste, foco, estados, `D`/`C` explícito — não regride.

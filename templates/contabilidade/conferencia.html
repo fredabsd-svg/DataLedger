@@ -4,17 +4,13 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-    </p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="conferencia" %}
     <h1>Conferência — {{ empresa.razao_social }}</h1>
 
     {% if tudo_certo %}

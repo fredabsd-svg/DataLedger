@@ -4,66 +4,227 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
     {% if inicio and fim %}
         <span class="contexto-item">
-            <span class="contexto-rotulo">Período:</span>
-            {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
-    </p>
-    <h1>Balancete de verificação — {{ empresa.razao_social }}</h1>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
+    {% comment %}
+    BL-284 (rodada 3, DL-026): o <h1> repetia o nome da empresa que a
+    faixa de contexto do cabeçalho já mostra, dois blocos acima ("Empresa
+    — {{ empresa.razao_social }}"). Repetir não ajuda quem lê — quem
+    chegou até aqui já sabe em que empresa está — e é um dos itens que a
+    revisão integrada 2307de6 nomeou na decomposição dos 569px acima da
+    primeira linha do balancete (achado que fez a densidade cair de 9
+    para 6 linhas, §4.8 da direção de arte). O nome da empresa continua
+    no <title> da aba (block titulo, acima) e na faixa de contexto; sai
+    só da repetição dentro do conteúdo.
+    {% endcomment %}
+    <h1>Balancete de verificação</h1>
 
+    {% comment %}
+    BL-301 (achado B3 da auditoria DL-026, rodada 2,
+    docs/auditorias/2026-09-18-dl-024-rodada-2.md): até esta correção, um
+    período inválido (`?inicio=abacaxi&fim=...`) deixava a tela quase
+    vazia — a mensagem de erro (renderizada por `templates/base.html`, a
+    partir de `messages.error`) e o formulário de período, mais nada:
+    397px de 800 usados, sem tabela, sem link, sem saída. `inicio`/`fim`
+    só chegam `None` neste caso específico — a view
+    (`apps.contabilidade.views_web.balancete`) devolve os dois `None`
+    exclusivamente quando `_periodo_do_formulario` rejeita a entrada;
+    qualquer período válido (o padrão do mês corrente incluído) sempre
+    preenche os dois. Por isso este `{% if %}` não precisa de uma chave
+    nova de contexto: reaproveita um invariante que a view já garante.
+
+    A correção escolhida é a "saída navegável equivalente à do estado
+    vazio" (a alternativa que o achado B3 registra, ao lado de "trazer de
+    volta o período válido com a tabela") — sem depender de a VIEW mudar
+    de comportamento nesta etapa: um link de volta ao período padrão (a
+    mesma URL sem querystring, que a view já resolve para o mês corrente)
+    devolve a pessoa a um estado com tabela, sem exigir que ela lembre a
+    sintaxe AAAA-MM-DD nem ache o seletor de novo.
+    {% endcomment %}
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver o balancete, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
+    {% if linhas %}
+        {% comment %}
+        A3/BL-276 + M2/BL-278 (auditoria DL-026, rodada 1): faixa de
+        fechamento, no TOPO da página — segunda coisa depois do título,
+        ANTES do formulário de período. Resolve as duas coisas na mesma
+        superfície:
+
+        - Critério 4 ("totalizador alcançável sem rolar a tabela
+          inteira"): medido antes desta correção, alcançar o total do
+          balancete exigia 2153px de rolagem com 73 contas — passar pelas
+          73 linhas. Aqui a rolagem para ver o total é zero, porque o
+          total já está antes da tabela, não depois dela.
+        - DE-053 §3 ("fecha ou não fecha é a segunda coisa que o olho
+          encontra, no balancete e no lançamento, antes de qualquer ação
+          de gravar"): antes desta correção, as palavras "fecha" e
+          "diferen" não apareciam em nenhuma tela do módulo.
+
+        `total_debitos_ptbr`/`total_creditos_ptbr` são as colunas
+        "próprias" do rodapé da tabela (achado 10/BL-96, DE-024 §2) — por
+        construção, todo lançamento efetivado tem débito igual a crédito
+        (apps.contabilidade.services.criar_lancamento), então a soma de
+        todos os débitos próprios do plano inteiro SEMPRE fecha com a soma
+        de todos os créditos próprios, salvo corrupção de dado. O ramo
+        "Não fecha" existe como rede de segurança visível, não como
+        caminho esperado.
+        {% endcomment %}
+        {% comment %}
+        BL-290/BL-302 (achados A2 e B4 da auditoria DL-026, rodada 2): até
+        esta correção, o veredito da faixa era decidido AQUI, comparando
+        `total_debitos_ptbr`/`total_creditos_ptbr` em TEXTO pt-BR — a
+        MESMA classe de defeito do A1/BL-289 no lançamento (ver o
+        comentário lá): "0,00" == "0,00" é verdadeiro, então a entrada
+        padrão de todo dia 1º de mês (empresa sem movimento ainda) exibia
+        um "Fecha" verde sobre 0,00/0,00 — não é FALSO (zero fecha com
+        zero), mas é a resposta mais destacada da tela virando ruído
+        ambiente, no exato lugar que a DE-053 §3 reserva para a pergunta
+        central.
+
+        A correção move a decisão para a VIEW: `veredito_balancete` chega
+        PRONTO (`apps.contabilidade.views_web.balancete`) como uma de três
+        palavras — "fecha", "nao_fecha" ou "nada_a_conferir" (este último
+        quando os dois totais do período são ZERO — o mesmo terceiro
+        estado do BL-289, aplicado aqui) — decidida em `Decimal` sobre os
+        totais de ORIGEM, nunca sobre o texto pt-BR. `diferenca_
+        balancete_ptbr` só existe quando "nao_fecha" (o ramo que hoje é
+        rede de segurança: a apuração garante débito igual a crédito por
+        construção, salvo corrupção de dado — ver o comentário acima). O
+        template ramifica pela PALAVRA, nunca por igualdade nem subtração
+        de valor monetário.
+        {% endcomment %}
+        {% if veredito_balancete == "fecha" %}
+        <div class="faixa-fechamento" role="status">
+            <strong class="faixa-fechamento__veredito">Fecha</strong>
+        {% elif veredito_balancete == "nao_fecha" %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">Não fecha — diferença de <span class="valor-monetario">{{ diferenca_balancete_ptbr }}</span> entre débitos e créditos próprios do período</strong>
+        {% else %}
+        <div class="faixa-fechamento faixa-fechamento--nada-a-conferir" role="status">
+            <strong class="faixa-fechamento__veredito">Nada a conferir neste período</strong>
+        {% endif %}
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Débitos próprios do período</span>
+                <strong class="valor-monetario">{{ total_debitos_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Créditos próprios do período</span>
+                <strong class="valor-monetario">{{ total_creditos_ptbr }}</strong>
+            </span>
+        </div>
+    {% endif %}
+
+    {% comment %}
+    BL-277/BL-284 (rodada 3, DL-026): o texto de ajuda do formato de data
+    aparecia DUAS VEZES — um parágrafo dentro de cada `.campo` (Início e
+    Fim), com o texto idêntico. Além da repetição em si (o mesmo fato
+    contado duas vezes ensina a pessoa a pular o segundo), cada parágrafo
+    forçava o próprio `.campo` a crescer até a largura da sentença inteira
+    em uma linha só — nem `.campo` nem `.formulario-periodo input` têm
+    largura própria, e um item de flexbox sem largura fixa cresce até o
+    "max-content" do filho mais largo. Medido na revisão integrada
+    2307de6: os campos "Início"/"Fim" ficavam com 516px cada um só por
+    causa do parágrafo, o suficiente para ocupar a linha inteira sozinhos
+    e empurrar "Nível" e o botão para uma SEGUNDA linha — o filtro caía de
+    ~84px (uma linha) para 177px (duas).
+
+    A correção não é encolher fonte nem campo (proibido pela direção de
+    arte, e trocaria legibilidade por contagem de linha): é não repetir o
+    mesmo texto duas vezes. Um parágrafo só, referenciado pelos DOIS
+    campos via `aria-describedby` — o mesmo `id` pode ser apontado por
+    mais de um elemento, é uso correto do atributo, não gambiarra — em
+    largura cheia (`.ajuda-formato-data`, `flex-basis: 100%` em
+    base.css), para não voltar a inflar a largura dos campos de data.
+
+    DE-031/A5 permanece o porquê de existir este texto (o rótulo do campo
+    de data não pode afirmar um formato que não controla — o de
+    `<input type="date">` vem do navegador; ver o comentário completo em
+    lancamento_form.html).
+    {% endcomment %}
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
-                   aria-describedby="id_inicio_ajuda">
-            <p class="texto-apoio" id="id_inicio_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_fim">Fim</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
-                   aria-describedby="id_fim_ajuda">
-            <p class="texto-apoio" id="id_fim_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_nivel">Nível (opcional)</label>
             <input type="text" inputmode="numeric" id="id_nivel" name="nivel" value="{{ nivel|default:"" }}">
         </div>
         <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
     </form>
+
+    {% comment %}
+    BL-285 (rodada 3, DL-026): quando a empresa tem movimento FORA do
+    período E o período consultado está zerado, mostrar o parágrafo cheio
+    "Nenhum movimento neste período" (64px, com borda e fundo próprios)
+    IMEDIATAMENTE ACIMA do aviso de movimento fora do período (138px,
+    também com borda e fundo próprios) empilhava dois blocos inteiros
+    dizendo quase a mesma coisa, antes de qualquer linha da tabela —
+    medido na revisão integrada 2307de6: 202px de blocos concorrentes, na
+    entrada padrão (mês corrente, sem filtro). É exatamente o estado do
+    dia 1º de todo mês recém-aberto em qualquer escritório real: sem
+    movimento ainda neste mês, com o movimento do mês anterior do lado de
+    fora do período — não é artefato da base de teste.
+
+    A correção: quando os dois fatos coincidem, o "nenhum movimento" vira
+    uma ÚNICA LINHA de texto simples (sem borda, sem fundo, sem padding
+    próprio — não é um segundo "bloco") logo acima do aviso de movimento
+    fora do período, que é quem já diz O QUE fazer (o link que amplia o
+    período). Continua sendo, na prática, UM aviso só — a linha de texto
+    é a abertura dele, não um segundo aviso empilhado. Fora deste caso
+    (sem movimento em lugar NENHUM, nem dentro nem fora do período), a
+    versão completa do parágrafo continua a única explicação disponível
+    (R6-9/BL-203, critério 13: "empresa sem lançamento no período mostra
+    MENSAGEM, não tabela vazia sem explicação") — removê-la deixaria a
+    tela muda nesse caso.
+
+    A mensagem, em qualquer das duas formas, vem ANTES da tabela e NÃO a
+    substitui: um balancete zerado (ou com saldo anterior e sem movimento
+    no mês) é informação contábil legítima, e esconder a tabela trocaria
+    um defeito de explicação por um de omissão.
+    {% endcomment %}
+    {% if sem_movimento_no_periodo and movimento_fora_do_periodo %}
+        <p class="texto-apoio">
+            <strong>Nenhum movimento neste período</strong>
+            ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}) — o movimento desta empresa
+            está fora do período consultado; ver abaixo onde e como ampliar o período.
+        </p>
+    {% endif %}
 
     {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}
 
-    {% if sem_movimento_no_periodo %}
+    {% if sem_movimento_no_periodo and not movimento_fora_do_periodo %}
         {% comment %}
-        R6-9/BL-203 — critério 13, texto literal: "empresa sem lançamento no
-        período mostra MENSAGEM, não tabela vazia sem explicação". Diário,
-        Razão e Conferência cumpriam; o Balancete mostrava 3 linhas e 8
-        zeros, sem uma palavra. Levantado na rodada 5 como observação, ficou
-        fora do backlog e chegou intacto à rodada 6.
-
-        A mensagem vem ANTES da tabela e NÃO a substitui: um balancete
-        zerado (ou com saldo anterior e sem movimento no mês) é informação
-        contábil legítima, e esconder a tabela trocaria um defeito de
-        explicação por um de omissão. `role="status"`, não `alert`: não é
-        erro nem anomalia — é a resposta correta para um período sem
-        movimento.
+        R6-9/BL-203 — critério 13, texto literal: "empresa sem lançamento
+        no período mostra MENSAGEM, não tabela vazia sem explicação".
+        `role="status"`, não `alert`: não é erro nem anomalia — é a
+        resposta correta para um período sem movimento.
         {% endcomment %}
         <p class="mensagem mensagem-info" role="status">
             <strong>Nenhum movimento neste período</strong>
@@ -75,25 +236,51 @@
     {% endif %}
 
     {% if linhas %}
-        <table class="tabela-dados">
+        {% comment %}
+        Cabeçalho de coluna em dois níveis (enxerto da variante C do
+        gauntlet, DE-053/RC-90): "Movimento do período" agrupa as duas
+        colunas consolidadas (Débitos/Créditos — achado 10/BL-96, nunca
+        somáveis no rodapé) e "Lançamento próprio" agrupa as duas que só
+        contam o que foi lançado direto nesta conta (DE-024 §2, as que
+        fecham com o rodapé). As colunas já existiam; o que muda aqui é só
+        o agrupamento visual — nenhum dado novo, nenhuma coluna a mais.
+        `.tabela-dois-niveis` liga o CSS que dá "top" próprio a cada linha
+        do cabeçalho (duas linhas de célula de cabeçalho sticky não têm o mesmo "top").
+        {% endcomment %}
+        {% comment %}
+        M4/BL-280 (auditoria DL-026, rodada 1): DE-053 §1 — "a hierarquia
+        do plano de contas vem de peso e recuo, não de uma coluna 'Nível'
+        nem de cor". Legenda em TEXTO, porque peso sozinho tem o mesmo
+        problema de "cor sozinha" para quem não distingue as duas
+        visualmente (direcao-de-arte §4.3: "cor nunca é o único canal";
+        aqui o mesmo raciocínio vale para peso). A coluna "Nível" continua
+        existindo — nenhuma informação é escondida — mas deixa de ser o
+        único sinal.
+        {% endcomment %}
+        <p class="texto-apoio">
+            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+            indica conta analítica (aceita lançamento).
+        </p>
+        <table class="tabela-dados tabela-dois-niveis">
             <caption class="visualmente-oculto">Balancete de verificação de {{ empresa.razao_social }} no período</caption>
             <thead>
                 <tr>
-                    <th scope="col">Nível</th>
-                    <th scope="col">Código</th>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Saldo anterior</th>
-                    <th scope="col" class="coluna-nao-somavel">
-                        Débitos
-                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Débitos próprios")</span>
+                    <th scope="col" rowspan="2">Nível</th>
+                    <th scope="col" rowspan="2">Código</th>
+                    <th scope="col" rowspan="2">Nome</th>
+                    <th scope="col" rowspan="2">Saldo anterior</th>
+                    <th scope="colgroup" colspan="2" class="coluna-nao-somavel">
+                        Movimento do período
+                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Lançamento próprio")</span>
                     </th>
-                    <th scope="col" class="coluna-nao-somavel">
-                        Créditos
-                        <span class="visualmente-oculto"> (consolidado por nível da hierarquia; não somável no rodapé — ver "Créditos próprios")</span>
-                    </th>
-                    <th scope="col">Débitos próprios</th>
-                    <th scope="col">Créditos próprios</th>
-                    <th scope="col">Saldo final</th>
+                    <th scope="colgroup" colspan="2">Lançamento próprio</th>
+                    <th scope="col" rowspan="2">Saldo final</th>
+                </tr>
+                <tr>
+                    <th scope="col" class="coluna-nao-somavel">Débitos</th>
+                    <th scope="col" class="coluna-nao-somavel">Créditos</th>
+                    <th scope="col">Débitos</th>
+                    <th scope="col">Créditos</th>
                 </tr>
             </thead>
             <tbody>
@@ -101,7 +288,7 @@
                     <tr>
                         <td>{{ linha.nivel }}</td>
                         <td>{{ linha.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}">
+                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.analitica %} conta-sintetica{% endif %}">
                             {% if linha.conta_id %}
                                 <a href="{% url 'contabilidade_web:razao' empresa.id linha.conta_id %}?inicio={{ inicio|date:'Y-m-d' }}&fim={{ fim|date:'Y-m-d' }}">
                                     {{ linha.nome }}
@@ -158,6 +345,17 @@
             </tfoot>
         </table>
     {% elif inicio and fim %}
-        <p>Esta empresa ainda não tem nenhuma conta cadastrada.</p>
+        {% comment %}
+        B4/BL-283 (auditoria DL-026, rodada 1): o estado vazio deixava a
+        tela quase toda em branco — mensagem, filtro e nada mais. O texto
+        já explicava o que faltava; o que faltava era o caminho de volta
+        para resolver, sem depender de a pessoa lembrar onde fica o plano
+        de contas.
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
     {% endif %}
 {% endblock %}

@@ -166,3 +166,132 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
         f"O README voltou a afirmar {afirmacao!r}, o que é falso: {por_que_e_falsa}. "
         "Se a frase for necessária para contar o histórico, reescreva-a."
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-315 (achado B1 da rodada 3 da auditoria da DL-026)
+#
+# A instrução permanente do Fred, de 2026-09-13, tratou a duplicação ENTRE
+# arquivos: o mesmo fato em quatro lugares do README, já divergido. Os testes
+# acima nasceram disso. O auditor achou a mesma doença numa forma que eles não
+# alcançavam — duplicação DENTRO de um arquivo só:
+#
+#   - o cabeçalho afirmava `main` em `8235635`; ela estava em `bfe9814`,
+#     mesclada 22 minutos depois PELO PR QUE INTEGROU ESTE ARQUIVO. Quando fui
+#     corrigir, já estava em `b588af9`. A afirmação nasceu falsa e envelhecia
+#     sozinha;
+#   - a tabela de etapas descrevia a DL-026 como "rodada 1 REPROVADA" enquanto
+#     o "Próximo passo", no mesmo documento, registrava a rodada 4.
+#
+# Os dois guardas abaixo são contra a CAUSA, não contra as duas ocorrências:
+# estado volátil só pode morar em um lugar, e revisão de branch se lê do Git.
+# ---------------------------------------------------------------------------
+
+
+def _cabecalho(texto):
+    """O bloco antes da primeira seção `## ` — onde o defeito morava."""
+    return texto.split("\n## ", 1)[0]
+
+
+def _sem_citacoes(texto):
+    """Remove linhas de citação (`> `).
+
+    A distinção é a mesma que `_identificadores_de_requisito_duplicados` já faz
+    entre definir e citar: narrar um erro passado ("dizia X, estava em Y") é
+    legítimo e fica em bloco de citação; afirmar em texto corrido é declarar
+    estado.
+    """
+    return "\n".join(linha for linha in texto.split("\n") if not linha.lstrip().startswith(">"))
+
+
+PADRAO_REVISAO_DA_MAIN = re.compile(r"`main`\s+(?:em|est[áa]\s+em)\s+`[0-9a-f]{7,40}`")
+
+
+def test_cabecalho_do_estado_nao_fixa_a_revisao_da_main():
+    """SHA da `main` não se escreve aqui: ele muda a cada merge, inclusive pelo
+    merge deste próprio documento, e envelhece antes de ser lido.
+
+    Quem precisa da revisão lê da fonte que não diverge: `git rev-parse
+    origin/main`.
+    """
+    afirmacoes = PADRAO_REVISAO_DA_MAIN.findall(_sem_citacoes(_cabecalho(_texto(ESTADO))))
+    assert not afirmacoes, (
+        "O cabeçalho de docs/agents/estado.md voltou a fixar a revisão da "
+        f"`main`: {afirmacoes}. Ela muda a cada merge — inclusive pelo merge "
+        "deste arquivo, que foi como a afirmação anterior nasceu falsa (B1 da "
+        "rodada 3 da DL-026). Quem precisa dela usa `git rev-parse origin/main`. "
+        "Narrar o erro passado é permitido, em bloco de citação."
+    )
+
+
+def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
+    """A tabela de etapas diz O QUE cada etapa é; em que pé ela está vive no
+    "Próximo passo", e só lá.
+
+    Sem isto, as duas descrições divergem no dia em que alguém atualiza uma —
+    que foi exatamente o que aconteceu com a DL-026 entre a rodada 1 e a 4.
+    """
+    ofensoras = [
+        linha.split(" | ")[0].strip("| ")
+        for linha in _texto(ESTADO).split("\n")
+        if linha.startswith("| [DL-") and "Em desenvolvimento" in linha
+    ]
+    assert not ofensoras, (
+        "Linhas da tabela de etapas descrevendo estado em andamento: "
+        f"{ofensoras}. O estado de uma etapa muda a cada rodada e mora só no "
+        '"Próximo passo" — descrevê-lo aqui também é a duplicação que a '
+        "instrução permanente de 2026-09-13 proíbe, dentro de um arquivo só. "
+        "A linha da tabela deve APONTAR para o Próximo passo."
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-326 — identificador de DECISÃO único.
+#
+# O registro de requisitos já tinha esta guarda (BL-242). O de decisões, não —
+# e na junção da DL-026 com a `main` apareceu o resultado: as duas linhas de
+# trabalho criaram, cada uma, uma **DE-042** diferente (primeiro acesso via
+# produto, de um lado; identidade visual, do outro). Nenhum dos dois lados
+# errou: cada um pegou o próximo número livre **que via**.
+#
+# É a razão pela qual numeração de documento fiscal não é controlada por cada
+# emissor isoladamente: a unicidade não é propriedade de nenhuma das partes,
+# é do conjunto. O Git não acusa, porque a colisão é semântica, não textual.
+# ---------------------------------------------------------------------------
+
+DECISOES = RAIZ / "docs" / "projeto" / "decisoes.md"
+
+
+def _decisoes_definidas_mais_de_uma_vez(texto):
+    """Só títulos de seção definem uma decisão; citações no corpo não.
+
+    Mesma distinção de `_identificadores_de_requisito_duplicados`: o que torna
+    o registro ambíguo é haver duas DEFINIÇÕES do mesmo identificador.
+    """
+    definidas = re.findall(r"^##\s+(DE-\d+)\b", texto, flags=re.MULTILINE)
+    return sorted({d for d in definidas if definidas.count(d) > 1})
+
+
+def test_decisoes_tem_identificadores_unicos():
+    """Uma DE nunca pode nomear duas decisões diferentes."""
+    duplicadas = _decisoes_definidas_mais_de_uma_vez(_texto(DECISOES))
+    assert not duplicadas, (
+        "Decisões definidas mais de uma vez em docs/projeto/decisoes.md: "
+        f"{', '.join(duplicadas)}. Renumere a definição mais nova e atualize "
+        "suas referências **sem reescrever auditorias históricas** (BL-242, "
+        "aplicado à DE-042 na junção com a main em 2026-09-19)."
+    )
+
+
+def test_guarda_de_decisoes_distingue_definicao_de_citacao():
+    """Prova a classe: dois títulos colidem; citação no corpo não."""
+    exemplo = """\
+## DE-001 — Primeira decisão
+
+Texto que cita DE-001 e DE-002 sem redefinir nenhuma.
+
+## DE-002 — Outra decisão
+
+## DE-001 — Definição conflitante, criada por outra frente
+"""
+    assert _decisoes_definidas_mais_de_uma_vez(exemplo) == ["DE-001"]

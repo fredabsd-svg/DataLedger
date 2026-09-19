@@ -4,13 +4,22 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
 {% block content %}
     <p><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Voltar para o plano de contas</a></p>
+    {% comment %}
+    B3/BL-283 (auditoria DL-026, rodada 1): esta tela ficava de fora da
+    navegação contextual (o comentário da parcial já dizia "toda tela de
+    contabilidade" e listava só seis) — quem entrava aqui perdia os cinco
+    atalhos até voltar. Sem `pagina_atual`: "Nova conta" não é uma das
+    cinco páginas fixas do subnível, então os cinco aparecem como link
+    (mesmo caso do Razão).
+    {% endcomment %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
     <h1>Nova conta — {{ empresa.razao_social }}</h1>
 
     {% comment %}

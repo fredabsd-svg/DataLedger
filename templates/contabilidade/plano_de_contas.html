@@ -4,18 +4,14 @@
 
 {% block contexto_extra %}
     <span class="contexto-item">
-        <span class="contexto-rotulo">Empresa:</span>
-        {{ empresa.razao_social }}
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
     </span>
 {% endblock %}
 
 {% block content %}
-    <p>
-        <a href="{% url 'empresas:lista' %}">Voltar para empresas</a>
-        — <a href="{% url 'contabilidade_web:diario' empresa.id %}">Diário</a>
-        — <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-        — <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
-    </p>
+    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="plano_de_contas" %}
     <h1>Plano de contas — {{ empresa.razao_social }}</h1>
 
     {% if pode_escriturar %}
@@ -23,6 +19,16 @@
     {% endif %}
 
     {% if linhas %}
+        {% comment %}
+        M4/BL-280 (auditoria DL-026, rodada 1): mesma legenda e mesma
+        classe `.conta-sintetica` do Balancete — ver o comentário completo
+        lá. Aqui "aceita lançamento" já é a própria coluna exibida mais
+        abaixo; a classe só faz o peso tipográfico seguir o mesmo dado.
+        {% endcomment %}
+        <p class="texto-apoio">
+            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+            indica conta analítica (aceita lançamento).
+        </p>
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
             <thead>
@@ -41,7 +47,7 @@
                     <tr>
                         <td>{{ linha.nivel|default:"—" }}</td>
                         <td>{{ linha.conta.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}">{{ linha.conta.nome }}</td>
+                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
                         <td>{{ linha.conta.get_tipo_display }}</td>
                         <td>{{ linha.conta.get_natureza_display }}</td>
                         <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>

@@ -950,6 +950,85 @@ def _linhas_lancamento_do_post(post, num_linhas):
     return linhas, erros
 
 
+def _veredito_fechamento(
+    total_debito,
+    total_credito,
+    linhas_excluidas_do_total,
+    num_partidas_validas,
+    *,
+    bloqueado_por_outro_erro=False,
+):
+    """Decide, em `Decimal`, um de três estados — `"fecha"`, `"nao_fecha"`
+    ou `"nao_conferido"` — para o rodapé "Total conferido antes de gravar"
+    do formulário de lançamento.
+
+    BL-289 (A1 da auditoria DL-026 rodada 2): o TEMPLATE decidia sozinho,
+    comparando os dois valores já formatados em pt-BR
+    (`total_debito_ptbr == total_credito_ptbr`) — string, não `Decimal`.
+    `_valor_ptbr(Decimal("0"))` devolve `"0,00"`, que é verdadeiro em
+    template Django, e `"0,00" == "0,00"` também é verdadeiro: um
+    formulário em BRANCO, duas linhas com valor inválido (descartadas do
+    total) ou totais NEGATIVOS caíam todos no ramo "Fecha", incluindo o
+    caso em que a própria tela já tinha avisado, duas linhas acima, que o
+    que foi digitado não entrou na conta. Veredito é decisão de negócio;
+    o template só EXIBE a chave que esta função devolve.
+
+    As quatro condições de `"fecha"` cobrem `totais_batem` mais
+    `len(itens) >= 2`, mais abaixo nesta view — mas NÃO bastam sozinhas
+    para garantir a invariante exigida pela auditoria, "se a tela diz
+    Fecha, gravar com o mesmo corpo tem de devolver 302, nunca 400" (ver
+    `test_bl289_veredito_fechamento.py` e `test_bl307_*.py`). `criar_
+    lancamento` só é chamado quando, ALÉM de débito == crédito > 0 e duas
+    ou mais partidas, TAMBÉM não há nenhum outro erro (histórico maior que
+    o teto, chave de idempotência maior que o teto, data inválida) — três
+    condições que não têm relação nenhuma com débito, crédito ou linha
+    excluída, e por isso não podiam ser expressas pelos quatro parâmetros
+    originais desta função.
+    `bloqueado_por_outro_erro` é exatamente essa quinta condição (BL-307,
+    A1 da auditoria DL-026 rodada 3): quando `True`, "fecha" nunca é
+    devolvido, mesmo que as partidas batam — dizer "Fecha" sobre um
+    formulário que `criar_lancamento` vai recusar por um motivo alheio às
+    partidas seria a MESMA mentira que a ausência de `linhas_excluidas_do_
+    total` produzia, só que por outra causa. O padrão default (`False`)
+    preserva o comportamento do caminho "adicionar_linha", que nunca
+    valida histórico, chave ou data — ali "fecha" continua descrevendo
+    somente a conferência das partidas, que é a única pergunta que aquele
+    botão responde.
+
+    `"nao_fecha"` exige duas ou mais partidas válidas e NENHUMA descartada
+    — sem isso, "não fecha" seria dito sobre um total que ainda pode mudar
+    assim que a linha pendente for corrigida, o que é ruído, não
+    conferência. `"nao_fecha"` NÃO depende de `bloqueado_por_outro_erro`:
+    débito e crédito genuinamente diferentes continuam sendo uma
+    divergência real, ainda que exista também um erro de histórico ou data
+    — não é uma afirmação falsa, é uma afirmação incompleta (o contador vê
+    o outro erro na lista de mensagens, ao lado). Todo o resto (formulário
+    em branco, linha descartada, total zerado, negativo, só uma partida
+    válida, ou bloqueado por outro erro) é `"nao_conferido"` — nunca
+    "Fecha" nem "Não fecha".
+    """
+    # `total_debito`/`total_credito` chegam `None` na primeira visita (GET
+    # em branco) e nos ramos de erro que nunca calculam totais — tratados
+    # como zero só para ESTA decisão (nunca exibidos como "0,00": ver
+    # `total_debito_ptbr`/`total_credito_ptbr` abaixo, que continuam `None`
+    # nesses casos).
+    debito = total_debito if total_debito is not None else Decimal("0")
+    credito = total_credito if total_credito is not None else Decimal("0")
+    fecha = (
+        debito == credito
+        and debito > 0
+        and linhas_excluidas_do_total == 0
+        and num_partidas_validas >= 2
+        and not bloqueado_por_outro_erro
+    )
+    if fecha:
+        return "fecha"
+    nao_fecha = num_partidas_validas >= 2 and linhas_excluidas_do_total == 0 and debito != credito
+    if nao_fecha:
+        return "nao_fecha"
+    return "nao_conferido"
+
+
 def _contexto_form_lancamento(
     empresa,
     contas_disponiveis,
@@ -962,6 +1041,8 @@ def _contexto_form_lancamento(
     total_debito=None,
     total_credito=None,
     linhas_excluidas_do_total=0,
+    num_partidas_validas=0,
+    bloqueado_por_outro_erro=False,
 ):
     # R3-1 (BL-115): defesa em profundidade — ver o comentário equivalente
     # em `_linhas_lancamento_do_post`. Esta função monta o CONTEXTO de
@@ -977,6 +1058,60 @@ def _contexto_form_lancamento(
         else:
             conta_id, tipo, valor_texto = "", "", ""
         linhas.append({"indice": i, "conta_id": conta_id, "tipo": tipo, "valor_texto": valor_texto})
+
+    # BL-286 (rodada 3 da DL-026, corrige o M2 da rodada 1): o veredito
+    # "Não fecha" precisa dizer DE QUANTO, e quem calcula é o SERVIDOR, não
+    # o template — o `especialista-frontend` já tinha parado exatamente
+    # aqui, porque só recebia os dois totais como TEXTO pt-BR já formatado
+    # (`total_debito_ptbr`/`total_credito_ptbr`), e subtrair dois valores
+    # monetários já formatados dentro do template violaria a regra do
+    # AGENTS.md contra aritmética financeira fora do motor determinístico.
+    #
+    # A subtração abaixo acontece em `Decimal`, sobre os totais de ORIGEM
+    # (`total_debito`/`total_credito`, ainda não formatados) — nunca sobre
+    # `total_debito_ptbr`/`total_credito_ptbr`. Ela NÃO passa por
+    # `apps.core.dinheiro.quantizar`: essa função existe para reduzir a
+    # ESCALA de um valor segundo uma política de arredondamento (DE-010,
+    # obrigatória quando a redução pode perder informação), e aqui não há
+    # redução nenhuma — cada item já foi recusado por `criar_lancamento`/
+    # `_decimal_do_formulario` se tivesse mais de
+    # `ESCALA_MAXIMA_LANCAMENTO_MANUAL` (2) casas decimais, então
+    # `total_debito` e `total_credito` já chegam aqui com, no máximo, 2
+    # casas — a diferença de dois valores com a MESMA escala máxima é
+    # EXATA, sem arredondamento a decidir (mesmo raciocínio já aplicado a
+    # `_saldo_por_natureza`/`_saldo_por_natureza_item`, em services.py, que
+    # também subtraem débito e crédito em `Decimal` puro, sem política).
+    # `_valor_ptbr` continua sendo o ÚNICO formatador pt-BR desta tela —
+    # reaproveitado aqui, não reimplementado.
+    # BL-289 (A1 da auditoria DL-026 rodada 2): o veredito em si — ver o
+    # docstring de `_veredito_fechamento` para a classe de defeito que isto
+    # substitui. Calculado ANTES da diferença abaixo porque a diferença só
+    # pode ser exibida no ramo "nao_fecha" (nunca em "nao_conferido" — um
+    # formulário com linha descartada, por exemplo, também tem
+    # `total_debito != total_credito` textualmente, mas mostrar "faltam X"
+    # ali ensinaria um número que pode mudar assim que a linha pendente for
+    # corrigida).
+    # BL-307: `bloqueado_por_outro_erro` propaga a quinta condição (ver o
+    # docstring de `_veredito_fechamento`) — sempre `False` no caminho
+    # "adicionar_linha", que não valida histórico, chave nem data.
+    veredito_fechamento = _veredito_fechamento(
+        total_debito,
+        total_credito,
+        linhas_excluidas_do_total,
+        num_partidas_validas,
+        bloqueado_por_outro_erro=bloqueado_por_outro_erro,
+    )
+
+    diferenca_fechamento_ptbr = None
+    lado_faltante_fechamento = None
+    if veredito_fechamento == "nao_fecha":
+        diferenca_fechamento = abs(total_debito - total_credito)
+        diferenca_fechamento_ptbr = _valor_ptbr(diferenca_fechamento)
+        # O lado que "falta" é o menor total — é ELE que precisa crescer
+        # para fechar. Nunca um valor negativo exibido (critério 1 do
+        # BL-286): a diferença já sai em módulo acima, e o lado vem à
+        # parte, como palavra, não como sinal.
+        lado_faltante_fechamento = "débito" if total_debito < total_credito else "crédito"
 
     return {
         "empresa": empresa,
@@ -1009,6 +1144,16 @@ def _contexto_form_lancamento(
         "data_maxima_ptbr": data_maxima_lancamento(),
         "total_debito_ptbr": _valor_ptbr(total_debito) if total_debito is not None else None,
         "total_credito_ptbr": _valor_ptbr(total_credito) if total_credito is not None else None,
+        # BL-289: chave ÚNICA de decisão — "fecha" / "nao_fecha" /
+        # "nao_conferido" —, calculada em `Decimal` por `_veredito_
+        # fechamento`. O template RAMIFICA por ela; não volta a comparar
+        # `total_debito_ptbr`/`total_credito_ptbr` (texto) entre si.
+        "veredito_fechamento": veredito_fechamento,
+        # BL-286: `None` fora do ramo "nao_fecha" — nunca "0,00", que seria
+        # ruído (critério 2). Só a variante "não fecha" do template usa
+        # estas duas chaves.
+        "diferenca_fechamento_ptbr": diferenca_fechamento_ptbr,
+        "lado_faltante_fechamento": lado_faltante_fechamento,
         # R2-5: quantas linhas ficaram FORA da soma acima (conta/tipo/valor
         # incompletos, ou valor/conta inválidos) — a conferência precisa
         # ANUNCIAR a exclusão, nunca só mostrar um total plausível e
@@ -1517,7 +1662,7 @@ def lancamento_novo(request, empresa_id):
             linhas_brutas, erros_incompletas = _linhas_lancamento_do_post(
                 request.POST, num_linhas_leitura
             )
-            _, erros_itens_conf, total_debito, total_credito = _itens_e_totais(
+            itens_conf, erros_itens_conf, total_debito, total_credito = _itens_e_totais(
                 linhas_brutas, contas_por_id
             )
             contexto = _contexto_form_lancamento(
@@ -1531,6 +1676,10 @@ def lancamento_novo(request, empresa_id):
                 total_debito=total_debito,
                 total_credito=total_credito,
                 linhas_excluidas_do_total=len(erros_incompletas) + len(erros_itens_conf),
+                # BL-289: quantas partidas VÁLIDAS entraram na soma acima —
+                # o veredito "fecha"/"nao_fecha" exige pelo menos duas,
+                # mesma exigência de `criar_lancamento` mais abaixo.
+                num_partidas_validas=len(itens_conf),
             )
             return render(request, "contabilidade/lancamento_form.html", contexto)
 
@@ -1590,6 +1739,18 @@ def lancamento_novo(request, empresa_id):
             return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
         linhas_brutas, erros = _linhas_lancamento_do_post(request.POST, num_linhas_leitura)
+        # BL-307 (A1 da auditoria DL-026 rodada 3): contagem separada, ANTES
+        # de `erros` receber qualquer mensagem que não seja sobre uma LINHA
+        # descartada (histórico grande demais, chave de idempotência grande
+        # demais) — essas duas não excluem partida nenhuma do total, e
+        # somá-las aqui inflaria `linhas_excluidas_do_total` com motivo que
+        # não é "linha fora da soma". O aviso R2-5 ("N linha(s) … ainda NÃO
+        # entram no total abaixo") e o veredito "Fecha" (`_veredito_
+        # fechamento`) dependem deste número estar certo NESTA MESMA
+        # resposta — não só no ramo "adicionar_linha" (ver o comentário
+        # abaixo, onde o valor é finalmente passado a `_contexto_form_
+        # lancamento`).
+        linhas_incompletas = len(erros)
 
         # Achado 4 / BL-90: mesmo teto do modelo (`historico =
         # CharField(max_length=300)`) verificado AQUI, antes de qualquer
@@ -1624,6 +1785,17 @@ def lancamento_novo(request, empresa_id):
             linhas_brutas, contas_por_id
         )
         erros = erros + erros_itens
+        # BL-307: as duas fontes de linha EXCLUÍDA da soma — incompleta
+        # (`linhas_incompletas`, capturada acima) e inválida (`erros_itens`,
+        # que acabou de sair de `_itens_e_totais`) — exatamente a mesma
+        # conta que "adicionar_linha" já passa (`len(erros_incompletas) +
+        # len(erros_itens_conf)`, mais acima nesta view). Antes desta
+        # correção este ramo não calculava nada e `_contexto_form_
+        # lancamento` recebia o padrão `linhas_excluidas_do_total=0` —
+        # fazendo o veredito "Fecha" aparecer numa resposta 400 sempre que
+        # débito e crédito das linhas VÁLIDAS batiam, mesmo com uma linha
+        # descartada ao lado (A1 da auditoria DL-026 rodada 3).
+        linhas_excluidas_do_total = linhas_incompletas + len(erros_itens)
 
         # R5-4/BL-143: mesmo julgador partilhado do período (ver o
         # comentário de `_periodo_do_formulario`) — `para_data`, nunca a
@@ -1707,14 +1879,59 @@ def lancamento_novo(request, empresa_id):
         elif not erros:
             if len(itens) < 2:
                 erros.append("Informe ao menos duas partidas.")
-            elif not totais_batem:
+            elif total_debito != total_credito:
+                # BL-298 (M7 da auditoria DL-026 rodada 2): esta frase só
+                # cabe quando os totais REALMENTE divergem — mantida como
+                # estava.
                 erros.append(
                     f"Débitos ({_valor_ptbr(total_debito)}) e créditos "
                     f"({_valor_ptbr(total_credito)}) precisam ser iguais antes de gravar."
                 )
+            else:
+                # `total_debito == total_credito` mas `not totais_batem`:
+                # só resta a outra metade da condição, `total_debito <= 0`
+                # (zero ou negativo). A frase de divergência MENTIRIA aqui
+                # — os dois lados SÃO iguais — e foi exatamente o que o
+                # auditor mediu: "gravar" com 0,00/0,00 respondia "Débitos
+                # (0,00) e créditos (0,00) precisam ser iguais", quando o
+                # problema real é não terem valor positivo nenhum. Frase
+                # própria, que diz o que fazer.
+                erros.append(
+                    "O total do lançamento precisa ser maior que zero antes de gravar — "
+                    "informe um valor positivo nas partidas."
+                )
 
         for erro in erros:
             messages.error(request, erro)
+
+        # BL-307: as TRÊS condições que bloqueiam `criar_lancamento` mas não
+        # têm relação com débito, crédito, partida válida nem linha
+        # excluída (ver o docstring de `_veredito_fechamento`, quinta
+        # condição). Sem isto, um histórico grande demais, uma chave de
+        # idempotência grande demais ou uma data inválida — com as duas
+        # partidas restantes batendo perfeitamente — ainda fazia o veredito
+        # dizer "Fecha" nesta MESMA resposta 400 (os dois últimos casos da
+        # reprodução do achado A1: "histórico de 400 caracteres" e "data
+        # 'abacaxi'", nenhum dos dois descarta uma linha, então a correção
+        # de `linhas_excluidas_do_total` sozinha não bastava).
+        # BL-318 (A1 da rodada 4): a enumeração acima estava ERRADA DE LUGAR,
+        # não de conteúdo. As três condições eram as três que ESTA VIEW checa
+        # antes de chamar o serviço; `criar_lancamento` tem DEZESSETE `raise`
+        # próprios — faixa de data do RC-77, escala, byte nulo, conta que não
+        # aceita lançamento, teto de partidas, conflito de idempotência — e
+        # nenhum deles passava por aqui. Medido pelo auditor: quatro POSTs com
+        # as duas partidas batendo devolviam 400 com "Fecha" EM VERDE, e o
+        # primeiro deles é a data fora da faixa: quem digita 1999 em vez de
+        # 2019 lia "Fecha" por cima da mensagem que recusou a data.
+        #
+        # Uma sexta condição enumerada não resolve — a lista de motivos de
+        # recusa cresce. A afirmação verdadeira é estrutural e não envelhece:
+        #
+        #     esta resposta é 400, logo NÃO GRAVOU, logo nada está conferido.
+        #
+        # `"nao_fecha"` não depende desta bandeira, então divergência real
+        # continua sendo anunciada com o valor da diferença.
+        bloqueado_por_outro_erro = True
 
         contexto = _contexto_form_lancamento(
             empresa,
@@ -1726,6 +1943,18 @@ def lancamento_novo(request, empresa_id):
             linhas_preenchidas=request.POST,
             total_debito=total_debito,
             total_credito=total_credito,
+            # BL-289: mesma contagem de partidas válidas que decidiu se
+            # `criar_lancamento` seria chamado acima — o rodapé desta
+            # mesma resposta (400) precisa refletir a MESMA decisão, nunca
+            # uma cópia que possa divergir.
+            num_partidas_validas=len(itens),
+            # BL-307: idem, para a contagem de linhas EXCLUÍDAS — sem isto
+            # o padrão da assinatura (`linhas_excluidas_do_total=0`) fazia
+            # `_veredito_fechamento` achar que nenhuma linha tinha sido
+            # descartada nesta resposta, mesmo quando `linhas_excluidas_do_
+            # total` (calculada acima) fosse maior que zero.
+            linhas_excluidas_do_total=linhas_excluidas_do_total,
+            bloqueado_por_outro_erro=bloqueado_por_outro_erro,
         )
         return render(request, "contabilidade/lancamento_form.html", contexto, status=400)
 
@@ -2016,6 +2245,46 @@ def razao(request, empresa_id, conta_id):
 # ---------------------------------------------------------------------------
 
 
+def _veredito_balancete(total_debitos, total_creditos):
+    """Decide, em `Decimal`, um de três estados — `"fecha"`, `"nao_fecha"`
+    ou `"nada_a_conferir"` — para a faixa de fechamento no topo do
+    balancete (`total_debitos`/`total_creditos`: as colunas "próprios" do
+    PERÍODO, DE-024 §2 — as mesmas que já alimentam `total_debitos_ptbr`/
+    `total_creditos_ptbr`).
+
+    BL-290 (A2 da auditoria DL-026 rodada 2): o TEMPLATE decidia sozinho,
+    comparando `total_debitos_ptbr == total_creditos_ptbr` — texto pt-BR,
+    não `Decimal` (a mesma classe de defeito do BL-289/A1, só que na tela
+    do balancete). Além de comparar texto, o ramo "Fecha" cobria também o
+    caso `0,00 == 0,00` sem NENHUM movimento no período — o estado em que a
+    tela abre no dia 1º de todo mês (BL-302/B4) —, mostrando um "Fecha"
+    verde sobre nada. Um sinal que aparece sempre deixa de ser sinal.
+
+    `"nada_a_conferir"`: os dois totais são zero — não há o que fechar
+    neste período (sem movimento próprio nenhum). `"fecha"`: os totais
+    batem E há movimento (pelo menos um dos dois maior que zero — na
+    prática os dois, porque toda partida tem os dois lados). `"nao_fecha"`:
+    os totais DIVERGEM.
+
+    Por construção de partidas dobradas — todo lançamento EFETIVADO tem
+    débito igual a crédito (`apps.contabilidade.services.criar_lancamento`)
+    —, a soma de todos os débitos próprios do período sempre bate com a
+    soma de todos os créditos próprios, salvo CORRUPÇÃO de dado. O ramo
+    `"nao_fecha"` é, por isso, rede de segurança: hoje inalcançável em uso
+    normal do produto (nenhum caminho de escrita deixa os totais
+    divergirem), mas é exatamente no dia em que algo corromper o dado que
+    esta tela precisa gritar — e uma rede que ninguém nunca viu funcionar
+    não é rede (ver o teste que força a divergência via
+    `monkeypatch.setattr(views_web, "apurar_balancete", ...)`, já que não
+    existe caminho de escrita real para produzi-la).
+    """
+    if total_debitos == 0 and total_creditos == 0:
+        return "nada_a_conferir"
+    if total_debitos == total_creditos:
+        return "fecha"
+    return "nao_fecha"
+
+
 @login_required
 @require_safe
 def balancete(request, empresa_id):
@@ -2086,11 +2355,30 @@ def balancete(request, empresa_id):
             }
         )
 
+    # BL-290 (A2 da auditoria DL-026 rodada 2): veredito da faixa de
+    # fechamento, calculado em `Decimal` sobre os totais de ORIGEM
+    # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre o
+    # texto pt-BR logo abaixo. Ver o docstring de `_veredito_balancete`.
+    veredito_balancete = _veredito_balancete(apuracao["total_debitos"], apuracao["total_creditos"])
+    diferenca_balancete_ptbr = None
+    if veredito_balancete == "nao_fecha":
+        diferenca_balancete_ptbr = _valor_ptbr(
+            abs(apuracao["total_debitos"] - apuracao["total_creditos"])
+        )
+
     contexto.update(
         {
             "linhas": linhas,
             "total_debitos_ptbr": _valor_ptbr(apuracao["total_debitos"]),
             "total_creditos_ptbr": _valor_ptbr(apuracao["total_creditos"]),
+            # BL-290: chave ÚNICA de decisão para a faixa — "fecha" /
+            # "nao_fecha" / "nada_a_conferir". O template ramifica por ela;
+            # não volta a comparar `total_debitos_ptbr`/`total_creditos_
+            # ptbr` (texto) entre si.
+            "veredito_balancete": veredito_balancete,
+            # `None` fora do ramo "nao_fecha" — nunca "0,00", que seria
+            # ruído (mesma política do BL-286/BL-289 no lançamento).
+            "diferenca_balancete_ptbr": diferenca_balancete_ptbr,
             # R6-9/BL-203 (rodada 6) — critério 13, texto literal: "empresa
             # sem lançamento no período mostra MENSAGEM, não tabela vazia
             # sem explicação". Diário, Razão e Conferência cumpriam; o

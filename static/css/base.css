@@ -1,29 +1,213 @@
 /*
- * CSS próprio e mínimo do DataLedger (DE-011: nenhuma biblioteca visual
- * externa). Prioriza densidade, legibilidade e contraste para uso em
- * rotina de produção, não efeito visual.
+ * Sistema de tokens do DataLedger (DE-053 / DL-026): identidade "papel e
+ * tinta", escolhida por medição no gauntlet de três variantes cegas — ver
+ * docs/projeto/direcao-de-arte.md (fonte da direção) e
+ * docs/assets/design/gauntlet/MEDICOES.md (evidência). CSS próprio e
+ * mínimo (DE-011: nenhuma biblioteca visual externa). Prioriza densidade,
+ * legibilidade e contraste para uso em rotina de produção, não efeito
+ * visual.
+ *
+ * REGRA DESTE ARQUIVO: nenhuma cor ou medida solta fora das variáveis do
+ * :root abaixo. Se um valor não existe aqui, ele nasce aqui — nunca direto
+ * numa regra de tela. Os papéis de cada família de token estão descritos em
+ * docs/projeto/direcao-de-arte.md §1; os VALORES moram só aqui, para não
+ * duplicar o mesmo fato em dois lugares (a causa do incidente de
+ * 2026-09-13 registrado no AGENTS.md foi exatamente essa duplicação).
  */
+
+/* ==========================================================================
+   Fonte editorial auto-hospedada: IBM Plex Serif (SIL Open Font License
+   1.1, ver static/fontes/ibm-plex-serif/OFL.txt). A variante A do gauntlet
+   tinha ficado com a pilha do sistema (Georgia — ausente na maioria dos
+   Linux, cai para Liberation Serif/DejaVu Serif) e declarou o risco no seu
+   DECISOES.md. Nesta implementação optei por resolver o risco em vez de só
+   declará-lo: baixei os quatro pesos (regular/negrito/itálico/negrito
+   itálico) e a licença de uma fonte já cotada pela pesquisa de mercado
+   ("IBM Plex"), conferi que o arquivo é TrueType assinado pela IBM Corp e
+   que a licença é literalmente a SIL OFL 1.1 (não apenas o nome da fonte).
+   Sem CDN: os arquivos vivem em static/fontes/ e são servidos pelo mesmo
+   mecanismo estático do projeto (R4/DE-011). font-display: swap evita
+   texto invisível enquanto a fonte carrega (a serifada é usada só para
+   prosa/rótulo — números continuam na pilha monoespaçada do sistema, que
+   tem risco de ausência muito menor: DejaVu Sans Mono é quase universal em
+   Linux, Menlo no macOS, Consolas no Windows).
+   ========================================================================== */
+@font-face {
+    font-family: "IBM Plex Serif";
+    src: url("../fontes/ibm-plex-serif/IBMPlexSerif-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Serif";
+    src: url("../fontes/ibm-plex-serif/IBMPlexSerif-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Serif";
+    src: url("../fontes/ibm-plex-serif/IBMPlexSerif-Italic.ttf") format("truetype");
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Serif";
+    src: url("../fontes/ibm-plex-serif/IBMPlexSerif-BoldItalic.ttf") format("truetype");
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
 
 :root {
     color-scheme: light;
-    --cor-texto: #1a1a1a;
-    --cor-fundo: #ffffff;
-    /* #b8bcc4 dava 1,9:1 contra o fundo branco — abaixo do mínimo de 3:1
-       da WCAG 1.4.11 para limite de componente de interface (borda de
-       input, select, tabela, cabeçalho). #6b7280 dá 4,83:1, recalculado
-       (achado A5 da auditoria de DL-009). */
-    --cor-borda: #6b7280;
-    --cor-primaria: #0b4f8a;
-    --cor-primaria-escura: #073d63;
-    --cor-foco: #0b4f8a;
-    --cor-erro: #8a1c1c;
-    --cor-erro-fundo: #fbe9e9;
-    --cor-sucesso: #1c5e2a;
-    --cor-sucesso-fundo: #e9f6ec;
-    --cor-aviso: #7a5200;
-    --cor-aviso-fundo: #fdf3e0;
-    --cor-info: #1c3d5e;
-    --cor-info-fundo: #e8f1fa;
+
+    /* --- Papel (fundo): nunca branco puro na página inteira --- */
+    --papel: #FAF8F3;
+    --papel-alt: #F1EDE3;      /* faixa de destaque: cabeçalho/rodapé de tabela, navegação, hover */
+    --papel-elevado: #FFFFFF;  /* campo de formulário — precisa destacar do fundo papel */
+
+    /* --- Tinta (texto): contraste calculado por luminância relativa WCAG,
+       não estimado — script em docs/assets/design/gauntlet/contraste.py e
+       reproduzido nesta etapa. Texto auxiliar TAMBÉM respeita 4,5:1: "é só
+       uma legenda" não isenta ninguém (direcao-de-arte.md §1). --- */
+    --tinta: #1C1A16;          /* 16,37:1 sobre --papel; 14,86:1 sobre --papel-alt */
+    --tinta-suave: #55504A;    /* 7,52:1 sobre --papel — texto secundário */
+    --tinta-media: #6E695F;    /* 5,14:1 sobre --papel; 4,67:1 sobre --papel-alt — texto auxiliar REAL, não decorativo */
+
+    /* --- Acento: UMA só tinta, para ação principal e foco. Se aparecer uma
+       segunda cor de acento, a direção foi quebrada (direcao-de-arte §1). --- */
+    --acento: #1D3A6E;         /* 10,51:1 sobre --papel (link) */
+    --acento-escuro: #142A50;  /* hover/active do botão primário */
+    --acento-suave: #E4EAF3;   /* fundo de destaque leve (ex.: linha selecionada) */
+    --acento-texto: #FFFFFF;   /* 11,15:1 sobre --acento — texto do botão primário */
+
+    /* --- Semânticas: sempre acompanhadas de TEXTO, nunca só cor --- */
+    --erro: #7A2618;           /* 9,34:1 sobre --papel; 8,32:1 sobre --erro-fundo */
+    --erro-fundo: #F7E8E4;
+    --sucesso: #285C3A;        /* 7,38:1 sobre --papel; 6,68:1 sobre --sucesso-fundo */
+    --sucesso-fundo: #E7EFE8;
+    --aviso: #7A5200;          /* 6,52:1 sobre --papel; 6,05:1 sobre --aviso-fundo */
+    --aviso-fundo: #FBEEDA;
+    --info: #1C3D5E;           /* 10,53:1 sobre --papel; 9,55:1 sobre --info-fundo */
+    --info-fundo: #E6EEF7;
+
+    /* --- Bordas: hairline é decorativa (não porta significado, não precisa
+       do 3:1 de componente — critério 1.4.11 não se aplica a enfeite); a de
+       input é BORDA DE COMPONENTE funcional, calculada para os 3:1 exigidos
+       (nunca para texto — 3,54:1 reprova o mínimo de 4,5:1 de texto). --- */
+    --borda-hairline: #D9D2C2;
+    --borda-input: #8A8375;    /* 3,54:1 sobre --papel — mínimo de componente, NUNCA usar como cor de texto */
+    --borda-forte: #1C1A16;    /* mesma tinta principal — regra de tabela, divisória forte */
+
+    /* --- Impressão: paleta PRÓPRIA, preto e branco puros, nunca a do
+       ecrã — critério 9 da DL-026 ("o balancete sai legível em A4"). Tinta
+       colorida gasta mais cartucho e nem toda impressora reproduz a cor da
+       tela fielmente; texto e regra em preto puro sobre papel branco puro
+       é o padrão mais seguro para qualquer impressora. Só usados dentro de
+       `@media print`. --- */
+    --impressao-fundo: #FFFFFF;
+    --impressao-tinta: #000000;
+
+    /* --- Tipografia: serifada para estrutura/prosa (auto-hospedada, ver
+       @font-face acima), monoespaçada tabulada para TODO algarismo de
+       valor, sem exceção (direcao-de-arte §4.1). --- */
+    --fonte-editorial: "IBM Plex Serif", Georgia, "Iowan Old Style", "Noto Serif", "Liberation Serif", "Times New Roman", serif;
+    --fonte-numerica: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+    --tipo-2xs: 0.6875rem;  /* 11px — rótulo miúdo, maiúsculas espaçadas */
+    --tipo-xs: 0.75rem;     /* 12px — legenda, auxiliar de campo */
+    --tipo-sm: 0.8125rem;   /* 13px — corpo denso de tabela */
+    --tipo-base: 0.875rem;  /* 14px — texto de formulário e corpo padrão (era 1rem; a régua de densidade do brief pesa mais que o costume visual) */
+    --tipo-md: 1rem;        /* 16px — subtítulo, valor de destaque */
+    --tipo-lg: 1.25rem;     /* 20px — título de seção */
+    --tipo-xl: 1.75rem;     /* 28px — título de página */
+
+    --lh-tight: 1.15;
+    --lh-normal: 1.45;
+    --lh-densa: 1.2;        /* linha de tabela: várias fontes na mesma caixa de linha (serifada + numérica) inflam a altura calculada além do padding — medido no protótipo do gauntlet ao recuperar densidade */
+
+    /* --- Espaço: escala de 4px. Nada de medida solta fora dela — se falta
+       um valor, a escala está errada, não o desenho (direcao-de-arte §1). --- */
+    --esp-1: 0.25rem;  /* 4px */
+    --esp-2: 0.5rem;   /* 8px */
+    --esp-3: 0.75rem;  /* 12px */
+    --esp-4: 1rem;     /* 16px */
+    --esp-5: 1.5rem;   /* 24px */
+    --esp-6: 2rem;     /* 32px */
+    --esp-7: 3rem;     /* 48px */
+
+    --raio: 2px;       /* papel é plano; raio quase nulo, só suaviza clique */
+
+    /* --- Traço: largura de borda/contorno — escala PRÓPRIA, mais fina que
+       a de espaço (--esp-N começa em 4px; contorno de campo e divisória de
+       tabela precisam de valores sub-4px). Nunca usar --esp-N para largura
+       de borda, nem um valor de traço fora desta lista (achado M3/BL-279
+       da auditoria da DL-026, rodada 1: ~15 larguras soltas). --- */
+    --traco-fina: 1px;        /* hairline: contorno de campo, divisória leve */
+    --traco-media: 2px;       /* divisória forte de cabeçalho, sublinhado ativo */
+    --traco-grossa: 3px;      /* anel de foco (critério 4 da DL-026/DL-009) */
+    --traco-destaque: 5px;    /* barra lateral de mensagem e de faixa de veredito */
+    --traco-impressao: 1.5pt; /* impressão usa pt, não px (critério 9 da DL-026) */
+    --desloc-foco: 2px;       /* outline-offset do foco padrão */
+    --desloc-foco-campo: 1px; /* outline-offset do foco dentro de campo com borda própria */
+
+    /* --- Rastreamento (letter-spacing): só estes quatro valores no produto
+       inteiro — um quinto sem token é o mesmo erro que uma cor nova solta
+       (mesma regra da família Cor, aplicada a espaçamento de letra). --- */
+    --rastreio-cerrado: -0.01em;  /* títulos grandes (h1/h2/h3) */
+    --rastreio-leve: 0.02em;      /* rótulo de navegação e marca */
+    --rastreio-amplo: 0.05em;     /* cabeçalho de tabela em versalete */
+    --rastreio-maximo: 0.06em;    /* rótulo miúdo da faixa de contexto */
+
+    /* --- Espaço miúdo: abaixo do primeiro degrau da escala (--esp-1 =
+       4px), só para os casos em que 4px é grosso demais. `--esp-atalho` e
+       `--esp-indicador` ficam em `em` (não `rem`) DE PROPÓSITO: precisam
+       acompanhar o tamanho de fonte LOCAL (o mesmo afastamento visual em
+       contextos de fonte diferente — nav principal em --tipo-md, nav da
+       empresa em --tipo-sm), o que `rem` (sempre relativo à raiz) não
+       faz. --- */
+    --esp-minima: 0.1rem;   /* fresta rótulo/valor em coluna estreita da faixa de contexto */
+    --esp-atalho: 0.4em;    /* afastamento entre rótulo de link e atalho de teclado */
+    --esp-indicador: 0.3em; /* afastamento antes do indicador D/C */
+
+    /* --- Layout: largura máxima de CONTEÚDO — não é espaçamento interno
+       (--esp-N), é a régua que limita a linha de texto/tabela. --- */
+    --largura-conteudo: 75rem;    /* .conteudo-principal */
+    --largura-formulario: 32rem;  /* .formulario (cadastro simples) */
+
+    /* --- Técnica de acessibilidade consagrada (WebAIM): afastar da tela
+       ou reduzir a 1px sem tirar o elemento do fluxo do leitor de tela.
+       São os valores fixos da própria técnica, não uma medida de design —
+       nascem aqui do mesmo jeito, para não sobrar nenhum número fora do
+       :root. --- */
+    --fora-da-tela: -999px;
+    --tamanho-oculto: 1px;
+
+    /* --- Medido no Chromium, não calculado por fórmula CSS: altura real
+       da primeira linha do cabeçalho de duas linhas do Balancete, com
+       --tipo-2xs e o padding --esp-2 de `.tabela-dados th` — ver o
+       comentário completo em `.tabela-dois-niveis` mais abaixo, onde o
+       valor é usado. --- */
+    --altura-cabecalho-nivel-1: 1.85rem;
+
+    /* --- Escada de indentação do Plano de Contas/Balancete (achado 6 e
+       R2-9 da auditoria da DL-017): progressão ARITMÉTICA PRÓPRIA de
+       1.25rem por nível a partir do recuo padrão da célula (--esp-3), não
+       a escala de --esp-N — ver o comentário completo em
+       `.tabela-dados td.nivel-N` mais abaixo, onde os valores são
+       usados. --- */
+    --recuo-nivel-2: 2rem;
+    --recuo-nivel-3: 3.25rem;
+    --recuo-nivel-4: 4.5rem;
+    --recuo-nivel-5: 5.75rem;
+    --recuo-nivel-6: 7rem;
+    --recuo-nivel-7: 8.25rem;
+    --recuo-nivel-8: 9.5rem;
+    --recuo-nivel-9: 10.75rem;
+    --recuo-nivel-10: 12rem;
 }
 
 * {
@@ -36,179 +220,357 @@ html {
 
 body {
     margin: 0;
-    font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 1rem;
-    line-height: 1.5;
-    color: var(--cor-texto);
-    background: var(--cor-fundo);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-base);
+    line-height: var(--lh-normal);
+    color: var(--tinta);
+    background: var(--papel);
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+    font-weight: 700;
+    letter-spacing: var(--rastreio-cerrado);
+    margin: 0 0 var(--esp-3);
+}
+
+h1 { font-size: var(--tipo-xl); }
+h2 { font-size: var(--tipo-lg); margin-top: var(--esp-6); }
+h3 { font-size: var(--tipo-md); }
+
+p {
+    margin: 0 0 var(--esp-3);
+}
+
+a {
+    color: var(--acento);
+}
+
+a:hover {
+    color: var(--acento-escuro);
 }
 
 /* Foco visível, explícito e com contraste suficiente em qualquer elemento
-   navegável por teclado — critério 10 do plano DL-009. Usa :focus-visible
-   para não marcar cliques de mouse, apenas navegação por teclado. */
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-summary:focus-visible {
-    outline: 3px solid var(--cor-foco);
-    outline-offset: 2px;
+   navegável por teclado (critério 10 do plano DL-009, mantido pela DL-026
+   critério 7: "o estilo muda de fato ao focar"). Sem :focus-visible
+   sozinho: o anel também aparece no clique de mouse — robustez acima de
+   estética, e é o que o juiz mede (comparar estilo antes/depois do foco,
+   não só ler a regra no CSS). */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+summary:focus,
+[tabindex]:focus {
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco);
 }
 
 /* Atalho para o conteúdo (critério 8): fora da tela até receber foco. */
 .pular-para-conteudo {
     position: absolute;
-    left: -999px;
+    left: var(--fora-da-tela);
     top: 0;
-    padding: 0.5rem 1rem;
-    background: var(--cor-primaria);
-    color: #ffffff;
-    z-index: 10;
+    padding: var(--esp-2) var(--esp-4);
+    background: var(--tinta);
+    color: var(--papel);
+    font-family: var(--fonte-editorial);
+    z-index: 100;
 }
 
 .pular-para-conteudo:focus {
-    left: 0.5rem;
-    top: 0.5rem;
+    left: var(--esp-2);
+    top: var(--esp-2);
 }
 
 .visualmente-oculto {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: var(--tamanho-oculto);
+    height: var(--tamanho-oculto);
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
 }
 
+/* ==========================================================================
+   Moldura: marca, escritório, empresa, competência, navegação. O usuário
+   precisa saber, sempre, em qual empresa e período está operando — por
+   isso o bloco de contexto é sua própria faixa, visualmente separada da
+   faixa utilitária (marca/usuário/sair), nunca disputando atenção com ela.
+   ========================================================================== */
 .cabecalho {
+    border-bottom: var(--traco-fina) solid var(--borda-forte);
+    background: var(--papel);
+}
+
+.cabecalho__topo {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1.5rem;
-    border-bottom: 1px solid var(--cor-borda);
+    gap: var(--esp-4);
+    padding: var(--esp-2) var(--esp-5);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.marca {
+    display: flex;
+    align-items: center;
+    gap: var(--esp-5);
 }
 
 .marca a {
-    font-size: 1.25rem;
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-md);
     font-weight: 700;
-    color: var(--cor-primaria);
+    letter-spacing: var(--rastreio-leve);
+    color: var(--tinta);
     text-decoration: none;
 }
 
-.contexto-operacao {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 1rem;
-    margin: 0;
+.marca a:hover {
+    color: var(--acento);
 }
 
-.contexto-rotulo {
-    font-weight: 600;
-}
-
-.form-sair {
-    margin: 0;
-}
-
-.navegacao-principal {
-    padding: 0.5rem 1.5rem;
-    background: #f4f6f8;
-    border-bottom: 1px solid var(--cor-borda);
+.marca__ponto {
+    color: var(--acento);
 }
 
 .navegacao-principal ul {
     display: flex;
-    gap: 1.25rem;
+    flex-wrap: wrap;
+    gap: var(--esp-5);
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
 .navegacao-principal a {
-    color: var(--cor-primaria);
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--esp-atalho);
+    font-size: var(--tipo-sm);
+    letter-spacing: var(--rastreio-leve);
+    color: var(--tinta-suave);
     text-decoration: none;
-    font-weight: 600;
+    padding: var(--esp-1) 0;
+    border-bottom: var(--traco-media) solid transparent;
 }
 
 .navegacao-principal a:hover {
+    color: var(--tinta);
+    text-decoration: none;
+}
+
+.navegacao-principal a[aria-current="page"] {
+    color: var(--tinta);
+    font-weight: 700;
+    border-bottom-color: var(--acento);
+}
+
+/* Atalho de teclado à mostra na navegação (enxerto da variante B do
+   gauntlet, DE-053/RC-90). Texto miúdo, sem caixa nem borda — a direção
+   escolhida é "cor quase ausente", e um "keycap" desenhado seria poluição
+   visual que a variante B podia se dar ao luxo de ostentar e esta não.
+   O texto é aria-hidden: o nome acessível do link não pode incluir
+   "Alt+L" (o navegador concatenaria ao nome do link e um leitor de tela
+   anunciaria "Balancete Alt L" como se fosse parte do rótulo — pior que
+   não ter atalho nenhum). Quem usa leitor de tela recebe o atalho pelo
+   atributo aria-keyshortcuts do próprio link/botão, não pela leitura do
+   texto visível — ver o comentário completo sobre a escolha das teclas em
+   templates/base.html e templates/contabilidade/_navegacao_empresa.html. */
+kbd.tecla {
+    font-family: var(--fonte-numerica);
+    /* B2/BL-283: era 0.72em sobre --tipo-sm = 9,36px medidos, o menor
+       texto da interface — pequeno demais para um atalho que existe para
+       ser lido. --tipo-2xs (11px) é o próprio piso legível já usado em
+       .contexto-rotulo; ganha em relação ao antigo E deixa de ser um
+       tamanho RELATIVO ao contexto (--tipo-sm na navegação da empresa,
+       --tipo-md na navegação principal — dois tamanhos finais diferentes
+       do mesmo "0.72em"), então o atalho fica com a mesma altura visual
+       nas duas navegações. */
+    font-size: var(--tipo-2xs);
+    font-style: normal;
+    font-weight: 400;
+    color: var(--tinta-media);
+    letter-spacing: var(--rastreio-leve);
+}
+
+/* Navegação contextual da empresa (Plano de contas/Diário/Balancete/
+   Conferência/Novo lançamento — templates/contabilidade/
+   _navegacao_empresa.html): mesmo tratamento visual da navegação
+   principal do cabeçalho, mas vive no início do conteúdo porque depende
+   de uma empresa (a moldura comum não sabe de qual). */
+.navegacao-empresa {
+    margin-bottom: var(--esp-4);
+}
+
+.navegacao-empresa ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--tipo-sm);
+}
+
+.navegacao-empresa a {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--esp-atalho);
+    color: var(--acento);
     text-decoration: underline;
 }
 
+.navegacao-empresa a:hover {
+    color: var(--acento-escuro);
+}
+
+.navegacao-empresa .item-atual {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--esp-atalho);
+    color: var(--tinta);
+    font-weight: 700;
+}
+
+.cabecalho__contexto {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--esp-5);
+    padding: var(--esp-2) var(--esp-5);
+}
+
+.contexto-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-minima);
+    font-size: var(--tipo-sm);
+}
+
+.contexto-rotulo {
+    font-size: var(--tipo-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--rastreio-maximo);
+    color: var(--tinta-media);
+}
+
+.contexto-item strong,
+.contexto-operacao strong {
+    color: var(--tinta);
+    font-weight: 700;
+}
+
+.sessao-usuario {
+    display: flex;
+    align-items: center;
+    gap: var(--esp-4);
+    font-size: var(--tipo-xs);
+    color: var(--tinta-suave);
+}
+
+.form-sair {
+    margin: 0;
+}
+
+.form-sair button {
+    background: transparent;
+    color: var(--tinta);
+    border: var(--traco-fina) solid var(--borda-input);
+}
+
+.form-sair button:hover {
+    background: transparent;
+    border-color: var(--tinta);
+    color: var(--tinta);
+}
+
 .conteudo-principal {
-    max-width: 60rem;
+    max-width: var(--largura-conteudo);
     margin: 0 auto;
-    padding: 1.5rem;
+    padding: var(--esp-5);
 }
 
 /* Mensagens de django.contrib.messages: cor de apoio, nunca único
    indicador — o texto "Erro:", "Sucesso:" etc. já vem no template. */
 .mensagens {
     list-style: none;
-    margin: 0 0 1.5rem;
+    margin: 0 0 var(--esp-5);
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--esp-2);
 }
 
 .mensagem {
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--cor-borda);
-    border-left-width: 6px;
-    border-radius: 2px;
+    padding: var(--esp-3) var(--esp-4);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-left-width: var(--traco-destaque);
+    border-radius: var(--raio);
+    font-size: var(--tipo-sm);
 }
 
 .mensagem-error {
-    color: var(--cor-erro);
-    background: var(--cor-erro-fundo);
-    border-left-color: var(--cor-erro);
+    color: var(--erro);
+    background: var(--erro-fundo);
+    border-left-color: var(--erro);
 }
 
 .mensagem-warning {
-    color: var(--cor-aviso);
-    background: var(--cor-aviso-fundo);
-    border-left-color: var(--cor-aviso);
+    color: var(--aviso);
+    background: var(--aviso-fundo);
+    border-left-color: var(--aviso);
 }
 
 .mensagem-success {
-    color: var(--cor-sucesso);
-    background: var(--cor-sucesso-fundo);
-    border-left-color: var(--cor-sucesso);
+    color: var(--sucesso);
+    background: var(--sucesso-fundo);
+    border-left-color: var(--sucesso);
 }
 
 .mensagem-info,
 .mensagem-debug {
-    color: var(--cor-info);
-    background: var(--cor-info-fundo);
-    border-left-color: var(--cor-info);
+    color: var(--info);
+    background: var(--info-fundo);
+    border-left-color: var(--info);
 }
 
 .formulario {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    max-width: 32rem;
+    gap: var(--esp-4);
+    max-width: var(--largura-formulario);
 }
 
 .campo {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--esp-1);
 }
 
 .campo label {
-    font-weight: 600;
+    font-weight: 700;
+    font-size: var(--tipo-sm);
 }
 
 .campo input,
 .campo select {
-    padding: 0.5rem;
-    border: 1px solid var(--cor-borda);
-    border-radius: 2px;
-    font-size: 1rem;
+    padding: var(--esp-2);
+    border: var(--traco-fina) solid var(--borda-input);
+    border-radius: var(--raio);
+    background: var(--papel-elevado);
+    color: var(--tinta);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-base);
+}
+
+.campo input:focus,
+.campo select:focus {
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco-campo);
 }
 
 /* Texto de apoio VISÍVEL abaixo de um campo — diferente de
@@ -220,90 +582,324 @@ summary:focus-visible {
    ser visível (não só para leitor de tela) porque o problema que ele
    resolve é uma confusão VISUAL, para quem enxerga a tela. */
 .texto-apoio {
-    margin: 0.25rem 0 0;
-    font-size: 0.875rem;
-    color: var(--cor-borda);
+    margin: var(--esp-1) 0 0;
+    font-size: var(--tipo-xs);
+    color: var(--tinta-media);
 }
 
 button {
     align-self: flex-start;
-    padding: 0.5rem 1.25rem;
-    background: var(--cor-primaria);
-    color: #ffffff;
-    border: 1px solid var(--cor-primaria);
-    border-radius: 2px;
-    font-size: 1rem;
+    padding: var(--esp-2) var(--esp-4);
+    background: var(--acento);
+    color: var(--acento-texto);
+    border: var(--traco-fina) solid var(--acento);
+    border-radius: var(--raio);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-base);
+    font-weight: 700;
     cursor: pointer;
 }
 
 button:hover {
-    background: var(--cor-primaria-escura);
+    background: var(--acento-escuro);
+    border-color: var(--acento-escuro);
 }
 
-/* Tabela de dados contábeis/cadastrais: densa e legível, sem esconder
-   colunas — critério "não esconder informação em favor da estética". */
+button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Tabela de dados contábeis/cadastrais: densa e legível, sem esconder
+   colunas — critério "não esconder informação em favor da estética".
+   Cabeçalho fixo ao rolar (direcao-de-arte §2.A / arquétipo "tabela de
+   consulta"): sem wrapper de rolagem interna (o gauntlet media isso com
+   altura de viewport fixa; aqui a página inteira rola).
+
+   A3/BL-276 (auditoria DL-026, rodada 1): esta regra AFIRMAVA que "a
+   página inteira rola, então o totalizador do rodapé já é alcançável sem
+   rolar a tabela inteira — critério 4 da DL-026". Era falso, e medido: o
+   balancete com 73 contas exigia 2153px de rolagem — passar pelas 73
+   linhas — para alcançar o rodapé. `thead` sticky (abaixo) resolve o
+   CABEÇALHO, não o TOTALIZADOR; um comentário que cita o número do
+   critério para descrever o que não cumpre é a falha, não uma
+   interpretação generosa dela (família da BL-142/BL-246).
+
+   O `tfoot` desta tabela genérica CONTINUA sem ser sticky — nenhuma tela
+   depende mais disto para cumprir o critério 4. O Balancete (a tela onde
+   o totalizador é "fecha ou não fecha") resolve pelo caminho oposto:
+   `.faixa-fechamento`, no TOPO da página, antes do filtro — ver o
+   comentário dela em templates/contabilidade/balancete.html e a regra
+   logo abaixo desta seção. Diário, Razão e Plano de Contas não têm essa
+   faixa e HERDAM a mesma limitação que esta regra tinha antes: o total
+   deles só é alcançável rolando a tabela — registrado, não escondido. */
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
+    font-size: var(--tipo-sm);
+    margin-bottom: var(--esp-3);
 }
 
 .tabela-dados th,
 .tabela-dados td {
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--cor-borda);
+    padding: var(--esp-2) var(--esp-3);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
     text-align: left;
+    line-height: var(--lh-densa);
 }
 
 .tabela-dados th {
-    background: #f4f6f8;
+    position: sticky;
+    top: 0;
+    background: var(--papel-alt);
+    border-bottom: var(--traco-media) solid var(--borda-forte);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-2xs);
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--rastreio-amplo);
+    color: var(--tinta-suave);
+    z-index: 2;
 }
 
-/* Valor monetário (DL-017, fase B): a primeira tela de escrituração e
-   relatório contábil chegou, e com ela o requisito real que o comentário
-   antigo deste arquivo dizia estar esperando — alinhamento à direita e
-   algarismos de largura fixa (tabular-nums), para que colunas de valores
-   fiquem alinhadas verticalmente e sejam fáceis de somar visualmente.
-   O sinal (débito/crédito) NUNCA é só a cor: o indicador D/C ao lado
-   (.indicador-natureza) é sempre texto, nunca só cor. */
+/* Cabeçalho de coluna em dois níveis (enxerto da variante C do gauntlet,
+   DE-053/RC-90): usado só no Balancete, para separar "Movimento do
+   período" (consolidado pela hierarquia) de "Lançamento próprio" (só o
+   que foi lançado direto nesta conta) sem alargar a tabela — as duas
+   colunas já existiam (achado 10/BL-96, DE-024 §2); o que muda é o
+   agrupamento visual. Sticky em duas linhas não é uma propriedade só: cada
+   <tr> precisa do próprio "top". O valor de --altura-cabecalho-nivel-1
+   foi MEDIDO no Chromium (altura real da primeira linha do cabeçalho
+   nesta tabela, com --tipo-2xs e o padding --esp-2 do .tabela-dados th),
+   não calculado por fórmula CSS — mesmo método que o protótipo do
+   gauntlet já documentava. */
+.tabela-dois-niveis thead tr:first-child th {
+    top: 0;
+}
+
+.tabela-dois-niveis thead tr:last-child th {
+    top: var(--altura-cabecalho-nivel-1);
+}
+
+.tabela-dois-niveis th[scope="colgroup"] {
+    text-align: center;
+    border-left: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.tabela-dados tbody tr:hover {
+    background: var(--papel-alt);
+}
+
+/* Valor monetário: alinhamento à direita e algarismos de largura fixa
+   (DL-017, fase B). O sinal (débito/crédito) NUNCA é só a cor: o
+   indicador D/C ao lado (.indicador-natureza) é sempre texto, nunca só
+   cor. Todo algarismo de valor usa a fonte numérica tabulada — a régua da
+   DL-026 mede isso por COMPORTAMENTO (duas larguras de dígito precisam
+   ser iguais), não por declaração de fonte. Uma classe só, sem qualificar
+   por `th`/`td` (a mesma classe alinha à direita e tabula em qualquer
+   elemento — inclusive fora de tabela, ex.: o total do lançamento). */
 .valor-monetario {
     text-align: right;
+    font-family: var(--fonte-numerica);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-th.valor-monetario {
-    text-align: right;
 }
 
 /* Indicador de natureza do saldo (D/C, RC-61): peso de fonte, nunca só
    cor — sempre acompanhado, no HTML, de um texto por extenso só para
    leitor de tela (.visualmente-oculto, já definida acima). */
 .indicador-natureza {
+    font-family: var(--fonte-editorial);
     font-weight: 700;
-    margin-left: 0.25rem;
+    margin-left: var(--esp-indicador);
+}
+
+/* Saldo invertido (contrário à natureza cadastrada da conta): parênteses,
+   não cor nem sinal negativo — convenção contábil mais antiga que a tinta
+   vermelha e mais resistente a adulteração (um traço vira "+" com um
+   toque de caneta; um parêntese não se desfaz). Só usado onde a view já
+   expõe a natureza CADASTRADA da conta junto da linha (hoje, só o Razão —
+   ver o comentário em templates/contabilidade/razao.html sobre por que o
+   Balancete ainda não tem isso). */
+.valor-invertido {
+    color: var(--erro);
 }
 
 /* Linha de total/rodapé de tabela contábil (Diário, Razão, Balancete):
    destaque visual (borda e peso), nunca o único jeito de saber que é um
-   total — o próprio texto da célula ("Total do período" etc.) já diz isso. */
+   total — o próprio texto da célula ("Total do período" etc.) já diz
+   isso. */
 .linha-total td {
     font-weight: 700;
-    border-top: 2px solid var(--cor-borda);
+    border-top: var(--traco-media) solid var(--borda-forte);
+    background: var(--papel-alt);
+}
+
+/* M2/BL-278 (auditoria DL-026, rodada 1): "fecha ou não fecha" no
+   lançamento, DE-053 §3 — texto primeiro (a palavra "Fecha"/"Não fecha"
+   está sempre no HTML), cor de reforço na primeira célula da linha via
+   este modificador, nunca o único canal. Aplicado em
+   templates/contabilidade/lancamento_form.html, na MESMA `<tr
+   class="linha-total">` que já mostra os dois totais — não é uma linha
+   nova, é a linha existente ganhando veredito. */
+.linha-total__veredito--fecha {
+    border-left: var(--traco-destaque) solid var(--sucesso);
+}
+
+.linha-total__veredito--fecha .veredito-fechamento {
+    color: var(--sucesso);
+}
+
+.linha-total__veredito--nao-fecha {
+    border-left: var(--traco-destaque) solid var(--erro);
+}
+
+.linha-total__veredito--nao-fecha .veredito-fechamento {
+    color: var(--erro);
+}
+
+/* BL-289 (rodada 4 da auditoria DL-026, achado A1): terceiro estado do
+   veredito — "ainda não conferido", NUNCA "Fecha". Antes desta correção o
+   template comparava os dois totais em TEXTO pt-BR e "0,00" == "0,00" é
+   verdadeiro: formulário em branco, todas as linhas descartadas, total
+   zerado e total negativo caíam todos no ramo "Fecha" (em verde, com a
+   borda de --sucesso). Cor NEUTRA (--info, a mesma de "mensagem-info") —
+   nem sucesso nem erro: não há lançamento nenhum para fechar ou não
+   fechar ainda. */
+.linha-total__veredito--nao-conferido {
+    border-left: var(--traco-destaque) solid var(--info);
+}
+
+.linha-total__veredito--nao-conferido .veredito-fechamento {
+    color: var(--info);
+}
+
+/* A3/BL-276 + M2/BL-278 (auditoria DL-026, rodada 1): faixa de fechamento
+   do Balancete — resolve as DUAS coisas na mesma superfície, porque são a
+   mesma pergunta ("os totais fecham?") em duas roupagens (critério 4:
+   totalizador alcançável sem rolar a tabela inteira; DE-053 §3: "fecha ou
+   não fecha" é a segunda coisa que o olho encontra). Fica logo após o
+   `<h1>` do Balancete, ANTES do formulário de período — por isso é
+   alcançável com rolagem zero, e é literalmente a segunda coisa da tela
+   depois do título. Reaproveita `.contexto-item`/`.contexto-rotulo` (o
+   mesmo par da faixa de contexto do cabeçalho) em vez de inventar uma
+   variante nova.
+
+   Os dois totais que aparecem aqui (`total_debitos_ptbr`/
+   `total_creditos_ptbr`) são as colunas "próprias" do rodapé da tabela
+   (achado 10/BL-96, DE-024 §2) — por construção, todo lançamento
+   efetivado tem débito igual a crédito (services.criar_lancamento), então
+   a soma de todos os débitos próprios do plano SEMPRE fecha com a soma de
+   todos os créditos próprios, salvo corrupção de dado. O veredito
+   "Não fecha" existe como rede de segurança visível, não como caminho
+   esperado. */
+.faixa-fechamento {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--esp-5);
+    /* BL-284 (rodada 3, DL-026): esp-3 em vez de esp-4 — 4px que fazem
+       falta para a 9ª linha do balancete caber em 1280×800 (medido: a
+       linha 9 terminava em 804px, 4px acima do piso de 800px, depois da
+       correção do BL-277). `.faixa-fechamento` só existe no Balancete —
+       ajuste sem risco para outra tela. */
+    margin-bottom: var(--esp-3);
+    padding: var(--esp-3) var(--esp-4);
+    border: var(--traco-fina) solid var(--sucesso);
+    border-left-width: var(--traco-destaque);
+    border-radius: var(--raio);
+    background: var(--sucesso-fundo);
+}
+
+.faixa-fechamento--nao-fecha {
+    border-color: var(--erro);
+    background: var(--erro-fundo);
+}
+
+/* BL-302 (rodada 4 da auditoria DL-026, achado B4): terceiro estado da
+   faixa — "nada a conferir", para quando os dois totais do período são
+   ZERO (empresa sem movimento no mês, o estado em que o Balancete abre no
+   dia 1º de todo mês). Antes desta correção, `total_debitos_ptbr ==
+   total_creditos_ptbr` também era verdadeiro para 0,00 == 0,00, e a
+   resposta mais destacada da tela virava um "Fecha" verde sobre nada — a
+   versão branda do A1, onde o veredito vira ruído ambiente e deixa de ser
+   lido quando de fato importa. Cor NEUTRA (--info), a mesma do terceiro
+   estado do lançamento (.linha-total__veredito--nao-conferido) — mesma
+   decisão de três estados, nas duas telas. */
+.faixa-fechamento--nada-a-conferir {
+    border-color: var(--info);
+    background: var(--info-fundo);
+}
+
+.faixa-fechamento__veredito {
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-md);
+    font-weight: 700;
+    color: var(--sucesso);
+}
+
+.faixa-fechamento--nao-fecha .faixa-fechamento__veredito {
+    color: var(--erro);
+}
+
+.faixa-fechamento--nada-a-conferir .faixa-fechamento__veredito {
+    color: var(--info);
 }
 
 /* Formulário de período (Diário, Razão, Balancete): disposição em linha,
-   para não ocupar a tela inteira só com duas datas e um botão. */
+   para não ocupar a tela inteira só com duas datas e um botão — o
+   "filtro não come a tela" que a direção nomeia como defeito mais
+   reclamado do concorrente internacional (5 linhas de filtro para 10
+   linhas de dado). */
 .formulario-periodo {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: var(--esp-4);
+    /* BL-284 (rodada 3, DL-026): esp-3 em vez de esp-4 — mesmo motivo do
+       ajuste em `.faixa-fechamento` logo acima. Classe COMPARTILHADA com
+       Diário e Razão: o efeito lá é só ganhar 4px de densidade também
+       (nunca perder — a régua não desce em nenhuma tela por causa
+       disto), porque nenhuma delas depende deste espaçamento para outra
+       coisa. */
+    margin-bottom: var(--esp-3);
+    padding: var(--esp-2) var(--esp-3);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
 }
 
 .formulario-periodo .campo {
-    gap: 0.25rem;
+    gap: var(--esp-1);
+    min-width: 0;
+}
+
+.formulario-periodo input[type="date"] {
+    font-family: var(--fonte-numerica);
+}
+
+/* BL-277/BL-284 (rodada 3, DL-026): parágrafo de ajuda de formato de data
+   COMPARTILHADO entre os campos "Início" e "Fim" do Balancete — ver o
+   comentário em templates/contabilidade/balancete.html sobre por que
+   repetir o mesmo texto em cada `.campo` custava uma linha inteira do
+   filtro (o parágrafo, sem largura própria, inflava o `.campo` até o
+   "max-content" da sentença). `flex-basis: 100%` faz este item ocupar
+   sozinho a própria linha dentro do `.formulario-periodo` (flex-wrap),
+   em vez de disputar largura com os campos de data. `margin-top: 0`
+   porque o espaçamento vertical já vem do `gap` do formulário
+   (`--esp-4`); somar a margem própria do `.texto-apoio` por cima
+   duplicaria a distância.
+
+   Classe PRÓPRIA, não uma regra em `.formulario-periodo .texto-apoio`:
+   aquele seletor estrutural também alcançaria o texto de ajuda por campo
+   do Diário e da Razão (mesma marcação, um parágrafo por campo) — essas
+   duas telas não fazem parte desta correção (fora dos arquivos
+   permitidos nesta etapa) e mudar o comportamento delas sem medir não
+   seria correção, seria risco novo. Esta classe só existe onde o
+   template a aplica de propósito. */
+.ajuda-formato-data {
+    flex-basis: 100%;
+    margin-top: 0;
 }
 
 /* Formulário de lançamento: os campos de conta/tipo/valor moram dentro de
@@ -312,21 +908,31 @@ th.valor-monetario {
 .formulario-lancamento {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--esp-4);
 }
 
 .formulario-lancamento .tabela-dados select,
 .formulario-lancamento .tabela-dados input {
     width: 100%;
-    padding: 0.4rem;
-    border: 1px solid var(--cor-borda);
-    border-radius: 2px;
-    font-size: 1rem;
+    padding: var(--esp-1) var(--esp-2);
+    border: var(--traco-fina) solid var(--borda-input);
+    border-radius: var(--raio);
+    background: var(--papel-elevado);
+    color: var(--tinta);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-base);
+}
+
+.formulario-lancamento .tabela-dados input[name^="valor_"] {
+    font-family: var(--fonte-numerica);
+    text-align: right;
 }
 
 .acoes-formulario {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--esp-3);
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 /* Indentação hierárquica do Plano de Contas e do Balancete (achado 6 da
@@ -338,7 +944,9 @@ th.valor-monetario {
    teste ou erro acusando. A coluna "Nível" continua mostrando o número
    real além do décimo nível — nenhuma informação é escondida, só a
    indentação visual satura ali (nenhuma hierarquia contábil real chega
-   lá).
+   lá). A hierarquia agora também se apoia em PESO tipográfico (direção
+   "papel e tinta": recuo E peso, não só recuo — ver .conta-sintetica
+   abaixo), não só no recuo.
 
    Seletor `.tabela-dados td.nivel-N`, não `.nivel-N` isolado: a
    especificidade de UMA classe (0,1,0) perde para a regra genérica da
@@ -358,28 +966,136 @@ th.valor-monetario {
    20px pretendidos (1.25rem − 0.75rem, em vez de 1.25rem inteiro). A
    indentação agora é ADITIVA sobre o recuo padrão da célula: "nivel-0" e
    "nivel-1" (raiz do plano; e o caso degenerado de conta em ciclo, sem
-   nível apurável) usam o MESMO `padding-left` da célula comum (0.75rem —
+   nível apurável) usam o MESMO `padding-left` da célula comum (--esp-3 —
    alinhados com o cabeçalho, sem indentação), e cada nível seguinte soma
-   exatamente 1.25rem (20px) a partir daí. */
-.tabela-dados td.nivel-0 { padding-left: 0.75rem; }
-.tabela-dados td.nivel-1 { padding-left: 0.75rem; }
-.tabela-dados td.nivel-2 { padding-left: 2rem; }
-.tabela-dados td.nivel-3 { padding-left: 3.25rem; }
-.tabela-dados td.nivel-4 { padding-left: 4.5rem; }
-.tabela-dados td.nivel-5 { padding-left: 5.75rem; }
-.tabela-dados td.nivel-6 { padding-left: 7rem; }
-.tabela-dados td.nivel-7 { padding-left: 8.25rem; }
-.tabela-dados td.nivel-8 { padding-left: 9.5rem; }
-.tabela-dados td.nivel-9 { padding-left: 10.75rem; }
-.tabela-dados td.nivel-10 { padding-left: 12rem; }
+   exatamente 1.25rem (20px) a partir daí. Os valores moram em
+   `--recuo-nivel-N` (bloco `:root`), NÃO em `--esp-N`: é uma progressão
+   aritmética própria desta escada, não a escala de espaçamento do resto
+   da tela, e forçar as duas a coincidir tornaria a fórmula menos legível
+   sem ganho nenhum — mas um valor precisa nascer em ALGUMA variável do
+   :root (regra deste arquivo), nunca solto na regra de tela. */
+.tabela-dados td.nivel-0 { padding-left: var(--esp-3); }
+.tabela-dados td.nivel-1 { padding-left: var(--esp-3); }
+.tabela-dados td.nivel-2 { padding-left: var(--recuo-nivel-2); }
+.tabela-dados td.nivel-3 { padding-left: var(--recuo-nivel-3); }
+.tabela-dados td.nivel-4 { padding-left: var(--recuo-nivel-4); }
+.tabela-dados td.nivel-5 { padding-left: var(--recuo-nivel-5); }
+.tabela-dados td.nivel-6 { padding-left: var(--recuo-nivel-6); }
+.tabela-dados td.nivel-7 { padding-left: var(--recuo-nivel-7); }
+.tabela-dados td.nivel-8 { padding-left: var(--recuo-nivel-8); }
+.tabela-dados td.nivel-9 { padding-left: var(--recuo-nivel-9); }
+.tabela-dados td.nivel-10 { padding-left: var(--recuo-nivel-10); }
+
+/* M4/BL-280 (auditoria DL-026, rodada 1): hierarquia por PESO, não só por
+   recuo — DE-053 §1: "a hierarquia do plano de contas vem de peso e
+   recuo, não de uma coluna 'Nível' nem de cor". Medido antes desta
+   correção: peso 400 nos quatro níveis do balancete, só o recuo
+   diferenciava, e a coluna "Nível" era o único sinal de verdade — embora
+   o comentário do bloco `.nivel-N` ACIMA já afirmasse "a hierarquia
+   agora também se apoia em PESO tipográfico... ver .conta-sintetica
+   abaixo" desde a implementação original: a classe nunca tinha sido
+   escrita. É a mesma classe de defeito da BL-142/BL-246 (comentário
+   descrevendo o que a etapa NÃO fez), só que em CSS em vez de prosa.
+
+   Conta SINTÉTICA (não aceita lançamento — é grupo/totalizador da
+   hierarquia) pesa mais que conta ANALÍTICA (aceita lançamento — é onde
+   o fato contábil pousa): o olho encontra o total do grupo sem precisar
+   ler a coluna "Nível", que passa a ser informação de apoio, não mais o
+   único sinal. Aplicada no `<td>` do nome da conta, junto da classe
+   `nivel-N` (recuo) — texto por extenso equivalente ("(grupo)") ou
+   legenda visível deve acompanhar em cada tela que usa isto (ver
+   templates/contabilidade/balancete.html e plano_de_contas.html), porque
+   peso sozinho tem o MESMO problema de "cor sozinha" para quem não
+   distingue as duas visualmente. */
+.conta-sintetica {
+    font-weight: 700;
+}
 
 /* Coluna consolidada do Balancete que NÃO é somável no rodapé (achado 10
    / BL-96: "Débitos"/"Créditos" contam cada lançamento uma vez por nível
    da hierarquia — só "Débitos próprios"/"Créditos próprios" somam,
    DE-024 §2). Separação visual discreta, nunca o único indicador — o "—"
    e o `title`/texto para leitor de tela (no template) já dizem isso em
-   texto. */
+   texto. Cor auxiliar (--tinta-media, 5,14:1): o olho vai primeiro no
+   movimento consolidado e no saldo, não nesta coluna de detalhe. */
 .coluna-nao-somavel {
-    background: #f4f6f8;
-    color: var(--cor-borda);
+    background: var(--papel-alt);
+    color: var(--tinta-media);
+}
+
+/* ==========================================================================
+   Impressão: o balancete (e qualquer tabela de dados) sai legível em A4,
+   com a identidade do ESCRITÓRIO — critério 9 da DL-026. Sem cor de fundo
+   (economiza tinta, e nem toda impressora reproduz cor fiel), cabeçalho
+   sticky vira estático (a impressão pagina por conta própria), e o que é
+   só decorativo na tela (moldura do masthead) recua para não competir com
+   o dado.
+   ========================================================================== */
+@media print {
+    /* Fora do papel: navegação (de nada serve numa folha), atalho de
+       teclado (kbd.tecla — accesskey não existe em papel), botão de ação
+       (Sair, Consultar período, Adicionar linha...) e o formulário de
+       filtro inteiro (as datas do filtro já aparecem em texto, em
+       .cabecalho__contexto, que continua impresso). */
+    .pular-para-conteudo,
+    .navegacao-principal,
+    .navegacao-empresa,
+    .form-sair,
+    .formulario-periodo,
+    .mensagens,
+    kbd.tecla,
+    button {
+        display: none;
+    }
+
+    body {
+        background: var(--impressao-fundo);
+        color: var(--impressao-tinta);
+    }
+
+    /* Nenhuma faixa de destaque colorida sobrevive à impressão — tinta
+       colorida gasta mais cartucho e nem toda impressora reproduz a cor da
+       tela fielmente (mesmo raciocínio do :root, mas aplicado a TODO
+       elemento com fundo, não só à tabela). A faixa de fechamento
+       (BL-276/BL-278) entra na mesma lista: o VEREDITO continua saindo —
+       é texto ("Fecha"/"Não fecha") — só a cor de fundo e a borda colorida
+       somem, junto com o resto das faixas de destaque. */
+    .cabecalho,
+    .cabecalho__topo,
+    .cabecalho__contexto,
+    .mensagem,
+    .linha-total td,
+    .coluna-nao-somavel,
+    .faixa-fechamento,
+    .tabela-dados tbody tr:hover {
+        background: var(--impressao-fundo) !important;
+        color: var(--impressao-tinta) !important;
+        border-color: var(--impressao-tinta) !important;
+    }
+
+    .faixa-fechamento__veredito,
+    .veredito-fechamento {
+        color: var(--impressao-tinta) !important;
+    }
+
+    .tabela-dados th {
+        position: static;
+        background: var(--impressao-fundo) !important;
+        color: var(--impressao-tinta) !important;
+        border-bottom: var(--traco-impressao) solid var(--impressao-tinta);
+    }
+
+    .tabela-dados td,
+    .tabela-dados th {
+        border-bottom-color: var(--impressao-tinta);
+    }
+
+    .valor-invertido {
+        color: var(--impressao-tinta) !important;
+    }
+
+    a {
+        color: var(--impressao-tinta);
+        text-decoration: none;
+    }
 }

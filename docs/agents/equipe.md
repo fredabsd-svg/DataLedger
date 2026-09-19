@@ -174,6 +174,30 @@ desatualizada**.
 Uma tarefa só é concluída quando os critérios aplicáveis estiverem atendidos e
 as evidências registradas.
 
+### Abrir auditoria: o que se verifica antes de escrever o pedido
+
+O pedido de auditoria **declara a revisão e o estado da árvore**, e as duas
+coisas são **conferidas no momento de escrever**, nunca lembradas:
+
+| Antes de abrir a auditoria | Como |
+| --- | --- |
+| Qual é a revisão auditada | `git rev-parse HEAD`, e o SHA vai **escrito no pedido** |
+| A árvore está limpa | `git status --porcelain`, e o resultado vai no pedido |
+| Ninguém mais está editando | `ListAgents` — agente vivo é agente escrevendo |
+
+Isto existe por um erro concreto, de 2026-09-18 (**BL-304**): o
+`arquiteto-senior` escreveu no pedido que *"nenhum outro agente está rodando
+agora"* enquanto um `especialista-frontend` editava `docs/assets/`. O auditor
+detectou a árvore mudando debaixo dele, nomeou os três arquivos **e o minuto**
+de cada um, e só manteve a validade do parecer porque tem o hábito de medir em
+cópia de `git archive`.
+
+A lição não é "prestar mais atenção". É que **"ninguém está rodando" é uma
+afirmação verificável, e afirmação verificável não se escreve de memória** —
+ainda mais num pedido cujo objetivo é obter medição confiável. Pôr o SHA e o
+`git status` no próprio pedido tem um segundo efeito: permite ao auditor
+detectar a divergência **sem depender da palavra de quem pediu**.
+
 ## Pareceres do auditor
 
 `APROVADO`, `APROVADO COM RESSALVAS`, `REPROVADO` ou `NÃO CONCLUÍDO` (quando

@@ -1,9 +1,18 @@
 # Estado atual da equipe de agentes
 
-Atualizado em **2026-09-17**, a partir da `main` em **`c7346e6`** (BL-261
-integrada — guard em `Conta.clean()` + 4 testes em
-`test_dl023_conta_nao_muda_de_empresa_ou_natureza.py`). Branch de trabalho
-`main`, limpa. DL-024 encerrada via DE-043 (CA-4 reconciliada).
+A DL-023 entrou na `main` pela rodada 2, após auditoria reprovada na rodada 1;
+o que mudou entre uma e outra está na tabela de etapas e no histórico.
+
+> ⚠️ **Este parágrafo já afirmou a revisão exata da `main`, e a afirmação
+> nasceu falsa.** Dizia `8235635`; quando o auditor conferiu (achado B1 da
+> [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)) a `main` estava em
+> `bfe9814` — mesclado **22 minutos depois**, pelo PR que integrou *este
+> próprio arquivo*. Quando fui corrigir, já estava em `b588af9`.
+>
+> A lição não é "manter atualizado": é que **SHA da `main` não se escreve
+> aqui**. Ele muda a cada merge, inclusive pelo merge deste documento, e
+> qualquer valor escrito envelhece antes de ser lido. Quem precisa da revisão
+> lê do Git, que é a fonte que não diverge: `git rev-parse origin/main`.
 
 > **Correção de um erro do `arquiteto-senior`, registrada aqui porque é a regra
 > que o Fred transformou em instrução permanente.** O achado 7 da [auditoria
@@ -222,6 +231,7 @@ diverge.
 | [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Integrada (PR #27, `1b828e7`)** + **BL-261 integrada (`c7346e6`, bugfix `30924ca`)** — guarda em `Conta.clean()` recusa reparentar conta com movimento para grupo de natureza oposta; 4 testes cobrindo recusa + 3 controles positivos. Ressalvas contábeis abertas: **BL-262** (admin sem isolamento por escritório em nenhuma superfície — etapa própria), **BL-263** (caixa do PR marcada com estado desatualizado), **BL-267** (add de conta cria em empresa de outro escritório — depende de BL-262), **BL-264, BL-265, BL-266, BL-268, BL-269, BL-270, BL-271, BL-272** (backlog, baixa/ressalva). |
 | [DL-024](../planos/DL-024-trilha-integra-e-processo.md) | Trilha íntegra e processo: `registrar()` dentro da mesma transação que grava; `RegistroAuditoria` imutável contra `update()`/`delete()` em massa; PUT/PATCH com diff dos campos alterados; teste automatizado do gate SQLite/PostgreSQL | **Integrada (PR #28 + PR #29, `f9ee6c5`, DE-043)** — BL-14 (atomicidade), BL-16 (manager imutável), BL-57 (PUT/PATCH com diff), BL-244 (signal admin para 6 modelos via lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`), BL-50 (gate SQLite/PostgreSQL, 5/5), CA-6 (matriz de acesso fixada). CI: 1.345 testes, 2 pulados. CA-4 reconciliada: plano listava 6 ModelAdmin mas registry tem 4; `Estabelecimento` é inline de Empresa, `HistoricoRegimeTributario` removido pelo admin na DL-023. DE-043: o plano é artefato derivado do código, não o contrário. [Auditoria rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md). **Fora do escopo:** BL-02 (proteção da main, ação do Fred), BL-242, criptografia em repouso, logs externos |
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
+| [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -256,7 +266,128 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-16: DL-024 em validação, com a rodada 1 validada
+**AGORA, em 2026-09-19:
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
+RODADA 5 INTEGRADA E MEDIDA, AGUARDANDO A QUARTA AUDITORIA.** Três auditorias,
+**as três REPROVARAM**, e as três acharam coisa real:
+
+| Auditoria | Revisão | Parecer | Achados |
+| --- | --- | --- | --- |
+| [Rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md) | `5c7303e` | REPROVADO | 3 altos, 6 médios, 4 baixos |
+| [Rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md) | `c71bd55` | REPROVADO | 3 altos, 7 médios, 5 baixos |
+| [Rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md) | `23c6ac8` | REPROVADO | 3 altos, 5 médios, 3 baixos |
+
+### A causa das três reprovações, e ela é de distribuição
+
+O auditor nomeou o que eu não tinha conseguido nomear:
+
+> *"A distância entre isto e a aprovação não é de esforço. É de **onde a guarda
+> é posta**: três vezes nesta rodada ela foi posta contra a frase do meu
+> relatório em vez de contra o requisito."*
+
+Eu vinha entregando aos implementadores **o achado**, com reprodução e "como
+verificar". A correção nascia do **tamanho exato do achado** — fechava aquele
+caso e nada mais, e a defesa ficava sempre uma auditoria atrás.
+
+**A rodada 5 entregou o REQUISITO**, com o achado como ilustração, e a ordem de
+serviço dizia: *"se a sua guarda fecha exatamente os casos citados e nada
+além, ela está errada mesmo passando"*. O resultado apareceu — os dois
+especialistas acharam, cada um, uma ocorrência que **ninguém tinha pedido**:
+
+- o `desenvolvedor-pleno` mediu que a causa do BL-307 era mais funda que a
+  relatada: passar `linhas_excluidas_do_total` fecharia só **2 dos 4** casos, e
+  os outros dois balanceiam as partidas válidas perfeitamente. Criou uma quinta
+  condição e quatro casos novos;
+- o `especialista-frontend` descobriu que a **soma por coluna** do balancete
+  também é igual por partida dobrada — uma troca em *todas* as linhas seria
+  invisível.
+
+### Medição da rodada 5, feita pelo `arquiteto-senior` com a máquina livre
+
+`1525 passed, 12 skipped` em 57,08s; `ruff check` limpo; `ruff format --check`
+178 arquivos; `manage.py check` limpo; `git diff -- templates/ static/` vazio.
+
+**As quatro sabotagens, refeitas pelo arquiteto em cópia da árvore:**
+
+| Sabotagem | Resultado |
+| --- | --- |
+| BL-307 — neutralizar a quinta condição do veredito | **6 failed** |
+| BL-308 — trocar o crédito da faixa pelo débito | **4 failed** |
+| BL-309 — módulo novo **bem formado** em `apps/<mod>/templates/`, sem linha no §3 | **1 failed** |
+| BL-313 — `max-width`, `min-height`, `box-shadow`, `2lh`, `1.5cap`, `translateX` | **1 failed** |
+
+A terceira é a que mais importa para a evolução por módulos: a tela **estende a
+moldura, tem legenda, escopo e classe de valor** — e reprova assim mesmo,
+porque o módulo não declarou a pergunta que ela responde antes de gravar.
+
+Distribuição da rodada 4, arquivos disjuntos, contrato de contexto fixado por
+mim **antes** para os dois trabalharem em paralelo sem esperar um pelo outro:
+
+| Frente | Responsável | Itens |
+| --- | --- | --- |
+| Servidor e mecanismo | `desenvolvedor-pleno` | BL-289 (a decisão na view), BL-291, BL-292, BL-293, BL-294, BL-298 |
+| Telas e guardas de tela | `especialista-frontend` | BL-289 (o ramo do template), BL-290, BL-295, BL-296, BL-297, BL-301, BL-302 |
+| Documentação e processo | `arquiteto-senior` | BL-299, BL-300, BL-303, BL-304 — **concluídos** em `7720e5f` |
+
+**Contrato de contexto** (nomes fixos, não negociáveis sozinho):
+`veredito_fechamento` ∈ `fecha` / `nao_fecha` / `nao_conferido` no lançamento;
+`veredito_balancete` ∈ `fecha` / `nao_fecha` / `nada_a_conferir`. **Nenhuma
+comparação de valor no template** — foi comparar texto que produziu o BL-289.
+
+Decisões de coordenação que continuam valendo desde a rodada 2:
+
+1. **Os conjuntos de arquivos não se tocam.**
+2. **Os especialistas não commitam.** A integração e a medição solo são minhas.
+3. **Medição concorrente não vira relatório** (**BL-273**): resultado anômalo
+   em massa se repete sozinho antes de ser reportado. Já aconteceu — `1279
+   errors` numa revisão que, sozinha, deu `1279 passed`.
+4. **Preservação adiciona arquivo por caminho, nunca `git add -A`** — um
+   retrato meu já levou junto trabalho alheio sem descrever (registrado em
+   `c71bd55`).
+5. **Pedido de auditoria leva o SHA e o `git status` conferidos na hora**
+   (**BL-304**, e a regra está em [equipe.md](equipe.md)).
+
+**Decisão do Fred, 2026-09-18, sobre quando mesclar.** Ele pediu "commitar
+tudo, abrir os PR e mesclar para não perdermos nada", ouviu a recomendação
+contrária e **aprovou esperar**. O que está registrado, porque a distinção é o
+ponto: **commitar e publicar é o que preserva; mesclar é declarar pronto.** A
+preservação já está garantida e medida (HEAD local e `origin` no mesmo SHA).
+Mesclar antes da auditoria levaria para a `main` um veredito de fechamento que
+mente na tela vazia. **Sequência aprovada:** integrar → medir sozinho →
+auditar → abrir o PR → merge do Fred com o parecer em mãos.
+
+Precedente que motivou a recomendação: o **PR #24 foi mesclado** estando
+marcado como rascunho e com "não deve ser mesclado" escrito no corpo —
+rascunho no GitHub **não impede** merge, e a `main` carrega a DL-023 com três
+pendências abertas por causa disso.
+
+Fora da rodada 4, por decisão registrada: **BL-277** (o filtro do balancete),
+**BL-281** (parênteses no balancete — muda a view), **BL-282** (timbre do
+escritório na impressão) e **BL-287** (a ajuda de data unificada só no
+balancete; Diário, Razão e Lançamento seguem duplicando).
+
+**Antes, em 2026-09-16:
+[DL-023](../planos/DL-023-integridade-administrativa.md) — integridade
+administrativa, PRIMEIRA ETAPA DE CÓDIGO da fila aprovada. Rodada 1
+REPROVADA em `96284a4`; rodada 2 corrigiu os dez itens; RODADA 3 — a segunda
+auditoria — APROVOU COM RESSALVAS na revisão `a612604`.** Rodada 4, curta, em
+curso: três itens baratos (**BL-264**, **BL-265**, **BL-266**). Relatórios
+integrais e preservados:
+[rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) e
+[rodada 3](../auditorias/2026-09-16-dl-023-rodada-3.md) — nesta etapa o número
+conta **rodadas de trabalho**, não auditorias, e por isso não existe arquivo de
+"rodada 2".
+
+---
+
+> **Duas frentes conviveram.** O que segue veio pela `main`, de outra linha
+> de trabalho, e está aqui porque o estado é fonte única — não porque seja o
+> passo desta branch. ⚠️ A etapa citada abaixo como DL-024 é a **trilha
+> íntegra**; a identidade visual, que nasceu com o mesmo número, foi
+> renumerada para **DL-026** na junção de 2026-09-19 (ver o plano dela para
+> o motivo).
+
+**EM OUTRA FRENTE, desde 2026-09-16 (trabalho que chegou pela `main`, não desta branch): DL-024 — trilha íntegra e processo — em validação, com a rodada 1 validada
 pela CI e CA-4 ainda bloqueada por divergência de superfície.** Branch
 `claude/dl-024-execucao` aberta a partir de `1b828e7`. Implementado até
 agora:
