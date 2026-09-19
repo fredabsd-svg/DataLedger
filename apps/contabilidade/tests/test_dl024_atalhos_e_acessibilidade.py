@@ -92,9 +92,24 @@ from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
 from apps.contabilidade.services import criar_lancamento
+from apps.contabilidade.tests.universo_de_telas import (
+    NOMES_DE_TELA_DE_CONTABILIDADE,
+    NOMES_DE_TELA_FORA_DA_CONTABILIDADE,
+    _urls_de_contabilidade,
+)
 from apps.core.marcacao import tem_classe, tokens_de_atributo
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+# BL-352 (rodada 10 da auditoria DL-026): NOMES_DE_TELA_DE_CONTABILIDADE,
+# NOMES_DE_TELA_FORA_DA_CONTABILIDADE e _urls_de_contabilidade não são mais
+# definidos NESTE arquivo — moveram para
+# apps/contabilidade/tests/universo_de_telas.py, o módulo de apoio
+# compartilhado (importado acima), depois que a guarda irmã de
+# test_bl338_operador_fora_do_papel.py foi medida usando a UNIÃO dos dois
+# conjuntos, enquanto a guarda de título de test_bl332_titulo_sem_marca_do_
+# fornecedor.py só via NOMES_DE_TELA_DE_CONTABILIDADE — ver a docstring de
+# universo_de_telas.py para o raciocínio completo.
 
 # urlconf de teste, mesmo espelho de apps/contabilidade/tests/test_dl017_telas.py
 # (ver a docstring de módulo de lá sobre por que este espelho existe e não
@@ -196,22 +211,6 @@ ATALHOS_CONTABILIDADE = [
     ("k", "Conferência"),
     ("n", "Novo lançamento"),
 ]
-
-# BL-334: nome CURTO (usado em `_urls_de_contabilidade`/no parametrize) →
-# nome COMPLETO da rota (namespace:nome), a mesma string que
-# `django.urls.reverse` aceita e a mesma que
-# `_nomes_de_rota_do_produto` devolve ao percorrer a urlconf real —
-# ÚNICA fonte para as duas pontas, para as duas nunca divergirem.
-NOMES_DE_TELA_DE_CONTABILIDADE = {
-    "plano_de_contas": "contabilidade_web:plano_de_contas",
-    "conta_nova": "contabilidade_web:conta_nova",
-    "diario": "contabilidade_web:diario",
-    "razao": "contabilidade_web:razao",
-    "balancete": "contabilidade_web:balancete",
-    "conferencia": "contabilidade_web:conferencia",
-    "lancamento_novo": "contabilidade_web:lancamento_novo",
-    "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
-}
 
 
 def teclas_sem_aria_hidden(html):
@@ -403,30 +402,6 @@ def cenario(client):
         "caixa": caixa,
         "capital": capital,
         "lancamento": lancamento,
-    }
-
-
-def _urls_de_contabilidade(cenario):
-    empresa_id = cenario["empresa"].id
-    inicio = timezone.localdate().replace(day=1).isoformat()
-    fim = timezone.localdate().isoformat()
-    periodo = f"?inicio={inicio}&fim={fim}"
-    # Nomes de rota vêm de NOMES_DE_TELA_DE_CONTABILIDADE (BL-334) — nunca
-    # retypados aqui —, só os `args`/query string (que dependem do cenário)
-    # continuam próprios de cada rota.
-    args_por_tela = {
-        "plano_de_contas": ([empresa_id], ""),
-        "conta_nova": ([empresa_id], ""),
-        "diario": ([empresa_id], periodo),
-        "razao": ([empresa_id, cenario["caixa"].id], periodo),
-        "balancete": ([empresa_id], periodo),
-        "conferencia": ([empresa_id], ""),
-        "lancamento_novo": ([empresa_id], ""),
-        "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
-    }
-    return {
-        nome_curto: reverse(NOMES_DE_TELA_DE_CONTABILIDADE[nome_curto], args=args) + query
-        for nome_curto, (args, query) in args_por_tela.items()
     }
 
 
@@ -850,33 +825,18 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
-# dela. Cada valor é só documentação (nome do(s) teste(s), para quem lê);
-# a fonte de verdade da COBERTURA é a UNIÃO das chaves deste dicionário com
-# as de NOMES_DE_TELA_DE_CONTABILIDADE, comparada contra a urlconf real em
-# `test_toda_rota_do_produto_esta_coberta_ou_excluida`, abaixo. Limite
-# conhecido (declarado, não escondido): nada IMPEDE alguém de acrescentar
-# uma chave aqui sem escrever o teste correspondente — a mesma limitação
-# que qualquer lista nomeada de exclusão/cobertura já tem neste projeto
-# (ex. `PASTAS_QUE_NAO_SAO_MODULO`). O que esta guarda FECHA é o defeito
-# medido pelo auditor: uma rota nova ficar de fora dos DOIS lados, em
-# silêncio.
-NOMES_DE_TELA_FORA_DA_CONTABILIDADE = {
-    "login": "test_tela_de_login_e_acessivel",
-    "empresas:lista": (
-        "test_tela_empresas_lista_e_acessivel, "
-        "test_tela_empresas_sem_escritorio_e_acessivel, "
-        "test_mutacao_accesskey_colidente_em_empresas_lista_e_detectada"
-    ),
-    "empresas:criar": (
-        "test_tela_empresas_form_e_acessivel, test_tela_erro_sem_permissao_e_acessivel"
-    ),
-    "tenancy:painel": (
-        "test_tela_painel_e_acessivel, "
-        "test_mutacao_accesskey_colidente_em_tenancy_painel_e_detectada"
-    ),
-    "tenancy:aceitar-convite": "test_tela_aceitar_convite_e_acessivel",
-    "tenancy:bootstrap-primeiro-acesso": "test_tela_bootstrap_primeiro_acesso_e_acessivel",
-}
+# dela (`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`, importado de
+# universo_de_telas.py — BL-352, ver comentário junto ao import no topo
+# deste arquivo). Cada valor é só documentação (nome do(s) teste(s), para
+# quem lê); a fonte de verdade da COBERTURA é a UNIÃO das chaves desse
+# dicionário com as de NOMES_DE_TELA_DE_CONTABILIDADE, comparada contra a
+# urlconf real em `test_toda_rota_do_produto_esta_coberta_ou_excluida`,
+# abaixo. Limite conhecido (declarado, não escondido): nada IMPEDE alguém de
+# acrescentar uma chave lá sem escrever o teste correspondente — a mesma
+# limitação que qualquer lista nomeada de exclusão/cobertura já tem neste
+# projeto (ex. `PASTAS_QUE_NAO_SAO_MODULO`). O que esta guarda FECHA é o
+# defeito medido pelo auditor: uma rota nova ficar de fora dos DOIS lados,
+# em silêncio.
 
 
 def _nomes_de_rota_do_produto(urlconf="config.urls"):

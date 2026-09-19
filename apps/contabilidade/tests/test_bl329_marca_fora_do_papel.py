@@ -143,6 +143,56 @@ arquiteto revisar:
    numa ocultação que só ocorre com o mouse sobre o elemento, o que nunca
    é o caso ao imprimir).
 
+⚠️ **BL-351 (bloqueador G1 + MÉDIA G3 da auditoria DL-026, rodada 7,
+docs/auditorias/2026-09-19-dl-026-rodada-7.md): o BL-343 corrigiu COMO
+decidir sobre uma at-rule aninhada; não corrigiu O QUE o detector VÊ.** O
+laço que encontrava blocos aninhados só abria em `if texto[i] == "@"` — e
+`.cabecalho { .cabecalho__topo { display: flex } }` (CSS Nesting nativo,
+a forma recomendada de escrever CSS hoje) nunca começa com `@`, então
+NUNCA era visto: o bloco era içado pela extração flat como se fosse uma
+regra comum, e a marca do fornecedor voltava ao papel com `1844 passed`
+(medido pelo auditor em Chromium e PDF A4 reais). Pelo OUTRO lado
+(G3/BL-353): o lado seguro invertido do BL-343 reprovava QUALQUER at-rule
+aninhada que não fosse `@media screen` puro — inclusive uma media query
+legítima que não menciona marca nem timbre nenhum (`@media (max-width:
+48rem) { .tabela-dados { display: block } }`), produzindo 19 falsos
+alarmes. Duas correções, uma raiz comum:
+
+1. **Generalizar o DETECTOR** (`_spans_de_at_rule_com_bloco_aninhado` →
+   renomeada `_spans_de_bloco_com_bloco_aninhado`, sobre
+   `_eventos_de_nivel_superior`): o laço abre em QUALQUER prelúdio que
+   preceda um `{` de nível superior, comece com `@` ou não — a mesma
+   técnica de contagem de profundidade de chaves, só que sem a suposição
+   de que "bloco perigoso" e "começa com @" são a mesma coisa.
+2. **Classificar por CONTEÚDO, não pelo prelúdio**
+   (`_identificadores_mencionados_no_bloco`/`_identificadores_de_
+   interesse`, usadas por `_preparar_para_simulacao`): depois da exceção
+   nomeada `@media screen` (que continua sendo removida sem olhar para
+   dentro — é a única condição comprovadamente irrelevante, não uma
+   heurística), cada bloco aninhado restante é examinado por dentro,
+   RECURSIVAMENTE: os identificadores (classe/tipo) que o prelúdio e todo
+   seletor aninhado mencionam são comparados com os da `cadeia` de
+   interesse que a guarda chamadora já deriva do HTML renderizado. Casou
+   com ALGUM → reprova pedindo extensão, nomeando o prelúdio (a
+   simulação não sabe avaliar aquele bloco). Não casou com NENHUM → o
+   bloco é comprovadamente irrelevante PARA ESTA CADEIA, e é removido
+   com segurança — isso mata o falso alarme do G3 sem alargar a exceção
+   nomeada, porque a decisão não depende mais de quantas palavras o
+   prelúdio contém.
+3. **At-rule de DECLARAÇÃO** (`@import url(...);`, sem bloco) também
+   reprova SEMPRE, em vez de ser colada ao seletor seguinte pela regex de
+   `_extrair_regras_flat` e desaparecer em silêncio — detectada por
+   `_eventos_de_nivel_superior` como um evento PRÓPRIO (`_EventoDeclaracao`),
+   isolado do texto ANTES da extração flat correr.
+
+A ASSINATURA pública que outros arquivos importam
+(`_algum_ancestral_removido_do_papel(cadeia, css_texto)`) não mudou — a
+`cadeia` já estava disponível ali; só passou a ser propagada para dentro
+de `_preparar_para_simulacao`, de onde a classificação por conteúdo deriva
+os identificadores de interesse. Nenhuma lista de nomes de classe foi
+escrita à mão para isso: uma lista literal de `.marca`/`.timbre-impressao`
+reintroduziria exatamente o defeito que esta correção existe para fechar.
+
 O QUE ESTE ARQUIVO NÃO VERIFICA — a segunda metade, que só um motor de
 layout real decide, e que a integração contínua deste projeto NÃO RODA
 (§4.8 da direção de arte: sem Chromium na CI):
@@ -399,6 +449,33 @@ class _Regra:
     declaracoes: dict
 
 
+# BL-351 (bloqueador G1 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): os dois tipos de evento de
+# NÍVEL SUPERIOR que `_eventos_de_nivel_superior` (abaixo) produz — um
+# bloco (`prelúdio { corpo }`, comece o prelúdio com '@' ou não) ou uma
+# at-rule de DECLARAÇÃO (`@regra ...;`, sem bloco nenhum). Duas classes
+# distintas, nunca um único formato "genérico", porque o CHAMADOR precisa
+# tratá-las de formas incompatíveis: um bloco pode, às vezes, ser removido
+# com segurança (exceção nomeada, ou irrelevância comprovada por
+# conteúdo); uma declaração NUNCA pode — não há corpo nenhum para provar
+# irrelevância, e ela pode mudar o significado do que vem depois dela
+# (`@import`, por exemplo).
+@dataclass
+class _EventoBloco:
+    prelude: str
+    inicio: int
+    fim: int
+    corpo: str
+    aninhado: bool
+
+
+@dataclass
+class _EventoDeclaracao:
+    prelude: str
+    inicio: int
+    fim: int
+
+
 def _remover_comentarios(css):
     return re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
 
@@ -407,8 +484,9 @@ def _extrair_bloco_media_print(css):
     """Devolve (antes, dentro, depois) do ÚNICO `@media print { ... }` do
     arquivo — contagem de chaves, não regex gulosa, porque o conteúdo tem
     chaves aninhadas (cada regra de seletor, dentro do media). `antes` e
-    `depois` PODEM ter at-rule aninhada de verdade (outro `@media`,
-    `@supports`) — ver `_spans_de_at_rule_com_bloco_aninhado` e o uso dela em
+    `depois` PODEM ter bloco aninhado de verdade (outro `@media`,
+    `@supports`, ou CSS Nesting nativo sem `@` nenhum — BL-351) — ver
+    `_spans_de_bloco_com_bloco_aninhado` e o uso dela em
     `_algum_ancestral_removido_do_papel`, que valida essa premissa em vez de
     presumi-la (BL-333). At-rule de conteúdo FLAT (`@font-face`/`@page`)
     continua fora dessa checagem: `_extrair_regras_flat` já a descarta
@@ -548,47 +626,172 @@ def _display_efetivo(indice_no, cadeia, regras):
     return grupo[-1][1].valor
 
 
-def _spans_de_at_rule_com_bloco_aninhado(texto):
-    """Localiza, por PROFUNDIDADE de chaves (a mesma técnica de
-    `_extrair_bloco_media_print` — nunca regex gulosa, que erra na
-    presença de chave aninhada), todo at-rule de NÍVEL SUPERIOR de `texto`
-    cujo bloco contém pelo menos uma chave ANINHADA. Devolve lista de
-    `(prelúdio, inicio, fim)` com `fim` EXCLUSIVO — pronto para fatiar
-    `texto[inicio:fim]` fora. At-rule de conteúdo FLAT (`@page { size: A4;
-    }`, sem chave dentro) não entra aqui: `_extrair_regras_flat` já a
-    descarta corretamente (seletor começa com `@`) — só a forma que ELA
-    erra (içar o conteúdo aninhado para fora) é o alvo desta função."""
-    achados = []
-    i = 0
+def _eventos_de_nivel_superior(texto):
+    """BL-351 (bloqueador G1 da auditoria DL-026, rodada 7,
+    docs/auditorias/2026-09-19-dl-026-rodada-7.md): percorre `texto` (uma
+    folha de estilo, ou o CORPO já isolado de um bloco) e devolve, na
+    ORDEM em que aparecem, todo evento de NÍVEL SUPERIOR — nunca desce
+    dentro de um bloco para relatar o que tem lá dentro (quem quiser
+    recursão chama de novo sobre `evento.corpo`; ver
+    `_identificadores_mencionados_no_bloco`). Por CONTAGEM DE PROFUNDIDADE
+    de chaves — a mesma técnica de `_extrair_bloco_media_print` — nunca
+    regex gulosa, que erra na presença de chave aninhada.
+
+    Dois tipos de evento, e o motivo de serem DUAS classes em vez de uma:
+
+    - `_EventoBloco`: um prelúdio seguido de `{ ... }` balanceado.
+      `aninhado` é verdadeiro quando `corpo` contém pelo menos uma chave
+      própria. **A generalização central desta correção**: o laço abre em
+      QUALQUER caractere que preceda um `{` de nível superior — comece o
+      prelúdio com `@` ou não. Antes desta correção
+      (`_spans_de_at_rule_com_bloco_aninhado`, o nome antigo, ainda mais
+      estreito que o do BL-343), o laço só abria em `if texto[i] == "@"`
+      — e `.cabecalho { .cabecalho__topo { display: flex } }` (CSS
+      Nesting nativo, a forma recomendada de escrever CSS hoje) nunca
+      começa com `@`, então NUNCA era visto: o bloco era içado pela
+      extração flat como se fosse uma regra comum, e a marca do
+      fornecedor voltava ao papel com `1844 passed`. Generalizar o
+      CARACTERE de abertura (de `"@"` para `"{"`, olhando para trás até o
+      prelúdio) fecha essa classe de escape por CONSTRUÇÃO, não por mais
+      um caso na lista.
+    - `_EventoDeclaracao`: um prelúdio terminado por `;` ANTES de
+      qualquer `{` — sempre começa com `@` em CSS válido (`@import`,
+      `@charset`, `@namespace`...). Detectada por um motivo PRÓPRIO,
+      independente do anterior: sem isto, uma regex gulosa como a de
+      `_extrair_regras_flat` (`([^{}]+)\\{([^{}]*)\\}`) cola
+      `@import url(...);` ao SELETOR SEGUINTE — o resultado colado
+      começa com `@` e a regra inteira (a de verdade, que talvez
+      escondesse ou reexibisse algo relevante) desaparece, sem aviso
+      nenhum, duas vezes. Isolar o `;` aqui, ANTES da extração flat,
+      impede a colagem: o próximo prelúdio começa limpo, depois do `;`."""
+    eventos = []
     n = len(texto)
+    inicio_prelude = 0
+    i = 0
     while i < n:
-        if texto[i] == "@":
-            m = re.match(r"@[\w-]+[^{}]*\{", texto[i:])
-            if m:
-                inicio = i
-                inicio_chaves = i + m.end() - 1
-                profundidade = 0
-                aninhado = False
-                fim = None
-                j = inicio_chaves
-                while j < n:
-                    if texto[j] == "{":
-                        profundidade += 1
-                        if profundidade >= 2:
-                            aninhado = True
-                    elif texto[j] == "}":
-                        profundidade -= 1
-                        if profundidade == 0:
-                            fim = j + 1
-                            break
-                    j += 1
-                if fim is not None:
-                    if aninhado:
-                        achados.append((m.group(0).strip(), inicio, fim))
-                    i = fim
-                    continue
+        if texto[i] == ";":
+            prelude = texto[inicio_prelude : i + 1].strip()
+            if prelude.startswith("@"):
+                eventos.append(_EventoDeclaracao(prelude, inicio_prelude, i + 1))
+            inicio_prelude = i + 1
+            i += 1
+            continue
+        if texto[i] == "{":
+            prelude = texto[inicio_prelude:i].strip()
+            profundidade = 1
+            aninhado = False
+            fim = None
+            j = i + 1
+            while j < n:
+                if texto[j] == "{":
+                    profundidade += 1
+                    if profundidade >= 2:
+                        aninhado = True
+                elif texto[j] == "}":
+                    profundidade -= 1
+                    if profundidade == 0:
+                        fim = j + 1
+                        break
+                j += 1
+            if fim is not None:
+                corpo = texto[i + 1 : fim - 1]
+                eventos.append(_EventoBloco(prelude, inicio_prelude, fim, corpo, aninhado))
+                inicio_prelude = fim
+                i = fim
+                continue
         i += 1
-    return achados
+    return eventos
+
+
+def _spans_de_bloco_com_bloco_aninhado(texto):
+    """BL-351: nome HONESTO do que a função devolve, depois da
+    generalização — não é mais só "at-rule com bloco aninhado" (o nome
+    antigo, `_spans_de_at_rule_com_bloco_aninhado`), porque CSS Nesting
+    nativo produz a MESMA forma perigosa sem nenhuma at-rule envolvida.
+    Devolve lista de `(prelúdio, inicio, fim)` com `fim` EXCLUSIVO —
+    pronto para fatiar `texto[inicio:fim]` fora — filtrando
+    `_eventos_de_nivel_superior` para só os blocos ANINHADOS; blocos FLAT
+    (`.foo { color: red; }`, `@page { size: A4; }`) não entram aqui:
+    `_extrair_regras_flat` já os trata corretamente sozinha."""
+    return [
+        (evento.prelude, evento.inicio, evento.fim)
+        for evento in _eventos_de_nivel_superior(texto)
+        if isinstance(evento, _EventoBloco) and evento.aninhado
+    ]
+
+
+def _identificadores_do_seletor(seletor_bruto):
+    """Nomes de CLASSE e de TIPO que `seletor_bruto` menciona — mesma
+    gramática que o resto deste motor entende (tipo + classe, combinador
+    descendente por espaço, lista separada por vírgula; ver limites na
+    docstring do módulo). Serve tanto para um SELETOR de verdade quanto
+    para um prelúdio de bloco de CSS Nesting (`.cabecalho`, `&
+    .cabecalho__topo` — o `&` é ignorado: não é letra nem começa com
+    ponto, então nenhuma das duas regras o casa, e ele não introduz
+    identificador nenhum por si só). Usada para decidir, por CONTEÚDO
+    (BL-351), se um bloco que a simulação não sabe avaliar por outro
+    caminho ainda assim PODE afetar a cadeia de interesse — nunca para
+    casar seletor com nó (isso é `_seletor_casa_com_no`)."""
+    identificadores = set()
+    for seletor in seletor_bruto.split(","):
+        for composto in seletor.split():
+            sem_pseudo = composto.split(":")[0]
+            identificadores.update(re.findall(r"\.([\w-]+)", sem_pseudo))
+            tag_m = re.match(r"^[a-zA-Z][\w-]*", sem_pseudo)
+            if tag_m:
+                identificadores.add(tag_m.group())
+    return identificadores
+
+
+def _identificadores_mencionados_no_bloco(prelude, corpo):
+    """BL-351: o CORAÇÃO da classificação por conteúdo. Identificadores
+    (classe e tipo) que ESTE bloco — prelúdio MAIS todo seletor aninhado
+    dentro do corpo, em QUALQUER profundidade — pode afetar.
+
+    O prelúdio só contribui identificadores quando NÃO é uma at-rule (não
+    começa com `@`): o prelúdio de uma at-rule (`@media (...)`,
+    `@supports (...)`, `@layer nome`) é uma CONDIÇÃO, não um seletor —
+    não referencia nó nenhum da árvore por si só. Já o prelúdio de um
+    bloco de CSS Nesting (`.cabecalho`, `& .cabecalho__topo`) É um
+    seletor de verdade, e conta.
+
+    A RECURSÃO (chamando a si mesma sobre cada bloco de nível superior do
+    `corpo`, via `_eventos_de_nivel_superior`) é o que cobre aninhamento
+    de mais de um nível — ex. `.conteudo-principal { .rodape {
+    .timbre-impressao { display: none } } }`: o identificador
+    `timbre-impressao` só existe no nível MAIS interno, e só chega até
+    aqui porque cada chamada desce mais um nível em vez de examinar só o
+    prelúdio externo."""
+    identificadores = set()
+    if prelude and not prelude.startswith("@"):
+        identificadores |= _identificadores_do_seletor(prelude)
+    for evento in _eventos_de_nivel_superior(corpo):
+        if isinstance(evento, _EventoBloco):
+            identificadores |= _identificadores_mencionados_no_bloco(evento.prelude, evento.corpo)
+        # _EventoDeclaracao aninhada (@import/@charset dentro de um
+        # bloco — inválido em CSS de verdade, mas não é este motor quem
+        # valida sintaxe) não tem seletor para contribuir; o CHAMADOR de
+        # nível superior já reprova qualquer declaração encontrada em
+        # `_preparar_para_simulacao`, então uma declaração aninhada nunca
+        # chega a decidir relevância sozinha.
+    return identificadores
+
+
+def _identificadores_de_interesse(cadeia):
+    """Identificadores (classe e tipo) de TODOS os nós de `cadeia` — a
+    cadeia de ancestrais que a guarda que chama este motor está mesmo
+    verificando (a marca do fornecedor, o timbre do escritório, "Usuário",
+    "Empresa"/"Período" — cada guarda deriva a SUA cadeia do HTML
+    renderizado, nunca deste módulo). NUNCA uma lista de nomes de classe
+    escrita à mão aqui — BL-351: uma lista literal de `.marca`/`.timbre-
+    impressao` reintroduziria exatamente o defeito que esta correção
+    existe para fechar (a próxima classe de interesse, de uma guarda
+    futura, ficaria fora da lista até alguém lembrar de atualizá-la)."""
+    identificadores = set()
+    for no in cadeia:
+        identificadores.add(no.tag)
+        identificadores.update(no.classes)
+    return identificadores
 
 
 def _prelude_e_media_screen_puro(prelude):
@@ -596,62 +799,106 @@ def _prelude_e_media_screen_puro(prelude):
     combinar com outro tipo de mídia (`,`/`and`, ex. `@media screen and
     (min-width: 20rem)` NÃO entra aqui: a condição extra pode, em tese,
     valer também para `print` combinado com outro tipo por engano de
-    quem escreve — a exceção só é segura na forma mais estrita). `prelude`
-    vem de `_spans_de_at_rule_com_bloco_aninhado` com a chave de abertura
-    ainda no fim (`"@media screen {"`); removida aqui antes de comparar.
-    `screen` exclui `print` por definição (CSS Media Queries: os dois são
-    tipos de mídia mutuamente exclusivos quando usados sozinhos) — é a
-    ÚNICA condição deste motor que é comprovadamente irrelevante para a
-    impressão, nunca "parece" irrelevante por coincidência."""
-    sem_chave = prelude.rsplit("{", 1)[0]
-    normalizado = re.sub(r"\s+", " ", sem_chave).strip().lower()
+    quem escreve — a exceção só é segura na forma mais estrita). `screen`
+    exclui `print` por definição (CSS Media Queries: os dois são tipos de
+    mídia mutuamente exclusivos quando usados sozinhos) — é a ÚNICA
+    condição deste motor que é comprovadamente irrelevante para a
+    impressão, nunca "parece" irrelevante por coincidência, e por isso é
+    a única removida SEM olhar para o conteúdo (BL-351: a classificação
+    por conteúdo, abaixo, só entra em jogo DEPOIS desta exceção nomeada)."""
+    normalizado = re.sub(r"\s+", " ", prelude).strip().lower()
     return normalizado == "@media screen"
 
 
-def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total):
-    """BL-333, decisão 1, CORRIGIDA pelo BL-343/F1 (ver docstring do
-    módulo — a decisão original estava ERRADA e por quê): valida a
-    premissa que antes só existia em prosa — que `texto` não tem at-rule
-    aninhada que a extração flat não saiba tratar — e, quando (e só
-    quando) é SEGURO, remove essa at-rule em vez de deixá-la ser içada
-    por engano.
+def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total, cadeia):
+    """BL-333, decisão 1, CORRIGIDA pelo BL-343/F1 e, agora, pelo BL-351
+    (bloqueador G1/G3 da rodada 7 — ver docstring do módulo): valida a
+    premissa que antes só existia em prosa — que `texto` não tem
+    construção de nível superior que a extração flat não saiba tratar —
+    e, quando (e só quando) é SEGURO, remove essa construção em vez de
+    deixá-la ser içada ou colada por engano.
 
-    - `exigir_ausencia_total=True` (uso: DENTRO do próprio `@media print`
-      já extraído): QUALQUER at-rule aninhada ali reprova pedindo extensão
-      — a simulação não tenta adivinhar se ela se aplica ou não quando já
-      está dentro do contexto de impressão.
-    - `exigir_ausencia_total=False` (uso: fora do `@media print`, antes ou
-      depois dele): LADO SEGURO INVERTIDO (F1) — toda at-rule aninhada
-      REPROVA pedindo extensão, SEMPRE, EXCETO a única exceção NOMEADA e
-      comprovadamente irrelevante para impressão (`_prelude_e_media_
-      screen_puro`): essa é removida do texto (nunca pode provar nem
-      derrubar ocultação, então pode ser descartada com segurança). Não
-      existe mais a ideia de "prelúdio sem a palavra 'print' = nunca se
-      aplica" — essa premissa era FALSA (media query sem tipo de mídia
-      vale para `all`, que inclui `print`; `@supports`/`@layer` valem
-      sempre) e o auditor mediu o efeito real dela em Chromium/PDF."""
-    spans = _spans_de_at_rule_com_bloco_aninhado(texto)
-    if not spans:
+    Ordem de decisão, para cada bloco aninhado encontrado (BL-351,
+    pedido do arquiteto — nunca pule etapa nem troque a ordem):
+
+    1. At-rule de DECLARAÇÃO (`@import`/`@charset`/`@namespace`...,
+       `_EventoDeclaracao`) — SEMPRE reprova pedindo extensão, em
+       QUALQUER um dos três trechos (`onde`). Não há corpo para provar
+       irrelevância, e a simulação não sabe se ela muda o significado do
+       que vem depois — nunca descartada só por começar com `@`.
+    2. `exigir_ausencia_total=True` (uso: DENTRO do `@media print` já
+       extraído) — QUALQUER bloco aninhado reprova pedindo extensão,
+       sempre; a simulação não tenta adivinhar dentro do contexto de
+       impressão.
+    3. `exigir_ausencia_total=False` (fora do `@media print`) — para
+       cada bloco aninhado, NESTA ordem:
+       a. Exceção NOMEADA primeiro: `@media screen` puro
+          (`_prelude_e_media_screen_puro`) é removido com segurança, sem
+          olhar para dentro — é a ÚNICA condição comprovadamente
+          irrelevante para impressão.
+       b. Classificação por CONTEÚDO (BL-351, o que fecha o G1 e o G3
+          juntos): extrai os identificadores que o prelúdio e TODO
+          seletor aninhado dentro do bloco mencionam
+          (`_identificadores_mencionados_no_bloco`) e compara com os da
+          `cadeia` de interesse (`_identificadores_de_interesse`). Se
+          ALGUMA regra interna puder casar (interseção não vazia) →
+          reprova pedindo extensão, nomeando o prelúdio — a simulação
+          não sabe avaliar aquele bloco e não pode fingir que sabe. Se
+          NENHUMA puder → o bloco é COMPROVADAMENTE irrelevante para
+          esta cadeia específica: remove-o e segue — é isto que mata o
+          falso alarme do BL-353 (`@media (max-width: 48rem) {
+          .tabela-dados { display: block } }`, que não menciona marca
+          nem timbre) sem alargar exceção nenhuma.
+
+    Um bloco com uma regra irrelevante E uma relevante é RELEVANTE —
+    basta uma casar para reprovar (a interseção de conjuntos já garante
+    isso: um único identificador em comum é suficiente)."""
+    eventos = _eventos_de_nivel_superior(texto)
+
+    declaracoes = [e for e in eventos if isinstance(e, _EventoDeclaracao)]
+    assert not declaracoes, (
+        f"a simulação de cascata (BL-329/BL-333/BL-351) encontrou at-rule(s) de "
+        f"DECLARAÇÃO (sem bloco — ex. @import/@charset/@namespace) {onde}: "
+        f"{[d.prelude for d in declaracoes]!r} — ela não sabe se isso muda o "
+        f"significado do que vem DEPOIS, e nunca as descarta em silêncio só por "
+        f"começarem com '@'; ela PRECISA SER ESTENDIDA antes de confiar no resultado"
+    )
+
+    blocos_aninhados = [e for e in eventos if isinstance(e, _EventoBloco) and e.aninhado]
+    if not blocos_aninhados:
         return texto
+
     if exigir_ausencia_total:
-        assert not spans, (
-            f"a simulação de cascata (BL-329/BL-333) encontrou at-rule(s) aninhada(s) "
-            f"{onde}, e não sabe avaliá-la(s): {[p for p, *_ in spans]!r} — ela PRECISA "
-            f"SER ESTENDIDA antes de confiar no resultado, em vez de julgar "
-            f"(silenciosamente) errado"
+        assert not blocos_aninhados, (
+            f"a simulação de cascata (BL-329/BL-333) encontrou bloco(s) aninhado(s) "
+            f"{onde}, e não sabe avaliá-lo(s): "
+            f"{[b.prelude for b in blocos_aninhados]!r} — ela PRECISA SER ESTENDIDA "
+            f"antes de confiar no resultado, em vez de julgar (silenciosamente) errado"
         )
         return texto
-    nao_isentas = [(p, i, f) for p, i, f in spans if not _prelude_e_media_screen_puro(p)]
-    assert not nao_isentas, (
-        f"a simulação de cascata (BL-329/BL-333/BL-343) encontrou at-rule(s) aninhada(s) "
-        f"{onde} que NÃO são a exceção nomeada '@media screen' (a ÚNICA condição "
-        f"comprovadamente irrelevante para impressão), e não sabe avaliá-la(s): "
-        f"{[p for p, *_ in nao_isentas]!r} — ela PRECISA SER ESTENDIDA antes de confiar "
-        f"no resultado, em vez de assumir (silenciosamente) que são irrelevantes"
-    )
+
+    identificadores_de_interesse = _identificadores_de_interesse(cadeia)
+    a_reprovar = []
     limpo = texto
-    for _prelude, inicio, fim in reversed(spans):
-        limpo = limpo[:inicio] + limpo[fim:]
+    for evento in reversed(blocos_aninhados):
+        if _prelude_e_media_screen_puro(evento.prelude):
+            limpo = limpo[: evento.inicio] + limpo[evento.fim :]
+            continue
+        identificadores_do_bloco = _identificadores_mencionados_no_bloco(
+            evento.prelude, evento.corpo
+        )
+        if identificadores_do_bloco & identificadores_de_interesse:
+            a_reprovar.append(evento.prelude)
+            continue
+        limpo = limpo[: evento.inicio] + limpo[evento.fim :]
+
+    assert not a_reprovar, (
+        f"a simulação de cascata (BL-329/BL-333/BL-343/BL-351) encontrou bloco(s) "
+        f"aninhado(s) {onde} cujo conteúdo MENCIONA identificador(es) da cadeia de "
+        f"interesse e que não são a exceção nomeada '@media screen': "
+        f"{a_reprovar!r} — ela PRECISA SER ESTENDIDA antes de confiar no resultado, "
+        f"em vez de assumir (silenciosamente) que são irrelevantes"
+    )
     return limpo
 
 
@@ -671,15 +918,24 @@ _ORDEM_BASE_DEPOIS = 2_000_000
 def _algum_ancestral_removido_do_papel(cadeia, css_texto):
     """Propriedade central desta guarda: existe, na cadeia (do link da marca
     até a raiz), algum nó cujo `display` efetivo sob impressão é `none`?
-    Devolve (removido: bool, nó_que_resolveu_ou_None)."""
+    Devolve (removido: bool, nó_que_resolveu_ou_None).
+
+    BL-351: `cadeia` agora também é propagada para `_preparar_para_
+    simulacao` — é dela que a classificação por CONTEÚDO deriva os
+    identificadores de interesse (`_identificadores_de_interesse`), em
+    vez de uma lista de nomes escrita à mão. A ASSINATURA desta função
+    não mudou (continua `(cadeia, css_texto)`) — a informação já estava
+    disponível aqui, só precisava ser repassada adiante."""
     antes, dentro, depois = _extrair_bloco_media_print(css_texto)
     antes_limpo = _preparar_para_simulacao(
-        antes, onde="antes do @media print", exigir_ausencia_total=False
+        antes, onde="antes do @media print", exigir_ausencia_total=False, cadeia=cadeia
     )
     depois_limpo = _preparar_para_simulacao(
-        depois, onde="depois do @media print", exigir_ausencia_total=False
+        depois, onde="depois do @media print", exigir_ausencia_total=False, cadeia=cadeia
     )
-    _preparar_para_simulacao(dentro, onde="dentro do @media print", exigir_ausencia_total=True)
+    _preparar_para_simulacao(
+        dentro, onde="dentro do @media print", exigir_ausencia_total=True, cadeia=cadeia
+    )
     regras = (
         _extrair_regras_flat(antes_limpo, _ORDEM_BASE_ANTES)
         + _extrair_regras_flat(dentro, _ORDEM_BASE_DENTRO)
@@ -1000,11 +1256,31 @@ def test_at_rule_mencionando_print_fora_do_bloco_tratado_reprova_pedindo_extensa
 # BL-343 (F1 da auditoria DL-026, rodada 6): a tabela de sete construções
 # que o auditor mediu em Chromium/PDF A4 reais — reproduzidas aqui sobre
 # uma CÓPIA do `base.css` REAL (BL-311), do jeito EXATO que ele mediu
-# (acréscimo ao FIM do arquivo, com o @media print original intocado). As
-# SEIS primeiras MUDAM o papel de verdade e precisam matar a suíte —
-# agora reprovando PEDINDO EXTENSÃO, o lado seguro invertido — em vez de
-# serem silenciosamente ignoradas. A sétima (`@media screen`) é a ÚNICA
-# exceção nomeada e continua aprovando — coberta acima por
+# (acréscimo ao FIM do arquivo, com o @media print original intocado).
+#
+# ⚠️ BL-351 (rodada 7): das seis construções que MUDAM o papel, as
+# QUATRO que reexibem a MARCA continuam aqui — `.cabecalho__topo` é um
+# identificador da CADEIA DA MARCA (`_cadeia_da_marca`), então a
+# classificação por CONTEÚDO as considera relevantes e reprova, como
+# antes. As DUAS que escondem o TIMBRE DO ESCRITÓRIO foram MOVIDAS para
+# `test_bl331_timbre_do_escritorio_no_papel.py`
+# (`test_f1_construcoes_que_escondem_o_timbre_reprovam_pedindo_extensao`):
+# `.timbre-impressao` não é identificador da cadeia da MARCA — testá-las
+# aqui, contra `_cadeia_da_marca()`, deixou de fazer sentido depois que a
+# guarda passou a decidir por CONTEÚDO (antes, QUALQUER at-rule aninhada
+# fora da exceção nomeada reprovava, não importava o que tivesse dentro;
+# hoje, um bloco que só menciona `.timbre-impressao` é comprovadamente
+# irrelevante para a cadeia da marca, e a guarda certa PRECISA deixar de
+# reprovar por essa cadeia — a propriedade "o timbre não pode ser
+# escondido" continua garantida, só que pela guarda que de fato verifica
+# essa cadeia). Mover a cobertura para a cadeia CERTA, em vez de manter
+# uma asserção que passaria a ser FALSA sob a nova classificação, é
+# consequência direta da correção do bloqueador G1 — não perda de
+# cobertura: as duas construções continuam obrigatoriamente testadas, só
+# que no arquivo cuja cadeia elas de fato afetam.
+#
+# A sétima (`@media screen`) é a ÚNICA exceção nomeada e continua
+# aprovando — coberta acima por
 # `test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova`
 # e por `test_sabotagem_regra_dentro_de_media_screen_mata_a_guarda`.
 # ---------------------------------------------------------------------------
@@ -1017,22 +1293,19 @@ def test_at_rule_mencionando_print_fora_do_bloco_tratado_reprova_pedindo_extensa
         ("reexibindo a marca", "@supports (display: grid)", ".cabecalho__topo", "display: flex;"),
         ("reexibindo a marca", "@media all", ".cabecalho__topo", "display: flex;"),
         ("reexibindo a marca", "@layer", ".cabecalho__topo", "display: flex;"),
-        ("escondendo o timbre", "@media (min-width: 20rem)", ".timbre-impressao", "display: none;"),
-        ("escondendo o timbre", "@supports (display: grid)", ".timbre-impressao", "display: none;"),
     ],
 )
 def test_f1_construcoes_que_mudam_o_papel_reprovam_pedindo_extensao(
     tmp_path, rotulo, at_rule, seletor, declaracao
 ):
-    """BL-343/F1: as SEIS construções da tabela do achado (Chromium 1194 +
-    PDF A4 reais, docs/auditorias/2026-09-19-dl-026-rodada-6.md) que a
-    guarda ANTIGA tratava como "nunca se aplicam à impressão" só porque o
-    prelúdio não continha a palavra "print" — e que, medidas de verdade,
-    mudam o papel (a marca do fornecedor reaparece, ou o timbre do
-    escritório some). Reproduzidas sobre uma CÓPIA do `base.css` real
-    (acréscimo ao FIM, o `@media print` original intocado — exatamente
-    como o auditor mediu). Precisam reprovar PEDINDO EXTENSÃO agora, não
-    ser silenciosamente descartadas nem aprovadas por engano."""
+    """BL-343/F1: as QUATRO construções da tabela do achado (Chromium
+    1194 + PDF A4 reais, docs/auditorias/2026-09-19-dl-026-rodada-6.md)
+    que reexibem a MARCA DO FORNECEDOR — a guarda ANTIGA tratava como
+    "nunca se aplicam à impressão" só porque o prelúdio não continha a
+    palavra "print"; a guarda BL-351 (por CONTEÚDO) reprova porque
+    `.cabecalho__topo` é identificador da cadeia da marca. Reproduzidas
+    sobre uma CÓPIA do `base.css` real (acréscimo ao FIM, o `@media
+    print` original intocado — exatamente como o auditor mediu)."""
     _, cadeia = _cadeia_da_marca()
     css_original = _BASE_CSS.read_text(encoding="utf-8")
 
@@ -1061,3 +1334,175 @@ def test_at_rule_aninhada_dentro_do_media_print_reprova_pedindo_extensao():
     )
     with pytest.raises(AssertionError, match="dentro do @media print"):
         _algum_ancestral_removido_do_papel(_cadeia_da_marca()[1], css_sintetico)
+
+
+# ---------------------------------------------------------------------------
+# BL-351 (bloqueador G1 + MÉDIA G3 da auditoria DL-026, rodada 7,
+# docs/auditorias/2026-09-19-dl-026-rodada-7.md): as construções que o
+# auditor MEDIU em Chromium/PDF A4 reais fazendo a marca voltar ao papel
+# apesar de `1844 passed` — e o falso alarme oposto (G3) que a inversão do
+# lado seguro produzia. Reproduzidas sobre uma CÓPIA do `base.css` real
+# (acréscimo ao FIM, o `@media print` original intocado — mesmo padrão do
+# BL-343/F1), exceto onde o próprio DEFEITO exige alterar texto já
+# existente (a lista de ocultos, para o CSS Nesting reexibir por
+# especificidade — igual a `test_sabotagem_regra_mais_especifica_depois_
+# reexibindo_mata_a_guarda`).
+# ---------------------------------------------------------------------------
+
+
+def test_sabotagem_css_nesting_nativo_sem_arroba_reexibe_a_marca_mata_a_guarda(tmp_path):
+    """G1 — a construção EXATA que o auditor mediu: `.cabecalho {
+    .cabecalho__topo { display: flex } }`, CSS Nesting NATIVO (sem `@`
+    nenhum, a forma recomendada de escrever CSS hoje). Antes do BL-351, o
+    detector só abria o laço em `if texto[i] == "@"` — este bloco nunca
+    era visto, era içado pela extração flat como regra comum, e a marca
+    voltava ao papel com `1844 passed`. Acrescentado ao FIM do arquivo
+    (fora do `@media print`, que continua intocado) — precisa REPROVAR
+    pedindo extensão: `.cabecalho`/`.cabecalho__topo` são identificadores
+    da cadeia da marca, e a simulação não sabe avaliar aninhamento nenhum
+    fora da exceção nomeada."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = ".cabecalho {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_sabotagem_css_nesting_com_e_comercial_reexibe_a_marca_mata_a_guarda(tmp_path):
+    """DE-055 — construção MINHA, que o relatório do auditor NÃO nomeou:
+    a MESMA reexibição da marca, mas escrita com o combinador `&`
+    explícito (`.cabecalho { & .cabecalho__topo { display: flex } }`) —
+    a forma que ferramentas de build/linters de CSS Nesting costumam
+    preferir, e que é semanticamente IDÊNTICA à forma nua acima. Precisa
+    MATAR pela MESMA razão: `_identificadores_do_seletor` ignora o `&`
+    (não é letra nem começa com `.`) e ainda assim encontra
+    `cabecalho__topo` no restante do composto."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = ".cabecalho {\n    & .cabecalho__topo {\n        display: flex;\n    }\n}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_sabotagem_layer_reexibe_a_marca_mata_a_guarda(tmp_path):
+    """DE-055 — construção MINHA: `@layer tardio { .cabecalho__topo {
+    display: flex } }`. `@layer` nomeada não fala de mídia NENHUMA — vale
+    SEMPRE, inclusive ao imprimir (BL-343 já reprova `@layer` sem nome;
+    esta prova a variante COM nome, que muda o PRELÚDIO mas não a
+    conclusão: nem a exceção nomeada nem a classificação por conteúdo
+    dependem do nome da camada, só do que está DENTRO do bloco)."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = "@layer tardio {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_sabotagem_import_antes_de_regra_relevante_reprova_pedindo_extensao(tmp_path):
+    """G1 — a terceira construção que o relatório nomeou: `@import
+    url(...)` ANTES de uma regra relevante. Reproduz o defeito EXATO: a
+    regex gulosa de `_extrair_regras_flat` (`([^{}]+)\\{([^{}]*)\\}`)
+    colava `@import url(...);` ao seletor SEGUINTE — aqui,
+    `.cabecalho__topo { display: flex; }`, que REEXIBE a marca — e a
+    regra colada começava com `@`, então `_extrair_regras_flat` a
+    descartava por INTEIRO, em silêncio: a regra que reexibia a marca
+    desaparecia junto, e a guarda aprovava por engano (falso "escondido").
+    Com `_eventos_de_nivel_superior` isolando o `@import ...;` como um
+    evento PRÓPRIO (`_EventoDeclaracao`) ANTES da extração flat rodar,
+    `_preparar_para_simulacao` reprova pedindo extensão assim que encontra
+    a declaração — nunca deixa a regra seguinte, relevante, desaparecer
+    sem aviso."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = '@import url("outro.css");\n.cabecalho__topo {\n    display: flex;\n}\n'
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_media_screen_puro_com_marca_dentro_continua_aprovando(tmp_path):
+    """Do relatório do auditor — precisa PASSAR: `@media screen {
+    .cabecalho__topo { display: flex } }`. `screen` exclui `print` por
+    definição — a ÚNICA exceção nomeada, removida sem olhar para dentro,
+    mesmo mencionando um identificador da cadeia de interesse (a exceção
+    nomeada vem ANTES da classificação por conteúdo, nunca depois — ver a
+    ordem na docstring de `_preparar_para_simulacao`)."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = "@media screen {\n    .cabecalho__topo {\n        display: flex;\n    }\n}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido is True, (
+        "@media screen legítimo, mencionando .cabecalho__topo, não deveria fazer a "
+        "guarda reprovar nem deixar de detectar a ocultação real (do @media print "
+        "intocado) — e ela deveria continuar vendo a marca escondida"
+    )
+
+
+@pytest.mark.parametrize(
+    "rotulo,at_rule,seletor,declaracao",
+    [
+        (
+            "media query real e irrelevante (G3, do relatório)",
+            "@media (max-width: 48rem)",
+            ".tabela-dados",
+            "display: block;",
+        ),
+        (
+            "media query irrelevante (DE-055)",
+            "@media (min-width: 60rem)",
+            ".grade-formulario",
+            "display: grid;",
+        ),
+    ],
+)
+def test_bloco_irrelevante_por_conteudo_nao_reprova(tmp_path, rotulo, at_rule, seletor, declaracao):
+    """G3 (BL-353): o lado seguro invertido do BL-343 reprovava QUALQUER
+    at-rule aninhada fora de `@media screen`, sem olhar para dentro —
+    `@media (max-width: 48rem) { .tabela-dados { display: block } }`
+    (que não menciona marca nem timbre) produzia 19 `failed`. A
+    classificação por CONTEÚDO (BL-351) resolve o G1 e o G3 pela MESMA
+    mudança: nenhum identificador de `.tabela-dados`/`.grade-formulario`
+    está na cadeia da marca, então os dois blocos são comprovadamente
+    IRRELEVANTES e são removidos — a guarda PASSA, e continua detectando
+    a ocultação real (do `@media print` intocado)."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = f"{at_rule} {{\n    {seletor} {{\n        {declaracao}\n    }}\n}}\n"
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido is True, (
+        f"{rotulo}: bloco irrelevante por conteúdo não deveria fazer a guarda "
+        f"reprovar nem deixar de detectar a ocultação real da marca"
+    )

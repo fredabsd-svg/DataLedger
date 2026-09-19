@@ -99,7 +99,6 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
-from django.urls import reverse
 from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
@@ -115,10 +114,11 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _percorrer,
     _tem_timbre_impressao,
 )
-from apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade import (
+from apps.contabilidade.tests.universo_de_telas import (
     NOMES_DE_TELA_DE_CONTABILIDADE,
-    NOMES_DE_TELA_FORA_DA_CONTABILIDADE,
+    UNIVERSO_DE_ROTAS_DE_TELA,
     _urls_de_contabilidade,
+    url_por_nome_de_rota,
 )
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
@@ -351,11 +351,19 @@ def test_escritorio_ativo_visivel_exatamente_onde_nao_ha_timbre(client, cenario_
 # sobre as OITO telas de `NOMES_DE_TELA_DE_CONTABILIDADE`. O
 # `arquiteto-senior` já tinha declarado essa limitação (BL-342) e a
 # empurrado para a DL-027; o auditor mediu que a correção NÃO dependia
-# disso — `NOMES_DE_TELA_FORA_DA_CONTABILIDADE`, com as seis telas de
-# fora (login, empresas:lista, empresas:criar, tenancy:painel,
-# tenancy:aceitar-convite, tenancy:bootstrap-primeiro-acesso), já existe
-# no MESMO arquivo (test_dl024_atalhos_e_acessibilidade.py) de onde a
-# parametrização acima já importa `NOMES_DE_TELA_DE_CONTABILIDADE`.
+# disso — as seis telas de fora (login, empresas:lista, empresas:criar,
+# tenancy:painel, tenancy:aceitar-convite, tenancy:bootstrap-primeiro-acesso)
+# já estão em `UNIVERSO_DE_ROTAS_DE_TELA`, importado de
+# apps/contabilidade/tests/universo_de_telas.py.
+#
+# BL-352 (rodada 10 da auditoria DL-026): antes desta correção, este
+# conjunto era RECONSTRUÍDO aqui a partir de duas listas vivendo em
+# test_dl024_atalhos_e_acessibilidade.py; a guarda irmã de título
+# (test_bl332_titulo_sem_marca_do_fornecedor.py), escrita no MESMO commit,
+# importava só UMA das duas — a fonte comum (`universo_de_telas.py`) fecha
+# essa divergência na raiz, em vez de deixar cada guarda reconstruir a
+# mesma soma à mão.
+#
 # Reprodução do auditor: `templates/empresas/lista.html` ganha a MESMA
 # sobrescrita condicional que `balancete.html` tem
 # (`classe_escritorio_ativo_na_impressao`), e a tela passa a imprimir SEM
@@ -397,38 +405,28 @@ _TELAS_SEM_REQUEST_ESCRITORIO = {
     ),
 }
 
-# União dos dois conjuntos que test_dl024_atalhos_e_acessibilidade.py já
-# declara — nomes de ROTA COMPLETOS (namespace:nome), a mesma forma que
-# NOMES_DE_TELA_FORA_DA_CONTABILIDADE já usa como chave; os valores de
-# NOMES_DE_TELA_DE_CONTABILIDADE já SÃO nomes completos.
-_NOMES_DE_ROTA_COM_ESCRITORIO = (
-    set(NOMES_DE_TELA_DE_CONTABILIDADE.values()) | set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
-) - set(_TELAS_SEM_REQUEST_ESCRITORIO)
+# BL-352 (rodada 10): a UNIÃO em si (nomes de ROTA COMPLETOS, namespace:nome)
+# vem PRONTA de `universo_de_telas.UNIVERSO_DE_ROTAS_DE_TELA` — este arquivo
+# não a reconstrói mais somando NOMES_DE_TELA_DE_CONTABILIDADE.values() com
+# NOMES_DE_TELA_FORA_DA_CONTABILIDADE (essa soma, escrita à mão aqui E
+# também em test_bl332, foi o que divergiu). O que CONTINUA sendo desta
+# guarda, e só dela — o RECORTE, com o motivo escrito — é a subtração de
+# `_TELAS_SEM_REQUEST_ESCRITORIO` logo acima: a propriedade "Escritório
+# ativo oculto se, e só se, tem timbre" não tem o que avaliar numa rota sem
+# `request.escritorio`, e essa razão é ESPECÍFICA desta guarda, não do
+# universo. Uma guarda de outra propriedade (ex. a de TÍTULO, em
+# test_bl332_titulo_sem_marca_do_fornecedor.py) NÃO herda esta subtração —
+# ela declara seu próprio recorte, com sua própria justificativa, sobre o
+# MESMO `UNIVERSO_DE_ROTAS_DE_TELA`.
+_NOMES_DE_ROTA_COM_ESCRITORIO = UNIVERSO_DE_ROTAS_DE_TELA - set(_TELAS_SEM_REQUEST_ESCRITORIO)
 
-# Args/query de cada rota de FORA da contabilidade — as de contabilidade
-# já vêm prontas de `_urls_de_contabilidade`; só as seis novas (menos as
-# duas excluídas acima) precisam de args próprios aqui.
-_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE = {
-    "empresas:lista": [],
-    "empresas:criar": [],
-    "tenancy:painel": [],
-    "tenancy:aceitar-convite": ["token-inexistente-bl345"],
-}
-
-
-def _url_por_nome_de_rota(nome_de_rota, cenario):
-    """URL completa para `nome_de_rota` (namespace:nome), cobrindo tanto
-    as rotas de `NOMES_DE_TELA_DE_CONTABILIDADE` (via
-    `_urls_de_contabilidade`, que já resolve `args`/query string a partir
-    do cenário) quanto as de `NOMES_DE_TELA_FORA_DA_CONTABILIDADE` (via
-    `_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE`, acima)."""
-    nomes_curtos_por_rota_completa = {
-        rota: curto for curto, rota in NOMES_DE_TELA_DE_CONTABILIDADE.items()
-    }
-    if nome_de_rota in nomes_curtos_por_rota_completa:
-        nome_curto = nomes_curtos_por_rota_completa[nome_de_rota]
-        return _urls_de_contabilidade(cenario)[nome_curto]
-    return reverse(nome_de_rota, args=_ARGS_DE_ROTA_FORA_DA_CONTABILIDADE[nome_de_rota])
+# A resolução de URL para qualquer rota do universo (tanto as de
+# `NOMES_DE_TELA_DE_CONTABILIDADE` quanto as de fora) é mecânica comum a
+# qualquer guarda — promovida para `universo_de_telas.url_por_nome_de_rota`
+# (BL-352) em vez de reimplementada aqui. `_url_por_nome_de_rota` continua
+# existindo como nome LOCAL só para não precisar renomear cada chamada
+# abaixo — é o MESMO objeto importado, não uma cópia.
+_url_por_nome_de_rota = url_por_nome_de_rota
 
 
 @pytest.mark.parametrize("nome_de_rota", sorted(_NOMES_DE_ROTA_COM_ESCRITORIO))
@@ -511,7 +509,23 @@ def test_sabotagem_ocultar_escritorio_ativo_fora_da_contabilidade_mata_a_guarda(
         assert resposta.status_code == 200
         html = resposta.content.decode()
         tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
-        assert tem_timbre is False, "controle: a mutação não mexeu no timbre — continua sem"
+        # BL-352 (rodada 10): mensagem CORRIGIDA — a redação anterior dizia
+        # "a mutação não mexeu no timbre", o que seria FALSO para uma
+        # sabotagem que também adicionasse '.timbre-impressao' (a versão
+        # COERENTE que o auditor mediu contra a guarda de TÍTULO, em
+        # test_bl332). ESTA sabotagem, em particular, só acrescenta a
+        # sobrescrita de `classe_escritorio_ativo_na_impressao` — nunca toca
+        # em `.timbre-impressao` — então o que o assert abaixo verifica é
+        # que essa premissa (tela sem timbre, só com a sobrescrita
+        # regressiva) continua valendo para `nome_de_rota` depois da
+        # mutação; se falhar, é a COMPOSIÇÃO do template que mudou (ganhou
+        # timbre por outro motivo), não a mutação em si.
+        assert tem_timbre is False, (
+            f"controle: {nome_de_rota} passou a ter '.timbre-impressao' — esta sabotagem "
+            f"só acrescenta a sobrescrita de classe_escritorio_ativo_na_impressao e não "
+            f"deveria, sozinha, introduzir timbre nenhum; a premissa deste teste (tela SEM "
+            f"timbre) não vale mais para {nome_de_rota}"
+        )
         oculto = "contexto-item--somente-tela" in classes_escritorio
         assert oculto, (
             "a sabotagem deveria ter reproduzido a regressão (tela SEM timbre "
@@ -618,7 +632,19 @@ def test_sabotagem_reproduzir_a_regressao_original_mata_a_guarda_da_camada_2(
         assert resposta.status_code == 200
         html = resposta.content.decode()
         tem_timbre, classes_escritorio = _tem_timbre_e_classe_do_escritorio_ativo(html)
-        assert tem_timbre is False, "controle: a mutação não mexeu no timbre — continua sem"
+        # BL-352 (rodada 10): mensagem CORRIGIDA — ver o comentário gêmeo em
+        # test_sabotagem_ocultar_escritorio_ativo_fora_da_contabilidade_
+        # mata_a_guarda, acima. Esta sabotagem só acrescenta a sobrescrita
+        # de classe_escritorio_ativo_na_impressao a Plano de contas; o
+        # assert abaixo verifica que ISSO, sozinho, não introduziu timbre —
+        # nunca "a mutação não mexeu no timbre" como afirmação genérica
+        # sobre qualquer mutação.
+        assert tem_timbre is False, (
+            "controle: 'plano_de_contas' passou a ter '.timbre-impressao' — esta "
+            "sabotagem só acrescenta a sobrescrita de classe_escritorio_ativo_na_"
+            "impressao e não deveria, sozinha, introduzir timbre nenhum; a premissa "
+            "deste teste (Plano de contas SEM timbre) não vale mais"
+        )
         oculto = "contexto-item--somente-tela" in classes_escritorio
         assert oculto, (
             "a sabotagem deveria ter reproduzido a regressão (Plano de contas SEM timbre "
