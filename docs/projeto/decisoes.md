@@ -2723,3 +2723,66 @@ legível é a função-objetivo, e A ganhou onde mais dói sem perder legibilida
 `templates/` e `static/css/` sem biblioteca externa (DE-011) e sem etapa de
 build. Nenhuma cor ou medida solta fora das variáveis CSS. O que a DL-009 e a
 DL-017 conquistaram — contraste, foco, estados, `D`/`C` explícito — não regride.
+
+## DE-054 — Auditoria continua obrigatória; ela deixa de ser refém do andaime
+
+**Decidido por Fred em 2026-09-19**, respondendo à pergunta que ele mesmo fez —
+*"você acha a auditoria necessária nesse projeto?"* — depois de eu apresentar os
+números e a crítica ao meu próprio processo. Escolha literal dele: **"A"** —
+mesclar o produto agora e auditar em paralelo, sobre a `main`.
+
+### O que motivou
+
+A auditoria **se pagou**, e o registro precisa dizer com o quê:
+
+- O veredito **"Fecha" em verde por cima da mensagem que recusou o lançamento**
+  (BL-318). O contador digita `1999` no lugar de `2019`, o sistema recusa — e
+  afirma que fecha. Nenhum teste pegava; cinco rodadas de auditoria pegaram.
+- O relatório impresso saindo com a **marca do fornecedor em toda folha** nas
+  opções padrão do navegador (A2 da rodada 5). O implementador mediu um PDF
+  limpo; o auditor mediu **o papel que o contador recebe**.
+- A conciliação conferida de forma **independente**, com 73 contas, em três
+  fontes: HTML renderizado, rodapé e banco. `241.709,66` nos três.
+
+### O defeito do processo, que é meu
+
+**A guarda também é software, logo também pode ser auditada — e isso não tem
+ponto final.** Cada rodada achava um buraco na guarda da rodada anterior, e
+sempre acharia, porque guarda perfeita não existe. Montei um ciclo **sem regra
+de parada**.
+
+O custo medido no dia da decisão: **7 relatórios**, **80 itens de backlog**, e
+**35 commits parados numa branch** — parênteses de saldo invertido, timbre do
+escritório e filtro mais baixo, todos prontos e nenhum no ar. Nas duas últimas
+rodadas o auditor escreveu que **o produto está certo**; o que ele reprovou
+foram as guardas.
+
+### A regra que passa a valer
+
+**Separar mesclar de declarar pronto.** Mesclar leva valor ao usuário; declarar
+a etapa fechada é outra coisa, e os itens abertos continuam abertos no backlog,
+com dono.
+
+**Buraco em guarda é BLOQUEADOR apenas quando ela defende um destes cinco:**
+
+1. dinheiro, escala e arredondamento;
+2. isolamento entre escritórios e entre empresas;
+3. período encerrado;
+4. trilha de auditoria;
+5. **o documento que sai para o cliente**.
+
+Fora dessa lista: item de backlog **com dono e momento**, que não trava entrega.
+
+⚠️ **Isto não afrouxa a régua onde ela importa.** Os dois ALTOS da sexta
+auditoria caem no item 5 e continuariam bloqueando — e foram corrigidos. O que
+muda é que o produto não fica refém enquanto o andaime é polido.
+
+### O que continua igual
+
+- Auditoria **independente**, sobre a versão integrada, em toda etapa.
+- Relatório preservado **integralmente**, sem edição, suavização ou omissão —
+  inclusive os achados contra o `arquiteto-senior`.
+- Sabotagem, não leitura: guarda que nunca falhou em teste não é guarda
+  confiável.
+- **Auditoria de software não substitui a validação profissional das regras
+  contábeis e legais.**
