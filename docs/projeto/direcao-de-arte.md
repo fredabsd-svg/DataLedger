@@ -154,12 +154,39 @@ Valem para todo módulo, e são medidas por mecanismo (§5).
 
    **O piso, hoje, é o que a referência entrega, com o método junto:**
 
-   | Tela | Piso medido | Em que estado |
-   | --- | --- | --- |
-   | Balancete | **9** | **com período filtrado** |
-   | Balancete | **4** | **entrada padrão, mês sem movimento** |
-   | Plano de contas | **14** | — |
-   | Diário | **11** | — |
+   | Tela | Piso medido | Em que estado | Medido em |
+   | --- | --- | --- | --- |
+   | Balancete | **10** | **com período filtrado** | `53388c8` |
+   | Balancete | **5** | **entrada padrão, mês sem movimento** | `53388c8` |
+   | Plano de contas | **14** | — | `53388c8` |
+   | Diário | **14** | — | `53388c8` |
+   | Razão | **11** | conta consolidada, período filtrado | `53388c8` |
+
+   ⚠️ **Esta tabela já divergiu uma vez, e a correção está aqui pelo motivo
+   errado ter acontecido.** Até a rodada 6 ela dizia 9 / 4 / 14 / 11, e não
+   tinha linha do Razão. A rodada 6 **mediu** os números novos — eles estavam
+   no `BL-277`, no backlog — e não os trouxe para cá. O auditor achou na
+   rodada 5 (**M4**): *"quem for construir o Fiscal vai medir a sua tabela
+   contra um Diário de 11 linhas que na verdade entrega 14 — e vai entregar
+   uma tela pior que a referência **cumprindo o contrato**"*.
+
+   **A classe é:** o número medido foi publicado no registro da **tarefa** e
+   não no **contrato**. Backlog é histórico de quem fez; este documento é o
+   que o próximo lê. O número vive nos dois, e divergiu no primeiro dia — que
+   é exatamente a lição de 2026-09-13 citada no §1 deste mesmo arquivo.
+
+   **Enquanto esta tabela for texto escrito à mão, ela vai divergir de novo.**
+   A correção durável é gerá-la a partir da medição, e ela depende do
+   instrumento que o **BL-337** está criando (hoje a medição de impressão nem
+   instrumento versionado tem). Até lá, isto é uma obrigação humana declarada,
+   não uma garantia — e está escrito assim de propósito.
+
+   **Procedência dos números acima:** medidos de forma independente pelo
+   `auditor-qa` na quinta auditoria
+   ([relatório](../auditorias/2026-09-19-dl-026-rodada-5.md), §1), com Chromium
+   próprio e base semeada por ele, batendo com os que o
+   `especialista-frontend` havia medido no BL-277. Dois instrumentos
+   independentes, mesmo resultado.
 
    **Método, sem o qual os números acima não valem nada:** 1280×800, base
    sintética de **73 contas em 4 níveis e 60 lançamentos**, contando linha
