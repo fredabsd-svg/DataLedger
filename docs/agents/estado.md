@@ -399,6 +399,53 @@ são duas perguntas diferentes desde a [DE-054](../projeto/decisoes.md).
 **Proibido às duas:** `static/css/base.css` e `templates/**`. Nenhuma das duas
 frentes muda produto.
 
+### O que as duas frentes trouxeram, e o BL-362 continua ABERTO
+
+**A fatia 1 da DL-028 está entregue e medida:** existe um instrumento que, sobre
+o **produto real**, sobe o servidor com banco descartável, deriva sozinho as
+telas que têm timbre (achou as três — Balancete, Diário, Razão — sem nenhuma
+escrita à mão), mede no navegador sob `emulate_media("print")` e confere o PDF
+A4 com `pdftotext`. **Ele pega as dez construções do BL-362**, mais quatro que eu
+escolhi e que o relatório não nomeou. Roda em **3,5 s**.
+
+⚠️ **Achado do `desenvolvedor-pleno` construindo, e ele corrige o meu plano:** a
+`visivelDeVerdade` cobre **nove** das dez, não as dez. A décima é `color:
+transparent`, e ela escapa por **dois** caminhos ao mesmo tempo —
+`checkVisibility` não muda com a tinta, e o `pdftotext` lê o **objeto** de texto,
+não o pixel. Ele mediu, fechou o buraco **fora** da função geral e não
+contaminou o que o gauntlet também usa.
+
+**A rodada 12 fechou três dos quatro itens:** a cadeia do timbre passou a
+incluir os descendentes que carregam o texto; pseudo-classe fora do conjunto
+**fechado** de interação passou a **recusar julgar** em vez de ser tratada como
+`:hover`; e o BL-363 foi resolvido por **varredura de `templates/**`** — as três
+telas entram sozinhas, e a sabotagem morre **nomeando a tela**. BL-365 também.
+
+⚠️ **O quarto item não fechou, e o defeito era do meu pedido — [BL-367](../projeto/backlog.md).**
+Eu especifiquei a recusa como *"qualquer declaração que não seja `display`, em
+regra que case com a cadeia"*. Medido pelo implementador: dispara **9 vezes** no
+`base.css` real **sem sabotagem nenhuma**, porque a cadeia inclui
+`<html>`/`<body>`. Ele **parou antes de integrar**, como eu havia exigido, e
+registrou o conflito em vez de inventar exceção.
+
+**E a medição dele provou o que o §7 do auditor só argumentava:** o motor
+simulado **não consegue** responder *"o timbre aparece"* sem construir uma lista
+(que cresce com a linguagem) ou produzir falso alarme. Tentei formulação mais
+estreita e não existe — restringir às regras que alvejam o timbre ainda deixa
+três declarações de layout legítimas disparando.
+
+**Decisão minha, e o enquadramento é o que muda:** o motor simulado responde a
+condição **necessária** (*nenhum nó da cadeia com `display: none` sob
+impressão*); o **navegador** responde a **suficiente**. Isso deixa de ser
+pendência e passa a ser **limite declarado com prova medida**, escrito no
+próprio código.
+
+⚠️ **Consequência que não disfarço: o BL-362 continua ABERTO.** As construções 2
+a 8 do §H1 não são pegas pela suíte, e só ficam cobertas quando a **fatia 2** da
+DL-028 puser o instrumento de navegador na integração contínua — em construção
+agora. O implementador classificou essas seis como **Bloqueado**, não como
+corrigido, e eu preservo a classificação dele.
+
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
 aberto até a rodada 11 fechar. Duas correções de **guarda**, nenhuma mudança de
