@@ -11,8 +11,19 @@ de toda página (vem de `templates/base.html`, sempre) — o que decide se ela
 sai no PAPEL é o **CSS de impressão** (`@media print` em
 `static/css/base.css`), e nenhum teste do BL-282 pergunta isso.
 
+⚠️ **LEIA ISTO ANTES DE CONFIAR NUM VERDE (DL-028, fatia 3 — a decisão que
+era plano na rodada 12 da DL-026 e virou FATO nesta etapa): este arquivo
+responde a uma condição NECESSÁRIA, não SUFICIENTE, para o critério 9 (a
+identidade do escritório sair no papel).** A palavra FINAL é
+`scripts/medir_identificacao_do_emitente.py`, que mede no NAVEGADOR real
+contra o PRODUTO real (não HTML autônomo do gauntlet), e que roda na
+integração contínua pelo job "Medir identificação do emitente no
+navegador" (`.github/workflows/identificacao-do-emitente.yml`, DL-028).
+Ver a seção "O QUE ESTE ARQUIVO NÃO VERIFICA", mais abaixo, para o porquê
+— não é opinião, é resultado medido, com teste que sustenta o número.
+
 O QUE ESTE ARQUIVO VERIFICA (roda no `pytest`, portanto na integração
-contínua — primeira metade da garantia):
+contínua — primeira linha, barata e rápida, NÃO a garantia inteira):
 
 Deriva a cadeia de ancestrais do elemento que carrega o NOME DO PRODUTO —
 lido de `templates/base.html`, nunca retypado como literal Python neste
@@ -216,8 +227,7 @@ escrita à mão para isso: uma lista literal de `.marca`/`.timbre-impressao`
 reintroduziria exatamente o defeito que esta correção existe para fechar.
 
 O QUE ESTE ARQUIVO NÃO VERIFICA — a segunda metade, que só um motor de
-layout real decide, e que a integração contínua deste projeto NÃO RODA
-(§4.8 da direção de arte: sem Chromium na CI):
+layout real decide:
 
 - Se o CONTADOR **vê** a marca no papel de verdade. `display: none`
   calculado por este arquivo é a MESMA pergunta que o CSS real responde,
@@ -227,14 +237,65 @@ layout real decide, e que a integração contínua deste projeto NÃO RODA
   `display` em `contents`, `@supports`, `:is()`/`:where()`, seletores com
   `id`, etc. — nenhum usado hoje em `static/css/base.css`, mas se alguém
   usar, este arquivo pode julgar errado).
-- Isto é medido por fora, com Chromium de verdade e
-  `page.emulate_media(media="print")` — ver
-  `docs/assets/design/gauntlet/juiz.py`, `SELETOR_MARCA_DO_FORNECEDOR` e
-  `SONDA_IMPRESSAO` (extensão desta etapa, BL-329, ao mesmo mecanismo que já
-  existia para `MOMENTO_DA_VERDADE_SELETORES` — ver o comentário lá). É
-  ferramenta de BANCADA (não roda no `pytest`), com a mesma obrigação que o
-  BL-314 já registrou: quem fecha uma etapa que mexa neste CSS roda o juiz
-  manualmente antes de declarar pronto.
+
+⚠️ **Por que a palavra final NÃO PODE ser esta suíte — o fato, não a
+opinião (DL-028, fatia 3):**
+
+1. **A linguagem que este motor precisa entender cresce todo ano.** O
+   histórico desta própria etapa é a prova: BL-343 (prelúdio de at-rule) →
+   BL-351 (caractere de abertura / CSS Nesting) → BL-360 (gramática do
+   seletor: `[atributo]`, `*`, pseudo-classe funcional) → BL-362 (conjunto
+   de propriedades e fim da cadeia). Cada rodada fechou um eixo e abriu o
+   seguinte — nunca ficou completo, porque a pergunta não é "quais formas
+   de esconder eu já vi", é "quais formas o CSS vai ganhar amanhã".
+2. **Medido nesta própria etapa (BL-362, rodada 12,
+   `test_bl331_timbre_do_escritorio_no_papel.py`): não existe extensão
+   deste motor que decida "reduz visibilidade?" sem lista OU sem falso
+   alarme.** Pela cadeia inteira do timbre, verificar QUALQUER declaração
+   além de `display` dispara **9 vezes** no `base.css` REAL, sem
+   sabotagem nenhuma (`test_o_motor_simulado_nao_consegue_decidir_
+   visibilidade_sem_falso_alarme`); restringindo a regras que MENCIONAM o
+   identificador do timbre, ainda dispara **3 vezes**, contra declarações
+   de layout legítimas (`test_item2_restrito_ao_identificador_timbre_
+   impressao_ainda_dispara_tres_vezes`). Os dois testes ficam em
+   `test_bl331_timbre_do_escritorio_no_papel.py` — leia-os antes de tentar
+   estender este motor para pegar mais uma construção "só mais essa".
+3. **`color: transparent` é o exemplo medido desta etapa que este motor
+   não pode julgar de jeito nenhum.** A regra APLICA normalmente na
+   simulação de cascata (o texto continua no fluxo, `display` não muda) —
+   só um motor de layout, lendo a COR COMPUTADA de verdade, vê que o
+   texto ficou invisível. Não é limite de esforço: é a MESMA classe de
+   pergunta que este arquivo declara, desde a primeira versão, que não
+   responde (ver o item acima).
+
+**Quem responde à pergunta suficiente, então, e onde:** o NAVEGADOR real
+contra o PRODUTO real (não HTML autônomo do gauntlet) —
+`scripts/medir_identificacao_do_emitente.py`, que agora roda na
+integração contínua pelo job "Medir identificação do emitente no
+navegador" (`.github/workflows/identificacao-do-emitente.yml`, DL-028,
+fatia 2) — e pega as DEZ construções do §H1 da auditoria da rodada 8,
+inclusive as seis que este motor simulado nunca vai conseguir pegar sem
+virar uma lista. Continua existindo também `docs/assets/design/gauntlet/
+juiz.py` (`SELETOR_MARCA_DO_FORNECEDOR`/`SONDA_IMPRESSAO`), ferramenta de
+BANCADA para quem quiser medir manualmente antes do CI rodar.
+
+⚠️ **O que "os dois motores concordam" NÃO significa:** este arquivo
+passar é necessário, não suficiente — "a simulação de cascata não achou
+nada errado" nunca foi a mesma garantia que "o navegador confirmou que o
+emitente aparece". E **não declare o BL-362 fechado** só porque esta
+suíte e o job de navegador estão verdes: ele fecha pela COMBINAÇÃO dos
+dois, e só enquanto o job estiver EXIGIDO na proteção da branch — o que
+ainda depende de uma ação do Fred na interface do GitHub (BL-371, não
+concluída). Sem a exigência ligada, um PR pode mesclar com o job
+reportando REPROVADO, e a suíte deste arquivo, sozinha, não detecta isso.
+
+**O que esta suíte continua fazendo bem, e por isso continua existindo:**
+roda em TODA execução do `pytest`, em segundos (sem abrir navegador
+nenhum), e pega uma classe inteira de regressão — a mesma marca voltando
+ao papel por um seletor banal — antes de qualquer coisa custosa rodar. É
+exatamente por ela existir, barata e sempre ligada, que o job de
+navegador pode ficar delimitado a quando algo relevante muda, em vez de
+rodar em cada commit.
 
 Dados: nenhum. Este arquivo não usa banco de dados (não há
 `pytest.mark.django_db`) — ele só lê `templates/base.html` e

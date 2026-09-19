@@ -446,6 +446,62 @@ DL-028 puser o instrumento de navegador na integração contínua — em constru
 agora. O implementador classificou essas seis como **Bloqueado**, não como
 corrigido, e eu preservo a classificação dele.
 
+### A DL-028 entregou as três fatias, e o navegador está no ciclo
+
+**Fatia 2 entregue e VERDE**, verificada por mim **por disparo real** — não por
+leitura do `yaml`, que é a única forma que valeria aqui:
+
+| Caso | Medido por disparo real |
+| --- | --- |
+| Commit tocando caminho vigiado (`c26f5d8`) | job roda **inteiro**, `0 de 9` passos caros pulados, **54 s**, verde |
+| Commit só de documentação (`7d6b60f`) | job roda, **`8 de 8`** passos caros **pulados**, **23 s**, verde |
+| A medição em si, dentro dos 54 s | **3 s** |
+
+O caminho longo custa 54 s: containers 12 s, Chromium **20 s**, `poppler-utils`
+4 s, dependências 7 s. **Três segundos** é o que custa responder à pergunta; o
+resto é montar a bancada.
+
+⚠️ **Dois achados meus na verificação, os dois por disparo real:**
+
+- **[BL-370](../projeto/backlog.md) — o job reprovava**: faltava `poppler-utils`
+  no runner. Mas o **modo** como ele falhou é o melhor resultado do dia: disse
+  literalmente *"FALHA DE INFRAESTRUTURA — não é um veredito sobre o produto"*.
+  Sem essa distinção eu teria lido o vermelho como regressão do balancete. E o
+  instrumento **recusou** em vez de medir só metade e devolver verde.
+- **[BL-371](../projeto/backlog.md) — job que roda mas não é EXIGIDO é conselho,
+  não trava.** E marcá-lo como obrigatório com `paths:` no gatilho criaria a
+  armadilha inversa: checagem que **não reporta** num PR de documentação fica
+  **pendente para sempre**, travando o merge sem erro para investigar. Corrigido
+  tirando os `paths:` do gatilho e pondo a decisão **dentro** do job, com a
+  lista de padrões passando a viver **num lugar só** — antes eram duas, ligadas
+  por âncora YAML, que é o BL-352 esperando para acontecer.
+
+**Fatia 3 entregue:** a docstring de `test_bl329_marca_fora_do_papel.py` deixou
+de se apresentar como a garantia. Ela agora declara que responde à condição
+**necessária**, nomeia quem responde à **suficiente**, e sustenta o argumento com
+os **números medidos** (9 disparos pela cadeia inteira, 3 restritos ao timbre) e
+com os **dois testes** que os fixam. Também deixa escrito que o BL-362 **não**
+fecha por ela sozinha.
+
+**Medição minha, com a máquina livre:** `1910 passed, 15 skipped` em 69,9s;
+`ruff check` limpo; `ruff format --check` 206 arquivos; `manage.py check` limpo.
+Refiz as dezessete construções que eu havia guardado nas rodadas 10 e 11:
+**sem regressão** — as sete continuam corretas, o cruzamento com o navegador dá
+**zero falsos conformes**, e as dez da segunda leva continuam 9 recusas + 1
+aprovação.
+
+### ⚠️ Falta UMA ação, e ela é do Fred, na interface do GitHub
+
+**Settings → Branches → regra da `main` → Require status checks**, acrescentar:
+
+> **Identificação do emitente**
+
+Enquanto isso não for feito, o job roda e avisa, mas **não impede** que alguém
+mescle por cima dele vermelho — o BL-362 fecha **pela combinação**, e só
+enquanto a exigência existir. **Não consigo ler nem escrever essa configuração**
+(a API devolve `403 Resource not accessible by integration`), e registro isso
+como **não verificado** em vez de presumir que está feito.
+
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
 aberto até a rodada 11 fechar. Duas correções de **guarda**, nenhuma mudança de
