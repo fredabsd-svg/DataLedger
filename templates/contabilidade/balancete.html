@@ -72,7 +72,7 @@
           balancete exigia 2153px de rolagem com 73 contas — passar pelas
           73 linhas. Aqui a rolagem para ver o total é zero, porque o
           total já está antes da tabela, não depois dela.
-        - DE-042 §3 ("fecha ou não fecha é a segunda coisa que o olho
+        - DE-053 §3 ("fecha ou não fecha é a segunda coisa que o olho
           encontra, no balancete e no lançamento, antes de qualquer ação
           de gravar"): antes desta correção, as palavras "fecha" e
           "diferen" não apareciam em nenhuma tela do módulo.
@@ -95,7 +95,7 @@
         padrão de todo dia 1º de mês (empresa sem movimento ainda) exibia
         um "Fecha" verde sobre 0,00/0,00 — não é FALSO (zero fecha com
         zero), mas é a resposta mais destacada da tela virando ruído
-        ambiente, no exato lugar que a DE-042 §3 reserva para a pergunta
+        ambiente, no exato lugar que a DE-053 §3 reserva para a pergunta
         central.
 
         A correção move a decisão para a VIEW: `veredito_balancete` chega
@@ -238,7 +238,7 @@
     {% if linhas %}
         {% comment %}
         Cabeçalho de coluna em dois níveis (enxerto da variante C do
-        gauntlet, DE-042/RC-89): "Movimento do período" agrupa as duas
+        gauntlet, DE-053/RC-89): "Movimento do período" agrupa as duas
         colunas consolidadas (Débitos/Créditos — achado 10/BL-96, nunca
         somáveis no rodapé) e "Lançamento próprio" agrupa as duas que só
         contam o que foi lançado direto nesta conta (DE-024 §2, as que
@@ -248,7 +248,7 @@
         do cabeçalho (duas linhas de célula de cabeçalho sticky não têm o mesmo "top").
         {% endcomment %}
         {% comment %}
-        M4/BL-280 (auditoria DL-024, rodada 1): DE-042 §1 — "a hierarquia
+        M4/BL-280 (auditoria DL-024, rodada 1): DE-053 §1 — "a hierarquia
         do plano de contas vem de peso e recuo, não de uma coluna 'Nível'
         nem de cor". Legenda em TEXTO, porque peso sozinho tem o mesmo
         problema de "cor sozinha" para quem não distingue as duas

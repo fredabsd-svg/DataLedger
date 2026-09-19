@@ -1963,7 +1963,7 @@ Ele é uma fotografia da revisão `b8c66a6` com uma proposta de execução, e
 envelhece como qualquer fotografia. O que ela impede é que envelhecer **produza
 contradição sobre o estado** — porque sobre estado ele não fala.
 
-## DE-042 — A identidade visual do DataLedger: "papel e tinta", com dois enxertos nomeados
+## DE-053 — A identidade visual do DataLedger: "papel e tinta", com dois enxertos nomeados
 
 **Data:** 2026-09-18. **Origem:** rodada 1 do gauntlet da
 [DL-024](../planos/DL-024-identidade-visual-e-interface.md), com a escolha

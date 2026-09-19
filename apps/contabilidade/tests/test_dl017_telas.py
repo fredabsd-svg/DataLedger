@@ -987,7 +987,7 @@ def test_balancete_sem_movimento_diz_nada_a_conferir_por_decisao(client, cenario
     NENHUM movimento ainda (o estado em que a tela abre no dia 1º de todo
     mês, em qualquer escritório real) — não pode dizer "Fecha": zero
     fecha com zero, não é FALSO, mas é a resposta mais destacada da tela
-    virando ruído ambiente, no lugar que a DE-042 §3 reserva para a
+    virando ruído ambiente, no lugar que a DE-053 §3 reserva para a
     pergunta central. O veredito correto é "nada_a_conferir", vindo da
     VIEW pela chave `veredito_balancete` — `_exige_veredito_balancete`
     reprova tanto a ausência da chave quanto um valor incorreto (ver o

@@ -340,7 +340,7 @@ def test_adicionar_linha_mostra_o_total_real_das_linhas_preenchidas(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
-    # Tocado na DL-024 (DE-042/RC-89): a célula do total passou a carregar
+    # Tocado na DL-024 (DE-053/RC-89): a célula do total passou a carregar
     # a classe do sistema (`valor-monetario`) diretamente no `<td>`, não
     # mais num `<span>` interno só com o número — achado da própria
     # varredura de interface da DL-024 (`test_todo_valor_em_celula_usa_a_

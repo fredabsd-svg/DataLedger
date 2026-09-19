@@ -407,7 +407,7 @@ def test_adicionar_linha_anuncia_quantas_linhas_ficam_fora_do_total(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
-    # Tocado na DL-024 (DE-042/RC-89) — mesmo motivo do teste equivalente em
+    # Tocado na DL-024 (DE-053/RC-89) — mesmo motivo do teste equivalente em
     # test_dl017_rodada1_correcoes.py: a classe `valor-monetario` migrou do
     # `<span>` interno para o `<td>` que já continha o rótulo, para fechar o
     # achado da varredura de interface (classe no lugar certo para tabular a
@@ -1154,7 +1154,7 @@ _REGRA_NIVEL_PREFIXADA = re.compile(
 # do mutante apaga.
 _REGRA_NIVEL_SEM_PREFIXO = re.compile(r"(?<!td)\.nivel-\d+\s*\{")
 
-# DL-024/DE-042: o CSS virou sistema de tokens (docs/projeto/
+# DL-024/DE-053: o CSS virou sistema de tokens (docs/projeto/
 # direcao-de-arte.md §1 — "nenhuma cor ou medida solta fora das
 # variáveis"). O padding da célula comum, que antes era um número `rem`
 # literal na própria regra, agora é `var(--esp-N)` apontando para o

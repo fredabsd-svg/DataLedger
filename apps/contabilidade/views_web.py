@@ -1887,11 +1887,24 @@ def lancamento_novo(request, empresa_id):
         # reprodução do achado A1: "histórico de 400 caracteres" e "data
         # 'abacaxi'", nenhum dos dois descarta uma linha, então a correção
         # de `linhas_excluidas_do_total` sozinha não bastava).
-        bloqueado_por_outro_erro = (
-            len(historico) > TAMANHO_MAXIMO_HISTORICO
-            or len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA
-            or data_lancamento is None
-        )
+        # BL-318 (A1 da rodada 4): a enumeração acima estava ERRADA DE LUGAR,
+        # não de conteúdo. As três condições eram as três que ESTA VIEW checa
+        # antes de chamar o serviço; `criar_lancamento` tem DEZESSETE `raise`
+        # próprios — faixa de data do RC-77, escala, byte nulo, conta que não
+        # aceita lançamento, teto de partidas, conflito de idempotência — e
+        # nenhum deles passava por aqui. Medido pelo auditor: quatro POSTs com
+        # as duas partidas batendo devolviam 400 com "Fecha" EM VERDE, e o
+        # primeiro deles é a data fora da faixa: quem digita 1999 em vez de
+        # 2019 lia "Fecha" por cima da mensagem que recusou a data.
+        #
+        # Uma sexta condição enumerada não resolve — a lista de motivos de
+        # recusa cresce. A afirmação verdadeira é estrutural e não envelhece:
+        #
+        #     esta resposta é 400, logo NÃO GRAVOU, logo nada está conferido.
+        #
+        # `"nao_fecha"` não depende desta bandeira, então divergência real
+        # continua sendo anunciada com o valor da diferença.
+        bloqueado_por_outro_erro = True
 
         contexto = _contexto_form_lancamento(
             empresa,

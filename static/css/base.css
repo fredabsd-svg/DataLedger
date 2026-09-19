@@ -1,5 +1,5 @@
 /*
- * Sistema de tokens do DataLedger (DE-042 / DL-024): identidade "papel e
+ * Sistema de tokens do DataLedger (DE-053 / DL-024): identidade "papel e
  * tinta", escolhida por medição no gauntlet de três variantes cegas — ver
  * docs/projeto/direcao-de-arte.md (fonte da direção) e
  * docs/assets/design/gauntlet/MEDICOES.md (evidência). CSS próprio e
@@ -370,7 +370,7 @@ summary:focus,
 }
 
 /* Atalho de teclado à mostra na navegação (enxerto da variante B do
-   gauntlet, DE-042/RC-89). Texto miúdo, sem caixa nem borda — a direção
+   gauntlet, DE-053/RC-89). Texto miúdo, sem caixa nem borda — a direção
    escolhida é "cor quase ausente", e um "keycap" desenhado seria poluição
    visual que a variante B podia se dar ao luxo de ostentar e esta não.
    O texto é aria-hidden: o nome acessível do link não pode incluir
@@ -664,7 +664,7 @@ button:disabled {
 }
 
 /* Cabeçalho de coluna em dois níveis (enxerto da variante C do gauntlet,
-   DE-042/RC-89): usado só no Balancete, para separar "Movimento do
+   DE-053/RC-89): usado só no Balancete, para separar "Movimento do
    período" (consolidado pela hierarquia) de "Lançamento próprio" (só o
    que foi lançado direto nesta conta) sem alargar a tabela — as duas
    colunas já existiam (achado 10/BL-96, DE-024 §2); o que muda é o
@@ -737,7 +737,7 @@ button:disabled {
 }
 
 /* M2/BL-278 (auditoria DL-024, rodada 1): "fecha ou não fecha" no
-   lançamento, DE-042 §3 — texto primeiro (a palavra "Fecha"/"Não fecha"
+   lançamento, DE-053 §3 — texto primeiro (a palavra "Fecha"/"Não fecha"
    está sempre no HTML), cor de reforço na primeira célula da linha via
    este modificador, nunca o único canal. Aplicado em
    templates/contabilidade/lancamento_form.html, na MESMA `<tr
@@ -778,7 +778,7 @@ button:disabled {
 /* A3/BL-276 + M2/BL-278 (auditoria DL-024, rodada 1): faixa de fechamento
    do Balancete — resolve as DUAS coisas na mesma superfície, porque são a
    mesma pergunta ("os totais fecham?") em duas roupagens (critério 4:
-   totalizador alcançável sem rolar a tabela inteira; DE-042 §3: "fecha ou
+   totalizador alcançável sem rolar a tabela inteira; DE-053 §3: "fecha ou
    não fecha" é a segunda coisa que o olho encontra). Fica logo após o
    `<h1>` do Balancete, ANTES do formulário de período — por isso é
    alcançável com rolagem zero, e é literalmente a segunda coisa da tela
@@ -987,7 +987,7 @@ button:disabled {
 .tabela-dados td.nivel-10 { padding-left: var(--recuo-nivel-10); }
 
 /* M4/BL-280 (auditoria DL-024, rodada 1): hierarquia por PESO, não só por
-   recuo — DE-042 §1: "a hierarquia do plano de contas vem de peso e
+   recuo — DE-053 §1: "a hierarquia do plano de contas vem de peso e
    recuo, não de uma coluna 'Nível' nem de cor". Medido antes desta
    correção: peso 400 nos quatro níveis do balancete, só o recuo
    diferenciava, e a coluna "Nível" era o único sinal de verdade — embora

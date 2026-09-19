@@ -2,7 +2,7 @@
 regra, e não em pedido.
 
 **Por que este arquivo existe.** A [direção de arte](docs/projeto/direcao-de-arte.md)
-foi escolhida por medição, num gauntlet de três variantes (DE-042/RC-89). Mas o
+foi escolhida por medição, num gauntlet de três variantes (DE-053/RC-89). Mas o
 produto vai ganhar Fiscal, Folha, Honorários, Paralegal e Lalur, e **um sistema
 contábil que muda de cara a cada módulo obriga o usuário a reaprender a ler**.
 Documento de padrão que ninguém verifica vira decoração em seis meses — este
@@ -451,7 +451,7 @@ def _sem_comentarios_de_template(texto):
 
 
 def _texto_sem_root(texto):
-    """Remove comentários e o bloco `:root` — é onde os tokens NASCEM (DE-042);
+    """Remove comentários e o bloco `:root` — é onde os tokens NASCEM (DE-053);
     cor ou medida literal ali é a própria definição do token, não violação.
     Compartilhado pelos detectores de cor e de medida (mesma regra, mesma
     exceção)."""
@@ -465,7 +465,7 @@ def _cores_fora_dos_tokens(texto):
     """Cores declaradas fora do bloco `:root`, em hex/rgb/hsl **ou nomeadas**
     (BL-274 #2: `red`, `white`... eram invisíveis).
 
-    O `:root` é onde os tokens moram (DE-042). Cor escrita direto numa regra de
+    O `:root` é onde os tokens moram (DE-053). Cor escrita direto numa regra de
     tela é o começo da divergência: a próxima tela copia, a terceira erra o
     tom, e seis meses depois existem quatro azuis.
     """
@@ -675,7 +675,7 @@ def _tem_linha_na_tabela(secao, nome_do_modulo):
 # As duas dívidas que este bloco registrava (DIVIDA_VALOR: 4 células de
 # totalizador fora da classe do sistema em lancamento_form.html e razao.html;
 # DIVIDA_COR: 5 cores soltas em static/css/base.css) foram FECHADAS pela
-# implementação real da DL-024 (DE-042) nesta etapa — `strict=True` fez
+# implementação real da DL-024 (DE-053) nesta etapa — `strict=True` fez
 # exatamente o que o comentário original previa: "no instante em que a
 # implementação consertar, o teste passa a REPROVAR POR PASSAR, e quem
 # estiver aqui é obrigado a apagar a marca". As duas marcas de
@@ -802,7 +802,7 @@ def test_a_classe_de_valor_tabula_algarismos():
 
 
 def test_nenhuma_cor_declarada_fora_dos_tokens():
-    """Cor solta é o começo de quatro azuis diferentes (DE-042). Cobre
+    """Cor solta é o começo de quatro azuis diferentes (DE-053). Cobre
     hex/rgb/hsl e cor NOMEADA (BL-274 #2), em todo `.css` do projeto, não só
     `static/css/*.css` de primeiro nível (BL-274 #3)."""
     soltas = []
@@ -810,7 +810,7 @@ def test_nenhuma_cor_declarada_fora_dos_tokens():
         for cor in _cores_fora_dos_tokens(folha.read_text(encoding="utf-8")):
             soltas.append(f"{folha.relative_to(RAIZ)}: {cor}")
     assert not soltas, (
-        "Cores declaradas fora do :root (tokens da DE-042): "
+        "Cores declaradas fora do :root (tokens da DE-053): "
         + "; ".join(soltas)
         + ". Se a cor é nova, ela nasce como token com o contraste medido."
     )

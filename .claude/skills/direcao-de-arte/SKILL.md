@@ -22,7 +22,7 @@ e quem passa oito horas por dia aqui não pode gastar atenção procurando onde
 está o total desta vez.
 
 A direção foi escolhida por **medição**, não por gosto, num gauntlet de três
-variantes cegas: [DE-042](../../../docs/projeto/decisoes.md), confirmada em
+variantes cegas: [DE-053](../../../docs/projeto/decisoes.md), confirmada em
 RC-89, com a evidência em
 [`docs/assets/design/gauntlet/MEDICOES.md`](../../../docs/assets/design/gauntlet/MEDICOES.md).
 

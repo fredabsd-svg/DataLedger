@@ -45,6 +45,8 @@ customização por caso.
 Dados 100% sintéticos, criados nos próprios testes.
 """
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -222,6 +224,52 @@ def _acao_desconhecida_com_linha_quebrada(corpo):
     return corpo
 
 
+# ---------------------------------------------------------------------------
+# BL-318 (A1 da rodada 4): os quatro casos que o auditor achou e que NENHUM
+# teste cobria. Todos têm as duas partidas VÁLIDAS batendo perfeitamente — a
+# recusa vem de dentro de `criar_lancamento`, não das pré-checagens da view.
+#
+# A lição que eles carregam: a asserção deste arquivo sempre esteve certa
+# (genérica, sobre a MESMA resposta). O que estava preso ao relatório era a
+# AMOSTRA — oito casos escritos à mão, todos do mesmo lado da chamada ao
+# serviço. Requisito na asserção, achado na parametrização.
+# ---------------------------------------------------------------------------
+
+
+def _data_fora_da_faixa_ano_errado(corpo):
+    """O pior dos quatro, e não é acidente. RC-77/BL-198 existe porque um
+    dígito trocado no ano esconde o lançamento de TODAS as telas de operação.
+    Quem digita 1999 em vez de 2019 recebia "Fecha" em verde por cima da
+    mensagem que recusou a data."""
+    corpo = dict(corpo)
+    corpo["data"] = "1999-12-31"
+    return corpo
+
+
+def _data_alem_do_futuro_permitido(corpo):
+    """A outra ponta da mesma faixa do RC-77: hoje + 60 dias."""
+    corpo = dict(corpo)
+    corpo["data"] = (timezone.localdate() + timedelta(days=60)).isoformat()
+    return corpo
+
+
+def _historico_com_byte_nulo(corpo):
+    """Recusa levantada DENTRO do serviço, sem nenhuma relação com tamanho."""
+    corpo = dict(corpo)
+    corpo["historico"] = "lancamento\x00com byte nulo"
+    return corpo
+
+
+def _valor_com_escala_invalida(corpo):
+    """Recusa do MOTOR MONETÁRIO (DL-008), dentro do serviço: mais casas
+    decimais do que a escala permite. As duas partidas continuam batendo
+    entre si — o que quebra é a escala, que a view não pré-checa."""
+    corpo = dict(corpo)
+    corpo["valor_1"] = "100,123"
+    corpo["valor_2"] = "100,123"
+    return corpo
+
+
 CASOS_DE_RECUSA = {
     "valor_invalido_terceira_linha": _valor_invalido_em_terceira_linha,
     "linha_incompleta": _linha_incompleta,
@@ -231,6 +279,11 @@ CASOS_DE_RECUSA = {
     "conta_inexistente_terceira_linha": _conta_inexistente_em_terceira_linha,
     "tipo_invalido_terceira_linha": _tipo_invalido_em_terceira_linha,
     "acao_desconhecida_com_linha_quebrada": _acao_desconhecida_com_linha_quebrada,
+    # BL-318 — os quatro do auditor, recusados DENTRO de criar_lancamento:
+    "data_fora_da_faixa_ano_errado": _data_fora_da_faixa_ano_errado,
+    "data_alem_do_futuro_permitido": _data_alem_do_futuro_permitido,
+    "historico_com_byte_nulo": _historico_com_byte_nulo,
+    "valor_com_escala_invalida": _valor_com_escala_invalida,
 }
 
 

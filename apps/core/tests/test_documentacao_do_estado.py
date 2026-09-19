@@ -243,3 +243,55 @@ def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
         "instrução permanente de 2026-09-13 proíbe, dentro de um arquivo só. "
         "A linha da tabela deve APONTAR para o Próximo passo."
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-326 — identificador de DECISÃO único.
+#
+# O registro de requisitos já tinha esta guarda (BL-242). O de decisões, não —
+# e na junção da DL-024 com a `main` apareceu o resultado: as duas linhas de
+# trabalho criaram, cada uma, uma **DE-042** diferente (primeiro acesso via
+# produto, de um lado; identidade visual, do outro). Nenhum dos dois lados
+# errou: cada um pegou o próximo número livre **que via**.
+#
+# É a razão pela qual numeração de documento fiscal não é controlada por cada
+# emissor isoladamente: a unicidade não é propriedade de nenhuma das partes,
+# é do conjunto. O Git não acusa, porque a colisão é semântica, não textual.
+# ---------------------------------------------------------------------------
+
+DECISOES = RAIZ / "docs" / "projeto" / "decisoes.md"
+
+
+def _decisoes_definidas_mais_de_uma_vez(texto):
+    """Só títulos de seção definem uma decisão; citações no corpo não.
+
+    Mesma distinção de `_identificadores_de_requisito_duplicados`: o que torna
+    o registro ambíguo é haver duas DEFINIÇÕES do mesmo identificador.
+    """
+    definidas = re.findall(r"^##\s+(DE-\d+)\b", texto, flags=re.MULTILINE)
+    return sorted({d for d in definidas if definidas.count(d) > 1})
+
+
+def test_decisoes_tem_identificadores_unicos():
+    """Uma DE nunca pode nomear duas decisões diferentes."""
+    duplicadas = _decisoes_definidas_mais_de_uma_vez(_texto(DECISOES))
+    assert not duplicadas, (
+        "Decisões definidas mais de uma vez em docs/projeto/decisoes.md: "
+        f"{', '.join(duplicadas)}. Renumere a definição mais nova e atualize "
+        "suas referências **sem reescrever auditorias históricas** (BL-242, "
+        "aplicado à DE-042 na junção com a main em 2026-09-19)."
+    )
+
+
+def test_guarda_de_decisoes_distingue_definicao_de_citacao():
+    """Prova a classe: dois títulos colidem; citação no corpo não."""
+    exemplo = """\
+## DE-001 — Primeira decisão
+
+Texto que cita DE-001 e DE-002 sem redefinir nenhuma.
+
+## DE-002 — Outra decisão
+
+## DE-001 — Definição conflitante, criada por outra frente
+"""
+    assert _decisoes_definidas_mais_de_uma_vez(exemplo) == ["DE-001"]

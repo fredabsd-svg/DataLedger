@@ -9,7 +9,7 @@ um motivo prático: **um sistema contábil que muda de cara a cada módulo obrig
 o usuário a reaprender a ler**. Quem passa oito horas por dia aqui não pode
 gastar atenção decifrando onde está o total desta vez.
 
-A escolha da direção está em **[DE-042](decisoes.md)**, confirmada pelo Fred em
+A escolha da direção está em **[DE-053](decisoes.md)**, confirmada pelo Fred em
 **RC-89**, e foi decidida por medição, não por gosto: ver
 [`docs/assets/design/gauntlet/MEDICOES.md`](../assets/design/gauntlet/MEDICOES.md).
 
