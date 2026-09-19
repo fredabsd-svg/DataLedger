@@ -190,6 +190,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
 - [ ] **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
 - [ ] **DL-027** — o documento emitido: identificação obrigatória por **classe de documento** (conferência, demonstração, livro) e personalização do que é legítimo personalizar — logotipo do escritório ou do cliente, marca d'água, e o critério de apuração impresso no próprio papel. Plano em [docs/planos/DL-027-documento-emitido-e-personalizacao.md](docs/planos/DL-027-documento-emitido-e-personalizacao.md)
+- [ ] **DL-028** — o juiz aponta para o produto: a pergunta *"o documento que o escritório entrega ao cliente sai identificado?"* passa a ser respondida pelo **navegador**, em job de integração contínua delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata. Plano em [docs/planos/DL-028-o-juiz-aponta-para-o-produto.md](docs/planos/DL-028-o-juiz-aponta-para-o-produto.md)
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**

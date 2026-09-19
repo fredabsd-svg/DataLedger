@@ -2902,3 +2902,65 @@ procurou, não quanto sobrou**. A emenda melhora a busca; ela não substitui a
 decisão maior sobre o **instrumento**, que está em aberto com o Fred e
 registrada no
 [estado.md](../agents/estado.md).
+
+## DE-057 — O navegador entra na integração contínua, delimitado por caminho
+
+**Data:** 2026-09-19. **Decisão do Fred**, respondendo à pergunta de instrumento
+colocada pela oitava auditoria da DL-026
+([relatório](../auditorias/2026-09-19-dl-026-rodada-8.md), §7). Plano de
+execução: [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md).
+
+### A pergunta
+
+A DL-026 teve oito auditorias e onze rodadas. As onze percorreram **um eixo** —
+*o que o motor de cascata simulado consegue ler* — e o achado encolhia a cada
+passo, o que eu li como convergência. Na oitava auditoria o auditor olhou o eixo
+**ao lado** e o achado voltou a bloqueador: **onze construções banais de CSS
+apagam a identificação do escritório da folha A4 que o contador entrega ao
+cliente, com a suíte inteira verde**, medidas em Chromium e em PDF do produto.
+
+O auditor recomendou, contra o caminho que eu vinha seguindo, **trocar o
+instrumento** em vez de polir mais uma rodada. Três fatos sustentam isso:
+`test_bl329_marca_fora_do_papel.py` tem mais de 1800 linhas para uma pergunta
+que o navegador responde com uma chamada; a linguagem que ele simula cresce todo
+ano; e **todo bloqueador desta etapa foi encontrado abrindo um Chromium e
+olhando o PDF**.
+
+### As três opções levadas ao Fred, com o custo de cada uma
+
+| | Caminho | Custo |
+| --- | --- | --- |
+| **A** | Navegador de verdade na integração contínua | Cria dependência que o projeto decidiu, de propósito, não ter |
+| B | Conferência de bancada obrigatória, com evidência registrada | É **disciplina** — o que o projeto decidiu não usar como garantia quando criou as guardas |
+| C | Continuar polindo o motor simulado | Nunca fica completo |
+
+⚠️ Uma quarta opção foi descartada de saída, e não por mim: **declarar a etapa
+fechada afirmando que o critério 9 está garantido**, quando a medição desmente.
+
+### A decisão
+
+**O Fred escolheu A.** A delimitação por caminho é minha, e é ela que torna o
+custo aceitável: o job roda quando muda `static/css/**`, `templates/**` ou as
+guardas de impressão — nunca em alteração só de documentação.
+
+O que decide entre A e B é o princípio que já governa este projeto: **mecanismo
+em vez de disciplina**. A instrução permanente do Fred de 2026-09-13 — *"nunca
+esqueça de atualizar"* — virou teste, não lembrete, e a causa do problema foi
+nomeada como **duplicação**, não distração. Escolher B seria voltar a apostar em
+alguém lembrar, na propriedade em que a falha chega ao cliente em papel.
+
+### O que esta decisão NÃO significa
+
+1. **O motor simulado não é apagado.** Ele é rebaixado de *única linha* para
+   *primeira linha barata*, e isso fica **escrito na docstring dele** — quem
+   ler precisa saber que a palavra final é de outro. As recusas que as rodadas
+   10 e 11 instalaram continuam valendo.
+2. **Não se instala navegador por caminho fixo.** O
+   `/opt/pw-browsers/chromium-1194` desta máquina é acidente do ambiente, não
+   configuração do projeto. O job instala pelo gerenciador do Playwright.
+3. **Falha de infraestrutura precisa ser distinguível de falha de conteúdo.**
+   Job instável que reprova por motivo alheio ao código é falso alarme, e falso
+   alarme é, pelo argumento do BL-321, mais corrosivo que falso negativo.
+4. **Isso não fecha a DL-026.** BL-362 e BL-363 são da rodada 12, e correm em
+   paralelo, em arquivos disjuntos: enquanto o instrumento novo não existe, a
+   guarda atual não pode continuar simplesmente errada.

@@ -233,6 +233,7 @@ diverge.
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
 | [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, por decisão: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324) |
+| [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -360,7 +361,43 @@ produto em vez de para os protótipos** e pôr a medição no ciclo.
 
 **O que não é defensável é a quarta:** declarar a etapa fechada afirmando que o
 critério 9 está garantido, quando construções banais o derrubam com a suíte
-verde. **A escolha entre as três é do Fred**, e as três são defensáveis.
+verde.
+
+### A decisão do Fred, em 2026-09-19: caminho A
+
+**O Fred escolheu A — navegador de verdade na integração contínua.** A
+delimitação por caminho é minha: o job roda quando muda `static/css/**`,
+`templates/**` ou as guardas de impressão, nunca em alteração só de
+documentação. Registrada como [DE-057](../projeto/decisoes.md), com plano de
+execução em [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md).
+
+O que decide entre A e B é o princípio que já governa este projeto: **mecanismo
+em vez de disciplina**. A instrução permanente do Fred de 2026-09-13 virou
+teste, não lembrete. Escolher B seria voltar a apostar em alguém lembrar,
+justamente na propriedade cuja falha chega ao cliente **em papel**.
+
+### O que está em vigor agora, e onde
+
+**A revisão viva é `7c5b1d4`, na `main`, mesclada pelo PR #37** — as rodadas 10
+e 11. Antes dela, o PR #36 (`920822a`) levou a rodada 9, e o #35 (`d22c580`) a
+rodada 5.
+
+O merge foi decisão minha, operacional e reversível, e informo o critério:
+alteração **só de guarda**, sem uma linha de produto, com a integração contínua
+verde nas três verificações e sem conflito; o buraco que a oitava auditoria
+achou (BL-362) **já existia na `main`** e não foi introduzido por este PR, que
+fecha outros cinco. Reverter é no-op para dados. **O merge não fechou a etapa** —
+são duas perguntas diferentes desde a [DE-054](../projeto/decisoes.md).
+
+**Duas frentes em paralelo, em arquivos disjuntos:**
+
+| Frente | Responsável | Escopo | Arquivos |
+| --- | --- | --- | --- |
+| **DL-026 rodada 12** | `especialista-frontend` | BL-362 (bloqueador) e BL-363 — o conserto barato do motor simulado, para ele parar de estar simplesmente errado enquanto o instrumento novo é construído | `apps/contabilidade/tests/**` |
+| **DL-028 fatia 1** | `desenvolvedor-pleno` | Apontar `visivelDeVerdade` e as sondas de impressão para o **produto** em vez dos protótipos do gauntlet | `docs/assets/design/gauntlet/juiz.py`, `scripts/**`, `.github/workflows/**`, `requirements/**` |
+
+**Proibido às duas:** `static/css/base.css` e `templates/**`. Nenhuma das duas
+frentes muda produto.
 
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
