@@ -269,18 +269,34 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento — o produto FOI MESCLADO na `main`, a etapa NÃO foi declarada fechada.** Decisão do Fred em 2026-09-19 (**DE-054**), escolhendo explicitamente a opção A depois de perguntar se a auditoria era necessária: **mesclar agora e auditar em paralelo**. O motivo, medido: 35 commits estavam parados na branch — parênteses de saldo invertido, timbre do escritório, filtro mais baixo — enquanto as rodadas polavam **guardas**, e o auditor havia escrito, nas duas últimas, que **o produto está certo**. A guarda também é software, logo também pode ser auditada, logo o ciclo não tinha ponto final. Os itens de guarda **continuam abertos** no backlog, com dono.** A sexta auditoria **REPROVOU** `8aa84b6` com dois ALTOS, e os dois são as correções da rodada anterior **não segurando a propriedade que prometem** — o produto está certo, a garantia é que não existe. ⚠️ O auditor foi explícito sobre mesclar: o conteúdo desta branch é *"estritamente melhor"* que a `main` no comportamento observável, mas a entrega da rodada **são as guardas**, e mesclar registraria no histórico que os dois ALTOS da rodada 5 foram corrigidos quando o que existe é o produto certo por enquanto e a guarda que aprova o produto errado. Um dos dois achados (**BL-343**) é **contra mim**: o exemplo de "CSS legítimo" que eu mandei virar teste obrigatório estava errado. A
-rodada 5 foi mesclada na `main` pelo PR #35
-(`d22c580`, `1.630 passed` na árvore combinada), e a branch de trabalho foi
-reiniciada a partir dela. A **rodada 6 foi integrada, medida por mim e
-REPROVADA na quinta auditoria** (`53388c8`): dois ALTOS, os dois na impressão,
-que era a entrega principal.
+Em desenvolvimento.**
 
-⚠️ **O auditor reproduziu todos os números que eu declarei**, inclusive os de
-densidade, com Chromium próprio e base semeada por ele, e registrou que a
-declaração do BL-277 (meta de 15 não alcançada, 10 medidas) **é honesta e não
-é conformidade por interpretação conveniente**. O que reprovou não foi o que
-foi implementado — foi o que a entrega **não garante** e o que o usuário
+**A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
+etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o
+que está no ar lê essas duas.
+
+**A etapa NÃO está fechada, e o merge não a fechou.** São duas perguntas
+diferentes desde a [DE-054](../projeto/decisoes.md): *"isto melhora o produto?"*
+decide o merge; *"isto está garantido?"* decide a etapa. O Fred respondeu a
+primeira em 2026-09-19, escolhendo a opção A — mesclar e auditar em paralelo —
+depois de perguntar se a auditoria era necessária e de ouvir o custo medido:
+**35 commits com melhoria pronta parados numa branch** enquanto as rodadas
+poliam **guardas**.
+
+**A sétima auditoria (`920822a`) REPROVOU o fechamento**, com um **bloqueador** e
+um alto. Relatório integral em
+[2026-09-19-dl-026-rodada-7.md](../auditorias/2026-09-19-dl-026-rodada-7.md).
+Ele é explícito sobre o merge não ter sido erro — mediu o produto mais a fundo
+que em qualquer rodada anterior e o encontrou **correto em tudo que conseguiu
+medir**. O que falta é **garantia**: três construções banais de CSS, uma delas a
+forma recomendada de se escrever CSS hoje, devolvem a marca do fornecedor ao
+papel ou apagam o timbre do escritório **com a suíte inteira verde**.
+
+⚠️ **O que está em vigor na `main`, portanto:** o produto certo, e a guarda que
+aprovaria o produto errado. Os itens **continuam abertos** no backlog, com dono
+— **BL-351** (bloqueador) e **BL-352** em correção; **BL-353** a **BL-359** como
+ressalvas declaradas.
+
 **recebe de fato** ao apertar Ctrl+P:
 
 - **BL-331**: existe guarda para a marca do fornecedor **sair** do papel e
