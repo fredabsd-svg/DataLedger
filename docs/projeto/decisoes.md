@@ -2838,3 +2838,67 @@ Cada verificação fica mais cara, e algumas construções novas não vão achar
 nada. É o preço de não confundir *"passou nas provas encomendadas"* com
 *"a propriedade está garantida"* — que é a confusão que esta etapa vem pagando
 desde a rodada 5.
+
+## DE-056 — A construção nova mira um eixo que o relatório NÃO discutiu
+
+**Data:** 2026-09-19. **Origem:** §6 do relatório da oitava auditoria
+([2026-09-19-dl-026-rodada-8.md](../auditorias/2026-09-19-dl-026-rodada-8.md)),
+recomendação do `auditor-qa` **contra a aplicação que eu dei à DE-055**.
+**Emenda ao item 2 da DE-055**, registrada logo acima neste mesmo arquivo.
+
+### O que aconteceu
+
+A DE-055 funcionou na primeira aplicação: das dezessete construções que o
+`arquiteto-senior` guardou, dezesseis confirmaram e **uma furou**, e o BL-360
+foi registrado como ALTA **antes** da auditoria em vez de por ela. Foi a
+primeira vez, em sete auditorias, que o defeito seguinte apareceu antes do
+auditor.
+
+Mas as dezessete cobriam **um eixo só**: *o que o motor consegue LER*. O
+auditor foi olhar o eixo **ao lado** — o conjunto de **propriedades** que o
+motor considera — e achou um bloqueador em `_PROPRIEDADES_DE_INTERESSE =
+("display",)`, uma lista de **um item**, a quinze linhas de um motor que tinha
+sido reescrito **três vezes** sem ninguém encostar nela.
+
+O motivo de ela ter sobrevivido é o que torna esta emenda necessária, e não é
+descuido: ela está **declarada** na docstring, com uma justificativa **boa** —
+e a justificativa é boa **para a guarda da marca**. Quando a guarda do timbre
+reusou o mesmo motor "por composição em vez de repetição" (decisão de
+engenharia correta), a declaração viajou junto e ninguém perguntou se ela
+continuava valendo do **outro lado** da propriedade.
+
+### A decisão
+
+Ao item 2 da DE-055 — *"a construção nova é escolhida pela classe do defeito"* —
+acrescenta-se:
+
+1. **Pelo menos uma das construções novas mira um eixo que o relatório de
+   auditoria NÃO discutiu.** A classe nunca é *"a guarda enumera construções
+   CSS"*; é **"a guarda enumera"**. Procurar o item seguinte da enumeração que
+   o relatório apontou é necessário e **não é suficiente**: exaurir um eixo não
+   é convergir, é exaurir um eixo.
+2. **A pergunta operacional para achar esse eixo é:** *"que lista existe neste
+   arquivo que a correção desta rodada não tocou?"*. Em
+   `test_bl329_marca_fora_do_papel.py` ela devolve `_PROPRIEDADES_DE_INTERESSE`,
+   `_ELEMENTOS_VAZIOS`, `_BALANCETE_HTML` e a exceção nomeada `@media screen`.
+   **Três das quatro viraram achado** na oitava auditoria.
+3. **Limite declarado não é limite fechado.** Um limite herdado por composição
+   é um limite cuja justificativa ficou para trás: quando uma guarda reusa o
+   motor de outra, a estreiteza precisa ser **reavaliada contra a propriedade
+   nova**, não herdada com ele. Estreito num sentido pode ser **frouxo** no
+   sentido oposto.
+
+### Consequência aceita
+
+Mais uma pergunta por rodada, e ela é desconfortável de propósito: obriga a
+olhar para onde ninguém apontou. O custo de não fazê-la está medido — onze
+rodadas percorrendo um eixo, com o achado encolhendo a cada passo, e um
+bloqueador intacto no eixo vizinho o tempo todo.
+
+### O que esta decisão NÃO resolve
+
+O auditor registra, e eu concordo, que **tamanho de achado mede onde se
+procurou, não quanto sobrou**. A emenda melhora a busca; ela não substitui a
+decisão maior sobre o **instrumento**, que está em aberto com o Fred e
+registrada no
+[estado.md](../agents/estado.md).

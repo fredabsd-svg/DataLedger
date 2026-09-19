@@ -297,6 +297,71 @@ aprovaria o produto errado. **BL-351**, **BL-352**, **BL-353**, **BL-360** e
 **BL-361** estão corrigidos na branch e **ainda não na `main`**; **BL-354** a
 **BL-359** seguem como ressalvas declaradas, com dono e momento no backlog.
 
+## A oitava auditoria, e a decisão de instrumento que está com o Fred
+
+**A oitava auditoria (`55d5d63`, PR #37) REPROVOU o fechamento**, com um
+**bloqueador** e um alto. Relatório integral em
+[2026-09-19-dl-026-rodada-8.md](../auditorias/2026-09-19-dl-026-rodada-8.md).
+
+**Os cinco itens das rodadas 10 e 11 FECHARAM**, e o auditor fechou os cinco
+**por execução**: BL-351, BL-352, BL-353, BL-360 e BL-361. Os números conferem,
+o produto continua correto em tudo que ele conseguiu medir, e a conciliação bate
+em três fontes independentes.
+
+⚠️ **O que reprova é um eixo novo, e é o eixo ANTERIOR ao que onze rodadas
+percorreram.** Não *o que o motor consegue ler* — esse está fechado —, mas **o
+conjunto de propriedades que ele considera** e **onde a cadeia termina**.
+`_PROPRIEDADES_DE_INTERESSE = ("display",)` é uma lista de **um item**, a quinze
+linhas de um motor reescrito **três vezes**, e ela sobreviveu às três porque as
+três atacaram o **seletor**. Resultado medido em Chromium e em PDF A4 do produto:
+**onze construções banais apagam a identificação do escritório da folha que o
+contador entrega ao cliente, com a suíte inteira verde** (BL-362, bloqueador), e
+a cadeia do timbre é derivada só do Balancete — Diário e Razão são cobertos por
+uma cadeia que não é a deles (BL-363, alto). BL-364 e BL-365 ficam como
+ressalvas declaradas.
+
+**A causa de a lista ter sobrevivido não foi descuido, e isso importa:** ela
+está **declarada** na docstring, com justificativa **boa** — boa para a guarda
+da **marca**, cuja propriedade é *"esconda-se"*. A guarda do **timbre** reusou o
+mesmo motor por composição (decisão de engenharia correta) para a propriedade
+**oposta**, *"apareça"* — e o oposto lógico de uma regra estreita é uma regra
+**frouxa**. A simetria era de mecanismo; ninguém reavaliou a estreiteza. Virou a
+[DE-056](../projeto/decisoes.md): *limite declarado não é limite fechado*, e a
+construção nova de toda verificação passa a mirar também um eixo que o relatório
+**não** discutiu.
+
+### A decisão que está com o Fred, e ela não é de engenharia
+
+O auditor **não recomenda mais uma rodada de polimento do motor simulado**, e o
+argumento dele é medido, não estético: `test_bl329_marca_fora_do_papel.py` tem
+**1803 linhas** para responder a uma pergunta que o navegador responde com uma
+chamada; a linguagem que ele simula **cresce todo ano**; e **todo bloqueador
+desta etapa foi encontrado abrindo um Chromium e olhando o PDF**. O sinal
+"os achados estão encolhendo" era artefato do lugar onde se procurava — bastou
+olhar o eixo ao lado para o achado voltar ao tamanho de bloqueador.
+
+Ele recomenda **trocar o instrumento**, e metade da troca já está escrita e
+paga: `visivelDeVerdade` (`docs/assets/design/gauntlet/juiz.py`) já é a
+derivação certa — três medições gerais, limites medidos e declarados — e cobre
+as onze construções **sem saber que elas existem**; `scripts/medir_impressao.py`
+já sobe o produto real e gera PDF A4. O que falta é **apontar o juiz para o
+produto em vez de para os protótipos** e pôr a medição no ciclo.
+
+**São três caminhos, e os três custam:**
+
+1. **Navegador na integração contínua** — contraria a decisão deliberada de não
+   ter essa dependência, e o Chromium de caminho fixo é acidente deste ambiente,
+   não configuração do projeto.
+2. **Medição de bancada obrigatória com evidência registrada**, por etapa que
+   toque `static/css/base.css` ou crie tela imprimível — é **disciplina**, que é
+   exatamente o que o projeto decidiu não usar como garantia quando criou as
+   guardas.
+3. **Continuar polindo o motor simulado** — que nunca vai estar completo.
+
+**O que não é defensável é a quarta:** declarar a etapa fechada afirmando que o
+critério 9 está garantido, quando construções banais o derrubam com a suíte
+verde. **A escolha entre as três é do Fred**, e as três são defensáveis.
+
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
 aberto até a rodada 11 fechar. Duas correções de **guarda**, nenhuma mudança de
