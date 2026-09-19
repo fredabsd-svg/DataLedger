@@ -68,6 +68,16 @@ MOMENTO_DA_VERDADE_SELETORES = [".veredito-fechamento", ".faixa-fechamento__vere
 # `SONDA_IMPRESSAO` e o uso em `julgar_arquivo`).
 SELETOR_MARCA_DO_FORNECEDOR = ".marca"
 
+# BL-331 (achado A1 da auditoria DL-026, rodada 5): a metade SIMÉTRICA do
+# requisito do BL-329 — não basta a marca do FORNECEDOR sair do papel, o
+# timbre do ESCRITÓRIO precisa ENTRAR. `apps/contabilidade/tests/
+# test_bl331_timbre_do_escritorio_no_papel.py` já prova isto por simulação
+# de cascata CSS (sem Chromium); esta constante estende a MEDIÇÃO de
+# bancada (motor de layout real) ao mesmo elemento, ao lado de
+# `SELETOR_MARCA_DO_FORNECEDOR` — a classe que `static/css/base.css` e
+# `templates/contabilidade/balancete.html` já usam para o mesmo conceito.
+SELETOR_TIMBRE_DO_ESCRITORIO = ".timbre-impressao"
+
 # BL-314/BL-329: a função `visivelDeVerdade` (visibilidade REAL via motor de
 # layout — ver o comentário completo, com as três medições e os limites
 # conhecidos, no ponto em que esta constante é interpolada dentro de SONDA)
@@ -342,27 +352,44 @@ SONDA = SONDA.replace(
 )
 SONDA = SONDA.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
 
-# BL-329: sonda DEDICADA, avaliada sob `page.emulate_media(media="print")`
-# (ver `julgar_arquivo`) — pergunta se o elemento que carrega a marca do
-# FORNECEDOR (`SELETOR_MARCA_DO_FORNECEDOR`, acima) continua visível quando a
+# BL-331: os DOIS elementos do critério 9 da DL-026 — a marca do
+# FORNECEDOR (que precisa SAIR do papel) e o timbre do ESCRITÓRIO (que
+# precisa ENTRAR) — nomeados aqui, não retypados dentro da sonda JS
+# (SELETORES_DE_IMPRESSAO_JSON, abaixo, serializa este dicionário do
+# mesmo jeito que MOMENTO_DA_VERDADE_SELETORES_JSON já faz para a SONDA
+# principal — duas listas manuais da mesma coisa divergem assim que
+# alguém atualiza uma, BL-296/BL-325).
+SELETORES_DE_IMPRESSAO = {
+    "marca_do_fornecedor": SELETOR_MARCA_DO_FORNECEDOR,
+    "timbre_do_escritorio": SELETOR_TIMBRE_DO_ESCRITORIO,
+}
+
+# BL-329/BL-331: sonda DEDICADA, avaliada sob `page.emulate_media(media=
+# "print")` (ver `julgar_arquivo`) — pergunta, para CADA seletor de
+# `SELETORES_DE_IMPRESSAO`, se o elemento continua visível quando a
 # página é IMPRESSA. Reaproveita `visivelDeVerdade` (a mesma função da
 # SONDA principal, interpolada da mesma constante Python) — não uma cópia
 # JS separada. Deliberadamente pequena: não reavalia densidade, contraste
 # nem o resto da sonda principal, que não fazem sentido sob mídia de
-# impressão (a paginação real só existe em `page.pdf()`, fora do escopo
-# deste juiz — ver a docstring do módulo).
+# impressão (a paginação real só existe em `page.pdf()` — ver
+# `scripts/medir_impressao.py`, BL-337, fora do escopo deste juiz).
 SONDA_IMPRESSAO = r"""
 () => {
     __JS_VISIVEL_DE_VERDADE__
-    const seletor = __SELETOR_MARCA_DO_FORNECEDOR_JSON__;
-    const el = document.querySelector(seletor);
-    if (!el) return {seletor, encontrado: false};
-    return Object.assign({seletor, encontrado: true}, visivelDeVerdade(el));
+    const seletores = __SELETORES_DE_IMPRESSAO_JSON__;
+    const resultado = {};
+    for (const [nome, seletor] of Object.entries(seletores)) {
+        const el = document.querySelector(seletor);
+        resultado[nome] = el
+            ? Object.assign({seletor, encontrado: true}, visivelDeVerdade(el))
+            : {seletor, encontrado: false};
+    }
+    return resultado;
 }
 """
 SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
 SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace(
-    "__SELETOR_MARCA_DO_FORNECEDOR_JSON__", json.dumps(SELETOR_MARCA_DO_FORNECEDOR)
+    "__SELETORES_DE_IMPRESSAO_JSON__", json.dumps(SELETORES_DE_IMPRESSAO)
 )
 
 
@@ -437,20 +464,27 @@ def julgar_arquivo(pagina, caminho, largura, altura):
         }
     """)
 
-    # BL-329: sob mídia de IMPRESSÃO (`page.emulate_media`), a marca do
-    # fornecedor continua visível? Esta é a MEDIDA QUE A CI NÃO PODE DAR — a
-    # suíte `pytest` (apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py)
-    # já cobre a metade que dá para provar sem navegador (cascata CSS
-    # simulada, `display: none` efetivo); esta metade responde à pergunta
-    # que só um motor de layout real decide: o contador VÊ a marca no papel?
-    # `visivelDeVerdade` (a MESMA função do momento da verdade contábil,
-    # acima) já cobre `display`, `visibility` e posicionamento fora da tela
-    # sem enumerar técnicas — ver o comentário completo dela, mais acima
-    # nesta sonda, e a decisão registrada na docstring do módulo de teste
-    # sobre por que a guarda de CI é mais estrita (exige `display: none`
-    # especificamente, não "invisível por qualquer meio").
+    # BL-329/BL-331: sob mídia de IMPRESSÃO (`page.emulate_media`), a marca
+    # do FORNECEDOR continua visível (não deveria) e o timbre do ESCRITÓRIO
+    # continua visível (deveria)? Esta é a MEDIDA QUE A CI NÃO PODE DAR — a
+    # suíte `pytest` (test_bl329_marca_fora_do_papel.py e
+    # test_bl331_timbre_do_escritorio_no_papel.py) já cobre a metade que dá
+    # para provar sem navegador (cascata CSS simulada, `display: none`
+    # efetivo); esta metade responde à pergunta que só um motor de layout
+    # real decide: o contador VÊ a marca/o timbre no papel? `visivelDeVerdade`
+    # (a MESMA função do momento da verdade contábil, acima) já cobre
+    # `display`, `visibility` e posicionamento fora da tela sem enumerar
+    # técnicas — ver o comentário completo dela, mais acima nesta sonda, e a
+    # decisão registrada na docstring do módulo de teste sobre por que a
+    # guarda de CI é mais estrita (exige `display: none` especificamente,
+    # não "invisível por qualquer meio").
     pagina.emulate_media(media="print")
-    dados["marca_do_fornecedor_na_impressao"] = pagina.evaluate(SONDA_IMPRESSAO)
+    impressao = pagina.evaluate(SONDA_IMPRESSAO)
+    # Nomes de chave PRESERVADOS (não um único `dados["impressao"]` novo):
+    # quem já consome o relatório deste juiz procurando
+    # "marca_do_fornecedor_na_impressao" continua encontrando-a.
+    dados["marca_do_fornecedor_na_impressao"] = impressao["marca_do_fornecedor"]
+    dados["timbre_do_escritorio_na_impressao"] = impressao["timbre_do_escritorio"]
     # Volta à mídia de TELA antes de qualquer outra medição/captura: sem
     # isto, as capturas de imagem (mais abaixo, em `main`) e o teste de foco
     # acima sairiam avaliados sob impressão, misturando as duas garantias

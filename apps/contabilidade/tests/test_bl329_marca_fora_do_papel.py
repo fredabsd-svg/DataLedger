@@ -54,6 +54,50 @@ que a guarda morre nesse caso — é uma escolha DELIBERADAMENTE mais estrita
 que "a marca não é visível", e o arquiteto pode preferir a leitura mais
 frouxa.
 
+BL-333 (M1 da auditoria DL-026, rodada 5, docs/auditorias/2026-09-19-dl-026-
+rodada-5.md): o auditor mediu a simulação de cascata errando DENTRO do
+limite que ela mesma declara, nas DUAS direções — falso "escondido" (uma
+regra `:hover`/`@media screen`/`@supports` fazia a guarda achar que a marca
+tinha sumido, quando na verdade ela continuava saindo no papel) e falso
+"reprovado" (uma `@media (min-width: 80rem)` legítima, acrescentada DEPOIS
+do `@media print` já correto, fazia a guarda reprovar código que não tinha
+defeito nenhum). Duas decisões novas, e as duas são MINHAS, para o
+arquiteto revisar:
+
+1. **At-rule aninhada FORA do único `@media print` tratado** (outro
+   `@media`, `@supports`, etc., com bloco de seletor DENTRO do seu próprio
+   bloco — não confundir com `@page`/`@font-face`, que têm conteúdo FLAT e
+   já eram descartados corretamente): se o PRELÚDIO dela não menciona
+   "print", ela é REMOVIDA do texto antes da extração de regras — decisão
+   deliberada de que um `@media screen`/`@supports (...)`/`@media
+   (min-width: ...)` sem a palavra "print" NUNCA se aplica durante a
+   impressão, então hospedar `display: none` ali dentro NUNCA prova
+   ocultação, e hospedar `display` diferente de `none` ali dentro NUNCA
+   ameaça a marca de verdade — pode ser IGNORADA com segurança. Se o
+   prelúdio MENCIONA "print" (por exemplo, um segundo `@media print`
+   solto no arquivo, ou `@media print and (...)`), a simulação NÃO sabe
+   avaliar essa condição — em vez de adivinhar, o teste REPROVA pedindo
+   extensão explícita (`assert` com mensagem própria), a mesma escolha
+   de "reprovar pedindo extensão em vez de julgar errado em silêncio".
+   At-rule aninhada DENTRO do próprio `@media print` (ex.: um `@supports`
+   aninhado ali dentro) recebe o mesmo tratamento — a simulação também
+   não sabe resolvê-la — mesmo que mencione "print" (dentro de um
+   `@media print` já não faz sentido mencionar de novo, e a presença
+   sozinha já é sinal de que o motor precisa crescer).
+2. **Pseudo-classe condicional** (`:hover`, `:focus`, `:active`, etc. — o
+   mesmo padrão que `_especificidade` já usa para "qualquer `:`", porque
+   este motor não distingue pseudo-classes estruturais das de interação)
+   não pode ser usada para SATISFAZER a propriedade: uma regra assim com
+   `display: none` é DESCARTADA do grupo de candidatas, porque a
+   interação do ponteiro nunca ocorre no papel — contar com ela seria
+   assumir que o elemento está escondido quando, na falta de qualquer
+   OUTRA regra, ele está visível o tempo todo. A mesma regra com
+   `display` diferente de `none` continua valendo normalmente — pode
+   REEXIBIR o elemento (o lado seguro: melhor a guarda reprovar demais
+   por uma reexibição hipotética do que aprovar de menos por confiar
+   numa ocultação que só ocorre com o mouse sobre o elemento, o que nunca
+   é o caso ao imprimir).
+
 O QUE ESTE ARQUIVO NÃO VERIFICA — a segunda metade, que só um motor de
 layout real decide, e que a integração contínua deste projeto NÃO RODA
 (§4.8 da direção de arte: sem Chromium na CI):
@@ -85,6 +129,8 @@ import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+
+import pytest
 
 _RAIZ = Path(__file__).resolve().parents[3]
 _BASE_HTML = _RAIZ / "templates" / "base.html"
@@ -246,9 +292,12 @@ def _extrair_bloco_media_print(css):
     """Devolve (antes, dentro, depois) do ÚNICO `@media print { ... }` do
     arquivo — contagem de chaves, não regex gulosa, porque o conteúdo tem
     chaves aninhadas (cada regra de seletor, dentro do media). `antes` e
-    `depois` não têm chave aninhada nenhuma (todo o resto do arquivo é
-    `seletor { declarações }` de nível único, incluindo `@font-face`/`@page`,
-    que `_extrair_regras_flat` descarta por começarem com `@`)."""
+    `depois` PODEM ter at-rule aninhada de verdade (outro `@media`,
+    `@supports`) — ver `_spans_de_at_rule_com_bloco_aninhado` e o uso dela em
+    `_algum_ancestral_removido_do_papel`, que valida essa premissa em vez de
+    presumi-la (BL-333). At-rule de conteúdo FLAT (`@font-face`/`@page`)
+    continua fora dessa checagem: `_extrair_regras_flat` já a descarta
+    corretamente por começar com `@`."""
     css = _remover_comentarios(css)
     marcador = re.search(r"@media\s+print\s*\{", css)
     assert marcador, "controle: @media print não encontrado em base.css"
@@ -347,16 +396,34 @@ def _seletor_casa_com_no(compostos, indice_no, cadeia):
     return False
 
 
+def _regra_tem_pseudo_classe_condicional(regra):
+    """BL-333, decisão 2 (ver docstring do módulo): verdadeiro se ALGUM
+    composto do seletor da regra tiver pseudo-classe — qualquer `:`, a
+    mesma leitura que `_especificidade` já usa, porque este motor não
+    distingue pseudo-classes estruturais (`:first-child`) das de
+    INTERAÇÃO (`:hover`, `:focus`, `:active`), que nunca ocorrem no papel."""
+    return any(":" in composto for composto in regra.compostos)
+
+
 def _display_efetivo(indice_no, cadeia, regras):
     """Vencedor da cascata para `display` no nó `cadeia[indice_no]`: entre
     as regras cujo seletor casa com ele, `!important` vence sobre normal;
     dentro do mesmo grupo, maior especificidade vence; empate, a de MAIOR
-    ordem (mais tardia no arquivo) vence — a regra padrão do CSS."""
+    ordem (mais tardia no arquivo) vence — a regra padrão do CSS.
+
+    BL-333, decisão 2: uma regra com pseudo-classe condicional
+    (`_regra_tem_pseudo_classe_condicional`) e `display: none` é
+    DESCARTADA do grupo de candidatas — ela não pode SATISFAZER a
+    ocultação (a interação nunca ocorre ao imprimir). A MESMA regra com
+    `display` diferente de `none` continua candidata normalmente — pode
+    DERRUBAR uma ocultação (o lado seguro: ver a docstring do módulo)."""
     candidatas = []
     for regra in regras:
         if _seletor_casa_com_no(regra.compostos, indice_no, cadeia):
             decl = regra.declaracoes.get("display")
             if decl:
+                if decl.valor == "none" and _regra_tem_pseudo_classe_condicional(regra):
+                    continue
                 candidatas.append((regra, decl, _especificidade_seletor(regra.compostos)))
     if not candidatas:
         return None
@@ -366,15 +433,118 @@ def _display_efetivo(indice_no, cadeia, regras):
     return grupo[-1][1].valor
 
 
+def _spans_de_at_rule_com_bloco_aninhado(texto):
+    """Localiza, por PROFUNDIDADE de chaves (a mesma técnica de
+    `_extrair_bloco_media_print` — nunca regex gulosa, que erra na
+    presença de chave aninhada), todo at-rule de NÍVEL SUPERIOR de `texto`
+    cujo bloco contém pelo menos uma chave ANINHADA. Devolve lista de
+    `(prelúdio, inicio, fim)` com `fim` EXCLUSIVO — pronto para fatiar
+    `texto[inicio:fim]` fora. At-rule de conteúdo FLAT (`@page { size: A4;
+    }`, sem chave dentro) não entra aqui: `_extrair_regras_flat` já a
+    descarta corretamente (seletor começa com `@`) — só a forma que ELA
+    erra (içar o conteúdo aninhado para fora) é o alvo desta função."""
+    achados = []
+    i = 0
+    n = len(texto)
+    while i < n:
+        if texto[i] == "@":
+            m = re.match(r"@[\w-]+[^{}]*\{", texto[i:])
+            if m:
+                inicio = i
+                inicio_chaves = i + m.end() - 1
+                profundidade = 0
+                aninhado = False
+                fim = None
+                j = inicio_chaves
+                while j < n:
+                    if texto[j] == "{":
+                        profundidade += 1
+                        if profundidade >= 2:
+                            aninhado = True
+                    elif texto[j] == "}":
+                        profundidade -= 1
+                        if profundidade == 0:
+                            fim = j + 1
+                            break
+                    j += 1
+                if fim is not None:
+                    if aninhado:
+                        achados.append((m.group(0).strip(), inicio, fim))
+                    i = fim
+                    continue
+        i += 1
+    return achados
+
+
+def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total):
+    """BL-333, decisão 1 (ver docstring do módulo): valida a premissa que
+    antes só existia em prosa — que `texto` não tem at-rule aninhada que a
+    extração flat não saiba tratar — e, quando é seguro, remove essa
+    at-rule em vez de deixá-la ser içada por engano.
+
+    - `exigir_ausencia_total=True` (uso: DENTRO do próprio `@media print`
+      já extraído): QUALQUER at-rule aninhada ali reprova pedindo extensão
+      — a simulação não tenta adivinhar se ela se aplica ou não quando já
+      está dentro do contexto de impressão.
+    - `exigir_ausencia_total=False` (uso: fora do `@media print`, antes ou
+      depois dele): at-rule aninhada cujo PRELÚDIO não menciona "print" é
+      removida (nunca se aplica ao imprimir, então não pode nem provar
+      nem derrubar ocultação) — devolvida como texto LIMPO. At-rule cujo
+      prelúdio MENCIONA "print" reprova pedindo extensão, porque a
+      simulação não sabe avaliar essa condição."""
+    spans = _spans_de_at_rule_com_bloco_aninhado(texto)
+    if not spans:
+        return texto
+    if exigir_ausencia_total:
+        assert not spans, (
+            f"a simulação de cascata (BL-329/BL-333) encontrou at-rule(s) aninhada(s) "
+            f"{onde}, e não sabe avaliá-la(s): {[p for p, *_ in spans]!r} — ela PRECISA "
+            f"SER ESTENDIDA antes de confiar no resultado, em vez de julgar "
+            f"(silenciosamente) errado"
+        )
+        return texto
+    relacionadas_a_impressao = [p for p, *_ in spans if "print" in p.lower()]
+    assert not relacionadas_a_impressao, (
+        f"a simulação de cascata (BL-329/BL-333) encontrou at-rule(s) MENCIONANDO "
+        f"'print' {onde}, fora do único @media print já tratado, e não sabe avaliá-la(s): "
+        f"{relacionadas_a_impressao!r} — ela PRECISA SER ESTENDIDA antes de confiar no "
+        f"resultado, em vez de julgar (silenciosamente) errado"
+    )
+    limpo = texto
+    for _prelude, inicio, fim in reversed(spans):
+        limpo = limpo[:inicio] + limpo[fim:]
+    return limpo
+
+
+# Bases de ordem bem separadas para os três trechos (antes/dentro/depois do
+# @media print) — BL-333: usar CONSTANTES em vez de `len(antes)`/
+# `len(antes) + len(dentro)` desacopla a ORDEM relativa entre os três
+# trechos de quaisquer caracteres removidos por `_preparar_para_simulacao`
+# (que muda o comprimento de `antes`/`depois`). O que a cascata precisa é
+# só que toda regra de `antes` ordene ANTES de toda regra de `dentro`, que
+# ordene ANTES de toda regra de `depois` — a MESMA garantia de antes, sem
+# depender do comprimento pós-limpeza.
+_ORDEM_BASE_ANTES = 0
+_ORDEM_BASE_DENTRO = 1_000_000
+_ORDEM_BASE_DEPOIS = 2_000_000
+
+
 def _algum_ancestral_removido_do_papel(cadeia, css_texto):
     """Propriedade central desta guarda: existe, na cadeia (do link da marca
     até a raiz), algum nó cujo `display` efetivo sob impressão é `none`?
     Devolve (removido: bool, nó_que_resolveu_ou_None)."""
     antes, dentro, depois = _extrair_bloco_media_print(css_texto)
+    antes_limpo = _preparar_para_simulacao(
+        antes, onde="antes do @media print", exigir_ausencia_total=False
+    )
+    depois_limpo = _preparar_para_simulacao(
+        depois, onde="depois do @media print", exigir_ausencia_total=False
+    )
+    _preparar_para_simulacao(dentro, onde="dentro do @media print", exigir_ausencia_total=True)
     regras = (
-        _extrair_regras_flat(antes, 0)
-        + _extrair_regras_flat(dentro, len(antes))
-        + _extrair_regras_flat(depois, len(antes) + len(dentro))
+        _extrair_regras_flat(antes_limpo, _ORDEM_BASE_ANTES)
+        + _extrair_regras_flat(dentro, _ORDEM_BASE_DENTRO)
+        + _extrair_regras_flat(depois_limpo, _ORDEM_BASE_DEPOIS)
     )
     for i in range(len(cadeia)):
         if _display_efetivo(i, cadeia, regras) == "none":
@@ -508,3 +678,179 @@ def test_sabotagem_visibility_hidden_no_lugar_de_display_none_mata_a_guarda(tmp_
     assert removido_depois is False, (
         "a sabotagem visibility:hidden deveria ter feito a guarda MORRER, e ela continuou aprovando"
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-333 (M1 da auditoria DL-026, rodada 5): as quatro sabotagens que o
+# auditor reproduziu IMPORTANDO estas mesmas funções — a simulação de
+# cascata errava DENTRO do limite que ela mesma declara, nas duas direções.
+# As três primeiras (S6/S7/S8) fazem a marca SAIR no papel enquanto a guarda
+# antiga aprovava (falso "escondido"); a quarta (S9) é código CORRETO que a
+# guarda antiga reprovava (falso "reprovado"). As quatro têm de produzir o
+# resultado CERTO agora: as três primeiras MORREM, a quarta PASSA.
+# ---------------------------------------------------------------------------
+
+
+def test_sabotagem_hover_dentro_do_media_print_mata_a_guarda(tmp_path):
+    """S6 do achado M1: substitui a regra incondicional que esconde
+    `.cabecalho__topo` por uma condicionada a `:hover` — que NUNCA ocorre
+    no papel (não há ponteiro na impressão). Antes da correção BL-333, o
+    motor tratava `:hover` como se valesse sempre e a guarda continuava
+    aprovando; agora `_display_efetivo` descarta candidata condicional com
+    `display: none` (decisão 2 da docstring do módulo)."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    alvo = (
+        "    .pular-para-conteudo,\n    .cabecalho__topo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }"
+    )
+    substituto = (
+        "    .pular-para-conteudo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }\n\n"
+        "    .cabecalho__topo:hover {\n        display: none;\n    }"
+    )
+    caminho_mutado = _escrever_css_mutado(tmp_path, css_original, alvo, substituto)
+    removido_depois, _ = _algum_ancestral_removido_do_papel(
+        cadeia, caminho_mutado.read_text(encoding="utf-8")
+    )
+    assert removido_depois is False, (
+        "a sabotagem :hover deveria ter feito a guarda MORRER, e ela continuou aprovando"
+    )
+
+
+def test_sabotagem_regra_dentro_de_media_screen_mata_a_guarda(tmp_path):
+    """S7 do achado M1: a mesma remoção de `.cabecalho__topo` da lista de
+    ocultos, mas com a regra de reocultação escrita dentro de `@media
+    screen` (o OPOSTO de impressão) — o mesmo defeito que `:hover`, só que
+    por at-rule aninhada em vez de pseudo-classe. Antes da correção, o
+    motor içava o conteúdo do `@media screen` para o conjunto incondicional
+    e a guarda aprovava; agora `_preparar_para_simulacao` REMOVE esse
+    at-rule (prelúdio sem 'print') antes de extrair regras — decisão 1 da
+    docstring do módulo."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    alvo = (
+        "    .pular-para-conteudo,\n    .cabecalho__topo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }"
+    )
+    substituto = (
+        "    .pular-para-conteudo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }"
+    )
+    caminho_mutado = _escrever_css_mutado(tmp_path, css_original, alvo, substituto)
+    css_mutado = caminho_mutado.read_text(encoding="utf-8")
+    # A regra de reocultação entra DEPOIS do @media print inteiro, dentro de
+    # @media screen — nunca se aplica ao imprimir, e a marca fica sem
+    # NENHUMA regra que a esconda sob impressão.
+    css_mutado += "\n\n@media screen {\n    .cabecalho__topo {\n        display: none;\n    }\n}\n"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido_depois, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido_depois is False, (
+        "a sabotagem @media screen deveria ter feito a guarda MORRER, e ela continuou aprovando"
+    )
+
+
+def test_sabotagem_regra_dentro_de_supports_mata_a_guarda(tmp_path):
+    """S8 do achado M1: a mesma sabotagem de S7, agora dentro de `@supports
+    (display: grid)` — outra at-rule aninhada, condição diferente (suporte
+    de funcionalidade, não mídia), mesmo defeito e mesma correção."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    alvo = (
+        "    .pular-para-conteudo,\n    .cabecalho__topo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }"
+    )
+    substituto = (
+        "    .pular-para-conteudo,\n    .navegacao-empresa,\n"
+        "    .formulario-periodo,\n    .mensagens,\n    kbd.tecla,\n    button {\n"
+        "        display: none;\n    }"
+    )
+    caminho_mutado = _escrever_css_mutado(tmp_path, css_original, alvo, substituto)
+    css_mutado = caminho_mutado.read_text(encoding="utf-8")
+    css_mutado += (
+        "\n\n@supports (display: grid) {\n"
+        "    .cabecalho__topo {\n        display: none;\n    }\n"
+        "}\n"
+    )
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido_depois, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido_depois is False, (
+        "a sabotagem @supports deveria ter feito a guarda MORRER, e ela continuou aprovando"
+    )
+
+
+def test_media_query_responsiva_legitima_depois_do_media_print_nao_reprova(tmp_path):
+    """S9 do achado M1 — o FALSO ALARME: uma `@media (min-width: 80rem)`
+    perfeitamente legítima (do tipo que qualquer evolução responsiva desta
+    tela vai trazer), acrescentada DEPOIS do `@media print` já correto e
+    INTACTO. Antes da correção BL-333, o motor içava
+    `.cabecalho__topo { display: flex; }` para o conjunto incondicional,
+    ele vencia a cascata por ordem (mais tardio no arquivo) e a guarda
+    REPROVAVA código correto. Agora essa at-rule (prelúdio sem 'print') é
+    REMOVIDA antes da extração — o `@media print` original, intocado,
+    continua decidindo sozinho, e a guarda PASSA.
+
+    ⚠️ Falso alarme na CI é, pelo argumento do BL-321, mais corrosivo que
+    falso negativo: ensina que a guarda erra."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + (
+        "\n\n@media (min-width: 80rem) {\n"
+        "    .cabecalho__topo {\n        display: flex;\n    }\n"
+        "}\n"
+    )
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido_depois, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido_depois is True, (
+        "a media query responsiva legítima, com o @media print intacto, NÃO deveria "
+        "fazer a guarda reprovar — e ela reprovou"
+    )
+
+
+def test_at_rule_mencionando_print_fora_do_bloco_tratado_reprova_pedindo_extensao():
+    """BL-333, decisão 1: um SEGUNDO `@media print` (ou `@media print and
+    (...)`) solto no arquivo, fora do primeiro bloco já tratado por
+    `_extrair_bloco_media_print`, não pode ser silenciosamente ignorado —
+    a simulação não sabe se ele reforça ou desfaz o resultado do primeiro.
+    Em vez de adivinhar, `_preparar_para_simulacao` reprova pedindo
+    extensão. Sobre CSS sintético em memória — não precisa de `tmp_path`
+    porque não mexe no arquivo real, só chama a função pura."""
+    css_sintetico = (
+        "@media print {\n    .cabecalho__topo {\n        display: none;\n    }\n}\n\n"
+        "@media print and (min-width: 40rem) {\n"
+        "    .cabecalho__topo {\n        display: flex;\n    }\n"
+        "}\n"
+    )
+    with pytest.raises(AssertionError, match="MENCIONANDO 'print'"):
+        _algum_ancestral_removido_do_papel(_cadeia_da_marca()[1], css_sintetico)
+
+
+def test_at_rule_aninhada_dentro_do_media_print_reprova_pedindo_extensao():
+    """BL-333, decisão 1: uma at-rule aninhada DENTRO do próprio `@media
+    print` (aqui, `@supports`) também reprova pedindo extensão — mesmo
+    sem mencionar 'print' — porque `exigir_ausencia_total=True` se aplica
+    a esse trecho: a simulação já está no contexto de impressão e não sabe
+    resolver a condição adicional."""
+    css_sintetico = (
+        "@media print {\n"
+        "    @supports (display: grid) {\n"
+        "        .cabecalho__topo {\n            display: none;\n        }\n"
+        "    }\n"
+        "}\n"
+    )
+    with pytest.raises(AssertionError, match="dentro do @media print"):
+        _algum_ancestral_removido_do_papel(_cadeia_da_marca()[1], css_sintetico)
