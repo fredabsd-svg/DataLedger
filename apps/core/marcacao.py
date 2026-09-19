@@ -36,9 +36,9 @@ proíbe para regra de negócio, só que na PRÓPRIA descrição deste módulo. A
 duplicação nº 2 (`PADRAO_TECLA`/`PADRAO_ACCESSKEY`, em
 `apps.contabilidade.tests.test_dl024_atalhos_e_acessibilidade`) continua
 fora daqui: esse arquivo é do `especialista-frontend` nesta etapa, e a
-correção do casamento sem aspas (achado M1 abaixo) não se estende a ele por
-decisão de escopo, não por esquecimento — fica registrada para a próxima
-rodada de quem for dono do arquivo.
+correção do casamento sem aspas (achado M1 da rodada 3) não se estende a
+ele por decisão de escopo, não por esquecimento — fica registrada para a
+próxima rodada de quem for dono do arquivo.
 
 Nenhuma função aqui depende de Django nem de banco de dados: são funções
 puras sobre uma STRING de tag HTML já aberta (ex.: o texto de uma tag de
@@ -46,82 +46,126 @@ abertura como `<td class="a valor-monetario b">` ou `<kbd class="tecla"
 aria-hidden="true">`), nunca um parser de HTML completo — mesma limitação,
 documentada, de todo o resto da varredura de interface deste projeto.
 
-**Limitação aceita, registrada (BL-317, B3 da auditoria DL-026 rodada 3):**
-`_padrao_atributo` casa `\\s<nome>\\s*=\\s*...` em QUALQUER posição da string
-da tag — inclusive DENTRO do valor entre aspas de um OUTRO atributo. Uma
-tag como `<td title="ver class='valor-monetario' aqui">{{ x_ptbr }}</td>`
-faz `tem_classe(tag, "valor-monetario")` devolver `True` mesmo sem a célula
-ter, de fato, a classe — o texto `class='valor-monetario'` está dentro do
-VALOR de `title`, não é um atributo `class` de verdade. Corrigir isto de
-verdade exige rastrear o estado de aspas desde o início da tag (saber que a
-posição do casamento está dentro de uma string já aberta por outro
-atributo) — a fronteira exata entre "expressão regular sobre texto de tag"
-e "parser de atributos HTML", que este módulo decide, por documento, NÃO
-cruzar (mesma linha do parágrafo anterior). Auditado como contrivado (sem
-caso real na base de templates deste projeto — nenhum atributo de texto
-livre como `title`/`alt` contém a palavra "class=" hoje) e na direção
-PERMISSIVA (aceita de mais, nunca recusa de menos, então nunca produz um
-FALSO alarme — o risco é o oposto, deixar passar uma célula sem a classe):
-decisão do `desenvolvedor-pleno` (BL-317) de REGISTRAR a limitação em vez
-de escrever um parser de atributos para um caso sem ocorrência real,
-documentada aqui e coberta por teste que fixa o comportamento atual em
-`apps/core/tests/test_marcacao.py` — para que uma correção futura precise
-atualizar o teste conscientemente, não descobrir a limitação de novo por
-auditoria.
+**BL-322 (M4 da auditoria DL-026 rodada 4) — limitação do BL-317 CORRIGIDA,
+não só documentada.** A versão anterior deste módulo (`_padrao_atributo`)
+buscava `\\s<nome>\\s*=\\s*...` em QUALQUER posição da string da tag —
+inclusive DENTRO do valor entre aspas de um OUTRO atributo. O comentário
+registrado então (BL-317) afirmava que essa busca era sempre PERMISSIVA
+("aceita de mais, nunca recusa de menos... nunca produz um FALSO alarme").
+Medido pelo auditor: `<td title="use class=nenhum" class="valor-monetario">`
+devolvia `tem_classe(tag, "valor-monetario") == False` — a célula TEM a
+classe de verdade, e a guarda acusava marcação CORRETA. A causa era
+`re.search` devolver a PRIMEIRA ocorrência da substring `class=` na tag
+inteira — quando o texto-isca (`title="...class=..."`) vem ANTES do
+atributo `class` real (a ordem mais comum, já que `title`/`alt`/
+`aria-label` costumam vir antes de `class` em marcação escrita à mão), a
+busca "encontrava" o `class=` de dentro do `title` e nunca chegava ao
+`class` de verdade. A direção do erro era as DUAS, não uma: o texto do
+BL-317 descrevia metade do comportamento real e usava a metade ausente
+como justificativa para não corrigir (AGENTS.md §9: "o comentário deve
+explicar... qual condição precisa preservar" — uma declaração que afirma
+mais do que a defesa entrega é o mesmo defeito que este projeto reprova em
+toda parte).
+
+A correção ANCORA o casamento a partir do NOME DA TAG, em vez de buscar um
+nome de atributo em qualquer posição: `atributos_da_tag` anda pela string,
+atributo por atributo, e PULA o valor INTEIRO de cada um (aspas duplas,
+aspas simples ou sem aspas) antes de procurar o próximo nome — o texto
+dentro do valor de `title` nunca é reexaminado como se fosse um atributo
+novo. Isso fecha as DUAS direções de uma vez: uma tag com `class` real
+continua reconhecida (independente do que outro atributo contenha no seu
+valor), e uma tag SEM `class` real não é mais confundida por um atributo
+vizinho que só MENCIONA a palavra "class=" em prosa. `test_marcacao.py`
+fixa as duas direções (achado do BL-322).
 """
 
 import re
 
-
-# `\s` OBRIGATÓRIO antes do nome do atributo: evita casar um atributo com
-# outro NOME que só termina com o mesmo sufixo (ex.: `data-class="x"`
-# contém a substring "class=", mas não é o atributo `class`) — a mesma
-# prevenção que `apps.core.tests.test_dl024_varredura_de_interface` já
-# aplica a `scope=`/`style=`.
+# Nome de atributo: qualquer sequência sem espaço, aspas, `=`, `<`, `>` nem
+# crase — a mesma restrição de caractere que HTML5 já impõe ao NOME de um
+# atributo (e que o valor sem aspas, abaixo, também respeita).
 #
-# M1/BL-310 (auditoria DL-026 rodada 3): a TERCEIRA alternativa —
-# `[^\s"'=<>`]+`, valor SEM aspas — faltava aqui, embora `PADRAO_ESTILO_
-# EMBUTIDO` (test_dl024_varredura_de_interface.py) já a tivesse, corrigida
-# NO MESMO DIA, para `style=`. HTML5 aceita atributo sem aspas desde que o
-# valor não tenha espaço, aspas, `=`, `<`, `>` nem crase (a mesma restrição
-# do padrão de estilo, reaproveitada aqui) — e o Chromium aplica de verdade:
-# `<kbd class=tecla>` estilizava igual a `<kbd class="tecla">`, mas
-# `tem_classe(tag, "tecla")` devolvia `False`, porque a busca só reconhecia
-# aspas. Medido: cinco `<kbd class="tecla" ...>` trocados por `class=tecla`
-# em `_navegacao_empresa.html` — suíte inteira `1451 passed` — e a árvore de
-# acessibilidade do Chromium confirmando o vazamento do atalho para o nome
-# do link (`'Plano de contas Alt+C'` em vez de `'Plano de contas'` com
-# `keyshortcuts=['Alt+C']` separado). A lição já estava escrita para
-# `style=` no mesmo commit; não tinha atravessado para este módulo, criado
-# justamente para que uma correção de casamento de atributo não precisasse
-# ser feita duas vezes.
-def _padrao_atributo(nome_atributo):
-    return re.compile(
-        rf"\s{re.escape(nome_atributo)}\s*=\s*"
-        rf"(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
-        re.IGNORECASE,
-    )
+# Valor: aspas duplas, aspas simples, SEM aspas (HTML5 válido — M1/BL-310,
+# auditoria DL-026 rodada 3: `<kbd class=tecla>` é HTML5 válido e o
+# Chromium aplica; a busca antiga só reconhecia aspas) ou AUSENTE (atributo
+# booleano, ex.: `<input disabled>` — sem `=`, sem valor).
+#
+# BL-322 (M4, auditoria DL-026 rodada 4): `\s+` OBRIGATÓRIO antes do nome é
+# o que ANCORA cada atributo ao início da tag em vez de deixar o casamento
+# começar em QUALQUER posição da string — combinado com o valor sendo
+# CONSUMIDO por inteiro (inclusive as aspas), `re.finditer` nunca reexamina
+# o conteúdo de um valor já consumido como se fosse um nome de atributo
+# novo. É essa combinação — âncora + consumo do valor inteiro — que torna
+# impossível o defeito do BL-317: o texto `class='valor-monetario'` dentro
+# do VALOR de `title="ver class='valor-monetario' aqui"` nunca vira uma
+# posição de início válida, porque a busca já consumiu o valor de `title`
+# inteiro (da aspa de abertura até a de fechamento) num único passo antes
+# de procurar o atributo seguinte.
+_PADRAO_INICIO_DE_ATRIBUTO = re.compile(
+    r"""
+    \s+(?P<nome>[^\s"'=<>`]+)
+    (?:\s*=\s*
+        (?:"(?P<valor_aspas_duplas>[^"]*)"
+         |'(?P<valor_aspas_simples>[^']*)'
+         |(?P<valor_sem_aspas>[^\s"'=<>`]+))
+    )?
+    """,
+    re.VERBOSE,
+)
 
 
-_PADRAO_ATRIBUTO_CLASS = _padrao_atributo("class")
+def atributos_da_tag(tag):
+    """Lista de `(nome, valor)` de cada atributo da tag de abertura `tag`,
+    na ORDEM em que aparecem — nome sempre em minúsculas (HTML não
+    distingue maiúsculas de minúsculas no nome), valor `None` quando o
+    atributo é booleano (sem `=`, ex.: `disabled`).
+
+    Não precisa da tag de abertura INTEIRA (`<td ...>`): como o casamento
+    exige `\\s+` antes do nome, um `<tagname` inicial sem espaço interno
+    nunca produz um "atributo" falso — o primeiro `\\s+` válido só ocorre
+    no espaço real antes do primeiro atributo. Por isso esta função (e,
+    por extensão, `valor_de_atributo`/`tem_classe`) também aceita um
+    TRECHO de tag que comece só nos atributos (sem o nome da tag) — usado
+    por `apps.contabilidade.tests.test_dl017_rodada2_frontend`, que passa
+    o grupo capturado de atributos diretamente, sem o `<nome-da-tag`.
+
+    Função PÚBLICA (BL-305, auditoria DL-026 rodada 4): reaproveitada por
+    `apps.core.tests.test_dl024_varredura_de_interface` para varrer COR e
+    MEDIDA literal em atributo de apresentação de template — a mesma razão
+    de existir deste módulo (AGENTS.md §8: não duplicar a lógica de andar
+    atributo por atributo uma segunda vez).
+    """
+    atributos = []
+    for casamento in _PADRAO_INICIO_DE_ATRIBUTO.finditer(tag):
+        nome = casamento.group("nome").lower()
+        valor = casamento.group("valor_aspas_duplas")
+        if valor is None:
+            valor = casamento.group("valor_aspas_simples")
+        if valor is None:
+            valor = casamento.group("valor_sem_aspas")
+        atributos.append((nome, valor))
+    return atributos
 
 
 def valor_de_atributo(tag, nome_atributo):
     """Valor bruto (string, sem dividir por espaço) do atributo
     `nome_atributo` na tag de abertura `tag`, ou `None` se o atributo não
     existir. Aceita aspas simples, aspas duplas ou SEM aspas (HTML5 válido
-    — ver o comentário de `_padrao_atributo`). Não distingue maiúsculas de
-    minúsculas no NOME do atributo (HTML não distingue); o VALOR é
-    devolvido como está, sem normalização.
+    — ver o comentário de `_PADRAO_INICIO_DE_ATRIBUTO`). Não distingue
+    maiúsculas de minúsculas no NOME do atributo; o VALOR é devolvido como
+    está, sem normalização. Usa o PRIMEIRO atributo com esse nome, na
+    ordem em que aparece na tag (HTML não permite o mesmo nome duas vezes
+    numa tag válida; se acontecer, o primeiro vence — mesmo critério que
+    navegadores aplicam).
     """
-    atributo = _padrao_atributo(nome_atributo).search(tag)
-    if not atributo:
-        return None
-    # Exatamente um dos três grupos captura (aspas duplas, aspas simples ou
-    # sem aspas) — os outros dois ficam `None`. `next(..., "")` cobre o
-    # único caso em que NENHUM captura texto: `nome=""` com aspas duplas
-    # vazias, onde o grupo 1 é `""` (não `None`) e já é achado primeiro.
-    return next((g for g in atributo.groups() if g is not None), "")
+    nome_normalizado = nome_atributo.lower()
+    for nome, valor in atributos_da_tag(tag):
+        if nome == nome_normalizado:
+            # `class=""` existe (o atributo está lá), só que vazio —
+            # diferente de o atributo não existir. `valor` já é `""` nesse
+            # caso (não `None`), então este `return` preserva a distinção.
+            return valor if valor is not None else ""
+    return None
 
 
 def tokens_de_atributo(tag, nome_atributo):
@@ -141,7 +185,7 @@ def tem_classe(tag, classe):
     `class` de `tag` — casada como TOKEN inteiro, separado por espaço,
     NUNCA como substring do atributo nem por igualdade do valor inteiro.
 
-    Duas classes de defeito que esta função fecha (ver o docstring do
+    Três classes de defeito que esta função fecha (ver o docstring do
     módulo para os achados que motivaram cada uma):
 
     - substring: `"texto-apoio" in atributos` casaria com
@@ -150,5 +194,11 @@ def tem_classe(tag, classe):
     - igualdade do valor inteiro: `class="tecla"` (comparação exata do
       valor completo do atributo) deixaria de casar assim que o elemento
       ganhasse uma segunda classe, `class="tecla destaque"` (M4/BL-295).
+    - atributo VIZINHO cujo VALOR só menciona a palavra "class=" em prosa
+      (`title="ver class='x' aqui"`) não pode ser confundido com o
+      atributo `class` de verdade — nas duas direções: nem aceitar de mais
+      (achar uma classe que não existe) nem acusar de menos (não achar uma
+      classe que existe, só porque outro atributo, escrito ANTES, também
+      menciona a palavra) — BL-322/M4, auditoria DL-026 rodada 4.
     """
     return classe in tokens_de_atributo(tag, "class")

@@ -38,7 +38,10 @@ import re
 from pathlib import Path
 
 import pytest
+from django.apps import apps as django_apps
+from django.conf import settings as django_settings
 
+from apps.core.marcacao import atributos_da_tag
 from apps.core.marcacao import tem_classe as _tem_classe
 
 RAIZ = Path(__file__).resolve().parents[3]
@@ -94,7 +97,40 @@ PASTAS_SEM_CSS_DO_PROJETO = {
 # porque a célula do Razão nunca continha um `{{ ..._ptbr }}` literal.
 PADRAO_VALOR = re.compile(r"_ptbr\b")
 PADRAO_CELULA = re.compile(r"<(td|th)\b[^>]*>", re.IGNORECASE)
-PADRAO_COR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)|\bhsla?\([^)]*\)")
+
+# BL-319 (M1 da auditoria DL-026 rodada 4): esta lista era fechada em TRÊS
+# famílias de função (`rgba?`/`hsla?`/hex) — a MESMA lista fechada que o
+# detector IRMÃO, de medida (logo abaixo, `_PADRAO_MEDIDA_LITERAL`),
+# abandonou NESTA MESMA rodada (BL-313), com o comentário dizendo, com
+# todas as letras, que "um detector que ENUMERA casos relatados está
+# condenado a ficar sempre uma auditoria atrás". `oklch()`/`lab()`/
+# `hwb()` passavam batido — `oklch()`, em particular, não é caso exótico:
+# é a notação RECOMENDADA hoje para paleta perceptualmente uniforme, e é
+# o que a próxima pessoa que mexer no `base.css` vai escrever.
+#
+# A correção, no mesmo espírito da inversão do lado da medida: em vez de
+# lembrar cada função relatada, enumerar a lista COMPLETA e ESTÁVEL das
+# funções de cor do CSS Color Module Level 4/5
+# (w3.org/TR/css-color-4, w3.org/TR/css-color-5) — a mesma classe de
+# "enumeração que não fica atrás" que `_PADRAO_MEDIDA_LITERAL` já usa para
+# as UNIDADES. `(?<![\w-])` evita casar uma função de cor no MEIO de um
+# nome maior (o mesmo cuidado de `PADRAO_ESTILO_EMBUTIDO`, abaixo) — por
+# exemplo, uma variável `--acento-oklch-alt` não pode disparar o detector
+# só por conter a substring "oklch".
+PADRAO_COR = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b"
+    r"|(?<![\w-])rgba?\([^)]*\)"
+    r"|(?<![\w-])hsla?\([^)]*\)"
+    r"|(?<![\w-])hwb\([^)]*\)"
+    r"|(?<![\w-])lab\([^)]*\)"
+    r"|(?<![\w-])lch\([^)]*\)"
+    r"|(?<![\w-])oklab\([^)]*\)"
+    r"|(?<![\w-])oklch\([^)]*\)"
+    r"|(?<![\w-])color-mix\([^)]*\)"
+    r"|(?<![\w-])color-contrast\([^)]*\)"
+    r"|(?<![\w-])device-cmyk\([^)]*\)"
+    r"|(?<![\w-])color\([^)]*\)"
+)
 
 # Rodada 3 (BL-286, achado do arquiteto-senior): a exigência de
 # `valor-monetario` não pode ficar presa à CÉLULA — o BL-286 misturou frase
@@ -194,11 +230,6 @@ NOMES_QUE_NAO_SAO_TINTA = {
     "revert": "volta ao estilo do navegador/UA; não introduz cor",
 }
 
-# Qualquer declaração `propriedade: valor;` do CSS, para procurar cor nomeada
-# dentro do VALOR — precisa de contexto de declaração para não confundir a
-# palavra "gray" com o nome de uma classe ou de um comentário.
-_PADRAO_DECLARACAO = re.compile(r":\s*([^;{}]+)[;}]")
-
 # Estilo embutido: `style="..."` (aspas duplas), `style='...'` (BL-274 #5,
 # aspas simples escapavam), `style=valor-sem-aspas` (M1/BL-292, auditoria
 # DL-026 rodada 2 — HTML5 aceita atributo sem aspas desde que o valor não
@@ -259,9 +290,10 @@ NOME_DO_MODULO_NA_TABELA = {
 # relatados está condenado a ficar sempre uma auditoria atrás.
 #
 # A inversão: qualquer declaração `propriedade: valor;` fora do `:root`
-# entra na varredura (mesma extração de `_PADRAO_DECLARACAO`, agora também
-# capturando o NOME da propriedade) — o que decide se é achado é só o
-# VALOR conter uma unidade de comprimento literal. Propriedades como
+# entra na varredura (a mesma extração de "propriedade: valor" usada pelo
+# detector de cor, `_PADRAO_DECLARACAO_COM_PROPRIEDADE` abaixo) — o que
+# decide se é achado é só o VALOR conter uma unidade de comprimento
+# literal. Propriedades como
 # `color`/`content`/`font-family` nunca são acusadas não porque estão fora
 # de uma lista, mas porque o VALOR delas não bate com `_PADRAO_MEDIDA_
 # LITERAL` — o mesmo raciocínio que já valia para `border-color`/
@@ -278,10 +310,12 @@ NOME_DO_MODULO_NA_TABELA = {
 # aparecer, ele nasce aqui, nomeado e com o motivo — nunca por engano.
 PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL = {}
 
-# Mesma extração de `propriedade: valor;` de `_PADRAO_DECLARACAO`, agora
-# capturando os dois grupos (nome e valor) — precisa do NOME para consultar
-# `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` e para compor a mensagem
-# `"propriedade: valor"` que o achado devolve.
+# Extração de `propriedade: valor;`, capturando os dois grupos (nome e
+# valor) — usada pelos detectores de MEDIDA e de COR (BL-321/M3): o nome é
+# necessário para consultar `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL`, para
+# reconhecer uma CUSTOM PROPERTY (`--nome`, nunca uma violação — ver o
+# docstring de `_cores_fora_dos_tokens`) e para compor a mensagem
+# `"propriedade: valor"` que o achado de medida devolve.
 _PADRAO_DECLARACAO_COM_PROPRIEDADE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;{}]+)[;}]")
 
 # `\d*\.?\d+` cobre inteiro e decimal (`4px`, `0.4em`); a unidade é literal,
@@ -382,44 +416,125 @@ def _templates(raiz):
     return _arquivos_do_projeto(raiz, "*.html")
 
 
+def _pasta_pai_dos_apps_instalados():
+    """Nome(s) da(s) pasta(s) que hoje ABRIGAM os apps Django deste projeto
+    (ex.: `"apps"`), derivado dos apps REALMENTE registrados em
+    `INSTALLED_APPS` — nunca um literal escrito à mão.
+
+    BL-320 (M2, auditoria DL-026 rodada 4): a versão anterior desta guarda
+    reconhecia a convenção `apps/<modulo>/templates/<modulo>/...` por um
+    prefixo de caminho LITERAL (`partes[0] == "apps"`). Derivar o nome real
+    da pasta a partir de `AppConfig.path` (relativo a `settings.BASE_DIR`)
+    é o que faz a convenção sobreviver a uma reorganização do projeto
+    (`src/<app>/`, por exemplo) sem precisar editar este arquivo — cada app
+    fora da árvore do projeto (dependência instalada, `django.contrib.*`)
+    é ignorado (`relative_to` levanta `ValueError`)."""
+    base_dir = Path(django_settings.BASE_DIR).resolve()
+    pastas = set()
+    for config_do_app in django_apps.get_app_configs():
+        caminho = Path(config_do_app.path).resolve()
+        try:
+            relativo = caminho.relative_to(base_dir)
+        except ValueError:
+            continue  # app de fora da árvore do projeto (dependência instalada)
+        if len(relativo.parts) >= 2:
+            pastas.add(relativo.parts[0])
+    return pastas
+
+
+def _raizes_de_template(raiz):
+    """Pastas onde o Django procura TEMPLATE, derivadas de
+    `django.conf.settings.TEMPLATES` — nunca de dois prefixos de caminho
+    escritos à mão. `raiz` é parâmetro explícito (como em `_templates`/
+    `_arquivos_do_projeto`): cada origem é expressa RELATIVA a
+    `settings.BASE_DIR` e reancorada em `raiz`, para que os controles em
+    `tmp_path` continuem provando o alcance sem depender da árvore real.
+
+    BL-320 (M2, auditoria DL-026 rodada 4): a versão anterior reconhecia só
+    DUAS formas de caminho ("apps/" e "templates/", escritas à mão) — um
+    terceiro `DIRS` em `settings.TEMPLATES` (`BASE_DIR / "ui"`, por
+    exemplo) devolvia a guarda à cegueira sem que ninguém precisasse tocar
+    neste arquivo. As origens, as MESMAS que o Django resolve:
+
+    - cada diretório de `TEMPLATES[*]["DIRS"]` — explícito, pode haver mais
+      de um, e um novo passa a valer sem editar este módulo;
+    - se `APP_DIRS` estiver ligado, a pasta `templates/` dentro de CADA
+      pasta que hoje abriga um app Django deste projeto
+      (`_pasta_pai_dos_apps_instalados`) — não só os apps JÁ registrados em
+      `INSTALLED_APPS`: o propósito desta guarda (BL-309) é pegar um módulo
+      ANTES de alguém lembrar de registrá-lo, não depois.
+    """
+    base_dir = Path(django_settings.BASE_DIR).resolve()
+    raizes = []
+    tem_app_dirs = False
+    for motor in django_settings.TEMPLATES:
+        for dir_configurado in motor.get("DIRS", []):
+            caminho = Path(dir_configurado).resolve()
+            try:
+                relativo = caminho.relative_to(base_dir)
+            except ValueError:
+                continue  # DIRS fora da árvore do projeto: nada para reancorar em `raiz`
+            raizes.append(raiz / relativo)
+        if motor.get("APP_DIRS"):
+            tem_app_dirs = True
+    if tem_app_dirs:
+        for pasta_de_apps in _pasta_pai_dos_apps_instalados():
+            raiz_de_apps = raiz / pasta_de_apps
+            if not raiz_de_apps.is_dir():
+                continue
+            for pasta_do_app in sorted(p for p in raiz_de_apps.iterdir() if p.is_dir()):
+                raizes.append(pasta_do_app / "templates")
+    return raizes
+
+
+# A MOLDURA (`base.html`) não é módulo — mas a exclusão precisa ser por
+# NOME, não por profundidade de caminho (ver o docstring de
+# `_pastas_de_modulo_com_tela`).
+NOME_DA_MOLDURA = "base.html"
+
+
 def _pastas_de_modulo_com_tela(raiz):
-    """Nome de cada pasta de MÓDULO que tem pelo menos um template — nas
-    DUAS origens que o Django resolve, exatamente como `_templates(raiz)`
-    já enxerga (`APP_DIRS: True` em `config/settings.py`):
+    """Nome de cada pasta de MÓDULO que tem pelo menos um template, nas
+    origens que `_raizes_de_template(raiz)` deriva de `settings.TEMPLATES`.
 
-    - `templates/<modulo>/...` — a pasta única na raiz do projeto;
-    - `apps/<modulo>/templates/<modulo>/...` — a convenção de app do
-      Django (`apps/<app>/templates/<app>/arquivo.html`).
-
-    BL-309 (A3 da auditoria DL-026 rodada 3): até esta correção, a guarda
+    BL-309 (A3 da auditoria DL-026 rodada 3): até aquela correção, a guarda
     do "momento da verdade" (`test_modulo_novo_declara_o_seu_momento_da_
-    verdade`) enumerava `TEMPLATES.iterdir()` — só a primeira origem — CINCO
-    rodadas depois de o BL-291 já ter ligado as outras cinco guardas de
-    CONTEÚDO deste arquivo (extends, caption, scope, valor, estilo) a
-    `_templates()`, que enxerga as duas. O mesmo template, bem formado,
-    reprovava as cinco guardas de conteúdo em `apps/cobranca/templates/
-    cobranca/titulos.html` E em `templates/cobranca/titulos.html` — mas só
-    a sexta guarda, a desta função, era cega para a primeira origem: um
-    módulo inteiro podia nascer só em `apps/<app>/templates/`, com as
-    outras cinco guardas satisfeitas, e a CI continuar verde sem que
-    ninguém tivesse escrito a pergunta do módulo em `direcao-de-arte.md`
-    §3 — exatamente a superfície que o critério 13 promete cobrir.
+    verdade`) enumerava `TEMPLATES.iterdir()` — só a origem `templates/` na
+    raiz — CINCO rodadas depois de o BL-291 já ter ligado as outras cinco
+    guardas de CONTEÚDO deste arquivo (extends, caption, scope, valor,
+    estilo) a `_templates()`, que enxerga as duas origens. O mesmo
+    template, bem formado, reprovava as cinco guardas de conteúdo em
+    `apps/cobranca/templates/cobranca/titulos.html` E em `templates/
+    cobranca/titulos.html` — mas só a sexta guarda, a desta função, era
+    cega para a primeira origem.
 
-    Deriva as pastas dos ARQUIVOS que `_templates(raiz)` de fato encontra,
-    em vez de listar diretórios — um `.html` solto direto em `templates/`
-    (`base.html`, sem subpasta) não é módulo e não entra no resultado.
+    BL-320 (M2, auditoria DL-026 rodada 4): a correção do BL-309 trocou a
+    cegueira de PASTA pela cegueira de FORMA DE CAMINHO — as duas origens
+    continuavam reconhecidas por dois prefixos ESCRITOS À MÃO
+    (`partes[0] == "apps"` / `partes[0] == "templates"`), e a exclusão de
+    `base.html` era feita por PROFUNDIDADE (`len(partes) >= 3`), não por
+    ele SER a moldura. Efeito colateral não documentado: `templates/
+    cobranca.html` (módulo de tela ÚNICA, sem subpasta) tinha a MESMA
+    profundidade de `templates/base.html` e escapava pelo mesmo motivo —
+    o auditor mediu esse caso exato passando com `96 passed`. Esta versão
+    deriva as ORIGENS de `settings.TEMPLATES` (`_raizes_de_template`) e
+    exclui a moldura por NOME (`NOME_DA_MOLDURA`), nunca por profundidade:
+    um `.html` direto numa raiz de template, sem subpasta, vira um módulo
+    de tela única nomeado pelo PRÓPRIO ARQUIVO (`cobranca.html` →
+    "cobranca") — a menos que seja, pelo nome, a moldura.
     """
     pastas = set()
-    for caminho in _templates(raiz):
-        partes = caminho.relative_to(raiz).parts
-        if partes[0] == "apps" and len(partes) >= 2:
-            # `apps/<modulo>/templates/<modulo>/arquivo.html` — o nome do
-            # MÓDULO é o nome do app (`partes[1]`), não a subpasta de
-            # template dentro dele (que hoje é sempre a mesma string, por
-            # convenção do Django, mas não é o que identifica o módulo).
-            pastas.add(partes[1])
-        elif partes[0] == "templates" and len(partes) >= 3:
-            pastas.add(partes[1])
+    for raiz_de_template in _raizes_de_template(raiz):
+        if not raiz_de_template.is_dir():
+            continue
+        for caminho in sorted(raiz_de_template.rglob("*.html")):
+            partes = caminho.relative_to(raiz_de_template).parts
+            if len(partes) == 1:
+                if partes[0] == NOME_DA_MOLDURA:
+                    continue
+                pastas.add(Path(partes[0]).stem)
+            else:
+                pastas.add(partes[0])
     return pastas
 
 
@@ -450,36 +565,96 @@ def _sem_comentarios_de_template(texto):
     return re.sub(r"<!--.*?-->", "", sem_django, flags=re.S)
 
 
+# BL-321 (M3 da auditoria DL-026 rodada 4): a inversão do detector de MEDIDA
+# (BL-313, rodada 3) acusava CSS legítimo — `@media print { .folha { --espaco:
+# 2mm } }` e `@page { margin: 15mm }` — porque a única exceção de BLOCO era o
+# `:root`, casado só quando `{` vinha IMEDIATAMENTE depois (`:root, ::backdrop
+# { ... }`, o padrão para tornar tokens visíveis ao `::backdrop`, perdia a
+# isenção INTEIRA). É consequência de uma decisão do `arquiteto-senior`: a
+# inversão foi mandada sem mandar a contrapartida — falso positivo em CI é
+# mais corrosivo que falso negativo, ele ensina que a guarda erra.
+#
+# `_PADRAO_REGRA_DE_NIVEL_SUPERIOR` extrai toda regra `seletor { corpo }` do
+# texto (mesma limitação de sempre: não resolve chaves ANINHADAS de verdade,
+# mas isso não importa aqui — só precisamos identificar seletores isentos,
+# nunca reconstruir a árvore de um `@media`).
+_PADRAO_REGRA_DE_NIVEL_SUPERIOR = re.compile(r"([^{}]+)\{(.*?)\}", re.S)
+
+
+def _e_bloco_isento_de_cor_e_medida(selecionador):
+    """`True` se `selecionador` (o texto ANTES do `{` de uma regra CSS) for
+    isento da varredura de cor/medida literal: o `:root` — sozinho ou dentro
+    de um SELETOR AGRUPADO, em QUALQUER posição do grupo, com ou sem
+    pseudo-classe encadeada (`:root, ::backdrop`, `::backdrop, :root`,
+    `:root:not(.compacto)`) — ou o bloco `@page` (com ou sem pseudo-página,
+    `@page :first`).
+
+    `@page` é isento como BLOCO, nunca por nome de propriedade: indexar a
+    exceção em `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` por `margin`
+    liberaria `margin` na folha INTEIRA, não só dentro de `@page` — e `@page`
+    é a ÚNICA forma de declarar margem de impressão em CSS (o suporte a
+    `var()` ali não é confiável)."""
+    selecionador = selecionador.strip()
+    if selecionador.startswith("@page"):
+        return True
+    for token in selecionador.split(","):
+        token = token.strip()
+        if token == ":root" or token.startswith(":root:"):
+            return True
+    return False
+
+
 def _texto_sem_root(texto):
-    """Remove comentários e o bloco `:root` — é onde os tokens NASCEM (DE-053);
-    cor ou medida literal ali é a própria definição do token, não violação.
+    """Remove comentários e os blocos ISENTOS (`:root`, inclusive em seletor
+    AGRUPADO, e `@page`) — é onde os tokens NASCEM (DE-053) e onde a folha de
+    impressão declara margem; cor ou medida literal ali é a própria definição
+    do token, ou uma restrição da própria plataforma, nunca violação.
     Compartilhado pelos detectores de cor e de medida (mesma regra, mesma
-    exceção)."""
+    exceção) — BL-321 acrescentou `@page` e o seletor agrupado aqui, uma vez
+    só, para valer nos dois detectores sem duplicar a regra."""
     limpo = _sem_comentarios_css(texto)
-    for bloco in re.finditer(r":root\s*\{.*?\}", limpo, flags=re.S):
-        limpo = limpo.replace(bloco.group(0), "")
+    for regra in _PADRAO_REGRA_DE_NIVEL_SUPERIOR.finditer(limpo):
+        if _e_bloco_isento_de_cor_e_medida(regra.group(1)):
+            limpo = limpo.replace(regra.group(0), "")
     return limpo
 
 
 def _cores_fora_dos_tokens(texto):
-    """Cores declaradas fora do bloco `:root`, em hex/rgb/hsl **ou nomeadas**
-    (BL-274 #2: `red`, `white`... eram invisíveis).
+    """Cores declaradas fora do `:root`/`@page`, em hex/rgb/hsl **ou
+    nomeadas** (BL-274 #2: `red`, `white`... eram invisíveis) — cobrindo as
+    funções COMPLETAS do CSS Color Level 4/5 (BL-319/M1, ver `PADRAO_COR`).
 
     O `:root` é onde os tokens moram (DE-053). Cor escrita direto numa regra de
     tela é o começo da divergência: a próxima tela copia, a terceira erra o
     tom, e seis meses depois existem quatro azuis.
+
+    BL-321 (M3, auditoria DL-026 rodada 4): reescrita para varrer
+    DECLARAÇÃO POR DECLARAÇÃO (mesma forma de `_medidas_literais_fora_dos_
+    tokens`, com a MESMA regex `_PADRAO_DECLARACAO_COM_PROPRIEDADE`) em vez de
+    um `findall` cego sobre o texto inteiro — é o que permite pular uma
+    CUSTOM PROPERTY (`--nome: valor;`) sem importar em que bloco ela está: ela
+    é a DEFINIÇÃO de um token, onde quer que esteja escrita (`.folha
+    { --acento-oklch: oklch(0.6 0.2 30); }` dentro de `@media print`, por
+    exemplo), nunca uma violação — o mesmo raciocínio do `:root`, generalizado
+    para qualquer escopo em que o projeto decida nomear um token.
     """
     limpo = _texto_sem_root(texto)
-    achados = PADRAO_COR.findall(limpo)
-    for declaracao in _PADRAO_DECLARACAO.finditer(limpo):
+    achados = []
+    for declaracao in _PADRAO_DECLARACAO_COM_PROPRIEDADE.finditer(limpo):
+        propriedade, valor_bruto = declaracao.group(1), declaracao.group(2)
+        if propriedade.strip().startswith("--"):
+            # BL-321: custom property é a DEFINIÇÃO do token, em qualquer
+            # bloco — nunca o VALOR de tinta que a varredura precisa cobrar.
+            continue
         # `var(...)` pode conter qualquer coisa no NOME da variável
         # (`var(--cor-red-alerta)`) sem que isso seja uma cor nomeada de
         # verdade; remove a REFERÊNCIA antes de tokenizar, preservando o
         # FALLBACK (M2/BL-293 — ver o docstring de
         # `_sem_variavel_css_preservando_fallback`: `var(--x, red)` tinha a
-        # cor de reserva apagada junto com a variável e escapava). String e
-        # `url()` também não são cor nomeada literal.
-        valor = _sem_variavel_css_preservando_fallback(declaracao.group(1))
+        # cor de reserva apagada junto com a variável e escapava).
+        valor = _sem_variavel_css_preservando_fallback(valor_bruto)
+        achados.extend(PADRAO_COR.findall(valor))
+        # String e `url()` também não são cor nomeada literal.
         if "url(" in valor or '"' in valor or "'" in valor:
             continue
         for token in re.findall(r"[a-zA-Z]+", valor):
@@ -491,8 +666,8 @@ def _cores_fora_dos_tokens(texto):
 
 def _medidas_literais_fora_dos_tokens(texto):
     """Unidade de comprimento literal (`px`/`rem`/`em`/... — lista completa
-    em `_PADRAO_MEDIDA_LITERAL`) em QUALQUER propriedade, fora do `:root`.
-    Devolve `"propriedade: valor"` para cada ofensor.
+    em `_PADRAO_MEDIDA_LITERAL`) em QUALQUER propriedade, fora do `:root`/
+    `@page`. Devolve `"propriedade: valor"` para cada ofensor.
 
     O detector que o critério 13 prometia ("cor, TAMANHO ou ESPAÇAMENTO fora
     dos tokens") e nunca existia — BL-274, achado A1 da rodada 1.
@@ -500,15 +675,21 @@ def _medidas_literais_fora_dos_tokens(texto):
     BL-313 (M4 da auditoria DL-026 rodada 3): INVERTIDO — não filtra mais por
     uma lista fechada de propriedades (ver o comentário de
     `PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL` para a classe de defeito que
-    isto fecha). Toda declaração `propriedade: valor;` fora do `:root` é
-    examinada; só escapa a que estiver na lista de exceções NOMEADAS, ou
-    cujo valor genuinamente não contenha unidade de comprimento nenhuma
-    (uma cor, `solid`, `auto`, um percentual...).
+    isto fecha). Toda declaração `propriedade: valor;` fora do `:root`/`@page`
+    é examinada; só escapa a que estiver na lista de exceções NOMEADAS, cujo
+    NOME comece com `--` (custom property — BL-321/M3, ver o docstring de
+    `_cores_fora_dos_tokens`), ou cujo valor genuinamente não contenha
+    unidade de comprimento nenhuma (uma cor, `solid`, `auto`, um
+    percentual...).
     """
     limpo = _texto_sem_root(texto)
     achados = []
     for declaracao in _PADRAO_DECLARACAO_COM_PROPRIEDADE.finditer(limpo):
         propriedade, valor = declaracao.group(1), declaracao.group(2)
+        if propriedade.strip().startswith("--"):
+            # BL-321 (M3): custom property é a DEFINIÇÃO do token, em
+            # QUALQUER bloco — nunca uma medida solta para a varredura cobrar.
+            continue
         if propriedade.lower() in PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL:
             continue
         # M2/BL-293: preserva o FALLBACK do `var()` em vez de apagá-lo junto
@@ -566,6 +747,83 @@ def _estilos_embutidos(texto):
     contraste: ninguém encontra aquele valor depois."""
     limpo = _sem_comentarios_de_template(texto)
     return [m.group(0)[:60] for m in PADRAO_ESTILO_EMBUTIDO.finditer(limpo)]
+
+
+# ---------------------------------------------------------------------------
+# BL-305 (achado do arquiteto-senior, confirmado na §3 da auditoria DL-026
+# rodada 4): o enunciado do critério 13 é "quando um TEMPLATE usa cor,
+# tamanho ou espaçamento fora dos tokens" — sem distinguir CSS de atributo.
+# A varredura cobria `style=`/`<style>` (CSS embutido em template) e NADA
+# além. O auditor mediu `<svg><rect fill="#ff0000" width="10" height="10">`
+# passando batido: cor num atributo de APRESENTAÇÃO (`fill`), e "não é só
+# cor, medida em atributo de apresentação também passa" (`width`/`height`,
+# SEM unidade — em SVG, um número sem unidade É um comprimento, em "user
+# units", o equivalente a pixel). Os dois defeitos são o MESMO enunciado; a
+# correção trata os dois com a MESMA função.
+#
+# Dois sinais, nenhum deles uma lista de CASOS RELATADOS (a lição do
+# BL-313/BL-319, aplicada aqui):
+#
+# 1. Cor/medida com marcação EXPLÍCITA (`#ff0000`, `oklch(...)`, `12px`) —
+#    aplicada ao VALOR de QUALQUER atributo, em QUALQUER tag do template.
+#    Não precisa de lista de nomes de atributo: um valor que CASA com
+#    `PADRAO_COR`/`_PADRAO_MEDIDA_LITERAL` é, na prática esmagadora dos
+#    casos, sempre cor ou medida de verdade — o mesmo raciocínio que already
+#    vale para o valor de uma declaração CSS.
+# 2. Medida SEM unidade explícita, só para o caso em que a especificação
+#    garante o significado: um valor puramente numérico num atributo de
+#    APRESENTAÇÃO do SVG (lista FECHADA e ESTÁVEL, `w3.org/TR/SVG2/`,
+#    "Presentation attributes" — não uma lista de relatos, uma enumeração
+#    de especificação, como as unidades de `_PADRAO_MEDIDA_LITERAL`),
+#    restrito a texto DENTRO de um bloco `<svg>...</svg>`: é SÓ ali que a
+#    especificação garante que um número sem unidade é um comprimento —
+#    fora do SVG, `width`/`height` têm outros usos herdados do HTML
+#    (`<canvas width="600">`, por exemplo) que este projeto não pode
+#    confundir com a mesma classe de defeito.
+ATRIBUTOS_SVG_DE_COMPRIMENTO = frozenset(
+    "width height x y cx cy r rx ry x1 y1 x2 y2 stroke-width font-size".split()
+)
+
+_PADRAO_NUMERO_PURO = re.compile(r"^-?\d*\.?\d+$")
+
+_PADRAO_BLOCO_SVG = re.compile(r"<svg\b.*?</svg>", re.IGNORECASE | re.DOTALL)
+
+
+def _cores_e_medidas_em_atributos_de_template(texto):
+    """Cor OU medida literal escrita direto num ATRIBUTO de apresentação de
+    template (fora de CSS) — ver o comentário acima (BL-305). Devolve a
+    lista de ofensores, como `"fill=#ff0000"`/`"width=10"`."""
+    limpo = _sem_comentarios_de_template(texto)
+    achados = []
+
+    for tag in PADRAO_TAG_ABERTURA.finditer(limpo):
+        for nome, valor in atributos_da_tag(tag.group(0)):
+            if not valor:
+                continue
+            for cor in PADRAO_COR.findall(valor):
+                achados.append(f"{nome}={cor}")
+            valor_normalizado = valor.strip().lower()
+            if (
+                valor_normalizado in CORES_NOMEADAS_CSS
+                and valor_normalizado not in NOMES_QUE_NAO_SAO_TINTA
+            ):
+                achados.append(f"{nome}={valor}")
+            for medida in _PADRAO_MEDIDA_LITERAL.finditer(valor):
+                achados.append(f"{nome}={medida.group(0)}")
+
+    # Medida SEM unidade, só dentro de <svg> e só nos atributos de
+    # apresentação de comprimento do SVG — ver o comentário acima.
+    for bloco in _PADRAO_BLOCO_SVG.finditer(limpo):
+        for tag in PADRAO_TAG_ABERTURA.finditer(bloco.group(0)):
+            for nome, valor in atributos_da_tag(tag.group(0)):
+                if not valor:
+                    continue
+                if nome in ATRIBUTOS_SVG_DE_COMPRIMENTO and _PADRAO_NUMERO_PURO.match(
+                    valor.strip()
+                ):
+                    achados.append(f"{nome}={valor}")
+
+    return achados
 
 
 # M3/BL-294 (auditoria DL-026 rodada 2): elementos VAZIOS do HTML5 — nunca
@@ -850,6 +1108,23 @@ def test_nenhum_estilo_embutido_no_template():
     assert not embutidos, "Estilo embutido em template: " + "; ".join(embutidos)
 
 
+def test_nenhuma_cor_ou_medida_em_atributo_de_apresentacao_do_template():
+    """Critério 13: "quando um template usa cor, tamanho ou espaçamento
+    fora dos tokens" — o enunciado não distingue CSS de ATRIBUTO. BL-305
+    (achado do arquiteto-senior, confirmado na §3 da auditoria DL-026
+    rodada 4): a varredura cobria `style=`/`<style>` e nada além; um `fill`/
+    `width` de SVG embutido bypassava o sistema de tokens sem passar por
+    nenhuma das guardas de CSS."""
+    ofensores = []
+    for t in _templates(RAIZ):
+        for achado in _cores_e_medidas_em_atributos_de_template(t.read_text(encoding="utf-8")):
+            ofensores.append(f"{t.relative_to(RAIZ)}: {achado}")
+    assert not ofensores, (
+        "Cor ou medida literal em atributo de apresentação de template "
+        "(critério 13 da DL-026): " + "; ".join(ofensores)
+    )
+
+
 def test_modulo_novo_declara_o_seu_momento_da_verdade():
     """Módulo sem a sua pergunta escrita — numa LINHA DE TABELA do §3, não em
     prosa solta em qualquer lugar do documento (BL-274 #6) — não devia ter
@@ -925,6 +1200,60 @@ def test_controle_negativo_detector_de_cor_nomeada_ignora_palavra_chave_que_nao_
 def test_controle_positivo_detector_de_cor_ignora_o_que_esta_no_token():
     assert (
         _cores_fora_dos_tokens(":root {\n  --cor-texto: #1a1a1a;\n  --cor-fundo: white;\n}\n") == []
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-319 (M1 da auditoria DL-026 rodada 4): o detector de cor mantinha a
+# lista fechada (`rgba?`/`hsla?`/hex) que o detector de MEDIDA (BL-313,
+# mesma rodada) já tinha abandonado — `oklch()`/`lab()`/`hwb()` passavam
+# com `96 passed`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "css_ruim, esperado",
+    [
+        # Reprodução EXATA da sabotagem do M1.
+        (":root { --a: #fff; }\n.x { color: oklch(0.7 0.2 20); }", "oklch(0.7 0.2 20)"),
+        (":root { --a: #fff; }\n.x { background: lab(50% 40 30); }", "lab(50% 40 30)"),
+        (":root { --a: #fff; }\n.x { border-color: hwb(120 10% 20%); }", "hwb(120 10% 20%)"),
+        # Casos NÃO citados pelo relatório — provam que a correção enumera a
+        # lista COMPLETA da especificação (CSS Color Level 4/5), não a lista
+        # de três funções do achado.
+        (":root { --a: #fff; }\n.x { color: lch(52% 40 30); }", "lch(52% 40 30)"),
+        (":root { --a: #fff; }\n.x { color: oklab(0.5 0.1 0.05); }", "oklab(0.5 0.1 0.05)"),
+        (":root { --a: #fff; }\n.x { color: color(display-p3 1 0 0); }", "color(display-p3 1 0 0)"),
+        (
+            ":root { --a: #fff; }\n.x { background: color-mix(in srgb, red, blue); }",
+            "color-mix(in srgb, red, blue)",
+        ),
+        (
+            ":root { --a: #fff; }\n.x { color: device-cmyk(0 1 1 0); }",
+            "device-cmyk(0 1 1 0)",
+        ),
+    ],
+)
+def test_controle_positivo_detector_de_cor_funcoes_do_css_color_level_4(css_ruim, esperado):
+    """Enunciado geral (BL-319): nenhuma cor escapa da varredura, em nenhuma
+    notação — provado com a reprodução do achado (`oklch`/`lab`/`hwb`) e com
+    funções que NEM o relatório do auditor NEM a lista fechada antiga sequer
+    mencionavam (`lch`, `oklab`, `color()`, `color-mix()`, `device-cmyk()`)."""
+    achados = _cores_fora_dos_tokens(css_ruim)
+    assert esperado in achados, f"a função de cor '{esperado}' escapou do detector: {achados}"
+
+
+def test_controle_negativo_detector_de_cor_ignora_funcoes_sem_relacao_com_cor():
+    """Controle negativo do M1: a lista COMPLETA de funções de cor não pode
+    virar uma lista tão ampla que acuse função de LAYOUT/transformação sem
+    relação nenhuma com tinta."""
+    css = (
+        ":root { --a: #fff; }\n"
+        ".x { transform: translateX(4px); width: minmax(4px, 1fr); "
+        "padding: calc(4px + 1px); color: var(--a); }"
+    )
+    assert _cores_fora_dos_tokens(css) == [], (
+        "funções sem relação com cor (transform/minmax/calc/var) não podiam ter sido acusadas"
     )
 
 
@@ -1139,6 +1468,102 @@ def test_controle_negativo_detector_de_medida_literal_respeita_a_lista_de_exceco
         modulo.PROPRIEDADES_QUE_ACEITAM_MEDIDA_LITERAL.update(original)
 
 
+# ---------------------------------------------------------------------------
+# BL-321 (M3 da auditoria DL-026 rodada 4): a inversão do detector de
+# MEDIDA (BL-313) acusava CSS legítimo — falso positivo em mecanismo de CI,
+# mais corrosivo que falso negativo, porque ensina que a guarda erra. Os
+# dois blocos exatos que o auditor mediu reprovando, mais casos que o
+# relatório NÃO cita.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_negativo_custom_property_fora_do_root_nao_e_violacao():
+    """Reprodução EXATA do primeiro bloco do M3: `--espaco-de-impressao`
+    definida DENTRO de `@media print { .folha { ... } }`, fora do `:root`.
+    Uma custom property é a DEFINIÇÃO de um token onde quer que esteja
+    escrita — escopar um token a uma classe (modo de impressão, densidade
+    alternativa) é a forma padrão de fazer isso em CSS."""
+    css = "@media print {\n  .folha { --espaco-de-impressao: 2mm; }\n}\n"
+    assert _medidas_literais_fora_dos_tokens(css) == [], (
+        "custom property fora do :root foi acusada de medida literal solta"
+    )
+    assert _cores_fora_dos_tokens(css) == []
+
+
+def test_controle_negativo_at_page_nao_e_violacao():
+    """Reprodução EXATA do segundo bloco do M3: `@page` é a ÚNICA forma de
+    declarar margem de impressão em CSS — isento como BLOCO, não só a
+    propriedade `margin` (isso liberaria `margin` na folha inteira)."""
+    css = "@page { size: A4; margin: 15mm; }\n"
+    assert _medidas_literais_fora_dos_tokens(css) == [], (
+        "@page foi acusado de medida literal — a única forma de declarar margem de impressão"
+    )
+
+
+def test_controle_negativo_at_page_isento_e_bloco_nao_so_a_propriedade_margin():
+    """Caso NÃO citado pelo relatório: se a isenção de `@page` fosse por
+    NOME de propriedade (`margin`), qualquer OUTRA propriedade com medida
+    literal dentro de `@page` continuaria escapando por acidente — mas
+    também `margin` fora de `@page`, na folha inteira, deixaria de ser
+    fiscalizada. Prova as duas metades: dentro de `@page`, `size`/`margin`
+    E uma terceira propriedade nunca vista antes (`marks`, layout de
+    impressão) não são acusadas; fora de `@page`, `margin` continua
+    reprovando normalmente."""
+    dentro = "@page { size: A4; margin: 15mm; marks: crop 4mm; }\n"
+    assert _medidas_literais_fora_dos_tokens(dentro) == []
+
+    fora = ".bloco { margin: 15mm; }\n"
+    achados = _medidas_literais_fora_dos_tokens(fora)
+    assert achados == ["margin: 15mm"], (
+        "isentar @page por nome de propriedade vazaria a isenção para a folha inteira: "
+        + repr(achados)
+    )
+
+
+def test_controle_negativo_root_em_seletor_agrupado_continua_isento():
+    """Terceiro caso do M3, registrado como "anterior à inversão e agora
+    amplificado": `:root, ::backdrop { ... }` (o padrão recomendado para
+    tornar tokens visíveis ao `::backdrop`) perdia a isenção do `:root`
+    INTEIRA, nos DOIS detectores, porque a isenção exigia `{` imediatamente
+    depois de `:root`."""
+    css_medida = ":root, ::backdrop { --tinta: #1d3a6e; --espaco: 4px; }\n"
+    assert _medidas_literais_fora_dos_tokens(css_medida) == []
+    assert _cores_fora_dos_tokens(css_medida) == []
+
+    # Caso NÃO citado pelo relatório: a mesma isenção, com o `:root` em
+    # SEGUNDA posição do grupo (o achado só media a ordem "root primeiro").
+    css_ordem_invertida = "::backdrop, :root { --espaco: 4px; }\n"
+    assert _medidas_literais_fora_dos_tokens(css_ordem_invertida) == []
+
+    # Caso NÃO citado: pseudo-classe encadeada direto no :root, sem vírgula.
+    css_encadeado = ":root:not(.compacto) { --espaco: 4px; }\n"
+    assert _medidas_literais_fora_dos_tokens(css_encadeado) == []
+
+
+def test_controle_negativo_custom_property_com_cor_fora_do_root_nao_e_violacao():
+    """Caso NÃO citado pelo relatório (o M3 só exemplificou com MEDIDA): a
+    MESMA regra vale para o detector de COR — uma custom property que
+    define uma cor (inclusive com a notação nova do BL-319, `oklch()`)
+    fora do `:root` é a definição do token, nunca uma violação."""
+    css = "@media print {\n  .folha { --acento-oklch: oklch(0.6 0.2 30); }\n}\n"
+    assert _cores_fora_dos_tokens(css) == [], (
+        "custom property de cor fora do :root foi acusada: " + repr(_cores_fora_dos_tokens(css))
+    )
+
+
+def test_controle_negativo_seletor_parecido_com_root_nao_e_isento():
+    """Controle de que a isenção não é enganada por SUBSTRING: um seletor
+    de classe chamado `.root-like` (contém "root" mas não É `:root`) não
+    pode ficar isento — a MEDIDA solta dentro dele continua reprovando,
+    mesmo que a CUSTOM PROPERTY vizinha, na mesma regra, continue isenta
+    por ser custom property (não por o bloco estar isento)."""
+    css = ".root-like { --x: 12px; padding: 12px; }\n"
+    achados = _medidas_literais_fora_dos_tokens(css)
+    assert achados == ["padding: 12px"], (
+        "um seletor só PARECIDO com :root não pode herdar a isenção do bloco: " + repr(achados)
+    )
+
+
 def test_controle_positivo_detector_de_cor_preserva_fallback_do_var():
     """Mesma causa do M2 acima, no detector de COR: `color: var(--x, red)`
     tinha a cor de reserva apagada junto com a variável."""
@@ -1306,6 +1731,105 @@ def test_controle_a_existencia_de_modulo_reconhece_as_duas_origens_do_mesmo_nome
     assert _pastas_de_modulo_com_tela(ambas) == {"cobranca"}
 
 
+# ---------------------------------------------------------------------------
+# BL-320 (M2 da auditoria DL-026 rodada 4): a guarda do "momento da verdade"
+# reconhecia só DUAS formas de caminho, escritas à mão ("apps/" e
+# "templates/") — o auditor mediu uma TERCEIRA forma escapando
+# (`templates/cobranca.html`, sem subpasta), porque a exclusão de
+# `base.html` era feita por PROFUNDIDADE de caminho, não por NOME de
+# moldura. As três linhas da tabela do achado, reproduzidas abaixo, mais
+# casos que a tabela do relatório NÃO cita.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_as_tres_formas_da_tabela_do_achado_m2(tmp_path):
+    """Requisito do enunciado do BL-320 (o texto do critério 13, última
+    cláusula): toda tela que o Django resolve está sujeita à guarda do
+    "momento da verdade" — as TRÊS linhas exatas medidas pelo auditor: o
+    MESMO módulo "Cobrança", em três caminhos diferentes. As duas primeiras
+    já funcionavam desde o BL-309; a terceira (sem subpasta) é o achado
+    desta rodada."""
+    via_apps = tmp_path / "via_apps"
+    (via_apps / "apps" / "cobranca" / "templates" / "cobranca").mkdir(parents=True)
+    (via_apps / "apps" / "cobranca" / "templates" / "cobranca" / "titulos.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    assert "cobranca" in _pastas_de_modulo_com_tela(via_apps), (
+        "apps/cobranca/templates/cobranca/titulos.html deixou de ser reconhecido"
+    )
+
+    via_templates_com_subpasta = tmp_path / "via_templates_com_subpasta"
+    (via_templates_com_subpasta / "templates" / "cobranca").mkdir(parents=True)
+    (via_templates_com_subpasta / "templates" / "cobranca" / "titulos.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    assert "cobranca" in _pastas_de_modulo_com_tela(via_templates_com_subpasta), (
+        "templates/cobranca/titulos.html deixou de ser reconhecido"
+    )
+
+    via_templates_sem_subpasta = tmp_path / "via_templates_sem_subpasta"
+    (via_templates_sem_subpasta / "templates").mkdir(parents=True)
+    (via_templates_sem_subpasta / "templates" / "cobranca.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    assert "cobranca" in _pastas_de_modulo_com_tela(via_templates_sem_subpasta), (
+        "templates/cobranca.html (SEM subpasta) é a terceira forma de caminho "
+        "medida pelo auditor — continua escapando"
+    )
+
+
+def test_controle_negativo_moldura_excluida_por_nome_nao_por_profundidade(tmp_path):
+    """`base.html` não é módulo — mas a exclusão precisa ser por NOME, não
+    por profundidade de caminho (era essa a causa do achado M2: a mesma
+    condição `len(partes) >= 3` que excluía `base.html` também excluía
+    QUALQUER outra tela de módulo único no mesmo nível). Prova as duas
+    metades na MESMA pasta e profundidade: `base.html` é excluído,
+    `cobranca.html` (vizinho, mesmo nível) não é."""
+    pasta = tmp_path / "templates"
+    pasta.mkdir(parents=True)
+    (pasta / "base.html").write_text("<html></html>", encoding="utf-8")
+    (pasta / "cobranca.html").write_text("<html></html>", encoding="utf-8")
+    pastas = _pastas_de_modulo_com_tela(tmp_path)
+    assert "base" not in pastas, "base.html não pode virar um módulo chamado 'base'"
+    assert pastas == {"cobranca"}, (
+        "a exclusão de base.html não pode arrastar uma tela vizinha do mesmo nível: " + repr(pastas)
+    )
+
+
+def test_controle_novo_dir_em_settings_templates_e_reconhecido_sem_editar_este_arquivo(
+    tmp_path, settings
+):
+    """Requisito do BL-320: "derivar as origens de settings.TEMPLATES", não
+    de dois prefixos de caminho escritos à mão. Caso NÃO citado pelo
+    relatório do auditor (que só recomendou o experimento em prosa — "um
+    controle em tmp_path com um DIRS adicional" — sem caso concreto): um
+    TERCEIRO `DIRS` (`ui/`), que nenhum módulo do projeto usa hoje, precisa
+    ser reconhecido pela guarda sem que este arquivo seja editado — prova
+    de que a derivação é de verdade a partir da CONFIGURAÇÃO, não de uma
+    lista fechada de nomes de pasta. `BASE_DIR` é sobrescrito junto com
+    `TEMPLATES` para que os DIRS (sempre absolutos, como a configuração
+    real) apontem para dentro de `tmp_path`, no mesmo padrão em que
+    `raiz` já representa "uma cópia de BASE_DIR" nos outros controles
+    deste arquivo."""
+    settings.BASE_DIR = tmp_path
+    settings.TEMPLATES = [
+        {
+            "BACKEND": "django.template.backends.django.DjangoTemplates",
+            "DIRS": [tmp_path / "templates", tmp_path / "ui"],
+            "APP_DIRS": False,
+            "OPTIONS": {},
+        }
+    ]
+    pasta = tmp_path / "ui" / "honorarios"
+    pasta.mkdir(parents=True)
+    (pasta / "resumo.html").write_text("<html></html>", encoding="utf-8")
+
+    pastas = _pastas_de_modulo_com_tela(tmp_path)
+    assert "honorarios" in pastas, (
+        "um DIRS novo em settings.TEMPLATES continua invisível para a guarda: " + repr(pastas)
+    )
+
+
 def test_controle_negativo_detector_de_css_ignora_pastas_de_dependencia_e_build(tmp_path):
     (tmp_path / ".venv" / "pacote").mkdir(parents=True)
     (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
@@ -1390,6 +1914,96 @@ def test_controle_positivo_detector_de_estilo_embutido_sem_aspas():
     assert _estilos_embutidos("<td style=color:red;font-size:22px>1</td>"), (
         "a amostra exata confirmada no Chromium pelo auditor não foi detectada"
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-305 (§3 da auditoria DL-026 rodada 4): a varredura não tinha detector
+# de cor/medida em ATRIBUTO de template. Reprodução literal da sabotagem do
+# auditor, mais casos que o relatório NÃO cita.
+# ---------------------------------------------------------------------------
+
+
+def test_controle_positivo_atributo_de_apresentacao_reproducao_literal_do_achado():
+    """Reprodução EXATA da sabotagem medida na §3: `<svg><rect
+    fill="#ff0000" width="10" height="10">` num template — "não é só cor,
+    medida em atributo de apresentação também passa"."""
+    html = '<svg><rect fill="#ff0000" width="10" height="10"></rect></svg>'
+    achados = _cores_e_medidas_em_atributos_de_template(html)
+    assert any(a.startswith("fill=") for a in achados), (
+        f"cor no atributo 'fill' do SVG não foi detectada: {achados}"
+    )
+    assert any(a.startswith("width=") for a in achados), (
+        f"medida (sem unidade) no atributo 'width' do SVG não foi detectada: {achados}"
+    )
+    assert any(a.startswith("height=") for a in achados), (
+        f"medida (sem unidade) no atributo 'height' do SVG não foi detectada: {achados}"
+    )
+
+
+def test_controle_positivo_atributo_de_apresentacao_cor_com_unidade_explicita_fora_do_svg():
+    """Caso NÃO citado pelo relatório: cor com NOTAÇÃO EXPLÍCITA (hex,
+    função CSS Color Level 4 — BL-319) num atributo de apresentação FORA de
+    qualquer `<svg>` também é achado — o sinal de cor não depende de estar
+    dentro de SVG, só o sinal de MEDIDA SEM unidade depende."""
+    html = '<div data-cor="oklch(0.7 0.2 20)"></div>'
+    achados = _cores_e_medidas_em_atributos_de_template(html)
+    assert any("oklch(0.7 0.2 20)" in a for a in achados), achados
+
+
+def test_controle_positivo_atributo_de_apresentacao_cor_nomeada():
+    """Caso NÃO citado pelo relatório: cor NOMEADA (`red`) como valor
+    inteiro de um atributo de apresentação também é achado — o mesmo
+    critério (BL-274 #2) que já vale para CSS."""
+    html = '<rect fill="red"></rect>'
+    achados = _cores_e_medidas_em_atributos_de_template(html)
+    assert any(a.startswith("fill=") for a in achados), achados
+
+
+def test_controle_positivo_atributo_de_apresentacao_medida_com_unidade_explicita():
+    """Caso NÃO citado pelo relatório: medida com UNIDADE explícita
+    (`12px`) num atributo de apresentação também é achado, mesmo fora de
+    `<svg>` — o sinal de medida COM unidade não depende de contexto SVG."""
+    html = '<div data-largura="12px"></div>'
+    achados = _cores_e_medidas_em_atributos_de_template(html)
+    assert any("12px" in a for a in achados), achados
+
+
+def test_controle_negativo_atributo_de_apresentacao_numero_puro_fora_do_svg_nao_e_acusado():
+    """Controle contra falso positivo: um número puro (sem unidade) em
+    `width`/`height` FORA de um bloco `<svg>` não é acusado — fora do SVG a
+    especificação não garante que o número seja um comprimento (ex.:
+    `<canvas width="600">`, uma dimensão técnica real de superfície de
+    desenho, não uma medida que deveria vir de token)."""
+    html = '<canvas width="600" height="400"></canvas>'
+    assert _cores_e_medidas_em_atributos_de_template(html) == []
+
+
+def test_controle_negativo_atributo_de_apresentacao_numeros_comuns_de_html_nao_sao_acusados():
+    """Controle contra falso positivo: atributos numéricos comuns de HTML
+    (`colspan`, `rowspan`, `tabindex`, `maxlength`) não estão na lista
+    FECHADA de atributos de comprimento do SVG e não são acusados, mesmo
+    dentro de uma tabela real do produto."""
+    html = (
+        '<table><tr><td colspan="2" rowspan="1">x</td></tr></table>'
+        '<input tabindex="0" maxlength="255">'
+    )
+    assert _cores_e_medidas_em_atributos_de_template(html) == []
+
+
+def test_controle_negativo_atributo_de_apresentacao_classe_do_sistema_nao_e_acusada():
+    """Controle contra falso positivo: o próprio atributo `class` do
+    sistema de tokens (`valor-monetario`, `linha-total__veredito`) não pode
+    disparar o detector."""
+    html = '<td class="valor-monetario linha-total__veredito">{{ x_ptbr }}</td>'
+    assert _cores_e_medidas_em_atributos_de_template(html) == []
+
+
+def test_controle_negativo_atributo_de_apresentacao_ignora_prosa_dentro_de_comentario():
+    """Mesma família dos outros detectores deste arquivo: um comentário de
+    template que MENCIONA `fill="#ff0000"` em prosa não pode ser lido como
+    marcação real."""
+    com_comentario = '{% comment %}Nunca escreva fill="#ff0000" aqui.{% endcomment %}<div>x</div>'
+    assert _cores_e_medidas_em_atributos_de_template(com_comentario) == []
 
 
 def test_controle_positivo_detector_de_valor_sem_classe():

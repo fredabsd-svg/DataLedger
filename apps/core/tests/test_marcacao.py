@@ -13,6 +13,8 @@ próprio aqui, independente de quem consome o módulo.
 Funções puras sobre STRING — sem Django, sem banco de dados.
 """
 
+import pytest
+
 from apps.core.marcacao import tem_classe, tokens_de_atributo, valor_de_atributo
 
 # ---------------------------------------------------------------------------
@@ -84,6 +86,29 @@ def test_valor_de_atributo_nao_confunde_prefixo_de_nome_maior():
     NO MEIO do nome de um atributo mais longo que começa com as mesmas
     letras."""
     assert valor_de_atributo('<div classroom="x">', "class") is None
+
+
+def test_valor_de_atributo_atributo_booleano_sem_igual_nao_e_confundido_com_o_seguinte():
+    """Caso NÃO coberto pelos testes anteriores: um atributo BOOLEANO (sem
+    `=`, ex.: `disabled`) não pode "roubar" o valor do atributo seguinte —
+    `_atributos_da_tag` grava `None` para ele e continua a busca a partir
+    dali, nunca associando o valor de `class` ao atributo anterior."""
+    assert valor_de_atributo('<input disabled class="valor-monetario">', "class") == (
+        "valor-monetario"
+    )
+
+
+def test_valor_de_atributo_aceita_trecho_sem_o_nome_da_tag():
+    """Contrato entre módulos: `apps.contabilidade.tests.
+    test_dl017_rodada2_frontend._elemento_por_id` passa a `tem_classe` só o
+    TRECHO de atributos capturado por regex (sem o `<nome-da-tag` na
+    frente) — ver o docstring de `_atributos_da_tag`. Como o casamento
+    exige `\\s+` antes do nome, o trecho funciona igual à tag completa,
+    desde que comece com o espaço que sempre precede o primeiro
+    atributo."""
+    trecho_de_atributos = ' id="x" class="valor-monetario"'
+    assert valor_de_atributo(trecho_de_atributos, "class") == "valor-monetario"
+    assert tem_classe(trecho_de_atributos, "valor-monetario") is True
 
 
 # ---------------------------------------------------------------------------
@@ -164,28 +189,57 @@ def test_tem_classe_sem_atributo_class_e_false():
 
 
 # ---------------------------------------------------------------------------
-# Limitação aceita e REGISTRADA (BL-317, B3 da auditoria DL-026 rodada 3):
-# o casamento por regex sobre a STRING inteira da tag não distingue um
-# atributo `class` real de um atributo `class` que aparece, por acidente,
-# dentro do VALOR de outro atributo. Este teste fixa o comportamento ATUAL
-# — não é uma expectativa desejável, é a documentação de uma cegueira
-# conhecida, para que uma correção futura precise decidir conscientemente
-# mudar este teste, em vez de descobrir a limitação de novo por auditoria.
+# BL-322 (M4 da auditoria DL-026 rodada 4): a limitação antes REGISTRADA
+# como "sempre permissiva" (BL-317, B3 da rodada 3) foi CORRIGIDA — o
+# casamento agora ANCORA cada atributo pelo nome, a partir do início da
+# tag, e CONSOME o valor inteiro de cada um antes de procurar o próximo
+# nome (ver `_atributos_da_tag`, `apps/core/marcacao.py`). O auditor mediu
+# que a limitação, na verdade, também errava na direção RESTRITIVA — o
+# texto do BL-317 descrevia só a metade permissiva. Os testes abaixo fixam
+# as DUAS direções, como o achado exige.
 # ---------------------------------------------------------------------------
 
 
-def test_limitacao_conhecida_classe_dentro_do_valor_de_outro_atributo():
+def test_bl322_nao_confunde_classe_dentro_do_valor_de_outro_atributo_com_classe_real():
     """`<td title="ver class='valor-monetario' aqui">` — a classe aparece
-    dentro do VALOR de `title`, não é um atributo `class` de verdade, mas
-    `tem_classe` não distingue os dois casos (ela não rastreia estado de
-    aspas desde o início da tag). Direção PERMISSIVA (aceita de mais, nunca
-    recusa de menos): o risco é deixar passar uma célula que na verdade não
-    tem a classe — nunca acusar uma célula que a tem. Sem caso real na base
-    de templates deste projeto hoje (nenhum `title`/`alt` contém a palavra
-    "class=")."""
+    só dentro do VALOR de `title`, não é um atributo `class` de verdade, e
+    a célula NÃO tem a classe. Antes do BL-322, `tem_classe` devolvia
+    `True` aqui (direção PERMISSIVA do defeito, registrada no BL-317);
+    agora que o casamento ancora por atributo (não por substring em
+    qualquer posição), o texto dentro do valor de `title` nunca é
+    reexaminado como se fosse o atributo `class`."""
     tag = "<td title=\"ver class='valor-monetario' aqui\">"
+    assert tem_classe(tag, "valor-monetario") is False, (
+        "o texto 'class=...' dentro do VALOR de outro atributo não pode ser "
+        "confundido com o atributo class real"
+    )
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        # As três formas exatas medidas pelo achado M4: o texto-isca
+        # "class=..." aparece ANTES do atributo class REAL — a ordem mais
+        # natural de marcação escrita à mão (title/alt/aria-label antes de
+        # class). Direção RESTRITIVA do defeito: `tem_classe` acusava
+        # marcação CORRETA (devolvia False para uma célula que TEM a
+        # classe).
+        '<td title="use class=nenhum" class="valor-monetario">',
+        "<td title='ver class=\"x\" aqui' class='valor-monetario'>",
+        '<td data-x="a class=b" class="valor-monetario">',
+        # Controle: a ordem original do relatório (isca DEPOIS do atributo
+        # real) já funcionava antes do BL-322 e continua funcionando.
+        '<td class="valor-monetario" title="class=nenhum">',
+    ],
+)
+def test_bl322_nao_acusa_marcacao_correta_quando_o_texto_isca_vem_antes_do_atributo_real(tag):
+    """Achado M4 (auditoria DL-026 rodada 4): a causa do defeito era
+    `re.search` devolver a PRIMEIRA ocorrência da substring `class=` na tag
+    — quando o texto-isca vem ANTES do atributo `class` real, a busca
+    antiga "encontrava" o `class=` de dentro do outro atributo e nunca
+    chegava ao real, devolvendo `False` para uma célula que TEM a classe.
+    As quatro tags acima têm, de fato, `class="valor-monetario"` — as
+    quatro têm que devolver `True`."""
     assert tem_classe(tag, "valor-monetario") is True, (
-        "se este teste começar a falhar, é porque a limitação foi CORRIGIDA — "
-        "atualize também o docstring do módulo (apps/core/marcacao.py) e o "
-        "achado BL-317 no backlog, em vez de só ajustar a asserção"
+        f"a tag TEM a classe 'valor-monetario' de verdade — não pode ser acusada: {tag}"
     )
