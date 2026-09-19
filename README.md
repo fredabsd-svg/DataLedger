@@ -189,6 +189,7 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [ ] **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
 - [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
 - [ ] **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
+- [ ] **DL-027** — o documento emitido: identificação obrigatória por **classe de documento** (conferência, demonstração, livro) e personalização do que é legítimo personalizar — logotipo do escritório ou do cliente, marca d'água, e o critério de apuração impresso no próprio papel. Plano em [docs/planos/DL-027-documento-emitido-e-personalizacao.md](docs/planos/DL-027-documento-emitido-e-personalizacao.md)
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**
