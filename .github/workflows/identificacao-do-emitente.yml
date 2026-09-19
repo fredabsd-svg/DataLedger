@@ -1,0 +1,165 @@
+name: Identificação do emitente
+
+# DL-028, fatia 2 (docs/planos/DL-028-o-juiz-aponta-para-o-produto.md;
+# DE-057). Responde, por medição do NAVEGADOR contra o PRODUTO real, se
+# cada documento imprimível sai com a identificação do escritório emitente
+# — a pergunta que a fatia 1 mediu que a suíte `pytest` sozinha (simulação
+# de cascata CSS, sem navegador) não garante.
+#
+# Delimitado por `paths:` de propósito (a delimitação é do arquiteto-senior,
+# não do Fred): o job abre um Chromium de verdade, e isso tem custo. Só
+# roda quando muda o que pode QUEBRAR a garantia — CSS, templates, o
+# instrumento em si, a base semeada que ele usa, ou as guardas de impressão
+# simuladas que continuam sendo a primeira linha barata. Alteração só de
+# documentação, ou de código de produto que não seja impressão (ex.:
+# `apps/contabilidade/services.py`), não paga navegador nenhum — filtro
+# ESTREITO e ampliável de propósito, para não virar um filtro largo que a
+# equipe aprenda a ignorar.
+on:
+  push:
+    paths: &caminhos-vigiados
+      - 'static/css/**'
+      - 'templates/**'
+      - 'docs/assets/design/gauntlet/**'
+      - 'scripts/medir_identificacao_do_emitente.py'
+      - 'scripts/test_medir_identificacao_do_emitente.py'
+      - 'scripts/medir_impressao.py'
+      - 'scripts/semear_base_de_medicao.py'
+      - 'apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py'
+      - 'apps/contabilidade/tests/test_bl331_timbre_do_escritorio_no_papel.py'
+      - 'apps/contabilidade/tests/test_bl282_timbre_de_impressao.py'
+      - 'apps/tenancy/tests/test_bl282_timbre_escritorio.py'
+      - 'requirements/dev.txt'
+      - '.github/workflows/identificacao-do-emitente.yml'
+  pull_request:
+    paths: *caminhos-vigiados
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DJANGO_SECRET_KEY: chave-de-teste-usada-somente-na-integracao-continua
+  DEBUG: 'True'
+  DATABASE_URL: postgres://dataledger:dataledger@localhost:5432/dataledger
+  # Senha do usuário SINTÉTICO da base de medição — não é segredo de
+  # verdade (não protege dado real nenhum), mas segue a mesma trava de
+  # `scripts/semear_base_de_medicao.py`: a variável precisa existir,
+  # nomeada, para o script recusar rodar sem ela por acidente.
+  DL_SENHA_DA_BASE_DE_MEDICAO: senha-sintetica-usada-somente-na-integracao-continua
+  DL_CONFIRMO_BANCO_DESCARTAVEL: dataledger
+
+jobs:
+  medir:
+    name: Medir identificação do emitente no navegador
+    runs-on: ubuntu-latest
+    # BL-356: navegador em integração contínua pode ficar instável por
+    # motivo alheio ao código. O timeout do JOB inteiro é a rede de
+    # segurança de último recurso — a distinção fina (infraestrutura vs.
+    # conteúdo) é feita pelo CÓDIGO DE SAÍDA do instrumento, no passo
+    # "Medir identificação do emitente", abaixo.
+    timeout-minutes: 15
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dataledger
+          POSTGRES_USER: dataledger
+          POSTGRES_PASSWORD: dataledger
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dataledger"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements/dev.txt
+
+      - name: Instalar dependências (inclui Playwright — DL-028 fatia 2, DE-057)
+        run: pip install -r requirements/dev.txt
+
+      # Cache do BINÁRIO do Chromium baixado pelo Playwright — separado do
+      # cache de pacotes Python acima (chaves e ciclo de vida diferentes).
+      # Chave inclui a versão do Playwright (via requirements/dev.txt):
+      # se o pacote mudar de versão, o cache antigo não serve, e
+      # `playwright install` baixa de novo em vez de usar um binário
+      # incompatível silenciosamente.
+      - name: Cache do navegador do Playwright
+        uses: actions/cache@v4
+        id: cache-playwright
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('requirements/dev.txt') }}
+
+      # Instala o Chromium pelo GERENCIADOR do Playwright — nunca caminho
+      # fixo (DE-057, restrição que atravessa as duas fatias). `--with-deps`
+      # também instala as bibliotecas de sistema que o Chromium precisa;
+      # roda sempre (barato em cache-hit: o Playwright confere o que já
+      # está presente e não baixa de novo).
+      - name: Instalar o Chromium do Playwright
+        run: playwright install --with-deps chromium
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Formatação (ruff format)
+        run: ruff format --check .
+
+      - name: Verificação do Django (system check)
+        run: python manage.py check
+
+      - name: Migrações aplicam no banco de medição
+        run: python manage.py migrate --no-input
+
+      # DL-028 fatia 2: testes das funções PURAS do instrumento (sem
+      # Playwright, sem banco) — ver
+      # scripts/test_medir_identificacao_do_emitente.py. Já rodam também no
+      # job "Backend" (que não é delimitado por caminho), mas este job
+      # precisa ficar AUDITÁVEL sozinho: quem olha só este workflow
+      # vermelho não deveria precisar ir atrás de outro job para saber se o
+      # contrato de código de saída (infra vs. conteúdo, BL-356) está
+      # testado.
+      - name: Testes das funções puras do instrumento
+        run: pytest -q scripts/test_medir_identificacao_do_emitente.py
+
+      - name: Semear base sintética de medição
+        run: python scripts/semear_base_de_medicao.py
+
+      # O CÓDIGO DE SAÍDA decide a mensagem — nunca o inverso. `2` é
+      # INFRAESTRUTURA (navegador, banco, poppler-utils — nada sobre o
+      # produto); `1` é CONTEÚDO (o produto saiu sem emitente completo em
+      # alguma tela, com a tela e a linha nomeadas no log acima); `0` é
+      # sucesso. As duas falhas deixam o job vermelho (é o correto: as
+      # duas bloqueiam merge) — o que muda é a anotação que quem abre o PR
+      # lê primeiro, sem precisar rolar o log inteiro.
+      - name: Medir identificação do emitente
+        id: medir
+        env:
+          DL_PYTHON_DO_SISTEMA: ${{ steps.setup-python.outputs.python-path }}
+        run: |
+          set +e
+          python scripts/medir_identificacao_do_emitente.py
+          codigo=$?
+          set -e
+          if [ "$codigo" -eq 0 ]; then
+            echo "Identificação do emitente OK em todas as telas derivadas."
+          elif [ "$codigo" -eq 2 ]; then
+            echo "::error::FALHA DE INFRAESTRUTURA ao medir a identificação do emitente — não é um veredito sobre o produto (navegador, banco ou base de medição). Veja as linhas 'Recusado:' acima."
+            exit 1
+          elif [ "$codigo" -eq 1 ]; then
+            echo "::error::REPROVADO — o produto saiu sem identificação completa do emitente em pelo menos uma tela. Veja as linhas 'REPROVADO:' acima para qual tela e qual linha do timbre sumiu."
+            exit 1
+          else
+            echo "::error::Código de saída inesperado ($codigo) do instrumento — nem sucesso (0), nem os dois códigos documentados (1 conteúdo / 2 infraestrutura). Trate como falha e investigue o script antes de confiar em qualquer resultado."
+            exit 1
+          fi
