@@ -180,12 +180,14 @@ A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada et
 - [x] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
 - [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
 - [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
-- [ ] **DL-018** — primeiro acesso de uma instalação nova, pelo produto e sem admin técnico
+- [x] **DL-018** — primeiro acesso de uma instalação nova: autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). PR #27 em `1b828e7`, 5/5 checks verdes
 - [x] **DL-019** — portabilidade entre ferramentas de IA: os papéis da equipe em um formato só, gerados para Claude Code e Codex CLI
 - [x] **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
 - [x] **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
 - [x] **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
-- [ ] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita
+- [x] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita (rodadas 1/3/5/7 do auditor; correções das rodadas 4 e 6 integradas via PR #27; ressalvas contábeis BL-261/262/263 ainda abertas)
+- [ ] **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
+- [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
 - [ ] **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**

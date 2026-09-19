@@ -69,11 +69,16 @@ from apps.core.restricoes import (
     RESTRICOES_TRADUZIDAS_FORA_DO_MAPA,
 )
 
-# As 7 restrições de `Meta.constraints` conferidas uma a uma no inventário de
-# 2026-09-15. Controle NOMINAL, no molde de `test_permission_classes_
-# explicito.test_varredura_inclui_as_14_apiviews_conferidas_pelo_auditor`: se
-# uma sumir (renomeada, movida, removida), o teste falha apontando QUAL, em
-# vez de o total só cair em silêncio.
+# As 10 restrições de `Meta.constraints` conferidas uma a uma no
+# inventário de 2026-09-15 (DL-019) e expandido em 2026-09-18
+# (DL-016 rodada 1, auditoria). Controle NOMINAL, no molde de
+# `test_permission_classes_explicito.test_varredura_inclui_as_14_
+# apiviews_conferidas_pelo_auditor`: se uma sumir (renomeada, movida,
+# removida), o teste falha apontando QUAL, em vez de o total só cair em
+# silêncio. As três entradas de `Competencia` foram acrescentadas na
+# auditoria rodada 1 da DL-016 (2026-09-18) para refletir o estado real
+# pós-PR #31 — sem isso, a fotografia nominal ficava desatualizada, e a
+# próxima auditoria perguntaria "por que essas três não estão na lista?".
 RESTRICOES_CONFERIDAS = {
     "codigo_unico_por_empresa": "contabilidade.Conta",
     "estorno_de_unico": "contabilidade.LancamentoContabil",
@@ -82,6 +87,12 @@ RESTRICOES_CONFERIDAS = {
     "uma_matriz_por_empresa": "empresas.Estabelecimento",
     "estabelecimento_cnpj_canonico": "empresas.Estabelecimento",
     "unico_vinculo_usuario_escritorio": "tenancy.VinculoUsuarioEscritorio",
+    # DL-016 (PR #31, F1): as três invariantes do modelo `Competencia`.
+    # Conferidas na auditoria rodada 1 de 2026-09-18
+    # (docs/auditorias/2026-09-18-dl-016-rodada-1.md).
+    "competencia_unica_por_empresa_ano_mes": "contabilidade.Competencia",
+    "competencia_mes_entre_1_e_12": "contabilidade.Competencia",
+    "competencia_ano_entre_1970_e_2999": "contabilidade.Competencia",
 }
 
 # Índices únicos implícitos (`unique=True` em campo) existentes hoje, com o
@@ -92,6 +103,7 @@ INDICES_UNICOS_IMPLICITOS_CONHECIDOS = {
     "accounts_usuario_username_key",
     "accounts_usuario_email_key",
     "tenancy_escritorio_cnpj_key",
+    "tenancy_conviteescritorio_token_key",  # DL-018 — token de convite
     "empresas_empresa_cnpj_key",
     "empresas_estabelecimento_cnpj_key",
 }

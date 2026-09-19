@@ -222,16 +222,18 @@ diverge.
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | Redesenho do README e identidade visual (`docs/assets/`) | Integrada (PR #13), por outra sessão |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial — três desenhos reprovados pelo Fred; o quarto é o **conceito do próprio Fred em vetor limpo** | **Integrada (PR #17)** |
-| [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred |
+| [DL-014](../planos/DL-014-guardas-de-processo.md) | Guardas de processo: gancho de sessão, workflow de atestado no PR, proteção da `main` | Integrada (PR #15). **BL-02 segue pendente**: a proteção da `main` é ação administrativa do Fred. **PR #32 (`docs/fix-gate-regex`):** correção estrutural do regex do gate que exigia `**` literal dentro do texto que o humano escreve — ver [DE-044](../projeto/decisoes.md). Aguarda auditoria independente antes do merge. |
 | [DL-015](../planos/DL-015-contabilidade-utilizavel.md) | Contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis, e conferência de lotes | **Onda 1 integrada (PR #17)**, aprovada com ressalvas na [rodada 4](../auditorias/2026-09-14-dl-015-rodada-4.md) após três reprovações. Ressalvas em BL-83 a BL-86. **Onda 2 (interface, BL-62) executada como [DL-017](../planos/DL-017-interface-da-contabilidade.md)** |
-| [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Planejada** — destrava BL-65 (alteração em massa) e BL-66 (eliminação) |
+| [DL-016](../planos/DL-016-competencia-e-fechamento.md) | Competência e fechamento de período, com reabertura autorizada e auditada | **Onda 1 (F1 + F2) INTEGRADA em `main` (PR #31 mergeado em `fa15cf1`, squash).** Modelo `Competencia` com `EstadoCompetencia` (aberta, em_encerramento, encerrada), `UniqueConstraint(empresa, ano, mes)` e checks de faixa (mês 1..12, ano 1970..2999). FK `LancamentoContabil.competencia` (PROTECT, nullable até F5) preenchida por `get_or_create` em `services.criar_lancamento` com savepoint próprio. 7 testes do modelo. **Auditoria rodada 1 APROVADA** com 1 achado menor (A2) corrigido no próprio PR ([parecer](../auditorias/2026-09-18-dl-016-rodada-1.md)) — `RESTRICOES_CONFERIDAS` da DL-019 expandida de 7 para 10 entradas. CI VERDE em `a0e0859` (após resolução do conflict com o PR #32 já em main). **Onda 2 (F5) INTEGRADA em `main` (PR #33 mergeado em `700a50b`, squash).** Management command `backfill_lancamento_competencia` com dry-run default, `--apply` opt-in, idempotência por `competencia__isnull=True`, e 2 passadas curtas para cobrir concorrência com `criar_lancamento` (F2). 5 testes cobrindo os cenários reais (sem teste de órfão — cenário inalcançável via ORM; branch defensivo removido do código). **Auditoria rodada 1 APROVADA** com 3 achados (1 informativo + 2 menores), ver [DE-051](../projeto/decisoes.md#de-051--fechamento-da-dl-016-f5-backfill-da-fk-lancamentocontabilcompetencia) e [parecer](../auditorias/2026-09-18-dl-016-f5-rodada-1.md). CI VERDE em `b108c8b`. **Onda 3 (F6) INTEGRADA em `main` (PR #34 mergeado em `15f6a98`, squash).** CHECK constraint `ck_lancamentocontabil_empresa_not_null` (PostgreSQL `CheckConstraint(Q(empresa_id__isnull=False))`) na migration 0005 como defesa em profundidade contra bypass do ORM (INSERT direto via psql, `ALTER TABLE` malicioso, migration descuidada com `null=True`). 4 testes cobrindo (1) introspecção via `information_schema.check_constraints`, (2) INSERT direto com `empresa_id=NULL` em condições normais — aceita mensagem do NOT NULL OU do CHECK como prova de defesa em profundidade, (3) INSERT direto com `empresa_id=NULL` APÓS `ALTER TABLE DROP NOT NULL` — cenário real de bypass do DE-051, prova que o CHECK pega com mensagem mencionando `ck_lancamentocontabil_empresa_not_null`, (4) caminho feliz. **Auditoria rodada 1 APROVADA** com 1 achado positivo (A1 — a iteração dos testes capturou a ordem de avaliação NOT NULL → CHECK do PG, levando ao teste #3 mais rigoroso no cenário de bypass real), ver [DE-052](../projeto/decisoes.md#de-052--fechamento-da-dl-016-f6-check-constraint-lancamentocontabilempresa_id-not-null) e [parecer](../auditorias/2026-09-18-dl-016-f6-rodada-1.md). CI VERDE em `38163e8`. **Pendências declaradas:** migration 0004 precisa ser regenerada por `makemigrations` no primeiro deploy Python 3.12+; criar `docs/runbooks/DL-016-F5-deploy.md` antes de rodar `--apply` em produção; DL-016-F3 (encerramento) e F4 (reabertura) seguem no backlog como sub-DLs dependentes da próxima onda |
 | [DL-017](../planos/DL-017-interface-da-contabilidade.md) | Interface da contabilidade: plano de contas, lançamento, Diário, Razão, Balancete e conferência no navegador | **Integrada (PR #19, `60cbcff`)**, aprovada com ressalvas na [rodada 6](../auditorias/2026-09-15-dl-017-rodada-6.md) depois de cinco reprovações. As ressalvas foram encaminhadas à DL-020 |
 | [DL-020](../planos/DL-020-consolidacao-pos-auditoria.md) | Consolidação pós-auditoria: as dez ressalvas da rodada 6 e as regras contábeis confirmadas pelo Fred | **Integrada (PR #21, `0dd07b4`)** — quatro rodadas de auditoria, fechamento do BL-242 com renumeração para `RC-85`, `RC-86`, `PE-46`, e conferência de encerramento. Resumo do auditor: *"Quatro rodadas, quatro achados no meu mecanismo de medição, zero no produto."* Itens abertos preservados: **BL-211** (dois defeitos do admin — não devem atravessar a DL-010), **BL-229** (medições de CSS que pulam na CI), **BL-235, BL-236, BL-237, BL-238, BL-239, BL-241** |
 | [DL-021](../planos/DL-021-robustez-do-gerador-no-windows.md) | Robustez do gerador de papéis em ambiente Windows: `write_text → write_bytes` para gravar LF sempre, e `.gitattributes` neutralizando `core.autocrlf=true` | **Integrada (PR #22, `b8c66a6`)** — o verificador byte-strict (achado 9 do DL-019) continua intacto. ⚠️ **Limitação declarada e ainda aberta:** o que fechou foi a **quebra de linha**; rodar `--verificar` no Windows continua reportando `permissão 0o666` nos 14 derivados, por motivo independente ligado ao achado A3 (**BL-175**). Não ler como "compatibilidade Windows comprovada". Este arquivo e o próprio plano diziam "planejada, não iniciada" **depois** da integração; quem mediu a divergência foi o plano mestre, e a correção é a DL-022 |
+| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Integrada (PR #27, `1b828e7`)** + **BL-261 integrada (`c7346e6`, bugfix `30924ca`)** — guarda em `Conta.clean()` recusa reparentar conta com movimento para grupo de natureza oposta; 4 testes cobrindo recusa + 3 controles positivos. Ressalvas contábeis abertas: **BL-262** (admin sem isolamento por escritório em nenhuma superfície — etapa própria), **BL-263** (caixa do PR marcada com estado desatualizado), **BL-267** (add de conta cria em empresa de outro escritório — depende de BL-262), **BL-264, BL-265, BL-266, BL-268, BL-269, BL-270, BL-271, BL-272** (backlog, baixa/ressalva). |
+| [DL-024](../planos/DL-024-trilha-integra-e-processo.md) | Trilha íntegra e processo: `registrar()` dentro da mesma transação que grava; `RegistroAuditoria` imutável contra `update()`/`delete()` em massa; PUT/PATCH com diff dos campos alterados; teste automatizado do gate SQLite/PostgreSQL | **Integrada (PR #28 + PR #29, `f9ee6c5`, DE-043)** — BL-14 (atomicidade), BL-16 (manager imutável), BL-57 (PUT/PATCH com diff), BL-244 (signal admin para 6 modelos via lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`), BL-50 (gate SQLite/PostgreSQL, 5/5), CA-6 (matriz de acesso fixada). CI: 1.345 testes, 2 pulados. CA-4 reconciliada: plano listava 6 ModelAdmin mas registry tem 4; `Estabelecimento` é inline de Empresa, `HistoricoRegimeTributario` removido pelo admin na DL-023. DE-043: o plano é artefato derivado do código, não o contrário. [Auditoria rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md). **Fora do escopo:** BL-02 (proteção da main, ação do Fred), BL-242, criptografia em repouso, logs externos |
+| [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
-| [DL-023](../planos/DL-023-integridade-administrativa.md) | Integridade administrativa: fechar **BL-83** (conta com movimento muda de empresa e de natureza pelo admin) e os dois casos vivos da **BL-211** (empresa inteira muda de escritório; inline de regime abre dois períodos ao mesmo tempo), com a defesa no **modelo** e não só na porta | **Em validação — APROVADA COM RESSALVAS na rodada 3**, revisão `a612604` ([relatório](../auditorias/2026-09-16-dl-023-rodada-3.md); a [rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) foi REPROVADA em `96284a4`). Pacote 2 da fila aprovada pelo Fred (**RC-88**). Os **dois achados altos estão fechados**, provados por execução do auditor: a sintética com filha movimentada agora recebe `200`, e a corrida que dava **500 em 6 de 8** deu **zero 5xx em 12**. Suíte **1269 passed, 0 pulados** em cópia limpa; prova por mutação **11 de 11**, com mutantes do auditor. Ressalvas abertas: **BL-261** (terceiro caminho do dano, e a decisão é **contábil, do Fred**), **BL-262** (o admin não tem isolamento por escritório em nenhuma superfície — etapa própria), **BL-263** (contra o arquiteto: caixa do PR marcada com o estado desatualizado), **BL-264 a BL-269**. Rodada 5 (auditoria **focada**) **APROVOU COM RESSALVAS** em `edae1bf` ([relatório](../auditorias/2026-09-16-dl-023-rodada-5.md)): BL-266 fechado, BL-265 fechado no código, **BL-264 fechado pela metade** (BL-270), e o teste da BL-265 não exercitava o código (BL-271). ⚠️ **O Fred mesclou o PR #24**, então a `main` está no estado da **rodada 3**, com as três ressalvas abertas; as correções das rodadas 4 e 6 seguem na branch, aguardando PR novo com os três checks |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
-| [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Planejada, não iniciada** — BL-125, encontrada pelo Fred ao subir o sistema, não por auditoria. Depende de a DL-017 fechar e de três respostas dele |
+| [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
 
 **Módulos Fiscal, Folha, Honorários e Processos/Paralegal: não iniciados.**
@@ -376,12 +378,87 @@ integrais e preservados:
 conta **rodadas de trabalho**, não auditorias, e por isso não existe arquivo de
 "rodada 2".
 
-**⚠️ Fato que muda a leitura de tudo abaixo, e ele é de 2026-09-16: o Fred
-mesclou o PR #24.** A `main` passou a conter a DL-023 **no estado da rodada 3** —
-isto é, com **BL-264, BL-265 e BL-266 abertas** —, e as correções das rodadas 4 e
-6 continuam **só na branch**, aguardando PR novo. Quem mediu isso foi o auditor
-(achado A2 da rodada 5), lendo a API: `edae1bf` tem **2** `check-runs`, não 3,
-porque o guarda "Regras do projeto" só dispara em `pull_request`.
+---
+
+> **Duas frentes conviveram.** O que segue veio pela `main`, de outra linha
+> de trabalho, e está aqui porque o estado é fonte única — não porque seja o
+> passo desta branch. ⚠️ A etapa citada abaixo como DL-024 é a **trilha
+> íntegra**; a identidade visual, que nasceu com o mesmo número, foi
+> renumerada para **DL-026** na junção de 2026-09-19 (ver o plano dela para
+> o motivo).
+
+**EM OUTRA FRENTE, desde 2026-09-16 (trabalho que chegou pela `main`, não desta branch): DL-024 — trilha íntegra e processo — em validação, com a rodada 1 validada
+pela CI e CA-4 ainda bloqueada por divergência de superfície.** Branch
+`claude/dl-024-execucao` aberta a partir de `1b828e7`. Implementado até
+agora:
+
+| Item | Commit | Status local |
+| --- | --- | --- |
+| **BL-14** atomicidade | `ed861d8` | ✅ 7/7 estáticos + 2 runtime (CI) |
+| **BL-16** imutabilidade do `RegistroAuditoria` | `5c86e3f` | ✅ 5/5 estáticos + 5 runtime (CI) |
+| **BL-57** trilha PUT/PATCH com diff derivado do contrato | `ed8d829` | ✅ 2/2 estáticos + 3 runtime (CI) |
+| **BL-244** trilha do painel administrativo (signal genérico) | `8338037` | ✅ 5/5 estáticos + 2 runtime (CI) |
+| **CA-6** matriz de acesso de `/auditoria/` FIXADA por teste | `1671415` | 0/0 estáticos + 8 runtime (CI) |
+| **BL-50** teste do gate SQLite/PostgreSQL | já passa (test_configuracao_producao.py — fixado pelo bug do `.env`) | ✅ 5/5 passam |
+| **correções da rodada 1** | `febdc9f`, `2613343`, `da59b19`, `5af2c19` | ✅ 1.345 testes na CI, 2 pulados por navegador; migração em banco vazio, lint, formatação e checks verdes |
+| **docs** rodada 1 + auditoria | `7b11f90`, `973250b` | ✅ guardas de documentação e Regras do projeto verdes; PR #28 em rascunho |
+
+Branch `claude/dl-024-execucao` está pushed em
+`1671415..973250b`. **Pendências da DL-024 que entram na rodada 1 da
+auditoria e validação (próximo passo):**
+
+- BL-57 cobre todos os campos derivados de `_campos_gravaveis`, não só
+  CNPJ — decisão já tomada, falta confirmar que o auditor valida o
+  conjunto exato `{razao_social, nome_fantasia, cnpj, ativo}`.
+- Quem vê `detalhes` em `/auditoria/` continua sendo ADMINISTRADOR e
+  GESTOR (PE-36/BAS-01 segue com o Fred; CA-6 FIXA esse estado, não
+  decide).
+- O signal do admin detecta admin por `request.path.startswith("/admin/")` —
+  cobertura explícita dos 6 modelos (sem ancorar em `sender=Model`).
+  A revisão encontrou que a lista de seis modelos do plano não corresponde
+  ao registro atual: `Estabelecimento` só aparece como inline e
+  `HistoricoRegimeTributario` não tem ModelAdmin desde a DL-023. A auditoria
+  registra a divergência; não se reabre o inline removido nem se cria uma
+  porta administrativa sem decisão do responsável.
+- A prova runtime local ficou limitada pela indisponibilidade do Docker, mas
+  a CI executou a cópia limpa com PostgreSQL no head `5af2c19`: 1.345 testes
+  passaram e 2 foram pulados por exigirem navegador real. O bloqueio de
+  infraestrutura está encerrado; não confundir os 2 pulos de navegador com
+  aprovação de uma verificação não executada.
+- O plano documenta alguns caminhos de teste em `apps/empresas/tests/`, mas
+  os testes DL-024 efetivos que existem estão em `apps/core/tests/`; a
+  validação executada usou os caminhos reais e a divergência fica registrada.
+
+**Falhas pré-existentes registradas, fora do escopo da DL-024:**
+
+- `test_agentes_multiplataforma.py` (10): arquivos em `.claude/agents/`
+  estão com modo `0o666` (writable por todos); o gerador deveria
+  garantir modo estável independente do umask. Item separado.
+- `test_dl019_elo_de_execucao.py::test_o_embrulho_esta_aplicado_em_toda_superficie_que_importou_a_politica`:
+  contagem de superfícies que envolvem `recusar_dado_nao_contratado`
+  é 1, esperava ≥4. Item separado.
+
+Relatórios integrais e preservados:
+[rodada 1](../auditorias/2026-09-16-dl-023-rodada-1.md) e
+[rodada 3](../auditorias/2026-09-16-dl-023-rodada-3.md) e
+[rodada 5](../auditorias/2026-09-16-dl-023-rodada-5.md) e
+[rodada 7](../auditorias/2026-09-16-dl-023-rodada-7.md) — nesta etapa o
+número conta **rodadas de trabalho**, não auditorias, e por isso não
+existe arquivo de "rodada 2" nem de "rodada 4" nem de "rodada 6".
+
+Para a execução atual da DL-024, o relatório da auditoria de integração está
+em [DL-024 rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md), baseado em
+`5af2c19` (código validado na CI) e no registro documental final `973250b`.
+
+**Correção factual, em 2026-09-16, do que escrevi acima ao fechar a DL-018:**
+eu disse que "as correções das rodadas 4 e 6 continuam **só na branch**",
+e isso estava errado. As duas vieram no mesmo PR #27 que trouxe a
+DL-018, porque a branch `claude/dl-018-primeiro-acesso` foi aberta
+sobre `bfe9814` (que já tinha `edae1bf`) e o `f23484a` foi commitado
+na mesma branch antes do merge. A `main` está, portanto, em
+`1b828e7` = merge de `edae1bf + f23484a + (DL-018) + docs`. O que
+**falta** é a **medição** dessas duas como integradas — e essa é a
+etapa que abre agora.
 
 **A lição é minha, e é sobre mecanismo:** eu abri o PR #24 como **rascunho**, com
 o corpo dizendo com todas as letras *"este PR NÃO deve ser mesclado como está"*.
@@ -399,12 +476,7 @@ dois foram reprovados por execução, não por leitura: a sintética com filha
 movimentada agora recebe `200` com a linha do grupo intacta, e a corrida que
 dava **500 em 6 de 8** deu **zero 5xx em 12 rodadas**.
 
-**As ressalvas, e a mais importante não é de engenharia:** **BL-261** — existe um
-**terceiro** caminho para o mesmo dano (reparentar conta movimentada para grupo
-de natureza oposta), e o auditor **parou onde devia**: retificadora é
-exatamente isso, e software não distingue a retificadora legítima do erro de
-classificação. **É pergunta para o Fred**, com duas saídas propostas.
-**BL-262** — o admin não tem isolamento por escritório em **nenhuma**
+**As ressalvas, e a mais importante não é de engenharia:** **BL-261 — integrada (`c7346e6`):** Fred decidiu BLOQUEAR. `Conta.clean()` recusa reparentar conta com movimento para grupo de natureza oposta. Controles positivos preservados: conta livre pode reclassificar para qualquer grupo; conta com movimento pode reparentar para grupo da mesma natureza. **BL-262** — o admin não tem isolamento por escritório em **nenhuma**
 superfície; a DL-023 fechou uma de seis, e o `/admin/autocomplete/` é
 estruturalmente inalcançável pela camada instalada. Vira etapa própria.
 

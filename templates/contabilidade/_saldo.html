@@ -2,7 +2,7 @@
 Saldo com indicador D/C (RC-61) e, quando o saldo é INVERTIDO em relação à
 natureza CADASTRADA da conta, entre parênteses — convenção contábil mais
 antiga que a tinta vermelha e mais difícil de adulterar: um traço vira
-"+" com um toque de caneta, um parêntese não se desfaz (DE-053/RC-89,
+"+" com um toque de caneta, um parêntese não se desfaz (DE-053/RC-90,
 enxerto trazido da variante A do gauntlet para a implementação real).
 
 Variáveis esperadas: `valor` (string pt-BR já formatada pela view),
@@ -12,7 +12,7 @@ RC-61: zero não tem lado), `conta` (objeto com `.natureza`,
 
 Só é incluída no Razão: é a única tela cujo contexto de view já expõe a
 conta CADASTRADA junto de cada linha (`conta` vem da própria URL). O
-Balancete tem a mesma necessidade (RC-89 pede a mesma convenção em toda a
+Balancete tem a mesma necessidade (RC-90 pede a mesma convenção em toda a
 tela) mas cada linha da view só carrega o sinal COMPUTADO
 (`saldo_final_natureza`), não a natureza cadastrada da conta daquela
 linha — expor isso é mudança em `views_web.py`, fora do que esta etapa

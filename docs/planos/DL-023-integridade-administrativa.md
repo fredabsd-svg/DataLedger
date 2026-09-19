@@ -1,8 +1,13 @@
 # DL-023 — Integridade administrativa: nenhuma regra vale só na porta pela qual foi escrita
 
 **Estado:** **em validação** — rodada 1 REPROVADA, rodada 2 corrigiu os dez
-itens, rodada 3 (segunda auditoria) **APROVOU COM RESSALVAS** em `a612604`;
-rodada 4 curta em curso com três itens baratos. Aberta em
+itens, rodada 3 (segunda auditoria) **APROVOU COM RESSALVAS** em `a612604`,
+rodada 4 (correção) fechou BL-264/BL-265/BL-266 em `edae1bf`,
+rodada 5 (auditoria focada) **APROVOU COM RESSALVAS** em `edae1bf`,
+rodada 6 (correção) fechou BL-270/BL-271/BL-272 em `f23484a`.
+**As rodadas 4 e 6 entraram na `main` via PR #27 (merge `1b828e7`)**, junto com a
+DL-018, mas **nunca foram auditadas como integradas** — a última
+medição (rodada 5) viu o estado `edae1bf`, sem o `f23484a`. Aberta em
 2026-09-16, a partir da `main` em `24f6bbc` (PR #23 integrado — DL-022).
 Situação atual, sempre, em [docs/agents/estado.md](../agents/estado.md).
 
@@ -297,6 +302,73 @@ mutação passou de 9/9 para **11/11**.
 decisão "defendida" para `contabilidade.Conta` passou a **nomear o que fica de
 fora** — foi exatamente essa omissão que transformou a BL-248 em achado.
 
+## Rodada 4 e 5 — correção curta + auditoria focada em `edae1bf`
+
+**Rodada 4** (`edae1bf`): três itens baratos — `Conta.clean()` deixa de levantar
+`DoesNotExist` e passa a distinguir "empresa não informada" de "empresa de
+outro escritório"; os dois literais do SQL recursivo passam a vir de
+`_meta.get_field(...).column`; o teste que media a camada errada foi renomeado
+e reescrito para afirmar o que de fato acontece.
+
+**Rodada 5** ([relatório](../auditorias/2026-09-16-dl-023-rodada-5.md)),
+auditoria focada: **APROVOU COM RESSALVAS**. BL-266 fechado, BL-265 fechado no
+código, **BL-264 fechado pela metade** (a forma "menos provável" do defeito, e
+sobrava "empresa_id não-inteiro" levantando `ValueError`); o teste que a
+rodada 4 acrescentou para a BL-265 **não exercita o código que deveria**.
+
+## Rodada 6 — correção curta em `f23484a`
+
+Fecha as três ressalvas que a rodada 5 deixou:
+
+- **BL-270:** `Conta.clean()` passa a tratar as quatro causas com mensagem
+  própria, incluindo `empresa_id` de tipo inválido ("abc", "1e3", "  ", []) —
+  que levantava `ValueError`/`TypeError`, exceção que não é de validação.
+  Mutação: sem o `try/except`, 5 testes morrem; sem a guarda de `None`, o teste
+  do caso `None` morre.
+- **BL-271:** o teste que não testava nada foi substituído por dois que amarram
+  a consulta ao `_meta` de verdade — `mock.patch.object` na coluna do campo
+  real, dentro de savepoint, exigindo `ProgrammingError`, com controle positivo
+  sem o patch.
+- **BL-272:** aplicação de `db_column` no campo de item de partida, com teste
+  que mata a mutação para o literal.
+
+## Rodada 7 — auditoria de integração (ABERTA, dependente do CI)
+
+**O que mudou:** as rodadas 4 e 6 entraram na `main` via PR #27 (merge
+`1b828e7`), junto com a DL-018. A rodada 5 auditou **o branch** em `edae1bf`,
+sem o `f23484a`. O auditor precisa medir agora **a `main` em `1b828e7`** e
+responder:
+
+1. As três correções da rodada 4 estão presentes na `main`? — código E teste
+   de BL-264 (causas distintas, sem exceção fora de validação), BL-265
+   (nomes de coluna pelo `_meta`), BL-266 (teste reescrito).
+2. As três correções da rodada 6 estão presentes na `main`? — código E teste
+   de BL-270 (causas distintas com `empresa_id` de tipo inválido),
+   BL-271 (teste amarrado ao `_meta` de verdade, com mutante que mata 2 testes),
+   BL-272 (mutante literal mata teste).
+3. **A suíte está verde na CI do merge exato `1b828e7`?** — conferir via
+   API, e não só pelo último log do job.
+4. **A prova por mutação rodada-6-específica** (causas distintas, `try/except`,
+   `None` guard, `db_column` no item) **continua válida como integrada** — os
+   mutantes da rodada 5 (M4, M5, M2, M3, M2total, M2b) devem matar os mesmos
+   testes ou mais.
+5. **Regressão nas outras camadas** — `Conta` (API, tela), `Empresa` (admin,
+   API), `RegimeTributario` (admin, API, concorrência). O auditor decide se
+   amplia o recorte ou fica nas três áreas da rodada 4/6.
+
+**Restrição de leitura:** a rodada 7 **não pode** integrar nada — é só
+medição. Correções vão para a rodada 8, se houver. E **não pode** reabrir
+a BL-261 (decisão contábil do Fred), a BL-262 (etapa própria), nem a
+BL-263 (BL-249 do arquiteto, backlog).
+
+**Fora do recorte declarado:** tudo que não esteja em BL-264/265/266/270/271/272
+**na revisão `1b828e7` da main**. A DL-018 entra na `main` pelo mesmo PR,
+mas é etapa independente — auditoria própria se o Fred quiser.
+
+**Pré-condições para abrir a rodada 7:**
+CI verde em `1b828e7` (5/5 checks no PR #27, lidos pela API), `pytest` em cópia
+limpa, e `mutmut`/`cosmic-ray`/mecanismo que a rodada 5 usou ainda disponível.
+
 ## Git
 
 - **Branch de trabalho:** `claude/accounting-agent-team-setup-mn6lyf`, a partir
@@ -304,3 +376,8 @@ fora** — foi exatamente essa omissão que transformou a BL-248 em achado.
 - **Branch de destino:** `main`, por PR. **O PR é parte da entrega** (achado
   A7/BL-260: sem ele, o workflow "Regras do projeto" não roda, e dos três
   mecanismos impostos só dois foram exercitados nesta revisão).
+- **Branch da rodada 7 (auditoria de integração):**
+  `claude/dl-023-rodada-7-auditoria`, aberta a partir de `1b828e7`
+  (PR #27 integrado — DL-018 + rodadas 4 e 6 da DL-023). Sem código de
+  produto, só o escopo da auditoria — a integração do resultado da
+  rodada 7 (se houver correção) é a rodada 8.

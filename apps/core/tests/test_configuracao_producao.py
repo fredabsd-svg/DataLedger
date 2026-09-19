@@ -37,14 +37,17 @@ def _rodar_manage_check(overrides, deploy=False, timeout=60):
 
     `overrides` substitui/inclui variáveis no ambiente do subprocesso.
     Partimos de uma cópia do ambiente do processo de teste (para preservar
-    PATH, HOME etc.), mas sempre removemos DATABASE_URL antes de aplicar
-    `overrides`, para que a ausência da variável seja explícita em vez de
-    depender do que a suíte principal tiver deixado no ambiente.
+    PATH, HOME etc.), mas sempre forçamos `DATABASE_URL=""` antes de aplicar
+    `overrides` — string vazia sobrepõe o que `django-environ` leria do
+    `.env` da raiz do repositório, e cai no branch "ausente" da guarda
+    (`if not _database_url`). Sem isso, os testes de "sem DATABASE_URL"
+    passariam falsamente porque o `.env` da máquina de teste define a
+    variável para o Postgres do docker-compose.
     """
     ambiente = dict(os.environ)
     ambiente["DJANGO_SECRET_KEY"] = SECRET_KEY_DE_TESTE
     ambiente["DJANGO_ALLOWED_HOSTS"] = "localhost"
-    ambiente.pop("DATABASE_URL", None)
+    ambiente["DATABASE_URL"] = ""
     ambiente.update(overrides)
 
     comando = [sys.executable, "manage.py", "check"]

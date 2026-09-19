@@ -268,12 +268,20 @@ OPCIONAL da BL-237, com dono, e o auditor foi explícito ao não exigi-la agora:
 
 **Middleware.** Middleware não é handler de rota, não aparece no urlconf e não
 entra nesta varredura: um middleware que gravasse a partir do corpo da
-requisição não seria visto. O produto tem **um**,
-`apps.tenancy.middleware.EscritorioAtivoMiddleware`, que grava apenas
-`request.session["escritorio_id"]` e não julga corpo de requisição —
-conferido, não presumido. `test_o_unico_middleware_do_produto_continua_sendo_o
-_do_escritorio_ativo` prende o fato: middleware novo de `apps.` reprova a
-suíte, nomeando-o, para que a decisão de varrê-lo ou não seja de alguém.
+requisição não seria visto. O produto tem **dois** próprios, listados em
+`test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo`:
+
+- `apps.tenancy.middleware.EscritorioAtivoMiddleware` — grava apenas
+  `request.session["escritorio_id"]` e não julga corpo de requisição.
+- `apps.core.middleware.CurrentRequestMiddleware` (acrescentado pela
+  BL-244, DL-024) — **observacional**: preenche uma thread-local
+  (`apps.core.current_request`) com a `HttpRequest` corrente, para que
+  signals do ORM possam distinguir uma gravação do painel administrativo
+  de uma gravação por management command. Não altera a request, não
+  julga o corpo, não muda a resposta — só enriquece o contexto.
+
+O teste prende o fato: middleware novo de `apps.` reprova a suíte,
+nomeando-o, para que a decisão de varrê-lo ou não seja de alguém.
 
 **Rota ligada por roteador que não seja o `SimpleRouter`/`DefaultRouter`.**
 Para um `ViewSet` **sem rota** (escrito hoje, roteado amanhã) a retaguarda
@@ -2058,14 +2066,19 @@ def test_duas_superficies_com_o_mesmo_handler_tem_nomes_efetivos_distintos():
 
 def test_o_unico_middleware_do_produto_continua_sendo_o_do_escritorio_ativo():
     """A seção "O que ela NÃO cobre" afirma que middleware fica de fora e que o
-    produto tem um só. Afirmação sobre o repositório precisa de verificação
-    sobre o repositório: um middleware novo de `apps.` reprova aqui, nomeado,
-    para que alguém decida se ele é superfície de escrita."""
+    produto tem os middlewares listados na seção. Afirmação sobre o
+    repositório precisa de verificação sobre o repositório: um middleware
+    novo de `apps.` reprova aqui, nomeado, para que alguém decida se ele é
+    superfície de escrita."""
     proprios = [caminho for caminho in settings.MIDDLEWARE if caminho.startswith("apps.")]
 
-    assert proprios == ["apps.tenancy.middleware.EscritorioAtivoMiddleware"], (
+    esperados = [
+        "apps.tenancy.middleware.EscritorioAtivoMiddleware",
+        "apps.core.middleware.CurrentRequestMiddleware",
+    ]
+    assert proprios == esperados, (
         "A fronteira declarada no docstring deste arquivo diz que o produto tem "
-        "UM middleware próprio, que só grava na sessão. Esta lista mudou: "
+        "estes middlewares próprios. Esta lista mudou: "
         f"{proprios}. Decida se o novo é superfície de escrita e atualize a "
         "seção — não deixe a fronteira afirmar mais do que o repositório tem."
     )

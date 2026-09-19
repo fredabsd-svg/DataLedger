@@ -23,7 +23,7 @@ está o total desta vez.
 
 A direção foi escolhida por **medição**, não por gosto, num gauntlet de três
 variantes cegas: [DE-053](../../../docs/projeto/decisoes.md), confirmada em
-RC-89, com a evidência em
+RC-90, com a evidência em
 [`docs/assets/design/gauntlet/MEDICOES.md`](../../../docs/assets/design/gauntlet/MEDICOES.md).
 
 ## O que você mais vai esquecer

@@ -41,7 +41,7 @@ jobs:
                   "de alterar arquivos' não está marcada. Leia o AGENTS.md e marque-a "
                   "com [x] no corpo do PR."
               )
-          if not marcado("Atualizei o **estado do projeto**"):
+          if not marcado("Atualizei o estado do projeto"):
               problemas.append(
                   "A caixa 'Atualizei o estado do projeto em docs/agents/estado.md' "
                   "não está marcada."

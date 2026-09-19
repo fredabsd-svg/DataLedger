@@ -424,10 +424,16 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
         # 500. Medido sob concorrência (4 POSTs simultâneos com o mesmo
         # código): `500, 201, 500, 500` — a integridade do dado nunca foi
         # violada (a constraint segurou), só a RESPOSTA quebrava. O
-        # `transaction.atomic()` isola o `IntegrityError` num savepoint,
-        # para a conexão continuar utilizável para o `registrar()` abaixo
-        # (mesmo desenho de `erro_de_cnpj_duplicado_como_400`, em
-        # `apps.empresas.services`, que já faz isto para CNPJ).
+        # `transaction.atomic()` isola o `IntegrityError` num savepoint.
+        #
+        # BL-14 (DL-024): o `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava a Conta. Antes, qualquer falha
+        # no INSERT do `RegistroAuditoria` deixava a Conta gravada e a
+        # trilha silenciosamente vazia — o plano de contas dizia uma
+        # coisa, a trilha dizia outra. Agora ambos são uma só operação
+        # atômica. O `RestricaoViolada` continua sendo traduzido para 400
+        # como antes; qualquer outra exceção (incluindo a do `registrar()`)
+        # propaga como 500.
         try:
             # A mensagem vem do registro único `apps.core.restricoes.
             # MENSAGENS_DE_RESTRICAO` (BL-204): antes era um literal aqui, e
@@ -439,9 +445,9 @@ class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
                 restricao_como_400(mensagens_de("codigo_unico_por_empresa")),
             ):
                 conta = serializer.save(empresa=self.get_empresa())
+                registrar(acao="conta.criada", objeto=conta, request=self.request)
         except RestricaoViolada as exc:
             raise DRFValidationError({"codigo": [str(exc)]}) from exc
-        registrar(acao="conta.criada", objeto=conta, request=self.request)
 
 
 def _extrair_itens(payload_itens, empresa):
@@ -666,25 +672,42 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
         # este atributo antes de devolver o objeto, e um padrão "True" por
         # omissão falharia ABERTO exatamente no mesmo sentido do defeito que
         # esta correção existe para fechar (achado A7).
-        if lancamento.criado_agora:
-            registrar(acao="lancamento.criado", objeto=lancamento, request=request)
-            status_code = status.HTTP_201_CREATED
-        else:
-            registrar(
-                acao="lancamento.criacao_repetida",
-                objeto=lancamento,
-                request=request,
-                # Só um hash curto da chave, nunca a chave crua (achado A8):
-                # é uma string arbitrária vinda do cliente, e `registrar()`
-                # só deve receber dados não sensíveis. O hash ainda permite
-                # correlacionar repetições da MESMA chave entre registros.
-                detalhes={
-                    "chave_idempotencia_hash": hashlib.sha256(
-                        chave_idempotencia.encode("utf-8")
-                    ).hexdigest()[:12]
-                },
-            )
-            status_code = status.HTTP_200_OK
+        #
+        # BL-14 (DL-024): o bloco que escolhe o `acao` da trilha e chama
+        # `registrar()` foi MOVIDO para dentro do MESMO `transaction.atomic()`
+        # que envolve `criar_lancamento` e `registrar()`. Antes, qualquer
+        # falha no INSERT do `RegistroAuditoria` deixava o lançamento
+        # gravado e a trilha silenciosamente vazia — a contabilidade dizia
+        # uma coisa, a trilha dizia outra. O `transaction.atomic()` aqui
+        # é REENTRANTE (Django cria savepoint): o serviço `criar_lancamento`
+        # é `@transaction.atomic` por si, e o aninhamento resulta em
+        # savepoint, e a falha do `registrar()` reverte o savepoint E o
+        # commit do `criar_lancamento` que ainda não subiu. A `try/except`
+        # para `ChaveIdempotenciaConflitante` e `LancamentoInvalido`
+        # continua sendo honrada (são erros pré-INSERT, nada a reverter);
+        # qualquer outra exceção (incluindo a do `registrar()`) propaga e
+        # a transação externa desfaz tudo.
+        status_code = None
+        with transaction.atomic():
+            if lancamento.criado_agora:
+                registrar(acao="lancamento.criado", objeto=lancamento, request=request)
+                status_code = status.HTTP_201_CREATED
+            else:
+                registrar(
+                    acao="lancamento.criacao_repetida",
+                    objeto=lancamento,
+                    request=request,
+                    # Só um hash curto da chave, nunca a chave crua (achado A8):
+                    # é uma string arbitrária vinda do cliente, e `registrar()`
+                    # só deve receber dados não sensíveis. O hash ainda permite
+                    # correlacionar repetições da MESMA chave entre registros.
+                    detalhes={
+                        "chave_idempotencia_hash": hashlib.sha256(
+                            chave_idempotencia.encode("utf-8")
+                        ).hexdigest()[:12]
+                    },
+                )
+                status_code = status.HTTP_200_OK
 
         serializer = self.get_serializer(lancamento)
         return Response(serializer.data, status=status_code)

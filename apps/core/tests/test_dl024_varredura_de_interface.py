@@ -2,7 +2,7 @@
 regra, e não em pedido.
 
 **Por que este arquivo existe.** A [direção de arte](docs/projeto/direcao-de-arte.md)
-foi escolhida por medição, num gauntlet de três variantes (DE-053/RC-89). Mas o
+foi escolhida por medição, num gauntlet de três variantes (DE-053/RC-90). Mas o
 produto vai ganhar Fiscal, Folha, Honorários, Paralegal e Lalur, e **um sistema
 contábil que muda de cara a cada módulo obriga o usuário a reaprender a ler**.
 Documento de padrão que ninguém verifica vira decoração em seis meses — este

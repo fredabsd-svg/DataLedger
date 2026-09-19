@@ -407,7 +407,7 @@ def test_adicionar_linha_anuncia_quantas_linhas_ficam_fora_do_total(client, cen)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
     rodape = re.search(r'<tr class="linha-total">.*?</tr>', conteudo, re.DOTALL).group(0)
-    # Tocado na DL-026 (DE-053/RC-89) — mesmo motivo do teste equivalente em
+    # Tocado na DL-026 (DE-053/RC-90) — mesmo motivo do teste equivalente em
     # test_dl017_rodada1_correcoes.py: a classe `valor-monetario` migrou do
     # `<span>` interno para o `<td>` que já continha o rótulo, para fechar o
     # achado da varredura de interface (classe no lugar certo para tabular a

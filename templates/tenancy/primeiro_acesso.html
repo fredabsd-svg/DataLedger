@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block titulo %}Primeiro acesso{% endblock %}
+
+{% block content %}
+    <h1>Bem-vindo ao DataLedger</h1>
+    <p>Você ainda não tem vínculo com nenhum escritório de contabilidade. Esta é a porta de entrada — preencha os dados do seu escritório abaixo para começar.</p>
+
+    <p><strong>O que acontece aqui:</strong> o escritório que você criar será a primeira fronteira de sigilo do produto. Quem você convidar depois entra dentro dela. Você será o ADMINISTRADOR — pode promover, convidar e desligar outros usuários, e é o único papel com poder de emitir convites.</p>
+
+    <form method="post" action="{% url 'tenancy:bootstrap-primeiro-acesso' %}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_nome">Nome do escritório</label>
+            <input type="text" name="nome" id="id_nome" value="{{ nome|default:'' }}" required maxlength="200">
+        </div>
+        <div class="campo">
+            <label for="id_cnpj">CNPJ (somente números)</label>
+            <input type="text" name="cnpj" id="id_cnpj" value="{{ cnpj|default:'' }}" required maxlength="14" pattern="[0-9]{14}" inputmode="numeric">
+        </div>
+        <button type="submit">Criar escritório e entrar</button>
+    </form>
+{% endblock %}

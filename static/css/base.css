@@ -370,7 +370,7 @@ summary:focus,
 }
 
 /* Atalho de teclado à mostra na navegação (enxerto da variante B do
-   gauntlet, DE-053/RC-89). Texto miúdo, sem caixa nem borda — a direção
+   gauntlet, DE-053/RC-90). Texto miúdo, sem caixa nem borda — a direção
    escolhida é "cor quase ausente", e um "keycap" desenhado seria poluição
    visual que a variante B podia se dar ao luxo de ostentar e esta não.
    O texto é aria-hidden: o nome acessível do link não pode incluir
@@ -664,7 +664,7 @@ button:disabled {
 }
 
 /* Cabeçalho de coluna em dois níveis (enxerto da variante C do gauntlet,
-   DE-053/RC-89): usado só no Balancete, para separar "Movimento do
+   DE-053/RC-90): usado só no Balancete, para separar "Movimento do
    período" (consolidado pela hierarquia) de "Lançamento próprio" (só o
    que foi lançado direto nesta conta) sem alargar a tabela — as duas
    colunas já existiam (achado 10/BL-96, DE-024 §2); o que muda é o

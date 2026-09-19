@@ -729,3 +729,151 @@ def test_full_clean_recusa_troca_de_empresa_de_conta_com_movimento(cenario):
 
     with pytest.raises(ValidationError):
         conta.full_clean()
+
+
+# ---------------------------------------------------------------------------
+# BL-261 (terceiro caminho da BL-83, achado novo 1 da auditoria DL-023
+# rodada 3): mudar SOMENTE `conta_pai` de uma conta com movimento para
+# grupo de natureza oposta — sem tocar natureza, tipo ou empresa. Efeito
+# medido: o Balancete fechava (débito = crédito), mas a linha do grupo
+# de destino mostrava -R$ 1.000,00 enquanto a do grupo de origem mostrava
+# R$ 0,00, e nenhuma das cinco categorias da conferência acusava.
+# ---------------------------------------------------------------------------
+
+
+def test_admin_recusa_reparentar_conta_movimentada_para_grupo_de_natureza_oposta(client, cenario):
+    """O cenário exato do defeito medido: grupo 1 (devedor, filha com
+    R$ 1.000 D) reparentada para grupo 2 (credor). O Balancete fechava
+    mas cada linha ia para lado oposto — sem que nenhuma defesa acusasse."""
+    grupo_origem = _conta(
+        cenario["empresa"],
+        codigo="1",
+        nome="Grupo Devedor",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    grupo_destino = _conta(
+        cenario["empresa"],
+        codigo="2",
+        nome="Grupo Credor",
+        tipo=TipoConta.RECEITA,
+        natureza=NaturezaConta.CREDORA,
+    )
+    conta_movimentada = _conta(
+        cenario["empresa"],
+        codigo="1.1",
+        pai=grupo_origem,
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    _com_movimento(cenario, conta_movimentada)
+    estado_antes = (
+        conta_movimentada.conta_pai_id,
+        conta_movimentada.natureza,
+        conta_movimentada.tipo,
+    )
+    _login_admin(client, cenario)
+
+    resposta = _post_change(client, conta_movimentada, {"conta_pai": grupo_destino.pk})
+
+    assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    assert "natureza oposta" in corpo, corpo
+    conta_movimentada.refresh_from_db()
+    assert conta_movimentada.conta_pai_id == grupo_origem.pk  # inalterada
+    estado_final = (
+        conta_movimentada.conta_pai_id,
+        conta_movimentada.natureza,
+        conta_movimentada.tipo,
+    )
+    assert estado_final == estado_antes
+
+
+def test_admin_reparentando_sem_movimento_para_natureza_oposta(client, cenario):
+    """Controle positivo: sem movimento, reparentar para qualquer grupo é
+    operação legítima — a defesa não pode engessar o cadastro."""
+    grupo_origem = _conta(
+        cenario["empresa"],
+        codigo="1",
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    grupo_destino = _conta(
+        cenario["empresa"],
+        codigo="2",
+        natureza=NaturezaConta.CREDORA,
+    )
+    conta_livre = _conta(
+        cenario["empresa"],
+        codigo="3",
+        pai=grupo_origem,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    _login_admin(client, cenario)
+
+    resposta = _post_change(client, conta_livre, {"conta_pai": grupo_destino.pk})
+
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    conta_livre.refresh_from_db()
+    assert conta_livre.conta_pai_id == grupo_destino.pk
+
+
+def test_admin_reparentando_com_movimento_para_mesma_natureza(client, cenario):
+    """Com movimento, reparentar para grupo da MESMA natureza é operação
+    legítima — a defesa não pode proibir o que é seguro."""
+    grupo_origem = _conta(
+        cenario["empresa"],
+        codigo="1",
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    grupo_destino = _conta(
+        cenario["empresa"],
+        codigo="1.5",
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    conta_movimentada = _conta(
+        cenario["empresa"],
+        codigo="1.1",
+        pai=grupo_origem,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    _com_movimento(cenario, conta_movimentada)
+    _login_admin(client, cenario)
+
+    resposta = _post_change(client, conta_movimentada, {"conta_pai": grupo_destino.pk})
+
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    conta_movimentada.refresh_from_db()
+    assert conta_movimentada.conta_pai_id == grupo_destino.pk
+
+
+def test_admin_continua_reparentando_conta_livre_para_grupo_de_natureza_oposta(client, cenario):
+    """Conta livre (sem movimento) reparentada para grupo de natureza oposta:
+    BL-261 não dispara porque a conta não tem movimento — não há saldo
+    a inverter. Critério 4 da DL-023 preservado: conta livre pode
+    reclassificar para qualquer grupo."""
+    grupo_origem = _conta(
+        cenario["empresa"],
+        codigo="1",
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    grupo_destino = _conta(
+        cenario["empresa"],
+        codigo="2",
+        natureza=NaturezaConta.CREDORA,
+    )
+    conta_livre = _conta(
+        cenario["empresa"],
+        codigo="9",
+        pai=grupo_origem,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    assert not conta_livre.itens_lancamento.exists()
+    _login_admin(client, cenario)
+
+    resposta = _post_change(client, conta_livre, {"conta_pai": grupo_destino.pk})
+
+    # Conta livre reparentada para grupo oposto: BL-261 não bloqueia porque
+    # não há movimento. Comportamento intencional — não é lacuna.
+    assert resposta.status_code == 302, (resposta.status_code, resposta.content)
+    conta_livre.refresh_from_db()
+    assert conta_livre.conta_pai_id == grupo_destino.pk

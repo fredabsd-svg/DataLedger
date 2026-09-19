@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import redirect, render
 
 # BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
@@ -21,7 +22,20 @@ from apps.core.requisicao import (
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
-from apps.tenancy.models import Escritorio
+from apps.tenancy.models import (
+    ConviteEscritorio,
+    Escritorio,
+    VinculoUsuarioEscritorio,
+)
+from apps.tenancy.services.primeiro_acesso import (
+    ConvidanteNaoEhAdministrador,
+    ConviteInvalido,
+    ConviteTokenColidiu,
+    PrimeiroEscritorioJaExiste,
+    aceitar_convite_e_criar_vinculo,
+    criar_primeiro_escritorio_e_vinculo_admin,
+    emitir_convite_para_escritorio,
+)
 
 # BL-196 / achado R6-2 (rodada 6): a política dos cinco dicionários também
 # nas duas superfícies de troca de escritório ativo. Medido pelo auditor:
@@ -39,6 +53,34 @@ CONTRATO_ESCRITORIO_ATIVO = ContratoDeRequisicao(
     campos={"escritorio_id"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na troca de escritório ativo",
+)
+
+
+# DL-018 — contratos do fluxo de bootstrap e convite (DL-018).
+# Os campos `csrfmiddlewaretoken` aparecem no `request.POST` das views
+# de função porque o Django injeta o token CSRF como campo do form
+# automaticamente — não é dado de cliente, é mecanismo de defesa contra
+# CSRF. Por isso ele entra em `campos` aqui: o `recusar_dado_nao_contratado`
+# confere a forma do payload como um todo, e este campo é parte esperada
+# do form.
+CONTRATO_BOOTSTRAP_PRIMEIRO_ESCRITORIO = ContratoDeRequisicao(
+    campos={"nome", "cnpj", "csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no bootstrap do primeiro escritório (DL-018)",
+)
+
+
+CONTRATO_EMITIR_CONVITE = ContratoDeRequisicao(
+    campos={"escritorio_id", "email", "csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na emissão de convite por ADMINISTRADOR (DL-018)",
+)
+
+
+CONTRATO_ACEITAR_CONVITE = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no aceite de convite por usuário autenticado (DL-018)",
 )
 
 
@@ -127,14 +169,23 @@ class EscritorioAtivoView(APIView):
         if not tem_vinculo:
             return Response({"detail": "Escritório inválido ou sem vínculo ativo."}, status=403)
 
+        # BL-14 (DL-024): o `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava o `RegistroAuditoria`. Antes, se
+        # o INSERT da trilha falhasse, a troca de escritório ativo
+        # continuava válida e a auditoria ficava silenciosamente vazia.
+        # **Limitação:** a `request.session` não reverte por
+        # `transaction.atomic()` (ver comentário equivalente em
+        # `ativar_escritorio`). A defesa cobre o RegistroAuditoria.
+        with transaction.atomic():
+            # request.escritorio ainda reflete o valor de antes da troca (o
+            # middleware já rodou nesta requisição): busca o novo explicitamente.
+            escritorio = Escritorio.objects.get(pk=escritorio_id)
+            registrar(
+                acao="escritorio.ativado",
+                usuario=request.user,
+                escritorio=escritorio,
+            )
         request.session["escritorio_id"] = escritorio_id
-        # request.escritorio ainda reflete o valor de antes da troca (o
-        # middleware já rodou nesta requisição): busca o novo explicitamente.
-        registrar(
-            acao="escritorio.ativado",
-            usuario=request.user,
-            escritorio=Escritorio.objects.get(pk=escritorio_id),
-        )
         return Response({"status": "ok"})
 
 
@@ -209,9 +260,21 @@ def ativar_escritorio(request):
             messages.error(request, "Escritório inválido ou sem vínculo ativo com o seu usuário.")
             return redirect("tenancy:painel")
 
+        # BL-14 (DL-024): `registrar()` foi MOVIDO para dentro do mesmo
+        # `transaction.atomic()` que grava o `RegistroAuditoria`. Antes, se
+        # o INSERT da trilha falhasse, a troca de escritório ativo
+        # continuava válida e a auditoria ficava silenciosamente vazia —
+        # a sessão dizia uma coisa, a trilha dizia outra. Agora ambos
+        # são uma só operação atômica; qualquer exceção do `registrar()`
+        # propaga e a transação reverte. **Limitação:** a `request.session`
+        # não é revertida por `transaction.atomic()` — a troca fica
+        # registrada no cookie mesmo se a trilha falhar. Quem precisa de
+        # reversão completa da sessão precisa de abordagem diferente
+        # (fora do escopo do BL-14, registro como pendência para DL futura).
+        with transaction.atomic():
+            escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
+            registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
         request.session["escritorio_id"] = escritorio_id_valido
-        escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
-        registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
         messages.success(request, f"Escritório ativo: {escritorio.nome}.")
     else:
         # BL-23/A9: GET nesta URL (link direto, favorito, back do navegador)
@@ -221,3 +284,182 @@ def ativar_escritorio(request):
         # precisa dizer isso.
         messages.error(request, "Use o formulário do painel para trocar de escritório.")
     return redirect("tenancy:painel")
+
+
+# ---------------------------------------------------------------------------
+# DL-018 — primeiro acesso via produto (DE-042)
+# ---------------------------------------------------------------------------
+#
+# Três superfícies novas:
+#
+# - `bootstrap_primeiro_acesso` (GET/POST): tela para o usuário sem
+#   vínculo criar o primeiro escritório. Renderiza um formulário
+#   simples (nome + CNPJ). POST cria escritório e vincula o usuário
+#   como ADMINISTRADOR — redireciona para o painel.
+# - `emitir_convite` (POST): API para o ADMINISTRADOR do escritório
+#   cadastrar o e-mail do segundo funcionário.
+# - `aceitar_convite` (GET/POST): tela para o convidado apresentar o
+#   token recebido (em geral via link), autenticado, e virar
+#   ANALISTA do escritório.
+#
+# A defesa é no serviço (`primeiro_acesso.py`), não nas views — aqui só
+# tradução HTTP. As exceções de domínio viram 400/403/409/410 conforme o
+# contrato.
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def bootstrap_primeiro_acesso(request):
+    """DL-018 critério 1: primeira superfície para o usuário sem
+    vínculo. Renderiza formulário no GET e cria escritório + vínculo
+    ADMINISTRADOR no POST.
+
+    O ponto-chave é a `PrimeiroEscritorioJaExiste` no serviço: se o
+    usuário JÁ tem escritório, o caminho `bootstrap` não é o dele —
+    redirecionar para o painel. Defesa contra o caso "duas abas
+    abertas de bootstrap no mesmo usuário": o segundo POST cai no
+    painel com mensagem de erro, e não em 500."""
+    if VinculoUsuarioEscritorio.objects.filter(usuario=request.user, ativo=True).exists():
+        messages.info(
+            request,
+            "Você já tem escritório. Use o painel para gerenciar.",
+        )
+        return redirect("tenancy:painel")
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_BOOTSTRAP_PRIMEIRO_ESCRITORIO)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return render(request, "tenancy/primeiro_acesso.html", {})
+
+        nome = (request.POST.get("nome") or "").strip()
+        cnpj = (request.POST.get("cnpj") or "").strip()
+        if not nome or not cnpj:
+            messages.error(request, "Nome e CNPJ são obrigatórios.")
+            return render(
+                request,
+                "tenancy/primeiro_acesso.html",
+                {"nome": nome, "cnpj": cnpj},
+            )
+
+        try:
+            resultado = criar_primeiro_escritorio_e_vinculo_admin(
+                usuario=request.user,
+                nome=nome,
+                cnpj=cnpj,
+            )
+        except PrimeiroEscritorioJaExiste:
+            messages.error(request, "Você já tem escritório ativo.")
+            return redirect("tenancy:painel")
+
+        messages.success(
+            request,
+            f"Escritório criado: {resultado.escritorio.nome}. "
+            "Você é o ADMINISTRADOR. Convide o segundo funcionário pela tela de escritório.",
+        )
+        return redirect("tenancy:painel")
+
+    return render(request, "tenancy/primeiro_acesso.html", {})
+
+
+@login_required
+@require_http_methods(["POST"])
+def emitir_convite(request):
+    """DL-018 critério 3: ADMINISTRADOR do escritório convida o
+    segundo funcionário por e-mail. Token opaco devolvido na resposta
+    — a próxima etapa que envia por e-mail de verdade (SMTP) entra
+    aqui.
+    """
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_EMITIR_CONVITE)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return redirect("tenancy:painel")
+
+    escritorio_id_raw = request.POST.get("escritorio_id")
+    email = (request.POST.get("email") or "").strip()
+
+    try:
+        escritorio_id = para_id(escritorio_id_raw)
+    except IdentificadorInvalido:
+        messages.error(request, "Escritório inválido.")
+        return redirect("tenancy:painel")
+
+    try:
+        escritorio = Escritorio.objects.get(pk=escritorio_id)
+    except Escritorio.DoesNotExist:
+        messages.error(request, "Escritório inválido.")
+        return redirect("tenancy:painel")
+
+    if not email:
+        messages.error(request, "E-mail do convidado é obrigatório.")
+        return redirect("tenancy:painel")
+
+    try:
+        convite = emitir_convite_para_escritorio(
+            escritorio=escritorio,
+            email_convidado=email,
+            convidador=request.user,
+        )
+    except ConvidanteNaoEhAdministrador:
+        messages.error(
+            request,
+            "Apenas ADMINISTRADOR ativo pode convidar. "
+            "Se você é o segundo funcionário, aguarde o convite.",
+        )
+        return redirect("tenancy:painel")
+    except ConviteTokenColidiu:
+        # Provavelmente impossível (~1 em 2^190). Tentar de novo — o
+        # `save()` do modelo vai gerar outro token. Não é 5xx: o cliente
+        # PODE retentar com o mesmo payload.
+        messages.warning(
+            request,
+            "Colisão rara de token. Tente novamente — o sistema gerou outro token automaticamente.",
+        )
+        return redirect("tenancy:painel")
+
+    messages.success(
+        request,
+        f"Convite emitido para {convite.email}. A próxima etapa envia por e-mail de verdade.",
+    )
+    return redirect("tenancy:painel")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def aceitar_convite(request, token: str):
+    """DL-018 critério 3: usuário autenticado apresenta o token de
+    convite e vira ANALISTA (ou o `papel_inicial` do convite) do
+    escritório. Token está no path da URL para simplicidade da etapa
+    — quando SMTP entrar, o token vem por link no e-mail, e esta
+    rota permanece a mesma.
+    """
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ACEITAR_CONVITE)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect("tenancy:painel")
+
+        try:
+            aceitar_convite_e_criar_vinculo(token=token, usuario=request.user)
+        except ConviteInvalido:
+            messages.error(
+                request,
+                "Convite inexistente, expirado ou já consumido.",
+            )
+            return redirect("tenancy:painel")
+
+        messages.success(
+            request,
+            "Vínculo criado. Use o painel para começar.",
+        )
+        return redirect("tenancy:painel")
+
+    convite = ConviteEscritorio.objects.filter(token=token).first()
+    return render(
+        request,
+        "tenancy/aceitar_convite.html",
+        {"token": token, "convite": convite},
+    )
