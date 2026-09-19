@@ -892,11 +892,23 @@ button:disabled {
 
    Classe PRÓPRIA, não uma regra em `.formulario-periodo .texto-apoio`:
    aquele seletor estrutural também alcançaria o texto de ajuda por campo
-   do Diário e da Razão (mesma marcação, um parágrafo por campo) — essas
-   duas telas não fazem parte desta correção (fora dos arquivos
-   permitidos nesta etapa) e mudar o comportamento delas sem medir não
-   seria correção, seria risco novo. Esta classe só existe onde o
-   template a aplica de propósito. */
+   do Diário e da Razão (mesma marcação, um parágrafo por campo) — na
+   rodada 3 da DL-026 essas duas telas ainda não faziam parte da correção
+   (fora dos arquivos permitidos naquela etapa), e mudar o comportamento
+   delas sem medir não seria correção, seria risco novo. Esta classe só
+   existe onde o template a aplica de propósito.
+
+   BL-287 (etapa própria, depois da DL-026): a restrição acima terminou.
+   `templates/contabilidade/diario.html` e `razao.html` agora aplicam
+   esta MESMA classe, com o MESMO arranjo (parágrafo único, fora de
+   qualquer `.campo`, compartilhado pelos dois campos de data por
+   `aria-describedby`) — era exatamente essa consistência entre telas do
+   módulo que faltava. `lancamento_form.html` também passou a aplicar a
+   classe, mas por outro motivo: aquela tela tem um único campo de data,
+   então não há duplicação de PARÁGRAFO para consolidar — o parágrafo
+   continua dentro do `.campo`, e o `margin-top: 0` só remove a
+   sobreposição com o `gap` do próprio `.campo` (4px, --esp-1), sem
+   ganho de linha (ver o comentário no template). */
 .ajuda-formato-data {
     flex-basis: 100%;
     margin-top: 0;

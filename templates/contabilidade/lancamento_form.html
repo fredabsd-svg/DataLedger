@@ -71,11 +71,35 @@
                 `apps.contabilidade.services` pela view — nenhum número de
                 data escrito neste template.
                 {% endcomment %}
+                {% comment %}
+                BL-287: esta tela tem UM campo de data só ("Data"), não
+                dois como Diário/Razão/Balancete — não existe o mesmo
+                texto repetido duas vezes para consolidar num parágrafo
+                compartilhado, e por isso o `id="id_data_ajuda"` continua
+                próprio deste campo (nada aqui aponta para
+                "id_periodo_ajuda", que não existiria fora de uma tela com
+                filtro de período). O que ERA inconsistente com o resto do
+                módulo era a CONVENÇÃO: as outras telas usam a classe
+                `ajuda-formato-data` (margem superior zerada, porque o
+                espaçamento já vem do `gap` do `.campo`) e esta usava só
+                `texto-apoio`, com margem própria por cima do `gap` —
+                a mesma sobreposição de 4px (--esp-1) que motivou
+                `margin-top: 0` na classe dedicada (ver o comentário dela
+                em base.css). Acrescentar a classe aqui fecha essa
+                diferença sem mudar o texto nem o `id`. Medido: o ganho é
+                de 4px, não de linha — esta tela não tem o problema de
+                LARGURA que forçava o Diário/Razão a quebrar de linha
+                (aqui `.formulario-lancamento` empilha os campos em
+                COLUNA; nenhum parágrafo alarga um `.campo` disputando
+                espaço com um irmão na mesma linha), então o piso de
+                densidade dela não muda por esta correção — ver o
+                relatório da etapa.
+                {% endcomment %}
                 <label for="id_data">Data</label>
                 <input type="date" id="id_data" name="data" value="{{ data_texto }}" required
                        min="{{ data_minima_iso }}" max="{{ data_maxima_iso }}"
                        aria-describedby="id_data_ajuda">
-                <p class="texto-apoio" id="id_data_ajuda">
+                <p class="texto-apoio ajuda-formato-data" id="id_data_ajuda">
                     O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
                     O sistema aceita data de lançamento entre {{ data_minima_ptbr|date:"d/m/Y" }}
                     e {{ data_maxima_ptbr|date:"d/m/Y" }}.

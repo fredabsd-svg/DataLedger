@@ -31,25 +31,31 @@
         <p><em>Esta conta consolida os valores das contas subordinadas a ela.</em></p>
     {% endif %}
 
+    {% comment %}
+    BL-287: mesmo arranjo compartilhado do Balancete e do Diário — ver o
+    comentário completo em diario.html. DE-031/A5 continua sendo o porquê
+    de este texto existir (comentário completo em lancamento_form.html).
+
+    Medição (1280×800, base sintética de 73 contas/60 lançamentos,
+    scripts/semear_base_de_medicao.py): 9 linhas visíveis antes desta
+    correção, topo da primeira linha a 480,9px — ver o relatório da etapa
+    para o número depois.
+    {% endcomment %}
     <form method="get" class="formulario-periodo">
         <div class="campo">
-            {# DE-031/A5: ver o comentário equivalente em lancamento_form.html. #}
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
-                   aria-describedby="id_inicio_ajuda">
-            <p class="texto-apoio" id="id_inicio_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <div class="campo">
             <label for="id_fim">Fim</label>
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
-                   aria-describedby="id_fim_ajuda">
-            <p class="texto-apoio" id="id_fim_ajuda">
-                O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
-            </p>
+                   aria-describedby="id_periodo_ajuda">
         </div>
         <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
     </form>
 
     {% include "contabilidade/_aviso_movimento_fora_do_periodo.html" %}

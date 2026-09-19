@@ -16,6 +16,45 @@ class Escritorio(models.Model):
     ativo = models.BooleanField("ativo", default=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
+    # BL-282: campos de TIMBRE para relatório impresso (Balancete, e Diário/
+    # Razão pelo mesmo caminho de contexto). Decisão de arquitetura do
+    # arquiteto-senior, registrada no pedido desta etapa: timbre é TEXTO
+    # nesta rodada, não imagem — upload de logotipo traz armazenamento de
+    # mídia, validação de tipo de arquivo e isolamento de mídia entre
+    # escritórios, três problemas que não cabem neste item de backlog.
+    # Todos opcionais (`blank=True`): um escritório sem timbre cadastrado
+    # continua imprimindo (com o `nome` no lugar da razão social do timbre —
+    # ver `linhas_do_timbre` abaixo), nunca fica bloqueado por falta de
+    # cadastro.
+    razao_social_no_timbre = models.CharField(
+        "razão social no timbre",
+        max_length=200,
+        blank=True,
+        help_text=(
+            "Nome do escritório como deve sair no cabeçalho dos relatórios "
+            "impressos, quando diferente do nome usado na interface. Em "
+            "branco, o relatório usa o campo 'nome'."
+        ),
+    )
+    endereco_no_timbre = models.CharField(
+        "endereço no timbre",
+        max_length=300,
+        blank=True,
+        help_text="Linha única de endereço para o cabeçalho dos relatórios impressos. Opcional.",
+    )
+    registro_no_timbre = models.CharField(
+        "registro profissional no timbre",
+        max_length=100,
+        blank=True,
+        help_text=(
+            "Registro profissional do escritório (ex.: número de CRC) para o "
+            "cabeçalho dos relatórios impressos. Texto livre nesta rodada — "
+            "o projeto não define máscara nem validação de formato de CRC "
+            "sem confirmação do responsável pelo produto (AGENTS.md: não "
+            "inventar leiaute oficial)."
+        ),
+    )
+
     class Meta:
         verbose_name = "escritório"
         verbose_name_plural = "escritórios"
@@ -23,6 +62,28 @@ class Escritorio(models.Model):
 
     def __str__(self):
         return self.nome
+
+    @property
+    def linhas_do_timbre(self):
+        """Linhas do timbre já prontas para o relatório imprimir, na ordem
+        razão social / endereço / registro profissional — contrato ÚNICO
+        entre servidor e template (BL-282): o template só itera a lista,
+        nunca decide "se vazio usa o nome" por conta própria (essa lógica
+        duplicada em cada tela imprimível era exatamente o risco que este
+        método existe para evitar).
+
+        Nunca devolve lista vazia: quando não há `razao_social_no_timbre`
+        cadastrada, cai para `nome` — todo escritório tem `nome` (campo
+        obrigatório), então o cabeçalho do relatório sempre tem ao menos uma
+        linha. Campos vazios (`endereco_no_timbre`/`registro_no_timbre`) são
+        omitidos, não aparecem como linha em branco.
+        """
+        linhas = [self.razao_social_no_timbre.strip() or self.nome]
+        if self.endereco_no_timbre.strip():
+            linhas.append(self.endereco_no_timbre.strip())
+        if self.registro_no_timbre.strip():
+            linhas.append(self.registro_no_timbre.strip())
+        return linhas
 
 
 class Papel(models.TextChoices):
