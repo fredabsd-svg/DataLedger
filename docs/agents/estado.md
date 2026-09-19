@@ -269,7 +269,8 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 **AGORA, em 2026-09-19:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento — rodada 7.** A rodada 5 foi mesclada na `main` pelo PR #35
+Em validação — rodada 8 integrada e medida, pedindo a sexta auditoria.** A
+rodada 5 foi mesclada na `main` pelo PR #35
 (`d22c580`, `1.630 passed` na árvore combinada), e a branch de trabalho foi
 reiniciada a partir dela. A **rodada 6 foi integrada, medida por mim e
 REPROVADA na quinta auditoria** (`53388c8`): dois ALTOS, os dois na impressão,
