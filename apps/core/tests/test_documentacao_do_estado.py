@@ -188,6 +188,19 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
 # ---------------------------------------------------------------------------
 
 
+# Os seis estados do AGENTS.md §3. Lista fechada de propósito: é o vocabulário
+# que o projeto já decidiu, não uma invenção deste teste.
+ESTADOS_CANONICOS = (
+    "planejada",
+    "em desenvolvimento",
+    "em validação",
+    "bloqueada",
+    "em revisão",
+    "integrada",
+)
+APONTADOR_PARA_O_PROXIMO_PASSO = "Próximo passo"
+
+
 def _cabecalho(texto):
     """O bloco antes da primeira seção `## ` — onde o defeito morava."""
     return texto.split("\n## ", 1)[0]
@@ -204,7 +217,17 @@ def _sem_citacoes(texto):
     return "\n".join(linha for linha in texto.split("\n") if not linha.lstrip().startswith(">"))
 
 
-PADRAO_REVISAO_DA_MAIN = re.compile(r"`main`\s+(?:em|est[áa]\s+em)\s+`[0-9a-f]{7,40}`")
+# BL-324: a versão anterior casava DUAS PREPOSIÇÕES ("em", "está em") e só o
+# cabeçalho — isto é, a FRASE do relatório que a originou. O auditor mediu:
+# com `"(hoje no commit \`8235635\`)"` o defeito voltava com 10 passed.
+#
+# A regra verdadeira não fala de preposição: **revisão de branch não se
+# escreve aqui**, em nenhuma redação, porque ela muda a cada merge — inclusive
+# pelo merge deste documento. Então: qualquer hash entre crases no mesmo
+# PERÍODO que a palavra `main`, em texto corrido, no arquivo inteiro.
+PADRAO_REVISAO_DA_MAIN = re.compile(
+    r"`main`[^.\n]{0,80}`[0-9a-f]{7,40}`|`[0-9a-f]{7,40}`[^.\n]{0,80}`main`"
+)
 
 
 def test_cabecalho_do_estado_nao_fixa_a_revisao_da_main():
@@ -231,11 +254,46 @@ def test_tabela_de_etapas_nao_descreve_estado_de_etapa_em_andamento():
     Sem isto, as duas descrições divergem no dia em que alguém atualiza uma —
     que foi exatamente o que aconteceu com a DL-026 entre a rodada 1 e a 4.
     """
-    ofensoras = [
-        linha.split(" | ")[0].strip("| ")
-        for linha in _texto(ESTADO).split("\n")
-        if linha.startswith("| [DL-") and "Em desenvolvimento" in linha
-    ]
+    # BL-324: a versão anterior procurava a string "Em desenvolvimento" — a
+    # FRASE do relatório. Qualquer outra redação ("Em validação — rodada 2
+    # REPROVADA") passava, e havia um caso vivo no arquivo.
+    #
+    # A regra verdadeira: a célula de estado de uma etapa OU diz um dos estados
+    # canônicos do AGENTS.md §3, e nada mais, OU aponta para o "Próximo passo".
+    # Narrar rodada, parecer e pendência ali é descrever estado em segundo
+    # lugar — que é a duplicação que a instrução permanente de 2026-09-13
+    # proíbe.
+    texto = _texto(ESTADO)
+    # As etapas que o "Próximo passo" descreve — e que, por isso, NÃO podem
+    # ser descritas também na tabela. Para uma etapa concluída não há segundo
+    # lugar, e prosa na célula é legítima.
+    # "Em curso" é a etapa que o bloco **AGORA** nomeia — não toda etapa que
+    # o "Próximo passo" cita de passagem ao contar o histórico. Narrar uma
+    # etapa antiga ali é legítimo; o que não pode é a MESMA etapa ser descrita
+    # nos dois lugares.
+    proximo_passo = texto.split("## Próximo passo", 1)[-1]
+    bloco_agora = re.search(r"\*\*AGORA.*?(?=\n\*\*|\n---|\Z)", proximo_passo, re.S)
+    em_curso = set(re.findall(r"\bDL-\d{3}\b", bloco_agora.group(0) if bloco_agora else ""))
+
+    ofensoras = []
+    for linha in texto.split("\n"):
+        if not linha.startswith("| [DL-"):
+            continue
+        etapa = re.match(r"\| \[(DL-\d{3})\]", linha)
+        if not etapa or etapa.group(1) not in em_curso:
+            continue
+        celula = linha.split(" | ")[-1].strip("| ").strip()
+        if APONTADOR_PARA_O_PROXIMO_PASSO in celula:
+            continue
+        # Estado canônico SOZINHO — não como prefixo. "Em validação — rodada
+        # 2 REPROVADA, com BL-274/275/276 abertos" começa com um estado
+        # canônico e mesmo assim descreve estado em segundo lugar: foi essa
+        # redação que o auditor usou para provar que a guarda anterior casava
+        # a frase do relatório, não a regra.
+        sem_marcacao = re.sub(r"[*_`\[\]]", "", celula).strip().lower().rstrip(".")
+        if sem_marcacao in ESTADOS_CANONICOS:
+            continue
+        ofensoras.append(etapa.group(1))
     assert not ofensoras, (
         "Linhas da tabela de etapas descrevendo estado em andamento: "
         f"{ofensoras}. O estado de uma etapa muda a cada rodada e mora só no "
