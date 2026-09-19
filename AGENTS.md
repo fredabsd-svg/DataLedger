@@ -314,12 +314,42 @@ Regra escrita é pedido; pedido depende de alguém ler. Desde a
 mecanismo**, e a diferença fica declarada aqui para ninguém confundir uma coisa
 com a outra:
 
-| Imposto tecnicamente | Como |
-| --- | --- |
-| Este arquivo entra no contexto de toda sessão do Claude Code na web, antes da primeira ação | Gancho `SessionStart` em `.claude/hooks/session-start.sh` |
-| Pull request só fica verde com o atestado "Li o AGENTS.md" marcado e um plano `DL-xxx` citado | Workflow `Regras do projeto` |
-| Etapa com plano que não apareça no README e em `docs/agents/estado.md` reprova o build | `apps/core/tests/test_documentacao_do_estado.py` |
-| `main` só recebe alteração por PR com as verificações verdes | Proteção da branch no GitHub |
+⚠️ **LEIA A SEGUNDA COLUNA ANTES DE CONFIAR NA PRIMEIRA.** Uma verificação que
+**roda e reprova** não é a mesma coisa que uma verificação que **impede o
+merge** — e a segunda metade, hoje, **não existe**.
+
+| O que acontece | Mecanismo | Impede o merge? |
+| --- | --- | --- |
+| Este arquivo entra no contexto de toda sessão do Claude Code na web, antes da primeira ação | Gancho `SessionStart` em `.claude/hooks/session-start.sh` | **Sim** — não depende de proteção de branch |
+| Pull request fica **vermelho** sem o atestado "Li o AGENTS.md" marcado e sem um plano `DL-xxx` citado | Workflow `Regras do projeto` | ⚠️ **NÃO** — ver abaixo |
+| Etapa com plano que não apareça no README e em `docs/agents/estado.md` **reprova o build** | `apps/core/tests/test_documentacao_do_estado.py` | ⚠️ **NÃO** — ver abaixo |
+| O documento imprimível é medido no **navegador real** e o job fica vermelho se sair sem identificação do emitente | Workflow `Identificação do emitente` ([DL-028](docs/planos/DL-028-o-juiz-aponta-para-o-produto.md)) | ⚠️ **NÃO** — ver abaixo |
+
+⚠️ **A `main` NÃO tem proteção de branch, e isto foi MEDIDO — não presumido.**
+Na nona auditoria
+([relatório](docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md), achado J2),
+o `auditor-qa` leu três endpoints da API do GitHub:
+`GET /branches?protected=true` devolveu `[]`; `GET /rulesets` devolveu `[]`;
+`GET /branches/main` devolveu `"protected": false` com
+`required_status_checks.enforcement_level: "off"`.
+
+**Consequência, dita sem rodeio:** as três linhas marcadas acima **rodam,
+reprovam e avisam** — e **não impedem** que alguém mescle por cima delas
+vermelhas. São **conselho**, não trava.
+
+Até que a proteção esteja ligada e **lida na API**, este arquivo não afirma que
+elas são impostas. A versão anterior desta tabela dizia *"`main` só recebe
+alteração por PR com as verificações verdes — Proteção da branch no GitHub"*, e
+essa linha era **factualmente falsa**. Corrigi-la é obrigação, não cortesia: é
+exatamente o defeito que originou a instrução permanente do Fred de 2026-09-13,
+na sua forma mais grave — **garantia inexistente descrita como imposta**.
+
+**Como ligar, e é ação do responsável pelo produto** (nenhum agente tem acesso
+para ler nem escrever essa configuração): *Settings → Branches → regra para
+`main`* → exigir pull request e marcar como obrigatórias as checagens `Backend`,
+`Documentação`, `Regras do projeto` e `Medir identificação do emitente no
+navegador`. **Como conferir**: `GET /repos/…/branches?protected=true` devolvendo
+`main`, e `required_status_checks.contexts` com os quatro nomes.
 
 **Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
 web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje

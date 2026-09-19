@@ -490,6 +490,58 @@ Refiz as dezessete construções que eu havia guardado nas rodadas 10 e 11:
 **zero falsos conformes**, e as dez da segunda leva continuam 9 recusas + 1
 aprovação.
 
+### A nona auditoria REPROVOU as duas etapas, com dois bloqueadores
+
+Relatório integral em
+[2026-09-19-dl-026-dl-028-rodada-9.md](../auditorias/2026-09-19-dl-026-dl-028-rodada-9.md).
+
+**[BL-372](../projeto/backlog.md) — a décima primeira ocorrência, DENTRO do
+instrumento criado para fechar a décima.** Uma linha de CSS com **token legítimo
+do projeto** — `.conteudo-principal { color: var(--papel-elevado) }` — apaga o
+timbre do papel com `1910 passed` **e** com o job de navegador **verde**. Folha
+A4 rasterizada a 96 dpi: **0 pixels escuros** na faixa do timbre (o controle tem
+1.558), e o corpo do documento intacto com 7.595. As **duas** camadas são cegas à
+mesma classe: a barata por construção declarada, e a caríssima porque
+`pdftotext` lê o **objeto** de texto — tinta branca é um glifo pintado. E o
+limite estava **declarado** em `sonda_visibilidade.py` e foi **herdado em
+silêncio**: a DE-056 item 3 violada no arquivo que nasceu da DE-056.
+
+**[BL-373](../projeto/backlog.md) — a `main` NÃO TEM PROTEÇÃO NENHUMA.** Medido
+pelo auditor em três endpoints. Isso não afeta só o job novo: `Backend`,
+`Documentação` e `Regras do projeto` — inclusive o atestado *"Li o AGENTS.md"* e
+o teste que reprova estado divergente — **também são conselho**. A linha da
+tabela do `AGENTS.md` que afirmava o contrário estava **factualmente falsa**.
+**Corrigi imediatamente** a metade documental, sem esperar nada: a tabela ganhou
+uma coluna **"Impede o merge?"** com **NÃO** onde é NÃO, a evidência dos três
+endpoints, e como ligar e conferir. O `CLAUDE.md` idem.
+
+⚠️ **Mais três ALTAS, todas no item 5 da DE-054:** BL-374 (o nome curto de rota
+não é único — uma tela homônima **desloca** o Balancete real e o job fica
+verde), BL-375 (a base semeada tem **uma** linha de timbre, então o diferencial
+"identificação parcial conta como falha" é um **no-op** na CI) e BL-376
+(`CAMINHOS_VIGIADOS` não cobre `apps/<modulo>/templates/`, que é onde a DL-027
+vai nascer — e as **duas** camadas desligam juntas). Mais BL-377 a BL-385.
+
+**A tese da DL-028 está CONFIRMADA, e o auditor é explícito:** três medições
+**gerais** pegam **nove das dez** construções *sem saber que elas existem*; 3,5 s
+para responder o que 1.800 linhas respondiam pela metade; e ele **não recomenda
+reverter** o caminho A.
+
+### A regra de parada, pela primeira vez em doze rodadas
+
+O auditor aponta uma formulação que, segundo ele, **não tem eixo ao lado**:
+
+> **O oráculo tem de ser o papel, rasterizado.** Não *"está visível segundo o
+> CSS"*, não *"está no texto do PDF"*, não *"o alfa não é zero"* — **tem tinta
+> escura na faixa onde o timbre deveria estar?**
+
+Não existe construção CSS futura que apague tinta do papel e passe por uma
+contagem de pixel. Ele implementou em **12 linhas** para produzir a evidência do
+BL-372. E generaliza: para cada propriedade dos cinco itens da DE-054, escolher
+**um oráculo que não seja derivável do código que ele julga** — é por isso que
+*"débito igual a crédito"* nunca gerou doze rodadas: o oráculo dela é o agregado
+no banco, e sempre foi.
+
 ### ⚠️ Falta UMA ação, e ela é do Fred, na interface do GitHub
 
 **Settings → Branches → regra da `main` → Require status checks**, acrescentar:

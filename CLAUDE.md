@@ -114,9 +114,19 @@ quatro lugares diverge assim que alguém atualiza um.
 
 Parte das regras deixou de ser pedido: gancho de sessão que injeta o
 `AGENTS.md` no contexto, workflow que reprova PR sem atestado de leitura, teste
-que reprova estado divergente, e `main` protegida. O que é imposto e o que é só
-instrução está declarado no fim do [AGENTS.md](AGENTS.md) e no plano
-[DL-014](docs/planos/DL-014-guardas-de-processo.md).
+que reprova estado divergente, e o job que mede o documento imprimível no
+navegador real.
+
+⚠️ **Mas há uma diferença que você precisa saber antes de confiar em qualquer
+uma delas: verificação que RODA e reprova não é verificação que IMPEDE o
+merge.** A `main` **não tem proteção de branch** — medido em três endpoints da
+API do GitHub na nona auditoria
+([J2](docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md)). Então, hoje, as
+verificações ficam vermelhas e **não bloqueiam nada**: são conselho.
+
+A tabela no fim do [AGENTS.md](AGENTS.md) diz, linha por linha, o que impede o
+merge e o que não impede, e como ligar o que falta. **Não presuma imposição a
+partir da existência de um workflow.**
 
 ## Segredos
 
