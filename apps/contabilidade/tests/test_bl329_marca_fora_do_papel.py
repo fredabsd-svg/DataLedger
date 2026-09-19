@@ -509,11 +509,119 @@ def _extrair_bloco_media_print(css):
     return css[: marcador.start()], css[inicio_chaves + 1 : fim], css[fim + 1 :]
 
 
+# ---------------------------------------------------------------------------
+# BL-360 (ALTA da auditoria DL-026, rodada 8 — a nona ocorrência da classe
+# desta etapa: prelúdio (BL-343) → caractere de abertura (BL-351) →
+# GRAMÁTICA DO SELETOR, agora). O auditor furou a correção do BL-351 por um
+# eixo novo: seletor que CASA com a cadeia sem MENCIONAR identificador
+# nenhum dela — `[class]` (seletor de atributo, especificidade real (0,1,0),
+# que `_especificidade` pontuava (0,0)) e `*` (universal) fazem a marca
+# voltar ao papel de verdade (medido em Chromium 1194 + `emulate_media
+# ("print")`) enquanto a guarda aprovava — porque `_composto_casa_com_no`
+# não achava tipo nem classe e `all([])` devolvia verdadeiro por "acaso
+# certo", e `_especificidade` pontuava (0,0) por não saber que `[...]`
+# conta como classe. `:is(...)`/`:where(...)` já reprovavam, mas por
+# ACIDENTE aritmético (`composto.count(":")` contando o `:` de dentro do
+# parêntese como pseudo-classe), não por saber o que `:is` faz.
+#
+# A CORREÇÃO (pedida pelo arquiteto, e é a mesma virada do BL-355): em vez
+# de enumerar o que o motor NÃO sabe ler (lista que cresce para sempre —
+# amanhã alguém escreve `:has(...)` e a lista fica uma auditoria atrás),
+# aparar do composto o que a gramática RECONHECE (tipo, classe,
+# pseudo-classe SIMPLES sem parênteses — a MESMA gramática que
+# `_composto_casa_com_no`/`_especificidade` já assumem) e, se sobrar
+# QUALQUER caractere, recusar julgar. A recusa é ESCOPADA por propriedade
+# de interesse (`_PROPRIEDADES_DE_INTERESSE`): um seletor de atributo que
+# não declara `display` continua irrelevante para esta guarda, do mesmo
+# jeito que sempre foi — o motor nunca precisou entendê-lo.
+# ---------------------------------------------------------------------------
+
+
+def _residuo_nao_reconhecido_do_composto(composto):
+    """Apara de `composto` o que a gramática deste motor RECONHECE — um
+    tipo opcional no início, seguido de qualquer quantidade de `.classe`
+    e `:pseudo-classe-simples` (sem `(` logo depois, que indicaria uma
+    pseudo-classe FUNCIONAL: `:is(`, `:where(`, `:not(`, `:has(`... — este
+    motor não resolve o que está DENTRO dos parênteses, e fingir que sabe
+    seria voltar ao julgamento por acidente que o BL-360 mediu). O que
+    SOBRAR depois de aparar é a resposta: não-vazio significa construção
+    que o motor não sabe LER — seletor de atributo (`[...]`), universal
+    (`*`), pseudo-classe funcional, combinador que não seja espaço
+    (`>`/`+`/`~`, que aparece como um composto próprio depois do
+    `seletor.split()` de `_extrair_regras_flat`/`_identificadores_do_
+    seletor`, ou colado a outro composto sem espaço) — qualquer coisa que
+    a linguagem CSS ganhe amanhã e que ninguém tenha ensinado a este
+    motor hoje."""
+    residuo = re.sub(r"^[a-zA-Z][\w-]*", "", composto, count=1)
+    anterior = None
+    while anterior != residuo:
+        anterior = residuo
+        residuo = re.sub(r"^\.[\w-]+", "", residuo)
+        residuo = re.sub(r"^:[a-zA-Z-][\w-]*(?!\()", "", residuo)
+    return residuo
+
+
+def _seletor_bruto_tem_construcao_nao_modelada(seletor_bruto):
+    """Verdadeiro se ALGUM composto de `seletor_bruto` (dividido em lista
+    por vírgula, depois em compostos por espaço — a MESMA divisão que
+    `_extrair_regras_flat` já faz) tiver resíduo depois de
+    `_residuo_nao_reconhecido_do_composto`."""
+    for seletor in seletor_bruto.split(","):
+        for composto in seletor.split():
+            if _residuo_nao_reconhecido_do_composto(composto):
+                return True
+    return False
+
+
+def _corpo_declara_propriedade_de_interesse(corpo):
+    """Verdadeiro se `corpo` (texto de declarações, `prop: valor;
+    prop2: valor2;`, SEM chave aninhada — chamar sobre `_texto_de_
+    declaracoes_diretas`, nunca sobre um corpo com bloco dentro) tiver
+    alguma declaração cuja propriedade esteja em `_PROPRIEDADES_DE_
+    INTERESSE`. Mesma leitura de `;`/`:` que `_extrair_regras_flat` já
+    usa — não reescrita aqui como uma segunda fonte da verdade sobre o
+    que é uma declaração; só a pergunta booleana que falta para decidir
+    se vale a pena checar a gramática do SELETOR."""
+    for decl in corpo.split(";"):
+        decl = decl.strip()
+        if not decl or ":" not in decl:
+            continue
+        prop, _, _ = decl.partition(":")
+        if prop.strip().lower() in _PROPRIEDADES_DE_INTERESSE:
+            return True
+    return False
+
+
+def _texto_de_declaracoes_diretas(corpo):
+    """`corpo` menos todo evento de nível superior (bloco OU declaração —
+    `_eventos_de_nivel_superior`) — o que SOBRA é só o texto de
+    declaração DIRETA deste nível (CSS Nesting permite um bloco ter
+    declaração direta E regra aninhada ao mesmo tempo, ex. `.cabecalho[x]
+    { display: block; .topo { color: red; } }` — a declaração `display`
+    pertence ao PRELÚDIO externo, não à regra aninhada, e só este recorte
+    a isola corretamente)."""
+    eventos = _eventos_de_nivel_superior(corpo)
+    partes = []
+    cursor = 0
+    for evento in eventos:
+        partes.append(corpo[cursor : evento.inicio])
+        cursor = evento.fim
+    partes.append(corpo[cursor:])
+    return "".join(partes)
+
+
 def _extrair_regras_flat(texto, offset):
     """`texto` sem chave aninhada. `offset` é a posição absoluta no arquivo
     original — preserva a ORDEM verdadeira de declaração, que a cascata CSS
     usa para desempatar especificidade igual. Só guarda regras que declarem
-    `display` — o resto não importa para esta guarda."""
+    `display` — o resto não importa para esta guarda.
+
+    BL-360: antes de aceitar uma regra que declara propriedade de
+    interesse, valida que o SELETOR é feito só de construções que a
+    gramática deste motor reconhece (`_seletor_bruto_tem_construcao_nao_
+    modelada`) — senão reprova pedindo extensão, nomeando o seletor, em
+    vez de pontuar `_especificidade`/`_composto_casa_com_no` errado (ou
+    "por acaso certo") sobre uma construção que eles não sabem ler."""
     regras = []
     for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", texto):
         seletor_bruto = m.group(1).strip()
@@ -535,6 +643,13 @@ def _extrair_regras_flat(texto, offset):
             declaracoes[prop] = _Declaracao(valor=valor.lower(), importante=importante)
         if not declaracoes:
             continue
+        assert not _seletor_bruto_tem_construcao_nao_modelada(seletor_bruto), (
+            f"a simulação de cascata (BL-329/BL-360) encontrou um seletor com "
+            f"construção que ela não sabe LER, declarando propriedade de interesse "
+            f"({', '.join(sorted(declaracoes))}): {seletor_bruto!r} — ela PRECISA SER "
+            f"ESTENDIDA antes de confiar no resultado, em vez de julgar (por acaso "
+            f"certo ou errado) uma gramática que ela não reconhece"
+        )
         for seletor in seletor_bruto.split(","):
             compostos = [c for c in seletor.split() if c]
             if not compostos:
@@ -744,37 +859,60 @@ def _identificadores_do_seletor(seletor_bruto):
 
 
 def _identificadores_mencionados_no_bloco(prelude, corpo):
-    """BL-351: o CORAÇÃO da classificação por conteúdo. Identificadores
-    (classe e tipo) que ESTE bloco — prelúdio MAIS todo seletor aninhado
-    dentro do corpo, em QUALQUER profundidade — pode afetar.
+    """BL-351: o CORAÇÃO da classificação por conteúdo. Devolve
+    `(identificadores, seletor_nao_modelado)`.
 
-    O prelúdio só contribui identificadores quando NÃO é uma at-rule (não
-    começa com `@`): o prelúdio de uma at-rule (`@media (...)`,
-    `@supports (...)`, `@layer nome`) é uma CONDIÇÃO, não um seletor —
-    não referencia nó nenhum da árvore por si só. Já o prelúdio de um
-    bloco de CSS Nesting (`.cabecalho`, `& .cabecalho__topo`) É um
-    seletor de verdade, e conta.
+    `identificadores` — classe e tipo que ESTE bloco — prelúdio MAIS todo
+    seletor aninhado dentro do corpo, em QUALQUER profundidade — pode
+    afetar. O prelúdio só contribui identificadores quando NÃO é uma
+    at-rule (não começa com `@`): o prelúdio de uma at-rule (`@media
+    (...)`, `@supports (...)`, `@layer nome`) é uma CONDIÇÃO, não um
+    seletor — não referencia nó nenhum da árvore por si só. Já o
+    prelúdio de um bloco de CSS Nesting (`.cabecalho`, `&
+    .cabecalho__topo`) É um seletor de verdade, e conta. A RECURSÃO
+    (chamando a si mesma sobre cada bloco de nível superior do `corpo`,
+    via `_eventos_de_nivel_superior`) é o que cobre aninhamento de mais
+    de um nível — ex. `.conteudo-principal { .rodape { .timbre-impressao
+    { display: none } } }`: o identificador `timbre-impressao` só existe
+    no nível MAIS interno, e só chega até aqui porque cada chamada desce
+    mais um nível em vez de examinar só o prelúdio externo.
 
-    A RECURSÃO (chamando a si mesma sobre cada bloco de nível superior do
-    `corpo`, via `_eventos_de_nivel_superior`) é o que cobre aninhamento
-    de mais de um nível — ex. `.conteudo-principal { .rodape {
-    .timbre-impressao { display: none } } }`: o identificador
-    `timbre-impressao` só existe no nível MAIS interno, e só chega até
-    aqui porque cada chamada desce mais um nível em vez de examinar só o
-    prelúdio externo."""
+    `seletor_nao_modelado` — BL-360 (achado ALTA da auditoria DL-026,
+    rodada 8): o primeiro seletor, entre este nível e QUALQUER nível
+    aninhado abaixo dele, que (a) não é prelúdio de at-rule, (b) DECLARA
+    diretamente alguma propriedade de interesse (`_corpo_declara_
+    propriedade_de_interesse` sobre `_texto_de_declaracoes_diretas` — não
+    sobre `corpo` inteiro, que pode ter regra aninhada misturada com
+    declaração direta) e (c) tem construção que a gramática deste motor
+    não reconhece (`_seletor_bruto_tem_construcao_nao_modelada`) — ou
+    `None` se nenhum existir. Um bloco com `seletor_nao_modelado`
+    NÃO PODE ser provado irrelevante por identificador: o motor não sabe
+    LER aquele seletor, então não pode afirmar que ele não afeta a
+    cadeia — a mesma razão pela qual `_extrair_regras_flat` reprova a
+    forma FLAT do mesmo problema."""
     identificadores = set()
+    seletor_nao_modelado = None
     if prelude and not prelude.startswith("@"):
         identificadores |= _identificadores_do_seletor(prelude)
+        if _corpo_declara_propriedade_de_interesse(
+            _texto_de_declaracoes_diretas(corpo)
+        ) and _seletor_bruto_tem_construcao_nao_modelada(prelude):
+            seletor_nao_modelado = prelude
     for evento in _eventos_de_nivel_superior(corpo):
         if isinstance(evento, _EventoBloco):
-            identificadores |= _identificadores_mencionados_no_bloco(evento.prelude, evento.corpo)
+            sub_identificadores, sub_residuo = _identificadores_mencionados_no_bloco(
+                evento.prelude, evento.corpo
+            )
+            identificadores |= sub_identificadores
+            if seletor_nao_modelado is None:
+                seletor_nao_modelado = sub_residuo
         # _EventoDeclaracao aninhada (@import/@charset dentro de um
         # bloco — inválido em CSS de verdade, mas não é este motor quem
         # valida sintaxe) não tem seletor para contribuir; o CHAMADOR de
         # nível superior já reprova qualquer declaração encontrada em
         # `_preparar_para_simulacao`, então uma declaração aninhada nunca
         # chega a decidir relevância sozinha.
-    return identificadores
+    return identificadores, seletor_nao_modelado
 
 
 def _identificadores_de_interesse(cadeia):
@@ -849,10 +987,21 @@ def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total, cadeia):
           falso alarme do BL-353 (`@media (max-width: 48rem) {
           .tabela-dados { display: block } }`, que não menciona marca
           nem timbre) sem alargar exceção nenhuma.
+       c. BL-360: mesmo sem interseção de identificadores, um bloco cujo
+          `seletor_nao_modelado` não é `None` (alguma regra interna
+          declara propriedade de interesse com um seletor que a
+          gramática deste motor não sabe ler — `[atributo]`, `*`,
+          `:is(`/`:where(`/`:not(`, combinador diferente de espaço)
+          TAMBÉM reprova pedindo extensão: "não menciona identificador
+          conhecido" não é a mesma coisa que "comprovadamente
+          irrelevante" quando o motor não sabe LER o seletor em primeiro
+          lugar — ele pode CASAR com a cadeia sem MENCIONAR nada dela
+          (`[class]` casa com todo elemento que tenha alguma classe,
+          sem nomear nenhuma).
 
     Um bloco com uma regra irrelevante E uma relevante é RELEVANTE —
-    basta uma casar para reprovar (a interseção de conjuntos já garante
-    isso: um único identificador em comum é suficiente)."""
+    basta uma casar (por identificador OU por seletor não modelado) para
+    reprovar."""
     eventos = _eventos_de_nivel_superior(texto)
 
     declaracoes = [e for e in eventos if isinstance(e, _EventoDeclaracao)]
@@ -884,18 +1033,24 @@ def _preparar_para_simulacao(texto, *, onde, exigir_ausencia_total, cadeia):
         if _prelude_e_media_screen_puro(evento.prelude):
             limpo = limpo[: evento.inicio] + limpo[evento.fim :]
             continue
-        identificadores_do_bloco = _identificadores_mencionados_no_bloco(
+        identificadores_do_bloco, seletor_nao_modelado = _identificadores_mencionados_no_bloco(
             evento.prelude, evento.corpo
         )
+        if seletor_nao_modelado is not None:
+            a_reprovar.append(
+                f"{evento.prelude!r} (seletor não modelado: {seletor_nao_modelado!r})"
+            )
+            continue
         if identificadores_do_bloco & identificadores_de_interesse:
             a_reprovar.append(evento.prelude)
             continue
         limpo = limpo[: evento.inicio] + limpo[evento.fim :]
 
     assert not a_reprovar, (
-        f"a simulação de cascata (BL-329/BL-333/BL-343/BL-351) encontrou bloco(s) "
-        f"aninhado(s) {onde} cujo conteúdo MENCIONA identificador(es) da cadeia de "
-        f"interesse e que não são a exceção nomeada '@media screen': "
+        f"a simulação de cascata (BL-329/BL-333/BL-343/BL-351/BL-360) encontrou "
+        f"bloco(s) aninhado(s) {onde} que não são a exceção nomeada '@media screen' "
+        f"e que, ou MENCIONAM identificador(es) da cadeia de interesse, ou declaram "
+        f"propriedade de interesse com um seletor que a gramática não sabe LER: "
         f"{a_reprovar!r} — ela PRECISA SER ESTENDIDA antes de confiar no resultado, "
         f"em vez de assumir (silenciosamente) que são irrelevantes"
     )
@@ -1505,4 +1660,144 @@ def test_bloco_irrelevante_por_conteudo_nao_reprova(tmp_path, rotulo, at_rule, s
     assert removido is True, (
         f"{rotulo}: bloco irrelevante por conteúdo não deveria fazer a guarda "
         f"reprovar nem deixar de detectar a ocultação real da marca"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-360 (ALTA da auditoria DL-026, rodada 8,
+# docs/auditorias/2026-09-19-dl-026-rodada-8.md): o auditor furou o BL-351
+# por outro eixo — seletor que CASA com a cadeia sem MENCIONAR
+# identificador nenhum dela. Medido em Chromium 1194 real, com
+# `emulate_media("print")`, sobre a cadeia real da marca e o `base.css`
+# real: `[class] { display: block }` e `@media (min-width: 1px) { [class]
+# { display: block } }` faziam a marca voltar ao PAPEL DE VERDADE enquanto
+# a guarda aprovava. A correção: `_residuo_nao_reconhecido_do_composto`
+# apara do composto o que a gramática RECONHECE e recusa julgar sobre o
+# que sobra — nunca enumera o que ela NÃO reconhece.
+# ---------------------------------------------------------------------------
+
+
+def test_bl360_sem_sabotagem_continua_aprovando():
+    """Controle (linha 1 da tabela do BL-360, sem sabotagem nenhuma): a
+    guarda continua aprovando o `base.css` real — prova de que a recusa
+    por gramática não modelada não virou falso alarme."""
+    _, cadeia = _cadeia_da_marca()
+    removido, _ = _algum_ancestral_removido_do_papel(cadeia, _BASE_CSS.read_text(encoding="utf-8"))
+    assert removido is True, (
+        "controle: o CSS real precisa continuar aprovando SEM sabotagem nenhuma"
+    )
+
+
+def test_bl360_base_css_real_nao_tem_seletor_nao_modelado_com_display():
+    """Confirmação PRÓPRIA (o arquiteto pediu: "confira esse número você
+    mesmo antes de confiar nele") de que a recusa por gramática não
+    modelada dispara ZERO vezes sobre o `static/css/base.css` REAL hoje —
+    os cinco seletores de atributo (`[tabindex]`, `a[aria-current=...]`,
+    `th[scope=...]`, `input[type="date"]`, `input[name^="valor_"]`) e o
+    universal (`*`) que o arquivo tem HOJE não declaram `display` nenhum.
+    Varre TODO bloco do arquivo (dentro e fora do `@media print`,
+    recursivamente) e conta quantas regras declaram propriedade de
+    interesse com seletor de gramática não reconhecida — precisa ser
+    ZERO. Se este teste um dia falhar, é porque `base.css` mudou, não
+    porque a guarda está errada; PARE e avise, não alargue a recusa."""
+    css_texto = _remover_comentarios(_BASE_CSS.read_text(encoding="utf-8"))
+
+    def _contar_seletores_nao_modelados_com_interesse(texto):
+        total = 0
+        for evento in _eventos_de_nivel_superior(texto):
+            if isinstance(evento, _EventoBloco):
+                if (
+                    not evento.prelude.startswith("@")
+                    and _corpo_declara_propriedade_de_interesse(
+                        _texto_de_declaracoes_diretas(evento.corpo)
+                    )
+                    and _seletor_bruto_tem_construcao_nao_modelada(evento.prelude)
+                ):
+                    total += 1
+                total += _contar_seletores_nao_modelados_com_interesse(evento.corpo)
+        return total
+
+    total = _contar_seletores_nao_modelados_com_interesse(css_texto)
+    assert total == 0, (
+        f"esperava ZERO seletores não modelados declarando propriedade de interesse "
+        f"no base.css real, e achei {total} — o número mudou; confira ANTES de "
+        f"confiar nele, não alargue a recusa por conveniência"
+    )
+
+
+@pytest.mark.parametrize(
+    "rotulo,bloco_css",
+    [
+        (
+            "universal dentro de @layer nomeada (relatório do auditor)",
+            "@layer tardio {\n    * {\n        display: block;\n    }\n}\n",
+        ),
+        (
+            "seletor de atributo, nível superior (relatório do auditor)",
+            "[class] {\n    display: block;\n}\n",
+        ),
+        (
+            "pseudo-classe funcional :where (relatório do auditor)",
+            ":where(.cabecalho__topo) {\n    display: block;\n}\n",
+        ),
+        (
+            "pseudo-classe funcional :is (relatório do auditor)",
+            ":is(.cabecalho__topo, .rodape) {\n    display: block;\n}\n",
+        ),
+        (
+            "seletor de atributo dentro de @media real (relatório do auditor)",
+            "@media (min-width: 1px) {\n    [class] {\n        display: block;\n    }\n}\n",
+        ),
+        (
+            "combinador filho '>' (DE-055)",
+            ".cabecalho > .cabecalho__topo {\n    display: flex;\n}\n",
+        ),
+        (
+            "pseudo-classe funcional :not (DE-055)",
+            ".cabecalho__topo:not(.oculto) {\n    display: flex;\n}\n",
+        ),
+    ],
+)
+def test_bl360_seletor_nao_modelado_com_propriedade_de_interesse_reprova(
+    tmp_path, rotulo, bloco_css
+):
+    """BL-360: as CINCO construções da tabela do achado (Chromium 1194 +
+    `emulate_media("print")` reais) mais as DUAS de DE-055 — todas
+    declaram `display` com um seletor que a gramática deste motor não
+    reconhece (seletor de atributo, universal, pseudo-classe funcional,
+    combinador diferente de espaço). Precisam recusar julgar (`PRECISA
+    SER ESTENDIDA`), nomeando o seletor — nunca aprovar por acidente
+    aritmético nem por `all([])` de uma lista vazia de exigências."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    assert css_mutado != css_original, "controle: a mutação precisa mudar o conteúdo"
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+
+
+def test_bl360_seletor_de_atributo_sem_propriedade_de_interesse_nao_reprova(tmp_path):
+    """DE-055 — construção MINHA: `.tabela-dados input[type="date"] {
+    border: 0 }` tem seletor de atributo (gramática não modelada), mas
+    NÃO declara `display`. A recusa é ESCOPADA por propriedade de
+    interesse (item 4 do pedido do arquiteto): este seletor continua
+    irrelevante para a guarda, do jeito que sempre foi — ela nunca
+    precisou entender a gramática de uma propriedade que não julga.
+    Prova de que a correção não vira o `base.css` real vermelho."""
+    _, cadeia = _cadeia_da_marca()
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    bloco_css = '.tabela-dados input[type="date"] {\n    border: 0;\n}\n'
+    caminho_mutado = tmp_path / "base-mutado.css"
+    css_mutado = css_original + "\n\n" + bloco_css
+    caminho_mutado.write_text(css_mutado, encoding="utf-8")
+
+    removido, _ = _algum_ancestral_removido_do_papel(cadeia, css_mutado)
+    assert removido is True, (
+        "seletor de atributo que NÃO declara propriedade de interesse não deveria "
+        "fazer a guarda recusar julgar nem deixar de detectar a ocultação real"
     )

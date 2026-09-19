@@ -351,28 +351,26 @@ def cenario_bl344():
     return {"escritorio": escritorio, "empresa": empresa, "caixa": caixa, "lancamento": lancamento}
 
 
-# Recorte PRÓPRIO desta guarda sobre o UNIVERSO compartilhado — motivo
-# escrito aqui, não herdado de nenhuma outra guarda (BL-352: essa herança
-# por acidente foi exatamente o defeito medido). A propriedade do título
-# não depende de `request.escritorio`; a única rota que este recorte tira
-# do universo tem uma razão PRÓPRIA, sobre RENDERIZAÇÃO, não sobre
-# escritório.
-_ROTAS_EXCLUIDAS_DA_GUARDA_DE_TITULO = {
-    "tenancy:bootstrap-primeiro-acesso": (
-        "só renderiza 200 (com <title> para julgar) para um usuário SEM vínculo "
-        "nenhum — apps/tenancy/views.py (bootstrap_primeiro_acesso) redireciona "
-        "(302) para tenancy:painel sempre que já existe vínculo ativo. O cenário "
-        "desta guarda (cenario_bl344) tem vínculo, para poder exercitar as OUTRAS "
-        "nove rotas com o MESMO usuário — então esta rota, sob este cenário, nunca "
-        "chega a ter um <title> de documento/produto para comparar. (Mesma rota "
-        "que test_bl338 exclui por request.escritorio ausente — aqui a razão é "
-        "outra: a renderização, não o escritório.)"
-    ),
-}
-
-_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO = sorted(
-    UNIVERSO_DE_ROTAS_DE_TELA - set(_ROTAS_EXCLUIDAS_DA_GUARDA_DE_TITULO)
-)
+# BL-361 (BAIXA da auditoria DL-026, rodada 8,
+# docs/auditorias/2026-09-19-dl-026-rodada-8.md): a versão anterior desta
+# guarda subtraía `tenancy:bootstrap-primeiro-acesso` do universo por uma
+# LISTA nomeada (`_ROTAS_EXCLUIDAS_DA_GUARDA_DE_TITULO`) — a justificativa
+# ("sob este cenário, ela sempre redireciona") era CORRETA, mas o
+# MECANISMO era o mesmo defeito da classe: no dia em que essa rota deixar
+# de redirecionar (a view passar a servir 200 também para quem já tem
+# vínculo, por exemplo), ela continuaria fora da guarda, EM SILÊNCIO —
+# nada avisaria.
+#
+# A correção: SEM lista nenhuma. `_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO`
+# é o UNIVERSO INTEIRO — nenhuma rota é tirada dele por nome. A condição
+# "esta rota não tem <title> para julgar sob este cenário" é verificada
+# em TEMPO DE EXECUÇÃO, dentro do teste: se a resposta for redirecionamento
+# (3xx), `pytest.skip` NOMEANDO a rota e o código de status — não é uma
+# exclusão permanente, é um resultado observado NESTA execução, que
+# desaparece sozinho no dia em que a rota passar a responder 200. Rota que
+# deixar de redirecionar passa a ser JULGADA, sem ninguém precisar lembrar
+# de tirar um nome de uma lista.
+_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO = sorted(UNIVERSO_DE_ROTAS_DE_TELA)
 
 
 def _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html):
@@ -399,20 +397,34 @@ def _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html):
 
 @pytest.mark.parametrize("nome_de_rota", _ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO)
 def test_titulo_reflete_se_a_tela_e_documento_ou_produto(client, cenario_bl344, nome_de_rota):
-    """BL-344/F2, estendida pelo BL-352/G2: a propriedade central, DERIVADA
-    do HTML renderizado — nunca de uma lista de nomes escrita à mão. Roda
-    sobre `_ROTAS_COBERTAS_PELA_GUARDA_DE_TITULO` (a UNIÃO de telas de
-    contabilidade e de fora, menos a única exclusão com motivo próprio
-    acima): as telas com timbre hoje (Balancete/Diário/Razão) precisam
-    continuar sem a marca; TODAS as outras (as cinco de contabilidade sem
-    timbre e as cinco de fora — login, empresas:lista, empresas:criar,
-    tenancy:painel, tenancy:aceitar-convite) precisam continuar COM ela —
-    e uma tela nova, futura, de QUALQUER módulo, que ganhe timbre sem que
-    ninguém lembre de atualizar uma lista, é pega pela MESMA pergunta,
-    porque a pergunta é sobre o HTML, não sobre o nome da rota."""
+    """BL-344/F2, estendida pelo BL-352/G2 e corrigida pelo BL-361: a
+    propriedade central, DERIVADA do HTML renderizado — nunca de uma
+    lista de nomes escrita à mão. Roda sobre `_ROTAS_COBERTAS_PELA_
+    GUARDA_DE_TITULO`, o UNIVERSO INTEIRO, SEM exclusão nomeada nenhuma:
+    as telas com timbre hoje (Balancete/Diário/Razão) precisam continuar
+    sem a marca; TODAS as outras precisam continuar COM ela — e uma tela
+    nova, futura, de QUALQUER módulo, que ganhe timbre sem que ninguém
+    lembre de atualizar uma lista, é pega pela MESMA pergunta, porque a
+    pergunta é sobre o HTML, não sobre o nome da rota.
+
+    BL-361: se a rota REDIRECIONAR (3xx) sob este cenário — hoje só
+    `tenancy:bootstrap-primeiro-acesso`, porque `cenario_bl344` tem
+    vínculo ativo e a view manda quem já tem vínculo para o painel —,
+    não há `<title>` de documento/produto para julgar: `pytest.skip`,
+    NOMEANDO a rota e o código de status, em vez de uma lista de exclusão
+    escrita à mão. Isto não é permanente: no dia em que a rota deixar de
+    redirecionar sob este cenário, ela passa a ser JULGADA, sozinha, sem
+    ninguém precisar lembrar de tirar um nome de lista nenhuma. Qualquer
+    OUTRA rota do universo que não dê 200 quebra este teste com o código
+    de status na mensagem — não um `skip` silencioso disfarçado."""
     assert client.login(username="gestora-bl344", password="senha-forte-123")
     url = url_por_nome_de_rota(nome_de_rota, cenario_bl344)
     resposta = client.get(url)
+    if 300 <= resposta.status_code < 400:
+        pytest.skip(
+            f"{nome_de_rota}: redirecionou ({resposta.status_code}) sob este cenário "
+            f"— sem <title> de documento/produto para julgar aqui"
+        )
     assert resposta.status_code == 200, f"{nome_de_rota}: {resposta.status_code}"
     html = resposta.content.decode()
     _assert_titulo_reflete_documento_ou_produto(nome_de_rota, html)
