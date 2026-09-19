@@ -6,33 +6,32 @@ name: Identificação do emitente
 # — a pergunta que a fatia 1 mediu que a suíte `pytest` sozinha (simulação
 # de cascata CSS, sem navegador) não garante.
 #
-# Delimitado por `paths:` de propósito (a delimitação é do arquiteto-senior,
-# não do Fred): o job abre um Chromium de verdade, e isso tem custo. Só
-# roda quando muda o que pode QUEBRAR a garantia — CSS, templates, o
-# instrumento em si, a base semeada que ele usa, ou as guardas de impressão
-# simuladas que continuam sendo a primeira linha barata. Alteração só de
-# documentação, ou de código de produto que não seja impressão (ex.:
-# `apps/contabilidade/services.py`), não paga navegador nenhum — filtro
-# ESTREITO e ampliável de propósito, para não virar um filtro largo que a
-# equipe aprenda a ignorar.
+# BL-371 (arquiteto-senior, ALTA): a delimitação por caminho NÃO pode mais
+# viver em `on.push.paths`/`on.pull_request.paths`. Um job assim EXISTE só
+# quando o caminho bate — GitHub trata checagem OBRIGATÓRIA que nunca
+# reporta num PR (ex.: de documentação) como PENDENTE PARA SEMPRE, travando
+# o merge sem erro nenhum para investigar. E sem exigir a checagem, o
+# resultado dela é CONSELHO, não trava — o oposto do motivo de o Fred ter
+# escolhido o caminho A (mecanismo em vez de disciplina).
+#
+# A correção: o job roda SEMPRE (`on: push`/`pull_request`/
+# `workflow_dispatch`, sem `paths:`) e a decisão "os caminhos vigiados
+# mudaram?" vira um PASSO dele — "Decidir se os caminhos vigiados mudaram",
+# abaixo —, que roda primeiro, é barato (só `git diff` + comparação de
+# padrão, nenhuma instalação), e SEMPRE reporta um motivo no log. Quando a
+# resposta é "não", os passos caros (Playwright, poppler-utils, lint,
+# migração, medição) são PULADOS via `if:` — aparecem como "skipped" no
+# job, não ficam ausentes —, e o job termina VERDE. Isso permite exigir
+# esta checagem na proteção da `main` sem travar PR nenhum que não mexa em
+# impressão.
+#
+# `CAMINHOS_VIGIADOS`, dentro do passo de decisão, é a ÚNICA lista de
+# padrões deste arquivo — não existe mais cópia em `on:` para divergir
+# dela (BL-352: duas listas que nascem juntas divergem no commit que as
+# cria).
 on:
   push:
-    paths: &caminhos-vigiados
-      - 'static/css/**'
-      - 'templates/**'
-      - 'docs/assets/design/gauntlet/**'
-      - 'scripts/medir_identificacao_do_emitente.py'
-      - 'scripts/test_medir_identificacao_do_emitente.py'
-      - 'scripts/medir_impressao.py'
-      - 'scripts/semear_base_de_medicao.py'
-      - 'apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py'
-      - 'apps/contabilidade/tests/test_bl331_timbre_do_escritorio_no_papel.py'
-      - 'apps/contabilidade/tests/test_bl282_timbre_de_impressao.py'
-      - 'apps/tenancy/tests/test_bl282_timbre_escritorio.py'
-      - 'requirements/dev.txt'
-      - '.github/workflows/identificacao-do-emitente.yml'
   pull_request:
-    paths: *caminhos-vigiados
   workflow_dispatch:
 
 permissions:
@@ -57,7 +56,7 @@ jobs:
     # motivo alheio ao código. O timeout do JOB inteiro é a rede de
     # segurança de último recurso — a distinção fina (infraestrutura vs.
     # conteúdo) é feita pelo CÓDIGO DE SAÍDA do instrumento, no passo
-    # "Medir identificação do emitente", abaixo.
+    # "Medir identificação do emitente", mais abaixo.
     timeout-minutes: 15
     services:
       db:
@@ -76,6 +75,13 @@ jobs:
     steps:
       - name: Obter repositório
         uses: actions/checkout@v4
+        with:
+          # BL-371: o passo de decisão precisa de `git diff` contra a base
+          # (pull_request) ou o commit anterior (push) — um checkout raso
+          # (padrão: 1 commit) não tem esse histórico. `0` = histórico
+          # completo; custo aceito de propósito, é o preço de a decisão
+          # rodar DENTRO do job em vez de fora dele.
+          fetch-depth: 0
 
       - name: Configurar Python
         id: setup-python
@@ -85,7 +91,143 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements/dev.txt
 
+      # BL-371: único lugar deste arquivo com a lista de padrões — os
+      # passos caros, abaixo, só leem o RESULTADO (`steps.decidir.outputs.
+      # relevante`), nunca uma segunda cópia da lista. Só `stdlib` (os, re,
+      # subprocess): não depende de `pip install` ter rodado, então pode
+      # vir ANTES dele e decidir se ele é necessário.
+      - name: Decidir se os caminhos vigiados mudaram
+        id: decidir
+        shell: python
+        env:
+          NOME_DO_EVENTO: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ANTES_SHA: ${{ github.event.before }}
+          DEPOIS_SHA: ${{ github.sha }}
+        run: |
+          import os
+          import re
+          import subprocess
+          import sys
+
+          # ÚNICA lista de padrões deste workflow (ver o comentário no
+          # topo do arquivo) — o job abre um Chromium de verdade, e isso
+          # tem custo; só vale a pena quando muda o que pode QUEBRAR a
+          # garantia. Filtro ESTREITO e ampliável de propósito (decisão do
+          # arquiteto-senior), para não virar um filtro largo que a
+          # equipe aprenda a ignorar.
+          CAMINHOS_VIGIADOS = [
+              "static/css/**",
+              "templates/**",
+              "docs/assets/design/gauntlet/**",
+              "scripts/medir_identificacao_do_emitente.py",
+              "scripts/test_medir_identificacao_do_emitente.py",
+              "scripts/medir_impressao.py",
+              "scripts/semear_base_de_medicao.py",
+              "apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py",
+              "apps/contabilidade/tests/test_bl331_timbre_do_escritorio_no_papel.py",
+              "apps/contabilidade/tests/test_bl282_timbre_de_impressao.py",
+              "apps/tenancy/tests/test_bl282_timbre_escritorio.py",
+              "requirements/dev.txt",
+              ".github/workflows/identificacao-do-emitente.yml",
+          ]
+
+          # Sintaxe documentada do GitHub para `paths:` — `**` casa zero
+          # ou mais diretórios (inclusive `/`); `*` casa qualquer coisa
+          # MENOS `/`; `?` casa um caractere que não seja `/`. Reimplementada
+          # aqui porque a decisão saiu de `on.paths` (que já fazia isto por
+          # conta própria) para dentro do job — ver o comentário do topo do
+          # arquivo sobre o porquê.
+          def padrao_para_regex(padrao):
+              partes = []
+              i = 0
+              while i < len(padrao):
+                  if padrao[i : i + 2] == "**":
+                      partes.append(".*")
+                      i += 2
+                  elif padrao[i] == "*":
+                      partes.append("[^/]*")
+                      i += 1
+                  elif padrao[i] == "?":
+                      partes.append("[^/]")
+                      i += 1
+                  else:
+                      partes.append(re.escape(padrao[i]))
+                      i += 1
+              return re.compile("^" + "".join(partes) + "$")
+
+          def bate(padroes_compilados, arquivo):
+              return any(p.match(arquivo) for p in padroes_compilados)
+
+          evento = os.environ["NOME_DO_EVENTO"]
+          arquivos = None  # None = sem intervalo para comparar; tratado como RELEVANTE
+
+          if evento == "pull_request":
+              base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+              intervalo = f"{base}...{head}"
+          elif evento == "push":
+              antes, depois = os.environ["ANTES_SHA"], os.environ["DEPOIS_SHA"]
+              # `before` vem só de zeros no PRIMEIRO push de uma branch nova
+              # (não há commit anterior para comparar) — sem intervalo,
+              # tratado como relevante (o lado seguro: medir de mais nunca
+              # aprova documento sem emitente por engano; medir de menos,
+              # sim).
+              intervalo = None if set(antes) <= {"0"} else f"{antes}...{depois}"
+          else:
+              # workflow_dispatch (ou evento futuro sem base natural para
+              # comparar): disparo MANUAL, tratado como pedido explícito de
+              # rodar a medição de verdade.
+              intervalo = None
+
+          if intervalo is not None:
+              saida = subprocess.run(
+                  ["git", "diff", "--name-only", intervalo],
+                  capture_output=True,
+                  text=True,
+              )
+              if saida.returncode == 0:
+                  arquivos = [linha for linha in saida.stdout.splitlines() if linha]
+              else:
+                  print(
+                      f"AVISO: 'git diff {intervalo}' falhou (código "
+                      f"{saida.returncode}): {saida.stderr.strip()!r} — "
+                      "tratando como RELEVANTE (lado seguro)."
+                  )
+
+          if arquivos is None:
+              relevante = True
+              motivo = (
+                  f"evento {evento!r} sem intervalo de diff para comparar "
+                  "(disparo manual, primeiro push de uma branch, ou falha ao "
+                  "obter o diff) — rodando a medição completa, lado seguro."
+              )
+          else:
+              padroes_compilados = [padrao_para_regex(p) for p in CAMINHOS_VIGIADOS]
+              batidas = sorted(a for a in arquivos if bate(padroes_compilados, a))
+              relevante = bool(batidas)
+              if relevante:
+                  motivo = (
+                      f"{len(batidas)} de {len(arquivos)} arquivo(s) alterado(s) "
+                      f"batem com os caminhos vigiados: {', '.join(batidas)}"
+                  )
+              else:
+                  motivo = (
+                      f"nenhum dos {len(arquivos)} arquivo(s) alterado(s) bate com "
+                      f"os {len(CAMINHOS_VIGIADOS)} caminhos vigiados — pulando "
+                      "Playwright, poppler-utils e a medição no navegador. "
+                      "Arquivo(s) alterado(s): "
+                      f"{', '.join(arquivos) if arquivos else '(nenhum)'}"
+                  )
+
+          print(f"relevante={relevante}")
+          print(f"motivo: {motivo}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as saida_do_passo:
+              saida_do_passo.write(f"relevante={'true' if relevante else 'false'}\n")
+
       - name: Instalar dependências (inclui Playwright — DL-028 fatia 2, DE-057)
+        if: steps.decidir.outputs.relevante == 'true'
         run: pip install -r requirements/dev.txt
 
       # Cache do BINÁRIO do Chromium baixado pelo Playwright — separado do
@@ -95,6 +237,7 @@ jobs:
       # `playwright install` baixa de novo em vez de usar um binário
       # incompatível silenciosamente.
       - name: Cache do navegador do Playwright
+        if: steps.decidir.outputs.relevante == 'true'
         uses: actions/cache@v4
         id: cache-playwright
         with:
@@ -104,37 +247,44 @@ jobs:
       # Instala o Chromium pelo GERENCIADOR do Playwright — nunca caminho
       # fixo (DE-057, restrição que atravessa as duas fatias). `--with-deps`
       # também instala as bibliotecas de sistema que o Chromium precisa;
-      # roda sempre (barato em cache-hit: o Playwright confere o que já
-      # está presente e não baixa de novo).
+      # roda sempre que o passo de decisão achar relevante (barato em
+      # cache-hit: o Playwright confere o que já está presente e não baixa
+      # de novo).
       - name: Instalar o Chromium do Playwright
+        if: steps.decidir.outputs.relevante == 'true'
         run: playwright install --with-deps chromium
 
-      # BL-370 (achado do arquiteto-senior sobre a primeira execução
-      # real deste job, commits 8a06038/fc1bef3): faltava esta dependência
-      # de SISTEMA, e o job morreu no passo de medição com "pdfinfo,
-      # pdftotext (poppler-utils) não encontrado(s) no PATH". `--with-deps`
-      # do Playwright (passo acima) instala só as bibliotecas do PRÓPRIO
-      # Chromium — NÃO cobre poppler-utils, que é um pacote não relacionado
-      # (conferido: são dependências distintas, não presuma que uma cobre a
-      # outra). `pdfinfo`/`pdftotext` são usados por
-      # `scripts/medir_impressao.py` (reaproveitado por
-      # `scripts/medir_identificacao_do_emitente.py`) DE PROPÓSITO, para não
-      # acrescentar biblioteca Python de PDF a `requirements/` — a escolha
-      # continua certa; o que faltava era instalar a dependência de SISTEMA
-      # aqui, no job, não trocar a escolha.
+      # BL-370 (achado do arquiteto-senior sobre a primeira execução real
+      # deste job): faltava esta dependência de SISTEMA, e o job morreu no
+      # passo de medição com "pdfinfo, pdftotext (poppler-utils) não
+      # encontrado(s) no PATH". `--with-deps` do Playwright (passo acima)
+      # instala só as bibliotecas do PRÓPRIO Chromium — NÃO cobre
+      # poppler-utils, que é um pacote não relacionado (conferido: são
+      # dependências distintas, não presuma que uma cobre a outra).
+      # `pdfinfo`/`pdftotext` são usados por `scripts/medir_impressao.py`
+      # (reaproveitado por `scripts/medir_identificacao_do_emitente.py`) DE
+      # PROPÓSITO, para não acrescentar biblioteca Python de PDF a
+      # `requirements/` — a escolha continua certa; o que faltava era
+      # instalar a dependência de SISTEMA aqui, no job, não trocar a
+      # escolha.
       - name: Instalar poppler-utils (pdfinfo/pdftotext)
+        if: steps.decidir.outputs.relevante == 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Lint (ruff check)
+        if: steps.decidir.outputs.relevante == 'true'
         run: ruff check .
 
       - name: Formatação (ruff format)
+        if: steps.decidir.outputs.relevante == 'true'
         run: ruff format --check .
 
       - name: Verificação do Django (system check)
+        if: steps.decidir.outputs.relevante == 'true'
         run: python manage.py check
 
       - name: Migrações aplicam no banco de medição
+        if: steps.decidir.outputs.relevante == 'true'
         run: python manage.py migrate --no-input
 
       # DL-028 fatia 2: testes das funções PURAS do instrumento (sem
@@ -146,9 +296,11 @@ jobs:
       # contrato de código de saída (infra vs. conteúdo, BL-356) está
       # testado.
       - name: Testes das funções puras do instrumento
+        if: steps.decidir.outputs.relevante == 'true'
         run: pytest -q scripts/test_medir_identificacao_do_emitente.py
 
       - name: Semear base sintética de medição
+        if: steps.decidir.outputs.relevante == 'true'
         run: python scripts/semear_base_de_medicao.py
 
       # O CÓDIGO DE SAÍDA decide a mensagem — nunca o inverso. `2` é
@@ -160,6 +312,7 @@ jobs:
       # lê primeiro, sem precisar rolar o log inteiro.
       - name: Medir identificação do emitente
         id: medir
+        if: steps.decidir.outputs.relevante == 'true'
         env:
           DL_PYTHON_DO_SISTEMA: ${{ steps.setup-python.outputs.python-path }}
         run: |
@@ -178,4 +331,17 @@ jobs:
           else
             echo "::error::Código de saída inesperado ($codigo) do instrumento — nem sucesso (0), nem os dois códigos documentados (1 conteúdo / 2 infraestrutura). Trate como falha e investigue o script antes de confiar em qualquer resultado."
             exit 1
+          fi
+
+      # BL-371: o job precisa reportar SEMPRE, com o motivo legível — este
+      # passo roda mesmo quando os anteriores foram pulados (`if: always()`
+      # limitado a não mascarar falha real: só imprime, nunca muda o
+      # resultado do job).
+      - name: Resumo
+        if: always()
+        run: |
+          if [ "${{ steps.decidir.outputs.relevante }}" = "true" ]; then
+            echo "Caminhos vigiados mudaram — medição completa executada (ver os passos acima)."
+          else
+            echo "Nenhum caminho vigiado mudou nesta revisão — medição pulada de propósito, job verde."
           fi
