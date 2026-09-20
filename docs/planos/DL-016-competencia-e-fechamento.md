@@ -147,7 +147,12 @@ implementar de novo seria desperdício:
    estorno é lançamento novo. ⚠️ **Atenção à data:** o estorno hoje recebe a
    data de **hoje**, não a do original — então o que decide é a competência do
    **estorno**, e o caso em que o original está em mês fechado e o estorno em
-   mês aberto **passa**. **Confirmado pelo Fred** (RC-57).
+   mês aberto **passa**. ✅ **CONFIRMADO PELO FRED em 2026-09-20 — é o RC-103**,
+   resposta literal *"o estorno de mês fechado pode passar direto mesmo"*. Eu
+   levei o caso a ele **como dúvida**, porque a leitura apressada do RC-57 diz o
+   contrário; ele confirmou que passa. **Não trate isso como lacuna do plano: é
+   requisito.** O sub-caso que segue recusado é o estorno com **data explícita**
+   caindo em mês fechado — aí é lançamento em mês fechado como outro qualquer.
 3. **Fechar** grava autor, data e registro na trilha. Fechar competência com
    **lote desbalanceado** na base é **recusado** — a conferência da DL-015 é
    pré-condição (**RC-58**). Use `localizar_lotes_desbalanceados`, que já existe.
