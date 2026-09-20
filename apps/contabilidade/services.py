@@ -3,10 +3,11 @@ import json
 from collections import defaultdict
 from decimal import Decimal
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
+from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     Competencia,
     Conta,
@@ -269,6 +270,68 @@ def obter_ou_criar_competencia(*, empresa, ano, mes):
         return competencia
 
 
+def _travar_competencia_em_modo_compartilhado(competencia):
+    """Bloqueia a linha de `competencia` com `SELECT ... FOR SHARE` e devolve
+    o `estado` LIDO NESTA MESMA CONSULTA — nunca `competencia.estado` do
+    objeto Python já em memória (correção do achado BL-456/A1, rodada 1 de
+    auditoria da fatia 1: a versão anterior lia o atributo em memória, SEM
+    travar a linha, e a auditoria MEDIU 30 gravações em 30 tentativas de uma
+    corrida natural, sem nenhuma instrumentação, contra a hipótese registrada
+    de "janela estreita").
+
+    `FOR SHARE` é um lock COMPARTILHADO: duas transações podem segurá-lo ao
+    mesmo tempo sobre a MESMA linha — por isso dois lançamentos do MESMO mês
+    não se bloqueiam um ao outro, e a escrituração normal continua
+    concorrente. Mas ele CONFLITA com `FOR UPDATE` — o lock que
+    `select_for_update()` emite, e que `encerrar_competencia`,
+    `reabrir_competencia` e `marcar_competencia_como_entregue` JÁ usam, sem
+    nenhuma mudança nelas. Quando uma dessas três está seguindo a linha em
+    `FOR UPDATE`, esta consulta FICA BLOQUEADA até aquela transação commitar
+    ou reverter — e só então lê o `estado`, já ATUALIZADO (é essa
+    "espera, depois lê" que fecha a corrida: nenhuma leitura deste bloco
+    acontece antes do fechamento concorrente ter terminado). Precisa rodar
+    DENTRO de uma transação já aberta pelo chamador — `criar_lancamento`
+    garante isso.
+
+    Medição de custo (rodada 2 da auditoria, achado BL-456): comparei, com
+    threads reais e conexões PostgreSQL reais, N lançamentos concorrentes no
+    MESMO mês com `FOR SHARE` (esta função) contra a alternativa mais simples
+    (`select_for_update()` também no lançamento, que serializa todo mundo).
+    Números no relatório de entrega da rodada 2 — `FOR SHARE` não serializa
+    lançamentos entre si; `select_for_update()` serializa, com o tempo total
+    crescendo linearmente com N. Por isso esta é a escolha, não a mais
+    simples de escrever.
+
+    Django não expõe `FOR SHARE` por `QuerySet.select_for_update()` (só
+    `FOR UPDATE`/`FOR NO KEY UPDATE`), daí o SQL cru — nome de tabela e de
+    colunas resolvidos por `_meta`, nunca string fixa, mesmo padrão que
+    `apps.contabilidade.models._tem_movimento_proprio_ou_de_descendente` já
+    usa pelo mesmo motivo.
+
+    Limite DECLARADO de backend: `FOR SHARE` é sintaxe do PostgreSQL: o
+    SQLite (usado só em desenvolvimento local, nunca em produção — DE-014,
+    BL-50) não tem row-level locking equivalente e rejeitaria esta consulta.
+    Fora do PostgreSQL, esta função cai para o `estado` já carregado em
+    `competencia` — a MESMA leitura desprotegida de antes desta correção,
+    documentada como limite de ambiente (mesma família de declaração que
+    `apps.core.restricoes._nome_da_constraint_violada`, específica de
+    psycopg). A suíte roda contra PostgreSQL (`config/settings.py`); a
+    concorrência real só é garantida lá.
+    """
+    if connection.vendor != "postgresql":
+        return competencia.estado
+    tabela = Competencia._meta.db_table
+    coluna_id = Competencia._meta.pk.column
+    coluna_estado = Competencia._meta.get_field("estado").column
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {coluna_estado} FROM {tabela} WHERE {coluna_id} = %s FOR SHARE",
+            [competencia.pk],
+        )
+        (estado,) = cursor.fetchone()
+    return estado
+
+
 @transaction.atomic
 def criar_lancamento(
     *,
@@ -477,48 +540,56 @@ def criar_lancamento(
             # T1=A do plano (criar dentro do service, não via sinal pós-save
             # externo): a mesma transação atômica que grava o lançamento
             # também cria a competência; ou ambos gravam, ou nenhum grava.
-            # O sinal `post_save(LancamentoContabil)` de F2.4 fica como
-            # REDE DE SEGURANÇA para caminhos não-canônicos (ex.: importador
-            # em massa que chame `objects.create` direto contornando o
-            # service), mas o caminho do produto não depende dele.
+            #
+            # ⚠️ Correção do achado BL-460/A6 (rodada 2 de auditoria): esta
+            # linha dizia existir um sinal `post_save(LancamentoContabil)`
+            # como "rede de segurança" para caminhos não-canônicos (ex.:
+            # `objects.create` direto). **Esse sinal nunca existiu** —
+            # `apps/contabilidade/` não tem `signals.py` nem `AppConfig.
+            # ready()`. Quem não passar por `criar_lancamento` não tem
+            # competência nem trava nenhuma; não há rede de segurança.
             competencia = obter_ou_criar_competencia(empresa=empresa, ano=data.year, mes=data.month)
 
-            # DL-016 fatia 1 (RC-57, RC-101; critérios 1 e 2 do plano): A TRAVA
-            # MORA AQUI, no serviço — não na view. Qualquer porta que chame
-            # `criar_lancamento` (a API, o estorno, uma futura importação em
-            # lote) herda a recusa sem precisar repeti-la. Medida depois da
-            # competência já resolvida (criada agora ou pré-existente) e ANTES
-            # de qualquer INSERT em `LancamentoContabil` — é o ESTADO GRAVADO
-            # da própria competência que decide, não um substituto dele (ex.:
-            # comparar a data do lançamento contra "hoje" não bastaria: o que
-            # importa é se ALGUÉM já fechou aquele mês, não se ele é passado).
-            # `EM_ENCERRAMENTO` não é alcançável por nenhum service desta
-            # fatia (ver `EstadoCompetencia`) — só `ENCERRADA` bloqueia.
+            # DL-016 fatia 1 (RC-57, RC-101, RC-103; critérios 1 e 2 do
+            # plano): A TRAVA MORA AQUI, no serviço — não na view. Qualquer
+            # porta que chame `criar_lancamento` (a API, a tela, o estorno,
+            # uma futura importação em lote) herda a recusa sem precisar
+            # repeti-la.
+            #
+            # ⚠️ Correção do achado BLOQUEADOR BL-456/A1 (rodada 1 de
+            # auditoria): a versão anterior comparava `competencia.estado`
+            # — o atributo do objeto Python já em memória, de uma leitura
+            # ANTERIOR a qualquer lock — contra `ENCERRADA`, e um comentário
+            # aqui mesmo chamava a ausência de trava de "risco residual,
+            # janela de corrida ESTREITA, decisão proporcional". MEDIDO
+            # (DE-058: justificativa escrita não é justificativa medida):
+            # com duas conexões PostgreSQL reais, sem NENHUMA instrumentação,
+            # a corrida gravou lançamento em competência que terminava
+            # ENCERRADA em **30 gravações de 30 tentativas** — inclusive em
+            # competência já **entregue ao cliente** (RC-19). A janela era,
+            # na prática, a duração inteira desta transação.
+            #
+            # A correção trava a linha com `FOR SHARE`
+            # (`_travar_competencia_em_modo_compartilhado`, acima) e usa o
+            # `estado` LIDO NAQUELA CONSULTA — nunca mais o atributo em
+            # memória. `EM_ENCERRAMENTO` também passou a bloquear (BL-461/
+            # A7): a condição é `!= ABERTA`, não mais `== ENCERRADA` — mais
+            # segura, e sem efeito prático hoje porque nenhum service desta
+            # fatia escreve `EM_ENCERRAMENTO` (ver `EstadoCompetencia`).
             #
             # Estorno (critério 2): `estornar_lancamento` chama esta mesma
             # função com a DATA DO ESTORNO (nunca a do lançamento original —
-            # ver o comentário lá), então a competência resolvida acima já É
+            # ver o comentário lá), então a competência travada acima já É
             # a do estorno. Nenhum código especial precisa existir para o
             # estorno: o caso "original fechado, estorno em mês aberto" passa
-            # (confirmado pelo Fred, RC-57), e "estorno cairia em mês
+            # (confirmado pelo Fred, RC-57/RC-103), e "estorno cairia em mês
             # fechado" é recusado pela MESMA linha abaixo.
-            #
-            # Risco residual DECLARADO (fora dos 12 critérios da fatia 1): sem
-            # `select_for_update` nesta leitura, uma corrida em que outra
-            # transação fecha ESTA MESMA competência entre esta leitura e o
-            # commit deste `INSERT` não é impedida (READ COMMITTED do
-            # PostgreSQL não veria o fechamento concorrente ainda não
-            # commitado, e o contrário — o fechamento enxergar este
-            # lançamento — depende de quem chega primeiro). Fechar já paga
-            # `select_for_update` sobre a competência (ver
-            # `encerrar_competencia`), mas travar TAMBÉM aqui bloquearia toda
-            # escrituração normal por uma janela de corrida estreita que
-            # nenhum dos 12 critérios da fatia 1 exige fechar — decisão
-            # proporcional ao risco (AGENTS.md §3.1), não descuido.
-            if competencia.estado == EstadoCompetencia.ENCERRADA:
+            estado_travado = _travar_competencia_em_modo_compartilhado(competencia)
+            if estado_travado != EstadoCompetencia.ABERTA:
+                nome_do_estado = EstadoCompetencia(estado_travado).label.lower()
                 raise CompetenciaEncerrada(
                     f"A competência {data.month:02d}/{data.year} de {empresa} está "
-                    "encerrada; não é possível gravar lançamento nela. Reabra a "
+                    f"'{nome_do_estado}'; não é possível gravar lançamento nela. Reabra a "
                     "competência (se ela ainda não foi entregue ao cliente) ou "
                     "lance em uma competência aberta."
                 )
@@ -700,7 +771,7 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
 
 
 @transaction.atomic
-def encerrar_competencia(*, empresa, ano, mes, usuario):
+def encerrar_competencia(*, empresa, ano, mes, usuario, request=None):
     """Fecha a competência (ano, mes) da empresa: `aberta -> encerrada`.
 
     Critério 3 do plano: recusa (`CompetenciaOperacaoRecusada`, 409) se
@@ -716,16 +787,32 @@ def encerrar_competencia(*, empresa, ano, mes, usuario):
     função é um NO-OP — devolve o objeto como está, com `encerrada_agora =
     False`, SEM tocar `fechada_em`/`fechada_por` (o autor do PRIMEIRO
     fechamento nunca é trocado) e SEM checar lote desbalanceado de novo (a
-    checagem só faz sentido na transição, não a cada chamada repetida). Quem
-    chama (a view) só grava um NOVO registro de trilha quando
-    `encerrada_agora` é `True` — repetir a chamada não duplica a auditoria.
+    checagem só faz sentido na transição, não a cada chamada repetida) e
+    SEM gravar novo registro de trilha (ver abaixo) — repetir a chamada não
+    duplica a auditoria.
 
     Concorrência (critério 10): `select_for_update()` bloqueia a linha da
     Competencia durante toda a operação — duas requisições simultâneas de
     fechamento da MESMA competência produzem UM único fechamento; a segunda,
     ao adquirir o lock depois da primeira commitar, já encontra `encerrada`
     e cai no ramo idempotente acima. Mesmo padrão que `estornar_lancamento`
-    já usa para `estorno_de_unico`.
+    já usa para `estorno_de_unico`. Este MESMO lock (`FOR UPDATE`) é o que
+    faz `_travar_competencia_em_modo_compartilhado` (usada por
+    `criar_lancamento`) esperar: um lançamento em voo não vê a competência
+    "sumir" no meio da gravação (BL-456/A1, rodada 2 de auditoria).
+
+    ⚠️ Correção do achado BL-458/A3 (rodada 2 de auditoria): a trilha de
+    auditoria (`registrar()`) passou a ser gravada AQUI, dentro do serviço
+    — antes vivia só na view (`apps/contabilidade/views.py`), e qualquer
+    chamada direta a este serviço (`shell`, comando de gerência, futuro
+    importador ou tarefa em segundo plano) não deixava rastro NENHUM.
+    `request` é opcional e só serve para o `registrar()` capturar o
+    endereço IP quando existir uma requisição HTTP por trás — usuário e
+    escritório são sempre os parâmetros explícitos, nunca inferidos de
+    `request`, para que a chamada direta (sem `request`) grave do mesmo
+    jeito. `detalhes` carrega `ano`/`mes`/`empresa_id` (BL-459/A4): a
+    trilha se basta sozinha, sem precisar consultar a `Competencia` para
+    saber qual mês foi fechado.
     """
     competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
     competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
@@ -751,11 +838,19 @@ def encerrar_competencia(*, empresa, ano, mes, usuario):
     competencia.fechada_por = usuario
     competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
     competencia.encerrada_agora = True
+    registrar(
+        acao="competencia.encerrada",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
+    )
     return competencia
 
 
 @transaction.atomic
-def reabrir_competencia(*, empresa, ano, mes, usuario, motivo):
+def reabrir_competencia(*, empresa, ano, mes, usuario, motivo, request=None):
     """Reabre a competência (ano, mes) da empresa: `encerrada -> aberta`.
 
     Critério 5: `motivo` é OBRIGATÓRIO — vazio ou só espaço em branco é
@@ -781,13 +876,25 @@ def reabrir_competencia(*, empresa, ano, mes, usuario, motivo):
 
     `select_for_update()` pelo mesmo motivo de `encerrar_competencia`:
     embora não haja critério de concorrência explícito para reabertura, a
-    escrita do estado precisa ler a linha mais recente antes de decidir.
+    escrita do estado precisa ler a linha mais recente antes de decidir — e
+    é o mesmo lock que faz `criar_lancamento` esperar (ver
+    `_travar_competencia_em_modo_compartilhado`).
 
     `fechada_em`/`fechada_por` são LIMPOS (`None`): eles descrevem o
     fechamento ATUAL, que deixou de existir — ver o docstring de
-    `Competencia`. O histórico completo (quem fechou, quem reabriu, quando,
-    com que motivo) continua na trilha de auditoria, gravada pela VIEW (este
-    serviço não decide política de auditoria — ver `apps.auditoria`).
+    `Competencia`.
+
+    ⚠️ Correção dos achados BL-458/A3 e BL-459/A4 (rodada 2 de auditoria):
+    o `registrar()` mora AQUI agora (era só na view — chamada direta ao
+    serviço não deixava NENHUM rastro, e esta é a operação mais afiada das
+    três: ela APAGA `fechada_em`/`fechada_por`). `detalhes` carrega
+    `ano`/`mes`/`empresa_id` e também `fechada_por_anterior`/
+    `fechada_em_anterior` — os valores que estão sendo apagados da linha,
+    capturados ANTES do `save()`, para que a trilha preserve "quem tinha
+    fechado" mesmo que a própria `Competencia` não preserve mais. Devolve
+    só `competencia` agora (antes devolvia `(competencia,
+    motivo_normalizado)` — o motivo já vai para `detalhes` aqui dentro, a
+    view não precisa mais dele).
     """
     motivo_normalizado = (motivo or "").strip()
     if not motivo_normalizado:
@@ -812,15 +919,38 @@ def reabrir_competencia(*, empresa, ano, mes, usuario, motivo):
             f"{mes:02d}/{ano} de {empresa} está '{competencia.get_estado_display()}'."
         )
 
+    # Capturados ANTES do `save()` (BL-459/A4): são os valores que a linha
+    # está prestes a PERDER — a trilha precisa deles porque a `Competencia`
+    # não vai mais tê-los depois desta transação.
+    fechada_por_anterior = competencia.fechada_por_id
+    fechada_em_anterior = competencia.fechada_em
+
     competencia.estado = EstadoCompetencia.ABERTA
     competencia.fechada_em = None
     competencia.fechada_por = None
     competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
-    return competencia, motivo_normalizado
+    registrar(
+        acao="competencia.reaberta",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={
+            "ano": ano,
+            "mes": mes,
+            "empresa_id": empresa.id,
+            "motivo": motivo_normalizado,
+            "fechada_por_anterior": fechada_por_anterior,
+            "fechada_em_anterior": (
+                fechada_em_anterior.isoformat() if fechada_em_anterior else None
+            ),
+        },
+    )
+    return competencia
 
 
 @transaction.atomic
-def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario):
+def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario, request=None):
     """Marca a competência (ano, mes) da empresa como entregue ao cliente.
 
     Critério 7: só é possível entregar uma competência `encerrada` — mês
@@ -836,6 +966,10 @@ def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario):
     (sempre `True` quando a função retorna sem levantar exceção — mantido
     pelo mesmo motivo de simetria de `criado_agora`/`encerrada_agora`, ainda
     que aqui não haja um ramo "já estava assim" a distinguir).
+
+    ⚠️ Correção dos achados BL-458/A3 e BL-459/A4 (rodada 2 de auditoria):
+    `registrar()` mora AQUI, com `detalhes={"ano", "mes", "empresa_id"}` —
+    mesma correção das outras duas funções desta fatia.
     """
     competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
     competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
@@ -851,6 +985,14 @@ def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario):
     competencia.entregue_por = usuario
     competencia.save(update_fields=["entregue_em", "entregue_por"])
     competencia.entregue_agora = True
+    registrar(
+        acao="competencia.entregue",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
+    )
     return competencia
 
 

@@ -860,29 +860,21 @@ class EncerrarCompetenciaView(EmpresaEscopadaMixin, APIView):
         empresa = self.get_empresa()
         _validar_ano_mes(ano, mes)
 
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` foi MOVIDO para
+        # dentro de `encerrar_competencia` — o serviço já é
+        # `@transaction.atomic`, então a trilha commita junto com a
+        # transição sem a view precisar abrir savepoint nenhum. `request` só
+        # serve para o `registrar()` capturar o endereço IP; usuário e
+        # escritório são explícitos dentro do serviço.
         try:
-            # `with transaction.atomic()` aberto AQUI, ANTES de chamar o
-            # serviço: `encerrar_competencia` já é `@transaction.atomic` por
-            # si, então chamá-la de dentro deste bloco a torna um SAVEPOINT
-            # aninhado — ela e o `registrar()` logo abaixo passam a commitar
-            # JUNTOS, ou nenhum dos dois. É o mesmo cuidado do BL-14
-            # (trilha vazia depois de lançamento gravado), aplicado desde o
-            # início nesta fatia nova.
-            with transaction.atomic():
-                competencia = encerrar_competencia(
-                    empresa=empresa, ano=ano, mes=mes, usuario=request.user
-                )
-                # Idempotência (critério 4): só grava um NOVO registro de
-                # trilha quando este POST de fato fechou agora — repetir a
-                # chamada sobre uma competência já encerrada não duplica a
-                # auditoria nem troca o autor já gravado.
-                if competencia.encerrada_agora:
-                    registrar(acao="competencia.encerrada", objeto=competencia, request=request)
+            competencia = encerrar_competencia(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
         except CompetenciaOperacaoRecusada as exc:
             # RC-58 / critério 3: lote desbalanceado na base — conflito de
             # ESTADO da base, não entrada malformada. Nada foi gravado (a
             # recusa acontece antes de qualquer `save()`, dentro da
-            # transação que o `except` acima de-fato reverte).
+            # transação atômica do serviço).
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
@@ -913,17 +905,23 @@ class ReabrirCompetenciaView(EmpresaEscopadaMixin, APIView):
         if motivo is not None and not isinstance(motivo, str):
             raise DRFValidationError("O campo 'motivo' deve ser texto.")
 
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` foi MOVIDO para
+        # dentro de `reabrir_competencia` — era a operação MAIS afiada de
+        # perder rastro (ela apaga `fechada_em`/`fechada_por` da linha), e
+        # chamar o serviço direto, sem view, gravava zero trilha. O serviço
+        # devolve só `competencia` agora (antes devolvia também
+        # `motivo_normalizado`, que a view usava para montar `detalhes` —
+        # isso passou para dentro do serviço, junto com `fechada_por_
+        # anterior`/`fechada_em_anterior`, BL-459/A4).
         try:
-            with transaction.atomic():
-                competencia, motivo_normalizado = reabrir_competencia(
-                    empresa=empresa, ano=ano, mes=mes, usuario=request.user, motivo=motivo
-                )
-                registrar(
-                    acao="competencia.reaberta",
-                    objeto=competencia,
-                    request=request,
-                    detalhes={"motivo": motivo_normalizado},
-                )
+            competencia = reabrir_competencia(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
         except CompetenciaOperacaoInvalida as exc:
             # Critério 5: motivo vazio — entrada malformada, 400.
             raise DRFValidationError(str(exc)) from exc
@@ -953,12 +951,11 @@ class EntregarCompetenciaView(EmpresaEscopadaMixin, APIView):
         empresa = self.get_empresa()
         _validar_ano_mes(ano, mes)
 
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` mora no serviço.
         try:
-            with transaction.atomic():
-                competencia = marcar_competencia_como_entregue(
-                    empresa=empresa, ano=ano, mes=mes, usuario=request.user
-                )
-                registrar(acao="competencia.entregue", objeto=competencia, request=request)
+            competencia = marcar_competencia_como_entregue(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
         except CompetenciaOperacaoRecusada as exc:
             # Critério 7: entregar mês aberto — conflito de estado, 409.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)

@@ -62,6 +62,7 @@ from apps.contabilidade.services import (
     DATA_MINIMA_LANCAMENTO,
     LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
+    CompetenciaEncerrada,
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
@@ -1838,6 +1839,23 @@ def lancamento_novo(request, empresa_id):
                             chave_idempotencia=chave_idempotencia,
                         )
                     except ChaveIdempotenciaConflitante as exc:
+                        erros.append(str(exc))
+                    except CompetenciaEncerrada as exc:
+                        # BL-457/A2 (rodada 2 de auditoria): `CompetenciaEncerrada`
+                        # é subclasse direta de `Exception`, DELIBERADAMENTE não
+                        # de `LancamentoInvalido` (ver o docstring dela em
+                        # services.py) — e por isso o `except LancamentoInvalido`
+                        # logo abaixo nunca a capturava. Pela DE-026 não há API
+                        # separada atrás desta tela: ela chama `criar_lancamento`
+                        # direto, então sem este `except` a exceção escapava até
+                        # o middleware de erro do Django e virava HTTP 500 — uma
+                        # página de erro genérica no lugar da mensagem de negócio
+                        # que o serviço já produz pronta (nomeando a competência
+                        # e orientando a reabrir ou lançar em mês aberto). Nada
+                        # era gravado (a trava funcionava); só a APRESENTAÇÃO da
+                        # recusa quebrava. Medido com controle positivo: o MESMO
+                        # POST com o mês aberto grava (302); só a competência
+                        # fechada produzia o 500.
                         erros.append(str(exc))
                     except LancamentoInvalido as exc:
                         erros.append(str(exc))

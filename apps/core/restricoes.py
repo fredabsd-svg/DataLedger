@@ -234,6 +234,31 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "concorrentes, não como erro de negócio. Quando a DL-010 abrir "
         "importação em lote, esta entrada precisa ser revisada."
     ),
+    # BL-455 (achado A5 da rodada 2 de auditoria da fatia 1 da DL-016):
+    # `ck_lancamentocontabil_empresa_not_null` foi adicionada ao BANCO pela
+    # migração 0005 de `contabilidade` (`AddConstraint` avulso, hand-written)
+    # mas nunca tinha sido declarada em `LancamentoContabil.Meta.
+    # constraints` — a divergência já reprovava `manage.py makemigrations
+    # --check` em HEAD limpo, e a auditoria MEDIU o tamanho do risco: quem
+    # aplicasse o `RemoveConstraint` que o Django propunha derrubava a rede
+    # de segurança da DL-016 F6 (`apps/contabilidade/tests/test_dl016_f6_
+    # check_empresa_not_null.py` reprova 2 de 4 testes sem ela). Declarada
+    # agora em `Meta.constraints`; entra aqui porque `empresa` já é uma
+    # `ForeignKey` OBRIGATÓRIA (sem `null=True`) — nenhum `ModelForm`,
+    # serializer ou service deste projeto grava `LancamentoContabil` sem
+    # `empresa`, a ausência já é recusada ANTES do INSERT pela validação de
+    # campo obrigatório do Django. Esta `CheckConstraint` é defesa em
+    # profundidade contra INSERT direto via psql/shell-admin que contorne o
+    # ORM inteiro — nenhuma rota de cliente (API, tela ou importação) pode
+    # alcançá-la.
+    "ck_lancamentocontabil_empresa_not_null": (
+        "`CheckConstraint(empresa_id IS NOT NULL)` do modelo "
+        "`LancamentoContabil` (DL-016 F6/DE-051). `empresa` já é uma "
+        "`ForeignKey` obrigatória — nenhum caminho de cliente grava "
+        "`LancamentoContabil` sem `empresa`. Defesa em profundidade contra "
+        "INSERT direto via psql/shell-admin, sem caminho de escrita por "
+        "cliente."
+    ),
 }
 
 

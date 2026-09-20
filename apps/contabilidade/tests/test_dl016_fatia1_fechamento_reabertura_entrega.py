@@ -14,6 +14,7 @@ manter os meses no passado deixa os cenários inequívocos de ler.
 """
 
 import threading
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -24,6 +25,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.auditoria.models import RegistroAuditoria
+from apps.contabilidade import services as contabilidade_services
 from apps.contabilidade.models import (
     Competencia,
     Conta,
@@ -209,6 +211,477 @@ def test_criterio2_api_estorno_recusa_com_409_quando_competencia_do_estorno_fech
 
     assert response.status_code == 409
     assert not original.estornos.exists()
+
+
+# ---------------------------------------------------------------------------
+# BL-456/A1 (rodada 2 de auditoria) — BLOQUEADOR. A versão anterior lia
+# `competencia.estado` do objeto em memória, sem travar a linha: uma corrida
+# real entre `criar_lancamento` e `encerrar_competencia` gravava lançamento
+# numa competência que terminava encerrada — 11 a 17 de 30 tentativas
+# "gravaram e fecharam" nas medições desta rodada, em AMBOS os códigos
+# (antes e depois da correção), porque "gravou e fechou" sozinho não
+# distingue corrida de sequência legítima (lançar, depois fechar). A prova
+# que distingue as duas é se o LOCK realmente bloqueia — é isso que os dois
+# testes abaixo provam, de forma DETERMINÍSTICA (não uma contagem
+# probabilística que pode sair diferente a cada execução).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl456_for_share_bloqueia_encerrar_competencia_ate_o_lancamento_commitar(monkeypatch):
+    """Prova DETERMINÍSTICA de que `_travar_competencia_em_modo_compartilhado`
+    (FOR SHARE) segura a linha da competência pela duração INTEIRA da
+    transação de `criar_lancamento` — e que `encerrar_competencia` (FOR
+    UPDATE) fica genuinamente BLOQUEADO nesse intervalo, só terminando
+    DEPOIS que o lançamento commitou.
+
+    Mecanismo: o teste embrulha `_travar_competencia_em_modo_compartilhado`
+    para segurar o lock por 0,5 s ANTES de devolver o estado — o `FOR SHARE`
+    já foi executado (a query rodou), então o lock está ATIVO durante essa
+    pausa, dentro da MESMA transação. Se `encerrar_competencia` terminar
+    ANTES do lançamento (tempo relativo desde o início da corrida), o lock
+    não bloqueou nada — e este teste haveria de falhar, provando a ausência
+    da trava (é o que acontecia antes da correção do BL-456).
+    """
+    escritorio = Escritorio.objects.create(
+        nome="Escritório BL-456 determinístico", cnpj="11222333000144"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa BL-456 Determinística Ltda",
+        cnpj="11222333000225",
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl456-determ", email="bl456-determ@escritorio.com.br", password="senha-forte-123"
+    )
+    # Pré-criada de propósito: se a linha nascesse DENTRO da corrida, as
+    # duas threads disputariam o `get_or_create` de `obter_ou_criar_
+    # competencia` — a PRIMEIRA a chegar faz um INSERT não commitado, e a
+    # OUTRA fica bloqueada esperando aquele INSERT resolver (commit ou
+    # rollback) para saber se a `UniqueConstraint(empresa, ano, mes)` foi
+    # violada. Esse bloqueio é REAL, mas é do INSERT — não tem nada a ver
+    # com o `FOR SHARE`/`FOR UPDATE` que este teste existe para provar, e
+    # confundia a medição (uma thread esperava a outra por um motivo, o
+    # teste JULGAVA que era por outro). Pré-criar a competência elimina essa
+    # corrida lateral: as duas threads só fazem `SELECT` em `obter_ou_criar_
+    # competencia`, sem risco de INSERT concorrente.
+    Competencia.objects.create(empresa=empresa, ano=2015, mes=6)
+
+    original = contabilidade_services._travar_competencia_em_modo_compartilhado
+
+    def trava_e_segura(competencia):
+        estado = original(competencia)
+        # O SELECT ... FOR SHARE já rodou dentro de `original(...)` — o lock
+        # está ativo. Segurar aqui, ainda DENTRO da mesma transação (a
+        # chamadora, `criar_lancamento`, só sai do `with transaction.
+        # atomic()` bem depois), é o que testa se o lock aguenta uma janela
+        # longa.
+        time.sleep(0.5)
+        return estado
+
+    monkeypatch.setattr(
+        contabilidade_services, "_travar_competencia_em_modo_compartilhado", trava_e_segura
+    )
+
+    tempos = {}
+    inicio = time.monotonic()
+
+    def lancar():
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2015, 6, 10),
+            historico="BL-456 determinístico",
+            itens=[
+                {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+            ],
+            criado_por=gestor,
+        )
+        tempos["lancamento_fim"] = time.monotonic() - inicio
+        connection.close()
+
+    def fechar():
+        time.sleep(0.1)  # dá tempo do lançamento pegar o FOR SHARE primeiro
+        encerrar_competencia(empresa=empresa, ano=2015, mes=6, usuario=gestor)
+        tempos["fechamento_fim"] = time.monotonic() - inicio
+        connection.close()
+
+    t1 = threading.Thread(target=lancar)
+    t2 = threading.Thread(target=fechar)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # O fechamento só pode ter terminado DEPOIS do lançamento (que segurou
+    # o lock por 0,5s) — se terminasse antes, o FOR UPDATE não esperou.
+    assert tempos["fechamento_fim"] > tempos["lancamento_fim"]
+    # E o fechamento precisa ter de fato ESPERADO pelo menos os 0,5s do
+    # lock — não é coincidência de agendamento de thread.
+    assert tempos["fechamento_fim"] >= 0.5
+
+    assert LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2015, data__month=6
+    ).exists()
+    competencia = Competencia.objects.get(empresa=empresa, ano=2015, mes=6)
+    assert competencia.estado == EstadoCompetencia.ENCERRADA
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl456_lancamento_concorrente_e_recusado_quando_o_fechamento_ja_commitou(monkeypatch):
+    """O outro lado da mesma prova: se `encerrar_competencia` já COMMITOU
+    (FOR UPDATE liberado) antes de `criar_lancamento` tentar travar, o
+    `FOR SHARE` deste último enxerga o estado JÁ ATUALIZADO — nunca um
+    retrato antigo — e a trava recusa. Determinístico via `threading.Event`:
+    o lançamento só tenta travar a competência DEPOIS que o fechamento
+    sinaliza ter commitado.
+    """
+    escritorio = Escritorio.objects.create(nome="Escritório BL-456 recusa", cnpj="13141516000177")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa BL-456 Recusa Ltda", cnpj="13141516000258"
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl456-recusa", email="bl456-recusa@escritorio.com.br", password="senha-forte-123"
+    )
+    # Pré-criada de propósito — ver o comentário equivalente no teste
+    # anterior: sem isto, as duas threads disputam o `get_or_create` de
+    # `obter_ou_criar_competencia`, e o INSERT não commitado de uma trava a
+    # outra até resolver a `UniqueConstraint` — um bloqueio real, mas de
+    # INSERT, não do `FOR SHARE`/`FOR UPDATE` que este teste mede. Foi essa
+    # corrida lateral (não instrumentada, e por isso invisível na primeira
+    # leitura) que causou o teste a ficar ~20% flaky antes desta correção:
+    # às vezes o `fechar()` bloqueava no PRÓPRIO INSERT esperando o
+    # `lancar()` commitar, sem nunca chegar a rodar `encerrar_competencia`
+    # de verdade — e o `wait(timeout=5)` do lançamento estourava o prazo e
+    # seguia com dado desatualizado, produzindo exatamente o falso positivo
+    # que este teste existe para não deixar passar.
+    Competencia.objects.create(empresa=empresa, ano=2016, mes=3)
+
+    fechamento_commitou = threading.Event()
+    # Garante que o `fechar()` só comece depois que o `lancar()` já está,
+    # deterministicamente, parado dentro da trava — condição que este teste
+    # existe para exercitar (e não uma corrida de "quem chega primeiro").
+    lancamento_entrou_na_trava = threading.Event()
+    original = contabilidade_services._travar_competencia_em_modo_compartilhado
+
+    def trava_depois_do_fechamento(competencia):
+        lancamento_entrou_na_trava.set()
+        fechamento_commitou.wait(timeout=5)
+        return original(competencia)
+
+    monkeypatch.setattr(
+        contabilidade_services,
+        "_travar_competencia_em_modo_compartilhado",
+        trava_depois_do_fechamento,
+    )
+
+    resultado = {}
+
+    def lancar():
+        try:
+            criar_lancamento(
+                empresa=empresa,
+                data=date(2016, 3, 10),
+                historico="BL-456 recusa",
+                itens=[
+                    {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                    {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+                ],
+                criado_por=gestor,
+            )
+            resultado["ok"] = True
+        except CompetenciaEncerrada:
+            resultado["ok"] = False
+        finally:
+            connection.close()
+
+    def fechar():
+        # Só começa depois que o lançamento está, comprovadamente, parado
+        # dentro da trava (ver o comentário acima).
+        assert lancamento_entrou_na_trava.wait(timeout=5)
+        encerrar_competencia(empresa=empresa, ano=2016, mes=3, usuario=gestor)
+        connection.close()
+        fechamento_commitou.set()
+
+    t1 = threading.Thread(target=lancar)
+    t2 = threading.Thread(target=fechar)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert resultado["ok"] is False
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2016, data__month=3
+    ).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entregue(monkeypatch):
+    """Reprodução 2 do relatório de auditoria — o caso que fere o cliente:
+    um lançamento concorrente NUNCA entra numa competência já marcada como
+    ENTREGUE ao cliente. Usa o mesmo mecanismo determinístico do teste
+    anterior (o fechamento — aqui, fechar + entregar — commita, e só então
+    o lançamento tenta travar)."""
+    escritorio = Escritorio.objects.create(nome="Escritório BL-456 entregue", cnpj="14141414000114")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa BL-456 Entregue Ltda", cnpj="14141414000203"
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl456-entregue",
+        email="bl456-entregue@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    # Pré-criada de propósito — ver o comentário equivalente nos dois testes
+    # anteriores (evita a corrida lateral de INSERT em `get_or_create`).
+    Competencia.objects.create(empresa=empresa, ano=2017, mes=4)
+
+    entrega_commitou = threading.Event()
+    # Mesma correção de sincronização do teste anterior (BL-456): garante
+    # que o `fechar_e_entregar()` só comece depois que o lançamento já
+    # esteja parado, deterministicamente, dentro da trava.
+    lancamento_entrou_na_trava = threading.Event()
+    original = contabilidade_services._travar_competencia_em_modo_compartilhado
+
+    def trava_depois_da_entrega(competencia):
+        lancamento_entrou_na_trava.set()
+        entrega_commitou.wait(timeout=5)
+        return original(competencia)
+
+    monkeypatch.setattr(
+        contabilidade_services, "_travar_competencia_em_modo_compartilhado", trava_depois_da_entrega
+    )
+
+    resultado = {}
+
+    def lancar():
+        try:
+            criar_lancamento(
+                empresa=empresa,
+                data=date(2017, 4, 10),
+                historico="BL-456 mês entregue",
+                itens=[
+                    {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                    {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+                ],
+                criado_por=gestor,
+            )
+            resultado["ok"] = True
+        except CompetenciaEncerrada:
+            resultado["ok"] = False
+        finally:
+            connection.close()
+
+    def fechar_e_entregar():
+        assert lancamento_entrou_na_trava.wait(timeout=5)
+        encerrar_competencia(empresa=empresa, ano=2017, mes=4, usuario=gestor)
+        marcar_competencia_como_entregue(empresa=empresa, ano=2017, mes=4, usuario=gestor)
+        connection.close()
+        entrega_commitou.set()
+
+    t1 = threading.Thread(target=lancar)
+    t2 = threading.Thread(target=fechar_e_entregar)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert resultado["ok"] is False
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2017, data__month=4
+    ).exists()
+    competencia = Competencia.objects.get(empresa=empresa, ano=2017, mes=4)
+    assert competencia.estado == EstadoCompetencia.ENCERRADA
+    assert competencia.entregue_em is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl456_corrida_natural_sem_instrumentacao_e_internamente_consistente():
+    """Complementa os testes determinísticos acima com a MESMA corrida
+    "natural" que a auditoria usou (sem monkeypatch, duas threads, a que
+    fecha começando ~0,6 ms depois da que lança), repetida várias vezes.
+
+    ⚠️ Medição feita durante esta correção (não presumida): a contagem bruta
+    de "lançou E fechou" NÃO é, por si só, um indicador de corrida — ela
+    aparece tanto no código ANTES da correção (violação real) quanto DEPOIS
+    dela (resultado LEGÍTIMO: o lançamento venceu o `FOR SHARE` e o
+    fechamento esperou e fechou depois, como o próprio relatório da
+    auditoria admite ser aceitável: "o lançamento entrou e o fechamento
+    devia ter... esperado"). O que este teste garante, de forma que
+    qualquer execução consegue verificar sozinha: NENHUMA exceção
+    inesperada, e toda vez que o lançamento é recusado, a competência
+    realmente terminou encerrada (a recusa nunca é por outro motivo). A
+    prova de que a corrida em si fecha é dos dois testes determinísticos
+    acima, que não dependem de quem chega primeiro.
+    """
+    escritorio = Escritorio.objects.create(nome="Escritório BL-456 natural", cnpj="15151515000115")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa BL-456 Natural Ltda", cnpj="15151515000206"
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl456-natural",
+        email="bl456-natural@escritorio.com.br",
+        password="senha-forte-123",
+    )
+
+    pares_ano_mes = [(2003, m) for m in range(1, 13)] + [(2004, m) for m in range(1, 7)]
+    assert len(set(pares_ano_mes)) == 18
+
+    for ano, mes in pares_ano_mes:
+        resultado = {}
+
+        def lancar(ano=ano, mes=mes, resultado=resultado):
+            try:
+                criar_lancamento(
+                    empresa=empresa,
+                    data=date(ano, mes, 10),
+                    historico=f"corrida natural {ano}-{mes:02d}",
+                    itens=[
+                        {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                        {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+                    ],
+                    criado_por=gestor,
+                )
+                resultado["lancamento"] = "gravado"
+            except CompetenciaEncerrada:
+                resultado["lancamento"] = "recusado"
+            finally:
+                connection.close()
+
+        def fechar(ano=ano, mes=mes):
+            time.sleep(0.0006)
+            encerrar_competencia(empresa=empresa, ano=ano, mes=mes, usuario=gestor)
+            connection.close()
+
+        t1 = threading.Thread(target=lancar)
+        t2 = threading.Thread(target=fechar)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Nunca "outra coisa" além de gravado/recusado — nenhuma exceção crua.
+        assert resultado.get("lancamento") in ("gravado", "recusado")
+
+        competencia = Competencia.objects.get(empresa=empresa, ano=ano, mes=mes)
+        if resultado["lancamento"] == "recusado":
+            # Recusa só pode ser por competência realmente encerrada.
+            assert competencia.estado == EstadoCompetencia.ENCERRADA
+
+
+# ---------------------------------------------------------------------------
+# BL-457/A2 (rodada 2 de auditoria) — ALTA. A ÚNICA tela de lançamento do
+# produto (`views_web.lancamento_novo`, em produção desde a DL-017) devolvia
+# HTTP 500 quando a trava disparava: `CompetenciaEncerrada` é subclasse
+# direta de `Exception`, deliberadamente NÃO de `LancamentoInvalido`, e o
+# bloco `except` da tela só capturava três exceções — nenhuma delas a dela.
+# Nada era gravado (a trava funcionava); só a APRESENTAÇÃO da recusa
+# quebrava. Controle positivo no MESMO teste, como a auditoria exigiu.
+# ---------------------------------------------------------------------------
+
+
+def test_bl457_tela_de_lancamento_recusa_com_400_em_mes_encerrado_e_grava_em_mes_aberto(
+    client, cenario
+):
+    empresa, caixa, capital = cenario["empresa"], cenario["caixa"], cenario["capital"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl457-gestor")
+    encerrar_competencia(empresa=empresa, ano=2026, mes=5, usuario=gestor)
+    client.login(username="bl457-gestor", password="senha-forte-123")
+    url = reverse("contabilidade_web:lancamento_novo", args=[empresa.id])
+
+    def _post(data_texto, chave):
+        return client.post(
+            url,
+            {
+                "acao": "gravar",
+                "num_linhas": "2",
+                "data": data_texto,
+                "historico": "BL-457",
+                "chave_idempotencia": chave,
+                "conta_1": str(caixa.id),
+                "tipo_1": "debito",
+                "valor_1": "10,00",
+                "conta_2": str(capital.id),
+                "tipo_2": "credito",
+                "valor_2": "10,00",
+            },
+        )
+
+    # Mês FECHADO: antes desta correção, 500 — sem nenhuma palavra sobre
+    # competência encerrada, e o contador via uma página de erro genérica.
+    resposta_fechado = _post("2026-05-10", "bl457-fechado")
+    assert resposta_fechado.status_code == 400
+    corpo = resposta_fechado.content.decode("utf-8")
+    assert "encerrada" in corpo
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2026, data__month=5
+    ).exists()
+
+    # CONTROLE POSITIVO, no MESMO teste (a auditoria foi explícita sobre
+    # isto): o MESMO POST, só trocando o mês para um aberto, grava (302) —
+    # prova de que o 400 acima é especificamente da trava, não de outro
+    # motivo qualquer (campo errado, permissão, etc.).
+    resposta_aberto = _post("2026-06-10", "bl457-aberto")
+    assert resposta_aberto.status_code == 302
+    assert LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2026, data__month=6
+    ).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -775,6 +1248,114 @@ def test_em_encerramento_nao_e_alcancado_por_nenhum_service_da_fatia_1(cenario):
     marcar_competencia_como_entregue(empresa=empresa, ano=2026, mes=1, usuario=gestor)
 
     assert not Competencia.objects.filter(estado=EstadoCompetencia.EM_ENCERRAMENTO).exists()
+
+
+def test_bl461_lancamento_e_recusado_em_competencia_em_encerramento(cenario):
+    """BL-461/A7 (rodada 2 de auditoria): `em_encerramento` é inalcançável
+    pelos services desta fatia (teste acima), mas até esta correção a trava
+    de `criar_lancamento` comparava `== ENCERRADA` — e uma competência nesse
+    terceiro estado (só alcançável por ORM direta, ex.: um importador
+    futuro) ACEITAVA lançamento. A condição passou para `!= ABERTA`: mais
+    segura, e sem efeito prático hoje porque nenhum service escreve esse
+    valor."""
+    empresa, caixa, capital = cenario["empresa"], cenario["caixa"], cenario["capital"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl461-gestor")
+    Competencia.objects.create(
+        empresa=empresa, ano=2026, mes=1, estado=EstadoCompetencia.EM_ENCERRAMENTO
+    )
+
+    with pytest.raises(CompetenciaEncerrada) as excinfo:
+        _lancar(empresa, caixa, capital, date(2026, 1, 10), criado_por=gestor)
+
+    assert "em encerramento" in str(excinfo.value)
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2026, data__month=1
+    ).exists()
+
+
+# ---------------------------------------------------------------------------
+# BL-458/BL-459 (rodada 2 de auditoria) — a trilha mora no SERVIÇO, não na
+# view: chamada direta a `encerrar_competencia`/`reabrir_competencia`/
+# `marcar_competencia_como_entregue` (sem passar por view nenhuma — shell,
+# comando de gerência, futuro importador) grava `RegistroAuditoria` do mesmo
+# jeito. `detalhes` carrega `ano`/`mes`/`empresa_id` nas três, e
+# `fechada_por_anterior`/`fechada_em_anterior` na reabertura.
+# ---------------------------------------------------------------------------
+
+
+def test_bl458_encerrar_direto_do_servico_sem_view_grava_trilha(cenario):
+    empresa = cenario["empresa"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl458-encerrar")
+
+    antes = RegistroAuditoria.objects.count()
+    competencia = encerrar_competencia(empresa=empresa, ano=2026, mes=1, usuario=gestor)
+    depois = RegistroAuditoria.objects.count()
+
+    assert depois == antes + 1
+    registro = RegistroAuditoria.objects.get(
+        acao="competencia.encerrada", objeto_id=str(competencia.pk)
+    )
+    assert registro.usuario_id == gestor.id
+    assert registro.escritorio_id == cenario["escritorio"].id
+    assert registro.detalhes == {"ano": 2026, "mes": 1, "empresa_id": empresa.id}
+
+
+def test_bl458_encerrar_idempotente_direto_do_servico_nao_duplica_trilha(cenario):
+    empresa = cenario["empresa"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl458-idempotente")
+
+    encerrar_competencia(empresa=empresa, ano=2026, mes=1, usuario=gestor)
+    antes = RegistroAuditoria.objects.filter(acao="competencia.encerrada").count()
+    encerrar_competencia(empresa=empresa, ano=2026, mes=1, usuario=gestor)  # repetição
+    depois = RegistroAuditoria.objects.filter(acao="competencia.encerrada").count()
+
+    assert depois == antes  # nenhum registro novo
+
+
+def test_bl458_reabrir_direto_do_servico_sem_view_grava_trilha_com_valores_anteriores(cenario):
+    empresa = cenario["empresa"]
+    administrador = _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio"], "bl458-admin")
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl458-reabrir")
+
+    fechada = encerrar_competencia(empresa=empresa, ano=2026, mes=1, usuario=administrador)
+    fechada_em_original = fechada.fechada_em
+
+    antes = RegistroAuditoria.objects.count()
+    competencia = reabrir_competencia(
+        empresa=empresa, ano=2026, mes=1, usuario=gestor, motivo="Correção de lançamento"
+    )
+    depois = RegistroAuditoria.objects.count()
+
+    assert depois == antes + 1
+    # A LINHA perde fechada_em/fechada_por (ver o docstring do serviço) —
+    # mas a TRILHA preserva os dois, exatamente o que o BL-459 exige.
+    assert competencia.fechada_em is None
+    assert competencia.fechada_por_id is None
+    registro = RegistroAuditoria.objects.get(
+        acao="competencia.reaberta", objeto_id=str(competencia.pk)
+    )
+    assert registro.detalhes["ano"] == 2026
+    assert registro.detalhes["mes"] == 1
+    assert registro.detalhes["empresa_id"] == empresa.id
+    assert registro.detalhes["motivo"] == "Correção de lançamento"
+    assert registro.detalhes["fechada_por_anterior"] == administrador.id
+    assert registro.detalhes["fechada_em_anterior"] == fechada_em_original.isoformat()
+
+
+def test_bl458_entregar_direto_do_servico_sem_view_grava_trilha(cenario):
+    empresa = cenario["empresa"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl458-entregar")
+    encerrar_competencia(empresa=empresa, ano=2026, mes=1, usuario=gestor)
+
+    antes = RegistroAuditoria.objects.count()
+    competencia = marcar_competencia_como_entregue(empresa=empresa, ano=2026, mes=1, usuario=gestor)
+    depois = RegistroAuditoria.objects.count()
+
+    assert depois == antes + 1
+    registro = RegistroAuditoria.objects.get(
+        acao="competencia.entregue", objeto_id=str(competencia.pk)
+    )
+    assert registro.detalhes == {"ano": 2026, "mes": 1, "empresa_id": empresa.id}
 
 
 # ---------------------------------------------------------------------------

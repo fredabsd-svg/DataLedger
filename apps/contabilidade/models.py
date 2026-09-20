@@ -711,21 +711,26 @@ class LancamentoContabil(models.Model):
                 condition=models.Q(chave_idempotencia__isnull=False),
                 name="chave_idempotencia_unica_por_empresa",
             ),
-            # ⚠️ NÃO declara aqui `ck_lancamentocontabil_empresa_not_null`
-            # (a `CheckConstraint` que a migração 0005 adicionou ao banco por
-            # `AddConstraint` avulso, hand-written) de propósito, mesmo essa
-            # ausência sendo uma divergência REAL entre este `Meta` e o
-            # histórico de migrações — divergência MEDIDA nesta etapa
-            # (`manage.py makemigrations --check` reprova em HEAD limpo,
-            # antes de qualquer edição desta etapa) e registrada em
-            # `docs/projeto/backlog.md`, não corrigida aqui: a correção exige
-            # também registrar a constraint em
+            # BL-455/A5 (achado pré-existente, corrigido na rodada 2 de
+            # auditoria da fatia 1 — o `arquiteto-senior` autorizou tocar
+            # `apps/core/restricoes.py` para fechar esta correção): a
+            # `CheckConstraint` que a migração 0005 adicionou ao BANCO por
+            # `AddConstraint` avulso (hand-written) nunca tinha sido
+            # DECLARADA aqui, em `Meta.constraints` — divergência que fazia
+            # `manage.py makemigrations --check` reprovar em HEAD limpo
+            # (medido, não presumido) e que, se alguém aplicasse o resultado
+            # de um `makemigrations` real, DERRUBARIA esta defesa de banco
+            # contra `empresa_id NULL` por INSERT direto (DE-051). A
+            # declaração agora bate com o banco; a migração corretiva
+            # (0007) só ajusta METADADO — nenhum SQL sobre esta constraint,
+            # que já existe fisicamente desde a 0005. Registrada também em
             # `apps/core/restricoes.py::RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
-            # (a varredura de `apps/core/tests/test_dl019_varredura_de_
-            # restricoes.py` exige as duas mudanças juntas), e esse arquivo
-            # está FORA do escopo de arquivos desta etapa
-            # (`apps/contabilidade/**`). Resolver por conta própria seria
-            # ampliar o escopo da tarefa — decisão do `arquiteto-senior`.
+            # (exigido pela varredura de `apps/core/tests/test_dl019_
+            # varredura_de_restricoes.py`).
+            models.CheckConstraint(
+                condition=models.Q(empresa_id__isnull=False),
+                name="ck_lancamentocontabil_empresa_not_null",
+            ),
         ]
 
     def __str__(self):
