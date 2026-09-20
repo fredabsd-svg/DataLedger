@@ -16,11 +16,23 @@ class LancamentoImutavelError(Exception):
 class EstadoCompetencia(models.TextChoices):
     """Ciclo de vida da competência contábil de uma empresa.
 
-    O fluxo previsto é `aberta -> em_encerramento -> encerrada`, com
-    `em_encerramento` reservado para a janela em que alguém iniciou o
-    fechamento mas ainda não consolidou (F3 — fechamento). Por enquanto F1
-    só cria a coluna e o default: as regras de transição moram em F2 (abrir
-    automaticamente o mês corrente) e F3 (passar de aberta para encerrada).
+    ⚠️ **Decisão da fatia 1 da DL-016, registrada aqui porque o campo já
+    existia com um plano de transição diferente do que foi implementado**
+    (o comentário anterior previa `aberta -> em_encerramento -> encerrada`,
+    de um plano F3/F4 que a DE-050 substituiu): o plano vigente
+    (`docs/planos/DL-016-competencia-e-fechamento.md`, seção "Fatia 1")
+    manda fechar com a transição DIRETA `aberta -> encerrada`. `EM_ENCERRAMENTO`
+    é, portanto, **RESERVADO e NÃO ALCANÇÁVEL** por nenhum código de produção
+    desta fatia — nenhum service escreve este valor. Ele continua declarado
+    no enum só para não quebrar a migração já aplicada (a coluna já existe
+    com estes três valores em `choices`) e para deixar um nome pronto **se**
+    um dia o produto precisar de um fechamento em duas etapas (ex.: uma
+    janela de conferência antes de consolidar) — decisão de produto que
+    ninguém tomou ainda. `test_dl016_fatia1_fechamento_reabertura_entrega.py`
+    tem um teste que prova esta reserva: nenhuma chamada aos services de
+    fechar/reabrir/entregar desta fatia deixa uma `Competencia` em
+    `EM_ENCERRAMENTO`.
+
     O estado é persistido como texto curto, não como FK, porque o domínio é
     fechado e a lista de valores é do próprio projeto (RC do DL-016).
     """
@@ -50,6 +62,32 @@ class Competencia(models.Model):
     - Não há nada a ganhar com um único campo `DATE`: a data do PRIMEIRO dia
       do mês seria convencional, e a regra de "mês fechado" sempre lê o par
       (ano, mês), não a data. Manter o par explícito reduz surpresa.
+
+    ## Fatia 1 da DL-016 (fechamento, reabertura, entrega)
+
+    Quatro campos novos, todos `null=True`/`blank=True` (nenhuma competência
+    existente muda de valor com a migração — critério 11 do plano):
+
+    - `fechada_em`/`fechada_por`: quando `estado == ENCERRADA`, registram
+      QUEM fechou e QUANDO (além do registro de auditoria em
+      `apps.auditoria`, que é a trilha completa — estes dois campos existem
+      para responder "quem fechou este mês" sem precisar consultar a
+      trilha). Reabrir (`apps.contabilidade.services.reabrir_competencia`)
+      LIMPA os dois: eles descrevem o fechamento ATUAL, não o histórico —
+      quem quer o histórico completo (inclusive fechamentos/reaberturas
+      anteriores) consulta `RegistroAuditoria`.
+    - `entregue_em`/`entregue_por`: **fato datado**, não um quarto estado
+      (decisão do `arquiteto-senior`, RC-101). Diferente de
+      `fechada_em`/`fechada_por`, estes DOIS campos NUNCA são limpos por
+      nenhum service desta fatia — uma vez entregue, a competência
+      permanece "entregue" para sempre (a trava de RC-101 depende disso:
+      reabrir uma competência entregue é recusado justamente PORQUE o fato
+      "já foi entregue" não se desfaz). "Marcar como entregue" pode ser
+      chamado mais de uma vez (a entrega "pode repetir-se" — balancete ao
+      cliente, depois ECD transmitida, no texto do plano): cada chamada
+      apenas ATUALIZA os dois campos para o evento mais recente; se um dia
+      for preciso o HISTÓRICO de todas as entregas (não só a última), isso
+      vira modelo próprio, sem refazer esta trava (nota do plano).
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="competencias")
@@ -62,6 +100,46 @@ class Competencia(models.Model):
         default=EstadoCompetencia.ABERTA,
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    fechada_em = models.DateTimeField(
+        "fechada em",
+        null=True,
+        blank=True,
+        help_text=(
+            "Preenchido quando o estado passa a 'encerrada'. Limpo se a competência for reaberta."
+        ),
+    )
+    fechada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="fechada por",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Usuário que fechou a competência (RC do DL-016, critério 3 da fatia 1).",
+    )
+    # RC-101 / decisão do arquiteto-senior: "entregue" é um FATO DATADO,
+    # nunca um quarto estado de `estado`. Ver o docstring da classe para o
+    # contrato completo (inclusive por que estes dois campos NUNCA são
+    # limpos por nenhum service, ao contrário de `fechada_em`/`fechada_por`).
+    entregue_em = models.DateTimeField(
+        "entregue em",
+        null=True,
+        blank=True,
+        help_text=(
+            "Data/hora em que o documento desta competência (balancete, ECD etc.) foi "
+            "entregue ao cliente. Uma vez preenchido, a reabertura da competência é "
+            "sempre recusada (RC-101) — o ajuste passa a ser feito no mês aberto."
+        ),
+    )
+    entregue_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="entregue por",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Usuário que marcou a competência como entregue.",
+    )
 
     class Meta:
         verbose_name = "competência"
@@ -633,6 +711,21 @@ class LancamentoContabil(models.Model):
                 condition=models.Q(chave_idempotencia__isnull=False),
                 name="chave_idempotencia_unica_por_empresa",
             ),
+            # ⚠️ NÃO declara aqui `ck_lancamentocontabil_empresa_not_null`
+            # (a `CheckConstraint` que a migração 0005 adicionou ao banco por
+            # `AddConstraint` avulso, hand-written) de propósito, mesmo essa
+            # ausência sendo uma divergência REAL entre este `Meta` e o
+            # histórico de migrações — divergência MEDIDA nesta etapa
+            # (`manage.py makemigrations --check` reprova em HEAD limpo,
+            # antes de qualquer edição desta etapa) e registrada em
+            # `docs/projeto/backlog.md`, não corrigida aqui: a correção exige
+            # também registrar a constraint em
+            # `apps/core/restricoes.py::RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
+            # (a varredura de `apps/core/tests/test_dl019_varredura_de_
+            # restricoes.py` exige as duas mudanças juntas), e esse arquivo
+            # está FORA do escopo de arquivos desta etapa
+            # (`apps/contabilidade/**`). Resolver por conta própria seria
+            # ampliar o escopo da tarefa — decisão do `arquiteto-senior`.
         ]
 
     def __str__(self):

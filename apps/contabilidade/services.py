@@ -10,6 +10,7 @@ from django.utils import timezone
 from apps.contabilidade.models import (
     Competencia,
     Conta,
+    EstadoCompetencia,
     ItemLancamento,
     LancamentoContabil,
     NaturezaConta,
@@ -77,6 +78,56 @@ class ChaveIdempotenciaConflitante(Exception):
     chave que já está associada a outro lançamento. A view precisa devolver
     409 (conflito de estado), não 400 (entrada inválida), para que o cliente
     perceba que precisa gerar uma nova chave, não corrigir o corpo enviado.
+    """
+
+
+class CompetenciaEncerrada(Exception):
+    """Lançamento (ou estorno) recusado: a competência de destino já está
+    encerrada (RC-57, RC-101; fatia 1 da DL-016, critérios 1 e 2).
+
+    Deliberadamente distinta de `LancamentoInvalido`: o corpo do lançamento
+    em si é válido (partidas batem, contas existem) — o que recusa é o
+    ESTADO da competência em que ele cairia. A view traduz isto para 409
+    (conflito de estado), não 400, mesma distinção que
+    `ChaveIdempotenciaConflitante` já aplica. A mensagem sempre NOMEIA a
+    competência (mês/ano/empresa) recusada — critério 1 do plano exige que
+    o contador saiba QUAL competência está fechada, não só que alguma está.
+
+    Vale IGUALMENTE para lançamento novo e para estorno: `estornar_lancamento`
+    chama `criar_lancamento` com a DATA DO ESTORNO (nunca a do original — ver
+    o comentário de `estornar_lancamento`), então esta exceção, levantada
+    dentro de `criar_lancamento`, já cobre os dois casos sem nenhum código
+    especial no estorno (critério 2 do plano).
+    """
+
+
+class CompetenciaOperacaoInvalida(Exception):
+    """Entrada malformada para fechar, reabrir ou marcar como entregue uma
+    competência — ex.: motivo de reabertura vazio (critério 5).
+
+    A view traduz para 400: o cliente pode corrigir o que enviou. Contraste
+    com `CompetenciaOperacaoRecusada`, abaixo, que é sobre o ESTADO da
+    competência/base, não sobre a forma do pedido.
+    """
+
+
+class CompetenciaOperacaoRecusada(Exception):
+    """O ESTADO atual da competência (ou da base contábil da empresa) impede
+    a transição pedida — ex.: fechar com lote desbalanceado na base
+    (critério 3/RC-58), reabrir ou entregar uma competência que não está no
+    estado exigido para a operação.
+
+    A view traduz para 409 (conflito), nunca 400: o pedido em si é bem
+    formado, o que impede é o que já está gravado. Mesma distinção que
+    `ChaveIdempotenciaConflitante` já aplica para lançamento.
+    """
+
+
+class CompetenciaJaEntregue(CompetenciaOperacaoRecusada):
+    """Reabertura recusada: a competência já foi entregue ao cliente
+    (RC-101, critério 6 do plano). Subclasse de `CompetenciaOperacaoRecusada`
+    — mesma tradução HTTP (409) —, com mensagem própria que nomeia a DATA da
+    entrega e orienta o ajuste no mês aberto, como o critério exige.
     """
 
 
@@ -164,6 +215,58 @@ def _impressao_digital(*, empresa_id, data, historico, itens):
     }
     texto = json.dumps(estrutura, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+@transaction.atomic
+def obter_ou_criar_competencia(*, empresa, ano, mes):
+    """Garante que existe uma `Competencia` para (empresa, ano, mes) e a
+    devolve — criando-a como `aberta` (o `default` do campo `estado`) se
+    ainda não existir.
+
+    Extraída de `criar_lancamento` (F2 da DL-016) para ser reutilizada pela
+    fatia 1 (`encerrar_competencia`, `reabrir_competencia`,
+    `marcar_competencia_como_entregue`): fechar um mês que ainda não tem
+    NENHUM lançamento é um caso real (RC-53 — implantar uma empresa é
+    declarar que tudo antes de uma certa data está fechado), e precisa da
+    MESMA linha `Competencia` para gravar o estado. Uma função, um
+    tratamento de corrida, reutilizado nos dois lugares — não uma segunda
+    cópia do `get_or_create` com seu próprio `except IntegrityError`.
+
+    Trata a corrida de duas transações concorrentes tentando criar a MESMA
+    linha pela primeira vez (`get_or_create` pode levantar `IntegrityError`
+    quando duas chegam juntas — a `UniqueConstraint(empresa, ano, mes)`
+    resolve qual das duas grava primeiro): a perdedora reconsulta por
+    `filter().first()` (nunca `.get()`, que levantaria `DoesNotExist` se o
+    `IntegrityError` tiver outra causa) dentro da MESMA transação.
+
+    Também é o ponto que faz um `mes`/`ano` fora da faixa das
+    `CheckConstraint` de `Competencia.Meta` (`1..12`, `1970..2999`) levantar
+    `IntegrityError` — que aqui vira o mesmo `LancamentoInvalido` de
+    "competência inconsistente", nunca um 500 cru. As views que expõem
+    `ano`/`mes` ao cliente (fechar/reabrir/entregar, `views.py`) validam a
+    faixa ANTES de chegar aqui, de propósito — ver `_validar_ano_mes` — para
+    que o erro comum (mês digitado errado) vire uma mensagem específica de
+    fronteira, e não a mensagem genérica de corrida que sobra para o caso
+    realmente raro.
+    """
+    try:
+        with transaction.atomic():
+            competencia, _ = Competencia.objects.get_or_create(empresa=empresa, ano=ano, mes=mes)
+            return competencia
+    except IntegrityError:
+        # Corrida: o outro lado gravou primeiro (ou o par ano/mês viola uma
+        # CheckConstraint — ver docstring acima). Reconsulta dentro da MESMA
+        # transação; se `None` persistir, não é corrida, é dado inválido ou
+        # inconsistência real — propaga como erro de domínio, nunca 500.
+        competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+        if competencia is None:
+            raise LancamentoInvalido(
+                f"Não foi possível preparar a competência contábil para {ano}-{mes:02d}: "
+                "a empresa informada não existe, o par ano/mês é inválido, ou a corrida "
+                "entre requisições deixou a competência em estado inconsistente. Tente "
+                "novamente."
+            ) from None
+        return competencia
 
 
 @transaction.atomic
@@ -377,38 +480,49 @@ def criar_lancamento(
             # O sinal `post_save(LancamentoContabil)` de F2.4 fica como
             # REDE DE SEGURANÇA para caminhos não-canônicos (ex.: importador
             # em massa que chame `objects.create` direto contornando o
-            # service), mas o caminho do produto não depende dele. O
-            # `get_or_create` pode disparar `IntegrityError` quando dois
-            # lançamentos do MESMO (empresa, ano, mês) se cruzam em
-            # transações concorrentes — condição tão plausível quanto
-            # "duas requisições com a mesma Idempotency-Key" que o `try`
-            # acima já trata; capturamos em savepoint próprio para
-            # reconsultar (`get()`) e seguir se for mesmo a Competencia.
-            try:
-                with transaction.atomic():
-                    competencia, _ = Competencia.objects.get_or_create(
-                        empresa=empresa,
-                        ano=data.year,
-                        mes=data.month,
-                    )
-            except IntegrityError:
-                # Corrida: o outro lado gravou primeiro. Reconsulta dentro
-                # da MESMA transação (o `get_or_create` original teria
-                # visto o `None` inicial por causa da consistência da
-                # transação). Se o `None` persistir aqui, alguma coisa
-                # muito estranha aconteceu (a própria FK para Empresa não
-                # bate?); propaga como `LancamentoInvalido` em vez de
-                # deixar vazar 500.
-                competencia = Competencia.objects.filter(
-                    empresa=empresa, ano=data.year, mes=data.month
-                ).first()
-                if competencia is None:
-                    raise LancamentoInvalido(
-                        "Não foi possível preparar a competência contábil para "
-                        f"{data.year}-{data.month:02d}: a empresa informada não "
-                        "existe ou a corrida entre requisições deixou a "
-                        "competência em estado inconsistente. Tente novamente."
-                    ) from None
+            # service), mas o caminho do produto não depende dele.
+            competencia = obter_ou_criar_competencia(empresa=empresa, ano=data.year, mes=data.month)
+
+            # DL-016 fatia 1 (RC-57, RC-101; critérios 1 e 2 do plano): A TRAVA
+            # MORA AQUI, no serviço — não na view. Qualquer porta que chame
+            # `criar_lancamento` (a API, o estorno, uma futura importação em
+            # lote) herda a recusa sem precisar repeti-la. Medida depois da
+            # competência já resolvida (criada agora ou pré-existente) e ANTES
+            # de qualquer INSERT em `LancamentoContabil` — é o ESTADO GRAVADO
+            # da própria competência que decide, não um substituto dele (ex.:
+            # comparar a data do lançamento contra "hoje" não bastaria: o que
+            # importa é se ALGUÉM já fechou aquele mês, não se ele é passado).
+            # `EM_ENCERRAMENTO` não é alcançável por nenhum service desta
+            # fatia (ver `EstadoCompetencia`) — só `ENCERRADA` bloqueia.
+            #
+            # Estorno (critério 2): `estornar_lancamento` chama esta mesma
+            # função com a DATA DO ESTORNO (nunca a do lançamento original —
+            # ver o comentário lá), então a competência resolvida acima já É
+            # a do estorno. Nenhum código especial precisa existir para o
+            # estorno: o caso "original fechado, estorno em mês aberto" passa
+            # (confirmado pelo Fred, RC-57), e "estorno cairia em mês
+            # fechado" é recusado pela MESMA linha abaixo.
+            #
+            # Risco residual DECLARADO (fora dos 12 critérios da fatia 1): sem
+            # `select_for_update` nesta leitura, uma corrida em que outra
+            # transação fecha ESTA MESMA competência entre esta leitura e o
+            # commit deste `INSERT` não é impedida (READ COMMITTED do
+            # PostgreSQL não veria o fechamento concorrente ainda não
+            # commitado, e o contrário — o fechamento enxergar este
+            # lançamento — depende de quem chega primeiro). Fechar já paga
+            # `select_for_update` sobre a competência (ver
+            # `encerrar_competencia`), mas travar TAMBÉM aqui bloquearia toda
+            # escrituração normal por uma janela de corrida estreita que
+            # nenhum dos 12 critérios da fatia 1 exige fechar — decisão
+            # proporcional ao risco (AGENTS.md §3.1), não descuido.
+            if competencia.estado == EstadoCompetencia.ENCERRADA:
+                raise CompetenciaEncerrada(
+                    f"A competência {data.month:02d}/{data.year} de {empresa} está "
+                    "encerrada; não é possível gravar lançamento nela. Reabra a "
+                    "competência (se ela ainda não foi entregue ao cliente) ou "
+                    "lance em uma competência aberta."
+                )
+
             lancamento = LancamentoContabil.objects.create(
                 empresa=empresa,
                 data=data,
@@ -482,6 +596,15 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
     `estorno_de_unico` é a defesa final, para qualquer corrida que a camada 1
     não cubra. Por isso a função é `@transaction.atomic`: `select_for_update()`
     exige uma transação aberta.
+
+    Competência encerrada (DL-016 fatia 1, RC-57, critério 2 do plano): NÃO
+    há checagem própria aqui — `criar_lancamento`, chamado no fim desta
+    função com `data=data_do_estorno`, já recusa (`CompetenciaEncerrada`) se
+    a competência DO ESTORNO estiver encerrada. É deliberado que seja a
+    competência do estorno, nunca a do original: a data do estorno é sempre
+    "hoje" (ou a data explícita informada), nunca herdada do lançamento
+    original — ver a checagem de RC-78 logo abaixo —, então "original em mês
+    fechado, estorno em mês aberto" É PERMITIDO (confirmado pelo Fred).
     """
     with transaction.atomic():
         lancamento = LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
@@ -559,6 +682,176 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
             # `criar_lancamento` — lá a conversão foi removida de propósito,
             # porque lá o chamador é genérico e não tem este contexto.
             raise LancamentoInvalido("Este lançamento já foi estornado.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Fechamento, reabertura e entrega de competência (DL-016, fatia 1)
+#
+# As três funções abaixo são NÍVEL 1 (AGENTS.md §3.1: mexem no livro
+# contábil) e implementam, e só implementam, os 12 critérios de aceite da
+# fatia 1 do plano DL-016 — nada de tela, filtro nas saídas da DL-015 ou
+# política de período de trabalho, que são fatias seguintes.
+#
+# As três recebem `(empresa, ano, mes)`, não uma `Competencia` já resolvida:
+# fechar (RC-53) precisa funcionar mesmo para um mês SEM nenhum lançamento
+# ainda — `obter_ou_criar_competencia` garante a linha nos três casos, com o
+# mesmo tratamento de corrida que `criar_lancamento` já usa (F2).
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def encerrar_competencia(*, empresa, ano, mes, usuario):
+    """Fecha a competência (ano, mes) da empresa: `aberta -> encerrada`.
+
+    Critério 3 do plano: recusa (`CompetenciaOperacaoRecusada`, 409) se
+    houver LOTE DESBALANCEADO na base da empresa (RC-58) — a conferência da
+    DL-015 é pré-condição do fechamento, verificada com
+    `localizar_lotes_desbalanceados`, que já existe e não tem período (uma
+    base torta é torta em qualquer recorte). Grava `fechada_em`/
+    `fechada_por` e devolve o objeto com o atributo NÃO PERSISTIDO
+    `encerrada_agora` (mesmo padrão de `criado_agora` em `criar_lancamento`):
+    `True` só quando esta chamada de fato fechou agora.
+
+    Idempotência (critério 4): se a competência JÁ está `encerrada`, esta
+    função é um NO-OP — devolve o objeto como está, com `encerrada_agora =
+    False`, SEM tocar `fechada_em`/`fechada_por` (o autor do PRIMEIRO
+    fechamento nunca é trocado) e SEM checar lote desbalanceado de novo (a
+    checagem só faz sentido na transição, não a cada chamada repetida). Quem
+    chama (a view) só grava um NOVO registro de trilha quando
+    `encerrada_agora` é `True` — repetir a chamada não duplica a auditoria.
+
+    Concorrência (critério 10): `select_for_update()` bloqueia a linha da
+    Competencia durante toda a operação — duas requisições simultâneas de
+    fechamento da MESMA competência produzem UM único fechamento; a segunda,
+    ao adquirir o lock depois da primeira commitar, já encontra `encerrada`
+    e cai no ramo idempotente acima. Mesmo padrão que `estornar_lancamento`
+    já usa para `estorno_de_unico`.
+    """
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
+
+    if competencia.estado == EstadoCompetencia.ENCERRADA:
+        competencia.encerrada_agora = False
+        return competencia
+
+    # RC-58 / critério 3: pré-condição de conferência. Checada só AQUI, na
+    # transição — nunca a cada chamada idempotente (ver docstring) — e
+    # cobre a base INTEIRA da empresa, não só esta competência, porque
+    # `localizar_lotes_desbalanceados` não tem período por desenho (uma base
+    # torta é torta em qualquer recorte de datas).
+    if localizar_lotes_desbalanceados(empresa=empresa).exists():
+        raise CompetenciaOperacaoRecusada(
+            f"Não é possível fechar a competência {mes:02d}/{ano} de {empresa}: "
+            "há lançamento(s) desbalanceado(s) na base desta empresa. Resolva "
+            "a conferência (RC-58) antes de fechar."
+        )
+
+    competencia.estado = EstadoCompetencia.ENCERRADA
+    competencia.fechada_em = timezone.now()
+    competencia.fechada_por = usuario
+    competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
+    competencia.encerrada_agora = True
+    return competencia
+
+
+@transaction.atomic
+def reabrir_competencia(*, empresa, ano, mes, usuario, motivo):
+    """Reabre a competência (ano, mes) da empresa: `encerrada -> aberta`.
+
+    Critério 5: `motivo` é OBRIGATÓRIO — vazio ou só espaço em branco é
+    recusado com `CompetenciaOperacaoInvalida` (400), ANTES de qualquer
+    consulta com lock, porque é um erro de ENTRADA, não de estado.
+
+    Critério 6 / RC-101: recusa (`CompetenciaJaEntregue`, subclasse de
+    `CompetenciaOperacaoRecusada`, 409) se a competência já foi entregue ao
+    cliente (`entregue_em` não nulo) — é a decisão de modelagem do
+    arquiteto-senior: "entregue" é fato datado e NUNCA se desfaz por esta
+    função; a mensagem nomeia a DATA da entrega e orienta o ajuste no mês
+    aberto, como o critério exige. Esta checagem vem ANTES da checagem de
+    estado abaixo porque é a mais específica das duas — mas na prática
+    `entregue_em` só é gravado sobre competência `encerrada`
+    (`marcar_competencia_como_entregue` exige isso), então uma competência
+    `aberta` nunca chega com `entregue_em` preenchido.
+
+    Fora dos 12 critérios, mas necessário para a função ter sentido: só é
+    possível reabrir uma competência que ESTÁ `encerrada` — tentar reabrir
+    uma competência `aberta` (nunca foi fechada) é recusado com
+    `CompetenciaOperacaoRecusada` (409: o pedido é bem formado, o que
+    impede é o estado atual).
+
+    `select_for_update()` pelo mesmo motivo de `encerrar_competencia`:
+    embora não haja critério de concorrência explícito para reabertura, a
+    escrita do estado precisa ler a linha mais recente antes de decidir.
+
+    `fechada_em`/`fechada_por` são LIMPOS (`None`): eles descrevem o
+    fechamento ATUAL, que deixou de existir — ver o docstring de
+    `Competencia`. O histórico completo (quem fechou, quem reabriu, quando,
+    com que motivo) continua na trilha de auditoria, gravada pela VIEW (este
+    serviço não decide política de auditoria — ver `apps.auditoria`).
+    """
+    motivo_normalizado = (motivo or "").strip()
+    if not motivo_normalizado:
+        raise CompetenciaOperacaoInvalida(
+            "Informe o motivo da reabertura: não pode ficar em branco."
+        )
+
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
+
+    if competencia.entregue_em is not None:
+        raise CompetenciaJaEntregue(
+            f"Não é possível reabrir a competência {mes:02d}/{ano} de {empresa}: "
+            f"ela já foi entregue ao cliente em "
+            f"{timezone.localtime(competencia.entregue_em):%d/%m/%Y %H:%M}. "
+            "Depois da entrega, a competência não reabre — a correção vai no mês "
+            "aberto, com histórico apontando para esta competência de origem."
+        )
+    if competencia.estado != EstadoCompetencia.ENCERRADA:
+        raise CompetenciaOperacaoRecusada(
+            f"Só é possível reabrir uma competência encerrada; a competência "
+            f"{mes:02d}/{ano} de {empresa} está '{competencia.get_estado_display()}'."
+        )
+
+    competencia.estado = EstadoCompetencia.ABERTA
+    competencia.fechada_em = None
+    competencia.fechada_por = None
+    competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
+    return competencia, motivo_normalizado
+
+
+@transaction.atomic
+def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario):
+    """Marca a competência (ano, mes) da empresa como entregue ao cliente.
+
+    Critério 7: só é possível entregar uma competência `encerrada` — mês
+    aberto é recusado (`CompetenciaOperacaoRecusada`, 409). Grava
+    `entregue_em`/`entregue_por`.
+
+    Repetível de propósito (ver o docstring de `Competencia`): a entrega
+    "pode repetir-se" (balancete ao cliente, depois ECD transmitida, no
+    texto do plano) — cada chamada bem-sucedida ATUALIZA os dois campos
+    para o evento mais recente; nenhuma trava de "já entregue" existe aqui
+    (a trava de RC-101 é sobre REABRIR uma competência entregue, não sobre
+    entregar de novo). Devolve o atributo não persistido `entregue_agora`
+    (sempre `True` quando a função retorna sem levantar exceção — mantido
+    pelo mesmo motivo de simetria de `criado_agora`/`encerrada_agora`, ainda
+    que aqui não haja um ramo "já estava assim" a distinguir).
+    """
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
+
+    if competencia.estado != EstadoCompetencia.ENCERRADA:
+        raise CompetenciaOperacaoRecusada(
+            f"Só é possível marcar como entregue uma competência encerrada; a "
+            f"competência {mes:02d}/{ano} de {empresa} está "
+            f"'{competencia.get_estado_display()}'."
+        )
+
+    competencia.entregue_em = timezone.now()
+    competencia.entregue_por = usuario
+    competencia.save(update_fields=["entregue_em", "entregue_por"])
+    competencia.entregue_agora = True
+    return competencia
 
 
 # ---------------------------------------------------------------------------

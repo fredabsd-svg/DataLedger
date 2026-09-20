@@ -168,23 +168,35 @@ class LancamentoContabilAdmin(admin.ModelAdmin):
 class CompetenciaAdmin(admin.ModelAdmin):
     """Consulta de competências pelo Django admin — só leitura.
 
-    F1 não tem API de gestão de competência: ela nasce em `criar_lancamento`
-    (F2, transação atômica), quando o escritório registra o primeiro
-    lançamento de um mês, e morre em `encerrar_competencia` (F3) ou volta a
-    ficar aberta em `reabrir_competencia` (F4). Pelo produto, a única
-    operação esperada do admin sobre competência é CONSULTAR (qual mês está
-    em aberto para qual empresa, qual está encerrado, quais lançamentos
-    pertencem a qual). Reproduzir a abertura/encerramento/reabertura no
-    admin duplicaria a regra de transição de estado que já vive nos
-    services (mesma razão que motivou o `has_add_permission=False` em
+    Uma competência nasce em `criar_lancamento` (F2, transação atômica),
+    quando o escritório registra o primeiro lançamento de um mês, ou em
+    qualquer das três operações da fatia 1 da DL-016
+    (`apps.contabilidade.services.encerrar_competencia`,
+    `reabrir_competencia`, `marcar_competencia_como_entregue` —
+    `obter_ou_criar_competencia` garante a linha nos quatro caminhos, com o
+    mesmo tratamento de corrida). Pelo produto, a única operação esperada do
+    admin sobre competência é CONSULTAR (qual mês está em aberto para qual
+    empresa, qual está encerrado, quais lançamentos pertencem a qual).
+    Reproduzir a abertura/encerramento/reabertura/entrega no admin
+    duplicaria a regra de transição de estado que já vive nos services
+    (mesma razão que motivou o `has_add_permission=False` em
     `LancamentoContabilAdmin` logo acima), e abriria um caminho de transição
-    que pula a validação de origem — a guarda de transição de estado é a
-    parte que a auditoria da DL-015 rodada 3 mais detalhou (achado novo 3,
+    que pula a validação de origem (RC-58 no fechamento, RC-101 na
+    reabertura) e a trilha de auditoria — a guarda de transição de estado é
+    a parte que a auditoria da DL-015 rodada 3 mais detalhou (achado novo 3,
     gravidade alta) e que decidiu centralizar nos services. Aqui, listamos
     e filtramos; mutações continuam pela API.
     """
 
-    list_display = ["empresa", "ano", "mes", "estado", "criado_em"]
+    list_display = [
+        "empresa",
+        "ano",
+        "mes",
+        "estado",
+        "fechada_em",
+        "entregue_em",
+        "criado_em",
+    ]
     list_filter = ["estado", "ano", "mes"]
     search_fields = ["empresa__razao_social"]
 
