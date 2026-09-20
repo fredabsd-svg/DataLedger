@@ -842,6 +842,43 @@ hoje, **217** `.py` versionados contra **196** vistos. Isso fecha `exclude`,
 por subdiretório **de uma vez, sem lista nenhuma**. O lado da CI não muda: ali o
 código é nosso, e importar a lista do decisor **é** perguntar à fonte.
 
+**Corrigido em `9cdcb32`**, e provado do jeito certo: um `ruff.toml` na raiz, com
+o `pyproject.toml` **intacto**, reprova — que é a prova de que a derivação é da
+ferramenta e não da nossa leitura. Custo do subprocesso: **11 ms**,
+indistinguível do ruído. Com o `ruff` ausente, o teste **pula nomeando o
+motivo** — nunca passa calado, que seria o BL-375 outra vez.
+
+### E aqui a cadeia termina: [BL-419](../projeto/backlog.md) e por que eu NÃO escrevi mais uma guarda
+
+Conferindo o `9cdcb32`, medi o espelho do BL-418 do outro lado. **Sem tocar** em
+`CAMINHOS_NAO_RELEVANTES` nem em nenhum `.py`, acrescentei três linhas ao
+`.github/workflows/identificacao-do-emitente.yml`:
+
+```yaml
+  pull_request:
+    paths-ignore:
+      - '**'
+```
+
+Suíte de `scripts/`: **`65 passed`**. O módulo Python que o BL-379 extraiu para
+ficar ao alcance do `ruff` e do `pytest` continua perfeito — e o arquivo que
+decide se ele **chega a rodar** não é lido por ninguém.
+
+⚠️ **Eu parei de escrever guarda aqui, e é decisão declarada, não cansaço.**
+Quem pode editar o workflow para desligar a verificação **também pode mesclar por
+cima dela vermelha**: a `main` não tem proteção (**BL-373**, remedido pelo
+auditor na décima rodada nos três endpoints). Uma guarda nova contra edição de
+workflow seria a **décima sexta** ocorrência e **não fecharia nada**, porque quem
+ela vigia tem a permissão que a torna irrelevante.
+
+> **A cadeia de guardas termina em proteção de branch com status check
+> obrigatório, e em nenhum outro lugar.**
+
+Então o BL-419 fica como **limite declarado** (DE-056), a correção real é a ação
+do Fred no GitHub (**BL-373**), e a guarda barata — conferir que o workflow não
+tem `paths`/`paths-ignore` — vale **depois** da proteção, nunca antes: antes,
+seria teatro. Enfileirado **atrás da DL-029**.
+
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 
 Duas descobertas sobre o que o contador **recebe de fato** ao apertar Ctrl+P:
