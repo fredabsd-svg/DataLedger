@@ -3185,11 +3185,19 @@ propriedade CSS, atributo HTML nem cabeçalho HTTP que as suprima ou reescreva"*
 
 > **A folha A4 exportada carrega, com tinta que contrasta com o papel,
 > exatamente as linhas de identificação do escritório emitente que o servidor
-> declarou, cada uma no seu próprio lugar; e — no conteúdo que o documento
-> controla, isto é, tinta na folha e metadados do arquivo, excluída a faixa que o
-> navegador acrescenta por fora e que nenhuma folha de estilo alcança (BL-332) —
-> não carrega nenhum identificador do fornecedor do software, em qualquer caixa
-> ou espaçamento.**
+> declarou, cada uma no seu próprio lugar; e — em tudo que o arquivo exportado
+> carrega e que o template ou a folha de estilo podem suprimir, excluída a faixa
+> que o navegador acrescenta por fora e que nenhuma folha de estilo alcança
+> (BL-332) — não carrega nenhum identificador do fornecedor do software, em
+> qualquer caixa ou espaçamento.**
+
+⚠️ **CORRIGIDA de novo em 2026-09-20, e o defeito era meu.** A primeira versão
+desta fronteira dizia *"isto é, tinta na folha e metadados do arquivo"* — uma
+**lista de dois canais**. A décima segunda auditoria mediu o custo (**M2**): o
+PDF entregue carrega **anotações de link**, e um `<a href>` com o domínio do
+fornecedor passava com `exit 0`. **Era a DE-056 acontecendo dentro da correção
+que eu propus para a DE-059.** A redação acima troca a lista por **critério**, e
+o instrumento já foi corrigido (`11fcfa7`).
 
 ⚠️ **Isto NÃO é afrouxar.** É parar de chamar de garantia uma coisa que a
 medição diz ser impossível — que é, na definição do próprio projeto, o defeito de
