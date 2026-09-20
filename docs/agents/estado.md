@@ -399,13 +399,88 @@ não guarda mais nem tamanho nem contraste, os dois com checagem própria.
 `pytest` → **2017 passed, 15 skipped, 4 subtests**, 67,48 s; `ruff check .`
 limpo; `ruff format --check .` 210 arquivos; `manage.py check` limpo.
 
-➡️ **A DL-029 está com o `auditor-qa`, sobre `100140e`** — décima primeira
-auditoria. **A régua que eu dei a ele é a FRASE, não o relatório anterior dele**,
-que é o ponto inteiro da DE-059: ele mesmo previu que auditar contra os próprios
-K1–K4 produziria um K12. Pedi também o juízo dele sobre os **cinco limites
-declarados** (marca como desenho, BL-425, BL-426, BL-419, e os pisos de PE-57 e
-PE-58), e sobre se **DL-026 e DL-028 fecham agora** — hoje o estado diz
-**produto bom, garantia parcial**, e continua dizendo até ele responder.
+#### A DÉCIMA PRIMEIRA AUDITORIA voltou — REPROVADO, e o achado MUDOU DE CLASSE
+
+Relatório integral em
+[2026-09-20-dl-029-rodada-11.md](../auditorias/2026-09-20-dl-029-rodada-11.md).
+**Preservado sem uma palavra minha.** Cinco achados **ALTA**, quatro dentro do
+instrumento que a etapa entregou.
+
+**Não houve o K12 que ele mesmo previu.** A régua foi a **frase**, e o achado
+subiu de *"o instrumento não faz a pergunta"* para *"o instrumento faz a pergunta
+contra um **substituto**"*. Isso virou a [DE-060](../projeto/decisoes.md), e é a
+primeira formulação **finita** em doze rodadas: o instrumento faz **cinco**
+medições, e a pergunta *"isto é a propriedade ou um substituto dela?"* tem cinco
+respostas — três delas corrigíveis com dado que o arquivo **já calcula e
+descarta** (o `bbox` real).
+
+| Achado | O que fura |
+| --- | --- |
+| **BL-427** | Timbre com **2 das 3** linhas declaradas sai como *"FALHA DE INFRAESTRUTURA — não é um veredito sobre o produto"*. O código da cláusula C3 é **inalcançável** |
+| **BL-428** | `transform: scale(0.6)` e `zoom: 0.6` **passam** com o glifo a 9,1 px, enquanto `font-size: 8px` (8,7 px) reprova |
+| **BL-429** | `color: #FF0000` mede **8,45:1** e passa; a razão WCAG real é **4,00:1**. O número rotulado *"WCAG 2.2"* não é o do WCAG |
+| **BL-430** | `letter-spacing: 0.2em`, no tamanho real do produto, diz *"AUSENTE do texto do PDF"* sobre linha com **306 px de tinta** medidos na mesma execução |
+| **BL-431** | O `AGENTS.md` mandava o Fred marcar `Backend` e `Documentação`; os contextos reais são `Lint e testes` e `Validar documentação` |
+
+⚠️ **O BL-431 eu corrigi imediatamente**, em `AGENTS.md` e `CLAUDE.md`, com os
+quatro nomes exatos e o comando que **busca** em vez de afirmar. **O dano do nome
+errado é o oposto do esperado: contexto obrigatório que nunca reporta TRAVA a
+`main` para sempre**, com o PR em *"pendente"* e nenhum erro para investigar.
+
+⚠️ **E eu corrijo o relatório num ponto, com evidência, sem tocar nele:** o
+auditor infere que o `AGENTS.md` foi *"com grande probabilidade"* a causa do erro
+do Fred hoje, *"exatamente os dois"*. **Não foram.** Eu vi a tela: os erros do
+Fred foram `tanto fazer projeto` e `emissor` — os **outros** dois, por corretor
+de celular. O achado é real; a atribuição de causa não se sustenta. Registrado em
+**BL-431**.
+
+#### Ele mediu a PRÓPRIA FRASE e achou que ela promete o impossível
+
+Exportando com as **opções padrão** do diálogo de impressão, a faixa que o
+navegador acrescenta por fora carrega a **URL** — que em produção **é** o
+identificador do fornecedor, em toda folha. E o `base.css` já declarava (BL-332)
+que nenhuma folha de estilo a suprime. **O produto está certo; a frase é que
+prometia o que ninguém entrega.** Corrigida na
+[DE-061](../projeto/decisoes.md), com a fronteira nomeada — *"no conteúdo que o
+documento controla"*. Isso não é afrouxar: é parar de chamar de garantia o
+impossível, que é o defeito de 2026-09-13.
+
+#### O que ele reafirma, e eu não quero que se perca
+
+**BL-404 fechou de verdade** — refeito por um canal que ele não usava,
+`::after { content: ... }` com `DATALEDGER` em caixa alta e o domínio, e o
+instrumento reprovou nomeando a normalização. **C4 e C5 aguentaram tudo.** A
+cobertura de **metadados do PDF alarga** o critério além da frase original e é
+*"o sinal mais forte de que comprar a frase valeu"*. A paginação **erra para o
+lado seguro** (medido: a exportação padrão do navegador é **mais** permissiva que
+a do instrumento). Os quatro números **conferem**, e o custo do critério 9 é real:
+**4 s** de medição, com cinco cláusulas a mais. **Terceira rodada seguida em que
+ele não recomenda reverter o caminho A.**
+
+#### E ele venceu uma discussão comigo, a meu pedido
+
+Eu pedi que atacasse o meu argumento do **BL-419** (parar de escrever guarda). Ele
+mostrou que o argumento publicado **expira** no dia em que o BL-373 for fechado,
+que o ataque que eu descrevi **se autodestrói** com proteção ligada, e que o meu
+modelo de ameaça era *"atacante"* quando o risco real é **acidente** — e que os
+dois **não têm a mesma detectabilidade**. **Adotei a formulação dele**, que não
+expira: *"toda guarda que eu escrever mora no mesmo YAML que ela guarda; a
+regressão é infinita por construção, e o único lugar em que ela pode terminar é
+fora do repositório"*. A decisão continua a mesma; a razão publicada era mais
+fraca que a verdadeira.
+
+#### Onde isso deixa o fechamento
+
+**Em termos da frase, não de achados:** **C1, C4 e C5 fecham** (com limites
+declarados). **C2 e C3 NÃO fecham.** Continua valendo **produto bom, garantia
+parcial** — mas o **nome do buraco muda**: BL-404 fechou, e o que está aberto
+agora são **C2** e **C3**. É uma frase muito mais curta de carregar do que uma
+lista de achados.
+
+⚠️ **E ele declarou o critério de parada, que é o que eu mais queria:** se
+depois desta rodada aparecer um **sexto** eixo, a conversa deixa de ser de
+engenharia e passa a ser *"quanta garantia o produto precisa"* — **pergunta do
+Fred**.
 
 ⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
 

@@ -157,6 +157,22 @@ A tabela no fim do [AGENTS.md](AGENTS.md) diz, linha por linha, o que impede o
 merge e o que não impede, e como ligar o que falta. **Não presuma imposição a
 partir da existência de um workflow.**
 
+⚠️ **Se for ajudar o Fred a ligar a proteção, os quatro nomes de checagem são
+estes, e só estes** — o contexto é o nome do **job**, não o do workflow:
+
+```
+Lint e testes
+Validar documentação
+Regras do projeto
+Medir identificação do emitente no navegador
+```
+
+O `AGENTS.md` trazia dois deles errados até 2026-09-20 (`Backend` e
+`Documentação`, que são nomes de workflow). **Nome errado não afrouxa a
+proteção: TRAVA a `main` para sempre**, porque a checagem exigida nunca
+reporta. Busque os nomes em `GET /repos/…/commits/<sha>/check-runs` em vez de
+copiá-los de memória.
+
 ## Segredos
 
 Nunca exiba, versione ou registre em memória: credenciais, chaves, certificados

@@ -345,11 +345,43 @@ exatamente o defeito que originou a instrução permanente do Fred de 2026-09-13
 na sua forma mais grave — **garantia inexistente descrita como imposta**.
 
 **Como ligar, e é ação do responsável pelo produto** (nenhum agente tem acesso
-para ler nem escrever essa configuração): *Settings → Branches → regra para
-`main`* → exigir pull request e marcar como obrigatórias as checagens `Backend`,
-`Documentação`, `Regras do projeto` e `Medir identificação do emitente no
-navegador`. **Como conferir**: `GET /repos/…/branches?protected=true` devolvendo
-`main`, e `required_status_checks.contexts` com os quatro nomes.
+para ler nem escrever essa configuração): *Settings → Rules → Rulesets* (ou
+*Settings → Branches*, o caminho antigo) → regra para `main` → exigir pull
+request e marcar como obrigatórias **estas quatro checagens, nestes nomes
+exatos**:
+
+```
+Lint e testes
+Validar documentação
+Regras do projeto
+Medir identificação do emitente no navegador
+```
+
+⚠️ **Esta lista estava ERRADA neste arquivo até 2026-09-20, e o erro é da classe
+mais cara possível: documentação que induz ao defeito no único item que destrava
+todos os outros.** Ela mandava marcar `Backend` e `Documentação`, que são nomes
+de **workflow**. O contexto de um status check do GitHub Actions é o nome do
+**job** — `name:` dentro de `jobs:`, não o `name:` do topo do arquivo. Medido na
+API pelo `auditor-qa` na décima primeira auditoria (**L5**), em três revisões,
+`GET /repos/…/commits/<sha>/check-runs` devolve os quatro nomes acima e **nenhum**
+chamado `Backend` ou `Documentação`.
+
+⚠️ **E o dano do nome errado é na direção OPOSTA à esperada:** marcar como
+obrigatório um contexto que nunca reporta **não** deixa a proteção frouxa — deixa
+a `main` **travada para sempre**, com o PR em *"pendente"* e nenhum erro para
+investigar. É a mesma armadilha que o comentário do BL-371 em
+`.github/workflows/identificacao-do-emitente.yml` descreve em quinze linhas.
+
+**Como conferir, buscando em vez de afirmar** (BL-412 — número digitado por
+humano é disciplina):
+
+```
+GET /repos/fredabsd-svg/DataLedger/commits/<sha_da_main>/check-runs
+    → os quatro nomes, para copiar daqui e não de memória
+GET /repos/fredabsd-svg/DataLedger/branches?protected=true   → deve devolver main
+GET /repos/fredabsd-svg/DataLedger/branches/main             → required_status_checks.contexts
+GET /repos/fredabsd-svg/DataLedger/rulesets                  → se a regra for ruleset
+```
 
 **Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
 web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje

@@ -3104,3 +3104,111 @@ registro do dia.**
    **declarada no código**, no formato da DE-056.
 5. **Não substitui a ação do Fred no GitHub.** Enquanto a `main` não tiver
    proteção (BL-373), tudo isto — inclusive o job novo — é **conselho**.
+
+## DE-060 — A guarda APROXIMA: substituto não declarado é a nova forma do mesmo defeito
+
+**Data:** 2026-09-20. Nomeada pelo `auditor-qa` na décima primeira auditoria
+([relatório](../auditorias/2026-09-20-dl-029-rodada-11.md), resposta 2), adotada
+por mim. É o eixo seguinte da **DE-056**.
+
+### O que ele viu, e vale mais que os quatro achados somados
+
+Quatro achados de gravidade alta — **BL-427** a **BL-430** — têm **um** padrão
+por trás:
+
+> **O instrumento mede um SUBSTITUTO mais fácil de obter que a propriedade, e o
+> substituto não está declarado como substituto.**
+
+| A propriedade | O substituto medido | Diverge quando |
+| --- | --- | --- |
+| Que tamanho a linha tem **no papel** | `getComputedStyle().fontSize` | `transform`, `zoom` (BL-428) |
+| Qual é a **razão de contraste WCAG** | luminância de raster em **cinza** | a tinta não é cinza (BL-429) |
+| A linha **está no papel** | substring do `pdftotext -layout` | `letter-spacing` (BL-430) |
+| **Quantas** linhas o papel carrega | contagem de `<p>` do DOM | é a **mesma** consulta que alimenta a recusa de infraestrutura (BL-427) |
+
+### Por que isto é diferente da DE-056, e melhor
+
+A DE-056 diz *"a guarda ENUMERA"* — e a pergunta que ela gera (*"que lista
+existe aqui?"*) é **infinita**: sempre há outra lista.
+
+Esta diz *"a guarda APROXIMA"*, e a pergunta que ela gera é **finita e
+auditável**: o instrumento faz **cinco** medições; para cada uma, *"isto é a
+propriedade ou um substituto dela? se for substituto, de que ele diverge, e essa
+divergência foi medida?"*.
+
+⚠️ **E três das quatro correções usam dado que o instrumento JÁ CALCULA E
+DESCARTA** — o `bbox` real de cada linha, em pontos de PDF, do papel de verdade.
+**Não é escopo novo: é parar de jogar fora a medida melhor.**
+
+### A regra
+
+**Toda medição de guarda declara, no código, se mede a propriedade ou um
+substituto dela.** Quando for substituto: **de que ele diverge**, e **a medição
+dessa divergência** ao lado (DE-058). Substituto declarado é aceitável;
+substituto silencioso é o defeito.
+
+### O que isto NÃO significa
+
+1. **Não condena substituto.** Medir o papel inteiro em cor custa mais que medir
+   em cinza; a escolha pode ser certa. O que não pode é a etiqueta prometer o
+   que o número não entrega — foi o **BL-429**.
+2. **Não promete que é o último eixo.** O auditor foi explícito: *"a frase pagou
+   … e a frase não encerrou o ciclo, e eu não vou fingir que encerrou"*. O que
+   ele afirma é mais modesto e mais útil: é a **primeira vez em doze rodadas**
+   que o trabalho restante se escreve como **lista fechada** em vez de direção.
+   **E ele declarou o critério de parada:** se depois desta rodada aparecer um
+   **sexto** eixo, a conversa deixa de ser de engenharia e passa a ser *"quanta
+   garantia o produto precisa"* — pergunta do Fred.
+
+## DE-061 — A frase do critério 9, corrigida: ela prometia o impossível
+
+**Data:** 2026-09-20. Correção da frase adotada na **DE-059**, proposta pelo
+`auditor-qa` — que a escreveu — depois de **medir** a própria frase
+([relatório](../auditorias/2026-09-20-dl-029-rodada-11.md), resposta 1).
+
+### O que a medição mostrou
+
+A frase dizia *"a folha A4 **exportada** … não carrega **nenhum** identificador
+do fornecedor do software"*. Lida como um contador lê — a folha que sai apertando
+Ctrl+P —, essa cláusula é **impossível de cumprir**.
+
+Medido: exportando o Balancete com as **opções padrão** do diálogo de impressão
+(cabeçalho e rodapé marcados, que é o padrão do Chrome e do Edge), a faixa de
+baixo carrega a **URL**. Em produção, servida de um domínio da empresa, essa URL
+**é** o identificador do fornecedor, impresso em **toda folha**. E
+`static/css/base.css` já declara, no comentário do **BL-332**, que *"não existe
+propriedade CSS, atributo HTML nem cabeçalho HTTP que as suprima ou reescreva"*.
+
+**O produto está certo; a frase é que prometia o que ninguém pode entregar.**
+
+### A frase, corrigida
+
+> **A folha A4 exportada carrega, com tinta que contrasta com o papel,
+> exatamente as linhas de identificação do escritório emitente que o servidor
+> declarou, cada uma no seu próprio lugar; e — no conteúdo que o documento
+> controla, isto é, tinta na folha e metadados do arquivo, excluída a faixa que o
+> navegador acrescenta por fora e que nenhuma folha de estilo alcança (BL-332) —
+> não carrega nenhum identificador do fornecedor do software, em qualquer caixa
+> ou espaçamento.**
+
+⚠️ **Isto NÃO é afrouxar.** É parar de chamar de garantia uma coisa que a
+medição diz ser impossível — que é, na definição do próprio projeto, o defeito de
+2026-09-13: **garantia inexistente descrita como imposta**.
+
+### O que a frase acertou, e fica sem mudar uma palavra
+
+*"Em qualquer caixa ou espaçamento"* se mostrou **mais larga** do que o autor
+tinha em mente: alcançou o canal de **metadados do PDF** (`/Title`), que ninguém
+tinha imaginado e que a equipe encontrou **ao executá-la**, e alcançou o
+`content:` de pseudo-elemento sem precisar de item novo. *"Uma frase que produz
+cobertura que o autor não antecipou é o sinal de que ela está no nível certo de
+abstração."*
+
+### Uma cláusula que a frase cobre em palavras e que o instrumento NÃO mede
+
+*"Do escritório **emitente**"*. A base de medição tem **um** escritório, então o
+instrumento nunca pode distinguir *"o escritório certo"* de *"algum escritório"*.
+Isso é coberto pela camada barata
+(`apps/tenancy/tests/test_bl282_timbre_escritorio.py:182`), e o auditor **não**
+recomenda duplicar no navegador. **Registrado para ninguém supor que o
+instrumento prova isolamento entre escritórios: ele não prova.**
