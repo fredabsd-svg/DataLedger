@@ -738,6 +738,32 @@ imagem) e recusar o resto, inclusive arquivo sem extensão.
 **Isto é a DE-055 funcionando como foi desenhada:** quem verificou não foi quem
 escreveu a correção, e a construção não estava em relatório nenhum.
 
+**O BL-415 foi corrigido em `81b8f0f`** — o teste passa a enumerar o que **pode**
+ficar escondido (`.md`, `.png`, `.svg`) e recusa o resto, inclusive arquivo sem
+extensão. Reprova os três executáveis do meu achado e o arquivo sem extensão;
+zero ofensores hoje entre os 158 arquivos escondidos.
+
+⚠️ **E na conferência seguinte eu achei o [BL-416](../projeto/backlog.md), a
+décima quarta ocorrência — que é o BL-415 um nível acima.** A guarda nova vigia
+**uma** das duas listas de exclusão, e a própria décima auditoria tinha nomeado
+as duas: *"nenhuma das duas sabe da outra, e as duas erram junto"*. Medido em
+cópia isolada: um arquivo com **quatro erros reais de `ruff`** mais **uma**
+entrada no `extend-exclude` do `pyproject.toml` dão `All checks passed!` e
+`31 passed`. Corrigimos o **efeito** nas duas listas e pusemos guarda só numa —
+a guarda herdou em silêncio a cegueira que o relatório já descrevia.
+
+A correção pedida é a forma de **propriedade**: o conjunto escondido vira a
+**união** das fontes de exclusão, lidas de onde elas moram (`tomllib` lê o
+`pyproject.toml`; o decisor exporta a sua lista), e a lista segura se aplica à
+união.
+
+⚠️ **Leia isto junto com a PE-56.** Em uma tarde, a mesma lição apareceu **duas**
+vezes seguidas, nos dois casos numa guarda escrita **para fechar a ocorrência
+anterior**. É o argumento vivo a favor de escrever o critério uma vez, em vez de
+comprar rodada atrás de rodada: *onde a guarda derivou de uma **propriedade**,
+ela aguentou; onde derivou de uma **lista**, o item seguinte apareceu em menos de
+uma hora*.
+
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 
 Duas descobertas sobre o que o contador **recebe de fato** ao apertar Ctrl+P:
