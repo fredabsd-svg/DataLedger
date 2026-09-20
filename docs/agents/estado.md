@@ -508,9 +508,44 @@ porque a regra protege o caso em que ela é necessária, não o caso em que é
 confortável. ⚠️ **A autodelação espontânea é o comportamento certo e não será
 punida:** punir honestidade produz silêncio, que é o que custa caro.
 
-**Estado:** verificação dirigida aos oito critérios por `auxiliar-verificacao`,
-sobre a versão integrada. Pela §3.1: uma verificação, uma correção, uma
-reconferência.
+##### A VERIFICAÇÃO DIRIGIDA ACHOU UM BLOQUEADOR — e ele NÃO está na tela
+
+**Relatório integral:**
+[2026-09-20-dl-031-verificacao-dirigida-1.md](../auditorias/2026-09-20-dl-031-verificacao-dirigida-1.md).
+
+**Os oito critérios da tela PASSAM**, com teste nomeado cada um, e a
+não-regressão inteira foi reproduzida pelo verificador: **2006 passed, 14
+skipped**, `ruff`, `manage.py check` e `makemigrations --check` limpos. Ele
+também **confirmou de forma independente** dois números do frontend (7,38:1 e
+14,58:1) e mediu **zero** elementos abaixo do piso de contraste nas quatro telas.
+
+⚠️ **O BLOQUEADOR é a [DE-055](../projeto/decisoes.md) pagando de novo, e o lugar
+é irônico: [BL-470](../projeto/backlog.md) está no CAMINHO DE ERRO da correção
+que fechou o BL-463.**
+
+Quando o `lock_timeout` estoura no lançamento, o `except` está certo e a detecção
+por SQLSTATE `55P03` está certa — **quem falha é a FRASE de erro**. Ela acessa
+`competencia.empresa`, uma chave estrangeira **não cacheada**, o que dispara nova
+consulta numa transação PostgreSQL **já abortada**. O erro cru substitui a
+exceção certa, sobe sem ser capturado pela view e vira **HTTP 500** em produção —
+exatamente o que o critério 5 proíbe, no cenário que o BL-463 existe para tornar
+seguro.
+
+**Nenhum dos 2.006 testes alcança esse caminho.** Foi achado porque eu pedi
+explicitamente um eixo que nenhum dos dois relatórios tivesse discutido.
+
+**Duas ressalvas baixas:** [BL-471](../projeto/backlog.md) (as três telas de ação
+herdam a proteção de isolamento por função compartilhada, mas sem teste dedicado
+nesta fatia) e [BL-472](../projeto/backlog.md) (procedência de um número citado).
+
+⚠️ **E uma ressalva do frontend que o verificador CONFIRMOU em vez de derrubar:**
+*"esta tela não exibe valor monetário, então a régua de tabulação de coluna não
+se aplica"*. Verificado contra o instrumento do próprio produto
+(`scripts/juiz.py` isenta data por desenho) e contra o precedente de
+Diário/Razão/Balancete. **Declaração espontânea de limite, e correta.**
+
+**Estado:** correção do BL-470 em curso, **rodada 1 de 2**. Pela §3.1, a
+reconferência é a última.
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
