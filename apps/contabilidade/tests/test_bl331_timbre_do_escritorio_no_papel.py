@@ -917,6 +917,96 @@ def test_bl385_pseudo_classe_de_interacao_nao_listada_recusa_julgar(
 
 
 # ---------------------------------------------------------------------------
+# DE-055 — duas construções que o `arquiteto-senior` pediu por nome, na
+# cobrança à correção do BL-377/BL-385: uma que ele já esperava o
+# resultado (line-height, o mesmo eixo do letter-spacing com propriedade
+# diferente) e uma que NENHUM dos dois sabia de antemão (`:has()`,
+# pseudo-classe FUNCIONAL e RELACIONAL — podia cair na recusa do BL-360,
+# na recusa nova do BL-385, ou passar batida; as três respostas têm
+# consequência diferente). Medidas aqui, contra a guarda REAL
+# (`_algum_ancestral_removido_do_papel`), não presumidas.
+# ---------------------------------------------------------------------------
+
+
+def test_bl377_construcao_line_height_no_timbre_continua_aprovando(tmp_path):
+    """Mesmo eixo do `letter-spacing: 0.01em` que o auditor usou para
+    provar o falso alarme do BL-377 (achado J6) — declaração TIPOGRÁFICA
+    legítima, propriedade DIFERENTE (`line-height`, não `letter-spacing`),
+    numa regra NOVA dentro do `@media print`. Sem esta prova, a correção
+    do BL-377 estaria provada num caso (letter-spacing, medido no
+    comentário/mensagem do teste do item 2) e PRESUMIDA no outro
+    (line-height, aqui). Precisa continuar `escondido=False`, sem
+    exceção nenhuma — a guarda REAL (`_algum_ancestral_removido_do_papel`)
+    nunca recusa nem esconde por causa de uma propriedade que não é
+    `display`."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio(_BALANCETE_HTML)
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = _escrever_css_mutado(
+        tmp_path,
+        css_original,
+        "    .timbre-impressao p {\n        margin: 0 0 var(--esp-1);\n    }",
+        "    .timbre-impressao p {\n        margin: 0 0 var(--esp-1);\n    }\n\n"
+        "    .timbre-impressao p {\n        line-height: 1.8;\n    }",
+        nome="base-mutado-line-height.css",
+    )
+    escondido, no = _algum_ancestral_removido_do_papel(
+        cadeia, caminho_mutado.read_text(encoding="utf-8")
+    )
+    assert not escondido, (
+        f"'.timbre-impressao p {{ line-height: 1.8 }}' é declaração TIPOGRÁFICA "
+        f"legítima (mesmo eixo do letter-spacing do achado J6) — não deveria "
+        f"esconder o timbre nem fazer a guarda recusar julgar, e escondido={escondido!r} "
+        f"(no={no!r})"
+    )
+
+
+def test_bl377_construcao_has_relacional_recusa_via_bl360_nao_via_bl385_nem_em_silencio(
+    tmp_path,
+):
+    """Medição pedida SEM resposta presumida: `.timbre-impressao:has(p) {
+    display: none }`. `:has()` é pseudo-classe FUNCIONAL (tem parênteses)
+    E RELACIONAL (a única da lista que testa os DESCENDENTES do próprio
+    elemento, não estado ou posição do elemento) — por isso podia:
+    (a) cair na recusa do BL-360 (gramática não modelada — funcional,
+    como `:is()`/`:where()`/`:not()`, nunca antes exercitada NOMEANDO
+    `:has()` especificamente, só citada em comentário como hipótese);
+    (b) cair na recusa nova do BL-385 (pseudo-classe de interação não
+    reconhecida) — o que seria ERRADO, porque `:has()` não é uma
+    pseudo-classe de INTERAÇÃO nem se parece com uma, e chegar ali
+    significaria que o resíduo não-reconhecido do BL-360 deixou passar
+    algo que não devia; ou (c) passar BATIDA — o pior caso, e seria um
+    ACHADO desta rodada.
+
+    MEDIDO: (a) — `_residuo_nao_reconhecido_do_composto` (test_bl329) tem
+    a negativa `(?!\\()` explícita para NÃO apagar uma pseudo-classe
+    simples seguida de `(` (a mesma proteção que já cobria `:is(`/
+    `:where(`/`:not(`) — `:has(p)` deixa resíduo `":has(p)"`, e
+    `_extrair_regras_flat` recusa ANTES de a regra virar candidata,
+    então o mecanismo do BL-385 (que só vê pseudo-classe de regras JÁ
+    aceitas) nunca chega a ser consultado. RECUSA, nomeando o seletor —
+    nunca aprovação silenciosa, nunca a recusa errada. Nenhum achado
+    novo: o limite já existia por CONSTRUÇÃO (o `(?!\\()` do BL-360), só
+    não estava provado NOMEANDO `:has()`."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio(_BALANCETE_HTML)
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = _escrever_css_mutado(
+        tmp_path,
+        css_original,
+        "    .timbre-impressao {\n        display: block;",
+        "    .timbre-impressao:has(p) {\n        display: none;\n    }\n\n"
+        "    .timbre-impressao {\n        display: block;",
+        nome="base-mutado-has-relacional.css",
+    )
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA") as excinfo:
+        _algum_ancestral_removido_do_papel(cadeia, caminho_mutado.read_text(encoding="utf-8"))
+    assert ":has(p)" in str(excinfo.value), (
+        f"a recusa precisa NOMEAR o seletor com :has() — mensagem: {excinfo.value}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # BL-362, item 2 — LIMITE DECLARADO DO MOTOR SIMULADO, COM PROVA MEDIDA.
 #
 # O pedido original (rodada 12) dizia: "para o lado 'apareça', qualquer
@@ -1429,3 +1519,89 @@ def test_h2_sabotagem_no_parcial_incluido_mata_a_guarda_nomeando_a_tela(tmp_path
     # que o nó que esconde não é o próprio parcial "sozinho" fora de
     # contexto: ele só existe DENTRO da árvore expandida da tela.
     assert no_que_esconde is not None
+
+
+def test_templates_com_timbre_impressao_parcial_compartilhado_por_duas_telas_nomeia_as_duas(
+    tmp_path, monkeypatch
+):
+    """DE-055 — construção pedida pelo `arquiteto-senior` na cobrança à
+    correção do BL-382: o cenário do DIA em que alguém desduplicar o
+    timbre entre Razão e Diário ao mesmo tempo (não uma tela isolada, que
+    já estava provado acima) — um ÚNICO parcial incluído por DUAS telas.
+    É exatamente o ponto em que "excluir o parcial da derivação" poderia
+    escorregar: se a exclusão fosse por CONTAGEM (ex.: "só entra na
+    derivação se tiver dono único") em vez de por PRESENÇA (`_caminhos_
+    de_parciais_incluidos` só pergunta "alguém inclui isto?"), duas telas
+    compartilhando o parcial poderiam confundir a lógica. Medido: as DUAS
+    telas continuam nomeadas, o parcial continua fora — porque a
+    exclusão nunca dependeu de quantos incluem, só de SE algum inclui."""
+    diretorio = tmp_path / "templates"
+    diretorio.mkdir()
+    parcial = diretorio / "_timbre.html"
+    parcial.write_text('<div class="timbre-impressao"><p>Linha</p></div>\n', encoding="utf-8")
+    razao = diretorio / "razao.html"
+    razao.write_text(
+        '<div class="cabecalho-razao">\n    {% include "_timbre.html" %}\n</div>\n',
+        encoding="utf-8",
+    )
+    diario = diretorio / "diario.html"
+    diario.write_text(
+        '<div class="cabecalho-diario">\n    {% include "_timbre.html" %}\n</div>\n',
+        encoding="utf-8",
+    )
+
+    _substituir_diretorios_de_templates(monkeypatch, [diretorio])
+
+    encontrados = _templates_com_timbre_impressao()
+    assert set(encontrados) == {razao, diario}, (
+        f"esperava as DUAS telas (razao.html e diario.html) nomeadas, com o "
+        f"PARCIAL compartilhado ({parcial}) excluído dos dois — achei "
+        f"{encontrados!r}. Se uma das duas sumiu, ou se o parcial apareceu, a "
+        f"exclusão passou a depender de CONTAGEM em vez de PRESENÇA"
+    )
+
+    # Cada tela precisa continuar com a CADEIA PRÓPRIA (contêiner
+    # `cabecalho-razao` OU `cabecalho-diario`, nunca os dois misturados) —
+    # prova de que o include compartilhado não faz uma tela herdar o
+    # contêiner da outra.
+    for caminho, classe_do_cabecalho in ((razao, "cabecalho-razao"), (diario, "cabecalho-diario")):
+        raiz = _parsear_html(caminho.read_text(encoding="utf-8"))
+        assert any(classe_do_cabecalho in no.classes for no in _percorrer(raiz)), (
+            f"{caminho.name}: a árvore deveria conter {classe_do_cabecalho!r} — "
+            f"o parcial compartilhado não pode apagar o contêiner PRÓPRIO da tela"
+        )
+
+
+def test_templates_com_timbre_impressao_parcial_incluido_por_uma_tela_nao_pela_outra(
+    tmp_path, monkeypatch
+):
+    """DE-055 — o CONTROLE NEGATIVO da regra nova `_caminhos_de_parciais_
+    incluidos` (BL-382), pedido pelo `arquiteto-senior`: um parcial de
+    timbre incluído por UMA tela, ao lado de uma SEGUNDA tela que não o
+    inclui (e não tem timbre nenhum, incluído ou não). Sem este teste,
+    não está provado que excluir o parcial da derivação não "come" de
+    quebra uma tela LEGÍTIMA que nunca teve relação com ele — a exclusão
+    é por CAMINHO RESOLVIDO específico (`alvo.resolve()`), nunca por
+    "existe algum include em algum lugar do diretório"."""
+    diretorio = tmp_path / "templates"
+    diretorio.mkdir()
+    parcial = diretorio / "_timbre.html"
+    parcial.write_text('<div class="timbre-impressao"><p>Linha</p></div>\n', encoding="utf-8")
+    tela_com_include = diretorio / "tela_com_timbre.html"
+    tela_com_include.write_text(
+        '<div class="cabecalho">\n    {% include "_timbre.html" %}\n</div>\n', encoding="utf-8"
+    )
+    tela_sem_timbre = diretorio / "tela_sem_timbre.html"
+    tela_sem_timbre.write_text(
+        '<div class="corpo"><p>sem timbre nenhum aqui</p></div>\n', encoding="utf-8"
+    )
+
+    _substituir_diretorios_de_templates(monkeypatch, [diretorio])
+
+    encontrados = _templates_com_timbre_impressao()
+    assert encontrados == [tela_com_include], (
+        f"esperava SÓ a tela que inclui o parcial ({tela_com_include}) — o parcial "
+        f"({parcial}) e a tela SEM timbre nenhum ({tela_sem_timbre}) não deveriam "
+        f"aparecer, e a segunda tela em especial não pode ser 'comida' pela "
+        f"exclusão do parcial — achei {encontrados!r}"
+    )
