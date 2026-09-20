@@ -101,8 +101,40 @@ código de saída e a mensagem conferidos — não inspeção de código.
    nomeando a rota. Aviso em job verde não atende.
 6. **C1 / BL-410.** `margin-top: 260mm` no timbre produz mensagem que nomeia
    **paginação**, não *"0 pixels escuros"*.
-7. **C2 / BL-407.** `opacity: 0.4` — timbre legível — **passa**; ou reprova com
-   mensagem que nomeie **contraste insuficiente**, nunca ausência de tinta.
+7. **C2 / BL-407 — CORRIGIDO em 2026-09-20, e o erro era meu.** O texto original
+   deste critério dizia *"`opacity: 0.4` — timbre legível — **passa**"*. Eu o
+   copiei do K4 da auditoria, que afirma *"as três linhas perfeitamente
+   legíveis"* — **juízo visual**, não medição, e eu o herdei sem medir.
+
+   **Medido pelo `desenvolvedor-pleno` em 2026-09-20**, varredura de opacidade
+   no produto real: `opacity: 0.4` produz razão de contraste de **2,81:1**,
+   abaixo do piso do **WCAG 2.2** até para texto grande (3:1) e muito abaixo do
+   piso para texto normal (4,5:1).
+
+   **O critério passa a ser:** o piso de contraste é **derivado do WCAG 2.2** —
+   4,5:1 para texto normal, 3:1 para texto grande ou negrito — e aplicado **por
+   linha**, a partir do tamanho e peso **realmente renderizados**, que a sonda do
+   navegador informa. Logo, **`opacity: 0.4` REPROVA**, e a mensagem tem de
+   nomear *"contraste 2,81:1, abaixo do mínimo de 4,5:1 para texto normal"* —
+   nunca *"0 pixels escuros"*.
+
+   ⚠️ **O K4 não cai inteiro, e a precisão importa:** a docstring que afirmava
+   *"nenhum pixel entre 1 e 254"* era **falsa** e continua sendo; a mensagem que
+   culpava a ausência de tinta estava **errada** e continua. Cai **só** a
+   terceira parte — *"reprovar `opacity: 0.4` é falso alarme"*.
+
+   ⚠️ **O WCAG entra como EMPRÉSTIMO DECLARADO, não como norma.** Ele governa
+   conteúdo **web**, não papel impresso, e **não é norma contábil**. É adotado
+   como referência de legibilidade por **escolha nossa**, registrada no código
+   com versão e data, na falta de piso específico para documento contábil — ver
+   **PE-57**. Apresentá-lo como exigência normativa seria inventar exigência, o
+   que o `AGENTS.md` proíbe.
+
+   **Por que o número não é nosso, e isso é o ponto:** um limiar escolhido para
+   fazer um caso passar é exatamente a forma que esta etapa combate — número que
+   existe porque um teste precisava dele. Derivar de padrão publicado, versionado
+   e citável é a mesma família da [DE-057](../projeto/decisoes.md): **perguntar a
+   quem decide, em vez de inventar a régua**.
 8. **Não regride o que já aguenta.** Continuam reprovando: tinta branca no
    timbre, `font-size: 1px`, `font-size: 3px`, e `display`/`color` na marca do
    fornecedor pela camada barata. Continua **passando** o controle limpo e a
