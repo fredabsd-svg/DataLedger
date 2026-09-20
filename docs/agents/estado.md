@@ -235,6 +235,7 @@ diverge.
 | [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, por decisão: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324) |
 | [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
+| [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md) | A trilha de auditoria cobre o **admin**: quem alterou, quando, e **com que valor antes e depois**. Cobertura **derivada** de `admin.site._registry`, não de lista nossa. **Remendo declarado**, não o histórico com vigência que o BL-396 vai exigir | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo das demais: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -481,6 +482,41 @@ lista de achados.
 depois desta rodada aparecer um **sexto** eixo, a conversa deixa de ser de
 engenharia e passa a ser *"quanta garantia o produto precisa"* — **pergunta do
 Fred**.
+
+#### DL-030 em execução — o Fred autorizou o remendo da trilha
+
+*"Pode encaminhar o remendo da trilha"*, 2026-09-20, depois de eu levar a ele o
+**BL-435** com a medição.
+
+**O que foi medido:** `Empresa.razao_social` é `CharField` comum, o
+`EmpresaAdmin` trava só `escritorio` no `change`, e não existe nenhum
+`registrar()` em `apps/empresas/admin.py`. Uma alteração contratual **apaga o
+valor anterior no ato**, e ele não fica em lugar nenhum — o que torna impossível
+o que o **BL-396** exige do termo do livro.
+
+**O escopo está no nome: é REMENDO.** Plano em
+[DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md), e a seção *"O que esta
+etapa NÃO é"* vem **antes** dos requisitos, de propósito:
+
+1. **Não** é o `HistoricoCadastralEmpresa` com vigência que o BL-396 vai exigir —
+   esse depende da **PE-60**, cuja metade normativa eu **ainda não levantei** em
+   fonte oficial.
+2. **Não** fecha BL-244, BL-14, BL-16 nem BL-57. A trilha completa continua sendo
+   o **pacote 3**.
+3. **Não** promete dado recuperável em forma de cadastro: fica em `detalhes`, como
+   **prova de que existiu e qual era**.
+
+⚠️ **O valor é exatamente esse, e é grande: depois dela a informação EXISTE.
+Antes, não existia.**
+
+**As duas exigências de forma**, e são a lição da semana: a cobertura é
+**derivada de `admin.site._registry`** (enumerar os `ModelAdmin` seria a décima
+sétima ocorrência da classe), e a **guarda da cobertura também é derivada** — um
+teste anda pelo registro e reprova se alguma `ModelAdmin` ficar de fora, de modo
+que modelo novo entre **sozinho** ou o build fique vermelho.
+
+**Duas frentes em paralelo, em arquivos disjuntos:** `scripts/**` com a rodada 2
+da DL-029; `apps/**` com a DL-030.
 
 #### A RODADA 2 da DL-029 está em execução, e a régua é a DE-060
 
