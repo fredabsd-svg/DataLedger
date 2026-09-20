@@ -391,8 +391,61 @@ repetir:** eu suspeitava que reabrir **perdesse** quem assinou o fechamento
 anterior. Não perde — a trilha preserva o autor ao longo de fechar → reabrir →
 fechar. O que falta é contexto no registro (BL-459), não a identidade.
 
-**Estado:** correção em curso, **rodada 1 de 2**. Pela regra de parada da §3.1, a
-reconferência é a última — não haverá terceira rodada.
+#### A RECONFERÊNCIA APROVOU (`d1da551`) — e o achado principal é do AUDITOR, sobre ele mesmo
+
+**Relatório integral:**
+[2026-09-20-dl-016-fatia-1-rodada-2.md](../auditorias/2026-09-20-dl-016-fatia-1-rodada-2.md).
+**Parecer: APROVADO COM RESSALVAS.** **A fatia 1 está fechada em duas rodadas** —
+a primeira vez que a regra de parada da §3.1 governa uma etapa inteira.
+
+Números que o **auditor** mediu: **1973 passed, 14 skipped**; `ruff check`,
+`ruff format --check` e `manage.py check` limpos; migrações limpas; e
+`makemigrations --check` agora **exit 0**, que era exit 1 (BL-455 fechado).
+
+⚠️ **O ACHADO PRINCIPAL DESTA RODADA É DO AUDITOR, SOBRE O PRÓPRIO AUDITOR.**
+O oráculo que ele exigiu na rodada 1 — *"a reprodução natural tem de devolver 0
+em 30"* — era **não-discriminante**. Ele mesmo mediu: o predicado acusa
+**20/30 no código CORRIGIDO**, porque *"lançou E o mês terminou fechado"* é o
+desfecho **legítimo** de qualquer correção certa. **O implementador recusou a
+régua, argumentou, e tinha razão.**
+
+**O que cai e o que fica, e a distinção importa:** cai o número que eu e ele
+transformamos em manchete. **Fica o bloqueador** — ele nunca dependeu daquele
+número: as reproduções R1 e R1b da rodada 1 eram **deterministas**, impunham a
+ordem *"fechamento commitou, depois o lançamento inseriu"*, e o lançamento
+entrou assim mesmo, inclusive em competência **já entregue**.
+
+**Frase do auditor que vale guardar:** *"a conclusão da rodada 1 estava certa, e
+uma das três evidências que usei para sustentá-la era imprestável. Eu a destaquei
+como manchete, e foi a pior escolha editorial possível — dei o holofote à medição
+fraca."*
+
+⚠️ **E ele não parou no reconhecimento: construiu o oráculo CERTO e mediu.** Dois
+instrumentos independentes, que não usam nenhuma função exclusiva da revisão
+corrigida, rodados nas **duas** revisões: **violam em `16b9ec4`, não violam em
+`d1da551`**. E **matou o mutante**: revertida **uma linha** da correção, três dos
+quatro testes do implementador reprovam. *"Um instrumento que acusa no código
+defeituoso e não acusa no corrigido é um instrumento; o meu da rodada 1 não
+era."*
+
+**Fechados:** BL-455, BL-456, BL-457, BL-458, BL-459, BL-460, BL-461.
+
+**Ressalvas declaradas, nenhuma tocando valor contábil:**
+[BL-463](../projeto/backlog.md) (média — o fechamento segura o lock durante a
+varredura da base inteira, e não há `lock_timeout`; é **disponibilidade**, não
+correção), [BL-464](../projeto/backlog.md), [BL-465](../projeto/backlog.md),
+[BL-466](../projeto/backlog.md), [BL-467](../projeto/backlog.md) e
+[BL-468](../projeto/backlog.md).
+
+**Decisão minha sobre o BL-467:** o teste que não mata o mutante **fica, com o
+nome corrigido**. Ele não guarda o BL-456 — e o nome não pode prometer que
+guarda —, mas guarda o que nenhum outro cobre: que a corrida natural não produz
+exceção inesperada, deadlock nem estado inconsistente. **Guarda de robustez é
+guarda; guarda mal nomeada é armadilha.**
+
+**Próximo passo:** a **fatia 2 — a tela** ([DE-065](../projeto/decisoes.md)),
+levando junto BL-463 a BL-468. Hoje o contador **não consegue fechar o mês**: a
+trava existe e não há porta.
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
