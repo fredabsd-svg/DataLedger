@@ -17,8 +17,11 @@ mais os testes unitários das funções puras (`sha_valida`,
 Cada teste usa `tmp_path` (descartado pelo próprio `pytest` ao fim) —
 NUNCA a árvore deste projeto (BL-311)."""
 
+import fnmatch
+import pkgutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -256,76 +259,13 @@ def test_caminhos_nao_relevantes_e_a_lista_pequena_do_lado_seguro():
     ]
 
 
-def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
-    """BL-409/K6 (décima auditoria,
-    docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md), CORRIGIDO por
-    BL-415 (achado do arquiteto-senior sobre a integração do BL-409): a
-    primeira versão deste teste também era uma LISTA — perguntava "a
-    extensão do arquivo está em `{py, css, html, yml, yaml, toml}`?" — e o
-    arquiteto mediu o item seguinte dela em menos de uma hora: um `.sh`,
-    um `.ps1` e um `.js` sob `docs/`, nenhum deles numa extensão que a
-    lista antiga sabia nomear, passavam pelo teste em silêncio — a MESMA
-    classe de defeito do BL-408, um nível acima.
+# ---------------------------------------------------------------------------
+# BL-416/BL-417 — a UNIÃO das duas fontes de exclusão, cada uma com o
+# matcher que ela realmente usa.
+# ---------------------------------------------------------------------------
 
-    **A correção inverte o lado, como `CAMINHOS_NAO_RELEVANTES` já faz e
-    como o J9 elogiou**: em vez de enumerar o que é PERIGOSO (lista aberta,
-    cresce com a linguagem — é o erro do BL-355/BL-367, aqui de novo), esta
-    função enumera o que pode LEGITIMAMENTE ficar invisível para
-    `ruff`/`pytest`/CI — prosa e imagem, `EXTENSOES_SEGURAS_PARA_FICAR_
-    INVISIVEIS` abaixo — e reprova TUDO o mais que qualquer padrão de
-    `CAMINHOS_NAO_RELEVANTES` esconder, inclusive um arquivo SEM extensão
-    nenhuma (`arquivo.endswith(EXTENSOES_SEGURAS...)` já falha por conta
-    própria quando não há `.` nenhum no nome — não precisa de caso especial).
 
-    Continuamos andando por `git ls-files` — nunca por `os.walk` ou
-    `Path.glob`: o que importa é o ÍNDICE do Git, não o disco solto de
-    quem roda o teste.
-
-    **MEDIDO antes de escrever a lista permitida** (nunca deduzido — é a
-    exigência do BL-321 que o `pyproject.toml` já cumpriu e que este teste
-    replica): `git ls-files` mais os padrões de `CAMINHOS_NAO_RELEVANTES`
-    aplicados dão **158** arquivos hoje escondidos de CI, e TODOS caem em
-    só três extensões — `md` (115), `png` (29), `svg` (14); zero sem
-    extensão, zero em qualquer outra. Comando exato, reproduzível:
-
-    ```
-    python3 -c "
-    import subprocess, collections
-    import decidir_caminhos_vigiados as d
-    arquivos = subprocess.run(['git', 'ls-files'], capture_output=True,
-        text=True, check=True, cwd='..').stdout.splitlines()
-    padroes = [d.padrao_para_regex(p) for p in d.CAMINHOS_NAO_RELEVANTES]
-    escondidos = [a for a in arquivos if d.bate(padroes, a)]
-    print(len(escondidos), collections.Counter(
-        a.rsplit('.', 1)[-1].lower() if '.' in a.rsplit('/', 1)[-1] else '(sem extensão)'
-        for a in escondidos))
-    "
-    ```
-    devolve `158 Counter({'md': 115, 'png': 29, 'svg': 14})` — é exatamente
-    por isso que a lista permitida abaixo tem só três itens: não é uma
-    escolha estética, é o inventário real na data desta correção.
-
-    **DE-056 (R5), aplicada a este próprio arquivo — a lista que SOBROU
-    depois de inverter, e o que acontece com o item seguinte dela.**
-    `EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS`, abaixo, também é uma lista —
-    só que agora do LADO SEGURO: o item seguinte dela (uma quarta extensão
-    de prosa ou imagem ainda não prevista — `.rst`, `.jpg`, `.pdf` de um
-    manual, por exemplo) faz este teste REPROVAR o arquivo novo, mesmo que
-    ele seja inofensivo. MEDIDO, não deduzido: criei em cópia isolada
-    (`git worktree`, removida depois — não a árvore deste projeto, BL-311)
-    um `docs/exemplo/manual.pdf` versionado e rodei este teste contra
-    aquele worktree: reprova, nomeando `docs/exemplo/manual.pdf` como
-    ofensor. É o comportamento CORRETO e é a troca deliberada: o lado
-    seguro de uma lista de exclusão (`CAMINHOS_NAO_RELEVANTES`) é pecar por
-    RELEVÂNCIA DEMAIS (medir de mais nunca esconde regressão); o lado
-    seguro de uma lista de permissão (esta) é pecar por PERMISSÃO DE MENOS
-    — um `.pdf` legítimo em `docs/` reprova a suíte e obriga alguém a
-    ACRESCENTAR a extensão aqui, em vez de a lista permitida crescer
-    sozinha por trás de ninguém olhar. A mesma troca que `CAMINHOS_NAO_
-    RELEVANTES` fez ao virar do avesso (BL-376) — só que aqui o lado que
-    "erra para o seguro" é o oposto, porque a pergunta também é oposta
-    ("o que pode ficar escondido" em vez de "o que precisa ser visto")."""
-    raiz = Path(__file__).resolve().parents[1]
+def _arquivos_versionados(raiz):
     resultado = subprocess.run(
         ["git", "ls-files"],
         cwd=raiz,
@@ -333,7 +273,282 @@ def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
         text=True,
         check=True,
     )
-    arquivos_versionados = [linha for linha in resultado.stdout.splitlines() if linha]
+    return [linha for linha in resultado.stdout.splitlines() if linha]
+
+
+def _escondidos_pelo_job_de_ci(arquivos_versionados):
+    """`CAMINHOS_NAO_RELEVANTES` é lida pelo passo do GitHub Actions
+    (`scripts/decidir_caminhos_vigiados.py`), com a semântica do `paths:`
+    documentada pelo GitHub — `*` NÃO cruza `/`, `**` cruza. É exatamente
+    o que `decidir_caminhos_vigiados.padrao_para_regex`/`bate` implementam,
+    e é o matcher CERTO para esta lista especificamente (ver BL-417,
+    abaixo, sobre por que NÃO é o matcher certo para a outra)."""
+    padroes = [decisor.padrao_para_regex(p) for p in decisor.CAMINHOS_NAO_RELEVANTES]
+    return {a for a in arquivos_versionados if decisor.bate(padroes, a)}
+
+
+def _escondidos_pelo_ruff(raiz, arquivos_versionados):
+    """`tool.ruff.extend-exclude`, lida do `pyproject.toml` EM TEMPO DE
+    TESTE (`tomllib`, biblioteca padrão desde o 3.11 — nenhuma dependência
+    nova) — nunca copiada para uma constante aqui, para um padrão novo
+    acrescentado lá aparecer aqui automaticamente, sem editar dois lugares.
+
+    **BL-417 (achado desta correção, registrado pelo arquiteto-senior) —
+    LIMITE DECLARADO sobre qual matcher usar.** `decidir_caminhos_
+    vigiados.padrao_para_regex` implementa a semântica do `paths:` do
+    GitHub Actions, em que `*` NÃO cruza `/`. O glob do `ruff` CRUZA.
+    MEDIDO, não presumido — os dois comandos que provam a diferença:
+
+    ```
+    >>> import decidir_caminhos_vigiados as d
+    >>> p = d.padrao_para_regex("*/migrations/*")
+    >>> bool(p.match("apps/contabilidade/migrations/0001_initial.py"))
+    False
+    ```
+    ```
+    $ ruff check --show-files . | grep -c migrations/
+    0
+    ```
+    O `ruff` real EXCLUI o arquivo (`--show-files` não o lista); o
+    conversor de `paths:` do GitHub diz que o padrão NÃO bate nele. Usar
+    `padrao_para_regex`/`bate` aqui faria este teste MENTIR para o lado de
+    DEIXAR PASSAR — o pior dos dois lados (um arquivo realmente escondido
+    do `ruff` apareceria como "não escondido", e não seria checado nem
+    contra a lista segura nem contra o reconhecimento do Django). Por
+    isso esta função usa `fnmatch.fnmatch` (biblioteca padrão), que
+    trata `*` como "qualquer coisa, inclusive `/`" — mais perto do glob
+    real de exclusão de arquivos que ferramentas como o `ruff` usam.
+
+    **E esta equivalência foi medida NESTA ÁRVORE, NESTA DATA, com ESTE
+    comando — não é uma afirmação de que `fnmatch` é equivalente ao
+    `ruff` em geral** (foi precisamente uma afirmação sem essa ressalva,
+    sobre o LIMIAR_LUMINANCIA_TINTA, que virou o achado K4 da décima
+    auditoria — não repetir a classe aqui):
+
+    ```
+    $ python3 -c "
+    import subprocess, fnmatch, tomllib, os
+    raiz = os.getcwd()
+    cfg = tomllib.load(open('pyproject.toml', 'rb'))
+    patterns = cfg['tool']['ruff']['extend-exclude']
+    r = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True)
+    arquivos = r.stdout.splitlines()
+    py = [a for a in arquivos if a.endswith(('.py', '.pyi', '.ipynb'))]
+    previsto = {a for a in py if any(fnmatch.fnmatch(a, p) for p in patterns)}
+    r2 = subprocess.run(
+        ['ruff', 'check', '--show-files', '.'], capture_output=True, text=True, check=True)
+    mostrados_rel = {os.path.relpath(l, raiz) for l in r2.stdout.splitlines() if l}
+    real = {a for a in py if a not in mostrados_rel}
+    print('diferenca:', previsto ^ real, 'total py:', len(py), 'excluidos:', len(previsto))
+    "
+    diferenca: set() total py: 217 excluidos: 22
+    ```
+    Diferença simétrica vazia entre "o que `fnmatch` prevê" e "o que o
+    `ruff` de fato mostra" — hoje, nesta árvore, para os padrões que
+    existem hoje (`*/migrations/*`, `docs/**`). Se um padrão futuro usar
+    uma sintaxe de glob que `fnmatch` não cobre (classes de caractere
+    `[...]`, por exemplo — o `ruff` aceita, `fnmatch` também aceita mas
+    com semântica ligeiramente diferente de `!` em classe), esta função
+    precisa ser remedida, não presumida corrigida."""
+    with open(raiz / "pyproject.toml", "rb") as arquivo_toml:
+        configuracao = tomllib.load(arquivo_toml)
+    padroes = configuracao["tool"]["ruff"]["extend-exclude"]
+    return {a for a in arquivos_versionados if any(fnmatch.fnmatch(a, p) for p in padroes)}
+
+
+def _migracoes_reconhecidas_pelo_django(raiz):
+    """Devolve `(reconhecidas, falhas)`: `reconhecidas` é o conjunto de
+    caminhos (relativos a `raiz`) que o Django, de verdade, reconhece como
+    migração — importa sem erro E tem uma classe `Migration`; `falhas` é
+    `{caminho: motivo}` para candidato que existe em disco mas não passou
+    no reconhecimento.
+
+    **Por que não é só `MigrationLoader(...).load_disk()` direto** (que
+    seria a chamada mais óbvia, e o arquiteto-senior pediu "o grafo que o
+    próprio `MigrationLoader` carrega"): MEDIDO — `load_disk()` processa
+    TODOS os apps num laço só e PARA no primeiro arquivo sem classe
+    `Migration` (`BadMigrationError`), sem terminar de olhar os apps
+    seguintes. Tentei isolar o app ruim redirecionando
+    `settings.MIGRATION_MODULES` para um módulo inexistente
+    (`ignore_no_migrations=True`) e tentando de novo — e MEDI que isso
+    joga fora TAMBÉM as migrações boas do MESMO app (Django trata o app
+    inteiro como não-migrado), não só o arquivo ruim: numa árvore com
+    `apps/contabilidade/migrations/utilitario.py` sabotado, essa tentativa
+    fazia sumir as 5 migrações verdadeiras de `contabilidade` junto — falso
+    positivo em arquivo correto, o oposto do que se quer de uma guarda.
+
+    A função abaixo usa os MESMOS blocos que `MigrationLoader.load_disk()`
+    usa por dentro — `MigrationLoader.migrations_module` (resolução do
+    nome do módulo por app, a mesma API pública), `pkgutil.iter_modules`
+    (mesmo filtro: ignora pacote e nome começando com `_`/`~` — é por isso
+    que `__init__.py` nunca aparece aqui, nem como reconhecido nem como
+    falha; ver o comentário no teste sobre o tratamento explícito dele) e
+    o MESMO critério de reconhecimento (`hasattr(módulo, "Migration")`)
+    — só que isolando a exceção POR ARQUIVO, para um `utilitario.py` malformado
+    em `contabilidade` não apagar o veredito das migrações verdadeiras de
+    `contabilidade` nem de nenhum outro app. Continua sendo "o Django diz
+    o que é migração" — nenhuma lista nossa decide isso — só que aplicado
+    arquivo a arquivo em vez de depender do laço que para no primeiro erro."""
+    from importlib import import_module
+
+    from django.apps import apps as django_apps
+    from django.db.migrations.loader import MigrationLoader
+
+    reconhecidas = set()
+    falhas = {}
+    for app_config in django_apps.get_app_configs():
+        module_name, _ = MigrationLoader.migrations_module(app_config.label)
+        if module_name is None:
+            continue
+        try:
+            modulo = import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+        if not hasattr(modulo, "__path__"):
+            continue
+        nomes = [
+            nome
+            for _, nome, is_pkg in pkgutil.iter_modules(modulo.__path__)
+            if not is_pkg and nome[0] not in "_~"
+        ]
+        for nome in nomes:
+            caminho_absoluto = (Path(app_config.path) / "migrations" / f"{nome}.py").resolve()
+            try:
+                caminho = str(caminho_absoluto.relative_to(raiz))
+            except ValueError:
+                continue  # fora do repositório (biblioteca instalada, ex. django.contrib.*)
+            try:
+                submodulo = import_module(f"{module_name}.{nome}")
+                if not hasattr(submodulo, "Migration"):
+                    falhas[caminho] = "importa, mas não tem classe Migration"
+                    continue
+            except Exception as erro:  # noqa: BLE001 — reportado, nunca engolido
+                falhas[caminho] = f"{type(erro).__name__}: {erro}"
+                continue
+            reconhecidas.add(caminho)
+    return reconhecidas, falhas
+
+
+def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
+    """BL-409/K6 (décima auditoria) → BL-415 (achado do arquiteto: extensão
+    é lista aberta, corrigido invertendo para `EXTENSOES_SEGURAS_PARA_
+    FICAR_INVISIVEIS`) → **BL-416 (achado do arquiteto na integração do
+    BL-415): o teste só olhava UMA das DUAS listas que a própria décima
+    auditoria (K5) nomeou** — `CAMINHOS_NAO_RELEVANTES` (o job de CI) e
+    `tool.ruff.extend-exclude` (o `ruff`, `pyproject.toml`). MEDIDO pelo
+    arquiteto: um `ferramentas/velho.py` com 4 erros reais de `ruff`,
+    escondido só pelo `extend-exclude` (nunca por `CAMINHOS_NAO_
+    RELEVANTES`), passava com a suíte inteira verde — a MESMA classe do
+    K5 original ("as duas listas erram junto porque nenhuma sabe da
+    outra"), agora reproduzida na própria guarda que existia para fechar
+    o K5.
+
+    **A correção: o universo de "escondido" vira a UNIÃO das duas fontes,
+    lida de onde cada uma mora** (`_escondidos_pelo_job_de_ci` e
+    `_escondidos_pelo_ruff`, acima — cada função com o MATCHER que a sua
+    fonte realmente usa; ver BL-417 na docstring de `_escondidos_pelo_
+    ruff` sobre por que os dois matchers são DIFERENTES de propósito, não
+    por descuido). Extensão nova em QUALQUER uma das duas listas passa a
+    ser visível a este teste.
+
+    **A categoria "migração" (BL-416, decisão do arquiteto-senior) — e por
+    que ela NÃO é "é `.py` sob uma pasta `migrations/`".** O motivo de
+    migração poder ficar fora do `ruff` não é "convenção da indústria" nem
+    "é código gerado" — nenhuma das duas é verificável (e justificativa
+    não verificável é o que a DE-058 proíbe). É uma propriedade que se
+    mede: **migração excluída do `ruff` continua sendo EXECUTADA** —
+    `python manage.py migrate` roda de verdade em banco vazio na CI e em
+    toda semeadura de teste. Ao contrário de `sonda_visibilidade.py` sob
+    `docs/` (BL-408), que não era executado por NENHUM mecanismo, uma
+    migração real É alcançada, só não pelo `ruff`. A categoria correta é
+    **"escondido do lint, mas alcançado pela execução"**, não "está numa
+    pasta chamada migrations".
+
+    ⚠️ **A amarra que impede a dispensa de virar porta aberta**: a
+    dispensa NÃO é "o caminho contém `migrations/`" (isso deixaria
+    `apps/qualquer/migrations/utilitario.py` entrar escondido — a MESMA
+    classe, uma pasta adiante). A dispensa é **provada contra o Django**:
+    um candidato sob uma pasta `migrations/` só é dispensado se
+    `_migracoes_reconhecidas_pelo_django` (acima) o reconhecer de
+    verdade — importa e tem uma classe `Migration`. `apps/contabilidade/
+    migrations/utilitario.py` (sem classe `Migration`) REPROVA, nomeado,
+    porque o Django não o reconhece — não porque uma lista nossa saiba
+    que aquele nome específico é suspeito.
+
+    `__init__.py` de um pacote de migrações é tratado À PARTE, de forma
+    EXPLÍCITA (não por acidente): `pkgutil.iter_modules` — usado tanto por
+    `MigrationLoader.load_disk()` quanto por `_migracoes_reconhecidas_
+    pelo_django` acima — nunca lista `__init__` como submódulo (é o
+    próprio arquivo que DEFINE o pacote, não um item dele) nem nomes que
+    comecem com `_`/`~`. Ele nunca aparece nem como "reconhecido" nem como
+    "falha" — por isso é dispensado por definição de arquivo (nome exato
+    `__init__.py`, dentro de uma pasta `migrations/`), separado, ANTES de
+    perguntar ao Django, e o comentário no código diz isso.
+
+    MEDIDO (não deduzido) que o desenho não perde o que já existia:
+    `EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS` continua tratando arquivo
+    fora de pasta `migrations/` exatamente como antes (o `docs/ferramentas/
+    {rodar_medicao.sh,medir.ps1,sonda.js}` do BL-415 continua reprovando —
+    critério 2 da rodada). E, contra a árvore real, sem sabotagem nenhuma:
+    a união dá **180** arquivos escondidos (158 pelo job de CI + os 22 que
+    só o `ruff` esconde, todas as migrações), **zero ofensores** — os 22
+    candidatos de `migrations/` batem exatamente com os 16 que o Django
+    reconhece mais os 6 `__init__.py` dispensados à parte (16 + 6 = 22).
+
+    **DE-056 (R5), de novo — fontes de invisibilidade que ESTE teste ainda
+    NÃO lê, medidas, não deduzidas:**
+
+    1. **`exclude` padrão do `ruff`** (diferente de `extend-exclude`,
+       substitui em vez de somar se alguém o declarar). MEDIDO: o projeto
+       não declara `exclude` próprio — só o embutido do `ruff`
+       (`.git`, `.venv`, `node_modules`, `dist`, etc., 25 entradas,
+       `ruff check --show-settings . | grep -A25 "file_resolver.exclude ="`),
+       e **zero** arquivos versionados caem nele hoje (`git ls-files` sem
+       nenhum componente de caminho batendo a lista). Limite declarado:
+       se este projeto um dia declarar `[tool.ruff] exclude = [...]`
+       PRÓPRIO (não o embutido), este teste não o vê.
+    2. **`per-file-ignores`** (`[tool.ruff.lint.per-file-ignores]`).
+       MEDIDO: `grep -n "per-file-ignores" pyproject.toml` não bate —
+       não existe hoje. Se existir um dia, ele desliga REGRA por arquivo
+       (não o arquivo inteiro), e este teste não olha para essa chave.
+    3. **`# noqa` em linha.** MEDIDO: `grep -rn "# noqa" --include="*.py" .`
+       (fora `.venv`) dá **15** ocorrências, e as 15 têm código específico
+       (`# noqa: E402`, `# noqa: BLE001`, `# noqa: F401`) — nenhuma
+       silencia a linha inteira sem nomear a regra. Este teste não
+       verifica NENHUMA delas: um `# noqa` sem código, ou um código que
+       desligue justo a regra que pegaria um problema real, passa batido.
+    4. **`testpaths`/`norecursedirs` do `pytest`.** MEDIDO:
+       `[tool.pytest.ini_options]` não declara nenhum dos dois — o pytest
+       usa os padrões dele (coleta a partir do rootdir, com o
+       `norecursedirs` embutido). Se um dia alguém declarar `testpaths`
+       restrito, um `test_*.py` fora dele para de rodar em silêncio, e
+       este teste — que É um desses arquivos — não teria como se
+       autodenunciar.
+
+    Não fechei nenhuma das quatro nesta rodada — são limite declarado,
+    não lista de pendência silenciosa."""
+    raiz = Path(__file__).resolve().parents[1]
+    arquivos_versionados = _arquivos_versionados(raiz)
+
+    escondidos = _escondidos_pelo_job_de_ci(arquivos_versionados) | _escondidos_pelo_ruff(
+        raiz, arquivos_versionados
+    )
+
+    # Migração é dispensada por PROVA contra o Django, nunca por o caminho
+    # conter "migrations/" (ver a docstring acima — é a amarra do BL-416).
+    # `__init__.py` de pacote de migração é tratado à parte, explicitamente:
+    # nem `MigrationLoader.load_disk()` nem `_migracoes_reconhecidas_pelo_
+    # django` o listam (pkgutil.iter_modules nunca lista nomes começando
+    # com "_"), então ele precisa de uma regra própria para não virar
+    # "ofensor" por ausência.
+    candidatos_de_migracao = {a for a in escondidos if Path(a).parent.name == "migrations"}
+    inits_de_pacote_de_migracao = {
+        a for a in candidatos_de_migracao if Path(a).name == "__init__.py"
+    }
+    outros_candidatos_de_migracao = candidatos_de_migracao - inits_de_pacote_de_migracao
+
+    reconhecidas_pelo_django, falhas_do_django = _migracoes_reconhecidas_pelo_django(raiz)
+    migracoes_nao_reconhecidas = sorted(outros_candidatos_de_migracao - reconhecidas_pelo_django)
 
     # LADO SEGURO (BL-415): lista FECHADA do que pode legitimamente ficar
     # fora do alcance de ruff/pytest/CI — prosa e imagem, nada que rode.
@@ -345,20 +560,23 @@ def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
     # minúsculas, não uma lista de sufixos soltos, para não confundir
     # `.md` com `.markdown-antigo` por acidente de `str.endswith`.
     EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS = (".md", ".png", ".svg")
-    padroes_compilados = [decisor.padrao_para_regex(p) for p in decisor.CAMINHOS_NAO_RELEVANTES]
-
-    escondidos = [a for a in arquivos_versionados if decisor.bate(padroes_compilados, a)]
-    ofensores = sorted(
-        arquivo
-        for arquivo in escondidos
-        if not arquivo.lower().endswith(EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS)
+    nao_migracoes = escondidos - candidatos_de_migracao
+    ofensores_por_extensao = sorted(
+        a for a in nao_migracoes if not a.lower().endswith(EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS)
     )
+
+    ofensores = sorted(set(ofensores_por_extensao) | set(migracoes_nao_reconhecidas))
     assert not ofensores, (
-        f"{len(ofensores)} arquivo(s) VERSIONADO(S) ficam INVISÍVEIS para "
-        f"ruff/pytest/CI (batem em algum padrão de CAMINHOS_NAO_RELEVANTES: "
-        f"{decisor.CAMINHOS_NAO_RELEVANTES}) com uma extensão que NÃO está "
-        f"na lista segura {EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS} (ou sem "
-        f"extensão nenhuma): {ofensores}"
+        f"{len(ofensores)} arquivo(s) VERSIONADO(S) ficam invisíveis para o "
+        "ruff (extend-exclude) e/ou para o job de CI (CAMINHOS_NAO_RELEVANTES) "
+        "sem justificativa válida — nem prosa/imagem segura "
+        f"({EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS}), nem migração que o "
+        f"Django reconheça: {ofensores}"
+        + (
+            f" | falhas do Django ao tentar reconhecer: {falhas_do_django}"
+            if falhas_do_django
+            else ""
+        )
     )
 
 
