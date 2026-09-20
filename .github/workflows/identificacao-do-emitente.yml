@@ -179,16 +179,29 @@ jobs:
         if: steps.decidir.outputs.relevante == 'true'
         run: python manage.py migrate --no-input
 
-      # DL-028 fatia 2: testes das funções PURAS do instrumento (sem
-      # Playwright, sem banco) — ver
-      # scripts/test_medir_identificacao_do_emitente.py. Já rodam também no
-      # job "Backend" (que não é delimitado por caminho), mas este job
-      # precisa ficar AUDITÁVEL sozinho: quem olha só este workflow
-      # vermelho não deveria precisar ir atrás de outro job para saber se o
-      # contrato de código de saída (infra vs. conteúdo, BL-356) está
-      # testado.
-      - name: Testes das funções puras do instrumento
+      # DL-028 fatia 2 + BL-434 (décima primeira auditoria, rodada 2 da
+      # DL-029): testes das funções PURAS do instrumento, e — desde o
+      # BL-434 — também os testes PONTA A PONTA (`test_ponta_a_ponta_*`)
+      # que exercitam `instrumento.main()` de verdade contra um cenário
+      # sintético renderizado pelo Django, com sabotagem aplicada só em
+      # MEMÓRIA (nunca em `static/css/base.css` nem `templates/**`) —
+      # ver o comentário da seção correspondente em
+      # scripts/test_medir_identificacao_do_emitente.py para o que cada
+      # um mede e por que NENHUM deles toca arquivo rastreado. Os testes
+      # puros já rodam também no job "Backend" (que não é delimitado por
+      # caminho); os ponta a ponta exigem Chromium/poppler-utils, que só
+      # ESTE job instala — por isso `DL_PYTHON_DO_SISTEMA` está presente
+      # aqui (mesmo valor do passo "Medir identificação do emitente",
+      # abaixo) e o nome do passo deixou de dizer "puras", que não é mais
+      # verdade sobre o que ele executa. Este job precisa ficar AUDITÁVEL
+      # sozinho: quem olha só este workflow vermelho não deveria precisar
+      # ir atrás de outro job para saber se o contrato de código de saída
+      # (infra vs. conteúdo, BL-356) e a frase do critério 9 (DL-029)
+      # estão testados.
+      - name: Testes automatizados do instrumento (puros e ponta a ponta)
         if: steps.decidir.outputs.relevante == 'true'
+        env:
+          DL_PYTHON_DO_SISTEMA: ${{ steps.setup-python.outputs.python-path }}
         run: pytest -q scripts/test_medir_identificacao_do_emitente.py
 
       - name: Semear base sintética de medição

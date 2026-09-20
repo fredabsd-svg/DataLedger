@@ -78,20 +78,22 @@ antiga são cegas pela MESMA razão.
 
 A correção NÃO troca a lista por outra lista (`#fff`, `clip-path` — é o
 erro que esta etapa paga há doze rodadas): rasteriza a folha A4 já gerada
-(`pdftoppm -gray`, mesma dependência de sistema de `_texto_do_pdf`, ver
-`_rasterizar_pagina`), localiza a posição REAL de cada linha do
-timbre no PDF exportado (`pdftotext -bbox`, ver `_palavras_da_pagina` e
-`_bbox_da_linha`/`_localizar_bloco_do_timbre` — a posição de um objeto de
-texto no PDF não depende da cor com que ele foi pintado) e exige uma
-contagem de pixels com CONTRASTE suficiente contra o papel acima de um
-piso medido (`_diagnostico_de_contraste_na_faixa`,
+EM COR (`pdftoppm`, mesma dependência de sistema de `_texto_do_pdf`, ver
+`_rasterizar_pagina` — BL-429/DE-060, décima primeira auditoria: era
+`-gray` até essa correção, e cinza é um SUBSTITUTO que mede 2,1× mais
+contraste do que existe em tinta colorida), localiza a posição REAL de
+cada linha do timbre no PDF exportado (`pdftotext -bbox`, ver
+`_palavras_da_pagina` e `_bbox_da_linha`/`_localizar_bloco_do_timbre` — a
+posição de um objeto de texto no PDF não depende da cor com que ele foi
+pintado) e exige uma contagem de pixels com CONTRASTE suficiente contra o
+papel acima de um piso medido (`_diagnostico_de_contraste_na_faixa_cor`,
 `PISO_PIXELS_ESCUROS_POR_LINHA` — DL-029, C2: contraste MEDIDO contra o
-fundo da própria folha, contra um piso do WCAG 2.2 aplicado POR LINHA,
-não um limiar fixo de luminância nem uma razão única escolhida a dedo.
-Ver o comentário de `RAZAO_MINIMA_WCAG_TEXTO_NORMAL`). É a pergunta do
-contador — "tem tinta que CONTRASTA com o papel onde deveria ter?" — e
-ela SOMA às checagens anteriores (DOM: `checkVisibility` +
-área + alcançabilidade; `_tinta_invisivel`: alfa zero, mais barato,
+fundo da própria folha, EM COR, com a fórmula de três canais do WCAG 2.2
+aplicada POR LINHA, não um limiar fixo de luminância nem uma razão única
+escolhida a dedo. Ver o comentário de `RAZAO_MINIMA_WCAG_TEXTO_NORMAL`).
+É a pergunta do contador — "tem tinta que CONTRASTA com o papel onde
+deveria ter?" — e ela SOMA às checagens anteriores (DOM: `checkVisibility`
++ área + alcançabilidade; `_tinta_invisivel`: alfa zero, mais barato,
 continua rodando primeiro), nunca as substitui.
 
 **Falha de infraestrutura é distinguível de falha de conteúdo** (BL-356).
@@ -1060,28 +1062,140 @@ def _razao_minima_wcag_para_linha(tamanho_px, peso):
 # substitui este, não o contrário.
 TAMANHO_MINIMO_RENDERIZADO_PX = 11
 
+# BL-428 (L2, décima primeira auditoria) — a razão entre a altura do
+# BBOX de um glifo no PDF (ascender+descender REAIS da fonte, medidos por
+# `pdftotext -bbox`) e o font-size DECLARADO que o produziu. Um glifo
+# ocupa mais altura vertical que o valor nominal do font-size — é a
+# métrica de fonte (não um artefato deste instrumento) —, e essa razão é
+# o que permite comparar uma medida EM PAPEL contra o piso
+# `TAMANHO_MINIMO_RENDERIZADO_PX`, que foi fixado na escala DECLARADA
+# (ver o comentário daquela constante).
+#
+# MEDIDO (não hipotetizado) contra as TRÊS linhas do Balancete, em
+# QUATRO tamanhos declarados diferentes — os três SEM sabotagem de
+# `transform`/`zoom`, só trocando `font-size`, em cópia isolada
+# (`git worktree add --detach`, BL-311), banco `dl029_r2_calib`:
+#
+#   font-size declarado (px) | altura do bbox medida (pt / px) | razão
+#   8                         | 6,53pt (8,70px)                 | 1,088
+#   11                        | 8,98pt (11,97px)                | 1,088
+#   14 (normal, controle)     | 11,42pt (15,23px)                | 1,088
+#   16 (negrito, controle)    | 13,06pt (17,41px)                | 1,088
+#
+# A razão é ESTÁVEL — 1,088 nos QUATRO tamanhos e nos DOIS pesos (normal
+# e negrito) — porque é a métrica vertical (ascender+descender) da fonte
+# que o produto usa hoje (`FAMILIA_DA_FONTE` em `medir_impressao.py`),
+# neste motor de renderização (Chromium/Skia); não é um número escolhido
+# para caber num teste.
+#
+# CONSEQUÊNCIA MEDIDA desta correção: `transform: scale(0.6)` (altura
+# real de bbox 9,14px na linha mais fraca) devolve tamanho equivalente
+# ≈8,4px — ABAIXO do piso de 11px — REPROVA, nomeando tamanho, com o
+# número medido NO PAPEL (critério 13 da rodada 2). `zoom: 0.6` idem
+# (MESMA altura de bbox — zoom e transform produzem o mesmo efeito
+# visual sobre o PDF exportado). `font-size: 11px` legítimo (sem
+# sabotagem) devolve ≈11,0px equivalente — no piso, PASSA, sem
+# regressão. `font-size: 8px` (BL-424) devolve ≈8,0px equivalente —
+# ABAIXO do piso, continua REPROVANDO, com o MESMO número que já
+# reprovava antes desta correção (a razão devolve o valor declarado de
+# volta, dentro do arredondamento).
+#
+# LIMITE DECLARADO: a razão 1,088 é MEDIDA para a fonte que o produto usa
+# HOJE. Se o produto trocar de fonte (`FAMILIA_DA_FONTE`), a razão pode
+# mudar — nenhum teste da suíte `pytest` alcança essa premissa
+# automaticamente (exigiria renderizar no navegador, o que a suíte pura
+# não faz); a garantia aqui é a mesma classe que `_luminancia_do_papel`
+# já declarava para "hoje o papel é sempre branco" (BL-426): válida
+# enquanto a premissa que a sustenta não mudar, e a premissa está escrita
+# para ser encontrada, não escondida.
+FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA = 1.088
+
 
 def _luminancia_relativa_srgb(fracao_do_canal):
-    """Luminância relativa de um canal sRGB (0.0–1.0) — fórmula da WCAG 2.x
-    ("Relative Luminance"). `pdftoppm -gray` devolve um BYTE por pixel (não
-    três canais RGB): para cinza puro R=G=B, então a luminância relativa
-    do PIXEL inteiro é o resultado desta função aplicada uma vez — nenhuma
-    ponderação de canal (0.2126/0.7152/0.0722) é necessária aqui."""
+    """Luminância relativa de UM canal sRGB (0.0–1.0) — fórmula da WCAG 2.x
+    ("Relative Luminance"). Usada de DUAS formas neste módulo: (1) para um
+    byte de CINZA (onde R=G=B, e a luminância do pixel inteiro é o
+    resultado desta função aplicada uma vez, sem ponderação de canal —
+    caminho legado, ver `_razao_de_contraste`); e (2) como a base de
+    `_TABELA_LUMINANCIA_SRGB`/`_luminancia_relativa_rgb` (BL-429/DE-060),
+    aplicada uma vez POR CANAL e depois ponderada (0,2126/0,7152/0,0722)
+    — o caminho de PRODUÇÃO, que mede a tinta EM COR."""
     if fracao_do_canal <= 0.03928:
         return fracao_do_canal / 12.92
     return ((fracao_do_canal + 0.055) / 1.055) ** 2.4
 
 
+def _razao_a_partir_de_luminancias(luminancia_a, luminancia_b):
+    """Razão de contraste WCAG a partir de DUAS luminâncias relativas
+    (0.0–1.0) JÁ CALCULADAS — a fórmula final (WCAG 2.x): `(clara+0,05) /
+    (escura+0,05)`. Compartilhada entre o caminho CINZA (`_razao_de_
+    contraste`, um canal — mantido como utilitário testado, não mais
+    chamado pelo veredito de produção) e o caminho EM COR
+    (`_razao_de_contraste_rgb`, três canais — BL-429/DE-060, o que decide
+    o veredito hoje): a fórmula de RAZÃO é a MESMA nos dois; o que muda é
+    só COMO cada luminância é calculada (um canal vs. três ponderados)."""
+    mais_clara, mais_escura = max(luminancia_a, luminancia_b), min(luminancia_a, luminancia_b)
+    return (mais_clara + 0.05) / (mais_escura + 0.05)
+
+
 def _razao_de_contraste(nivel_de_cinza_a, nivel_de_cinza_b):
     """Razão de contraste WCAG entre dois níveis de cinza 0–255 — sempre
     >= 1.0 (dois pixels idênticos dão exatamente 1.0), simétrica (não
-    importa qual argumento é o mais claro). É a mesma fórmula que decide
-    conformidade de contraste de texto em acessibilidade web; aqui mede
-    tinta contra papel em vez de texto contra fundo de tela."""
+    importa qual argumento é o mais claro).
+
+    BL-429/DE-060 (décima primeira auditoria): esta função mede a
+    PROPRIEDADE só quando a tinta É cinza (R=G=B) — para tinta colorida,
+    ela é um SUBSTITUTO que mede 2,1× mais contraste do que a razão real
+    do WCAG mede (ver o comentário de `_rasterizar_pagina`). Por isso o
+    CAMINHO DE PRODUÇÃO (`_localizar_linhas_do_timbre_no_documento`) não
+    chama mais esta função — usa `_razao_de_contraste_rgb`, que aplica a
+    ponderação de três canais que a etiqueta da mensagem ("WCAG 2.2,
+    1.4.3") de fato promete. Esta função permanece como utilitário PURO
+    testado (a fórmula de razão, isolada da ponderação de canal — ver
+    `_razao_a_partir_de_luminancias`) e como base de comparação para o
+    teste que mede a divergência entre as duas fórmulas."""
     luminancia_a = _luminancia_relativa_srgb(nivel_de_cinza_a / 255)
     luminancia_b = _luminancia_relativa_srgb(nivel_de_cinza_b / 255)
-    mais_clara, mais_escura = max(luminancia_a, luminancia_b), min(luminancia_a, luminancia_b)
-    return (mais_clara + 0.05) / (mais_escura + 0.05)
+    return _razao_a_partir_de_luminancias(luminancia_a, luminancia_b)
+
+
+_TABELA_LUMINANCIA_SRGB = tuple(_luminancia_relativa_srgb(byte / 255) for byte in range(256))
+"""Tabela de 256 entradas, pré-computada UMA VEZ na importação do módulo:
+`_TABELA_LUMINANCIA_SRGB[byte]` é a luminância relativa (0.0–1.0) daquele
+BYTE de canal (0–255), pela MESMA fórmula de `_luminancia_relativa_srgb`.
+Existe por CUSTO (critério 9 do plano — "tempo do passo de medição, real,
+não estimado"): `_luminancia_relativa_rgb`, abaixo, roda para CADA pixel
+de CADA faixa de linha medida (até 3 canais × milhares de pixels por
+linha) — pré-computar os 256 valores possíveis por canal troca ``**2.4``
+repetido por uma busca em tabela (O(1)), a MESMA técnica que `_niveis_de_
+cinza_com_contraste_suficiente` já usa para o caminho cinza."""
+
+
+def _luminancia_relativa_rgb(r, g, b):
+    """Luminância relativa (WCAG 2.x) de um pixel RGB — três bytes de canal
+    (0–255) —, com a ponderação que a fórmula do WCAG 2.2 exige
+    (0,2126/0,7152/0,0722, vermelho/verde/azul). Esta é a PROPRIEDADE que
+    a etiqueta "WCAG 2.2, 1.4.3" promete (BL-429/DE-060) — ao contrário de
+    `_luminancia_relativa_srgb` aplicada a um nível de CINZA (que só
+    coincide com esta fórmula quando R=G=B, isto é, quando a tinta já não
+    tem cor nenhuma)."""
+    return (
+        0.2126 * _TABELA_LUMINANCIA_SRGB[r]
+        + 0.7152 * _TABELA_LUMINANCIA_SRGB[g]
+        + 0.0722 * _TABELA_LUMINANCIA_SRGB[b]
+    )
+
+
+def _razao_de_contraste_rgb(pixel_a, pixel_b):
+    """Razão de contraste WCAG entre DOIS PIXELS RGB (tuplas `(r, g, b)`,
+    0–255 cada) — a fórmula que a etiqueta da mensagem ("WCAG 2.2, 1.4.3")
+    de fato promete (BL-429/DE-060). Substitui `_razao_de_contraste`
+    (cinza) NO CAMINHO DE PRODUÇÃO — ver o comentário daquela função e de
+    `_rasterizar_pagina` sobre a divergência medida (tinta vermelha: 2,1×
+    mais contraste relatado em cinza do que a razão RGB real)."""
+    return _razao_a_partir_de_luminancias(
+        _luminancia_relativa_rgb(*pixel_a), _luminancia_relativa_rgb(*pixel_b)
+    )
 
 
 def _luminancia_do_papel(dados_pgm):
@@ -1122,10 +1236,49 @@ def _luminancia_do_papel(dados_pgm):
     função continuam corretos (a moda mediria o fundo real); só a
     afirmação "a folha é sempre branca hoje" deixaria de valer — LIMITE
     DECLARADO, não fechado, porque o produto não usa fundo impresso
-    hoje."""
+    hoje.
+
+    BL-429/DE-060: esta função mede o fundo em TONS DE CINZA e não é mais
+    chamada pelo CAMINHO DE PRODUÇÃO (`_localizar_linhas_do_timbre_no_
+    documento` usa `_cor_do_papel`, abaixo, que mede o fundo EM COR — a
+    mesma razão da troca de `_razao_de_contraste` por `_razao_de_
+    contraste_rgb`). Mantida como utilitário puro testado; a premissa "a
+    folha é sempre branca hoje" (acima) vale igualmente para o fundo em
+    cor: branco é branco nos dois espaços."""
     _, _, corpo = _pgm_para_matriz(dados_pgm)
+    return _moda_do_canal(corpo)
+
+
+def _cor_do_papel(dados_ppm):
+    """Fundo do PAPEL, EM COR — a moda `(r, g, b)` da folha inteira,
+    calculada POR CANAL (MESMA técnica de `_luminancia_do_papel`, three
+    vezes: uma para cada canal, via fatiamento `corpo[0::3]`/`[1::3]`/
+    `[2::3]`) em vez de um histograma único de tuplas RGB — um histograma
+    de tuplas sobre ~900 mil pixels precisaria de dicionário/`Counter`
+    hasheando uma tupla por pixel, MEDIDO como sensivelmente mais lento em
+    Python puro do que três histogramas de 256 posições (a MESMA
+    otimização, aplicada three vezes). Para uma folha de fundo SÓLIDO
+    (o caso do produto hoje — ver `_luminancia_do_papel`), a moda de cada
+    canal isoladamente RECOMPÕE a cor do fundo corretamente: o fundo é o
+    MESMO valor `(r, g, b)` repetido na maioria absoluta dos pixels, então
+    cada canal, isoladamente, também tem esse valor como o mais frequente.
+    BL-429/DE-060: substitui `_luminancia_do_papel` no CAMINHO DE
+    PRODUÇÃO — mede a PROPRIEDADE (a cor real do fundo), não uma
+    aproximação em cinza."""
+    largura, altura, corpo = _ppm_para_matriz(dados_ppm)
+    return (
+        _moda_do_canal(corpo[0::3]),
+        _moda_do_canal(corpo[1::3]),
+        _moda_do_canal(corpo[2::3]),
+    )
+
+
+def _moda_do_canal(bytes_do_canal):
+    """Nível 0–255 mais frequente numa sequência de bytes de UM canal —
+    função PURA, extraída de `_luminancia_do_papel`/`_cor_do_papel` para
+    as duas reaproveitarem o MESMO histograma de 256 posições."""
     histograma = [0] * 256
-    for byte in corpo:
+    for byte in bytes_do_canal:
         histograma[byte] += 1
     return max(range(256), key=histograma.__getitem__)
 
@@ -1240,6 +1393,14 @@ def _localizar_bloco_do_timbre(palavras, linhas_esperadas):
     ordem de leitura, NUNCA pelo primeiro texto igual em qualquer lugar da
     página (K2/BL-405, décima auditoria,
     docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md).
+
+    DE-060 (décima primeira auditoria): a quinta medição do instrumento —
+    "cada linha está no SEU PRÓPRIO lugar" (C4). Esta função mede a
+    PROPRIEDADE diretamente: o `(xmin, ymin, xmax, ymax)` devolvido é a
+    posição REAL do bloco de texto no PDF exportado (via `pdftotext
+    -bbox`, ver `_palavras_da_pagina`), não uma aproximação — não há
+    substituto aqui para declarar, ao contrário das outras quatro
+    medições (BL-427/428/429/430).
 
     **Por que um rodapé (ou qualquer outro elemento) que repita o TEXTO de
     uma linha do timbre não engana esta função.** No HTML, as linhas do
@@ -1364,21 +1525,50 @@ def _localizar_bloco_do_timbre(palavras, linhas_esperadas):
 
 
 def _rasterizar_pagina(caminho_pdf, pagina=1, dpi=DPI_ORACULO_DO_PAPEL):
-    """Rasteriza UMA página do PDF (padrão: a primeira) para tons de cinza
-    (PGM binário `P5`) via `pdftoppm -gray` — a MESMA dependência de
-    sistema (poppler-utils) que `_texto_do_pdf`/`_palavras_da_pagina` já
-    exigem; NENHUMA biblioteca de imagem nova em `requirements/` (mesma
-    decisão registrada na docstring de `scripts/medir_impressao.py` para
-    não acrescentar lib de PDF). `-singlefile` evita o poppler acrescentar
+    """Rasteriza UMA página do PDF (padrão: a primeira) EM COR (PPM binário
+    `P6`) via `pdftoppm` SEM `-gray` — a MESMA dependência de sistema
+    (poppler-utils) que `_texto_do_pdf`/`_palavras_da_pagina` já exigem;
+    NENHUMA biblioteca de imagem nova em `requirements/` (mesma decisão
+    registrada na docstring de `scripts/medir_impressao.py` para não
+    acrescentar lib de PDF — `-png`/PPM são as DUAS opções do MESMO binário
+    já usado, nenhum pacote novo). `-singlefile` evita o poppler acrescentar
     sufixo numérico ao nome de saída, já que só pedimos uma página.
 
-    C1 da DL-029 (K7, décima auditoria): antes desta correção, esta
+    BL-429 (L3, décima primeira auditoria,
+    docs/auditorias/2026-09-20-dl-029-rodada-11.md) — DE-060: até esta
+    correção, esta função rasterizava em TONS DE CINZA (`-gray`, PGM `P5`),
+    e essa era a fonte da divergência: "cinza" é um SUBSTITUTO da
+    propriedade que a etiqueta da mensagem promete (a razão de contraste do
+    WCAG 2.2, que é definida sobre TRÊS canais RGB ponderados —
+    0,2126/0,7152/0,0722 —, não sobre um nível de cinza). `pdftoppm -gray`
+    CONVERTE qualquer tinta colorida para cinza ANTES deste oráculo
+    enxergar qualquer coisa — a ponderação de canal é feita pelo poppler,
+    em espaço gama, não pela fórmula do WCAG. MEDIDO: `color: #FF0000` no
+    timbre relatava 8,45:1 de contraste (aprovando, `exit 0`) quando a
+    razão WCAG REAL de `#FF0000` sobre `#FFFFFF` é 4,00:1 — REPROVA. O
+    instrumento media 2,1× MAIS contraste do que existe.
+
+    **Decisão (DE-060, plano da rodada 2, seção "A decisão que o BL-429
+    exige"): medir SEMPRE em COR**, nunca declarar a premissa
+    monocromática como alternativa — a medida em cor é a MAIS ESTRITA das
+    duas (cobre o PDF na tela do cliente, onde a cor existe, E a
+    impressora monocromática, onde a tinta vira cinza e o critério só fica
+    MAIS folgado; medir em cinza aprovaria folha que o próprio piso
+    adotado, em cor, reprova). Ver `_cor_do_papel`/`_luminancia_relativa_
+    rgb`/`_razao_de_contraste_rgb`, abaixo, que substituem `_luminancia_do_
+    papel`/`_razao_de_contraste` NO CAMINHO DE PRODUÇÃO — as duas funções
+    em CINZA continuam presentes e testadas (utilitário genérico,
+    reaproveitado pela fórmula em COR via `_razao_a_partir_de_luminancias`
+    — ver o comentário de `_razao_de_contraste`), mas o VEREDITO do
+    instrumento não depende mais delas.
+
+    C1 da DL-029 (K7, décima auditoria): antes daquela correção, esta
     função só rasterizava a PRIMEIRA página, por premissa não declarada —
     uma linha empurrada para a página 2 (por paginação comum: margem,
     cabeçalho mais alto) media "0 pixels escuros" na folha 1, a MESMA
     mensagem de tinta realmente ausente. O parâmetro `pagina` (usado por
     `main`, abaixo, para procurar nas páginas seguintes antes de reportar
-    ausência de tinta) fecha essa lacuna.
+    ausência de tinta) fecha essa lacuna — e continua valendo aqui.
 
     BL-378: `pdftoppm` quebrado é a MESMA classe de falha de
     infraestrutura que os demais usos de poppler-utils neste módulo."""
@@ -1393,7 +1583,6 @@ def _rasterizar_pagina(caminho_pdf, pagina=1, dpi=DPI_ORACULO_DO_PAPEL):
                 str(pagina),
                 "-l",
                 str(pagina),
-                "-gray",
                 "-singlefile",
                 str(caminho_pdf),
                 str(prefixo),
@@ -1402,11 +1591,52 @@ def _rasterizar_pagina(caminho_pdf, pagina=1, dpi=DPI_ORACULO_DO_PAPEL):
         )
         if resultado.returncode != 0:
             _recusar(
-                f"'pdftoppm -gray' falhou (código {resultado.returncode}) ao "
+                f"'pdftoppm' (rasterização em cor) falhou (código {resultado.returncode}) ao "
                 f"rasterizar a página {pagina} de {caminho_pdf} — falha de infraestrutura.\n"
                 f"erro: {resultado.stderr.decode(errors='replace')}"
             )
-        return (prefixo.with_suffix(".pgm")).read_bytes()
+        return (prefixo.with_suffix(".ppm")).read_bytes()
+
+
+def _cabecalho_e_corpo_netpbm(dados, assinatura, bytes_por_pixel):
+    """Parser COMPARTILHADO do cabeçalho binário Netpbm (P5 = PGM/cinza, 1
+    byte por pixel; P6 = PPM/cor, 3 bytes por pixel — MESMO formato de
+    cabeçalho nos dois: assinatura, três inteiros [largura, altura,
+    maxval] separados por espaço em branco, um único espaço, depois os
+    bytes de pixel). Extraído para `_pgm_para_matriz` (P5) e `_ppm_para_
+    matriz` (P6, BL-429) compartilharem o MESMO parser em vez de duas
+    cópias que divergem assim que uma for corrigida sem a outra
+    (AGENTS.md §8). Devolve `(largura, altura, corpo_de_bytes)`."""
+    if not dados.startswith(assinatura):
+        raise ValueError(f"dados não começam com a assinatura Netpbm binária {assinatura!r}")
+    pos = len(assinatura)
+    campos = []
+    # Cabeçalho: três inteiros (largura, altura, maxval) separados por
+    # espaço em branco — comentários `#...\n` são permitidos pelo formato
+    # entre tokens; ignorados aqui se aparecerem (poppler não os emite,
+    # mas o formato PERMITE, e um parser que quebra num comentário válido
+    # é um parser errado, não um limite documentado).
+    while len(campos) < 3:
+        while dados[pos : pos + 1].isspace():
+            pos += 1
+        if dados[pos : pos + 1] == b"#":
+            pos = dados.index(b"\n", pos) + 1
+            continue
+        inicio = pos
+        while not dados[pos : pos + 1].isspace():
+            pos += 1
+        campos.append(int(dados[inicio:pos]))
+    largura, altura, maxval = campos
+    if maxval >= 256:
+        raise ValueError(f"Netpbm com maxval {maxval} >= 256 (16 bits) não é suportado")
+    pos += 1  # o único espaço em branco exigido pelo formato após o maxval
+    tamanho_esperado = largura * altura * bytes_por_pixel
+    corpo = dados[pos : pos + tamanho_esperado]
+    if len(corpo) < tamanho_esperado:
+        raise ValueError(
+            f"Netpbm truncado: esperava {tamanho_esperado} bytes de pixel, achei {len(corpo)}"
+        )
+    return largura, altura, corpo
 
 
 def _pgm_para_matriz(dados_pgm):
@@ -1417,35 +1647,20 @@ def _pgm_para_matriz(dados_pgm):
     corpo_de_bytes)`. Função PURA — testada em
     `scripts/test_medir_identificacao_do_emitente.py` com bytes
     sintéticos, sem chamar `pdftoppm` de verdade."""
-    if not dados_pgm.startswith(b"P5"):
-        raise ValueError("dados não começam com a assinatura PGM binária 'P5'")
-    pos = 2
-    campos = []
-    # Cabeçalho PGM: três inteiros (largura, altura, maxval) separados por
-    # espaço em branco — comentários `#...\n` são permitidos pelo formato
-    # entre tokens; ignorados aqui se aparecerem (poppler não os emite,
-    # mas o formato PERMITE, e um parser que quebra num comentário válido
-    # é um parser errado, não um limite documentado).
-    while len(campos) < 3:
-        while dados_pgm[pos : pos + 1].isspace():
-            pos += 1
-        if dados_pgm[pos : pos + 1] == b"#":
-            pos = dados_pgm.index(b"\n", pos) + 1
-            continue
-        inicio = pos
-        while not dados_pgm[pos : pos + 1].isspace():
-            pos += 1
-        campos.append(int(dados_pgm[inicio:pos]))
-    largura, altura, maxval = campos
-    if maxval >= 256:
-        raise ValueError(f"PGM com maxval {maxval} >= 256 (16 bits) não é suportado")
-    pos += 1  # o único espaço em branco exigido pelo formato após o maxval
-    corpo = dados_pgm[pos : pos + largura * altura]
-    if len(corpo) < largura * altura:
-        raise ValueError(
-            f"PGM truncado: esperava {largura * altura} bytes de pixel, achei {len(corpo)}"
-        )
-    return largura, altura, corpo
+    return _cabecalho_e_corpo_netpbm(dados_pgm, b"P5", bytes_por_pixel=1)
+
+
+def _ppm_para_matriz(dados_ppm):
+    """Parseia um PPM BINÁRIO (`P6`) sem depender de Pillow nem de nenhuma
+    lib de imagem — é exatamente o formato que `pdftoppm` produz
+    nativamente SEM `-gray`/`-mono`/`-png` (8 bits por canal, 3 bytes por
+    pixel, R-G-B intercalados). Devolve `(largura, altura, corpo_de_
+    bytes)`, com `corpo` de comprimento `largura*altura*3` — o pixel `(x,
+    y)` começa no offset `(y*largura + x) * 3`. BL-429/DE-060: a
+    rasterização EM COR que substitui `-gray` no caminho de produção (ver
+    `_rasterizar_pagina`). Função PURA — testada com bytes sintéticos, sem
+    chamar `pdftoppm` de verdade."""
+    return _cabecalho_e_corpo_netpbm(dados_ppm, b"P6", bytes_por_pixel=3)
 
 
 def _diagnostico_de_contraste_na_faixa(
@@ -1491,7 +1706,19 @@ def _diagnostico_de_contraste_na_faixa(
     MEDIDO ao construir o oráculo original: margem de 2px não alcança a
     linha vizinha em nenhuma das três telas (a menor distância entre duas
     linhas do timbre medida foi de ~17px) — comportamento herdado sem
-    alteração por esta correção, que só troca o CRITÉRIO por pixel."""
+    alteração por esta correção, que só troca o CRITÉRIO por pixel.
+
+    BL-429/DE-060: esta função mede em TONS DE CINZA — só a PROPRIEDADE
+    quando a tinta é cinza (ver o comentário de `_razao_de_contraste`).
+    Não é mais chamada pelo CAMINHO DE PRODUÇÃO
+    (`_localizar_linhas_do_timbre_no_documento` usa `_diagnostico_de_
+    contraste_na_faixa_cor`, abaixo). Mantida como utilitário puro
+    testado — a técnica de pré-computar os níveis suficientes
+    (`_niveis_de_cinza_com_contraste_suficiente`) só funciona em cinza
+    (256 níveis possíveis); em COR o espaço é grande demais (16 milhões
+    de combinações) para pré-computar um conjunto, então a versão em cor
+    calcula a razão PIXEL A PIXEL — ver o comentário da função abaixo
+    sobre o custo disso."""
     largura_pagina, altura_pagina, corpo = _pgm_para_matriz(dados_pgm)
     niveis_com_contraste = _niveis_de_cinza_com_contraste_suficiente(
         luminancia_do_papel, razao_minima
@@ -1513,6 +1740,68 @@ def _diagnostico_de_contraste_na_faixa(
             if nivel in niveis_com_contraste:
                 contagem += 1
     contraste_maximo = _razao_de_contraste(luminancia_do_papel, nivel_mais_escuro)
+    return contagem, contraste_maximo
+
+
+def _diagnostico_de_contraste_na_faixa_cor(
+    dados_ppm,
+    retangulo_pt,
+    cor_do_papel,
+    razao_minima,
+    dpi=DPI_ORACULO_DO_PAPEL,
+    margem_px=2,
+):
+    """C2 da DL-029, EM COR (BL-429/DE-060) — a mesma pergunta de
+    `_diagnostico_de_contraste_na_faixa` (quantos pixels da faixa atingem
+    `razao_minima` contra o fundo, e qual é o CONTRASTE MÁXIMO
+    encontrado), mas com a luminância de CADA pixel e do papel calculada
+    pelos TRÊS canais RGB ponderados (`_luminancia_relativa_rgb`) — a
+    fórmula que a etiqueta "WCAG 2.2, 1.4.3" de fato promete, em vez da
+    aproximação em cinza que `pdftoppm -gray` produzia (ver o comentário
+    de `_rasterizar_pagina`).
+
+    **Por que não pré-computar um conjunto de "níveis suficientes"
+    (a técnica de `_niveis_de_cinza_com_contraste_suficiente`)**: em
+    cinza há 256 combinações possíveis: cabe pré-computar uma vez por
+    linha. Em COR há até 256³ (~16,7 milhões) combinações de pixel — pré-
+    computar um `frozenset` desse tamanho custaria mais do que calcular a
+    razão pixel a pixel para as poucas MILHARES de posições que uma faixa
+    de linha ocupa. Por isso esta função calcula `_razao_de_contraste_rgb`
+    diretamente, pixel a pixel, usando `_TABELA_LUMINANCIA_SRGB` (256
+    entradas, uma busca O(1) por canal) para manter o CUSTO POR PIXEL
+    baixo — ver a medição de custo no relatório desta etapa (critério 9
+    do plano).
+
+    Devolve `(pixels_com_contraste_suficiente, contraste_maximo_medido)`
+    — MESMA assinatura de retorno da versão em cinza, para `main` não
+    precisar distinguir qual foi chamada."""
+    largura_pagina, altura_pagina, corpo = _ppm_para_matriz(dados_ppm)
+    fator = dpi / PONTOS_POR_POLEGADA
+    xmin, ymin, xmax, ymax = retangulo_pt
+    x0 = max(0, int(xmin * fator) - margem_px)
+    y0 = max(0, int(ymin * fator) - margem_px)
+    x1 = min(largura_pagina, int(xmax * fator) + margem_px + 1)
+    y1 = min(altura_pagina, int(ymax * fator) + margem_px + 1)
+    luminancia_papel = _luminancia_relativa_rgb(*cor_do_papel)
+    contagem = 0
+    # `1.0`, não `1.0` de "sem contraste" — a razão mínima MATEMÁTICA
+    # entre duas luminâncias é sempre >= 1.0 (dois pixels idênticos ao
+    # papel), então este valor inicial nunca falsifica um contraste que
+    # não foi medido, e é substituído assim que QUALQUER pixel da faixa
+    # existir (a faixa sempre tem pelo menos um pixel, pelo `margem_px`).
+    contraste_maximo = 1.0
+    for y in range(y0, y1):
+        inicio_da_linha = y * largura_pagina * 3
+        for x in range(x0, x1):
+            offset = inicio_da_linha + x * 3
+            luminancia_pixel = _luminancia_relativa_rgb(
+                corpo[offset], corpo[offset + 1], corpo[offset + 2]
+            )
+            razao = _razao_a_partir_de_luminancias(luminancia_papel, luminancia_pixel)
+            if razao > contraste_maximo:
+                contraste_maximo = razao
+            if razao >= razao_minima:
+                contagem += 1
     return contagem, contraste_maximo
 
 
@@ -1567,9 +1856,13 @@ def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas, razo
     def _dados_da_pagina(pagina):
         if pagina not in cache_por_pagina:
             palavras = palavras_pagina1 if pagina == 1 else _palavras_da_pagina(caminho_pdf, pagina)
-            dados_pgm = _rasterizar_pagina(caminho_pdf, pagina)
-            luminancia_do_papel = _luminancia_do_papel(dados_pgm)
-            cache_por_pagina[pagina] = (palavras, dados_pgm, luminancia_do_papel)
+            # BL-429/DE-060: rasterização EM COR (`_rasterizar_pagina`
+            # já produz PPM desde essa correção — ver a docstring dela)
+            # e fundo/contraste medidos pela fórmula RGB do WCAG, não
+            # mais pela aproximação em cinza.
+            dados_ppm = _rasterizar_pagina(caminho_pdf, pagina)
+            cor_do_papel = _cor_do_papel(dados_ppm)
+            cache_por_pagina[pagina] = (palavras, dados_ppm, cor_do_papel)
         return cache_por_pagina[pagina]
 
     resultados = []
@@ -1590,9 +1883,9 @@ def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas, razo
                     break
 
         if bbox is not None:
-            _, dados_pgm, luminancia_do_papel = _dados_da_pagina(folha)
-            pixels, contraste_maximo = _diagnostico_de_contraste_na_faixa(
-                dados_pgm, bbox, luminancia_do_papel, razoes_minimas[indice]
+            _, dados_ppm, cor_do_papel = _dados_da_pagina(folha)
+            pixels, contraste_maximo = _diagnostico_de_contraste_na_faixa_cor(
+                dados_ppm, bbox, cor_do_papel, razoes_minimas[indice]
             )
         else:
             pixels, contraste_maximo = 0, 1.0
@@ -1808,13 +2101,68 @@ def main(argv):
             # duas linhas com o mesmo texto, escondendo a segunda em
             # silêncio — a fenda exata que o K2 mediu.
             filhos = medida.get("filhos", [])
+
+            # BL-427/C3 (L1, décima primeira auditoria,
+            # docs/auditorias/2026-09-20-dl-029-rodada-11.md) — DE-060:
+            # este trecho fazia DUAS perguntas coladas, e a segunda
+            # (infraestrutura) sempre vencia a primeira (conteúdo) antes
+            # desta correção. `filhos` (acima, do seletor `.timbre-
+            # impressao p` sondado por `sonda_visibilidade`) e `fonte_das_
+            # linhas` (abaixo, MESMO seletor, MESMO DOM, MESMA página —
+            # ver o comentário de `js_fonte_das_linhas` em
+            # `_SCRIPT_DO_SUBPROCESSO`) vêm da MESMA fonte: por construção,
+            # `len(filhos) != len(linhas_esperadas)` implica SEMPRE
+            # `len(fonte_das_linhas) != len(linhas_esperadas)`. A versão
+            # anterior deste código recusava (código 2, infraestrutura)
+            # nesse caso — e `_recusar` ENCERRA o processo imediatamente —
+            # antes de o `motivos.append` da divergência de contagem
+            # (conteúdo, código 1) chegar à saída. MEDIDO: um timbre com
+            # 2 das 3 linhas declaradas (a linha do registro profissional
+            # some) saía como "FALHA DE INFRAESTRUTURA — não é um veredito
+            # sobre o produto", mandando quem lê o job procurar o defeito
+            # no navegador, quando o defeito estava no timbre. A frase do
+            # C3 nunca era impressa, em NENHUM caminho de execução.
+            #
+            # A propriedade que C3 promete medir é "quantas linhas o
+            # papel carrega" — e o substituto usado (contagem de `<p>` do
+            # DOM) É a mesma consulta que decidia a recusa de
+            # infraestrutura logo abaixo, o que fazia as duas perguntas
+            # colidirem. Separadas agora em DUAS perguntas distintas, na
+            # ORDEM que o auditor recomendou:
+            #
+            # 1. `fonte_das_linhas is None` — a sonda NÃO devolveu a
+            #    medição nenhuma (subprocesso antigo, sem esse campo; ver
+            #    `_SCRIPT_DO_SUBPROCESSO`) — infraestrutura DE VERDADE:
+            #    sem ela não há como aplicar o piso de contraste do WCAG
+            #    para NENHUMA linha, existente ou não. Continua `_recusar`
+            #    (código 2) — preservar isto é o critério 12 da rodada 2.
+            # 2. Contagem divergente (`filhos` != `linhas_esperadas`) — é
+            #    CONTEÚDO: o documento saiu com o timbre incompleto (ou
+            #    com linha extra), e é EXATAMENTE o caso que o C3 existe
+            #    para nomear. Reprova (código 1, mais abaixo) com a frase
+            #    de divergência — e o piso de contraste, logo depois,
+            #    calcula a razão mínima só para as linhas que EXISTEM
+            #    (`indice < len(fonte_das_linhas)`), sem tentar adivinhar
+            #    tamanho/peso de uma linha que não está lá.
+            fonte_das_linhas = medida.get("fonte_das_linhas")
+            if fonte_das_linhas is None:
+                _recusar(
+                    f"{nome}: a medição de tamanho/peso de fonte por linha "
+                    "('fonte_das_linhas') veio ausente — sonda desatualizada ou "
+                    "subprocesso sem esse campo; não é possível aplicar o piso de "
+                    "contraste do WCAG 2.2 para NENHUMA linha desta tela."
+                )
+
             if len(filhos) != len(linhas_esperadas):
                 # C3 ("comparação de CONJUNTOS: faltar OU sobrar linha
                 # reprova"): o número de `<p>` que o navegador viu dentro
                 # do timbre diverge do número de linhas que o servidor
                 # declarou (`Escritorio.linhas_do_timbre`) — um `<p>` a
                 # mais ou a menos no template/CSS, sem precisar adivinhar
-                # QUAL.
+                # QUAL. Esta é a frase que o L1 mediu como código
+                # INALCANÇÁVEL — agora chega à saída em TODOS os casos,
+                # porque não depende mais de `fonte_das_linhas` bater a
+                # mesma contagem.
                 motivos.append(
                     f"número de linhas do timbre no papel ({len(filhos)}) diverge do "
                     f"número declarado pelo servidor ({len(linhas_esperadas)})"
@@ -1823,21 +2171,23 @@ def main(argv):
             # C2 da DL-029: o piso de contraste é POR LINHA, do tamanho e
             # peso REALMENTE renderizados (`medida["fonte_das_linhas"]`,
             # perguntado ao navegador em `_SCRIPT_DO_SUBPROCESSO` — nunca
-            # deduzido de token CSS). Faltar essa informação (subprocesso
-            # antigo, ou o `querySelectorAll` não achou nada) é falha de
-            # INFRAESTRUTURA desta medição, não veredito sobre o produto:
-            # sem ela não há como aplicar o WCAG com confiança.
-            fonte_das_linhas = medida.get("fonte_das_linhas")
-            if fonte_das_linhas is None or len(fonte_das_linhas) != len(linhas_esperadas):
-                _recusar(
-                    f"{nome}: a medição de tamanho/peso de fonte por linha "
-                    f"('fonte_das_linhas') veio ausente ou com contagem incompatível "
-                    f"({fonte_das_linhas!r}) — não é possível aplicar o piso de contraste "
-                    "do WCAG 2.2 sem saber o tamanho/peso REAL de cada linha."
-                )
+            # deduzido de token CSS). Só as linhas que EXISTEM no DOM
+            # (`indice < len(fonte_das_linhas)`) têm essa medição — uma
+            # linha AUSENTE (BL-427) não tem tamanho/peso renderizado
+            # nenhum para medir, então recebe o piso mais ESTRITO (texto
+            # normal, 4,5:1) por padrão; isso é inofensivo, porque uma
+            # linha ausente não tem bbox no papel
+            # (`_localizar_linhas_do_timbre_no_documento` devolve
+            # `pixels_com_contraste=0` para `bbox=None`) — o piso usado
+            # aqui nunca decide o veredito de uma linha que já reprova por
+            # estar ausente (ver `presente_no_pdf`, abaixo).
             razoes_minimas = [
-                _razao_minima_wcag_para_linha(fonte["tamanho_px"], fonte["peso"])
-                for fonte in fonte_das_linhas
+                _razao_minima_wcag_para_linha(
+                    fonte_das_linhas[indice]["tamanho_px"], fonte_das_linhas[indice]["peso"]
+                )
+                if indice < len(fonte_das_linhas)
+                else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
+                for indice in range(len(linhas_esperadas))
             ]
 
             localizacoes_no_pdf = _localizar_linhas_do_timbre_no_documento(
@@ -1851,21 +2201,122 @@ def main(argv):
                 legivel = visivel_no_navegador and not _tinta_invisivel(
                     filho_da_linha.get("cor_efetiva") if filho_da_linha else None
                 )
-                presente_no_pdf = linha in texto_pdf
 
                 localizacao = localizacoes_no_pdf[indice]
                 folha_da_linha = localizacao["folha"]
+                # BL-430/C1-C3 (L4, décima primeira auditoria) — DE-060:
+                # "a linha está no papel" tinha como substituto uma
+                # SUBSTRING do texto de `pdftotext -layout`
+                # (`linha in texto_pdf`) — mais barato de obter que a
+                # propriedade, e diverge exatamente quando o CSS de
+                # impressão usa `letter-spacing` (ou qualquer construção
+                # que mude o espaçamento visual entre glifos): a
+                # heurística de RECONSTRUÇÃO DE COLUNA do `-layout`
+                # insere espaços ESPÚRIOS dentro da palavra, e a
+                # substring exata deixa de casar. MEDIDO: `letter-spacing:
+                # 0.2em` no tamanho REAL do produto (14px — não só em
+                # "fontes extremas", a afirmação que o BL-425 fazia e que
+                # a mesma auditoria mediu como falsa: DE-058, escopo de
+                # medição também é afirmação) produzia "AUSENTE do texto
+                # do PDF" sobre uma linha com 306 pixels de tinta medidos
+                # NA MESMA execução — a saída se contradizia.
+                #
+                # A propriedade que C1/C3 promete medir é "esta linha
+                # está no papel" — e a resposta correta já existe no
+                # próprio `localizacao`, calculada por
+                # `_localizar_linhas_do_timbre_no_documento` via
+                # `pdftotext -bbox` (`_bbox_da_linha`/`_localizar_bloco_
+                # do_timbre`): esse mecanismo concatena as palavras SEM
+                # espaço dos dois lados antes de comparar, então não
+                # sofre a mesma heurística de reconstrução de coluna do
+                # `-layout` — é a medida que este instrumento JÁ
+                # CALCULAVA (para achar a faixa de contraste) e
+                # DESCARTAVA para a pergunta de presença. Usá-la aqui
+                # fecha `letter-spacing` sem lista nenhuma, e sem
+                # depender de tamanho de fonte algum.
+                #
+                # `_texto_do_pdf`/`-layout` CONTINUA sendo usado — só
+                # para o C5 (ausência do identificador do FORNECEDOR),
+                # onde a normalização (`_normalizar_para_busca_do_
+                # fornecedor`) já descarta espaço espúrio antes de
+                # comparar, então a divergência medida aqui não o alcança.
+                presente_no_pdf = localizacao["bbox"] is not None
                 pixels_com_contraste = localizacao["pixels_com_contraste"]
                 contraste_maximo_medido = localizacao["contraste_maximo_medido"]
                 razao_minima_exigida = razoes_minimas[indice]
-                tamanho_renderizado_px = fonte_das_linhas[indice]["tamanho_px"]
+
+                # BL-428 (L2, décima primeira auditoria) — DE-060: o
+                # "tamanho renderizado" era a fonte DECLARADA
+                # (`getComputedStyle().fontSize`, em `fonte_das_linhas`)
+                # — mais barata de obter que a propriedade ("que tamanho
+                # a linha TEM NO PAPEL"), e diverge exatamente quando o
+                # CSS aplica `transform`/`zoom`: essas propriedades NÃO
+                # mudam o valor computado de font-size (é uma
+                # transformação visual aplicada DEPOIS do layout).
+                # MEDIDO: `transform: scale(0.6)` relatava tamanho
+                # declarado 16/14/14px (inalterado) enquanto o glifo real
+                # no papel (`pdftotext -bbox`) media 10,4/9,1px de altura
+                # — abaixo do piso que este MESMO instrumento já aplica a
+                # `font-size: 8px` (8,7px, reprovado) — e `job verde`.
+                #
+                # CORREÇÃO: usa a altura REAL do bbox de cada linha no
+                # PDF exportado (`localizacao["bbox"]`, já calculado por
+                # `_localizar_linhas_do_timbre_no_documento` para achar a
+                # faixa de contraste — a mesma medida que este
+                # instrumento CALCULAVA e DESCARTAVA para a pergunta de
+                # tamanho), convertida para pixel por `dpi/72` (a MESMA
+                # conversão do resto do módulo — ver `DPI_ORACULO_DO_
+                # PAPEL`), NUNCA o valor declarado.
+                #
+                # Dividida por `FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_
+                # DECLARADA` (constante MEDIDA, ver o comentário dela)
+                # para devolver um "tamanho equivalente" na MESMA escala
+                # que `TAMANHO_MINIMO_RENDERIZADO_PX` já usa (a fonte
+                # declarada, em px CSS) — o piso de 11px continua sendo o
+                # MESMO número (o piso legível já fixado pela direção de
+                # arte), só que agora comparado contra o que o PAPEL de
+                # fato mostra, não contra o que o CSS declara.
+                #
+                # Só linhas PRESENTES no papel (`bbox is not None`) têm
+                # altura para medir — uma linha ausente já reprova por
+                # `presente_no_pdf` (checado ANTES, no `if/elif` abaixo),
+                # então `tamanho_renderizado_px=None` aqui nunca alcança a
+                # mensagem de tamanho: é só para não quebrar o cálculo
+                # quando não há bbox.
+                if localizacao["bbox"] is not None:
+                    _, ymin_bbox, _, ymax_bbox = localizacao["bbox"]
+                    altura_bbox_px = (ymax_bbox - ymin_bbox) * (
+                        DPI_ORACULO_DO_PAPEL / PONTOS_POR_POLEGADA
+                    )
+                    tamanho_renderizado_px = (
+                        altura_bbox_px / FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA
+                    )
+                else:
+                    tamanho_renderizado_px = None
+                # Mantido só como DIAGNÓSTICO (nunca decide veredito) — o
+                # valor que `getComputedStyle` relatou, para quem for
+                # investigar uma divergência grande entre os dois.
+                tamanho_declarado_px = (
+                    fonte_das_linhas[indice]["tamanho_px"]
+                    if indice < len(fonte_das_linhas)
+                    else None
+                )
                 # BL-424: TAMANHO é a TERCEIRA causa distinguível de
                 # reprovação, ao lado de contraste e contagem — ver o
                 # comentário completo de TAMANHO_MINIMO_RENDERIZADO_PX
                 # sobre por que a contagem sozinha não bastava mais
                 # (font-size: 8px passava com contraste altíssimo e
                 # contagem acima do piso).
-                tamanho_insuficiente = tamanho_renderizado_px < TAMANHO_MINIMO_RENDERIZADO_PX
+                # `tamanho_renderizado_px` só é `None` quando `bbox` é
+                # `None` (linha ausente do papel) — e esse caso já
+                # reprova por `presente_no_pdf`, ANTES de chegar aqui (ver
+                # o `if/elif` abaixo). O `is not None` é defensivo, não
+                # alcançado hoje, mas evita `TypeError` se a ordem das
+                # checagens mudar no futuro.
+                tamanho_insuficiente = (
+                    tamanho_renderizado_px is not None
+                    and tamanho_renderizado_px < TAMANHO_MINIMO_RENDERIZADO_PX
+                )
                 # C2, regra TRIPLA e DISTINGUÍVEL (exigência do
                 # arquiteto-senior): três causas de reprovação diferentes,
                 # nunca a mesma mensagem para duas delas.
@@ -1899,6 +2350,7 @@ def main(argv):
                         "presente_no_pdf": presente_no_pdf,
                         "folha": folha_da_linha,
                         "tamanho_renderizado_px": tamanho_renderizado_px,
+                        "tamanho_declarado_px": tamanho_declarado_px,
                         "razao_minima_wcag_exigida": razao_minima_exigida,
                         "contraste_maximo_medido": round(contraste_maximo_medido, 3),
                         "pixels_com_contraste_no_papel": pixels_com_contraste,
@@ -1910,7 +2362,11 @@ def main(argv):
                 elif not legivel:
                     motivos.append(f"linha do timbre com tinta de alfa zero (ilegível): {linha!r}")
                 if not presente_no_pdf:
-                    motivos.append(f"linha do timbre AUSENTE do texto do PDF: {linha!r}")
+                    # BL-430: a mensagem nomeia "no papel" (bbox não
+                    # localizado via `pdftotext -bbox`), não mais "no
+                    # texto do PDF" (`-layout`) — ver o comentário de
+                    # `presente_no_pdf`, acima, sobre a troca de mecanismo.
+                    motivos.append(f"linha do timbre AUSENTE do papel (PDF exportado): {linha!r}")
                 elif folha_da_linha is not None and folha_da_linha != 1:
                     # C1/K7 (BL-410): a linha ESTÁ no papel, só que NÃO na
                     # primeira folha — nomeia PAGINAÇÃO, nunca "0 pixels

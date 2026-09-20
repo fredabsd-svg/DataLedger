@@ -1,5 +1,7 @@
-"""Testes das funções PURAS de `medir_identificacao_do_emitente.py` — DL-028
-fatia 2 (docs/planos/DL-028-o-juiz-aponta-para-o-produto.md).
+"""Testes de `medir_identificacao_do_emitente.py` — DL-028 fatia 2
+(docs/planos/DL-028-o-juiz-aponta-para-o-produto.md) e BL-434 (décima
+primeira auditoria, rodada 2 da DL-029,
+docs/planos/DL-029-a-frase-executavel-do-criterio-9.md).
 
 **Por que este arquivo existe agora, e não na fatia 1.** Enquanto o
 instrumento era só ferramenta de BANCADA (fatia 1), o precedente de
@@ -10,25 +12,40 @@ infraestrutura da equipe: um erro nela ou trava todo mundo com falso alarme,
 ou aprova em silêncio um documento sem emitente. As duas coisas custam mais
 do que escrever este arquivo.
 
-**O que este arquivo cobre, e o que NÃO cobre.** Só as funções que não
-precisam de Playwright nem de Django: a checagem de "tinta invisível"
-(`_tinta_invisivel`) e a distinção entre falha de INFRAESTRUTURA (código de
-saída `2`, `_recusar`) e falha de CONTEÚDO (código `1`,
-`_reprovar_por_conteudo`) — o contrato central do BL-356 que o job de
-integração contínua da fatia 2 lê para decidir a mensagem que mostra a quem
-abre o PR. A medição no navegador em si (derivação de telas, sonda de
-visibilidade, geração de PDF) continua verificada por EXECUÇÃO real de
-bancada — não por mock de Playwright, que provaria só que o mock funciona
+**DUAS classes de teste, desde o BL-434 — não confunda uma com a outra.**
+
+1. **Funções PURAS** (a maioria do arquivo): não precisam de Playwright nem
+   de Django — a checagem de "tinta invisível" (`_tinta_invisivel`), a
+   distinção entre falha de INFRAESTRUTURA (código de saída `2`,
+   `_recusar`) e falha de CONTEÚDO (código `1`, `_reprovar_por_conteudo`),
+   a rasterização em cor, o oráculo de contraste, etc. Rodam em
+   MILISSEGUNDOS, sempre, em qualquer ambiente.
+2. **`test_ponta_a_ponta_*`** (seção própria, ao final): rodam
+   `instrumento.main()` de VERDADE — Django real, subprocesso real do
+   Python do sistema, Playwright/Chromium real, poppler-utils real — contra
+   um cenário sintético e sabotagens aplicadas só EM MEMÓRIA (nunca em
+   `static/css/base.css` nem em `templates/**`). Existem porque a décima
+   primeira auditoria mediu que a classe 1, sozinha, deixa passar defeito
+   de ORDEM/ALCANÇABILIDADE de código — o L1/BL-427 (uma cláusula da frase
+   escrita em código que NUNCA executava) era exatamente esse tipo de
+   defeito, e nenhum teste puro o alcançava. PULAM (não falham) com o
+   motivo nomeado quando o ambiente não tem Chromium lançável ou
+   poppler-utils no PATH — ver `_diagnostico_ambiente_ponta_a_ponta`.
+
+Importar este arquivo NÃO exige Playwright nem banco para a classe 1: o
+módulo só toca Django/Playwright DENTRO de funções, nunca no carregamento do
+arquivo (ver a docstring dele, "Os dois interpretadores") — mas o
+DIAGNÓSTICO de disponibilidade da classe 2 roda no CARREGAMENTO deste
+arquivo de teste (não do instrumento), porque `pytest.mark.skipif` precisa
+da decisão na COLETA, e é um lançamento de Chromium real, não um mock
 (AGENTS.md §7: "mocks são adequados para testes isolados, mas não comprovam
 a integração real").
-
-Importar `medir_identificacao_do_emitente` aqui NÃO exige Playwright nem
-banco: o módulo só toca Django/Playwright DENTRO de funções, nunca no
-carregamento do arquivo (ver a docstring dele, "Os dois interpretadores").
 """
 
 import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -422,6 +439,152 @@ def test_pgm_para_matriz_recusa_corpo_truncado():
 def test_pgm_para_matriz_recusa_maxval_de_16_bits():
     with pytest.raises(ValueError):
         instrumento._pgm_para_matriz(b"P5\n1 1\n65535\n\x00\x00")
+
+
+# ---------------------------------------------------------------------------
+# BL-429/DE-060 (décima primeira auditoria) — a rasterização em COR (PPM
+# `P6`) que substitui `-gray` (PGM `P5`) no caminho de produção. O parser
+# compartilha `_cabecalho_e_corpo_netpbm` com `_pgm_para_matriz` — os
+# testes de PGM acima continuam cobrindo o cabeçalho comum; os daqui
+# cobrem o que é ESPECÍFICO de 3 bytes por pixel.
+# ---------------------------------------------------------------------------
+
+
+def _ppm_sintetico(largura, altura, pixels_rgb):
+    """Monta bytes de um PPM binário (`P6`) `largura`×`altura`, 8 bits por
+    canal, com `pixels_rgb` (lista de tuplas `(r, g, b)`, ordem
+    linha-a-linha) — o MESMO formato que `pdftoppm` produz nativamente
+    SEM `-gray`/`-mono`/`-png`, sem depender dele."""
+    assert len(pixels_rgb) == largura * altura
+    cabecalho = f"P6\n{largura} {altura}\n255\n".encode("ascii")
+    corpo = bytes(byte for pixel in pixels_rgb for byte in pixel)
+    return cabecalho + corpo
+
+
+def test_ppm_para_matriz_le_cabecalho_e_corpo_intercalado():
+    dados = _ppm_sintetico(2, 1, [(255, 0, 0), (0, 128, 255)])
+    largura, altura, corpo = instrumento._ppm_para_matriz(dados)
+    assert (largura, altura) == (2, 1)
+    assert list(corpo) == [255, 0, 0, 0, 128, 255]
+
+
+def test_ppm_para_matriz_recusa_assinatura_errada():
+    with pytest.raises(ValueError):
+        instrumento._ppm_para_matriz(b"P5\n1 1\n255\n\x00")
+
+
+def test_ppm_para_matriz_recusa_corpo_truncado():
+    cabecalho = b"P6\n2 1\n255\n"
+    with pytest.raises(ValueError):
+        instrumento._ppm_para_matriz(cabecalho + bytes([0, 0, 0]))  # faltam 3 bytes (1 pixel)
+
+
+def test_cor_do_papel_e_a_moda_por_canal():
+    # Fundo branco majoritário, com um pixel de "tinta" azul no meio —
+    # a moda de CADA canal, isoladamente, ainda recompõe o branco.
+    pixels = [(255, 255, 255)] * 8 + [(10, 20, 200)]
+    dados = _ppm_sintetico(3, 3, pixels)
+    assert instrumento._cor_do_papel(dados) == (255, 255, 255)
+
+
+def test_luminancia_relativa_rgb_cinza_puro_bate_com_a_versao_de_um_canal():
+    # Para R=G=B (cinza puro), a luminância RGB pondera os TRÊS canais
+    # com o MESMO valor de entrada — matematicamente idêntica a aplicar
+    # `_luminancia_relativa_srgb` uma vez (0,2126+0,7152+0,0722 == 1).
+    for nivel in (0, 64, 128, 200, 255):
+        esperado = instrumento._luminancia_relativa_srgb(nivel / 255)
+        assert instrumento._luminancia_relativa_rgb(nivel, nivel, nivel) == pytest.approx(
+            esperado, abs=1e-9
+        )
+
+
+def test_razao_de_contraste_rgb_vermelho_puro_sobre_branco_e_a_razao_wcag_real():
+    # BL-429/L3: a razão WCAG 2.2 REAL de #FF0000 sobre #FFFFFF é 4,00:1
+    # — MEDIDO pelo auditor contra o instrumento em cinza, que relatava
+    # 8,45:1 (2,1× mais contraste do que existe). Esta é a fórmula que a
+    # etiqueta da mensagem promete.
+    razao = instrumento._razao_de_contraste_rgb((255, 0, 0), (255, 255, 255))
+    assert razao == pytest.approx(4.00, abs=0.01)
+
+
+def test_razao_de_contraste_rgb_diverge_da_versao_em_cinza_para_tinta_colorida():
+    # A divergência que o BL-429 mede, ao lado da propriedade — DE-060
+    # exige que o substituto (cinza) e a divergência dele fiquem medidos
+    # juntos, não só a correção. `pdftoppm -gray` converteria #FF0000
+    # para um nível de cinza próximo a 76 (luma padrão) — a razão em
+    # cinza contra 255 fica muito acima da razão RGB real.
+    razao_rgb = instrumento._razao_de_contraste_rgb((255, 0, 0), (255, 255, 255))
+    razao_cinza_aproximada = instrumento._razao_de_contraste(255, 76)
+    assert razao_cinza_aproximada > razao_rgb * 1.5
+
+
+def test_razao_de_contraste_rgb_preto_e_branco_e_o_maximo_da_escala():
+    assert instrumento._razao_de_contraste_rgb((0, 0, 0), (255, 255, 255)) == pytest.approx(
+        21.0, abs=0.01
+    )
+
+
+def test_razao_de_contraste_rgb_e_simetrica():
+    a = instrumento._razao_de_contraste_rgb((10, 20, 30), (250, 240, 230))
+    b = instrumento._razao_de_contraste_rgb((250, 240, 230), (10, 20, 30))
+    assert a == pytest.approx(b)
+
+
+def test_diagnostico_de_contraste_na_faixa_cor_conta_so_dentro_do_retangulo():
+    # MESMA estrutura de `test_diagnostico_de_contraste_na_faixa_conta_so_
+    # dentro_do_retangulo` (versão cinza), em COR: uma faixa vermelha
+    # (alto contraste RGB) cercada de branco (papel).
+    largura, altura = 10, 10
+    pixels = [(255, 255, 255)] * (largura * altura)
+    # Linha y=5, x de 2 a 6 (5 pixels) pintada de vermelho puro.
+    for x in range(2, 7):
+        pixels[5 * largura + x] = (255, 0, 0)
+    dados = _ppm_sintetico(largura, altura, pixels)
+    # Retângulo em PONTOS de PDF: a 96 dpi, 1 ponto == 1 pixel (fator 1.0)
+    # — mesma conversão de `DPI_ORACULO_DO_PAPEL`/`PONTOS_POR_POLEGADA`.
+    retangulo_pt = (2 * 72 / 96, 5 * 72 / 96, 6 * 72 / 96, 5 * 72 / 96)
+    # Piso de texto GRANDE (3,0), não o de texto normal (4,5) — a razão
+    # RGB real do vermelho puro contra branco é 4,00:1 (ver o teste de
+    # `_razao_de_contraste_rgb` acima), que passa o primeiro e NÃO passa
+    # o segundo; usar 3,0 aqui isola a pergunta "conta só dentro do
+    # retângulo" da pergunta "o piso é respeitado" (coberta pelo teste
+    # seguinte).
+    contagem, contraste_maximo = instrumento._diagnostico_de_contraste_na_faixa_cor(
+        dados, retangulo_pt, cor_do_papel=(255, 255, 255), razao_minima=3.0, margem_px=0
+    )
+    assert contraste_maximo == pytest.approx(4.00, abs=0.01)
+    assert contagem == 5  # os 5 pixels vermelhos, nenhum do fundo branco
+
+
+def test_diagnostico_de_contraste_na_faixa_cor_respeita_a_razao_minima_informada():
+    largura, altura = 6, 6
+    pixels = [(255, 255, 255)] * (largura * altura)
+    pixels[3 * largura + 3] = (255, 0, 0)  # vermelho puro, 4,00:1 contra branco
+    dados = _ppm_sintetico(largura, altura, pixels)
+    retangulo_pt = (3 * 72 / 96, 3 * 72 / 96, 3 * 72 / 96, 3 * 72 / 96)
+    # Piso ABAIXO do contraste do vermelho: conta.
+    contagem_abaixo, _ = instrumento._diagnostico_de_contraste_na_faixa_cor(
+        dados, retangulo_pt, cor_do_papel=(255, 255, 255), razao_minima=3.0, margem_px=0
+    )
+    assert contagem_abaixo == 1
+    # Piso ACIMA (o piso de texto normal do WCAG, 4,5:1): não conta.
+    contagem_acima, _ = instrumento._diagnostico_de_contraste_na_faixa_cor(
+        dados, retangulo_pt, cor_do_papel=(255, 255, 255), razao_minima=4.5, margem_px=0
+    )
+    assert contagem_acima == 0
+
+
+def test_fator_altura_de_glifo_sobre_fonte_declarada_e_maior_que_um():
+    # BL-428: um glifo real ocupa MAIS altura vertical (ascender+
+    # descender) do que o valor nominal do font-size — a razão medida
+    # (1,088, ver o comentário da constante) tem de ser maior que 1, ou a
+    # conversão papel->declarado devolveria um tamanho MAIOR do que o
+    # real, afrouxando o piso em vez de medi-lo.
+    assert instrumento.FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA > 1.0
+    # E dentro de uma faixa plausível para métricas de fonte tipográfica
+    # comum (nenhuma fonte real tem ascender+descender = 3x o em-square)
+    # — sanidade contra erro de dedo na constante MEDIDA.
+    assert instrumento.FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA < 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -979,3 +1142,612 @@ def test_normalizar_para_busca_do_fornecedor_despreza_pontuacao_e_quebra_de_linh
 def test_normalizar_para_busca_do_fornecedor_com_entrada_vazia_ou_none():
     assert instrumento._normalizar_para_busca_do_fornecedor("") == ""
     assert instrumento._normalizar_para_busca_do_fornecedor(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# BL-432 (décima primeira auditoria, L6) — duas asserções que guardam a
+# PREMISSA que `_luminancia_do_papel`/`_cor_do_papel` documentam em tom de
+# medição: "hoje o papel é sempre branco porque (1) `print_background`
+# nunca é passado ao subprocesso e (2) `print-color-adjust` não existe no
+# CSS de produção". Sem estas duas linhas, a premissa podia deixar de
+# valer (ex.: a DL-027 introduzindo fidelidade de cor na impressão) sem
+# NADA ficar vermelho — DE-058: afirmação de medição sem o teste que a
+# reprova não é medição, é esperança.
+# ---------------------------------------------------------------------------
+
+
+def test_bl432_print_background_nunca_e_passado_ao_subprocesso_de_medicao():
+    assert "print_background" not in instrumento._SCRIPT_DO_SUBPROCESSO, (
+        "'print_background' apareceu em _SCRIPT_DO_SUBPROCESSO — a premissa que "
+        "_luminancia_do_papel/_cor_do_papel documentam ('hoje o papel é SEMPRE "
+        "branco, porque page.pdf() nunca recebe print_background=True') pode ter "
+        "deixado de valer. Releia a docstring de _luminancia_do_papel ANTES de "
+        "decidir se este teste deve mudar — ela explica o efeito de religar isso "
+        "(o fundo passa a ser medido de verdade, e uma folha com background "
+        "escuro passaria a reprovar por contraste)."
+    )
+
+
+def test_bl432_print_color_adjust_exact_nunca_esta_no_css_de_producao():
+    conteudo = (instrumento.RAIZ / "static" / "css" / "base.css").read_text(encoding="utf-8")
+    assert "print-color-adjust" not in conteudo, (
+        "'print-color-adjust' apareceu em static/css/base.css — a premissa que "
+        "_luminancia_do_papel/_cor_do_papel documentam ('hoje o papel é SEMPRE "
+        "branco') pode ter deixado de valer. Releia a docstring de "
+        "_luminancia_do_papel ANTES de decidir se este teste deve mudar."
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-434 (décima primeira auditoria, L9/método (c)) — "para CADA cláusula
+# da frase, UM caso de aceite ponta a ponta que afirme o CÓDIGO DE SAÍDA e
+# a SUBSTRING DA MENSAGEM". Até esta correção havia 60+ testes PUROS
+# excelentes e ZERO desses — e o L1 (BL-427) é exatamente o defeito que um
+# teste assim teria pego: a cláusula C3 estava escrita em código
+# INALCANÇÁVEL, e nenhum teste executava o caminho real o bastante para
+# notar.
+#
+# **Isto RODA de verdade** — Django real (`@pytest.mark.django_db`,
+# escritório/empresa sintéticos criados na própria transação de teste,
+# nunca dependendo de `scripts/semear_base_de_medicao.py` nem de uma
+# segunda base), `django.test.Client` real contra a rota real do
+# Balancete, e depois `instrumento.main([])` de verdade — subprocesso real
+# do Python do sistema, Playwright/Chromium real, `pdftotext`/`pdftoppm`/
+# `pdfinfo` reais. As DUAS únicas coisas substituídas (`monkeypatch`) são
+# QUAIS telas existem (`_descobrir_telas_com_timbre`) e QUAL cenário
+# autenticar (`medir_impressao._preparar_cliente_e_cenario_de_medicao`) —
+# só para não depender da varredura de TODA a urlconf nem de uma base
+# externa; nenhuma das duas participa do JULGAMENTO da cláusula.
+#
+# **Sabotagem SEMPRE em memória** (string do HTML já renderizado pelo
+# Django, nunca `static/css/base.css` nem `templates/**` — proibidos
+# nesta etapa e, aqui, nem tocados: a sabotagem é uma tag <style> extra
+# ou uma remoção de <p>, aplicada ao HTML DEPOIS de o Django já o ter
+# gerado, exatamente equivalente a uma folha de estilo adicional que o
+# navegador aplicaria por cima, sem escrever em nenhum arquivo
+# rastreado).
+#
+# Gate: estes testes exigem poppler-utils no PATH e um Python do sistema
+# (`DL_PYTHON_DO_SISTEMA`, padrão `/usr/bin/python3`) com Playwright — a
+# MESMA exigência que o instrumento já verifica sozinho
+# (`_exigir_ferramentas_de_pdf`/`_exigir_python_do_sistema_com_playwright`).
+# Ausente, os testes são PULADOS com o motivo nomeado — nunca escondidos
+# como "passou".
+# ---------------------------------------------------------------------------
+
+
+def _diagnostico_ambiente_ponta_a_ponta():
+    """`None` se o ambiente tem tudo que esta seção precisa; senão, a
+    STRING do motivo (nomeada no skip, nunca escondida).
+
+    **Por que LANÇA o Chromium de verdade, e não só confere `import
+    playwright.sync_api`**: o job "Backend" (`.github/workflows/
+    backend.yml`) instala o PACOTE Playwright (`requirements/dev.txt`,
+    via `pip install`) mas NUNCA roda `playwright install chromium` — só
+    `.github/workflows/identificacao-do-emitente.yml` faz isso. Um
+    ambiente assim IMPORTA `playwright.sync_api` com sucesso e MESMO
+    ASSIM não consegue abrir um navegador (`sonda_visibilidade.
+    NavegadorIndisponivel`) — a checagem rasa deixaria os testes ponta a
+    ponta RODAREM no job errado e falharem com o código de infraestrutura
+    (2) em vez do código de conteúdo que cada teste espera, quebrando o
+    job "Backend" por um motivo que não é dele. Lançar e fechar o
+    Chromium aqui, UMA VEZ (no diagnóstico, não por teste), custa
+    menos de 1s e responde a pergunta CERTA: "este ambiente consegue
+    medir de verdade?"."""
+    faltando = [f for f in ("pdftotext", "pdftoppm", "pdfinfo") if shutil.which(f) is None]
+    if faltando:
+        return f"poppler-utils ausente no PATH: {', '.join(faltando)}"
+    python_do_sistema = os.environ.get("DL_PYTHON_DO_SISTEMA", "/usr/bin/python3")
+    diretorio_sonda = str(Path(__file__).resolve().parent)
+    codigo_de_verificacao = (
+        f"import sys; sys.path.insert(0, {diretorio_sonda!r}); "
+        "import sonda_visibilidade as sv; "
+        "from playwright.sync_api import sync_playwright; "
+        "p = sync_playwright().start(); "
+        "navegador = sv.lancar_chromium(p); "
+        "navegador.close(); "
+        "p.stop()"
+    )
+    try:
+        resultado = subprocess.run(
+            [python_do_sistema, "-c", codigo_de_verificacao],
+            capture_output=True,
+            timeout=30,
+        )
+    except OSError as erro:
+        # BL-434: um DL_PYTHON_DO_SISTEMA apontando para um caminho
+        # inexistente/sem permissão de execução levanta OSError (ex.:
+        # FileNotFoundError) ANTES de qualquer código de saída existir —
+        # sem este `try`, a COLETA inteira deste arquivo quebrava (o
+        # diagnóstico roda no carregamento do módulo, não dentro de um
+        # teste), derrubando também os 89 testes PUROS que nada têm a
+        # ver com Playwright. Um ambiente indisponível tem de PULAR os
+        # testes ponta a ponta, nunca reprovar a coleta inteira.
+        return f"{python_do_sistema!r} não pôde ser executado: {erro}"
+    except subprocess.TimeoutExpired:
+        return f"{python_do_sistema!r} não respondeu em 30s ao tentar lançar o Chromium"
+    if resultado.returncode != 0:
+        detalhe = resultado.stderr.decode(errors="replace").strip().splitlines()
+        return (
+            f"{python_do_sistema!r} não conseguiu lançar o Chromium do Playwright: "
+            f"{detalhe[-1] if detalhe else '(sem detalhe na saída de erro)'}"
+        )
+    return None
+
+
+_MOTIVO_SEM_AMBIENTE_PONTA_A_PONTA = _diagnostico_ambiente_ponta_a_ponta()
+
+pytestmark_ponta_a_ponta = pytest.mark.skipif(
+    _MOTIVO_SEM_AMBIENTE_PONTA_A_PONTA is not None,
+    reason=f"ambiente ponta a ponta indisponível: {_MOTIVO_SEM_AMBIENTE_PONTA_A_PONTA}",
+)
+
+
+def _criar_cenario_sintetico():
+    """Escritório + Empresa + usuário sintéticos MÍNIMOS, com as TRÊS
+    linhas de timbre (razão social/endereço/registro profissional) — o
+    mesmo padrão de `scripts/semear_base_de_medicao.py`, criados DENTRO
+    da transação de teste do pytest-django (revertida ao final; nenhum
+    dado sobrevive ao teste). Dados sintéticos, os MESMOS já publicados
+    no relatório desta e de auditorias anteriores — CNPJ numericamente
+    válido, não pertence a ninguém real."""
+    from django.contrib.auth import get_user_model
+
+    from apps.empresas.models import Empresa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    usuario_modelo = get_user_model()
+    usuario = usuario_modelo.objects.create_user(
+        username="ponta_a_ponta", password="sintetica-irrelevante-para-o-teste"
+    )
+    escritorio = Escritorio.objects.create(
+        nome="Escritório Sintético Ponta a Ponta",
+        cnpj="11222333000181",
+        razao_social_no_timbre="Escritório Contábil Sintético ME",
+        endereco_no_timbre="Rua Sintética 100, Sala 2 - Palmas/TO",
+        registro_no_timbre="CRC-TO 000000/O-0 (sintético)",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.ADMINISTRADOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Comércio Sintético Ponta a Ponta Ltda",
+        cnpj="44555666000199",
+    )
+    return usuario, escritorio, empresa
+
+
+def _client_autenticado(usuario):
+    from django.test import Client
+
+    cliente = Client()
+    cliente.force_login(usuario)
+    return cliente
+
+
+def _html_real_do_balancete(cliente, empresa):
+    """GET real contra a rota real do Balancete — HTML genuinamente
+    renderizado pelo Django (template real, contexto real), com o `href`
+    do CSS reescrito para `file://` (`medir_impressao._com_css_local`,
+    reaproveitado, nunca reimplementado) para o Chromium do subprocesso
+    conseguir abrir localmente."""
+    import medir_impressao
+    from django.urls import reverse
+
+    url = reverse("contabilidade_web:balancete", kwargs={"empresa_id": empresa.id})
+    periodo = f"?inicio={medir_impressao.PERIODO_INICIO}&fim={medir_impressao.PERIODO_FIM}"
+    resposta = cliente.get(url + periodo)
+    assert resposta.status_code == 200, (
+        f"GET {url} devolveu {resposta.status_code} — o cenário sintético deste "
+        "teste ficou incompatível com a rota real; confira "
+        "apps/contabilidade/urls_web.py e views_web.py."
+    )
+    html = resposta.content.decode()
+    return url, medir_impressao._com_css_local(html)
+
+
+def _injetar_estilo_de_impressao(html, regras_css):
+    """Insere um `<style>` com `@media print { <regras_css> }` antes de
+    `</head>` — sabotagem SÓ NA STRING em memória, nunca em
+    `static/css/base.css` nem em `templates/**` (proibidos nesta etapa,
+    e nem tocados aqui): equivalente a uma folha de estilo adicional que
+    o navegador aplicaria por cima da folha real."""
+    assert "</head>" in html
+    bloco = f"<style>@media print {{ {regras_css} }}</style></head>"
+    return html.replace("</head>", bloco, 1)
+
+
+def _remover_linha_do_timbre(html, indice):
+    """Remove, EM MEMÓRIA, o `<p>` de índice `indice` (0-based) de dentro
+    de `.timbre-impressao` — simula, sem tocar template nenhum, o cenário
+    do BL-427/C3 (o `{% for %}` do servidor perdeu uma linha)."""
+    inicio = html.index('class="timbre-impressao"')
+    fechamento = html.index("</div>", inicio)
+    bloco = html[inicio:fechamento]
+    paragrafos = re.findall(r"<p>.*?</p>", bloco, re.DOTALL)
+    assert indice < len(paragrafos), f"timbre tem só {len(paragrafos)} linha(s)"
+    novo_bloco = bloco.replace(paragrafos[indice], "", 1)
+    return html[:inicio] + novo_bloco + html[fechamento:]
+
+
+def _acrescentar_linha_extra_no_timbre(html):
+    """Insere um `<p>` EXTRA dentro de `.timbre-impressao` — a direção
+    'sobrar' do BL-427/C3, em memória."""
+    inicio = html.index('class="timbre-impressao"')
+    fim_da_tag = html.index(">", inicio) + 1
+    return html[:fim_da_tag] + "<p>Linha extra intrusa</p>" + html[fim_da_tag:]
+
+
+def _rodar_instrumento_sabotado(monkeypatch, capsys, cliente, empresa, html_sabotada, url):
+    """Roda `instrumento.main([])` de VERDADE contra UMA tela fabricada a
+    partir de HTML genuinamente renderizado — ver o comentário da seção,
+    acima, para o que é e o que não é substituído. Devolve `(codigo_de_
+    saida, saida_padrao, saida_de_erro)` — código `0` quando `main` não
+    levanta `SystemExit` (o caminho de SUCESSO não chama `sys.exit`, ver
+    o fim de `main`)."""
+    import medir_impressao
+
+    nome_tela = "contabilidade_web:balancete"
+    monkeypatch.setattr(
+        medir_impressao,
+        "_preparar_cliente_e_cenario_de_medicao",
+        lambda: (cliente, empresa, None),
+    )
+    monkeypatch.setattr(
+        instrumento,
+        "_descobrir_telas_com_timbre",
+        lambda cliente_, empresa_, conta_: {
+            nome_tela: {"rota": nome_tela, "url": url, "html": html_sabotada}
+        },
+    )
+    monkeypatch.setattr(instrumento, "TELAS_MINIMAS_COM_TIMBRE_ESPERADAS", frozenset({nome_tela}))
+
+    codigo = 0
+    try:
+        instrumento.main([])
+    except SystemExit as exc:
+        codigo = exc.code
+    saida = capsys.readouterr()
+    return codigo, saida.out, saida.err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_controle_limpo_passa_com_codigo_zero(monkeypatch, capsys):
+    """Calibração: sem sabotagem nenhuma, o instrumento tem de PASSAR —
+    sem isto, qualquer REPROVADO abaixo pode ser bug do CENÁRIO deste
+    teste, não do produto."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html, url
+    )
+
+    assert codigo == 0, f"controle limpo REPROVOU — stderr:\n{err}"
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio11_c3_linha_faltando_reprova_por_conteudo_nomeando_a_contagem(
+    monkeypatch, capsys
+):
+    """Critério 11 da rodada 2 (BL-427/C3): servidor declara 3 linhas,
+    papel sai com 2 — código 1 (CONTEÚDO), nomeando a contagem. NUNCA
+    código 2, NUNCA 'falha de infraestrutura' — é o defeito exato que o
+    L1 mediu: a frase do C3 era código inalcançável."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _remover_linha_do_timbre(html, 1)  # some o endereço
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1 (conteúdo); saiu {codigo}. stderr:\n{err}"
+    assert (
+        "número de linhas do timbre no papel (2) diverge do número declarado pelo servidor (3)"
+        in err
+    )
+    assert "FALHA DE INFRAESTRUTURA" not in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio11_c3_linha_extra_reprova_por_conteudo_nomeando_a_contagem(
+    monkeypatch, capsys
+):
+    """Critério 11, direção 'sobrar': servidor declara 3, papel sai com
+    4 — código 1, mesma frase, na direção oposta."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _acrescentar_linha_extra_no_timbre(html)
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1 (conteúdo); saiu {codigo}. stderr:\n{err}"
+    assert (
+        "número de linhas do timbre no papel (4) diverge do número declarado pelo servidor (3)"
+        in err
+    )
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio12_sonda_sem_fonte_das_linhas_continua_recusando_infraestrutura(
+    monkeypatch, capsys
+):
+    """Critério 12 da rodada 2 — a distinção que o BL-427 precisa
+    PRESERVAR: quando a sonda não devolve `fonte_das_linhas` nenhuma
+    (subprocesso desatualizado, sem esse campo), continua sendo
+    infraestrutura DE VERDADE — código 2, nunca 1. Simulado removendo só
+    a ESCRITA daquele campo do script do subprocesso (a sonda continua
+    rodando de verdade; só esse campo específico some do resultado)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+
+    alvo = 'medida["fonte_das_linhas"]'
+    assert alvo in instrumento._SCRIPT_DO_SUBPROCESSO, "trecho não encontrado — confira o texto"
+    script_sem_campo = instrumento._SCRIPT_DO_SUBPROCESSO.replace(
+        alvo, 'medida["_fonte_das_linhas_desativada_para_teste_ponta_a_ponta"]'
+    )
+    monkeypatch.setattr(instrumento, "_SCRIPT_DO_SUBPROCESSO", script_sem_campo)
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html, url
+    )
+
+    assert codigo == 2, f"esperava código 2 (infraestrutura); saiu {codigo}. stderr:\n{err}"
+    assert "fonte_das_linhas" in err
+    assert "Recusado:" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio13_transform_scale_reprova_por_tamanho_medido_no_papel(
+    monkeypatch, capsys
+):
+    """Critério 13 da rodada 2 (BL-428/C2): `transform: scale(0.6)` não
+    muda a fonte DECLARADA (`getComputedStyle`), só a renderizada — tem
+    de reprovar código 1, nomeando TAMANHO, com o número medido NO
+    PAPEL (bbox), nunca 'passa' por a fonte declarada continuar 14px."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao { transform: scale(0.6); transform-origin: top left; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+    assert "CONTRASTE insuficiente" not in err
+    assert "POUCOS PIXELS" not in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio13_zoom_reprova_por_tamanho_medido_no_papel(monkeypatch, capsys):
+    """Critério 13, `zoom` — mesma família de `transform`: não muda a
+    fonte declarada, muda o que chega ao papel."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(html, ".timbre-impressao { zoom: 0.6; }")
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio14_scale045_nomeia_tamanho_nunca_contraste_ou_contagem(
+    monkeypatch, capsys
+):
+    """Critério 14 da rodada 2 (BL-428, agravante de mensagem): a tinta é
+    PRETO PURO em `scale(0.45)` — se a mensagem culpar contraste ou
+    contagem, é o mesmo defeito de forma que o K4/BL-321 já puniu
+    (mensagem que culpa a tinta por um problema que não é de tinta)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao { transform: scale(0.45); transform-origin: top left; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+    assert "CONTRASTE insuficiente" not in err
+    assert "POUCOS PIXELS" not in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio15_tinta_vermelha_reprova_pela_razao_rgb_real_do_wcag(
+    monkeypatch, capsys
+):
+    """Critério 15 da rodada 2 (BL-429/C2, DE-060): a razão WCAG 2.2 REAL
+    de `#FF0000` sobre `#FFFFFF` é 4,00:1 — abaixo do piso de texto
+    normal (4,5:1). O instrumento em CINZA (antes desta correção)
+    aprovava, relatando 8,45:1 — 2,1× mais contraste do que existe."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao, .timbre-impressao p { color: #FF0000 !important; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "CONTRASTE insuficiente" in err
+    assert "4.00:1" in err or "4,00:1" in err
+    assert "(WCAG 2.2, 1.4.3)" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio16_letter_spacing_nao_produz_falso_alarme_de_ausencia(
+    monkeypatch, capsys
+):
+    """Critério 16 da rodada 2 (BL-430/C1-C3): `letter-spacing` no
+    tamanho REAL do produto (14px) tem de PASSAR — código 0. Antes desta
+    correção, o mecanismo de extração `-layout` inseria espaços espúrios
+    e produzia 'AUSENTE do texto do PDF' sobre uma linha com centenas de
+    pixels de tinta medidos na MESMA execução."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao p { letter-spacing: 0.2em !important; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 0, f"letter-spacing não podia reprovar — stderr:\n{err}"
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio16_fonte_extrema_reprova_por_tamanho_nunca_por_ausencia(
+    monkeypatch, capsys
+):
+    """Critério 16, a outra metade: `font-size: 4px` tem de reprovar
+    nomeando TAMANHO — nunca 'ausência' (o BL-425 media a linha como
+    presente via bbox mesmo em fontes extremas; o defeito antigo era só
+    de MENSAGEM, por causa do mecanismo de presença errado — BL-430)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao p { font-size: 4px !important; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+    assert "AUSENTE" not in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio19_font_size_8px_continua_reprovando_por_tamanho(
+    monkeypatch, capsys
+):
+    """Critério 19 (nada regride) — o caso do BL-424, refeito ponta a
+    ponta: `font-size: 8px` reprovava por tamanho antes desta rodada, e
+    continua reprovando, com um número equivalente (a conversão bbox->
+    declarado devolve ~8px de volta, dentro do arredondamento — ver o
+    comentário de FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao p { font-size: 8px !important; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_criterio19_tinta_branca_continua_reprovando(monkeypatch, capsys):
+    """Critério 19 (nada regride) — tinta branca (a construção do
+    BL-372/J1 que fundou o oráculo de contraste) continua reprovando,
+    agora medida em COR: branco sobre branco é 1,00:1, bem abaixo do
+    piso."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao, .timbre-impressao p { color: #FFFFFF !important; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "CONTRASTE insuficiente" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_clausula_c4_decoy_antes_do_timbre_nao_engana_a_ancora(monkeypatch, capsys):
+    """Critério 18 (BL-434) para a cláusula **C4** ("cada uma no seu
+    próprio lugar") — um rodapé/decoy ANTES do timbre, repetindo a
+    PRIMEIRA linha, não pode enganar a âncora por bloco contíguo
+    (K2/BL-405, décima auditoria): o bloco só fecha na posição REAL do
+    timbre, então isto tem de PASSAR — nenhuma linha "sumiu" para o
+    decoy."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    inicio = html.index('class="timbre-impressao"')
+    inicio_div = html.rindex("<div", 0, inicio)
+    decoy = "<p>Escritório Contábil Sintético ME</p>"
+    html_sabotada = html[:inicio_div] + decoy + html[inicio_div:]
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 0, f"decoy antes do timbre não podia reprovar — stderr:\n{err}"
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_clausula_c5_pseudo_elemento_com_marca_do_fornecedor_reprova(
+    monkeypatch, capsys
+):
+    """Critério 18 (BL-434) para a cláusula **C5** ("não carrega nenhum
+    identificador do fornecedor") — o canal que a correção do K1/BL-404
+    (décima auditoria) fechou: `content:` de pseudo-elemento CSS também
+    vira texto extraível do PDF, e tem de reprovar com o identificador
+    NOMEADO, normalizado."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        '.timbre-impressao::after { content: "Relatorio gerado por DATALEDGER - '
+        'dataledger.com.br"; display: block; }',
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "identificador do fornecedor" in err
+    assert "'dataledger'" in err
