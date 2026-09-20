@@ -270,6 +270,45 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
+### ⚠️ MUDANÇA DE PROCESSO, 2026-09-20 — leia isto antes de qualquer coisa
+
+**Ordem do Fred**, com medição dele: *"estamos girando no mesmo lugar e gastando
+tokens à toa … preciso codar mais. Sei que os testes e a auditoria são
+necessários, mas do jeito que está está travando o processo."*
+
+Duas coisas mudaram, e as duas estão no `AGENTS.md`:
+
+1. **[§3.1 — níveis de risco](../../AGENTS.md).** A cerimônia passa a ser
+   proporcional ao dano. **Nível 1** (dinheiro, livro, documento do cliente):
+   tudo, auditoria inclusive. **Nível 2** (o que o contador usa): plano de uma
+   página, auditoria só na primeira entrega do módulo. **Nível 3** (andaime):
+   **sem plano, sem auditoria, sem registro de decisão**.
+2. **A regra de parada, obrigatória.** Auditoria é **por etapa**, não por
+   rodada: uma auditoria, uma correção, uma reconferência. **A terceira rodada é
+   PROIBIDA** — ela significa que o **critério** estava errado, e o critério
+   reabre com o Fred. E **guarda que falha duas vezes é apagada**, não corrigida
+   pela terceira vez.
+
+⚠️ **E o dado que corrige a intuição de todos, inclusive a minha:** cortar linha
+de teste **quase não economiza token**. As 5.290 linhas que eu apaguei estavam
+paradas em disco. **O que consumiu foi a RODADA** — doze auditorias, cada uma
+com agente próprio, mais a correção e a integração de cada uma. **A regra de
+parada vale muito mais que o corte.**
+
+**O corte executado:** 5.290 linhas, 142 testes — a família do motor de CSS
+simulado, que a DE-057 já havia rebaixado quando o navegador real entrou.
+Proporção **3,9 : 1 → 3,5 : 1**, suíte **1917 passed**. Registrado em
+**[DE-063](../projeto/decisoes.md)**.
+
+⚠️ **Os outros três candidatos que eu propus NÃO qualificaram, e eu os
+examinei antes de cortar:** `test_agentes_multiplataforma` guarda um gerador com
+`--escrever` destrutivo e codifica defeitos reais já ocorridos (BL-177);
+`test_dl024_varredura_de_interface` e `test_dl019_varredura_de_contratos` são
+**derivadas**, não enumerações, e existem porque o produto vai ganhar cinco
+módulos. **Eu havia proposto cortá-los pelo TAMANHO do arquivo — que é um
+substituto, não a propriedade.** DE-060 aplicada a mim mais uma vez.
+
+
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
