@@ -285,3 +285,26 @@ ou do Lalur:
 - **Os HTML dos três protótipos do gauntlet não estão versionados** — só as
   capturas. A medição que escolheu a direção **não é reproduzível hoje**, e
   isso é limite desta decisão, não detalhe de arquivo.
+- **A cor do TEXTO na tela não é a cor do texto no PDF exportado, e isso foi
+  medido em 2026-09-20 (BL-440).** Texto claro com **múltiplos canais RGB
+  elevados** sai **mais escuro** no PDF do que a tela mostra:
+  `rgb(137,138,139)` vira `(54,54,55)`. **Cor de canal único passa intacta**
+  (`rgb(137,0,0)` sai `137,0,0`), e **forma vetorial SVG é fiel** — o mesmo
+  `rgb(137,138,139)` num `<rect>` exporta exato. A **captura de tela** também é
+  fiel: só o **texto no PDF** diverge.
+
+  ⚠️ **O mecanismo interno do Chromium/Skia NÃO foi determinado**, e está
+  escrito assim de propósito. O que foi determinado, por inspeção dos bytes do
+  PDF: o fluxo já contém a cor deslocada, então a transformação é da
+  **exportação de texto**, não da rasterização nem da renderização. Duas
+  hipóteses foram **descartadas por medição**: leitura errada do fluxo (o
+  operador é único e imediatamente anterior ao `Tj`) e segundo objeto de desenho
+  (há um só bloco `BT…ET` por elemento).
+
+  ⚠️ **A direção do desvio é SEGURA** — mais escuro significa **mais**
+  contraste, não menos. E o impacto prático hoje é **baixo**: o produto imprime
+  o timbre com tokens escuros. **Mas a [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md)
+  é a etapa que deixa cada escritório escolher a cor**, e é nela que isto deixa
+  de ser curiosidade: *a cor que o escritório escolher na tela não é a que sai
+  no papel*. Quem desenhar aquela tela precisa saber disto **antes**, e é por
+  isso que está aqui e não só no backlog.

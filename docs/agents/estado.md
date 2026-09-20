@@ -701,6 +701,38 @@ deslocamento real do escritor de PDF. Pedi **três medições**, e a que pode
 sair `(53,54,55)`, o deslocamento é real; qualquer outra coisa prova que a
 leitura pega o número errado.
 
+#### BL-440 RESOLVIDO — e a medição que eu desenhei derrubou a MINHA explicação
+
+**Não é defeito do instrumento.** É fato de produto, e está registrado onde vai
+ser lido: na [direção de arte](../projeto/direcao-de-arte.md), §7.
+
+**O que ficou determinado:** a exportação de **texto** do Chromium/Skia distorce
+cor clara com **múltiplos canais RGB elevados** — `rgb(137,138,139)` vira
+`(54,54,55)`. **Cor de canal único passa intacta**; **forma vetorial SVG é
+fiel** (o mesmo cinza num `<rect>` exporta exato); a **captura de tela é fiel**.
+**Só o texto no PDF diverge.**
+
+⚠️ **E a minha aritmética de *"subtração constante de 84"* estava ERRADA — foi o
+teste que EU pedi que a derrubou.** Eu a deduzi de uma tabela **só de cinzas**;
+com cor assimétrica, R e G **colapsam no mesmo valor**, o que nenhuma subtração
+por canal produz. **A medição que eu desenhei para *"eliminar o achado"* não o
+eliminou: refinou o achado e eliminou a minha explicação dele.**
+
+**É o quarto enquadramento meu que a medição derruba no mesmo dia.** As outras
+duas hipóteses que eu levantei — leitura errada do fluxo e segundo objeto de
+desenho — **também foram descartadas por medição**: o operador de cor é **único**
+e imediatamente anterior ao `Tj`, e há **um só** bloco `BT…ET` por elemento.
+
+**O mecanismo interno continua NÃO DETERMINADO**, e fica escrito assim: o
+implementador recusou-se a afirmá-lo sem acesso ao código do Chromium, e está
+certo.
+
+**Por que não é defeito:** o instrumento mede o **artefato** — o PDF que o
+escritório entrega. Tinta mais escura é **mais** contraste: a direção do desvio é
+a **segura**. **Nenhuma linha de código foi alterada.** **Por que importa mesmo
+assim:** a **DL-027** deixa cada escritório escolher a cor do timbre, e *a cor
+escolhida na tela não é a que sai no papel*.
+
 ⚠️ **E eu corrijo o meu próprio enquadramento, que é o TERCEIRO que a medição
 derruba hoje.** Eu havia escrito que a direção do erro é *"o lado do falso
 conforme"*. **Não é.** O instrumento mede o **artefato** — o PDF, que é o que o
