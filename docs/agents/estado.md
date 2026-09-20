@@ -571,7 +571,54 @@ classificação continuaria exigindo 3:1 quando o devido seria 4,5:1.
 **Registrei a hipótese ANTES do resultado, e ela pode estar errada** — hoje eu já
 publiquei uma conclusão falsa por não medir (BL-435).
 
-➡️ **Em verificação independente agora.** Depois dela, auditoria.
+#### A verificação independente voltou: a minha hipótese estava CERTA, e havia mais dois
+
+**R1 — [BL-436](../projeto/backlog.md), falso conforme reproduzido.** Com o
+instrumento ponta a ponta: `font-size: 24px` + `transform: scale(0.6)` + tinta
+`#D0D0D0` → **`CODIGO=0`**, `"veredito": "PASSOU"`, `"motivos": []`. E o JSON
+entrega a contradição na mesma linha — `declarado: 24`, `renderizado: 14.40`,
+`razao_minima_wcag_exigida: 3.0`, `contraste_medido: 4.174`. **14,4 px é texto
+normal e exigiria 4,5:1.** São **dois pipelines de tamanho que nunca se cruzam**.
+
+⚠️ **E a lição é mais fina que *"sobrou um substituto"*:** o argumento do
+implementador — *"a checagem de tamanho dispara antes, mascarando a divergência
+na prática"* — é **afirmação de comportamento escrita no código e não medida**.
+É a forma que a **DE-058** proíbe, e medida ela é **falsa**.
+
+**R2 — [BL-437](../projeto/backlog.md), e é FALSO ALARME hoje, não limite
+teórico.** Sem sabotagem nenhuma — só `font-family: monospace` com
+`font-size: 11px`, que é **exatamente o piso** — a linha **reprova**:
+`renderizado: 9.85`, `CODIGO=1`. Razão real medida: **0,9743** em `monospace`,
+**0,9269** em `serif`, **0,9351** em `sans-serif`, contra o **1,088** da
+constante. **O piso efetivo vira ~12,3–12,9 px.** É o **BL-321** dentro da
+verificação que o Fred escolheu tornar obrigatória.
+
+⚠️ **[BL-440](../projeto/backlog.md) — o achado NÃO PEDIDO, e é o que pode
+derrubar a cláusula C2 inteira.** A tinta rasterizada **não é** a tinta
+declarada: `#898989` no CSS, confirmada por `getComputedStyle`, mede como
+**(53, 53, 53)** no papel — reproduzido em **quatro DPIs**, com o próprio
+rasterizador do instrumento. O contraste relatado (12,266:1) **bate com
+precisão** com um cinza efetivo de 53: a conta está certa, **a entrada é que não
+é a cor declarada**.
+
+**A direção do erro é a perigosa:** tinta medida **mais escura** do que é
+significa relatar **mais** contraste do que existe — o lado do **falso
+conforme**, o mesmo do BL-429 que acabou de ser fechado.
+
+⚠️ **O verificador NÃO diagnosticou a causa e se recusou a afirmá-la.** Está
+registrado como **pergunta aberta** — Chromium na exportação, poppler na
+rasterização, ou a nossa leitura do PPM —, e continua assim até alguém medir.
+
+➡️ **Rodada 3 delegada, e com ordem explícita: DIAGNOSTICAR o BL-440 ANTES de
+corrigir qualquer coisa.** Escolher a correção sem saber onde a cor muda seria
+adivinhar. Os BL-436 e BL-437 fecham **juntos**, por uma propriedade que dispensa
+o fator de fonte: pedir ao navegador a **escala acumulada**
+(`getBoundingClientRect().height / offsetHeight`, que inclui `transform`, `zoom`
+e ancestrais) e usar `declarado × escala` nas **duas** leituras. ⚠️ **E mandei
+medir a minha própria proposta antes de aceitá-la** — hoje eu já errei uma
+premissa por não medir.
+
+**Depois desta, auditoria, e eu vou cumprir — já adiei uma vez.**
 
 Delegada sobre `2f1e596`, com os critérios **11 a 20** escritos na seção
 *"Rodada 2"* do
