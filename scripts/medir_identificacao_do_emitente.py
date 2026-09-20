@@ -526,11 +526,93 @@ sonda = sonda_visibilidade.js_sonda_container_e_filhos(
 # gauntlet que aquele módulo também serve) sobre os MESMOS elementos que
 # "seletor_filhos" já enumera, na MESMA ordem (querySelectorAll é
 # determinístico para o mesmo DOM).
+#
+# BL-436/BL-437 (décima segunda auditoria, verificação independente,
+# rodada 3 da DL-029) -- DE-060: `tamanho_px` (getComputedStyle) é a
+# fonte DECLARADA, e a rodada 2 já a usava para DUAS coisas -- o piso de
+# TAMANHO (corrigido naquela rodada, via bbox do papel) e a
+# CLASSIFICAÇÃO "texto grande/normal" do WCAG (_razao_minima_wcag_para_
+# linha, NUNCA corrigida). MEDIDO pelo verificador: `font-size: 24px +
+# transform: scale(0.6)` renderiza a ~14,4px no papel -- abaixo do piso
+# de "texto grande" (18pt/24px) -- mas a CLASSIFICAÇÃO usava o 24px
+# DECLARADO, continuava chamando a linha de "grande" e emprestava o piso
+# de contraste mais FROUXO (3:1) a uma linha que já não é grande.
+# FALSO CONFORME: reprovação que deveria acontecer (contraste 4,17:1,
+# abaixo do piso de 4,5:1 correto) não acontecia.
+#
+# CORREÇÃO: pergunta a ESCALA ACUMULADA diretamente ao navegador --
+# `escala_acumulada`, abaixo. `tamanho_efetivo_px = tamanho_px *
+# escala_acumulada` é o tamanho REALMENTE renderizado, em px CSS --
+# independente de FONTE (substitui FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_
+# DECLARADA da rodada 2, que MEDIA a altura do glifo no bbox do papel e
+# dividia por uma razão MEDIDA só em UMA família tipográfica --
+# BL-437: a razão diverge entre famílias -- 1,088 no serif do produto,
+# ~0,93-0,97 em monospace/sans-serif --, então o piso de 11px efetivo
+# variava de família para família, e `font-family: monospace` a 11px
+# (exatamente o piso) reprovava por FALSO ALARME, com "9,85px"
+# relatado para um texto que renderiza a 11px de verdade).
+#
+# **Tentativa 1, DESCARTADA, e por quê** (a proposta original desta
+# correção): `getBoundingClientRect().height / offsetHeight`.
+# `getBoundingClientRect` INCLUI `transform`/`zoom`/ancestral;
+# `offsetHeight` NÃO inclui nenhuma delas -- MEDIDO que funciona nos 5
+# casos sintéticos testados (own transform, zoom, ancestral, combinação,
+# controle). Mas `offsetHeight` é um INTEIRO (arredondado pelo CSSOM
+# View, ao contrário de `getBoundingClientRect`, que é subpixel) --
+# MEDIDO contra o PRODUTO REAL (não sintético): `font-family: serif` a
+# EXATOS 11px (sem transform/zoom nenhum, escala verdadeira = 1,0)
+# relatava `escala_offset = 0,9961`, `tamanho_efetivo = 10,957px` --
+# ABAIXO do piso de 11px -- FALSO ALARME, o mesmo defeito que esta
+# correção existe para fechar, só que por arredondamento de layout em
+# vez de família tipográfica. `offsetHeight` some INTEIRO mesmo quando
+# a altura de linha real é fracionária (ex.: 13,6px vira 14), e ISSO
+# introduz ruído de até ~0,5px em QUALQUER caso, com ou sem sabotagem.
+#
+# **Tentativa 2, ADOTADA:** decompõe a ESCALA VERTICAL da matriz de
+# `transform` computada (`getComputedStyle(el).transform`, que já vem
+# resolvida — `matrix(a,b,c,d,e,f)`: escalaY = sqrt(c²+d²); `matrix3d`:
+# escalaY = a norma da segunda coluna) e multiplica por `zoom`
+# computado, ANDANDO POR TODOS OS ANCESTRAIS (`parentElement`) até a
+# raiz — nenhuma leitura de caixa de layout (nada arredondado): só
+# números que o navegador já resolveu para a transformação CSS em si.
+# MEDIDO nos MESMOS 5 casos sintéticos: valores EXATOS (0,6 / 0,6 / 0,5
+# / 0,56), sem o ruído de subpixel da tentativa 1. E contra o PRODUTO
+# REAL, `font-family: serif` a 11px sem sabotagem: `escala_acumulada =
+# 1,0` exato, `tamanho_efetivo = 11,0px` -- no piso, PASSA.
 js_fonte_das_linhas = (
-    "(seletor) => [...document.querySelectorAll(seletor)].map((el) => {"
-    "  const cs = getComputedStyle(el);"
-    "  return {tamanho_px: parseFloat(cs.fontSize), peso: parseInt(cs.fontWeight, 10) || 400};"
-    "})"
+    "(seletor) => {"
+    "  const escalaAcumulada = (elemento) => {"
+    "    let escala = 1;"
+    "    let no = elemento;"
+    "    while (no) {"
+    "      const cs = getComputedStyle(no);"
+    "      escala *= parseFloat(cs.zoom) || 1;"
+    "      const t = cs.transform;"
+    "      if (t && t !== 'none') {"
+    "        if (t.startsWith('matrix3d')) {"
+    "          const v = t.slice(9, -1).split(',').map(Number);"
+    "          escala *= Math.sqrt(v[4] * v[4] + v[5] * v[5] + v[6] * v[6]);"
+    "        } else {"
+    "          const v = t.slice(7, -1).split(',').map(Number);"
+    "          escala *= Math.sqrt(v[2] * v[2] + v[3] * v[3]);"
+    "        }"
+    "      }"
+    "      no = no.parentElement;"
+    "    }"
+    "    return escala;"
+    "  };"
+    "  return [...document.querySelectorAll(seletor)].map((el) => {"
+    "    const cs = getComputedStyle(el);"
+    "    const declarado = parseFloat(cs.fontSize);"
+    "    const escala = escalaAcumulada(el);"
+    "    return {"
+    "      tamanho_px: declarado,"
+    "      peso: parseInt(cs.fontWeight, 10) || 400,"
+    "      escala_acumulada: escala,"
+    "      tamanho_efetivo_px: declarado * escala,"
+    "    };"
+    "  });"
+    "}"
 )
 
 resultados = {}
@@ -984,7 +1066,7 @@ TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX = 14 * _PIXELS_POR_PONTO
 PESO_MINIMO_NEGRITO = 700
 
 
-def _razao_minima_wcag_para_linha(tamanho_px, peso):
+def _razao_minima_wcag_para_linha(tamanho_efetivo_px, peso):
     """Razão de contraste mínima (WCAG 2.2, 1.4.3) para uma linha com o
     TAMANHO (px CSS) e PESO (100–900, `getComputedStyle(...).fontWeight`)
     realmente renderizados — nunca uma lista de seletores CSS "que
@@ -996,10 +1078,24 @@ def _razao_minima_wcag_para_linha(tamanho_px, peso):
     timbre (negrito, `--tipo-md`) e as demais linhas (peso normal, mesmo
     tamanho) podem cair em categorias DIFERENTES conforme o tamanho real
     da fonte do produto — por isso o piso é calculado POR LINHA, nunca
-    um só para o timbre inteiro."""
+    um só para o timbre inteiro.
+
+    BL-436 (verificação independente, rodada 3 da DL-029) — DE-060:
+    `tamanho_efetivo_px` PRECISA ser o tamanho REALMENTE renderizado
+    (`fonte_das_linhas[i]["tamanho_efetivo_px"]`, via `escala_acumulada`
+    — ver o comentário de `js_fonte_das_linhas`), nunca o `tamanho_px`
+    DECLARADO. MEDIDO: `font-size: 24px` + `transform: scale(0.6)`
+    renderiza a ~14,4px — abaixo do piso de texto grande (24px) — mas
+    classificar pelo DECLARADO (24px, "grande") emprestava o piso mais
+    FROUXO (3:1) a uma linha que já não é grande, e um contraste de
+    4,17:1 — abaixo do piso CORRETO de 4,5:1 — passava como conforme.
+    Falso conforme, a mesma classe de defeito que a DE-060 existe para
+    fechar: um argumento sobre comportamento ("a checagem de tamanho já
+    protege isso") escrito no comentário e não medido — e a medição
+    desmentiu."""
     eh_negrito = peso >= PESO_MINIMO_NEGRITO
-    eh_grande = tamanho_px >= TAMANHO_MINIMO_TEXTO_GRANDE_PX or (
-        eh_negrito and tamanho_px >= TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX
+    eh_grande = tamanho_efetivo_px >= TAMANHO_MINIMO_TEXTO_GRANDE_PX or (
+        eh_negrito and tamanho_efetivo_px >= TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX
     )
     return RAZAO_MINIMA_WCAG_TEXTO_GRANDE if eh_grande else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
 
@@ -1062,53 +1158,28 @@ def _razao_minima_wcag_para_linha(tamanho_px, peso):
 # substitui este, não o contrário.
 TAMANHO_MINIMO_RENDERIZADO_PX = 11
 
-# BL-428 (L2, décima primeira auditoria) — a razão entre a altura do
-# BBOX de um glifo no PDF (ascender+descender REAIS da fonte, medidos por
-# `pdftotext -bbox`) e o font-size DECLARADO que o produziu. Um glifo
-# ocupa mais altura vertical que o valor nominal do font-size — é a
-# métrica de fonte (não um artefato deste instrumento) —, e essa razão é
-# o que permite comparar uma medida EM PAPEL contra o piso
-# `TAMANHO_MINIMO_RENDERIZADO_PX`, que foi fixado na escala DECLARADA
-# (ver o comentário daquela constante).
+# BL-437 (verificação independente, rodada 3 da DL-029) — a rodada 2
+# comparava contra o papel dividindo a altura do bbox por
+# `FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA`, uma razão MEDIDA em
+# UMA família tipográfica só (a do produto, `FAMILIA_DA_FONTE` em
+# `medir_impressao.py`) e generalizada para QUALQUER fonte — sem medir
+# se a generalização valia. MEDIDO pelo verificador que NÃO vale:
+# `font-family: monospace` mediu razão 0,9743; `serif`, 0,9269;
+# `sans-serif`, 0,9351 — todas abaixo de 1,088. Consequência: o piso de
+# 11px efetivo (declarado) virava ~12,3–12,9px nessas famílias, e
+# `font-family: monospace` a exatos 11px — o PISO, sem sabotagem
+# nenhuma de tamanho — reprovava por FALSO ALARME.
 #
-# MEDIDO (não hipotetizado) contra as TRÊS linhas do Balancete, em
-# QUATRO tamanhos declarados diferentes — os três SEM sabotagem de
-# `transform`/`zoom`, só trocando `font-size`, em cópia isolada
-# (`git worktree add --detach`, BL-311), banco `dl029_r2_calib`:
-#
-#   font-size declarado (px) | altura do bbox medida (pt / px) | razão
-#   8                         | 6,53pt (8,70px)                 | 1,088
-#   11                        | 8,98pt (11,97px)                | 1,088
-#   14 (normal, controle)     | 11,42pt (15,23px)                | 1,088
-#   16 (negrito, controle)    | 13,06pt (17,41px)                | 1,088
-#
-# A razão é ESTÁVEL — 1,088 nos QUATRO tamanhos e nos DOIS pesos (normal
-# e negrito) — porque é a métrica vertical (ascender+descender) da fonte
-# que o produto usa hoje (`FAMILIA_DA_FONTE` em `medir_impressao.py`),
-# neste motor de renderização (Chromium/Skia); não é um número escolhido
-# para caber num teste.
-#
-# CONSEQUÊNCIA MEDIDA desta correção: `transform: scale(0.6)` (altura
-# real de bbox 9,14px na linha mais fraca) devolve tamanho equivalente
-# ≈8,4px — ABAIXO do piso de 11px — REPROVA, nomeando tamanho, com o
-# número medido NO PAPEL (critério 13 da rodada 2). `zoom: 0.6` idem
-# (MESMA altura de bbox — zoom e transform produzem o mesmo efeito
-# visual sobre o PDF exportado). `font-size: 11px` legítimo (sem
-# sabotagem) devolve ≈11,0px equivalente — no piso, PASSA, sem
-# regressão. `font-size: 8px` (BL-424) devolve ≈8,0px equivalente —
-# ABAIXO do piso, continua REPROVANDO, com o MESMO número que já
-# reprovava antes desta correção (a razão devolve o valor declarado de
-# volta, dentro do arredondamento).
-#
-# LIMITE DECLARADO: a razão 1,088 é MEDIDA para a fonte que o produto usa
-# HOJE. Se o produto trocar de fonte (`FAMILIA_DA_FONTE`), a razão pode
-# mudar — nenhum teste da suíte `pytest` alcança essa premissa
-# automaticamente (exigiria renderizar no navegador, o que a suíte pura
-# não faz); a garantia aqui é a mesma classe que `_luminancia_do_papel`
-# já declarava para "hoje o papel é sempre branco" (BL-426): válida
-# enquanto a premissa que a sustenta não mudar, e a premissa está escrita
-# para ser encontrada, não escondida.
-FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA = 1.088
+# Esta constante (e a divisão pelo bbox do papel) foi REMOVIDA — não
+# ajustada. A correção substituta (`escala_acumulada`/`tamanho_efetivo_
+# px`, ver o comentário de `js_fonte_das_linhas` em `_SCRIPT_DO_
+# SUBPROCESSO`) pergunta a escala ao NAVEGADOR via
+# `getBoundingClientRect()/offsetHeight` — geometria de layout, não
+# métrica de fonte —, então não depende de família tipográfica nenhuma
+# para nenhuma das duas perguntas que a antiga constante respondia
+# (piso de tamanho E classificação "texto grande" do WCAG — ver
+# `_razao_minima_wcag_para_linha`, abaixo, que agora recebe o tamanho
+# EFETIVO, não mais o declarado — BL-436).
 
 
 def _luminancia_relativa_srgb(fracao_do_canal):
@@ -2171,19 +2242,24 @@ def main(argv):
             # C2 da DL-029: o piso de contraste é POR LINHA, do tamanho e
             # peso REALMENTE renderizados (`medida["fonte_das_linhas"]`,
             # perguntado ao navegador em `_SCRIPT_DO_SUBPROCESSO` — nunca
-            # deduzido de token CSS). Só as linhas que EXISTEM no DOM
-            # (`indice < len(fonte_das_linhas)`) têm essa medição — uma
-            # linha AUSENTE (BL-427) não tem tamanho/peso renderizado
-            # nenhum para medir, então recebe o piso mais ESTRITO (texto
-            # normal, 4,5:1) por padrão; isso é inofensivo, porque uma
-            # linha ausente não tem bbox no papel
+            # deduzido de token CSS). BL-436: o TAMANHO usado para
+            # classificar "texto grande" é o EFETIVO
+            # (`tamanho_efetivo_px`, já com `escala_acumulada` aplicada),
+            # não o declarado — ver o comentário de `_razao_minima_wcag_
+            # para_linha`. Só as linhas que EXISTEM no DOM (`indice <
+            # len(fonte_das_linhas)`) têm essa medição — uma linha
+            # AUSENTE (BL-427) não tem tamanho/peso renderizado nenhum
+            # para medir, então recebe o piso mais ESTRITO (texto normal,
+            # 4,5:1) por padrão; isso é inofensivo, porque uma linha
+            # ausente não tem bbox no papel
             # (`_localizar_linhas_do_timbre_no_documento` devolve
             # `pixels_com_contraste=0` para `bbox=None`) — o piso usado
             # aqui nunca decide o veredito de uma linha que já reprova por
             # estar ausente (ver `presente_no_pdf`, abaixo).
             razoes_minimas = [
                 _razao_minima_wcag_para_linha(
-                    fonte_das_linhas[indice]["tamanho_px"], fonte_das_linhas[indice]["peso"]
+                    fonte_das_linhas[indice]["tamanho_efetivo_px"],
+                    fonte_das_linhas[indice]["peso"],
                 )
                 if indice < len(fonte_das_linhas)
                 else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
@@ -2247,55 +2323,42 @@ def main(argv):
 
                 # BL-428 (L2, décima primeira auditoria) — DE-060: o
                 # "tamanho renderizado" era a fonte DECLARADA
-                # (`getComputedStyle().fontSize`, em `fonte_das_linhas`)
-                # — mais barata de obter que a propriedade ("que tamanho
-                # a linha TEM NO PAPEL"), e diverge exatamente quando o
-                # CSS aplica `transform`/`zoom`: essas propriedades NÃO
-                # mudam o valor computado de font-size (é uma
-                # transformação visual aplicada DEPOIS do layout).
-                # MEDIDO: `transform: scale(0.6)` relatava tamanho
-                # declarado 16/14/14px (inalterado) enquanto o glifo real
-                # no papel (`pdftotext -bbox`) media 10,4/9,1px de altura
-                # — abaixo do piso que este MESMO instrumento já aplica a
-                # `font-size: 8px` (8,7px, reprovado) — e `job verde`.
+                # (`getComputedStyle().fontSize`), mais barata de obter
+                # que a propriedade ("que tamanho a linha TEM NO
+                # PAPEL"), e divergia com `transform`/`zoom`.
                 #
-                # CORREÇÃO: usa a altura REAL do bbox de cada linha no
-                # PDF exportado (`localizacao["bbox"]`, já calculado por
-                # `_localizar_linhas_do_timbre_no_documento` para achar a
-                # faixa de contraste — a mesma medida que este
-                # instrumento CALCULAVA e DESCARTAVA para a pergunta de
-                # tamanho), convertida para pixel por `dpi/72` (a MESMA
-                # conversão do resto do módulo — ver `DPI_ORACULO_DO_
-                # PAPEL`), NUNCA o valor declarado.
+                # BL-437 (verificação independente, rodada 3): a
+                # correção da rodada 2 (dividir a altura do bbox do
+                # papel por uma razão MEDIDA numa família tipográfica
+                # só) não generalizava entre famílias — REMOVIDA, ver o
+                # comentário de `TAMANHO_MINIMO_RENDERIZADO_PX`.
                 #
-                # Dividida por `FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_
-                # DECLARADA` (constante MEDIDA, ver o comentário dela)
-                # para devolver um "tamanho equivalente" na MESMA escala
-                # que `TAMANHO_MINIMO_RENDERIZADO_PX` já usa (a fonte
-                # declarada, em px CSS) — o piso de 11px continua sendo o
-                # MESMO número (o piso legível já fixado pela direção de
-                # arte), só que agora comparado contra o que o PAPEL de
-                # fato mostra, não contra o que o CSS declara.
+                # CORREÇÃO ATUAL: `tamanho_efetivo_px`, calculado no
+                # NAVEGADOR (`escala_acumulada = getBoundingClientRect().
+                # height / offsetHeight`, ver `js_fonte_das_linhas` em
+                # `_SCRIPT_DO_SUBPROCESSO`) — geometria de LAYOUT, não
+                # métrica de fonte, então correta para QUALQUER família
+                # tipográfica, sem constante nenhuma para medir de novo
+                # se a família mudar. MEDIDO que captura corretamente
+                # `transform` próprio, `zoom` próprio, transform de
+                # ANCESTRAL, e a combinação dos dois (5 cenários,
+                # inclusive controle) antes de adotar.
                 #
-                # Só linhas PRESENTES no papel (`bbox is not None`) têm
-                # altura para medir — uma linha ausente já reprova por
-                # `presente_no_pdf` (checado ANTES, no `if/elif` abaixo),
-                # então `tamanho_renderizado_px=None` aqui nunca alcança a
-                # mensagem de tamanho: é só para não quebrar o cálculo
-                # quando não há bbox.
-                if localizacao["bbox"] is not None:
-                    _, ymin_bbox, _, ymax_bbox = localizacao["bbox"]
-                    altura_bbox_px = (ymax_bbox - ymin_bbox) * (
-                        DPI_ORACULO_DO_PAPEL / PONTOS_POR_POLEGADA
-                    )
-                    tamanho_renderizado_px = (
-                        altura_bbox_px / FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA
-                    )
-                else:
-                    tamanho_renderizado_px = None
+                # Só linhas que EXISTEM no DOM (`indice <
+                # len(fonte_das_linhas)`) têm essa medição — uma linha
+                # ausente do DOM não tem `tamanho_efetivo_px` nenhum;
+                # isso raramente alcança a mensagem de tamanho, porque
+                # `presente_no_pdf` (checado ANTES, no `if/elif` abaixo)
+                # já reprova a esmagadora maioria desses casos primeiro.
+                tamanho_renderizado_px = (
+                    fonte_das_linhas[indice]["tamanho_efetivo_px"]
+                    if indice < len(fonte_das_linhas)
+                    else None
+                )
                 # Mantido só como DIAGNÓSTICO (nunca decide veredito) — o
-                # valor que `getComputedStyle` relatou, para quem for
-                # investigar uma divergência grande entre os dois.
+                # valor que `getComputedStyle` relatou (sem a escala
+                # acumulada), para quem for investigar uma divergência
+                # grande entre os dois.
                 tamanho_declarado_px = (
                     fonte_das_linhas[indice]["tamanho_px"]
                     if indice < len(fonte_das_linhas)
@@ -2307,12 +2370,15 @@ def main(argv):
                 # sobre por que a contagem sozinha não bastava mais
                 # (font-size: 8px passava com contraste altíssimo e
                 # contagem acima do piso).
-                # `tamanho_renderizado_px` só é `None` quando `bbox` é
-                # `None` (linha ausente do papel) — e esse caso já
-                # reprova por `presente_no_pdf`, ANTES de chegar aqui (ver
-                # o `if/elif` abaixo). O `is not None` é defensivo, não
-                # alcançado hoje, mas evita `TypeError` se a ordem das
-                # checagens mudar no futuro.
+                # `tamanho_renderizado_px` só é `None` quando a linha não
+                # existe no DOM (`indice >= len(fonte_das_linhas)`) — e
+                # esse caso quase sempre já reprova por `presente_no_pdf`
+                # antes de chegar aqui (ver o `if/elif` abaixo). O `is
+                # not None` é defensivo: evita `TypeError` no raro caso
+                # em que a linha some do DOM mas um decoy no PDF faz
+                # `presente_no_pdf` sair `True` mesmo assim (limite
+                # declarado de `_localizar_linhas_do_timbre_no_
+                # documento`, camada 2 — ver a docstring dela).
                 tamanho_insuficiente = (
                     tamanho_renderizado_px is not None
                     and tamanho_renderizado_px < TAMANHO_MINIMO_RENDERIZADO_PX

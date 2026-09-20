@@ -574,17 +574,18 @@ def test_diagnostico_de_contraste_na_faixa_cor_respeita_a_razao_minima_informada
     assert contagem_acima == 0
 
 
-def test_fator_altura_de_glifo_sobre_fonte_declarada_e_maior_que_um():
-    # BL-428: um glifo real ocupa MAIS altura vertical (ascender+
-    # descender) do que o valor nominal do font-size — a razão medida
-    # (1,088, ver o comentário da constante) tem de ser maior que 1, ou a
-    # conversão papel->declarado devolveria um tamanho MAIOR do que o
-    # real, afrouxando o piso em vez de medi-lo.
-    assert instrumento.FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA > 1.0
-    # E dentro de uma faixa plausível para métricas de fonte tipográfica
-    # comum (nenhuma fonte real tem ascender+descender = 3x o em-square)
-    # — sanidade contra erro de dedo na constante MEDIDA.
-    assert instrumento.FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA < 2.0
+def test_fator_altura_de_glifo_foi_removido_bl437():
+    # BL-437 (verificação independente, rodada 3 da DL-029): a constante
+    # FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA (rodada 2) media a
+    # razão bbox/declarado numa família tipográfica só e não generalizava
+    # entre famílias (0,93-0,97 em monospace/sans-serif/serif genéricos,
+    # contra 1,088 medido na fonte do produto) — falso alarme em
+    # `font-family: monospace` no PISO exato (11px). Foi REMOVIDA, não
+    # ajustada — a correção substituta usa escala acumulada medida no
+    # NAVEGADOR (`escala_acumulada`/`tamanho_efetivo_px`, ver o
+    # comentário de `js_fonte_das_linhas`), que não depende de fonte
+    # nenhuma. Este teste guarda que ela não volte por engano.
+    assert not hasattr(instrumento, "FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA")
 
 
 # ---------------------------------------------------------------------------
@@ -1516,8 +1517,9 @@ def test_ponta_a_ponta_criterio13_transform_scale_reprova_por_tamanho_medido_no_
 ):
     """Critério 13 da rodada 2 (BL-428/C2): `transform: scale(0.6)` não
     muda a fonte DECLARADA (`getComputedStyle`), só a renderizada — tem
-    de reprovar código 1, nomeando TAMANHO, com o número medido NO
-    PAPEL (bbox), nunca 'passa' por a fonte declarada continuar 14px."""
+    de reprovar código 1, nomeando TAMANHO, com o tamanho EFETIVO
+    medido pela escala acumulada do navegador (BL-437), nunca 'passa'
+    por a fonte declarada continuar 14px."""
     usuario, _escritorio, empresa = _criar_cenario_sintetico()
     cliente = _client_autenticado(usuario)
     url, html = _html_real_do_balancete(cliente, empresa)
@@ -1660,10 +1662,9 @@ def test_ponta_a_ponta_criterio19_font_size_8px_continua_reprovando_por_tamanho(
     monkeypatch, capsys
 ):
     """Critério 19 (nada regride) — o caso do BL-424, refeito ponta a
-    ponta: `font-size: 8px` reprovava por tamanho antes desta rodada, e
-    continua reprovando, com um número equivalente (a conversão bbox->
-    declarado devolve ~8px de volta, dentro do arredondamento — ver o
-    comentário de FATOR_ALTURA_DE_GLIFO_SOBRE_FONTE_DECLARADA)."""
+    ponta: `font-size: 8px`, sem `transform`/`zoom` nenhum, tem
+    `escala_acumulada` = 1 (nenhuma transformação visual) — o tamanho
+    EFETIVO é o próprio declarado, 8px, abaixo do piso de 11px."""
     usuario, _escritorio, empresa = _criar_cenario_sintetico()
     cliente = _client_autenticado(usuario)
     url, html = _html_real_do_balancete(cliente, empresa)
@@ -1751,3 +1752,118 @@ def test_ponta_a_ponta_clausula_c5_pseudo_elemento_com_marca_do_fornecedor_repro
     assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
     assert "identificador do fornecedor" in err
     assert "'dataledger'" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_bl436_tamanho_declarado_grande_mas_efetivo_normal_reprova(
+    monkeypatch, capsys
+):
+    """BL-436 (verificação independente, rodada 3) — reprodução exata do
+    verificador: `font-size: 24px` (declarado "grande", piso 3:1) +
+    `transform: scale(0.6)` (tamanho EFETIVO ~14,4px, que já não é
+    "grande") + tinta #D0D0D0. Antes da correção, a classificação
+    "grande"/"normal" usava o tamanho DECLARADO e emprestava o piso
+    frouxo (3:1) a uma linha que não é mais grande — FALSO CONFORME.
+    Depois da correção, a classificação usa o tamanho EFETIVO
+    (`escala_acumulada`) e exige o piso de texto normal (4,5:1)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        ".timbre-impressao { transform: scale(0.6); transform-origin: top left; } "
+        ".timbre-impressao, .timbre-impressao p { font-size: 24px !important; "
+        "color: #D0D0D0 !important; }",
+    )
+
+    codigo, saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert '"razao_minima_wcag_exigida": 4.5' in saida, (
+        "a classificação usou o piso de texto GRANDE (3.0) em vez do piso de "
+        f"texto NORMAL (4.5) — o tamanho declarado (24px) venceu o efetivo "
+        f"(~14,4px) na classificação. saida:\n{saida}"
+    )
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_bl437_font_family_generica_no_piso_exato_passa(monkeypatch, capsys):
+    """BL-437 (verificação independente, rodada 3) — reprodução exata do
+    verificador: SEM sabotagem de tamanho nenhuma, só `font-family:
+    monospace` e `font-size: 11px` (exatamente o piso). Antes da
+    correção, a razão bbox/declarado media a fonte do PRODUTO (serif) e
+    não generalizava para `monospace` — o piso efetivo virava ~12,3px, e
+    11px (o próprio piso) reprovava por FALSO ALARME. Depois da
+    correção, a escala acumulada é 1 (nenhum transform/zoom) e o
+    tamanho efetivo é o próprio declarado — 11px, no piso, PASSA."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        ".timbre-impressao, .timbre-impressao p "
+        "{ font-family: monospace !important; font-size: 11px !important; }",
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 0, f"font-family: monospace a 11px não podia reprovar — stderr:\n{err}"
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_bl437_font_family_serif_generica_no_piso_exato_passa(monkeypatch, capsys):
+    """BL-437, segunda família testada pelo verificador (razão medida
+    0,9269 em serif genérico, contra 1,088 na fonte do produto) — mesma
+    calibração: 11px sem sabotagem de tamanho tem de passar."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        ".timbre-impressao, .timbre-impressao p "
+        "{ font-family: serif !important; font-size: 11px !important; }",
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 0, f"font-family: serif a 11px não podia reprovar — stderr:\n{err}"
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_bl437_escala_acumulada_ainda_reprova_fonte_generica_pequena(
+    monkeypatch, capsys
+):
+    """A direção oposta do BL-437 (aprovar tamanho pequeno demais numa
+    família genérica) NÃO foi testada pelo verificador, e ele recusou-se
+    a deduzi-la de três amostras — mas a correção (medir a escala no
+    NAVEGADOR, sem depender de família nenhuma) não deveria depender de
+    família para ESTE caso: `transform: scale(0.5)` em `monospace` a
+    24px (efetivo 12px) ainda está acima do piso; a 20px (efetivo 10px)
+    tem de reprovar, para confirmar que a correção não abriu um buraco
+    na direção oposta."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        ".timbre-impressao { transform: scale(0.5); transform-origin: top left; } "
+        ".timbre-impressao, .timbre-impressao p "
+        "{ font-family: monospace !important; font-size: 20px !important; }",
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
