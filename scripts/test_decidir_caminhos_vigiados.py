@@ -256,47 +256,75 @@ def test_caminhos_nao_relevantes_e_a_lista_pequena_do_lado_seguro():
     ]
 
 
-def test_caminhos_nao_relevantes_nao_engole_arquivo_versionado_executavel():
+def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
     """BL-409/K6 (décima auditoria,
-    docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md): teste de
-    PROPRIEDADE que o retrato acima não dava — "nenhum padrão desta lista
-    engole arquivo executável ou de configuração que esteja VERSIONADO".
+    docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md), CORRIGIDO por
+    BL-415 (achado do arquiteto-senior sobre a integração do BL-409): a
+    primeira versão deste teste também era uma LISTA — perguntava "a
+    extensão do arquivo está em `{py, css, html, yml, yaml, toml}`?" — e o
+    arquiteto mediu o item seguinte dela em menos de uma hora: um `.sh`,
+    um `.ps1` e um `.js` sob `docs/`, nenhum deles numa extensão que a
+    lista antiga sabia nomear, passavam pelo teste em silêncio — a MESMA
+    classe de defeito do BL-408, um nível acima.
 
-    Andamos por `git ls-files` — nunca por `os.walk` ou `Path.glob`: o que
-    importa para `ruff`/`pytest`/CI é o que está no ÍNDICE do Git, não o
-    que existe solto no disco de quem roda o teste (`__pycache__`, uma
-    cópia de trabalho suja, um arquivo novo ainda não adicionado). Antes
-    da correção do BL-408/K5, este teste REPROVAVA nomeando os dois
-    arquivos do gauntlet (`docs/assets/design/gauntlet/sonda_visibilidade.
-    py` e `docs/assets/design/gauntlet/juiz.py`) — 262 e 104 linhas de
-    Python executável, importadas em tempo de execução por
-    `scripts/medir_identificacao_do_emitente.py`, e mesmo assim invisíveis
-    para `ruff check`, `ruff format --check` e para a suíte inteira do
-    `pytest`, só por estarem sob `docs/**`. Depois de movê-los para
-    `scripts/`, este teste passa a ser a GUARDA que impede a mesma classe
-    de defeito de voltar: se `docs/**` (ou qualquer padrão futuro) voltar
-    a casar com um `.py`/`.css`/`.html`/`.yml`/`.yaml`/`.toml` versionado,
-    o nome do arquivo aparece na mensagem de falha — não é preciso uma
-    auditoria para descobrir.
+    **A correção inverte o lado, como `CAMINHOS_NAO_RELEVANTES` já faz e
+    como o J9 elogiou**: em vez de enumerar o que é PERIGOSO (lista aberta,
+    cresce com a linguagem — é o erro do BL-355/BL-367, aqui de novo), esta
+    função enumera o que pode LEGITIMAMENTE ficar invisível para
+    `ruff`/`pytest`/CI — prosa e imagem, `EXTENSOES_SEGURAS_PARA_FICAR_
+    INVISIVEIS` abaixo — e reprova TUDO o mais que qualquer padrão de
+    `CAMINHOS_NAO_RELEVANTES` esconder, inclusive um arquivo SEM extensão
+    nenhuma (`arquivo.endswith(EXTENSOES_SEGURAS...)` já falha por conta
+    própria quando não há `.` nenhum no nome — não precisa de caso especial).
 
-    **DE-056 (R5 da tarefa K5/K6) — a pergunta obrigatória sobre a lista
-    que esta correção NÃO tocou.** `CAMINHOS_NAO_RELEVANTES` mora em
-    `scripts/decidir_caminhos_vigiados.py`, arquivo que esta correção não
-    edita (só o TESTA, aqui e no `pytest` acima). MEDIDO, não hipotetizado
-    (acrescentei um quinto padrão, `"vendor_futuro/**"`, e rodei os dois
-    testes contra a árvore real — nenhum arquivo versionado bate nele):
-    o teste RETRATO acima REPROVA imediatamente, apontando a lista inteira
-    na mensagem de diff; **este** teste de propriedade PASSA — 30/31 verdes,
-    só o retrato vermelho. Ou seja: um padrão amplo, escrito HOJE, que
-    ainda não tem vítima nenhuma no repositório passa batido por este
-    teste — ele só reprova quando alguém, depois, adicionar um arquivo de
-    código/configuração que caia nesse padrão novo. Se o "próximo item da
-    lista" for esse tipo de entrada (uma exclusão pensada para algo que
-    ainda não existe), a ÚNICA rede que pega a intenção no MOMENTO em que
-    ela é escrita é o retrato — que obriga revisar o diff da lista — não
-    esta função. É exatamente por isso que o retrato continua ao lado
-    deste teste (ver a docstring dele, acima): nenhum dos dois substitui
-    o outro."""
+    Continuamos andando por `git ls-files` — nunca por `os.walk` ou
+    `Path.glob`: o que importa é o ÍNDICE do Git, não o disco solto de
+    quem roda o teste.
+
+    **MEDIDO antes de escrever a lista permitida** (nunca deduzido — é a
+    exigência do BL-321 que o `pyproject.toml` já cumpriu e que este teste
+    replica): `git ls-files` mais os padrões de `CAMINHOS_NAO_RELEVANTES`
+    aplicados dão **158** arquivos hoje escondidos de CI, e TODOS caem em
+    só três extensões — `md` (115), `png` (29), `svg` (14); zero sem
+    extensão, zero em qualquer outra. Comando exato, reproduzível:
+
+    ```
+    python3 -c "
+    import subprocess, collections
+    import decidir_caminhos_vigiados as d
+    arquivos = subprocess.run(['git', 'ls-files'], capture_output=True,
+        text=True, check=True, cwd='..').stdout.splitlines()
+    padroes = [d.padrao_para_regex(p) for p in d.CAMINHOS_NAO_RELEVANTES]
+    escondidos = [a for a in arquivos if d.bate(padroes, a)]
+    print(len(escondidos), collections.Counter(
+        a.rsplit('.', 1)[-1].lower() if '.' in a.rsplit('/', 1)[-1] else '(sem extensão)'
+        for a in escondidos))
+    "
+    ```
+    devolve `158 Counter({'md': 115, 'png': 29, 'svg': 14})` — é exatamente
+    por isso que a lista permitida abaixo tem só três itens: não é uma
+    escolha estética, é o inventário real na data desta correção.
+
+    **DE-056 (R5), aplicada a este próprio arquivo — a lista que SOBROU
+    depois de inverter, e o que acontece com o item seguinte dela.**
+    `EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS`, abaixo, também é uma lista —
+    só que agora do LADO SEGURO: o item seguinte dela (uma quarta extensão
+    de prosa ou imagem ainda não prevista — `.rst`, `.jpg`, `.pdf` de um
+    manual, por exemplo) faz este teste REPROVAR o arquivo novo, mesmo que
+    ele seja inofensivo. MEDIDO, não deduzido: criei em cópia isolada
+    (`git worktree`, removida depois — não a árvore deste projeto, BL-311)
+    um `docs/exemplo/manual.pdf` versionado e rodei este teste contra
+    aquele worktree: reprova, nomeando `docs/exemplo/manual.pdf` como
+    ofensor. É o comportamento CORRETO e é a troca deliberada: o lado
+    seguro de uma lista de exclusão (`CAMINHOS_NAO_RELEVANTES`) é pecar por
+    RELEVÂNCIA DEMAIS (medir de mais nunca esconde regressão); o lado
+    seguro de uma lista de permissão (esta) é pecar por PERMISSÃO DE MENOS
+    — um `.pdf` legítimo em `docs/` reprova a suíte e obriga alguém a
+    ACRESCENTAR a extensão aqui, em vez de a lista permitida crescer
+    sozinha por trás de ninguém olhar. A mesma troca que `CAMINHOS_NAO_
+    RELEVANTES` fez ao virar do avesso (BL-376) — só que aqui o lado que
+    "erra para o seguro" é o oposto, porque a pergunta também é oposta
+    ("o que pode ficar escondido" em vez de "o que precisa ser visto")."""
     raiz = Path(__file__).resolve().parents[1]
     resultado = subprocess.run(
         ["git", "ls-files"],
@@ -307,23 +335,30 @@ def test_caminhos_nao_relevantes_nao_engole_arquivo_versionado_executavel():
     )
     arquivos_versionados = [linha for linha in resultado.stdout.splitlines() if linha]
 
-    # Extensões de CÓDIGO ou CONFIGURAÇÃO que, se ficarem fora do alcance
-    # do `ruff`/`pytest`, reproduzem exatamente a classe de defeito do
-    # BL-379/BL-408: lint e testes "passam" porque nunca viram o arquivo.
-    extensoes_de_codigo_ou_configuracao = (".py", ".css", ".html", ".yml", ".yaml", ".toml")
+    # LADO SEGURO (BL-415): lista FECHADA do que pode legitimamente ficar
+    # fora do alcance de ruff/pytest/CI — prosa e imagem, nada que rode.
+    # Qualquer extensão fora daqui, OU AUSÊNCIA de extensão, reprova. Não
+    # enumeramos "o que é perigoso" (lista aberta, cresce com a
+    # linguagem — .sh, .ps1, .js, .rb, .go, ... — e o BL-415 mediu que
+    # essa enumeração furava em menos de uma hora); enumeramos "o que já
+    # sabemos que é seguro", e o padrão comparado é o NOME INTEIRO em
+    # minúsculas, não uma lista de sufixos soltos, para não confundir
+    # `.md` com `.markdown-antigo` por acidente de `str.endswith`.
+    EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS = (".md", ".png", ".svg")
     padroes_compilados = [decisor.padrao_para_regex(p) for p in decisor.CAMINHOS_NAO_RELEVANTES]
 
+    escondidos = [a for a in arquivos_versionados if decisor.bate(padroes_compilados, a)]
     ofensores = sorted(
         arquivo
-        for arquivo in arquivos_versionados
-        if arquivo.endswith(extensoes_de_codigo_ou_configuracao)
-        and decisor.bate(padroes_compilados, arquivo)
+        for arquivo in escondidos
+        if not arquivo.lower().endswith(EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS)
     )
     assert not ofensores, (
-        f"{len(ofensores)} arquivo(s) de código/configuração VERSIONADO(S) "
-        "casam com algum padrão de CAMINHOS_NAO_RELEVANTES "
-        f"({decisor.CAMINHOS_NAO_RELEVANTES}) e por isso ficam INVISÍVEIS "
-        f"para ruff/pytest/CI: {ofensores}"
+        f"{len(ofensores)} arquivo(s) VERSIONADO(S) ficam INVISÍVEIS para "
+        f"ruff/pytest/CI (batem em algum padrão de CAMINHOS_NAO_RELEVANTES: "
+        f"{decisor.CAMINHOS_NAO_RELEVANTES}) com uma extensão que NÃO está "
+        f"na lista segura {EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS} (ou sem "
+        f"extensão nenhuma): {ofensores}"
     )
 
 
