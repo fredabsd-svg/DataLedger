@@ -27,6 +27,7 @@ banco: o módulo só toca Django/Playwright DENTRO de funções, nunca no
 carregamento do arquivo (ver a docstring dele, "Os dois interpretadores").
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -160,6 +161,65 @@ def test_com_saida_de_infraestrutura_nao_mascara_excecao_diferente_de_systemexit
 
     with pytest.raises(ValueError):
         instrumento._com_saida_de_infraestrutura(explode)
+
+
+# ---------------------------------------------------------------------------
+# BL-378 (achado J7 da nona auditoria): `pdftotext`/`pdftoppm` PRESENTES no
+# PATH mas QUEBRADOS (biblioteca do sistema faltando, I/O, etc.) são falha
+# de INFRAESTRUTURA (código 2), nunca REPROVAÇÃO de conteúdo (código 1) —
+# a inversão exata do BL-370. Testado contra um binário FALSO de verdade,
+# executado via subprocess (não um mock de `subprocess.run`): o mesmo
+# método que o auditor usou para reproduzir o defeito ("`pdftotext`
+# presente mas quebrado, injetado antes no PATH"). Não precisa de Django
+# nem de Playwright — só do `PATH` do processo de teste.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def path_com_binario_quebrado(tmp_path, monkeypatch):
+    """Prepara um diretório com um executável `nome` que sempre falha
+    (`exit 1`, imprime uma mensagem fixa em stderr) e o coloca na FRENTE
+    do `PATH` — o subprocesso encontra ele antes do binário de verdade."""
+
+    def _preparar(nome):
+        caminho = tmp_path / nome
+        caminho.write_text("#!/bin/sh\necho 'binario de teste quebrado' >&2\nexit 1\n")
+        caminho.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+        return caminho
+
+    return _preparar
+
+
+def test_texto_do_pdf_com_pdftotext_quebrado_recusa_em_vez_de_reprovar(
+    path_com_binario_quebrado, capsys
+):
+    path_com_binario_quebrado("pdftotext")
+    with pytest.raises(SystemExit) as excinfo:
+        instrumento._texto_do_pdf("qualquer.pdf")
+    assert excinfo.value.code == 2  # nunca 1 — não é veredito sobre o produto
+    saida = capsys.readouterr()
+    assert "Recusado:" in saida.err
+    assert "pdftotext" in saida.err
+
+
+def test_palavras_da_pagina_com_pdftotext_quebrado_recusa(path_com_binario_quebrado, capsys):
+    path_com_binario_quebrado("pdftotext")
+    with pytest.raises(SystemExit) as excinfo:
+        instrumento._palavras_da_pagina("qualquer.pdf")
+    assert excinfo.value.code == 2
+    saida = capsys.readouterr()
+    assert "Recusado:" in saida.err
+
+
+def test_rasterizar_primeira_pagina_com_pdftoppm_quebrado_recusa(path_com_binario_quebrado, capsys):
+    path_com_binario_quebrado("pdftoppm")
+    with pytest.raises(SystemExit) as excinfo:
+        instrumento._rasterizar_primeira_pagina("qualquer.pdf")
+    assert excinfo.value.code == 2
+    saida = capsys.readouterr()
+    assert "Recusado:" in saida.err
+    assert "pdftoppm" in saida.err
 
 
 # ---------------------------------------------------------------------------
