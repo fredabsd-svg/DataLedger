@@ -84,10 +84,11 @@ timbre no PDF exportado (`pdftotext -bbox`, ver `_palavras_da_pagina` e
 `_bbox_da_linha`/`_localizar_bloco_do_timbre` — a posição de um objeto de
 texto no PDF não depende da cor com que ele foi pintado) e exige uma
 contagem de pixels com CONTRASTE suficiente contra o papel acima de um
-piso medido (`_pixels_com_contraste_suficiente_na_faixa`,
+piso medido (`_diagnostico_de_contraste_na_faixa`,
 `PISO_PIXELS_ESCUROS_POR_LINHA` — DL-029, C2: contraste MEDIDO contra o
-fundo da própria folha, não um limiar fixo de luminância. Ver o
-comentário de `RAZAO_MINIMA_DE_CONTRASTE_TINTA`). É a pergunta do
+fundo da própria folha, contra um piso do WCAG 2.2 aplicado POR LINHA,
+não um limiar fixo de luminância nem uma razão única escolhida a dedo.
+Ver o comentário de `RAZAO_MINIMA_WCAG_TEXTO_NORMAL`). É a pergunta do
 contador — "tem tinta que CONTRASTA com o papel onde deveria ter?" — e
 ela SOMA às checagens anteriores (DOM: `checkVisibility` +
 área + alcançabilidade; `_tinta_invisivel`: alfa zero, mais barato,
@@ -514,6 +515,21 @@ pasta_saida.mkdir(parents=True, exist_ok=True)
 sonda = sonda_visibilidade.js_sonda_container_e_filhos(
     especificacao["seletor_container"], especificacao["seletor_filhos"]
 )
+# C2 da DL-029: o piso de contraste do WCAG 2.2 depende do TAMANHO e do
+# PESO da fonte REALMENTE renderizados (ver _razao_minima_wcag_para_linha,
+# em medir_identificacao_do_emitente.py) -- perguntados ao NAVEGADOR via
+# getComputedStyle, nunca deduzidos de um token CSS ou de uma lista de
+# seletores "que deveriam ser grandes". Consulta um seletor SEPARADO
+# (não sonda_visibilidade.py -- é específica deste instrumento, não do
+# gauntlet que aquele módulo também serve) sobre os MESMOS elementos que
+# "seletor_filhos" já enumera, na MESMA ordem (querySelectorAll é
+# determinístico para o mesmo DOM).
+js_fonte_das_linhas = (
+    "(seletor) => [...document.querySelectorAll(seletor)].map((el) => {"
+    "  const cs = getComputedStyle(el);"
+    "  return {tamanho_px: parseFloat(cs.fontSize), peso: parseInt(cs.fontWeight, 10) || 400};"
+    "})"
+)
 
 resultados = {}
 erro_infra = None
@@ -541,6 +557,9 @@ try:
                 pagina.evaluate("() => document.fonts.ready.then(() => true)")
                 pagina.emulate_media(media="print")
                 medida = pagina.evaluate(sonda)
+                medida["fonte_das_linhas"] = pagina.evaluate(
+                    js_fonte_das_linhas, especificacao["seletor_filhos"]
+                )
                 pagina.pdf(
                     path=str(pasta_saida / f"{nome_arquivo}.pdf"),
                     format="A4",
@@ -846,51 +865,94 @@ PISO_PIXELS_ESCUROS_POR_LINHA = 40
 # TINTA = 128` fixo (K4/BL-407, décima auditoria). A docstring daquele
 # limiar AFIRMAVA uma medição — "nenhuma medição produziu pixel de linha
 # do timbre entre 1 e 254" — e uma linha de CSS banal a desmentiu:
-# `opacity: 0.4` (timbre PERFEITAMENTE LEGÍVEL, MEDIDO olhando a folha
-# rasterizada) pinta pixels entre 153 e 225, todos ACIMA de 128, e o
+# `opacity: 0.4` pinta pixels entre 153 e 225, todos ACIMA de 128, e o
 # instrumento reprovava produto correto anunciando "0 pixels escuros"
 # (BL-321: falso alarme). É exatamente a DE-058 ("justificativa escrita
 # não é justificativa medida") aplicada contra o próprio código que a
 # nomeou.
 #
-# A correção não troca 128 por outro número fixo (mesmo erro, forma
-# diferente): mede o CONTRASTE (razão WCAG) entre o pixel e o FUNDO DA
-# PRÓPRIA FOLHA, na MESMA rasterização (`_luminancia_do_papel`, abaixo) —
-# "invariante a escolha de cinza", como o plano pede, porque não presume
-# que o papel é `#FFFFFF`.
-RAZAO_MINIMA_DE_CONTRASTE_TINTA = 2.4
-"""Razão de contraste WCAG mínima entre um pixel e o fundo da folha para
-contar como "tinta" (ver `_razao_de_contraste`, abaixo). MEDIDO —
-reproduzido em cópia isolada (`git worktree`), contra a base semeada por
-`scripts/semear_base_de_medicao.py`, com Chromium e Playwright reais, não
-hipotetizado — construindo esta correção:
+# **Correção descartada, e por quê**: a primeira versão desta correção
+# fixava `RAZAO_MINIMA_DE_CONTRASTE_TINTA = 2.4` — um valor MEDIDO, mas
+# ESCOLHIDO para caber entre dois casos de teste específicos (a janela
+# entre "branco declarado" e "opacity: 0.4"). O arquiteto-senior apontou,
+# no meio desta etapa, que isso é a MESMA forma de defeito que a etapa
+# inteira combate: "número que existe porque um teste precisava dele" —
+# só que desta vez o número era uma RAZÃO, não uma lista. A decisão foi
+# revertida.
+#
+# **A correção final não escolhe um número — TOMA EMPRESTADO um padrão
+# publicado, versionado e externo ao projeto**: WCAG 2.2, Critério de
+# Sucesso 1.4.3 "Contraste (Mínimo)", nível AA — W3C Recommendation, 5 de
+# outubro de 2023 (https://www.w3.org/TR/WCAG22/#contrast-minimum,
+# consultado em 2026-09-20). Ele exige razão de contraste >= **4,5:1**
+# para texto NORMAL e >= **3:1** para texto GRANDE (>= 18pt, ou >= 14pt
+# em negrito) — ver `_razao_minima_wcag_para_linha`, abaixo, que aplica
+# esses dois números ao tamanho e peso de fonte REALMENTE renderizados
+# (perguntados ao NAVEGADOR, `getComputedStyle`, nunca a uma lista de
+# tokens CSS — ver `_SCRIPT_DO_SUBPROCESSO`).
+#
+# ⚠️ **LIMITE DECLARADO, com todas as letras (exigência do
+# arquiteto-senior)**: o WCAG 2.2 é um EMPRÉSTIMO, não uma norma que
+# governa este critério. Ele rege CONTEÚDO WEB (contraste de texto numa
+# TELA), não papel impresso, e não é norma contábil nem legal — o
+# AGENTS.md proíbe inventar exigência normativa, e este comentário não
+# afirma que o WCAG É a norma do critério 9. É a referência de
+# LEGIBILIDADE adotada por ESCOLHA DECLARADA deste projeto, na falta de
+# um piso específico para documento contábil impresso — decisão do
+# arquiteto-senior, registrada aqui e em `docs/projeto/decisoes.md`. Se o
+# Fred (responsável pelo produto) ou uma norma contábil futura fixar um
+# piso próprio, ELE substitui este, não o contrário.
+#
+# **Consequência medida desta escolha, que inverteu um critério de
+# aceite do plano**: com o piso do WCAG, `opacity: 0.4` no timbre
+# REPROVA — razão 2,81:1 na linha mais fraca, abaixo até do piso de
+# texto GRANDE (3:1). O critério 7 original da DL-029 ("opacity: 0.4 tem
+# de passar") herdava, sem medir, o juízo visual do K4 ("timbre
+# perfeitamente legível") — a mesma classe de afirmação não medida que a
+# DE-058 existe para proibir. Corrigido pelo arquiteto-senior no plano.
+RAZAO_MINIMA_WCAG_TEXTO_NORMAL = 4.5
+RAZAO_MINIMA_WCAG_TEXTO_GRANDE = 3.0
 
-fundo da folha (moda do histograma da página inteira, Balancete):
-255 (815099 dos 893580 pixels).
+# 18pt e 14pt, convertidos para pixel CSS pela MESMA definição usada em
+# todo este módulo (`DPI_ORACULO_DO_PAPEL = 96` — 1pt = 1/72 polegada,
+# 1px CSS = 1/96 polegada; ver o comentário de `DPI_ORACULO_DO_PAPEL`).
+# 1 ponto tem MAIS pixels do que "pontos por pixel" sugeriria — a
+# conversão é PIXELS POR PONTO (96/72 ≈ 1,333), não o inverso; 18pt vira
+# 24px, não 13,5px. (Achado próprio, corrigido nesta mesma revisão: a
+# primeira versão desta constante multiplicava por PONTOS por pixel —
+# 72/96 = 0,75 — invertendo a conversão e classificando as linhas de
+# 14px/peso normal do timbre real como "texto grande" por engano, MEDIDO
+# contra o produto: as três linhas do Balancete saíam com
+# razao_minima_wcag_exigida=3.0, quando as duas linhas de peso normal
+# deveriam exigir 4.5. `scripts/test_medir_identificacao_do_emitente.py`
+# fixa o valor CORRETO, 24px para 18pt, para este erro não voltar.)
+# WCAG 2.2 define "negrito" como peso >= 700 (a palavra-chave CSS
+# `bold`) — nenhuma lista de pesos "parecidos com negrito", a MESMA
+# convenção que `getComputedStyle(...).fontWeight` já usa.
+_PIXELS_POR_PONTO = DPI_ORACULO_DO_PAPEL / PONTOS_POR_POLEGADA
+TAMANHO_MINIMO_TEXTO_GRANDE_PX = 18 * _PIXELS_POR_PONTO
+TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX = 14 * _PIXELS_POR_PONTO
+PESO_MINIMO_NEGRITO = 700
 
-- `opacity: 0.4` (linha 1, negrito): pixel mais escuro 153, razão 2,849.
-- `opacity: 0.4` (linha 2, a MAIS FINA — pior caso): pixel mais escuro
-  154, mas só alcança o PISO de 40 pixels a partir do nível 164
-  (razão 2,493).
-- `color: #FFFFFF !important` (branco DECLARADO — o Chromium NÃO exporta
-  branco puro no PDF impresso; antialiasing de fonte deixa um piso de
-  cinza): pixel mais escuro 171, razão 2,296.
-- `color: var(--papel-elevado)` (mesmo token, mesma medição): pixel mais
-  escuro 172, razão 2,270.
 
-A janela onde as DUAS pontas do critério valem JUNTAS (critérios 7 e 8 da
-DL-029) é **(2,296 , 2,493]** — 2,4 fica no meio dela, com margem medida
-para os dois lados. Fora dessa janela as duas pontas deixam de caber
-juntas com QUALQUER limiar (o risco que o plano pedia para trazer à
-tona, não escondido): é uma janela ESTREITA (7 níveis de cinza, de 164 a
-170) porque o Chromium não deixa "tinta branca declarada" sair realmente
-branca do PDF impresso — ela já sai só um pouco mais clara que uma tinta
-de opacidade reduzida legítima. Ver `scripts/test_medir_identificacao_do_emitente.py`
-para os casos que fixam esta janela (regressão se ela se fechar) e o
-achado próprio no relatório desta etapa sobre por que a margem é mais
-apertada do que a do PISO de contagem (`PISO_PIXELS_ESCUROS_POR_LINHA`,
-acima, que continua com folga de ordens de grandeza: controle nunca
-abaixo de ~460 pixels contra o piso de 40)."""
+def _razao_minima_wcag_para_linha(tamanho_px, peso):
+    """Razão de contraste mínima (WCAG 2.2, 1.4.3) para uma linha com o
+    TAMANHO (px CSS) e PESO (100–900, `getComputedStyle(...).fontWeight`)
+    realmente renderizados — nunca uma lista de seletores CSS "que
+    deveriam ser grandes". "Texto grande" é >= 18pt (>=
+    `TAMANHO_MINIMO_TEXTO_GRANDE_PX`) em qualquer peso, OU >= 14pt
+    (>= `TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX`) em negrito
+    (peso >= `PESO_MINIMO_NEGRITO`) — a definição textual do próprio
+    critério, sem arredondamento silencioso: MEDIDO que a razão social do
+    timbre (negrito, `--tipo-md`) e as demais linhas (peso normal, mesmo
+    tamanho) podem cair em categorias DIFERENTES conforme o tamanho real
+    da fonte do produto — por isso o piso é calculado POR LINHA, nunca
+    um só para o timbre inteiro."""
+    eh_negrito = peso >= PESO_MINIMO_NEGRITO
+    eh_grande = tamanho_px >= TAMANHO_MINIMO_TEXTO_GRANDE_PX or (
+        eh_negrito and tamanho_px >= TAMANHO_MINIMO_TEXTO_GRANDE_NEGRITO_PX
+    )
+    return RAZAO_MINIMA_WCAG_TEXTO_GRANDE if eh_grande else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
 
 
 def _luminancia_relativa_srgb(fracao_do_canal):
@@ -931,16 +993,17 @@ def _luminancia_do_papel(dados_pgm):
     return max(range(256), key=histograma.__getitem__)
 
 
-def _niveis_de_cinza_com_contraste_suficiente(luminancia_do_papel):
-    """Pré-computa, uma vez por folha, quais dos 256 níveis de cinza
-    satisfazem `RAZAO_MINIMA_DE_CONTRASTE_TINTA` contra ESTE fundo —
-    evita recalcular `_razao_de_contraste` pixel a pixel (uma folha A4 a
-    96 dpi tem ~900 mil pixels; a faixa de uma linha, alguns milhares).
-    Devolve um `frozenset` de níveis de cinza (0–255)."""
+def _niveis_de_cinza_com_contraste_suficiente(luminancia_do_papel, razao_minima):
+    """Pré-computa, uma vez por folha E por linha (o piso é POR LINHA —
+    ver `_razao_minima_wcag_para_linha`), quais dos 256 níveis de cinza
+    satisfazem `razao_minima` contra ESTE fundo — evita recalcular
+    `_razao_de_contraste` pixel a pixel (uma folha A4 a 96 dpi tem ~900
+    mil pixels; a faixa de uma linha, alguns milhares). Devolve um
+    `frozenset` de níveis de cinza (0–255)."""
     return frozenset(
         nivel
         for nivel in range(256)
-        if _razao_de_contraste(luminancia_do_papel, nivel) >= RAZAO_MINIMA_DE_CONTRASTE_TINTA
+        if _razao_de_contraste(luminancia_do_papel, nivel) >= razao_minima
     )
 
 
@@ -959,7 +1022,7 @@ def _palavras_da_pagina(caminho_pdf, pagina=1):
     glifo continua sendo um objeto de texto posicionado, só não pinta
     pixel escuro nenhum. É esse descolamento entre "o objeto de texto
     existe, aqui" e "há tinta que CONTRASTA com o papel aqui" que
-    `_pixels_com_contraste_suficiente_na_faixa` fecha.
+    `_diagnostico_de_contraste_na_faixa` fecha.
 
     MEDIDO ao construir este oráculo — e por isso a escolha do bbox do
     PRÓPRIO PDF em vez do retângulo que `sonda_visibilidade` devolve do
@@ -1248,17 +1311,41 @@ def _pgm_para_matriz(dados_pgm):
     return largura, altura, corpo
 
 
-def _pixels_com_contraste_suficiente_na_faixa(
-    dados_pgm, retangulo_pt, luminancia_do_papel, dpi=DPI_ORACULO_DO_PAPEL, margem_px=2
+def _diagnostico_de_contraste_na_faixa(
+    dados_pgm,
+    retangulo_pt,
+    luminancia_do_papel,
+    razao_minima,
+    dpi=DPI_ORACULO_DO_PAPEL,
+    margem_px=2,
 ):
-    """C2 da DL-029 — conta pixels cujo CONTRASTE contra `luminancia_do_papel`
-    (o fundo medido desta MESMA folha, ver `_luminancia_do_papel`) atinge
-    `RAZAO_MINIMA_DE_CONTRASTE_TINTA`, dentro do retângulo
-    `(xmin, ymin, xmax, ymax)` — em PONTOS de PDF, convertido para pixel do
-    raster por `dpi/72` (ver `DPI_ORACULO_DO_PAPEL`). Substitui
-    `_pixels_escuros_na_faixa` (que comparava contra um `LIMIAR_LUMINANCIA_
-    TINTA` fixo — K4/BL-407, ver o comentário de `RAZAO_MINIMA_DE_CONTRASTE_
-    TINTA`).
+    """C2 da DL-029 — mede, dentro do retângulo `(xmin, ymin, xmax, ymax)`
+    (em PONTOS de PDF, convertido para pixel do raster por `dpi/72` — ver
+    `DPI_ORACULO_DO_PAPEL`), contra `luminancia_do_papel` (o fundo MEDIDO
+    desta MESMA folha — `_luminancia_do_papel`) e `razao_minima` (o piso
+    POR LINHA do WCAG — `_razao_minima_wcag_para_linha`): quantos pixels
+    atingem o piso, E qual é o CONTRASTE MÁXIMO (o pixel mais escuro)
+    encontrado na faixa. Devolve `(pixels_com_contraste_suficiente,
+    contraste_maximo_medido)`.
+
+    **Por que as DUAS medidas, e não só a contagem** — exigência do
+    arquiteto-senior: quem chama precisa DISTINGUIR duas causas de
+    reprovação diferentes, com mensagens diferentes. Se o CONTRASTE
+    MÁXIMO da faixa já fica abaixo do piso, nenhuma quantidade de pixels
+    ajudaria — é reprovação por CONTRASTE (a tinta é clara demais).  Se o
+    contraste máximo passa o piso mas a CONTAGEM não chega no piso de
+    `PISO_PIXELS_ESCUROS_POR_LINHA`, a tinta é escura o bastante mas a
+    ÁREA pintada é pequena demais (ex.: `font-size: 1px`) — é reprovação
+    por CONTAGEM. As duas eram a MESMA mensagem antes desta correção
+    ("SEM TINTA ESCURA suficiente"), e distingui-las é o que o critério 8
+    (não regredir `font-size: 1px`) exige nomear corretamente.
+
+    Substitui `_pixels_escuros_na_faixa` (que comparava contra um
+    `LIMIAR_LUMINANCIA_TINTA` fixo — K4/BL-407) e a primeira versão desta
+    função (`_pixels_com_contraste_suficiente_na_faixa`, que só devolvia
+    a contagem contra uma razão FIXA para o timbre inteiro — ver o
+    comentário de `RAZAO_MINIMA_WCAG_TEXTO_NORMAL` sobre por que aquilo
+    foi revertido).
 
     `margem_px` expande a caixa igualmente nos quatro lados: absorve só o
     arredondamento do `int()` e a folga do antialiasing do glifo — NÃO é o
@@ -1269,7 +1356,9 @@ def _pixels_com_contraste_suficiente_na_faixa(
     linhas do timbre medida foi de ~17px) — comportamento herdado sem
     alteração por esta correção, que só troca o CRITÉRIO por pixel."""
     largura_pagina, altura_pagina, corpo = _pgm_para_matriz(dados_pgm)
-    niveis_com_contraste = _niveis_de_cinza_com_contraste_suficiente(luminancia_do_papel)
+    niveis_com_contraste = _niveis_de_cinza_com_contraste_suficiente(
+        luminancia_do_papel, razao_minima
+    )
     fator = dpi / PONTOS_POR_POLEGADA
     xmin, ymin, xmax, ymax = retangulo_pt
     x0 = max(0, int(xmin * fator) - margem_px)
@@ -1277,20 +1366,29 @@ def _pixels_com_contraste_suficiente_na_faixa(
     x1 = min(largura_pagina, int(xmax * fator) + margem_px + 1)
     y1 = min(altura_pagina, int(ymax * fator) + margem_px + 1)
     contagem = 0
+    nivel_mais_escuro = 255
     for y in range(y0, y1):
         inicio_da_linha = y * largura_pagina
         for x in range(x0, x1):
-            if corpo[inicio_da_linha + x] in niveis_com_contraste:
+            nivel = corpo[inicio_da_linha + x]
+            if nivel < nivel_mais_escuro:
+                nivel_mais_escuro = nivel
+            if nivel in niveis_com_contraste:
                 contagem += 1
-    return contagem
+    contraste_maximo = _razao_de_contraste(luminancia_do_papel, nivel_mais_escuro)
+    return contagem, contraste_maximo
 
 
-def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas):
+def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas, razoes_minimas):
     """Orquestra C1 (todas as páginas) e C4/C3 (âncora por ocorrência) para
     as `linhas_esperadas` de UMA tela — chamada uma vez por tela dentro de
-    `main`. Devolve uma LISTA, na MESMA ordem/posição de `linhas_esperadas`
-    (nunca um dicionário chaveado por texto — C3), de dicionários
-    `{"bbox": (...)|None, "folha": int|None, "pixels_com_contraste": int}`.
+    `main`. `razoes_minimas` é uma lista, na MESMA ordem/posição de
+    `linhas_esperadas`, com o piso de contraste WCAG DAQUELA linha
+    (`_razao_minima_wcag_para_linha`, POR LINHA — texto grande/negrito e
+    texto normal têm pisos diferentes). Devolve uma LISTA, na MESMA
+    ordem/posição de `linhas_esperadas` (nunca um dicionário chaveado por
+    texto — C3), de dicionários `{"bbox": (...)|None, "folha": int|None,
+    "pixels_com_contraste": int, "contraste_maximo_medido": float}`.
 
     **Duas camadas, nesta ordem:**
 
@@ -1356,11 +1454,20 @@ def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas):
 
         if bbox is not None:
             _, dados_pgm, luminancia_do_papel = _dados_da_pagina(folha)
-            pixels = _pixels_com_contraste_suficiente_na_faixa(dados_pgm, bbox, luminancia_do_papel)
+            pixels, contraste_maximo = _diagnostico_de_contraste_na_faixa(
+                dados_pgm, bbox, luminancia_do_papel, razoes_minimas[indice]
+            )
         else:
-            pixels = 0
+            pixels, contraste_maximo = 0, 1.0
 
-        resultados.append({"bbox": bbox, "folha": folha, "pixels_com_contraste": pixels})
+        resultados.append(
+            {
+                "bbox": bbox,
+                "folha": folha,
+                "pixels_com_contraste": pixels,
+                "contraste_maximo_medido": contraste_maximo,
+            }
+        )
     return resultados
 
 
@@ -1576,8 +1683,28 @@ def main(argv):
                     f"número declarado pelo servidor ({len(linhas_esperadas)})"
                 )
 
+            # C2 da DL-029: o piso de contraste é POR LINHA, do tamanho e
+            # peso REALMENTE renderizados (`medida["fonte_das_linhas"]`,
+            # perguntado ao navegador em `_SCRIPT_DO_SUBPROCESSO` — nunca
+            # deduzido de token CSS). Faltar essa informação (subprocesso
+            # antigo, ou o `querySelectorAll` não achou nada) é falha de
+            # INFRAESTRUTURA desta medição, não veredito sobre o produto:
+            # sem ela não há como aplicar o WCAG com confiança.
+            fonte_das_linhas = medida.get("fonte_das_linhas")
+            if fonte_das_linhas is None or len(fonte_das_linhas) != len(linhas_esperadas):
+                _recusar(
+                    f"{nome}: a medição de tamanho/peso de fonte por linha "
+                    f"('fonte_das_linhas') veio ausente ou com contagem incompatível "
+                    f"({fonte_das_linhas!r}) — não é possível aplicar o piso de contraste "
+                    "do WCAG 2.2 sem saber o tamanho/peso REAL de cada linha."
+                )
+            razoes_minimas = [
+                _razao_minima_wcag_para_linha(fonte["tamanho_px"], fonte["peso"])
+                for fonte in fonte_das_linhas
+            ]
+
             localizacoes_no_pdf = _localizar_linhas_do_timbre_no_documento(
-                caminho_pdf, linhas_esperadas
+                caminho_pdf, linhas_esperadas, razoes_minimas
             )
 
             linhas_no_pdf = []
@@ -1592,7 +1719,23 @@ def main(argv):
                 localizacao = localizacoes_no_pdf[indice]
                 folha_da_linha = localizacao["folha"]
                 pixels_com_contraste = localizacao["pixels_com_contraste"]
-                tinta_visivel_no_papel = pixels_com_contraste >= PISO_PIXELS_ESCUROS_POR_LINHA
+                contraste_maximo_medido = localizacao["contraste_maximo_medido"]
+                razao_minima_exigida = razoes_minimas[indice]
+                # C2, regra DUPLA e DISTINGUÍVEL (exigência do
+                # arquiteto-senior): duas causas de reprovação diferentes,
+                # nunca a mesma mensagem para as duas.
+                # - CONTRASTE insuficiente: o pixel mais escuro da faixa já
+                #   fica abaixo do piso WCAG desta linha — nenhuma
+                #   quantidade de pixels ajudaria (a tinta é CLARA demais).
+                # - CONTAGEM insuficiente: o contraste do pixel mais
+                #   escuro passa o piso, mas poucos pixels alcançam esse
+                #   nível — a tinta é escura o bastante, mas a ÁREA
+                #   pintada é pequena demais (ex.: `font-size: 1px`).
+                contraste_insuficiente = contraste_maximo_medido < razao_minima_exigida
+                tinta_visivel_no_papel = (
+                    not contraste_insuficiente
+                    and pixels_com_contraste >= PISO_PIXELS_ESCUROS_POR_LINHA
+                )
 
                 # C3: LISTA (posição = a mesma de `linhas_esperadas`),
                 # nunca um dicionário chaveado por texto — duas linhas
@@ -1605,6 +1748,8 @@ def main(argv):
                         "legivel": legivel,
                         "presente_no_pdf": presente_no_pdf,
                         "folha": folha_da_linha,
+                        "razao_minima_wcag_exigida": razao_minima_exigida,
+                        "contraste_maximo_medido": round(contraste_maximo_medido, 3),
                         "pixels_com_contraste_no_papel": pixels_com_contraste,
                         "tinta_visivel_no_papel": tinta_visivel_no_papel,
                     }
@@ -1623,19 +1768,26 @@ def main(argv):
                     motivos.append(
                         f"linha do timbre está na folha {folha_da_linha}, não na folha 1: {linha!r}"
                     )
-                elif not tinta_visivel_no_papel:
-                    # BL-372/J1, C2: a linha ESTÁ no texto do PDF (objeto
-                    # de texto presente) mas a folha rasterizada não
-                    # mostra tinta que CONTRASTE com o papel onde ele
-                    # deveria estar — o caso exato de
-                    # `color: var(--papel-elevado)` (branco opaco: alfa
-                    # 1, `_tinta_invisivel` não pega) e de qualquer
-                    # construção futura que pinte a tinta da cor do papel.
+                elif contraste_insuficiente:
+                    # C2: CONTRASTE, não contagem — a tinta é clara demais
+                    # para o tamanho/peso REAL desta linha, medido contra
+                    # o piso do WCAG 2.2 (empréstimo declarado — ver o
+                    # comentário de RAZAO_MINIMA_WCAG_TEXTO_NORMAL).
                     motivos.append(
-                        "linha do timbre SEM TINTA que CONTRASTE o suficiente com o papel "
-                        f"rasterizado (oráculo do pixel): {linha!r} — "
-                        f"{pixels_com_contraste} pixel(s) com contraste suficiente na faixa "
-                        f"esperada, piso exigido {PISO_PIXELS_ESCUROS_POR_LINHA}"
+                        f"linha do timbre com CONTRASTE insuficiente contra o papel: {linha!r} — "
+                        f"{contraste_maximo_medido:.2f}:1 medido, mínimo exigido "
+                        f"{razao_minima_exigida:.1f}:1 (WCAG 2.2, 1.4.3)"
+                    )
+                elif not tinta_visivel_no_papel:
+                    # C2: CONTAGEM, não contraste — a tinta É escura o
+                    # bastante (o pixel mais escuro passa o piso do WCAG),
+                    # mas a ÁREA pintada é pequena demais (ex.:
+                    # `font-size: 1px`) para alcançar o piso de pixels.
+                    motivos.append(
+                        "linha do timbre com POUCOS PIXELS de tinta visível: "
+                        f"{linha!r} — {pixels_com_contraste} pixel(s) com contraste "
+                        f"suficiente na faixa esperada, piso exigido "
+                        f"{PISO_PIXELS_ESCUROS_POR_LINHA}"
                     )
             entrada["linhas_do_timbre"] = linhas_no_pdf
 

@@ -424,12 +424,19 @@ def test_pgm_para_matriz_recusa_maxval_de_16_bits():
 
 
 # ---------------------------------------------------------------------------
-# C2 da DL-029 — contraste medido contra o fundo da PRÓPRIA folha, não um
-# limiar fixo de luminância (K4/BL-407, décima auditoria). Os valores de
-# calibração usados aqui (153, 164, 167, 171, 172...) vêm da MEDIÇÃO real
-# registrada no comentário de `RAZAO_MINIMA_DE_CONTRASTE_TINTA`, não são
-# arbitrários — ver aquele comentário para a tabela completa e a janela
-# [2,296 , 2,493] onde as duas pontas do critério valem juntas.
+# C2 da DL-029 — contraste medido contra o fundo da PRÓPRIA folha, com o
+# piso do WCAG 2.2 (1.4.3, "Contraste (Mínimo)", nível AA — W3C
+# Recommendation, 5 de outubro de 2023), aplicado POR LINHA a partir do
+# tamanho/peso de fonte REALMENTE renderizados. Decisão do
+# arquiteto-senior: a versão anterior desta correção fixava uma razão
+# ÚNICA (2,4) escolhida para caber entre dois casos de teste — a MESMA
+# forma de defeito que esta etapa combate (BL-407/K4), só que como razão
+# em vez de lista. Substituída por um padrão publicado e externo.
+#
+# ⚠️ EMPRÉSTIMO DECLARADO: o WCAG rege conteúdo WEB, não papel impresso,
+# e não é norma contábil — adotado por ESCOLHA deste projeto, na falta de
+# piso próprio para documento contábil (ver o comentário completo de
+# RAZAO_MINIMA_WCAG_TEXTO_NORMAL, no módulo).
 # ---------------------------------------------------------------------------
 
 
@@ -445,21 +452,69 @@ def test_razao_de_contraste_preto_e_branco_e_o_maximo_da_escala():
     assert instrumento._razao_de_contraste(255, 0) == pytest.approx(21.0, abs=0.01)
 
 
-def test_razao_de_contraste_valores_medidos_contra_o_fundo_branco():
-    # MEDIDO construindo esta correção (ver o comentário de
-    # RAZAO_MINIMA_DE_CONTRASTE_TINTA): `opacity: 0.4` (timbre legível) e
-    # "branco declarado" (que o Chromium não deixa sair realmente branco)
-    # ficam em lados OPOSTOS do limiar de produção.
-    assert instrumento._razao_de_contraste(255, 153) == pytest.approx(2.849, abs=0.01)
-    assert instrumento._razao_de_contraste(255, 171) == pytest.approx(2.296, abs=0.01)
-    assert instrumento._razao_de_contraste(255, 164) == pytest.approx(2.493, abs=0.01)
+def test_razao_de_contraste_valores_medidos_da_varredura_de_opacidade():
+    # MEDIDO em cópia isolada, varrendo `opacity` no timbre real (ver o
+    # relatório desta etapa): a 0,40, a linha mais fraca do timbre mede
+    # 2,81:1 — ABAIXO do piso de texto grande do WCAG (3:1) e do piso de
+    # texto normal (4,5:1). A 0,60, já ultrapassa os dois (5,74:1).
+    assert instrumento._razao_de_contraste(255, 154) == pytest.approx(2.814, abs=0.01)
+    assert instrumento._razao_de_contraste(255, 104) == pytest.approx(5.572, abs=0.01)
 
 
-def test_razao_minima_de_contraste_separa_opacity04_de_branco_declarado():
-    # A JANELA medida (ver RAZAO_MINIMA_DE_CONTRASTE_TINTA) é
-    # (2,296 , 2,493] — o valor de produção tem de estar DENTRO dela, ou
-    # esta correção deixou de valer para os dois lados do critério.
-    assert 2.296 < instrumento.RAZAO_MINIMA_DE_CONTRASTE_TINTA <= 2.493
+def test_razoes_minimas_wcag_sao_as_do_padrao_publicado():
+    # 4,5:1 (texto normal) e 3:1 (texto grande/negrito) são os dois
+    # números do Critério de Sucesso 1.4.3 do WCAG 2.2 — não escolhas
+    # deste projeto.
+    assert instrumento.RAZAO_MINIMA_WCAG_TEXTO_NORMAL == 4.5
+    assert instrumento.RAZAO_MINIMA_WCAG_TEXTO_GRANDE == 3.0
+
+
+def test_razao_minima_wcag_para_linha_texto_normal_pequeno():
+    # 12px, peso 400 (o corpo do timbre): nem grande, nem negrito grande
+    # — piso de texto NORMAL.
+    assert instrumento._razao_minima_wcag_para_linha(12, 400) == 4.5
+
+
+def test_razao_minima_wcag_para_linha_texto_grande_por_tamanho():
+    # >= 18pt (24px CSS a 96dpi — 1pt = 96/72 px, NUNCA 72/96: achado
+    # próprio corrigido nesta revisão, ver o comentário de
+    # TAMANHO_MINIMO_TEXTO_GRANDE_PX) em QUALQUER peso é "texto grande".
+    tamanho_18pt_em_px = 18 * (96 / 72)
+    assert tamanho_18pt_em_px == pytest.approx(24.0)
+    assert instrumento._razao_minima_wcag_para_linha(tamanho_18pt_em_px, 400) == 3.0
+    # Uma fração abaixo de 18pt, no mesmo peso normal, continua "normal".
+    assert instrumento._razao_minima_wcag_para_linha(tamanho_18pt_em_px - 0.5, 400) == 4.5
+
+
+def test_razao_minima_wcag_para_linha_texto_grande_por_negrito():
+    # >= 14pt (18,67px CSS) EM NEGRITO (peso >= 700) também é "grande" —
+    # mesmo abaixo do limiar de 18pt que vale para peso normal.
+    tamanho_14pt_em_px = 14 * (96 / 72)
+    assert tamanho_14pt_em_px == pytest.approx(18.6667, abs=0.001)
+    assert instrumento._razao_minima_wcag_para_linha(tamanho_14pt_em_px, 700) == 3.0
+    # O MESMO tamanho, em peso normal, não se qualifica — só o negrito
+    # baixa o limiar de tamanho.
+    assert instrumento._razao_minima_wcag_para_linha(tamanho_14pt_em_px, 400) == 4.5
+
+
+def test_razao_minima_wcag_para_linha_timbre_real_14px_peso_normal_e_texto_normal():
+    # ACHADO PRÓPRIO/regressão: o bug de conversão (pontos↔pixels
+    # invertido) fazia as linhas de 14px/peso 400 do timbre REAL (endereço
+    # e registro profissional, MEDIDO via getComputedStyle no produto)
+    # caírem em "texto grande" por engano — 14px está bem ABAIXO dos
+    # 24px de 18pt, e peso 400 não é negrito, então nem o limiar de 14pt
+    # bold se aplica. Tem de exigir o piso de texto NORMAL (4,5:1).
+    assert instrumento._razao_minima_wcag_para_linha(14, 400) == 4.5
+    # A razão social do timbre (negrito, 16px, MEDIDO via getComputedStyle)
+    # também fica abaixo dos dois limiares de "grande" — 16px < 24px, e
+    # 16px < 18,67px (o limiar do negrito) — então TAMBÉM exige 4,5:1.
+    assert instrumento._razao_minima_wcag_para_linha(16, 700) == 4.5
+
+
+def test_razao_minima_wcag_para_linha_negrito_pequeno_continua_normal():
+    # Negrito sozinho não basta — precisa do tamanho mínimo de 14pt
+    # também. Um negrito de 10px continua exigindo o piso de texto normal.
+    assert instrumento._razao_minima_wcag_para_linha(10, 700) == 4.5
 
 
 def test_luminancia_do_papel_e_a_moda_da_folha_inteira():
@@ -470,20 +525,20 @@ def test_luminancia_do_papel_e_a_moda_da_folha_inteira():
     assert instrumento._luminancia_do_papel(dados) == 255
 
 
-def test_niveis_de_cinza_com_contraste_suficiente_bate_com_pixels_com_contraste():
+def test_niveis_de_cinza_com_contraste_suficiente_bate_com_razao_de_contraste():
     # O CONJUNTO pré-computado (usado pixel a pixel dentro da faixa) tem
     # de concordar, nível a nível, com `_razao_de_contraste` calculada
-    # direto — mesma pergunta, dois caminhos.
-    niveis = instrumento._niveis_de_cinza_com_contraste_suficiente(255)
-    for nivel in (0, 100, 153, 163, 164, 170, 171, 200, 255):
-        esperado = (
-            instrumento._razao_de_contraste(255, nivel)
-            >= instrumento.RAZAO_MINIMA_DE_CONTRASTE_TINTA
-        )
-        assert (nivel in niveis) is esperado
+    # direto — mesma pergunta, dois caminhos. Testado com os DOIS pisos do
+    # WCAG (a função agora recebe a razão explicitamente, nunca lê uma
+    # constante única).
+    for razao_minima in (3.0, 4.5):
+        niveis = instrumento._niveis_de_cinza_com_contraste_suficiente(255, razao_minima)
+        for nivel in (0, 100, 104, 127, 153, 154, 200, 255):
+            esperado = instrumento._razao_de_contraste(255, nivel) >= razao_minima
+            assert (nivel in niveis) is esperado
 
 
-def test_pixels_com_contraste_suficiente_na_faixa_conta_so_dentro_do_retangulo():
+def test_diagnostico_de_contraste_na_faixa_conta_so_dentro_do_retangulo():
     # Página 10x10: um quadrado ESCURO (valor 0, contraste máximo contra
     # fundo 255) em x=2..4, y=2..4 (3x3=9 pixels), o resto BRANCO (255).
     # `margem_px=0` para o teste medir exatamente o retângulo pedido.
@@ -494,43 +549,80 @@ def test_pixels_com_contraste_suficiente_na_faixa_conta_so_dentro_do_retangulo()
             valores[y * largura + x] = 0
     dados = _pgm_sintetico(largura, altura, valores)
 
-    contagem = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(2, 2, 4, 4), luminancia_do_papel=255, dpi=72, margem_px=0
+    contagem, contraste_maximo = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(2, 2, 4, 4),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
     )
     assert contagem == 9  # o quadrado 3x3 inteiro, e nada além dele
+    assert contraste_maximo == pytest.approx(21.0, abs=0.01)  # preto puro contra branco puro
 
-    contagem_fora = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(6, 6, 8, 8), luminancia_do_papel=255, dpi=72, margem_px=0
+    contagem_fora, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(6, 6, 8, 8),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
     )
     assert contagem_fora == 0
 
 
-def test_pixels_com_contraste_suficiente_na_faixa_respeita_a_razao_minima():
-    # 172 (branco declarado, MEDIDO) fica FORA da janela — não conta;
-    # 153 (opacity 0.4, negrito, MEDIDO) fica DENTRO — conta.
-    dados = _pgm_sintetico(2, 1, [172, 153])
-    contagem = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(0, 0, 2, 1), luminancia_do_papel=255, dpi=72, margem_px=0
+def test_diagnostico_de_contraste_na_faixa_respeita_a_razao_minima_informada():
+    # 172 fica FORA do piso de texto normal (4,5:1) mas o teste confirma
+    # que É a RAZÃO INFORMADA que decide, não uma constante interna:
+    # com um piso mais frouxo (2,0), o MESMO pixel passa a contar.
+    dados = _pgm_sintetico(1, 1, [172])
+    contagem_normal, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 1, 1),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
     )
-    assert contagem == 1
+    contagem_frouxa, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 1, 1),
+        luminancia_do_papel=255,
+        razao_minima=2.0,
+        dpi=72,
+        margem_px=0,
+    )
+    assert contagem_normal == 0
+    assert contagem_frouxa == 1
 
 
-def test_pixels_com_contraste_suficiente_na_faixa_usa_o_fundo_medido_nao_255():
+def test_diagnostico_de_contraste_na_faixa_usa_o_fundo_medido_nao_255():
     # C2: "o fundo da PRÓPRIA folha" — se o papel medido nesta rasterização
     # não é 255, a razão de contraste muda, e o mesmo pixel pode contar
-    # DIFERENTE conforme o fundo informado.
-    dados = _pgm_sintetico(1, 1, [150])
-    contra_papel_branco = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(0, 0, 1, 1), luminancia_do_papel=255, dpi=72, margem_px=0
+    # DIFERENTE conforme o fundo informado. 120 contra 255 dá ~3,49:1
+    # (>= 3,0); 120 contra ELE MESMO dá 1:1 (nunca >= 3,0).
+    dados = _pgm_sintetico(1, 1, [120])
+    contra_papel_branco, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 1, 1),
+        luminancia_do_papel=255,
+        razao_minima=3.0,
+        dpi=72,
+        margem_px=0,
     )
-    contra_papel_escuro = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(0, 0, 1, 1), luminancia_do_papel=150, dpi=72, margem_px=0
+    contra_papel_escuro, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 1, 1),
+        luminancia_do_papel=120,
+        razao_minima=3.0,
+        dpi=72,
+        margem_px=0,
     )
-    assert contra_papel_branco == 1  # 150 contra 255: contraste suficiente
-    assert contra_papel_escuro == 0  # 150 contra ELE MESMO: contraste 1:1
+    assert contra_papel_branco == 1  # 120 contra 255: contraste suficiente
+    assert contra_papel_escuro == 0  # 120 contra ELE MESMO: contraste 1:1
 
 
-def test_pixels_com_contraste_suficiente_na_faixa_margem_expande_a_busca():
+def test_diagnostico_de_contraste_na_faixa_margem_expande_a_busca():
     # Pixel de contraste máximo (0) em x=5, y=5. Um retângulo pedido "ao
     # lado" (x=6..7) só o alcança com margem >= 1.
     largura, altura = 10, 10
@@ -538,22 +630,37 @@ def test_pixels_com_contraste_suficiente_na_faixa_margem_expande_a_busca():
     valores[5 * largura + 5] = 0
     dados = _pgm_sintetico(largura, altura, valores)
 
-    sem_margem = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(6, 5, 7, 6), luminancia_do_papel=255, dpi=72, margem_px=0
+    sem_margem, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(6, 5, 7, 6),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
     )
-    com_margem = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(6, 5, 7, 6), luminancia_do_papel=255, dpi=72, margem_px=1
+    com_margem, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(6, 5, 7, 6),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=1,
     )
     assert sem_margem == 0
     assert com_margem == 1
 
     # Margem grande perto da borda da página não estoura o índice (clampado).
-    instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(0, 0, 1, 1), luminancia_do_papel=255, dpi=72, margem_px=1000
+    instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 1, 1),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=1000,
     )
 
 
-def test_pixels_com_contraste_suficiente_na_faixa_converte_pontos_para_pixel_pelo_dpi():
+def test_diagnostico_de_contraste_na_faixa_converte_pontos_para_pixel_pelo_dpi():
     # 1 ponto = 1/72 polegada; a 96 dpi, 1 ponto = 96/72 = 4/3 pixel. Um
     # retângulo de 3x3 PONTOS a 96 dpi cobre 4x4 PIXELS (arredondando para
     # baixo o início e para cima o fim) — confirma que a conversão de
@@ -564,10 +671,51 @@ def test_pixels_com_contraste_suficiente_na_faixa_converte_pontos_para_pixel_pel
         for x in range(4):
             valores[y * largura + x] = 0
     dados = _pgm_sintetico(largura, altura, valores)
-    contagem = instrumento._pixels_com_contraste_suficiente_na_faixa(
-        dados, retangulo_pt=(0, 0, 3, 3), luminancia_do_papel=255, dpi=96, margem_px=0
+    contagem, _ = instrumento._diagnostico_de_contraste_na_faixa(
+        dados,
+        retangulo_pt=(0, 0, 3, 3),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=96,
+        margem_px=0,
     )
     assert contagem == 16  # 4x4, não 3x3 — a conversão de unidade aconteceu
+
+
+def test_diagnostico_de_contraste_na_faixa_distingue_contraste_de_contagem():
+    # A REGRA DUPLA (exigência do arquiteto-senior): uma faixa com tinta
+    # CLARA DEMAIS (contraste máximo abaixo do piso) é uma causa; uma
+    # faixa com tinta PRETA mas MINÚSCULA (poucos pixels, contraste
+    # máximo alto) é outra. As dois cenários têm de ser DISTINGUÍVEIS pelo
+    # `contraste_maximo_medido` devolvido, não só pela contagem.
+    largura, altura = 5, 5
+    # Cenário 1: tinta clara demais (nível 200) preenchendo a faixa toda.
+    dados_contraste_insuficiente = _pgm_sintetico(largura, altura, [200] * (largura * altura))
+    contagem_1, contraste_1 = instrumento._diagnostico_de_contraste_na_faixa(
+        dados_contraste_insuficiente,
+        retangulo_pt=(0, 0, 5, 5),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
+    )
+    assert contraste_1 < 4.5  # nenhum pixel jamais alcançaria o piso
+    assert contagem_1 == 0
+
+    # Cenário 2: tinta PRETA (contraste máximo altíssimo) mas só 1 pixel.
+    valores_2 = [255] * (largura * altura)
+    valores_2[12] = 0  # um único pixel preto no meio da faixa
+    dados_contagem_insuficiente = _pgm_sintetico(largura, altura, valores_2)
+    contagem_2, contraste_2 = instrumento._diagnostico_de_contraste_na_faixa(
+        dados_contagem_insuficiente,
+        retangulo_pt=(0, 0, 5, 5),
+        luminancia_do_papel=255,
+        razao_minima=4.5,
+        dpi=72,
+        margem_px=0,
+    )
+    assert contraste_2 == pytest.approx(21.0, abs=0.01)  # a tinta É preta
+    assert contagem_2 == 1  # só 1 pixel — pouco, mas não é problema de contraste
 
 
 # ---------------------------------------------------------------------------
