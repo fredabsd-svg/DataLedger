@@ -69,7 +69,9 @@ Registrada como [DE-057](../projeto/decisoes.md).
 Metade do trabalho existe. O plano é **apontar** o que existe, não escrever de
 novo:
 
-- **`visivelDeVerdade`** (`docs/assets/design/gauntlet/juiz.py`) já é a
+- **`visivelDeVerdade`** (`scripts/juiz.py`; morava em
+  `docs/assets/design/gauntlet/` quando este plano foi escrito — movido pelo
+  BL-408) já é a
   derivação certa: `Element.checkVisibility({checkOpacity, checkVisibilityCSS})`
   **mais** área do retângulo **mais** alcançabilidade, com os limites medidos e
   **declarados**. São três medições **gerais** — ela cobre **nove** das dez
@@ -165,7 +167,7 @@ estiver em curso:
 
 | Frente | Responsável | Pode editar |
 | --- | --- | --- |
-| DL-028 fatia 1 e 2 | `desenvolvedor-pleno` | `docs/assets/design/gauntlet/juiz.py`, `scripts/**`, `.github/workflows/**`, `requirements/**` |
+| DL-028 fatia 1 e 2 | `desenvolvedor-pleno` | `scripts/**` (inclusive `scripts/juiz.py`, movido para lá pelo BL-408), `.github/workflows/**`, `requirements/**` |
 | DL-026 rodada 12 | `especialista-frontend` | `apps/contabilidade/tests/**` |
 
 **Proibido a ambos:** `static/css/base.css` e `templates/**` — nenhuma das duas

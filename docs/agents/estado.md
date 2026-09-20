@@ -350,7 +350,8 @@ desta etapa foi encontrado abrindo um Chromium e olhando o PDF**. O sinal
 olhar o eixo ao lado para o achado voltar ao tamanho de bloqueador.
 
 Ele recomenda **trocar o instrumento**, e metade da troca já está escrita e
-paga: `visivelDeVerdade` (`docs/assets/design/gauntlet/juiz.py`) já é a
+paga: `visivelDeVerdade` (`scripts/juiz.py`, que em 2026-09-20 morava em
+`docs/assets/design/gauntlet/` — ver BL-408) já é a
 derivação certa — três medições gerais, limites medidos e declarados — e cobre
 as dez construções **sem saber que elas existem**; `scripts/medir_impressao.py`
 já sobe o produto real e gera PDF A4. O que falta é **apontar o juiz para o
@@ -402,7 +403,7 @@ são duas perguntas diferentes desde a [DE-054](../projeto/decisoes.md).
 | Frente | Responsável | Escopo | Arquivos |
 | --- | --- | --- | --- |
 | **DL-026 rodada 12** | `especialista-frontend` | BL-362 (bloqueador) e BL-363 — o conserto barato do motor simulado, para ele parar de estar simplesmente errado enquanto o instrumento novo é construído | `apps/contabilidade/tests/**` |
-| **DL-028 fatia 1** | `desenvolvedor-pleno` | Apontar `visivelDeVerdade` e as sondas de impressão para o **produto** em vez dos protótipos do gauntlet | `docs/assets/design/gauntlet/juiz.py`, `scripts/**`, `.github/workflows/**`, `requirements/**` |
+| **DL-028 fatia 1** | `desenvolvedor-pleno` | Apontar `visivelDeVerdade` e as sondas de impressão para o **produto** em vez dos protótipos do gauntlet | `scripts/**` (inclusive `scripts/juiz.py`, movido para lá pelo BL-408), `.github/workflows/**`, `requirements/**` |
 
 **Proibido às duas:** `static/css/base.css` e `templates/**`. Nenhuma das duas
 frentes muda produto.
@@ -712,6 +713,30 @@ não está funcionando é o **processo de fechamento**, não o instrumento.
 **E o BL-373 segue aberto, reconferido hoje nos três endpoints:** a `main`
 continua **sem proteção**. Enquanto essa ação do Fred não for feita, tudo nesta
 auditoria — inclusive o job novo — é **conselho**.
+
+#### O que já andou, porque não depende da decisão
+
+**BL-408 e BL-409 estão corrigidos em `a8cebd0`**, na mesma branch. Os dois `.py`
+do gauntlet saíram de `docs/` e foram para `scripts/` — `git ls-files
+'docs/**/*.py'` devolve **vazio** —, e o `extend-exclude` de `docs/**` **ficou**,
+mas com justificativa **medida**: removê-lo reformataria 7 arquivos de
+`docs/auditorias/`, todos por causa de bloco de código **citado verbatim** de um
+relatório. É a DE-058 funcionando no primeiro uso: a justificativa antiga
+(*"não há código Python de produção sob `docs/`"*) era falsa, e a nova é uma
+medição com o comando ao lado. Suíte: **1976 passed, 15 skipped**.
+
+⚠️ **E eu achei o eixo ao lado na integração — [BL-415](../projeto/backlog.md),
+a décima terceira ocorrência.** O teste de propriedade que fechou o BL-409 é ele
+próprio uma **lista**: pergunta *"a extensão está em `{py, css, html, yml, yaml,
+toml}`?"*. Medido por mim em cópia isolada: três arquivos executáveis sob
+`docs/` — um `.sh`, um `.ps1` e um `.js` — ficam escondidos com a suíte do
+decisor em **`31 passed`**. Não é hipótese: `scripts/validate-docs.ps1` roda na
+CI e `.claude/hooks/session-start.sh` roda em toda sessão. A correção pedida é
+**inverter para o lado seguro** — enumerar o que pode ficar escondido (prosa e
+imagem) e recusar o resto, inclusive arquivo sem extensão.
+
+**Isto é a DE-055 funcionando como foi desenhada:** quem verificou não foi quem
+escreveu a correção, e a construção não estava em relatório nenhum.
 
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 

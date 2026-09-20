@@ -186,7 +186,7 @@ Retirado do catálogo do mapa do domínio, faixa "adotar":
 | Responsável | Pode editar |
 | --- | --- |
 | `desenvolvedor-pleno` | `apps/documentos/**` (novo), `apps/empresas/**`, `apps/tenancy/**`, migrações, serviços |
-| `especialista-frontend` | `templates/**`, `static/**`, testes de interface, `docs/assets/design/gauntlet/juiz.py` |
+| `especialista-frontend` | `templates/**`, `static/**`, testes de interface, `scripts/juiz.py` (movido de `docs/assets/design/gauntlet/` pelo BL-408) |
 | `arquiteto-senior` | `docs/**`, contratos, integração |
 | `auditor-qa` | Nada — audita a versão integrada |
 
