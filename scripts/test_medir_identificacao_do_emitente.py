@@ -176,6 +176,202 @@ def test_com_saida_de_infraestrutura_nao_mascara_excecao_diferente_de_systemexit
 
 
 def test_piso_de_telas_esperadas_tem_as_tres_telas_do_criterio_3_da_dl026():
+    # BL-374 (achado J3 da nona auditoria): o piso passou a ser chaveado
+    # pelo NOME COMPLETO da rota (`namespace:nome`), nunca pelo nome
+    # curto — nome curto colide entre apps (ver o comentário da
+    # constante). Este teste fixa os TRÊS nomes completos esperados, para
+    # ninguém trocar de volta para o nome curto sem notar.
     assert instrumento.TELAS_MINIMAS_COM_TIMBRE_ESPERADAS == frozenset(
-        {"balancete", "diario", "razao"}
+        {
+            "contabilidade_web:balancete",
+            "contabilidade_web:diario",
+            "contabilidade_web:razao",
+        }
     )
+
+
+# ---------------------------------------------------------------------------
+# Oráculo do papel (BL-372, achado J1 da nona auditoria) — funções PURAS
+# (parsing de PGM, contagem de pixel, casamento de bbox), testadas com
+# bytes/estruturas SINTÉTICAS, sem chamar `pdftoppm`/`pdftotext` de
+# verdade (essas chamadas de subprocesso são verificadas por EXECUÇÃO de
+# bancada, o mesmo padrão que `_texto_do_pdf` já tinha antes desta etapa
+# — AGENTS.md §7: mock de subprocesso provaria só que o mock funciona).
+# ---------------------------------------------------------------------------
+
+
+def _pgm_sintetico(largura, altura, valores):
+    """Monta bytes de um PGM binário (`P5`) `largura`×`altura`, 8 bits,
+    com `valores` (lista de `int`, um por pixel, ordem linha-a-linha) —
+    o MESMO formato que `pdftoppm -gray` produz, sem depender dele."""
+    assert len(valores) == largura * altura
+    cabecalho = f"P5\n{largura} {altura}\n255\n".encode("ascii")
+    return cabecalho + bytes(valores)
+
+
+def test_pgm_para_matriz_le_cabecalho_e_corpo():
+    dados = _pgm_sintetico(3, 2, [10, 20, 30, 200, 210, 220])
+    largura, altura, corpo = instrumento._pgm_para_matriz(dados)
+    assert (largura, altura) == (3, 2)
+    assert list(corpo) == [10, 20, 30, 200, 210, 220]
+
+
+def test_pgm_para_matriz_ignora_comentario_no_cabecalho():
+    # O formato PGM permite `#comentário\n` entre os tokens do cabeçalho
+    # — poppler não os emite, mas um parser que quebra num comentário
+    # válido é um parser errado, não um limite documentado (ver o
+    # comentário de `_pgm_para_matriz`).
+    dados = b"P5\n#gerado para teste\n2 1\n255\n" + bytes([5, 250])
+    largura, altura, corpo = instrumento._pgm_para_matriz(dados)
+    assert (largura, altura) == (2, 1)
+    assert list(corpo) == [5, 250]
+
+
+def test_pgm_para_matriz_recusa_assinatura_errada():
+    with pytest.raises(ValueError):
+        instrumento._pgm_para_matriz(b"P6\n1 1\n255\n\x00")
+
+
+def test_pgm_para_matriz_recusa_corpo_truncado():
+    cabecalho = b"P5\n2 2\n255\n"
+    with pytest.raises(ValueError):
+        instrumento._pgm_para_matriz(cabecalho + bytes([0, 0]))  # faltam 2 bytes
+
+
+def test_pgm_para_matriz_recusa_maxval_de_16_bits():
+    with pytest.raises(ValueError):
+        instrumento._pgm_para_matriz(b"P5\n1 1\n65535\n\x00\x00")
+
+
+def test_pixels_escuros_na_faixa_conta_so_dentro_do_retangulo_e_do_limiar():
+    # Página 10x10: um quadrado ESCURO (valor 0) em x=2..4, y=2..4 (3x3=9
+    # pixels), o resto BRANCO (255). `margem_px=0` para o teste medir
+    # exatamente o retângulo pedido, sem a folga de produção.
+    largura, altura = 10, 10
+    valores = [255] * (largura * altura)
+    for y in range(2, 5):
+        for x in range(2, 5):
+            valores[y * largura + x] = 0
+    dados = _pgm_sintetico(largura, altura, valores)
+
+    # Retângulo em "pontos", com dpi=72 (1 ponto = 1 pixel, sem
+    # conversão) para o teste comparar direto com a grade acima.
+    contagem = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(2, 2, 4, 4), dpi=72, margem_px=0
+    )
+    assert contagem == 9  # o quadrado 3x3 inteiro, e nada além dele
+
+    # Um retângulo que NÃO toca o quadrado escuro conta zero.
+    contagem_fora = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(6, 6, 8, 8), dpi=72, margem_px=0
+    )
+    assert contagem_fora == 0
+
+
+def test_pixels_escuros_na_faixa_respeita_o_limiar_de_luminancia():
+    # Um pixel cinza-claro (200) NÃO conta como "escuro" contra o limiar
+    # de produção (128); um pixel cinza-escuro (100) conta.
+    dados = _pgm_sintetico(2, 1, [200, 100])
+    assert instrumento.LIMIAR_LUMINANCIA_TINTA == 128
+    contagem = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(0, 0, 2, 1), dpi=72, margem_px=0
+    )
+    assert contagem == 1
+
+
+def test_pixels_escuros_na_faixa_margem_expande_a_busca_sem_ultrapassar_a_pagina():
+    # Quadrado escuro em x=5, y=5 (1 pixel). Um retângulo pedido "ao
+    # lado" (x=6..7) só o alcança com margem >= 1.
+    largura, altura = 10, 10
+    valores = [255] * (largura * altura)
+    valores[5 * largura + 5] = 0
+    dados = _pgm_sintetico(largura, altura, valores)
+
+    sem_margem = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(6, 5, 7, 6), dpi=72, margem_px=0
+    )
+    com_margem = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(6, 5, 7, 6), dpi=72, margem_px=1
+    )
+    assert sem_margem == 0
+    assert com_margem == 1
+
+    # Margem grande perto da borda da página não estoura o índice (clampado).
+    instrumento._pixels_escuros_na_faixa(dados, retangulo_pt=(0, 0, 1, 1), dpi=72, margem_px=1000)
+
+
+def test_pixels_escuros_na_faixa_converte_pontos_para_pixel_pelo_dpi():
+    # 1 ponto = 1/72 polegada; a 96 dpi, 1 ponto = 96/72 = 4/3 pixel. Um
+    # retângulo de 3x3 PONTOS a 96 dpi cobre 4x4 PIXELS (arredondando
+    # para baixo o início e para cima o fim) — usado aqui só para
+    # confirmar que a conversão participa da conta, não o valor exato.
+    largura, altura = 10, 10
+    valores = [255] * (largura * altura)
+    for y in range(4):
+        for x in range(4):
+            valores[y * largura + x] = 0
+    dados = _pgm_sintetico(largura, altura, valores)
+    contagem = instrumento._pixels_escuros_na_faixa(
+        dados, retangulo_pt=(0, 0, 3, 3), dpi=96, margem_px=0
+    )
+    assert contagem == 16  # 4x4, não 3x3 — a conversão de unidade aconteceu
+
+
+# ---------------------------------------------------------------------------
+# _bbox_da_linha — casamento de sequência de palavras do `pdftotext -bbox`
+# contra o texto esperado de uma linha do timbre.
+# ---------------------------------------------------------------------------
+
+
+def _palavra(xmin, ymin, xmax, ymax, texto):
+    return (float(xmin), float(ymin), float(xmax), float(ymax), texto)
+
+
+def test_bbox_da_linha_encontra_sequencia_de_varias_palavras():
+    palavras = [
+        _palavra(0, 0, 10, 5, "EMPRESA"),  # ruído antes, não deve ser incluído
+        _palavra(0, 10, 20, 20, "Escritório"),
+        _palavra(22, 10, 40, 20, "Contábil"),
+        _palavra(42, 10, 55, 20, "Sintético"),
+        _palavra(57, 10, 65, 20, "ME"),
+        _palavra(0, 30, 10, 35, "Balancete"),  # ruído depois
+    ]
+    caixa = instrumento._bbox_da_linha(palavras, "Escritório Contábil Sintético ME")
+    assert caixa == (0, 10, 65, 20)
+
+
+def test_bbox_da_linha_tolera_pontuacao_tokenizada_a_parte():
+    # `pdftotext -bbox` pode devolver a vírgula/hífen como token PRÓPRIO,
+    # colado ao caractere vizinho de forma diferente de `str.split()` —
+    # MEDIDO com o endereço sintético real de
+    # `scripts/semear_base_de_medicao.py`. O casamento é por
+    # concatenação SEM espaço dos dois lados, então isto tem que casar
+    # mesmo com uma tokenização "estranha".
+    palavras = [
+        _palavra(0, 0, 10, 10, "Rua"),
+        _palavra(11, 0, 30, 10, "Sintética"),
+        _palavra(31, 0, 45, 10, "100,"),
+        _palavra(46, 0, 60, 10, "Sala"),
+        _palavra(61, 0, 65, 10, "2"),
+        _palavra(66, 0, 70, 10, "-"),
+        _palavra(71, 0, 95, 10, "Palmas/TO"),
+    ]
+    caixa = instrumento._bbox_da_linha(palavras, "Rua Sintética 100, Sala 2 - Palmas/TO")
+    assert caixa == (0, 0, 95, 10)
+
+
+def test_bbox_da_linha_devolve_none_quando_a_linha_nao_aparece():
+    palavras = [_palavra(0, 0, 10, 10, "Balancete")]
+    assert instrumento._bbox_da_linha(palavras, "Escritório Contábil Sintético ME") is None
+
+
+def test_bbox_da_linha_devolve_none_para_texto_esperado_vazio():
+    assert instrumento._bbox_da_linha([_palavra(0, 0, 1, 1, "x")], "   ") is None
+
+
+def test_bbox_da_linha_nao_casa_prefixo_parcial_de_uma_palavra_maior():
+    # "ME" não deveria casar dentro de "MEDIÇÃO" nem coisa parecida —
+    # como o casamento exige que a soma acumulada seja EXATAMENTE igual
+    # ao alvo (não um prefixo dele), uma palavra maior nunca casa sozinha.
+    palavras = [_palavra(0, 0, 10, 10, "MEDIÇÃO")]
+    assert instrumento._bbox_da_linha(palavras, "ME") is None

@@ -62,6 +62,33 @@ display: none }` — o registro profissional some, a razão social continua)
 REPROVA aqui, porque o documento sai com identificação incompleta, não
 íntegra.
 
+**O oráculo final é o PIXEL no papel, não a cor computada** (BL-372, achado
+J1 da nona auditoria,
+docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md). Até esta correção,
+a única checagem de "a tinta pinta de verdade" era `_tinta_invisivel`:
+"o alfa da cor computada é zero?" — uma LISTA de um item (alfa zero),
+não a propriedade que interessa (a tinta contrasta com o papel). O
+auditor mediu, no arquivo que fecha exatamente esta classe de defeito nas
+rodadas anteriores: `.conteudo-principal { color: var(--papel-elevado) }`
+(`#FFFFFF`, token LEGÍTIMO do projeto) apaga o timbre do papel com
+`1910 passed` E com este instrumento em `exit 0`, porque branco tem alfa
+OPACO (1, não 0) — `_tinta_invisivel` não pega, e `pdftotext` ainda lê o
+glifo (pintado, só que da cor do fundo). As duas metades da checagem
+antiga são cegas pela MESMA razão.
+
+A correção NÃO troca a lista por outra lista (`#fff`, `clip-path` — é o
+erro que esta etapa paga há doze rodadas): rasteriza a folha A4 já gerada
+(`pdftoppm -gray`, mesma dependência de sistema de `_texto_do_pdf`, ver
+`_rasterizar_primeira_pagina`), localiza a posição REAL de cada linha do
+timbre no PDF exportado (`pdftotext -bbox`, ver `_palavras_da_pagina` e
+`_bbox_da_linha` — a posição de um objeto de texto no PDF não depende da
+cor com que ele foi pintado) e exige uma contagem de PIXELS ESCUROS acima
+de um piso medido (`_pixels_escuros_na_faixa`, `PISO_PIXELS_ESCUROS_POR_
+LINHA`). É a pergunta do contador — "tem tinta no papel onde deveria
+ter?" — e ela SOMA às checagens anteriores (DOM: `checkVisibility` +
+área + alcançabilidade; `_tinta_invisivel`: alfa zero, mais barato,
+continua rodando primeiro), nunca as substitui.
+
 **Falha de infraestrutura é distinguível de falha de conteúdo** (BL-356).
 Códigos de saída:
 
@@ -76,16 +103,21 @@ Códigos de saída:
 
 ```bash
 export DL_CONFIRMO_BANCO_DESCARTAVEL='<nome exato do banco>'
-python scripts/medir_identificacao_do_emitente.py [pasta-de-saida] [--telas=balancete,razao]
+python scripts/medir_identificacao_do_emitente.py [pasta-de-saida] \
+    [--telas=contabilidade_web:balancete,contabilidade_web:razao]
 ```
 
 `pasta-de-saida` (opcional): onde preservar os PDFs A4 gerados (padrão:
 pasta temporária descartada ao fim). `--telas=` (opcional): restringe a
 MEDIÇÃO às telas nomeadas — a DERIVAÇÃO continua completa; é só um filtro
 de saída, útil em bancada para repetir uma sabotagem numa tela só sem
-esperar as demais.
+esperar as demais. Nomeie pelo NOME COMPLETO da rota
+(`namespace:nome`, o mesmo que aparece em "telas derivadas com timbre"),
+nunca só o `nome` — desde o BL-374/J3 essa é a CHAVE de `--telas=`, não
+mais um apelido curto que pode colidir entre apps.
 """
 
+import html
 import json
 import re
 import subprocess
@@ -159,7 +191,20 @@ MARCA_DO_FORNECEDOR = "DataLedger"
 # ALGUÉM edita esta linha — mudança visível, revisada, não divergência
 # silenciosa entre duas cópias da mesma lista (que É o que o BL-352/363
 # proíbe).
-TELAS_MINIMAS_COM_TIMBRE_ESPERADAS = frozenset({"balancete", "diario", "razao"})
+#
+# BL-374 (achado J3 da nona auditoria): chaveado pelo NOME COMPLETO da
+# rota (`namespace:nome`), nunca pelo nome curto (`nome.rsplit(":", 1)
+# [-1]`) — MEDIDO: uma rota `name="balancete"` num SEGUNDO app com timbre
+# (ex.: `tenancy:balancete`) colidia, pelo nome curto, com
+# `contabilidade_web:balancete`; a chave curta ficava com QUALQUER uma
+# das duas (a última varrida), a contagem continuava "3 telas", o piso
+# continuava satisfeito, e o Balancete de verdade da contabilidade
+# deixava de ser medido — em silêncio, com `exit 0`. O namespace existe
+# justamente para permitir essa coexistência; jogá-lo fora ao montar a
+# chave era o defeito.
+TELAS_MINIMAS_COM_TIMBRE_ESPERADAS = frozenset(
+    {"contabilidade_web:balancete", "contabilidade_web:diario", "contabilidade_web:razao"}
+)
 
 
 def _recusar(mensagem):
@@ -241,9 +286,12 @@ def _todas_as_rotas_get_nomeadas():
 def _descobrir_telas_com_timbre(cliente, empresa, conta):
     """DERIVA o conjunto de telas do produto que carregam
     `.timbre-impressao` — ver a docstring do módulo. Devolve
-    `{nome_curto: {"rota": ..., "url": ..., "html": ...}}` (HTML já com o
-    `href` do CSS reescrito para `file://`, via `medir_impressao.
-    _com_css_local` — reaproveitado, não reimplementado)."""
+    `{nome_completo_da_rota: {"rota": ..., "url": ..., "html": ...}}` —
+    chaveado pelo NOME COMPLETO (`namespace:nome`), não pelo nome curto
+    (BL-374/J3: nome curto colide entre apps, ver o comentário de
+    `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`). HTML já com o `href` do CSS
+    reescrito para `file://`, via `medir_impressao._com_css_local` —
+    reaproveitado, não reimplementado."""
     from django.urls import reverse
 
     kwargs_conhecidos = {"empresa_id": empresa.id, "conta_id": conta.id}
@@ -265,14 +313,19 @@ def _descobrir_telas_com_timbre(cliente, empresa, conta):
         resposta = cliente.get(url + periodo)
         if resposta.status_code != 200:
             continue
-        html = resposta.content.decode()
-        if not padrao_timbre.search(html):
+        html_da_tela = resposta.content.decode()
+        if not padrao_timbre.search(html_da_tela):
             continue
-        nome_curto = nome_completo.rsplit(":", 1)[-1]
-        telas[nome_curto] = {
+        # BL-374 (achado J3 da nona auditoria): chave = NOME COMPLETO da
+        # rota (`namespace:nome`), nunca o nome curto — ver o comentário
+        # de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS` sobre a colisão medida.
+        # `nome_completo` já É a identidade que `django.urls.reverse`
+        # usa; reduzi-la aqui era o que jogava fora a informação que a
+        # torna única.
+        telas[nome_completo] = {
             "rota": nome_completo,
             "url": url,
-            "html": medir_impressao._com_css_local(html),
+            "html": medir_impressao._com_css_local(html_da_tela),
         }
 
     if puladas:
@@ -319,7 +372,15 @@ try:
         pagina = navegador.new_page()
         for nome in especificacao["telas"]:
             try:
-                pagina.goto((pasta_html / f"{nome}.html").as_uri(), wait_until="networkidle")
+                # BL-374 (achado J3): `nome` agora É o nome COMPLETO da
+                # rota (`namespace:nome`) — mantido como chave de
+                # `resultados` sem alteração (é a identidade), mas ":"
+                # não é ideal em nome de arquivo em todo sistema; só o
+                # NOME DE ARQUIVO troca ":" por "_", nunca a chave.
+                nome_arquivo = nome.replace(":", "_")
+                pagina.goto(
+                    (pasta_html / f"{nome_arquivo}.html").as_uri(), wait_until="networkidle"
+                )
                 # Espera a troca de font-display: swap terminar (BL-347/F5,
                 # o mesmo cuidado de medir_impressao.py) -- texto medido
                 # ANTES da troca ainda é visivel/legivel, mas a altura de
@@ -330,7 +391,7 @@ try:
                 pagina.emulate_media(media="print")
                 medida = pagina.evaluate(sonda)
                 pagina.pdf(
-                    path=str(pasta_saida / f"{nome}.pdf"),
+                    path=str(pasta_saida / f"{nome_arquivo}.pdf"),
                     format="A4",
                     display_header_footer=False,
                     margin={"top": "0mm", "bottom": "0mm", "left": "0mm", "right": "0mm"},
@@ -402,14 +463,284 @@ def _verificar_sonda_disponivel():
 def _texto_do_pdf(caminho_pdf):
     """Texto do PDF inteiro, espaço normalizado — mesma técnica de
     `medir_impressao.py` (`-layout`, depois `re.sub(r"\\s+", " ", ...)`),
-    não reimplementada com outra assinatura."""
-    saida = subprocess.run(
+    não reimplementada com outra assinatura.
+
+    BL-378 (achado J7 da nona auditoria): `check=False` — um `pdftotext`
+    PRESENTE no PATH mas QUEBRADO (biblioteca do sistema faltando, PDF
+    corrompido por um bug do Chromium, I/O) é FALHA DE INFRAESTRUTURA,
+    nunca veredito sobre o produto. Antes desta correção, `check=True`
+    deixava o `CalledProcessError` subir sem tratamento, `main` morria com
+    código `1` — o MESMO código de "o produto saiu sem identificação
+    completa" — e o job de integração contínua anunciava exatamente essa
+    frase para uma falha que não tinha nada a ver com o timbre. MEDIDO:
+    `pdftotext` quebrado no PATH produzia esse anúncio falso antes desta
+    correção."""
+    resultado = subprocess.run(
         ["pdftotext", "-layout", str(caminho_pdf), "-"],
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout
-    return re.sub(r"\s+", " ", saida).strip()
+        check=False,
+    )
+    if resultado.returncode != 0:
+        _recusar(
+            f"'pdftotext -layout' falhou (código {resultado.returncode}) ao "
+            f"processar {caminho_pdf} — falha de infraestrutura (poppler-utils "
+            f"quebrado, PDF corrompido, I/O), não veredito sobre o produto.\n"
+            f"erro: {resultado.stderr}"
+        )
+    return re.sub(r"\s+", " ", resultado.stdout).strip()
+
+
+# ---------------------------------------------------------------------------
+# Oráculo do papel (BL-372, achado J1 da nona auditoria) — "tem tinta
+# ESCURA na faixa onde a linha do timbre deveria estar?" Ver o parágrafo
+# correspondente na docstring do módulo para o raciocínio completo; os
+# comentários abaixo cobrem só as decisões de CADA função.
+# ---------------------------------------------------------------------------
+
+DPI_ORACULO_DO_PAPEL = 96
+"""96 é a própria DEFINIÇÃO de "pixel CSS" (1 CSS px = 1/96 polegada —
+CSS Values and Units Module, §5.2): rasterizar a folha exatamente nesta
+resolução converte ponto de PDF (1/72 polegada, `PONTOS_POR_POLEGADA`
+abaixo) para pixel de raster com UM fator só (`dpi/72`). Não depende do
+retângulo que `sonda_visibilidade` mede no NAVEGADOR antes de gerar o
+PDF — ver `_palavras_da_pagina` sobre por quê."""
+
+PONTOS_POR_POLEGADA = 72.0
+
+# MEDIDO ao construir este oráculo (exigência do arquiteto-senior: piso e
+# limiar precisam de medição, não intuição) — script e evidência completa
+# no relatório da etapa. Contra a base semeada por
+# `scripts/semear_base_de_medicao.py` (três linhas de timbre, três
+# telas): o CONTROLE limpo nunca desceu de 329 pixels escuros numa linha
+# (a menor: "CRC-TO 000000/O-0 (sintético)" no Balancete); um controle
+# NEGATIVO plausível (`letter-spacing: 0.01em` no timbre, que não some
+# tinta nenhuma) mediu 329-620. TODA construção testada que efetivamente
+# apaga a tinta sem remover o objeto de texto do PDF — `color: var(
+# --papel-elevado)` no contêiner, no `<p>` e em `.conteudo-principal`;
+# `-webkit-text-stroke: 0` combinado com a mesma cor; `opacity: 0.02` —
+# mediu EXATAMENTE ZERO pixel escuro. A margem entre "zero" e "329" é de
+# duas ordens de grandeza: o piso NÃO é frágil (nenhum controle limpo
+# ficou perto do limite). `clip-path: inset(100%)` e `.timbre-impressao p
+# { text-indent: -9999px }` nem chegam a esta contagem — o Chromium não
+# escreve objeto de texto nenhum para elas, e a linha já reprova antes,
+# por `_bbox_da_linha` devolver `None` (o mesmo sinal que `presente_no_pdf`
+# já usa). `mix-blend-mode: screen` foi MEDIDO e NÃO some a tinta no PDF
+# exportado (626/350/318 pixels — o mesmo patamar do controle): o backend
+# Skia PDF do Chromium não aplica composição de blend mode na exportação
+# de impressão, então esta construção PASSA — corretamente, porque a
+# tinta realmente chega ao papel.
+PISO_PIXELS_ESCUROS_POR_LINHA = 40
+
+# Ponto médio da escala de cinza de 8 bits (0 preto, 255 branco). A tinta
+# de impressão do produto é `--impressao-tinta: #000000` — preto puro,
+# `static/css/base.css` — então qualquer limiar bem afastado dos dois
+# extremos separa tinta de papel; o meio da escala é a escolha mais
+# simples de justificar, e NENHUMA medição feita para calibrar este
+# oráculo produziu um pixel de linha do timbre entre 1 e 254: ou a tinta
+# está lá (grupos de pixel em 0, por antialiasing subindo a poucas
+# dezenas acima disso) ou não está (grupo em 255).
+LIMIAR_LUMINANCIA_TINTA = 128
+
+_PADRAO_PALAVRA_BBOX = re.compile(
+    r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>'
+)
+
+
+def _palavras_da_pagina(caminho_pdf, pagina=1):
+    """Lista `(xmin, ymin, xmax, ymax, texto)`, em PONTOS de PDF, de cada
+    palavra da página `pagina` — via `pdftotext -bbox` (poppler-utils, JÁ
+    dependência de sistema deste projeto; nenhuma lib nova). Ao contrário
+    do texto plano que `_texto_do_pdf` extrai, o bbox devolve a POSIÇÃO do
+    objeto de texto no PDF — que existe mesmo quando a tinta é da MESMA
+    cor do papel (`color: transparent`/`color: var(--papel-elevado)`): o
+    glifo continua sendo um objeto de texto posicionado, só não pinta
+    pixel escuro nenhum. É esse descolamento entre "o objeto de texto
+    existe, aqui" e "há tinta ESCURA aqui" que `_pixels_escuros_na_faixa`
+    fecha.
+
+    MEDIDO ao construir este oráculo — e por isso a escolha do bbox do
+    PRÓPRIO PDF em vez do retângulo que `sonda_visibilidade` devolve do
+    NAVEGADOR: a posição de uma palavra no PDF exportado por `page.pdf()`
+    é a MESMA independente da largura do viewport interativo usado para
+    medi-la (conferido: dois PDFs gerados com viewport de 1280px e de
+    794px de largura têm coordenadas de bbox byte-a-byte IDÊNTICAS) — a
+    exportação de impressão do Chromium pagina pelo tamanho do PAPEL, não
+    pelo do viewport interativo. Um retângulo medido por
+    `getBoundingClientRect` ANTES de gerar o PDF não tem essa garantia:
+    MEDIDO, o mesmo elemento aparece até ~15px mais acima ou mais abaixo
+    no PDF do que a medição do navegador previa, variando por TELA
+    conforme a altura do cabeçalho de cada uma — o bbox do PDF não tem
+    essa incerteza porque é a posição REAL, não uma previsão.
+
+    BL-378: `check=False` — `pdftotext -bbox` quebrado é a MESMA classe de
+    falha de infraestrutura que `_texto_do_pdf` já trata."""
+    resultado = subprocess.run(
+        ["pdftotext", "-bbox", "-f", str(pagina), "-l", str(pagina), str(caminho_pdf), "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if resultado.returncode != 0:
+        _recusar(
+            f"'pdftotext -bbox' falhou (código {resultado.returncode}) ao "
+            f"processar {caminho_pdf} — falha de infraestrutura, não veredito "
+            f"sobre o produto.\nerro: {resultado.stderr}"
+        )
+    return [
+        (float(a), float(b), float(c), float(d), html.unescape(e))
+        for a, b, c, d, e in _PADRAO_PALAVRA_BBOX.findall(resultado.stdout)
+    ]
+
+
+def _bbox_da_linha(palavras, texto_esperado):
+    """Encontra, dentro de `palavras` (na ordem devolvida por
+    `_palavras_da_pagina`), a sequência CONTÍGUA de palavras cuja
+    concatenação — sem espaço, dos dois lados da comparação — reproduz
+    `texto_esperado`. Sem espaço porque `pdftotext -bbox` tokeniza por
+    caractere de espaço VISUAL, que nem sempre bate 1:1 com `str.split()`
+    do Python (pontuação colada a uma palavra pode virar um token à
+    parte, dependendo da fonte) — MEDIDO com as duas linhas sintéticas de
+    `scripts/semear_base_de_medicao.py` (endereço com vírgula e hífen;
+    registro com parênteses): as duas casaram sem precisar de nenhuma
+    normalização além desta.
+
+    Devolve `(xmin, ymin, xmax, ymax)` em PONTOS de PDF — a caixa UNIÃO
+    das palavras encontradas — ou `None` se a sequência não aparece na
+    página: o MESMO sinal de "esta linha não está no papel" que
+    `presente_no_pdf` já usa (texto removido do DOM inteiramente, ex.:
+    `display: none`, ou recortado por completo, ex.: `clip-path:
+    inset(100%)` — MEDIDO: o Chromium não escreve objeto de texto nenhum
+    para um elemento assim recortado)."""
+    alvo = "".join(texto_esperado.split())
+    if not alvo:
+        return None
+    total = len(palavras)
+    for inicio in range(total):
+        acumulado = ""
+        for fim in range(inicio, total):
+            acumulado += "".join(palavras[fim][4].split())
+            if acumulado == alvo:
+                grupo = palavras[inicio : fim + 1]
+                return (
+                    min(p[0] for p in grupo),
+                    min(p[1] for p in grupo),
+                    max(p[2] for p in grupo),
+                    max(p[3] for p in grupo),
+                )
+            if len(acumulado) > len(alvo):
+                break
+    return None
+
+
+def _rasterizar_primeira_pagina(caminho_pdf, dpi=DPI_ORACULO_DO_PAPEL):
+    """Rasteriza a PRIMEIRA página do PDF para tons de cinza (PGM binário
+    `P5`) via `pdftoppm -gray` — a MESMA dependência de sistema
+    (poppler-utils) que `_texto_do_pdf`/`_palavras_da_pagina` já exigem;
+    NENHUMA biblioteca de imagem nova em `requirements/` (mesma decisão
+    registrada na docstring de `scripts/medir_impressao.py` para não
+    acrescentar lib de PDF). `-singlefile` evita o poppler acrescentar
+    sufixo numérico ao nome de saída, já que só pedimos uma página.
+
+    O timbre está sempre na primeira folha, nas três telas hoje (MEDIDO).
+    Se um documento futuro empurrar o timbre para depois da folha 1, esta
+    função precisa de um parâmetro de página — não é uma limitação
+    escondida, é a MESMA que `_texto_do_pdf`/`_palavras_da_pagina` já têm
+    ao não receber número de página nenhum.
+
+    BL-378: `pdftoppm` quebrado é a MESMA classe de falha de
+    infraestrutura que os dois acima."""
+    with tempfile.TemporaryDirectory(prefix="dl-oraculo-papel-") as pasta:
+        prefixo = Path(pasta) / "pagina"
+        resultado = subprocess.run(
+            [
+                "pdftoppm",
+                "-r",
+                str(dpi),
+                "-f",
+                "1",
+                "-l",
+                "1",
+                "-gray",
+                "-singlefile",
+                str(caminho_pdf),
+                str(prefixo),
+            ],
+            capture_output=True,
+        )
+        if resultado.returncode != 0:
+            _recusar(
+                f"'pdftoppm -gray' falhou (código {resultado.returncode}) ao "
+                f"rasterizar {caminho_pdf} — falha de infraestrutura.\n"
+                f"erro: {resultado.stderr.decode(errors='replace')}"
+            )
+        return (prefixo.with_suffix(".pgm")).read_bytes()
+
+
+def _pgm_para_matriz(dados_pgm):
+    """Parseia um PGM BINÁRIO (`P5`) sem depender de Pillow nem de
+    nenhuma lib de imagem — é exatamente o formato que `pdftoppm -gray`
+    produz nativamente (8 bits: `maxval < 256`, sempre o caso aqui), 1
+    byte por pixel, 0 = preto, 255 = branco. Devolve `(largura, altura,
+    corpo_de_bytes)`. Função PURA — testada em
+    `scripts/test_medir_identificacao_do_emitente.py` com bytes
+    sintéticos, sem chamar `pdftoppm` de verdade."""
+    if not dados_pgm.startswith(b"P5"):
+        raise ValueError("dados não começam com a assinatura PGM binária 'P5'")
+    pos = 2
+    campos = []
+    # Cabeçalho PGM: três inteiros (largura, altura, maxval) separados por
+    # espaço em branco — comentários `#...\n` são permitidos pelo formato
+    # entre tokens; ignorados aqui se aparecerem (poppler não os emite,
+    # mas o formato PERMITE, e um parser que quebra num comentário válido
+    # é um parser errado, não um limite documentado).
+    while len(campos) < 3:
+        while dados_pgm[pos : pos + 1].isspace():
+            pos += 1
+        if dados_pgm[pos : pos + 1] == b"#":
+            pos = dados_pgm.index(b"\n", pos) + 1
+            continue
+        inicio = pos
+        while not dados_pgm[pos : pos + 1].isspace():
+            pos += 1
+        campos.append(int(dados_pgm[inicio:pos]))
+    largura, altura, maxval = campos
+    if maxval >= 256:
+        raise ValueError(f"PGM com maxval {maxval} >= 256 (16 bits) não é suportado")
+    pos += 1  # o único espaço em branco exigido pelo formato após o maxval
+    corpo = dados_pgm[pos : pos + largura * altura]
+    if len(corpo) < largura * altura:
+        raise ValueError(
+            f"PGM truncado: esperava {largura * altura} bytes de pixel, achei {len(corpo)}"
+        )
+    return largura, altura, corpo
+
+
+def _pixels_escuros_na_faixa(dados_pgm, retangulo_pt, dpi=DPI_ORACULO_DO_PAPEL, margem_px=2):
+    """Conta pixels com luminância <= `LIMIAR_LUMINANCIA_TINTA` dentro do
+    retângulo `(xmin, ymin, xmax, ymax)` — em PONTOS de PDF, convertido
+    para pixel do raster por `dpi/72` (ver `DPI_ORACULO_DO_PAPEL`).
+    `margem_px` expande a caixa igualmente nos quatro lados: absorve só o
+    arredondamento do `int()` e a folga do antialiasing do glifo — NÃO é
+    o que separa tinta de sabotagem (isso é o LIMIAR de luminância e o
+    PISO de contagem, ambos acima); é para não cortar 1px do próprio
+    glifo por arredondamento. MEDIDO ao construir este oráculo: margem de
+    2px não alcança a linha vizinha em nenhuma das três telas (a menor
+    distância entre duas linhas do timbre medida foi de ~17px)."""
+    largura_pagina, altura_pagina, corpo = _pgm_para_matriz(dados_pgm)
+    fator = dpi / PONTOS_POR_POLEGADA
+    xmin, ymin, xmax, ymax = retangulo_pt
+    x0 = max(0, int(xmin * fator) - margem_px)
+    y0 = max(0, int(ymin * fator) - margem_px)
+    x1 = min(largura_pagina, int(xmax * fator) + margem_px + 1)
+    y1 = min(altura_pagina, int(ymax * fator) + margem_px + 1)
+    contagem = 0
+    for y in range(y0, y1):
+        inicio_da_linha = y * largura_pagina
+        for x in range(x0, x1):
+            if corpo[inicio_da_linha + x] <= LIMIAR_LUMINANCIA_TINTA:
+                contagem += 1
+    return contagem
 
 
 _PADRAO_COR_RGBA = re.compile(r"[\d.]+")
@@ -522,7 +853,14 @@ def main(argv):
         pasta_html = Path(pasta_temp) / "html"
         pasta_html.mkdir()
         for nome in nomes_para_medir:
-            (pasta_html / f"{nome}.html").write_text(telas[nome]["html"], encoding="utf-8")
+            # BL-374: só o NOME DE ARQUIVO troca ":" por "_" — a chave
+            # `nome` (nome completo da rota) segue intacta em todo o
+            # resto (ver o comentário equivalente em
+            # `_SCRIPT_DO_SUBPROCESSO`, que constrói o MESMO nome de
+            # arquivo do lado do Playwright).
+            (pasta_html / f"{nome.replace(':', '_')}.html").write_text(
+                telas[nome]["html"], encoding="utf-8"
+            )
 
         pasta_saida = pasta_informada or (Path(pasta_temp) / "pdfs")
         pasta_saida.mkdir(parents=True, exist_ok=True)
@@ -541,12 +879,29 @@ def main(argv):
             relatorio[nome] = entrada
 
             if "erro" in medida:
-                reprovacoes.append(f"{nome}: erro de navegação/medição — {medida['erro']}")
-                entrada["veredito"] = "ERRO"
-                continue
+                # BL-378 (achado J7): erro de NAVEGAÇÃO/MEDIÇÃO (timeout de
+                # `goto`, aba travada, exceção do Playwright) é falha de
+                # INFRAESTRUTURA, nunca veredito sobre o produto — "não
+                # consegui medir esta tela" não é "a tela saiu sem
+                # emitente". Antes desta correção isto virava uma
+                # REPROVAÇÃO de conteúdo (código 1) acumulada em
+                # `reprovacoes`, e o job anunciava a frase errada. Recusa
+                # AQUI, imediatamente: sem confiança na medição desta
+                # tela, não há por que seguir medindo as demais.
+                _recusar(f"{nome}: erro de navegação/medição — {medida['erro']}")
 
-            caminho_pdf = pasta_saida / f"{nome}.pdf"
+            caminho_pdf = pasta_saida / f"{nome.replace(':', '_')}.pdf"
             texto_pdf = _texto_do_pdf(caminho_pdf) if caminho_pdf.exists() else ""
+            # Oráculo do papel (BL-372/J1, ver a docstring do módulo):
+            # posição REAL de cada palavra no PDF exportado (independente
+            # da cor com que foi pintada) e o raster em tons de cinza da
+            # mesma folha, para exigir tinta ESCURA onde o texto deveria
+            # estar — não só "o objeto de texto existe" (`_texto_do_pdf`)
+            # nem "o alfa não é zero" (`_tinta_invisivel`, abaixo).
+            palavras_pdf = _palavras_da_pagina(caminho_pdf) if caminho_pdf.exists() else []
+            dados_pgm_da_pagina = (
+                _rasterizar_primeira_pagina(caminho_pdf) if caminho_pdf.exists() else None
+            )
             entrada["pdf"] = str(caminho_pdf)
             entrada["pdf_contem_marca_do_fornecedor"] = MARCA_DO_FORNECEDOR in texto_pdf
 
@@ -572,10 +927,27 @@ def main(argv):
                     filho_da_linha.get("cor_efetiva") if filho_da_linha else None
                 )
                 presente_no_pdf = linha in texto_pdf
+
+                # Oráculo do papel: onde esta linha REALMENTE está no PDF
+                # exportado (bbox, em pontos — existe mesmo se a tinta for
+                # da cor do papel) e quantos pixels ESCUROS aparecem ali
+                # na folha rasterizada. `bbox_no_pdf is None` é o MESMO
+                # sinal que `presente_no_pdf=False` (texto removido do
+                # DOM ou recortado por completo) — não duplicamos o
+                # motivo quando os dois já apontam pra a mesma ausência.
+                bbox_no_pdf = _bbox_da_linha(palavras_pdf, linha)
+                if bbox_no_pdf is not None and dados_pgm_da_pagina is not None:
+                    pixels_escuros = _pixels_escuros_na_faixa(dados_pgm_da_pagina, bbox_no_pdf)
+                else:
+                    pixels_escuros = 0
+                tinta_visivel_no_papel = pixels_escuros >= PISO_PIXELS_ESCUROS_POR_LINHA
+
                 linhas_no_pdf[linha] = {
                     "visivel_no_navegador": visivel_no_navegador,
                     "legivel": legivel,
                     "presente_no_pdf": presente_no_pdf,
+                    "pixels_escuros_no_papel": pixels_escuros,
+                    "tinta_visivel_no_papel": tinta_visivel_no_papel,
                 }
                 if not visivel_no_navegador:
                     motivos.append(f"linha do timbre NÃO visível sob impressão: {linha!r}")
@@ -583,6 +955,19 @@ def main(argv):
                     motivos.append(f"linha do timbre com tinta de alfa zero (ilegível): {linha!r}")
                 if not presente_no_pdf:
                     motivos.append(f"linha do timbre AUSENTE do texto do PDF: {linha!r}")
+                elif not tinta_visivel_no_papel:
+                    # BL-372/J1: a linha ESTÁ no texto do PDF (objeto de
+                    # texto presente) mas a folha rasterizada não mostra
+                    # tinta escura onde ele deveria estar — o caso exato
+                    # de `color: var(--papel-elevado)` (branco opaco:
+                    # alfa 1, `_tinta_invisivel` não pega) e de qualquer
+                    # construção futura que pinte a tinta da cor do papel.
+                    motivos.append(
+                        "linha do timbre SEM TINTA ESCURA suficiente no papel "
+                        f"rasterizado (oráculo do pixel): {linha!r} — "
+                        f"{pixels_escuros} pixel(s) escuro(s) na faixa esperada, "
+                        f"piso exigido {PISO_PIXELS_ESCUROS_POR_LINHA}"
+                    )
             entrada["linhas_do_timbre"] = linhas_no_pdf
 
             if entrada["pdf_contem_marca_do_fornecedor"]:
@@ -622,4 +1007,14 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    try:
+        main(sys.argv[1:])
+    except Exception as erro:  # noqa: BLE001 — BL-378 (achado J7): um
+        # traceback NÃO PREVISTO (bug deste script, exceção de biblioteca
+        # não tratada em nenhum ponto acima) nunca deve sair com o MESMO
+        # código de "o produto saiu sem identificação completa" (`1`,
+        # `_reprovar_por_conteudo`) — quem lê o código de saída do job
+        # precisa poder confiar que `1` é sempre um achado sobre o
+        # PRODUTO. `_recusar` (código `2`) preserva o tipo e a mensagem
+        # originais da exceção para investigação, sem fingir veredito.
+        _recusar(f"exceção não prevista ({type(erro).__name__}): {erro}")

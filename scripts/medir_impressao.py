@@ -28,7 +28,10 @@ sistema (tem playwright)") e que o auditor precisou reproduzir manualmente
 com uma venv isolada. Este script orquestra as DUAS pontas com UM comando
 publicado: renderiza com o Django do venv do projeto e delega só a
 geração do PDF a um subprocesso do PYTHON DO SISTEMA
-(`DL_PYTHON_DO_SISTEMA`, com o mesmo padrão de `CHROMIUM` do `juiz.py`).
+(`DL_PYTHON_DO_SISTEMA`). A resolução do executável do Chromium em si
+segue `sonda_visibilidade.lancar_chromium` (BL-381) — o MESMO módulo que
+`juiz.py` já usa desde que seu próprio `CHROMIUM` fixo saiu de lá; ver o
+comentário completo perto de `_GAUNTLET_DIR`, abaixo.
 
 ⚠️ **Atualizado na DL-028 fatia 2 (BL-357/BL-358, achado do arquiteto-senior
 sobre a fatia 2 — mensagem de guarda que mandava procurar o vizinho
@@ -131,11 +134,25 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-# Mesmo binário que docs/assets/design/gauntlet/juiz.py já usa — não
-# retypado como literal novo: se o caminho mudar lá, este script também
-# precisa mudar, e um `grep` encontra os dois de uma vez por serem a
-# MESMA string.
-CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+# BL-381 (achado J11 da nona auditoria,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): até esta
+# correção, este arquivo tinha `CHROMIUM =
+# "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"` — um caminho
+# FIXO de uma máquina específica, em ARQUIVO VERSIONADO, exatamente o
+# que o critério 4 da DL-028/DE-057 proíbe. O comentário que o
+# justificava ("um grep encontra os dois de uma vez, docs/assets/design/
+# gauntlet/juiz.py usa o MESMO binário") ficou FALSO no mesmo commit que
+# extraiu `sonda_visibilidade.py` de `juiz.py`: `juiz.py` perdeu essa
+# string, e o grep passou a encontrar só ESTE arquivo — sem ninguém
+# perceber, porque o comentário nunca foi reconferido depois de mexer no
+# arquivo que ele cita. `sonda_visibilidade.resolver_executavel_do_
+# chromium`/`lancar_chromium` (mesmo módulo que `scripts/medir_
+# identificacao_do_emitente.py` já usa) resolvem o executável por
+# `DL_CHROMIUM_EXECUTAVEL` ou por descoberta NATIVA do Playwright — nunca
+# um literal de caminho. `_GAUNTLET_DIR`, abaixo, é só a localização do
+# MÓDULO (`sonda_visibilidade.py` é irmão de `juiz.py`, não um pacote
+# instalado) — não um caminho de EXECUTÁVEL.
+_GAUNTLET_DIR = str((RAIZ / "docs" / "assets" / "design" / "gauntlet").resolve())
 
 # O Python do VENV do projeto não tem Playwright (não é dependência de
 # `requirements/` — decisão registrada na docstring do módulo). Este
@@ -389,7 +406,13 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 especificacao = json.loads(sys.argv[1])
-chromium = especificacao["chromium"]
+# BL-381: resolução do Chromium por `sonda_visibilidade` (variável de
+# ambiente ou descoberta nativa do Playwright) — nunca um caminho fixo
+# recebido na especificação. `sonda_visibilidade.py` é módulo IRMÃO deste
+# script (docs/assets/design/gauntlet/), não pacote instalado — daí o
+# `sys.path.insert` antes de importar.
+sys.path.insert(0, especificacao["gauntlet_dir"])
+import sonda_visibilidade
 pasta_html = Path(especificacao["pasta_html"])
 pasta_saida = Path(especificacao["pasta_saida"])
 nomes = especificacao["nomes"]
@@ -422,7 +445,7 @@ _JS_FONTES_ATIVAS = '''
 
 pasta_saida.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as p:
-    navegador = p.chromium.launch(executable_path=chromium)
+    navegador = sonda_visibilidade.lancar_chromium(p)
     pagina = navegador.new_page()
     for nome in nomes:
         pagina.goto((pasta_html / f"{nome}.html").as_uri(), wait_until="networkidle")
@@ -452,7 +475,7 @@ print("OK")
 def _gerar_pdfs(pasta_html, pasta_saida, nomes):
     especificacao = json.dumps(
         {
-            "chromium": CHROMIUM,
+            "gauntlet_dir": _GAUNTLET_DIR,
             "pasta_html": str(pasta_html),
             "pasta_saida": str(pasta_saida),
             "nomes": nomes,

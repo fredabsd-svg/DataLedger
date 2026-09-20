@@ -233,6 +233,32 @@ def main():
         cnpj="11222333000181",
         defaults={"nome": "Escritório Contábil Sintético ME"},
     )
+    # BL-375 (achado J4 da nona auditoria,
+    # docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): até esta
+    # correção, esta base semeava um escritório com `endereco_no_timbre` e
+    # `registro_no_timbre` EM BRANCO — `Escritorio.linhas_do_timbre`
+    # (apps/tenancy/models.py) então devolvia UMA linha só (o `nome`), e o
+    # critério "identificação PARCIAL conta como falha" de
+    # `scripts/medir_identificacao_do_emitente.py` (que verifica CADA
+    # linha, não só o contêiner) virava um `no-op` na integração contínua:
+    # não existe segunda/terceira linha para uma sabotagem parcial
+    # (`p:nth-of-type(2) { display: none }`, por exemplo) atingir. MEDIDO
+    # pelo auditor: `font-size: 0` no timbre saía com o instrumento em
+    # `exit 0` (falso conforme) contra esta base de uma linha, e `exit 1`
+    # (correto) com três. Os dois campos abaixo são os que a NBC ITG 2000,
+    # item 12, torna relevantes (endereço e registro profissional do
+    # escritório) — e que, sem esta correção, NUNCA chegavam ao papel
+    # medido. Valores SINTÉTICOS, os mesmos já publicados no relatório da
+    # auditoria (reprodutibilidade: quem repetir a medição citada ali
+    # encontra os mesmos textos). Atribuídos INCONDICIONALMENTE (fora de
+    # `defaults=`, com `.save()` abaixo) para que rodar este script de novo
+    # sobre um banco semeado por uma versão ANTERIOR dele também preencha
+    # os dois campos — `get_or_create` não aplicaria `defaults` a um
+    # registro que já existe, e o objetivo desta correção é que a base
+    # tenha as três linhas mesmo quando reaproveitada.
+    escritorio.endereco_no_timbre = "Rua Sintética 100, Sala 2 - Palmas/TO"
+    escritorio.registro_no_timbre = "CRC-TO 000000/O-0 (sintético)"
+    escritorio.save()
     VinculoUsuarioEscritorio.objects.get_or_create(
         usuario=usuario,
         escritorio=escritorio,
