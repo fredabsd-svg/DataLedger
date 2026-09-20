@@ -488,11 +488,24 @@ Fred**.
 *"Pode encaminhar o remendo da trilha"*, 2026-09-20, depois de eu levar a ele o
 **BL-435** com a medição.
 
-**O que foi medido:** `Empresa.razao_social` é `CharField` comum, o
-`EmpresaAdmin` trava só `escritorio` no `change`, e não existe nenhum
-`registrar()` em `apps/empresas/admin.py`. Uma alteração contratual **apaga o
-valor anterior no ato**, e ele não fica em lugar nenhum — o que torna impossível
-o que o **BL-396** exige do termo do livro.
+⚠️ **E o plano nasceu de uma premissa MINHA que estava ERRADA — corrigida no
+mesmo dia, antes de virar código.** Eu afirmei que *"a razão social é apagada no
+ato e não fica em lugar nenhum"*. **É falso.** A trilha **cobre** o admin desde a
+DL-024/BL-244, por **signal genérico** em `apps/auditoria/signals.py`, e há teste
+que prova exatamente o cenário que eu disse não existir. Conferido por mim:
+`pytest apps/core/tests/test_dl024_trilha_admin.py` → **`7 passed`**; e
+`git merge-base --is-ancestor febdc9f ab35715` → **verdadeiro**, o código já
+estava lá quando eu "medi".
+
+**A classe do meu erro é a [DE-060](../projeto/decisoes.md), aplicada a mim:** eu
+rodei `grep "registrar(" apps/empresas/admin.py`, não achei, e conclui *"a trilha
+não cobre o admin"*. A **medição era literalmente verdadeira e a conclusão era
+falsa** — medi um **substituto** no lugar da **propriedade**, sem declarar que era
+substituto, e publiquei ao Fred **como fato**. Registrado em **BL-435**, que
+deixou de ser achado e virou o registro do erro. **Quem o encontrou foi o
+`desenvolvedor-pleno`, medindo antes de escrever, porque o plano mandava parar se
+a premissa não batesse — terceira vez na semana que essa regra evita um
+defeito.**
 
 **O escopo está no nome: é REMENDO.** Plano em
 [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md), e a seção *"O que esta

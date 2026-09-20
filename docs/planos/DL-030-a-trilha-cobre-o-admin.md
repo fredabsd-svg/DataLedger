@@ -1,21 +1,68 @@
 # DL-030 — A trilha cobre o admin
 
 **Demanda:** autorização do Fred em 2026-09-20 — *"pode encaminhar o remendo da
-trilha"* —, depois de eu medir que a razão social de uma empresa é **apagada no
-ato** quando alguém a edita (**BL-435**), e que isso torna impossível o que o
-**BL-396** exige do termo do livro.
+trilha"*. ⚠️ **A justificativa que eu dei a ele estava ERRADA**, e a correção
+está na seção seguinte. A etapa sobrevive à correção, com escopo revisto.
 
 **Responsável pelo produto:** Fred.
 **Arquiteto:** `arquiteto-senior`.
-**Fecha:** BL-435 **parcialmente** — e isso está no nome. Ver "O que esta etapa
-NÃO é".
+**Fecha:** os sete gaps medidos na tabela abaixo. **Não** fecha BL-396 nem
+PE-60. **BL-435 deixou de ser achado e virou o registro do meu erro.**
 
-## Objetivo
+## ⚠️ A premissa original deste plano estava ERRADA, e o erro era meu
 
-**Parar a sangria.** Hoje, uma alteração contratual que muda a razão social
-sobrescreve o valor anterior e ele **não fica em lugar nenhum**. Esta etapa faz
-a trilha de auditoria do produto registrar o que muda pelo **admin do Django**,
-com **valor antigo e valor novo**, para que o dado deixe de desaparecer.
+**Escrito na primeira versão:** *"a razão social é apagada no ato e não fica em
+lugar nenhum"*. **É falso.** A trilha **cobre** o admin desde a **DL-024/BL-244**
+(`apps/auditoria/signals.py`, já mesclado), por **signal genérico**, e
+`apps/core/tests/test_dl024_trilha_admin.py` prova exatamente o cenário que eu
+disse não existir.
+
+**A classe é a [DE-060](../projeto/decisoes.md), aplicada a mim:** rodei
+`grep "registrar(" apps/empresas/admin.py`, não achei, e conclui *"a trilha não
+cobre o admin"*. A **medição era literalmente verdadeira; a conclusão era
+falsa** — medi um **substituto** no lugar da **propriedade**, sem declarar.
+Registro em **BL-435**.
+
+**O `desenvolvedor-pleno` achou isso medindo ANTES de escrever código**, porque
+este plano mandava parar se a premissa não batesse. A regra pagou.
+
+## Objetivo (revisto)
+
+**A trilha existe. Fechar a lista, fechar os buracos, e provar o que está
+apenas afirmado.** Sete gaps medidos contra os requisitos originais, em ordem de
+gravidade:
+
+| # | Gap medido | Por que importa |
+| --- | --- | --- |
+| 1 | **`escritorio` vem da SESSÃO, não do objeto** | Superusuário sem `VinculoUsuarioEscritorio` editando empresa do Escritório X grava `escritorio = None`. **A trilha perde o isolamento no perfil que mais usa o admin** |
+| 2 | **`Usuario` sem cobertura nenhuma** | Alteração de senha pelo admin não deixa rastro |
+| 3 | **`MODELOS_DA_TRILHA_DO_ADMIN` é uma tupla de seis** | O anti-padrão, na forma exata que a DE-056 descreve |
+| 4 | **Atomicidade do admin afirmada em comentário, não medida** | DE-058, no arquivo que guarda a prova de quem alterou o quê |
+| 5 | Inlines não provados pela mesma superfície | BL-211 |
+| 6 | Nenhuma declaração DE-060 nas medições | — |
+| 7 | O teste da cobertura é **retrato**, não propriedade | Vira o item 3 |
+
+## Duas decisões minhas, e as duas são RETRATAÇÕES
+
+**1. Fica o signal; NÃO se troca por `save_model`.** O signal cobre **qualquer
+caminho de escrita** — admin, API, shell, comando de gerência, migração. O
+`save_model` cobre **só o admin**. Trocar estreitaria a garantia em troca de um
+diff mais limpo, e este projeto erra para o lado seguro.
+
+**2. O requisito R3 está RETIRADO, e era meu erro.** Eu havia escrito *"não
+reimplemente comparação de objetos; use `form.changed_data`"*. **O inverso é que
+é verdade:** a linha do banco **antes e depois** é o **estado realmente
+persistido** — a propriedade. O `form.initial` é a **visão que o formulário tem**
+dela, e diverge quando um campo está fora do formulário, quando há edição
+concorrente entre o `GET` e o `POST`, ou quando o `save()` do modelo altera
+valor. **Quem media o substituto era o meu requisito, não o código.**
+
+⚠️ **E o R1 muda junto:** eu havia mandado derivar a cobertura de
+`admin.site._registry`. **Estreito demais**, pelo mesmo motivo — o mecanismo
+cobre caminhos que não passam pelo admin. **Inverta para o lado seguro**, como no
+BL-415: cobrir **todo modelo concreto dos apps do projeto**, com uma lista
+**pequena** do que fica de fora, motivo escrito por item, e o `RegistroAuditoria`
+como o primeiro dela (senão a trilha audita a si mesma em laço).
 
 ## O que esta etapa NÃO é
 
@@ -38,21 +85,29 @@ informação **existe**. Antes dela, não existia.
 
 ## Requisitos
 
-**R1 — a cobertura é DERIVADA do registro do admin, não de uma lista nossa.**
-Toda `ModelAdmin` registrada passa a gravar trilha em criação, alteração e
-exclusão. Enumerar os modelos seria a décima sétima ocorrência da classe desta
-semana ([DE-056](../projeto/decisoes.md)): a guarda tem de sair do **registro do
-próprio framework**.
+**R1 — a cobertura sai de uma PROPRIEDADE, e a propriedade NÃO é o registro do
+admin.** `MODELOS_DA_TRILHA_DO_ADMIN` é hoje uma tupla de seis, e isso é o
+anti-padrão ([DE-056](../projeto/decisoes.md)). **Inverta para o lado seguro**,
+como no BL-415: cobrir **todo modelo concreto dos apps do projeto**, com uma
+lista **pequena** do que fica **de fora**, motivo escrito **por item**, e o
+`RegistroAuditoria` como o primeiro dela — senão a trilha audita a si mesma em
+laço. ⚠️ **`admin.site._registry` foi descartado como fonte**, e o motivo é o
+mesmo do R3: o mecanismo é um **signal**, que cobre caminhos que não passam pelo
+admin; derivar do registro do admin seria **estreitar** a garantia.
 
-**R2 — a guarda da cobertura também é derivada.** Um teste anda por
-`admin.site._registry` e **reprova** se qualquer `ModelAdmin` registrada não
-estiver coberta. Modelo novo registrado amanhã entra **sozinho**, ou o build
-fica vermelho — não há caminho em que alguém "esqueça".
+**R2 — a guarda da cobertura também é derivada.** Um teste anda pelos modelos
+concretos do projeto e **reprova** se algum ficar sem cobertura e sem exceção
+escrita. Modelo novo amanhã entra **sozinho**, ou o build fica vermelho — não há
+caminho em que alguém "esqueça".
 
-**R3 — valor antigo e valor novo, por campo alterado.** Em alteração, gravar
-**quais campos mudaram** e, para cada um, o valor **antes** e **depois**. O
-`ModelForm` do admin já entrega isso (`form.changed_data`, `form.initial`,
-`form.cleaned_data`) — não reimplemente comparação de objetos.
+**R3 — RETIRADO, e o erro era meu.** O texto original dizia *"use
+`form.changed_data`/`initial`/`cleaned_data`; não reimplemente comparação de
+objetos"*. **O inverso é que é verdade:** a linha do banco **antes e depois** é o
+**estado realmente persistido** — a propriedade. O `form.initial` é a **visão que
+o formulário tem** dela, e diverge quando o campo está fora do formulário, quando
+há edição concorrente entre o `GET` e o `POST`, ou quando o `save()` do modelo
+altera valor. **Quem media o substituto era o meu requisito, não o código.** O
+mecanismo atual — ler a linha anterior e comparar — **fica**.
 
 **R4 — segredo nunca entra na trilha, e a regra é derivada do widget.** Campo
 cujo widget seja de senha tem o valor **redigido** (o nome do campo entra, o
@@ -81,12 +136,15 @@ dessa divergência** ao lado.
 Todos **por requisição autenticada ao admin**, não por chamada direta de método
 — é a lição do **BL-211**, e foi por não fazer isso que a BL-258 existiu.
 
-1. `POST` no `change` de `Empresa` alterando `razao_social` grava
-   `RegistroAuditoria` com o valor **antigo** e o **novo**, e com o usuário que
-   fez.
-2. `POST` no `add` e no `delete` de `Empresa` gravam trilha.
-3. **A prova do R2:** registrar uma `ModelAdmin` nova de mentira dentro do teste
-   **sem** a cobertura faz o teste de varredura **reprovar**, nomeando-a.
+1. **O gap 1, que é o mais grave:** `POST` no `change` de `Empresa` do
+   Escritório X, feito por **superusuário sem `VinculoUsuarioEscritorio`**, grava
+   `RegistroAuditoria.escritorio = ` **o escritório do objeto**, não `None`.
+   ⚠️ **Hoje grava `None`** — a trilha perde o isolamento no perfil que mais usa
+   o admin.
+2. `POST` no `add`, no `change` e no `delete` de `Empresa` gravam trilha com
+   valor antigo e novo (isto **já passa hoje**: é não-regressão, não construção).
+3. **A prova do R2:** um modelo concreto novo, sem cobertura e sem exceção
+   escrita, faz o teste de varredura **reprovar**, nomeando-o.
 4. **A prova do R4:** alterar a senha de um usuário pelo admin grava o **nome**
    do campo e **não** grava o valor, nem o hash.
 5. **A prova do R5:** gravação que falha por validação **não** deixa trilha.
