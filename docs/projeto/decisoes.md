@@ -3357,3 +3357,89 @@ real e pequena; registro para não descobrirem depois.
    que continuamos mantendo ao lado.
 3. **Não apaga história.** Os quatro arquivos continuam no histórico do Git, e
    os doze relatórios de auditoria que os julgaram continuam preservados.
+
+## DE-064 — Trabalho EM VOO de outro agente não se commita, e a regra para de ser redecidida
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a delegação do
+Fred (*"Você decide"*), depois de o gancho de fim de turno cobrar commit **dez
+vezes na mesma sessão** sobre arquivos que pertenciam a um agente ainda
+executando.
+
+**A regra:** o `arquiteto-senior` **não** commita alteração que esteja sendo
+escrita por outro agente naquele momento. Quem entrega e commita é **quem
+escreveu**, com os números medidos no relatório.
+
+**O que o gancho mede, e por que erra:** ele pergunta *"existe diferença na
+árvore?"*. A pergunta certa é *"existe trabalho CONCLUÍDO sem dono?"*. Diferença
+na árvore com dono ativo é **trabalho em andamento**, não pendência. É a
+**[DE-060](#de-060--a-guarda-aproxima-substituto-não-declarado-é-a-nova-forma-do-mesmo-defeito)**
+aplicada ao próprio ferramental: o instrumento mede um **substituto** mais fácil
+de obter que a propriedade.
+
+**Por que a regra vale o atrito, e o exemplo é real:** durante a correção do
+**BL-456** — a corrida que grava lançamento em competência encerrada — o
+gancho cobrou commit de `apps/contabilidade/services.py` **no meio** da
+reescrita da trava. Commitar ali gravaria meia correção de concorrência, sem a
+prova exigida (30 tentativas, zero falhas) ter sido rodada uma única vez.
+**Código de concorrência pela metade parece pronto e não está.**
+
+**O que NÃO muda:** o `arquiteto-senior` commita e empurra o que é **dele**
+(documentação, planos, requisitos, relatórios de auditoria) a cada etapa, e
+confere que local e remoto batem antes de encerrar o turno. A árvore nunca fica
+com trabalho **concluído** sem commit.
+
+**Registrado como decisão para parar de ser redecidido.** O atrito é do
+instrumento (**BL-421**), não do processo; enquanto o gancho não distinguir
+"em andamento" de "concluído", a resposta é esta, e é uma linha.
+
+## DE-065 — A fatia 2 da DL-016 é a TELA, e ela vem antes de qualquer módulo novo
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a mesma
+delegação.
+
+**Assim que a fatia 1 fechar, a próxima etapa de código é a fatia 2: a tela de
+fechar, reabrir e marcar como entregue.** Não é o código reduzido da conta
+(RC-99/RC-100), não é módulo novo, não é a política de período de trabalho.
+
+**O motivo é de produto, e é simples de verificar:** hoje o contador **não
+consegue fechar o mês**. A trava existe no servidor e não há porta pela qual
+acioná-la — só requisição direta à API, que não é o que o escritório usa.
+**Funcionalidade que o usuário não alcança é funcionalidade que não existe para
+ele.** Uma trava sem tela transforma-se, na prática, em um sistema que recusa
+lançamentos sem que ninguém tenha como abrir o mês de volta.
+
+**A ordem inversa foi deliberada e continua certa** — a trava antes do botão
+(*"a trava tem de existir antes de haver botão para acioná-la"*). O que esta
+decisão diz é que a dívida gerada por essa ordem **se paga na etapa seguinte**,
+não depois de dois módulos.
+
+⚠️ **E a fatia 2 nasce com uma vantagem que a 1 não teve:** o **BL-457** mostrou
+que a tela de **lançamento** devolvia 500 em vez da mensagem da recusa. A fatia
+2 herda a obrigação de apresentar, em cada tela que toca a competência, a recusa
+**em texto que o contador entenda** — com o caminho de saída (reabrir, ou lançar
+no mês aberto) escrito na própria mensagem.
+
+## DE-066 — Achado de gravidade BAIXA não abre rodada; vira ressalva declarada
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a mesma
+delegação, para dar consequência prática à **regra de parada da §3.1 do
+`AGENTS.md`**.
+
+**A régua da reconferência**, a partir de agora:
+
+| Gravidade | O que acontece na reconferência |
+| --- | --- |
+| **Bloqueador** ou **alta** | **Tem de estar fechado e medido.** Se não estiver, a etapa **não** fecha, e o caso sobe ao Fred com o diagnóstico — **não** com uma terceira rodada |
+| **Média** | Fecha na mesma correção **quando o dono e os arquivos já estão abertos**; senão vira item de backlog com dono e momento |
+| **Baixa** | **Ressalva declarada.** Entra no relatório ao Fred, com o efeito prático escrito, e **não** segura a etapa |
+
+**Por que isto é decisão e não preguiça:** a auditoria da fatia 1 devolveu
+**oito** achados. Dois são o produto (bloqueador e alta); quatro são baixas —
+um comentário desatualizado, falta de contexto na trilha, um estado do enum que
+ninguém usa, e este arquivo de estado. **Tratar os oito com o mesmo rigor é o
+que transformou doze rodadas de auditoria em doze rodadas de polimento**, que é
+exatamente o que o Fred mandou parar.
+
+⚠️ **O que a régua NÃO afrouxa:** gravidade quem atribui é o **auditor**, não o
+implementador nem eu. Reclassificar achado para baixo a fim de fechar etapa é
+proibido, e seria a forma mais barata de fraudar este processo inteiro.
