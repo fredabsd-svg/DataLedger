@@ -308,13 +308,36 @@ depois — **não** descreva revisão nova aqui sem conferir lá.
 | **C1** — toda folha, toda tela (**BL-406**, **BL-410**) | **Parcial** | `lancamento_id` entrou e a tela é medida; paginação passa a ser **nomeada**. Falta o tratamento das rotas com `pk`/`token` genéricos, hoje **limite declarado** |
 | **C2** — tinta que contrasta (**BL-407**) | **Limiar PROVISÓRIO no código** | A decisão já está tomada e escrita no critério 7 do plano: o piso é **derivado do WCAG 2.2**, por linha. O código ainda carrega o valor provisório |
 
-**O que o próximo turno faz, em ordem:** aplicar o piso do WCAG 2.2 no C2;
-medir a razão do **controle limpo** (esperado ~21:1 — **se não passar com folga,
-é achado sobre o PRODUTO e sobe para o Fred**); confirmar o penhasco novo entre
-`opacity: 0,50` e `0,60`; conferir que tinta branca, `1px` e `3px` continuam
-reprovando e que controle e `width: 90px` continuam passando; fechar o C1; rodar
-a **suíte inteira** (ainda **não testada** nesta entrega); e só então chamar o
-`auditor-qa` sobre a **versão integrada**.
+⚠️ **ATUALIZAÇÃO da mesma madrugada — `3fd1384`: as CINCO cláusulas estão
+fechadas e medidas.** O C2 fechou com o piso do **WCAG 2.2 (1.4.3, AA)**
+aplicado **por linha**, a partir do tamanho e peso **realmente renderizados**
+(pedidos ao navegador via `getComputedStyle`, nunca deduzidos de token CSS). O
+limiar provisório de 2,4 **saiu do código**. Números medidos: controle limpo
+**21,0:1** nas três telas, com **8,1×** de margem em pixels; penhasco entre
+`opacity` **0,55** (reprova) e **0,60** (passa); e as duas causas de reprovação
+ficaram **estruturalmente distinguíveis** — *"CONTRASTE insuficiente — X:1
+medido, mínimo exigido 4,5:1"* contra *"POUCOS PIXELS de tinta visível"*. Suíte
+inteira: **2016 passed, 15 skipped**.
+
+⚠️ **E um quase-erro que virou registro, a [BL-423](../projeto/backlog.md):** a
+conversão pt→px do piso nasceu **invertida**, e o implementador a achou e
+corrigiu **antes** de reportar. Importa pela **direção**: invertida, ela fazia o
+instrumento exigir **3:1** onde o devido é **4,5:1** nas linhas reais do timbre —
+ou seja, **afrouxava a guarda e continuava verde**. É a assinatura do defeito
+mais caro desta etapa inteira.
+
+**A etapa NÃO está declarada pronta.** Está em **verificação independente**, por
+quem não escreveu a correção (DE-055), em quatro regiões que **nenhum critério de
+aceite exercitou**: (R1) o vão entre *"texto ilegível"* e *"pixels de menos"* —
+os casos de `1px`/`3px` reprovam por uma checagem **anterior** (*"ausente do
+texto do PDF"*), então a regra nova de contagem nunca foi exercitada com texto
+extraível e tinta preta; (R2) o corte de *"negrito"* do WCAG; (R3) as quatro
+fronteiras da conversão pt→px, que é onde a BL-423 se escondia; (R4) papel que
+não é branco. **Só depois disso vai ao `auditor-qa`.**
+
+**O que o próximo turno faz, em ordem:** ler o resultado dessa verificação;
+tratar o que ela achar; e **só então** chamar o `auditor-qa` sobre a **versão
+integrada**. A suíte inteira **já rodou** nesta entrega (2016 passed).
 
 ⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
 
