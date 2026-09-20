@@ -2964,3 +2964,69 @@ alguém lembrar, na propriedade em que a falha chega ao cliente em papel.
 4. **Isso não fecha a DL-026.** BL-362 e BL-363 são da rodada 12, e correm em
    paralelo, em arquivos disjuntos: enquanto o instrumento novo não existe, a
    guarda atual não pode continuar simplesmente errada.
+
+## DE-058 — Justificativa escrita não é justificativa medida
+
+**Data:** 2026-09-20. Acréscimo à **DE-056** (acima, neste mesmo arquivo),
+proposto pelo `auditor-qa` na décima auditoria
+([relatório](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md), §2) e
+**decidido por mim**: é regra de processo, barata e reversível.
+
+### O que a décima auditoria mediu
+
+A DE-056 mandou **declarar** o limite de cada lista. Os dois implementadores
+fizeram isso: escreveram as justificativas nas docstrings dos arquivos novos. É
+melhor do que lista inexaminada, e não bastou, por **dois** motivos medidos na
+mesma rodada:
+
+1. **Eles responderam sobre as listas que o relatório anterior nomeou** — e a
+   única lista que ninguém tinha discutido foi a que virou **bloqueador**
+   (`MARCA_DO_FORNECEDOR`, BL-404).
+2. **Uma das justificativas escritas é falsa.** A docstring de
+   `LIMIAR_LUMINANCIA_TINTA` afirma que *"NENHUMA medição feita para calibrar
+   este oráculo produziu um pixel de linha do timbre entre 1 e 254"*. Uma linha
+   de CSS banal — `opacity: 0.4` — desmente a frase, e o instrumento passa a
+   reprovar produto correto dizendo *"0 pixels escuros"* (BL-407).
+
+### A regra
+
+**Toda frase de docstring, comentário ou documento que afirme um RESULTADO DE
+MEDIÇÃO precisa ter, ao lado, o teste que a reprova se ela deixar de valer.**
+
+Sem esse teste, a frase é exatamente o defeito de 2026-09-13 que originou a
+regra da fonte única — **garantia inexistente descrita como imposta** —, só que
+em escala pequena e dentro do código, onde ninguém vai reler.
+
+Três formas aceitáveis de cumprir, em ordem de preferência:
+
+1. **O teste existe e cita a frase.** A frase e o teste apontam um para o outro,
+   e quem mudar um vê o outro.
+2. **A frase vira a asserção.** Em vez de escrever o resultado, escreva a
+   verificação: o comentário some e o teste fica.
+3. **A frase é marcada como não verificada**, com a palavra *"não medido"* ou
+   *"hipótese"* nela, e com o que falta para medir. Isso é o mínimo, e só vale
+   quando medir custa mais do que a etapa comporta.
+
+O que **não** é aceitável é a forma atual: afirmação no tom de medição, sem
+medição ao lado e sem marca de que não foi medida.
+
+### O que isto NÃO é
+
+**Não é exigência de teste para toda docstring.** A regra alcança só frase que
+afirma resultado de medição — *"nenhum caso produz X"*, *"o custo é N
+segundos"*, *"isto dispara zero vezes hoje"*. Prosa explicativa, justificativa de
+desenho e contexto histórico continuam livres.
+
+### Dois itens de método que a mesma rodada gerou, e que são meus
+
+- **[BL-412] "Contar na fonte" é disciplina.** Eu contei e publiquei *"11 de 11
+  pulados, 24 s"*, e estava certo e **incompleto**: faltou **contar a fonte
+  inteira** — na mesma revisão havia uma segunda execução de CI, de
+  `pull_request`, com 0 pulados e 63 s. A versão-mecanismo é barata: o número é
+  **buscado** pelo script que monta o relatório, que itera **todas** as
+  execuções e **recusa publicar** se a busca falhar.
+- **[BL-413] Conferência por contagem prova cardinalidade, não conteúdo.** A
+  correção do BL-388 tem a mesma forma do `assert == 3` que eu mesmo corrigi:
+  seis linhas iguais passam, identificador trocado passa. A propriedade certa é
+  *"cada item que eu afirmo ter registrado é localizável no arquivo gravado pelo
+  seu próprio identificador"* — comparar **conjuntos**, não números.
