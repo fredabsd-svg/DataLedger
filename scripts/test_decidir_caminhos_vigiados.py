@@ -17,11 +17,10 @@ mais os testes unitários das funções puras (`sha_valida`,
 Cada teste usa `tmp_path` (descartado pelo próprio `pytest` ao fim) —
 NUNCA a árvore deste projeto (BL-311)."""
 
-import fnmatch
 import pkgutil
+import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -288,72 +287,94 @@ def _escondidos_pelo_job_de_ci(arquivos_versionados):
 
 
 def _escondidos_pelo_ruff(raiz, arquivos_versionados):
-    """`tool.ruff.extend-exclude`, lida do `pyproject.toml` EM TEMPO DE
-    TESTE (`tomllib`, biblioteca padrão desde o 3.11 — nenhuma dependência
-    nova) — nunca copiada para uma constante aqui, para um padrão novo
-    acrescentado lá aparecer aqui automaticamente, sem editar dois lugares.
+    """PERGUNTA ao `ruff` de verdade o que ele enxerga — nunca deduz lendo
+    configuração e reimplementando o resolvedor de exclusão.
 
-    **BL-417 (achado desta correção, registrado pelo arquiteto-senior) —
-    LIMITE DECLARADO sobre qual matcher usar.** `decidir_caminhos_
-    vigiados.padrao_para_regex` implementa a semântica do `paths:` do
-    GitHub Actions, em que `*` NÃO cruza `/`. O glob do `ruff` CRUZA.
-    MEDIDO, não presumido — os dois comandos que provam a diferença:
+    **BL-418 (achado do arquiteto-senior, e é o mesmo eixo da DE-057 um
+    nível abaixo).** Até esta correção, esta função lia `tool.ruff.
+    extend-exclude` do `pyproject.toml` (`tomllib`) e reimplementava o
+    glob do `ruff` com `fnmatch.fnmatch` (BL-417, ver histórico abaixo).
+    MEDIDO pelo arquiteto: acrescentar a chave IRMÃ `exclude` (que SOMA a
+    `extend-exclude`, não a substitui) na mesma tabela `[tool.ruff]` — sem
+    tocar `extend-exclude` — escondia `ferramentas/velho.py` (4 erros
+    reais) do `ruff check .` (`All checks passed!`) enquanto este teste,
+    que só sabia ler UMA das chaves, continuava `31 passed`. E o próximo
+    item da MESMA lista já é conhecido sem precisar medir: `ruff.toml`/
+    `.ruff.toml` na raiz SUBSTITUEM o `[tool.ruff]` do `pyproject.toml`
+    inteiro; `respect-gitignore`; configuração por subdiretório. Cada um
+    exigiria uma nova função de leitura e um novo "limite declarado" —
+    exatamente o padrão que a DE-057 já cortou uma vez, na fatia 2 da
+    DL-028: o motor de cascata CSS simulava o navegador em vez de abrir um
+    Chromium de verdade, e cada propriedade nova (`clip-path`,
+    `content-visibility`, pseudo-classe) virava um limite declarado novo,
+    até a correção certa ser PERGUNTAR ao motor de layout real. Aqui é o
+    MESMO eixo, um nível abaixo: em vez de reimplementar "o que o `ruff`
+    esconde" lendo arquivo de configuração, PERGUNTAMOS ao `ruff`.
 
-    ```
-    >>> import decidir_caminhos_vigiados as d
-    >>> p = d.padrao_para_regex("*/migrations/*")
-    >>> bool(p.match("apps/contabilidade/migrations/0001_initial.py"))
-    False
-    ```
-    ```
-    $ ruff check --show-files . | grep -c migrations/
-    0
-    ```
-    O `ruff` real EXCLUI o arquivo (`--show-files` não o lista); o
-    conversor de `paths:` do GitHub diz que o padrão NÃO bate nele. Usar
-    `padrao_para_regex`/`bate` aqui faria este teste MENTIR para o lado de
-    DEIXAR PASSAR — o pior dos dois lados (um arquivo realmente escondido
-    do `ruff` apareceria como "não escondido", e não seria checado nem
-    contra a lista segura nem contra o reconhecimento do Django). Por
-    isso esta função usa `fnmatch.fnmatch` (biblioteca padrão), que
-    trata `*` como "qualquer coisa, inclusive `/`" — mais perto do glob
-    real de exclusão de arquivos que ferramentas como o `ruff` usam.
+    **A derivação, sem lista nenhuma:** todo arquivo de código VERSIONADO
+    (`.py`/`.pyi`/`.ipynb` — as extensões que o `ruff` considera por
+    padrão) que NÃO aparece em `ruff check --show-files .` está escondido
+    — não importa POR QUE (`exclude`, `extend-exclude`, `ruff.toml`
+    substituindo tudo, `.gitignore`, uma opção que a próxima versão do
+    `ruff` inventar). Isso fecha a CLASSE, não o caso do `extend-exclude`
+    — é a resposta à objeção do arquiteto: "não vou comprar o quarto item
+    da mesma lista".
 
-    **E esta equivalência foi medida NESTA ÁRVORE, NESTA DATA, com ESTE
-    comando — não é uma afirmação de que `fnmatch` é equivalente ao
-    `ruff` em geral** (foi precisamente uma afirmação sem essa ressalva,
-    sobre o LIMIAR_LUMINANCIA_TINTA, que virou o achado K4 da décima
-    auditoria — não repetir a classe aqui):
+    **Custo medido (a objeção real a abrir um subprocesso por execução):**
+    ver a docstring do teste principal, abaixo, para o número antes/depois
+    — aqui só a decisão de design: um subprocesso por chamada desta
+    função (uma vez por execução do teste) é aceitável porque substitui
+    UMA leitura de arquivo mais um loop em memória (o que a versão
+    anterior fazia) por UMA chamada de processo — não é um subprocesso
+    por ARQUIVO.
 
-    ```
-    $ python3 -c "
-    import subprocess, fnmatch, tomllib, os
-    raiz = os.getcwd()
-    cfg = tomllib.load(open('pyproject.toml', 'rb'))
-    patterns = cfg['tool']['ruff']['extend-exclude']
-    r = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True)
-    arquivos = r.stdout.splitlines()
-    py = [a for a in arquivos if a.endswith(('.py', '.pyi', '.ipynb'))]
-    previsto = {a for a in py if any(fnmatch.fnmatch(a, p) for p in patterns)}
-    r2 = subprocess.run(
-        ['ruff', 'check', '--show-files', '.'], capture_output=True, text=True, check=True)
-    mostrados_rel = {os.path.relpath(l, raiz) for l in r2.stdout.splitlines() if l}
-    real = {a for a in py if a not in mostrados_rel}
-    print('diferenca:', previsto ^ real, 'total py:', len(py), 'excluidos:', len(previsto))
-    "
-    diferenca: set() total py: 217 excluidos: 22
-    ```
-    Diferença simétrica vazia entre "o que `fnmatch` prevê" e "o que o
-    `ruff` de fato mostra" — hoje, nesta árvore, para os padrões que
-    existem hoje (`*/migrations/*`, `docs/**`). Se um padrão futuro usar
-    uma sintaxe de glob que `fnmatch` não cobre (classes de caractere
-    `[...]`, por exemplo — o `ruff` aceita, `fnmatch` também aceita mas
-    com semântica ligeiramente diferente de `!` em classe), esta função
-    precisa ser remedida, não presumida corrigida."""
-    with open(raiz / "pyproject.toml", "rb") as arquivo_toml:
-        configuracao = tomllib.load(arquivo_toml)
-    padroes = configuracao["tool"]["ruff"]["extend-exclude"]
-    return {a for a in arquivos_versionados if any(fnmatch.fnmatch(a, p) for p in padroes)}
+    **`ruff` ausente no ambiente — decisão explícita, nunca silêncio
+    (BL-375: diferencial que vira no-op na CI é o MESMO defeito de
+    inversão de lado seguro que já custou uma auditoria inteira aqui).**
+    Se `shutil.which("ruff")` não encontrar o binário, este teste PULA
+    (`pytest.skip`) com o motivo nomeado — nunca passa calado tratando
+    "não consegui perguntar" como "a resposta é vazia". `ruff` é
+    dependência de desenvolvimento (`requirements/dev.txt`) e a CI sempre
+    o instala antes de rodar o `pytest` (mesmo job, passo anterior) — o
+    `skip` é para bancada sem o `requirements/dev.txt` instalado, nunca
+    esperado na integração contínua.
+
+    **Histórico (BL-417, não mecanismo vivo mais):** a versão anterior
+    media que `decidir_caminhos_vigiados.padrao_para_regex` (semântica do
+    `paths:` do GitHub Actions, onde `*` não cruza `/`) NÃO reproduzia o
+    `ruff` real para `*/migrations/*`, e usava `fnmatch.fnmatch` como
+    matcher mais fiel — medido equivalente, NESTA árvore, NESTA data,
+    contra `ruff check --show-files .`. Essa medição e o comentário
+    completo ficam preservados no histórico do Git (commit `40d8329`);
+    esta função não lê mais configuração nenhuma, então o matcher deixou
+    de existir para ela — não há mais "qual glob simular", porque não há
+    mais simulação."""
+    if shutil.which("ruff") is None:
+        pytest.skip(
+            "ruff não está instalado neste ambiente (shutil.which('ruff') "
+            "devolveu None) — este teste PERGUNTA à ferramenta o que ela "
+            "esconde (nunca deduz lendo pyproject.toml/ruff.toml), então sem "
+            "o binário não há a quem perguntar. Pular com motivo nomeado, "
+            "nunca passar em silêncio (BL-375). Instale via "
+            "requirements/dev.txt antes de rodar esta suíte."
+        )
+
+    codigo_que_o_ruff_poderia_ver = {
+        a for a in arquivos_versionados if a.endswith((".py", ".pyi", ".ipynb"))
+    }
+    resultado = subprocess.run(
+        ["ruff", "check", "--show-files", "."],
+        cwd=raiz,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    visto_pelo_ruff = {
+        str(Path(linha).resolve().relative_to(raiz))
+        for linha in resultado.stdout.splitlines()
+        if linha
+    }
+    return codigo_que_o_ruff_poderia_ver - visto_pelo_ruff
 
 
 def _migracoes_reconhecidas_pelo_django(raiz):
@@ -430,26 +451,33 @@ def _migracoes_reconhecidas_pelo_django(raiz):
 
 
 def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
-    """BL-409/K6 (décima auditoria) → BL-415 (achado do arquiteto: extensão
-    é lista aberta, corrigido invertendo para `EXTENSOES_SEGURAS_PARA_
-    FICAR_INVISIVEIS`) → **BL-416 (achado do arquiteto na integração do
-    BL-415): o teste só olhava UMA das DUAS listas que a própria décima
-    auditoria (K5) nomeou** — `CAMINHOS_NAO_RELEVANTES` (o job de CI) e
-    `tool.ruff.extend-exclude` (o `ruff`, `pyproject.toml`). MEDIDO pelo
-    arquiteto: um `ferramentas/velho.py` com 4 erros reais de `ruff`,
-    escondido só pelo `extend-exclude` (nunca por `CAMINHOS_NAO_
-    RELEVANTES`), passava com a suíte inteira verde — a MESMA classe do
-    K5 original ("as duas listas erram junto porque nenhuma sabe da
-    outra"), agora reproduzida na própria guarda que existia para fechar
-    o K5.
+    """BL-409/K6 (décima auditoria) → BL-415 (extensão é lista aberta,
+    corrigido com `EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS`) → BL-416/417
+    (o teste só olhava UMA das duas listas do K5; a correção uniu
+    `CAMINHOS_NAO_RELEVANTES` com `tool.ruff.extend-exclude`, lida e
+    reimplementada com `fnmatch`) → **BL-418 (achado do arquiteto-senior,
+    e o mesmo eixo da DE-057 um nível abaixo): a correção do BL-416 ainda
+    ERA uma lista — não de extensão, de CHAVE de configuração.** MEDIDO
+    pelo arquiteto: acrescentar `exclude = ["ferramentas/**"]` na MESMA
+    tabela `[tool.ruff]`, ao lado (nunca substituindo) de `extend-exclude`
+    — chave IRMÃ que soma, não a mesma — voltava a esconder `ferramentas/
+    velho.py` (4 erros reais) do `ruff check .`, com este teste (que só
+    sabia ler `extend-exclude`) `31 passed`. E o item seguinte já era
+    conhecido sem precisar medir: `ruff.toml`/`.ruff.toml` na raiz
+    SUBSTITUEM o `[tool.ruff]` inteiro do `pyproject.toml`;
+    `respect-gitignore`; configuração por subdiretório — cada um exigiria
+    uma função de leitura nova e um limite declarado novo.
 
-    **A correção: o universo de "escondido" vira a UNIÃO das duas fontes,
-    lida de onde cada uma mora** (`_escondidos_pelo_job_de_ci` e
-    `_escondidos_pelo_ruff`, acima — cada função com o MATCHER que a sua
-    fonte realmente usa; ver BL-417 na docstring de `_escondidos_pelo_
-    ruff` sobre por que os dois matchers são DIFERENTES de propósito, não
-    por descuido). Extensão nova em QUALQUER uma das duas listas passa a
-    ser visível a este teste.
+    **A correção fecha a CLASSE, não o caso: pergunta ao `ruff`, não
+    deduz da configuração dele** (`_escondidos_pelo_ruff`, acima — a
+    docstring de lá tem a medição completa, o custo e o comportamento
+    para `ruff` ausente). `fnmatch` e a leitura de `tomllib` SAÍRAM desta
+    função; o matcher do BL-417 vira história no comentário — deixou de
+    existir mecanismo para simular, porque não há mais simulação. O
+    universo de "escondido" continua sendo a UNIÃO — só que agora um dos
+    dois lados é medido de verdade (`ruff check --show-files .`) e o
+    outro continua lido da fonte (`CAMINHOS_NAO_RELEVANTES`, que É nosso
+    código — perguntar à fonte, ali, já é o `import`).
 
     **A categoria "migração" (BL-416, decisão do arquiteto-senior) — e por
     que ela NÃO é "é `.py` sob uma pasta `migrations/`".** O motivo de
@@ -489,44 +517,83 @@ def test_caminhos_nao_relevantes_so_esconde_prosa_e_imagem_conhecida():
     `EXTENSOES_SEGURAS_PARA_FICAR_INVISIVEIS` continua tratando arquivo
     fora de pasta `migrations/` exatamente como antes (o `docs/ferramentas/
     {rodar_medicao.sh,medir.ps1,sonda.js}` do BL-415 continua reprovando —
-    critério 2 da rodada). E, contra a árvore real, sem sabotagem nenhuma:
-    a união dá **180** arquivos escondidos (158 pelo job de CI + os 22 que
-    só o `ruff` esconde, todas as migrações), **zero ofensores** — os 22
-    candidatos de `migrations/` batem exatamente com os 16 que o Django
-    reconhece mais os 6 `__init__.py` dispensados à parte (16 + 6 = 22).
+    critério 3 da rodada do BL-418; e o `"ferramentas/**"` no
+    `extend-exclude`, do BL-416, critério 2). E, contra a árvore real, sem
+    sabotagem nenhuma: `git ls-files` dá **217** arquivos `.py`/`.pyi`/
+    `.ipynb`; `ruff check --show-files .` mostra **196** linhas — mas
+    ATENÇÃO, `217 - 196` não é a conta certa por subtração direta: o
+    `ruff` também lista `pyproject.toml` em `--show-files` (não é
+    `.py`/`.pyi`/`.ipynb`, fora do nosso universo de código), então a
+    DIFERENÇA DE CONJUNTOS (a operação que o código faz, nunca a
+    aritmética dos dois totais publicados) é o número correto: **22**
+    arquivos de código escondidos só pelo `ruff` — todas as migrações. A
+    união com o job de CI dá **180** arquivos escondidos (158 pelo job de
+    CI + os 22 do `ruff`), **zero ofensores** — os 22 candidatos de
+    `migrations/` batem exatamente com os 16 que o Django reconhece mais
+    os 6 `__init__.py` dispensados à parte (16 + 6 = 22).
 
-    **DE-056 (R5), de novo — fontes de invisibilidade que ESTE teste ainda
-    NÃO lê, medidas, não deduzidas:**
+    **Custo medido (a objeção do arquiteto à ideia de abrir um
+    subprocesso por execução).** `ruff check --show-files .` sozinho:
+    `real 0m0.011s` (`time`). A suíte deste arquivo inteira (31 testes),
+    três execuções ANTES desta correção (versão `fnmatch`/`tomllib`,
+    sem subprocesso): `0.35s`, `0.37s`, `0.39s`. Três execuções DEPOIS
+    (com o subprocesso do `ruff`): `0.37s`, `0.37s`, `0.33s`. Sem
+    diferença que se distinga do ruído de medição — o `ruff` é escrito em
+    Rust e o `--show-files` não faz o lint completo, só a resolução de
+    arquivos; o custo de abrir UM subprocesso por EXECUÇÃO do teste
+    (nunca por arquivo) é desprezível perto do resto da suíte (a suíte
+    INTEIRA do projeto leva dezenas de segundos por causa do Django/
+    Postgres, não deste teste).
 
-    1. **`exclude` padrão do `ruff`** (diferente de `extend-exclude`,
-       substitui em vez de somar se alguém o declarar). MEDIDO: o projeto
-       não declara `exclude` próprio — só o embutido do `ruff`
-       (`.git`, `.venv`, `node_modules`, `dist`, etc., 25 entradas,
-       `ruff check --show-settings . | grep -A25 "file_resolver.exclude ="`),
-       e **zero** arquivos versionados caem nele hoje (`git ls-files` sem
-       nenhum componente de caminho batendo a lista). Limite declarado:
-       se este projeto um dia declarar `[tool.ruff] exclude = [...]`
-       PRÓPRIO (não o embutido), este teste não o vê.
-    2. **`per-file-ignores`** (`[tool.ruff.lint.per-file-ignores]`).
-       MEDIDO: `grep -n "per-file-ignores" pyproject.toml` não bate —
-       não existe hoje. Se existir um dia, ele desliga REGRA por arquivo
-       (não o arquivo inteiro), e este teste não olha para essa chave.
-    3. **`# noqa` em linha.** MEDIDO: `grep -rn "# noqa" --include="*.py" .`
-       (fora `.venv`) dá **15** ocorrências, e as 15 têm código específico
-       (`# noqa: E402`, `# noqa: BLE001`, `# noqa: F401`) — nenhuma
-       silencia a linha inteira sem nomear a regra. Este teste não
-       verifica NENHUMA delas: um `# noqa` sem código, ou um código que
-       desligue justo a regra que pegaria um problema real, passa batido.
-    4. **`testpaths`/`norecursedirs` do `pytest`.** MEDIDO:
-       `[tool.pytest.ini_options]` não declara nenhum dos dois — o pytest
-       usa os padrões dele (coleta a partir do rootdir, com o
-       `norecursedirs` embutido). Se um dia alguém declarar `testpaths`
-       restrito, um `test_*.py` fora dele para de rodar em silêncio, e
-       este teste — que É um desses arquivos — não teria como se
-       autodenunciar.
+    **`ruff` ausente no ambiente:** `pytest.skip`, com o motivo nomeado
+    (ver `_escondidos_pelo_ruff`) — nunca passa em silêncio. `ruff` é
+    dependência de desenvolvimento (`requirements/dev.txt`) e a CI
+    sempre a instala antes do `pytest` no MESMO job (`backend.yml`),
+    então o `skip` só deveria acontecer em bancada sem `requirements/
+    dev.txt` instalado — nunca esperado na integração contínua.
 
-    Não fechei nenhuma das quatro nesta rodada — são limite declarado,
-    não lista de pendência silenciosa."""
+    **DE-056 (R5), de novo — e a natureza das respostas MUDOU**, como o
+    arquiteto previu: as quatro fontes anteriores eram todas sobre "ler a
+    configuração do `ruff`" e SOMEM com esta correção (perguntar à
+    ferramenta fecha `exclude`, `extend-exclude`, `ruff.toml`/`.ruff.toml`
+    substituindo tudo, `respect-gitignore`, configuração por subdiretório
+    — nenhuma lista nossa nomeia mais nada disso). O que sobra é de OUTRA
+    natureza — dentro de um arquivo que o `ruff` EXAMINA, ou fora do
+    `ruff` por completo:
+
+    1. **`per-file-ignores` e `# noqa` em linha — mesma classe, e ela NÃO
+       é sobre configuração lida.** MEDIDO de novo (nada mudou no
+       repositório): `grep -n "per-file-ignores" pyproject.toml` não bate
+       (não existe hoje); `grep -rn "# noqa" --include="*.py" .` (fora
+       `.venv`) dá **15** ocorrências, todas com código específico
+       (`E402`, `BLE001`, `F401`) — nenhuma silencia a linha inteira. Mas
+       o motivo de ficarem fora **mudou**: não é mais "não lemos essa
+       chave" — é que a derivação deste teste responde SÓ "o `ruff`
+       EXAMINA este arquivo?" (binário), nunca "toda regra aplicável
+       está ATIVA nele?". Um arquivo aparece em `--show-files`
+       (visível, não-ofensor) e ainda assim ter uma regra real desligada
+       por dentro — `per-file-ignores` ou `# noqa` — sem que a visão
+       binária "visto/não visto" tenha como saber. É um limite da FORMA
+       da pergunta, não da fonte da resposta.
+    2. **O lado do `pytest` ("o que ninguém executa")** — que o arquiteto
+       pediu para eu MEDIR e DECLARAR, não fechar. MEDIDO:
+       `[tool.pytest.ini_options]` não declara `testpaths` nem
+       `norecursedirs`; `conftest.py` não tem `collect_ignore` nem
+       `pytest_ignore_collect`; nenhum `addopts`. Hoje, nada restringe a
+       coleta. Mas ESTE teste é, ele mesmo, um `test_*.py` — se algum dia
+       alguém declarar `testpaths` restrito (ou um `collect_ignore` em
+       `conftest.py`), ESTE arquivo pode parar de ser coletado, e a
+       suíte fica silenciosamente MENOR (menos itens coletados, sem
+       nenhum vermelho) — a guarda desaparece em vez de reprovar. Não
+       fechei isto (é decisão do arquiteto-senior e do Fred, não minha).
+    3. **O lado do job — declarado, não medido de novo por mim** (não
+       tenho acesso à API do GitHub, e não é meu papel medir de novo o
+       que já está medido): este teste pode deixar o job `Backend`
+       vermelho, mas `AGENTS.md` já registra, com fonte (achado J2 da
+       nona auditoria, `docs/auditorias/2026-09-19-dl-026-dl-028-rodada-
+       9.md`), que a `main` **não tem proteção de branch** — um job
+       vermelho não impede merge hoje. Cito a fonte em vez de reafirmar
+       sem medir (a lição do K4)."""
     raiz = Path(__file__).resolve().parents[1]
     arquivos_versionados = _arquivos_versionados(raiz)
 
