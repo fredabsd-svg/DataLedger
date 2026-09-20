@@ -268,9 +268,17 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-19:
-[DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento.**
+**AGORA, em 2026-09-20:
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
+e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
+desenvolvimento, com uma DECISÃO MATERIAL no colo do Fred.**
+
+➡️ **Leia primeiro a seção "A décima auditoria" mais abaixo.** A rodada 13 está
+integrada em `240fb0d` (PR #38); a décima auditoria **REPROVOU**, com um
+bloqueador (**BL-404**) e quatro altas; e o auditor recomenda **não comprar a
+rodada 11 de correção achado a achado**, mas sim uma frase executável para o
+critério 9 inteiro (**BL-414**) — ou declarar, como a DE-054 permite, **produto
+bom, garantia parcial**. **Não decida isso sozinho: é do Fred.**
 
 **A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
 etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o
@@ -613,6 +621,97 @@ trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
 da contabilidade, começa antes de BL-351 e BL-352 estarem corrigidos. Custa uma
 rodada; a alternativa era apostar em disciplina, que é justamente o que
 decidimos não fazer quando criamos as proteções.
+
+### A rodada 13 está integrada em `240fb0d`, PR #38
+
+Fechou **BL-372**, **BL-374**, **BL-375**, **BL-376**, **BL-377**, **BL-378**,
+**BL-379**, **BL-381**, **BL-382** e **BL-385**. A correção central é o **oráculo
+do pixel**: `pdftotext -bbox` para achar onde a linha do timbre realmente está na
+folha, `pdftoppm -gray` para rasterizar, e contagem de pixels escuros na faixa.
+Não pergunta mais *"o CSS diz que está visível?"* nem *"o texto está no PDF?"* —
+pergunta **se há tinta no papel**.
+
+O job de navegador foi **verificado por disparo real**, não por leitura de YAML:
+caminho longo 54 s (medição em 4 s), caminho curto 24 s com 11 de 11 passos
+pulados. Suíte: **1975 passed, 15 skipped**; lint, formatação e `manage.py check`
+limpos.
+
+### A décima auditoria REPROVOU, e trouxe uma decisão de CUSTO para o Fred
+
+Relatório integral em
+[2026-09-20-dl-026-dl-028-rodada-10.md](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md).
+**Preservado sem uma palavra minha.**
+
+**[BL-404](../projeto/backlog.md) — BLOQUEADOR, e é a décima segunda ocorrência
+da classe da etapa.** `MARCA_DO_FORNECEDOR = "DataLedger"` é uma **lista de um
+item**, a quinze linhas do topo do instrumento novo — a mesma forma de
+`_PROPRIEDADES_DE_INTERESSE = ("display",)` que reprovou a rodada 8. É comparação
+**literal e sensível a caixa** sobre o texto do PDF, então
+`Relatorio gerado por DATALEDGER - dataledger.com.br` sai impresso em preto no
+Balancete que o escritório entrega ao cliente, com `1975 passed` **e** com o job
+de navegador dizendo `PASSOU`.
+
+⚠️ **A assimetria estava à vista e ninguém a discutiu:** a metade *"o escritório
+entra no papel"* ganhou um oráculo de **pixel**; a metade *"o fornecedor sai do
+papel"* continuou uma **busca de substring**. A própria docstring do arquivo diz
+que as duas metades *"só se provam JUNTAS"*.
+
+**Mais quatro ALTAS, três delas dentro do instrumento:** **BL-405** (o oráculo
+ancora por **texto**, então mede a tinta do primeiro texto igual da folha, não a
+do timbre — 820 → 384 px; e a **DL-027** é literalmente a etapa que vai repetir
+esse texto), **BL-406** (tela nova com timbre em rota que peça outro parâmetro
+**nunca é medida**, e o job fica verde), **BL-407** (`opacity: 0.4` — timbre
+perfeitamente legível — mede **zero** e reprova, e a justificativa escrita no
+código é **falsificada por medição**) e **BL-408** (`docs/**` esconde 789 linhas
+de Python executável do `ruff`, do `pytest` **e** do job — o defeito que o BL-379
+existia para fechar, no arquivo de que a correção depende). **BL-409** a
+**BL-411** são ressalvas com dono.
+
+**O auditor retirou uma afirmação própria, medindo-a.** Ele havia escrito na
+rodada 9 que *"tem tinta escura na faixa onde o timbre deveria estar"* não tem
+eixo ao lado. Tem três — **onde** é a faixa, **o que** é tinta, **em qual folha**
+— mais o quarto, que é o pior: **o oráculo cobre metade do critério**. A lição
+que ele tira contra si mesmo: *"eu nomeei o **oráculo** e não o **requisito**.
+Oráculo para metade de um requisito gera rodada para sempre."*
+
+**E ele julgou o meu método.** *"Contar na fonte"* continua sendo **disciplina**,
+e a prova é contra a minha própria correção do BL-380: eu contei na fonte e
+publiquei *"11 de 11 pulados, 24 s"* — certo e **incompleto**, porque na mesma
+revisão havia uma segunda execução, de `pull_request`, com **0 pulados e 63 s**
+(**BL-411**, **BL-412**). E a correção do BL-388 é *"suficiente para o caso,
+insuficiente para a classe"*: conferência por **contagem** prova cardinalidade,
+não conteúdo — tem de comparar **conjuntos de identificadores** (**BL-413**).
+
+#### ⚠️ A decisão que está com o Fred, e é de custo, não de engenharia
+
+O auditor **não recomenda mais uma rodada desta forma**, e diz por que medindo:
+*"o produto está certo em tudo que eu consegui medir, de novo, pela quarta rodada
+seguida; o que se poliu foi a **garantia**; e a garantia continua descrita por uma
+lista de achados em vez de por um enunciado do critério … se a rodada 11 for
+escrita contra os meus K1–K4, eu prevejo K12 na rodada 11."*
+
+As duas saídas que ele põe na mesa estão registradas em **BL-414**:
+
+1. **Comprar uma frase executável** para o critério 9 inteiro, escrita **uma
+   vez**, e fazer o instrumento ser julgado por ela — os quatro achados caem
+   juntos porque todos são consequência de a frase não existir.
+2. **Não declarar DL-026 e DL-028 fechadas** e sim declarar, como a
+   [DE-054](../projeto/decisoes.md) já permite, **produto bom, garantia
+   parcial**, com BL-404 nomeado como o buraco aberto. *"Isso custa zero e é
+   verdadeiro. O que não é defensável é fechar dizendo que o critério 9 está
+   garantido."*
+
+**O que ele reafirma, e não pode se perder na reprovação:** os números declarados
+**conferem um a um**; o controle limpo mede **348** px contra piso de **40**
+(razão 8,7×) e toda sabotagem que apaga tinta mede **zero**; quebra de linha do
+timbre, fonte de 1 px e de 3 px **não** passam; a camada barata pegou o que é
+dela (12 e 17 reprovações nas duas sabotagens dele). **A tese do caminho A está
+confirmada pela segunda rodada seguida, e ele não recomenda revertê-la.** O que
+não está funcionando é o **processo de fechamento**, não o instrumento.
+
+**E o BL-373 segue aberto, reconferido hoje nos três endpoints:** a `main`
+continua **sem proteção**. Enquanto essa ação do Fred não for feita, tudo nesta
+auditoria — inclusive o job novo — é **conselho**.
 
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 
