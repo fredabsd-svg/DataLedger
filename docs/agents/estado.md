@@ -443,9 +443,30 @@ guarda —, mas guarda o que nenhum outro cobre: que a corrida natural não prod
 exceção inesperada, deadlock nem estado inconsistente. **Guarda de robustez é
 guarda; guarda mal nomeada é armadilha.**
 
-**Próximo passo:** a **fatia 2 — a tela** ([DE-065](../projeto/decisoes.md)),
-levando junto BL-463 a BL-468. Hoje o contador **não consegue fechar o mês**: a
-trava existe e não há porta.
+#### A FATIA 2 ESTÁ ABERTA: [DL-031](../planos/DL-031-fatia-2-a-tela-do-fechamento.md) — a tela do fechamento
+
+**Autorizada pelo Fred em 2026-09-20** — *"pode abrir a fatia 2"*. Paga a dívida
+que a ordem "trava antes do botão" criou de propósito
+([DE-065](../projeto/decisoes.md)): **hoje o contador não consegue fechar o
+mês**, porque a trava existe e não há porta.
+
+⚠️ **É a primeira etapa classificada NÍVEL 2** pela §3.1 — plano de **uma
+página**, **sem auditoria completa de etapa**, verificação dirigida aos oito
+critérios por `auxiliar-verificacao`. **E o nível 2 é legítimo aqui, não
+conveniência:** fechar, reabrir, entregar e recusar lançamento em mês encerrado
+são decididos **no serviço**, já medidos sob concorrência real na fatia 1.
+Nenhuma regra contábil mora na tela. Tela errada impede operar; **não** grava
+livro errado.
+
+**O momento da verdade da tela**, escrito antes de desenhar como o §3 da
+[direção de arte](../projeto/direcao-de-arte.md) exige: *"o que eu estou prestes
+a congelar está conferido, e eu sei o que deixo de poder fazer depois"*.
+Arquétipos **D** (painel de período) e **E** (assistente com etapas).
+
+**Duas frentes em paralelo, com arquivos disjuntos:** o `especialista-frontend`
+na tela (`templates/**`, `views_web.py`, `urls_web.py`) e o
+`desenvolvedor-pleno` nas ressalvas da fatia 1 (`services.py`, `models.py`,
+`config/settings.py`) — **BL-463 a BL-468**.
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
