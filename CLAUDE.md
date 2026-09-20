@@ -24,6 +24,7 @@ caso de conflito. Este documento é apenas o resumo operacional.
 | [docs/projeto/direcao-de-arte.md](docs/projeto/direcao-de-arte.md) | **Contrato visual do produto.** Obrigatório antes de criar tela de módulo novo (Fiscal, Folha, Honorários, Paralegal, Lalur) ou acrescentar tela às existentes. |
 | [docs/projeto/mapa-funcional-contabil.md](docs/projeto/mapa-funcional-contabil.md) | Capacidades da contabilidade, cruzamento honesto com o código e o que **não** copiar. |
 | [docs/projeto/personalizacao-de-relatorio.md](docs/projeto/personalizacao-de-relatorio.md) | As **três classes de documento** (conferência, demonstração, livro) e o que cada norma fixa. **Leia antes de mexer em qualquer relatório imprimível**, de qualquer módulo. |
+| [docs/projeto/catalogo-de-relatorios.md](docs/projeto/catalogo-de-relatorios.md) | Os 120 relatórios do catálogo cruzados com o que o produto atende **hoje**, medido. Traz a **cadeia** de onde todo relatório sai — e a conclusão de que **80 dos 120 são módulos que faltam, não relatórios**. **Leia antes de prometer relatório novo.** |
 | [docs/planos/](docs/planos/) | Plano versionado de cada demanda `DL-xxx`. |
 | [docs/auditorias/](docs/auditorias/) | Relatórios de auditoria efetivamente realizados. |
 

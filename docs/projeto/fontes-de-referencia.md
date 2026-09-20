@@ -73,6 +73,35 @@ planejar o módulo correspondente:
 provavelmente também. Serve como mapa de **capacidades**, nunca como fonte de
 **regra tributária vigente**.
 
+## 1.1 Catálogo de 120 relatórios contábeis, entregue pelo Fred em 2026-09-20
+
+Manual técnico-funcional, edição de **20/09/2026**, com 120 tipos de relatório
+em 10 grupos. **Não está no repositório** e não deve entrar, como todo material
+de terceiro. A análise dele contra o nosso código está em
+[catalogo-de-relatorios.md](catalogo-de-relatorios.md).
+
+⚠️ **Classifique-o certo, porque ele é melhor que um manual de concorrente e
+ainda assim NÃO é norma.** Ele **cita** as fontes oficiais corretas (Lei
+6.404/76, CPC, NBC, SPED, eSocial, FGTS Digital) com endereço, o que o torna um
+bom **índice para chegar à fonte**. Mas o próprio documento declara, no fecho,
+que **não é leiaute oficial de nenhuma obrigação nem opinião profissional**, e
+alerta na abertura que *"não existe uma lista oficial de '120 demonstrações
+obrigatórias'"* e que a obrigatoriedade **depende da entidade, do porte, do setor
+e do exercício**.
+
+| Serve para | Não serve para |
+| --- | --- |
+| Escopo: que relatórios existem, e o que cada um mostra | Item, vigência, prazo, alíquota ou leiaute |
+| Rotina: de onde vêm os dados, o que se confere | Fundamentar comportamento do produto |
+| **Índice** para achar a fonte oficial certa | Substituir a consulta a essa fonte |
+
+**O que eu tirei dele e vale mais que a lista** é uma frase de **arquitetura**:
+os 120 relatórios saem de **uma** cadeia (transações → lançamentos e plano de
+contas → Diário e Razão → **saldos e conciliações** → demonstrações e
+indicadores), e *"não são necessárias 120 bases de dados independentes"*. Isso
+mudou a pergunta que eu havia levado ao Fred — ver §1 do
+[catalogo-de-relatorios.md](catalogo-de-relatorios.md).
+
 ## 2. Pesquisa na internet — técnica indicada pelo Fred
 
 > Para dúvida sobre o sistema de referência ou sobre a rotina do domínio,
