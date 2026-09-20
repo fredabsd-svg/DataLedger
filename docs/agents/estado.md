@@ -786,12 +786,48 @@ Actions, onde `*` não cruza `/`), enquanto o `ruff` **exclui** o arquivo
 errado faria o teste **mentir para o lado de deixar passar**. Ele mediu **antes
 de escrever**, e por isso o erro nunca entrou no código.
 
-⚠️ **Leia isto junto com a PE-56.** Em uma tarde, a mesma lição apareceu **duas**
-vezes seguidas, nos dois casos numa guarda escrita **para fechar a ocorrência
+⚠️ **Leia isto junto com a PE-56.** Em uma tarde, a mesma lição apareceu **três**
+vezes seguidas, nos três casos numa guarda escrita **para fechar a ocorrência
 anterior**. É o argumento vivo a favor de escrever o critério uma vez, em vez de
 comprar rodada atrás de rodada: *onde a guarda derivou de uma **propriedade**,
 ela aguentou; onde derivou de uma **lista**, o item seguinte apareceu em menos de
 uma hora*.
+
+### O BL-418 é a DE-057 de novo, um nível abaixo — e é onde eu parei de comprar
+
+O BL-416 foi corrigido em `40d8329`, e bem: a união das duas listas está feita, e
+a dispensa da migração é **provada contra o Django** (`MigrationLoader`, isolado
+por arquivo — o implementador mediu que `load_disk()` derrubaria as cinco
+migrações boas junto, e resolveu sem isso).
+
+Aí eu medi de novo. **Sem tocar** no `extend-exclude`, acrescentei a **chave
+irmã**, na mesma tabela `[tool.ruff]` do mesmo arquivo:
+
+```toml
+exclude = ["ferramentas/**"]
+```
+
+com um arquivo versionado de **4 erros reais**. `ruff check .` → `All checks
+passed!`; teste do decisor → `31 passed`. **Décima quinta ocorrência.**
+
+**E aqui eu parei de pedir "leia também essa chave".** O quinto item eu já sei
+qual é — `ruff.toml` e `.ruff.toml` na raiz **substituem** o `pyproject.toml`
+inteiro — e o sexto também. O defeito de forma é outro:
+
+> Nós estamos **reimplementando a configuração da ferramenta** para adivinhar o
+> que ela enxerga. É **exatamente** o que o motor de cascata fazia com o
+> navegador, e é por isso que a [DE-057](../projeto/decisoes.md) mandou abrir um
+> Chromium de verdade. Descemos um nível e repetimos o erro.
+
+O `fnmatch`, a questão de matcher do BL-417 e os quatro limites declarados
+existem **todos** só porque estamos simulando o `ruff`.
+
+**A correção é derivar da ferramenta:** *"escondido do `ruff`"* passa a ser o
+código versionado **menos** o que `ruff check --show-files .` devolve — medido
+hoje, **217** `.py` versionados contra **196** vistos. Isso fecha `exclude`,
+`extend-exclude`, `ruff.toml`, `.ruff.toml`, `respect-gitignore` e configuração
+por subdiretório **de uma vez, sem lista nenhuma**. O lado da CI não muda: ali o
+código é nosso, e importar a lista do decisor **é** perguntar à fonte.
 
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 
