@@ -981,6 +981,57 @@ domínio**, nunca como fonte de norma, prazo ou leiaute. Nada dele entra no
 repositório; os requisitos são escritos em nossas palavras.
 
 
+### Síntese: as seis partes leram, e os achados se concentram em quatro regiões
+
+**Quinze itens registrados (BL-389 a BL-403), de 856 páginas.** A parte 5 voltou
+**vazia de achado estrutural**, e isso é resultado, não falha: mostra que o que
+apareceu está **concentrado**, não espalhado.
+
+| Região | Itens | O que está em jogo |
+| --- | --- | --- |
+| **Autorização** | BL-389 | Quem enxerga o quê **dentro** do escritório |
+| **Identidade da conta** | BL-387, BL-390, BL-391, BL-392, BL-395 | Como uma conta é referenciada, classificada e **rastreada no tempo** |
+| **Fronteira da empresa** | BL-399, BL-400, BL-402, PE-55 | Onde o isolamento entre clientes pode — e não pode — ser cruzado |
+| **Forma do documento** | BL-396, BL-397, BL-398 | O que o papel e o arquivo entregues exigem |
+
+### A ordem de ataque, e o critério NÃO é o tamanho
+
+Ordenei por **custo do atraso**, não por esforço. Três faixas:
+
+**Faixa 1 — dado que SE PERDE se ninguém registrar. Não tem conserto depois.**
+
+- **BL-395** (correspondência de conta entre exercícios). Único item da lista cujo
+  custo não é "caro depois": é **impossível depois**. A informação de que a conta
+  X virou a conta Y só existe enquanto alguém a escreve.
+
+**Faixa 2 — decisão que precisa preceder a primeira linha de código da área.**
+
+- **BL-393** (pessoa física entre papéis) — hoje custa uma frase; depois do
+  primeiro cadastro de sócio, custa deduplicação manual registro a registro.
+- **BL-392** (referencial N, na partida) — errar obriga reclassificar
+  retroativamente **lançamento a lançamento**, trabalho que só o contador faz.
+- **BL-399 / PE-55 / BL-402** (fronteira da empresa) — decisão de arquitetura, não
+  de funcionalidade: mexe em toda consulta já escrita.
+- **BL-390** (unicidade condicional) — antes de a classificação virar campo.
+
+**Faixa 3 — registro preventivo, sem implementar nada agora.**
+
+- **BL-391** (classificações paralelas), **BL-398** (Lalur não é partida dobrada),
+  **BL-400** (SCP), **BL-396**, **BL-397**, **BL-394**, **BL-401**, **BL-403**.
+
+⚠️ **O que NÃO está nesta lista, de propósito:** funcionalidade que o outro
+sistema tem e nós não. Isso é infinito, e construir por espelho é como o produto
+vira cópia pior do original. O critério foi **identificador, chave de unicidade,
+invariante, campo obrigatório de documento, ou estrutura que não representa o
+dado** — e só.
+
+### O que a leitura NÃO mudou
+
+**BL-389 é o único item que não veio do manual**: ele veio de comparar o código
+com o **nosso próprio `docs/escopo.md`**, que já exigia permissão por empresa.
+Registro isso porque é o achado mais desconfortável do conjunto — o manual
+serviu de lente para enxergar uma lacuna **nossa**, não uma vantagem alheia.
+
 ### O que a leitura NÃO achou, e por que isso conta
 
 A **parte 5** (demonstrativos configuráveis, gráficos, acompanhamentos,
@@ -1021,6 +1072,10 @@ não ter o problema.
 | BL-399 | **MÉDIA — consolidação entre EMPRESAS distintas é exceção a um invariante de segurança, não uma funcionalidade.** O sistema de referência soma relatórios de empresas diferentes que compartilham o mesmo plano, sem exigir vínculo societário. No DataLedger, `Empresa` é a fronteira de isolamento **repetida em toda consulta, relatório, exportação e tarefa** — é regra permanente do projeto. | `arquiteto-senior` | PE-55 | **aberta — decisão de arquitetura antes de qualquer relatório gerencial** | **A classe é:** (e). Não é campo novo: é **reabrir uma premissa** presente em todo o código. Introduzir depois obriga decidir, consulta por consulta, onde a fronteira pode ser cruzada — e cada esquecimento vira vazamento entre clientes. ⚠️ **Convergência que reforça o item:** duas leituras independentes chegaram no mesmo lugar — esta e a **PE-55** (plano de contas compartilhado). *Pergunta para o Fred*: há clientes em grupo econômico, com CNPJs distintos, que precisam de balancete ou DRE consolidado? |
 | BL-400 | **MÉDIA — SCP é uma partição DENTRO do mesmo CNPJ, e não existe nível de escopo abaixo de `Empresa`.** Na sociedade em conta de participação, o sócio ostensivo tem o CNPJ e a escrituração da SCP convive com a dele. Hoje `Conta`, `LancamentoContabil` e `Competencia` têm `empresa` como **única** chave de escopo. | `arquiteto-senior` | — | **aberta — vira urgente se houver cliente com SCP hoje** | **A classe é:** (e). ⚠️ **O agravante é o nosso próprio desenho:** lançamento efetivado é **imutável** por decisão nossa. Se a partição vier depois de centenas de lançamentos gravados, não dá para reclassificar retroativamente — só por **estorno em massa**, refazendo o trabalho do contador. *Pergunta para o Fred*: algum cliente atendido tem SCP registrada? |
 | BL-401 | **BAIXA — centro de custo se amarra à PARTIDA, não ao lançamento.** Já é item conhecido de escopo (`docs/escopo.md:54`); o que a leitura acrescenta é o **nível**. | `desenvolvedor-pleno` | — | **aberta — ressalva declarada** | **A classe é:** (a). Por partida, duas linhas do mesmo lançamento podem ir a centros diferentes — que é o uso real. Se nascer no lote, corrigir depois é migração de coluna **e** de dado, adivinhando a que item pertencia. *Momento*: quando centros de custo forem priorizados. |
+
+
+| BL-402 | **MÉDIA — o sistema de referência COPIA lançamento de uma empresa para outra, e isso não é conveniência: é fato contábil de uma pessoa jurídica aparecendo no livro de outra.** O utilitário filtra por data, número, conta ou valor e grava os lançamentos na empresa de destino. O DataLedger não tem nada parecido — e `Conta.clean()` (`apps/contabilidade/models.py:239-240, 333-374`) já trata reatribuir empresa como violação. | `arquiteto-senior` | BL-399 | **aberta — e a recomendação é NÃO copiar o comportamento** | **A classe é:** (b)/(c), e é diferente de *copiar cadastro entre empresas*, que o mapa já registra: ali é parâmetro replicado; aqui é **escrituração**. ⚠️ **Se a necessidade existir (rateio em grupo econômico, holding), o desenho certo não é gravar lançamento na empresa alheia — é lançamento de mútuo ou transferência entre as duas contabilidades, cada uma fechando sozinha.** Copiar bruto quebra a personalidade jurídica de cada entidade, e é o tipo de atalho que fica impossível de desfazer depois que os livros foram entregues. *Pergunta para o Fred*: existe hoje, no escritório, a prática de copiar lançamento de um cliente para outro? |
+| BL-403 | **BAIXA — prática barata que vale copiar: importação que RECUSA arquivo de outra empresa.** O sistema de referência aborta a importação quando a empresa identificada no arquivo não é a empresa ativa. O DataLedger ainda não tem importador nenhum (SPED, extrato, XML). | `desenvolvedor-pleno` | — | **aberta — recomendação de prática, não defeito** | **A classe é:** guarda barata contra o erro mais comum e mais caro de importação — subir o arquivo do cliente errado. ⚠️ **Não é achado estrutural** (acrescentar depois é barato), e registro só para não se perder: quando o primeiro importador nascer, a verificação de identidade da empresa nasce junto, não depois do primeiro incidente. *Momento*: DL-010. |
 
 
 ## P0 — achados da rodada 9 da auditoria (DL-026 + DL-028, REPROVADAS em `60409c2`)
