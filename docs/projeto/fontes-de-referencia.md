@@ -21,6 +21,28 @@ ou estrutura de interface.
 Orientação do Fred: *"não faça igual"*. É também o que o
 [README](../../README.md) já registrava.
 
+## Regra do Fred, de 2026-09-20: consulte ANTES de perguntar
+
+> *"Esse tipo de dúvida você poderia tirar aqueles manuais que eu te passei"*
+
+Dito depois de eu levar a ele uma pergunta sobre **rotina do sistema de
+referência** — como o código reduzido da conta é atribuído — que o manual
+responde em uma frase.
+
+**A regra que fica:** antes de abrir pendência para o Fred, verificar se a
+dúvida é de **rotina do domínio** ou de **decisão dele**.
+
+| Tipo de dúvida | Onde se resolve |
+| --- | --- |
+| Como o sistema de referência se comporta; o que significa um campo; qual é a rotina usual do escritório | **Manual**, e depois pesquisa na internet — nunca o Fred primeiro |
+| Regra contábil ou exigência normativa | **Fonte oficial** (CFC, Receita), com item e vigência citados |
+| O que o escritório **dele** faz; o que ele quer que o produto faça; trade-off de produto | **Só o Fred** |
+
+⚠️ **E o manual pode CORRIGIR a hipótese, não só confirmá-la** — foi o que
+aconteceu: eu presumira que o usuário não escolhe o código reduzido, e o manual
+diz que ele pode alterá-lo (HI-15). Perguntar ao Fred teria gasto uma rodada
+dele para chegar a uma resposta que estava escrita.
+
 ## 1. Manuais dos módulos do sistema de referência
 
 Diretório público indicado pelo Fred:
