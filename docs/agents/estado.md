@@ -346,6 +346,54 @@ fora de testes não devolve nada. É campo decorativo até esta fatia.
 
 Plano: [DL-016](../planos/DL-016-competencia-e-fechamento.md).
 
+#### A fatia 1 ENTREGOU (`16b9ec4`) e a auditoria REPROVOU — o bloqueador é uma CORRIDA
+
+**Relatório integral:**
+[2026-09-20-dl-016-fatia-1-rodada-1.md](../auditorias/2026-09-20-dl-016-fatia-1-rodada-1.md).
+Números que o **auditor** mediu (não os que o implementador reportou, embora
+confiram): **1962 passed, 14 skipped**, `ruff check` e `ruff format --check`
+limpos, `manage.py check` limpo, migrações em banco vazio limpas.
+
+**Onze dos doze critérios passam**, e dois resistiram melhor do que eu esperava:
+a autorização do **RC-102** recusa cinco papéis **e o superusuário sem vínculo**,
+com o banco intacto; e o isolamento entre escritórios devolve **404**, sem
+confirmar existência.
+
+⚠️ **O BLOQUEADOR, e ele derruba uma decisão declarada por escrito — [BL-456](../projeto/backlog.md).**
+O implementador escreveu, em comentário, que não travar a competência na leitura
+era *"risco residual proporcional, janela estreita"*. Eu mandei **medir** em vez
+de aceitar o argumento, pela [DE-058](../projeto/decisoes.md). A reprodução
+**natural** — sem instrumentação, sem espião, só duas threads com a que fecha
+começando **0,6 ms** depois — gravou lançamento em competência encerrada **30
+vezes em 30**. E o auditor reproduziu o caso que fere o cliente: **lançamento
+entrando em competência já ENTREGUE**.
+
+**A "janela estreita" é, na prática, toda a duração da transação de lançamento.**
+É o fim de mês do escritório: o analista lança enquanto o gestor fecha.
+
+⚠️ **E a construção que nem o plano nem o relatório nomearam ([DE-055](../projeto/decisoes.md)) — [BL-457](../projeto/backlog.md):**
+a tela de **lançamento** devolve **HTTP 500** quando a trava dispara. Nada é
+gravado — a trava do servidor funciona —, mas o contador vê página de erro em vez
+da mensagem que diz para reabrir. O plano dizia *"a tela vem na fatia 2"*, e isso
+valia para a tela **de fechamento**; a de lançamento está em produção desde a
+DL-017 e, pela DE-026, chama o serviço **direto**, sem API no meio.
+
+**Achados abertos:** [BL-456](../projeto/backlog.md) (bloqueador),
+[BL-457](../projeto/backlog.md) (alta), [BL-458](../projeto/backlog.md) (média —
+a trilha mora na view, não no serviço), [BL-455](../projeto/backlog.md) (média,
+**pré-existente**, confirmada de forma independente),
+[BL-459](../projeto/backlog.md), [BL-460](../projeto/backlog.md) e
+[BL-461](../projeto/backlog.md) (baixas). O **BL-462** (este arquivo não
+atualizado pela entrega) era meu e está fechado por esta seção.
+
+⚠️ **Uma hipótese MINHA que a auditoria NÃO confirmou, registrada para não se
+repetir:** eu suspeitava que reabrir **perdesse** quem assinou o fechamento
+anterior. Não perde — a trilha preserva o autor ao longo de fechar → reabrir →
+fechar. O que falta é contexto no registro (BL-459), não a identidade.
+
+**Estado:** correção em curso, **rodada 1 de 2**. Pela regra de parada da §3.1, a
+reconferência é a última — não haverá terceira rodada.
+
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
