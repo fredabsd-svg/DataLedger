@@ -644,7 +644,36 @@ def _texto_do_pdf(caminho_pdf):
     completa" — e o job de integração contínua anunciava exatamente essa
     frase para uma falha que não tinha nada a ver com o timbre. MEDIDO:
     `pdftotext` quebrado no PATH produzia esse anúncio falso antes desta
-    correção."""
+    correção.
+
+    BL-425 (achado da verificação independente, depois do C2 fechar) —
+    LIMITE DECLARADO, não fechado nesta etapa: este texto (`-layout`) e o
+    bbox de `_palavras_da_pagina` (`-bbox`) são DOIS MECANISMOS de
+    extração do poppler, e ELES DIVERGEM em tamanhos de fonte extremos.
+    MEDIDO: com `font-size: 4px` no timbre, `pdftotext -layout` insere
+    ESPAÇOS ESPÚRIOS dentro das palavras ("Rua Sin tética 100, Sala 2 -
+    P almas/TO") — a heurística de layout do poppler, que tenta
+    reconstruir colunas e espaçamento visual, interpreta o espaçamento
+    entre glifos minúsculos como separação de palavra. O resultado:
+    `linha in texto_pdf` (a checagem de `presente_no_pdf`, em `main`)
+    devolve `False` para uma linha que, na verdade, ESTÁ no papel —
+    `_bbox_da_linha` (que concatena palavras SEM espaço antes de
+    comparar, ver a docstring dela) ENCONTRA a mesma linha sem problema
+    (29 pixels de contraste medido, razão 9,00:1 — tinta real, presente).
+
+    **Consequência**: o veredito relatado, hoje, é "linha do timbre
+    AUSENTE do texto do PDF" — uma frase que, neste caso ESPECÍFICO,
+    descreve mal o que aconteceu (a linha está no papel; o mecanismo de
+    extração plana é que não a reproduziu). `presente_no_pdf` é checado
+    ANTES de tamanho/contraste/contagem em `main` (ver a ORDEM das
+    checagens ali), então essa mensagem imprecisa VENCE mesmo quando
+    `TAMANHO_MINIMO_RENDERIZADO_PX` (BL-424) reprovaria a mesma linha por
+    um motivo mais correto (4px está bem abaixo do piso de 11px — a tela
+    REPROVA de qualquer forma, só que com o nome errado da causa).
+    Fechar isso de verdade exigiria trocar `presente_no_pdf` por uma
+    pergunta baseada em bbox (não em substring), o que é MAIS escopo do
+    que esta etapa comprou — fica registrado, não escondido, e não
+    fechado aqui."""
     resultado = subprocess.run(
         ["pdftotext", "-layout", str(caminho_pdf), "-"],
         capture_output=True,
@@ -858,6 +887,24 @@ PONTOS_POR_POLEGADA = 72.0
 # Skia PDF do Chromium não aplica composição de blend mode na exportação
 # de impressão, então esta construção PASSA — corretamente, porque a
 # tinta realmente chega ao papel.
+#
+# PAPEL REBAIXADO (BL-424, achado da verificação independente após o C2
+# fechar): este piso já foi a ÚNICA guarda contra tinta ausente E contra
+# texto minúsculo — as duas perguntas produziam "poucos pixels" contra um
+# limiar de luminância fixo, então uma contagem bastava para as duas.
+# Isso NÃO é mais verdade: "a tinta sumiu?" agora é pergunta de
+# CONTRASTE (`_diagnostico_de_contraste_na_faixa`, contra o piso do
+# WCAG — ver `RAZAO_MINIMA_WCAG_TEXTO_NORMAL`), e "o texto ficou pequeno
+# demais?" agora é pergunta de TAMANHO (`TAMANHO_MINIMO_RENDERIZADO_PX`,
+# abaixo). MEDIDO que a contagem sozinha, sem essas duas, deixava passar
+# `font-size: 8px` com contraste altíssimo (19,8:1) e 57–58 pixels — mais
+# que o piso, porque um traço grande o bastante em QUALQUER tamanho
+# consegue contar 40 pixels contrastantes cedo. Este número continua
+# valendo como SANIDADE RESIDUAL (um glifo real, no tamanho e contraste
+# certos, sempre pinta uma quantidade generosa de pixels — controle nunca
+# abaixo de ~324 com o oráculo de contraste, ver o comentário de
+# `RAZAO_MINIMA_WCAG_TEXTO_NORMAL`), não como a guarda principal de
+# nenhuma das duas perguntas que ele um dia respondeu sozinho.
 PISO_PIXELS_ESCUROS_POR_LINHA = 40
 
 # C2 da DL-029 (docs/planos/DL-029-a-frase-executavel-do-criterio-9.md) —
@@ -955,6 +1002,65 @@ def _razao_minima_wcag_para_linha(tamanho_px, peso):
     return RAZAO_MINIMA_WCAG_TEXTO_GRANDE if eh_grande else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
 
 
+# BL-424 (verificação independente, achada depois do C2 fechar com o
+# piso de contraste do WCAG): `PISO_PIXELS_ESCUROS_POR_LINHA = 40` era a
+# ÚLTIMA constante do módulo ainda escolhida a dedo, sem derivar de
+# propriedade nenhuma — a MESMA forma de `MARCA_DO_FORNECEDOR` (K1) e do
+# `LIMIAR_LUMINANCIA_TINTA` (K4) que esta etapa inteira existe para
+# aposentar. MEDIDO: com `font-size: 8px` no timbre, o texto é extraído,
+# o contraste é altíssimo (19,8:1 e 9,29:1 — muito acima do piso do
+# WCAG) e a CONTAGEM de pixels (57–58 na linha mais fraca) passa o piso
+# de 40 — o instrumento aprova. Em 7px, a mesma linha mede 41/14 pixels
+# e reprova; em 6px, 13/4. O piso de contagem, sozinho, aceita uma linha
+# renderizada a menos de 1/6 do tamanho normal do produto (14px), porque
+# ele nunca soube o que era "tamanho" — só contava pixels.
+#
+# **A pergunta que a contagem respondia mudou de dono.** Antes do C2,
+# "a tinta sumiu?" e "o texto ficou minúsculo?" eram a MESMA pergunta,
+# porque as duas produziam poucos pixels contra um limiar de luminância
+# fixo. Depois do C2, "a tinta sumiu?" é pergunta de CONTRASTE (razão
+# WCAG) — a contagem não decide mais isso. A ÚNICA coisa que sobrou para
+# a contagem proteger é "o texto foi renderizado grande o bastante para
+# ser lido?" — que é pergunta de TAMANHO, não de pixels pintados. E o
+# instrumento JÁ PERGUNTA o tamanho renderizado ao navegador (`fonte_das_
+# linhas`, usado por `_razao_minima_wcag_para_linha`) — só não FAZIA
+# nada com essa resposta além de escolher o piso de contraste.
+#
+# **TAMANHO_MINIMO_RENDERIZADO_PX é ESCOLHA DECLARADA deste projeto, não
+# um padrão publicado** — ao contrário do WCAG (contraste) e da definição
+# textual de "texto grande" (18pt/14pt), NÃO existe um número de
+# acessibilidade citável para "tamanho mínimo legível em PAPEL impresso"
+# (o WCAG não define piso de tamanho; ele pressupõe que o leitor pode dar
+# zoom — papel não tem zoom). Inventar uma norma aqui violaria o
+# AGENTS.md ("não inventar exigência"). O valor abaixo é medido e
+# justificado, mas continua sendo NOSSO, não do WCAG:
+#
+# 11px, o MESMO valor de `--tipo-2xs` em `static/css/base.css` — o
+# tamanho que o próprio produto já declara, por escrito, como "o piso
+# legível" (comentário de `kbd.tecla`, BL-283/B2: *"era 0.72em sobre
+# --tipo-sm = 9,36px medidos, o menor texto da interface — pequeno
+# demais... --tipo-2xs (11px) é o próprio piso legível já usado"*). Não é
+# um número novo inventado para esta etapa — é o piso de legibilidade que
+# a DIREÇÃO DE ARTE do produto já havia fixado, para OUTRO elemento
+# (atalho de teclado na tela), antes da DL-029 existir. Usá-lo aqui é
+# emprestar uma decisão JÁ TOMADA, não decidir de novo. Reusar o mesmo
+# limite evita duas respostas diferentes para "que tamanho é pequeno
+# demais neste produto" — o risco que a DE-056 nomeia.
+#
+# LIMITE DECLARADO, não escondido: aquele piso foi fixado para TELA, não
+# para PAPEL — os dois meios têm resolução e distância de leitura
+# diferentes, e não há medição própria de papel que sustente 11px como
+# "correto" para documento impresso (só que é razoável, e não foi
+# escolhido só para bater com o corte atual: MEDIDO que 8px passava antes
+# desta correção — 11 é maior que 8, então a correção MUDA o veredito de
+# 8px, não o preserva por acidente). **A pergunta "que tamanho mínimo o
+# timbre pode ter numa folha real?" fica registrada como PE-58 — pendente,
+# do Fred, a ser respondida olhando uma folha impressa de verdade, não
+# medida por este instrumento.** Se o Fred decidir outro valor, ele
+# substitui este, não o contrário.
+TAMANHO_MINIMO_RENDERIZADO_PX = 11
+
+
 def _luminancia_relativa_srgb(fracao_do_canal):
     """Luminância relativa de um canal sRGB (0.0–1.0) — fórmula da WCAG 2.x
     ("Relative Luminance"). `pdftoppm -gray` devolve um BYTE por pixel (não
@@ -985,7 +1091,38 @@ def _luminancia_do_papel(dados_pgm):
     folha A4 impressa é, de longe, majoritariamente papel em branco —
     MEDIDO: no Balancete da base de medição, 815099 dos 893580 pixels
     (91%) — então a moda encontra o papel mesmo numa página com tabela
-    cheia de texto preto."""
+    cheia de texto preto.
+
+    BL-426 (achado da verificação independente) — PREMISSA que precisa
+    ficar escrita, não só medida: **hoje esta função SEMPRE mede branco**
+    (255), qualquer que seja o `background` declarado no CSS do produto.
+    MEDIDO: com `body { background: #1a1a1a }` (e mesmo com
+    `print-color-adjust: exact` no CSS), a moda continua 255 e o
+    instrumento aprova — porque `pagina.pdf(...)`
+    (`_SCRIPT_DO_SUBPROCESSO`) NUNCA recebe `print_background=True`, e o
+    Playwright/Chromium OMITE toda cor de fundo do PDF exportado por
+    padrão (`print_background` vale `False`), INDEPENDENTE da propriedade
+    CSS — que só importa quando o fundo É impresso. Confirmado o inverso,
+    só para esta medição (patch temporário, revertido, não parte desta
+    entrega): com `print_background=True` E `print-color-adjust: exact`
+    no CSS, o MESMO fundo `#1a1a1a` faz a moda cair para ~26, e o timbre
+    (tinta preta contra fundo quase preto) reprova por contraste, ~1,2:1.
+
+    **Não é defeito, e é o comportamento CORRETO para o critério**: o
+    navegador não imprime fundo de página por padrão (a mesma economia de
+    tinta que qualquer impressora real aplicaria), e o PDF exportado por
+    este instrumento é fiel a isso — "o fundo da própria folha" mede,
+    hoje, exatamente o que uma impressora real produziria com a
+    configuração padrão do produto. **A premissa que precisa ficar
+    explícita para quem ler "contraste contra o fundo da própria folha"**:
+    isso pressupõe fundo IMPRESSO — um `background` no CSS que dependa de
+    `print-color-adjust: exact` (ou de `print_background=True` neste
+    instrumento) para chegar ao papel NÃO é medido por este oráculo hoje.
+    Se o produto um dia imprimir fundo de verdade, este comentário e a
+    função continuam corretos (a moda mediria o fundo real); só a
+    afirmação "a folha é sempre branca hoje" deixaria de valer — LIMITE
+    DECLARADO, não fechado, porque o produto não usa fundo impresso
+    hoje."""
     _, _, corpo = _pgm_para_matriz(dados_pgm)
     histograma = [0] * 256
     for byte in corpo:
@@ -1721,19 +1858,32 @@ def main(argv):
                 pixels_com_contraste = localizacao["pixels_com_contraste"]
                 contraste_maximo_medido = localizacao["contraste_maximo_medido"]
                 razao_minima_exigida = razoes_minimas[indice]
-                # C2, regra DUPLA e DISTINGUÍVEL (exigência do
-                # arquiteto-senior): duas causas de reprovação diferentes,
-                # nunca a mesma mensagem para as duas.
+                tamanho_renderizado_px = fonte_das_linhas[indice]["tamanho_px"]
+                # BL-424: TAMANHO é a TERCEIRA causa distinguível de
+                # reprovação, ao lado de contraste e contagem — ver o
+                # comentário completo de TAMANHO_MINIMO_RENDERIZADO_PX
+                # sobre por que a contagem sozinha não bastava mais
+                # (font-size: 8px passava com contraste altíssimo e
+                # contagem acima do piso).
+                tamanho_insuficiente = tamanho_renderizado_px < TAMANHO_MINIMO_RENDERIZADO_PX
+                # C2, regra TRIPLA e DISTINGUÍVEL (exigência do
+                # arquiteto-senior): três causas de reprovação diferentes,
+                # nunca a mesma mensagem para duas delas.
+                # - TAMANHO insuficiente: o texto foi renderizado menor
+                #   que o piso declarado — nem contraste nem contagem
+                #   decidem isso (ver TAMANHO_MINIMO_RENDERIZADO_PX).
                 # - CONTRASTE insuficiente: o pixel mais escuro da faixa já
                 #   fica abaixo do piso WCAG desta linha — nenhuma
                 #   quantidade de pixels ajudaria (a tinta é CLARA demais).
-                # - CONTAGEM insuficiente: o contraste do pixel mais
-                #   escuro passa o piso, mas poucos pixels alcançam esse
-                #   nível — a tinta é escura o bastante, mas a ÁREA
-                #   pintada é pequena demais (ex.: `font-size: 1px`).
+                # - CONTAGEM insuficiente: sanidade residual — contraste E
+                #   tamanho passam, mas poucos pixels alcançam esse nível
+                #   mesmo assim (ex.: um glifo com buracos, letras muito
+                #   finas). NÃO é mais a guarda do tamanho — essa função
+                #   passou para a checagem acima.
                 contraste_insuficiente = contraste_maximo_medido < razao_minima_exigida
                 tinta_visivel_no_papel = (
-                    not contraste_insuficiente
+                    not tamanho_insuficiente
+                    and not contraste_insuficiente
                     and pixels_com_contraste >= PISO_PIXELS_ESCUROS_POR_LINHA
                 )
 
@@ -1748,6 +1898,7 @@ def main(argv):
                         "legivel": legivel,
                         "presente_no_pdf": presente_no_pdf,
                         "folha": folha_da_linha,
+                        "tamanho_renderizado_px": tamanho_renderizado_px,
                         "razao_minima_wcag_exigida": razao_minima_exigida,
                         "contraste_maximo_medido": round(contraste_maximo_medido, 3),
                         "pixels_com_contraste_no_papel": pixels_com_contraste,
@@ -1768,21 +1919,33 @@ def main(argv):
                     motivos.append(
                         f"linha do timbre está na folha {folha_da_linha}, não na folha 1: {linha!r}"
                     )
+                elif tamanho_insuficiente:
+                    # BL-424: TAMANHO, não contraste nem contagem — o
+                    # texto foi renderizado menor que o piso declarado
+                    # (TAMANHO_MINIMO_RENDERIZADO_PX — escolha do
+                    # projeto, não do WCAG; ver o comentário completo).
+                    motivos.append(
+                        f"linha do timbre renderizada a {tamanho_renderizado_px:g}px, "
+                        f"abaixo do mínimo de {TAMANHO_MINIMO_RENDERIZADO_PX}px: {linha!r}"
+                    )
                 elif contraste_insuficiente:
-                    # C2: CONTRASTE, não contagem — a tinta é clara demais
-                    # para o tamanho/peso REAL desta linha, medido contra
-                    # o piso do WCAG 2.2 (empréstimo declarado — ver o
-                    # comentário de RAZAO_MINIMA_WCAG_TEXTO_NORMAL).
+                    # C2: CONTRASTE, não tamanho nem contagem — a tinta é
+                    # clara demais para o tamanho/peso REAL desta linha,
+                    # medido contra o piso do WCAG 2.2 (empréstimo
+                    # declarado — ver o comentário de
+                    # RAZAO_MINIMA_WCAG_TEXTO_NORMAL).
                     motivos.append(
                         f"linha do timbre com CONTRASTE insuficiente contra o papel: {linha!r} — "
                         f"{contraste_maximo_medido:.2f}:1 medido, mínimo exigido "
                         f"{razao_minima_exigida:.1f}:1 (WCAG 2.2, 1.4.3)"
                     )
                 elif not tinta_visivel_no_papel:
-                    # C2: CONTAGEM, não contraste — a tinta É escura o
-                    # bastante (o pixel mais escuro passa o piso do WCAG),
-                    # mas a ÁREA pintada é pequena demais (ex.:
-                    # `font-size: 1px`) para alcançar o piso de pixels.
+                    # C2/BL-424: CONTAGEM — sanidade residual. Tamanho E
+                    # contraste passam, mas poucos pixels alcançam o
+                    # contraste exigido mesmo assim (ex.: glifo com muitos
+                    # "buracos" — não é mais a guarda de "ficou pequeno
+                    # demais", ver o comentário de
+                    # TAMANHO_MINIMO_RENDERIZADO_PX).
                     motivos.append(
                         "linha do timbre com POUCOS PIXELS de tinta visível: "
                         f"{linha!r} — {pixels_com_contraste} pixel(s) com contraste "

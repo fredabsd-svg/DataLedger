@@ -28,6 +28,7 @@ carregamento do arquivo (ver a docstring dele, "Os dois interpretadores").
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -515,6 +516,35 @@ def test_razao_minima_wcag_para_linha_negrito_pequeno_continua_normal():
     # Negrito sozinho não basta — precisa do tamanho mínimo de 14pt
     # também. Um negrito de 10px continua exigindo o piso de texto normal.
     assert instrumento._razao_minima_wcag_para_linha(10, 700) == 4.5
+
+
+# ---------------------------------------------------------------------------
+# BL-424 (verificação independente, depois do C2 fechar) — o piso de
+# CONTAGEM sozinho aprovava `font-size: 8px` (contraste 19,8:1/9,29:1,
+# muito acima do piso; 57–58 pixels, acima do piso de 40). A contagem
+# deixou de guardar "o texto ficou pequeno demais?" quando o CONTRASTE
+# passou a guardar "a tinta sumiu?" — TAMANHO_MINIMO_RENDERIZADO_PX fecha
+# essa pergunta, como ESCOLHA DECLARADA (não padrão WCAG — o WCAG não
+# define piso de tamanho para papel).
+# ---------------------------------------------------------------------------
+
+
+def test_tamanho_minimo_renderizado_px_bate_com_o_piso_legivel_ja_declarado_do_produto():
+    # O valor NÃO é escolhido para bater com o corte antigo (8px passava,
+    # 11 > 8 então a correção MUDA o veredito) — é emprestado de uma
+    # decisão JÁ TOMADA pelo produto: `--tipo-2xs` em
+    # static/css/base.css, documentado ali (BL-283) como "o próprio piso
+    # legível já usado" para texto de interface. Lido do ARQUIVO real do
+    # repositório — se o produto um dia mudar esse token, este teste é o
+    # primeiro a notar a divergência (o mesmo padrão de
+    # test_derivar_marca_do_fornecedor_le_do_template_real_do_produto).
+    caminho_css = Path(__file__).resolve().parents[1] / "static" / "css" / "base.css"
+    conteudo = caminho_css.read_text(encoding="utf-8")
+    casamento = re.search(r"--tipo-2xs:\s*([\d.]+)rem", conteudo)
+    assert casamento is not None, "static/css/base.css não declara mais --tipo-2xs em rem"
+    tipo_2xs_em_px = float(casamento.group(1)) * 16  # 1rem = 16px, raiz padrão do produto
+    assert tipo_2xs_em_px == pytest.approx(11.0, abs=0.01)
+    assert instrumento.TAMANHO_MINIMO_RENDERIZADO_PX == pytest.approx(tipo_2xs_em_px, abs=0.01)
 
 
 def test_luminancia_do_papel_e_a_moda_da_folha_inteira():
