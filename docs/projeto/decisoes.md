@@ -3212,3 +3212,69 @@ Isso é coberto pela camada barata
 (`apps/tenancy/tests/test_bl282_timbre_escritorio.py:182`), e o auditor **não**
 recomenda duplicar no navegador. **Registrado para ninguém supor que o
 instrumento prova isolamento entre escritórios: ele não prova.**
+
+## DE-062 — A DE-058 vale para a PROSA, não só para o código
+
+**Data:** 2026-09-20. Proposta pelo `auditor-qa` na décima segunda auditoria
+([relatório](../auditorias/2026-09-20-dl-029-dl-030-rodada-12.md), resposta 4),
+**adotada por mim**, e o motivo é que o dado é contra mim.
+
+### O que ele mediu, e a separação é limpa
+
+Eu perguntei se quatro autocorreções num dia eram o processo funcionando ou
+sinal de que eu publico rápido demais. Ele **separou as duas coisas com
+medição**:
+
+| Tipo de afirmação minha | Verificadas | Confirmadas |
+| --- | --- | --- |
+| **Número medido** (suíte, lint, custo do job, contagem de testes) | 7 | **7** |
+| **Achado fechado** (BL-427 a BL-437, os sete gaps da DL-030) | 13 | **13** |
+| **Razão / mecanismo / enquadramento** | 3 | **1** |
+
+O veredito dele, textual: ***"Você mede bem e narra mal."***
+
+**O que erra é sempre a mesma coisa:** a **explicação** publicada ao lado do
+número, escrita no tom de quem mediu, quando não mediu. **Seis instâncias em um
+dia** — BL-435 (grep no lugar da propriedade), BL-442 caso 1 e caso 2, a
+aritmética do *"−84"*, a premissa nova do BL-419 (M10) e a generalização do
+*"lado seguro"* (M4).
+
+⚠️ **E a leitura que importa:** *"velocidade produziria erro **variado**. Seis
+instâncias da mesma forma, em um dia, é **mecanismo faltando**"* — e fui eu quem
+escreveu, no `CLAUDE.md`, que a causa do defeito de 2026-09-13 não foi distração,
+foi **estrutura**.
+
+### A regra
+
+**Toda afirmação VERIFICÁVEL escrita em `docs/projeto/**` e em
+`docs/agents/estado.md` carrega, ao lado, OU o comando que a produziu, OU as
+palavras "não medido".**
+
+A **DE-058** já dizia isso para **docstring**. Não valia para prosa — e
+`decisoes.md`, `backlog.md` e `estado.md` são hoje os documentos do projeto com
+**mais** afirmações verificáveis **sem verificação ao lado**. As seis instâncias
+estão **todas** lá; **nenhuma** no código.
+
+**Alcança:** *"o mecanismo X cobre Y"*, *"isto acontece porque Z"*, *"a falha é
+barulhenta"*, *"a direção do desvio é segura"*, *"o caminho é inalcançável" —*
+qualquer frase que alguém possa **conferir e derrubar**.
+
+**Não alcança:** recomendação, julgamento de prioridade, e o que já estiver
+marcado como **hipótese** ou **pendência** — essas categorias já existem e já
+dizem que não são fato.
+
+### O que esta decisão NÃO significa
+
+1. **Não é ordem para desacelerar, e o auditor foi explícito:** *"não recomendo
+   desacelerar. As quatro correções de ontem custaram horas; os dois defeitos que
+   sobreviveram — M1 e M2 — custaram **seis rodadas** de auditoria cada um, e
+   nenhum apareceu por falta de tempo: apareceram porque ninguém tinha escrito
+   aquela construção. **Velocidade não os teria evitado; a DE-055, sim, e ela já
+   está ligada.**"*
+2. **Não há mecanismo automático ainda, e isto fica declarado.** O
+   `scripts/validate-docs.ps1` anda por **todos** os `.md`, então o gancho
+   existe — mas **não sei se dá para verificar isto mecanicamente**, e **não
+   afirmo que dá**. É **hipótese**, não fato, e é a própria DE-062 aplicada a si
+   mesma na primeira linha que ela escreve.
+3. **Não apaga afirmação antiga.** Corrigir o que já se provou falso é
+   obrigação, e o registro do erro fica — foi assim com BL-435 e BL-442.

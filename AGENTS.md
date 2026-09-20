@@ -376,12 +376,30 @@ investigar. É a mesma armadilha que o comentário do BL-371 em
 humano é disciplina):
 
 ```
-GET /repos/fredabsd-svg/DataLedger/commits/<sha_da_main>/check-runs
-    → os quatro nomes, para copiar daqui e não de memória
+GET /repos/fredabsd-svg/DataLedger/commits/<sha_de_uma_BRANCH_DE_TRABALHO>/check-runs
+    → os quatro nomes. NÃO use o sha da `main`: ver o aviso abaixo.
 GET /repos/fredabsd-svg/DataLedger/branches?protected=true   → deve devolver main
 GET /repos/fredabsd-svg/DataLedger/branches/main             → required_status_checks.contexts
 GET /repos/fredabsd-svg/DataLedger/rulesets                  → se a regra for ruleset
 ```
+
+⚠️ **Este bloco mandava consultar o `sha` da `main` até 2026-09-20, e executado
+assim ele devolve DOIS dos quatro nomes** — medido pelo `auditor-qa` na décima
+segunda auditoria (**M6**): contra `7c5b1d4`, `check-runs` devolve
+`total_count = 2`, só `Lint e testes` e `Validar documentação`. Falta
+`Regras do projeto`, que **só dispara em `pull_request`**, e falta
+`Medir identificação do emitente no navegador`, que **é o job que o Fred
+escolheu tornar obrigatório**.
+
+**É o mesmo defeito do L5 um nível abaixo:** a fonte de verdade estava certa, o
+**alvo da consulta** é que não continha a verdade inteira. Por isso os quatro
+nomes ficam **escritos acima**, e a consulta serve para **conferi-los**, não para
+descobri-los.
+
+⚠️ **E a guarda que fecharia isto de vez ainda NÃO existe, e está registrada
+como BL-443:** um teste offline que compare os quatro nomes deste arquivo com os
+`name:` dos jobs em `.github/workflows/*.yml`. Custa vinte linhas, não depende de
+qual evento rodou em qual commit, e acaba com o assunto.
 
 **Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
 web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje

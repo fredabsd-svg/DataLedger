@@ -170,8 +170,12 @@ Medir identificação do emitente no navegador
 O `AGENTS.md` trazia dois deles errados até 2026-09-20 (`Backend` e
 `Documentação`, que são nomes de workflow). **Nome errado não afrouxa a
 proteção: TRAVA a `main` para sempre**, porque a checagem exigida nunca
-reporta. Busque os nomes em `GET /repos/…/commits/<sha>/check-runs` em vez de
-copiá-los de memória.
+reporta.
+
+⚠️ **E se for conferir pela API, use o `sha` de uma BRANCH DE TRABALHO, nunca o
+da `main`:** contra a `main`, `check-runs` devolve **dois** dos quatro —
+`Regras do projeto` só dispara em `pull_request`, e o job de identificação não
+tem execução lá. Medido na décima segunda auditoria (M6).
 
 ## Segredos
 
