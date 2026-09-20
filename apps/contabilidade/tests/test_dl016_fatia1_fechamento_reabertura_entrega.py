@@ -39,6 +39,7 @@ from apps.contabilidade.models import (
 from apps.contabilidade.services import (
     CompetenciaEncerrada,
     CompetenciaJaEntregue,
+    CompetenciaOcupada,
     CompetenciaOperacaoInvalida,
     CompetenciaOperacaoRecusada,
     criar_lancamento,
@@ -283,8 +284,8 @@ def test_bl456_for_share_bloqueia_encerrar_competencia_ate_o_lancamento_commitar
 
     original = contabilidade_services._travar_competencia_em_modo_compartilhado
 
-    def trava_e_segura(competencia):
-        estado = original(competencia)
+    def trava_e_segura(competencia, **kwargs):
+        estado = original(competencia, **kwargs)
         # O SELECT ... FOR SHARE já rodou dentro de `original(...)` — o lock
         # está ativo. Segurar aqui, ainda DENTRO da mesma transação (a
         # chamadora, `criar_lancamento`, só sai do `with transaction.
@@ -392,10 +393,10 @@ def test_bl456_lancamento_concorrente_e_recusado_quando_o_fechamento_ja_commitou
     lancamento_entrou_na_trava = threading.Event()
     original = contabilidade_services._travar_competencia_em_modo_compartilhado
 
-    def trava_depois_do_fechamento(competencia):
+    def trava_depois_do_fechamento(competencia, **kwargs):
         lancamento_entrou_na_trava.set()
         fechamento_commitou.wait(timeout=5)
-        return original(competencia)
+        return original(competencia, **kwargs)
 
     monkeypatch.setattr(
         contabilidade_services,
@@ -485,10 +486,10 @@ def test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entre
     lancamento_entrou_na_trava = threading.Event()
     original = contabilidade_services._travar_competencia_em_modo_compartilhado
 
-    def trava_depois_da_entrega(competencia):
+    def trava_depois_da_entrega(competencia, **kwargs):
         lancamento_entrou_na_trava.set()
         entrega_commitou.wait(timeout=5)
-        return original(competencia)
+        return original(competencia, **kwargs)
 
     monkeypatch.setattr(
         contabilidade_services, "_travar_competencia_em_modo_compartilhado", trava_depois_da_entrega
@@ -1604,6 +1605,215 @@ def test_bl463_encerrar_idempotente_nao_faz_varredura_nem_lock_desnecessarios(ce
 
 
 # ---------------------------------------------------------------------------
+# BL-470 (achado BLOQUEADOR da verificação dirigida da DL-031, rodada 1) —
+# sob estouro REAL do `lock_timeout` no caminho de `criar_lancamento`
+# (`_travar_competencia_em_modo_compartilhado`), a construção da mensagem de
+# `CompetenciaOcupada` acessava `competencia.empresa` — uma FK NÃO cacheada,
+# porque o objeto vem de `obter_ou_criar_competencia`/`get_or_create`, que
+# não popula o cache da relação. O acesso disparava uma SEGUNDA consulta SQL
+# numa transação PostgreSQL já ABORTADA pelo próprio estouro do `FOR SHARE`
+# (o `try/except` daquela função não abre um savepoint próprio), e o
+# `InternalError` resultante SUBSTITUÍA a `CompetenciaOcupada` pretendida —
+# subia cru até a view, que não o capturava (`InternalError` não é subclasse
+# de `CompetenciaEncerrada`): 500 cru em produção, violando o critério 5 do
+# plano DL-031 ("nunca 500").
+#
+# Os dois testes abaixo reproduzem o SQLSTATE `55P03` de VERDADE — duas
+# conexões PostgreSQL reais, NENHUMA exceção fabricada. Diferente dos testes
+# de BL-456/BL-463 acima (que seguram o lock por um `time.sleep` CURTO só
+# para provar bloqueio, sem nunca estourar o timeout), aqui o hold é
+# DELIBERADAMENTE maior que os 1210ms de `lock_timeout` configurados em
+# `config/settings.py`, para que o PostgreSQL efetivamente derrube a espera
+# com `55P03` — o único jeito de exercitar o `except OperationalError` de
+# `_travar_competencia_em_modo_compartilhado` sem mock.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl470_lock_timeout_real_no_lancamento_gera_competenciaocupada_legivel():
+    """Serviço: `criar_lancamento`, sob estouro real do `lock_timeout` no
+    `FOR SHARE`, levanta `CompetenciaOcupada` com mensagem legível em
+    português (mês/ano/empresa) — nunca o `InternalError` cru que o defeito
+    original (BL-470) deixava escapar no lugar dela."""
+    escritorio = Escritorio.objects.create(
+        nome="Escritório BL-470 lock real", cnpj="21222324000105"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa BL-470 Lock Real Ltda",
+        cnpj="21222324000297",
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl470-servico",
+        email="bl470-servico@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    # Pré-criada de propósito — mesmo motivo dos testes de BL-456/BL-463
+    # (evita a corrida lateral de INSERT em `get_or_create`), aqui ainda
+    # mais importante: se a competência nascesse DENTRO da corrida, o
+    # `INSERT` não commitado disputaria com o `SELECT ... FOR UPDATE` da
+    # outra thread por um motivo diferente do que este teste mede.
+    competencia = Competencia.objects.create(empresa=empresa, ano=2020, mes=5)
+
+    segurando_o_lock = threading.Event()
+
+    def segurar_for_update_alem_do_lock_timeout():
+        with transaction.atomic():
+            Competencia.objects.select_for_update().get(pk=competencia.pk)
+            segurando_o_lock.set()
+            # 2s > 1210ms (`lock_timeout`, `config/settings.py`) DE
+            # PROPÓSITO: este teste precisa que o PostgreSQL efetivamente
+            # ESTOURE a espera (SQLSTATE 55P03), não só que ela demore.
+            time.sleep(2.0)
+        connection.close()
+
+    resultado = {}
+
+    def lancar():
+        assert segurando_o_lock.wait(timeout=5)
+        try:
+            criar_lancamento(
+                empresa=empresa,
+                data=date(2020, 5, 10),
+                historico="BL-470 lock_timeout real",
+                itens=[
+                    {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                    {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+                ],
+                criado_por=gestor,
+            )
+        except CompetenciaOcupada as exc:
+            resultado["excecao"] = exc
+        except Exception as exc:  # o defeito original vazava InternalError aqui
+            resultado["excecao_errada"] = exc
+        finally:
+            connection.close()
+
+    t1 = threading.Thread(target=segurar_for_update_alem_do_lock_timeout)
+    t2 = threading.Thread(target=lancar)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # Nunca a exceção crua de banco que o defeito original deixava vazar no
+    # lugar de `CompetenciaOcupada` — se aparecer aqui, a correção regrediu.
+    assert "excecao_errada" not in resultado, resultado.get("excecao_errada")
+    assert isinstance(resultado.get("excecao"), CompetenciaOcupada)
+    mensagem = str(resultado["excecao"])
+    assert "05/2020" in mensagem
+    assert str(empresa) in mensagem
+    assert "Tente gravar este lançamento novamente" in mensagem
+
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2020, data__month=5
+    ).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl470_lock_timeout_real_no_lancamento_api_responde_409_nunca_500():
+    """API (BL-211: a garantia se mede por requisição HTTP, não só de
+    serviço): a mesma reprodução, pela porta real — 409 com mensagem em
+    português, nunca o 500 cru que o `InternalError` do defeito original
+    (BL-470) produzia (`InternalError` não é subclasse de
+    `CompetenciaEncerrada`, então o `except` de `views.py` não o capturava)."""
+    from django.test import Client
+
+    escritorio = Escritorio.objects.create(
+        nome="Escritório BL-470 API lock real", cnpj="21222324000386"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa BL-470 API Lock Real Ltda",
+        cnpj="21222324000467",
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    _usuario_com_papel(Papel.GESTOR, escritorio, "bl470-api")
+    # Pré-criada de propósito — mesmo motivo do teste de serviço acima.
+    competencia = Competencia.objects.create(empresa=empresa, ano=2020, mes=6)
+
+    segurando_o_lock = threading.Event()
+
+    def segurar_for_update_alem_do_lock_timeout():
+        with transaction.atomic():
+            Competencia.objects.select_for_update().get(pk=competencia.pk)
+            segurando_o_lock.set()
+            time.sleep(2.0)  # > 1210ms de propósito — ver comentário acima
+        connection.close()
+
+    resultado = {}
+
+    def lancar_pela_api():
+        assert segurando_o_lock.wait(timeout=5)
+        # `Client()` PRÓPRIO desta thread, não o fixture `client` do pytest
+        # (compartilhado com a thread principal): a requisição HTTP real
+        # roda inteiramente nesta thread, na conexão de banco thread-local
+        # dela — é o que faz o `FOR SHARE` desta chamada colidir de verdade
+        # com o `FOR UPDATE` que a outra thread está segurando.
+        cliente = Client()
+        cliente.login(username="bl470-api", password="senha-forte-123")
+        resultado["resposta"] = cliente.post(
+            reverse("contabilidade:lancamentos", args=[empresa.id]),
+            data={
+                "data": "2020-06-10",
+                "historico": "BL-470 lock_timeout real pela API",
+                "itens": [
+                    {"conta": caixa.id, "tipo": "debito", "valor": "10.00"},
+                    {"conta": capital.id, "tipo": "credito", "valor": "10.00"},
+                ],
+            },
+            content_type="application/json",
+        )
+        connection.close()
+
+    t1 = threading.Thread(target=segurar_for_update_alem_do_lock_timeout)
+    t2 = threading.Thread(target=lancar_pela_api)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    resposta = resultado["resposta"]
+    # Nunca 500 cru: é exatamente o que o defeito original (BL-470)
+    # produzia neste caminho.
+    assert resposta.status_code == 409, resposta.content
+    corpo = resposta.json()
+    assert "06/2020" in corpo["detail"]
+    assert str(empresa) in corpo["detail"]
+
+    assert not LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2020, data__month=6
+    ).exists()
+
+
+# ---------------------------------------------------------------------------
 # BL-464/B2 (rodada 2 de auditoria) — BAIXA, ressalva. Fora do PostgreSQL,
 # `_travar_competencia_em_modo_compartilhado` degradava para leitura em
 # memória (SEM lock) em SILÊNCIO. Agora emite `RuntimeWarning`.
@@ -1620,7 +1830,7 @@ def test_bl464_degradacao_fora_do_postgresql_emite_aviso(cenario, monkeypatch):
 
     with pytest.warns(RuntimeWarning, match="_travar_competencia_em_modo_compartilhado"):
         estado, entregue_em = contabilidade_services._travar_competencia_em_modo_compartilhado(
-            competencia
+            competencia, ano=2026, mes=8, empresa=empresa
         )
 
     # A trava SERIAL (não a de concorrência) continua funcionando: devolve
@@ -1636,7 +1846,9 @@ def test_bl464_postgresql_nao_emite_aviso(cenario, recwarn):
     competencia = Competencia.objects.create(empresa=empresa, ano=2026, mes=9)
 
     with transaction.atomic():
-        contabilidade_services._travar_competencia_em_modo_compartilhado(competencia)
+        contabilidade_services._travar_competencia_em_modo_compartilhado(
+            competencia, ano=2026, mes=9, empresa=empresa
+        )
 
     avisos_de_lock = [aviso for aviso in recwarn.list if "modo_compartilhado" in str(aviso.message)]
     assert avisos_de_lock == []

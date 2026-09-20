@@ -341,7 +341,7 @@ def _e_estouro_de_lock_timeout(excecao_de_banco):
     return getattr(causa, "sqlstate", None) == "55P03"
 
 
-def _travar_competencia_em_modo_compartilhado(competencia):
+def _travar_competencia_em_modo_compartilhado(competencia, *, ano, mes, empresa):
     """Bloqueia a linha de `competencia` com `SELECT ... FOR SHARE` e devolve
     `(estado, entregue_em)` LIDOS NESTA MESMA CONSULTA — nunca os atributos
     do objeto Python já em memória (correção do achado BL-456/A1, rodada 1
@@ -349,6 +349,25 @@ def _travar_competencia_em_modo_compartilhado(competencia):
     SEM travar a linha, e a auditoria MEDIU 30 gravações em 30 tentativas de
     uma corrida natural, sem nenhuma instrumentação, contra a hipótese
     registrada de "janela estreita").
+
+    `ano`/`mes`/`empresa` são só para a MENSAGEM de erro (nomear a
+    competência), nunca para a consulta em si, que sempre trava pelo `pk`
+    já resolvido — mesmo contrato de `_travar_competencia_para_transicao`,
+    logo abaixo. Correção do achado BLOQUEADOR BL-470 (verificação dirigida
+    da DL-031, rodada 1): a versão anterior não recebia estes parâmetros e
+    construía a mensagem acessando `competencia.mes`/`competencia.ano`/
+    `competencia.empresa` DEPOIS de capturar o `OperationalError`. Os dois
+    primeiros são campos escalares já carregados (inofensivos), mas
+    `competencia.empresa` é uma FK **não cacheada** neste objeto — ele vem
+    de `obter_ou_criar_competencia`, e `get_or_create(empresa=empresa, ...)`
+    não popula o cache da relação. Acessá-la disparava uma SEGUNDA consulta
+    SQL, e essa consulta roda numa transação PostgreSQL já **abortada** pelo
+    próprio estouro do `FOR SHARE` (o `try/except` abaixo não abre um
+    savepoint próprio — ver o comentário do `try`), então a segunda consulta
+    falhava com `InternalError` ("current transaction is aborted"), que
+    SUBSTITUÍA a `CompetenciaOcupada` pretendida e propagava cru até a view
+    (500 em produção). A correção é não tocar em NENHUM atributo de
+    `competencia` dentro do `except`: usar só os parâmetros já em memória.
 
     `entregue_em` entrou na MESMA consulta pela correção do achado B6/BL-468
     (rodada 2 de auditoria): a mensagem de `CompetenciaEncerrada` (ver
@@ -448,11 +467,18 @@ def _travar_competencia_em_modo_compartilhado(competencia):
         # é um caso de negócio, é uma falha de infraestrutura.
         if not _e_estouro_de_lock_timeout(exc):
             raise
+        # BL-470: a mensagem usa SÓ `ano`/`mes`/`empresa` — os parâmetros já
+        # em memória, recebidos pelo chamador — e NUNCA `competencia.mes`/
+        # `competencia.ano`/`competencia.empresa`. Ver o comentário na
+        # docstring desta função: acessar a FK `competencia.empresa` aqui
+        # dispararia uma consulta na transação já abortada pelo estouro do
+        # `FOR SHARE`, e o `InternalError` resultante substituiria esta
+        # `CompetenciaOcupada` antes dela sequer ser levantada.
         raise CompetenciaOcupada(
-            f"A competência {competencia.mes:02d}/{competencia.ano} de "
-            f"{competencia.empresa} está sendo fechada por outra operação "
-            "agora; não foi possível confirmar o estado dela a tempo. "
-            "Tente gravar este lançamento novamente em instantes."
+            f"A competência {mes:02d}/{ano} de {empresa} está sendo fechada "
+            "por outra operação agora; não foi possível confirmar o estado "
+            "dela a tempo. Tente gravar este lançamento novamente em "
+            "instantes."
         ) from exc
     return estado, entregue_em
 
@@ -736,7 +762,7 @@ def criar_lancamento(
             # (confirmado pelo Fred, RC-57/RC-103), e "estorno cairia em mês
             # fechado" é recusado pela MESMA linha abaixo.
             estado_travado, entregue_em_travado = _travar_competencia_em_modo_compartilhado(
-                competencia
+                competencia, ano=data.year, mes=data.month, empresa=empresa
             )
             if estado_travado != EstadoCompetencia.ABERTA:
                 nome_do_estado = EstadoCompetencia(estado_travado).label.lower()
