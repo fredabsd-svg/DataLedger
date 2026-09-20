@@ -71,7 +71,7 @@ ausente: ninguém procura o que acredita já ter.
 da rodada 3 declara que navegador não roda na integração contínua deste
 projeto — então "o contador vê" não é uma pergunta que a CI possa
 responder. Quem a responde é o juiz do gauntlet,
-`docs/assets/design/gauntlet/juiz.py`, que abre a página em Chromium de
+`scripts/juiz.py`, que abre a página em Chromium de
 verdade e consulta `MOMENTO_DA_VERDADE_SELETORES` com
 `Element.checkVisibility({checkOpacity, checkVisibilityCSS})` mais a área
 ocupada — delegando ao motor de layout em vez de enumerar as maneiras

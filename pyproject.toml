@@ -38,8 +38,36 @@ target-version = "py312"
 # comentário dentro de um bloco ```python que o auditor copiou do código
 # auditado. Formatar aquele bloco mudaria a citação.
 #
-# Não há código Python de produção sob `docs/`; a exclusão não abre buraco de
-# verificação. Se um dia houver, ele sai de `docs/` — não se tira esta linha.
+# ⚠️ A frase que estava aqui ("não há código Python de produção sob `docs/`")
+# era FALSA e foi DESMENTIDA por medição (BL-408/K5, décima auditoria,
+# docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md): 789 linhas de
+# Python executável (`docs/assets/design/gauntlet/sonda_visibilidade.py` e
+# `juiz.py`) moravam sob `docs/`, IMPORTADAS EM TEMPO DE EXECUÇÃO por
+# `scripts/medir_identificacao_do_emitente.py`, e esta mesma linha as
+# escondia do `ruff` — junto de `scripts/decidir_caminhos_vigiados.py`
+# (`CAMINHOS_NAO_RELEVANTES`), que as escondia do job de CI pelo mesmo
+# motivo errado, sem que uma lista soubesse da outra. Os dois arquivos
+# foram MOVIDOS para `scripts/` como parte da correção — `docs/**` deixa de
+# esconder qualquer `.py`, porque não sobra nenhum ali (conferido por
+# `git ls-files 'docs/**/*.py'` vazio, e travado por
+# `scripts/test_decidir_caminhos_vigiados.py::
+# test_caminhos_nao_relevantes_nao_engole_arquivo_versionado_executavel`).
+#
+# A pergunta que resta, e que ESTA correção mediu (R2 da tarefa K5/K6): dá
+# para tirar `docs/**` inteiramente da exclusão agora que não há mais `.py`
+# sob `docs/`? MEDIDO em 2026-09-20, removendo a entrada e rodando
+# `ruff format --check .` contra a árvore real: **7 arquivos**, TODOS sob
+# `docs/auditorias/`, seriam reformatados — cada um por causa de um bloco
+# ```python citado verbatim de código ou de outro teste (ex.:
+# `docs/auditorias/2026-09-19-dl-026-rodada-7.md:431`, onde o `ruff`
+# reescreveria o espaçamento de um comentário dentro da citação). Isso
+# reproduziria exatamente o defeito de 2026-09-14 citado acima — e desta
+# vez atingiria o relatório desta própria rodada, que cita o teste de
+# propriedade do BL-409 dentro de um bloco ```python. `docs/**` FICA no
+# `extend-exclude`, e a razão mudou: não é mais "não há código lá" (era
+# falso), é "há PROSA com código CITADO lá, e citação não se reformata".
+# Se algum dia sobrar `.py` de verdade sob `docs/`, ele sai de lá — o teste
+# de propriedade acima reprova antes de alguém precisar lembrar disto.
 extend-exclude = ["*/migrations/*", "docs/**"]
 
 [tool.ruff.lint]

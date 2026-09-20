@@ -36,7 +36,7 @@ ordem de declaração, entre TODAS as regras do arquivo que se aplicariam
 durante a impressão — as de fora de `@media print`, que valem sempre, e as
 de dentro, que só valem ao imprimir) para a propriedade `display` de cada nó
 da cadeia. É a mesma distinção que `MOMENTO_DA_VERDADE_SELETORES` faz em
-`docs/assets/design/gauntlet/juiz.py`: nomear O QUE checar (um elemento da
+`scripts/juiz.py`: nomear O QUE checar (um elemento da
 tela), não enumerar COMO alguém poderia escondê-lo.
 
 Um motor de cascata CSS genérico de verdade é responsabilidade de um motor de
@@ -282,8 +282,8 @@ integração contínua pelo job "Medir identificação do emitente no
 navegador" (`.github/workflows/identificacao-do-emitente.yml`, DL-028,
 fatia 2) — e pega as DEZ construções do §H1 da auditoria da rodada 8,
 inclusive as seis que este motor simulado nunca vai conseguir pegar sem
-virar uma lista. Continua existindo também `docs/assets/design/gauntlet/
-juiz.py` (`SELETOR_MARCA_DO_FORNECEDOR`/`SONDA_IMPRESSAO`), ferramenta de
+virar uma lista. Continua existindo também `scripts/juiz.py`
+(`SELETOR_MARCA_DO_FORNECEDOR`/`SONDA_IMPRESSAO`), ferramenta de
 BANCADA para quem quiser medir manualmente antes do CI rodar.
 
 ⚠️ **O que "os dois motores concordam" NÃO significa:** este arquivo

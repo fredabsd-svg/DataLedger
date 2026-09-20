@@ -48,7 +48,7 @@ DL-026 **sem nenhum teste acusar**: dependeu de alguém desconfiar de uma
 captura de tela.
 
 A contagem em si é feita pelo juiz do gauntlet
-(``docs/assets/design/gauntlet/juiz.py``), que já sabe contar linha
+(``scripts/juiz.py``), que já sabe contar linha
 inteiramente visível. Ele **não** roda na integração contínua, porque exige
 Chromium — e essa limitação está declarada, não escondida.
 """

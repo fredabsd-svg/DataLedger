@@ -61,7 +61,7 @@ import pytest  # noqa: E402
         # ainda pinta algo) — este instrumento não reprova por contraste
         # baixo, só por tinta que não pinta NADA. Distinção deliberada,
         # não esquecimento: contraste é problema de outro instrumento
-        # (`docs/assets/design/gauntlet/juiz.py`, para a tela).
+        # (`scripts/juiz.py`, para a tela).
         ("rgba(1, 2, 3, 0.5)", False),
         # Entradas degeneradas: nunca finge certeza que não tem.
         (None, False),

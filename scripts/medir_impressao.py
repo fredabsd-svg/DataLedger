@@ -16,7 +16,7 @@ não é medição do projeto" — a mesma lição que já valia para densidade,
 impressão).
 
 **DECISÃO (o arquiteto deveria revisar): script NOVO, não extensão de
-`docs/assets/design/gauntlet/juiz.py`.** O juiz consome pastas de HTML
+`scripts/juiz.py`.** O juiz consome pastas de HTML
 AUTÔNOMO — protótipos do gauntlet de design, sem Django nem banco. As
 telas medidas aqui são RENDERIZAÇÃO REAL do produto (dados de
 `scripts/semear_base_de_medicao.py`, usuário autenticado,
@@ -31,7 +31,7 @@ geração do PDF a um subprocesso do PYTHON DO SISTEMA
 (`DL_PYTHON_DO_SISTEMA`). A resolução do executável do Chromium em si
 segue `sonda_visibilidade.lancar_chromium` (BL-381) — o MESMO módulo que
 `juiz.py` já usa desde que seu próprio `CHROMIUM` fixo saiu de lá; ver o
-comentário completo perto de `_GAUNTLET_DIR`, abaixo.
+comentário completo perto de `_DIRETORIO_SONDA`, abaixo.
 
 ⚠️ **Atualizado na DL-028 fatia 2 (BL-357/BL-358, achado do arquiteto-senior
 sobre a fatia 2 — mensagem de guarda que mandava procurar o vizinho
@@ -149,10 +149,15 @@ if str(RAIZ) not in sys.path:
 # chromium`/`lancar_chromium` (mesmo módulo que `scripts/medir_
 # identificacao_do_emitente.py` já usa) resolvem o executável por
 # `DL_CHROMIUM_EXECUTAVEL` ou por descoberta NATIVA do Playwright — nunca
-# um literal de caminho. `_GAUNTLET_DIR`, abaixo, é só a localização do
-# MÓDULO (`sonda_visibilidade.py` é irmão de `juiz.py`, não um pacote
-# instalado) — não um caminho de EXECUTÁVEL.
-_GAUNTLET_DIR = str((RAIZ / "docs" / "assets" / "design" / "gauntlet").resolve())
+# um literal de caminho. `_DIRETORIO_SONDA`, abaixo, é só a localização
+# do MÓDULO (`sonda_visibilidade.py` é irmão de `juiz.py`, não um pacote
+# instalado) — não um caminho de EXECUTÁVEL. BL-408/K5 (décima
+# auditoria): os dois viviam em `docs/assets/design/gauntlet/`, fora do
+# alcance do `ruff`/`pytest` (`docs/**` tratado como prosa); agora moram
+# em `scripts/`, sibling deste arquivo — `_DIRETORIO_SONDA` passa a ser
+# simplesmente o diretório deste próprio script, não mais um caminho
+# fixo sob `docs/`.
+_DIRETORIO_SONDA = str(Path(__file__).resolve().parent)
 
 # O Python do VENV do projeto não tem Playwright (não é dependência de
 # `requirements/` — decisão registrada na docstring do módulo). Este
@@ -237,8 +242,8 @@ def _exigir_python_do_sistema_com_playwright():
         sys.exit(
             f"Recusado: {PYTHON_DO_SISTEMA!r} não importa playwright.sync_api — este "
             "script delega a geração do PDF a um Python DIFERENTE do venv do "
-            "projeto (a mesma separação de ambiente que docs/assets/design/gauntlet/"
-            "juiz.py já assume). Aponte DL_PYTHON_DO_SISTEMA para um interpretador "
+            "projeto (a mesma separação de ambiente que scripts/juiz.py já "
+            "assume). Aponte DL_PYTHON_DO_SISTEMA para um interpretador "
             "com Playwright instalado, ou instale Playwright nele."
         )
 
@@ -409,9 +414,9 @@ especificacao = json.loads(sys.argv[1])
 # BL-381: resolução do Chromium por `sonda_visibilidade` (variável de
 # ambiente ou descoberta nativa do Playwright) — nunca um caminho fixo
 # recebido na especificação. `sonda_visibilidade.py` é módulo IRMÃO deste
-# script (docs/assets/design/gauntlet/), não pacote instalado — daí o
+# script (scripts/, desde o BL-408/K5), não pacote instalado — daí o
 # `sys.path.insert` antes de importar.
-sys.path.insert(0, especificacao["gauntlet_dir"])
+sys.path.insert(0, especificacao["diretorio_sonda"])
 import sonda_visibilidade
 pasta_html = Path(especificacao["pasta_html"])
 pasta_saida = Path(especificacao["pasta_saida"])
@@ -475,7 +480,7 @@ print("OK")
 def _gerar_pdfs(pasta_html, pasta_saida, nomes):
     especificacao = json.dumps(
         {
-            "gauntlet_dir": _GAUNTLET_DIR,
+            "diretorio_sonda": _DIRETORIO_SONDA,
             "pasta_html": str(pasta_html),
             "pasta_saida": str(pasta_saida),
             "nomes": nomes,

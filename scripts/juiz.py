@@ -156,18 +156,23 @@ SONDA = r"""
         tem_caption: document.querySelectorAll('table caption').length,
         tem_scope: document.querySelectorAll('th[scope]').length,
         th_total: document.querySelectorAll('th').length,
-        sticky: document.querySelectorAll('*').length && [...document.querySelectorAll('thead th, tfoot td, tfoot th, thead')].some(
-            e => getComputedStyle(e).position === 'sticky'),
+        sticky: document.querySelectorAll('*').length
+            && [...document.querySelectorAll('thead th, tfoot td, tfoot th, thead')]
+                .some(e => getComputedStyle(e).position === 'sticky'),
         pares_de_cor: [],
         focaveis: 0,
         script_tags: document.querySelectorAll('script').length,
-        script_inline_bytes: [...document.querySelectorAll('script')].reduce((s, e) => s + (e.textContent || '').length, 0),
+        script_inline_bytes: [...document.querySelectorAll('script')].reduce(
+            (s, e) => s + (e.textContent || '').length, 0
+        ),
     };
 
     // Linhas visíveis sem rolar: o critério de densidade.
     for (const tr of document.querySelectorAll('table tbody tr')) {
         const r = tr.getBoundingClientRect();
-        if (r.top >= 0 && r.bottom <= window.innerHeight) resultado.linhas_visiveis_no_primeiro_ecra++;
+        if (r.top >= 0 && r.bottom <= window.innerHeight) {
+            resultado.linhas_visiveis_no_primeiro_ecra++;
+        }
     }
 
     // Tabulação de algarismos — CORRIGIDO depois de um erro meu (arquiteto):
@@ -199,18 +204,26 @@ SONDA = r"""
             if (!/\\d[\\d.]*,\\d{2}/.test(texto)) continue;
             resultado.celulas_numericas++;
             const s = getComputedStyle(folha);
-            const chave = [s.fontFamily, s.fontVariantNumeric, s.fontFeatureSettings, s.fontSize].join('|');
+            const chave = [
+                s.fontFamily, s.fontVariantNumeric, s.fontFeatureSettings, s.fontSize,
+            ].join('|');
             if (!cacheTabulacao.has(chave)) {
-                const estilo = `font-family:${s.fontFamily};font-variant-numeric:${s.fontVariantNumeric};`
+                const estilo = `font-family:${s.fontFamily};`
+                    + `font-variant-numeric:${s.fontVariantNumeric};`
                     + `font-feature-settings:${s.fontFeatureSettings};font-size:${s.fontSize};`;
-                cacheTabulacao.set(chave,
-                    Math.abs(medirLargura(estilo, '111111') - medirLargura(estilo, '888888')) < 0.5);
+                cacheTabulacao.set(
+                    chave,
+                    Math.abs(medirLargura(estilo, '111111') - medirLargura(estilo, '888888')) < 0.5,
+                );
             }
             if (cacheTabulacao.get(chave)) resultado.tabular_nums.com++;
             else {
                 resultado.tabular_nums.sem++;
-                if (resultado.tabular_nums.exemplos_sem.length < 4)
-                    resultado.tabular_nums.exemplos_sem.push(texto.slice(0, 24) + ' @' + s.fontFamily.split(',')[0]);
+                if (resultado.tabular_nums.exemplos_sem.length < 4) {
+                    resultado.tabular_nums.exemplos_sem.push(
+                        texto.slice(0, 24) + ' @' + s.fontFamily.split(',')[0],
+                    );
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ do ESCRITÓRIO emitente.
 
 **Por que este instrumento existe.** A oitava auditoria da DL-026
 (docs/auditorias/2026-09-19-dl-026-rodada-8.md, §7) mediu que o juiz de
-bancada (`docs/assets/design/gauntlet/juiz.py`) só consome HTML autônomo
+bancada (`scripts/juiz.py`) só consome HTML autônomo
 das variantes do gauntlet — nunca `static/css/base.css` + `templates/**`,
 que é o que o cliente do escritório de fato recebe. Para a pergunta "o
 emitente aparece no papel?", isso deixava a guarda do `pytest`
@@ -19,7 +19,7 @@ identificação do escritório com aquela suíte inteira verde (H1).
 **O que este instrumento NÃO é.** Não substitui a suíte `pytest` (que
 continua sendo a "primeira linha barata" — rebaixamento formalizado na
 fatia 3 deste plano). Não roda na integração contínua (isso é a fatia 2).
-É ferramenta de BANCADA, como `docs/assets/design/gauntlet/juiz.py` e
+É ferramenta de BANCADA, como `scripts/juiz.py` e
 `scripts/medir_impressao.py`: quem fecha uma etapa que mexa em
 `static/css/base.css`, em `templates/**` ou em qualquer tela nova com
 timbre roda este script manualmente contra o produto antes de declarar a
@@ -34,10 +34,10 @@ PDF A4) a um subprocesso do Python DO SISTEMA
 (`DL_PYTHON_DO_SISTEMA`, default `/usr/bin/python3`), que tem Playwright.
 
 **Nenhum caminho fixo de navegador.** A resolução do executável do
-Chromium é feita por `docs/assets/design/gauntlet/sonda_visibilidade.
-resolver_executavel_do_chromium` — variável de ambiente
-`DL_CHROMIUM_EXECUTAVEL` ou descoberta nativa do Playwright — nunca um
-literal de caminho de uma máquina específica.
+Chromium é feita por `scripts/sonda_visibilidade.resolver_executavel_do_
+chromium` — variável de ambiente `DL_CHROMIUM_EXECUTAVEL` ou descoberta
+nativa do Playwright — nunca um literal de caminho de uma máquina
+específica.
 
 **O conjunto de telas é DERIVADO, nunca escrito à mão** (`_descobrir_telas_
 com_timbre`, abaixo): este script anda por TODA a urlconf nomeada do
@@ -135,15 +135,23 @@ if str(RAIZ) not in sys.path:
 # CSS para `file://` — NUNCA reimplementada aqui (docstring do módulo).
 import medir_impressao  # noqa: E402 — precisa vir depois de ajustar o sys.path
 
-# `sonda_visibilidade.py` é módulo IRMÃO de `juiz.py`, não um pacote
-# instalado. A venv do projeto (Python 3.14, sem Playwright) NÃO importa
-# este módulo em tempo de execução normal — só o Python DO SISTEMA
-# (subprocesso, abaixo) importa de verdade, porque só ele usa Playwright.
-# O caminho é só uma STRING passada ao subprocesso via JSON; `_verificar_
-# sonda_disponivel` (abaixo) confirma cedo, na venv, que o ARQUIVO existe e
-# tem sintaxe válida — sem precisar de Playwright para isso — em vez de
-# deixar um caminho errado só aparecer como erro dentro do subprocesso.
-_GAUNTLET_DIR = str((RAIZ / "docs" / "assets" / "design" / "gauntlet").resolve())
+# `sonda_visibilidade.py` é módulo IRMÃO de `juiz.py` E deste script — os
+# três moram em `scripts/` desde a correção do BL-408/K5 (décima
+# auditoria): até então, os dois primeiros viviam em
+# `docs/assets/design/gauntlet/`, fora do alcance do `ruff`/`pytest`
+# porque `docs/**` é tratado como prosa (`pyproject.toml` e
+# `scripts/decidir_caminhos_vigiados.py` os pulavam os dois) — exatamente
+# a classe de defeito que o BL-379 existia para fechar, reproduzida no
+# arquivo de que ESTE script depende. `sonda_visibilidade.py` não é um
+# pacote instalado. A venv do projeto (Python 3.14, sem Playwright) NÃO
+# importa este módulo em tempo de execução normal — só o Python DO
+# SISTEMA (subprocesso, abaixo) importa de verdade, porque só ele usa
+# Playwright. O caminho é só uma STRING passada ao subprocesso via JSON;
+# `_verificar_sonda_disponivel` (abaixo) confirma cedo, na venv, que o
+# ARQUIVO existe e tem sintaxe válida — sem precisar de Playwright para
+# isso — em vez de deixar um caminho errado só aparecer como erro dentro
+# do subprocesso.
+_DIRETORIO_SONDA = str(Path(__file__).resolve().parent)
 
 SELETOR_TIMBRE_CONTAINER = ".timbre-impressao"
 SELETOR_TIMBRE_FILHOS = ".timbre-impressao p"
@@ -353,7 +361,7 @@ import json, sys
 from pathlib import Path
 
 especificacao = json.loads(sys.argv[1])
-sys.path.insert(0, especificacao["gauntlet_dir"])
+sys.path.insert(0, especificacao["diretorio_sonda"])
 import sonda_visibilidade
 from playwright.sync_api import sync_playwright
 
@@ -411,7 +419,7 @@ print(json.dumps({"resultados": resultados, "erro_infra": erro_infra}, ensure_as
 def _medir_no_navegador(pasta_html, pasta_saida, nomes_das_telas):
     especificacao = json.dumps(
         {
-            "gauntlet_dir": _GAUNTLET_DIR,
+            "diretorio_sonda": _DIRETORIO_SONDA,
             "pasta_html": str(pasta_html),
             "pasta_saida": str(pasta_saida),
             "telas": nomes_das_telas,
@@ -445,11 +453,11 @@ def _medir_no_navegador(pasta_html, pasta_saida, nomes_das_telas):
 def _verificar_sonda_disponivel():
     """Confirma cedo, na venv do projeto (sem precisar de Playwright), que
     `sonda_visibilidade.py` existe e importa sem erro de sintaxe — em vez
-    de deixar um `_GAUNTLET_DIR` errado só se manifestar como erro dentro
+    de deixar um `_DIRETORIO_SONDA` errado só se manifestar como erro dentro
     do subprocesso do Python do sistema, três camadas depois."""
     import importlib.util
 
-    caminho = Path(_GAUNTLET_DIR) / "sonda_visibilidade.py"
+    caminho = Path(_DIRETORIO_SONDA) / "sonda_visibilidade.py"
     especificacao = importlib.util.spec_from_file_location("sonda_visibilidade", caminho)
     if especificacao is None or especificacao.loader is None:
         _recusar(f"não encontrei {caminho}.")
