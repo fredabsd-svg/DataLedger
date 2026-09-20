@@ -379,10 +379,33 @@ dizer *"ausente do papel"* sobre linha que **está** no papel; e **BL-426** — 
 folha medida é **sempre branca** hoje, porque nenhum CSS usa
 `print-color-adjust: exact` e `print_background` nunca é passado ao Playwright.
 
-**O que o próximo turno faz:** a correção da BL-424 já está delegada, com as duas
-declarações. **Depois dela, a DL-029 vai ao `auditor-qa` — não compro outra
-rodada antes da auditoria.** A suíte inteira já rodou nesta entrega (2016
-passed).
+#### `100140e` — as três tratadas, e a DL-029 foi PARA A AUDITORIA
+
+**BL-424 fechada.** `TAMANHO_MINIMO_RENDERIZADO_PX = 11`, terceira causa de
+reprovação distinguível de contraste e de contagem, com mensagem própria
+(*"renderizada a Npx, abaixo do mínimo de Mpx"*), lida do mesmo
+`getComputedStyle` que já alimenta o piso do WCAG.
+
+⚠️ **E o valor não foi inventado, que era o risco:** vem de `--tipo-2xs`, token
+que o **próprio produto** já documenta como piso legível (BL-283), fixado por um
+teste que **lê `static/css/base.css` de verdade** — não um número solto.
+`8px` passa a reprovar **nomeando tamanho**; 16px e 14px, que é o produto real,
+continuam passando. `PISO_PIXELS_ESCUROS_POR_LINHA` fica como sanidade residual:
+não guarda mais nem tamanho nem contraste, os dois com checagem própria.
+
+**BL-425 e BL-426 declaradas**, com a medição ao lado, não fechadas.
+
+**Conferido por mim nesta revisão, com banco próprio (`arq_dl029`):**
+`pytest` → **2017 passed, 15 skipped, 4 subtests**, 67,48 s; `ruff check .`
+limpo; `ruff format --check .` 210 arquivos; `manage.py check` limpo.
+
+➡️ **A DL-029 está com o `auditor-qa`, sobre `100140e`** — décima primeira
+auditoria. **A régua que eu dei a ele é a FRASE, não o relatório anterior dele**,
+que é o ponto inteiro da DE-059: ele mesmo previu que auditar contra os próprios
+K1–K4 produziria um K12. Pedi também o juízo dele sobre os **cinco limites
+declarados** (marca como desenho, BL-425, BL-426, BL-419, e os pisos de PE-57 e
+PE-58), e sobre se **DL-026 e DL-028 fecham agora** — hoje o estado diz
+**produto bom, garantia parcial**, e continua dizendo até ele responder.
 
 ⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
 
