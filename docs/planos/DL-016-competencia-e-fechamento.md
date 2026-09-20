@@ -1,6 +1,11 @@
 # DL-016 — Competência e fechamento de período
 
-**Estado:** planejada em 2026-09-13. Não iniciada.
+**Estado:** o estado desta etapa **não é descrito aqui** — ele está em
+[`docs/agents/estado.md`](../agents/estado.md), que é a fonte única. Descrever
+estado em dois lugares é a duplicação que a instrução permanente do Fred, de
+2026-09-13, proíbe. ⚠️ **Esta linha dizia "planejada em 2026-09-13, não
+iniciada" até 2026-09-20, e era falso**: a F1 e a F2 estão na `main` há semanas
+— ver a tabela *"O que JÁ EXISTE"* mais abaixo, que é medição, não memória.
 
 ## Por que esta etapa vem agora
 
@@ -17,9 +22,15 @@ Fecha **BL-11** e **BL-15**.
 
 ## O que existe hoje
 
-Nada. Verificado: `competencia` não aparece em `apps/`, `config/` nem
-`templates/`. Qualquer lançamento pode ser gravado em qualquer data, inclusive
-num mês cujo balancete já foi entregue ao cliente.
+⚠️ **Este parágrafo dizia "Nada" e envelheceu.** A medição de 2026-09-20 está na
+tabela **"O que JÁ EXISTE, medido antes de escrever esta fatia"**, mais abaixo —
+e é o único lugar deste plano que descreve o código existente, para não haver
+duas versões divergindo.
+
+**O que continua verdadeiro da redação original, e é o que justifica a etapa:**
+qualquer lançamento pode ser gravado em qualquer data, inclusive num mês cujo
+balancete já foi entregue ao cliente. O campo `Competencia.estado` existe e
+**nenhum código de produção o lê**.
 
 ## Dois controles distintos, e a diferença importa
 
@@ -110,40 +121,77 @@ fatias próprias, e nenhuma delas trava o livro.
 **A tela vem na fatia 2**, depois que o servidor estiver certo. Ordem
 deliberada: a trava tem de existir antes de haver botão para acioná-la.
 
-## Critérios de aceite
+## O que JÁ EXISTE, medido antes de escrever esta fatia
 
-1. Lançar em competência encerrada é recusado **no servidor**, com 409 e
-   mensagem que diz qual competência está fechada — não 500, não silêncio.
-2. O mesmo vale para estorno: estornar lançamento de período encerrado é
-   recusado, porque gera lançamento naquele período. **Confirmado pelo Fred**
-   (RC-57): período fechado não se mexe, só reabrindo.
-3. Reabertura exige papel autorizado; usuário sem o papel recebe 403 e **nada
-   muda**.
-4. Reabertura grava na trilha: quem, quando, qual competência, qual motivo.
-   Motivo vazio é recusado.
-5. Fechar uma competência com lote desbalanceado na base é recusado — a
-   conferência da DL-015 é pré-condição do fechamento. **Confirmado pelo Fred**
-   (RC-58).
-6. Fechamento é idempotente: fechar duas vezes a mesma competência não duplica
-   registro nem muda o autor do primeiro fechamento.
-7. Concorrência: duas requisições simultâneas de fechamento da mesma competência
-   produzem um único registro. Teste concorrente.
-8. Competência encerrada de uma empresa **não** afeta outra empresa, nem outro
-   escritório. Teste de isolamento.
-9. Lançamento fora do período de trabalho segue a política da empresa: livre
-   (grava), avisar (grava e devolve aviso na resposta), bloquear (recusa com
-   400). Teste para os três estados.
-10. As saídas da DL-015 aceitam competência como forma de informar o período, sem
-    perder o intervalo de datas livre.
-11. A origem do lançamento é gravada com valores controlados, **não é alterável**
-    depois de gravada, e o lançamento criado pela API de escrituração manual
-    nasce com origem manual. Teste que tenta alterar a origem e falha.
-12. Existe caminho do documento de origem para os lançamentos que ele gerou, e o
-    inverso, respeitando o isolamento entre empresas.
-13. Sem regressão: suíte, lint, formatação, `manage.py check` e migrações em
-    banco vazio limpos. A migração é aplicada sobre base **com dados** num
-    teste, e os lançamentos existentes recebem origem manual — nenhum fica sem
-    origem.
+Escrevo isto porque metade da F1/F2 original já está na `main`, e mandar
+implementar de novo seria desperdício:
+
+| Peça | Estado medido |
+| --- | --- |
+| Modelo `Competencia` (`empresa`, `ano`, `mes`, `estado`, `criado_em`) | **Existe**, com `UniqueConstraint(empresa, ano, mes)` e duas `CheckConstraint` de faixa |
+| `EstadoCompetencia` com `aberta → em_encerramento → encerrada` | **Existe** |
+| `LancamentoContabil.competencia` (FK, `PROTECT`, `null=True`) | **Existe** |
+| Criação automática da competência dentro de `criar_lancamento` | **Existe** (`apps/contabilidade/services.py`, `get_or_create` na mesma transação, com tratamento de corrida) |
+| Comando `backfill_lancamento_competencia` | **Existe** |
+| **Qualquer código de produção que LEIA `Competencia.estado`** | ⚠️ **NÃO EXISTE.** `grep '\.estado\b'` fora de testes não devolve nada. O campo é decorativo: hoje nada impede lançar em mês "encerrado" |
+
+**É esse buraco que a fatia 1 fecha, e só ele.**
+
+## Critérios de aceite da FATIA 1
+
+1. **Lançar em competência encerrada é recusado NO SERVIDOR**, com **409** e
+   mensagem que diz **qual** competência está fechada — não 500, não silêncio.
+   A recusa vive no **serviço** (`criar_lancamento`), não na view: qualquer
+   porta que chame o serviço herda a trava.
+2. **Estorno também é recusado** quando cairia em competência encerrada, porque
+   estorno é lançamento novo. ⚠️ **Atenção à data:** o estorno hoje recebe a
+   data de **hoje**, não a do original — então o que decide é a competência do
+   **estorno**, e o caso em que o original está em mês fechado e o estorno em
+   mês aberto **passa**. **Confirmado pelo Fred** (RC-57).
+3. **Fechar** grava autor, data e registro na trilha. Fechar competência com
+   **lote desbalanceado** na base é **recusado** — a conferência da DL-015 é
+   pré-condição (**RC-58**). Use `localizar_lotes_desbalanceados`, que já existe.
+4. **Fechamento é idempotente**: fechar duas vezes não duplica registro nem
+   troca o autor do primeiro fechamento.
+5. **Reabrir exige motivo não vazio** e grava na trilha quem, quando, qual
+   competência e qual motivo. Motivo em branco ou só espaços é recusado.
+6. **Reabrir competência JÁ ENTREGUE é recusado** (**RC-101**), com **409** e
+   mensagem que diz a data da entrega e orienta o ajuste no mês aberto. Este é
+   o critério que nasceu da resposta do Fred, e é o que nenhum plano anterior
+   tinha.
+7. **Marcar como entregue** grava `entregue_em` e `entregue_por`. Só competência
+   **encerrada** pode ser entregue — entregar mês aberto é recusado.
+8. **Autorização é verificada no servidor.** Fechar, reabrir e entregar exigem
+   papel autorizado; usuário sem o papel recebe **403** e **nada muda** no banco.
+   ⚠️ **HI-17, hipótese minha, não confirmação do Fred:** os papéis autorizados
+   são **ADMINISTRADOR** e **GESTOR**. `ANALISTA` lança e não fecha. Marcado
+   como hipótese porque é decisão do escritório dele, e é reversível.
+9. **Isolamento.** Competência encerrada de uma empresa não afeta outra empresa
+   nem outro escritório. Teste com duas empresas de escritórios diferentes.
+10. **Concorrência.** Duas requisições simultâneas de fechamento da mesma
+    competência produzem **um** registro. Teste concorrente em PostgreSQL.
+11. **Migração sobre base COM DADOS**: nenhuma competência existente nasce
+    encerrada nem entregue. O estado inicial é tudo aberto.
+12. **Sem regressão:** suíte, `ruff check`, `ruff format --check`,
+    `manage.py check` e migrações em banco vazio limpos, com os números
+    declarados.
+
+⚠️ **O que NÃO é critério desta fatia, e não deve aparecer no diff:** tela,
+botão, filtro de competência nas saídas da DL-015, política de três estados do
+período de trabalho, origem do lançamento (BL-72). Isso é fatia 2 em diante.
+
+## Critérios das fatias seguintes (NÃO implementar agora)
+
+Preservados do plano original para não se perderem:
+
+- Lançamento fora do **período de trabalho** segue a política da empresa: livre,
+  avisar ou bloquear. Teste para os três estados.
+- As saídas da DL-015 aceitam **competência** como forma de informar o período,
+  sem perder o intervalo de datas livre.
+- **Origem do lançamento** (BL-72) gravada com valores controlados, não
+  alterável depois, com caminho do documento de origem para os lançamentos que
+  ele gerou e o inverso, respeitando o isolamento.
+- **Tela** de fechamento, reabertura e entrega.
 
 ## Riscos
 
