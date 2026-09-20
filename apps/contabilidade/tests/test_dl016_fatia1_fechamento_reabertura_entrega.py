@@ -20,7 +20,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction
 from django.urls import reverse
 from django.utils import timezone
 
@@ -538,23 +538,36 @@ def test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entre
 
 
 @pytest.mark.django_db(transaction=True)
-def test_bl456_corrida_natural_sem_instrumentacao_e_internamente_consistente():
-    """Complementa os testes determinísticos acima com a MESMA corrida
-    "natural" que a auditoria usou (sem monkeypatch, duas threads, a que
-    fecha começando ~0,6 ms depois da que lança), repetida várias vezes.
+def test_concorrencia_natural_e_robusta_sem_excecao_deadlock_ou_inconsistencia():
+    """Repete, várias vezes, a MESMA corrida "natural" (sem monkeypatch,
+    duas threads reais, a que fecha começando ~0,6 ms depois da que lança)
+    que a auditoria usou na rodada 1.
 
-    ⚠️ Medição feita durante esta correção (não presumida): a contagem bruta
-    de "lançou E fechou" NÃO é, por si só, um indicador de corrida — ela
-    aparece tanto no código ANTES da correção (violação real) quanto DEPOIS
-    dela (resultado LEGÍTIMO: o lançamento venceu o `FOR SHARE` e o
-    fechamento esperou e fechou depois, como o próprio relatório da
-    auditoria admite ser aceitável: "o lançamento entrou e o fechamento
-    devia ter... esperado"). O que este teste garante, de forma que
-    qualquer execução consegue verificar sozinha: NENHUMA exceção
-    inesperada, e toda vez que o lançamento é recusado, a competência
-    realmente terminou encerrada (a recusa nunca é por outro motivo). A
-    prova de que a corrida em si fecha é dos dois testes determinísticos
-    acima, que não dependem de quem chega primeiro.
+    ⚠️ Renomeado no BL-467 (achado B5, rodada 2 de auditoria): o nome
+    anterior, `test_bl456_corrida_natural_..._internamente_consistente`,
+    prometia guardar o BL-456 — e NÃO guarda: por mutação, sobreviveu à
+    reintrodução do defeito original (a mesma mutação derruba os outros
+    três testes `test_bl456_*` deste arquivo, que SÃO a prova de corrida —
+    ver `test_bl456_for_share_bloqueia_encerrar_competencia_ate_o_
+    lancamento_commitar` e os dois testes de reprodução ao lado). Este
+    teste mede outra coisa, que nenhum dos três acima cobre: que a
+    concorrência NATURAL entre lançamento e fechamento — sem nenhuma
+    instrumentação forçando ordem — não produz exceção inesperada,
+    deadlock, nem estado internamente inconsistente.
+
+    ⚠️ Medição feita durante a correção do BL-456 (não presumida): a
+    contagem bruta de "lançou E fechou" NÃO é, por si só, um indicador de
+    corrida — ela aparece tanto no código ANTES da correção (violação real)
+    quanto DEPOIS dela (resultado LEGÍTIMO: o lançamento venceu o
+    `FOR SHARE` e o fechamento esperou e fechou depois, como o próprio
+    relatório da auditoria admite ser aceitável: "o lançamento entrou e o
+    fechamento devia ter... esperado"). O que este teste garante, de forma
+    que qualquer execução consegue verificar sozinha: NENHUMA exceção
+    inesperada (o que cobre deadlock — um `OperationalError` de
+    "deadlock detected" cairia no `assert` de baixo), e toda vez que o
+    lançamento é recusado, a competência realmente terminou encerrada (a
+    recusa nunca é por outro motivo, e o estado nunca fica incoerente
+    entre os dois lados da corrida).
     """
     escritorio = Escritorio.objects.create(nome="Escritório BL-456 natural", cnpj="15151515000115")
     empresa = Empresa.objects.create(
@@ -1410,3 +1423,262 @@ def test_criterio11_migracao_0006_sobre_base_com_dados_nao_altera_competencia_ex
     assert competencia.fechada_por_id is None
     assert competencia.entregue_em is None
     assert competencia.entregue_por_id is None
+
+
+# ---------------------------------------------------------------------------
+# BL-463/B1 (rodada 2 de auditoria) — MÉDIA. `encerrar_competencia` adquiria
+# o `select_for_update()` e SÓ DEPOIS rodava `localizar_lotes_desbalanceados`
+# (a conferência RC-58, sem período, sobre a base INTEIRA da empresa) — a
+# partir da correção do BL-456, isso bloqueava todo lançamento daquele mês
+# pela duração INTEIRA da varredura. A correção inverteu a ordem: a
+# conferência roda ANTES do lock (seguro, porque `criar_lancamento` nunca
+# grava lote desbalanceado), e só então o lock é adquirido — a janela dele
+# caiu para a de um `UPDATE`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente(monkeypatch):
+    """Prova DETERMINÍSTICA de que a varredura RC-58 (`localizar_lotes_
+    desbalanceados`) roda ANTES do `select_for_update()` em
+    `encerrar_competencia`: um lançamento concorrente, disparado bem no
+    MEIO da varredura, não fica preso esperando ela terminar.
+
+    Mecanismo: embrulha `localizar_lotes_desbalanceados` para AVISAR (via
+    `Event`) assim que é chamada, e só então segurar 0,5s antes de
+    devolver — se o lock já estivesse adquirido neste ponto (como antes da
+    correção do BL-463), o `FOR SHARE` do lançamento concorrente ficaria
+    bloqueado pelos mesmos 0,5s. Depois da correção, o lançamento consegue
+    o `FOR SHARE` e COMMITA livremente enquanto a varredura ainda está
+    "rodando" — prova de que nenhum lock está ativo naquele momento.
+    """
+    escritorio = Escritorio.objects.create(
+        nome="Escritório BL-463 determinístico", cnpj="20202020000120"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa BL-463 Determinística Ltda",
+        cnpj="20202020000201",
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    capital = Conta.objects.create(
+        empresa=empresa,
+        codigo="2.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+    )
+    gestor = get_user_model().objects.create_user(
+        username="bl463-determ", email="bl463-determ@escritorio.com.br", password="senha-forte-123"
+    )
+    # Pré-criada de propósito — mesmo motivo do teste equivalente do BL-456
+    # (evita a corrida lateral de INSERT em `get_or_create`).
+    Competencia.objects.create(empresa=empresa, ano=2013, mes=8)
+
+    original = contabilidade_services.localizar_lotes_desbalanceados
+    varredura_iniciada = threading.Event()
+
+    def varredura_lenta(*, empresa):
+        varredura_iniciada.set()
+        time.sleep(0.5)
+        return original(empresa=empresa)
+
+    monkeypatch.setattr(contabilidade_services, "localizar_lotes_desbalanceados", varredura_lenta)
+
+    tempos = {}
+    inicio = time.monotonic()
+
+    def fechar():
+        contabilidade_services.encerrar_competencia(
+            empresa=empresa, ano=2013, mes=8, usuario=gestor
+        )
+        tempos["fechamento_fim"] = time.monotonic() - inicio
+        connection.close()
+
+    def lancar():
+        assert varredura_iniciada.wait(timeout=5)  # espera a varredura COMEÇAR
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2013, 8, 10),
+            historico="BL-463 determinístico",
+            itens=[
+                {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+            ],
+            criado_por=gestor,
+        )
+        tempos["lancamento_fim"] = time.monotonic() - inicio
+        connection.close()
+
+    t1 = threading.Thread(target=fechar)
+    t2 = threading.Thread(target=lancar)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # O lançamento tem que terminar MUITO antes dos 0,5s que a varredura
+    # segura — se estivesse bloqueado pelo lock, levaria pelo menos isso.
+    assert tempos["lancamento_fim"] < 0.3
+    # E o fechamento tem que ter, de fato, esperado a varredura inteira
+    # (prova de que o mock funcionou e a varredura realmente rodou).
+    assert tempos["fechamento_fim"] >= 0.5
+
+    assert LancamentoContabil.objects.filter(
+        empresa=empresa, data__year=2013, data__month=8
+    ).exists()
+    competencia = Competencia.objects.get(empresa=empresa, ano=2013, mes=8)
+    assert competencia.estado == EstadoCompetencia.ENCERRADA
+
+
+def test_bl463_fechar_com_lote_desbalanceado_continua_recusando_sem_lock(cenario):
+    """Efeito colateral que a reordenação do BL-463 poderia ter quebrado:
+    a checagem RC-58 SEM lock ainda recusa o fechamento quando há lote
+    desbalanceado, e a competência permanece intocada (nenhum `save()`
+    aconteceu, porque a recusa é ANTES do lock e da escrita)."""
+    empresa, caixa = cenario["empresa"], cenario["caixa"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl463-desbalanceado")
+
+    competencia = Competencia.objects.create(empresa=empresa, ano=2026, mes=8)
+    lancamento = LancamentoContabil.objects.create(
+        empresa=empresa,
+        data=date(2026, 8, 10),
+        historico="Lote torto (só débito, sem contrapartida)",
+        competencia=competencia,
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento, conta=caixa, tipo=TipoPartida.DEBITO, valor=Decimal("10.00")
+    )
+
+    with pytest.raises(CompetenciaOperacaoRecusada):
+        encerrar_competencia(empresa=empresa, ano=2026, mes=8, usuario=gestor)
+
+    competencia.refresh_from_db()
+    assert competencia.estado == EstadoCompetencia.ABERTA
+    assert competencia.fechada_em is None
+
+
+def test_bl463_encerrar_idempotente_nao_faz_varredura_nem_lock_desnecessarios(cenario, monkeypatch):
+    """O atalho de idempotência (competência JÁ encerrada) não deveria
+    pagar nem a varredura RC-58 nem o `select_for_update()` de novo — é o
+    ponto do atalho SEM lock introduzido pelo BL-463. Prova por
+    instrumentação: se `localizar_lotes_desbalanceados` ou
+    `_travar_competencia_para_transicao` forem chamadas na segunda
+    chamada (idempotente), o teste falha."""
+    empresa = cenario["empresa"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl463-idempotente")
+
+    primeiro = encerrar_competencia(empresa=empresa, ano=2026, mes=9, usuario=gestor)
+    assert primeiro.encerrada_agora is True
+
+    chamadas = {"varredura": 0, "lock": 0}
+    original_varredura = contabilidade_services.localizar_lotes_desbalanceados
+    original_lock = contabilidade_services._travar_competencia_para_transicao
+
+    def varredura_instrumentada(*, empresa):
+        chamadas["varredura"] += 1
+        return original_varredura(empresa=empresa)
+
+    def lock_instrumentado(competencia, **kwargs):
+        chamadas["lock"] += 1
+        return original_lock(competencia, **kwargs)
+
+    monkeypatch.setattr(
+        contabilidade_services, "localizar_lotes_desbalanceados", varredura_instrumentada
+    )
+    monkeypatch.setattr(
+        contabilidade_services, "_travar_competencia_para_transicao", lock_instrumentado
+    )
+
+    segundo = encerrar_competencia(empresa=empresa, ano=2026, mes=9, usuario=gestor)
+
+    assert segundo.encerrada_agora is False
+    assert chamadas["varredura"] == 0
+    assert chamadas["lock"] == 0
+
+
+# ---------------------------------------------------------------------------
+# BL-464/B2 (rodada 2 de auditoria) — BAIXA, ressalva. Fora do PostgreSQL,
+# `_travar_competencia_em_modo_compartilhado` degradava para leitura em
+# memória (SEM lock) em SILÊNCIO. Agora emite `RuntimeWarning`.
+# ---------------------------------------------------------------------------
+
+
+def test_bl464_degradacao_fora_do_postgresql_emite_aviso(cenario, monkeypatch):
+    empresa = cenario["empresa"]
+    competencia = Competencia.objects.create(empresa=empresa, ano=2026, mes=8)
+
+    # Simula um backend não-PostgreSQL sem precisar subir SQLite de
+    # verdade: a única coisa que a função consulta é `connection.vendor`.
+    monkeypatch.setattr(contabilidade_services.connection, "vendor", "sqlite")
+
+    with pytest.warns(RuntimeWarning, match="_travar_competencia_em_modo_compartilhado"):
+        estado, entregue_em = contabilidade_services._travar_competencia_em_modo_compartilhado(
+            competencia
+        )
+
+    # A trava SERIAL (não a de concorrência) continua funcionando: devolve
+    # o estado real da competência, só que sem lock.
+    assert estado == EstadoCompetencia.ABERTA
+    assert entregue_em is None
+
+
+def test_bl464_postgresql_nao_emite_aviso(cenario, recwarn):
+    """Controle negativo: contra PostgreSQL (o backend real da suíte),
+    NENHUM aviso é emitido — o aviso é exclusivo do ramo degradado."""
+    empresa = cenario["empresa"]
+    competencia = Competencia.objects.create(empresa=empresa, ano=2026, mes=9)
+
+    with transaction.atomic():
+        contabilidade_services._travar_competencia_em_modo_compartilhado(competencia)
+
+    avisos_de_lock = [aviso for aviso in recwarn.list if "modo_compartilhado" in str(aviso.message)]
+    assert avisos_de_lock == []
+
+
+# ---------------------------------------------------------------------------
+# BL-468/B6 (rodada 2 de auditoria) — BAIXA, cosmético. A mensagem de
+# `CompetenciaEncerrada` oferecia "reabra" mesmo quando a competência já
+# tinha sido ENTREGUE — caminho que o RC-101 já fecha. Agora, quando
+# `entregue_em` está preenchido, a mensagem aponta direto para o ajuste no
+# mês aberto, sem oferecer reabertura nenhuma.
+# ---------------------------------------------------------------------------
+
+
+def test_bl468_mensagem_nao_oferece_reabertura_quando_competencia_entregue(cenario):
+    empresa, caixa, capital = cenario["empresa"], cenario["caixa"], cenario["capital"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl468-gestor")
+    encerrar_competencia(empresa=empresa, ano=2026, mes=8, usuario=gestor)
+    marcar_competencia_como_entregue(empresa=empresa, ano=2026, mes=8, usuario=gestor)
+
+    with pytest.raises(CompetenciaEncerrada) as excinfo:
+        _lancar(empresa, caixa, capital, date(2026, 8, 15))
+
+    mensagem = str(excinfo.value)
+    assert "reabr" not in mensagem.lower()  # nenhuma variação de "reabra"/"reabertura"
+    assert "não pode ser reaberta" in mensagem
+    assert "RC-101" in mensagem
+    assert "08/2026" in mensagem
+    assert not LancamentoContabil.objects.filter(empresa=empresa).exists()
+
+
+def test_bl468_mensagem_ainda_oferece_reabertura_quando_encerrada_mas_nao_entregue(cenario):
+    """Controle negativo: competência apenas ENCERRADA (não entregue)
+    continua oferecendo "reabra" — a correção do BL-468 é condicional a
+    `entregue_em`, não uma remoção geral da orientação."""
+    empresa, caixa, capital = cenario["empresa"], cenario["caixa"], cenario["capital"]
+    gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "bl468-so-encerrada")
+    encerrar_competencia(empresa=empresa, ano=2026, mes=8, usuario=gestor)
+
+    with pytest.raises(CompetenciaEncerrada) as excinfo:
+        _lancar(empresa, caixa, capital, date(2026, 8, 15))
+
+    mensagem = str(excinfo.value)
+    assert "Reabra" in mensagem
+    assert "08/2026" in mensagem

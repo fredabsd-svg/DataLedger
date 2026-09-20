@@ -721,9 +721,14 @@ class LancamentoContabil(models.Model):
             # (medido, não presumido) e que, se alguém aplicasse o resultado
             # de um `makemigrations` real, DERRUBARIA esta defesa de banco
             # contra `empresa_id NULL` por INSERT direto (DE-051). A
-            # declaração agora bate com o banco; a migração corretiva
-            # (0007) só ajusta METADADO — nenhum SQL sobre esta constraint,
-            # que já existe fisicamente desde a 0005. Registrada também em
+            # declaração agora bate com o banco; nenhuma migração nova foi
+            # necessária — a 0005 já registrou esta constraint no ESTADO de
+            # migração (`manage.py makemigrations --check --dry-run`
+            # responde "No changes detected"; BL-465, achado B3 da rodada 2
+            # de auditoria: a versão anterior deste comentário citava uma
+            # "migração corretiva (0007)" que nunca existiu — mesma família
+            # do BL-460, comentário afirmando um artefato que não existe).
+            # Registrada também em
             # `apps/core/restricoes.py::RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
             # (exigido pela varredura de `apps/core/tests/test_dl019_
             # varredura_de_restricoes.py`).

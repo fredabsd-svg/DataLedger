@@ -1,9 +1,10 @@
 import hashlib
 import json
+import warnings
 from collections import defaultdict
 from decimal import Decimal
 
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
@@ -102,6 +103,22 @@ class CompetenciaEncerrada(Exception):
     """
 
 
+class CompetenciaOcupada(CompetenciaEncerrada):
+    """`criar_lancamento` recusado porque a ESPERA pelo `FOR SHARE` da
+    competência estourou o `lock_timeout` do banco (BL-463, achado B1 da
+    rodada 2 de auditoria) — nunca porque a competência está de fato
+    encerrada. É deliberadamente subclasse de `CompetenciaEncerrada`, não
+    uma exceção irmã: a view (`apps/contabilidade/views.py`) já traduz
+    aquela classe para 409 com `str(exc)`, e o Python despacha uma
+    subclasse pelo `except CompetenciaEncerrada` já existente — sem
+    precisar tocar em `views.py`, que nesta etapa é arquivo de outra
+    frente (ver o plano DL-031). O DESFECHO para quem chama é o mesmo
+    (recusar e orientar a tentar de novo); só a CAUSA muda, e a mensagem
+    abaixo (`_mensagem_de_competencia_ocupada`) diz isso explicitamente —
+    nunca a frase de "está encerrada", que seria falsa aqui.
+    """
+
+
 class CompetenciaOperacaoInvalida(Exception):
     """Entrada malformada para fechar, reabrir ou marcar como entregue uma
     competência — ex.: motivo de reabertura vazio (critério 5).
@@ -129,6 +146,20 @@ class CompetenciaJaEntregue(CompetenciaOperacaoRecusada):
     (RC-101, critério 6 do plano). Subclasse de `CompetenciaOperacaoRecusada`
     — mesma tradução HTTP (409) —, com mensagem própria que nomeia a DATA da
     entrega e orienta o ajuste no mês aberto, como o critério exige.
+    """
+
+
+class CompetenciaTravadaPorOutraOperacao(CompetenciaOperacaoRecusada):
+    """`encerrar_competencia`, `reabrir_competencia` ou
+    `marcar_competencia_como_entregue` recusados porque a espera pelo
+    `select_for_update()` da competência estourou o `lock_timeout` do banco
+    (BL-463). Mesma técnica de `CompetenciaOcupada` acima: subclasse de
+    `CompetenciaOperacaoRecusada` para herdar a tradução HTTP 409 já
+    existente na view, sem editar `views.py`. Só acontece quando OUTRA
+    transação está segurando a mesma linha por tempo anormal (ex.: um
+    fechamento genuinamente travado, ou uma sessão de `psql` esquecida
+    aberta) — em operação normal a janela do lock é a de um `UPDATE`
+    (BL-463) e nunca chega perto do `lock_timeout`.
     """
 
 
@@ -270,14 +301,65 @@ def obter_ou_criar_competencia(*, empresa, ano, mes):
         return competencia
 
 
+# BL-463 (rodada 2 de auditoria, achado B1): `config/settings.py` passou a
+# definir `lock_timeout` na conexão PostgreSQL — antes deste ajuste, uma
+# espera de lock por qualquer motivo (fechamento genuinamente travado,
+# sessão de `psql` esquecida aberta) prendia a requisição INDEFINIDAMENTE,
+# até o cliente ou o worker gunicorn (timeout de 30s, sem `--workers`,
+# `Dockerfile:36`) desistirem primeiro — e o segundo caminho mata o
+# processo com o worker inteiro, sem chance de responder nada legível.
+#
+# `lock_timeout` transforma essa espera indefinida num erro NOMEADO
+# (SQLSTATE 55P03, "lock_not_available") depois de um tempo comedido — mas
+# só é seguro definir o timeout se TODO ponto do código que pode esperar
+# por aquele lock também SOUBER traduzir esse erro para uma mensagem de
+# domínio, em vez de deixar o `OperationalError` cru propagar como 500.
+# Esta função compara pelo SQLSTATE (nunca pelo TEXTO da mensagem, que muda com
+# o idioma configurado no servidor via `lc_messages`) e é usada pelos
+# QUATRO pontos que adquirem lock de competência: o `FOR SHARE` de
+# `_travar_competencia_em_modo_compartilhado` (usado por `criar_lancamento`
+# — é o lado que a auditoria MEDIU esperando 1,73s na varredura simulada de
+# 2s) e o `select_for_update()` de `encerrar_competencia`,
+# `reabrir_competencia` e `marcar_competencia_como_entregue`.
+def _e_estouro_de_lock_timeout(excecao_de_banco):
+    """`True` quando `excecao_de_banco` (um `OperationalError` do Django,
+    capturado ao redor de uma consulta que pode esperar por um lock de
+    linha) foi causado pelo `lock_timeout` do PostgreSQL estourando — nunca
+    por outro motivo de `OperationalError` (conexão caída, servidor fora do
+    ar), que deve continuar propagando sem conversão.
+
+    O SQLSTATE `55P03` é a identidade ESTÁVEL do erro (classe 55, "objeto
+    não está em estado pré-requisito", código `lock_not_available`;
+    documentado no Apêndice A do manual do PostgreSQL) — `psycopg`
+    preserva esse código na exceção ORIGINAL do driver, acessível pelo
+    encadeamento padrão do Python (`exc.__cause__`, que o `DatabaseWrapper`
+    do Django sempre preenche). Comparar pelo SQLSTATE, e não pelo texto da
+    mensagem, é o que torna esta checagem independente do idioma do
+    servidor (`lc_messages`) e da versão exata da biblioteca cliente.
+    """
+    causa = excecao_de_banco.__cause__
+    return getattr(causa, "sqlstate", None) == "55P03"
+
+
 def _travar_competencia_em_modo_compartilhado(competencia):
     """Bloqueia a linha de `competencia` com `SELECT ... FOR SHARE` e devolve
-    o `estado` LIDO NESTA MESMA CONSULTA — nunca `competencia.estado` do
-    objeto Python já em memória (correção do achado BL-456/A1, rodada 1 de
-    auditoria da fatia 1: a versão anterior lia o atributo em memória, SEM
-    travar a linha, e a auditoria MEDIU 30 gravações em 30 tentativas de uma
-    corrida natural, sem nenhuma instrumentação, contra a hipótese registrada
-    de "janela estreita").
+    `(estado, entregue_em)` LIDOS NESTA MESMA CONSULTA — nunca os atributos
+    do objeto Python já em memória (correção do achado BL-456/A1, rodada 1
+    de auditoria da fatia 1: a versão anterior lia o atributo em memória,
+    SEM travar a linha, e a auditoria MEDIU 30 gravações em 30 tentativas de
+    uma corrida natural, sem nenhuma instrumentação, contra a hipótese
+    registrada de "janela estreita").
+
+    `entregue_em` entrou na MESMA consulta pela correção do achado B6/BL-468
+    (rodada 2 de auditoria): a mensagem de `CompetenciaEncerrada` (ver
+    `criar_lancamento`, abaixo) precisa saber se a competência já foi
+    ENTREGUE para não oferecer "reabra" quando esse caminho já está fechado
+    pelo RC-101 — e essa informação está sujeita à MESMA corrida que o
+    `estado` (uma entrega pode commitar enquanto este `criar_lancamento`
+    espera o `FOR SHARE`, exatamente o cenário do teste
+    `test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entregue`).
+    Buscar as duas colunas juntas, sob o mesmo lock, evita reabrir a MESMA
+    classe de defeito do BL-456 para um campo novo.
 
     `FOR SHARE` é um lock COMPARTILHADO: duas transações podem segurá-lo ao
     mesmo tempo sobre a MESMA linha — por isso dois lançamentos do MESMO mês
@@ -311,25 +393,94 @@ def _travar_competencia_em_modo_compartilhado(competencia):
     Limite DECLARADO de backend: `FOR SHARE` é sintaxe do PostgreSQL: o
     SQLite (usado só em desenvolvimento local, nunca em produção — DE-014,
     BL-50) não tem row-level locking equivalente e rejeitaria esta consulta.
-    Fora do PostgreSQL, esta função cai para o `estado` já carregado em
-    `competencia` — a MESMA leitura desprotegida de antes desta correção,
-    documentada como limite de ambiente (mesma família de declaração que
-    `apps.core.restricoes._nome_da_constraint_violada`, específica de
-    psycopg). A suíte roda contra PostgreSQL (`config/settings.py`); a
-    concorrência real só é garantida lá.
+    Fora do PostgreSQL, esta função cai para `(estado, entregue_em)` já
+    carregados em `competencia` — a MESMA leitura desprotegida de antes
+    desta correção, documentada como limite de ambiente (mesma família de
+    declaração que `apps.core.restricoes._nome_da_constraint_violada`,
+    específica de psycopg). A suíte roda contra PostgreSQL
+    (`config/settings.py`); a concorrência real só é garantida lá.
+
+    ⚠️ Correção do achado B2/BL-464 (rodada 2 de auditoria): este ramo
+    degradava em SILÊNCIO — quem lê o código de fora vê uma trava; em
+    outro backend não há trava nenhuma, e nada avisava disso. O limite em
+    si já está CONTIDO (`config/settings.py` recusa subir com SQLite e
+    `DEBUG=False`, BL-50/DE-014, então produção nunca alcança este ramo) e
+    a trava SERIAL continua funcionando fora daqui (a constraint de banco
+    e a checagem de estado do objeto recém-lido ainda impedem a maioria
+    dos casos práticos) — o que faltava era o AVISO. `RuntimeWarning`,
+    mesma classe usada pelo aviso de "SQLite local" em
+    `config/settings.py`, para quem sobe localmente sem PostgreSQL saber
+    que a garantia de CONCORRÊNCIA (não a trava em si) está ausente.
     """
     if connection.vendor != "postgresql":
-        return competencia.estado
+        warnings.warn(
+            f"_travar_competencia_em_modo_compartilhado degradou para leitura "
+            f"em memória (SEM lock) porque a conexão é '{connection.vendor}', "
+            "não PostgreSQL: a garantia de CONCORRÊNCIA do BL-456 não vale "
+            "aqui, só a checagem serial de estado. Válido apenas em "
+            "desenvolvimento local (BL-50/DE-014 já recusa subir com SQLite "
+            "e DEBUG=False, então produção nunca alcança este ramo).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return competencia.estado, competencia.entregue_em
     tabela = Competencia._meta.db_table
     coluna_id = Competencia._meta.pk.column
     coluna_estado = Competencia._meta.get_field("estado").column
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"SELECT {coluna_estado} FROM {tabela} WHERE {coluna_id} = %s FOR SHARE",
-            [competencia.pk],
-        )
-        (estado,) = cursor.fetchone()
-    return estado
+    coluna_entregue_em = Competencia._meta.get_field("entregue_em").column
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {coluna_estado}, {coluna_entregue_em} FROM {tabela} "
+                f"WHERE {coluna_id} = %s FOR SHARE",
+                [competencia.pk],
+            )
+            estado, entregue_em = cursor.fetchone()
+    except OperationalError as exc:
+        # BL-463: a espera por este `FOR SHARE` estourou o `lock_timeout`
+        # (ver o comentário acima de `_e_estouro_de_lock_timeout`) — quase
+        # sempre porque um `encerrar_competencia`/`reabrir_competencia`/
+        # `marcar_competencia_como_entregue` concorrente está segurando o
+        # `FOR UPDATE` por tempo anormal. `CompetenciaOcupada` é subclasse
+        # de `CompetenciaEncerrada`: a mesma tradução HTTP (409) já existe
+        # na view, sem editar `views.py`. Qualquer OUTRO `OperationalError`
+        # (conexão caída, servidor fora do ar) propaga sem conversão — não
+        # é um caso de negócio, é uma falha de infraestrutura.
+        if not _e_estouro_de_lock_timeout(exc):
+            raise
+        raise CompetenciaOcupada(
+            f"A competência {competencia.mes:02d}/{competencia.ano} de "
+            f"{competencia.empresa} está sendo fechada por outra operação "
+            "agora; não foi possível confirmar o estado dela a tempo. "
+            "Tente gravar este lançamento novamente em instantes."
+        ) from exc
+    return estado, entregue_em
+
+
+def _travar_competencia_para_transicao(competencia, *, ano, mes, empresa):
+    """`select_for_update()` sobre a linha de `competencia`, traduzindo o
+    estouro de `lock_timeout` (BL-463; ver o comentário de
+    `_e_estouro_de_lock_timeout`) para `CompetenciaTravadaPorOutraOperacao`
+    em vez de deixar o `OperationalError` cru do driver propagar como 500.
+
+    Reunida aqui porque as TRÊS transições de estado desta fatia
+    (`encerrar_competencia`, `reabrir_competencia`,
+    `marcar_competencia_como_entregue`) adquirem o MESMO tipo de lock
+    (`FOR UPDATE`) sobre a MESMA tabela pelo mesmo motivo — uma função, uma
+    tradução de erro, nunca três cópias divergentes do mesmo `try/except`.
+    `ano`/`mes`/`empresa` são só para a MENSAGEM (nomear a competência),
+    nunca para a consulta em si, que sempre trava pelo `pk` já resolvido.
+    """
+    try:
+        return Competencia.objects.select_for_update().get(pk=competencia.pk)
+    except OperationalError as exc:
+        if not _e_estouro_de_lock_timeout(exc):
+            raise
+        raise CompetenciaTravadaPorOutraOperacao(
+            f"A competência {mes:02d}/{ano} de {empresa} está sendo alterada "
+            "por outra operação agora; não foi possível travá-la a tempo. "
+            "Tente novamente em instantes."
+        ) from exc
 
 
 @transaction.atomic
@@ -584,14 +735,35 @@ def criar_lancamento(
             # estorno: o caso "original fechado, estorno em mês aberto" passa
             # (confirmado pelo Fred, RC-57/RC-103), e "estorno cairia em mês
             # fechado" é recusado pela MESMA linha abaixo.
-            estado_travado = _travar_competencia_em_modo_compartilhado(competencia)
+            estado_travado, entregue_em_travado = _travar_competencia_em_modo_compartilhado(
+                competencia
+            )
             if estado_travado != EstadoCompetencia.ABERTA:
                 nome_do_estado = EstadoCompetencia(estado_travado).label.lower()
+                # BL-468 (achado B6, rodada 2 de auditoria): a mensagem
+                # ANTES oferecia "reabra a competência (se ela ainda não
+                # foi entregue ao cliente)" mesmo quando a competência JÁ
+                # tinha sido entregue — o parêntese salvava a frase de ser
+                # FALSA, mas ainda apontava um caminho que o RC-101 já
+                # fecha (`reabrir_competencia` recusa com
+                # `CompetenciaJaEntregue`). `entregue_em_travado` vem da
+                # MESMA consulta `FOR SHARE` que leu `estado_travado`
+                # (nunca do atributo em memória — mesma correção de
+                # classe do BL-456), então a distinção abaixo é segura
+                # mesmo sob corrida (é o cenário exato do teste
+                # `test_bl456_reproducao_2_..._entregue`).
+                if entregue_em_travado is not None:
+                    raise CompetenciaEncerrada(
+                        f"A competência {data.month:02d}/{data.year} de {empresa} já "
+                        "foi entregue ao cliente; não é possível gravar lançamento "
+                        "nela e ela não pode ser reaberta (RC-101). Lance o ajuste "
+                        "em uma competência ABERTA, com histórico apontando para "
+                        f"a competência de origem ({data.month:02d}/{data.year})."
+                    )
                 raise CompetenciaEncerrada(
                     f"A competência {data.month:02d}/{data.year} de {empresa} está "
                     f"'{nome_do_estado}'; não é possível gravar lançamento nela. Reabra a "
-                    "competência (se ela ainda não foi entregue ao cliente) ou "
-                    "lance em uma competência aberta."
+                    "competência ou lance em uma competência aberta."
                 )
 
             lancamento = LancamentoContabil.objects.create(
@@ -792,14 +964,49 @@ def encerrar_competencia(*, empresa, ano, mes, usuario, request=None):
     duplica a auditoria.
 
     Concorrência (critério 10): `select_for_update()` bloqueia a linha da
-    Competencia durante toda a operação — duas requisições simultâneas de
+    Competencia durante a transição — duas requisições simultâneas de
     fechamento da MESMA competência produzem UM único fechamento; a segunda,
     ao adquirir o lock depois da primeira commitar, já encontra `encerrada`
-    e cai no ramo idempotente acima. Mesmo padrão que `estornar_lancamento`
+    e cai no ramo idempotente. Mesmo padrão que `estornar_lancamento`
     já usa para `estorno_de_unico`. Este MESMO lock (`FOR UPDATE`) é o que
     faz `_travar_competencia_em_modo_compartilhado` (usada por
     `criar_lancamento`) esperar: um lançamento em voo não vê a competência
     "sumir" no meio da gravação (BL-456/A1, rodada 2 de auditoria).
+
+    ⚠️ Correção do achado B1/BL-463 (rodada 2 de auditoria): a ORDEM entre
+    a checagem RC-58 (abaixo) e a aquisição do lock foi INVERTIDA. Antes,
+    o `select_for_update()` era adquirido primeiro e a varredura da base
+    INTEIRA (`localizar_lotes_desbalanceados`, sem período por desenho)
+    rodava com a linha travada — depois da correção do BL-456, isso
+    passou a bloquear TODO lançamento daquele mês pela duração inteira da
+    varredura (medido: 1,73s de espera do lançamento contra uma varredura
+    simulada de 2s). A checagem agora roda ANTES do lock, e isso é seguro:
+    `criar_lancamento` NUNCA consegue gravar um lote desbalanceado (a
+    igualdade débito = crédito é verificada antes de qualquer `save()`),
+    então a base não pode ficar torta ENTRE a checagem e o lock — o único
+    jeito de um lote desbalanceado existir é por um caminho que já
+    contorna a aplicação (ver o docstring de
+    `localizar_lotes_desbalanceados`), fora do alcance de qualquer lock
+    que esta função pudesse segurar de qualquer forma. Depois da correção,
+    a janela do lock caiu para a de um `UPDATE` — ver a medição no
+    relatório de entrega desta etapa.
+
+    Um segundo atalho, também sem lock, cobre o caso REPETIDO (critério 4):
+    se a leitura em memória de `competencia` (a mesma que
+    `obter_ou_criar_competencia` acabou de fazer) já mostra `ENCERRADA`,
+    devolve o NO-OP imediatamente, sem pagar nem o lock nem a varredura.
+    Essa leitura PODE estar desatualizada — não há problema: é só uma
+    OTIMIZAÇÃO. Quem garante a corrida do critério 10 é a releitura de
+    baixo, JÁ SOB o `FOR UPDATE`; se o atalho não disparar (leitura
+    desatualizada), o código simplesmente segue o caminho de sempre, sem
+    NENHUMA perda de correção.
+
+    `lock_timeout` (BL-463, `config/settings.py`): se a espera pelo
+    `select_for_update()` estourar — outra transação segurando a linha por
+    tempo anormal —, `_travar_competencia_para_transicao` traduz o
+    `OperationalError` cru para `CompetenciaTravadaPorOutraOperacao` (409,
+    mesma tradução HTTP de `CompetenciaOperacaoRecusada`, da qual é
+    subclasse), com mensagem que orienta tentar de novo.
 
     ⚠️ Correção do achado BL-458/A3 (rodada 2 de auditoria): a trilha de
     auditoria (`registrar()`) passou a ser gravada AQUI, dentro do serviço
@@ -815,23 +1022,33 @@ def encerrar_competencia(*, empresa, ano, mes, usuario, request=None):
     saber qual mês foi fechado.
     """
     competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
-    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
 
+    # Atalho idempotente SEM lock (BL-463) — ver docstring acima.
     if competencia.estado == EstadoCompetencia.ENCERRADA:
         competencia.encerrada_agora = False
         return competencia
 
-    # RC-58 / critério 3: pré-condição de conferência. Checada só AQUI, na
-    # transição — nunca a cada chamada idempotente (ver docstring) — e
-    # cobre a base INTEIRA da empresa, não só esta competência, porque
-    # `localizar_lotes_desbalanceados` não tem período por desenho (uma base
-    # torta é torta em qualquer recorte de datas).
+    # RC-58 / critério 3: pré-condição de conferência, rodada ANTES do lock
+    # (BL-463) — ver docstring acima para o motivo de ser seguro.
     if localizar_lotes_desbalanceados(empresa=empresa).exists():
         raise CompetenciaOperacaoRecusada(
             f"Não é possível fechar a competência {mes:02d}/{ano} de {empresa}: "
             "há lançamento(s) desbalanceado(s) na base desta empresa. Resolva "
             "a conferência (RC-58) antes de fechar."
         )
+
+    # Só a partir daqui o lock é adquirido (BL-463): a janela que ele
+    # segura caiu para o tamanho de um `UPDATE`.
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
+
+    if competencia.estado == EstadoCompetencia.ENCERRADA:
+        # Corrida: outra transação fechou a competência ENTRE o atalho sem
+        # lock acima e a aquisição do `FOR UPDATE` agora. Não é erro — é o
+        # MESMO caminho idempotente, agora com leitura garantida pelo lock
+        # (é o que sustenta o critério 10 sob corrida real — ver
+        # `test_criterio10_corrida_real_de_fechamento_produz_um_unico_fechamento`).
+        competencia.encerrada_agora = False
+        return competencia
 
     competencia.estado = EstadoCompetencia.ENCERRADA
     competencia.fechada_em = timezone.now()
@@ -874,11 +1091,15 @@ def reabrir_competencia(*, empresa, ano, mes, usuario, motivo, request=None):
     `CompetenciaOperacaoRecusada` (409: o pedido é bem formado, o que
     impede é o estado atual).
 
-    `select_for_update()` pelo mesmo motivo de `encerrar_competencia`:
-    embora não haja critério de concorrência explícito para reabertura, a
-    escrita do estado precisa ler a linha mais recente antes de decidir — e
-    é o mesmo lock que faz `criar_lancamento` esperar (ver
-    `_travar_competencia_em_modo_compartilhado`).
+    `select_for_update()` (via `_travar_competencia_para_transicao`) pelo
+    mesmo motivo de `encerrar_competencia`: embora não haja critério de
+    concorrência explícito para reabertura, a escrita do estado precisa
+    ler a linha mais recente antes de decidir — e é o mesmo lock que faz
+    `criar_lancamento` esperar (ver `_travar_competencia_em_modo_
+    compartilhado`). BL-463: se a espera por esse lock estourar o
+    `lock_timeout`, a mesma função traduz para
+    `CompetenciaTravadaPorOutraOperacao` (409), nunca um `OperationalError`
+    cru.
 
     `fechada_em`/`fechada_por` são LIMPOS (`None`): eles descrevem o
     fechamento ATUAL, que deixou de existir — ver o docstring de
@@ -903,7 +1124,7 @@ def reabrir_competencia(*, empresa, ano, mes, usuario, motivo, request=None):
         )
 
     competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
-    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
 
     if competencia.entregue_em is not None:
         raise CompetenciaJaEntregue(
@@ -970,9 +1191,15 @@ def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario, request=None
     ⚠️ Correção dos achados BL-458/A3 e BL-459/A4 (rodada 2 de auditoria):
     `registrar()` mora AQUI, com `detalhes={"ano", "mes", "empresa_id"}` —
     mesma correção das outras duas funções desta fatia.
+
+    BL-463: o lock é adquirido por `_travar_competencia_para_transicao`,
+    que traduz o estouro de `lock_timeout` para
+    `CompetenciaTravadaPorOutraOperacao` (409) em vez de propagar o
+    `OperationalError` cru — mesma função usada por `encerrar_competencia`
+    e `reabrir_competencia`.
     """
     competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
-    competencia = Competencia.objects.select_for_update().get(pk=competencia.pk)
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
 
     if competencia.estado != EstadoCompetencia.ENCERRADA:
         raise CompetenciaOperacaoRecusada(
