@@ -18,12 +18,24 @@ Escrever **uma vez** o critério 9 inteiro, como frase verificável, e fazer o
 instrumento de medição ser julgado **por ela** — em vez de continuar corrigindo
 achado a achado.
 
-A frase, proposta pelo `auditor-qa` e adotada sem alteração:
+A frase, proposta pelo `auditor-qa` e **corrigida por ele mesmo em
+2026-09-20, depois de medi-la** ([DE-061](../projeto/decisoes.md)):
 
 > **A folha A4 exportada carrega, com tinta que contrasta com o papel,
 > exatamente as linhas de identificação do escritório emitente que o servidor
-> declarou, cada uma no seu próprio lugar; e não carrega nenhum identificador do
-> fornecedor do software, em qualquer caixa ou espaçamento.**
+> declarou, cada uma no seu próprio lugar; e — no conteúdo que o documento
+> controla, isto é, tinta na folha e metadados do arquivo, excluída a faixa que
+> o navegador acrescenta por fora e que nenhuma folha de estilo alcança
+> (BL-332) — não carrega nenhum identificador do fornecedor do software, em
+> qualquer caixa ou espaçamento.**
+
+⚠️ **A fronteira nova não é afrouxamento.** A redação original prometia
+*"nenhum identificador do fornecedor"*, e isso é **impossível**: exportando com
+as opções padrão do diálogo de impressão, a faixa que o navegador acrescenta
+carrega a **URL**, que em produção **é** o identificador do fornecedor — e o
+`base.css` já declarava (BL-332) que nenhuma folha de estilo a suprime. Manter a
+promessa seria **garantia inexistente descrita como imposta**, que é o defeito
+de 2026-09-13.
 
 ## Por que isto, e não mais uma rodada
 
@@ -144,6 +156,86 @@ código de saída e a mensagem conferidos — não inspeção de código.
 10. **DE-058 em cada frase nova:** toda afirmação de medição escrita no código
     tem, ao lado, o teste que a reprova se deixar de valer — ou a marca
     explícita de **não medido**.
+
+## Rodada 2 — o que a décima primeira auditoria REPROVOU
+
+Relatório integral em
+[2026-09-20-dl-029-rodada-11.md](../auditorias/2026-09-20-dl-029-rodada-11.md).
+**C1, C4 e C5 fecham**, com limites declarados. **C2 e C3 não fecham.**
+
+⚠️ **A régua desta rodada é a [DE-060](../projeto/decisoes.md), não a lista de
+achados.** Os quatro achados altos têm **um** padrão atrás:
+
+> **O instrumento mede um SUBSTITUTO mais fácil de obter que a propriedade, e o
+> substituto não está declarado como substituto.**
+
+| A propriedade | O substituto medido hoje | Diverge quando | Achado |
+| --- | --- | --- | --- |
+| Que tamanho a linha tem **no papel** | `getComputedStyle().fontSize` | `transform`, `zoom` | **BL-428** |
+| Qual é a **razão de contraste do WCAG** | luminância de raster em **cinza** | a tinta não é cinza | **BL-429** |
+| A linha **está no papel** | substring do `pdftotext -layout` | `letter-spacing` | **BL-430** |
+| **Quantas** linhas o papel carrega | contagem de `<p>` do DOM | é a **mesma** consulta que alimenta a recusa de infraestrutura | **BL-427** |
+
+⚠️ **Três das quatro correções usam dado que o instrumento JÁ CALCULA E
+DESCARTA** — o `bbox` de cada linha, em pontos de PDF, do papel de verdade.
+**Não é escopo novo: é parar de jogar fora a medida melhor.**
+
+### Critérios de aceite da rodada 2
+
+Todos são **sabotagem medida no produto real**, com **código de saída** e
+**substring da mensagem** conferidos. Inspeção de código não atende.
+
+11. **BL-427 / C3.** `{% for linha in timbre_linhas|slice:':2' %}` no Balancete
+    — servidor declara três linhas, papel sai com duas — tem de sair com código
+    **1**, nomeando *"número de linhas do timbre no papel (2) diverge do número
+    declarado pelo servidor (3)"*. **Nunca** código 2, nunca *"falha de
+    infraestrutura"*. A direção *"sobrar"* idem.
+12. **BL-427 / recusa preservada.** `fonte_das_linhas is None` (subprocesso
+    antigo, sonda que não rodou) **continua** saindo com código 2 — isso é
+    infraestrutura de verdade, e a distinção é o achado.
+13. **BL-428 / C2.** `transform: scale(0.6)` e `zoom: 0.6` saem com código
+    **1**, nomeando **tamanho**, com o número medido **no papel**.
+14. **BL-428 / mensagem.** `scale(0.45)`, `(0.35)` e `(0.25)` param de acusar
+    *"poucos pixels"* e *"contraste insuficiente"* com tinta preto puro: a causa
+    é **tamanho** e a mensagem diz isso.
+15. **BL-429 / C2.** `color: #FF0000` no timbre sai com código **1**, relatando
+    a razão **RGB do WCAG** — **ou** passa, com a mensagem e a docstring dizendo
+    *"luminância monocromática do papel, não a razão RGB do WCAG"* e com o teste
+    que compara as duas fórmulas. **A escolha entre (a) e (b) é minha, e depende
+    da PE-59** — ver abaixo.
+16. **BL-430 / C1-C3.** `letter-spacing: 0.2em` no timbre sai com código **0**.
+    E `font-size: 4px` sai com código 1 nomeando **tamanho**, nunca ausência.
+17. **BL-432.** Duas asserções guardam a premissa do BL-426:
+    `print_background` fora do subprocesso e `print-color-adjust` fora do
+    `base.css`, com mensagem mandando reler a docstring.
+18. **BL-434 — e este é o que teria pego o BL-427.** Para **cada** cláusula da
+    frase, **um** caso de aceite ponta a ponta que afirme o **código de saída** e
+    a **substring da mensagem**. Hoje há 60 testes puros excelentes e **zero**
+    desses.
+19. **Nada regride.** Tudo que já reprovava continua reprovando, e tudo que já
+    passava continua passando — incluindo as cinco grafias do fornecedor, o
+    decoy do C4, a paginação, `lancamento_id`, `font-size: 8px` e o
+    pseudo-elemento `::after`.
+20. **DE-060 escrita.** Cada uma das cinco medições declara, no código, **se
+    mede a propriedade ou um substituto** — e, quando for substituto, **de que
+    ele diverge** e **a medição dessa divergência** ao lado.
+
+### A decisão que o BL-429 exige, e ela é minha com insumo do Fred
+
+A **PE-59** pergunta se o documento é pensado para impressão **monocromática**
+ou **colorida**. As duas respostas se defendem, e o auditor foi explícito: *"o
+problema não é escolher um dos dois; é que o instrumento não diz qual modela"*.
+
+**Decido medir em COR**, e a razão é de risco, não de gosto: a medida em cor é a
+**mais estrita** das duas e cobre os dois usos — o PDF na tela do cliente, onde a
+cor existe, e a impressora monocromática, onde ela vira cinza e o critério só
+fica mais folgado. Escolher o inverso aprovaria folha que o próprio piso adotado
+reprova, que é o **BL-429** exatamente.
+
+**A impressão monocromática fica declarada** como cenário mais permissivo, no
+formato da DE-058. Se o Fred responder a PE-59 dizendo que o escritório imprime
+só em preto e branco, a decisão se revisa — **mas o lado seguro não espera pela
+resposta.**
 
 ## Riscos declarados
 

@@ -482,6 +482,35 @@ depois desta rodada aparecer um **sexto** eixo, a conversa deixa de ser de
 engenharia e passa a ser *"quanta garantia o produto precisa"* — **pergunta do
 Fred**.
 
+#### A RODADA 2 da DL-029 está em execução, e a régua é a DE-060
+
+Delegada sobre `2f1e596`, com os critérios **11 a 20** escritos na seção
+*"Rodada 2"* do
+[plano](../planos/DL-029-a-frase-executavel-do-criterio-9.md). Ordem de ataque
+por **custo do erro**, não por número: **BL-427** primeiro (documento sem o
+registro profissional do contador rotulado como falha de infraestrutura),
+depois BL-430 (é de uma linha), BL-428 e BL-429.
+
+⚠️ **Decisão minha, tomada com a delegação para o implementador não ter de
+tomá-la:** o **BL-429** exige escolher entre medir a folha em **cinza** ou em
+**cor**, e a **PE-59** (a pergunta do Fred sobre impressão monocromática) ainda
+não tem resposta. **Decidi medir em COR**, e a razão é de **risco**, não de
+gosto: a medida em cor é a **mais estrita** das duas e cobre os dois usos — o PDF
+na tela do cliente, onde a cor existe, e a impressora monocromática, onde ela
+vira cinza e o critério só fica **mais folgado**. Escolher o inverso aprovaria
+folha que o próprio piso adotado reprova, que é o BL-429 exatamente.
+**A impressão monocromática fica declarada como cenário mais permissivo, e o
+lado seguro não espera pela resposta do Fred.**
+
+⚠️ **E pedi para o implementador PARAR e avisar em um ponto concreto:** raster em
+cor é 3× os bytes do cinza; se o passo de medição passar de **~10 s**, eu quero
+saber **antes** da entrega. O custo do job é critério declarado desde a rodada 1,
+e descobrir regressão de custo na auditoria seria repetir o **BL-411**.
+
+**A frase do critério 9, no plano, já está na redação corrigida da DE-061** — com
+a fronteira *"no conteúdo que o documento controla"* e a exclusão nomeada da
+faixa que o navegador imprime por fora (BL-332).
+
 ⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
 
 1. **A ação do Fred no GitHub (BL-373).** Em 2026-09-20 ele chegou a criar a
