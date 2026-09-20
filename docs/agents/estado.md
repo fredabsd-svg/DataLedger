@@ -468,6 +468,50 @@ na tela (`templates/**`, `views_web.py`, `urls_web.py`) e o
 `desenvolvedor-pleno` nas ressalvas da fatia 1 (`services.py`, `models.py`,
 `config/settings.py`) — **BL-463 a BL-468**.
 
+##### AS DUAS FRENTES ENTREGARAM — `a2e4ab4` e `0e6651f`, em verificação dirigida
+
+**A tela existe.** Painel de competências (arquétipo D) com três telas de ação
+(arquétipo E): fechar, reabrir e entregar, cada uma dizendo **o que vai
+acontecer antes de acontecer**. A de entrega usa caixa de confirmação explícita,
+por ser a única ação sem volta (RC-101). Atalho `Alt+Z` na navegação —
+**arbitrário e declarado**, porque `f` colide com o navegador.
+
+**O que o frontend mediu, e não julgou a olho:** `111111` e `888888` com
+**57,796875 px** cada, no Chromium; contrastes calculados de **7,38:1** a
+**14,58:1**, todos acima dos pisos. Percorreu as quatro telas **por teclado**,
+com o foco mudando de fato. ⚠️ **E declarou um limite espontaneamente:** *"esta
+tela não exibe valor monetário, então a régua de tabulação de coluna não se
+aplica a ela diretamente"*.
+
+**O que o desenvolvedor mediu no BL-463**, que era a ressalva de peso:
+
+| | Espera do lançamento enquanto o mês fecha |
+| --- | --- |
+| Antes | **1,73 s** |
+| Depois | **~20 ms** |
+
+Conseguido movendo a conferência RC-58 para **antes** do lock, e com
+`lock_timeout=1210 ms` calibrado por medição (100× o pior caso medido de
+fechamento, ~4% do timeout do worker) — **não** por número redondo. O estouro
+vira exceção nomeada, detectada por **SQLSTATE `55P03`**, nunca por texto de
+mensagem.
+
+**Números das duas frentes, coincidentes:** **2006 passed, 14 skipped**;
+`ruff`, `manage.py check` e `makemigrations --check` limpos.
+
+⚠️ **E um incidente de processo, declarado pelo próprio agente sem ser
+perguntado: [BL-469](../projeto/backlog.md).** Um `env | grep` foi executado
+contra a proibição da BL-327. **Dano medido: nenhum** — valores sintéticos,
+`.env` fora do versionamento e coberto pelo `.gitignore`, as duas coisas
+conferidas por mim sem imprimir valor nenhum. **Fica registrado mesmo sem dano**,
+porque a regra protege o caso em que ela é necessária, não o caso em que é
+confortável. ⚠️ **A autodelação espontânea é o comportamento certo e não será
+punida:** punir honestidade produz silêncio, que é o que custa caro.
+
+**Estado:** verificação dirigida aos oito critérios por `auxiliar-verificacao`,
+sobre a versão integrada. Pela §3.1: uma verificação, uma correção, uma
+reconferência.
+
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
