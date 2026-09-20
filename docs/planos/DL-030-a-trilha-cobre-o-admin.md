@@ -44,10 +44,24 @@ gravidade:
 
 ## Duas decisões minhas, e as duas são RETRATAÇÕES
 
-**1. Fica o signal; NÃO se troca por `save_model`.** O signal cobre **qualquer
-caminho de escrita** — admin, API, shell, comando de gerência, migração. O
-`save_model` cobre **só o admin**. Trocar estreitaria a garantia em troca de um
-diff mais limpo, e este projeto erra para o lado seguro.
+**1. Fica o signal; NÃO se troca por `save_model`.** ⚠️ **A razão que eu
+publiquei aqui estava ERRADA, e eu a corrijo — a decisão é que continua certa.**
+
+Eu havia escrito: *"o signal cobre **qualquer caminho de escrita** — admin, API,
+shell, comando de gerência, migração"*. **Medido na integração: é falso.**
+`apps/auditoria/signals.py:476` sai cedo com
+`if not _vem_do_admin(get_current_request())` — e isso é **deliberado e certo**,
+porque as views já fazem o próprio `registrar()` (BL-14) e cobrir os dois lados
+duplicaria a trilha. **Hoje o signal cobre só o admin, igual ao `save_model`
+cobriria.**
+
+**A razão verdadeira, e esta não expira:** *o signal pode **crescer** para cobrir
+os outros caminhos afrouxando um `if`; o `save_model` **não pode**, por
+construção — ele só existe dentro do admin.* A decisão fica; o argumento muda.
+
+⚠️ **É a segunda vez no mesmo dia que eu publico uma razão mais fraca que a
+verdadeira** (a primeira foi o BL-419, derrubada pelo auditor a meu pedido), e
+por isso virou item próprio: **BL-442**.
 
 **2. O requisito R3 está RETIRADO, e era meu erro.** Eu havia escrito *"não
 reimplemente comparação de objetos; use `form.changed_data`"*. **O inverso é que

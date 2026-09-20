@@ -571,6 +571,52 @@ classificação continuaria exigindo 3:1 quando o devido seria 4,5:1.
 **Registrei a hipótese ANTES do resultado, e ela pode estar errada** — hoje eu já
 publiquei uma conclusão falsa por não medir (BL-435).
 
+#### A DL-030 ENTREGOU — `8de86a7`, e a cobertura virou propriedade
+
+**Conferido por mim, com banco próprio (`arq_dl030v`):** `pytest` → **2054
+passed, 15 skipped, 4 subtests**, 90,75 s; `ruff check` limpo;
+`ruff format --check` **211** arquivos; árvore limpa.
+
+| Gap | Como fechou |
+| --- | --- |
+| `escritorio` vinha da **sessão** | Passa a ser **derivado do objeto** por inspeção do modelo (FK direta ou um nível de indireção), com `request.escritorio` como segunda opção. **Era o mais grave, e não era nenhum dos meus** |
+| `Usuario` sem cobertura | Coberto, com a senha **redigida** — e a redação vem do **widget**, não de lista de nomes |
+| Tupla de seis modelos | Vira *"todo modelo concreto de `apps.*`"* menos uma exclusão **pequena**, com motivo **por item** |
+| Atomicidade **afirmada** | **Medida**: `IntegrityError` forçado em `RegistroAuditoria.objects.create` e a alteração **não persiste** |
+| Inline, delete, DE-060 | Provados por **requisição**, inclusive o `delete`, que **não tinha teste no repositório** |
+
+**A guarda do R2 foi provada com força:** um `ModelAdmin` de mentira **sem**
+cobertura é registrado dentro do próprio teste, e a varredura **reprova
+nomeando-o**. Modelo novo amanhã entra sozinho, ou o build fica vermelho.
+
+⚠️ **E ele declarou o substituto que sobrou, sem eu perguntar:** a redação por
+widget é estruturalmente um substituto de *"este valor é secreto"*, e ele nomeou
+a divergência **com exemplo concreto do projeto** — `ConviteEscritorio.token`, um
+`CharField` opaco que hoje não tem `ModelAdmin`; se ganhar um, sem widget de
+senha, este mecanismo não o protege.
+
+**Dois achados meus na integração:** [BL-441](../projeto/backlog.md) — o prefixo
+`"/admin/"` está escrito duas vezes, no `urls.py` e no `signals.py`, sem
+derivação; **gravidade BAIXA, e eu medi o modo de falha antes de classificar**:
+os nove testes usam caminhos literais, então mover o admin faz **todos irem a
+vermelho**. É falha **barulhenta**, não silenciosa. O que fica ruim é a
+**mensagem**, que acusaria *"trilha não gravada"* quando a causa é *"o admin
+mudou de endereço"*.
+
+⚠️ **E [BL-442](../projeto/backlog.md), que é contra MIM e é o segundo do dia:**
+pela **segunda vez** eu publiquei uma **razão** mais fraca que a verdadeira, e as
+duas eram **verificáveis e falsas**. Aqui eu escrevi que *"o signal cobre
+qualquer caminho de escrita"* para recusar a troca por `save_model`. **Medido:
+falso** — ele sai cedo se a origem não é o admin, e isso é **deliberado e certo**
+(as views já fazem o próprio `registrar()`; cobrir os dois lados duplicaria a
+trilha). **A decisão continua certa; a razão era outra:** *o signal pode crescer
+afrouxando um `if`; o `save_model` não pode, por construção.*
+
+**E é isso que torna o padrão perigoso: razão errada com conclusão certa não é
+corrigida por ninguém, porque o resultado parece bom.** Virou regra minha —
+argumento verificável que eu publique vai **verificado**, ou vai marcado como
+**não medido**.
+
 #### A verificação independente voltou: a minha hipótese estava CERTA, e havia mais dois
 
 **R1 — [BL-436](../projeto/backlog.md), falso conforme reproduzido.** Com o
