@@ -998,11 +998,38 @@ apareceu está **concentrado**, não espalhado.
 
 Ordenei por **custo do atraso**, não por esforço. Três faixas:
 
+⚠️ **ORDEM REVISTA em 2026-09-20, por critério do `auditor-qa` (rodada 10, §4),
+e ele estava certo.** A observação dele:
+
+> *"O custo do atraso de um item de **guarda** é limitado pela probabilidade de
+> alguém escrever a construção que ela vigia; o de um item de **dado que se
+> perde** é **ilimitado e irreversível**. Se algum dos quinze for de perda de
+> dado e estiver abaixo de um item de guarda na fila, a ordem está errada
+> **independentemente do custo estimado**, porque as duas grandezas não são
+> comparáveis na mesma escala. Não abri a lista para conferir quais são quais."*
+
+**Eu abri, e havia um.** Ver a faixa 1.
+
 **Faixa 1 — dado que SE PERDE se ninguém registrar. Não tem conserto depois.**
 
-- **BL-395** (correspondência de conta entre exercícios). Único item da lista cujo
-  custo não é "caro depois": é **impossível depois**. A informação de que a conta
-  X virou a conta Y só existe enquanto alguém a escreve.
+- **BL-395** (correspondência de conta entre exercícios). A informação de que a
+  conta X virou a conta Y só existe enquanto alguém a escreve.
+- **BL-396 + [BL-435]** — **SUBIU da faixa 3, e é o item que o auditor previu.**
+  O termo do livro precisa do cadastro **como era na data**; e
+  `Empresa.razao_social` é sobrescrito **no lugar**, sem histórico e sem trilha.
+  ⚠️ **A diferença em relação ao BL-395 é que este já está sangrando:** o BL-395
+  depende de o cliente reclassificar o plano; o BL-435 depende só de **alguém
+  editar um cadastro pelo admin**, porta que existe em produção hoje. Medido em
+  `ab35715`: campo editável no `change`, nenhum `registrar()` em
+  `apps/empresas/admin.py`, e `HistoricoRegimeTributario` provando que o projeto
+  **já tem** o padrão certo — aplicado só ao regime tributário.
+
+**O que eu classifiquei errado, e por quê:** pus o BL-396 na faixa 3 porque o
+julguei pela **funcionalidade que falta** (imprimir o termo com o cadastro de
+época), que de fato ainda não existe. A pergunta certa não era essa — era *"o
+dado de que essa funcionalidade vai precisar ainda vai existir quando ela for
+escrita?"*. **Não vai.** É a distinção que o auditor nomeou, e eu não a tinha
+aplicado.
 
 **Faixa 2 — decisão que precisa preceder a primeira linha de código da área.**
 
@@ -1016,8 +1043,21 @@ Ordenei por **custo do atraso**, não por esforço. Três faixas:
 
 **Faixa 3 — registro preventivo, sem implementar nada agora.**
 
-- **BL-391** (classificações paralelas), **BL-398** (Lalur não é partida dobrada),
-  **BL-400** (SCP), **BL-396**, **BL-397**, **BL-394**, **BL-401**, **BL-403**.
+- **BL-391** (classificações paralelas), **BL-398** (Lalur não é partida
+  dobrada), **BL-400** (SCP), **BL-403**.
+
+**Movidos para a faixa 2 na mesma revisão, pelo mesmo critério:**
+
+- **BL-397** (a entrega digital é entidade com protocolo e cadeia de
+  retificação) — o protocolo é **dado de evento**: se não for capturado na
+  entrega, recuperá-lo depende de recibo guardado fora do sistema. Não é perda
+  certa, é perda provável — por isso faixa 2, não 1.
+- **BL-394** e **BL-401** (participante e centro de custo se amarram à
+  **PARTIDA**, não ao lançamento) — são **BAIXA** como funcionalidade e
+  **precedência** como decisão: nascer no nível errado obriga, depois, a
+  *"adivinhar a que item pertencia"*, que é a minha própria expressão no BL-401
+  e é o vocabulário de **dado perdido**. Decidir o nível custa uma frase **antes**
+  da primeira linha; depois custa o contador refazendo.
 
 ⚠️ **O que NÃO está nesta lista, de propósito:** funcionalidade que o outro
 sistema tem e nós não. Isso é infinito, e construir por espelho é como o produto
@@ -1076,6 +1116,7 @@ não ter o problema.
 
 | BL-402 | **MÉDIA — o sistema de referência COPIA lançamento de uma empresa para outra, e isso não é conveniência: é fato contábil de uma pessoa jurídica aparecendo no livro de outra.** O utilitário filtra por data, número, conta ou valor e grava os lançamentos na empresa de destino. O DataLedger não tem nada parecido — e `Conta.clean()` (`apps/contabilidade/models.py:239-240, 333-374`) já trata reatribuir empresa como violação. | `arquiteto-senior` | BL-399 | **aberta — e a recomendação é NÃO copiar o comportamento** | **A classe é:** (b)/(c), e é diferente de *copiar cadastro entre empresas*, que o mapa já registra: ali é parâmetro replicado; aqui é **escrituração**. ⚠️ **Se a necessidade existir (rateio em grupo econômico, holding), o desenho certo não é gravar lançamento na empresa alheia — é lançamento de mútuo ou transferência entre as duas contabilidades, cada uma fechando sozinha.** Copiar bruto quebra a personalidade jurídica de cada entidade, e é o tipo de atalho que fica impossível de desfazer depois que os livros foram entregues. *Pergunta para o Fred*: existe hoje, no escritório, a prática de copiar lançamento de um cliente para outro? |
 | BL-403 | **BAIXA — prática barata que vale copiar: importação que RECUSA arquivo de outra empresa.** O sistema de referência aborta a importação quando a empresa identificada no arquivo não é a empresa ativa. O DataLedger ainda não tem importador nenhum (SPED, extrato, XML). | `desenvolvedor-pleno` | — | **aberta — recomendação de prática, não defeito** | **A classe é:** guarda barata contra o erro mais comum e mais caro de importação — subir o arquivo do cliente errado. ⚠️ **Não é achado estrutural** (acrescentar depois é barato), e registro só para não se perder: quando o primeiro importador nascer, a verificação de identidade da empresa nasce junto, não depois do primeiro incidente. *Momento*: DL-010. |
+| BL-435 | **ALTA — a razão social da empresa é SOBRESCRITA no lugar, sem histórico e sem trilha, e o valor anterior deixa de existir no sistema. O padrão certo já existe no arquivo ao lado.** Medido por mim em 2026-09-20, em `ab35715`: `Empresa.razao_social` e `Empresa.nome_fantasia` são `CharField` comuns (`apps/empresas/models.py`); `EmpresaAdmin.get_readonly_fields` trava **só** `escritorio` no `change` (`apps/empresas/admin.py:81-86`), logo a razão social é **editável pelo caminho cotidiano**; e `grep "registrar(" apps/empresas/admin.py` devolve **nada** — a trilha do produto não cobre o admin (é o **BL-244**, já medido). ⚠️ **E a assimetria é o achado:** `HistoricoRegimeTributario` (`apps/empresas/models.py:201`) prova que o projeto **já conhece e já aplicou** o padrão *"atributo que muda no tempo guarda vigência"* — e o aplicou **só ao regime tributário**. | `desenvolvedor-pleno` | BL-396, BL-244 | **aberta — e é a FAIXA 1, dado que se perde** | **A classe é:** a mesma forma do defeito que esta semana inteira perseguiu — *o resto do módulo virou propriedade e este campo sobreviveu como valor solto*. ⚠️ **Por que é faixa 1 e não faixa 3:** o **BL-396** exige que o termo do livro imprima o cadastro **como era na data**, e não como está hoje. Hoje, uma alteração contratual que muda a razão social **apaga o valor anterior no ato**, por uma porta que já existe em produção. Não é "caro depois": é **impossível depois** — a informação não está em lugar nenhum. É o segundo item da lista com essa propriedade, ao lado do BL-395. *Exemplo*: `HistoricoCadastralEmpresa` com vigência, no molde do `HistoricoRegimeTributario`, e o termo do livro lendo **por data**; enquanto isso não existir, a trilha do admin (BL-244) ao menos **registra** o valor antigo, que é o remendo barato. ⚠️ **Não implementar por conta:** a pergunta *"o termo do livro é obrigado a trazer o cadastro da data?"* é **normativa** e está na **PE-60** — levantar é meu, validar é do Fred. |
 
 
 ## P0 — achados da rodada 11 da auditoria (DL-029, REPROVADA em `100140e`)
