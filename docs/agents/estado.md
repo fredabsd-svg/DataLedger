@@ -293,6 +293,50 @@ critério 9 está garantido. Não está.
 ➡️ **Leia a seção "A décima auditoria" mais abaixo** para o porquê, com os
 números.
 
+### Onde a DL-029 parou — para quem retomar amanhã
+
+**Nada está solto: árvore limpa, local e remoto iguais.** A revisão de
+referência desta anotação é `59b6499`; o `git log` da branch
+`claude/accounting-agent-team-setup-mn6lyf` é a autoridade sobre o que veio
+depois — **não** descreva revisão nova aqui sem conferir lá.
+
+| Cláusula | Estado | Observação |
+| --- | --- | --- |
+| **C5** — fornecedor fora do papel (**BL-404**, o bloqueador) | **Fechada e medida** | Identificador **derivado** de `templates/base.html`, de **duas** fontes, com **recusa (código 2)** se divergirem; busca normalizada sobre **todas** as páginas; e a checagem alcança também os **metadados do PDF** nos campos que o produto controla |
+| **C4** — cada linha no seu lugar (**BL-405**) | **Fechada e medida** | Âncora por **ocorrência**, não por texto |
+| **C3** — exatamente as linhas declaradas | **Fechada e medida** | Comparação de **conjuntos**: faltar **e** sobrar reprovam |
+| **C1** — toda folha, toda tela (**BL-406**, **BL-410**) | **Parcial** | `lancamento_id` entrou e a tela é medida; paginação passa a ser **nomeada**. Falta o tratamento das rotas com `pk`/`token` genéricos, hoje **limite declarado** |
+| **C2** — tinta que contrasta (**BL-407**) | **Limiar PROVISÓRIO no código** | A decisão já está tomada e escrita no critério 7 do plano: o piso é **derivado do WCAG 2.2**, por linha. O código ainda carrega o valor provisório |
+
+**O que o próximo turno faz, em ordem:** aplicar o piso do WCAG 2.2 no C2;
+medir a razão do **controle limpo** (esperado ~21:1 — **se não passar com folga,
+é achado sobre o PRODUTO e sobe para o Fred**); confirmar o penhasco novo entre
+`opacity: 0,50` e `0,60`; conferir que tinta branca, `1px` e `3px` continuam
+reprovando e que controle e `width: 90px` continuam passando; fechar o C1; rodar
+a **suíte inteira** (ainda **não testada** nesta entrega); e só então chamar o
+`auditor-qa` sobre a **versão integrada**.
+
+⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
+
+1. **A ação do Fred no GitHub (BL-373).** Em 2026-09-20 ele chegou a criar a
+   regra, e **dois dos quatro nomes de verificação saíram errados** —
+   `tanto fazer projeto` no lugar de `Regras do projeto`, e
+   `…identificação do **emissor**…` no lugar de `…do **emitente**…`. Conferi
+   contra os nomes reais dos jobs e avisei antes de ele salvar. ⚠️ **Exigir uma
+   verificação que não existe é pior que não exigir nada: ela nunca reporta, e
+   o repositório trava — nenhum PR consegue ser mesclado.** Os quatro nomes
+   corretos são `Lint e testes`, `Validar documentação`, `Regras do projeto` e
+   `Medir identificação do emitente no navegador`. **Quando ele salvar, confira
+   por API — não pela tela.**
+2. **A PE-57**, que nasceu hoje: existe piso normativo de **legibilidade** para
+   documento contábil? Sem consequência hoje (o produto imprime ~21:1), com
+   consequência na **DL-027**.
+
+**E a lição do dia, que vale para quem retomar:** a mesma classe apareceu
+**quatro** vezes em uma tarde — BL-415, BL-416, BL-418 e o nome digitado pelo
+Fred na tela do GitHub —, todas da forma *"valor copiado à mão em vez de
+derivado da fonte"*. **Onde a guarda derivou de uma propriedade, ela aguentou.**
+
 **A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
 etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o
 que está no ar lê essas duas.
