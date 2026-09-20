@@ -1577,3 +1577,28 @@ entendeu em vez de omitir.
 | BL-470 | **BLOQUEADOR — a mensagem de erro do `lock_timeout` QUEBRA e vaza erro cru, no caminho do lançamento.** Em `_travar_competencia_em_modo_compartilhado` (`apps/contabilidade/services.py`), quando o `FOR SHARE` estoura o `lock_timeout`, a construção da mensagem de `CompetenciaOcupada` acessa `competencia.empresa` — FK **não cacheada**, porque o objeto veio de `get_or_create`, que não popula o cache da relação. O acesso dispara **nova consulta SQL numa transação PostgreSQL já abortada** pelo próprio estouro, e o `InternalError` resultante **substitui** a exceção certa. Ela sobe **sem ser capturada** pela view (`InternalError` não é subclasse de `CompetenciaEncerrada`): em produção, **HTTP 500 cru**. ⚠️ **A ironia é o achado:** o `except` estava certo, a detecção por SQLSTATE `55P03` estava certa — **quem falha é a frase de erro**. ⚠️ **E é o cenário exato que o BL-463 existe para tornar seguro:** fechar o mês enquanto alguém lança. ⚠️ **Zero cobertura**: nenhum dos 2.006 testes alcança este caminho, e a busca por `lock_timeout\|55P03\|CompetenciaOcupada` em `apps/` só acha ocorrências em código de produção. **É a [DE-055](decisoes.md) pagando de novo: correção de concorrência é onde defeito novo nasce** | `desenvolvedor-pleno` | — | **Aberta** | A mensagem é construída **só com valores já em memória** (`ano`, `mes` e o parâmetro `empresa`, como `_travar_competencia_para_transicao` já faz corretamente) — nenhum acesso a relação preguiçosa depois do erro. Teste que estoura o `lock_timeout` **de verdade**, com duas conexões reais, e exige `CompetenciaOcupada` pelo serviço **e 409 com mensagem em português pela API** — nunca 500. ⚠️ **Varra os OUTROS caminhos de erro** atrás do mesmo padrão: qualquer acesso a relação preguiçosa dentro de `except` de banco tem o mesmo defeito |
 | BL-471 | **BAIXA, ressalva — as três telas de AÇÃO não têm teste dedicado de isolamento entre escritórios.** Só o painel tem (`test_isolamento_empresa_de_outro_escritorio_e_404`, passou). As telas de fechar, reabrir e entregar usam a **mesma** função `_empresa_do_escritorio_ativo`, já validada em outras telas do módulo — a proteção **existe** (inspecionada), o que falta é o teste nesta fatia. ⚠️ **Isolamento entre escritórios é regra permanente do projeto; herdar proteção por função compartilhada é certo, herdar CONFIANÇA sem teste é o que este projeto já pagou caro (BL-211)** | `especialista-frontend` | — | **Aberta** | Teste de 404 para empresa de outro escritório nas três telas de ação, não só no painel |
 | BL-472 | **BAIXA, procedência de número — "57,796875 px" não corresponde a nenhum elemento das quatro telas.** O `especialista-frontend` citou a largura de `111111`/`888888` como prova de tabulação; o verificador mediu e achou **48 px** em todo conteúdo numérico das telas, com `IBM Plex Serif` e `font-variant-numeric: normal` — nenhuma delas carrega `.valor-monetario` nem `--fonte-numerica`. O número provavelmente veio de um teste isolado do token CSS, não da página. ⚠️ **Não é defeito, e a alegação CENTRAL dele foi verificada e está CORRETA:** a tela não exibe valor monetário, a régua de tabulação de coluna não se aplica, e isso bate com o precedente do produto (o próprio `scripts/juiz.py` isenta data por desenho, e Diário/Razão/Balancete também não aplicam a classe em coluna de data). O que fica é a **procedência**: a direção de arte §4.8 chama isso de *"número sem método é opinião com casas decimais"* | `especialista-frontend` | — | **Aberta** | Número citado em relatório vem acompanhado do elemento e do comando que o produziram |
+
+## Reconferência do BL-470 — rodada final (2026-09-20)
+
+Relatório integral em
+[2026-09-20-dl-031-reconferencia-2.md](../auditorias/2026-09-20-dl-031-reconferencia-2.md).
+**Nenhum achado.** **BL-470 FECHADO.** A **DL-031 fecha**, com **BL-471** e
+**BL-472** como ressalvas declaradas (baixas, DE-066) — elas vão para a próxima
+fatia, com dono nomeado.
+
+⚠️ **O item que eu acrescentei ao escopo, e que não estava no relatório de
+ninguém:** para corrigir o BL-470 o implementador mudou a **assinatura** de uma
+função e, por isso, **editou três testes que já existiam** — justamente os que o
+`auditor-qa` validara **por mutação** na reconferência da fatia 1. Editar teste
+para acompanhar mudança de código é legítimo e corriqueiro; **é também o jeito
+mais discreto de cegar uma guarda**, porque o teste continua verde, o nome
+continua lá, e ninguém nota que ele parou de detectar. Mandei **refazer a prova
+de mutação depois da edição**: reintroduzida a falha do BL-456 em cópia isolada,
+**os três voltaram a reprovar**. A guarda não foi cegada.
+
+⚠️ **E a afirmação mais sutil da varredura foi MEDIDA, não aceita.** O
+implementador alegou que o bloco de idempotência é seguro porque o Django
+executa `ROLLBACK TO SAVEPOINT` antes do `except`. O verificador capturou o
+**log SQL real** da thread perdedora de uma corrida de idempotência e viu a
+sequência `ROLLBACK TO SAVEPOINT` → `RELEASE SAVEPOINT` → `SELECT` do `except`.
+**Alegação sobre comportamento de biblioteca é hipótese até alguém medir.**

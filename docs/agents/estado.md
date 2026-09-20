@@ -544,8 +544,45 @@ se aplica"*. Verificado contra o instrumento do próprio produto
 (`scripts/juiz.py` isenta data por desenho) e contra o precedente de
 Diário/Razão/Balancete. **Declaração espontânea de limite, e correta.**
 
-**Estado:** correção do BL-470 em curso, **rodada 1 de 2**. Pela §3.1, a
-reconferência é a última.
+##### A DL-031 FECHOU — `206f4b1`, reconferência sem nenhum achado
+
+**Relatório integral:**
+[2026-09-20-dl-031-reconferencia-2.md](../auditorias/2026-09-20-dl-031-reconferencia-2.md).
+**BL-470 fechado.** **A fatia 2 está entregue**, em **duas rodadas**, como a
+fatia 1 — a regra de parada da §3.1 governou as duas etapas do começo ao fim.
+
+Números medidos pelo verificador: **2008 passed, 14 skipped** (2006 + os dois
+testes novos); `ruff check`, `ruff format --check`, `manage.py check` e
+`makemigrations --check` limpos.
+
+⚠️ **O item que EU acrescentei ao escopo, e que não estava no relatório de
+ninguém:** para corrigir o BL-470 o implementador mudou a **assinatura** de uma
+função e, por isso, **editou três testes que já existiam** — justamente os que o
+`auditor-qa` validara **por mutação** na reconferência da fatia 1. Editar teste
+para acompanhar mudança de código é legítimo e corriqueiro; **é também o jeito
+mais discreto de cegar uma guarda**, porque o teste continua verde, o nome
+continua lá, e ninguém nota que ele parou de detectar.
+
+**Mandei refazer a prova de mutação DEPOIS da edição.** Reintroduzida a falha do
+BL-456 em cópia isolada, **os três voltaram a reprovar**. A guarda não foi
+cegada. **Prova de mutação envelhece quando o teste é editado** — e isso passa a
+valer como regra, não como episódio.
+
+⚠️ **E a afirmação mais sutil da varredura foi MEDIDA, não aceita.** O
+implementador alegou que o bloco de idempotência é seguro porque o Django faz
+`ROLLBACK TO SAVEPOINT` antes do `except`. O verificador capturou o **log SQL
+real** da thread perdedora de uma corrida de idempotência e viu a sequência
+exata. **Alegação sobre comportamento de biblioteca é hipótese até alguém
+medir** — é a [DE-058](../projeto/decisoes.md) aplicada a dependência, não a
+código nosso.
+
+**Ressalvas abertas, baixas, com dono** (DE-066, não seguram a etapa):
+[BL-471](../projeto/backlog.md) (teste dedicado de isolamento nas três telas de
+ação) e [BL-472](../projeto/backlog.md) (procedência de número citado). Vão para
+a próxima fatia.
+
+**O contador agora consegue fechar o mês pelo produto.** A dívida que a ordem
+"trava antes do botão" criou está paga.
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
