@@ -58,6 +58,18 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
+    # DL-031 (fatia 2 da DL-016): só as DUAS telas do fechamento que
+    # renderizam 200 sob o `cenario` PADRÃO deste módulo (competência ainda
+    # 'aberta', sem lote desbalanceado) entram aqui. `competencia_reabrir` e
+    # `competencia_entregar` exigem competência ENCERRADA como
+    # pré-condição de estado — sem isso a view devolve 302 para o painel
+    # (nunca 500, é o comportamento certo) — e por isso ficam de fora desta
+    # lista genérica; ver `EXCLUSOES_NOMEADAS_DE_TELA`, em
+    # test_dl024_atalhos_e_acessibilidade.py, e os testes próprios em
+    # test_dl031_fechamento_de_competencia.py, que preparam o cenário certo
+    # (competência fechada) antes de medir essas duas telas.
+    "fechamento": "contabilidade_web:fechamento",
+    "competencia_fechar": "contabilidade_web:competencia_fechar",
 }
 
 # rota COMPLETA (`namespace:nome`) → documentação (nome dos testes desta
@@ -118,6 +130,16 @@ def _urls_de_contabilidade(cenario):
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
+        "fechamento": ([empresa_id], ""),
+        # ?ano=&mes= do mês CORRENTE: sob o `cenario` padrão a competência
+        # do mês corrente ainda está 'aberta' (só existe porque a fixture
+        # cria um lançamento nela) e a base está balanceada — exatamente o
+        # estado em que `competencia_fechar` (GET) renderiza o formulário
+        # de confirmação, 200.
+        "competencia_fechar": (
+            [empresa_id],
+            f"?ano={timezone.localdate().year}&mes={timezone.localdate().month}",
+        ),
     }
     return {
         nome_curto: reverse(NOMES_DE_TELA_DE_CONTABILIDADE[nome_curto], args=args) + query

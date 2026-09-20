@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block titulo %}Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
+    <p><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Voltar para o painel de fechamento</a></p>
+    <h1>Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+
+    {% if quantidade_lotes_desbalanceados %}
+        {% comment %}
+        Critério 2: a conferência (RC-58) aparece ANTES do botão — havendo
+        lote desbalanceado, fechar não é o caminho, e esta tela nunca
+        oferece o botão para o contador clicar e só então descobrir.
+        {% endcomment %}
+        <p class="mensagem mensagem-error" role="alert">
+            Não é possível fechar nenhuma competência desta empresa agora: há
+            {{ quantidade_lotes_desbalanceados }} lançamento(s) desbalanceado(s) na
+            base (RC-58). Resolva a
+            <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
+            antes de fechar.
+        </p>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A competência <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong> de
+                <strong>{{ empresa.razao_social }}</strong> será encerrada. A partir daí:
+            </p>
+            <ul>
+                <li>Nenhum lançamento novo pode ser gravado nesta competência.</li>
+                <li>
+                    Um estorno datado nesta competência também é recusado — o estorno de
+                    um lançamento fechado sempre cai no mês aberto (RC-103).
+                </li>
+                <li>
+                    Para lançar de novo neste mês, será preciso <strong>reabrir</strong> a
+                    competência informando o motivo — o que continua possível enquanto
+                    ela não for marcada como entregue ao cliente.
+                </li>
+            </ul>
+            <form method="post" action="{% url 'contabilidade_web:competencia_fechar' empresa.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="ano" value="{{ ano }}">
+                <input type="hidden" name="mes" value="{{ mes }}">
+                <button type="submit">Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+            </form>
+        </div>
+    {% endif %}
+{% endblock %}

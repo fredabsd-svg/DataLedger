@@ -46,7 +46,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoPartida
+from apps.contabilidade.models import (
+    Competencia,
+    Conta,
+    EstadoCompetencia,
+    LancamentoContabil,
+    NaturezaConta,
+    TipoPartida,
+)
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 
 # RC-77 (faixa de data) e RC-79 (teto de partidas) vêm de
@@ -63,19 +70,25 @@ from apps.contabilidade.services import (
     LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
     CompetenciaEncerrada,
+    CompetenciaJaEntregue,
+    CompetenciaOperacaoInvalida,
+    CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
     apurar_razao,
     criar_lancamento,
     data_maxima_lancamento,
+    encerrar_competencia,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
     localizar_inconsistencias_de_hierarquia,
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
+    marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
+    reabrir_competencia,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -101,12 +114,17 @@ from apps.contabilidade.services import (
 #   que aceitava dígito índico-arábico/fullwidth em silêncio. Usado só por
 #   `_inteiro_de_cliente` abaixo, que preserva a MAGNITUDE de um texto
 #   grande demais (ver o docstring dela para o porquê disso importar).
+# - PodeFecharCompetencia (DL-016 fatia 1 / DL-031 fatia 2): MESMA permissão
+#   (ADMINISTRADOR/GESTOR, RC-102) que a API já usa para fechar/reabrir/
+#   entregar competência — reaproveitada aqui pelo mesmo motivo de
+#   PodeEscriturar: não existe uma segunda lista de papéis "só para a tela".
 from apps.contabilidade.views import (
     _PADRAO_NIVEL_SIMPLES,
     LIMITE_MAGNITUDE_VALOR,
     TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA,
     TAMANHO_MAXIMO_HISTORICO,
     PodeEscriturar,
+    PodeFecharCompetencia,
     _saldo_absoluto_com_natureza,
 )
 
@@ -2566,3 +2584,410 @@ def conferencia(request, empresa_id):
         ),
     }
     return render(request, "contabilidade/conferencia.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Fechamento de competência (DL-016 fatia 1 no servidor; DL-031 é a PORTA)
+#
+# NENHUMA regra contábil desta seção mora aqui — encerrar_competencia,
+# reabrir_competencia e marcar_competencia_como_entregue (services.py) já
+# decidem, já travam a linha sob concorrência e já gravam a trilha de
+# auditoria, auditados em duas rodadas na fatia 1. Esta tela só CHAMA os
+# três serviços, traduz cada exceção de negócio em mensagem de português
+# (nunca 500 — a lição do BL-457, medida na tela de lançamento) e trata o
+# "sem permissão" como ESTADO explicado, não como sumiço silencioso de botão
+# (critério 1 do plano DL-031).
+#
+# Arquétipos, pela direção de arte (§2): D (painel de período) para
+# `fechamento`, E (assistente com etapas) para as três telas de ação —
+# cada uma mostra o que vai acontecer e o que deixa de ser possível ANTES
+# do botão, e a de entrega (a única ação sem volta pelo produto, RC-101)
+# exige confirmação explícita em vez de um clique só.
+# ---------------------------------------------------------------------------
+
+# Mesma faixa das duas CheckConstraint de Competencia.Meta
+# ("competencia_mes_entre_1_e_12", "competencia_ano_entre_1970_e_2999") — a
+# MESMA faixa que apps.contabilidade.views._validar_ano_mes já aplica na
+# API, antes de chamar o serviço. Não importada de lá: aquele validador fala
+# o protocolo do DRF (levanta DRFValidationError), que esta tela não usa —
+# só o NÚMERO é compartilhado, por comentário, no mesmo padrão que
+# NIVEL_MAXIMO (acima) já copia o teto da API em vez de importar o nome.
+_MES_MINIMO_COMPETENCIA, _MES_MAXIMO_COMPETENCIA = 1, 12
+_ANO_MINIMO_COMPETENCIA, _ANO_MAXIMO_COMPETENCIA = 1970, 2999
+
+
+def _ano_mes_de_competencia_valido(ano, mes):
+    return (
+        _MES_MINIMO_COMPETENCIA <= mes <= _MES_MAXIMO_COMPETENCIA
+        and _ANO_MINIMO_COMPETENCIA <= ano <= _ANO_MAXIMO_COMPETENCIA
+    )
+
+
+def _pode_fechar_competencia(request):
+    return PodeFecharCompetencia().has_permission(request, None)
+
+
+def _competencia_pedida(fonte):
+    """Lê e valida 'ano'/'mes' de `fonte` (request.GET no GET das três telas
+    de ação — a competência viaja por querystring, como o período do
+    Diário/Razão/Balancete — e request.POST no POST, onde os dois campos
+    voltam como `<input type="hidden">` do próprio formulário, no mesmo
+    contrato que a tela já julga).
+
+    Nunca lança exceção: devolve `(ano, mes, None)` quando válido, ou
+    `(None, None, mensagem)` quando não — mesmo padrão de
+    `_periodo_do_formulario` (erro de entrada nunca é 500, sempre mensagem
+    em português). `_inteiro_de_cliente` é o mesmo julgador de QUANTIDADE de
+    cliente que o resto deste arquivo já usa (nunca reinterpreta dígito
+    Unicode, nunca lança exceção) — 'ano'/'mes' são quantidade de negócio,
+    não identificador de banco.
+    """
+    ano = _inteiro_de_cliente((fonte.get("ano") or "").strip())
+    mes = _inteiro_de_cliente((fonte.get("mes") or "").strip())
+    if ano is None or mes is None:
+        return None, None, "Informe ano e mês da competência."
+    if not _ano_mes_de_competencia_valido(ano, mes):
+        return (
+            None,
+            None,
+            f"Competência inválida: o mês deve estar entre {_MES_MINIMO_COMPETENCIA} e "
+            f"{_MES_MAXIMO_COMPETENCIA}, e o ano entre {_ANO_MINIMO_COMPETENCIA} e "
+            f"{_ANO_MAXIMO_COMPETENCIA}.",
+        )
+    return ano, mes, None
+
+
+# BL-196: contrato de cada ação — mesma política dos cinco dicionários que
+# `lancamento_novo`/`conta_nova` já aplicam, e pelo mesmo motivo (um campo
+# que a superfície não lê nunca deve ser ignorado em silêncio). As três são
+# rotas de AÇÃO: sem arquivo, sem querystring no POST (o GET usa
+# querystring só para MONTAR o formulário; o POST manda 'ano'/'mes' como
+# campo oculto do próprio `<form>`, como qualquer outro dado do corpo) e sem
+# `Idempotency-Key` (nenhuma das três usa cabeçalho para idempotência; as
+# três já são seguras para reenvio — fechar e entregar são idempotentes no
+# SERVIÇO, e reabrir é uma ação explícita com motivo, não um POST que se
+# repete sem querer).
+CONTRATO_FECHAR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no fechamento de competência",
+)
+CONTRATO_REABRIR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura de competência",
+)
+CONTRATO_ENTREGAR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "confirmar_entrega"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na entrega de competência",
+)
+
+
+@login_required
+@require_safe
+def fechamento(request, empresa_id):
+    """Painel de competências da empresa (arquétipo D) — critérios 1 e 2.
+
+    Lista os meses com estado, quem fechou, quando e se foi entregue; a
+    conferência do RC-58 é checada AQUI, uma vez, para a base inteira da
+    empresa — havendo lote desbalanceado, nenhum link de "Fechar" aparece
+    nas linhas 'aberta' (critério 2: nunca deixar o contador clicar para
+    descobrir). Quem não pode fechar/reabrir/entregar (RC-102) continua
+    vendo o painel inteiro — só a coluna de ações muda, com uma explicação
+    no topo em vez de sumir em silêncio (critério 1).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    # RC-58 / critério 2: mesma checagem que `encerrar_competencia`
+    # (services.py) aplica antes de fechar — repetida aqui só para EXIBIR o
+    # bloqueio antes do clique. A recusa de verdade continua sendo a do
+    # serviço; esta lista não é usada para decidir nada além do que a tela
+    # mostra.
+    lotes_desbalanceados = list(localizar_lotes_desbalanceados(empresa=empresa))
+
+    competencias = list(
+        Competencia.objects.filter(empresa=empresa)
+        .select_related("fechada_por", "entregue_por")
+        .order_by("-ano", "-mes")
+    )
+
+    hoje = timezone.localdate()
+    contexto = {
+        "empresa": empresa,
+        "competencias": competencias,
+        "pode_fechar": _pode_fechar_competencia(request),
+        "quantidade_lotes_desbalanceados": len(lotes_desbalanceados),
+        "ano_sugestao": hoje.year,
+        "mes_sugestao": hoje.month,
+        "opcoes_mes": range(1, 13),
+    }
+    return render(request, "contabilidade/fechamento.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_fechar(request, empresa_id):
+    """Fecha uma competência (arquétipo E, etapa única) — critérios 2, 3, 5, 8.
+
+    GET mostra o que vai ser fechado e o que deixa de ser possível ANTES do
+    botão (o "momento da verdade" do plano DL-031); se houver lote
+    desbalanceado (RC-58), nenhum botão aparece — só o caminho para a
+    Conferência. POST chama `encerrar_competencia` (services.py), que é
+    quem decide e trava de verdade: toda recusa do serviço vira mensagem em
+    português nesta mesma tela, nunca 500 (BL-457).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite fechar competências desta empresa — essa ação "
+            "exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_FECHAR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        try:
+            competencia = encerrar_competencia(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Critério 2/5 — RC-58 (lote desbalanceado) ou qualquer outro
+            # estado que impeça o fechamento: a mensagem do próprio serviço
+            # já nomeia a competência e o motivo. Nunca 500 (BL-457) — o
+            # teste desta tela leva controle positivo no mesmo caso.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        # Critério 4/idempotência do serviço: reflete o resultado REAL —
+        # `encerrada_agora=False` quando a competência já estava fechada
+        # (duas requisições, ou o usuário voltou nesta mesma tela) nunca vira
+        # "fechada agora" na mensagem.
+        if competencia.encerrada_agora:
+            messages.success(
+                request, f"Competência {mes:02d}/{ano} de {empresa} fechada com sucesso."
+            )
+        else:
+            messages.info(request, f"Competência {mes:02d}/{ano} de {empresa} já estava fechada.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: se já está encerrada, não há o que confirmar — volta ao painel
+    # com o estado explicado em vez de mostrar um formulário sem sentido.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is not None and competencia.estado == EstadoCompetencia.ENCERRADA:
+        messages.info(request, f"A competência {mes:02d}/{ano} de {empresa} já está encerrada.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    lotes_desbalanceados = list(localizar_lotes_desbalanceados(empresa=empresa))
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "quantidade_lotes_desbalanceados": len(lotes_desbalanceados),
+    }
+    return render(request, "contabilidade/competencia_fechar.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_reabrir(request, empresa_id):
+    """Reabre uma competência (arquétipo E, etapa única) — critérios 3, 5, 6, 8.
+
+    Motivo é obrigatório na tela (rótulo próprio, avisando que fica na
+    trilha); a recusa de verdade é do serviço (`reabrir_competencia`,
+    `CompetenciaOperacaoInvalida` para motivo vazio). Mês já entregue
+    (RC-101/BL-468) NUNCA oferece este formulário — nem no GET (precheck de
+    conveniência) nem, se a corrida acontecer, no POST (a exceção
+    `CompetenciaJaEntregue` do serviço vira mensagem, nunca 500).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite reabrir competências desta empresa — essa ação "
+            "exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_REABRIR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        motivo = request.POST.get("motivo", "")
+        try:
+            reabrir_competencia(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
+        except CompetenciaOperacaoInvalida as exc:
+            # Critério 3: motivo vazio é erro de FORMULÁRIO — a tela NUNCA
+            # some (o que já estava preenchido continua lá), status 400.
+            messages.error(request, str(exc))
+            return render(
+                request,
+                "contabilidade/competencia_reabrir.html",
+                {"empresa": empresa, "ano": ano, "mes": mes, "motivo": motivo},
+                status=400,
+            )
+        except CompetenciaJaEntregue as exc:
+            # Critério 6/BL-468: a mensagem do serviço já nomeia a data da
+            # entrega e orienta o ajuste no mês aberto (RC-101). Nunca 500
+            # (BL-457) — controle positivo no mesmo caso, no teste desta tela.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+        except CompetenciaOperacaoRecusada as exc:
+            # Ex.: tentar reabrir uma competência que nunca foi encerrada.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        messages.success(request, f"Competência {mes:02d}/{ano} de {empresa} reaberta com sucesso.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: só oferece o formulário quando há, de fato, o que reabrir.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is None or competencia.estado != EstadoCompetencia.ENCERRADA:
+        messages.info(
+            request,
+            f"A competência {mes:02d}/{ano} de {empresa} não está encerrada; não há o que reabrir.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+    if competencia.entregue_em is not None:
+        # Critério 6/BL-468 — precheck de conveniência: o servidor recusa do
+        # mesmo jeito se a corrida acontecer (ver o `except
+        # CompetenciaJaEntregue` acima), mas o contador nunca deveria
+        # precisar clicar num formulário para descobrir isto.
+        messages.error(
+            request,
+            f"A competência {mes:02d}/{ano} de {empresa} já foi entregue ao cliente em "
+            f"{timezone.localtime(competencia.entregue_em):%d/%m/%Y %H:%M}. Depois da "
+            "entrega, a competência não reabre — o ajuste vai no mês aberto.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    contexto = {"empresa": empresa, "ano": ano, "mes": mes, "motivo": ""}
+    return render(request, "contabilidade/competencia_reabrir.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_entregar(request, empresa_id):
+    """Marca uma competência como entregue ao cliente (arquétipo E, etapa
+    única) — critérios 4, 5, 8.
+
+    Esta é a ÚNICA ação da fatia sem volta pelo produto (RC-101: depois de
+    entregue, a competência nunca mais reabre) — por isso exige uma
+    confirmação EXPLÍCITA (caixa de marcação), não um único clique.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite marcar competências desta empresa como entregues "
+            "— essa ação exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ENTREGAR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        # Critério 4: a caixa de confirmação NÃO é regra de negócio — o
+        # serviço não sabe dela e não precisa saber. É só o que impede um
+        # clique não intencional de chegar ao serviço, proporcional ao
+        # risco desta ação (AGENTS.md §0, item 6: ação sem volta pede
+        # confirmação que identifique a operação).
+        if request.POST.get("confirmar_entrega") != "1":
+            messages.error(
+                request,
+                "Confirme a caixa de seleção para marcar esta competência como "
+                "entregue — nada foi gravado.",
+            )
+            return render(
+                request,
+                "contabilidade/competencia_entregar.html",
+                {"empresa": empresa, "ano": ano, "mes": mes},
+                status=400,
+            )
+
+        try:
+            marcar_competencia_como_entregue(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Ex.: tentar entregar uma competência que ainda está aberta.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        messages.success(
+            request,
+            f"Competência {mes:02d}/{ano} de {empresa} marcada como entregue. Depois da "
+            "entrega, ela não reabre pelo produto — qualquer ajuste vai no mês aberto "
+            "(RC-101).",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: só oferece a confirmação quando a competência está encerrada —
+    # entregar mês aberto não faz sentido e o serviço recusaria mesmo assim.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is None or competencia.estado != EstadoCompetencia.ENCERRADA:
+        messages.info(
+            request,
+            f"Só é possível marcar como entregue uma competência encerrada; feche a "
+            f"competência {mes:02d}/{ano} de {empresa} primeiro.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        # Docstring de marcar_competencia_como_entregue (services.py): a
+        # entrega "pode repetir-se" — confirmar de novo apenas atualiza a
+        # data/quem entregou. A tela avisa a diferença em vez de tratar como
+        # se fosse a primeira vez.
+        "ja_entregue_em": competencia.entregue_em,
+    }
+    return render(request, "contabilidade/competencia_entregar.html", contexto)

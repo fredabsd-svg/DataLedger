@@ -557,7 +557,8 @@ kbd.tecla {
 }
 
 .campo input,
-.campo select {
+.campo select,
+.campo textarea {
     padding: var(--esp-2);
     border: var(--traco-fina) solid var(--borda-input);
     border-radius: var(--raio);
@@ -568,9 +569,72 @@ kbd.tecla {
 }
 
 .campo input:focus,
-.campo select:focus {
+.campo select:focus,
+.campo textarea:focus {
     outline: var(--traco-grossa) solid var(--acento);
     outline-offset: var(--desloc-foco-campo);
+}
+
+/* DL-031 (fatia 2 da DL-016): caixa de marcação do "assistente com etapas"
+   (arquétipo E) — usada hoje só na confirmação de "marcar como entregue"
+   (competencia_entregar.html), a única ação sem volta desta fatia (RC-101).
+   `flex-direction: row` porque a caixa de marcação e o texto do rótulo
+   ficam lado a lado, ao contrário do padrão rótulo-acima-do-campo de
+   `.campo` — mesma exceção documentada de `.formulario-periodo .campo`,
+   acima, por um motivo diferente (aqui é o PRÓPRIO controle, não um filtro
+   de fila). `font-weight: 400` porque o texto do rótulo aqui é uma frase de
+   confirmação corrida, não um rótulo curto de campo — negrito nela
+   competiria com `.painel-etapa--risco` pela atenção. */
+.campo--caixa {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--esp-2);
+}
+
+.campo--caixa label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--esp-2);
+    font-weight: 400;
+}
+
+/* DL-031: moldura do "assistente com etapas" (arquétipo E) — o que vai
+   acontecer, e o que deixa de ser possível, ANTES do botão de ação
+   (fechar/reabrir/entregar competência). Reaproveita só tokens já
+   existentes (borda hairline, raio, espaçamento) — nenhum valor novo. */
+.painel-etapa {
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    padding: var(--esp-4);
+    margin-bottom: var(--esp-4);
+}
+
+.painel-etapa h2 {
+    margin-top: 0;
+}
+
+/* Variante de RISCO (competencia_entregar.html): a única ação desta fatia
+   sem volta pelo produto (RC-101) recebe o mesmo tratamento visual de
+   destaque que `.mensagem-error`/`.faixa-fechamento--nao-fecha` já usam —
+   borda mais grossa à esquerda e fundo de alerta —, nunca como o ÚNICO
+   sinal: o texto do `<h2>` ("sem volta pelo produto") já diz isso, a cor é
+   reforço. */
+.painel-etapa--risco {
+    border-color: var(--erro);
+    border-left-width: var(--traco-destaque);
+    background: var(--erro-fundo);
+}
+
+/* DL-031: estado da competência no painel de fechamento
+   (fechamento.html) — o TEXTO da célula ("Aberta"/"Encerrada") já
+   distingue rascunho de efetivado; peso e cor aqui são reforço, nunca o
+   único canal (mesma regra de `.linha-total__veredito--*`, acima). */
+.estado-competencia--aberta {
+    color: var(--tinta-suave);
+}
+
+.estado-competencia--encerrada {
+    color: var(--sucesso);
 }
 
 /* Texto de apoio VISÍVEL abaixo de um campo — diferente de

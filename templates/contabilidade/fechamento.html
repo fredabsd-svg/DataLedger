@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block titulo %}Fechamento de competência — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="fechamento" %}
+    <h1>Fechamento de competência — {{ empresa.razao_social }}</h1>
+
+    {% comment %}
+    Critério 2 do plano DL-031: a conferência do RC-58 é checada para a base
+    INTEIRA da empresa (localizar_lotes_desbalanceados não tem período — o
+    mesmo motivo do comentário em encerrar_competencia, services.py), e o
+    aviso aparece ANTES de qualquer botão "Fechar" — nunca depois, como
+    erro. Havendo lote desbalanceado, nenhuma competência pode ser fechada
+    até a Conferência resolver; reabrir e marcar como entregue continuam
+    disponíveis (não dependem de RC-58).
+    {% endcomment %}
+    {% if quantidade_lotes_desbalanceados %}
+        <p class="mensagem mensagem-error" role="alert">
+            Não é possível fechar nenhuma competência desta empresa agora: há
+            {{ quantidade_lotes_desbalanceados }} lançamento(s) desbalanceado(s) na
+            base (RC-58). Resolva a
+            <a href="{% url 'contabilidade_web:conferencia' empresa.id %}">Conferência</a>
+            antes de fechar — reabrir e marcar como entregue continuam disponíveis.
+        </p>
+    {% endif %}
+
+    {% comment %}
+    Critério 1: "sem permissão" é ESTADO, não erro — o analista VÊ o painel
+    inteiro (a trilha, os estados, quem fechou e quando) e só a coluna de
+    AÇÕES muda, com a explicação aqui, no topo, em vez de sumir em
+    silêncio. Se ele forçar a requisição de ação diretamente, o servidor
+    recusa com 403 (RC-102) — já garantido e testado na fatia 1.
+    {% endcomment %}
+    {% if not pode_fechar %}
+        <p class="mensagem mensagem-info" role="status">
+            Seu papel não permite fechar, reabrir ou marcar competências desta
+            empresa como entregues — essa ação exige administrador ou gestor
+            (RC-102). Você pode consultar o painel abaixo normalmente; fale com um
+            administrador ou gestor para agir sobre uma competência.
+        </p>
+    {% endif %}
+
+    {% if competencias %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Competências de {{ empresa.razao_social }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Competência</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Fechada por</th>
+                    <th scope="col">Fechada em</th>
+                    <th scope="col">Entregue</th>
+                    <th scope="col">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for competencia in competencias %}
+                    <tr>
+                        <td>{{ competencia.mes|stringformat:"02d" }}/{{ competencia.ano }}</td>
+                        <td>
+                            {% comment %}
+                            Rascunho (aberta) e efetivado (encerrada) precisam ser
+                            distinguíveis à primeira vista — o TEXTO já diz qual é
+                            qual ("Aberta"/"Encerrada"); peso e cor (estado-
+                            competencia--encerrada, static/css/base.css) são só
+                            REFORÇO, nunca o único canal.
+                            {% endcomment %}
+                            {% if competencia.estado == "encerrada" %}
+                                <strong class="estado-competencia estado-competencia--encerrada">Encerrada</strong>
+                            {% else %}
+                                <span class="estado-competencia estado-competencia--aberta">Aberta</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ competencia.fechada_por.get_username|default:"—" }}</td>
+                        <td>{{ competencia.fechada_em|date:"d/m/Y H:i"|default:"—" }}</td>
+                        <td>
+                            {% if competencia.entregue_em %}
+                                Sim, em {{ competencia.entregue_em|date:"d/m/Y H:i" }}
+                                ({{ competencia.entregue_por.get_username|default:"—" }})
+                            {% else %}
+                                Não
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pode_fechar %}
+                                {% if competencia.estado == "aberta" %}
+                                    {% if quantidade_lotes_desbalanceados %}
+                                        <span class="texto-apoio">Bloqueado pela conferência</span>
+                                    {% else %}
+                                        <a href="{% url 'contabilidade_web:competencia_fechar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Fechar</a>
+                                    {% endif %}
+                                {% elif competencia.estado == "encerrada" %}
+                                    {% if not competencia.entregue_em %}
+                                        {% comment %}
+                                        Critério 6/BL-468: mês já entregue NUNCA
+                                        oferece o link de reabrir — nem aqui, nem
+                                        na tela de ação (que também faz o mesmo
+                                        precheck, e o serviço recusa de qualquer
+                                        forma se a corrida acontecer).
+                                        {% endcomment %}
+                                        <a href="{% url 'contabilidade_web:competencia_reabrir' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Reabrir</a>
+                                        &middot;
+                                    {% endif %}
+                                    <a href="{% url 'contabilidade_web:competencia_entregar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Marcar como entregue</a>
+                                {% endif %}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhuma competência registrada ainda para esta empresa.</p>
+    {% endif %}
+
+    {% if pode_fechar %}
+        <h2>Fechar um mês ainda sem lançamento</h2>
+        <p>
+            Implantar uma empresa costuma declarar fechado um período inteiro sem
+            nenhum lançamento ainda (RC-53). Escolha o mês e o ano para começar o
+            fechamento dele — a competência é criada neste momento, se ainda não
+            existir.
+        </p>
+        <form method="get" action="{% url 'contabilidade_web:competencia_fechar' empresa.id %}" class="formulario-periodo">
+            <div class="campo">
+                <label for="id_ano_selecionado">Ano</label>
+                <input type="number" id="id_ano_selecionado" name="ano" value="{{ ano_sugestao }}" min="1970" max="2999" required>
+            </div>
+            <div class="campo">
+                <label for="id_mes_selecionado">Mês</label>
+                <select id="id_mes_selecionado" name="mes">
+                    {% for numero_mes in opcoes_mes %}
+                        <option value="{{ numero_mes }}" {% if numero_mes == mes_sugestao %}selected{% endif %}>{{ numero_mes|stringformat:"02d" }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit">Preparar fechamento</button>
+        </form>
+    {% endif %}
+{% endblock %}
