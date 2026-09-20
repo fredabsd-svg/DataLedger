@@ -79,13 +79,17 @@ antiga são cegas pela MESMA razão.
 A correção NÃO troca a lista por outra lista (`#fff`, `clip-path` — é o
 erro que esta etapa paga há doze rodadas): rasteriza a folha A4 já gerada
 (`pdftoppm -gray`, mesma dependência de sistema de `_texto_do_pdf`, ver
-`_rasterizar_primeira_pagina`), localiza a posição REAL de cada linha do
+`_rasterizar_pagina`), localiza a posição REAL de cada linha do
 timbre no PDF exportado (`pdftotext -bbox`, ver `_palavras_da_pagina` e
-`_bbox_da_linha` — a posição de um objeto de texto no PDF não depende da
-cor com que ele foi pintado) e exige uma contagem de PIXELS ESCUROS acima
-de um piso medido (`_pixels_escuros_na_faixa`, `PISO_PIXELS_ESCUROS_POR_
-LINHA`). É a pergunta do contador — "tem tinta no papel onde deveria
-ter?" — e ela SOMA às checagens anteriores (DOM: `checkVisibility` +
+`_bbox_da_linha`/`_localizar_bloco_do_timbre` — a posição de um objeto de
+texto no PDF não depende da cor com que ele foi pintado) e exige uma
+contagem de pixels com CONTRASTE suficiente contra o papel acima de um
+piso medido (`_pixels_com_contraste_suficiente_na_faixa`,
+`PISO_PIXELS_ESCUROS_POR_LINHA` — DL-029, C2: contraste MEDIDO contra o
+fundo da própria folha, não um limiar fixo de luminância. Ver o
+comentário de `RAZAO_MINIMA_DE_CONTRASTE_TINTA`). É a pergunta do
+contador — "tem tinta que CONTRASTA com o papel onde deveria ter?" — e
+ela SOMA às checagens anteriores (DOM: `checkVisibility` +
 área + alcançabilidade; `_tinta_invisivel`: alfa zero, mais barato,
 continua rodando primeiro), nunca as substitui.
 
@@ -156,12 +160,110 @@ _DIRETORIO_SONDA = str(Path(__file__).resolve().parent)
 SELETOR_TIMBRE_CONTAINER = ".timbre-impressao"
 SELETOR_TIMBRE_FILHOS = ".timbre-impressao p"
 
-# BL-282/BL-331: a marca de quem VENDE o software — precisa estar AUSENTE
-# do papel. Checado no texto do PDF ao lado da presença do timbre, pelo
-# mesmo motivo que `scripts/medir_impressao.py` já checa isto: as duas
-# metades do critério 9 ("o fornecedor sai" e "o escritório entra") só
-# se provam JUNTAS — uma sozinha não garante que o papel saiu identificado.
-MARCA_DO_FORNECEDOR = "DataLedger"
+# ---------------------------------------------------------------------------
+# C5 da DL-029 (docs/planos/DL-029-a-frase-executavel-do-criterio-9.md) —
+# "não carrega nenhum identificador do fornecedor do software, em qualquer
+# caixa ou espaçamento". Fecha o K1/BL-404 (bloqueador da décima
+# auditoria, docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md):
+# `MARCA_DO_FORNECEDOR = "DataLedger"` era uma LISTA DE UM ITEM (a mesma
+# forma proibida pela DE-056), comparada por SUBSTRING sensível a caixa —
+# `"DataLedger" in texto_pdf` não fecha `"DATALEDGER"`, `"Data Ledger"` nem
+# `"D a t a L e d g e r"`, e a marca do fornecedor voltou ao papel do
+# Balancete com a suíte inteira verde E com este instrumento em `exit 0`.
+#
+# A correção tem DUAS frentes, na ordem em que o K1 as pediu:
+#
+# 1. DERIVAR o identificador de UMA fonte, nunca repeti-lo aqui
+#    (AGENTS.md §8: duas cópias do mesmo texto divergem assim que uma for
+#    editada sem a outra) — `_derivar_marca_do_fornecedor`, abaixo, lê
+#    `templates/base.html`.
+# 2. Perguntar por PROPRIEDADE (ausência normalizada: caixa, espaço,
+#    pontuação e separadores desprezados), não por substring literal —
+#    `_normalizar_para_busca_do_fornecedor`, abaixo.
+_CAMINHO_BASE_HTML = RAIZ / "templates" / "base.html"
+
+# `<title>{% block titulo %}DataLedger{% endblock %}{% block
+# titulo_sufixo_do_fornecedor %} — DataLedger{% endblock %}</title>` —
+# grupo 1 captura o CONTEÚDO PADRÃO do primeiro bloco (o nome sozinho,
+# sem o traço do sufixo).
+_PADRAO_TITULO_PADRAO = re.compile(r"<title>\{% block titulo %\}([^{<]+)\{% endblock %\}")
+
+# `<a href="{% url 'tenancy:painel' %}">DataLedger<span
+# class="marca__ponto">.</span></a>` dentro de `<div class="marca">` —
+# grupo 1 captura o texto entre o fechamento da tag `<a ...>` e o `<span
+# class="marca__ponto">` que seria o ponto final da marca.
+_PADRAO_MARCA = re.compile(
+    r'<div class="marca">.*?<a[^>]*>([^<]+)<span class="marca__ponto">', re.DOTALL
+)
+
+
+def _derivar_marca_do_fornecedor():
+    """Lê o identificador do fornecedor de ONDE O PRODUTO O ESCREVE —
+    `templates/base.html`, nos dois lugares que a décima auditoria (K1)
+    nomeou: o conteúdo PADRÃO do bloco `titulo` (a tag `<title>` das telas
+    sem cliente no contexto) e o texto de `.marca` (o link "DataLedger."
+    do cabeçalho). NUNCA um literal repetido aqui — é exatamente a lista
+    de um item que o K1 encontrou (BL-404).
+
+    As DUAS fontes precisam CONCORDAR: se um dia alguém trocar o nome só
+    em um dos dois lugares, este instrumento não pode continuar medindo
+    contra um valor que já não corresponde aos DOIS pontos onde o produto
+    de fato o escreve — prefere RECUSAR (infraestrutura, código 2; não é
+    veredito sobre o produto) a escolher um dos dois em silêncio, que é
+    exatamente o que a DE-056 proíbe ("limite declarado não é limite
+    fechado" só vale quando o limite é DECLARADO, não quando é escondido
+    por uma escolha arbitrária).
+
+    ACHADO PRÓPRIO, registrado no relatório desta etapa e não corrigido
+    aqui (fora do escopo da DL-029: `templates/**` é proibido a este
+    instrumento): a string "DataLedger" aparece em MAIS de dois lugares do
+    produto — além de `<title>`/`.marca` em `templates/base.html`, também
+    em `templates/tenancy/primeiro_acesso.html` ("Bem-vindo ao
+    DataLedger"), sem nenhuma das duas fontes que este método deriva. A
+    DL-029 (docs/planos/DL-029-a-frase-executavel-do-criterio-9.md, risco
+    declarado) prevê exatamente este caso: "registre em vez de escolher
+    um" — este instrumento deriva SÓ dos dois lugares que o próprio plano
+    nomeou; a terceira ocorrência é matéria para quem decide o produto,
+    não para este script."""
+    if not _CAMINHO_BASE_HTML.is_file():
+        _recusar(f"não encontrei {_CAMINHO_BASE_HTML} para derivar o identificador do fornecedor.")
+    conteudo = _CAMINHO_BASE_HTML.read_text(encoding="utf-8")
+
+    casamento_titulo = _PADRAO_TITULO_PADRAO.search(conteudo)
+    casamento_marca = _PADRAO_MARCA.search(conteudo)
+    if casamento_titulo is None or casamento_marca is None:
+        _recusar(
+            f"{_CAMINHO_BASE_HTML} mudou de forma que este instrumento não reconhece mais "
+            "onde o identificador do fornecedor é escrito (bloco 'titulo' padrão e/ou "
+            "'.marca') — atualize os padrões de _derivar_marca_do_fornecedor junto com o "
+            "template, nunca volte a um literal fixo aqui."
+        )
+
+    marca_no_titulo = casamento_titulo.group(1).strip()
+    marca_na_navegacao = casamento_marca.group(1).strip()
+    if marca_no_titulo != marca_na_navegacao:
+        _recusar(
+            f"{_CAMINHO_BASE_HTML}: a tag <title> ('{marca_no_titulo}') e '.marca' "
+            f"('{marca_na_navegacao}') declaram identificadores DIFERENTES do fornecedor — "
+            "este instrumento não escolhe um dos dois por conta própria (DE-056); "
+            "corrija a divergência no produto ou confirme qual das duas é a fonte certa."
+        )
+    return marca_no_titulo
+
+
+_PADRAO_NAO_ALFANUMERICO = re.compile(r"[^a-z0-9]")
+
+
+def _normalizar_para_busca_do_fornecedor(texto):
+    """Minúsculas e só letras/dígitos — caixa, espaço, pontuação e
+    QUALQUER separador (hífen, ponto, sublinhado, quebra de linha)
+    desprezados. É a pergunta por PROPRIEDADE que o K1 pediu, não uma
+    lista de grafias: fecha `DATALEDGER`, `dataledger`, `Data Ledger`,
+    `D a t a L e d g e r` e `dataledger.com.br` de uma vez só, sem
+    precisar enumerar cada uma (ver os casos de teste em
+    scripts/test_medir_identificacao_do_emitente.py)."""
+    return _PADRAO_NAO_ALFANUMERICO.sub("", (texto or "").lower())
+
 
 # ---------------------------------------------------------------------------
 # Piso de regressão — LIMITE ESTRUTURAL da derivação, medido construindo o
@@ -299,10 +401,32 @@ def _descobrir_telas_com_timbre(cliente, empresa, conta):
     (BL-374/J3: nome curto colide entre apps, ver o comentário de
     `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`). HTML já com o `href` do CSS
     reescrito para `file://`, via `medir_impressao._com_css_local` —
-    reaproveitado, não reimplementado."""
+    reaproveitado, não reimplementado.
+
+    C1 da DL-029 (K3/BL-406, décima auditoria): `kwargs_conhecidos`
+    ganhou `lancamento_id` — a base semeada por
+    `scripts/semear_base_de_medicao.py` já grava 60 lançamentos; MEDIDO
+    contra o K3, uma tela nova com timbre em
+    `contabilidade_web:lancamento_detalhe` (rota que exige
+    `lancamento_id`) NUNCA era alcançada antes desta correção, e a
+    varredura estática do `pytest` (que só olha `templates/**`, sem
+    requisitar nada) via a tela nova enquanto este instrumento — o
+    mecanismo que o Fred escolheu tornar obrigatório — a ignorava, em
+    AVISO, dentro de um job VERDE."""
     from django.urls import reverse
 
+    from apps.contabilidade.models import LancamentoContabil
+
+    # C1/K3: o PRIMEIRO lançamento da empresa semeada — mesmo padrão de
+    # "primeiro registro da empresa semeada" que o plano pede (não o
+    # "mais movimentado": aquele critério é de `medir_impressao.py`, para
+    # a MEDIÇÃO de paginação; aqui só precisamos de UM id válido para
+    # alcançar a rota, não de nenhuma propriedade específica do registro).
+    lancamento = LancamentoContabil.objects.filter(empresa=empresa).order_by("id").first()
+
     kwargs_conhecidos = {"empresa_id": empresa.id, "conta_id": conta.id}
+    if lancamento is not None:
+        kwargs_conhecidos["lancamento_id"] = lancamento.id
     periodo = f"?inicio={medir_impressao.PERIODO_INICIO}&fim={medir_impressao.PERIODO_FIM}"
     padrao_timbre = re.compile(r'class="[^"]*\btimbre-impressao\b[^"]*"')
 
@@ -337,12 +461,31 @@ def _descobrir_telas_com_timbre(cliente, empresa, conta):
         }
 
     if puladas:
+        # LIMITE DECLARADO, no formato da DE-056 — não fechado por esta
+        # etapa (a mesma classe de honestidade que o BL-404/C5 cobrou
+        # para a marca do fornecedor: "limite declarado não é limite
+        # fechado" também vale para o QUE FALTA, não só para o que já
+        # está coberto). Os parâmetros que sobram aqui hoje (medido: `pk`
+        # das rotas REST de `empresas`/`accounts`, e `token` do convite
+        # de `tenancy`) não têm um valor "primeiro registro da empresa
+        # semeada" óbvio — `pk` é genérico por modelo (não diz QUAL
+        # modelo) e `token` é um segredo de uso único, não uma chave
+        # primária. Preencher esses dois exigiria um mapa nome-de-
+        # parâmetro→modelo (escopo maior que esta etapa, e risco de
+        # adivinhar em vez de medir) — este instrumento CONTINUA
+        # incapaz de decidir se essas rotas carregam `.timbre-impressao`,
+        # e diz isso em aviso, não em silêncio. Se uma tela NOVA nascer
+        # numa rota assim, ela PODE escapar desta varredura — quem fechar
+        # essa lacuna registra a decisão, não adivinha aqui.
         print(
             f"AVISO (não é falha): {len(puladas)} rota(s) nomeada(s) puladas na "
             "varredura por precisarem de parâmetro que este instrumento não sabe "
-            "preencher hoje (só empresa_id/conta_id são conhecidos) — uma tela "
-            "nova que dependa só desses dois entraria sozinha; uma que dependa de "
-            "outro parâmetro precisa de extensão deste script:",
+            f"preencher hoje (conhecidos: {sorted(kwargs_conhecidos)}) — uma tela "
+            "nova que dependa só desses entraria sozinha; uma que dependa de outro "
+            "parâmetro (tipicamente `pk` genérico ou `token` de uso único) precisa "
+            "de extensão deste script, e este instrumento NÃO consegue hoje "
+            "confirmar se ela carrega timbre (limite declarado, ver o comentário "
+            "acima):",
             file=sys.stderr,
         )
         for nome, faltando in puladas:
@@ -499,11 +642,169 @@ def _texto_do_pdf(caminho_pdf):
     return re.sub(r"\s+", " ", resultado.stdout).strip()
 
 
+_PADRAO_PDFINFO_PAGINAS = re.compile(r"^Pages:\s*(\d+)\s*$", re.MULTILINE)
+
+
+def _total_de_paginas(caminho_pdf):
+    """Número de páginas do PDF exportado, via `pdfinfo` (poppler-utils —
+    JÁ dependência de sistema deste projeto, ao lado de `pdftotext` e
+    `pdftoppm`; nenhuma lib nova). C1 da DL-029
+    (docs/planos/DL-029-a-frase-executavel-do-criterio-9.md): "a folha A4
+    exportada" cobre TODAS as páginas, não só a primeira por premissa não
+    declarada (K7, décima auditoria) — este número é o que permite ao
+    oráculo do papel procurar uma linha nas páginas seguintes quando ela
+    não está na primeira, em vez de reportar "sem tinta" para uma linha que
+    só foi PAGINADA.
+
+    BL-378: `check=False` — `pdfinfo` quebrado é a MESMA classe de falha de
+    infraestrutura que `_texto_do_pdf`/`_palavras_da_pagina`/`pdftoppm`
+    já tratam, nunca um veredito sobre o produto."""
+    resultado = subprocess.run(
+        ["pdfinfo", str(caminho_pdf)], capture_output=True, text=True, check=False
+    )
+    if resultado.returncode != 0:
+        _recusar(
+            f"'pdfinfo' falhou (código {resultado.returncode}) ao consultar {caminho_pdf} — "
+            f"falha de infraestrutura, não veredito sobre o produto.\nerro: {resultado.stderr}"
+        )
+    casamento = _PADRAO_PDFINFO_PAGINAS.search(resultado.stdout)
+    if casamento is None:
+        _recusar(
+            f"'pdfinfo' não relatou o número de páginas de {caminho_pdf} — "
+            f"saída inesperada:\n{resultado.stdout}"
+        )
+    return int(casamento.group(1))
+
+
+_PADRAO_LINHA_PDFINFO = re.compile(r"^([A-Za-z ]+?):\s+(.*)$", re.MULTILINE)
+
+# C5 da DL-029 — pergunta do arquiteto-senior no meio da etapa (não estava
+# no plano original): a frase do critério 9 diz "a folha A4 EXPORTADA …
+# não carrega nenhum identificador do fornecedor". Até esta correção, "a
+# folha exportada" só era lida como TINTA (texto do corpo do PDF,
+# `_texto_do_pdf`) — mas o arquivo que o escritório entrega ao cliente é
+# o PDF inteiro, e PDF carrega METADADOS além de conteúdo visual. O
+# `<title>` de `templates/base.html` alimenta o campo `/Title` do PDF
+# exportado pelo Chromium — sem nenhum pixel de tinta na folha.
+#
+# MEDIDO (não hipotetizado) contra as três telas reais que este
+# instrumento mede, em cópia isolada, banco `ag_dl029`:
+#
+#   $ pdfinfo contabilidade_web_balancete.pdf | \
+#       grep -E '^(Title|Author|Subject|Keywords|Creator|Producer):'
+#   Title:           Balancete — Comércio Sintético de Materiais Ltda
+#   Creator:         Chromium
+#   Producer:        Skia/PDF m153
+#
+# (idem para `diario` e `razao`, só o nome do relatório muda no Título;
+# `Author`/`Subject`/`Keywords` não aparecem — poppler omite a linha
+# inteira quando o campo é vazio, MEDIDO).
+#
+# **Por que o Título não carrega a marca HOJE, medido — e é uma cadeia
+# que ninguém tinha escrito antes desta medição**: a DECISÃO do Fred de
+# 2026-09-19 (RC-97, comentário completo em `templates/base.html`) já
+# esvazia `titulo_sufixo_do_fornecedor` nas TRÊS telas com timbre — mas
+# essa decisão mirava OUTRO canal (a FAIXA DO NAVEGADOR ao imprimir,
+# BL-332/A2), não o metadado do PDF. O efeito colateral, medido agora: o
+# MESMO bloco Django (`{% block titulo_sufixo_do_fornecedor %}`)
+# alimenta os DOIS canais — a faixa do navegador E o `/Title` do PDF
+# exportado —, então limpar um limpou o outro DE CARONA, sem que a
+# correção de 2026-09-19 soubesse disso. Se algum dia alguém reintroduzir
+# o sufixo por outro motivo (ex.: uma tela nova que precise dele por
+# razão alheia a este critério), o `/Title` volta a carregar a marca
+# JUNTO — é um acoplamento real, não hipotético, e fica registrado aqui
+# para não ser redescoberto do zero.
+#
+# **`Creator`/`Producer` são identidade do MOTOR DE PDF (Chromium/Skia),
+# não do produto — e por isso NÃO entram na reprovação, só no
+# diagnóstico** (decisão do arquiteto-senior, no meio desta etapa):
+# incluí-los na reprovação teria valor de detecção ZERO (a página não
+# controla esses dois campos hoje) e risco de FALSO ALARME não-zero — a
+# comparação é normalizada e chaveada pelo NOME do fornecedor; no dia em
+# que esse nome mudar para algo que também apareça dentro de "Skia/PDF"
+# ou "Chromium" por coincidência, o job ficaria vermelho sobre produto
+# CORRETO (exatamente a classe de falso alarme que a BL-321/K4 já puniu
+# nesta mesma auditoria). Por isso `Creator`/`Producer` são SEMPRE
+# reportados na saída (`entrada["metadados_pdf"]`), mas nunca entram em
+# `motivos` — se um dia o projeto trocar o motor de exportação por uma
+# biblioteca que ele PRÓPRIO configura, esses dois campos passam a ser
+# escolha do produto, e a mudança de categoria (de diagnóstico para
+# reprovação) precisa ser uma decisão nova, não uma dedução silenciosa
+# deste comentário.
+#
+# **Limite declarado (formato da DE-056), não fechado por esta etapa:**
+# esta checagem lê só o dicionário clássico `Info` do PDF (`pdfinfo`,
+# sem `-meta`) — SEIS campos nomeados, e SÓ os que existem nesse
+# dicionário. PDF moderno também pode carregar um pacote XMP (outro
+# formato de metadado, com campos como `dc:title`/`xmp:CreatorTool`).
+# MEDIDO contra as três telas: `pdfinfo -meta` devolve saída VAZIA
+# (código 0) e `pdfinfo` (sem `-meta`) relata `Metadata Stream: no` —
+# hoje o Chromium NÃO embute XMP nestes PDFs, então não há um segundo
+# lugar para checar. Se isso mudar (troca de motor de exportação, opção
+# nova do Chromium), esta checagem NÃO alcança o XMP — é limite
+# declarado, não fechado, e fechá-lo é outra etapa.
+#
+# DE-058: as afirmações de medição acima têm teste ao lado —
+# `_checar_marca_do_fornecedor_nos_metadados` (abaixo) faz a pergunta
+# PARA VALER a cada execução (não só nesta calibração), então uma
+# regressão futura (ex.: alguém reintroduzir o sufixo nas telas de
+# documento) É PEGA pela MESMA verificação que fecha o C5, sem depender
+# de ninguém lembrar desta medição.
+_CAMPOS_DE_METADADO_PDF = ("Title", "Author", "Subject", "Keywords", "Creator", "Producer")
+
+# Controlados pelo PRODUTO (via templates Django) — reprovam se carregarem
+# o identificador do fornecedor.
+_CAMPOS_DE_METADADO_CONTROLADOS_PELO_PRODUTO = ("Title", "Author", "Subject", "Keywords")
+
+# Identidade do MOTOR de exportação (Chromium/Skia) — só diagnóstico, ver
+# o comentário acima sobre por que NÃO reprovam hoje.
+_CAMPOS_DE_METADADO_DO_MOTOR_DE_PDF = ("Creator", "Producer")
+
+
+def _metadados_do_pdf(caminho_pdf):
+    """`{"Title": ..., "Author": ..., "Subject": ..., "Keywords": ...,
+    "Creator": ..., "Producer": ...}` — só os campos que
+    `_CAMPOS_DE_METADADO_PDF` nomeia, lidos do dicionário `Info` clássico
+    via `pdfinfo` (MESMA dependência de sistema já usada por `_total_de_
+    paginas`; NÃO lê XMP — ver o limite declarado no comentário acima).
+    Campo ausente na saída do poppler (ex.: `Author` vazio, MEDIDO:
+    poppler omite a linha inteira) não entra no dicionário — tratado
+    como string vazia por quem chama, nunca como erro.
+
+    BL-378: `check=False` — `pdfinfo` quebrado é a MESMA classe de falha
+    de infraestrutura que os demais usos de poppler-utils neste módulo."""
+    resultado = subprocess.run(
+        ["pdfinfo", str(caminho_pdf)], capture_output=True, text=True, check=False
+    )
+    if resultado.returncode != 0:
+        _recusar(
+            f"'pdfinfo' falhou (código {resultado.returncode}) ao consultar {caminho_pdf} — "
+            f"falha de infraestrutura, não veredito sobre o produto.\nerro: {resultado.stderr}"
+        )
+    encontrados = dict(_PADRAO_LINHA_PDFINFO.findall(resultado.stdout))
+    return {campo: encontrados.get(campo, "").strip() for campo in _CAMPOS_DE_METADADO_PDF}
+
+
+def _checar_marca_do_fornecedor_nos_metadados(metadados, marca_normalizada):
+    """Devolve o NOME do primeiro campo de metadado CONTROLADO PELO
+    PRODUTO (`_CAMPOS_DE_METADADO_CONTROLADOS_PELO_PRODUTO` — nunca
+    `Creator`/`Producer`, ver o comentário acima) cujo valor, normalizado,
+    contém o identificador do fornecedor — ou `None` se nenhum contém.
+    Mesma normalização de `_normalizar_para_busca_do_fornecedor` (caixa,
+    espaço, pontuação e separadores desprezados): o C5 vale para o
+    ARQUIVO PDF inteiro, não só para o texto visível na folha."""
+    for campo in _CAMPOS_DE_METADADO_CONTROLADOS_PELO_PRODUTO:
+        valor = metadados.get(campo, "")
+        if marca_normalizada in _normalizar_para_busca_do_fornecedor(valor):
+            return campo
+    return None
+
+
 # ---------------------------------------------------------------------------
-# Oráculo do papel (BL-372, achado J1 da nona auditoria) — "tem tinta
-# ESCURA na faixa onde a linha do timbre deveria estar?" Ver o parágrafo
-# correspondente na docstring do módulo para o raciocínio completo; os
-# comentários abaixo cobrem só as decisões de CADA função.
+# Oráculo do papel (BL-372, achado J1 da nona auditoria) — "tem tinta que
+# CONTRASTA com o papel na faixa onde a linha do timbre deveria estar?" Ver
+# o parágrafo correspondente na docstring do módulo para o raciocínio
+# completo; os comentários abaixo cobrem só as decisões de CADA função.
 # ---------------------------------------------------------------------------
 
 DPI_ORACULO_DO_PAPEL = 96
@@ -540,15 +841,108 @@ PONTOS_POR_POLEGADA = 72.0
 # tinta realmente chega ao papel.
 PISO_PIXELS_ESCUROS_POR_LINHA = 40
 
-# Ponto médio da escala de cinza de 8 bits (0 preto, 255 branco). A tinta
-# de impressão do produto é `--impressao-tinta: #000000` — preto puro,
-# `static/css/base.css` — então qualquer limiar bem afastado dos dois
-# extremos separa tinta de papel; o meio da escala é a escolha mais
-# simples de justificar, e NENHUMA medição feita para calibrar este
-# oráculo produziu um pixel de linha do timbre entre 1 e 254: ou a tinta
-# está lá (grupos de pixel em 0, por antialiasing subindo a poucas
-# dezenas acima disso) ou não está (grupo em 255).
-LIMIAR_LUMINANCIA_TINTA = 128
+# C2 da DL-029 (docs/planos/DL-029-a-frase-executavel-do-criterio-9.md) —
+# "com tinta que CONTRASTA com o papel": substitui o `LIMIAR_LUMINANCIA_
+# TINTA = 128` fixo (K4/BL-407, décima auditoria). A docstring daquele
+# limiar AFIRMAVA uma medição — "nenhuma medição produziu pixel de linha
+# do timbre entre 1 e 254" — e uma linha de CSS banal a desmentiu:
+# `opacity: 0.4` (timbre PERFEITAMENTE LEGÍVEL, MEDIDO olhando a folha
+# rasterizada) pinta pixels entre 153 e 225, todos ACIMA de 128, e o
+# instrumento reprovava produto correto anunciando "0 pixels escuros"
+# (BL-321: falso alarme). É exatamente a DE-058 ("justificativa escrita
+# não é justificativa medida") aplicada contra o próprio código que a
+# nomeou.
+#
+# A correção não troca 128 por outro número fixo (mesmo erro, forma
+# diferente): mede o CONTRASTE (razão WCAG) entre o pixel e o FUNDO DA
+# PRÓPRIA FOLHA, na MESMA rasterização (`_luminancia_do_papel`, abaixo) —
+# "invariante a escolha de cinza", como o plano pede, porque não presume
+# que o papel é `#FFFFFF`.
+RAZAO_MINIMA_DE_CONTRASTE_TINTA = 2.4
+"""Razão de contraste WCAG mínima entre um pixel e o fundo da folha para
+contar como "tinta" (ver `_razao_de_contraste`, abaixo). MEDIDO —
+reproduzido em cópia isolada (`git worktree`), contra a base semeada por
+`scripts/semear_base_de_medicao.py`, com Chromium e Playwright reais, não
+hipotetizado — construindo esta correção:
+
+fundo da folha (moda do histograma da página inteira, Balancete):
+255 (815099 dos 893580 pixels).
+
+- `opacity: 0.4` (linha 1, negrito): pixel mais escuro 153, razão 2,849.
+- `opacity: 0.4` (linha 2, a MAIS FINA — pior caso): pixel mais escuro
+  154, mas só alcança o PISO de 40 pixels a partir do nível 164
+  (razão 2,493).
+- `color: #FFFFFF !important` (branco DECLARADO — o Chromium NÃO exporta
+  branco puro no PDF impresso; antialiasing de fonte deixa um piso de
+  cinza): pixel mais escuro 171, razão 2,296.
+- `color: var(--papel-elevado)` (mesmo token, mesma medição): pixel mais
+  escuro 172, razão 2,270.
+
+A janela onde as DUAS pontas do critério valem JUNTAS (critérios 7 e 8 da
+DL-029) é **(2,296 , 2,493]** — 2,4 fica no meio dela, com margem medida
+para os dois lados. Fora dessa janela as duas pontas deixam de caber
+juntas com QUALQUER limiar (o risco que o plano pedia para trazer à
+tona, não escondido): é uma janela ESTREITA (7 níveis de cinza, de 164 a
+170) porque o Chromium não deixa "tinta branca declarada" sair realmente
+branca do PDF impresso — ela já sai só um pouco mais clara que uma tinta
+de opacidade reduzida legítima. Ver `scripts/test_medir_identificacao_do_emitente.py`
+para os casos que fixam esta janela (regressão se ela se fechar) e o
+achado próprio no relatório desta etapa sobre por que a margem é mais
+apertada do que a do PISO de contagem (`PISO_PIXELS_ESCUROS_POR_LINHA`,
+acima, que continua com folga de ordens de grandeza: controle nunca
+abaixo de ~460 pixels contra o piso de 40)."""
+
+
+def _luminancia_relativa_srgb(fracao_do_canal):
+    """Luminância relativa de um canal sRGB (0.0–1.0) — fórmula da WCAG 2.x
+    ("Relative Luminance"). `pdftoppm -gray` devolve um BYTE por pixel (não
+    três canais RGB): para cinza puro R=G=B, então a luminância relativa
+    do PIXEL inteiro é o resultado desta função aplicada uma vez — nenhuma
+    ponderação de canal (0.2126/0.7152/0.0722) é necessária aqui."""
+    if fracao_do_canal <= 0.03928:
+        return fracao_do_canal / 12.92
+    return ((fracao_do_canal + 0.055) / 1.055) ** 2.4
+
+
+def _razao_de_contraste(nivel_de_cinza_a, nivel_de_cinza_b):
+    """Razão de contraste WCAG entre dois níveis de cinza 0–255 — sempre
+    >= 1.0 (dois pixels idênticos dão exatamente 1.0), simétrica (não
+    importa qual argumento é o mais claro). É a mesma fórmula que decide
+    conformidade de contraste de texto em acessibilidade web; aqui mede
+    tinta contra papel em vez de texto contra fundo de tela."""
+    luminancia_a = _luminancia_relativa_srgb(nivel_de_cinza_a / 255)
+    luminancia_b = _luminancia_relativa_srgb(nivel_de_cinza_b / 255)
+    mais_clara, mais_escura = max(luminancia_a, luminancia_b), min(luminancia_a, luminancia_b)
+    return (mais_clara + 0.05) / (mais_escura + 0.05)
+
+
+def _luminancia_do_papel(dados_pgm):
+    """Fundo do PAPEL nesta rasterização — a MODA (nível de cinza mais
+    frequente) da folha INTEIRA, não um branco (255) presumido. C2 da
+    DL-029: "o fundo da PRÓPRIA folha", medido, não hipotetizado. Uma
+    folha A4 impressa é, de longe, majoritariamente papel em branco —
+    MEDIDO: no Balancete da base de medição, 815099 dos 893580 pixels
+    (91%) — então a moda encontra o papel mesmo numa página com tabela
+    cheia de texto preto."""
+    _, _, corpo = _pgm_para_matriz(dados_pgm)
+    histograma = [0] * 256
+    for byte in corpo:
+        histograma[byte] += 1
+    return max(range(256), key=histograma.__getitem__)
+
+
+def _niveis_de_cinza_com_contraste_suficiente(luminancia_do_papel):
+    """Pré-computa, uma vez por folha, quais dos 256 níveis de cinza
+    satisfazem `RAZAO_MINIMA_DE_CONTRASTE_TINTA` contra ESTE fundo —
+    evita recalcular `_razao_de_contraste` pixel a pixel (uma folha A4 a
+    96 dpi tem ~900 mil pixels; a faixa de uma linha, alguns milhares).
+    Devolve um `frozenset` de níveis de cinza (0–255)."""
+    return frozenset(
+        nivel
+        for nivel in range(256)
+        if _razao_de_contraste(luminancia_do_papel, nivel) >= RAZAO_MINIMA_DE_CONTRASTE_TINTA
+    )
+
 
 _PADRAO_PALAVRA_BBOX = re.compile(
     r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>'
@@ -564,8 +958,8 @@ def _palavras_da_pagina(caminho_pdf, pagina=1):
     cor do papel (`color: transparent`/`color: var(--papel-elevado)`): o
     glifo continua sendo um objeto de texto posicionado, só não pinta
     pixel escuro nenhum. É esse descolamento entre "o objeto de texto
-    existe, aqui" e "há tinta ESCURA aqui" que `_pixels_escuros_na_faixa`
-    fecha.
+    existe, aqui" e "há tinta que CONTRASTA com o papel aqui" que
+    `_pixels_com_contraste_suficiente_na_faixa` fecha.
 
     MEDIDO ao construir este oráculo — e por isso a escolha do bbox do
     PRÓPRIO PDF em vez do retângulo que `sonda_visibilidade` devolve do
@@ -641,23 +1035,153 @@ def _bbox_da_linha(palavras, texto_esperado):
     return None
 
 
-def _rasterizar_primeira_pagina(caminho_pdf, dpi=DPI_ORACULO_DO_PAPEL):
-    """Rasteriza a PRIMEIRA página do PDF para tons de cinza (PGM binário
-    `P5`) via `pdftoppm -gray` — a MESMA dependência de sistema
-    (poppler-utils) que `_texto_do_pdf`/`_palavras_da_pagina` já exigem;
-    NENHUMA biblioteca de imagem nova em `requirements/` (mesma decisão
-    registrada na docstring de `scripts/medir_impressao.py` para não
-    acrescentar lib de PDF). `-singlefile` evita o poppler acrescentar
+def _localizar_bloco_do_timbre(palavras, linhas_esperadas):
+    """C4/C3 da DL-029 — ancora as N linhas do timbre por OCORRÊNCIA, na
+    ordem de leitura, NUNCA pelo primeiro texto igual em qualquer lugar da
+    página (K2/BL-405, décima auditoria,
+    docs/auditorias/2026-09-20-dl-026-dl-028-rodada-10.md).
+
+    **Por que um rodapé (ou qualquer outro elemento) que repita o TEXTO de
+    uma linha do timbre não engana esta função.** No HTML, as linhas do
+    timbre são um `<p>` logo após o outro, dentro do MESMO
+    `.timbre-impressao`, sem nada entre elas
+    (`{% for linha in timbre_linhas %}<p>{{ linha }}</p>{% endfor %}` —
+    `templates/contabilidade/balancete.html` e as demais telas com
+    timbre). Isso significa que, no PDF exportado, as N linhas aparecem
+    como uma sequência CONTÍGUA — sem NENHUMA palavra estranha entre o
+    fim de uma e o início da próxima. Esta função procura, em TODA
+    posição possível da página, essa sequência de N linhas JUNTAS (a
+    mesma técnica de concatenação sem espaço de `_bbox_da_linha`,
+    estendida para as N linhas em sequência) — e só aceita a PRIMEIRA
+    posição em que as N fecham, uma após a outra, sem lacuna.
+
+    MEDIDO construindo esta correção, contra o cenário do K2/BL-405 (um
+    rodapé ANTES do timbre repetindo a linha 0): a varredura abaixo NUNCA
+    fecha começando no rodapé — depois do texto da linha 0 ali, a PRÓXIMA
+    coisa na página é OUTRA cópia da linha 0 (a real, do timbre), não a
+    linha 1 —, e só fecha na posição real do timbre (linha 0 do timbre,
+    seguida imediatamente por linha 1, seguida por linha 2). O bbox
+    devolvido para a linha 0 é o da posição REAL do timbre (tinta do
+    negrito, não a do rodapé).
+
+    LIMITE DECLARADO (formato da DE-056), apontado pelo arquiteto-senior
+    no meio desta etapa — não fechado aqui, de propósito: **a
+    CONTIGUIDADE é propriedade do TEMPLATE de HOJE, não do requisito.**
+    "Sem nada entre elas" é verdade porque `templates/contabilidade/
+    balancete.html` (e as demais telas com timbre) hoje só desenham um
+    `<p>` por linha, um após o outro, sem NENHUM outro elemento no meio.
+    A [DL-027](docs/planos/DL-027-documento-emitido-e-personalizacao.md)
+    — personalização de relatório, timbre com logotipo, marca d'água ou
+    linha de contexto entre as linhas — é exatamente a etapa que pode
+    ROMPER essa premissa: um elemento de TEXTO inserido entre duas linhas
+    do timbre quebra a sequência contígua, e esta função passa a devolver
+    `[None, None, ...]` PERMANENTEMENTE para aquela tela — não porque o
+    timbre esteja errado, mas porque a âncora por bloco deixou de se
+    aplicar. Quem chama (`_localizar_linhas_do_timbre_no_documento`)
+    cai então para o caminho de EXCEÇÃO (busca individual por linha,
+    sem anti-decoy) em TODA execução, não só quando paginação acontece —
+    e o limite DAQUELE caminho (ver a docstring dele) passa a valer
+    sempre, não como exceção rara.
+
+    MEDIDO (não hipotético) que esse caminho de exceção CONTINUA seguro
+    para o caso que mais importa — decoy MAIS elemento intruso QUEBRANDO
+    a contiguidade MAIS a linha real escondida — porque a checagem de
+    VISIBILIDADE DO NAVEGADOR (`filhos[i]`, em `main`, indexada por
+    POSIÇÃO em `.timbre-impressao p`) não depende de contiguidade
+    nenhuma: um `<span>` ou `<div>` intruso entre duas linhas NÃO entra
+    em `filhos` (o seletor é `p`, não `*`), então a correspondência
+    posicional `filhos[i] ↔ linhas_esperadas[i]` continua válida mesmo
+    quando o bloco textual do PDF não fecha. Testado contra: um `<span>`
+    intruso entre a linha 0 e a linha 1 do timbre, MAIS um rodapé decoy
+    repetindo a linha 0, MAIS a linha 0 real escondida (`display: none`)
+    — resultado REPROVADO, código 1, nomeando corretamente "linha do
+    timbre NÃO visível sob impressão" para a linha 0. O MESMO intruso,
+    sozinho, sem decoy nem esconder nada, continua PASSANDO (código 0) —
+    a contiguidade quebrada não produz falso alarme por si só.
+
+    Se a DL-027 introduzir um `<p>` NOVO dentro de `.timbre-impressao`
+    (não um `<span>`/`<div>`), o limite MUDA: `filhos` passaria a incluir
+    esse `<p>` também, deslocando a correspondência posicional — isso
+    NÃO foi medido aqui (a DL-027 ainda não decidiu o formato), e fica
+    como pergunta em aberto para quem implementar aquela etapa, não como
+    garantia desta.
+
+    Devolve uma LISTA — nunca um dicionário chaveado por texto (é
+    exatamente a fenda do C3: duas linhas com o MESMO texto colapsariam
+    na mesma chave) —, na MESMA ordem/posição de `linhas_esperadas`, com
+    a caixa `(xmin, ymin, xmax, ymax)` de cada linha quando o BLOCO
+    INTEIRO fecha nesta página, ou `[None, None, ...]` (todas) quando não
+    há, em NENHUM ponto da página, uma sequência contígua que bata com as
+    N linhas esperadas NESTA ORDEM — ex.: quando o timbre tem duas linhas
+    com o MESMO texto e uma delas está escondida (`display: none`): sem a
+    segunda repetição da mesma palavra, a sequência de N linhas nunca
+    fecha em lugar nenhum da página (MEDIDO contra o cenário do K2 com
+    `registro_no_timbre == endereco_no_timbre` e o terceiro `<p>`
+    escondido — ver os testes).
+
+    Quando o bloco não fecha NESTA página (ex.: paginação partiu o
+    timbre entre duas folhas — K7/BL-410), quem chama (`main`, abaixo)
+    cai para uma busca INDIVIDUAL por linha, página a página — ver o
+    comentário de `main` sobre esse caminho e o limite que ele declara."""
+    total = len(palavras)
+    alvos = ["".join(linha.split()) for linha in linhas_esperadas]
+    if not palavras or not alvos or not all(alvos):
+        return [None] * len(alvos)
+
+    for inicio in range(total):
+        posicao = inicio
+        caixas = []
+        bloco_fechou = True
+        for alvo in alvos:
+            grupo_inicio = posicao
+            acumulado = ""
+            linha_encontrada = False
+            fim = posicao
+            while fim < total:
+                acumulado += "".join(palavras[fim][4].split())
+                if acumulado == alvo:
+                    grupo = palavras[grupo_inicio : fim + 1]
+                    caixas.append(
+                        (
+                            min(p[0] for p in grupo),
+                            min(p[1] for p in grupo),
+                            max(p[2] for p in grupo),
+                            max(p[3] for p in grupo),
+                        )
+                    )
+                    posicao = fim + 1
+                    linha_encontrada = True
+                    break
+                if len(acumulado) > len(alvo):
+                    break
+                fim += 1
+            if not linha_encontrada:
+                bloco_fechou = False
+                break
+        if bloco_fechou:
+            return caixas
+    return [None] * len(alvos)
+
+
+def _rasterizar_pagina(caminho_pdf, pagina=1, dpi=DPI_ORACULO_DO_PAPEL):
+    """Rasteriza UMA página do PDF (padrão: a primeira) para tons de cinza
+    (PGM binário `P5`) via `pdftoppm -gray` — a MESMA dependência de
+    sistema (poppler-utils) que `_texto_do_pdf`/`_palavras_da_pagina` já
+    exigem; NENHUMA biblioteca de imagem nova em `requirements/` (mesma
+    decisão registrada na docstring de `scripts/medir_impressao.py` para
+    não acrescentar lib de PDF). `-singlefile` evita o poppler acrescentar
     sufixo numérico ao nome de saída, já que só pedimos uma página.
 
-    O timbre está sempre na primeira folha, nas três telas hoje (MEDIDO).
-    Se um documento futuro empurrar o timbre para depois da folha 1, esta
-    função precisa de um parâmetro de página — não é uma limitação
-    escondida, é a MESMA que `_texto_do_pdf`/`_palavras_da_pagina` já têm
-    ao não receber número de página nenhum.
+    C1 da DL-029 (K7, décima auditoria): antes desta correção, esta
+    função só rasterizava a PRIMEIRA página, por premissa não declarada —
+    uma linha empurrada para a página 2 (por paginação comum: margem,
+    cabeçalho mais alto) media "0 pixels escuros" na folha 1, a MESMA
+    mensagem de tinta realmente ausente. O parâmetro `pagina` (usado por
+    `main`, abaixo, para procurar nas páginas seguintes antes de reportar
+    ausência de tinta) fecha essa lacuna.
 
     BL-378: `pdftoppm` quebrado é a MESMA classe de falha de
-    infraestrutura que os dois acima."""
+    infraestrutura que os demais usos de poppler-utils neste módulo."""
     with tempfile.TemporaryDirectory(prefix="dl-oraculo-papel-") as pasta:
         prefixo = Path(pasta) / "pagina"
         resultado = subprocess.run(
@@ -666,9 +1190,9 @@ def _rasterizar_primeira_pagina(caminho_pdf, dpi=DPI_ORACULO_DO_PAPEL):
                 "-r",
                 str(dpi),
                 "-f",
-                "1",
+                str(pagina),
                 "-l",
-                "1",
+                str(pagina),
                 "-gray",
                 "-singlefile",
                 str(caminho_pdf),
@@ -679,7 +1203,7 @@ def _rasterizar_primeira_pagina(caminho_pdf, dpi=DPI_ORACULO_DO_PAPEL):
         if resultado.returncode != 0:
             _recusar(
                 f"'pdftoppm -gray' falhou (código {resultado.returncode}) ao "
-                f"rasterizar {caminho_pdf} — falha de infraestrutura.\n"
+                f"rasterizar a página {pagina} de {caminho_pdf} — falha de infraestrutura.\n"
                 f"erro: {resultado.stderr.decode(errors='replace')}"
             )
         return (prefixo.with_suffix(".pgm")).read_bytes()
@@ -724,18 +1248,28 @@ def _pgm_para_matriz(dados_pgm):
     return largura, altura, corpo
 
 
-def _pixels_escuros_na_faixa(dados_pgm, retangulo_pt, dpi=DPI_ORACULO_DO_PAPEL, margem_px=2):
-    """Conta pixels com luminância <= `LIMIAR_LUMINANCIA_TINTA` dentro do
-    retângulo `(xmin, ymin, xmax, ymax)` — em PONTOS de PDF, convertido
-    para pixel do raster por `dpi/72` (ver `DPI_ORACULO_DO_PAPEL`).
+def _pixels_com_contraste_suficiente_na_faixa(
+    dados_pgm, retangulo_pt, luminancia_do_papel, dpi=DPI_ORACULO_DO_PAPEL, margem_px=2
+):
+    """C2 da DL-029 — conta pixels cujo CONTRASTE contra `luminancia_do_papel`
+    (o fundo medido desta MESMA folha, ver `_luminancia_do_papel`) atinge
+    `RAZAO_MINIMA_DE_CONTRASTE_TINTA`, dentro do retângulo
+    `(xmin, ymin, xmax, ymax)` — em PONTOS de PDF, convertido para pixel do
+    raster por `dpi/72` (ver `DPI_ORACULO_DO_PAPEL`). Substitui
+    `_pixels_escuros_na_faixa` (que comparava contra um `LIMIAR_LUMINANCIA_
+    TINTA` fixo — K4/BL-407, ver o comentário de `RAZAO_MINIMA_DE_CONTRASTE_
+    TINTA`).
+
     `margem_px` expande a caixa igualmente nos quatro lados: absorve só o
-    arredondamento do `int()` e a folga do antialiasing do glifo — NÃO é
-    o que separa tinta de sabotagem (isso é o LIMIAR de luminância e o
-    PISO de contagem, ambos acima); é para não cortar 1px do próprio
-    glifo por arredondamento. MEDIDO ao construir este oráculo: margem de
-    2px não alcança a linha vizinha em nenhuma das três telas (a menor
-    distância entre duas linhas do timbre medida foi de ~17px)."""
+    arredondamento do `int()` e a folga do antialiasing do glifo — NÃO é o
+    que separa tinta de sabotagem (isso é a RAZÃO de contraste e o PISO de
+    contagem); é para não cortar 1px do próprio glifo por arredondamento.
+    MEDIDO ao construir o oráculo original: margem de 2px não alcança a
+    linha vizinha em nenhuma das três telas (a menor distância entre duas
+    linhas do timbre medida foi de ~17px) — comportamento herdado sem
+    alteração por esta correção, que só troca o CRITÉRIO por pixel."""
     largura_pagina, altura_pagina, corpo = _pgm_para_matriz(dados_pgm)
+    niveis_com_contraste = _niveis_de_cinza_com_contraste_suficiente(luminancia_do_papel)
     fator = dpi / PONTOS_POR_POLEGADA
     xmin, ymin, xmax, ymax = retangulo_pt
     x0 = max(0, int(xmin * fator) - margem_px)
@@ -746,9 +1280,88 @@ def _pixels_escuros_na_faixa(dados_pgm, retangulo_pt, dpi=DPI_ORACULO_DO_PAPEL, 
     for y in range(y0, y1):
         inicio_da_linha = y * largura_pagina
         for x in range(x0, x1):
-            if corpo[inicio_da_linha + x] <= LIMIAR_LUMINANCIA_TINTA:
+            if corpo[inicio_da_linha + x] in niveis_com_contraste:
                 contagem += 1
     return contagem
+
+
+def _localizar_linhas_do_timbre_no_documento(caminho_pdf, linhas_esperadas):
+    """Orquestra C1 (todas as páginas) e C4/C3 (âncora por ocorrência) para
+    as `linhas_esperadas` de UMA tela — chamada uma vez por tela dentro de
+    `main`. Devolve uma LISTA, na MESMA ordem/posição de `linhas_esperadas`
+    (nunca um dicionário chaveado por texto — C3), de dicionários
+    `{"bbox": (...)|None, "folha": int|None, "pixels_com_contraste": int}`.
+
+    **Duas camadas, nesta ordem:**
+
+    1. **Bloco inteiro na página 1** (`_localizar_bloco_do_timbre`): cobre
+       CORRETAMENTE o caso de texto duplicado (K2/K4) — ver a docstring
+       daquela função. Se o bloco inteiro fecha na página 1, esta função
+       para aqui: é o caminho RÁPIDO e o único que a âncora por ocorrência
+       garante ser distinguível de decoys iguais em outro lugar da folha.
+
+    2. **Busca INDIVIDUAL, página a página** (`_bbox_da_linha`, a busca
+       antiga, de UMA linha), só para as linhas que a camada 1 NÃO
+       resolveu — o caso de PAGINAÇÃO (K7/BL-410): o bloco pode estar
+       PARTIDO entre duas folhas (ex.: `margin-top` empurra só a terceira
+       linha para a página 2), e nesse caso nenhuma página sozinha tem as
+       N linhas contíguas, então a camada 1 devolve `None` para todas
+       mesmo que a maioria esteja, sim, no papel. Quando uma linha é
+       achada numa página > 1, o campo `"folha"` sai diferente de 1, e
+       `main` (abaixo) nomeia a PAGINAÇÃO na mensagem — nunca "0 pixels
+       escuros", que é a queixa exata do K7.
+
+    LIMITE DECLARADO desta camada 2 (não fechado por esta etapa): ela NÃO
+    dedupe ocorrências da MESMA linha entre si — se o bloco falhou por
+    causa de texto duplicado dentro do MESMO timbre (não por paginação:
+    ex.: a variante do K2 com `registro_no_timbre == endereco_no_timbre` e
+    o terceiro `<p>` escondido), a busca individual pode achar, para a
+    linha ESCONDIDA, a MESMA ocorrência já usada pela linha IRMÃ visível —
+    dando um bbox (e pixels) não-nulos para uma linha que na verdade não
+    está lá. Isso não produz falso-conforme aqui: a checagem de
+    visibilidade do NAVEGADOR (`filhos[i]`, em `main`) já reprova esse
+    caso de forma independente (é uma checagem em DOM, não depende do
+    PDF) — mas é uma imprecisão real desta camada de fallback, e fica
+    registrada, não escondida."""
+    total_paginas = _total_de_paginas(caminho_pdf)
+    palavras_pagina1 = _palavras_da_pagina(caminho_pdf, pagina=1)
+    bboxes_do_bloco = _localizar_bloco_do_timbre(palavras_pagina1, linhas_esperadas)
+
+    cache_por_pagina = {}
+
+    def _dados_da_pagina(pagina):
+        if pagina not in cache_por_pagina:
+            palavras = palavras_pagina1 if pagina == 1 else _palavras_da_pagina(caminho_pdf, pagina)
+            dados_pgm = _rasterizar_pagina(caminho_pdf, pagina)
+            luminancia_do_papel = _luminancia_do_papel(dados_pgm)
+            cache_por_pagina[pagina] = (palavras, dados_pgm, luminancia_do_papel)
+        return cache_por_pagina[pagina]
+
+    resultados = []
+    for indice, linha in enumerate(linhas_esperadas):
+        bbox = bboxes_do_bloco[indice]
+        folha = 1 if bbox is not None else None
+
+        if bbox is None:
+            # Camada 2 (K7/C1): a linha não fez parte de um bloco fechado
+            # na página 1 — procura ISOLADA, página a página, até achar
+            # ou esgotar o documento.
+            for pagina in range(1, total_paginas + 1):
+                palavras_da_pagina, _, _ = _dados_da_pagina(pagina)
+                candidato = _bbox_da_linha(palavras_da_pagina, linha)
+                if candidato is not None:
+                    bbox = candidato
+                    folha = pagina
+                    break
+
+        if bbox is not None:
+            _, dados_pgm, luminancia_do_papel = _dados_da_pagina(folha)
+            pixels = _pixels_com_contraste_suficiente_na_faixa(dados_pgm, bbox, luminancia_do_papel)
+        else:
+            pixels = 0
+
+        resultados.append({"bbox": bbox, "folha": folha, "pixels_com_contraste": pixels})
+    return resultados
 
 
 _PADRAO_COR_RGBA = re.compile(r"[\d.]+")
@@ -798,6 +1411,11 @@ def main(argv):
     _com_saida_de_infraestrutura(medir_impressao._exigir_ferramentas_de_pdf)
     _com_saida_de_infraestrutura(medir_impressao._exigir_python_do_sistema_com_playwright)
     _verificar_sonda_disponivel()
+
+    # C5 da DL-029: derivado de templates/base.html, nunca um literal
+    # repetido aqui — ver o comentário completo de _derivar_marca_do_fornecedor.
+    marca_do_fornecedor = _derivar_marca_do_fornecedor()
+    marca_do_fornecedor_normalizada = _normalizar_para_busca_do_fornecedor(marca_do_fornecedor)
 
     pasta_informada = None
     filtro_telas = None
@@ -900,18 +1518,29 @@ def main(argv):
 
             caminho_pdf = pasta_saida / f"{nome.replace(':', '_')}.pdf"
             texto_pdf = _texto_do_pdf(caminho_pdf) if caminho_pdf.exists() else ""
-            # Oráculo do papel (BL-372/J1, ver a docstring do módulo):
-            # posição REAL de cada palavra no PDF exportado (independente
-            # da cor com que foi pintada) e o raster em tons de cinza da
-            # mesma folha, para exigir tinta ESCURA onde o texto deveria
-            # estar — não só "o objeto de texto existe" (`_texto_do_pdf`)
-            # nem "o alfa não é zero" (`_tinta_invisivel`, abaixo).
-            palavras_pdf = _palavras_da_pagina(caminho_pdf) if caminho_pdf.exists() else []
-            dados_pgm_da_pagina = (
-                _rasterizar_primeira_pagina(caminho_pdf) if caminho_pdf.exists() else None
-            )
             entrada["pdf"] = str(caminho_pdf)
-            entrada["pdf_contem_marca_do_fornecedor"] = MARCA_DO_FORNECEDOR in texto_pdf
+
+            # C5: ausência NORMALIZADA (caixa/espaço/pontuação/separadores
+            # desprezados) do identificador DERIVADO — nunca um literal
+            # repetido, e o texto vem de `_texto_do_pdf`, que já lê TODAS
+            # as páginas do PDF (C1), não só a primeira.
+            entrada["pdf_contem_marca_do_fornecedor"] = (
+                marca_do_fornecedor_normalizada in _normalizar_para_busca_do_fornecedor(texto_pdf)
+            )
+
+            # C5, cobrindo o ARQUIVO PDF inteiro, não só a folha
+            # rasterizada: o `<title>` de `templates/base.html` alimenta o
+            # metadado `/Title` do PDF exportado (ver o comentário de
+            # `_checar_marca_do_fornecedor_nos_metadados`) — "a folha A4
+            # exportada" é o ARQUIVO que o escritório entrega ao cliente,
+            # e um identificador nos metadados vaza tanto quanto um pixel
+            # no papel, só que aparece nas PROPRIEDADES do arquivo em vez
+            # da tinta.
+            metadados_pdf = _metadados_do_pdf(caminho_pdf)
+            campo_com_marca = _checar_marca_do_fornecedor_nos_metadados(
+                metadados_pdf, marca_do_fornecedor_normalizada
+            )
+            entrada["metadados_pdf"] = metadados_pdf
 
             motivos = []
             if not medida.get("encontrado"):
@@ -924,62 +1553,105 @@ def main(argv):
                     f"({medida.get('cor_efetiva')!r}) — visível por layout, ilegível na prática"
                 )
 
+            # C4/C3 (K2, décima auditoria): `filhos` já vem do NAVEGADOR
+            # restrito a `.timbre-impressao p` (a sonda de
+            # `sonda_visibilidade.js_sonda_container_e_filhos`) — nunca
+            # inclui um decoy FORA do timbre (ex.: um rodapé repetindo o
+            # mesmo texto). Por isso a linha `i` de `linhas_esperadas`
+            # casa com `filhos[i]` por POSIÇÃO, nunca pelo TEXTO: buscar
+            # por texto (`next(f for f in filhos if texto==linha)`, a
+            # forma antiga) sempre acha a MESMA primeira ocorrência para
+            # duas linhas com o mesmo texto, escondendo a segunda em
+            # silêncio — a fenda exata que o K2 mediu.
             filhos = medida.get("filhos", [])
-            linhas_no_pdf = {}
-            for linha in linhas_esperadas:
-                filho_da_linha = next(
-                    (f for f in filhos if f.get("texto", "").strip() == linha), None
+            if len(filhos) != len(linhas_esperadas):
+                # C3 ("comparação de CONJUNTOS: faltar OU sobrar linha
+                # reprova"): o número de `<p>` que o navegador viu dentro
+                # do timbre diverge do número de linhas que o servidor
+                # declarou (`Escritorio.linhas_do_timbre`) — um `<p>` a
+                # mais ou a menos no template/CSS, sem precisar adivinhar
+                # QUAL.
+                motivos.append(
+                    f"número de linhas do timbre no papel ({len(filhos)}) diverge do "
+                    f"número declarado pelo servidor ({len(linhas_esperadas)})"
                 )
+
+            localizacoes_no_pdf = _localizar_linhas_do_timbre_no_documento(
+                caminho_pdf, linhas_esperadas
+            )
+
+            linhas_no_pdf = []
+            for indice, linha in enumerate(linhas_esperadas):
+                filho_da_linha = filhos[indice] if indice < len(filhos) else None
                 visivel_no_navegador = bool(filho_da_linha and filho_da_linha.get("visivel"))
                 legivel = visivel_no_navegador and not _tinta_invisivel(
                     filho_da_linha.get("cor_efetiva") if filho_da_linha else None
                 )
                 presente_no_pdf = linha in texto_pdf
 
-                # Oráculo do papel: onde esta linha REALMENTE está no PDF
-                # exportado (bbox, em pontos — existe mesmo se a tinta for
-                # da cor do papel) e quantos pixels ESCUROS aparecem ali
-                # na folha rasterizada. `bbox_no_pdf is None` é o MESMO
-                # sinal que `presente_no_pdf=False` (texto removido do
-                # DOM ou recortado por completo) — não duplicamos o
-                # motivo quando os dois já apontam pra a mesma ausência.
-                bbox_no_pdf = _bbox_da_linha(palavras_pdf, linha)
-                if bbox_no_pdf is not None and dados_pgm_da_pagina is not None:
-                    pixels_escuros = _pixels_escuros_na_faixa(dados_pgm_da_pagina, bbox_no_pdf)
-                else:
-                    pixels_escuros = 0
-                tinta_visivel_no_papel = pixels_escuros >= PISO_PIXELS_ESCUROS_POR_LINHA
+                localizacao = localizacoes_no_pdf[indice]
+                folha_da_linha = localizacao["folha"]
+                pixels_com_contraste = localizacao["pixels_com_contraste"]
+                tinta_visivel_no_papel = pixels_com_contraste >= PISO_PIXELS_ESCUROS_POR_LINHA
 
-                linhas_no_pdf[linha] = {
-                    "visivel_no_navegador": visivel_no_navegador,
-                    "legivel": legivel,
-                    "presente_no_pdf": presente_no_pdf,
-                    "pixels_escuros_no_papel": pixels_escuros,
-                    "tinta_visivel_no_papel": tinta_visivel_no_papel,
-                }
+                # C3: LISTA (posição = a mesma de `linhas_esperadas`),
+                # nunca um dicionário chaveado por texto — duas linhas
+                # IGUAIS colapsariam na mesma chave (a fenda que o K2
+                # mediu em `linhas_no_pdf[linha] = {...}`).
+                linhas_no_pdf.append(
+                    {
+                        "texto": linha,
+                        "visivel_no_navegador": visivel_no_navegador,
+                        "legivel": legivel,
+                        "presente_no_pdf": presente_no_pdf,
+                        "folha": folha_da_linha,
+                        "pixels_com_contraste_no_papel": pixels_com_contraste,
+                        "tinta_visivel_no_papel": tinta_visivel_no_papel,
+                    }
+                )
                 if not visivel_no_navegador:
                     motivos.append(f"linha do timbre NÃO visível sob impressão: {linha!r}")
                 elif not legivel:
                     motivos.append(f"linha do timbre com tinta de alfa zero (ilegível): {linha!r}")
                 if not presente_no_pdf:
                     motivos.append(f"linha do timbre AUSENTE do texto do PDF: {linha!r}")
+                elif folha_da_linha is not None and folha_da_linha != 1:
+                    # C1/K7 (BL-410): a linha ESTÁ no papel, só que NÃO na
+                    # primeira folha — nomeia PAGINAÇÃO, nunca "0 pixels
+                    # escuros" (a mensagem que a rodada 10 flagrou como
+                    # culpando a tinta por um problema de layout).
+                    motivos.append(
+                        f"linha do timbre está na folha {folha_da_linha}, não na folha 1: {linha!r}"
+                    )
                 elif not tinta_visivel_no_papel:
-                    # BL-372/J1: a linha ESTÁ no texto do PDF (objeto de
-                    # texto presente) mas a folha rasterizada não mostra
-                    # tinta escura onde ele deveria estar — o caso exato
-                    # de `color: var(--papel-elevado)` (branco opaco:
-                    # alfa 1, `_tinta_invisivel` não pega) e de qualquer
+                    # BL-372/J1, C2: a linha ESTÁ no texto do PDF (objeto
+                    # de texto presente) mas a folha rasterizada não
+                    # mostra tinta que CONTRASTE com o papel onde ele
+                    # deveria estar — o caso exato de
+                    # `color: var(--papel-elevado)` (branco opaco: alfa
+                    # 1, `_tinta_invisivel` não pega) e de qualquer
                     # construção futura que pinte a tinta da cor do papel.
                     motivos.append(
-                        "linha do timbre SEM TINTA ESCURA suficiente no papel "
+                        "linha do timbre SEM TINTA que CONTRASTE o suficiente com o papel "
                         f"rasterizado (oráculo do pixel): {linha!r} — "
-                        f"{pixels_escuros} pixel(s) escuro(s) na faixa esperada, "
-                        f"piso exigido {PISO_PIXELS_ESCUROS_POR_LINHA}"
+                        f"{pixels_com_contraste} pixel(s) com contraste suficiente na faixa "
+                        f"esperada, piso exigido {PISO_PIXELS_ESCUROS_POR_LINHA}"
                     )
             entrada["linhas_do_timbre"] = linhas_no_pdf
 
             if entrada["pdf_contem_marca_do_fornecedor"]:
-                motivos.append(f"marca do fornecedor ({MARCA_DO_FORNECEDOR!r}) presente no PDF")
+                motivos.append(
+                    f"identificador do fornecedor ({marca_do_fornecedor!r}, normalizado: "
+                    f"{marca_do_fornecedor_normalizada!r}) presente no PDF (busca normalizada — "
+                    "caixa, espaço, pontuação e separadores desprezados)"
+                )
+            if campo_com_marca is not None:
+                motivos.append(
+                    f"identificador do fornecedor ({marca_do_fornecedor!r}) presente no metadado "
+                    f"{campo_com_marca!r} do PDF ({metadados_pdf[campo_com_marca]!r}) — não é "
+                    "tinta na folha, mas é identificação de quem vende o software no ARQUIVO "
+                    "que o escritório entrega ao cliente"
+                )
 
             entrada["veredito"] = "PASSOU" if not motivos else "REPROVADO"
             entrada["motivos"] = motivos
