@@ -335,9 +335,54 @@ extraível e tinta preta; (R2) o corte de *"negrito"* do WCAG; (R3) as quatro
 fronteiras da conversão pt→px, que é onde a BL-423 se escondia; (R4) papel que
 não é branco. **Só depois disso vai ao `auditor-qa`.**
 
-**O que o próximo turno faz, em ordem:** ler o resultado dessa verificação;
-tratar o que ela achar; e **só então** chamar o `auditor-qa` sobre a **versão
-integrada**. A suíte inteira **já rodou** nesta entrega (2016 passed).
+**A verificação independente VOLTOU, e o resultado está abaixo.**
+
+#### O que a verificação independente achou (2026-09-20, sobre `3fd1384`)
+
+**Três das quatro regiões estão limpas**, e duas delas confirmam o trabalho:
+
+- **R2 — sem achado.** `PESO_MINIMO_NEGRITO = 700` está certo: `font-weight: 600`
+  exige **4,5:1** e `700` exige **3:1**. A hipótese de guarda frouxa não se
+  confirmou.
+- **R3 — sem achado.** As **quatro** fronteiras pt→px batem exatamente (18pt→3,0;
+  17,9pt→4,5; 14pt negrito→3,0; 13,9pt negrito→4,5). A correção da BL-423 está
+  certa **onde erro de conversão se esconde**.
+- **R4 — o instrumento acerta nos dois regimes**, e o que falta é premissa
+  escrita: **BL-426**.
+
+⚠️ **R1 achou o que eu procurava, e é a [BL-424](../projeto/backlog.md):
+`PISO_PIXELS_ESCUROS_POR_LINHA = 40` é o ÚLTIMO número mágico do instrumento.**
+Com `font-size: 8px` no timbre, o instrumento **PASSA** — contraste 19,8:1, e
+contagem de **57–58** pixels contra piso 40 — enquanto o produto real mede
+**324–773**. O piso admite linha com **1/6 da tinta** do normal. Em 7px reprova,
+em 8px passa, e **ninguém decidiu isso**.
+
+**A observação de forma é a que importa:** o C2 trocou o limiar de luminância por
+propriedade derivada de padrão externo; o piso de **contagem** ficou para trás. É
+a mesma forma de `MARCA_DO_FORNECEDOR` e de `_PROPRIEDADES_DE_INTERESSE` — o
+resto do arquivo virou propriedade e **esta constante sobreviveu**. E a pergunta
+que ela responde **mudou de dona**: depois que o contraste passou a pegar tinta
+apagada, a única coisa que a contagem ainda guarda é *"o texto foi renderizado em
+tamanho legível?"* — pergunta de **tamanho**, que o instrumento **já sabe
+responder** porque pede o tamanho ao navegador.
+
+⚠️ **E eu NÃO afirmo que 8px é ilegível.** Pela **BL-422**, juízo visual de
+agente não vale perto do limiar. Afirmo o medido. A pergunta *"qual é o tamanho
+mínimo aceitável para o timbre do documento que vai ao cliente?"* é do Fred e
+está registrada como **PE-58** — ele responde olhando uma folha impressa, que é
+coisa que nenhum de nós consegue fazer.
+
+**Mais dois limites a declarar, ambos achados não pedidos:** **BL-425** —
+`presente_no_pdf` (`-layout` + substring) e a localização por `-bbox` são **dois
+mecanismos distintos que divergem** em tamanhos pequenos, então o veredito pode
+dizer *"ausente do papel"* sobre linha que **está** no papel; e **BL-426** — a
+folha medida é **sempre branca** hoje, porque nenhum CSS usa
+`print-color-adjust: exact` e `print_background` nunca é passado ao Playwright.
+
+**O que o próximo turno faz:** a correção da BL-424 já está delegada, com as duas
+declarações. **Depois dela, a DL-029 vai ao `auditor-qa` — não compro outra
+rodada antes da auditoria.** A suíte inteira já rodou nesta entrega (2016
+passed).
 
 ⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
 
