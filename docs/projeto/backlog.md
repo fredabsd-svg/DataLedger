@@ -980,6 +980,31 @@ emitido, ou dado que o nosso modelo **não consegue representar**.
 domínio**, nunca como fonte de norma, prazo ou leiaute. Nada dele entra no
 repositório; os requisitos são escritos em nossas palavras.
 
+
+### O que a leitura NÃO achou, e por que isso conta
+
+A **parte 5** (demonstrativos configuráveis, gráficos, acompanhamentos,
+conciliações, centros de custo, orçamentário, plano referencial, gerenciador de
+relatórios e início dos utilitários) voltou **sem nenhum achado estrutural
+novo** — e o relatório diz isso com todas as letras, em vez de inflar a lista.
+
+Isso tem valor próprio: delimita onde **não** precisamos olhar de novo, e mostra
+que os achados das outras partes não são ruído — são concentrados em quatro
+regiões (autorização, identidade de conta, fronteira de empresa e forma do
+livro).
+
+⚠️ **E um achado ao contrário, que merece registro porque inverte o sentido
+desta análise:** o sistema de referência **permite excluir conta que já tem
+lançamento** e depois oferece um relatório de conferência de *"lançamentos em
+contas excluídas"*. O DataLedger **recusa a exclusão** — `ItemLancamento.conta`
+é `on_delete=models.PROTECT`, e o Fred confirmou a regra na RC-100.
+
+**Aqui nós somos mais rígidos que a referência, e é para continuar assim.** Fica
+escrito para que ninguém, lendo o manual depois, "corrija" o nosso
+comportamento por achar que o outro sistema é o padrão. Detectar a inconsistência
+depois é pior que impedi-la antes — e é a diferença entre relatar o problema e
+não ter o problema.
+
 | ID | Achado | Responsável | Depende de | Situação | Classe e exemplos |
 | --- | --- | --- | --- | --- | --- |
 | BL-389 | **ALTA — a permissão não tem escopo de EMPRESA, e isso contraria o NOSSO PRÓPRIO escopo, não o concorrente.** `VinculoUsuarioEscritorio` é `(usuario, escritorio, papel)` e mais nada (`apps/tenancy/models.py:105-138`): quem tem vínculo enxerga **todas** as empresas do escritório. E `docs/escopo.md:20` já exige, como requisito confirmado: *"Permissões por módulo, operação, empresa e categoria de informação"*. ⚠️ **Não é lacuna contra o concorrente — é lacuna contra o que nós mesmos escrevemos**, e ninguém tinha percebido em meses. Na rotina do escritório é concreto: um estagiário que cuida de cinco clientes enxerga os outros quarenta e cinco. | `arquiteto-senior` (planejar) | — | **aberta — a mais grave da leitura até aqui** | **A classe é:** (b) escopo de autorização. Hoje um vínculo vale para o escritório inteiro; acrescentar granularidade por empresa depois exige tabela de associação nova, migração de **todos** os vínculos existentes e revisão de **cada** view e serviço que hoje só olha `escritorio`. E o projeto exige autorização verificada **no servidor** — não se resolve escondendo menu. |
