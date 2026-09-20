@@ -584,6 +584,48 @@ a próxima fatia.
 **O contador agora consegue fechar o mês pelo produto.** A dívida que a ordem
 "trava antes do botão" criou está paga.
 
+#### ➡️ PRÓXIMA ETAPA: [DL-032](../planos/DL-032-a-camada-de-saldos.md) — a camada de saldos
+
+**Autorizada pelo Fred em 2026-09-20** — *"pode seguir com a camada de saldos"*,
+depois de ler o
+[cruzamento do catálogo de 120 relatórios](../projeto/catalogo-de-relatorios.md)
+que ele mesmo trouxe. **Nível 1.**
+
+⚠️ **O catálogo corrigiu a pergunta que EU tinha feito ao Fred.** Eu havia
+oferecido três opções soltas — exportação, livro, demonstrações — como se fossem
+escolha de gosto. O manual mostra que **não são**: todo relatório contábil sai de
+**uma** cadeia, e a ordem delas é de **possibilidade**, não de preferência. Não
+existe Balanço antes de existir camada de saldos.
+
+**Decisão de arquitetura, minha, e está no plano: NÃO MATERIALIZAR.** A camada é
+um **contrato de derivação**, não uma tabela `SaldoConta`. Uma tabela de saldos
+que diverge dos lançamentos **não avisa** — passa a contar outra história, e a
+divergência só aparece quando o cliente confronta o papel. Mesma classe da
+**[DE-019](../projeto/decisoes.md)**, e viola o RC-19. Se um dia o desempenho
+exigir cache, **é decisão própria, com verificador que reprove na divergência**.
+
+**A equação, na forma que é honesta o ano inteiro:**
+`Ativo = Passivo + PL + (Receita − Despesa)`. O último termo é o **resultado
+ainda não transferido**; depois do encerramento ele é zero e a equação vira a
+clássica. ⚠️ **Não é norma que eu esteja citando** — é a consequência aritmética
+de o encerramento ser feito por lançamento.
+
+⚠️ **E a regra que veio do catálogo e virou o momento da verdade da camada:**
+*"saldos contábeis não devem ser alterados apenas para fechar a equação"*. A
+camada **reporta** a diferença; **nunca conserta**.
+
+**O critério que justifica a etapa inteira:** `apurar_saldos` e
+`apurar_balancete` **nunca discordam**, provado conta a conta, reprovando no
+primeiro centavo. Se as duas fontes puderem divergir, não construímos uma camada
+— construímos um segundo problema.
+
+**Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
+o encerramento do exercício (por lançamento ou derivado), com que periodicidade,
+e qual conta do PL recebe o resultado. ⚠️ **O catálogo já respondeu a parte
+genérica** (item 25: encerramento por lançamentos que transferem o resultado),
+então a pergunta ao Fred ficou menor — foi a regra dele de 2026-09-20, *"consulte
+os manuais antes de me perguntar"*, pagando de novo.
+
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
