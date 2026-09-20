@@ -163,9 +163,13 @@ implementar de novo seria desperdício:
    **encerrada** pode ser entregue — entregar mês aberto é recusado.
 8. **Autorização é verificada no servidor.** Fechar, reabrir e entregar exigem
    papel autorizado; usuário sem o papel recebe **403** e **nada muda** no banco.
-   ⚠️ **HI-17, hipótese minha, não confirmação do Fred:** os papéis autorizados
-   são **ADMINISTRADOR** e **GESTOR**. `ANALISTA` lança e não fecha. Marcado
-   como hipótese porque é decisão do escritório dele, e é reversível.
+   ✅ **CONFIRMADO pelo Fred em 2026-09-20 — é o RC-102, não é mais hipótese:**
+   *"Administrador e gestor pode, analista não"*. Os papéis autorizados são
+   **ADMINISTRADOR** e **GESTOR**; `ANALISTA` lança e **não** fecha;
+   `FINANCEIRO`, `PARALEGAL` e `CLIENTE` não alcançam a operação. ⚠️ **Teste os
+   três lados**: quem pode (passa), o analista (403 **e banco intacto**), e um
+   papel de fora (403). Nasceu como HI-17 e foi validada no mesmo dia, **antes
+   de virar código**.
 9. **Isolamento.** Competência encerrada de uma empresa não afeta outra empresa
    nem outro escritório. Teste com duas empresas de escritórios diferentes.
 10. **Concorrência.** Duas requisições simultâneas de fechamento da mesma
