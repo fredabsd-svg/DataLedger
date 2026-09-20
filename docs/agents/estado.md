@@ -757,6 +757,35 @@ A correção pedida é a forma de **propriedade**: o conjunto escondido vira a
 `pyproject.toml`; o decisor exporta a sua lista), e a lista segura se aplica à
 união.
 
+**O implementador parou e perguntou, e foi o certo.** Medindo **antes** de
+escrever, ele bateu no aviso que eu tinha deixado: as **22 migrações** do projeto
+aparecem como as únicas ofensoras da união, e pôr `.py` na lista segura anularia
+o teste inteiro.
+
+**Decisão minha, em 2026-09-20 — o desenho é categoria com PROVA, não dispensa
+por caminho.** `*/migrations/*` fica de fora do teste, mas o motivo **não** é
+*"é código gerado"* nem *"é convenção da indústria"* — nenhum dos dois é
+verificável, e justificativa não verificável é o que a DE-058 acabou de proibir.
+O motivo é uma propriedade que se mede: **migração excluída do `ruff` continua
+sendo EXECUTADA** — roda em `manage.py migrate` sobre banco vazio na CI e em toda
+execução da suíte —, enquanto o `sonda_visibilidade.py` sob `docs/` não era
+alcançado por mecanismo nenhum. A categoria não é *"migração"*; é **"escondido do
+lint, mas alcançado pela execução"**.
+
+⚠️ **E a dispensa não pode ser "o caminho contém `migrations/`"** — seria porta
+aberta: bastaria criar `apps/qualquer/migrations/utilitario.py`. A dispensa é
+provada **contra o Django**: todo arquivo dispensado tem de estar no grafo do
+`MigrationLoader`, e arquivo sob `migrations/` que o Django não reconheça
+**reprova, nomeado**. Propriedade derivada de quem manda — não lista nossa.
+
+⚠️ **[BL-417](../projeto/backlog.md), achado do implementador na mesma medição, e
+eu confirmei:** `padrao_para_regex('*/migrations/*')` devolve **`False`** para
+`apps/contabilidade/migrations/0001_initial.py` (semântica do `paths:` do GitHub
+Actions, onde `*` não cruza `/`), enquanto o `ruff` **exclui** o arquivo
+(`ruff check --show-files . | grep -c migrations/` → **0**). Reusar o matcher
+errado faria o teste **mentir para o lado de deixar passar**. Ele mediu **antes
+de escrever**, e por isso o erro nunca entrou no código.
+
 ⚠️ **Leia isto junto com a PE-56.** Em uma tarde, a mesma lição apareceu **duas**
 vezes seguidas, nos dois casos numa guarda escrita **para fechar a ocorrência
 anterior**. É o argumento vivo a favor de escrever o critério uma vez, em vez de
