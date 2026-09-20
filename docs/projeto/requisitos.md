@@ -189,6 +189,7 @@ Faltam informações. Cada item indica o impacto de seguir sem a resposta.
 
 | ID | Pendência | Impacto se não for resolvida |
 | --- | --- | --- |
+| PE-53 | **O cabeçalho do relatório de conferência deve trazer a CIDADE (município e UF) da empresa?** O modelo que o Fred mandou traz `Cidade: DIVINOPOLIS - MG` na mesma faixa de `Empresa`, `CNPJ` e `Período`. | Não é adorno: a **NBC ITG 2000 (R1)** exige o **local** nos termos de abertura e encerramento do livro (RC-96), e o município é o que determina competência de ISS e de junta comercial. Mas o modelo é um **balancete de conferência**, classe para a qual nenhuma norma fixa cabeçalho (HI-11) — então aqui a cidade é escolha do escritório, não exigência. ⚠️ Entra na lista da **HI-12**, que ainda aguarda o Fred item a item. O `Empresa` não tem campo de endereço hoje; acrescentá-lo é mudança de modelo de dados, não de layout. |
 | PE-26 | O que vem primeiro: a fatia fiscal ou a contabilidade? | **Resolvida** por RC-50: o Fred determinou em 2026-09-13 trabalhar na contabilidade, a partir do manual de referência. A DL-010 (fiscal) continua planejada e sai da frente da fila. |
 | PE-27 | Como entram os **saldos iniciais**? | **Resolvida** por RC-53: por lançamento dos saldos do balanço patrimonial. |
 | PE-28 | **Centro de custo** é usado pelos clientes do escritório? | **Resolvida** por RC-54 e RC-55: sim, por parte das empresas. |
