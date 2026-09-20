@@ -666,6 +666,50 @@ premissa por não medir.
 
 **Depois desta, auditoria, e eu vou cumprir — já adiei uma vez.**
 
+#### A rodada 3 entregou — `9b14e20`, e o BL-440 mudou de natureza
+
+**BL-436 e BL-437 fechados**, os dois pela mesma propriedade. ⚠️ **E a minha
+proposta foi REJEITADA por medição, pela terceira vez hoje:**
+`getBoundingClientRect().height / offsetHeight` passou em **5 casos sintéticos**
+e **falhou contra o produto real** — `offsetHeight` é **inteiro**, e `serif` a
+exatos 11 px dava escala 0,9961 → 10,957 px → **falso alarme no próprio piso que
+a correção existe para fechar**. A versão que ficou decompõe a escala da matriz
+de `transform` (`√(c²+d²)`) × `zoom`, por todos os ancestrais, **sem caixa de
+layout arredondada**.
+
+**Suíte: 2058 passed**, custo 3,7 s, dentro do orçamento.
+
+⚠️ **E o [BL-440](../projeto/backlog.md) mudou de natureza duas vezes numa
+tarde.** O implementador determinou o **local** por inspeção dos **bytes** do
+PDF — descompressão dos fluxos, operadores `rg`, sem PIL e sem PNG no caminho: o
+fluxo já traz `.2078 … rg`, e `.5373` (137/255) **não aparece em lugar nenhum**.
+**A transformação está na exportação do Chromium, não no `pdftoppm`.** E ele foi
+honesto no limite: *"determinei o LOCAL com certeza; não determinei o
+MECANISMO"*.
+
+**Aí eu fiz a conta que ele não fez, e ela derruba a família inteira de
+hipóteses:** as diferenças da tabela são **84, 84, 84, 84, 84, 84, 84, 85, 85** —
+**subtração CONSTANTE**, com identidade abaixo de ~106. Gestão de cor, perfil
+ICC, gama e conversão de espaço são **multiplicativas ou potências**; **nenhuma é
+aditiva com descontinuidade**. Degrau seco mais offset fixo **não é transformação
+de cor** — é aritmética de outra coisa.
+
+**Sobram três causas muito diferentes:** leitura do fluxo pegando o número
+errado; um **segundo objeto de desenho** cuja cor foi lida no lugar; ou
+deslocamento real do escritor de PDF. Pedi **três medições**, e a que pode
+**eliminar** o achado vem primeiro: cor **assimétrica** `rgb(137,138,139)` — se
+sair `(53,54,55)`, o deslocamento é real; qualquer outra coisa prova que a
+leitura pega o número errado.
+
+⚠️ **E eu corrijo o meu próprio enquadramento, que é o TERCEIRO que a medição
+derruba hoje.** Eu havia escrito que a direção do erro é *"o lado do falso
+conforme"*. **Não é.** O instrumento mede o **artefato** — o PDF, que é o que o
+escritório entrega. Se a tinta no PDF é **de fato** 53, a folha **tem** tinta
+escura e a medição está **certa sobre o documento**. O que diverge é o **CSS**,
+que é intenção, não entrega. Se confirmar, o achado **muda de dono**: vira fato
+de **produto** — *"a tinta na tela não é a tinta no papel"* —, assunto da direção
+de arte e da **DL-027**.
+
 Delegada sobre `2f1e596`, com os critérios **11 a 20** escritos na seção
 *"Rodada 2"* do
 [plano](../planos/DL-029-a-frase-executavel-do-criterio-9.md). Ordem de ataque
