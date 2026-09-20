@@ -166,15 +166,20 @@ arquiteto revisar:
    concluía "nada esconde o timbre" quando o navegador mostrava o
    contrário. A correção (mesmo princípio do BL-360: derivar do que o
    motor SABE, não enumerar o que ele NÃO sabe): o conjunto de
-   pseudo-classes de INTERAÇÃO é pequeno e FECHADO —
-   `_PSEUDO_CLASSES_DE_INTERACAO`, abaixo — e só ELAS continuam sendo
-   descartadas como antes. Qualquer OUTRA pseudo-classe simples (que
-   `_display_efetivo` encontre numa candidata relevante) RECUSA JULGAR
-   (`_regra_tem_pseudo_classe_nao_classificada`): o motor não simula
-   posição entre irmãos, então não pode nem confiar que ela casa
-   (aprovar por engano) nem descartá-la como faria com `:hover`
-   (o MESMO engano, na direção oposta). Ver o comentário completo junto
-   a `_PSEUDO_CLASSES_DE_INTERACAO`.
+   pseudo-classes de INTERAÇÃO — `_PSEUDO_CLASSES_DE_INTERACAO`, abaixo —
+   é pequeno hoje, e só ELAS continuam sendo descartadas como antes.
+   ⚠️ **BL-385 (MÉDIA J8 da auditoria rodada 9,
+   docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md) revoga a
+   alegação anterior de que este conjunto seria "FECHADO":** ele NÃO é —
+   ver o comentário completo junto a `_PSEUDO_CLASSES_DE_INTERACAO`, que
+   registra por que e o que isso muda (nada, na direção da guarda: ela
+   continua RECUSANDO JULGAR para o que não reconhece, nunca aprovando em
+   silêncio). Qualquer pseudo-classe simples que `_display_efetivo`
+   encontre numa candidata relevante e que NÃO esteja no conjunto RECUSA
+   JULGAR (`_regra_tem_pseudo_classe_nao_classificada`): o motor não
+   simula posição entre irmãos, então não pode nem confiar que ela casa
+   (aprovar por engano) nem descartá-la como faria com `:hover` (o MESMO
+   engano, na direção oposta).
 
 ⚠️ **BL-351 (bloqueador G1 + MÉDIA G3 da auditoria DL-026, rodada 7,
 docs/auditorias/2026-09-19-dl-026-rodada-7.md): o BL-343 corrigiu COMO
@@ -255,9 +260,11 @@ opinião (DL-028, fatia 3):**
    além de `display` dispara **9 vezes** no `base.css` REAL, sem
    sabotagem nenhuma (`test_o_motor_simulado_nao_consegue_decidir_
    visibilidade_sem_falso_alarme`); restringindo a regras que MENCIONAM o
-   identificador do timbre, ainda dispara **3 vezes**, contra declarações
-   de layout legítimas (`test_item2_restrito_ao_identificador_timbre_
-   impressao_ainda_dispara_tres_vezes`). Os dois testes ficam em
+   identificador do timbre, ainda dispara **3 vezes, hoje** (medição
+   HISTÓRICA, não mais um `assert` de igualdade — BL-377/J6, ver o
+   comentário completo junto ao teste), contra declarações de layout
+   legítimas (`test_item2_restrito_ao_identificador_timbre_impressao_
+   ainda_dispara_pelo_menos_uma_vez`). Os dois testes ficam em
    `test_bl331_timbre_do_escritorio_no_papel.py` — leia-os antes de tentar
    estender este motor para pegar mais uma construção "só mais essa".
 3. **`color: transparent` é o exemplo medido desta etapa que este motor
@@ -309,6 +316,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from django.apps import apps as django_apps
+from django.conf import settings as django_settings
 
 _RAIZ = Path(__file__).resolve().parents[3]
 _BASE_HTML = _RAIZ / "templates" / "base.html"
@@ -428,20 +437,156 @@ def _remover_comentarios_de_gabarito(texto):
     return _PADRAO_BLOCO_COMMENT_DE_GABARITO.sub("", texto)
 
 
+# ---------------------------------------------------------------------------
+# BL-382 (MÉDIA J12 da auditoria DL-026/DL-028, rodada 9,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): mover o timbre de
+# `razao.html` para um `{% include %}` reabria o H2 (BL-363) — a varredura
+# de `_templates_com_timbre_impressao`
+# (test_bl331_timbre_do_escritorio_no_papel.py) passava a listar o
+# PARCIAL (`_timbre.html`) no lugar da TELA (`razao.html` SAÍA da lista),
+# porque a árvore montada a partir do arquivo-fonte de `razao.html` nunca
+# via o `<div class="timbre-impressao">` — ele só existia no arquivo do
+# parcial, e para este parser um `{% include %}` é só texto inerte, do
+# mesmo jeito que qualquer outra tag Django.
+#
+# DUAS correções são defensáveis (a auditoria pediu escolha justificada,
+# §8 item G do relatório):
+#
+#   (1) Resolver o `{% include %}` DENTRO da montagem da árvore —
+#       substituição TEXTUAL do conteúdo do parcial no lugar da tag,
+#       ANTES de `_ConstrutorDeArvore` ver qualquer coisa — para que a
+#       árvore de QUEM INCLUI ganhe os nós do parcial como se estivessem
+#       escritos ali, com os CONTÊINERES intermediários da tela
+#       preservados.
+#   (2) Tratar o parcial como FRAGMENTO separado e compor a cadeia POR
+#       FORA — cada função que hoje deriva uma cadeia (`_cadeia_da_marca`
+#       aqui, `_cadeia_do_timbre_do_escritorio` em test_bl331) precisaria
+#       aprender a "colar" a árvore do parcial na posição da tag que o
+#       inclui.
+#
+# ESCOLHIDA: a (1). Justificativa — `_parsear_html` já É o PONTO ÚNICO de
+# entrada deste motor (a docstring dela, logo abaixo, já dizia isso antes
+# desta correção); resolver o `include` AQUI preserva essa propriedade:
+# toda função consumidora (varredura por classe, cadeia de ancestrais,
+# contagem de nós) continua recebendo uma árvore JÁ COMPLETA, sem
+# precisar saber que existe composição por `{% include %}`. A alternativa
+# (2) duplicaria a decisão de "colar duas árvores" em cada função que
+# deriva uma cadeia — e cada cópia poderia divergir da outra, a mesma
+# lição do BL-296/BL-333 (duas cópias do mesmo motor divergem assim que
+# uma for corrigida sem a outra). O único custo da escolha (1) é precisar
+# saber ONDE procurar o arquivo do parcial — resolvido abaixo pelos
+# MESMOS diretórios que o Django de fato consulta (BL-376), nunca um
+# caminho escrito à mão.
+# ---------------------------------------------------------------------------
+_PADRAO_INCLUDE = re.compile(r"\{%\s*include\s+['\"]([^'\"]+)['\"][^%]*%\}")
+
+
+def _diretorios_de_templates_do_django():
+    """Diretórios que o Django DE FATO consulta para resolver um
+    template, na mesma ordem de precedência do loader real: `DIRS` de
+    cada motor em `settings.TEMPLATES` primeiro, depois `<app>/templates`
+    de CADA app instalado com `APP_DIRS: True`, na ordem de
+    `INSTALLED_APPS` (BL-376 — a metade que cabe a este time; a outra
+    metade, o filtro de caminhos do workflow de integração contínua, é do
+    `desenvolvedor-pleno`, em `.github/workflows/**`, fora do escopo
+    deste arquivo). Medido pelo auditor: a varredura antiga olhava só
+    `_RAIZ / 'templates'`, e `apps/<modulo>/templates/` — o lugar
+    IDIOMÁTICO para Fiscal/Folha nascerem, com `APP_DIRS: True` já ligado
+    hoje em `config/settings.py:77` — ficava INVISÍVEL, tanto para a
+    varredura de tela (test_bl331) quanto para a resolução de `{%
+    include %}` abaixo. Derivado da CONFIGURAÇÃO viva do Django nesta
+    execução do `pytest` (`django.conf.settings`, `django.apps.apps`),
+    nunca de uma lista escrita à mão: um `DIRS` novo ou um app novo com
+    `templates/` própria entram sozinhos, sem editar este arquivo."""
+    diretorios = []
+    for motor in django_settings.TEMPLATES:
+        for bruto in motor.get("DIRS", []):
+            caminho = Path(bruto)
+            if caminho not in diretorios:
+                diretorios.append(caminho)
+        if motor.get("APP_DIRS"):
+            for config in django_apps.get_app_configs():
+                candidato = Path(config.path) / "templates"
+                if candidato.is_dir() and candidato not in diretorios:
+                    diretorios.append(candidato)
+    return diretorios
+
+
+def _resolver_caminho_de_template(nome_relativo):
+    """Localiza `nome_relativo` (o argumento de `{% include "..." %}`,
+    ex. `'contabilidade/_timbre.html'`) dentro dos diretórios que o
+    Django de fato consulta (`_diretorios_de_templates_do_django`), na
+    MESMA ordem de precedência do loader real. Devolve `None` se não
+    achar em nenhum — o chamador decide o que fazer (aqui, deixar a tag
+    como texto inerte em vez de lançar: um `include` que não resolve não
+    é um defeito NESTE motor, e mascarar isso com uma exceção confundiria
+    o sintoma com a causa)."""
+    for diretorio in _diretorios_de_templates_do_django():
+        candidato = diretorio / nome_relativo
+        if candidato.is_file():
+            return candidato
+    return None
+
+
+def _expandir_includes(texto, *, profundidade=0):
+    """Substitui, textualmente, cada `{% include "..." %}` de `texto`
+    pelo CONTEÚDO do parcial referenciado — RECURSIVO (um parcial pode
+    incluir outro), com uma GUARDA DE PROFUNDIDADE fixa (não uma guarda
+    por "nome já visto": um `{% include %}` LEGÍTIMO do MESMO parcial
+    duas vezes no mesmo arquivo é comum e correto, e uma guarda por nome
+    reprovaria esse caso são). Vinte níveis é folga generosa sobre
+    qualquer composição real deste projeto — se algum dia isto reprovar,
+    é sinal de CICLO entre templates, não de um limite baixo demais.
+
+    Comentários de gabarito do PARCIAL são removidos antes de ele entrar
+    no texto (a mesma regra do BL-348/F6, aplicada recursivamente) — sem
+    isso, uma palavra entre `<` e `>` dentro de um `{% comment %}` do
+    parcial poderia truncar a árvore de QUEM INCLUI, de um jeito que
+    ninguém olhando o template que inclui entenderia.
+
+    Um `include` que não resolve para nenhum arquivo (nome errado, ou
+    fora dos diretórios que o Django consulta) é deixado NO TEXTO — `{%
+    %}` já é tratado como texto inerte pelo parser, então o pior caso é
+    idêntico ao de ANTES desta correção existir: nada quebra, nada é
+    mascarado."""
+    if profundidade > 20:
+        raise AssertionError(
+            "controle: _expandir_includes ultrapassou 20 níveis de "
+            "recursão — ciclo de {% include %} entre templates? CONFIRA "
+            "OS TEMPLATES antes de supor que o limite está baixo demais"
+        )
+
+    def _substituir(encontrado):
+        caminho = _resolver_caminho_de_template(encontrado.group(1))
+        if caminho is None:
+            return encontrado.group(0)
+        conteudo = _remover_comentarios_de_gabarito(caminho.read_text(encoding="utf-8"))
+        return _expandir_includes(conteudo, profundidade=profundidade + 1)
+
+    return _PADRAO_INCLUDE.sub(_substituir, texto)
+
+
 def _parsear_html(texto):
     """Ponto ÚNICO de entrada para transformar `texto` (fonte de
     template OU HTML renderizado) em árvore: remove comentários de
-    gabarito (`_remover_comentarios_de_gabarito`) e alimenta
-    `_ConstrutorDeArvore`, com um CONTROLE DE NÃO-TRUNCAMENTO (BL-348/
-    F6): se o `feed` terminar com o parser ainda DENTRO de um elemento
-    RCDATA (`cdata_elem` não-`None` — `title`/`textarea` sem fechamento
-    correspondente ENCONTRADO, não sem fechamento nenhum: o atributo só
-    fica não-`None` quando o parser NUNCA achou a tag de fechamento até o
-    fim do texto), o parse foi truncado e tudo que vem depois do ponto de
-    truncamento foi descartado em silêncio — reprova nomeando O TEMPLATE
-    como a causa provável, não pedindo para mexer neste arquivo."""
+    gabarito (`_remover_comentarios_de_gabarito`), expande `{% include
+    %}` (`_expandir_includes` — BL-382, ver o comentário completo acima)
+    e alimenta `_ConstrutorDeArvore`, com um CONTROLE DE NÃO-TRUNCAMENTO
+    (BL-348/F6): se o `feed` terminar com o parser ainda DENTRO de um
+    elemento RCDATA (`cdata_elem` não-`None` — `title`/`textarea` sem
+    fechamento correspondente ENCONTRADO, não sem fechamento nenhum: o
+    atributo só fica não-`None` quando o parser NUNCA achou a tag de
+    fechamento até o fim do texto), o parse foi truncado e tudo que vem
+    depois do ponto de truncamento foi descartado em silêncio — reprova
+    nomeando O TEMPLATE como a causa provável, não pedindo para mexer
+    neste arquivo. A expansão de `include` é NULA sobre HTML JÁ
+    RENDERIZADO (o Django já resolveu qualquer `{% include %}` antes de
+    entregar a resposta — não há tag `{% %}` sobrando para o regex
+    casar), então aplicá-la sempre, sem distinguir fonte de renderizado
+    no chamador, é seguro."""
     construtor = _ConstrutorDeArvore()
-    construtor.feed(_remover_comentarios_de_gabarito(texto))
+    texto_sem_comentarios = _remover_comentarios_de_gabarito(texto)
+    construtor.feed(_expandir_includes(texto_sem_comentarios))
     assert construtor.cdata_elem is None, (
         f"o parse deste template TRUNCOU dentro de <{construtor.cdata_elem}> sem "
         f"fechamento correspondente encontrado — isto quase sempre significa uma "
@@ -862,14 +1007,45 @@ def _seletor_casa_com_no(compostos, indice_no, cadeia):
 # a candidata pode ser descartada com segurança) de qualquer OUTRA
 # pseudo-classe simples (o motor não simula posição entre irmãos nem
 # nenhuma outra condição estrutural, então RECUSA JULGAR em vez de
-# adivinhar dos dois lados possíveis). O conjunto abaixo é FECHADO — a
+# adivinhar dos dois lados possíveis).
+#
+# ⚠️ CORREÇÃO (BL-385, MÉDIA J8 da auditoria DL-026/DL-028, rodada 9,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): a versão anterior
+# deste comentário afirmava que o conjunto abaixo é "FECHADO" porque "a
 # especificação CSS Selectors não cria uma pseudo-classe de interação
-# nova a cada ano, ao contrário de propriedade CSS (item 2) ou de forma
-# de esconder elemento (o eixo desta etapa inteira) — por isso NÃO é o
-# mesmo erro que este arquivo já corrigiu várias vezes: aqui a lista é do
-# que o motor SABE RECONHECER como seguro, pequena por natureza do
-# domínio (cinco nomes, todos ligados a estado de ponteiro/foco), não do
-# que ele precisa aprender a cada nova versão do CSS.
+# nova a cada ano" — e isso é FALSO, provado pela PRÓPRIA lista: `:focus-
+# visible` e `:focus-within` SÃO acréscimos do Selectors Level 4,
+# posteriores ao Level 3. O mesmo Level 4 trouxe, em 2023, mais pseudo-
+# classes ligadas a estado de interação que NÃO estão aqui: `:user-
+# invalid`, `:user-valid`, `:autofill`, `:modal`, `:popover-open` — e
+# `:target` (mais antiga, Selectors Level 3, mas pela mesma razão fora
+# desta lista: também é condicionada a estado, não a estrutura). Medido
+# pelo auditor: `body:popover-open { display: block }` derruba 24 testes,
+# inclusive o CONTROLE sem sabotagem.
+#
+# A VERDADE é o oposto do que o comentário antigo dizia: **este conjunto
+# CRESCE com o CSS**, do mesmo jeito que qualquer vocabulário da
+# linguagem cresce (a mesma classe de defeito do BL-355 e do item 2,
+# acima — "lista que não deriva do que o CSS de fato tem"). O que TORNA
+# isto aceitável — e é a única coisa que a frase "FECHADO" deveria ter
+# dito — é a DIREÇÃO da falha: uma pseudo-classe NÃO listada aqui não é
+# tratada como segura por omissão. `_regra_tem_pseudo_classe_nao_
+# classificada` (abaixo) faz o motor RECUSAR JULGAR, alto e visível (um
+# `assert` com mensagem própria, nunca um `except` engolido), em vez de
+# aprovar em silêncio. É RECUSA, não aprovação silenciosa — por isso o
+# auditor classificou o achado como MÉDIA (custo de falso alarme numa
+# construção legítima), não ALTA (a direção oposta, aprovar por engano,
+# seria bem pior).
+#
+# *Caminho futuro, registrado sem executar — aponta para o BL-372 (o
+# oráculo do papel, em construção nesta mesma rodada):* quando a
+# rasterização da folha A4 decidir "existe tinta onde deveria" na
+# integração contínua, esta recusa poderá ser DESLIGADA — com o pixel
+# decidindo se o timbre está visível de verdade, o motor simulado deixa
+# de precisar adivinhar pseudo-classe nenhuma, estrutural ou de
+# interação. ATÉ LÁ, mantenha o conjunto abaixo e REVISE-O a cada
+# pseudo-classe de interação nova que a especificação publicar — é
+# exatamente a manutenção que a frase antiga dizia ser desnecessária.
 _PSEUDO_CLASSES_DE_INTERACAO = frozenset(
     {"hover", "focus", "active", "focus-visible", "focus-within"}
 )
@@ -2024,3 +2200,142 @@ def test_bl360_seletor_de_atributo_sem_propriedade_de_interesse_nao_reprova(tmp_
         "seletor de atributo que NÃO declara propriedade de interesse não deveria "
         "fazer a guarda recusar julgar nem deixar de detectar a ocultação real"
     )
+
+
+# ---------------------------------------------------------------------------
+# BL-376 (metade J5 da auditoria DL-026/DL-028, rodada 9,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md — a outra metade, o
+# filtro de caminhos do workflow de integração contínua, é do
+# `desenvolvedor-pleno`): `_diretorios_de_templates_do_django` precisa
+# derivar da CONFIGURAÇÃO viva do Django, não de uma lista escrita à mão.
+# ---------------------------------------------------------------------------
+
+
+def test_diretorios_de_templates_do_django_inclui_o_dir_global_do_settings():
+    """`settings.TEMPLATES[0]["DIRS"]` (hoje só `_RAIZ / "templates"`)
+    precisa continuar presente — esta correção AMPLIA a varredura, nunca
+    a estreita."""
+    diretorios = _diretorios_de_templates_do_django()
+    assert _RAIZ / "templates" in diretorios, (
+        f"o diretório global de templates ({_RAIZ / 'templates'}) deveria estar "
+        f"na lista derivada de settings.TEMPLATES[0]['DIRS'] — achei {diretorios!r}"
+    )
+
+
+def test_diretorios_de_templates_do_django_alcanca_app_instalado_com_templates_propria(
+    tmp_path, monkeypatch
+):
+    """BL-376: a PROVA do achado J5. Medido pelo auditor: `push` criando
+    `apps/fiscal/templates/fiscal/apuracao.html` não entrava na varredura
+    antiga (`_RAIZ / "templates"` só). Reproduzido aqui SEM escrever nada
+    em `apps/<algum_app_real>/templates/` (BL-311: nunca no repositório
+    de verdade) — um `AppConfig` FALSO, apontando para um diretório
+    SINTÉTICO dentro de `tmp_path`, entra na lista devolvida por
+    `django.apps.apps.get_app_configs()` via monkeypatch, ao lado dos
+    apps reais. Se a derivação ainda fosse `_RAIZ / "templates"` fixo,
+    este diretório NUNCA apareceria — é exatamente essa omissão que o
+    achado descreve."""
+    diretorio_do_app_falso = tmp_path / "app_falso"
+    (diretorio_do_app_falso / "templates").mkdir(parents=True)
+
+    class _AppConfigFalso:
+        path = str(diretorio_do_app_falso)
+
+    configs_reais = list(django_apps.get_app_configs())
+    monkeypatch.setattr(django_apps, "get_app_configs", lambda: [*configs_reais, _AppConfigFalso()])
+
+    diretorios = _diretorios_de_templates_do_django()
+    assert diretorio_do_app_falso / "templates" in diretorios, (
+        "um app INSTALADO com templates/ própria deveria aparecer na lista de "
+        "diretórios de template — e não apareceu (a derivação voltou a olhar só "
+        "o diretório global?)"
+    )
+
+
+def test_diretorios_de_templates_do_django_ignora_app_sem_templates_propria(tmp_path, monkeypatch):
+    """Controle NEGATIVO do teste acima: um app SEM `templates/` (a
+    maioria dos apps deste projeto hoje — nenhum tem `apps/<app>/
+    templates/` ainda) não pode fazer a lista crescer com um diretório
+    que não existe (`Path.rglob` sobre caminho inexistente lançaria na
+    varredura, não aqui)."""
+    diretorio_do_app_falso = tmp_path / "app_falso_sem_templates"
+    diretorio_do_app_falso.mkdir()
+
+    class _AppConfigFalso:
+        path = str(diretorio_do_app_falso)
+
+    configs_reais = list(django_apps.get_app_configs())
+    monkeypatch.setattr(django_apps, "get_app_configs", lambda: [*configs_reais, _AppConfigFalso()])
+
+    diretorios = _diretorios_de_templates_do_django()
+    assert diretorio_do_app_falso / "templates" not in diretorios, (
+        "um app SEM templates/ própria não deveria contribuir um diretório inexistente para a lista"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BL-382 (MÉDIA J12 da mesma auditoria): `_expandir_includes` — o
+# mecanismo de substituição textual em si (a exclusão do PARCIAL na
+# VARREDURA de telas, que é o outro lado da correção, é testada em
+# test_bl331_timbre_do_escritorio_no_papel.py, junto a
+# `_templates_com_timbre_impressao`).
+# ---------------------------------------------------------------------------
+
+
+def test_expandir_includes_substitui_pelo_conteudo_do_parcial(tmp_path, monkeypatch):
+    """Caso básico: `{% include "parcial.html" %}` vira o CONTEÚDO do
+    arquivo referenciado, resolvido pelos diretórios que
+    `_diretorios_de_templates_do_django` devolve."""
+    parcial = tmp_path / "parcial.html"
+    parcial.write_text('<p class="marca">conteúdo do parcial</p>\n', encoding="utf-8")
+
+    monkeypatch.setattr(f"{__name__}._diretorios_de_templates_do_django", lambda: [tmp_path])
+
+    resultado = _expandir_includes('<div>\n    {% include "parcial.html" %}\n</div>\n')
+    assert 'class="marca"' in resultado, (
+        f"o {{% include %}} deveria ter sido substituído pelo CONTEÚDO do "
+        f"parcial — resultado: {resultado!r}"
+    )
+    assert "{% include" not in resultado
+
+
+def test_expandir_includes_e_recursivo(tmp_path, monkeypatch):
+    """Um parcial pode incluir outro — a expansão precisa RECURSAR até
+    não sobrar `{% include %}` nenhum resolúvel."""
+    interno = tmp_path / "interno.html"
+    interno.write_text('<span class="folha-mais-funda"></span>\n', encoding="utf-8")
+    externo = tmp_path / "externo.html"
+    externo.write_text('{% include "interno.html" %}\n', encoding="utf-8")
+
+    monkeypatch.setattr(f"{__name__}._diretorios_de_templates_do_django", lambda: [tmp_path])
+
+    resultado = _expandir_includes('{% include "externo.html" %}\n')
+    assert "folha-mais-funda" in resultado, (
+        f"a expansão precisava RECURSAR por dois níveis de include — resultado: {resultado!r}"
+    )
+
+
+def test_expandir_includes_de_alvo_inexistente_preserva_o_texto():
+    """Um `{% include %}` que não resolve para nenhum arquivo (nome
+    errado, ou fora dos diretórios conhecidos) é deixado NO TEXTO — nunca
+    lança, e nunca apaga silenciosamente a tag: o pior caso é idêntico ao
+    de antes desta correção existir."""
+    texto = '<div>\n    {% include "isto/nao/existe.html" %}\n</div>\n'
+    resultado = _expandir_includes(texto)
+    assert resultado == texto
+
+
+def test_expandir_includes_recusa_ciclo_com_mensagem_de_controle(tmp_path, monkeypatch):
+    """Guarda de PROFUNDIDADE (não de "nome já visto" — ver o comentário
+    completo junto a `_expandir_includes`): um ciclo real entre dois
+    parciais que se incluem mutuamente precisa REPROVAR, nunca recursar
+    para sempre."""
+    a = tmp_path / "a.html"
+    b = tmp_path / "b.html"
+    a.write_text('{% include "b.html" %}\n', encoding="utf-8")
+    b.write_text('{% include "a.html" %}\n', encoding="utf-8")
+
+    monkeypatch.setattr(f"{__name__}._diretorios_de_templates_do_django", lambda: [tmp_path])
+
+    with pytest.raises(AssertionError, match="ciclo"):
+        _expandir_includes('{% include "a.html" %}\n')

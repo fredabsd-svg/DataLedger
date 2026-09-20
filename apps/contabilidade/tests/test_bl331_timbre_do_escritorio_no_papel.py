@@ -91,9 +91,11 @@ import pytest
 from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _BASE_CSS,
     _BASE_HTML,
+    _PADRAO_INCLUDE,
     _RAIZ,
     _algum_ancestral_removido_do_papel,
     _cadeia_de_ancestrais,
+    _diretorios_de_templates_do_django,
     _escrever_css_mutado,
     _EventoBloco,
     _eventos_de_nivel_superior,
@@ -103,6 +105,8 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
     _parsear_html,
     _percorrer,
     _remover_comentarios,
+    _remover_comentarios_de_gabarito,
+    _resolver_caminho_de_template,
     _seletor_bruto_tem_construcao_nao_modelada,
     _seletor_casa_com_no,
     _tem_timbre_impressao,
@@ -122,7 +126,6 @@ from apps.contabilidade.tests.test_bl329_marca_fora_do_papel import (
 # fato afetam.
 
 _BALANCETE_HTML = _RAIZ / "templates" / "contabilidade" / "balancete.html"
-_TEMPLATES_DIR = _RAIZ / "templates"
 
 
 # BL-363 (ALTA H2 da auditoria DL-026, rodada 8): conjunto de templates a
@@ -134,18 +137,61 @@ _TEMPLATES_DIR = _RAIZ / "templates"
 # cada template: como o parser deste módulo trata tag Django como texto
 # inerte, a estrutura HTML real de um template já aparece na árvore sem
 # precisar renderizar nada (a mesma técnica que `_cadeia_da_marca` já usa
-# sobre `templates/base.html`).
+# sobre `templates/base.html`) — e, desde o BL-382, também EXPANDE `{%
+# include %}` antes de montar a árvore (ver `_parsear_html`,
+# test_bl329_marca_fora_do_papel.py).
+#
+# BL-376 (metade J5 da auditoria rodada 9,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md — a outra metade,
+# o filtro de caminhos do workflow, é do `desenvolvedor-pleno`): a
+# varredura ANTIGA olhava só `_RAIZ / "templates"`. `apps/<modulo>/
+# templates/` — o lugar IDIOMÁTICO para Fiscal/Folha nascerem, com
+# `APP_DIRS: True` já ligado em `config/settings.py` — ficava INVISÍVEL.
+# `_diretorios_de_templates_do_django` (test_bl329) deriva os diretórios
+# de verdade a partir da CONFIGURAÇÃO do Django (`DIRS` + `<app>/
+# templates` de cada app instalado), nunca de uma lista escrita à mão.
+def _caminhos_de_parciais_incluidos(diretorios):
+    """Conjunto de caminhos (RESOLVIDOS) que aparecem como ALVO de algum
+    `{% include %}`, em qualquer `.html` de `diretorios` — usado para
+    excluir PARCIAL de TELA na varredura abaixo (BL-382/J12). Um parcial
+    só existe DENTRO da cadeia de quem o inclui — `_parsear_html` já o
+    expande na árvore de quem inclui (ver o comentário completo em
+    test_bl329_marca_fora_do_papel.py, junto a `_expandir_includes`) —
+    então listá-lo TAMBÉM como entrada própria da varredura duplicaria a
+    tela sob outro nome, com uma cadeia SEM os contêineres intermediários
+    da tela real: a causa exata do achado medido pelo auditor
+    (`razao.html` SAÍA da lista, `_timbre.html` entrava no lugar dela)."""
+    incluidos = set()
+    for diretorio in diretorios:
+        for caminho in diretorio.rglob("*.html"):
+            texto = _remover_comentarios_de_gabarito(caminho.read_text(encoding="utf-8"))
+            for encontrado in _PADRAO_INCLUDE.finditer(texto):
+                alvo = _resolver_caminho_de_template(encontrado.group(1))
+                if alvo is not None:
+                    incluidos.add(alvo.resolve())
+    return incluidos
+
+
 def _templates_com_timbre_impressao():
-    """Devolve, em ordem determinística, o caminho de cada `.html` de
-    `templates/**` cuja árvore (fonte, tolerante a Django) tem algum nó de
-    classe `timbre-impressao`. Roda na COLETA do pytest (usada em
+    """Devolve, em ordem determinística, o caminho de cada TELA (nunca um
+    PARCIAL — ver `_caminhos_de_parciais_incluidos`, acima) cuja árvore
+    (fonte, tolerante a Django, com `{% include %}` já expandido) tem
+    algum nó de classe `timbre-impressao`. Varre os diretórios que o
+    Django DE FATO consulta (`_diretorios_de_templates_do_django`, BL-376
+    — `DIRS` global MAIS `<app>/templates` de cada app instalado), não só
+    `_RAIZ / "templates"`. Roda na COLETA do pytest (usada em
     `parametrize`) — varredura de arquivo, não de banco, então é barata e
     não precisa de fixture."""
+    diretorios = _diretorios_de_templates_do_django()
+    parciais = _caminhos_de_parciais_incluidos(diretorios)
     encontrados = []
-    for caminho in sorted(_TEMPLATES_DIR.rglob("*.html")):
-        raiz = _parsear_html(caminho.read_text(encoding="utf-8"))
-        if _tem_timbre_impressao(raiz):
-            encontrados.append(caminho)
+    for diretorio in diretorios:
+        for caminho in sorted(diretorio.rglob("*.html")):
+            if caminho.resolve() in parciais:
+                continue
+            raiz = _parsear_html(caminho.read_text(encoding="utf-8"))
+            if _tem_timbre_impressao(raiz):
+                encontrados.append(caminho)
     return encontrados
 
 
@@ -576,20 +622,29 @@ def _template_com_timbre_envolto_em_cabecalho_do_documento(tmp_path, caminho_tem
 
 @pytest.mark.parametrize(
     "caminho_template",
-    [
-        _RAIZ / "templates" / "contabilidade" / "razao.html",
-        _RAIZ / "templates" / "contabilidade" / "diario.html",
-    ],
+    _templates_com_timbre_impressao(),
     ids=_id_do_template,
 )
 def test_sabotagem_h2_cabecalho_do_documento_oculto_mata_a_guarda_nomeando_a_tela(
     tmp_path, caminho_template
 ):
     """H2/BL-363: reproduz a sabotagem do achado — agrupar o timbre num
-    contêiner e escondê-lo no `@media print` — contra RAZÃO e DIÁRIO, não
-    só o Balancete (que já tinha cobertura equivalente por outro caminho).
-    Precisa morrer PELA PROPRIEDADE, e o parâmetro `caminho_template` (via
-    `ids=_id_do_template`) já nomeia a tela no identificador do teste."""
+    contêiner e escondê-lo no `@media print` — contra TODA tela com
+    timbre, incluindo o Balancete (que já tinha cobertura equivalente por
+    outro caminho: repetir aqui não é regressão, é a mesma prova sem
+    exceção escrita à mão). Precisa morrer PELA PROPRIEDADE, e o
+    parâmetro `caminho_template` (via `ids=_id_do_template`) já nomeia a
+    tela no identificador do teste.
+
+    ⚠️ CORREÇÃO (BL-382, achado J12 da auditoria rodada 9,
+    docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): antes desta
+    correção, os dois `parametrize` deste módulo (aqui e no controle
+    negativo, abaixo) usavam uma lista `[razao.html, diario.html]`
+    ESCRITA À MÃO — reintroduzindo, quinze linhas abaixo da varredura do
+    BL-363, exatamente o que o BL-363 tinha removido. Agora os dois
+    derivam de `_templates_com_timbre_impressao()`, a MESMA função que
+    parametriza a guarda central: nenhum nome de arquivo à mão, e uma
+    tela nova (com timbre) entra na sabotagem do H2 sozinha."""
     caminho_template_mutado = _template_com_timbre_envolto_em_cabecalho_do_documento(
         tmp_path, caminho_template
     )
@@ -616,10 +671,7 @@ def test_sabotagem_h2_cabecalho_do_documento_oculto_mata_a_guarda_nomeando_a_tel
 
 @pytest.mark.parametrize(
     "caminho_template",
-    [
-        _RAIZ / "templates" / "contabilidade" / "razao.html",
-        _RAIZ / "templates" / "contabilidade" / "diario.html",
-    ],
+    _templates_com_timbre_impressao(),
     ids=_id_do_template,
 )
 def test_cabecalho_do_documento_sem_regra_de_impressao_continua_aprovando(
@@ -631,7 +683,11 @@ def test_cabecalho_do_documento_sem_regra_de_impressao_continua_aprovando(
     só ganhar um contêiner ESCONDIDO é (teste acima). Sem isto, a
     generalização da cadeia (BL-362/BL-363) poderia estar reprovando por
     QUALQUER contêiner novo, o falso alarme que o BL-321 já apontou como
-    mais corrosivo que o falso negativo."""
+    mais corrosivo que o falso negativo.
+
+    BL-382: `parametrize` derivado de `_templates_com_timbre_impressao()`
+    — a mesma correção do teste de sabotagem acima, pelo mesmo motivo:
+    nenhuma lista de arquivos escrita à mão."""
     caminho_template_mutado = _template_com_timbre_envolto_em_cabecalho_do_documento(
         tmp_path, caminho_template
     )
@@ -823,6 +879,43 @@ def test_item3_hover_continua_sendo_descartado_como_seguro(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "rotulo,pseudo_classe",
+    [
+        ("BL-385 — :popover-open (Selectors Level 4, 2023)", "popover-open"),
+        ("BL-385 — :user-invalid (Selectors Level 4, 2023)", "user-invalid"),
+        ("BL-385 — :target (Selectors Level 3, condicionada a estado)", "target"),
+    ],
+)
+def test_bl385_pseudo_classe_de_interacao_nao_listada_recusa_julgar(
+    tmp_path, rotulo, pseudo_classe
+):
+    """BL-385 (MÉDIA J8 da auditoria DL-026/DL-028, rodada 9,
+    docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): prova, por
+    construção, a frase que substitui o comentário falso de
+    `_PSEUDO_CLASSES_DE_INTERACAO` — o conjunto NÃO é fechado, e uma
+    pseudo-classe de interação recém-publicada que ele não reconhece
+    RECUSA JULGAR (`PRECISA SER ESTENDIDA`), nunca aprova em silêncio.
+    O auditor mediu isso para `:popover-open` (derrubando 24 testes,
+    inclusive o controle); os três nomes aqui cobrem os dois níveis da
+    especificação que o comentário antigo citava errado (Level 3 e Level
+    4) — nenhum está em `_PSEUDO_CLASSES_DE_INTERACAO`, hoje ou depois
+    desta correção."""
+    cadeia, _ = _cadeia_do_timbre_do_escritorio(_BALANCETE_HTML)
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+
+    caminho_mutado = _escrever_css_mutado(
+        tmp_path,
+        css_original,
+        "    .timbre-impressao {\n        display: block;",
+        f"    .timbre-impressao:{pseudo_classe} {{\n        display: none;\n    }}\n\n"
+        "    .timbre-impressao {\n        display: block;",
+        nome=f"base-mutado-bl385-{pseudo_classe}.css",
+    )
+    with pytest.raises(AssertionError, match="PRECISA SER ESTENDIDA"):
+        _algum_ancestral_removido_do_papel(cadeia, caminho_mutado.read_text(encoding="utf-8"))
+
+
 # ---------------------------------------------------------------------------
 # BL-362, item 2 — LIMITE DECLARADO DO MOTOR SIMULADO, COM PROVA MEDIDA.
 #
@@ -864,8 +957,9 @@ def test_item3_hover_continua_sendo_descartado_como_seguro(tmp_path):
 #    `@media print`**, que são declarações de LAYOUT perfeitamente
 #    legítimas sobre o timbre (margem entre linhas, peso da primeira
 #    linha). Não é zero. Ver
-#    `test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_tres_vezes`,
-#    abaixo, que fixa esta medição.
+#    `test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_pelo_menos_uma_vez`,
+#    abaixo, que REGISTRA esta medição (BL-377: não a fixa mais como
+#    valor exato — ver o comentário completo junto ao teste).
 # 3. **Restringindo por PROPRIEDADE** ("declarações que podem afetar
 #    visibilidade": `visibility`, `opacity`, `clip-path`, `font-size`,
 #    `color`, `position`, `overflow`, `content-visibility`, `transform`,
@@ -1076,19 +1170,47 @@ def test_item2_color_real_do_timbre_tambem_recusa_prova_que_nao_ha_lista_que_res
     )
 
 
-def test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_tres_vezes():
+def test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_pelo_menos_uma_vez():
     """Medição #2 do comentário acima: mesmo restringindo a relevância a
     regras que MENCIONAM o identificador `timbre-impressao` (não "casam
     estruturalmente com algum nó da cadeia" — elimina `:root`/`html`/
     `body`/`p`/`.conteudo-principal`, que nunca mencionam esse nome),
-    sobram TRÊS declarações reais e legítimas dentro do `@media print`:
-    margem entre linhas (`.timbre-impressao p { margin }`) e peso da
-    primeira linha (`.timbre-impressao p:first-child { font-weight;
-    font-size }`), além da margem do próprio contêiner (`.timbre-impressao
-    { margin-bottom }`). Esta é a prova de que NENHUMA das duas
-    formulações mais estreitas que o arquiteto-senior tentou (cadeia
+    sobram declarações reais e legítimas dentro do `@media print`: margem
+    entre linhas (`.timbre-impressao p { margin }`) e peso da primeira
+    linha (`.timbre-impressao p:first-child { font-weight; font-size }`),
+    além da margem do próprio contêiner (`.timbre-impressao {
+    margin-bottom }`) — HOJE, três. Esta é a prova de que NENHUMA das
+    duas formulações mais estreitas que o arquiteto-senior tentou (cadeia
     completa, ou só o identificador do timbre) chega a zero — o limite é
-    do instrumento, não do esforço em restringir o escopo."""
+    do instrumento, não do esforço em restringir o escopo.
+
+    ⚠️ CORREÇÃO (BL-377, achado J6 da auditoria DL-026/DL-028, rodada 9,
+    docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): esta função
+    ANTES se chamava `..._ainda_dispara_tres_vezes` e fixava
+    `assert len(...) == 3`, reprovando o build inteiro. O auditor mediu:
+    `.timbre-impressao p { letter-spacing: 0.01em; }` — uma declaração
+    TIPOGRÁFICA legítima, que não esconde nada do timbre — soma UMA
+    declaração a mais "dentro" (é uma declaração além de `display`, numa
+    regra que menciona `timbre-impressao`), e a MENSAGEM antiga dizia "se
+    este número mudou... confira antes de supor que a medição está
+    desatualizada" — um convite a SUBIR o número. O auditor fez
+    exatamente isso (de 3 para 4) e obteve `1910 passed` com o timbre
+    INVISÍVEL no papel (BL-372/J1): a guarda ensinava a equipe a executar
+    o passo que abre o buraco.
+
+    A CORREÇÃO: o que este teste PRECISA garantir é a PROPRIEDADE — "só
+    trechos DENTRO do @media print podem ter declaração além de display
+    mencionando timbre-impressao" (os dois `assert == []` abaixo, que
+    continuam fixando um valor porque são prova de uma AUSÊNCIA, nunca de
+    uma contagem) — nunca "existem exatamente N declarações desse tipo
+    hoje". O número 3 (e o número 9 da medição #1, no teste
+    `test_o_motor_simulado_nao_consegue_decidir_visibilidade_sem_falso_
+    alarme`, abaixo) continuam registrados aqui e no comentário acima
+    como ARGUMENTO histórico do BL-367 (nenhuma restrição chega a zero) —
+    mas NENHUM dos dois volta a ser um `assert` de igualdade contra o
+    valor exato: ajuste tipográfico legítimo no timbre (`letter-spacing`,
+    `line-height`, `text-transform`, ...) não pode reprovar a integração
+    contínua."""
     identificador_do_timbre = {"timbre-impressao"}
     css_texto = _remover_comentarios(_BASE_CSS.read_text(encoding="utf-8"))
     antes, dentro, depois = _extrair_bloco_media_print(css_texto)
@@ -1123,13 +1245,23 @@ def test_item2_restrito_ao_identificador_timbre_impressao_ainda_dispara_tres_vez
         f"esperava ZERO regras DEPOIS do @media print mencionando 'timbre-impressao' "
         f"— achei {achados_por_trecho['depois']!r}"
     )
-    assert len(achados_por_trecho["dentro"]) == 3, (
-        f"esperava EXATAMENTE 3 regras DENTRO do @media print mencionando "
-        f"'timbre-impressao' e declarando algo além de display (margin-bottom do "
-        f"contêiner, margin do <p>, font-weight/font-size do :first-child) — achei "
-        f"{len(achados_por_trecho['dentro'])}: {achados_por_trecho['dentro']!r} — se "
-        f"este número mudou, o CSS real do timbre mudou; confira antes de supor que "
-        f"a medição está desatualizada"
+    # BL-377/J6: a DIREÇÃO que reprova é zero — nunca um valor exato. A
+    # medição HISTÓRICA (hoje 3: margin-bottom do contêiner, margin do
+    # <p>, font-weight/font-size do :first-child) fica só no comentário e
+    # na mensagem, como ARGUMENTO do BL-367, nunca num `assert ==`.
+    assert len(achados_por_trecho["dentro"]) > 0, (
+        f"esperava PELO MENOS UMA regra DENTRO do @media print mencionando "
+        f"'timbre-impressao' e declarando algo além de display — achei ZERO. "
+        f"MEDIÇÃO HISTÓRICA (não um piso fixo): hoje são 3 (margin-bottom do "
+        f"contêiner, margin do <p>, font-weight/font-size do :first-child) — "
+        f"{achados_por_trecho['dentro']!r}. Subir OU descer esse número é "
+        f"ESPERADO sempre que o CSS de LAYOUT do timbre mudar (letter-spacing, "
+        f"line-height, text-transform, ...) e NÃO é sinal de timbre errado — "
+        f"nenhuma sabotagem de visibilidade precisa passar por aqui, porque a "
+        f"guarda central deste arquivo já cobre display:none pela cadeia real. "
+        f"Se este teste morreu com ZERO, é o argumento do BL-367 (nenhuma "
+        f"restrição por identificador chega a zero) que mudou e precisa ser "
+        f"revisto — não uma sabotagem para investigar."
     )
 
 
@@ -1169,3 +1301,131 @@ def test_o_motor_simulado_nao_consegue_decidir_visibilidade_sem_falso_alarme():
     )
     assert motivo is not None
     assert motivo is not None
+
+
+# ---------------------------------------------------------------------------
+# BL-382 (MÉDIA J12 da auditoria DL-026/DL-028, rodada 9,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): reprodução do
+# refatorar EXATO que reabriu o H2 — mover o timbre para um `{% include
+# %}` —, em CÓPIA sintética dentro de `tmp_path` (BL-311: nunca no
+# repositório real), com os diretórios de varredura substituídos por
+# `monkeypatch` em vez de escrever em `templates/contabilidade/` de
+# verdade. Verificação pedida pela auditoria (§8 item G): o refatorar
+# deixa a suíte VERDE, a guarda continua nomeando a TELA (nunca o
+# parcial), e a sabotagem do H2 aplicada DENTRO do parcial morre
+# nomeando a tela.
+# ---------------------------------------------------------------------------
+
+
+def _substituir_diretorios_de_templates(monkeypatch, diretorios):
+    """`_diretorios_de_templates_do_django` é IMPORTADA por nome para
+    este módulo (`from ... import _diretorios_de_templates_do_django`,
+    topo do arquivo) — isso cria uma segunda LIGAÇÃO ao mesmo objeto, não
+    uma referência ao atributo do módulo original. `_resolver_caminho_
+    de_template`/`_expandir_includes` (test_bl329) chamam a função pelo
+    NOME GLOBAL DELAS PRÓPRIAS, no namespace de `test_bl329_marca_fora_
+    do_papel` — um `monkeypatch` só na cópia importada aqui NÃO as
+    alcança (medido: sem isto, o `{% include %}` da tela não resolve, o
+    parcial fica desprotegido, e o teste falha apontando para o
+    sintoma errado). Por isso os DOIS pontos precisam ser substituídos
+    juntos, sempre por esta função — nunca um `monkeypatch.setattr`
+    solto copiado de um teste para o outro."""
+    monkeypatch.setattr(f"{__name__}._diretorios_de_templates_do_django", lambda: diretorios)
+    monkeypatch.setattr(
+        "apps.contabilidade.tests.test_bl329_marca_fora_do_papel."
+        "_diretorios_de_templates_do_django",
+        lambda: diretorios,
+    )
+
+
+def test_templates_com_timbre_impressao_expande_include_e_nomeia_a_tela_nao_o_parcial(
+    tmp_path, monkeypatch
+):
+    """Antes desta correção (BL-382): mover `.timbre-impressao` de uma
+    tela para um parcial incluído fazia a derivação listar o PARCIAL no
+    lugar da TELA — a tela SAÍA da lista. Reproduzido aqui: `_timbre.html`
+    (parcial, com o timbre) e `tela_com_timbre_via_include.html` (tela,
+    que só tem `{% include "_timbre.html" %}` dentro de um contêiner
+    próprio) num diretório sintético. A derivação precisa devolver SÓ a
+    tela, com a árvore dela contendo o contêiner que a envolve — prova de
+    que o `include` foi expandido de verdade, não só "achado por texto"."""
+    diretorio = tmp_path / "templates"
+    diretorio.mkdir()
+    parcial = diretorio / "_timbre.html"
+    parcial.write_text('<div class="timbre-impressao"><p>Linha</p></div>\n', encoding="utf-8")
+    tela = diretorio / "tela_com_timbre_via_include.html"
+    tela.write_text(
+        '<div class="cabecalho-do-documento">\n    {% include "_timbre.html" %}\n</div>\n',
+        encoding="utf-8",
+    )
+
+    _substituir_diretorios_de_templates(monkeypatch, [diretorio])
+
+    encontrados = _templates_com_timbre_impressao()
+    assert encontrados == [tela], (
+        f"esperava só a TELA ({tela}) na derivação, com o PARCIAL ({parcial}) "
+        f"excluído por ser incluído por ela — achei {encontrados!r}. Se o parcial "
+        f"aparece sozinho ou a tela sumiu, o achado J12 voltou."
+    )
+
+    raiz = _parsear_html(tela.read_text(encoding="utf-8"))
+    assert any(
+        no.tag == "div" and "cabecalho-do-documento" in no.classes for no in _percorrer(raiz)
+    ), (
+        "a árvore da TELA deveria conter o contêiner .cabecalho-do-documento que "
+        "a envolve, MESMO com o timbre vindo de um {% include %} — se não "
+        "contém, o include não foi expandido de verdade antes do parse"
+    )
+    assert _tem_timbre_impressao(raiz)
+
+
+def test_h2_sabotagem_no_parcial_incluido_mata_a_guarda_nomeando_a_tela(tmp_path, monkeypatch):
+    """BL-382, segunda metade da verificação pedida: a sabotagem do H2
+    (envolver o timbre num contêiner escondido no `@media print`)
+    aplicada DENTRO do parcial — não na tela — ainda precisa reprovar
+    NOMEANDO A TELA, porque é ela (nunca o parcial, que nem aparece na
+    derivação — teste acima) que a guarda central usa como
+    `caminho_template`."""
+    diretorio = tmp_path / "templates"
+    diretorio.mkdir()
+    parcial = diretorio / "_timbre.html"
+    parcial.write_text(
+        '<div class="cabecalho-do-documento">\n'
+        '    <div class="timbre-impressao"><p>Linha</p></div>\n'
+        "</div>\n",
+        encoding="utf-8",
+    )
+    tela = diretorio / "tela_com_timbre_via_include.html"
+    tela.write_text('{% include "_timbre.html" %}\n', encoding="utf-8")
+
+    _substituir_diretorios_de_templates(monkeypatch, [diretorio])
+
+    encontrados = _templates_com_timbre_impressao()
+    assert encontrados == [tela], f"controle: esperava só a tela — achei {encontrados!r}"
+
+    cadeia, _ = _cadeia_do_timbre_do_escritorio(tela)
+    css_original = _BASE_CSS.read_text(encoding="utf-8")
+    caminho_css_mutado = _escrever_css_mutado(
+        tmp_path,
+        css_original,
+        "    .timbre-impressao {\n        display: block;",
+        "    .cabecalho-do-documento {\n        display: none;\n    }\n\n"
+        "    .timbre-impressao {\n        display: block;",
+        nome="base-mutado-h2-parcial.css",
+    )
+    escondido, no_que_esconde = _algum_ancestral_removido_do_papel(
+        cadeia, caminho_css_mutado.read_text(encoding="utf-8")
+    )
+    assert escondido, (
+        f"a sabotagem do cabeçalho do documento (H2), aplicada DENTRO do parcial "
+        f"incluído por {tela.name!r}, deveria ter feito a guarda MORRER PELA "
+        f"PROPRIEDADE — e não morreu"
+    )
+    # A mensagem de erro real (produzida pela guarda central,
+    # test_timbre_do_escritorio_continua_visivel_sob_impressao) nomeia
+    # `_id_do_template(caminho_template)` — e `caminho_template`, ali, É a
+    # TELA (o parcial nunca chega a ser um parâmetro de teste, porque
+    # `_templates_com_timbre_impressao` já o excluiu). Confirmamos aqui
+    # que o nó que esconde não é o próprio parcial "sozinho" fora de
+    # contexto: ele só existe DENTRO da árvore expandida da tela.
+    assert no_que_esconde is not None
