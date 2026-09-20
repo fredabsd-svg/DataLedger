@@ -531,7 +531,47 @@ que modelo novo entre **sozinho** ou o build fique vermelho.
 **Duas frentes em paralelo, em arquivos disjuntos:** `scripts/**` com a rodada 2
 da DL-029; `apps/**` com a DL-030.
 
-#### A RODADA 2 da DL-029 está em execução, e a régua é a DE-060
+#### A RODADA 2 da DL-029 ENTREGOU — `92679e0`, C2 e C3 fechados
+
+**Os quatro substitutos viraram propriedade**, e é a DE-060 sendo aplicada em vez
+de citada:
+
+| A propriedade | Antes | Agora |
+| --- | --- | --- |
+| Quantas linhas o papel carrega | contagem colada à recusa de infraestrutura | **contagem própria**, código **1** com a frase do C3; `None` continua recusando (código 2) |
+| Que tamanho a linha tem no papel | `getComputedStyle().fontSize` | **altura do bbox no papel**, com fator **medido** (1,088 idêntico em 4 tamanhos × 2 pesos) |
+| A razão de contraste do WCAG | luminância de raster em **cinza** | **cor**, luminância de **três canais** |
+| A linha está no papel | substring do `pdftotext -layout` | **o bbox foi localizado** |
+
+**Medido no produto real:** `transform: scale(0.6)` e `zoom: 0.6` reprovam
+nomeando **tamanho** (9,60 px e 8,40 px); `color: #FF0000` reprova relatando
+**4,00:1** — que é a razão WCAG real e **bate com o cálculo à mão do auditor**;
+`letter-spacing: 0.2em` a 14 px **passa**; timbre com 2 de 3 linhas sai com
+código **1** dizendo *"número de linhas no papel (2) diverge do declarado (3)"*,
+não mais *"falha de infraestrutura"*.
+
+**O BL-434 saiu de zero para 14 testes ponta a ponta**, com Django, subprocesso,
+Chromium e `poppler` **reais**, um por cláusula, afirmando **código de saída** e
+**substring da mensagem**. Era o teste que teria pegado o BL-427.
+
+**Custo, que era o meu ponto de parada:** 3,4–3,7 s antes, **3,5–3,6 s depois**.
+A rasterização em cor **não** custou o que eu temia.
+
+**Conferido por mim, com banco próprio (`arq_r2`):** `pytest` → **2045 passed,
+15 skipped, 4 subtests**, 88,65 s; `ruff check` limpo; `ruff format --check` 210
+arquivos; árvore limpa.
+
+⚠️ **E o implementador declarou quatro achados próprios, dois deles contra a
+própria entrega** — [BL-436](../projeto/backlog.md) a **BL-439**. O **BL-436** é
+o substituto que **sobrou**: a classificação *"texto grande"* do WCAG ainda lê o
+tamanho **declarado**. Ele argumenta que a checagem de tamanho mascara isso na
+prática; **eu acho que o mascaramento não é completo** e mandei medir —
+`font-size: 24px` com `scale(0.6)` dá 14,4 px, **acima** do mínimo de 11, e a
+classificação continuaria exigindo 3:1 quando o devido seria 4,5:1.
+**Registrei a hipótese ANTES do resultado, e ela pode estar errada** — hoje eu já
+publiquei uma conclusão falsa por não medir (BL-435).
+
+➡️ **Em verificação independente agora.** Depois dela, auditoria.
 
 Delegada sobre `2f1e596`, com os critérios **11 a 20** escritos na seção
 *"Rodada 2"* do
