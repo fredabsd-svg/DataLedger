@@ -234,6 +234,7 @@ diverge.
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
 | [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, por decisão: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324) |
 | [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
+| [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -273,12 +274,24 @@ auditoria independente — que é exatamente o motivo de ela existir.
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
 desenvolvimento, com uma DECISÃO MATERIAL no colo do Fred.**
 
-➡️ **Leia primeiro a seção "A décima auditoria" mais abaixo.** A rodada 13 está
-integrada em `240fb0d` (PR #38); a décima auditoria **REPROVOU**, com um
-bloqueador (**BL-404**) e quatro altas; e o auditor recomenda **não comprar a
-rodada 11 de correção achado a achado**, mas sim uma frase executável para o
-critério 9 inteiro (**BL-414**) — ou declarar, como a DE-054 permite, **produto
-bom, garantia parcial**. **Não decida isso sozinho: é do Fred.**
+➡️ **DECIDIDO em 2026-09-20, e a decisão é a [DE-059](../projeto/decisoes.md).**
+O Fred delegou com uma frase — *"Você decide"* — depois de eu levar os dois lados
+com o custo de cada um (PE-56). A resposta é **as duas coisas**, porque elas
+respondem a perguntas diferentes:
+
+1. **Comprar a frase executável** do critério 9 inteiro. É a
+   **[DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md)**, e ela
+   fecha BL-404, BL-405, BL-406 e BL-407 **juntos**.
+2. **Declarar hoje a verdade de hoje:** DL-026 e DL-028 **NÃO estão fechadas**.
+   O que existe é **produto bom, garantia parcial**, com **BL-404** nomeado como
+   o buraco aberto. Vale enquanto a DL-029 não entrar, e vale independentemente
+   dela.
+
+⚠️ **O que NÃO é defensável, e o auditor foi explícito:** fechar dizendo que o
+critério 9 está garantido. Não está.
+
+➡️ **Leia a seção "A décima auditoria" mais abaixo** para o porquê, com os
+números.
 
 **A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
 etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o

@@ -3030,3 +3030,77 @@ desenho e contexto histórico continuam livres.
   seis linhas iguais passam, identificador trocado passa. A propriedade certa é
   *"cada item que eu afirmo ter registrado é localizável no arquivo gravado pelo
   seu próprio identificador"* — comparar **conjuntos**, não números.
+
+## DE-059 — Comprar a frase executável do critério 9, e dizer a verdade enquanto ela não chega
+
+**Data:** 2026-09-20. **Decisão delegada pelo Fred**, com uma frase — *"Você
+decide"* — depois de eu levar a ele os dois lados da **PE-56** com o custo de
+cada um. Plano de execução:
+[DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md).
+
+### A pergunta
+
+A décima auditoria
+([relatório](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md)) reprovou
+DL-026 e DL-028 com um bloqueador e quatro altas, e o auditor pôs duas saídas na
+mesa em vez de pedir a rodada 11:
+
+| | Caminho | Custo |
+| --- | --- | --- |
+| **1** | Escrever **uma** frase executável para o critério 9 inteiro e fazer o instrumento ser julgado por ela | ≈ uma rodada de trabalho, num arquivo e nos testes dele |
+| 2 | Não declarar as etapas fechadas e declarar **produto bom, garantia parcial**, com BL-404 nomeado | Zero |
+
+E foi explícito sobre o que **não** é defensável: *"fechar dizendo que o
+critério 9 está garantido"*.
+
+### A decisão
+
+**As duas, e elas não competem — respondem a perguntas diferentes.**
+
+1. **Compro a frase** (caminho 1). É a DL-029.
+2. **E declaro hoje a verdade de hoje** (caminho 2): DL-026 e DL-028 **não estão
+   fechadas**; o que existe é **produto bom, garantia parcial**, com **BL-404**
+   nomeado como o buraco aberto. Isso vale enquanto a DL-029 não entrar, e vale
+   **independentemente** dela.
+
+Isso é a **DE-054** (acima, neste mesmo arquivo) aplicada: *"isto melhora o produto?"* e *"isto está
+garantido?"* são perguntas separadas. O caminho 2 é uma afirmação sobre o
+**estado**; o caminho 1 é uma decisão sobre o **próximo trabalho**. Tratá-las
+como alternativa era o que amarrava uma na outra.
+
+### Por que o caminho 1, e a evidência é do mesmo dia
+
+O argumento do auditor é de **régua**: a régua de cada rodada tem sido o
+**relatório anterior**, não o **critério**; por isso o achado sobe de nível a
+cada vez e não acaba.
+
+Em **2026-09-20**, numa tarde, a mesma lição apareceu **três vezes seguidas** —
+**BL-415**, **BL-416**, **BL-418** — e nas três **dentro de uma guarda escrita
+para fechar a ocorrência anterior**. Na terceira, a causa raiz apareceu e ela
+**já estava decidida**: era a **DE-057** outra vez, um nível abaixo — estávamos
+reimplementando a configuração de uma ferramenta em vez de perguntar a ela,
+exatamente como o motor de cascata fazia com o navegador.
+
+Três ocorrências em uma tarde, com a causa raiz sendo uma decisão que o projeto
+já tinha tomado, é a medição que faltava. **Não é teoria sobre o futuro: é o
+registro do dia.**
+
+### O que esta decisão NÃO significa
+
+1. **Não fecha DL-026 nem DL-028.** Nenhuma das duas se declara fechada sem
+   auditoria da versão integrada (DE-054). A DL-029 é o trabalho; o fechamento é
+   outra conversa.
+2. **Não reverte o caminho A.** O instrumento de navegador **fica**. O auditor
+   reafirmou pela segunda rodada seguida: 4 s de medição responderam o que 1.800
+   linhas de cascata simulada não respondem, e o controle limpo mede 348 px
+   contra piso de 40.
+3. **Não promete que a frase é a última.** Prometer isso seria o defeito que a
+   DE-058 acabou de proibir. O que se afirma é o que se mede: os quatro achados
+   abertos são consequência de a frase não existir, e a frase os endereça
+   **juntos**. Se aparecer um quinto eixo, ele aparece contra **o critério**, que
+   é uma régua melhor que o relatório anterior.
+4. **Não fecha o limite do desenho.** Marca do fornecedor como logotipo vetorial
+   não tem objeto de texto, e nenhuma cláusula da frase a alcança. Fica
+   **declarada no código**, no formato da DE-056.
+5. **Não substitui a ação do Fred no GitHub.** Enquanto a `main` não tiver
+   proteção (BL-373), tudo isto — inclusive o job novo — é **conselho**.
