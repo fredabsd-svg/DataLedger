@@ -33,6 +33,33 @@ Confundi-los é erro caro:
 
 O primeiro protege o operador de si mesmo; o segundo protege o cliente.
 
+## O TERCEIRO fato, respondido pelo Fred em 2026-09-20
+
+Eu perguntei o que o escritório faz quando um mês **já fechado** precisa de
+correção, com três opções. **A resposta foi (c): depende de o documento já ter
+ido ao cliente.**
+
+Isso não é detalhe de fluxo — **muda o modelo**, e é caro de acrescentar depois:
+
+| Situação | O que o sistema faz |
+| --- | --- |
+| Competência **aberta** | Lança livremente |
+| Competência **encerrada**, ainda **não entregue** | **Reabre**, com motivo obrigatório, autorização e trilha. Corrige, fecha de novo |
+| Competência **encerrada e ENTREGUE** ao cliente | **Não reabre.** A correção vai por **ajuste no mês aberto**, com histórico apontando para a competência de origem |
+
+**Decisão de modelagem, minha:** *"entregue"* **não é um quarto estado** — é um
+**fato datado** sobre a competência (`entregue_em`, `entregue_por`). Estado e
+entrega são coisas diferentes: um mês pode estar encerrado e não entregue, e a
+entrega pode repetir-se (balancete ao cliente, depois ECD transmitida). Começar
+com um par de campos é o mais barato; se um dia precisar de lista de entregas,
+vira modelo próprio sem refazer a trava.
+
+⚠️ **Por que isto protege o cliente, e não só o processo:** um balancete que o
+cliente já recebeu, arquivou e talvez levou ao banco **não pode mudar por baixo
+dele**. Se mudar, o papel na mão dele deixa de bater com o sistema — e o projeto
+exige que relatório e saldo sejam conciliáveis com os lançamentos de origem
+(RC-19).
+
 ## Escopo
 
 - Competência (mês de referência) como conceito de primeira classe, vinculada ao
@@ -62,6 +89,26 @@ RC-57 — reabre, lança, fecha, com rastro.
 
 Decisão reversível enquanto não houver dado real, e registrada agora justamente
 porque depois fica cara.
+
+## Fatia 1 — o que trava o livro (NÍVEL 1)
+
+Sob a **§3.1 do `AGENTS.md`** (regra de 2026-09-20), esta fatia é **nível 1** e
+paga cerimônia completa. **O resto do escopo acima fica para depois** — período
+de trabalho, filtro nas saídas, origem do lançamento (BL-72) e interface são
+fatias próprias, e nenhuma delas trava o livro.
+
+**O que entra, e só isto:**
+
+1. **Fechar** competência (`aberta → encerrada`), com autor, data e motivo na
+   trilha.
+2. **Recusar lançamento em competência encerrada — NO SERVIDOR.** É a garantia
+   inteira desta fatia; esconder o botão na tela não conta.
+3. **Reabrir** com motivo obrigatório e trilha — **recusado se a competência já
+   foi entregue**.
+4. **Marcar como entregue**, com autor e data.
+
+**A tela vem na fatia 2**, depois que o servidor estiver certo. Ordem
+deliberada: a trava tem de existir antes de haver botão para acioná-la.
 
 ## Critérios de aceite
 

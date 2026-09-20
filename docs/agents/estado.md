@@ -308,6 +308,43 @@ examinei antes de cortar:** `test_agentes_multiplataforma` guarda um gerador com
 módulos. **Eu havia proposto cortá-los pelo TAMANHO do arquivo — que é um
 substituto, não a propriedade.** DE-060 aplicada a mim mais uma vez.
 
+### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
+
+**Aberto em 2026-09-20**, logo depois da mudança de processo, porque o Fred
+pediu *"vamos codar produto"*. É a primeira etapa a nascer sob a
+[§3.1 do AGENTS.md](../../AGENTS.md), classificada **NÍVEL 1** — mexe no livro.
+
+**O fato que faltava**, respondido pelo Fred na mesma conversa, à pergunta
+*"quando um mês já fechado precisa de correção, o que vocês fazem?"*:
+
+> **(c) Depende — reabrem antes da entrega ao cliente, ajustam depois dela.**
+
+Vira três comportamentos, e o terceiro é o que nenhum plano anterior tinha:
+
+| Situação | O que o sistema faz |
+| --- | --- |
+| Competência **aberta** | Lança livremente |
+| **Encerrada**, ainda **não entregue** | **Reabre**, com motivo obrigatório, autorização e trilha |
+| **Encerrada e ENTREGUE** | **Não reabre.** O ajuste vai no mês aberto, apontando para a competência de origem |
+
+**Decisão minha, de modelagem:** *"entregue"* **não** é um quarto estado da
+competência — é um **fato datado** (`entregue_em`, `entregue_por`). Estado
+descreve o que se pode fazer; entrega descreve o que já saiu porta afora, e as
+duas coisas evoluem separado.
+
+**O que a fatia 1 entrega, e ela é de servidor:**
+
+1. Fechar a competência.
+2. **Recusar lançamento em competência encerrada — NO SERVIDOR.**
+3. Reabrir com motivo, **recusado se já entregue**.
+4. Marcar como entregue.
+
+⚠️ **A tela fica para a fatia 2, e é de propósito:** a trava tem de existir
+**antes** de haver botão para acioná-la. Hoje `Competencia.estado` existe no
+modelo (`aberta → em_encerramento → encerrada`) e **ninguém lê**: `grep '\.estado\b'`
+fora de testes não devolve nada. É campo decorativo até esta fatia.
+
+Plano: [DL-016](../planos/DL-016-competencia-e-fechamento.md).
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
