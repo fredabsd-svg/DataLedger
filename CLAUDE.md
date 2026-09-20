@@ -110,6 +110,35 @@ Regras que decorrem disso:
 A causa do problema não foi distração, foi **duplicação**. Texto repetido em
 quatro lugares diverge assim que alguém atualiza um.
 
+## Consulte os manuais ANTES de perguntar ao Fred
+
+Instrução do Fred, de 2026-09-20:
+
+> *"Grave na sua memória sempre consultar os manuais quando surgir qualquer
+> dúvida contábil antes de me perguntar."*
+
+Dita depois de eu levar a ele uma dúvida sobre rotina do sistema de referência
+que o manual responde em uma frase — e depois de o manual, na mesma leitura,
+**corrigir** uma hipótese minha que eu ia apresentar como certa.
+
+Onde está cada fonte: [docs/projeto/fontes-de-referencia.md](docs/projeto/fontes-de-referencia.md).
+
+| Tipo de dúvida | Onde se resolve |
+| --- | --- |
+| Como o sistema de referência se comporta; o que um campo significa; qual é a rotina usual do escritório | **Manual**, e depois pesquisa na internet — **nunca o Fred primeiro** |
+| Regra contábil ou exigência normativa: item, vigência, prazo, alíquota, leiaute | **Fonte oficial** (CFC, Receita), com item e data de consulta citados |
+| O que o escritório **dele** faz; o que ele quer que o produto faça; trade-off de produto | **Só o Fred** |
+
+⚠️ **A ressalva que protege o Fred, e ela é minha, não dele:** manual de
+concorrente responde **rotina**, nunca **norma**. Um manual de 2018 de outro
+produto não pode virar fundamento normativo nosso — isso violaria a regra de não
+inventar alíquota, prazo ou leiaute. As duas colunas de cima são diferentes de
+propósito.
+
+⚠️ **E o manual pode CORRIGIR a hipótese, não só confirmá-la.** Foi o que
+aconteceu na primeira aplicação desta regra. Ler antes não é só economizar o
+tempo do Fred: é evitar levar a ele uma pergunta cuja premissa já está errada.
+
 ## Regras impostas por mecanismo
 
 Parte das regras deixou de ser pedido: gancho de sessão que injeta o
