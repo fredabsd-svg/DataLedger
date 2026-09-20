@@ -106,6 +106,20 @@ Códigos de saída:
   ausente, Python do sistema sem Playwright, Chromium indisponível, zero
   telas derivadas). Não é um veredito sobre o produto.
 
+**Limites declarados (nível 2/3 — DE-054, medidos e registrados, não
+fechados: o Fred decidiu não comprá-los agora), no formato da DE-056:**
+
+- **M3/BL-445:** este instrumento mede a identificação do **ESCRITÓRIO**
+  na folha 1. **Não** mede empresa, período, nem numeração de folha, e
+  **não** mede nada nas folhas 2..N do documento.
+- **M5/BL-447:** a ordem das linhas casadas é a ordem do **DOM**
+  (`querySelectorAll`), não a ordem de leitura no papel —
+  `flex-direction: column-reverse` inverte o timbre visualmente e PASSA.
+- **M13/BL-454:** o isolamento do timbre entre escritórios diferentes é
+  provado no **contexto do servidor** (`apps/tenancy/tests/
+  test_bl282_timbre_escritorio.py`), não na tinta que este instrumento
+  mede.
+
 ## Como usar
 
 ```bash
@@ -174,7 +188,29 @@ SELETOR_TIMBRE_FILHOS = ".timbre-impressao p"
 # `"D a t a L e d g e r"`, e a marca do fornecedor voltou ao papel do
 # Balancete com a suíte inteira verde E com este instrumento em `exit 0`.
 #
-# A correção tem DUAS frentes, na ordem em que o K1 as pediu:
+# ⚠️ **A fronteira do C5, redação corrigida na décima segunda auditoria
+# (M2, docs/auditorias/2026-09-20-dl-029-dl-030-rodada-12.md)** — a
+# redação anterior da DE-061 dizia "no conteúdo que o documento controla,
+# isto é, tinta na folha e metadados do arquivo": uma ENUMERAÇÃO DE DOIS
+# CANAIS, a mesma forma que a DE-056 proíbe, cometida DENTRO da correção
+# que fechava exatamente essa forma de defeito para outro campo. MEDIDO
+# pelo auditor: um `<a href="https://dataledger.com.br/">` inócuo no
+# corpo do documento grava `/URI (https://dataledger.com.br/)` como
+# anotação de link no PDF — um TERCEIRO canal, que não é tinta (invisível
+# a `pdftotext`, que só lê o TEXTO âncora, nunca o ALVO do link) nem
+# metadado clássico (ausente do dicionário `Info` que `_metadados_do_pdf`
+# lê) — e passava com `exit 0`, com o domínio do fornecedor clicável
+# dentro do arquivo entregue ao cliente (o BL-404 por outro canal). A
+# redação correta, adotada aqui, TROCA A LISTA POR UM CRITÉRIO: o C5 vale
+# para **tudo que o arquivo exportado carrega e que o template ou a
+# folha de estilo podem suprimir**, excluída a faixa que o navegador
+# acrescenta por fora e que nenhuma folha de estilo alcança (BL-332).
+# Anotação de link é controlada INTEIRAMENTE pelo template (é o `<a
+# href>` que o Django escreve) — está DENTRO do critério, mesmo sem
+# aparecer em nenhuma lista.
+#
+# A correção tem TRÊS frentes, agora — as duas que o K1 pediu, mais a
+# que o M2 acrescentou:
 #
 # 1. DERIVAR o identificador de UMA fonte, nunca repeti-lo aqui
 #    (AGENTS.md §8: duas cópias do mesmo texto divergem assim que uma for
@@ -183,6 +219,10 @@ SELETOR_TIMBRE_FILHOS = ".timbre-impressao p"
 # 2. Perguntar por PROPRIEDADE (ausência normalizada: caixa, espaço,
 #    pontuação e separadores desprezados), não por substring literal —
 #    `_normalizar_para_busca_do_fornecedor`, abaixo.
+# 3. Varrer TAMBÉM as anotações de link do PDF, com a MESMA normalização
+#    — `_anotacoes_de_link_do_pdf`/`_anotacao_de_link_com_marca_do_
+#    fornecedor`, logo depois de `_checar_marca_do_fornecedor_nos_
+#    metadados` (M2/BL-444).
 _CAMINHO_BASE_HTML = RAIZ / "templates" / "base.html"
 
 # `<title>{% block titulo %}DataLedger{% endblock %}{% block
@@ -568,43 +608,58 @@ sonda = sonda_visibilidade.js_sonda_container_e_filhos(
 # a altura de linha real é fracionária (ex.: 13,6px vira 14), e ISSO
 # introduz ruído de até ~0,5px em QUALQUER caso, com ou sem sabotagem.
 #
-# **Tentativa 2, ADOTADA:** decompõe a ESCALA VERTICAL da matriz de
-# `transform` computada (`getComputedStyle(el).transform`, que já vem
-# resolvida — `matrix(a,b,c,d,e,f)`: escalaY = sqrt(c²+d²); `matrix3d`:
-# escalaY = a norma da segunda coluna) e multiplica por `zoom`
-# computado, ANDANDO POR TODOS OS ANCESTRAIS (`parentElement`) até a
-# raiz — nenhuma leitura de caixa de layout (nada arredondado): só
-# números que o navegador já resolveu para a transformação CSS em si.
-# MEDIDO nos MESMOS 5 casos sintéticos: valores EXATOS (0,6 / 0,6 / 0,5
-# / 0,56), sem o ruído de subpixel da tentativa 1. E contra o PRODUTO
-# REAL, `font-family: serif` a 11px sem sabotagem: `escala_acumulada =
-# 1,0` exato, `tamanho_efetivo = 11,0px` -- no piso, PASSA.
+# **Tentativa 2, DESCARTADA na décima segunda auditoria (M1,
+# docs/auditorias/2026-09-20-dl-029-dl-030-rodada-12.md)** — decompunha a
+# ESCALA VERTICAL da matriz de `transform` computada
+# (`getComputedStyle(el).transform`) e multiplicava por `cs.zoom`,
+# ANDANDO POR TODOS OS ANCESTRAIS. Resolvia os 5 casos sintéticos
+# testados na rodada anterior (own transform, zoom, ancestral,
+# combinação, controle) — mas lia DUAS PROPRIEDADES NOMEADAS
+# (`cs.transform`, `cs.zoom`), e a propriedade CSS `scale:` (a forma
+# INDIVIDUAL de escrever escala, hoje recomendada ao lado de `rotate:` e
+# `translate:` como alternativa moderna a `transform: scale(...)`) fica
+# em `getComputedStyle(el).scale` — um TERCEIRO campo, nunca lido.
+# MEDIDO pelo auditor: `scale: 0.6` produz `cs.transform === 'none'` e
+# `cs.scale === '0.6'` — a MESMA folha A4 exportada (pixels de tinta e
+# bbox do glifo idênticos ao milésimo de ponto ao `transform: scale(0.6)`
+# equivalente), com `escala_acumulada` lida como 1,0 em vez de 0,6. Isso
+# reabria o BL-428 (piso de tamanho) E o BL-436 (classificação "texto
+# grande" do WCAG) inteiros, com uma única palavra de CSS. **A correção
+# NÃO troca a leitura por uma lista maior** (`cs.transform`, `cs.zoom`,
+# `cs.scale`, e amanhã `cs.rotate`, `cs.translate`, `cs.offsetPath`,
+# `cs.perspective` — a DÉCIMA SÉTIMA ocorrência da classe de defeito que
+# a DE-055 existe para proibir: "guarda derivada de uma LISTA, não
+# aguenta" — AGENTS.md §8).
+#
+# **Tentativa 3, ADOTADA:** não lê NENHUMA propriedade CSS de
+# transformação — pergunta a ESCALA VISUAL COMPOSTA diretamente à
+# geometria renderizada, do jeito que o auditor recomendou. Insere, como
+# ÚLTIMO FILHO de cada linha do timbre, um elemento-SONDA com altura CSS
+# CONHECIDA (`display:inline-block; height:100px; width:0`) e lê
+# `getBoundingClientRect().height / 100`. Como a sonda é FILHA da própria
+# linha, ela herda toda transformação aplicada a ela e a QUALQUER
+# ancestral — via `transform`, `zoom`, `scale`, `rotate` (componente
+# vertical), ou qualquer propriedade futura que o CSSWG venha a
+# especificar — sem o instrumento precisar SABER o nome de nenhuma delas.
+# É geometria COMPOSTA e SUBPIXEL (`getBoundingClientRect`, não
+# `offsetHeight` — ver por que a tentativa 1 foi descartada, acima), a
+# mesma classe de correção que fechou C3 (contagem de linhas por
+# PROPRIEDADE do servidor, não por lista). A sonda é removida do DOM
+# logo em seguida — não fica na página que vira o PDF.
 js_fonte_das_linhas = (
     "(seletor) => {"
-    "  const escalaAcumulada = (elemento) => {"
-    "    let escala = 1;"
-    "    let no = elemento;"
-    "    while (no) {"
-    "      const cs = getComputedStyle(no);"
-    "      escala *= parseFloat(cs.zoom) || 1;"
-    "      const t = cs.transform;"
-    "      if (t && t !== 'none') {"
-    "        if (t.startsWith('matrix3d')) {"
-    "          const v = t.slice(9, -1).split(',').map(Number);"
-    "          escala *= Math.sqrt(v[4] * v[4] + v[5] * v[5] + v[6] * v[6]);"
-    "        } else {"
-    "          const v = t.slice(7, -1).split(',').map(Number);"
-    "          escala *= Math.sqrt(v[2] * v[2] + v[3] * v[3]);"
-    "        }"
-    "      }"
-    "      no = no.parentElement;"
-    "    }"
-    "    return escala;"
+    "  const escalaComposta = (elemento) => {"
+    "    const sonda = document.createElement('span');"
+    "    sonda.style.cssText = 'display:inline-block;height:100px;width:0;';"
+    "    elemento.appendChild(sonda);"
+    "    const altura = sonda.getBoundingClientRect().height;"
+    "    sonda.remove();"
+    "    return altura / 100;"
     "  };"
     "  return [...document.querySelectorAll(seletor)].map((el) => {"
     "    const cs = getComputedStyle(el);"
     "    const declarado = parseFloat(cs.fontSize);"
-    "    const escala = escalaAcumulada(el);"
+    "    const escala = escalaComposta(el);"
     "    return {"
     "      tamanho_px: declarado,"
     "      peso: parseInt(cs.fontWeight, 10) || 400,"
@@ -929,6 +984,72 @@ def _checar_marca_do_fornecedor_nos_metadados(metadados, marca_normalizada):
         valor = metadados.get(campo, "")
         if marca_normalizada in _normalizar_para_busca_do_fornecedor(valor):
             return campo
+    return None
+
+
+# ---------------------------------------------------------------------------
+# M2/BL-444 (décima segunda auditoria, achado do auditor-qa,
+# docs/auditorias/2026-09-20-dl-029-dl-030-rodada-12.md) — TERCEIRO canal
+# do C5, ao lado da tinta (`_texto_do_pdf`) e do dicionário `Info`
+# (`_metadados_do_pdf`): a ANOTAÇÃO DE LINK (`/Annot` do tipo `/Link`,
+# PDF Reference §8.4.5, campo `/A << /URI (...) >>`). Ver o comentário no
+# topo do módulo (fronteira do C5 corrigida) para o porquê deste canal
+# entrar no critério.
+#
+# **Por que ler os BYTES BRUTOS do arquivo, em vez de decodificar a
+# árvore de objetos do PDF** (a mesma técnica que o auditor usou —
+# `strings <pdf> | grep`): MEDIDO contra o PDF real exportado por este
+# produto (Chromium/Skia, ver `_metadados_do_pdf`) que o dicionário de
+# anotação NÃO é comprimido em fluxo de objetos — a string `/URI (...)`
+# aparece LITERAL nos bytes do arquivo, do mesmo jeito que `strings` a
+# encontrou. **Limite declarado, não escondido**: se o motor de
+# exportação mudar para um que comprima objetos (fluxo `/ObjStm`), esta
+# leitura para de encontrar anotações comprimidas, e passaria a exigir um
+# parser de estrutura de PDF de verdade — não é o caso hoje, e
+# `scripts/test_medir_identificacao_do_emitente.py` prova o caminho
+# funcionando contra bytes de PDF reais (não só sintéticos).
+_PADRAO_ANOTACAO_URI = re.compile(rb"/URI\s*\(((?:\\.|[^()\\])*)\)")
+
+
+def _anotacoes_de_link_do_pdf(caminho_pdf):
+    """Lista o ALVO (string dentro de `/URI (...)`) de TODAS as anotações
+    de link do PDF — não o TEXTO ÂNCORA visível (que `_texto_do_pdf` já
+    cobre), o DESTINO do link, que pode ser completamente diferente do
+    que aparece escrito na página (exatamente a sabotagem do BL-444: o
+    texto visível é "Emitido pelo sistema", o alvo é o domínio do
+    fornecedor).
+
+    Desescapa só as sequências que a especificação define dentro de uma
+    PDF `(string)` literal (`\\(`, `\\)`, `\\\\`, e as demais fugas de
+    uma barra invertida seguida de um caractere) — suficiente para uma
+    URL, que não costuma usar as fugas octais de controle da
+    especificação completa."""
+    bytes_do_pdf = Path(caminho_pdf).read_bytes()
+    alvos = []
+    for bruto in _PADRAO_ANOTACAO_URI.findall(bytes_do_pdf):
+        desescapado = re.sub(rb"\\(.)", rb"\1", bruto)
+        try:
+            alvos.append(desescapado.decode("utf-8"))
+        except UnicodeDecodeError:
+            # PDF não garante UTF-8 dentro de uma string literal — cai
+            # para latin-1 (nunca falha: todo byte é um code point válido
+            # nela), suficiente para a NORMALIZAÇÃO que _anotacao_de_
+            # link_com_marca_do_fornecedor aplica em seguida (ASCII
+            # minúsculo, o resto é descartado de qualquer forma).
+            alvos.append(desescapado.decode("latin-1"))
+    return alvos
+
+
+def _anotacao_de_link_com_marca_do_fornecedor(anotacoes_de_link, marca_normalizada):
+    """Devolve o primeiro ALVO de anotação de link cuja versão
+    normalizada contém o identificador do fornecedor, ou `None` se
+    nenhum contém — mesma normalização e mesmo contrato de
+    `_checar_marca_do_fornecedor_nos_metadados` (par, não coincidência: o
+    C5 é UMA pergunta — "o identificador aparece, em qualquer canal que o
+    template controla?" —, feita a canais diferentes)."""
+    for alvo in anotacoes_de_link:
+        if marca_normalizada in _normalizar_para_busca_do_fornecedor(alvo):
+            return alvo
     return None
 
 
@@ -2150,6 +2271,21 @@ def main(argv):
             )
             entrada["metadados_pdf"] = metadados_pdf
 
+            # M2/BL-444 (décima segunda auditoria): TERCEIRO canal do C5 —
+            # anotação de link (`/URI` dentro de `/Annot`). Controlada
+            # INTEIRAMENTE pelo template (é o `<a href>` que o Django
+            # escreve), então entra no critério corrigido (ver o
+            # comentário no topo do módulo e o de
+            # `_anotacoes_de_link_do_pdf`) mesmo sem ser tinta na folha
+            # nem metadado clássico.
+            anotacoes_de_link_pdf = (
+                _anotacoes_de_link_do_pdf(caminho_pdf) if caminho_pdf.exists() else []
+            )
+            anotacao_com_marca = _anotacao_de_link_com_marca_do_fornecedor(
+                anotacoes_de_link_pdf, marca_do_fornecedor_normalizada
+            )
+            entrada["anotacoes_de_link_pdf"] = anotacoes_de_link_pdf
+
             motivos = []
             if not medida.get("encontrado"):
                 motivos.append("container '.timbre-impressao' não encontrado no HTML")
@@ -2488,6 +2624,17 @@ def main(argv):
                     f"{campo_com_marca!r} do PDF ({metadados_pdf[campo_com_marca]!r}) — não é "
                     "tinta na folha, mas é identificação de quem vende o software no ARQUIVO "
                     "que o escritório entrega ao cliente"
+                )
+            if anotacao_com_marca is not None:
+                # M2/BL-444: nomeia "anotação de link" explicitamente — é o
+                # texto que a verificação da correção (M2, "Como verificar")
+                # exige aparecer na mensagem, para quem lê o job distinguir
+                # este canal dos outros dois (tinta/metadado).
+                motivos.append(
+                    f"identificador do fornecedor ({marca_do_fornecedor!r}) presente em "
+                    f"anotação de link do PDF (alvo: {anotacao_com_marca!r}) — não é tinta na "
+                    "folha nem metadado clássico, mas é identificação de quem vende o software "
+                    "no ARQUIVO que o escritório entrega ao cliente, clicável"
                 )
 
             entrada["veredito"] = "PASSOU" if not motivos else "REPROVADO"

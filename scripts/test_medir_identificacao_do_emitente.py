@@ -361,6 +361,95 @@ def test_checar_marca_do_fornecedor_nos_metadados_devolve_none_quando_limpo():
 
 
 # ---------------------------------------------------------------------------
+# M2/BL-444 (décima segunda auditoria, docs/auditorias/2026-09-20-dl-029-
+# dl-030-rodada-12.md) — TERCEIRO canal do C5: anotação de link (`/URI`
+# dentro de `/Annot`). MEDIDO pelo auditor: `<a href="https://
+# dataledger.com.br/">Emitido pelo sistema</a>` no corpo do documento
+# grava `/URI (https://dataledger.com.br/)` no PDF, invisível a
+# `pdftotext` (só lê o TEXTO âncora) e ausente do dicionário `Info` — o
+# C5 aprovava com `exit 0`. Testado aqui com bytes SINTÉTICOS de PDF (o
+# MESMO padrão dos testes de PGM/PPM acima) — sem `pdftotext`/`pdfinfo`
+# de verdade, só o CONTRATO de extração.
+# ---------------------------------------------------------------------------
+
+
+def test_anotacoes_de_link_do_pdf_extrai_uri_simples(tmp_path):
+    caminho = tmp_path / "sintetico.pdf"
+    caminho.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj\n"
+        b"<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] "
+        b"/A << /S /URI /URI (https://dataledger.com.br/) >> >>\n"
+        b"endobj\n"
+        b"%%EOF\n"
+    )
+    assert instrumento._anotacoes_de_link_do_pdf(caminho) == ["https://dataledger.com.br/"]
+
+
+def test_anotacoes_de_link_do_pdf_desescapa_parenteses_da_string_literal_do_pdf(tmp_path):
+    # PDF Reference §7.3.4.2: `\(` e `\)` dentro de uma string literal
+    # representam parênteses LITERAIS do conteúdo, não delimitadores — um
+    # parser ingênuo que corta no primeiro `)` cortaria a URL no meio.
+    caminho = tmp_path / "sintetico.pdf"
+    caminho.write_bytes(b"1 0 obj << /A << /URI (https://exemplo.com.br/a\\(1\\)) >> >> endobj\n")
+    assert instrumento._anotacoes_de_link_do_pdf(caminho) == ["https://exemplo.com.br/a(1)"]
+
+
+def test_anotacoes_de_link_do_pdf_le_varias_anotacoes_na_ordem(tmp_path):
+    # O padrão REAL do produto: cada linha de Balancete/Diário/Razão vira
+    # um link interno de volta para a aplicação — 268 delas num Balancete
+    # (medido pelo auditor). Este teste confirma que TODAS são lidas, não
+    # só a primeira.
+    caminho = tmp_path / "sintetico.pdf"
+    caminho.write_bytes(
+        b"1 0 obj << /A << /URI (file:///contabilidade/1/) >> >> endobj\n"
+        b"2 0 obj << /A << /URI (file:///contabilidade/2/) >> >> endobj\n"
+    )
+    assert instrumento._anotacoes_de_link_do_pdf(caminho) == [
+        "file:///contabilidade/1/",
+        "file:///contabilidade/2/",
+    ]
+
+
+def test_anotacoes_de_link_do_pdf_devolve_lista_vazia_sem_anotacao_nenhuma(tmp_path):
+    caminho = tmp_path / "sintetico.pdf"
+    caminho.write_bytes(b"%PDF-1.4\nsem anotacao de link nenhuma aqui\n%%EOF\n")
+    assert instrumento._anotacoes_de_link_do_pdf(caminho) == []
+
+
+def test_anotacao_de_link_com_marca_do_fornecedor_acha_o_alvo_sabotado():
+    marca_normalizada = instrumento._normalizar_para_busca_do_fornecedor("DataLedger")
+    anotacoes = ["file:///contabilidade/1/", "https://dataledger.com.br/"]
+    assert (
+        instrumento._anotacao_de_link_com_marca_do_fornecedor(anotacoes, marca_normalizada)
+        == "https://dataledger.com.br/"
+    )
+
+
+def test_anotacao_de_link_com_marca_do_fornecedor_pega_grafia_normalizada():
+    # A MESMA propriedade do C5 nos outros dois canais — caixa/pontuação
+    # não escondem o identificador na anotação de link.
+    marca_normalizada = instrumento._normalizar_para_busca_do_fornecedor("DataLedger")
+    anotacoes = ["https://DATA-LEDGER.example/"]
+    assert (
+        instrumento._anotacao_de_link_com_marca_do_fornecedor(anotacoes, marca_normalizada)
+        == "https://DATA-LEDGER.example/"
+    )
+
+
+def test_anotacao_de_link_com_marca_do_fornecedor_devolve_none_quando_limpo():
+    # MEDIDO: o padrão real do produto — anotações INTERNAS (`file:///
+    # contabilidade/painel/...`), nenhuma com o domínio do fornecedor.
+    marca_normalizada = instrumento._normalizar_para_busca_do_fornecedor("DataLedger")
+    anotacoes = [
+        "file:///contabilidade/painel/empresas/1/razao/17/?inicio=2026-03-01",
+        "file:///contabilidade/painel/empresas/1/lancamento/42/",
+    ]
+    resultado = instrumento._anotacao_de_link_com_marca_do_fornecedor(anotacoes, marca_normalizada)
+    assert resultado is None
+
+
+# ---------------------------------------------------------------------------
 # Piso de regressão (TELAS_MINIMAS_COM_TIMBRE_ESPERADAS) — a resposta ao
 # eixo do BL-363 no instrumento novo (Fred/arquiteto-senior, DL-028 fatia
 # 2): MEDIDO construindo o instrumento que uma sabotagem em
@@ -1380,6 +1469,20 @@ def _acrescentar_linha_extra_no_timbre(html):
     return html[:fim_da_tag] + "<p>Linha extra intrusa</p>" + html[fim_da_tag:]
 
 
+def _injetar_link_de_sabotagem_no_corpo(html, href, texto_ancora):
+    """Insere, EM MEMÓRIA logo após a abertura de `<body ...>`, um `<a
+    href="...">` — sabotagem de CONTEÚDO (não CSS), fora do
+    `.timbre-impressao`: equivalente a um link que o template escrevesse
+    em qualquer lugar da página. Reproduz o M2/BL-444: o ALVO do link
+    carrega o identificador do fornecedor; o TEXTO ÂNCORA, de propósito,
+    não — é exatamente o que faz `_texto_do_pdf` (que só lê o texto
+    visível) não pegar a sabotagem."""
+    inicio_body = html.index("<body")
+    fim_da_tag = html.index(">", inicio_body) + 1
+    link = f'<p><a href="{href}">{texto_ancora}</a></p>'
+    return html[:fim_da_tag] + link + html[fim_da_tag:]
+
+
 def _rodar_instrumento_sabotado(monkeypatch, capsys, cliente, empresa, html_sabotada, url):
     """Roda `instrumento.main([])` de VERDADE contra UMA tela fabricada a
     partir de HTML genuinamente renderizado — ver o comentário da seção,
@@ -1867,3 +1970,159 @@ def test_ponta_a_ponta_bl437_escala_acumulada_ainda_reprova_fonte_generica_peque
 
     assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
     assert "abaixo do mínimo de 11px" in err
+
+
+# ---------------------------------------------------------------------------
+# M1/BL-428, BL-436 (décima segunda auditoria, achado do auditor-qa,
+# docs/auditorias/2026-09-20-dl-029-dl-030-rodada-12.md) — a propriedade
+# CSS `scale:` (a forma INDIVIDUAL, sem `transform:`) produzia a MESMA
+# folha A4 exportada que `transform: scale(...)` (pixels de tinta e bbox
+# do glifo idênticos ao milésimo de ponto, medido pelo auditor), mas o
+# mecanismo antigo (`cs.transform`/`cs.zoom`) não a lia — `escala_
+# acumulada` saía 1,0 em vez de 0,6, e o BL-428/BL-436 reabriam inteiros.
+# A correção (sonda geométrica, ver `js_fonte_das_linhas`) não lê NENHUMA
+# propriedade CSS nomeada — estes testes reproduzem `scale:` no
+# `.timbre-impressao`, `scale:` no `<body>` (o caso do BL-428 original,
+# "encolher a impressão para a tabela caber") e a combinação com o
+# BL-436 (tamanho declarado grande, efetivo normal, contraste
+# insuficiente) — os TRÊS casos que o "Como verificar" do M1 pede.
+# ---------------------------------------------------------------------------
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_m1_propriedade_scale_no_timbre_reprova_por_tamanho_medido_no_papel(
+    monkeypatch, capsys
+):
+    """M1: `scale: 0.6` (propriedade individual, SEM `transform:`) no
+    `.timbre-impressao` tem de reprovar código 1 nomeando TAMANHO, com o
+    número medido — exatamente como `transform: scale(0.6)` já reprova
+    (ver o teste do critério 13)."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, ".timbre-impressao { scale: 0.6; transform-origin: top left; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+    assert "CONTRASTE insuficiente" not in err
+    assert "POUCOS PIXELS" not in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_m1_propriedade_scale_no_body_reprova_por_tamanho_medido_no_papel(
+    monkeypatch, capsys
+):
+    """M1, o caso ANCESTRAL do BL-428 original ("encolher a impressão
+    para a tabela caber", `@media print { body { scale: 0.6 } }") — a
+    escala se aplica a um ANCESTRAL do timbre, não ao próprio contêiner.
+    A sonda geométrica (filha de CADA linha) tem de herdar a escala do
+    ancestral do mesmo jeito, sem ler `body` nomeadamente em lugar
+    nenhum."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html, "body { scale: 0.6; transform-origin: top left; }"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "abaixo do mínimo de 11px" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_m1_propriedade_scale_reabre_bl436_exige_4_5_para_1(monkeypatch, capsys):
+    """M1 + BL-436 juntos, reprodução exata da tabela do auditor:
+    `font-size: 24px` (declarado "grande", piso frouxo 3:1) + `scale:
+    0.6` (tamanho EFETIVO ~14,4px, que já não é "grande") + tinta
+    `#D0D0D0`. Com o mecanismo antigo isso saía `exit 0` relatando
+    `razao_minima_wcag_exigida: 3.0` — o MESMO JSON, linha por linha, do
+    BL-436 original, só que com `scale:` no lugar de `transform:`. A
+    correção tem de classificar pelo tamanho EFETIVO e exigir 4,5:1."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_estilo_de_impressao(
+        html,
+        ".timbre-impressao { scale: 0.6; transform-origin: top left; } "
+        ".timbre-impressao, .timbre-impressao p { font-size: 24px !important; "
+        "color: #D0D0D0 !important; }",
+    )
+
+    codigo, saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert '"razao_minima_wcag_exigida": 4.5' in saida, (
+        "a classificação usou o piso de texto GRANDE (3.0) em vez do piso de "
+        f"texto NORMAL (4.5) — 'scale:' reabriu o BL-436. saida:\n{saida}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2/BL-444 (décima segunda auditoria) — reprodução ponta a ponta exata da
+# sabotagem do auditor: o `<a href>` com o domínio do fornecedor E o
+# controle limpo (com os links internos que o produto de hoje já embute)
+# continuando a passar.
+# ---------------------------------------------------------------------------
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_m2_anotacao_de_link_com_dominio_do_fornecedor_reprova(monkeypatch, capsys):
+    """M2: `<a href="https://dataledger.com.br/">Emitido pelo
+    sistema</a>` — texto âncora inócuo (nunca a palavra "DataLedger"), só
+    o ALVO carrega o identificador. Antes desta correção, o C5 só olhava
+    tinta (`_texto_do_pdf`, que não vê o alvo de um link) e metadados
+    clássicos (que não têm o `/URI` de anotação) — `exit 0` com o domínio
+    do fornecedor dentro do arquivo entregue ao cliente."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_link_de_sabotagem_no_corpo(
+        html, "https://dataledger.com.br/", "Emitido pelo sistema"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "anotação de link" in err
+    assert "dataledger.com.br" in err.lower()
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_m2_link_interno_sem_marca_do_fornecedor_continua_passando(
+    monkeypatch, capsys
+):
+    """M2, o controle: um link INTERNO (o padrão real do produto — cada
+    linha de tabela vira um `file://.../lancamento/N/` clicável) não pode
+    reprovar só por SER uma anotação de link — só quando o ALVO carrega o
+    identificador do fornecedor."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    html_sabotada = _injetar_link_de_sabotagem_no_corpo(
+        html, "file:///contabilidade/painel/empresas/1/lancamento/42/", "Ver lançamento"
+    )
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html_sabotada, url
+    )
+
+    assert codigo == 0, f"link interno sem marca não podia reprovar — stderr:\n{err}"
