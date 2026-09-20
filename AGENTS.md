@@ -357,20 +357,13 @@ Regras do projeto
 Medir identificação do emitente no navegador
 ```
 
-⚠️ **Esta lista estava ERRADA neste arquivo até 2026-09-20, e o erro é da classe
-mais cara possível: documentação que induz ao defeito no único item que destrava
-todos os outros.** Ela mandava marcar `Backend` e `Documentação`, que são nomes
-de **workflow**. O contexto de um status check do GitHub Actions é o nome do
-**job** — `name:` dentro de `jobs:`, não o `name:` do topo do arquivo. Medido na
-API pelo `auditor-qa` na décima primeira auditoria (**L5**), em três revisões,
-`GET /repos/…/commits/<sha>/check-runs` devolve os quatro nomes acima e **nenhum**
-chamado `Backend` ou `Documentação`.
+⚠️ **Esta lista estava ERRADA até 2026-09-20** (mandava `Backend` e
+`Documentação`, que são nomes de **workflow**). O contexto de um status check é o
+nome do **job**. Medido na API na décima primeira auditoria (**L5**).
 
-⚠️ **E o dano do nome errado é na direção OPOSTA à esperada:** marcar como
-obrigatório um contexto que nunca reporta **não** deixa a proteção frouxa — deixa
-a `main` **travada para sempre**, com o PR em *"pendente"* e nenhum erro para
-investigar. É a mesma armadilha que o comentário do BL-371 em
-`.github/workflows/identificacao-do-emitente.yml` descreve em quinze linhas.
+⚠️ **E o dano do nome errado é o OPOSTO do esperado:** contexto obrigatório que
+nunca reporta **não** afrouxa a proteção — **trava a `main` para sempre**, com o
+PR em *"pendente"* e nenhum erro para investigar (é a armadilha do BL-371).
 
 **Como conferir, buscando em vez de afirmar** (BL-412 — número digitado por
 humano é disciplina):
@@ -383,23 +376,10 @@ GET /repos/fredabsd-svg/DataLedger/branches/main             → required_status
 GET /repos/fredabsd-svg/DataLedger/rulesets                  → se a regra for ruleset
 ```
 
-⚠️ **Este bloco mandava consultar o `sha` da `main` até 2026-09-20, e executado
-assim ele devolve DOIS dos quatro nomes** — medido pelo `auditor-qa` na décima
-segunda auditoria (**M6**): contra `7c5b1d4`, `check-runs` devolve
-`total_count = 2`, só `Lint e testes` e `Validar documentação`. Falta
-`Regras do projeto`, que **só dispara em `pull_request`**, e falta
-`Medir identificação do emitente no navegador`, que **é o job que o Fred
-escolheu tornar obrigatório**.
-
-**É o mesmo defeito do L5 um nível abaixo:** a fonte de verdade estava certa, o
-**alvo da consulta** é que não continha a verdade inteira. Por isso os quatro
-nomes ficam **escritos acima**, e a consulta serve para **conferi-los**, não para
-descobri-los.
-
-⚠️ **E a guarda que fecharia isto de vez ainda NÃO existe, e está registrada
-como BL-443:** um teste offline que compare os quatro nomes deste arquivo com os
-`name:` dos jobs em `.github/workflows/*.yml`. Custa vinte linhas, não depende de
-qual evento rodou em qual commit, e acaba com o assunto.
+⚠️ **Contra a `main`, `check-runs` devolve só DOIS dos quatro** — `Regras do
+projeto` só dispara em `pull_request`, e o job de identificação não tem execução
+lá. Medido na décima segunda auditoria (M6). Por isso os quatro nomes ficam
+**escritos acima**: a consulta serve para **conferi-los**, não para descobri-los.
 
 **Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
 web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje

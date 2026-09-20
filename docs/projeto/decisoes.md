@@ -3278,3 +3278,74 @@ dizem que não são fato.
    mesma na primeira linha que ela escreve.
 3. **Não apaga afirmação antiga.** Corrigir o que já se provou falso é
    obrigação, e o registro do erro fica — foi assim com BL-435 e BL-442.
+
+## DE-063 — Teste que guarda ANDAIME se corta; teste que guarda REGRA CONTÁBIL não
+
+**Data:** 2026-09-20. **Ordem do Fred**, com a medição dele: *"a main tem ~11.800
+linhas de produção e ~45.000 de teste … estamos girando no mesmo lugar …
+precisamos contar mais e reduzir drasticamente essa quantidade de teste."*
+
+### A medição, conferida por mim antes de agir
+
+```
+git ls-files 'apps/**/*.py' 'config/**/*.py' | grep -v '/tests\?/' | grep -v test_ | grep -v /migrations/ | xargs wc -l
+  → 12.109 linhas de produção
+git ls-files 'apps/**/*.py' 'scripts/**/*.py' | grep -E '/tests?/|test_' | xargs wc -l
+  → 47.245 linhas de teste        proporção 3,9 : 1
+```
+
+**Os números do Fred estão certos.** Mas a distribuição diz o que a proporção
+não diz:
+
+| Fatia | Linhas | % | O que guarda |
+| --- | --- | --- | --- |
+| **Regra contábil e dados** | 18.372 | **36,9%** | Lançamento, conta, empresa, período, trilha, isolamento |
+| **Varredura de meta-regras** | 14.878 | **29,9%** | Nossos contratos, nossa interface, nossos arquivos de agente, nosso estado |
+| **Guarda do documento impresso** | 8.857 | **17,8%** | Timbre, marca, motor de CSS simulado, instrumento |
+| **Interface** | 7.660 | 15,4% | Telas, acessibilidade |
+
+⚠️ **Quase metade (47,7%) guarda o ANDAIME — a nossa própria disciplina —, não
+a contabilidade.** É isso que a proporção de 3,9:1 esconde, e é o diagnóstico
+que transforma a intuição do Fred em decisão.
+
+### A regra
+
+1. **Teste de regra do domínio contábil é intocável.** Débito igual a crédito,
+   precisão monetária, isolamento entre empresas, imutabilidade da trilha,
+   período encerrado, idempotência. **Não se corta, não se "simplifica".** É o
+   que faz o produto ser confiável, e é irreversível errar aqui.
+2. **Teste que guarda a nossa própria disciplina só existe se for DERIVADO** —
+   uma varredura curta que pergunta uma propriedade. **Nunca por enumeração**, e
+   nunca com motor próprio.
+3. **Quando existe medição direta, a simulação é APAGADA, não guardada "por
+   segurança".** Manter as duas é pagar duas vezes pela mesma pergunta — e foi
+   exatamente o que fizemos com o motor de CSS.
+
+### O primeiro corte, executado hoje
+
+**5.290 linhas, 142 testes, quatro arquivos** — a família do **motor de CSS
+simulado** (`test_bl329`, `test_bl331`, `test_bl332`, `test_bl338`).
+
+**Por que estes primeiro, e não outros:** a **DE-057** já os rebaixou de *única
+garantia* para *primeira linha barata* quando o Fred comprou o navegador real. O
+navegador responde a **mesma pergunta em 4 segundos**, e essas 5.290 linhas
+produziram, sozinhas, **doze rodadas de auditoria** — BL-343, BL-351, BL-352,
+BL-353, BL-360, BL-361, BL-362, BL-363, BL-372… **O custo delas não foi o
+tamanho: foi o número de rodadas que consumiram.**
+
+**Medido depois do corte:** `1917 passed, 14 skipped`, suíte verde; proporção
+**3,9 : 1 → 3,5 : 1**.
+
+⚠️ **O que se perde, declarado:** erro de CSS deixa de ter sinal **local
+instantâneo** e passa a aparecer no job de navegador na CI (~50 s), que roda nos
+caminhos vigiados — e `static/**` e `templates/**` **são** vigiados. É perda
+real e pequena; registro para não descobrirem depois.
+
+### O que esta decisão NÃO é
+
+1. **Não é "testar menos".** É **parar de testar o andaime**. A fatia contábil
+   (36,9%) não perde uma linha.
+2. **Não é desfazer a DE-057.** O navegador fica; o que sai é a **imitação** dele
+   que continuamos mantendo ao lado.
+3. **Não apaga história.** Os quatro arquivos continuam no histórico do Git, e
+   os doze relatórios de auditoria que os julgaram continuam preservados.
