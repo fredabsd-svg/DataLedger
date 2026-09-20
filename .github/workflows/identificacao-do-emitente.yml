@@ -25,10 +25,17 @@ name: Identificação do emitente
 # esta checagem na proteção da `main` sem travar PR nenhum que não mexa em
 # impressão.
 #
-# `CAMINHOS_VIGIADOS`, dentro do passo de decisão, é a ÚNICA lista de
-# padrões deste arquivo — não existe mais cópia em `on:` para divergir
-# dela (BL-352: duas listas que nascem juntas divergem no commit que as
-# cria).
+# A decisão em si (BL-379, achado J9 da nona auditoria,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md) mora em
+# `scripts/decidir_caminhos_vigiados.py`, não mais numa string de Python
+# embutida no YAML — extraída porque `ruff`/`pytest` não alcançavam
+# aquele código, e o ramo `pull_request` (o único que de fato bloqueia
+# merge) nunca tinha rodado nas primeiras execuções reais. `CAMINHOS_
+# NAO_RELEVANTES`, dentro daquele arquivo, é a ÚNICA lista de padrões —
+# e, desde o BL-376 (achado J5), ela lista o que é IRRELEVANTE, não o
+# que importa: qualquer caminho fora dela é medido por padrão, o inverso
+# do filtro antigo (`CAMINHOS_VIGIADOS`), que deixava um módulo novo
+# escrevendo sua tela imprimível fora da vigilância, em silêncio.
 on:
   push:
   pull_request:
@@ -91,140 +98,25 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements/dev.txt
 
-      # BL-371: único lugar deste arquivo com a lista de padrões — os
-      # passos caros, abaixo, só leem o RESULTADO (`steps.decidir.outputs.
-      # relevante`), nunca uma segunda cópia da lista. Só `stdlib` (os, re,
-      # subprocess): não depende de `pip install` ter rodado, então pode
-      # vir ANTES dele e decidir se ele é necessário.
+      # BL-379 (achado J9 da nona auditoria): a lógica de decisão (antes
+      # 120 linhas de Python embutidas nesta string de YAML, fora do
+      # alcance de `ruff` e sem UM teste) mora agora em
+      # `scripts/decidir_caminhos_vigiados.py` — testado em
+      # `scripts/test_decidir_caminhos_vigiados.py` (11 cenários,
+      # inclusive `pull_request` com SHA vazios) e coberto por `ruff` e
+      # pelo job `Backend`, como qualquer outro `.py` do projeto. Só
+      # `stdlib`: não depende de `pip install -r requirements/dev.txt`
+      # ter rodado, então pode vir ANTES dele e decidir se ele é
+      # necessário.
       - name: Decidir se os caminhos vigiados mudaram
         id: decidir
-        shell: python
         env:
           NOME_DO_EVENTO: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           ANTES_SHA: ${{ github.event.before }}
           DEPOIS_SHA: ${{ github.sha }}
-        run: |
-          import os
-          import re
-          import subprocess
-          import sys
-
-          # ÚNICA lista de padrões deste workflow (ver o comentário no
-          # topo do arquivo) — o job abre um Chromium de verdade, e isso
-          # tem custo; só vale a pena quando muda o que pode QUEBRAR a
-          # garantia. Filtro ESTREITO e ampliável de propósito (decisão do
-          # arquiteto-senior), para não virar um filtro largo que a
-          # equipe aprenda a ignorar.
-          CAMINHOS_VIGIADOS = [
-              "static/css/**",
-              "templates/**",
-              "docs/assets/design/gauntlet/**",
-              "scripts/medir_identificacao_do_emitente.py",
-              "scripts/test_medir_identificacao_do_emitente.py",
-              "scripts/medir_impressao.py",
-              "scripts/semear_base_de_medicao.py",
-              "apps/contabilidade/tests/test_bl329_marca_fora_do_papel.py",
-              "apps/contabilidade/tests/test_bl331_timbre_do_escritorio_no_papel.py",
-              "apps/contabilidade/tests/test_bl282_timbre_de_impressao.py",
-              "apps/tenancy/tests/test_bl282_timbre_escritorio.py",
-              "requirements/dev.txt",
-              ".github/workflows/identificacao-do-emitente.yml",
-          ]
-
-          # Sintaxe documentada do GitHub para `paths:` — `**` casa zero
-          # ou mais diretórios (inclusive `/`); `*` casa qualquer coisa
-          # MENOS `/`; `?` casa um caractere que não seja `/`. Reimplementada
-          # aqui porque a decisão saiu de `on.paths` (que já fazia isto por
-          # conta própria) para dentro do job — ver o comentário do topo do
-          # arquivo sobre o porquê.
-          def padrao_para_regex(padrao):
-              partes = []
-              i = 0
-              while i < len(padrao):
-                  if padrao[i : i + 2] == "**":
-                      partes.append(".*")
-                      i += 2
-                  elif padrao[i] == "*":
-                      partes.append("[^/]*")
-                      i += 1
-                  elif padrao[i] == "?":
-                      partes.append("[^/]")
-                      i += 1
-                  else:
-                      partes.append(re.escape(padrao[i]))
-                      i += 1
-              return re.compile("^" + "".join(partes) + "$")
-
-          def bate(padroes_compilados, arquivo):
-              return any(p.match(arquivo) for p in padroes_compilados)
-
-          evento = os.environ["NOME_DO_EVENTO"]
-          arquivos = None  # None = sem intervalo para comparar; tratado como RELEVANTE
-
-          if evento == "pull_request":
-              base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
-              intervalo = f"{base}...{head}"
-          elif evento == "push":
-              antes, depois = os.environ["ANTES_SHA"], os.environ["DEPOIS_SHA"]
-              # `before` vem só de zeros no PRIMEIRO push de uma branch nova
-              # (não há commit anterior para comparar) — sem intervalo,
-              # tratado como relevante (o lado seguro: medir de mais nunca
-              # aprova documento sem emitente por engano; medir de menos,
-              # sim).
-              intervalo = None if set(antes) <= {"0"} else f"{antes}...{depois}"
-          else:
-              # workflow_dispatch (ou evento futuro sem base natural para
-              # comparar): disparo MANUAL, tratado como pedido explícito de
-              # rodar a medição de verdade.
-              intervalo = None
-
-          if intervalo is not None:
-              saida = subprocess.run(
-                  ["git", "diff", "--name-only", intervalo],
-                  capture_output=True,
-                  text=True,
-              )
-              if saida.returncode == 0:
-                  arquivos = [linha for linha in saida.stdout.splitlines() if linha]
-              else:
-                  print(
-                      f"AVISO: 'git diff {intervalo}' falhou (código "
-                      f"{saida.returncode}): {saida.stderr.strip()!r} — "
-                      "tratando como RELEVANTE (lado seguro)."
-                  )
-
-          if arquivos is None:
-              relevante = True
-              motivo = (
-                  f"evento {evento!r} sem intervalo de diff para comparar "
-                  "(disparo manual, primeiro push de uma branch, ou falha ao "
-                  "obter o diff) — rodando a medição completa, lado seguro."
-              )
-          else:
-              padroes_compilados = [padrao_para_regex(p) for p in CAMINHOS_VIGIADOS]
-              batidas = sorted(a for a in arquivos if bate(padroes_compilados, a))
-              relevante = bool(batidas)
-              if relevante:
-                  motivo = (
-                      f"{len(batidas)} de {len(arquivos)} arquivo(s) alterado(s) "
-                      f"batem com os caminhos vigiados: {', '.join(batidas)}"
-                  )
-              else:
-                  motivo = (
-                      f"nenhum dos {len(arquivos)} arquivo(s) alterado(s) bate com "
-                      f"os {len(CAMINHOS_VIGIADOS)} caminhos vigiados — pulando "
-                      "Playwright, poppler-utils e a medição no navegador. "
-                      "Arquivo(s) alterado(s): "
-                      f"{', '.join(arquivos) if arquivos else '(nenhum)'}"
-                  )
-
-          print(f"relevante={relevante}")
-          print(f"motivo: {motivo}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as saida_do_passo:
-              saida_do_passo.write(f"relevante={'true' if relevante else 'false'}\n")
+        run: python scripts/decidir_caminhos_vigiados.py
 
       - name: Instalar dependências (inclui Playwright — DL-028 fatia 2, DE-057)
         if: steps.decidir.outputs.relevante == 'true'
