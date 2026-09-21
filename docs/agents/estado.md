@@ -728,7 +728,7 @@ falta para existir Balanço apresentável), os parâmetros contábeis por empres
 
 **Estado:** rodada 1 de 2 **concluída**.
 
-#### ➡️ ETAPA EM CURSO: [DL-033](../planos/DL-033-circulante-e-nao-circulante.md) — circulante e não circulante
+#### A DL-033 FATIA 1 ESTÁ ENTREGUE (`d3a2aaa`) — circulante e não circulante
 
 **Autorizada pelo Fred em 2026-09-21.** **Nível 1** — muda o modelo e é o único
 dado que falta para o Balanço existir.
@@ -762,13 +762,51 @@ inferir semântica da nomenclatura do contador — **exatamente a classe do
 BL-475**, que reprovou a DL-032 nesta semana. Conta existente nasce **sem**
 classificação, e a camada **declara** quais faltam.
 
-##### ➡️ PRÓXIMA, JÁ PLANEJADA: [DL-034](../planos/DL-034-a-tela-do-balanco.md) — a tela do Balanço
+##### A RECONFERÊNCIA APROVOU — `d3a2aaa`, com duas ressalvas médias
 
-**Autorizada pelo Fred em 2026-09-21.** ⚠️ **A implementação NÃO começa antes de
-a DL-033 fechar** — a tela consome `apurar_saldos`, cujo contrato está mudando
-agora (a reconciliação do BL-486 acrescenta a chave do resíduo, que é o que o
-critério 1 da DL-034 exige). Construir contra contrato em movimento produz
-testes que passam contra a versão errada.
+**Relatório integral:**
+[2026-09-21-dl-033-rodada-2.md](../auditorias/2026-09-21-dl-033-rodada-2.md).
+**APROVADO COM RESSALVAS.** **BL-486 (bloqueador), BL-487, BL-489, BL-490,
+BL-493 e BL-494 fechados e medidos.** Números do auditor: **2072 passed, 14
+skipped**, tudo limpo, **sem migração nova**.
+
+A identidade aritmética resistiu a **nove cenários** construídos por ele e a
+**dois mutantes** (zerar o resíduo e inverter o sinal) — os dois reprovam,
+nomeando os testes certos.
+
+⚠️ **E aqui está o documento mais honesto que este repositório produziu: o
+auditor RETRATA A PRÓPRIA RECOMENDAÇÃO da rodada 1.** Ele havia escrito que a
+identidade *"fecha qualquer outro caso que nem eu nem o implementador
+pensamos"*. **Não fecha.** Ela vale **por TIPO**, não por **grupo** — e é o
+grupo que o Balanço imprime.
+
+**Ele construiu o contra-exemplo e mediu ([BL-496](../projeto/backlog.md)):**
+dois defeitos calibrados para se anularem — retificadora entre irmãs (+500,00) e
+nó intermediário movimentado sem classificação (−500,00) — produzem **resíduo
+`0,00`, cinco listas vazias, equação fechando** e **dois grupos do Balanço
+errados em R$ 500,00 cada**.
+
+⚠️ **O excesso nasceu NELE, passou por MIM e chegou ao CÓDIGO.** Eu promovi a
+frase dele a critério de aceite confiando nela; o implementador a repetiu no
+docstring. **Foi ele quem a desmontou, sem ser perguntado.** Virou a
+**[DE-068](../projeto/decisoes.md)**: *invariante mal dimensionada é mais
+perigosa que lista, porque **parece completa***.
+
+⚠️ **A bifurcação que ele me deixou, e a minha resposta.** Ele aprovou com
+ressalva **porque a DL-034 ainda não existia**, e escreveu: *"se a DL-034 for
+escrita sem essa frase, a ressalva vira defeito"*. **Escrevi a frase no critério
+1 da DL-034 antes de arquivar o relatório.** A condição de emissão passou a ser
+**conjunção de quatro**, não um número só.
+
+**Segunda ressalva ([BL-497](../projeto/backlog.md)):** apontar o **imobilizado**
+para o grupo **circulante** — erro de norma — **passa em 1.622 testes**. O mapa
+hoje está **correto**, conferido linha a linha; **falta a guarda**.
+[BL-498](../projeto/backlog.md) é baixa e declarada.
+
+##### ➡️ PRÓXIMA: [DL-034](../planos/DL-034-a-tela-do-balanco.md) — a tela do Balanço
+
+**Autorizada pelo Fred em 2026-09-21.** ✅ **A DL-033 fechou — a implementação
+está LIBERADA.** O contrato de `apurar_saldos` parou de se mover.
 
 ⚠️ **NÍVEL 1, e não 2 — a diferença é o TIPO DO DOCUMENTO.** A tela do
 fechamento foi nível 2 porque as regras moravam no servidor. **O Balanço é a

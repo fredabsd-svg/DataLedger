@@ -100,9 +100,49 @@ exercício anterior, exportação em arquivo, e o histórico cadastral da alíne
 
 ## Critérios de aceite
 
-1. **A equação fecha na tela, e o resíduo é zero** — senão não emite. Teste com
-   base pendente exigindo recusa **nomeando** o que falta, e **controle
-   positivo** com base completa exigindo emissão.
+1. ⚠️ **A CONDIÇÃO DE EMISSÃO, escrita por extenso em 2026-09-21, ANTES da
+   primeira linha de código — e ela é conjunção, não um número só.**
+
+   A redação anterior deste critério dizia *"o resíduo é zero — senão não
+   emite"*. **Resíduo zero é necessário e NÃO é suficiente**, e a
+   [reconferência da DL-033](../auditorias/2026-09-21-dl-033-rodada-2.md) mediu
+   o contra-exemplo (**V1d**): dois defeitos no mesmo Ativo, **calibrados para
+   se anularem** — retificadora entre irmãs (+500,00) e nó intermediário
+   movimentado sem classificação (−500,00). Resultado: **resíduo `0,00`, as
+   CINCO listas vazias, equação fechando** — e o **Ativo Circulante errado em
+   R$ 500,00** e o **Imobilizado errado em R$ 500,00**. O total por tipo está
+   certo; **os grupos que o Balanço imprime, não**.
+
+   **O Balanço só é emitido quando TODAS valerem:**
+
+   | # | Condição |
+   | --- | --- |
+   | 1 | `residuo_por_tipo` é **zero** em todos os tipos |
+   | 2 | as **cinco** listas de declaração estão **vazias** |
+   | 3 | **nenhum grupo tem nó topo-classificado irmão de natureza cadastrada divergente**, sob o mesmo ancestral não classificado |
+   | 4 | **nenhum nó não-folha sem classificação própria nem ancestral tem movimento próprio** |
+
+   ⚠️ **E a correção de FUNDO, que é a opção (b) do auditor e eu a adoto como
+   preferida:** somar o nó classificado **normalizando o sinal pela natureza
+   natural do TIPO** (devedora no Ativo, credora no Passivo), não pela natureza
+   **cadastrada** da conta. Isso torna o número **certo** em vez de apenas
+   detectado, e fecha a condição 3 de vez. ⚠️ **O próprio auditor declarou o
+   limite da sugestão dele:** conferiu a aritmética à mão, **não implementou nem
+   testou**, e pode haver interação com retificadora **de grupo** que ele não
+   enxergou. **Implementar (b) e manter 3 e 4 como guarda** — cinto e suspensório
+   enquanto (b) não tiver prova.
+
+   **Teste obrigatório:** o cenário **V1d** do relatório, exigindo **recusa**; e
+   **controle positivo** no cenário V1c (cinco classificações, retificadoras em
+   dois grupos, centavos quebrados) exigindo **emissão** com resíduo `0,00`. Se
+   a opção (b) for implementada, exigir também os números certos por grupo:
+   `ativo_circulante == 2.750,00` e `ativo_nao_circulante == 8.500,00`.
+
+   ⚠️ **A lição de método, que virou [DE-068](../projeto/decisoes.md):**
+   **invariante mal dimensionada é mais perigosa que lista, porque parece
+   completa.** Lista declara o que sabe e admite o que não sabe; identidade
+   aritmética convida a acreditar que fechou tudo. **Enuncie a invariante E o
+   escopo dela** — sobre qual agregação vale, e sobre qual não vale.
 2. **Autorização no servidor**: papel sem permissão recebe **403** e **nenhum
    valor** aparece no corpo. ⚠️ **Asserte o corpo, não só o código** — é a
    lição do BL-211.

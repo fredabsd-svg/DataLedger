@@ -1706,3 +1706,30 @@ procurando a duplicação que eu previ.
 | BL-493 | **BAIXA (A8) — conta INATIVA sem classificação entra na lista de pendências.** ⚠️ **DECIDIDO pelo `arquiteto-senior` em 2026-09-21:** conta inativa **com saldo** continua na lista, porque **ela aparece no Balanço** e precisa de grupo; conta inativa **sem saldo** sai, porque classificá-la é trabalho sem efeito. A régua é o **saldo**, não a marca de ativa — é o mesmo princípio do BL-482, em que conta desativada com saldo residual continua somando | `desenvolvedor-pleno` | — | **Aberta** | Conta inativa **com** saldo permanece declarada; **sem** saldo não aparece. Teste para os dois lados |
 | BL-494 | **BAIXA (A9) — o campo é invisível na única porta que existe.** `ContaAdmin.list_display`/`list_filter` não incluem a classificação, então nem pelo admin o contador consegue **ver quais contas estão sem classificar**. ⚠️ **DECIDIDO: incluir.** É barato e é o que torna o recurso utilizável antes da tela própria — sem isso, entregamos um campo que ninguém consegue auditar visualmente | `desenvolvedor-pleno` | — | **Aberta** | `classificacao_patrimonial` em `list_display` e em `list_filter`, com filtro que permita achar as **não classificadas** |
 | BL-495 | **BAIXA (A10), pré-existente e declarada — a guarda não alcança `queryset.update()`.** `Conta.objects.filter(...).update(classificacao_patrimonial=...)` reescreve sem passar por `full_clean()`. ⚠️ **É a MESMA limitação de BL-83/BL-245/BL-261 para natureza e tipo**, e a entrega segue o padrão estabelecido — não é defeito desta etapa. Registrado para **não ser confundido com garantia** | — | — | **Declarada, sem dono** | Nenhum. Existe para que ninguém leia a guarda como absoluta |
+
+## Reconferência da DL-033 — rodada 2, APROVADA COM RESSALVAS (2026-09-21)
+
+Relatório integral em
+[2026-09-21-dl-033-rodada-2.md](../auditorias/2026-09-21-dl-033-rodada-2.md).
+**BL-486 (bloqueador), BL-487, BL-489, BL-490, BL-493 e BL-494 FECHADOS e
+medidos.** **A DL-033 fatia 1 está entregue**, em duas rodadas.
+
+⚠️ **O documento mais honesto deste repositório está na seção 3 do "onde o erro
+é seu": o auditor RETRATA a PRÓPRIA recomendação da rodada 1.** Ele havia
+escrito que a identidade aritmética *"fecha qualquer outro caso que ninguém
+pensou"*. **Não fecha** — vale **por tipo**, não por grupo. **Eu promovi a frase
+dele a critério confiando nela, e o implementador a repetiu no docstring.** O
+excesso nasceu no auditor, passou por mim e chegou ao código; foi ele quem o
+desmontou, sem ser perguntado. **Virou a [DE-068](decisoes.md).**
+
+⚠️ **A bifurcação que ele me deixou, e a minha resposta:** ele aprovou com
+ressalva **porque a DL-034 ainda não existia** e disse que *"se a DL-034 for
+escrita sem essa frase, a ressalva vira defeito"*. **Escrevi a frase no critério
+1 da DL-034 antes de arquivar o relatório.** A condição de emissão passou a ser
+**conjunção de quatro**, não um número só.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-496 | **MÉDIA (R1) — resíduo zero NÃO autoriza emitir: dois erros compensados passam por todos os portões.** Medido (**V1d**): retificadora entre irmãs (+500,00) e nó intermediário movimentado sem classificação (−500,00), calibrados para se anularem. Resultado: **resíduo `0,00`, cinco listas vazias, equação fechando** — e **Ativo Circulante errado em R$ 500,00 e Imobilizado errado em R$ 500,00**. ⚠️ **A identidade continua VERDADEIRA e não é tautologia** (os dois lados somam conjuntos de nós diferentes); ela é um cruzamento **líquido e por TIPO**, e **não limita o erro de nenhum grupo** — que é o que o Balanço imprime. ⚠️ **Incide na DL-034, não na DL-033** | `desenvolvedor-pleno`, na DL-034 | DL-033 | **Aberta — já escrita no critério 1 da [DL-034](../planos/DL-034-a-tela-do-balanco.md)** | Emissão exige **conjunção**: resíduo zero **e** cinco listas vazias **e** nenhum nó topo-classificado irmão de natureza divergente **e** nenhum nó não-folha desclassificado com movimento próprio. **Preferida: normalizar o sinal pela natureza natural do TIPO**, tornando o número **certo** em vez de detectado. ⚠️ **O auditor declarou o limite da sugestão dele: conferiu a aritmética à mão, não implementou nem testou.** Manter as guardas até a correção ter prova. Teste: **V1d recusa**, **V1c emite** |
+| BL-497 | **MÉDIA (R2) — o mapa dos grupos da lei não é guardado contra erro de circulante × não circulante.** Mutação **M5**: apontar o **imobilizado** para o grupo **Ativo Circulante** — imprimir imobilizado dentro do subtotal do circulante, **erro de norma** — passa em **1.622 testes**. O cruzamento existente confere só o **lado** (Ativo × Passivo). ⚠️ **O mapa hoje está CORRETO**, conferido linha a linha e aritmeticamente; **falta a guarda**. Um erro de uma linha imprime o Balanço fora da Lei 6.404/76 com a suíte verde | `desenvolvedor-pleno` | — | **Aberta — vai na janela da DL-034** | Cruzamento pelos **nomes dos membros do enum** (não pelos valores, e sem `startswith`): classificação cujo nome contenha `NAO_CIRCULANTE` mapeia para grupo cujo nome contenha `NAO_CIRCULANTE`, e vice-versa. **Prova: a mutação M5 reprova** |
+| BL-498 | **BAIXA, ressalva declarada (R3) — o filtro por saldo torna a lista dependente da `data_base`, e o contrato não diz.** Conta transitória com R$ 5.000,00 de movimento e saldo **zero** na data-base: antes era declarada, agora não é. **Aritmeticamente inofensivo** — saldo zero contribui zero e o resíduo continua `0,00`. O que falta é a **propriedade escrita**: a mesma conta é declarada ou não **conforme a data**, e quem rodar em 31/01 e em 28/02 recebe listas diferentes para o mesmo plano | `desenvolvedor-pleno` | — | **Aberta** | Uma frase no docstring declarando a dependência da `data_base` |

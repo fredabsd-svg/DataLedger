@@ -3484,3 +3484,54 @@ isolada e que a diferença só é conclusiva em base parada.
 documento imprimível roda **sob snapshot**, e o teste de corrida que prova isso
 nasce junto com a view. ⚠️ **Registro para não ser esquecido**, que é o destino
 comum das dívidas declaradas sem dono e sem momento.
+
+## DE-068 — Enuncie a invariante E O ESCOPO DELA: invariante mal dimensionada é pior que lista
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-21**, a partir de uma
+**retratação do próprio `auditor-qa`** na
+[reconferência da DL-033](../auditorias/2026-09-21-dl-033-rodada-2.md).
+
+**A história completa, porque a lição só se entende com ela:**
+
+1. Na **rodada 1**, o auditor recomendou trocar um catálogo de listas por uma
+   **identidade aritmética**, e escreveu que ela *"fecha de uma vez este achado,
+   o A2 e o A6 — **e qualquer outro caso que nem eu nem o implementador
+   pensamos**"*.
+2. **Eu promovi essa frase a critério de aceite**, confiando nela.
+3. O implementador **repetiu a promessa no docstring** do código.
+4. Na **rodada 2**, o próprio auditor **construiu o contra-exemplo e o mediu**:
+   dois defeitos calibrados para se anularem produzem **resíduo zero, cinco
+   listas vazias, equação fechando — e dois grupos do Balanço errados em
+   R$ 500,00 cada**.
+
+**A frase dele, que eu adoto como a decisão:**
+
+> *"Invariante mal dimensionada é mais perigosa que lista, porque **parece
+> completa**. Lista declara o que sabe e admite o que não sabe; identidade
+> aritmética convida a acreditar que fechou tudo."*
+
+**A regra, portanto:** ⚠️ **enunciar a invariante NÃO basta — é preciso enunciar
+o ESCOPO dela**: sobre qual agregação ela vale, e sobre qual **não** vale.
+
+**O caso concreto, como exemplo permanente:** `Σ(grupos) + resíduo ==
+totais_por_tipo` é **verdadeira sempre** — o auditor não achou nenhum cenário em
+que falhe, e não é tautologia, porque os dois lados somam conjuntos de nós
+**diferentes**. Mas ela é um cruzamento **líquido** e **por TIPO**. Ela **não**
+limita o erro de nenhum **grupo** individual — e é o grupo que o Balanço
+imprime.
+
+⚠️ **Isto corrige, sem revogar, a [DE-058](#de-058) e a lição da rodada 1 da
+DL-033** (*"enuncie a invariante, não o mecanismo suspeito"*). A regra continua
+certa; o que faltava era a segunda metade. **Enunciado por mecanismo erra por
+estreiteza; enunciado por invariante sem escopo erra por largueza — e a
+largueza é pior, porque não parece erro.**
+
+**A quem isto obriga, e é a mim primeiro:** quem escreve critério de aceite
+declara a agregação em que a propriedade vale. Frase de auditor, por melhor que
+seja, **não entra em plano sem ser dimensionada** — foi exatamente isso que eu
+não fiz.
+
+⚠️ **E o que esta decisão NÃO faz:** não culpa o auditor. **Ele mesmo desmontou
+a própria recomendação, sem ser perguntado, na rodada seguinte.** É o
+comportamento que este projeto quer, e é por isso que o erro virou decisão em
+vez de virar nota de rodapé.
