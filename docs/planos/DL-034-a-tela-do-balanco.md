@@ -3,8 +3,9 @@
 **Demanda:** autorização do Fred em 2026-09-21 — *"pode seguir com a tela do
 balanço"*.
 **Depende de:** [DL-032](DL-032-a-camada-de-saldos.md) (entregue) e
-[DL-033](DL-033-circulante-e-nao-circulante.md) (**em correção — ver "Quando
-começar"**).
+[DL-033](DL-033-circulante-e-nao-circulante.md) — **as duas ENTREGUES**. O
+contrato de `apurar_saldos` parou de se mover, e a implementação está
+**liberada** (autorização do Fred em 2026-09-21).
 
 ## ⚠️ Nível de risco: 1, e NÃO 2 — a diferença é o tipo do documento
 
@@ -162,16 +163,28 @@ exercício anterior, exportação em arquivo, e o histórico cadastral da alíne
 8. **Sem regressão**, com os números declarados e conferidos por
    `--collect-only`.
 
-## Quando começar
+## O CONTRATO entre as duas frentes, fixado por mim ANTES de começarem
 
-⚠️ **A implementação NÃO começa antes de a DL-033 fechar.** A tela consome
-`apurar_saldos`, e o contrato dele está **mudando agora** — a reconciliação do
-**BL-486** acrescenta a chave do resíduo, que é justamente o que o critério 1
-desta etapa exige. Construir contra contrato em movimento produziria retrabalho
-e, pior, testes que passam contra a versão errada.
+⚠️ **Escrevo isto porque foi exatamente a ausência de um enunciado deste tipo
+que produziu o bloqueador da DL-033.** As duas frentes correm em paralelo, em
+arquivos disjuntos, e **precisam concordar sobre a forma antes de escrever
+código** — senão uma delas testa contra a versão errada da outra.
 
-**O que PODE andar antes:** o alinhamento de interface (`especialista-frontend`)
-sobre a direção de arte e os cinco estados, sem escrever a tela.
+`apurar_saldos` **já devolve**, e a forma **não muda** nesta etapa:
+`totais_por_grupo` (chaveado por `GrupoDaLei`), `totais_por_classificacao`,
+`residuo_por_tipo`, e as **cinco** listas de declaração.
+
+⚠️ **O que MUDA de valor, e não de forma:** a correção **(b)** do critério 1
+(normalizar o sinal pela natureza natural do tipo) altera **os números** de
+`totais_por_classificacao` e `totais_por_grupo` em cenários com **retificadora
+dentro de um grupo**. **Consequência direta para quem faz a tela: NÃO escreva
+fixture de teste com conta retificadora dentro de um grupo** enquanto a frente
+do servidor não entregar — use cenários limpos, ou você fixará por teste o
+número que está sendo corrigido.
+
+Três chaves **nascem** nesta etapa, na frente do servidor, e a tela as consome:
+os campos do item 51 que não existem — **(b) individual ou de grupo**,
+**(d) moeda** e **(e) nível de arredondamento**.
 
 ## Divisão de arquivos
 
