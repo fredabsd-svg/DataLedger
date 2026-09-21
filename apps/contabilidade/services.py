@@ -1635,6 +1635,24 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     # conta, nunca um RecursionError/KeyError mais adiante.
     contas_por_id, filhos_de, nivel_de = _construir_hierarquia(contas)
 
+    # DL-032 fatia 1, correção do achado A2 (BL-475): id da RAIZ de cada
+    # conta, para expor `tipo_da_raiz` por linha SEM consulta nova — só
+    # percorre `conta_pai_id`, já carregado em `contas_por_id` pela mesma
+    # `_construir_hierarquia` acima (memoizado, como `nivel_de`). Ciclo ou
+    # `conta_pai` de outra empresa já levantou `HierarquiaInconsistente`
+    # ali, então esta função nunca anda sobre uma cadeia quebrada.
+    raizes_por_id = {}
+
+    def raiz_id_de(conta_id):
+        if conta_id in raizes_por_id:
+            return raizes_por_id[conta_id]
+        conta = contas_por_id[conta_id]
+        if conta.conta_pai_id is None:
+            raizes_por_id[conta_id] = conta_id
+        else:
+            raizes_por_id[conta_id] = raiz_id_de(conta.conta_pai_id)
+        return raizes_por_id[conta_id]
+
     # A ÚNICA consulta agregada de valores POR CONTA: filtra por
     # `data <= fim` (itens posteriores ao período não interessam a NENHUMA
     # das quatro colunas) e separa, por conta, quatro somas condicionais —
@@ -1800,7 +1818,19 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 # subárvore, regra única de saldo acima —, então somar
                 # TODAS as linhas, não só as raízes, contaria o mesmo
                 # lançamento mais de uma vez).
+                #
+                # `tipo_da_raiz` (correção do achado A2, BL-475/DL-032): o
+                # `tipo` do ANCESTRAL raiz desta conta — igual ao próprio
+                # `tipo` quando a linha É a raiz. Existe para
+                # `apurar_saldos` DECLARAR (nunca corrigir) uma conta cujo
+                # `tipo` próprio diverge do `tipo` da árvore em que está
+                # pendurada: a agregação por raízes soma o saldo dela no
+                # grupo da RAIZ (é a regra única de saldo, correta —
+                # DE-020), então sem este campo a linha da conta e o
+                # `totais_por_tipo` da resposta podiam se contradizer em
+                # silêncio, e a equação fechava sem ter classificado nada.
                 "tipo": conta.tipo,
+                "tipo_da_raiz": contas_por_id[raiz_id_de(conta.id)].tipo,
                 "raiz": conta.conta_pai_id is None,
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
@@ -1893,16 +1923,30 @@ def apurar_saldos(*, empresa, data_base):
 
     **A equação, e o momento da verdade (RC-104):**
     `ativo = passivo + patrimonio_liquido + (receita - despesa)`. O termo
-    `(receita - despesa)` é o resultado AINDA NÃO transferido ao PL — durante
-    o exercício ele é diferente de zero sem que haja erro nenhum; depois do
-    zeramento (RC-104: mensal, trimestral ou anual, por lançamento, contra
-    uma conta "Resultado do Exercício" e desta para "Lucros Acumulados" ou,
-    no prejuízo, para a retificadora "(-) Prejuízos Acumulados") o termo
-    zera por construção e a equação vira a forma clássica — as duas formas
-    são o MESMO cálculo, nunca um `if` de "já encerrou". A diferença
-    (`equacao["diferenca"]`) é CALCULADA e DEVOLVIDA, com valor e sinal;
-    NENHUM saldo é alterado para fechá-la (critério 2) — "o que eu somei
-    fecha, e quando não fecha eu digo, nunca conserto".
+    `(receita - despesa)` é o resultado AINDA NÃO transferido ao PL —
+    exposto em `equacao["resultado_nao_transferido"]` (renomeado do
+    `resultado_do_periodo` original, achado A4/BL-478: o nome antigo
+    MENTIA sobre o que o valor é). Durante o exercício ele é diferente de
+    zero sem que haja erro nenhum; depois do zeramento (RC-104: mensal,
+    trimestral ou anual, por lançamento, contra uma conta "Resultado do
+    Exercício" e desta para "Lucros Acumulados" ou, no prejuízo, para a
+    retificadora "(-) Prejuízos Acumulados") o termo zera por construção e
+    a equação vira a forma clássica — as duas formas são o MESMO cálculo,
+    nunca um `if` de "já encerrou". A diferença (`equacao["diferenca"]`) é
+    CALCULADA e DEVOLVIDA, com valor e sinal; NENHUM saldo é alterado para
+    fechá-la (critério 2) — "o que eu somei fecha, e quando não fecha eu
+    digo, nunca conserto".
+
+    ⚠️ **Esta camada NÃO serve para apurar a DRE (RC-104, penúltima
+    ressalva).** Com zeramento mensal ou trimestral, `resultado_nao_
+    transferido` reporta ZERO logo depois de cada fechamento, mesmo num mês
+    lucrativo — porque é o SALDO ainda não transferido, e o zeramento acabou
+    de levá-lo a zero (ver
+    `test_apos_zeramento_resultado_nao_transferido_e_zero_mas_resultado_do_mes_nao`).
+    A DRE de um período se constrói pelo MOVIMENTO do período (créditos de
+    Receita, débitos de Despesa dentro de `[inicio, fim]`), nunca pelo saldo
+    de `data_base` — quem precisar disso chama `apurar_balancete(inicio,
+    fim)` diretamente e lê `debitos`/`creditos`, não `apurar_saldos`.
 
     **Os cinco totais por `TipoConta`, e por que são as RAÍZES, não todas as
     linhas (critério 4, DE-056):** `totais_por_tipo` nasce de
@@ -1937,6 +1981,79 @@ def apurar_saldos(*, empresa, data_base):
     permite retificadora). Esta função NUNCA reclassifica — soma o que está
     lá, com a natureza e o tipo que a conta tem.
 
+    ⚠️ **Conta descendente com `tipo` diferente do `tipo` da raiz (achado
+    A2/BL-475):** a agregação por raízes (acima) atribui o saldo
+    CONSOLIDADO da árvore inteira ao `tipo` da RAIZ — decisão certa,
+    provada por mutação contra a retificadora do RC-104 (somar todas as
+    linhas ou só as folhas quebra `test_retificadora_...`). Mas isso tem
+    uma premissa: a árvore é homogênea de `tipo`. Quando não é (mau
+    cadastro: uma conta "Despesa" pendurada sob a raiz do "Ativo"), esta
+    função NUNCA reclassifica nem corrige — DECLARA:
+    `contas_com_tipo_divergente_da_raiz` lista, para cada conta cujo
+    `tipo` PRÓPRIO diverge do `tipo` da sua raiz, `{"conta", "nome",
+    "tipo", "tipo_da_raiz"}`; VAZIA no caso são (plano de contas
+    coerente). Sem isto, a linha da conta dizia um `tipo` e
+    `totais_por_tipo` dizia outro, contradizendo-se no mesmo dicionário, e
+    a `equacao["diferenca"]` fechava em zero — a camada afirmando ter
+    classificado o que não classificou. Quem consumir esta camada (fatia
+    2) trata uma lista não vazia como aviso, no molde de
+    `HierarquiaInconsistente`.
+
+    ⚠️ **Tipo gravado fora de `TipoConta` (achado A1/BL-476):** o banco não
+    tem CHECK que impeça um `tipo` fora de `choices` (só alcançável por
+    ORM/SQL direto ou por uma migração de dado futura — a tela e o
+    serializer sempre validam `choices`). Esta função NUNCA estoura
+    `KeyError` nem cria uma chave nova dentro de `totais_por_tipo` (o que
+    desmontaria a garantia do critério 4/DE-056, que `totais_por_tipo` tem
+    EXATAMENTE as chaves de `TipoConta.values`): o tipo desconhecido é
+    OMITIDO da soma e aparece, nomeado, em
+    `contas_com_tipo_desconhecido` (`{"conta", "nome", "tipo"}`), vazia no
+    caso normal. Mesma defesa que `views_web.py` já aplica ao campo irmão
+    `natureza`.
+
+    **`raiz` é repassado em cada linha de `contas` (achado A8/BL-481):**
+    `linha["raiz"]` é EXATAMENTE `linha["nivel"] == 1` (toda conta sem pai
+    é nível 1, e vice-versa) — dito aqui, com todas as letras, porque somar
+    `contas` por `tipo` SEM filtrar por `raiz` conta cada descendente E sua
+    raiz, dobrando (ou mais, em árvore mais funda) o valor de
+    `totais_por_tipo`: a leitura que o critério 4 convida é a errada.
+    `totais_por_tipo` já soma correto (só raízes) — é para quem quiser
+    REPRODUZIR essa soma a partir de `contas` que `raiz` existe.
+
+    **`HierarquiaInconsistente` pode escapar (achado A7/BL-480):** herdado
+    do reuso de `apurar_balancete` → `_construir_hierarquia` — ciclo na
+    hierarquia ou `conta_pai` de outra empresa (só alcançável por ORM
+    direto, BL-40) levantam `HierarquiaInconsistente`, nomeando a conta,
+    em vez de um `RecursionError`/`KeyError` cru. `apurar_saldos` NÃO
+    trata essa exceção — propaga. Quem chamar por uma view (fatia 2)
+    precisa do mesmo `try/except` que `views.py` e `views_web.py` já usam
+    para `apurar_balancete`.
+
+    **Conta inativa (`Conta.ativo=False`) entra no saldo (achado
+    A9/BL-482):** deliberado — a consulta de `apurar_balancete` não filtra
+    por `ativo`, então uma conta desativada com saldo residual continua
+    aparecendo em `contas` e contribuindo para `totais_por_tipo`; do
+    contrário o Balanço perderia dinheiro. A decisão de APRESENTAÇÃO
+    (esconder linha de saldo zero de conta inativa, por exemplo) é da
+    fatia que gerar o documento imprimível, não desta camada de leitura.
+
+    ⚠️ **Leitura sem snapshot único (achado A6/DE-067, decisão do
+    `arquiteto-senior`):** `apurar_balancete` faz TRÊS consultas
+    (hierarquia, agregados por conta, total geral) e nenhuma delas está
+    dentro de uma `transaction.atomic` com isolamento elevado — sob
+    `READ COMMITTED` (padrão do PostgreSQL), cada uma recebe snapshot
+    PRÓPRIO. Uma escrita concorrente (`criar_lancamento` de outra conexão)
+    entre a 1ª e a 2ª consulta pode produzir uma diferença TRANSITÓRIA em
+    `equacao["diferenca"]`, sem nenhum desbalanço real gravado na base —
+    a diferença some na chamada seguinte. Esta fatia NÃO implementa
+    `REPEATABLE READ` nem `SET TRANSACTION SNAPSHOT` (decisão consciente,
+    DE-067: mexer no isolamento agora alteraria o Balancete inteiro do
+    produto por causa de uma fatia que ainda não tem porta de entrada por
+    requisição). Conclusão prática: a diferença só é CONCLUSIVA quando lida
+    contra uma base parada (sem escrita concorrente) — é o caso de uso
+    desta fatia (leitura ad-hoc, sem view ainda). A fatia que gerar o
+    documento imprimível decide o snapshot.
+
     **Desempenho:** UMA chamada a `apurar_balancete` (já livre de N+1 —
     3 consultas, independente do número de contas) mais UM laço em Python
     sobre as linhas já carregadas — mesma classe de custo do Balancete.
@@ -1954,6 +2071,10 @@ def apurar_saldos(*, empresa, data_base):
             "tipo": linha["tipo"],
             "natureza": linha["natureza"],
             "nivel": linha["nivel"],
+            # BL-481/achado A8: exatamente `nivel == 1` — repassado para
+            # quem quiser reproduzir `totais_por_tipo` a partir de `contas`
+            # sem contar cada descendente em dobro (ver docstring).
+            "raiz": linha["raiz"],
             "saldo": linha["saldo_final"],
         }
         for linha in balancete["contas"]
@@ -1966,32 +2087,62 @@ def apurar_saldos(*, empresa, data_base):
     # silêncio.
     zero = Decimal("0")
     totais_por_tipo = {tipo: zero for tipo in TipoConta.values}
+    # BL-476/achado A1: tipo gravado fora de `TipoConta` (só alcançável por
+    # dado corrompido — ver docstring) NUNCA cria chave dentro de
+    # `totais_por_tipo` nem estoura `KeyError` — aparece, nomeado, aqui.
+    contas_com_tipo_desconhecido = []
+    # BL-475/achado A2: conta cujo `tipo` PRÓPRIO diverge do `tipo` da sua
+    # RAIZ — o saldo dela já está (corretamente) consolidado no grupo da
+    # raiz; isto só DECLARA a divergência, nunca corrige nada. Vazia no
+    # caso são.
+    contas_com_tipo_divergente_da_raiz = []
     for linha in balancete["contas"]:
-        if linha["raiz"]:
-            totais_por_tipo[linha["tipo"]] += linha["saldo_final"]
+        tipo = linha["tipo"]
+        if tipo not in totais_por_tipo:
+            contas_com_tipo_desconhecido.append(
+                {"conta": linha["conta"], "nome": linha["nome"], "tipo": tipo}
+            )
+        elif linha["raiz"]:
+            totais_por_tipo[tipo] += linha["saldo_final"]
+
+        if tipo != linha["tipo_da_raiz"]:
+            contas_com_tipo_divergente_da_raiz.append(
+                {
+                    "conta": linha["conta"],
+                    "nome": linha["nome"],
+                    "tipo": tipo,
+                    "tipo_da_raiz": linha["tipo_da_raiz"],
+                }
+            )
 
     ativo = totais_por_tipo[TipoConta.ATIVO]
     passivo = totais_por_tipo[TipoConta.PASSIVO]
     patrimonio_liquido = totais_por_tipo[TipoConta.PATRIMONIO_LIQUIDO]
     receita = totais_por_tipo[TipoConta.RECEITA]
     despesa = totais_por_tipo[TipoConta.DESPESA]
-    resultado_do_periodo = receita - despesa
+    # BL-478/achado A4: renomeado de `resultado_do_periodo` — o nome antigo
+    # afirmava ser o resultado do PERÍODO; é o SALDO ainda não transferido
+    # ao PL, que o zeramento leva a zero mesmo num mês lucrativo (ver
+    # docstring, "esta camada NÃO serve para apurar a DRE").
+    resultado_nao_transferido = receita - despesa
 
     # O momento da verdade: a diferença é CALCULADA e DEVOLVIDA — nunca usada
     # para ajustar saldo nenhum, aqui ou em quem chama (critério 2).
-    diferenca = ativo - (passivo + patrimonio_liquido + resultado_do_periodo)
+    diferenca = ativo - (passivo + patrimonio_liquido + resultado_nao_transferido)
 
     return {
         "data_base": data_base,
         "contas": contas,
         "totais_por_tipo": totais_por_tipo,
+        "contas_com_tipo_desconhecido": contas_com_tipo_desconhecido,
+        "contas_com_tipo_divergente_da_raiz": contas_com_tipo_divergente_da_raiz,
         "equacao": {
             "ativo": ativo,
             "passivo": passivo,
             "patrimonio_liquido": patrimonio_liquido,
             "receita": receita,
             "despesa": despesa,
-            "resultado_do_periodo": resultado_do_periodo,
+            "resultado_nao_transferido": resultado_nao_transferido,
             "diferenca": diferenca,
         },
     }

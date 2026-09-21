@@ -37,6 +37,7 @@ from apps.contabilidade.models import (
     TipoPartida,
 )
 from apps.contabilidade.services import (
+    HierarquiaInconsistente,
     apurar_balancete,
     apurar_saldos,
     criar_lancamento,
@@ -237,6 +238,16 @@ def cenario_completo():
     Despesa = 400,00 (Despesas Gerais: 200,00 + 50,00 + 150,00)
     Resultado do período = 100,00 (500,00 − 400,00)
     Equação: 1.170,00 = 150,00 + 920,00 + 100,00 — fecha nos dois lados.
+
+    BL-477/achado A3: o último lançamento ("Despesa a prazo") está datado
+    EXATAMENTE em `data_base` (31/01), de propósito — não é 20/01 por
+    acaso. Sem movimento algum NO DIA de `data_base`, `saldo_anterior` e
+    `saldo_final` ficam iguais para toda conta, e o critério 1
+    (`apurar_saldos` bate com `apurar_balancete`) deixa de exercitar a
+    coluna que ele existe para provar: a guarda reprovava por coincidência
+    de outro teste, não pelo teste do critério 1 em si (medido pelo
+    auditor por mutação). Os totais acima não mudam — é a mesma soma,
+    só datada no dia certo.
     """
     empresa = _empresa("DL-032 Completo")
     contas = _arvore(empresa)
@@ -271,7 +282,7 @@ def cenario_completo():
     )
     _lancar(
         empresa,
-        date(2026, 1, 20),
+        jan,
         "Despesa a prazo",
         contas["despesas_gerais"],
         contas["fornecedores"],
@@ -322,6 +333,32 @@ def test_apurar_saldos_expoe_codigo_nome_tipo_natureza_e_nivel(cenario_completo)
     assert caixa["saldo"] == Decimal("1220.00")
 
 
+def test_lancamento_no_dia_exato_da_data_base_entra_no_saldo(cenario_completo):
+    """BL-477/achado A3: a fronteira em si — `data_base` no MESMO dia de um
+    lançamento inclui (`<=`, não `<`) — nunca tinha sido afirmada por um
+    teste nomeado (caso de teste da auditoria). Fixture DEDICADA (não usa
+    `cenario_completo`) para isolar exatamente a fronteira: um único
+    lançamento, datado no dia da `data_base` testada."""
+    empresa = _empresa("DL-032 Fronteira")
+    contas = _arvore(empresa)
+    dia = date(2026, 1, 31)
+    _lancar(
+        empresa, dia, "Capitalização na fronteira", contas["caixa"], contas["capital"], "1000.00"
+    )
+
+    no_dia = apurar_saldos(empresa=empresa, data_base=dia)
+    saldo_caixa_no_dia = next(
+        linha["saldo"] for linha in no_dia["contas"] if linha["conta"] == "1.1"
+    )
+    assert saldo_caixa_no_dia == Decimal("1000.00")
+    assert no_dia["equacao"]["diferenca"] == Decimal("0")
+
+    antes = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 30))
+    saldo_caixa_antes = next(linha["saldo"] for linha in antes["contas"] if linha["conta"] == "1.1")
+    assert saldo_caixa_antes == Decimal("0")
+    assert antes["equacao"]["diferenca"] == Decimal("0")
+
+
 # ---------------------------------------------------------------------------
 # Critério 2 — a equação é reportada, nunca forçada.
 # ---------------------------------------------------------------------------
@@ -335,7 +372,7 @@ def test_equacao_fecha_em_base_correta(cenario_completo):
     assert equacao["ativo"] == Decimal("1170.00")
     assert equacao["passivo"] == Decimal("150.00")
     assert equacao["patrimonio_liquido"] == Decimal("920.00")
-    assert equacao["resultado_do_periodo"] == Decimal("100.00")
+    assert equacao["resultado_nao_transferido"] == Decimal("100.00")
     assert equacao["diferenca"] == Decimal("0.00")
 
 
@@ -381,7 +418,10 @@ def test_diferenca_aparece_com_valor_e_sinal_e_nenhum_saldo_e_alterado(cenario_c
     # só tocou o Ativo) — continuam intactas.
     assert depois["equacao"]["passivo"] == antes["equacao"]["passivo"]
     assert depois["equacao"]["patrimonio_liquido"] == antes["equacao"]["patrimonio_liquido"]
-    assert depois["equacao"]["resultado_do_periodo"] == antes["equacao"]["resultado_do_periodo"]
+    assert (
+        depois["equacao"]["resultado_nao_transferido"]
+        == antes["equacao"]["resultado_nao_transferido"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +495,126 @@ def test_tipo_sem_nenhuma_conta_entra_com_zero_nao_fica_de_fora(cenario_completo
     saldos = apurar_saldos(empresa=empresa_vazia, data_base=date(2026, 1, 31))
     assert saldos["totais_por_tipo"] == {tipo: Decimal("0") for tipo in TipoConta.values}
     assert saldos["equacao"]["diferenca"] == Decimal("0")
+
+
+def test_cenario_correto_nao_tem_conta_com_tipo_divergente_da_raiz(cenario_completo):
+    """BL-475/achado A2 — CONTROLE POSITIVO: no plano de contas coerente
+    (nenhuma conta com `tipo` diferente do `tipo` da sua raiz),
+    `contas_com_tipo_divergente_da_raiz` sai VAZIA. Sem este teste, um
+    mutante que zerasse a detecção (sempre devolvendo `[]`) passaria
+    despercebido — e uma detecção que acusasse TUDO viraria ruído sem que
+    nada o revelasse."""
+    saldos = apurar_saldos(
+        empresa=cenario_completo["empresa"], data_base=cenario_completo["data_base"]
+    )
+    assert saldos["contas_com_tipo_divergente_da_raiz"] == []
+
+
+def test_conta_descendente_com_tipo_diferente_da_raiz_e_declarada_nunca_corrigida():
+    """BL-475/achado A2 — reproduz a sonda P2 da auditoria: uma conta
+    "Despesa" (1.9) pendurada sob a raiz do Ativo (mau cadastro). O saldo
+    dela é somado no grupo da RAIZ (Ativo) pela regra única de saldo — a
+    decisão está CERTA e não muda aqui (mutantes M4/M5 do relatório provam
+    que agregar de outro jeito quebra a retificadora do RC-104). O que
+    tinha que existir e não existia é a DECLARAÇÃO: a conta 1.9 nomeada em
+    `contas_com_tipo_divergente_da_raiz`, com o `tipo` próprio E o
+    `tipo_da_raiz`, para o mesmo dicionário deixar de se contradizer em
+    silêncio."""
+    empresa = _empresa("DL-032 Tipo Divergente")
+    raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    caixa = _conta(
+        empresa, codigo="1.1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D, pai=raiz_ativo
+    )
+    despesa_mal_cadastrada = _conta(
+        empresa,
+        codigo="1.9",
+        nome="Despesa mal cadastrada",
+        tipo=TipoConta.DESPESA,  # tipo DIFERENTE do tipo da raiz (Ativo)
+        natureza=D,
+        pai=raiz_ativo,
+    )
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    data_base = date(2026, 1, 31)
+    _lancar(empresa, date(2026, 1, 2), "Capitalização", caixa, capital, "1000.00")
+    _lancar(
+        empresa,
+        date(2026, 1, 10),
+        "Lançamento mal classificado",
+        despesa_mal_cadastrada,
+        caixa,
+        "300.00",
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=data_base)
+
+    divergentes = {linha["conta"]: linha for linha in saldos["contas_com_tipo_divergente_da_raiz"]}
+    assert "1.9" in divergentes, saldos["contas_com_tipo_divergente_da_raiz"]
+    assert divergentes["1.9"]["tipo"] == TipoConta.DESPESA
+    assert divergentes["1.9"]["tipo_da_raiz"] == TipoConta.ATIVO
+    # A linha da conta 1.9 continua dizendo `tipo=despesa` — não é
+    # reclassificada — mas agora a divergência está NOMEADA em vez de só
+    # contradizer `totais_por_tipo` em silêncio (achado A2 original).
+    linha_1_9 = next(linha for linha in saldos["contas"] if linha["conta"] == "1.9")
+    assert linha_1_9["tipo"] == TipoConta.DESPESA
+    # O saldo consolidado do Ativo continua sendo o que a regra única de
+    # saldo (DE-020) manda somar — esta correção NUNCA move dinheiro.
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1000.00")
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+
+
+def test_tipo_gravado_fora_de_tipoconta_e_nomeado_nunca_derruba():
+    """BL-476/achado A1 — reproduz a sonda Q1: um `tipo` gravado fora de
+    `TipoConta` (só alcançável por escrita direta no ORM/SQL — a tela e o
+    serializer sempre validam `choices`) não pode estourar `KeyError` nem
+    ser criado como chave nova dentro de `totais_por_tipo` (o que
+    desmontaria a garantia do critério 4/DE-056 de que as chaves são
+    EXATAMENTE as de `TipoConta.values`). Tem que aparecer, nomeado, em
+    `contas_com_tipo_desconhecido`."""
+    empresa = _empresa("DL-032 Tipo Desconhecido")
+    raiz_torta = _conta(
+        empresa, codigo="7", nome="Conta corrompida", tipo=TipoConta.ATIVO, natureza=D
+    )
+    Conta.objects.filter(pk=raiz_torta.pk).update(tipo="custo")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert set(saldos["totais_por_tipo"].keys()) == set(TipoConta.values)  # nunca cria chave nova
+    desconhecidos = {linha["conta"]: linha for linha in saldos["contas_com_tipo_desconhecido"]}
+    assert "7" in desconhecidos, saldos["contas_com_tipo_desconhecido"]
+    assert desconhecidos["7"]["tipo"] == "custo"
+    assert desconhecidos["7"]["nome"] == "Conta corrompida"
+
+
+def test_tipos_tratados_na_equacao_batem_com_tipoconta(cenario_completo):
+    """BL-479/achado A5 — guarda DERIVADA, no molde de
+    `test_target_version_do_ruff_bate_com_requires_python`
+    (`apps/core/tests/test_versao_minima_python.py`): as chaves da
+    `equacao` que representam um `TipoConta` (tudo, exceto `diferenca` e
+    `resultado_nao_transferido`, que não são tipos) são lidas do próprio
+    resultado em tempo de execução — não copiadas à mão aqui — e
+    comparadas contra `set(TipoConta.values)`, derivado do MODELO. Se um
+    sexto `TipoConta` nascer sem que a equação passe a tratá-lo, este
+    teste reprova NOMEANDO o tipo esquecido, em vez de o valor dele
+    reaparecer como `diferenca` anônima (o defeito medido pela sonda S3 da
+    auditoria)."""
+    saldos = apurar_saldos(
+        empresa=cenario_completo["empresa"], data_base=cenario_completo["data_base"]
+    )
+    chaves_que_nao_sao_tipo = {"diferenca", "resultado_nao_transferido"}
+    tipos_tratados_na_equacao = set(saldos["equacao"].keys()) - chaves_que_nao_sao_tipo
+    assert tipos_tratados_na_equacao == set(TipoConta.values), (
+        f"a equação trata {sorted(tipos_tratados_na_equacao)}, mas "
+        f"TipoConta.values é {sorted(TipoConta.values)} — tipo(s) sem "
+        f"tratamento na equação: {set(TipoConta.values) - tipos_tratados_na_equacao}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +806,7 @@ def test_apos_zeramento_resultado_e_zero_e_equacao_fecha_na_forma_classica(cenar
 
     assert equacao["receita"] == Decimal("0.00")
     assert equacao["despesa"] == Decimal("0.00")
-    assert equacao["resultado_do_periodo"] == Decimal("0.00")
+    assert equacao["resultado_nao_transferido"] == Decimal("0.00")
     # Forma clássica: Ativo = Passivo + PL (o termo de resultado é zero, não
     # "removido" — a MESMA fórmula, sem nenhum `if`, chega à forma
     # clássica por construção).
@@ -659,6 +819,144 @@ def test_apos_zeramento_resultado_e_zero_e_equacao_fecha_na_forma_classica(cenar
     assert saldo_por_codigo["4.1"] == Decimal("0.00")  # Vendas zerada
     assert saldo_por_codigo["5.1"] == Decimal("0.00")  # Despesas Gerais zerada
     assert saldo_por_codigo["3.4"] == Decimal("0.00")  # Resultado do Exercício de volta a zero
+
+
+def test_apos_zeramento_resultado_nao_transferido_e_zero_mas_resultado_do_mes_nao(cenario_completo):
+    """BL-478/achado A4 — fixa por TESTE, não por comentário, a diferença
+    entre `resultado_nao_transferido` (o termo da equação: o SALDO ainda
+    não transferido ao PL) e "o resultado do mês" (o MOVIMENTO do
+    período, RC-104, penúltima ressalva: "a DRE de um período se constrói
+    pelo MOVIMENTO do período, nunca pelo SALDO das contas"). Janeiro
+    (`cenario_completo`) teve lucro de 100,00; depois do zeramento de
+    fevereiro, `resultado_nao_transferido` é ZERO — mas o lucro de
+    janeiro não deixou de existir, e continua mensurável pelo MOVIMENTO de
+    janeiro (créditos de Receita menos débitos de Despesa DENTRO do
+    período), obtido de `apurar_balancete(inicio, fim)` — nunca de
+    `apurar_saldos`, que esta camada declara NÃO servir para apurar DRE."""
+    empresa = cenario_completo["empresa"]
+    contas = cenario_completo["contas"]
+
+    _lancar(
+        empresa,
+        date(2026, 2, 1),
+        "Zeramento — Vendas",
+        contas["vendas"],
+        contas["resultado_do_exercicio"],
+        "500.00",
+    )
+    _lancar(
+        empresa,
+        date(2026, 2, 1),
+        "Zeramento — Despesas Gerais",
+        contas["resultado_do_exercicio"],
+        contas["despesas_gerais"],
+        "400.00",
+    )
+    _lancar(
+        empresa,
+        date(2026, 2, 1),
+        "Transferência do resultado ao PL",
+        contas["resultado_do_exercicio"],
+        contas["lucros_acumulados"],
+        "100.00",
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 2, 20))
+    assert saldos["equacao"]["resultado_nao_transferido"] == Decimal("0.00")
+
+    # O movimento de JANEIRO (a Zeramento está datada em FEVEREIRO, fora
+    # desta janela) mostra o lucro que de fato ocorreu — 500,00 de Receita
+    # creditada menos 400,00 de Despesa debitada, o MESMO 100,00 conferido
+    # à mão na fixture — mesmo `resultado_nao_transferido` já tendo voltado
+    # a zero.
+    movimento_de_janeiro = apurar_balancete(
+        empresa=empresa, inicio=date(2026, 1, 1), fim=date(2026, 1, 31)
+    )
+    vendas = next(linha for linha in movimento_de_janeiro["contas"] if linha["conta"] == "4")
+    despesa = next(linha for linha in movimento_de_janeiro["contas"] if linha["conta"] == "5")
+    resultado_do_mes = vendas["creditos"] - despesa["debitos"]
+
+    assert resultado_do_mes == Decimal("100.00")
+    assert resultado_do_mes != saldos["equacao"]["resultado_nao_transferido"]
+
+
+# ---------------------------------------------------------------------------
+# Achados baixos da rodada 1 (BL-480, BL-481, BL-482) — comportamento já
+# correto, agora declarado no contrato E fixado por teste.
+# ---------------------------------------------------------------------------
+
+
+def test_hierarquia_inconsistente_propaga_ciclo_sem_recursion_error():
+    """BL-480/achado A7 — herdado do reuso de `apurar_balancete`: um ciclo
+    na hierarquia (a conta sendo sua própria ancestral) levanta
+    `HierarquiaInconsistente`, nomeando a conta, em vez de um
+    `RecursionError` cru. `apurar_saldos` NÃO trata a exceção — propaga,
+    como o contrato agora declara."""
+    empresa = _empresa("DL-032 Ciclo")
+    a = _conta(empresa, codigo="1", nome="A", tipo=TipoConta.ATIVO, natureza=D)
+    b = _conta(empresa, codigo="1.1", nome="B", tipo=TipoConta.ATIVO, natureza=D, pai=a)
+    a.conta_pai = b
+    a.save(update_fields=["conta_pai"])
+
+    with pytest.raises(HierarquiaInconsistente):
+        apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+
+def test_hierarquia_inconsistente_propaga_conta_pai_de_outra_empresa():
+    """BL-480/achado A7 — `conta_pai` apontando para conta de OUTRA
+    empresa (só alcançável por ORM/SQL direto, BL-40) levanta
+    `HierarquiaInconsistente`, nomeando a conta, em vez de `KeyError`."""
+    empresa = _empresa("DL-032 Pai De Outra Empresa")
+    outra_empresa = _empresa("DL-032 Outra Empresa")
+    conta_de_outra = _conta(
+        outra_empresa, codigo="1", nome="Raiz de outra empresa", tipo=TipoConta.ATIVO, natureza=D
+    )
+    conta_corrompida = _conta(empresa, codigo="1.1", nome="Órfã", tipo=TipoConta.ATIVO, natureza=D)
+    Conta.objects.filter(pk=conta_corrompida.pk).update(conta_pai_id=conta_de_outra.pk)
+
+    with pytest.raises(HierarquiaInconsistente):
+        apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+
+def test_raiz_de_cada_linha_e_exatamente_nivel_igual_a_um(cenario_completo):
+    """BL-481/achado A8 — `linha["raiz"]` é repassado (não existia antes) e
+    fixa por teste a equivalência com `nivel == 1`, que o contrato agora
+    declara. Prova adicional: somar `contas` por `tipo` filtrando por
+    `raiz` reproduz `totais_por_tipo` exatamente — a leitura que o
+    critério 4 convida, sem contar nenhuma conta em dobro."""
+    saldos = apurar_saldos(
+        empresa=cenario_completo["empresa"], data_base=cenario_completo["data_base"]
+    )
+    for linha in saldos["contas"]:
+        assert linha["raiz"] == (linha["nivel"] == 1), linha
+
+    reproduzido = {tipo: Decimal("0") for tipo in TipoConta.values}
+    for linha in saldos["contas"]:
+        if linha["raiz"]:
+            reproduzido[linha["tipo"]] += linha["saldo"]
+    assert reproduzido == saldos["totais_por_tipo"]
+
+
+def test_conta_inativa_com_saldo_residual_entra_no_total(cenario_completo):
+    """BL-482/achado A9 — deliberado: uma conta desativada (`ativo=False`)
+    com saldo residual continua aparecendo em `contas` e contribuindo
+    para `totais_por_tipo` — do contrário o Balanço perderia dinheiro. O
+    comportamento já era este; o que faltava era declará-lo e fixá-lo por
+    teste."""
+    empresa = cenario_completo["empresa"]
+    contas = cenario_completo["contas"]
+    data_base = cenario_completo["data_base"]
+
+    antes = apurar_saldos(empresa=empresa, data_base=data_base)
+    ativo_antes = antes["equacao"]["ativo"]
+
+    contas["caixa"].ativo = False
+    contas["caixa"].save(update_fields=["ativo"])
+
+    depois = apurar_saldos(empresa=empresa, data_base=data_base)
+    linha_caixa = next(linha for linha in depois["contas"] if linha["conta"] == "1.1")
+    assert linha_caixa["saldo"] == Decimal("1220.00")  # continua aparecendo, com o saldo
+    assert depois["equacao"]["ativo"] == ativo_antes  # e continua somado no total
 
 
 # ---------------------------------------------------------------------------
