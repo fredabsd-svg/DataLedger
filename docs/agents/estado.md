@@ -728,6 +728,40 @@ falta para existir Balanço apresentável), os parâmetros contábeis por empres
 
 **Estado:** rodada 1 de 2 **concluída**.
 
+#### ➡️ ETAPA EM CURSO: [DL-033](../planos/DL-033-circulante-e-nao-circulante.md) — circulante e não circulante
+
+**Autorizada pelo Fred em 2026-09-21.** **Nível 1** — muda o modelo e é o único
+dado que falta para o Balanço existir.
+
+⚠️ **A norma foi levantada em FONTE OFICIAL antes de eu desenhar qualquer coisa**
+(**RC-106**: Lei 6.404/76 arts. 178-180, redação da Lei 11.941/2009; NBC TG 26
+(R5) itens 60-76), e ela **impôs três coisas que eu não adivinharia**:
+
+1. O critério é **relativo à data** — *"até doze meses após a data do balanço"* —,
+   não propriedade eterna do direito.
+2. O **ciclo operacional** pode alargar o corte; os doze meses só se presumem
+   quando ele **não** é claramente identificável.
+3. **O ativo não circulante tem QUATRO subgrupos nomeados por lei** (realizável
+   a longo prazo, investimentos, imobilizado, intangível). Eu teria modelado
+   dois grupos e errado.
+
+**Decisão minha:** a classificação é **campo da conta**, e a passagem de longo
+prazo para curto prazo se faz por **lançamento de reclassificação**, não
+editando a conta — porque o modelo **já recusa** mudar natureza ou tipo de conta
+com movimento (BL-83/BL-245/BL-261), pelo mesmo motivo: a troca **reescreveria o
+histórico**, e aqui reescreveria **Balanços já entregues ao cliente**.
+
+⚠️ **Marcado como HI-18, com a PE-64 aberta ao Fred:** a norma diz **o que**
+classificar, não **como o escritório opera**. Se ele disser que lá se troca a
+classificação da conta, o campo fica e **só a guarda muda**. Sigo pela
+conservadora porque **o erro dela é barato e o da outra é caro**.
+
+⚠️ **E o que a etapa NÃO faz, deliberadamente: não adivinha a classificação das
+contas que já existem.** Ler o código (`1.1` = circulante) ou o nome seria
+inferir semântica da nomenclatura do contador — **exatamente a classe do
+BL-475**, que reprovou a DL-032 nesta semana. Conta existente nasce **sem**
+classificação, e a camada **declara** quais faltam.
+
 **Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
 o encerramento do exercício (por lançamento ou derivado), com que periodicidade,
 e qual conta do PL recebe o resultado. ⚠️ **O catálogo já respondeu a parte
