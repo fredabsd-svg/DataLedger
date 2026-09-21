@@ -465,11 +465,20 @@ def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero()
     """Reprodução EXATA da sonda do auditor: "Clientes" (devedora,
     1.220,00) e "(-) PDD" (credora, retificadora, 50,00), IRMÃS (nenhuma
     ancestral da outra), ambas classificadas `ativo_circulante`
-    DIRETAMENTE. `totais_por_classificacao['ativo_circulante']` fica
-    ERRADO (1.270,00 — soma os dois valores, cada um já assinado pela
-    PRÓPRIA natureza, em vez de aplicar uma natureza sobre o bruto
-    combinado), mas o RESÍDUO nomeia a diferença: não fecha mais em
-    silêncio."""
+    DIRETAMENTE.
+
+    ⚠️ **Números ATUALIZADOS pela correção do BL-496 (RESSALVA R1/DE-068,
+    opção (b) do auditor, DL-034 critério 1):** antes desta correção,
+    `totais_por_classificacao['ativo_circulante']` somava 1.220,00 +
+    50,00 = 1.270,00 (cada saldo já assinado pela PRÓPRIA natureza) e o
+    resíduo nomeava o excesso via -100,00. Agora o laço normaliza pela
+    natureza NATURAL do tipo (devedora no Ativo) — o PDD credora entra
+    SUBTRAINDO — e o número fica CERTO: 1.220,00 − 50,00 = 1.170,00,
+    resíduo `0,00`. A correção do NÚMERO não remove a topologia de risco:
+    a guarda ESTRUTURAL nova (condição 3 do critério 1 da DL-034, "cinto e
+    suspensório" enquanto (b) não tem prova para toda retificadora de
+    grupo) continua nomeando as duas contas e BLOQUEANDO a emissão — ver
+    a asserção de `avaliar_emissao_do_balanco` no fim deste teste."""
     empresa = _empresa("DL-033 BL-486")
     raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
     clientes = _conta(
@@ -505,22 +514,45 @@ def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero()
     saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
 
     # O totais_por_tipo (via a RAIZ, correto) é 1.170,00 — a mesma conta
-    # que o implementador fez à mão para justificar o desenho.
+    # que o implementador fez à mão para justificar o desenho, e agora
+    # também a que `totais_por_classificacao` reproduz.
     assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1170.00")
-    # A soma por classificação fica ERRADA (1.270,00) — não corrigimos
-    # isso, DECLARAMOS via resíduo.
+    # BL-496: a soma por classificação agora está CERTA — normalizada pela
+    # natureza natural do tipo, não pela cadastrada da própria conta.
     assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE] == (
-        Decimal("1270.00")
+        Decimal("1170.00")
     )
-    # O resíduo nomeia o excesso de 100,00 (o DOBRO da retificadora),
-    # negativo porque a soma dos grupos ficou MAIOR que o total do tipo.
-    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("-100.00")
-    # A identidade continua valendo, por construção.
+    # E o resíduo fecha em zero — a identidade continua valendo, e agora
+    # não há mais excesso para nomear.
+    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("0.00")
     soma_ativo = saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE]
     assert soma_ativo + saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("1170.00")
     # E a equação do Balancete, que não usa classificação nenhuma,
     # continua correta e fechando — o dinheiro nunca se moveu de verdade.
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+
+    # A guarda ESTRUTURAL (condição 3 do critério 1/DL-034) nomeia as DUAS
+    # contas — mesmo com o número já certo — porque (b) não tem prova para
+    # TODA topologia de retificadora de grupo (declaração do próprio
+    # auditor). Resíduo zero e cinco listas antigas vazias NÃO bastam
+    # para emitir: esta lista sozinha já bloqueia.
+    irmas_divergentes = {
+        linha["conta"]
+        for linha in saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"]
+    }
+    assert irmas_divergentes == {"1.1", "1.2"}, saldos[
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+    ]
+
+    from apps.contabilidade.services import avaliar_emissao_do_balanco
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao["pode_emitir"] is False
+    assert emissao["residuo_pendente"] == {}
+    assert (
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+        in (emissao["listas_pendentes"])
+    )
 
 
 def test_bl487_no_intermediario_desclassificado_com_movimento_produz_residuo_nao_zero():
@@ -579,6 +611,17 @@ def test_bl487_no_intermediario_desclassificado_com_movimento_produz_residuo_nao
     )
     # O resíduo nomeia os 500,00 perdidos.
     assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("500.00")
+    # E a guarda ESTRUTURAL nova (condição 4 do critério 1/DL-034) nomeia
+    # "1.1" por ESTRUTURA (não-folha, sem classificação própria nem
+    # ancestral, com movimento PRÓPRIO) — independente do resíduo já ter
+    # acusado a mesma falta pela aritmética.
+    nao_folha_com_movimento = {
+        linha["conta"]
+        for linha in saldos["contas_nao_folha_sem_classificacao_com_movimento_proprio"]
+    }
+    assert nao_folha_com_movimento == {"1.1"}, saldos[
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio"
+    ]
 
 
 def test_cenario_totalmente_classificado_nao_tem_conta_aninhada_nem_sem_classificacao(
@@ -592,10 +635,20 @@ def test_cenario_totalmente_classificado_nao_tem_conta_aninhada_nem_sem_classifi
     assert saldos["contas_com_classificacao_aninhada"] == []
     assert saldos["contas_sem_classificacao_patrimonial"] == []
     assert saldos["contas_com_classificacao_desconhecida"] == []
+    # DL-034/BL-496 — controle positivo das DUAS guardas estruturais novas:
+    # sem ele, um mutante que sempre devolvesse as duas listas vazias
+    # passaria despercebido.
+    assert saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"] == []
+    assert saldos["contas_nao_folha_sem_classificacao_com_movimento_proprio"] == []
     assert saldos["residuo_por_tipo"] == {
         TipoConta.ATIVO: Decimal("0"),
         TipoConta.PASSIVO: Decimal("0"),
     }
+
+    from apps.contabilidade.services import avaliar_emissao_do_balanco
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao == {"pode_emitir": True, "residuo_pendente": {}, "listas_pendentes": {}}
 
 
 def test_classificacao_gravada_fora_do_enum_e_nomeada_nunca_derruba():

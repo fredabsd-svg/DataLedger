@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    NATUREZA_NATURAL_DO_TIPO,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoPatrimonial,
     Competencia,
@@ -1823,6 +1824,40 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
             (brutos[filho_id]["credito_periodo"] for filho_id in filhos_exibidos_ids), zero
         )
 
+        # DL-034 (BL-496, critério 1 condição 4) — `debitos_proprios_totais`/
+        # `creditos_proprios_totais`: a MESMA ideia de "próprio" acima
+        # (bruto desta conta menos o dos filhos exibidos), mas somando
+        # ANTERIOR e PERÍODO juntos — "houve movimento próprio ALGUMA VEZ
+        # até `fim`", não só "neste período". Campo NOVO, aditivo: NÃO
+        # substitui `debitos_proprios`/`creditos_proprios` acima, cuja
+        # identidade com o rodapé (`total_debitos`/`total_creditos`, também
+        # escopados ao período) continua valendo exatamente como antes —
+        # mudar aquele campo para somar `saldo_anterior` quebraria essa
+        # reconciliação (BL-281) por uma necessidade de OUTRA camada. Existe
+        # porque `apurar_saldos` chama `apurar_balancete(inicio=fim=data_
+        # base)`: um lançamento antigo (a maioria, na prática) cai inteiro em
+        # `saldo_anterior`, e `debitos_proprios`/`creditos_proprios` (só
+        # período) ficariam ZERO para uma conta com movimento próprio real,
+        # só mais antigo que `data_base` — a guarda ficaria cega para o
+        # caso comum, só pegando quem tem movimento próprio bem no dia de
+        # corte.
+        debitos_totais = bruto["debito_anterior"] + bruto["debito_periodo"]
+        creditos_totais = bruto["credito_anterior"] + bruto["credito_periodo"]
+        debitos_proprios_totais = debitos_totais - sum(
+            (
+                brutos[filho_id]["debito_anterior"] + brutos[filho_id]["debito_periodo"]
+                for filho_id in filhos_exibidos_ids
+            ),
+            zero,
+        )
+        creditos_proprios_totais = creditos_totais - sum(
+            (
+                brutos[filho_id]["credito_anterior"] + brutos[filho_id]["credito_periodo"]
+                for filho_id in filhos_exibidos_ids
+            ),
+            zero,
+        )
+
         linhas.append(
             {
                 "conta": conta.codigo,
@@ -1872,6 +1907,20 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 "tipo": conta.tipo,
                 "tipo_da_raiz": contas_por_id[raiz_id_de(conta.id)].tipo,
                 "raiz": conta.conta_pai_id is None,
+                # `conta_pai` (DL-034, BL-496/critério 1 condição 3): o
+                # CÓDIGO da conta pai direta (ou `None` para raiz) — sem
+                # consulta nova, `contas_por_id` já carregou a árvore
+                # inteira. Existe só para `apurar_saldos` agrupar contas
+                # IRMÃS (mesmo pai) sem reabrir o banco, na guarda que
+                # detecta nós topo-classificados de natureza cadastrada
+                # divergente sob o mesmo ancestral não classificado (o
+                # mesmo padrão de "expor um campo extra, de graça, para
+                # quem consome" que `raiz`/`tipo_da_raiz` já seguem).
+                "conta_pai": (
+                    contas_por_id[conta.conta_pai_id].codigo
+                    if conta.conta_pai_id is not None
+                    else None
+                ),
                 # `classificacao_patrimonial`/`classificacao_patrimonial_
                 # ancestral` (DL-033/RC-106): a classificação PRÓPRIA desta
                 # conta (ou `None`) e a do ANCESTRAL mais próximo que tiver
@@ -1887,6 +1936,10 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 "creditos": creditos,
                 "debitos_proprios": debitos_proprios,
                 "creditos_proprios": creditos_proprios,
+                # DL-034/BL-496: "próprio", mas somando anterior + período —
+                # ver o comentário de origem, acima, no laço que os calcula.
+                "debitos_proprios_totais": debitos_proprios_totais,
+                "creditos_proprios_totais": creditos_proprios_totais,
                 "saldo_final": saldo_final,
             }
         )
@@ -2195,6 +2248,38 @@ def apurar_saldos(*, empresa, data_base):
     classificação; a DE-022 já registra que esse desdobramento é rotina
     normal, não erro).
 
+    ⚠️ **BL-496 (RESSALVA R1 da rodada 2 de auditoria da DL-033, DE-068) —
+    o resíduo garante o TOTAL POR TIPO, NUNCA o subtotal por GRUPO, e é o
+    GRUPO que o Balanço imprime.** A rodada 2 mediu o cenário **V1d**: dois
+    defeitos no MESMO Ativo, calibrados para se ANULAREM na soma agregada
+    (retificadora entre irmãs, como acima, **e** um nó intermediário
+    desclassificado com movimento próprio, como o BL-487) — resíduo
+    `0,00`, as cinco listas vazias, equação fechando, **e dois grupos do
+    Balanço errados**. A identidade continua VERDADEIRA (ela soma
+    conjuntos de nós diferentes dos dois lados, não é tautologia); o que
+    era falso era achar que "resíduo zero" bastava. Duas respostas,
+    tomadas JUNTAS (DE-068: "enuncie a invariante E o escopo dela"):
+
+    1. **A correção de FUNDO (opção (b) do auditor):** o laço acima soma
+       cada nó topo classificado normalizando o sinal por
+       `NATUREZA_NATURAL_DO_TIPO` (models.py), não pela natureza CADASTRADA
+       da própria conta — torna o NÚMERO certo (ver o comentário no laço),
+       não só detectado, para a topologia exata do BL-486/V1a.
+    2. **Mas (b) não tem prova para TODA topologia** ("pode haver
+       interação com retificadora DE GRUPO que eu não enxerguei" — palavras
+       do próprio auditor). Por isso as condições 3 e 4 do critério 1 da
+       DL-034 continuam vivas como GUARDA ESTRUTURAL, cinto e suspensório
+       ao lado do resíduo:
+       `contas_topo_classificadas_com_natureza_divergente_entre_irmas`
+       (irmãos topo classificados com natureza cadastrada divergente — a
+       topologia do BL-486) e
+       `contas_nao_folha_sem_classificacao_com_movimento_proprio` (nó
+       não-folha desclassificado com movimento próprio — a topologia do
+       BL-487). **Nenhuma das duas é removida por (b) ter corrigido o
+       número** — ver `avaliar_emissao_do_balanco`, que exige a CONJUNÇÃO
+       de resíduo zero, as cinco listas antigas vazias e estas duas
+       também vazias antes de liberar a emissão.
+
     ⚠️ **`totais_por_grupo` (BL-490, achado MÉDIO) — o subtotal que a lei
     manda IMPRIMIR no Balanço:** soma `totais_por_classificacao` pelos
     QUATRO grupos de `GrupoDaLei` (via `GRUPO_DA_LEI_DA_CLASSIFICACAO_
@@ -2304,7 +2389,42 @@ def apurar_saldos(*, empresa, data_base):
     # a classe de erro do achado A2/BL-475 da DL-032. Vazia quando todas
     # as contas relevantes (com saldo) estão classificadas (controle
     # positivo do critério 5).
+    #
+    # ⚠️ BL-498 (achado BAIXO, "R3" da rodada 2 de auditoria da DL-033): a
+    # régua desta lista (e da lista irmã abaixo) é o SALDO/MOVIMENTO em
+    # `data_base` — não uma propriedade fixa da conta. Uma conta com
+    # movimento no período cujo saldo volta a `0,00` exatamente em
+    # `data_base` SAI da lista (classificá-la não mudaria o Balanço nesta
+    # data), e pode voltar a aparecer numa `data_base` diferente para o
+    # MESMO plano de contas. Aritmeticamente inofensivo (saldo zero
+    # contribui zero à soma), mas quem consome esta lista não pode tratá-la
+    # como "o que falta classificar no plano de contas" — é "o que falta
+    # classificar NESTA DATA".
     contas_sem_classificacao_patrimonial = []
+    # BL-487, critério 1 condição 4 da DL-034 (guarda ESTRUTURAL, "cinto e
+    # suspensório" — ver a nota grande abaixo, depois do laço, sobre por
+    # que ela continua viva mesmo com `residuo_por_tipo` cobrindo o mesmo
+    # defeito): nó NÃO-FOLHA (tem descendente — o oposto exato da condição
+    # acima, que só olha folha) cuja classificação própria E ancestral
+    # estão vazias, mas que tem MOVIMENTO PRÓPRIO — `debitos_proprios_
+    # totais`/`creditos_proprios_totais` (anterior + período, "alguma vez
+    # até `fim`"), NUNCA `debitos_proprios`/`creditos_proprios` (só
+    # período): como `apurar_saldos` sempre chama `apurar_balancete` com
+    # `inicio=fim=data_base`, um lançamento antigo cai inteiro em
+    # `saldo_anterior` — usar os campos só-período deixaria esta guarda
+    # cega para o caso comum (conta com movimento próprio mais antigo que
+    # `data_base`), pegando só quem tem movimento bem no dia de corte. O
+    # desdobramento que a DE-022 já registra como ROTINA normal (conta
+    # ganha filha) deixa esse valor invisível para a lista de folhas
+    # acima, mesmo sem nenhum dado corrompido.
+    contas_nao_folha_sem_classificacao_com_movimento_proprio = []
+    # BL-496, critério 1 condição 3 da DL-034 (mesma guarda estrutural):
+    # agrupa, por CONTA PAI, cada nó TOPO classificado (classificação
+    # própria válida, nenhum ancestral também classificado) com a sua
+    # natureza CADASTRADA — para, depois do laço, achar grupos de irmãos
+    # (mesmo pai) com natureza divergente entre si. É a topologia EXATA do
+    # BL-486 (ver a nota grande abaixo).
+    topo_classificados_por_pai = defaultdict(list)
     for linha in balancete["contas"]:
         propria = linha["classificacao_patrimonial"]
         ancestral = linha["classificacao_patrimonial_ancestral"]
@@ -2327,16 +2447,76 @@ def apurar_saldos(*, empresa, data_base):
                     }
                 )
             else:
-                totais_por_classificacao[propria] += linha["saldo_final"]
-        elif (
-            ancestral is None
-            and linha["analitica"]
-            and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO)
-            and linha["saldo_final"] != zero
-        ):
-            contas_sem_classificacao_patrimonial.append(
-                {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
-            )
+                # BL-496 (RESSALVA R1, opção (b), DE-068) — a CORREÇÃO DE
+                # FUNDO desta etapa: soma o nó TOPO classificado
+                # normalizando o sinal pela natureza NATURAL do TIPO da
+                # classificação (`NATUREZA_NATURAL_DO_TIPO`, models.py —
+                # devedora no Ativo, credora no Passivo), NUNCA pela
+                # natureza CADASTRADA da própria conta
+                # (`linha["natureza"]`). `linha["saldo_final"]` já vem
+                # assinado relativo à natureza CADASTRADA (ver o
+                # comentário de origem em `apurar_balancete`) — quando ela
+                # coincide com a natural do tipo, o valor já está no sinal
+                # certo; quando diverge (a conta é uma RETIFICADORA, ex.:
+                # "(-) PDD" credora sob Ativo Circulante), o sinal precisa
+                # inverter para que a soma do grupo aplique UMA natureza
+                # sobre o valor combinado — exatamente a regra única de
+                # saldo (DE-020) que já vale para hierarquia, agora
+                # aplicada entre CONTAS IRMÃS classificadas
+                # independentemente no mesmo grupo. Sem isto, "Clientes"
+                # (D, 1.220,00) e "(-) PDD" (C, 50,00), ambas
+                # `ativo_circulante`, somavam 1.220,00 + 50,00 = 1.270,00;
+                # com a normalização, 1.220,00 − 50,00 = 1.170,00 —
+                # correto, e igual ao que `totais_por_tipo` já calculava
+                # via a raiz (prova: `test_bl486_...`, reescrito nesta
+                # etapa).
+                natureza_natural = NATUREZA_NATURAL_DO_TIPO[
+                    TIPO_DA_CLASSIFICACAO_PATRIMONIAL[propria]
+                ]
+                valor_normalizado = (
+                    linha["saldo_final"]
+                    if linha["natureza"] == natureza_natural
+                    else -linha["saldo_final"]
+                )
+                totais_por_classificacao[propria] += valor_normalizado
+                topo_classificados_por_pai[linha["conta_pai"]].append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                        "natureza": linha["natureza"],
+                    }
+                )
+        elif ancestral is None and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO):
+            if linha["analitica"]:
+                if linha["saldo_final"] != zero:
+                    contas_sem_classificacao_patrimonial.append(
+                        {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
+                    )
+            elif (
+                linha["debitos_proprios_totais"] != zero
+                or linha["creditos_proprios_totais"] != zero
+            ):
+                contas_nao_folha_sem_classificacao_com_movimento_proprio.append(
+                    {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
+                )
+
+    # ⚠️ Fecha a condição 3 do critério 1 (DL-034) — GUARDA ESTRUTURAL que
+    # continua ATIVA mesmo depois da correção (b) acima: o próprio auditor
+    # que sugeriu (b) declarou o limite da própria sugestão — "conferi só a
+    # aritmética à mão... pode haver interação com retificadora DE GRUPO
+    # que eu não enxerguei" (RESSALVA R1). Enquanto essa interação não tem
+    # prova, um grupo de contas IRMÃS (mesmo `conta_pai`) que são, cada uma,
+    # TOPO classificada, com natureza CADASTRADA divergente entre si —
+    # a topologia exata do BL-486 (Clientes/PDD) — BLOQUEIA a emissão por
+    # ESTRUTURA, não só por aritmética: cinto (resíduo/condição 1) e
+    # suspensório (esta lista), lado a lado, até (b) ter prova para
+    # qualquer topologia de retificadora de grupo.
+    contas_topo_classificadas_com_natureza_divergente_entre_irmas = []
+    for irmaos in topo_classificados_por_pai.values():
+        naturezas_dos_irmaos = {irmao["natureza"] for irmao in irmaos}
+        if len(naturezas_dos_irmaos) > 1:
+            contas_topo_classificadas_com_natureza_divergente_entre_irmas.extend(irmaos)
 
     # BL-490 (achado MÉDIO): o subtotal que a Lei 6.404/76 art. 178 manda
     # IMPRIMIR no Balanço — os QUATRO grupos de `GrupoDaLei`, nunca sete —
@@ -2406,6 +2586,19 @@ def apurar_saldos(*, empresa, data_base):
         "contas_com_classificacao_aninhada": contas_com_classificacao_aninhada,
         "contas_com_classificacao_desconhecida": contas_com_classificacao_desconhecida,
         "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,
+        # DL-034, critério 1, condição 3 — guarda ESTRUTURAL (BL-496): vazia
+        # no caso são; nomeia TODA conta irmã envolvida quando duas ou mais,
+        # sob o mesmo pai, são topo-classificadas com natureza cadastrada
+        # divergente entre si (a topologia do BL-486, além da aritmética).
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+            contas_topo_classificadas_com_natureza_divergente_entre_irmas
+        ),
+        # DL-034, critério 1, condição 4 — guarda ESTRUTURAL (BL-487): vazia
+        # no caso são; nomeia nó NÃO-FOLHA sem classificação própria nem
+        # ancestral que tem movimento PRÓPRIO (não só consolidado).
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+            contas_nao_folha_sem_classificacao_com_movimento_proprio
+        ),
         "equacao": {
             "ativo": ativo,
             "passivo": passivo,
@@ -2415,6 +2608,209 @@ def apurar_saldos(*, empresa, data_base):
             "resultado_nao_transferido": resultado_nao_transferido,
             "diferenca": diferenca,
         },
+    }
+
+
+# Nomes das SETE listas de pendência que decidem se o Balanço Patrimonial
+# pode ser emitido (DL-034, critério 1, condições 2, 3 e 4 — a condição 1,
+# o resíduo, é tratada à parte por ser um dict de Decimal, não uma lista):
+# as CINCO herdadas de `apurar_saldos` (achados A1/A2 da DL-032 e BL-493 da
+# DL-033) mais as DUAS guardas estruturais novas desta etapa (BL-496,
+# condições 3 e 4). Reunidas numa tupla, ao lado de `avaliar_emissao_do_
+# balanco` — DE-056: uma lista nova que `apurar_saldos` ganhar no futuro
+# só precisa entrar AQUI para participar da decisão de emissão.
+_LISTAS_DE_PENDENCIA_DO_BALANCO = (
+    "contas_com_tipo_desconhecido",
+    "contas_com_tipo_divergente_da_raiz",
+    "contas_com_classificacao_aninhada",
+    "contas_com_classificacao_desconhecida",
+    "contas_sem_classificacao_patrimonial",
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio",
+)
+
+
+def avaliar_emissao_do_balanco(saldos):
+    """ "O que eu vou entregar fecha, e eu sei o que ele NÃO diz" — DL-034,
+    critério 1: decide, no SERVIDOR (nunca só na tela), se o Balanço
+    Patrimonial PODE ser emitido a partir do resultado de `apurar_saldos`,
+    e — quando não pode — NOMEIA o que falta, para a tela mostrar o
+    caminho, nunca só recusar em silêncio.
+
+    A condição é a CONJUNÇÃO de quatro exigências — nenhuma sozinha é
+    suficiente (DE-068, a lição da RESSALVA R1/cenário V1d: "resíduo zero"
+    sozinho JÁ produziu, na auditoria, um Balanço com dois grupos errados
+    em R$ 500,00 cada, com as cinco listas antigas vazias e a equação
+    fechando):
+
+    1. `residuo_por_tipo` é ZERO em todos os tipos que participam da
+       separação (Ativo, Passivo).
+    2. as CINCO listas de declaração herdadas de `apurar_saldos`
+       (`contas_com_tipo_desconhecido`, `contas_com_tipo_divergente_da_
+       raiz`, `contas_com_classificacao_aninhada`, `contas_com_
+       classificacao_desconhecida`, `contas_sem_classificacao_
+       patrimonial`) estão vazias.
+    3. NENHUM grupo de contas IRMÃS topo classificadas tem natureza
+       cadastrada divergente entre si
+       (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`
+       vazia — BL-496).
+    4. NENHUM nó não-folha sem classificação própria nem ancestral tem
+       movimento próprio
+       (`contas_nao_folha_sem_classificacao_com_movimento_proprio` vazia
+       — BL-487).
+
+    ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
+    projeto já pagou caro por enumeração).** As SETE listas de pendência
+    são percorridas a partir de `_LISTAS_DE_PENDENCIA_DO_BALANCO`, uma
+    tupla declarada UMA vez, ao lado desta função: um oitavo nome de lista
+    que `apurar_saldos` ganhar no futuro só precisa entrar ali para
+    participar desta decisão — esquecê-lo ali é o único jeito de errar (a
+    lista nova apareceria em `saldos` sem aparecer aqui, achado óbvio de
+    revisão, não um `if` silenciosamente incompleto que passa despercebido).
+
+    Não verifica autorização nem papel nenhum — mesmo limite que
+    `apurar_saldos` já declara: esta função continua sem saber o que é uma
+    requisição HTTP. Quem chama (a view) verifica permissão ANTES de
+    chamar esta função.
+
+    Retorna:
+        {"pode_emitir": bool,
+         "residuo_pendente": {TipoConta: Decimal, ...},  # só os != 0
+         "listas_pendentes": {"nome_da_lista": [...], ...}}  # só as não vazias
+
+    `residuo_pendente` e `listas_pendentes` vêm VAZIOS (`{}`) no caso são —
+    quem consome não precisa checar `pode_emitir` antes de iterá-los.
+    """
+    zero = Decimal("0")
+    residuo_pendente = {
+        tipo: valor for tipo, valor in saldos["residuo_por_tipo"].items() if valor != zero
+    }
+    listas_pendentes = {
+        nome: saldos[nome] for nome in _LISTAS_DE_PENDENCIA_DO_BALANCO if saldos[nome]
+    }
+    return {
+        "pode_emitir": not residuo_pendente and not listas_pendentes,
+        "residuo_pendente": residuo_pendente,
+        "listas_pendentes": listas_pendentes,
+    }
+
+
+def identificacao_da_demonstracao():
+    """DL-034 — NBC TG 26 (R5), item 51, alíneas (b), (d) e (e) (RC-95):
+    três campos do bloco de identificação OBRIGATÓRIO do Balanço que NÃO
+    EXISTEM hoje no produto. São "da entidade e da emissão" (o plano da
+    DL-034), mas NENHUM dos três VARIA por empresa nem por emissão no
+    DataLedger de hoje — por isso entram como CONSTANTE declarada, nunca
+    como campo de `Empresa` deduzido ou perguntado ao usuário: inventar uma
+    escolha que o produto não oferece seria pior do que declarar, com
+    fonte, o único valor que o produto de fato produz hoje (a instrução do
+    plano: "declarar não é adivinhar").
+
+    - **(b) individual ou de grupo:** o DataLedger **não consolida**
+      (nenhuma tela, nenhum serviço soma o Balanço de duas empresas) —
+      "individual" é a única resposta possível hoje.
+    - **(d) moeda de apresentação:** a NBC ITG 2000 (R1), item 5(d)
+      (RC-96), exige escrituração em moeda NACIONAL — não há escolha a
+      fazer.
+    - **(e) nível de arredondamento:** a política monetária do produto
+      inteiro já é "unidade de real, com centavos" (DE-010) — declarar
+      isso no documento É o cumprimento da alínea (e), sem campo novo
+      nem migração.
+
+    Função (não consulta banco, não faz parte de `apurar_saldos`) para que
+    a view/template chame em QUALQUER página do documento impresso —
+    critério 4 do plano, o bloco de identificação se repete em toda
+    página (NBC TG 26, item 52) — sem custo de consulta nenhuma.
+
+    Reversível pelo Fred a qualquer momento: se o produto vier a oferecer
+    consolidação, moeda estrangeira ou arredondamento em milhares, estes
+    três valores passam a ser CAMPO (de `Empresa` ou da emissão), não mais
+    constante — decisão que este limite deixa explícita, não escondida.
+    """
+    return {
+        "entidade_individual_ou_grupo": "individual",
+        "moeda_de_apresentacao": "Real (R$)",
+        "nivel_de_arredondamento": "unidade de real, com centavos",
+    }
+
+
+def apurar_balanco_patrimonial(*, empresa, data_base):
+    """Monta os TRÊS ingredientes que a tela do Balanço Patrimonial
+    consome (DL-034) num único ponto de entrada: os saldos classificados
+    (`apurar_saldos`), a decisão de emissão (`avaliar_emissao_do_balanco`)
+    e a identificação obrigatória do item 51 que não depende de dado
+    nenhum (`identificacao_da_demonstracao`).
+
+    Retorna `{"saldos": <dict de apurar_saldos>, "emissao": <dict de
+    avaliar_emissao_do_balanco>, "identificacao": <dict de
+    identificacao_da_demonstracao>}`.
+
+    ⚠️ **DE-067 — a leitura roda sob SNAPSHOT, aqui e SÓ aqui.** A
+    auditoria da DL-032 (achado A6) mediu que `apurar_balancete`/
+    `apurar_saldos` fazem TRÊS consultas fora de transação, sob `READ
+    COMMITTED`: uma escrita concorrente entre elas pode produzir uma
+    diferença TRANSITÓRIA na equação — sem nenhum desbalanço real gravado
+    na base, mas indistinguível de erro real para quem lê. A DE-067
+    decidiu ADIAR o custo do isolamento até existir uma superfície que
+    gera DOCUMENTO IMPRIMÍVEL — esta função é essa superfície, e paga a
+    dívida: `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` roda como a
+    PRIMEIRA instrução desta transação (exigência do PostgreSQL — em
+    qualquer outra posição da transação, o comando levanta erro). A partir
+    dela, TODAS as consultas de `apurar_saldos`/`apurar_balancete` dentro
+    deste `with` enxergam o MESMO snapshot do banco, tirado neste
+    instante: nenhuma escrita concorrente entre a primeira e a última
+    consulta pode mais produzir a diferença fantasma (prova de corrida:
+    `test_dl034_snapshot_do_balanco.py`).
+
+    `apurar_saldos`/`apurar_balancete` continuam sob `READ COMMITTED`
+    quando chamadas DIRETO (ex.: a API ad hoc que a DL-032 já expõe) — só
+    o caminho que GERA o Balanço paga o custo do isolamento elevado, como
+    a DE-067 manda; NENHUM comportamento do Balancete do produto muda.
+
+    Só leitura: nenhuma escrita acontece dentro deste `with`, então
+    `REPEATABLE READ` nunca produz "could not serialize access due to
+    concurrent update" aqui (erro exclusivo de CONFLITO escrita-escrita,
+    inexistente numa transação 100% de leitura) — não precisa de
+    `try/except` de serialização nem de `retry`.
+
+    ⚠️ **Precondição — degrada em vez de derrubar a página:** `SET
+    TRANSACTION ISOLATION LEVEL` só é válido como a PRIMEIRA instrução
+    depois do `BEGIN`. No caminho normal de produção (`ATOMIC_REQUESTS`
+    desligado de propósito — `config/settings.py` —, e nenhuma view abre
+    `atomic()` antes de chamar esta função), esta função abre a PRÓPRIA
+    transação de nível superior e recebe o `REPEATABLE READ` inteiro,
+    como descrito acima. **Se for chamada de dentro de um
+    `transaction.atomic()` JÁ aberto** — o caso do cliente de teste do
+    Django, que embrulha toda a requisição simulada num `atomic()` para
+    poder desfazer no fim (`@pytest.mark.django_db` padrão, sem
+    `transaction=True`) — o `with transaction.atomic()` abaixo vira uma
+    SAVEPOINT, e `SET TRANSACTION ISOLATION LEVEL` no meio de uma
+    transação em andamento levantaria erro do PostgreSQL. Em vez de deixar
+    a página quebrar por causa de como o AMBIENTE embrulhou a chamada
+    (nunca por decisão desta função), o comando é SIMPLESMENTE PULADO
+    nesse caso — a leitura roda sob o isolamento que a transação externa
+    já tiver (o padrão do Postgres, `READ COMMITTED`, na prática de hoje),
+    sem a garantia extra do snapshot único. **Isto é honesto, não
+    silencioso:** o dado não some nem mente — só a garantia de corrida
+    fica mais fraca nesse caminho aninhado específico, que hoje só existe
+    em teste, nunca em produção (medido: nenhuma view do projeto abre
+    `atomic()` antes de chamar esta função).
+
+    Não verifica autorização nem papel — mesmo limite que `apurar_saldos`
+    já declara; quem chama (a view) verifica permissão ANTES de chamar
+    esta função.
+    """
+    ja_estava_em_transacao = connection.in_atomic_block
+    with transaction.atomic():
+        if not ja_estava_em_transacao:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        saldos = apurar_saldos(empresa=empresa, data_base=data_base)
+
+    return {
+        "saldos": saldos,
+        "emissao": avaliar_emissao_do_balanco(saldos),
+        "identificacao": identificacao_da_demonstracao(),
     }
 
 

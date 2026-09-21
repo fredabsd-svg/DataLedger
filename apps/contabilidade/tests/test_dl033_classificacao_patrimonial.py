@@ -32,6 +32,7 @@ from django.core.exceptions import ValidationError
 
 from apps.contabilidade.models import (
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    NATUREZA_NATURAL_DO_TIPO,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoPatrimonial,
     Conta,
@@ -123,6 +124,40 @@ def test_todo_valor_de_grupo_da_lei_mapeia_para_o_mesmo_lado_do_tipo():
             grupo,
             tipo_esperado,
         )
+
+
+def test_mapa_natureza_natural_cobre_exatamente_os_tipos_classificaveis():
+    """BL-496 (DL-034, critério 1, opção (b)) — teste DERIVADO no mesmo
+    molde de `test_mapa_tipo_da_classificacao_cobre_exatamente_os_valores_
+    do_enum`: `NATUREZA_NATURAL_DO_TIPO` tem entrada para EXATAMENTE os
+    `TipoConta` que participam da separação circulante/não circulante — os
+    mesmos de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`, nem mais nem
+    menos — e a convenção contábil certa: devedora no Ativo, credora no
+    Passivo (Lei 6.404/76)."""
+    assert set(NATUREZA_NATURAL_DO_TIPO.keys()) == set(TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values())
+    assert NATUREZA_NATURAL_DO_TIPO[TipoConta.ATIVO] == NaturezaConta.DEVEDORA
+    assert NATUREZA_NATURAL_DO_TIPO[TipoConta.PASSIVO] == NaturezaConta.CREDORA
+
+
+def test_classificacao_nao_circulante_mapeia_somente_para_grupo_nao_circulante():
+    """BL-497 (RESSALVA R2 da rodada 2 de auditoria da DL-033, mutação M5):
+    o cruzamento acima só confere o LADO (Ativo × Passivo) — apontar o
+    Imobilizado para `GrupoDaLei.ATIVO_CIRCULANTE` (lado CERTO, GRUPO
+    errado — imprime o imobilizado dentro do subtotal do circulante,
+    erro de norma) passava em 1.622 testes, porque nenhum cruzamento
+    conferia CIRCULANTE × NÃO CIRCULANTE, só ATIVO × PASSIVO.
+
+    Este cruzamento novo fecha essa porta: pelos NOMES dos membros do
+    enum (`.name`, nunca `.value`), sem `startswith` — toda
+    `ClassificacaoPatrimonial` cujo NOME contém "NAO_CIRCULANTE" mapeia
+    para um `GrupoDaLei` cujo NOME também contém "NAO_CIRCULANTE", e
+    vice-versa. Mutar UMA linha do mapa (ex.: apontar o imobilizado para
+    `GrupoDaLei.ATIVO_CIRCULANTE`) reprova este teste."""
+    for classificacao in ClassificacaoPatrimonial:
+        grupo = GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        classificacao_e_nao_circulante = "NAO_CIRCULANTE" in classificacao.name
+        grupo_e_nao_circulante = "NAO_CIRCULANTE" in grupo.name
+        assert classificacao_e_nao_circulante == grupo_e_nao_circulante, (classificacao, grupo)
 
 
 # ---------------------------------------------------------------------------

@@ -284,6 +284,38 @@ TIPO_DA_CLASSIFICACAO_PATRIMONIAL = {
 }
 
 
+# BL-496 (RESSALVA R1 da rodada 2 de auditoria da DL-033, opção (b) adotada
+# no critério 1 do plano DL-034 — DE-068): a natureza NATURAL de cada
+# `TipoConta` que participa da separação circulante/não circulante —
+# devedora no Ativo, credora no Passivo (Lei 6.404/76; a mesma convenção
+# que o docstring de `Conta`, acima, já registra como "regra geral", que a
+# MODELAGEM não impõe de propósito, porque conta retificadora existe).
+#
+# Usada por `apurar_saldos` (services.py) para somar um nó TOPO
+# classificado normalizando o sinal por ESTA natureza, em vez de pela
+# natureza CADASTRADA da própria conta (`Conta.natureza`/`linha["natureza"]`
+# do Balancete). Sem isto, duas contas IRMÃS com natureza cadastrada
+# diferente, ambas classificadas no MESMO grupo — ex.: "Clientes" devedora
+# (1.220,00) e "(-) PDD" credora (50,00), ambas `ativo_circulante` — somavam
+# cada saldo já assinado pela PRÓPRIA natureza (1.220,00 + 50,00 = 1.270,00)
+# em vez de aplicar UMA natureza sobre o valor combinado, como a regra
+# única de saldo (DE-020) já exige para hierarquia — o correto é
+# 1.220,00 − 50,00 = 1.170,00. Ver a RESSALVA R1 (cenário V1d) e o critério
+# 1 da DL-034.
+#
+# Só tem entrada para os `TipoConta` que participam da classificação
+# (exatamente `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`, conferido pelo
+# teste derivado `test_mapa_natureza_natural_cobre_exatamente_os_tipos_
+# classificaveis`) — Patrimônio Líquido, Receita e Despesa ficam de fora de
+# propósito, no mesmo espírito de `residuo_por_tipo`: a pergunta "qual é o
+# lado natural deste tipo, para o Balanço Patrimonial" não se aplica a eles
+# aqui.
+NATUREZA_NATURAL_DO_TIPO = {
+    TipoConta.ATIVO: NaturezaConta.DEVEDORA,
+    TipoConta.PASSIVO: NaturezaConta.CREDORA,
+}
+
+
 class GrupoDaLei(models.TextChoices):
     """Os QUATRO grupos que a Lei 6.404/76, art. 178, realmente nomeia para
     fins de separação circulante/não circulante (BL-490, achado A5 da
