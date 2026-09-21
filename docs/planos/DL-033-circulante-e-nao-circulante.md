@@ -101,8 +101,36 @@ presumir**. O contador classifica, e o produto mostra o que falta.
    escapou na BL-83.
 3. **Conta SEM movimento pode ser classificada e reclassificada** livremente.
    Controle positivo: sem ele, a guarda pode estar recusando tudo.
-4. **A camada de saldos devolve os grupos**, e a soma deles **bate** com os
-   totais por tipo que ela já devolve. Teste que reprova no primeiro centavo.
+4. ⚠️ **CORRIGIDO em 2026-09-21, e a correção é de OMISSÃO MINHA** — a
+   redação original dizia só *"a camada devolve os grupos, e a soma deles bate
+   com os totais por tipo"*. Ela dizia **o que** tinha de bater e **não** de
+   onde o valor sai, nem **em que nível da árvore** a classificação pode ser
+   declarada. **Era a decisão mais difícil da fatia, e caiu no implementador sem
+   enunciado** — foi exatamente ali que o bloqueador **A1** nasceu
+   ([auditoria rodada 1](../auditorias/2026-09-21-dl-033-rodada-1.md)).
+
+   **A redação que vale, e é uma INVARIANTE, não um mecanismo:**
+
+   > **`Σ(grupos de um tipo) + resíduo declarado == totais_por_tipo[tipo]`,
+   > SEMPRE** — qualquer que seja o nível em que o contador declarou a
+   > classificação, com retificadora entre irmãs, com nó intermediário
+   > movimentado e sem classificação, e com cobertura parcial.
+
+   **O resíduo é CALCULADO e DEVOLVIDO**, nunca zero por construção: qualquer
+   valor diferente de zero significa que há dinheiro fora dos grupos, e a fatia
+   que emitir o Balanço **recusa emitir** enquanto ele não for zero.
+
+   ⚠️ **Por que invariante e não lista:** lista é catálogo de casos que alguém
+   pensou; **identidade aritmética fecha também o caso que ninguém pensou**. Foi
+   a recomendação do auditor e eu a adoto inteira — ela fecha A1, A2 e A6 de uma
+   vez.
+
+   ⚠️ **E a lição de enunciado, que passa a valer para todo plano meu:** eu
+   escrevi o critério descrevendo o **mecanismo que eu suspeitava** (dupla
+   contagem) em vez da **propriedade que tem de valer**. A suspeita estava
+   errada — não havia duplicação nenhuma — e o defeito real era o oposto: somar
+   com **sinal trocado** e **deixar de somar**. **Enunciado por invariante teria
+   pego os dois; enunciado por suspeita não pegou nenhum.**
 5. **Conta sem classificação é DECLARADA, nunca presumida** — lista própria na
    resposta, vazia quando todas estão classificadas. Controle positivo
    obrigatório.
