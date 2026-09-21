@@ -762,6 +762,40 @@ inferir semântica da nomenclatura do contador — **exatamente a classe do
 BL-475**, que reprovou a DL-032 nesta semana. Conta existente nasce **sem**
 classificação, e a camada **declara** quais faltam.
 
+##### ➡️ PRÓXIMA, JÁ PLANEJADA: [DL-034](../planos/DL-034-a-tela-do-balanco.md) — a tela do Balanço
+
+**Autorizada pelo Fred em 2026-09-21.** ⚠️ **A implementação NÃO começa antes de
+a DL-033 fechar** — a tela consome `apurar_saldos`, cujo contrato está mudando
+agora (a reconciliação do BL-486 acrescenta a chave do resíduo, que é o que o
+critério 1 da DL-034 exige). Construir contra contrato em movimento produz
+testes que passam contra a versão errada.
+
+⚠️ **NÍVEL 1, e não 2 — a diferença é o TIPO DO DOCUMENTO.** A tela do
+fechamento foi nível 2 porque as regras moravam no servidor. **O Balanço é a
+primeira DEMONSTRAÇÃO CONTÁBIL do produto** — Diário, Razão e Balancete são
+conferência ou livro —, e demonstração tem **bloco de identificação prescrito
+por norma**.
+
+**RC-95 (NBC TG 26 (R5), item 51) exige cinco itens, e TRÊS não existem:**
+entidade **individual ou de grupo**, **moeda de apresentação** e **nível de
+arredondamento**. O RC-95 já registrava a ausência do terceiro desde
+2026-09-19. Entram como **valores declarados, nunca presumidos**.
+
+⚠️ **E o item 52 torna NORMATIVO o que parecia diagramação:** o bloco vai **em
+cada página**. A **PE-61** já mediu que hoje só a **folha 1** carrega empresa e
+período. **Para Balancete isso é ressalva; para o Balanço é descumprimento.**
+
+**Três dívidas declaradas vencem aqui**, nenhuma nova: **autorização no
+servidor** (o auditor da DL-032 registrou que *"migra inteira para a fatia 2"*,
+porque não havia superfície onde medi-la), **leitura sob snapshot**
+([DE-067](../projeto/decisoes.md)) e **recusa de emissão com declaração
+pendente** (BL-488).
+
+**O momento da verdade da tela:** *"o que eu vou entregar fecha, e eu sei o que
+ele NÃO diz"*. ⚠️ **É a lição das três últimas auditorias virada regra de
+tela** — o sistema errou três vezes seguidas **afirmando que tinha fechado**.
+Aqui ele não vai poder afirmar: ou fecha e emite, ou não emite e diz por quê.
+
 **Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
 o encerramento do exercício (por lançamento ou derivado), com que periodicidade,
 e qual conta do PL recebe o resultado. ⚠️ **O catálogo já respondeu a parte
