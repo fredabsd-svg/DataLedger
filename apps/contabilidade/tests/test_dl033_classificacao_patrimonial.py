@@ -27,12 +27,15 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
 from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoPatrimonial,
     Conta,
+    GrupoDaLei,
     NaturezaConta,
     TipoConta,
     TipoPartida,
@@ -100,16 +103,26 @@ def test_mapa_tipo_da_classificacao_cobre_exatamente_os_valores_do_enum():
     assert set(TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()) == {TipoConta.ATIVO, TipoConta.PASSIVO}
 
 
-def test_todo_valor_ativo_no_nome_mapeia_para_tipo_ativo():
-    """Controle cruzado, sem depender do texto do mapa: cada
-    `ClassificacaoPatrimonial` que começa com "ativo" mapeia para
-    `TipoConta.ATIVO`, e cada um que começa com "passivo" mapeia para
-    `TipoConta.PASSIVO` — fecha a leitura da Lei 6.404/76 art. 178 (RC-106)
-    contra o próprio enum, sem reescrever a lista à mão."""
+def test_todo_valor_de_grupo_da_lei_mapeia_para_o_mesmo_lado_do_tipo():
+    """Controle cruzado (BL-490, achado A5: "nenhum `startswith` sobre
+    valor de classificação sobra em código nem em teste") — substitui o
+    antigo cross-check por prefixo de string por um que compara os DOIS
+    mapas derivados entre si: para cada `ClassificacaoPatrimonial`, o
+    `GrupoDaLei` correspondente (`GRUPO_DA_LEI_DA_CLASSIFICACAO_
+    PATRIMONIAL`) começa com "ativo_" se e somente se o `TipoConta`
+    correspondente (`TIPO_DA_CLASSIFICACAO_PATRIMONIAL`) é `ATIVO` — os
+    dois mapas, escritos independentemente, precisam concordar."""
     for classificacao, tipo_esperado in TIPO_DA_CLASSIFICACAO_PATRIMONIAL.items():
-        prefixo = "ativo" if classificacao.startswith("ativo") else "passivo"
-        tipo_do_prefixo = TipoConta.ATIVO if prefixo == "ativo" else TipoConta.PASSIVO
-        assert tipo_esperado == tipo_do_prefixo, (classificacao, tipo_esperado)
+        grupo = GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        grupo_e_do_lado_do_ativo = grupo in (
+            GrupoDaLei.ATIVO_CIRCULANTE,
+            GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+        )
+        assert grupo_e_do_lado_do_ativo == (tipo_esperado == TipoConta.ATIVO), (
+            classificacao,
+            grupo,
+            tipo_esperado,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -374,3 +387,65 @@ def test_full_clean_aceita_gravar_sem_mudar_a_classificacao_mesmo_com_movimento(
 
     conta.nome = "Caixa e Equivalentes"  # não toca a classificação
     conta.full_clean()  # não levanta
+
+
+# ---------------------------------------------------------------------------
+# BL-494 (achado A9 da auditoria) — o campo entra em list_display e em
+# list_filter do admin: é a única porta, antes da tela do Balanço, por onde
+# o contador consegue VER quais contas ainda faltam classificar.
+# ---------------------------------------------------------------------------
+
+
+SENHA_ADMIN = "senha-forte-dl033"
+
+
+def _login_admin(client, usuario):
+    assert client.login(username=usuario.username, password=SENHA_ADMIN)
+
+
+def test_admin_changelist_mostra_a_classificacao_na_lista(client, empresa):
+    admin_user = get_user_model().objects.create_superuser(
+        username="admin-dl033-bl494",
+        email="admin-dl033-bl494@escritorio.com.br",
+        password=SENHA_ADMIN,
+    )
+    conta = _conta(empresa, codigo="1", tipo=TipoConta.ATIVO, natureza=D, nome="Caixa")
+    conta.classificacao_patrimonial = ClassificacaoPatrimonial.ATIVO_CIRCULANTE
+    conta.full_clean()
+    conta.save()
+    _login_admin(client, admin_user)
+
+    resposta = client.get("/admin/contabilidade/conta/")
+
+    assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    # A coluna da lista mostra o RÓTULO da classificação, não o valor cru.
+    assert "Ativo circulante" in corpo, corpo
+
+
+def test_admin_changelist_filtra_contas_sem_classificacao(client, empresa):
+    """O filtro `EmptyFieldListFilter` sobre `classificacao_patrimonial`
+    (BL-494) é o que permite achar as NÃO classificadas pelo admin — a
+    única porta existente até a tela do Balanço nascer."""
+    admin_user = get_user_model().objects.create_superuser(
+        username="admin-dl033-bl494-filtro",
+        email="admin-dl033-bl494-filtro@escritorio.com.br",
+        password=SENHA_ADMIN,
+    )
+    classificada = _conta(
+        empresa, codigo="1", tipo=TipoConta.ATIVO, natureza=D, nome="Caixa Classificado"
+    )
+    classificada.classificacao_patrimonial = ClassificacaoPatrimonial.ATIVO_CIRCULANTE
+    classificada.full_clean()
+    classificada.save()
+    _conta(empresa, codigo="2", tipo=TipoConta.ATIVO, natureza=D, nome="Estoque Sem Classificar")
+    _login_admin(client, admin_user)
+
+    resposta = client.get(
+        "/admin/contabilidade/conta/", {"classificacao_patrimonial__isempty": "1"}
+    )
+
+    assert resposta.status_code == 200, (resposta.status_code, resposta.content)
+    corpo = resposta.content.decode()
+    assert "Estoque Sem Classificar" in corpo, corpo
+    assert "Caixa Classificado" not in corpo, corpo

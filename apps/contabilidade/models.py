@@ -284,6 +284,44 @@ TIPO_DA_CLASSIFICACAO_PATRIMONIAL = {
 }
 
 
+class GrupoDaLei(models.TextChoices):
+    """Os QUATRO grupos que a Lei 6.404/76, art. 178, realmente nomeia para
+    fins de separação circulante/não circulante (BL-490, achado A5 da
+    auditoria da DL-033): ativo circulante, ativo não circulante — o
+    GUARDA-CHUVA dos quatro subgrupos do art. 178 §1º II (realizável a
+    longo prazo, investimentos, imobilizado, intangível) —, passivo
+    circulante e passivo não circulante. **Não são sete grupos: são
+    quatro** — `ClassificacaoPatrimonial` tem sete valores porque o Ativo
+    Não Circulante se subdivide em código (para a conta poder apontar para
+    o subgrupo exato), mas o SUBTOTAL que a lei manda imprimir no Balanço é
+    só "Ativo Não Circulante", sobre a soma dos quatro.
+    """
+
+    ATIVO_CIRCULANTE = "ativo_circulante", "Ativo circulante"
+    ATIVO_NAO_CIRCULANTE = "ativo_nao_circulante", "Ativo não circulante"
+    PASSIVO_CIRCULANTE = "passivo_circulante", "Passivo circulante"
+    PASSIVO_NAO_CIRCULANTE = "passivo_nao_circulante", "Passivo não circulante"
+
+
+# Segundo mapa derivado (BL-490): dos SETE valores de `ClassificacaoPatrimonial`
+# para os QUATRO grupos que a lei nomeia — existe para que NENHUM código nem
+# teste precise comparar por PREFIXO DE STRING (`startswith("ativo")`, o
+# antipadrão que o achado apontou no próprio teste do critério 4) para somar
+# "todo o Ativo Não Circulante", por exemplo. Ao lado do enum que descreve,
+# como `TIPO_DA_CLASSIFICACAO_PATRIMONIAL` acima.
+GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL = {
+    ClassificacaoPatrimonial.ATIVO_CIRCULANTE: GrupoDaLei.ATIVO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_REALIZAVEL_A_LONGO_PRAZO: (
+        GrupoDaLei.ATIVO_NAO_CIRCULANTE
+    ),
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_IMOBILIZADO: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INTANGIVEL: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.PASSIVO_CIRCULANTE: GrupoDaLei.PASSIVO_CIRCULANTE,
+    ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE: GrupoDaLei.PASSIVO_NAO_CIRCULANTE,
+}
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 

@@ -10,10 +10,13 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoPatrimonial,
     Competencia,
     Conta,
     EstadoCompetencia,
+    GrupoDaLei,
     ItemLancamento,
     LancamentoContabil,
     NaturezaConta,
@@ -2132,24 +2135,74 @@ def apurar_saldos(*, empresa, data_base):
     classificação nenhuma** (a classe de erro do achado A2/BL-475 que
     reprovou a DL-032): conta sem classificação própria nem ancestral
     classificado é DECLARADA em `contas_sem_classificacao_patrimonial`
-    (só para folhas — contas sem descendentes — de tipo Ativo ou Passivo;
-    Patrimônio Líquido, Receita e Despesa não entram na separação
-    circulante/não circulante, RC-106); duas contas da mesma árvore
-    tentando classificar o MESMO grupo (uma conta com classificação
-    própria sob um ancestral TAMBÉM classificado) são DECLARADAS em
-    `contas_com_classificacao_aninhada`, sem nunca somar o mesmo
-    lançamento duas vezes. Um valor gravado fora de `ClassificacaoPatrimonial`
-    (só por ORM/SQL direto — mesma defesa em profundidade do achado
-    A1/BL-476 para `tipo`) NUNCA estoura `KeyError`: aparece, nomeado, em
-    `contas_com_classificacao_desconhecida`. As três listas são VAZIAS no
-    caso normal (plano de contas totalmente classificado, sem aninhamento
-    nem dado corrompido) — controle positivo do critério 5 do plano. Quando
-    a cobertura é total, a soma dos valores de `totais_por_classificacao`
-    do lado do Ativo bate, centavo a centavo, com
-    `totais_por_tipo[TipoConta.ATIVO]` — e o mesmo
-    vale para o Passivo (critério 4); com cobertura parcial, a soma fica
-    MENOR que o total do tipo, pela diferença exata do que ainda não foi
-    classificado — nunca maior, e nunca silenciosamente igual.
+    (só para contas COM SALDO — critério BL-493, "a régua é o saldo, não
+    a marca de `ativo`": classificar uma conta de saldo zero é trabalho
+    sem efeito nenhum no Balanço — de tipo Ativo ou Passivo; Patrimônio
+    Líquido, Receita e Despesa não entram na separação circulante/não
+    circulante, RC-106); duas contas da mesma árvore tentando classificar
+    o MESMO grupo (uma conta com classificação própria sob um ancestral
+    TAMBÉM classificado) são DECLARADAS em `contas_com_classificacao_
+    aninhada`, sem nunca somar o mesmo lançamento duas vezes. Um valor
+    gravado fora de `ClassificacaoPatrimonial` (só por ORM/SQL direto —
+    mesma defesa em profundidade do achado A1/BL-476 para `tipo`) NUNCA
+    estoura `KeyError`: aparece, nomeado, em `contas_com_classificacao_
+    desconhecida`.
+
+    ⚠️ **As três listas acima são PISTAS, não a GARANTIA (achado BLOQUEADOR
+    BL-486, rodada 1 de auditoria da DL-033) — quem garante é o RESÍDUO,
+    abaixo.** A primeira versão desta camada tentou provar reconciliação
+    catalogando CASOS (aninhamento, folha sem classificação) — e um
+    catálogo de casos só cobre o que alguém pensou. O BL-486 mediu o caso
+    que ninguém tinha pensado: DUAS contas IRMÃS (nenhuma ancestral da
+    outra), cada uma com `classificacao_patrimonial` PRÓPRIA e naturezas
+    DIFERENTES — ex.: "Clientes" (devedora, 1.220,00) e "(-) PDD"
+    (credora, retificadora, 50,00), ambas `ativo_circulante`. As DUAS são
+    "topo classificado" (nenhuma tem ancestral classificado), então as DUAS
+    entram na soma — mas somar dois valores cada um já assinado pela
+    PRÓPRIA natureza (em vez de aplicar UMA natureza sobre o bruto
+    combinado, como a regra única de saldo exige) dá **1.220,00 + 50,00 =
+    1.270,00**, quando o correto (o que `totais_por_tipo` calcula
+    corretamente, via a raiz) é **1.170,00** — excesso de 100,00, o DOBRO
+    da retificadora. É literalmente a aritmética que justificou o desenho
+    (ver o comentário de `classificacao_ancestral_de`, em
+    `apurar_balancete`) escapando pela MESMA porta que o comentário do
+    código já nomeia: classificação "pode ser declarada em QUALQUER nível
+    da árvore", inclusive em duas folhas irmãs.
+
+    **A correção NÃO é mais uma lista — é uma IDENTIDADE ARITMÉTICA,
+    devolvida em `residuo_por_tipo`:**
+
+        residuo_por_tipo[tipo] = totais_por_tipo[tipo] − Σ(totais_por_classificacao
+                                                             dos grupos daquele tipo)
+
+    para cada `tipo` que PARTICIPA da separação (Ativo, Passivo — derivado
+    de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`, nunca uma lista
+    `[ATIVO, PASSIVO]` escrita à mão). **Diferente das três listas, o
+    resíduo NÃO depende de reconhecer a TOPOLOGIA do problema** — ele
+    reprova qualquer descasamento entre os dois totais, seja por
+    aninhamento, por folha esquecida, por contas irmãs com natureza
+    diferente, ou por qualquer topologia que ninguém pensou ainda. É
+    `0,00` no caso são (plano de contas totalmente classificado, sem
+    aninhamento nem irmãs de natureza mista) e DIFERENTE de zero sempre
+    que `totais_por_classificacao` não reflete fielmente o `totais_por_
+    tipo` correspondente — nomeando o TAMANHO e o SINAL da divergência,
+    nunca corrigindo nada (mesmo espírito de `equacao["diferenca"]`: "o
+    que eu somei fecha, e quando não fecha eu digo, nunca conserto").
+    **Isto fecha também o achado ALTO BL-487** (nó intermediário sem
+    classificação própria, com movimento próprio, desdobrado de uma conta
+    já em uso — `contas_sem_classificacao_patrimonial` só cobria FOLHAS, e
+    um nó que ganha filha deixa de ser folha sem deixar de precisar de
+    classificação; a DE-022 já registra que esse desdobramento é rotina
+    normal, não erro).
+
+    ⚠️ **`totais_por_grupo` (BL-490, achado MÉDIO) — o subtotal que a lei
+    manda IMPRIMIR no Balanço:** soma `totais_por_classificacao` pelos
+    QUATRO grupos de `GrupoDaLei` (via `GRUPO_DA_LEI_DA_CLASSIFICACAO_
+    PATRIMONIAL`, o SEGUNDO mapa derivado — nunca `classificacao.
+    startswith("ativo")`, que nem distingue "Ativo Circulante" de "Ativo
+    Não Circulante"): os quatro subgrupos do Ativo Não Circulante (art.
+    178 §1º II) se somam num único "Ativo Não Circulante" aqui, que é o
+    que o Balanço de fato imprime.
 
     **Desempenho:** UMA chamada a `apurar_balancete` (já livre de N+1 —
     3 consultas, independente do número de contas) mais UM laço em Python
@@ -2239,12 +2292,18 @@ def apurar_saldos(*, empresa, data_base):
     # nem cria uma chave nova ali — aparece, nomeada, aqui.
     contas_com_classificacao_desconhecida = []
     # Conta de tipo ATIVO ou PASSIVO, ANALÍTICA (sem descendentes —
-    # DE-022), cuja própria classificação E a de TODOS os ancestrais estão
-    # vazias: nenhum lugar da árvore, do topo até esta folha, declarou
-    # circulante ou não circulante. Critério 5 do plano DL-033: DECLARADA,
-    # NUNCA presumida a partir do código ou do nome da conta — a classe de
-    # erro do achado A2/BL-475 da DL-032. Vazia quando todas as contas
-    # relevantes estão classificadas (controle positivo do critério 5).
+    # DE-022), COM SALDO (BL-493, achado A8: "a régua é o saldo, não a
+    # marca de `ativo`" — mesmo princípio do BL-482/achado A9 da DL-032,
+    # onde conta desativada com saldo residual continua somando: aqui, o
+    # inverso — conta sem saldo nenhum não precisa de classificação,
+    # esteja ela ativa ou não, porque classificá-la não muda NADA no
+    # Balanço), cuja própria classificação E a de TODOS os ancestrais
+    # estão vazias: nenhum lugar da árvore, do topo até esta folha,
+    # declarou circulante ou não circulante. Critério 5 do plano DL-033:
+    # DECLARADA, NUNCA presumida a partir do código ou do nome da conta —
+    # a classe de erro do achado A2/BL-475 da DL-032. Vazia quando todas
+    # as contas relevantes (com saldo) estão classificadas (controle
+    # positivo do critério 5).
     contas_sem_classificacao_patrimonial = []
     for linha in balancete["contas"]:
         propria = linha["classificacao_patrimonial"]
@@ -2273,10 +2332,43 @@ def apurar_saldos(*, empresa, data_base):
             ancestral is None
             and linha["analitica"]
             and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO)
+            and linha["saldo_final"] != zero
         ):
             contas_sem_classificacao_patrimonial.append(
                 {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
             )
+
+    # BL-490 (achado MÉDIO): o subtotal que a Lei 6.404/76 art. 178 manda
+    # IMPRIMIR no Balanço — os QUATRO grupos de `GrupoDaLei`, nunca sete —
+    # somado pelo SEGUNDO mapa derivado (`GRUPO_DA_LEI_DA_CLASSIFICACAO_
+    # PATRIMONIAL`), nunca por `classificacao.startswith("ativo")` (que
+    # nem distingue Ativo Circulante de Ativo Não Circulante).
+    totais_por_grupo = {grupo: zero for grupo in GrupoDaLei.values}
+    for classificacao, valor in totais_por_classificacao.items():
+        totais_por_grupo[GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]] += valor
+
+    # BL-486 (BLOQUEADOR, corrigido): a IDENTIDADE ARITMÉTICA que garante o
+    # critério 4 — não mais um catálogo de casos que alguém pensou. Só
+    # calculada para os `TipoConta` que PARTICIPAM da separação (Ativo,
+    # Passivo), derivado de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`
+    # (nunca uma lista `[ATIVO, PASSIVO]` escrita à mão): Patrimônio
+    # Líquido, Receita e Despesa nunca têm classificação (RC-106), então a
+    # pergunta "quanto falta classificar" não se aplica a eles — incluí-los
+    # aqui devolveria o saldo inteiro deles como "resíduo" sempre, o que
+    # não é discrepância nenhuma, é ausência de sentido da pergunta.
+    tipos_com_classificacao = set(TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values())
+    residuo_por_tipo = {
+        tipo: totais_por_tipo[tipo]
+        - sum(
+            (
+                valor
+                for classificacao, valor in totais_por_classificacao.items()
+                if TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao] == tipo
+            ),
+            zero,
+        )
+        for tipo in tipos_com_classificacao
+    }
 
     ativo = totais_por_tipo[TipoConta.ATIVO]
     passivo = totais_por_tipo[TipoConta.PASSIVO]
@@ -2303,6 +2395,14 @@ def apurar_saldos(*, empresa, data_base):
         # Patrimonial (fatia 1): ver os comentários acima, no bloco que os
         # monta.
         "totais_por_classificacao": totais_por_classificacao,
+        # BL-490: subtotal pelos QUATRO grupos que a lei manda imprimir.
+        "totais_por_grupo": totais_por_grupo,
+        # BL-486: a identidade aritmética que GARANTE o critério 4 —
+        # `Σ(totais_por_classificacao do tipo) + residuo_por_tipo[tipo] ==
+        # totais_por_tipo[tipo]`, sempre, por construção. `0,00` no caso
+        # são; diferente de zero nomeia o tamanho e o sinal de qualquer
+        # descasamento, qualquer que seja a topologia que o causou.
+        "residuo_por_tipo": residuo_por_tipo,
         "contas_com_classificacao_aninhada": contas_com_classificacao_aninhada,
         "contas_com_classificacao_desconhecida": contas_com_classificacao_desconhecida,
         "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,

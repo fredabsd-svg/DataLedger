@@ -60,8 +60,32 @@ class ContaAdmin(admin.ModelAdmin):
     estado que já tem o que proteger.
     """
 
-    list_display = ["codigo", "nome", "tipo", "natureza", "empresa", "aceita_lancamento", "ativo"]
-    list_filter = ["empresa", "tipo", "ativo"]
+    # BL-494 (achado A9 da auditoria DL-033): antes desta linha, o campo
+    # `classificacao_patrimonial` (DL-033/RC-106) era invisível na ÚNICA
+    # porta que existe até a tela própria do Balanço nascer — nem pelo
+    # admin o contador conseguia ver quais contas ainda faltam classificar.
+    # Decisão do arquiteto-senior, 2026-09-21: incluir. `list_filter` traz
+    # DOIS filtros sobre o mesmo campo — o primeiro (`"classificacao_
+    # patrimonial"`) deixa restringir a um grupo específico; o segundo
+    # (`EmptyFieldListFilter`) é o que permite achar as NÃO classificadas
+    # ("Vazio" = `None`), sem precisar de tela nova.
+    list_display = [
+        "codigo",
+        "nome",
+        "tipo",
+        "natureza",
+        "classificacao_patrimonial",
+        "empresa",
+        "aceita_lancamento",
+        "ativo",
+    ]
+    list_filter = [
+        "empresa",
+        "tipo",
+        "ativo",
+        "classificacao_patrimonial",
+        ("classificacao_patrimonial", admin.EmptyFieldListFilter),
+    ]
     search_fields = ["codigo", "nome"]
 
     def _escritorio_da_conta_em_edicao(self, request):

@@ -35,8 +35,19 @@ def test_criterio6_migracao_0007_nao_classifica_conta_existente_nem_muda_saldo()
         escritorio=escritorio, razao_social="Empresa Migração DL-033 Ltda", cnpj="40404040000141"
     )
 
+    # `alvo_anterior` fica HARDCODED de propósito — ele nomeia "antes desta
+    # migração ESPECÍFICA" (0007), e é exatamente essa migração que este
+    # teste existe para verificar. `alvo_atual` NÃO pode ser hardcoded
+    # (BL-489, achado A4 da auditoria: o mesmo literal que a correção da
+    # DL-016 acabara de trocar por `leaf_nodes` foi REINTRODUZIDO aqui, um
+    # commit depois — o auditor provou o dano simulando uma migração `0008`
+    # e medindo que o `finally` abaixo deixava o schema sem a coluna nova
+    # pelo resto da execução, derrubando testes de outro arquivo).
+    # `leaf_nodes(...)` lê a migração mais recente do GRAFO em tempo de
+    # execução — nunca mais fica desatualizado quando a `contabilidade`
+    # ganhar a próxima migração.
     alvo_anterior = [("contabilidade", "0006_fechamento_reabertura_e_entrega_de_competencia")]
-    alvo_atual = [("contabilidade", "0007_conta_classificacao_patrimonial")]
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("contabilidade")
     try:
         # Volta o SCHEMA da `contabilidade` para ANTES desta migração — a
         # coluna `classificacao_patrimonial` não existe na tabela ainda.

@@ -1,18 +1,30 @@
 """DL-033, fatia 1 — a camada de saldos DEVOLVE os grupos circulante × não
 circulante (`apps.contabilidade.services.apurar_saldos`, chave
-`totais_por_classificacao`), além das duas listas DECLARADAS
-(`contas_com_classificacao_aninhada`, `contas_sem_classificacao_patrimonial`).
+`totais_por_classificacao`), o subtotal pelos QUATRO grupos da lei
+(`totais_por_grupo`), a identidade aritmética que GARANTE a reconciliação
+(`residuo_por_tipo`) e três listas DECLARADAS, não autoritativas
+(`contas_com_classificacao_aninhada`, `contas_com_classificacao_desconhecida`,
+`contas_sem_classificacao_patrimonial`).
 
-Cobre os critérios do plano `docs/planos/DL-033-circulante-e-nao-circulante.md`:
+Cobre os critérios do plano `docs/planos/DL-033-circulante-e-nao-circulante.md`
+**depois da correção do BLOQUEADOR BL-486** (rodada 1 de auditoria): o
+critério 4 deixou de ser "a soma bate quando a cobertura é total" e passou a
+ser a IDENTIDADE `Σ(totais_por_classificacao do tipo) + residuo_por_tipo[tipo]
+== totais_por_tipo[tipo]`, sempre — não só no caso feliz.
 
 1. Os grupos vêm de `ClassificacaoPatrimonial`, derivado do MODELO — nunca
-   uma tupla escrita à mão (DE-056).
-4. A soma dos grupos bate com `totais_por_tipo`, no primeiro centavo, quando
-   a cobertura é total.
-5. Conta sem classificação é DECLARADA, nunca presumida — lista própria,
-   vazia quando tudo está classificado (controle positivo obrigatório).
+   uma tupla escrita à mão (DE-056). O mesmo vale para `GrupoDaLei`
+   (BL-490): o mapa dos sete valores para os quatro grupos, nunca
+   `startswith`.
+4. A identidade aritmética do resíduo NUNCA quebra — inclusive nos dois
+   casos que a auditoria mediu como bloqueador/alto: contas IRMÃS com
+   naturezas diferentes classificadas independentemente (BL-486) e nó
+   intermediário desclassificado com movimento próprio (BL-487).
+5. Conta sem classificação, COM SALDO, é DECLARADA (BL-493: a régua é o
+   saldo, não a marca de `ativo`) — lista própria, vazia quando tudo está
+   classificado (controle positivo obrigatório).
 6. Migração NÃO classifica conta nenhuma (prova por `MigrationExecutor`
-   sobre base COM dados).
+   sobre base COM dados, em `test_dl033_migracao.py`).
 7. Isolamento entre empresas não regride.
 
 `apurar_saldos` continua REUSANDO o motor do Balancete — não reimplementa a
@@ -27,8 +39,11 @@ from decimal import Decimal
 import pytest
 
 from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoPatrimonial,
     Conta,
+    GrupoDaLei,
     NaturezaConta,
     TipoConta,
     TipoPartida,
@@ -333,22 +348,24 @@ def test_totais_por_classificacao_valores_conferidos_a_mao(cenario_classificado)
 
 
 def test_soma_dos_grupos_bate_com_totais_por_tipo_no_primeiro_centavo(cenario_classificado):
-    """O critério 4, no texto do plano: "reprovando no primeiro centavo".
-    Com cobertura TOTAL (todo o Ativo e todo o Passivo classificados),
-    somar os grupos do lado do Ativo bate EXATAMENTE com
-    `totais_por_tipo[ATIVO]`, e o mesmo vale para o Passivo — nenhuma
-    tolerância, nenhum arredondamento."""
+    """O critério 4, na redação corrigida depois do BL-486: a IDENTIDADE
+    `Σ(grupos do tipo) + residuo_por_tipo[tipo] == totais_por_tipo[tipo]`
+    — nunca por `startswith` (BL-490): a soma "do lado do Ativo" usa o
+    mapa DERIVADO `TIPO_DA_CLASSIFICACAO_PATRIMONIAL`. Com cobertura TOTAL
+    (todo o Ativo e todo o Passivo classificados, no nó de GRUPO — nunca
+    em folhas irmãs), o resíduo é EXATAMENTE zero — controle positivo."""
     saldos = apurar_saldos(
         empresa=cenario_classificado["empresa"], data_base=cenario_classificado["data_base"]
     )
     totais_classificacao = saldos["totais_por_classificacao"]
     totais_tipo = saldos["totais_por_tipo"]
+    residuo = saldos["residuo_por_tipo"]
 
     soma_ativo = sum(
         (
             valor
             for classificacao, valor in totais_classificacao.items()
-            if classificacao.startswith("ativo")
+            if TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao] == TipoConta.ATIVO
         ),
         Decimal("0"),
     )
@@ -356,14 +373,212 @@ def test_soma_dos_grupos_bate_com_totais_por_tipo_no_primeiro_centavo(cenario_cl
         (
             valor
             for classificacao, valor in totais_classificacao.items()
-            if classificacao.startswith("passivo")
+            if TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao] == TipoConta.PASSIVO
         ),
         Decimal("0"),
     )
     assert soma_ativo == totais_tipo[TipoConta.ATIVO] == Decimal("1950.00")
     assert soma_passivo == totais_tipo[TipoConta.PASSIVO] == Decimal("700.00")
+    # A IDENTIDADE do critério 4, testada diretamente pela chave que a
+    # camada devolve — não recalculada aqui por fora.
+    assert soma_ativo + residuo[TipoConta.ATIVO] == totais_tipo[TipoConta.ATIVO]
+    assert soma_passivo + residuo[TipoConta.PASSIVO] == totais_tipo[TipoConta.PASSIVO]
+    # Controle positivo: cobertura total, no nó de GRUPO — resíduo
+    # EXATAMENTE zero. Sem este teste, um mutante que sempre devolvesse
+    # resíduo diferente de zero passaria despercebido.
+    assert residuo[TipoConta.ATIVO] == Decimal("0.00")
+    assert residuo[TipoConta.PASSIVO] == Decimal("0.00")
     # E a equação continua fechando — a classificação NUNCA move dinheiro.
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+
+
+def test_totais_por_grupo_soma_os_quatro_subgrupos_do_ativo_nao_circulante():
+    """BL-490: `totais_por_grupo` some os QUATRO subgrupos do Ativo Não
+    Circulante (realizável a longo prazo, investimentos, imobilizado,
+    intangível) num único total — o subtotal que a Lei 6.404/76 art. 178
+    manda IMPRIMIR no Balanço. Cenário com TRÊS subgrupos diferentes
+    movimentados, para provar que não é só o caso de um subgrupo só."""
+    empresa = _empresa("DL-033 Totais Por Grupo")
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    realizavel = _conta(
+        empresa,
+        codigo="1.1",
+        nome="Realizável a Longo Prazo",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_REALIZAVEL_A_LONGO_PRAZO,
+    )
+    investimentos = _conta(
+        empresa,
+        codigo="1.2",
+        nome="Investimentos",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS,
+    )
+    intangivel = _conta(
+        empresa,
+        codigo="1.3",
+        nome="Intangível",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INTANGIVEL,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Realizável LP", realizavel, capital, "100.00")
+    _lancar(empresa, date(2026, 1, 3), "Investimentos", investimentos, capital, "200.00")
+    _lancar(empresa, date(2026, 1, 4), "Intangível", intangivel, capital, "300.00")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert set(saldos["totais_por_grupo"].keys()) == set(GrupoDaLei.values)
+    assert saldos["totais_por_grupo"][GrupoDaLei.ATIVO_NAO_CIRCULANTE] == Decimal("600.00")
+    assert saldos["totais_por_grupo"][GrupoDaLei.ATIVO_CIRCULANTE] == Decimal("0")
+    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("0.00")
+
+
+def test_mapa_grupo_da_lei_cobre_exatamente_os_valores_do_enum_classificacao():
+    """DE-056/BL-490: teste DERIVADO — se `ClassificacaoPatrimonial` ganhar
+    um valor novo sem entrada em `GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL`,
+    este teste reprova nomeando o valor esquecido."""
+    assert set(GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL.keys()) == set(
+        ClassificacaoPatrimonial.values
+    )
+    assert set(GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL.values()) == set(GrupoDaLei.values)
+
+
+# ---------------------------------------------------------------------------
+# BL-486 (BLOQUEADOR) e BL-487 (ALTA) — a identidade do resíduo reprova os
+# dois casos que a auditoria mediu, nenhum dos quais as três listas
+# declaradas conseguiam nomear.
+# ---------------------------------------------------------------------------
+
+
+def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero():
+    """Reprodução EXATA da sonda do auditor: "Clientes" (devedora,
+    1.220,00) e "(-) PDD" (credora, retificadora, 50,00), IRMÃS (nenhuma
+    ancestral da outra), ambas classificadas `ativo_circulante`
+    DIRETAMENTE. `totais_por_classificacao['ativo_circulante']` fica
+    ERRADO (1.270,00 — soma os dois valores, cada um já assinado pela
+    PRÓPRIA natureza, em vez de aplicar uma natureza sobre o bruto
+    combinado), mas o RESÍDUO nomeia a diferença: não fecha mais em
+    silêncio."""
+    empresa = _empresa("DL-033 BL-486")
+    raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    clientes = _conta(
+        empresa,
+        codigo="1.1",
+        nome="Clientes",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    pdd = _conta(
+        empresa,
+        codigo="1.2",
+        nome="(-) PDD",
+        tipo=TipoConta.ATIVO,
+        natureza=C,  # retificadora
+        pai=raiz_ativo,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Capitalização", clientes, capital, "1220.00")
+    _lancar(empresa, date(2026, 1, 5), "Provisão", capital, pdd, "50.00")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    # O totais_por_tipo (via a RAIZ, correto) é 1.170,00 — a mesma conta
+    # que o implementador fez à mão para justificar o desenho.
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1170.00")
+    # A soma por classificação fica ERRADA (1.270,00) — não corrigimos
+    # isso, DECLARAMOS via resíduo.
+    assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE] == (
+        Decimal("1270.00")
+    )
+    # O resíduo nomeia o excesso de 100,00 (o DOBRO da retificadora),
+    # negativo porque a soma dos grupos ficou MAIOR que o total do tipo.
+    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("-100.00")
+    # A identidade continua valendo, por construção.
+    soma_ativo = saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE]
+    assert soma_ativo + saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("1170.00")
+    # E a equação do Balancete, que não usa classificação nenhuma,
+    # continua correta e fechando — o dinheiro nunca se moveu de verdade.
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+
+
+def test_bl487_no_intermediario_desclassificado_com_movimento_produz_residuo_nao_zero():
+    """Reprodução EXATA da sonda do auditor: desdobramento de conta já em
+    uso. "1.1 Caixa" nasce com 500,00 de movimento PRÓPRIO; depois o
+    contador cria "1.1.01" (classificada `ativo_circulante`) como filha —
+    "1.1" deixa de ser folha (`analitica=False`), mas continua SEM
+    classificação própria nem ancestral classificado. A DE-022 registra
+    que esse desdobramento é ROTINA normal, não erro — e mesmo assim os
+    500,00 de "1.1" ficavam invisíveis para `contas_sem_classificacao_
+    patrimonial` (que só olhava folhas). O resíduo os nomeia de qualquer
+    jeito."""
+    empresa = _empresa("DL-033 BL-487")
+    raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    caixa = _conta(
+        empresa, codigo="1.1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D, pai=raiz_ativo
+    )
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Capitalização inicial", caixa, capital, "500.00")
+
+    # Desdobramento: "1.1" ganha uma FILHA classificada — "1.1" mesma
+    # continua SEM classificação e SEM ser folha.
+    caixa_classificado = _conta(
+        empresa,
+        codigo="1.1.01",
+        nome="Caixa — Operacional",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=caixa,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    _lancar(
+        empresa,
+        date(2026, 1, 10),
+        "Novo movimento já no desdobramento",
+        caixa_classificado,
+        capital,
+        "1000.00",
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1500.00")
+    # Só os 1.000,00 de "1.1.01" entram na soma por classificação — os
+    # 500,00 de "1.1" (não-folha, sem classificação própria) somem dali.
+    assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE] == (
+        Decimal("1000.00")
+    )
+    # O resíduo nomeia os 500,00 perdidos.
+    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("500.00")
 
 
 def test_cenario_totalmente_classificado_nao_tem_conta_aninhada_nem_sem_classificacao(
@@ -377,6 +592,10 @@ def test_cenario_totalmente_classificado_nao_tem_conta_aninhada_nem_sem_classifi
     assert saldos["contas_com_classificacao_aninhada"] == []
     assert saldos["contas_sem_classificacao_patrimonial"] == []
     assert saldos["contas_com_classificacao_desconhecida"] == []
+    assert saldos["residuo_por_tipo"] == {
+        TipoConta.ATIVO: Decimal("0"),
+        TipoConta.PASSIVO: Decimal("0"),
+    }
 
 
 def test_classificacao_gravada_fora_do_enum_e_nomeada_nunca_derruba():
@@ -447,6 +666,81 @@ def test_folha_de_ativo_sem_classificacao_propria_nem_ancestral_e_declarada():
     assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE] == Decimal(
         "0"
     )
+
+
+def test_bl493_conta_inativa_com_saldo_continua_declarada_sem_saldo_sai():
+    """BL-493 (achado A8, decisão do arquiteto-senior): "a régua é o
+    saldo, não a marca de `ativo`" — mesmo princípio do BL-482/A9 da
+    DL-032 (conta desativada com saldo residual continua somando no
+    total). Aqui, o espelho: conta INATIVA e COM saldo continua na lista
+    de pendências (ela aparece no Balanço, precisa de grupo); conta
+    INATIVA e SEM saldo sai (classificá-la não muda nada). Duas contas
+    lado a lado, mesma árvore, uma só diferindo da outra por ter ou não
+    saldo."""
+    empresa = _empresa("DL-033 BL-493")
+    raiz_ativo = _conta(
+        empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D, aceita_lancamento=False
+    )
+    inativa_com_saldo = _conta(
+        empresa,
+        codigo="1.1",
+        nome="Conta Inativa Com Saldo",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+    )
+    inativa_sem_saldo = _conta(
+        empresa,
+        codigo="1.2",
+        nome="Conta Inativa Sem Saldo",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+    )
+    inativa_com_saldo.ativo = False
+    inativa_com_saldo.save(update_fields=["ativo"])
+    inativa_sem_saldo.ativo = False
+    inativa_sem_saldo.save(update_fields=["ativo"])
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Saldo residual", inativa_com_saldo, capital, "150.00")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    sem_classificacao = {linha["conta"] for linha in saldos["contas_sem_classificacao_patrimonial"]}
+    assert "1.1" in sem_classificacao, saldos["contas_sem_classificacao_patrimonial"]
+    assert "1.2" not in sem_classificacao, saldos["contas_sem_classificacao_patrimonial"]
+
+
+def test_bl493_conta_ativa_sem_saldo_tambem_nao_e_declarada():
+    """Controle cruzado: a régua é o SALDO, não a marca de `ativo` — uma
+    conta ATIVA (não desativada) recém-cadastrada, sem nenhum movimento,
+    também não entra na lista. Classificá-la hoje não mudaria nada no
+    Balanço; o contador pode classificá-la quando ela ganhar movimento."""
+    empresa = _empresa("DL-033 BL-493 Ativa Sem Saldo")
+    raiz_ativo = _conta(
+        empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D, aceita_lancamento=False
+    )
+    _conta(
+        empresa,
+        codigo="1.1",
+        nome="Conta Nova Sem Movimento",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    sem_classificacao = {linha["conta"] for linha in saldos["contas_sem_classificacao_patrimonial"]}
+    assert "1.1" not in sem_classificacao, saldos["contas_sem_classificacao_patrimonial"]
 
 
 def test_conta_de_patrimonio_liquido_nunca_entra_na_lista_de_sem_classificacao():
