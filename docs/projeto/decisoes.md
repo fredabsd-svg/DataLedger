@@ -3443,3 +3443,44 @@ exatamente o que o Fred mandou parar.
 ⚠️ **O que a régua NÃO afrouxa:** gravidade quem atribui é o **auditor**, não o
 implementador nem eu. Reclassificar achado para baixo a fim de fechar etapa é
 proibido, e seria a forma mais barata de fraudar este processo inteiro.
+
+## DE-067 — A leitura de saldos NÃO recebe snapshot nesta fatia; o limite é DECLARADO e pago na fatia 2
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-21**, respondendo ao achado
+**A6** da [auditoria da DL-032](../auditorias/2026-09-21-dl-032-rodada-1.md), que
+o auditor encaminhou explicitamente a mim por ser *"decisão de arquitetura, não
+de implementação"*.
+
+**O achado, em uma frase:** `apurar_saldos` lê em **três consultas**, fora de
+transação, sob `READ COMMITTED` — então uma escrita concorrente entre a primeira
+e a segunda pode produzir uma **diferença fantasma** na equação: diferente de
+zero num instante, zero no seguinte, **sem desbalanço real na base**.
+
+**A decisão: declarar agora, pagar o snapshot na fatia 2.** Três razões, em
+ordem de peso:
+
+1. **Hoje NINGUÉM consegue provocar a corrida pelo produto.** `apurar_saldos`
+   **não tem view** — é decisão do próprio plano. A exposição à concorrência
+   **começa quando a superfície existir**, e é exatamente aí que o custo deve ser
+   pago, junto com a autorização, que o auditor também apontou como pendência
+   que **migra inteira** para a fatia 2.
+2. **`atomic()` sozinho NÃO resolve**, e isso é a parte que engana: sob
+   `READ COMMITTED` cada instrução recebe um snapshot novo. A correção real
+   exige `REPEATABLE READ`, que muda o comportamento de **toda** a transação
+   — e `apurar_balancete`, a função reusada, é chamada de views que podem já
+   estar em transação. **Mexer nisso sem a superfície pronta é alterar o
+   Balancete do produto para resolver um problema de uma fatia que ainda não
+   tem porta.**
+3. **O dano é de confiança, não de dado.** Nada é gravado errado, nada se perde.
+   Mas para o contador uma diferença intermitente é **indistinguível** de erro
+   real — e o plano manda declarar a diferença, então ele vai declará-la.
+
+⚠️ **O que esta decisão NÃO autoriza, e é o ponto do auditor:** *"o que não me
+parece aceitável é o silêncio atual"*. **Concordo.** O limite entra no
+**docstring** de `apurar_saldos` — não só aqui —, dizendo que a leitura não é
+isolada e que a diferença só é conclusiva em base parada.
+
+**A fatia 2 herda isto como requisito, não como sugestão:** a leitura que gerar
+documento imprimível roda **sob snapshot**, e o teste de corrida que prova isso
+nasce junto com a view. ⚠️ **Registro para não ser esquecido**, que é o destino
+comum das dívidas declaradas sem dono e sem momento.

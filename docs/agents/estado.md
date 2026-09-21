@@ -584,7 +584,7 @@ a próxima fatia.
 **O contador agora consegue fechar o mês pelo produto.** A dívida que a ordem
 "trava antes do botão" criou está paga.
 
-#### ➡️ PRÓXIMA ETAPA: [DL-032](../planos/DL-032-a-camada-de-saldos.md) — a camada de saldos
+#### A DL-032 ESTÁ INTEGRADA (`b73c729`) E REPROVADA NA RODADA 1 — a camada de saldos
 
 **Autorizada pelo Fred em 2026-09-20** — *"pode seguir com a camada de saldos"*,
 depois de ler o
@@ -618,6 +618,70 @@ camada **reporta** a diferença; **nunca conserta**.
 `apurar_balancete` **nunca discordam**, provado conta a conta, reprovando no
 primeiro centavo. Se as duas fontes puderem divergir, não construímos uma camada
 — construímos um segundo problema.
+
+##### A AUDITORIA REPROVOU (`b73c729`) — e o achado alto está onde eu apontei, com a métrica que eu errei
+
+**Relatório integral:**
+[2026-09-21-dl-032-rodada-1.md](../auditorias/2026-09-21-dl-032-rodada-1.md).
+**Parecer: REPROVADO**, por **um achado alto**. **Nenhum bloqueador** — nas
+palavras do auditor, *"nenhum número está errado quando o plano de contas está
+coerente, e a arquitetura está certa e é o acerto central desta entrega"*.
+
+Números medidos **pelo auditor**: **2025 passed, 14 skipped**; `ruff`,
+`manage.py check` e `makemigrations --check` limpos, sem migração nova.
+**Desempenho, medido em três escalas:** três consultas **fixas**, sem N+1, e
+crescimento **~linear** — 15× mais lançamentos custou 2,7× o tempo; 31× mais
+contas custou 4,2×. **O risco de desempenho do plano está fechado por medição**,
+e com ele a decisão de não materializar.
+
+⚠️ **[BL-475](../projeto/backlog.md), o achado alto:** conta descendente com
+`tipo` diferente do da raiz cai no **grupo errado**; a linha devolvida diz um
+`tipo` e o `totais_por_tipo` diz outro — **o mesmo dicionário se contradiz** —, e
+a equação responde **`diferenca = 0,00`**. **A camada afirma que fechou**, que é
+o oposto literal do momento da verdade do plano.
+
+**A decisão de agregar por raízes está CERTA**, e o auditor provou por mutação:
+as duas alternativas óbvias quebram a retificadora do RC-104. **O defeito é a
+ausência de declaração** quando a premissa dela não se cumpre.
+
+⚠️ **E a inconsistência que ele mediu é o argumento:** a mesma classe de mau
+cadastro, com a retificadora solta como raiz, **é** declarada. **Um caso grita, o
+outro é mudo — e o mudo é o mais provável.**
+
+**Médias, todas nesta rodada:** [BL-476](../projeto/backlog.md) (`KeyError` cru
+com `tipo` fora do enum — a camada nova é **menos robusta que a que ela reusa**),
+[BL-477](../projeto/backlog.md), [BL-478](../projeto/backlog.md),
+[BL-479](../projeto/backlog.md). **Baixas:** BL-480 a BL-482.
+
+⚠️ **DECISÃO MINHA sobre o achado A6, que o auditor me encaminhou por ser de
+arquitetura: [DE-067](../projeto/decisoes.md).** A leitura roda em três consultas
+sem isolamento e pode produzir **diferença fantasma** sob escrita concorrente.
+**Declarar agora, pagar o snapshot na fatia 2** — hoje **ninguém consegue
+provocar a corrida pelo produto**, porque a camada **não tem view**; e `atomic()`
+sozinho não resolveria, exigiria `REPEATABLE READ`, que alteraria o **Balancete
+do produto** por causa de uma fatia que ainda não tem porta. ⚠️ **O que a decisão
+NÃO autoriza é o silêncio** — o limite entra no docstring.
+
+#### ⚠️ ONDE O ERRO FOI MEU, e eu pedi que ele escrevesse
+
+**Três das minhas suspeitas caíram, medidas:**
+
+1. **Eu disse que o critério 1 era tautologia por reuso. Não é.** O teste compara
+   contra uma segunda chamada, e três mutantes morrem nele. **Quem o cega é a
+   FIXTURE** — a `data_base` cai num dia sem lançamento, e aí as duas colunas são
+   iguais. Certo no espírito, errado na mecânica; e a mecânica importa, porque a
+   correção é **mudar uma data**, não reescrever o critério.
+2. **"Verifique se a soma das raízes cobre todas as contas" era a pergunta
+   errada.** Cobre, sempre. **O dano não é conta de FORA; é conta DENTRO, no
+   grupo errado.** Apontei o lugar certo com a métrica errada.
+3. **A pista do arredondamento era infundada.** Não há arredondamento em ponto
+   nenhum do caminho — subtração pura de `Decimal`, `DecimalField(18,2)` de ponta
+   a ponta. **Descartada por medição.**
+
+**E uma que se confirmou:** *"a agregação soma só as raízes, e é aí que eu mais
+desconfio"*. Era ali.
+
+**Estado:** correção em curso, **rodada 1 de 2**.
 
 **Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
 o encerramento do exercício (por lançamento ou derivado), com que periodicidade,
