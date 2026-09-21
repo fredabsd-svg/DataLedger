@@ -584,7 +584,7 @@ a próxima fatia.
 **O contador agora consegue fechar o mês pelo produto.** A dívida que a ordem
 "trava antes do botão" criou está paga.
 
-#### A DL-032 ESTÁ INTEGRADA (`b73c729`) E REPROVADA NA RODADA 1 — a camada de saldos
+#### A DL-032 FATIA 1 ESTÁ ENTREGUE (`2e4ad02`) — a camada de saldos
 
 **Autorizada pelo Fred em 2026-09-20** — *"pode seguir com a camada de saldos"*,
 depois de ler o
@@ -681,7 +681,52 @@ NÃO autoriza é o silêncio** — o limite entra no docstring.
 **E uma que se confirmou:** *"a agregação soma só as raízes, e é aí que eu mais
 desconfio"*. Era ali.
 
-**Estado:** correção em curso, **rodada 1 de 2**.
+##### A RECONFERÊNCIA APROVOU — `2e4ad02`, com três ressalvas baixas
+
+**Relatório integral:**
+[2026-09-21-dl-032-rodada-2.md](../auditorias/2026-09-21-dl-032-rodada-2.md).
+**APROVADO COM RESSALVAS.** **A fatia 1 está entregue**, em **duas rodadas** — a
+terceira etapa seguida governada pela §3.1 do começo ao fim.
+
+Números medidos pelo auditor: **2035 passed, 14 skipped** (2025 + 10 novos);
+`ruff`, `manage.py check` e `makemigrations --check` limpos, sem migração nova.
+
+⚠️ **O achado alto fechou do jeito certo, e o NÚMERO prova:** `totais_por_tipo`
+e `diferenca` saíram **idênticos** aos medidos antes da correção. **A correção
+não moveu um centavo** — só acrescentou a declaração. E os mutantes que provam a
+agregação por raízes continuam morrendo, agora matando **mais** testes que antes
+(6→8 e 5→7). O risco que eu mais temia — mexer na agregação para "resolver" o
+achado, quebrando a retificadora do RC-104 — **não se realizou**.
+
+⚠️ **A minha PREOCUPAÇÃO CENTRAL desta rodada também não se realizou, e a razão
+vale mais que o alívio.** Eu temia que mexer na fixture para acordar uma guarda
+adormecesse outra. Medido com os 11 mutantes: **zero enfraquecidos, cinco
+fortalecidos.** O auditor explicou por quê, e é o tipo de coisa que eu quero
+lembrar: mover a `data_base` numa fixture cujos totais **não mudam** é uma
+mudança **monotônica** na força das guardas — só acrescenta movimento a um dia
+antes vazio. **Não era 50/50**, e eu tratei como se fosse.
+
+⚠️ **E o achado R1 nasceu de uma instrução minha:** *"confirme com o SEU
+mutante, não com o dele"*. **O único mutante sobrevivente foi exatamente o que o
+implementador não escreveu.** A regra custou uma rodada de esforço e pagou uma
+vez — e uma vez bastou.
+
+**Ressalvas abertas, baixas, com dono** (DE-066, registradas como itens próprios
+por recomendação do auditor): [BL-483](../projeto/backlog.md),
+[BL-484](../projeto/backlog.md) e [BL-485](../projeto/backlog.md).
+
+**O que a camada NÃO faz, declarado no próprio contrato:** não apura DRE — com
+zeramento mensal ela reportaria zero todo mês; a DRE se faz pelo **movimento** do
+período. E a leitura não tem snapshot ([DE-067](../projeto/decisoes.md)), limite
+que a fatia 2 herda como requisito, junto com a **autorização**, que o auditor
+registrou como pendência que migra inteira.
+
+**Próximo passo, esperando decisão do Fred:** circulante × não circulante (o que
+falta para existir Balanço apresentável), os parâmetros contábeis por empresa
+([BL-474](../projeto/backlog.md)), e as três ausências do
+[catálogo](../projeto/catalogo-de-relatorios.md).
+
+**Estado:** rodada 1 de 2 **concluída**.
 
 **Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
 o encerramento do exercício (por lançamento ou derivado), com que periodicidade,

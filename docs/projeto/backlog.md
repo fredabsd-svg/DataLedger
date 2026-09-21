@@ -1640,3 +1640,35 @@ arredondamento em ponto nenhum do caminho.
 | BL-480 | **BAIXA (A7) — `HierarquiaInconsistente` escapa de `apurar_saldos` sem estar no contrato nem em teste.** O comportamento é **correto**, herdado do reuso, com mensagem que nomeia a conta. O que falta é o docstring dizer que a função **pode levantar** — quem escrever a view da fatia 2 vai precisar do `try/except` que os dois consumidores do Balancete já têm, e nada avisa | `desenvolvedor-pleno` | — | **Aberta** | Uma linha no docstring e dois testes (ciclo e pai de outra empresa) |
 | BL-481 | **BAIXA (A8) — `contas` não permite reproduzir `totais_por_tipo`.** `raiz` e `analitica` não são repassados. Medido: somar as linhas por `tipo` dá **o dobro** numa árvore de 2 níveis — e essa é justamente a leitura que o critério 4 convida. `nivel == 1` é equivalente a `raiz`, mas isso não está dito em lugar nenhum | `desenvolvedor-pleno` | — | **Aberta** | `raiz` repassado (custo zero, já está na linha de origem) **ou** a equivalência com `nivel == 1` declarada no contrato |
 | BL-482 | **BAIXA (A9) — conta inativa entra no saldo, sem estar declarado nem testado.** O auditor considera o comportamento **correto** — conta desativada com saldo residual precisa aparecer, ou o Balanço perde dinheiro — e eu concordo. Falta declarar e fixar por teste; e a consequência secundária (conta inativa **sem** saldo virando linha de zero no Balanço do cliente) é decisão de apresentação da fatia 2 | `desenvolvedor-pleno` | — | **Aberta** | Uma frase no docstring e um teste que fixe a escolha |
+
+## Reconferência da DL-032 — rodada 2, APROVADA COM RESSALVAS (2026-09-21)
+
+Relatório integral em
+[2026-09-21-dl-032-rodada-2.md](../auditorias/2026-09-21-dl-032-rodada-2.md).
+**BL-475 a BL-482 FECHADOS.** **A DL-032 fatia 1 está entregue**, em duas
+rodadas. Três ressalvas baixas abaixo, registradas como itens próprios e
+visíveis — **não** como pendência anexada à etapa, por recomendação expressa do
+auditor.
+
+⚠️ **O achado alto fechou do jeito certo, e o número prova:** `totais_por_tipo`
+e `diferenca` saíram **idênticos** aos medidos antes da correção. **A correção
+não moveu um centavo** — só acrescentou a declaração. E os mutantes que provam a
+agregação (somar todas as linhas; somar só as folhas) continuam morrendo, agora
+matando **mais** testes que antes (6→8 e 5→7).
+
+⚠️ **A minha preocupação central desta rodada NÃO se realizou, e o auditor
+explicou por quê:** mexer na fixture para acordar uma guarda poderia adormecer
+outra. Medido com a bateria inteira de 11 mutantes: **zero enfraquecidos, cinco
+fortalecidos.** Razão: mover `data_base` numa fixture cujos totais não mudam é
+mudança **monotônica** — só acrescenta movimento a um dia antes vazio. **Não era
+50/50**, e registro para a próxima rodada não pagar o mesmo custo por reflexo.
+
+⚠️ **E o achado R1 nasceu de uma instrução minha:** *"confirme com o SEU
+mutante, não com o dele"*. O único mutante sobrevivente foi exatamente o que o
+implementador **não** escreveu.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-483 | **BAIXA (R1) — a semântica de `tipo_da_raiz` não está fixada: "raiz" e "pai direto" são indistinguíveis pela suíte.** Trocar a raiz pelo **pai direto** passa nos 27 testes, porque na fixture do caso torto a conta divergente é filha **direta** da raiz e os dois algoritmos coincidem. ⚠️ **O comportamento entregue está CERTO** — medido em subárvore de profundidade 3, ele nomeia **todas** as contas do ramo mal pendurado e devolve o tipo da **raiz**, que é o que o nome do campo promete. O que falta é a **guarda**: o significado de um campo público pode mudar sem a suíte acusar | `desenvolvedor-pleno` | — | **Aberta** | Teste com subárvore de profundidade ≥ 3 exigindo que **todas** as contas divergentes sejam nomeadas, e que o dinheiro **não se mova** (`totais_por_tipo` e `diferenca` inalterados). Prova: o mutante "tipo do pai direto" reprova |
+| BL-484 | **BAIXA (R2) — o docstring afirma que o tipo desconhecido é "OMITIDO da soma"; num DESCENDENTE ele NÃO é.** ⚠️ **Achado NOVO, nascido da correção** — é a DE-055 pagando mais uma vez. Medido: com a conta corrompida sendo **descendente**, os R$ 300,00 continuam consolidados no grupo da raiz e `diferenca` é **0,00**; quando é **raiz**, o valor sai da soma e a camada declara (`diferenca = -1.000,00`). A frase descreve só o segundo caso. ⚠️ **O comportamento está CERTO nos dois** — omitir o descendente faria dinheiro **desaparecer** do Balanço, que é pior —, e a conta é nomeada em **duas** listas. O dano é de contrato: quem construir a fatia 2 sobre essa frase desenha o aviso errado. É a família *"comentário que afirma mais do que a defesa entrega"*, que este repositório já nomeou catorze vezes | `desenvolvedor-pleno` | — | **Aberta** | A frase distingue os dois casos. Teste fixando a metade que o docstring hoje contradiz (descendente: nomeado **e** somado, `diferenca == 0`) e a que ele descreve certo (raiz: fora da soma, diferença declarada) |
+| BL-485 | **BAIXA (R3) — o teste do tipo desconhecido usa o literal `"custo"`, que pode virar um `TipoConta` de verdade.** Medido: ao acrescentar `CUSTO` ao enum, a suíte reprova em **dois** lugares — a guarda certa (BL-479) e este teste, como ruído. ⚠️ **E o cenário é plausível, não teórico:** dividir despesa e **custo** é exatamente o que RC-104 e o catálogo de relatórios tornam provável. **Diagnóstico embaçado é o que faz mecanismo ser ignorado** | `desenvolvedor-pleno` | — | **Aberta** | O literal não pode colidir com um `TipoConta` futuro — valor impossível, ou derivado e conferido contra `TipoConta.values` |
