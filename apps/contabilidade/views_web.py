@@ -2546,9 +2546,20 @@ NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO = {
     "contas_sem_classificacao_patrimonial": (
         "Conta com saldo, do Ativo ou do Passivo, sem classificação circulante/não circulante"
     ),
+    # BL-508/A1 (auditoria DL-034): a frase "sob o mesmo ancestral não
+    # classificado" só é VERDADEIRA porque `apurar_saldos` (BL-499)
+    # exclui a RAIZ do agrupamento — sem essa correção, duas contas de
+    # tipos diferentes (Ativo/Passivo), sem ancestral algum, caíam aqui
+    # com esta MESMA frase, factualmente falsa para elas. Ela permanece
+    # exata: quando esta lista é não vazia, as contas TÊM um ancestral
+    # comum de fato (o agrupamento é por `conta_pai`, e raiz nunca entra).
+    # DE-070: esta lista é AVISO, não veto — o rótulo evita "corrija",
+    # que era instrução IMPOSSÍVEL sempre que a classificação já estava
+    # certa (ver ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA, abaixo).
     "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
         "Contas classificadas de forma independente, sob o mesmo ancestral "
-        "não classificado, com natureza cadastrada diferente entre si"
+        "não classificado, com natureza cadastrada diferente entre si — aviso, "
+        "não impede a emissão"
     ),
     "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
         "Conta que agrupa outras contas (não é folha), sem classificação "
@@ -2603,23 +2614,172 @@ def _cnpj_mascarado(cnpj):
     return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
+# BL-508 (auditoria DL-034, achado A10): rótulo HUMANO de cada campo extra
+# que uma linha de pendência do Balanço pode carregar além de "conta"/
+# "nome" — nunca o NOME CRU do campo do banco (`classificacao_
+# patrimonial`, `natureza`, `tipo`, `tipo_da_raiz`, `...ancestral`), que a
+# tela mostrava ao contador antes desta correção. Cobre HOJE todos os
+# campos extras que as SETE listas de `_LISTAS_DE_PENDENCIA_DO_BALANCO`
+# (services.py) anexam — ver o comentário de `_linhas_de_pendencia` sobre
+# o que acontece quando um campo NOVO aparecer sem entrar aqui.
+_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
+    "tipo": "Tipo cadastrado",
+    "tipo_da_raiz": "Tipo da raiz da hierarquia",
+    "classificacao_patrimonial": "Classificação cadastrada",
+    "classificacao_patrimonial_ancestral": "Classificação do ancestral",
+    "natureza": "Natureza cadastrada",
+}
+
+# Os TRÊS `TextChoices`/enum do modelo que guardam o VALOR desses campos —
+# `EnumClasse(valor).label` é o mesmo rótulo que o CADASTRO já mostra
+# (formulário de conta, DL-018/DL-020); nunca uma segunda tradução escrita
+# à mão aqui (duas cópias do mesmo rótulo divergem — AGENTS.md §8).
+_ENUM_DO_CAMPO_DE_PENDENCIA = {
+    "tipo": TipoConta,
+    "tipo_da_raiz": TipoConta,
+    "classificacao_patrimonial": ClassificacaoPatrimonial,
+    "classificacao_patrimonial_ancestral": ClassificacaoPatrimonial,
+    "natureza": NaturezaConta,
+}
+
+
+def _humanizar_valor_de_campo_de_pendencia(chave, valor):
+    """Traduz o VALOR cru de um campo extra de pendência (ex.:
+    `"ativo_circulante"`, `"devedora"`) para o RÓTULO que o cadastro usa
+    (ex.: "Ativo circulante", "Devedora") — via `EnumClasse(valor).label`,
+    nunca uma tradução escrita à mão. As DUAS listas que existem
+    exatamente para nomear DADO CORROMPIDO
+    (`contas_com_tipo_desconhecido`/`contas_com_classificacao_
+    desconhecida` — ver `services.py`) carregam, de propósito, um valor
+    que NÃO está no enum (é o próprio defeito que a lista denuncia); para
+    essas, `EnumClasse(valor)` lança `ValueError` e a função devolve o
+    valor cru mesmo — não há rótulo humano possível para um valor que o
+    cadastro nunca aceitaria, e mostrar o valor bruto AQUI é diferente de
+    mostrar o NOME DO CAMPO cru (o defeito que o BL-508 fecha): o rótulo
+    da CHAVE (`_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA`, acima) já apareceu
+    antes deste valor, então a frase inteira continua legível."""
+    enum_do_campo = _ENUM_DO_CAMPO_DE_PENDENCIA.get(chave)
+    if enum_do_campo is None:
+        return str(valor)
+    try:
+        return enum_do_campo(valor).label
+    except ValueError:
+        return str(valor)
+
+
+# BL-508: a AÇÃO que resolve cada pendência — critério da correção 4 do
+# auditor ("toda pendência declarada nomeia uma ação que RESOLVE", não um
+# adjetivo do enunciado). Uma frase por lista, ao lado de
+# `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO` (mesmas SETE chaves —
+# `test_dl034_tela_do_balanco.py` cruza as duas e reprova se uma lista
+# ficar sem ação). A ÚNICA que não é imperativa
+# (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`) é a
+# que a DE-070 tornou AVISO: ela nunca IMPEDE a emissão, então a "ação"
+# certa é CONFERIR, não necessariamente CORRIGIR — ver o comentário grande
+# em `avaliar_emissao_do_balanco` (services.py) sobre o motivo.
+ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA = {
+    "contas_com_tipo_desconhecido": (
+        "Corrigir o tipo cadastrado da conta no plano de contas, escolhendo um dos tipos "
+        "válidos (Ativo, Passivo, Patrimônio Líquido, Receita ou Despesa)."
+    ),
+    "contas_com_tipo_divergente_da_raiz": (
+        "Corrigir o tipo da conta ou o da raiz da sua hierarquia no plano de contas, para "
+        "que os dois coincidam."
+    ),
+    "contas_com_classificacao_aninhada": (
+        "Remover a classificação circulante/não circulante de uma das duas contas no plano "
+        "de contas — deixar só o grupo OU só as contas-folha classificadas, nunca os dois "
+        "ao mesmo tempo na mesma hierarquia."
+    ),
+    "contas_com_classificacao_desconhecida": (
+        "Corrigir a classificação patrimonial da conta no plano de contas, escolhendo uma "
+        "das opções válidas de circulante/não circulante."
+    ),
+    "contas_sem_classificacao_patrimonial": (
+        "Classificar a conta (ou um ancestral dela) como circulante ou não circulante no "
+        "plano de contas."
+    ),
+    # BL-508 (correção 4 do auditor) + relato do arquiteto sobre o
+    # contrato novo de services.py: esta é a ÚNICA ação que CONFERE, não
+    # CORRIGE — a pendência não impede a emissão (DE-070), e pode ser o
+    # desenho CORRETO do plano de contas (ex.: retificadora). O texto NÃO
+    # afirma "o Balanço já foi emitido" — isso depende de OUTRA pendência
+    # não estar bloqueando ao mesmo tempo (critério de aceite 6: o aviso
+    # aparece nos DOIS desfechos, emitido ou recusado por outro motivo) —
+    # quem decide "emitiu ou não" é a faixa de fechamento, não este texto.
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+        "Aviso, não bloqueio: esta pendência sozinha NUNCA impede a emissão do Balanço. "
+        "Confira se a natureza cadastrada de cada conta abaixo está correta — é o desenho "
+        "esperado quando uma delas é RETIFICADORA de propósito (ex.: “(-) Provisão para "
+        "devedores duvidosos” sob o mesmo grupo de “Clientes”); se não for o caso, corrija "
+        "a natureza cadastrada da conta errada no plano de contas."
+    ),
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+        "Classificar esta conta (ou um ancestral dela) como circulante/não circulante no "
+        "plano de contas, ou lançar os valores numa conta-folha já classificada, em vez de "
+        "lançar diretamente nesta conta-síntese."
+    ),
+}
+
+
+# DE-070 (services.py): `avaliar_emissao_do_balanco` devolve a separação
+# PRONTA — `listas_pendentes` (só o que IMPEDE) e `listas_informativas`
+# (só o que AVISA, nunca impede), as duas DISJUNTAS por construção do lado
+# do servidor (`_LISTAS_QUE_IMPEDEM_A_EMISSAO`/`_LISTAS_QUE_SO_AVISAM`,
+# ver o comentário grande de `avaliar_emissao_do_balanco`). Esta tela NÃO
+# recalcula veto nenhum nem duplica o nome de nenhuma lista específica —
+# só CONSOME as duas chaves e decide em qual bloco visual cada uma
+# aparece (Erro bloqueante vs. Aviso, nunca bloqueante).
+
+
+def _lista_de_pendencia_para_contexto(nome, itens):
+    """Uma entrada de `listas_pendentes`/`listas_apenas_aviso` do
+    contexto do template — título humano (`NOMES_HUMANOS_...`), linhas
+    humanizadas (`_linhas_de_pendencia`) e a AÇÃO que resolve
+    (`ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA`). Extraída para as DUAS
+    visões da view `balanco` (bloqueada e emitida-com-aviso) montarem a
+    MESMA estrutura sem repetir os três `.get`/chamada."""
+    return {
+        "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO.get(nome, nome),
+        "linhas": _linhas_de_pendencia(itens),
+        # BL-508 (correção 4 do auditor): "explica" tem de ser
+        # VERIFICÁVEL — toda pendência declarada nomeia uma ação que
+        # RESOLVE. `.get(nome, ...)` nomeia a CHAVE crua só se uma lista
+        # nova aparecer sem ação cadastrada ainda — nunca quebra a tela,
+        # mas fica claramente incompleto para quem lê (não finge ser uma
+        # instrução de verdade).
+        "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA.get(
+            nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+        ),
+    }
+
+
 def _linhas_de_pendencia(itens):
     """Uma linha por conta pendente, a partir de UMA das listas de
-    `emissao["listas_pendentes"]` — genérica de propósito: cada lista de
-    `apurar_saldos` nomeia campos diferentes além de "conta"/"nome" (ex.:
-    "tipo"/"tipo_da_raiz", "classificacao_patrimonial"/"...ancestral"), e
-    esta função nunca precisa CONHECER o formato de uma lista específica
-    para mostrar o que ela trouxe — qualquer chave além de "conta"/"nome"
-    vira um par rótulo/valor de apoio. Isso evita que esta view mantenha um
-    catálogo de formatos por lista (a mesma classe de fragilidade que
-    `apurar_saldos` documenta ter trocado por identidade aritmética no
-    resíduo) e faz uma lista NOVA (ex.: uma oitava, amanhã) aparecer
-    completa aqui sem precisar de mudança nenhuma neste módulo.
+    `emissao["listas_pendentes"]` — genérica na FORMA (cada lista de
+    `apurar_saldos` nomeia campos diferentes além de "conta"/"nome": ex.
+    "tipo"/"tipo_da_raiz", "classificacao_patrimonial"/"...ancestral"),
+    mas HUMANIZADA no CONTEÚDO desde o BL-508 (achado A10 da auditoria da
+    DL-034): antes desta correção, o "rótulo/valor de apoio" de cada campo
+    extra era o PAR CRU (`f"{chave}: {valor}"`, ex.: "classificacao_
+    patrimonial: ativo_circulante"), mostrando ao contador o nome do campo
+    do banco e a constante interna gravada nele. Agora cada par vira
+    `_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA` (a CHAVE) +
+    `_humanizar_valor_de_campo_de_pendencia` (o VALOR, via `.label` do
+    enum) — uma chave NOVA que `apurar_saldos` ganhar no futuro sem entrar
+    nos dois dicionários acima ainda aparece aqui (nunca quebra: cai no
+    `.get(chave, chave)`/`str(valor)` cru — PIOR do que humanizado, mas
+    NUNCA pior do que o comportamento anterior a esta correção), e um
+    teste (`test_dl034_tela_do_balanco.py`) varre o CORPO da resposta
+    procurando os nomes crus dos campos conhecidos hoje.
     """
     linhas = []
     for item in itens:
         detalhes = [
-            f"{chave}: {valor}" for chave, valor in item.items() if chave not in ("conta", "nome")
+            f"{_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA.get(chave, chave)}: "
+            f"{_humanizar_valor_de_campo_de_pendencia(chave, valor)}"
+            for chave, valor in item.items()
+            if chave not in ("conta", "nome")
         ]
         linhas.append(
             {
@@ -2783,7 +2943,25 @@ def _montar_grupos_do_balanco(saldos):
         # "prejuízo") — nunca "-" na frente do número (RC-90: sinal nunca é
         # o único canal, e este projeto nem usa sinal para valor negativo
         # em lugar nenhum do documento).
-        "resultado_nao_transferido_ptbr": (
+        #
+        # BL-501 (achado da auditoria DL-034 rodada 1): a CHAVE deste
+        # dicionário NÃO termina em "_ptbr" de propósito — só o campo
+        # FOLHA (`valor_ptbr`, abaixo) termina. A varredura de interface
+        # (`apps/core/tests/test_dl024_varredura_de_interface.py::
+        # test_todo_valor_em_celula_usa_a_classe_do_sistema`) reprova
+        # QUALQUER token que termine em "_ptbr" dentro de uma célula de
+        # tabela sem a classe `valor-monetario` ao redor — inclusive
+        # dentro de um `{% if %}` de template, que nunca é exibido. Com a
+        # chave se chamando "resultado_nao_transferido_ptbr", o PRÓPRIO
+        # `{% if grupos.resultado_nao_transferido_ptbr %}` (condição, não
+        # saída) contava como um valor monetário desprotegido — dois
+        # falsos positivos (a condição e o acesso a `.e_prejuizo`), medido
+        # rodando a suíte. Renomear a chave para "resultado_nao_
+        # transferido" (sem sufixo) resolve na raiz: a condição deixa de
+        # casar com o padrão, e o único token que ainda termina em
+        # "_ptbr" (`.valor_ptbr`, dentro do `<span class="valor-
+        # monetario">` no template) continua coberto.
+        "resultado_nao_transferido": (
             {
                 "valor_ptbr": _valor_ptbr(abs(saldos["equacao"]["resultado_nao_transferido"])),
                 "e_prejuizo": saldos["equacao"]["resultado_nao_transferido"] < 0,
@@ -2855,11 +3033,23 @@ def balanco(request, empresa_id):
         # cadastrar o plano" com "há pendência de classificação".
         return render(request, "contabilidade/balanco.html", contexto)
 
+    # DE-070: `emissao["listas_informativas"]` já vem SEPARADA, pronta do
+    # servidor — a que só AVISA, nunca impede (ver o comentário grande de
+    # `avaliar_emissao_do_balanco`, services.py). A tela só monta a
+    # ESTRUTURA de apresentação (título/linhas/ação); aparece tanto
+    # emitindo quanto recusando, se estiver presente nos dois casos —
+    # fora do `{% if/elif/else %}` do template, que decide só "monta a
+    # tabela ou não".
+    contexto["listas_apenas_aviso"] = [
+        _lista_de_pendencia_para_contexto(nome, itens)
+        for nome, itens in emissao["listas_informativas"].items()
+    ]
+
     if not emissao["pode_emitir"]:
         # "O que eu vou entregar fecha, e eu sei o que ele NÃO diz": havendo
-        # QUALQUER pendência, a tela NÃO monta a tabela do Balanço — só o
-        # que falta, nomeado (critério 1 e "o momento da verdade" do plano
-        # DL-034). 200, não um código de erro: a tela RESPONDEU
+        # QUALQUER pendência que VETE, a tela NÃO monta a tabela do Balanço
+        # — só o que falta, nomeado (critério 1 e "o momento da verdade" do
+        # plano DL-034). 200, não um código de erro: a tela RESPONDEU
         # corretamente à pergunta "pode emitir?" — a resposta é "não, e eis
         # o porquê", que é sucesso da TELA, não falha de protocolo.
         contexto.update(
@@ -2872,11 +3062,11 @@ def balanco(request, empresa_id):
                     }
                     for tipo, valor in emissao["residuo_pendente"].items()
                 ],
+                # `emissao["listas_pendentes"]` já vem só com o que
+                # BLOQUEIA (DE-070/services.py) — a que só avisa está em
+                # `listas_informativas`, tratada acima, nunca aqui.
                 "listas_pendentes": [
-                    {
-                        "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO.get(nome, nome),
-                        "linhas": _linhas_de_pendencia(itens),
-                    }
+                    _lista_de_pendencia_para_contexto(nome, itens)
                     for nome, itens in emissao["listas_pendentes"].items()
                 ],
             }

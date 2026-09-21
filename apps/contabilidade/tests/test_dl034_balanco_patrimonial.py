@@ -14,13 +14,21 @@ RESSALVA R1 da rodada 2 de auditoria da DL-033 (DE-068) e pela DE-067:
    auditoria usou para "o número certo" (`ativo_circulante == 2.750,00`,
    `ativo_nao_circulante == 8.500,00`), exige EMISSÃO liberada.
 2. **`avaliar_emissao_do_balanco`** — a função do SERVIDOR que decide "pode
-   emitir?", CONJUNÇÃO das quatro condições do critério 1, DERIVADA (nunca
-   um `if` por condição escrito à mão).
+   emitir?", CONJUNÇÃO de TRÊS condições de VETO, DERIVADA (nunca um `if`
+   por condição escrito à mão).
 3. **`identificacao_da_demonstracao`** — os três campos do item 51 (b, d,
    e) que não existiam, declarados como constante, nunca deduzidos.
 4. **DE-067** — `apurar_balanco_patrimonial` lê sob snapshot
    (`REPEATABLE READ`); prova de CORRIDA real (duas conexões), não só
    afirmada, com o par "antes/depois" (sem e com o wrapper).
+5. **Rodada de CORREÇÃO da auditoria da DL-034 (rodada 1, REPROVADA por
+   A1)** — BL-499 (a guarda da condição 3 tratava TODA raiz como irmã),
+   BL-500/DE-070 (a condição 3 deixa de VETAR, vira aviso declarado em
+   `listas_informativas`, SEPARADA de `listas_pendentes` — correção de
+   contrato pedida pelo arquiteto-senior) e BL-502/BL-492 (as duas tuplas
+   `_LISTAS_QUE_IMPEDEM_A_EMISSAO`/`_LISTAS_QUE_SO_AVISAM` PROVADAS uma
+   partição exata do inventário real de `apurar_saldos`, chaves
+   congeladas).
 
 Dados 100% sintéticos, criados nos próprios testes.
 """
@@ -209,10 +217,28 @@ def test_v1d_dois_defeitos_calibrados_para_se_anular_e_recusado():
 
     emissao = avaliar_emissao_do_balanco(saldos)
     assert emissao["pode_emitir"] is False
-    assert emissao["residuo_pendente"] == {TipoConta.ATIVO: Decimal("500.00")}
+    # ⚠️ **A PROVA NOMINAL de QUAL condição recusa (rodada de correção da
+    # DL-034, critério 5) — o CONTRATO separa as duas classes: desde a
+    # DE-070, `listas_pendentes` só contém o que IMPEDE, e a lista de
+    # irmãs divergentes (condição 3) vai para `listas_informativas`, que
+    # NUNCA decide `pode_emitir` (prova isolada complementar em
+    # `test_de070_condicao_3_sozinha_nao_veta_a_emissao`, abaixo). A
+    # recusa AQUI vem só do RESÍDUO (condição 1) e da condição 4
+    # (cobertura) — as duas asserções seguintes nomeiam as duas causas
+    # explicitamente, e a terceira prova que a condição 3 NÃO está entre
+    # elas (mesmo aparecendo, declarada, em `listas_informativas`).
+    assert emissao["residuo_pendente"] == {TipoConta.ATIVO: Decimal("500.00")}, (
+        "causa 1 — resíduo pendente"
+    )
+    assert (
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio" in emissao["listas_pendentes"]
+    ), "causa 2 — condição 4 (cobertura)"
     assert set(emissao["listas_pendentes"]) == {
-        "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
         "contas_nao_folha_sem_classificacao_com_movimento_proprio",
+    }
+    # A condição 3 NÃO é causa — está em `listas_informativas`, separada.
+    assert set(emissao["listas_informativas"]) == {
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
     }
 
 
@@ -305,7 +331,12 @@ def test_bl496_numeros_certos_quando_totalmente_classificado():
     assert saldos["contas_nao_folha_sem_classificacao_com_movimento_proprio"] == []
 
     emissao = avaliar_emissao_do_balanco(saldos)
-    assert emissao == {"pode_emitir": True, "residuo_pendente": {}, "listas_pendentes": {}}
+    assert emissao == {
+        "pode_emitir": True,
+        "residuo_pendente": {},
+        "listas_pendentes": {},
+        "listas_informativas": {},
+    }
 
 
 def test_v1c_cinco_classificacoes_retificadoras_e_centavos_quebrados():
@@ -476,7 +507,447 @@ def test_v1c_cinco_classificacoes_retificadoras_e_centavos_quebrados():
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
 
     emissao = avaliar_emissao_do_balanco(saldos)
-    assert emissao == {"pode_emitir": True, "residuo_pendente": {}, "listas_pendentes": {}}
+    assert emissao == {
+        "pode_emitir": True,
+        "residuo_pendente": {},
+        "listas_pendentes": {},
+        "listas_informativas": {},
+    }
+
+
+# ---------------------------------------------------------------------------
+# BL-499/BL-500/BL-502 — rodada de CORREÇÃO da auditoria da DL-034 (rodada
+# 1, REPROVADA por A1: a guarda da condição 3 tratava TODA raiz como
+# irmã). Três achados, três correções:
+#
+# - **BL-499 (ALTA)**: `apurar_saldos` agrupava os nós topo-classificados
+#   por `linha["conta_pai"]`, e `conta_pai` é `None` para TODA raiz —
+#   plano de contas legítimo, aceito pelo `full_clean()` do produto,
+#   ficava PERMANENTEMENTE impedido de emitir, com mensagem factualmente
+#   falsa. Corrigido: raiz nunca é "irmã" para esta guarda, e a
+#   comparação de natureza só vale dentro do MESMO `TipoConta`.
+# - **BL-500 (DE-070)**: a condição 3 deixa de VETAR a emissão — vira
+#   aviso declarado, em `listas_informativas` (correção de CONTRATO
+#   pedida pelo arquiteto-senior: `listas_pendentes` só contém o que
+#   IMPEDE, nunca uma lista que "pende" sem impedir nada).
+# - **BL-502 (+ BL-492)**: `_LISTAS_QUE_IMPEDEM_A_EMISSAO` e
+#   `_LISTAS_QUE_SO_AVISAM` PROVADAS uma partição exata do inventário real
+#   de `apurar_saldos` (união == inventário, interseção vazia), nunca só
+#   escritas à mão — e as chaves de `apurar_saldos` precisam de
+#   congelamento.
+# ---------------------------------------------------------------------------
+
+
+def test_bl499_tres_raizes_classificadas_nao_sao_irmas_e_o_balanco_emite():
+    """Reprodução EXATA do achado A1 (auditoria da DL-034, rodada 1) —
+    plano mínimo, TRÊS raízes, sem pai nenhum:
+
+        1  ATIVO CIRCULANTE    (devedora)  -> ativo_circulante
+        2  PASSIVO CIRCULANTE  (credora)   -> passivo_circulante
+        3  CAPITAL SOCIAL      (credora)   -> (PL, sem classificação)
+
+    Plano inteiramente VÁLIDO — `Conta.full_clean()` aceita as três (a
+    guarda de `Conta.clean()` só cruza classificação × TIPO, nunca posição
+    na árvore). ANTES da correção do BL-499, a guarda da condição 3
+    agrupava por `conta_pai` (== `None` para as três, já que são raízes) e
+    acusava `['1', '2']` como "irmãs de natureza divergente" — falso: as
+    duas não têm ancestral NENHUM, são de TIPOS diferentes (Ativo/Passivo),
+    e a natureza oposta entre elas é exatamente a REGRA (Lei 6.404/76).
+    DEPOIS da correção, raiz nunca entra no agrupamento: a lista sai
+    VAZIA, e o Balanço emite."""
+    empresa = _empresa("DL-034 BL-499 Três Raízes")
+    ativo_circulante = _conta(
+        empresa,
+        codigo="1",
+        nome="ATIVO CIRCULANTE",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    passivo_circulante = _conta(
+        empresa,
+        codigo="2",
+        nome="PASSIVO CIRCULANTE",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        classificacao=ClassificacaoPatrimonial.PASSIVO_CIRCULANTE,
+    )
+    capital_social = _conta(
+        empresa, codigo="3", nome="CAPITAL SOCIAL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C
+    )
+    # Fecha a equação: Ativo (1.500,00) == Passivo (500,00) + PL (1.000,00).
+    _lancar(empresa, date(2026, 1, 2), "Capitalização", ativo_circulante, capital_social, "1000.00")
+    _lancar(
+        empresa, date(2026, 1, 3), "Financiamento", ativo_circulante, passivo_circulante, "500.00"
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.ATIVO_CIRCULANTE] == (
+        Decimal("1500.00")
+    )
+    assert saldos["totais_por_classificacao"][ClassificacaoPatrimonial.PASSIVO_CIRCULANTE] == (
+        Decimal("500.00")
+    )
+    assert saldos["residuo_por_tipo"] == {
+        TipoConta.ATIVO: Decimal("0.00"),
+        TipoConta.PASSIVO: Decimal("0.00"),
+    }
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+    # A prova do BL-499: raiz não é irmã, mesmo com natureza cadastrada
+    # divergente entre elas.
+    assert saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"] == []
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao == {
+        "pode_emitir": True,
+        "residuo_pendente": {},
+        "listas_pendentes": {},
+        "listas_informativas": {},
+    }
+
+
+def test_bl499_cinco_raizes_grupo_nao_sao_irmas_e_o_balanco_emite():
+    """Segundo cenário do achado A1: as raízes SÃO os próprios grupos —
+    `1 AC`, `2 ANC`, `3 PC`, `4 PNC`, `5 PL`. ANTES da correção do BL-499,
+    a lista acusava QUATRO contas (`['1','2','3','4']`); depois, vazia —
+    nenhuma delas tem irmã de fato (todas são raiz)."""
+    empresa = _empresa("DL-034 BL-499 Cinco Raízes-Grupo")
+    ativo_circulante = _conta(
+        empresa,
+        codigo="1",
+        nome="ATIVO CIRCULANTE",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    ativo_nao_circulante = _conta(
+        empresa,
+        codigo="2",
+        nome="ATIVO NÃO CIRCULANTE",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS,
+    )
+    passivo_circulante = _conta(
+        empresa,
+        codigo="3",
+        nome="PASSIVO CIRCULANTE",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        classificacao=ClassificacaoPatrimonial.PASSIVO_CIRCULANTE,
+    )
+    passivo_nao_circulante = _conta(
+        empresa,
+        codigo="4",
+        nome="PASSIVO NÃO CIRCULANTE",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        classificacao=ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE,
+    )
+    pl = _conta(
+        empresa,
+        codigo="5",
+        nome="PATRIMÔNIO LÍQUIDO",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+    )
+
+    # `ativo_circulante` (1200,00) só recebe a capitalização; `ativo_nao_
+    # circulante` (2) só recebe os DOIS financiamentos abaixo — 300,00 +
+    # 100,00 = 400,00, nunca 700,00 (não há uma terceira entrada nele).
+    _lancar(empresa, date(2026, 1, 2), "Capitalização — AC", ativo_circulante, pl, "1200.00")
+    _lancar(
+        empresa,
+        date(2026, 1, 3),
+        "Financiamento curto prazo",
+        ativo_nao_circulante,
+        passivo_circulante,
+        "300.00",
+    )
+    _lancar(
+        empresa,
+        date(2026, 1, 4),
+        "Financiamento longo prazo",
+        ativo_nao_circulante,
+        passivo_nao_circulante,
+        "100.00",
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert saldos["totais_por_grupo"][GrupoDaLei.ATIVO_CIRCULANTE] == Decimal("1200.00")
+    assert saldos["totais_por_grupo"][GrupoDaLei.ATIVO_NAO_CIRCULANTE] == Decimal("400.00")
+    assert saldos["totais_por_grupo"][GrupoDaLei.PASSIVO_CIRCULANTE] == Decimal("300.00")
+    assert saldos["totais_por_grupo"][GrupoDaLei.PASSIVO_NAO_CIRCULANTE] == Decimal("100.00")
+    assert saldos["residuo_por_tipo"] == {
+        TipoConta.ATIVO: Decimal("0.00"),
+        TipoConta.PASSIVO: Decimal("0.00"),
+    }
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+    assert saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"] == []
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao == {
+        "pode_emitir": True,
+        "residuo_pendente": {},
+        "listas_pendentes": {},
+        "listas_informativas": {},
+    }
+
+
+def test_a2_retificadora_de_grupo_emite_com_totais_por_grupo_certo():
+    """Cenário **L4** da auditoria (achado A2): grupo retificador inteiro,
+    IRMÃO de fato do grupo bruto (mesmo pai NÃO raiz — "1.2 NÃO
+    CIRCULANTE", sem classificação própria):
+
+        1.2   NAO CIRCULANTE                 (sem classificação)
+        1.2.3 Imobilizado bruto      D 15.000,00  -> imobilizado
+        1.2.9 (-) Depreciação acum.  C  3.000,00  -> imobilizado
+
+    A auditoria mediu que a correção (b) dá o número CERTO também aqui —
+    `ativo_nao_circulante == 12.000,00`, conciliando com `totais_por_tipo`
+    no primeiro centavo (DE-070). A guarda da condição 3 CONTINUA
+    nomeando as duas (são irmãs DE FATO — mesmo pai, que não é raiz), como
+    AVISO — e o Balanço emite mesmo assim."""
+    empresa = _empresa("DL-034 A2 Retificadora de Grupo")
+    raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    nao_circulante = _conta(
+        empresa,
+        codigo="1.2",
+        nome="NAO CIRCULANTE",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+    )
+    imobilizado_bruto = _conta(
+        empresa,
+        codigo="1.2.3",
+        nome="Imobilizado bruto",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=nao_circulante,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_IMOBILIZADO,
+    )
+    depreciacao_acumulada = _conta(
+        empresa,
+        codigo="1.2.9",
+        nome="(-) Depreciação Acumulada",
+        tipo=TipoConta.ATIVO,
+        natureza=C,
+        pai=nao_circulante,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_IMOBILIZADO,
+    )
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Imobilizado bruto", imobilizado_bruto, capital, "15000.00")
+    _lancar(
+        empresa,
+        date(2026, 1, 3),
+        "Depreciação acumulada",
+        capital,
+        depreciacao_acumulada,
+        "3000.00",
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    assert saldos["totais_por_grupo"][GrupoDaLei.ATIVO_NAO_CIRCULANTE] == Decimal("12000.00")
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("12000.00")
+    assert saldos["residuo_por_tipo"][TipoConta.ATIVO] == Decimal("0.00")
+
+    # AVISO, não veto: as duas contas SÃO irmãs de fato (mesmo pai "1.2",
+    # que não é raiz) — a guarda continua a nomear.
+    irmas = {
+        linha["conta"]
+        for linha in saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"]
+    }
+    assert irmas == {"1.2.3", "1.2.9"}
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao["pode_emitir"] is True
+    assert emissao["residuo_pendente"] == {}
+    # A condição 3 NUNCA impede — mesmo não vazia, fica fora de
+    # `listas_pendentes` e aparece SÓ em `listas_informativas`.
+    assert emissao["listas_pendentes"] == {}
+    assert (
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+        in emissao["listas_informativas"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# `avaliar_emissao_do_balanco` ISOLADA — prova NOMINAL de qual condição
+# VETA e qual só AVISA (critério 5 da tarefa de correção: "o V1d continua
+# recusado, e o teste tem de provar POR QUÊ" — resíduo e condição 4, nunca
+# mais a condição 3). Função PURA (sem `apurar_saldos`/banco), por isso os
+# testes abaixo isolam cada condição sem interferência das outras.
+# ---------------------------------------------------------------------------
+
+
+def _saldos_minimos_para_avaliacao(
+    *,
+    residuo_por_tipo=None,
+    contas_topo_classificadas_com_natureza_divergente_entre_irmas=None,
+    contas_nao_folha_sem_classificacao_com_movimento_proprio=None,
+):
+    """Monta o `saldos` MÍNIMO que `avaliar_emissao_do_balanco` lê — só as
+    oito chaves que a função usa, sem passar por `apurar_saldos` nem
+    banco nenhum. Todas as listas nascem vazias; o chamador só informa o
+    que quer NÃO vazio, para isolar qual condição está sendo exercitada."""
+    return {
+        "residuo_por_tipo": residuo_por_tipo or {},
+        "contas_com_tipo_desconhecido": [],
+        "contas_com_tipo_divergente_da_raiz": [],
+        "contas_com_classificacao_aninhada": [],
+        "contas_com_classificacao_desconhecida": [],
+        "contas_sem_classificacao_patrimonial": [],
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+            contas_topo_classificadas_com_natureza_divergente_entre_irmas or []
+        ),
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+            contas_nao_folha_sem_classificacao_com_movimento_proprio or []
+        ),
+    }
+
+
+def test_de070_condicao_3_sozinha_nao_veta_a_emissao():
+    """Prova ISOLADA da DE-070: com resíduo zero e a condição 4 vazia, uma
+    condição 3 NÃO vazia, SOZINHA, não impede `pode_emitir` — e (correção
+    de contrato pedida pelo arquiteto-senior) NÃO aparece mais em
+    `listas_pendentes`: vai inteira para `listas_informativas`, que NUNCA
+    decide nada. Um nome chamado "pendência" cujo conteúdo não impede é
+    que estava errado, não a decisão em si."""
+    saldos = _saldos_minimos_para_avaliacao(
+        contas_topo_classificadas_com_natureza_divergente_entre_irmas=[
+            {
+                "conta": "1.1",
+                "nome": "Clientes",
+                "classificacao_patrimonial": ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+                "natureza": D,
+            },
+            {
+                "conta": "1.2",
+                "nome": "(-) PDD",
+                "classificacao_patrimonial": ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+                "natureza": C,
+            },
+        ],
+    )
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao["pode_emitir"] is True
+    assert emissao["residuo_pendente"] == {}
+    assert emissao["listas_pendentes"] == {}
+    assert set(emissao["listas_informativas"]) == {
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+    }
+
+
+def test_de070_condicao_4_sozinha_continua_vetando_a_emissao():
+    """Controle POSITIVO da mesma prova: a condição 4 (cobertura, BL-487)
+    CONTINUA vetando sozinha — a DE-070 aposentou só a condição 3. Esta é
+    a mutação "M-BL502 sentido 3" do arquiteto: se alguém mover
+    `contas_nao_folha_sem_classificacao_com_movimento_proprio` de
+    `_LISTAS_QUE_IMPEDEM_A_EMISSAO` para `_LISTAS_QUE_SO_AVISAM`, é ESTE
+    teste que reprova (`pode_emitir` viraria `True`)."""
+    saldos = _saldos_minimos_para_avaliacao(
+        contas_nao_folha_sem_classificacao_com_movimento_proprio=[
+            {"conta": "1.3", "nome": "IMOBILIZADO", "tipo": TipoConta.ATIVO},
+        ],
+    )
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao["pode_emitir"] is False
+    assert emissao["residuo_pendente"] == {}
+    assert set(emissao["listas_pendentes"]) == {
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio"
+    }
+    assert emissao["listas_informativas"] == {}
+
+
+def test_residuo_sozinho_continua_vetando_a_emissao():
+    """Controle POSITIVO: o resíduo (condição 1) continua vetando sozinho
+    — nunca foi tocado por esta correção."""
+    saldos = _saldos_minimos_para_avaliacao(residuo_por_tipo={TipoConta.ATIVO: Decimal("500.00")})
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert emissao["pode_emitir"] is False
+    assert emissao["residuo_pendente"] == {TipoConta.ATIVO: Decimal("500.00")}
+    assert emissao["listas_pendentes"] == {}
+    assert emissao["listas_informativas"] == {}
+
+
+# ---------------------------------------------------------------------------
+# BL-502 (+ BL-492) — correção de CONTRATO pedida pelo arquiteto-senior:
+# não uma tupla-inventário só, com exceção embutida em `avaliar_emissao_
+# do_balanco`, mas DUAS tuplas explícitas e DISJUNTAS
+# (`_LISTAS_QUE_IMPEDEM_A_EMISSAO`/`_LISTAS_QUE_SO_AVISAM`), cuja UNIÃO
+# prova ser igual ao inventário real de `apurar_saldos` — e as chaves de
+# `apurar_saldos` CONGELADAS.
+# ---------------------------------------------------------------------------
+
+
+def test_bl502_as_duas_tuplas_particionam_o_inventario_real_de_apurar_saldos(_cenario_simples):
+    """As DUAS tuplas — `_LISTAS_QUE_IMPEDEM_A_EMISSAO` e
+    `_LISTAS_QUE_SO_AVISAM` — têm de formar uma PARTIÇÃO exata das chaves
+    `contas_*` que `apurar_saldos` de fato devolve: toda lista pertence a
+    UMA das duas, NUNCA a nenhuma, NUNCA às duas.
+
+    1. **União == inventário real**: nenhuma lista fica de fora das duas
+       classificações (esquecida) — é a mutação M6 do auditor mordendo de
+       novo: acrescentar uma oitava lista de pendência a `apurar_saldos`
+       SEM inscrevê-la em nenhuma das duas tuplas reprova aqui.
+    2. **Interseção vazia**: nenhuma lista é as duas coisas ao mesmo
+       tempo — inscrever a mesma lista nova nas DUAS tuplas também
+       reprova aqui.
+
+    (A terceira prova do arquiteto — "`pode_emitir` deriva só da tupla que
+    impede" — está nos testes isolados acima, `test_de070_condicao_3_
+    sozinha_nao_veta_a_emissao` e `test_de070_condicao_4_sozinha_continua_
+    vetando_a_emissao`: mover uma lista de uma tupla para a outra faz um
+    deles reprovar.)"""
+    saldos = apurar_saldos(empresa=_cenario_simples["empresa"], data_base=date(2026, 1, 31))
+    chaves_contas_em_saldos = {chave for chave in saldos if chave.startswith("contas_")}
+    impedem = set(contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)
+    so_avisam = set(contabilidade_services._LISTAS_QUE_SO_AVISAM)
+    assert impedem | so_avisam == chaves_contas_em_saldos, "sentido 1 — união == inventário real"
+    assert impedem & so_avisam == set(), "sentido 2 — interseção vazia"
+
+
+def test_bl492_congelamento_das_chaves_de_apurar_saldos(_cenario_simples):
+    """BL-492 (aberto desde a DL-032 — o QUINTO acréscimo de chave em
+    cinco etapas): `sorted(saldos)` contra literais ESCRITOS À MÃO neste
+    teste. ⚠️ Se este teste reprovar porque `apurar_saldos` ganhou (ou
+    perdeu) uma chave, atualizar a lista abaixo é DE PROPÓSITO — não é
+    "consertar o teste e seguir": é o sinal de que toda documentação que
+    depende da forma de `apurar_saldos` (o CONTRATO entre as duas frentes
+    da DL-034, o docstring de `avaliar_emissao_do_balanco`,
+    `_LISTAS_QUE_IMPEDEM_A_EMISSAO`/`_LISTAS_QUE_SO_AVISAM`) precisa ser
+    revista de propósito."""
+    saldos = apurar_saldos(empresa=_cenario_simples["empresa"], data_base=date(2026, 1, 31))
+    assert sorted(saldos) == sorted(
+        [
+            "data_base",
+            "contas",
+            "totais_por_tipo",
+            "contas_com_tipo_desconhecido",
+            "contas_com_tipo_divergente_da_raiz",
+            "totais_por_classificacao",
+            "totais_por_grupo",
+            "residuo_por_tipo",
+            "contas_com_classificacao_aninhada",
+            "contas_com_classificacao_desconhecida",
+            "contas_sem_classificacao_patrimonial",
+            "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
+            "contas_nao_folha_sem_classificacao_com_movimento_proprio",
+            "equacao",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +1024,7 @@ def test_apurar_balanco_patrimonial_devolve_os_tres_ingredientes(_cenario_simple
         "pode_emitir": True,
         "residuo_pendente": {},
         "listas_pendentes": {},
+        "listas_informativas": {},
     }
     assert resultado["identificacao"] == identificacao_da_demonstracao()
 

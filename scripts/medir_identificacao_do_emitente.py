@@ -538,6 +538,314 @@ def _descobrir_telas_com_timbre(cliente, empresa, conta):
 
 
 # ---------------------------------------------------------------------------
+# BL-501 (achado A3 da auditoria da DL-034, docs/auditorias/2026-09-21-
+# dl-034-rodada-1.md): o critério 4 do plano DL-034 ("o bloco do item 51,
+# NBC TG 26 R5, sai em CADA página impressa") tinha UMA medição manual, de
+# uma pessoa, e NENHUMA guarda versionada — a única linha do repositório
+# que conhece `.identificacao-do-documento` era
+# `apps/contabilidade/tests/test_dl034_tela_do_balanco.py:659`, que mede
+# PRESENÇA DE CLASSE NO HTML SERVIDO, nunca TINTA NO PAPEL. O auditor
+# mediu, em cópia isolada (BL-311): `@media print {
+# .identificacao-do-documento { display: none; } }` apaga o bloco de
+# TODAS as folhas com `1810 passed, 14 skipped` — porque o job de CI
+# (`scripts/medir_identificacao_do_emitente.py`, ANTES desta correção) só
+# conhecia `.timbre-impressao` (o ESCRITÓRIO, RC-97), nunca o bloco da
+# ENTIDADE (RC-95).
+#
+# Esta seção estende o MESMO instrumento — reusa `_medir_no_navegador`
+# (agora parametrizado, ver o comentário lá) para o MESMO tipo de
+# medição: navegação real, PDF A4 de verdade, sonda de visibilidade —
+# mas para um seletor e um conjunto de telas DIFERENTES: as de CLASSE 2
+# (demonstração contábil, `docs/projeto/personalizacao-de-relatorio.md`
+# §1), não as de classe 1 (Balancete/Diário/Razão, que têm TIMBRE do
+# escritório e NUNCA este bloco — são documentos de CONFERÊNCIA, sem
+# forma fixada por norma).
+# ---------------------------------------------------------------------------
+
+SELETOR_IDENTIFICACAO_DO_DOCUMENTO = ".identificacao-do-documento"
+SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS = ".identificacao-do-documento p"
+
+# Piso de regressão, MESMA lógica de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`
+# (ver o comentário completo lá sobre por que um piso pequeno e
+# versionado, ao lado da derivação que cresce sozinha): hoje só o Balanço
+# (DL-034) é classe 2. Um módulo novo que ganhe demonstração própria
+# (Fiscal, Folha) e o comentário deste piso não crescer junto é erro
+# visível, revisado — nunca divergência silenciosa entre duas cópias.
+TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset({"contabilidade_web:balanco"})
+
+_PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
+    r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'
+)
+
+# Extrai o CONTEÚDO do bloco (para derivar o texto esperado — ver
+# `_derivar_texto_da_identificacao_do_documento`, abaixo). Não confundir
+# com o padrão de MARCADOR acima: aquele só confirma que a classe existe
+# em algum lugar do HTML (para decidir "esta tela é candidata"); este lê
+# o TEXTO de dentro para saber O QUE deveria repetir em cada página.
+_PADRAO_BLOCO_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
+    r'<div class="identificacao-do-documento">(.*?)</div>', re.DOTALL
+)
+_PADRAO_TAG_HTML = re.compile(r"<[^>]+>")
+
+
+def _derivar_texto_da_identificacao_do_documento(html_da_tela):
+    """Lê o TEXTO do bloco `.identificacao-do-documento` diretamente do
+    HTML que o SERVIDOR escreveu para aquela requisição — razão social,
+    CNPJ e data-base variam por empresa e por data-base, então NENHUM
+    literal fixo poderia representar "o que deveria estar em cada
+    página" para qualquer empresa. Mesma filosofia de
+    `_derivar_marca_do_fornecedor` (acima): o instrumento pergunta ao
+    PRODUTO o que ele prometeu escrever na folha 1 (onde `pdftotext`
+    já prova que o bloco existe — é o HTML que o Django serviu) e depois
+    confere se esse MESMO texto aparece em CADA página do PDF exportado.
+    Isto também evita hardcodar, no instrumento, a prosa de uma norma
+    contábil (NBC TG 26) — o instrumento não é o lugar para reafirmar o
+    que o item 51 exige, só para conferir que o produto cumpriu o que
+    ele MESMO escreveu.
+
+    Devolve o texto SEM tags e SEM NENHUM espaço (mesma normalização de
+    `_bbox_da_linha`, por não ter mesma razão de existir: `pdftotext
+    -layout` tokeniza por espaço VISUAL, que não bate 1:1 com o espaço do
+    HTML de origem — comparar ignorando espaço nos dois lados evita falso
+    alarme por diferença de quebra de linha/indentação, sem perder
+    nenhuma palavra) — ou `None` se a tela não tiver o bloco (não é
+    candidata a esta checagem; `main` trata isso como o bloco NUNCA
+    tendo existido, não como "vazio mas presente")."""
+    casamento = _PADRAO_BLOCO_IDENTIFICACAO_DO_DOCUMENTO.search(html_da_tela)
+    if casamento is None:
+        return None
+    texto_sem_tags = _PADRAO_TAG_HTML.sub(" ", casamento.group(1))
+    texto_sem_tags = html.unescape(texto_sem_tags)
+    return "".join(texto_sem_tags.split())
+
+
+# CNPJ sintético FIXO (não gerado a cada execução) — a mesma convenção de
+# `CNPJ_EMPRESA_DE_MEDICAO`, acima, para esta empresa ser IDEMPOTENTE
+# entre execuções contra o MESMO banco (`_preparar_empresa_classe_2`,
+# abaixo, reaproveita se já existir em vez de recriar — mesma economia
+# que `semear_base_de_medicao.py` já aplica à base padrão).
+CNPJ_EMPRESA_DE_MEDICAO_CLASSE_2 = "44555666000280"
+
+# Número de pares (conta do Ativo Circulante + conta de Passivo
+# Circulante, cada par com um lançamento que soma o MESMO valor aos
+# dois) que produz, MEDIDO contra o template e o CSS desta revisão, um
+# Balanço de SEIS folhas — o piso do critério de aceite 2 da correção da
+# DL-034 (BL-501). Não é uma conta redonda por estética: é o número
+# medido (ver o relatório da etapa) que faz `total_de_paginas == 6` com
+# ESTE template. Se o template mudar de forma que a linha fique mais
+# alta/baixa, este número pode precisar de recalibração — mesma
+# fragilidade que a direção de arte já declara para os pisos de
+# densidade (§4.8: "número sem método é opinião com casas decimais").
+N_PARES_PARA_SEIS_FOLHAS = 60
+
+
+def _preparar_empresa_classe_2(escritorio):
+    """Cria (ou REAPROVEITA, se já existir — idempotente) uma empresa
+    PRÓPRIA, sob o MESMO escritório da base de medição compartilhada, com
+    um plano de contas grande o bastante para o Balanço sair em VÁRIAS
+    folhas — BL-501 (auditoria da DL-034, achado A3) exige controle
+    POSITIVO com pelo menos 6.
+
+    ⚠️ **Por que uma empresa PRÓPRIA, nunca a `empresa` de
+    `scripts/semear_base_de_medicao.py`.** MEDIDO nesta correção: a base
+    padrão (73 contas, 4 níveis) não classifica NENHUMA conta em
+    circulante/não circulante (RC-106) — ela serve ao Balancete/Diário/
+    Razão, que não exigem essa classificação. O Balanço daquela empresa
+    fica PERMANENTEMENTE em estado de pendência (`pode_emitir=False`), e
+    o bloco do item 51 nunca é renderizado (só existe no ramo
+    `pode_emitir`) — a varredura deste instrumento contra a base padrão
+    devolve ZERO telas de classe 2, não por regressão, mas porque a base
+    não foi desenhada para esta pergunta. `scripts/semear_base_de_
+    medicao.py` é COMPARTILHADO por outras medições já publicadas
+    (`docs/projeto/direcao-de-arte.md` §4.8, piso de densidade) — não é
+    desta correção acrescentar uma responsabilidade nova a ele; uma
+    empresa PRÓPRIA, sob o mesmo escritório (mesmo usuário autenticado
+    enxerga as duas — autorização é por ESCRITÓRIO, não por empresa
+    dentro dele, ver `apps.contabilidade.views_web._pode_ler`), é a
+    correção sem acoplar duas medições com propósitos diferentes.
+
+    Devolve `(empresa, conta)` — `conta` é a primeira conta ANALÍTICA da
+    empresa nova (para preencher `kwargs_conhecidos["conta_id"]` de rotas
+    que precisem, hoje nenhuma de classe 2, mas a assinatura fica igual
+    à de `_descobrir_telas_com_timbre`/`_descobrir_telas_com_
+    identificacao_do_documento` por uniformidade)."""
+    from decimal import Decimal
+
+    from django.utils import timezone
+
+    from apps.contabilidade.models import (
+        ClassificacaoPatrimonial,
+        Conta,
+        NaturezaConta,
+        TipoConta,
+        TipoPartida,
+    )
+    from apps.contabilidade.services import criar_lancamento
+    from apps.empresas.models import Empresa
+
+    empresa_existente = Empresa.objects.filter(
+        cnpj=CNPJ_EMPRESA_DE_MEDICAO_CLASSE_2, escritorio=escritorio
+    ).first()
+    if empresa_existente is not None:
+        conta_existente = Conta.objects.filter(
+            empresa=empresa_existente, aceita_lancamento=True
+        ).first()
+        return empresa_existente, conta_existente
+
+    D = NaturezaConta.DEVEDORA
+    C = NaturezaConta.CREDORA
+
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa de Medição — Balanço de Seis Folhas (BL-501) Ltda",
+        cnpj=CNPJ_EMPRESA_DE_MEDICAO_CLASSE_2,
+    )
+    ativo = Conta.objects.create(
+        empresa=empresa,
+        codigo="1",
+        nome="ATIVO",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        aceita_lancamento=False,
+    )
+    # O CONTÊINER em si NÃO leva classificação — só as FOLHAS, abaixo
+    # (`contas_com_classificacao_aninhada` recusa os DOIS níveis
+    # classificados ao mesmo tempo — mesma regra que
+    # `cenario_classificado`, em test_dl034_tela_do_balanco.py, já segue).
+    circulante = Conta.objects.create(
+        empresa=empresa,
+        conta_pai=ativo,
+        codigo="1.1",
+        nome="Ativo Circulante",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        aceita_lancamento=False,
+    )
+    passivo = Conta.objects.create(
+        empresa=empresa,
+        codigo="2",
+        nome="PASSIVO",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        aceita_lancamento=False,
+    )
+    passivo_circulante = Conta.objects.create(
+        empresa=empresa,
+        conta_pai=passivo,
+        codigo="2.1",
+        nome="Fornecedores",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        aceita_lancamento=False,
+    )
+    # Receita SEM lançamento de encerramento — cria o "lucro não
+    # transferido" que o RC-104 pede (BL-503), com o MESMO valor que a
+    # auditoria da DL-034 mediu (R$ 77.777,77), para esta medição também
+    # provar o critério de aceite 3 (a nota de reconciliação em CADA
+    # folha que traz um dos dois grandes totais) no MESMO documento que
+    # prova o critério 2 — um só PDF cobre os dois.
+    receita = Conta.objects.create(
+        empresa=empresa,
+        codigo="4",
+        nome="Receita de serviços",
+        tipo=TipoConta.RECEITA,
+        natureza=C,
+        aceita_lancamento=True,
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        conta_pai=circulante,
+        codigo="1.1.000",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao_patrimonial=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+
+    hoje = timezone.localdate()
+    for i in range(1, N_PARES_PARA_SEIS_FOLHAS + 1):
+        conta_ativo = Conta.objects.create(
+            empresa=empresa,
+            conta_pai=circulante,
+            codigo=f"1.1.{i:03d}",
+            nome=f"Cliente sintético {i:03d}",
+            tipo=TipoConta.ATIVO,
+            natureza=D,
+            classificacao_patrimonial=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+        )
+        conta_passivo = Conta.objects.create(
+            empresa=empresa,
+            conta_pai=passivo_circulante,
+            codigo=f"2.1.{i:03d}",
+            nome=f"Fornecedor sintético {i:03d}",
+            tipo=TipoConta.PASSIVO,
+            natureza=C,
+            classificacao_patrimonial=ClassificacaoPatrimonial.PASSIVO_CIRCULANTE,
+        )
+        valor = Decimal("100.00") + Decimal(i)
+        criar_lancamento(
+            empresa=empresa,
+            data=hoje,
+            historico=f"Lançamento sintético {i:04d} — BL-501/BL-503 (medição)",
+            itens=[
+                {"conta": conta_ativo, "tipo": TipoPartida.DEBITO, "valor": valor},
+                {"conta": conta_passivo, "tipo": TipoPartida.CREDITO, "valor": valor},
+            ],
+        )
+    criar_lancamento(
+        empresa=empresa,
+        data=hoje,
+        historico="Receita de serviços ainda não transferida ao PL (BL-503, medição)",
+        itens=[
+            {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("77777.77")},
+            {"conta": receita, "tipo": TipoPartida.CREDITO, "valor": Decimal("77777.77")},
+        ],
+    )
+    return empresa, caixa
+
+
+def _descobrir_telas_com_identificacao_do_documento(cliente, empresa, conta):
+    """DERIVA o conjunto de telas do produto que carregam
+    `.identificacao-do-documento` — MESMA varredura de rotas de
+    `_descobrir_telas_com_timbre` (ver a docstring de lá para o porquê de
+    derivar em vez de enumerar à mão, BL-363), trocado só o MARCADOR
+    procurado. Não reaproveita a função de lá diretamente: os dois
+    marcadores identificam CONJUNTOS DIFERENTES de tela (Balancete/
+    Diário/Razão têm timbre e NUNCA este bloco — são classe 1; o Balanço
+    tem os DOIS, porque carrega tanto a identificação do ESCRITÓRIO
+    quanto a da EMPRESA cliente), e uma varredura ÚNICA tentando os dois
+    marcadores ao mesmo tempo obscureceria qual tela pertence a qual
+    critério normativo — RC-95 (item 51, entidade) não é RC-97 (timbre,
+    escritório), mesmo as duas aparecendo juntas no Balanço hoje."""
+    from django.urls import reverse
+
+    kwargs_conhecidos = {"empresa_id": empresa.id, "conta_id": conta.id}
+    periodo = f"?inicio={medir_impressao.PERIODO_INICIO}&fim={medir_impressao.PERIODO_FIM}"
+
+    telas = {}
+    for nome_completo, chaves in _todas_as_rotas_get_nomeadas():
+        if not chaves.issubset(kwargs_conhecidos):
+            continue
+        args = {k: kwargs_conhecidos[k] for k in chaves}
+        try:
+            url = reverse(nome_completo, kwargs=args)
+        except Exception:  # noqa: BLE001 — rota não-reversível não é candidata
+            continue
+        resposta = cliente.get(url + periodo)
+        if resposta.status_code != 200:
+            continue
+        html_da_tela = resposta.content.decode()
+        if not _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO.search(html_da_tela):
+            continue
+        telas[nome_completo] = {
+            "rota": nome_completo,
+            "url": url,
+            "html": medir_impressao._com_css_local(html_da_tela),
+        }
+    return telas
+
+
+# ---------------------------------------------------------------------------
 # Medição no navegador (subprocesso do Python do sistema, com Playwright) —
 # mesma separação de `medir_impressao.py`.
 # ---------------------------------------------------------------------------
@@ -717,15 +1025,31 @@ print(json.dumps({"resultados": resultados, "erro_infra": erro_infra}, ensure_as
 """
 
 
-def _medir_no_navegador(pasta_html, pasta_saida, nomes_das_telas):
+def _medir_no_navegador(
+    pasta_html,
+    pasta_saida,
+    nomes_das_telas,
+    seletor_container=SELETOR_TIMBRE_CONTAINER,
+    seletor_filhos=SELETOR_TIMBRE_FILHOS,
+):
+    """BL-501 (achado A3 da auditoria da DL-034): os dois parâmetros de
+    seletor ganharam PADRÃO (o timbre do escritório, único uso até esta
+    correção) em vez de ficarem embutidos como constante fixa dentro
+    desta função — para o MESMO subprocesso (navegação real, PDF A4,
+    sonda de visibilidade e de fonte) medir também o bloco de
+    identificação do item 51 (`.identificacao-do-documento`, NBC TG 26 R5
+    — RC-95), sem reimplementar a chamada ao Python do sistema nem o
+    script do subprocesso. Chamadas existentes (timbre do escritório)
+    continuam idênticas — os dois novos parâmetros são POSICIONAIS por
+    padrão, nunca exigidos."""
     especificacao = json.dumps(
         {
             "diretorio_sonda": _DIRETORIO_SONDA,
             "pasta_html": str(pasta_html),
             "pasta_saida": str(pasta_saida),
             "telas": nomes_das_telas,
-            "seletor_container": SELETOR_TIMBRE_CONTAINER,
-            "seletor_filhos": SELETOR_TIMBRE_FILHOS,
+            "seletor_container": seletor_container,
+            "seletor_filhos": seletor_filhos,
         }
     )
     resultado = subprocess.run(
@@ -861,6 +1185,35 @@ def _total_de_paginas(caminho_pdf):
             f"saída inesperada:\n{resultado.stdout}"
         )
     return int(casamento.group(1))
+
+
+def _texto_da_pagina_sem_espaco(caminho_pdf, pagina):
+    """BL-501: texto de UMA página do PDF (`pdftotext -layout -f N -l N`
+    — mesma técnica de `_texto_do_pdf`, restrita a uma página, MESMA
+    técnica de recorte de `_palavras_da_pagina`), sem NENHUM espaço —
+    mesma normalização de `_derivar_texto_da_identificacao_do_documento`,
+    para os dois lados da comparação usarem a MESMA régua (`pdftotext
+    -layout` insere espaço por reconstrução de COLUNA, que não bate 1:1
+    com o espaço do HTML de origem; comparar ignorando espaço dos dois
+    lados é a mesma correção que `_bbox_da_linha`/C1 já adotam para o
+    timbre, aplicada aqui à pergunta "a página N contém X?").
+
+    BL-378: `check=False` — `pdftotext` quebrado é a MESMA classe de
+    falha de infraestrutura que os demais usos de poppler-utils neste
+    módulo, nunca veredito sobre o produto."""
+    resultado = subprocess.run(
+        ["pdftotext", "-layout", "-f", str(pagina), "-l", str(pagina), str(caminho_pdf), "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if resultado.returncode != 0:
+        _recusar(
+            f"'pdftotext -layout -f {pagina} -l {pagina}' falhou (código "
+            f"{resultado.returncode}) ao processar {caminho_pdf} — falha de infraestrutura, "
+            f"não veredito sobre o produto.\nerro: {resultado.stderr}"
+        )
+    return "".join(resultado.stdout.split())
 
 
 _PADRAO_LINHA_PDFINFO = re.compile(r"^([A-Za-z ]+?):\s+(.*)$", re.MULTILINE)
@@ -2661,13 +3014,203 @@ def main(argv):
         if pasta_informada:
             print(f"PDFs preservados em: {pasta_informada}", file=sys.stderr)
 
-        if reprovacoes:
-            total_telas_consideradas = len(nomes_para_medir) + len(telas_do_piso_ausentes)
-            detalhe = "\n".join(f"  - {linha}" for linha in reprovacoes)
-            _reprovar_por_conteudo(
-                f"{len(reprovacoes)} de {total_telas_consideradas} tela(s) sem "
-                f"identificação completa do emitente no papel:\n{detalhe}"
+        total_telas_consideradas_timbre = len(nomes_para_medir) + len(telas_do_piso_ausentes)
+
+    # ------------------------------------------------------------------
+    # BL-501 (achado A3): o bloco do item 51 (`.identificacao-do-
+    # documento`), por PÁGINA, nas telas de CLASSE 2 — ver o comentário
+    # completo no topo da seção de derivação, acima de
+    # `_descobrir_telas_com_identificacao_do_documento`. Bloco SEPARADO,
+    # DEPOIS do `with` do timbre (não dentro): o achado que motivou esta
+    # extensão é justamente que os dois critérios (RC-97 do escritório,
+    # RC-95 da entidade) são INDEPENDENTES — a reprovação de um nunca deve
+    # impedir a MEDIÇÃO do outro nem esconder o relatório dele.
+    reprovacoes_documento = []
+    relatorio_documento = {}
+    # Empresa PRÓPRIA (não a `empresa` da base padrão) — ver a docstring
+    # de `_preparar_empresa_classe_2` sobre por quê: a base padrão nunca
+    # classifica conta nenhuma em circulante/não circulante, então o
+    # Balanço dela nunca sai do estado de pendência.
+    empresa_classe_2, conta_classe_2 = _preparar_empresa_classe_2(escritorio)
+    telas_documento = _descobrir_telas_com_identificacao_do_documento(
+        cliente, empresa_classe_2, conta_classe_2
+    )
+    telas_documento_do_piso_ausentes = sorted(
+        TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS - telas_documento.keys()
+    )
+    for nome in telas_documento_do_piso_ausentes:
+        reprovacoes_documento.append(
+            f"{nome}: tela de CLASSE 2 do piso mínimo (BL-501) NÃO encontrada pela "
+            "varredura — o bloco do item 51 pode ter sido removido inteiro do template, "
+            "não só escondido por CSS"
+        )
+        relatorio_documento[nome] = {
+            "url": None,
+            "veredito": "AUSENTE (piso mínimo)",
+            "motivos": ["tela do piso mínimo (BL-501) não encontrada pela varredura"],
+        }
+
+    if telas_documento:
+        print(
+            "telas derivadas com identificação do documento (classe 2, "
+            f"{len(telas_documento)}): {', '.join(sorted(telas_documento))}",
+            file=sys.stderr,
+        )
+        with tempfile.TemporaryDirectory(prefix="dl-medir-documento-") as pasta_temp_doc:
+            pasta_html_doc = Path(pasta_temp_doc) / "html"
+            pasta_html_doc.mkdir()
+            nomes_documento = sorted(telas_documento)
+            for nome in nomes_documento:
+                (pasta_html_doc / f"{nome.replace(':', '_')}.html").write_text(
+                    telas_documento[nome]["html"], encoding="utf-8"
+                )
+
+            pasta_saida_doc = (
+                (pasta_informada / "identificacao-do-documento")
+                if pasta_informada
+                else (Path(pasta_temp_doc) / "pdfs")
             )
+            pasta_saida_doc.mkdir(parents=True, exist_ok=True)
+
+            resultados_navegador_doc = _medir_no_navegador(
+                pasta_html_doc,
+                pasta_saida_doc,
+                nomes_documento,
+                seletor_container=SELETOR_IDENTIFICACAO_DO_DOCUMENTO,
+                seletor_filhos=SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS,
+            )
+
+            for nome in nomes_documento:
+                medida = resultados_navegador_doc.get(nome, {})
+                entrada = {"url": telas_documento[nome]["url"], "medicao_navegador": medida}
+                relatorio_documento[nome] = entrada
+
+                if "erro" in medida:
+                    # BL-378 (mesmo raciocínio do bloco do timbre, acima):
+                    # falha de NAVEGAÇÃO/MEDIÇÃO é infraestrutura, nunca
+                    # veredito sobre o produto.
+                    _recusar(f"{nome}: erro de navegação/medição — {medida['erro']}")
+
+                motivos = []
+                if not medida.get("encontrado"):
+                    motivos.append(
+                        "container '.identificacao-do-documento' não encontrado no HTML "
+                        "(folha 1 — antes mesmo de checar as demais páginas)"
+                    )
+                elif not medida.get("visivel"):
+                    motivos.append(
+                        "container '.identificacao-do-documento' NÃO visível sob impressão "
+                        "(folha 1)"
+                    )
+
+                caminho_pdf = pasta_saida_doc / f"{nome.replace(':', '_')}.pdf"
+                entrada["pdf"] = str(caminho_pdf)
+
+                if not motivos and caminho_pdf.exists():
+                    # O TEXTO esperado em CADA página vem do que o
+                    # PRÓPRIO SERVIDOR escreveu para esta tela (nunca um
+                    # literal da norma reescrito aqui — ver a docstring
+                    # de `_derivar_texto_da_identificacao_do_documento`).
+                    texto_esperado = _derivar_texto_da_identificacao_do_documento(
+                        telas_documento[nome]["html"]
+                    )
+                    if not texto_esperado:
+                        # O marcador de DESCOBERTA (regex de classe, em
+                        # `_descobrir_telas_com_identificacao_do_
+                        # documento`) e o marcador de EXTRAÇÃO (o `<div
+                        # class="identificacao-do-documento">...</div>`
+                        # inteiro, aqui) são DOIS padrões — MEDIDAMENTE
+                        # diferentes (BL-425/C1: dois mecanismos podem
+                        # divergir). Se o primeiro achou a tela mas o
+                        # segundo não extraiu texto nenhum, o template
+                        # mudou de forma que este instrumento não
+                        # reconhece mais — infraestrutura do PRÓPRIO
+                        # instrumento, não veredito sobre o produto (ele
+                        # pode estar certo ou errado; este script não
+                        # sabe dizer).
+                        _recusar(
+                            f"{nome}: '.identificacao-do-documento' foi ENCONTRADO pela "
+                            "varredura (marcador de classe), mas este instrumento não "
+                            "conseguiu extrair o TEXTO de dentro do bloco (padrão de "
+                            "_derivar_texto_da_identificacao_do_documento desatualizado "
+                            "em relação ao template) — atualize o padrão junto com o "
+                            "template, nunca volte a um literal fixo aqui."
+                        )
+
+                    # ⚠️ LIMITE DECLARADO (não fechado por esta correção,
+                    # mesmo padrão de honestidade que `sonda_
+                    # visibilidade.py` já assume para `.timbre-impressao`):
+                    # esta checagem confirma que o TEXTO do bloco existe
+                    # como objeto de texto em cada página — `pdftotext`
+                    # extrai o CONTEÚDO do fluxo, não o pixel pintado, então
+                    # `color: transparent` (tinta da MESMA cor do papel)
+                    # continuaria sendo extraída aqui como "presente", sem
+                    # ficar LEGÍVEL. O bloco do timbre fecha esse caso com
+                    # `_localizar_linhas_do_timbre_no_documento` (bbox +
+                    # contraste, por LINHA); estender a MESMA análise de
+                    # contraste ao bloco do item 51 por página é escopo
+                    # maior do que esta correção comprou — fica registrado,
+                    # não escondido. A verificação de VISIBILIDADE no
+                    # navegador (`medida.get("visivel")`, acima, via
+                    # `checkVisibility({checkOpacity: true, ...})`) já
+                    # cobre `opacity: 0`/`display: none`/`visibility:
+                    # hidden`, que é a classe de sabotagem que o critério de
+                    # aceite 1 desta correção exige reprovar — só
+                    # `color: transparent` fica fora, hoje.
+                    total_paginas = _total_de_paginas(caminho_pdf)
+                    folhas_sem_bloco = [
+                        pagina
+                        for pagina in range(1, total_paginas + 1)
+                        if texto_esperado not in _texto_da_pagina_sem_espaco(caminho_pdf, pagina)
+                    ]
+                    entrada["total_paginas"] = total_paginas
+                    entrada["folhas_sem_bloco_do_item_51"] = folhas_sem_bloco
+                    if folhas_sem_bloco:
+                        # BL-501/A3 — a REPROVAÇÃO que a sabotagem do
+                        # auditor (o `@media print { display: none }` no
+                        # critério de aceite 1) tem que produzir: o bloco
+                        # do item 51 (RC-95) sumiu de pelo menos uma
+                        # página do documento exportado.
+                        motivos.append(
+                            f"bloco do item 51 (RC-95) AUSENTE em {len(folhas_sem_bloco)} de "
+                            f"{total_paginas} página(s): folha(s) {folhas_sem_bloco} — "
+                            "medido no TEXTO do PDF exportado, não só no HTML servido"
+                        )
+
+                entrada["veredito"] = "PASSOU" if not motivos else "REPROVADO"
+                entrada["motivos"] = motivos
+                if motivos:
+                    reprovacoes_documento.append(f"{nome}: {'; '.join(motivos)}")
+    else:
+        print(
+            "AVISO: nenhuma tela de classe 2 (identificação do documento, BL-501) "
+            "encontrada pela varredura — ver os nomes do piso mínimo abaixo, se algum "
+            "estiver ausente.",
+            file=sys.stderr,
+        )
+
+    print(json.dumps(relatorio_documento, ensure_ascii=False, indent=2))
+    for nome, entrada in relatorio_documento.items():
+        print(f"{nome}: {entrada['veredito']} — {entrada.get('url')}")
+
+    # ------------------------------------------------------------------
+    # Veredito ÚNICO, combinando os DOIS critérios independentes (timbre
+    # do escritório, RC-97; identificação do documento, RC-95/BL-501) — a
+    # reprovação de qualquer um dos dois reprova o job inteiro, mas as
+    # DUAS medições sempre rodam e sempre aparecem no relatório, mesmo
+    # quando uma delas já teria motivo de sobra para reprovar sozinha.
+    reprovacoes_totais = reprovacoes + reprovacoes_documento
+    if reprovacoes_totais:
+        total_telas_consideradas = (
+            total_telas_consideradas_timbre
+            + len(telas_documento_do_piso_ausentes)
+            + len(telas_documento)
+        )
+        detalhe = "\n".join(f"  - {linha}" for linha in reprovacoes_totais)
+        _reprovar_por_conteudo(
+            f"{len(reprovacoes_totais)} de {total_telas_consideradas} tela(s) sem "
+            f"identificação completa (emitente e/ou documento) no papel:\n{detalhe}"
+        )
 
 
 if __name__ == "__main__":

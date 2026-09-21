@@ -2418,12 +2418,31 @@ def apurar_saldos(*, empresa, data_base):
     # ganha filha) deixa esse valor invisível para a lista de folhas
     # acima, mesmo sem nenhum dado corrompido.
     contas_nao_folha_sem_classificacao_com_movimento_proprio = []
-    # BL-496, critério 1 condição 3 da DL-034 (mesma guarda estrutural):
-    # agrupa, por CONTA PAI, cada nó TOPO classificado (classificação
-    # própria válida, nenhum ancestral também classificado) com a sua
-    # natureza CADASTRADA — para, depois do laço, achar grupos de irmãos
-    # (mesmo pai) com natureza divergente entre si. É a topologia EXATA do
-    # BL-486 (ver a nota grande abaixo).
+    # BL-496, critério 1 condição 3 da DL-034 — DECLARATIVA desde a DE-070
+    # (deixou de VETAR a emissão; ver o comentário grande depois do laço, e
+    # `avaliar_emissao_do_balanco`). Agrupa cada nó TOPO classificado
+    # (classificação própria válida, nenhum ancestral também classificado)
+    # com a sua natureza CADASTRADA — para, depois do laço, achar grupos de
+    # IRMÃOS de fato com natureza divergente entre si. É a topologia EXATA
+    # do BL-486 (ver a nota grande abaixo).
+    #
+    # ⚠️ **BL-499 (achado A1, auditoria DL-034 rodada 1) — a chave de
+    # agrupamento, corrigida:** a chave é `(conta_pai, tipo)`, NUNCA só
+    # `conta_pai`:
+    # 1. **Raiz não tem irmã para este fim.** `linha["conta_pai"]` é
+    #    `None` para TODA raiz (`_construir_hierarquia`, acima) — agrupar
+    #    por esse valor tratava CADA raiz do plano de contas como irmã de
+    #    TODAS as outras, sem exceção. Um plano com `1 ATIVO CIRCULANTE`,
+    #    `2 PASSIVO CIRCULANTE` e `3 CAPITAL SOCIAL`, todas raízes, sem
+    #    parentesco nenhum entre si, caía nesta lista e IMPEDIA a emissão
+    #    permanentemente — com uma mensagem que nomeava contas
+    #    corretamente classificadas. Por isso, abaixo, uma linha cuja
+    #    `conta_pai` é `None` NUNCA entra neste agrupamento.
+    # 2. **Natureza oposta só é anomalia DENTRO do mesmo `TipoConta`.**
+    #    Entre Ativo e Passivo, natureza oposta é a REGRA (Ativo devedor,
+    #    Passivo credor — `NATUREZA_NATURAL_DO_TIPO`), nunca a exceção. A
+    #    chave inclui `linha["tipo"]` para que a comparação de natureza,
+    #    no laço logo abaixo, nunca cruze contas de tipos diferentes.
     topo_classificados_por_pai = defaultdict(list)
     for linha in balancete["contas"]:
         propria = linha["classificacao_patrimonial"]
@@ -2479,14 +2498,19 @@ def apurar_saldos(*, empresa, data_base):
                     else -linha["saldo_final"]
                 )
                 totais_por_classificacao[propria] += valor_normalizado
-                topo_classificados_por_pai[linha["conta_pai"]].append(
-                    {
-                        "conta": linha["conta"],
-                        "nome": linha["nome"],
-                        "classificacao_patrimonial": propria,
-                        "natureza": linha["natureza"],
-                    }
-                )
+                # BL-499: só entra no agrupamento quem TEM pai de fato —
+                # raiz (`conta_pai is None`) nunca tem irmã para esta
+                # guarda, e a chave leva o TIPO junto (ver o comentário
+                # grande acima, na criação de `topo_classificados_por_pai`).
+                if linha["conta_pai"] is not None:
+                    topo_classificados_por_pai[(linha["conta_pai"], linha["tipo"])].append(
+                        {
+                            "conta": linha["conta"],
+                            "nome": linha["nome"],
+                            "classificacao_patrimonial": propria,
+                            "natureza": linha["natureza"],
+                        }
+                    )
         elif ancestral is None and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO):
             if linha["analitica"]:
                 if linha["saldo_final"] != zero:
@@ -2501,17 +2525,31 @@ def apurar_saldos(*, empresa, data_base):
                     {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
                 )
 
-    # ⚠️ Fecha a condição 3 do critério 1 (DL-034) — GUARDA ESTRUTURAL que
-    # continua ATIVA mesmo depois da correção (b) acima: o próprio auditor
-    # que sugeriu (b) declarou o limite da própria sugestão — "conferi só a
-    # aritmética à mão... pode haver interação com retificadora DE GRUPO
-    # que eu não enxerguei" (RESSALVA R1). Enquanto essa interação não tem
-    # prova, um grupo de contas IRMÃS (mesmo `conta_pai`) que são, cada uma,
-    # TOPO classificada, com natureza CADASTRADA divergente entre si —
-    # a topologia exata do BL-486 (Clientes/PDD) — BLOQUEIA a emissão por
-    # ESTRUTURA, não só por aritmética: cinto (resíduo/condição 1) e
-    # suspensório (esta lista), lado a lado, até (b) ter prova para
-    # qualquer topologia de retificadora de grupo.
+    # ⚠️ Fecha a condição 3 do critério 1 (DL-034) — DECLARATIVA desde a
+    # [DE-070](../../docs/projeto/decisoes.md#de-070), não mais VETO. Eu
+    # (arquiteto) tinha mandado mantê-la como "cinto e suspensório" porque o
+    # auditor que sugeriu a correção (b), acima, declarou o limite da
+    # própria sugestão — "conferi só a aritmética à mão... pode haver
+    # interação com retificadora DE GRUPO que eu não enxerguei" (RESSALVA
+    # R1). A auditoria da DL-034 MEDIU essa interação e ela NÃO EXISTE: (b)
+    # dá o número CERTO tanto para a retificadora de grupo quanto para a
+    # topologia pura do BL-486 — o pressuposto que sustentava o suspensório
+    # deixou de existir, e a condição 3, combinada com o defeito do BL-499
+    # (agrupar TODA raiz como irmã, corrigido acima), passou a recusar
+    # também planos de contas corretos, com mensagem factualmente falsa.
+    #
+    # A lista continua CALCULADA e DECLARADA — em `listas_informativas`,
+    # NUNCA em `listas_pendentes` (`avaliar_emissao_do_balanco`; correção
+    # de integração do arquiteto-senior: este comentário ficou apontando
+    # para `listas_pendentes` depois da separação em duas tuplas, e chave
+    # errada em comentário vira código errado na próxima leitura) — um
+    # grupo de contas IRMÃS (mesmo pai
+    # de fato, mesmo `TipoConta` — nunca mais raiz, nem entre tipos
+    # diferentes, BL-499), cada uma TOPO classificada, com natureza
+    # CADASTRADA divergente entre si (a topologia exata do BL-486,
+    # Clientes/PDD) continua sendo um AVISO útil ao contador sobre o plano
+    # de contas — só deixou de BLOQUEAR a emissão. Quem continua vetando:
+    # o resíduo (condição 1) e a condição 4 (cobertura), abaixo.
     contas_topo_classificadas_com_natureza_divergente_entre_irmas = []
     for irmaos in topo_classificados_por_pai.values():
         naturezas_dos_irmaos = {irmao["natureza"] for irmao in irmaos}
@@ -2586,10 +2624,12 @@ def apurar_saldos(*, empresa, data_base):
         "contas_com_classificacao_aninhada": contas_com_classificacao_aninhada,
         "contas_com_classificacao_desconhecida": contas_com_classificacao_desconhecida,
         "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,
-        # DL-034, critério 1, condição 3 — guarda ESTRUTURAL (BL-496): vazia
-        # no caso são; nomeia TODA conta irmã envolvida quando duas ou mais,
-        # sob o mesmo pai, são topo-classificadas com natureza cadastrada
-        # divergente entre si (a topologia do BL-486, além da aritmética).
+        # DL-034, critério 1, condição 3 (BL-496) — DECLARATIVA, não veto
+        # desde a DE-070 (ver o comentário grande acima, antes desta
+        # variável ser fechada). Vazia no caso são; nomeia TODA conta irmã
+        # DE FATO envolvida (mesmo pai que não é raiz, mesmo `TipoConta` —
+        # BL-499) quando duas ou mais, topo-classificadas, têm natureza
+        # cadastrada divergente entre si (a topologia do BL-486).
         "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
             contas_topo_classificadas_com_natureza_divergente_entre_irmas
         ),
@@ -2611,23 +2651,39 @@ def apurar_saldos(*, empresa, data_base):
     }
 
 
-# Nomes das SETE listas de pendência que decidem se o Balanço Patrimonial
-# pode ser emitido (DL-034, critério 1, condições 2, 3 e 4 — a condição 1,
-# o resíduo, é tratada à parte por ser um dict de Decimal, não uma lista):
-# as CINCO herdadas de `apurar_saldos` (achados A1/A2 da DL-032 e BL-493 da
-# DL-033) mais as DUAS guardas estruturais novas desta etapa (BL-496,
-# condições 3 e 4). Reunidas numa tupla, ao lado de `avaliar_emissao_do_
-# balanco` — DE-056: uma lista nova que `apurar_saldos` ganhar no futuro
-# só precisa entrar AQUI para participar da decisão de emissão.
-_LISTAS_DE_PENDENCIA_DO_BALANCO = (
+# ⚠️ Correção de CONTRATO pedida pelo arquiteto-senior na rodada de
+# correção da DL-034 (depois de eu ter devolvido, na primeira versão desta
+# correção, uma ÚNICA tupla com as sete listas e deixado a separação
+# veto/aviso só DENTRO de `avaliar_emissao_do_balanco`): um nome chamado
+# "pendência" cujo conteúdo pode não impedir NADA mente para quem lê o
+# código. A partir de agora são DUAS tuplas, nunca uma só — cada lista de
+# `apurar_saldos` pertence a EXATAMENTE uma das duas, nunca as duas, nunca
+# nenhuma (as três asserções do teste `test_bl502_...` no arquivo de
+# testes provam isto: união == inventário real, interseção vazia).
+#
+# 1) as que IMPEDEM a emissão (VETO) — a condição 2 (as cinco herdadas dos
+#    achados A1/A2 da DL-032 e BL-493 da DL-033) mais a condição 4 (BL-487,
+#    cobertura). A condição 1 (resíduo) é tratada à parte por ser um dict
+#    de Decimal, não uma lista.
+_LISTAS_QUE_IMPEDEM_A_EMISSAO = (
     "contas_com_tipo_desconhecido",
     "contas_com_tipo_divergente_da_raiz",
     "contas_com_classificacao_aninhada",
     "contas_com_classificacao_desconhecida",
     "contas_sem_classificacao_patrimonial",
-    "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
     "contas_nao_folha_sem_classificacao_com_movimento_proprio",
 )
+
+# 2) a ÚNICA que só AVISA — a condição 3 (BL-496), aposentada como veto
+# pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
+# DL-034 mediu que a correção (b) dá o número CERTO também para
+# retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
+# existir) e que, sem essa prova, a condição bloqueava planos de contas
+# CORRETOS (BL-499 — ela tratava toda RAIZ como irmã). Continua CALCULADA
+# por `apurar_saldos` (com o defeito do BL-499 corrigido lá: raiz nunca é
+# "irmã", comparação só dentro do mesmo `TipoConta`) e DECLARADA — só não
+# impede mais nada, e por isso não entra na tupla acima.
+_LISTAS_QUE_SO_AVISAM = ("contas_topo_classificadas_com_natureza_divergente_entre_irmas",)
 
 
 def avaliar_emissao_do_balanco(saldos):
@@ -2637,7 +2693,7 @@ def avaliar_emissao_do_balanco(saldos):
     e — quando não pode — NOMEIA o que falta, para a tela mostrar o
     caminho, nunca só recusar em silêncio.
 
-    A condição é a CONJUNÇÃO de quatro exigências — nenhuma sozinha é
+    A condição de VETO é a CONJUNÇÃO de três exigências — nenhuma sozinha é
     suficiente (DE-068, a lição da RESSALVA R1/cenário V1d: "resíduo zero"
     sozinho JÁ produziu, na auditoria, um Balanço com dois grupos errados
     em R$ 500,00 cada, com as cinco listas antigas vazias e a equação
@@ -2650,23 +2706,34 @@ def avaliar_emissao_do_balanco(saldos):
        raiz`, `contas_com_classificacao_aninhada`, `contas_com_
        classificacao_desconhecida`, `contas_sem_classificacao_
        patrimonial`) estão vazias.
-    3. NENHUM grupo de contas IRMÃS topo classificadas tem natureza
-       cadastrada divergente entre si
-       (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`
-       vazia — BL-496).
-    4. NENHUM nó não-folha sem classificação própria nem ancestral tem
+    3. NENHUM nó não-folha sem classificação própria nem ancestral tem
        movimento próprio
        (`contas_nao_folha_sem_classificacao_com_movimento_proprio` vazia
        — BL-487).
 
+    ⚠️ **A condição "nenhum grupo de contas IRMÃS topo classificadas tem
+    natureza cadastrada divergente entre si" (`contas_topo_classificadas_
+    com_natureza_divergente_entre_irmas` — BL-496) NÃO veta mais, desde a
+    [DE-070](../../docs/projeto/decisoes.md#de-070).** Ela continua
+    CALCULADA por `apurar_saldos` (guarda contra o defeito do BL-499
+    corrigida lá — raiz nunca é "irmã", comparação só dentro do mesmo
+    `TipoConta`) e é devolvida SEPARADA, em `listas_informativas` — nunca
+    misturada com `listas_pendentes`, que só contém o que IMPEDE (ver
+    "Retorna", abaixo). Eu (arquiteto) tinha mandado mantê-la como veto
+    ("cinto e suspensório") enquanto a correção (b) não tivesse prova para
+    retificadora DE GRUPO; a auditoria da DL-034 mediu essa prova e ela é
+    CERTA — o suspensório deixou de ter pressuposto.
+
     ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
-    projeto já pagou caro por enumeração).** As SETE listas de pendência
-    são percorridas a partir de `_LISTAS_DE_PENDENCIA_DO_BALANCO`, uma
-    tupla declarada UMA vez, ao lado desta função: um oitavo nome de lista
-    que `apurar_saldos` ganhar no futuro só precisa entrar ali para
-    participar desta decisão — esquecê-lo ali é o único jeito de errar (a
-    lista nova apareceria em `saldos` sem aparecer aqui, achado óbvio de
-    revisão, não um `if` silenciosamente incompleto que passa despercebido).
+    projeto já pagou caro por enumeração), com DUAS tuplas EXPLÍCITAS, não
+    uma inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
+    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM` (um
+    nome) nunca decide nada. Uma lista nova que `apurar_saldos` ganhar no
+    futuro só participa desta função se entrar em UMA das duas — o teste
+    do BL-502 (`test_dl034_balanco_patrimonial.py`) reprova se ela ficar de
+    fora das duas (esquecida), se entrar nas duas ao mesmo tempo
+    (ambígua), ou se uma lista que hoje impede for movida para a que só
+    avisa sem um teste de comportamento acusar.
 
     Não verifica autorização nem papel nenhum — mesmo limite que
     `apurar_saldos` já declara: esta função continua sem saber o que é uma
@@ -2675,23 +2742,39 @@ def avaliar_emissao_do_balanco(saldos):
 
     Retorna:
         {"pode_emitir": bool,
-         "residuo_pendente": {TipoConta: Decimal, ...},  # só os != 0
-         "listas_pendentes": {"nome_da_lista": [...], ...}}  # só as não vazias
+         "residuo_pendente": {TipoConta: Decimal, ...},        # só os != 0
+         "listas_pendentes": {"nome_da_lista": [...], ...},    # só as que
+                                                                # IMPEDEM,
+                                                                # não vazias
+         "listas_informativas": {"nome_da_lista": [...], ...}} # só as que
+                                                                # AVISAM,
+                                                                # não vazias
+                                                                # — NUNCA
+                                                                # impedem
 
-    `residuo_pendente` e `listas_pendentes` vêm VAZIOS (`{}`) no caso são —
-    quem consome não precisa checar `pode_emitir` antes de iterá-los.
+    `residuo_pendente`, `listas_pendentes` e `listas_informativas` vêm
+    VAZIOS (`{}`) no caso são — quem consome não precisa checar
+    `pode_emitir` antes de iterá-los. ⚠️ `listas_pendentes` nunca contém
+    uma lista de `listas_informativas`, e vice-versa (são as duas tuplas
+    acima, disjuntas por construção).
     """
     zero = Decimal("0")
     residuo_pendente = {
         tipo: valor for tipo, valor in saldos["residuo_por_tipo"].items() if valor != zero
     }
+    # Só o que IMPEDE decide `pode_emitir` — nenhum `if` por condição, a
+    # mesma derivação que a DL-034 já tinha (V3 da auditoria).
     listas_pendentes = {
-        nome: saldos[nome] for nome in _LISTAS_DE_PENDENCIA_DO_BALANCO if saldos[nome]
+        nome: saldos[nome] for nome in _LISTAS_QUE_IMPEDEM_A_EMISSAO if saldos[nome]
     }
+    # A que só avisa (DE-070) vem SEPARADA — nunca contamina a decisão
+    # nem a mensagem de "o que impede".
+    listas_informativas = {nome: saldos[nome] for nome in _LISTAS_QUE_SO_AVISAM if saldos[nome]}
     return {
         "pode_emitir": not residuo_pendente and not listas_pendentes,
         "residuo_pendente": residuo_pendente,
         "listas_pendentes": listas_pendentes,
+        "listas_informativas": listas_informativas,
     }
 
 

@@ -17,13 +17,23 @@ colide com o atalho nativo do navegador em Chrome/Edge, ver a nota de teclas
 abaixo), mesmo padrão que "Conferência" já usa "k" por não ter letra segura
 disponível.
 
-DL-034: "Balanço" entrou como sétimo item, com accesskey "a" — também
-arbitrária e DECLARADA: a inicial natural, "b", colide com o mnemônico de
-Favoritos do menu clássico do Firefox (ver a nota de teclas abaixo, mesma
-lista que já bloqueia "b" para Balancete → "l"). "a" não aparece em nenhuma
-das duas listas de colisão (Chrome/Edge: D/E/F; Firefox: F/E/V/S/B/T/H) nem
-está em uso por nenhum atalho já existente nesta parcial ou em
-templates/base.html (p, m, c, i, l, k, z, n).
+DL-034: "Balanço" entrou como sétimo item, com accesskey "b" — a inicial
+natural, sem colisão com navegador nenhum nem com atalho já existente
+nesta parcial ou em templates/base.html (p, m, c, i, l, k, z, n) — ver a
+lista pt-BR de colisão na nota de teclas abaixo.
+
+BL-509 (auditoria DL-034, achado A11, 2026-09-21): esta tela usava
+accesskey "a", com a justificativa de que "b" colidia com o mnemônico de
+Favoritos do Firefox. A lista usada era a do Firefox EM INGLÊS
+(File/Edit/View/History/Bookmarks/Tools/Help), só com os RÓTULOS
+traduzidos para português por cima — nela, Bookmarks = "B", daí a crença
+de que "b" (Balanço) colidiria. **O produto é pt-BR, e no Firefox pt-BR
+os mnemônicos são outros** (conferidos na localização oficial do
+Firefox, `browser/browser/menubar.ftl`, pt-BR, 2026-09-21): Favoritos =
+"v", não "b" — "b" nunca colidiu. E pior: "A" (Arquivo) SIM colide em
+pt-BR, e era exatamente a letra escolhida ("a", para Balanço) — a
+correção troca "a" por "b", a inicial natural, que a lista certa mostra
+livre.
 
 B3/BL-283 (auditoria DL-026, rodada 1): até a rodada 2, este comentário
 dizia "toda tela de contabilidade" e listava só SEIS — conta_form.html e
@@ -59,14 +69,24 @@ das telas de ação do fechamento, que não têm "página atual" entre estas
 sete).
 
 Teclas escolhidas evitando as que colidem com o próprio navegador —
-D/E/F em Chrome/Edge (barra de endereço e menu) e, no Firefox, também
-F/E/V/S/B/T/H (mnemônicos do menu clássico: Arquivo/Editar/Ver/
-Histórico/Favoritos/Ferramentas/Ajuda). Não testamos Safari nem leitor de
-tela real com accesskey — é recurso que a literatura de acessibilidade
-critica por causa exatamente desta colisão; usamos porque é o único
-caminho sem JavaScript (R6 da DL-026). O texto do atalho é aria-hidden e
-o link carrega aria-keyshortcuts, para o nome acessível continuar sendo
-só o rótulo (ver o comentário completo em templates/base.html).
+D/E/F em Chrome/Edge (barra de endereço e menu de três pontos; estas
+letras NÃO mudam com o idioma, são atalho fixo do Chromium) e, no
+Firefox **em pt-BR** (BL-509 corrigiu a lista, que antes estava em
+inglês — ver acima), os mnemônicos do menu clássico:
+
+    Arquivo = A · Editar = E · Exibir = x · Histórico = H ·
+    Favoritos = v · Ferramentas = F · Ajuda = u
+
+(conferido na localização oficial pt-BR do Firefox,
+`browser/browser/menubar.ftl`, 2026-09-21 — não é o mesmo conjunto de
+letras da versão em inglês do Firefox, File/Edit/View/History/
+Bookmarks/Tools/Help = F/E/V/S/B/T/H, que o comentário anterior citava
+por engano). Não testamos Safari nem leitor de tela real com accesskey
+— é recurso que a literatura de acessibilidade critica por causa
+exatamente desta colisão; usamos porque é o único caminho sem
+JavaScript (R6 da DL-026). O texto do atalho é aria-hidden e o link
+carrega aria-keyshortcuts, para o nome acessível continuar sendo só o
+rótulo (ver o comentário completo em templates/base.html).
 {% endcomment %}
 <nav class="navegacao-empresa" aria-label="Contabilidade — {{ empresa.razao_social }}">
     <ul>
@@ -101,8 +121,8 @@ só o rótulo (ver o comentário completo em templates/base.html).
             {% if pagina_atual == "balanco" %}
                 <span class="item-atual" aria-current="page">Balanço</span>
             {% else %}
-                <a href="{% url 'contabilidade_web:balanco' empresa.id %}" accesskey="a" aria-keyshortcuts="Alt+A">
-                    Balanço <kbd class="tecla" aria-hidden="true">Alt+A</kbd>
+                <a href="{% url 'contabilidade_web:balanco' empresa.id %}" accesskey="b" aria-keyshortcuts="Alt+B">
+                    Balanço <kbd class="tecla" aria-hidden="true">Alt+B</kbd>
                 </a>
             {% endif %}
         </li>

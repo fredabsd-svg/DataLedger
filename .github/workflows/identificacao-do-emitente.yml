@@ -6,6 +6,19 @@ name: Identificação do emitente
 # — a pergunta que a fatia 1 mediu que a suíte `pytest` sozinha (simulação
 # de cascata CSS, sem navegador) não garante.
 #
+# BL-501 (auditoria da DL-034, achado A3, docs/auditorias/2026-09-21-
+# dl-034-rodada-1.md): o mesmo job passou a medir TAMBÉM, por PÁGINA do
+# PDF exportado, o bloco de identificação do DOCUMENTO — item 51 da NBC
+# TG 26 (RC-95) — nas telas de CLASSE 2 (demonstração contábil; hoje só o
+# Balanço). É uma pergunta DIFERENTE do timbre do escritório (RC-97) —
+# ver `scripts/medir_identificacao_do_emitente.py`, seção logo acima de
+# `_descobrir_telas_com_identificacao_do_documento` — mas corre no MESMO
+# job, com o MESMO código de saída (1 = conteúdo, 2 = infraestrutura),
+# nenhum passo novo neste arquivo: o script constrói a própria empresa de
+# medição para esta checagem (a base padrão, semeada por `semear_base_de_
+# medicao.py`, não classifica conta nenhuma em circulante/não circulante,
+# então nunca teria o que medir aqui).
+#
 # BL-371 (arquiteto-senior, ALTA): a delimitação por caminho NÃO pode mais
 # viver em `on.push.paths`/`on.pull_request.paths`. Um job assim EXISTE só
 # quando o caminho bate — GitHub trata checagem OBRIGATÓRIA que nunca
@@ -231,7 +244,7 @@ jobs:
             echo "::error::FALHA DE INFRAESTRUTURA ao medir a identificação do emitente — não é um veredito sobre o produto (navegador, banco ou base de medição). Veja as linhas 'Recusado:' acima."
             exit 1
           elif [ "$codigo" -eq 1 ]; then
-            echo "::error::REPROVADO — o produto saiu sem identificação completa do emitente em pelo menos uma tela. Veja as linhas 'REPROVADO:' acima para qual tela e qual linha do timbre sumiu."
+            echo "::error::REPROVADO — o produto saiu sem identificação completa em pelo menos uma tela. Veja as linhas 'REPROVADO:' acima: pode ser o timbre do ESCRITÓRIO (RC-97, linha ausente/ilegível) ou, desde o BL-501, o bloco de identificação do DOCUMENTO — item 51 da NBC TG 26 (RC-95) — ausente em alguma página do PDF exportado, nas telas de classe 2 (hoje, o Balanço)."
             exit 1
           else
             echo "::error::Código de saída inesperado ($codigo) do instrumento — nem sucesso (0), nem os dois códigos documentados (1 conteúdo / 2 infraestrutura). Trate como falha e investigue o script antes de confiar em qualquer resultado."

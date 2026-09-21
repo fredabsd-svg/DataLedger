@@ -28,6 +28,16 @@ correção. Cenários com retificadora já são cobertos pelos testes de
 `apurar_saldos`/`avaliar_emissao_do_balanco`, que são do
 `desenvolvedor-pleno`.
 
+⚠️ **Exceção, aberta na rodada de correção do BL-501/BL-503/BL-508/BL-509
+(2026-09-21):** a restrição acima nasceu enquanto a opção (b) ainda
+estava em aberto. A auditoria da DL-034 (rodada 1) MEDIU (b) provada para
+retificadora de grupo E para a topologia pura do BL-486 (Clientes D /
+"(-) PDD" C, irmãs topo classificadas) — o número sai CERTO nas duas. A
+restrição não se aplica mais a essa topologia específica:
+`cenario_com_aviso_de_natureza_divergente`, abaixo, usa exatamente ela,
+de propósito, para testar o critério 6 da correção (DE-070: a lista deixa
+de vetar e vira aviso).
+
 Dados 100% sintéticos, criados nos próprios testes.
 """
 
@@ -687,3 +697,251 @@ def test_nenhuma_tela_do_balanco_usa_javascript(client, cenario_classificado, ce
     _autenticar(client, cenario_pendente["escritorio"], username="gestor-js-2")
     url_pendente = reverse("contabilidade_web:balanco", args=[cenario_pendente["empresa"].id])
     assert "<script" not in client.get(url_pendente).content.decode().lower()
+
+
+# ---------------------------------------------------------------------------
+# BL-504 (auditoria DL-034, achado A6) — "Balanço pronto para emissão" é
+# estado de fluxo interno, não conteúdo da demonstração: permanece na
+# TELA, sai do documento IMPRESSO. Este arquivo confere só a metade da
+# tela (o HTML servido tem de carregar o gancho de CSS que esconde o
+# bloco na impressão); a metade da IMPRESSÃO em si é medida no navegador
+# real — ver o relatório da etapa e `scripts/medir_identificacao_do_
+# emitente.py` (BL-501), que exporta o PDF de verdade.
+# ---------------------------------------------------------------------------
+
+
+def test_balanco_pronto_para_emissao_aparece_na_tela_com_o_gancho_de_somente_tela(
+    client, cenario_classificado
+):
+    _autenticar(client, cenario_classificado["escritorio"])
+    url = reverse("contabilidade_web:balanco", args=[cenario_classificado["empresa"].id])
+    conteudo = client.get(url).content.decode()
+    assert "Balanço pronto para emissão" in conteudo
+    # `faixa-fechamento--somente-tela` é o seletor que static/css/base.css
+    # esconde dentro de `@media print` — SEM esta classe, o texto sairia
+    # no papel (é exatamente o que a versão anterior fazia). Este teste
+    # NÃO mede a impressão em si (o HTML servido nunca aplica CSS) — só
+    # que o gancho existe no corpo.
+    assert 'class="faixa-fechamento faixa-fechamento--somente-tela"' in conteudo
+
+
+# ---------------------------------------------------------------------------
+# BL-508 (auditoria DL-034, achado A10) — a lista de pendência não mostra
+# nome cru de campo (`classificacao_patrimonial`, `natureza`, `conta_pai`,
+# `tipo`), e toda pendência declarada nomeia uma ação que RESOLVE
+# (correção 4 do auditor: "explica" tem de ser verificável).
+# ---------------------------------------------------------------------------
+
+# Substrings que NUNCA podem aparecer no corpo — o NOME CRU do campo do
+# banco (nunca a palavra em português comum: "tipo" sozinho apareceria em
+# "Tipo cadastrado", que É esperado) e os valores em snake_case dos três
+# enums envolvidos (a versão HUMANIZADA usa maiúscula e espaço — "Ativo
+# circulante", "Devedora" — nunca colide com o valor cru).
+_FRAGMENTOS_CRUS_PROIBIDOS_NO_CORPO = (
+    "classificacao_patrimonial:",
+    "classificacao_patrimonial_ancestral:",
+    "natureza:",
+    "conta_pai:",
+    "tipo:",
+    "tipo_da_raiz:",
+    "ativo_circulante",
+    "ativo_nao_circulante",
+    "passivo_circulante",
+    "passivo_nao_circulante",
+    "patrimonio_liquido",
+)
+
+
+def _assert_sem_nome_cru_de_campo_no_corpo(conteudo):
+    minusculo = conteudo.lower()
+    encontrados = [frag for frag in _FRAGMENTOS_CRUS_PROIBIDOS_NO_CORPO if frag in minusculo]
+    assert not encontrados, f"nome(s) cru(s) de campo/valor no corpo HTTP: {encontrados}"
+
+
+def test_pendencia_por_tipo_sem_classificacao_nao_mostra_nome_cru_de_campo(
+    client, cenario_pendente
+):
+    """`cenario_pendente` dispara `contas_sem_classificacao_patrimonial`,
+    cujo item extra é `"tipo": TipoConta.ATIVO` (valor cru `"ativo"`) —
+    confere que a tela mostra "Tipo cadastrado: Ativo", nunca "tipo:
+    ativo"."""
+    _autenticar(client, cenario_pendente["escritorio"])
+    url = reverse("contabilidade_web:balanco", args=[cenario_pendente["empresa"].id])
+    conteudo = client.get(url).content.decode()
+    assert resposta_status_ok_e_pendente(conteudo)
+    _assert_sem_nome_cru_de_campo_no_corpo(conteudo)
+    assert "Tipo cadastrado: Ativo" in conteudo
+    # A ação que resolve ESTA lista específica (BL-508, critério "explica
+    # é verificável") tem de estar no corpo — não só um link genérico.
+    assert (
+        "Classificar a conta (ou um ancestral dela) como circulante ou não circulante" in conteudo
+    )
+
+
+def resposta_status_ok_e_pendente(conteudo):
+    return "O Balanço NÃO pode ser emitido nesta data-base" in conteudo
+
+
+@pytest.fixture
+def cenario_com_aviso_de_natureza_divergente():
+    """Duas contas IRMÃS (mesmo `conta_pai`, um contêiner "Ativo
+    Circulante" NUNCA classificado), cada uma topo-classificada
+    independentemente como `ativo_circulante`, com natureza CADASTRADA
+    divergente — a topologia exata do BL-486 (Clientes D / "(-) PDD" C).
+    Desde a DE-070, isto é só AVISO (`contas_topo_classificadas_com_
+    natureza_divergente_entre_irmas`) — não veta a emissão. Nenhuma outra
+    lista de pendência dispara (nenhum lançamento toca Receita/Despesa,
+    nenhuma conta fica sem classificação, nenhum nó não-folha recebe
+    movimento próprio), e a equação fecha:
+
+        Ativo    = Clientes (1.220,00 D) − PDD (50,00 C, contra) +
+                   Investimentos (500,00 D)                       = 1.670,00
+        Passivo  = Fornecedores (500,00 C)                        =   500,00
+        PL       = Capital Social (1.220,00 C − 50,00 D)          = 1.170,00
+        Passivo + PL                                              = 1.670,00  ✅
+    """
+    escritorio = Escritorio.objects.create(
+        nome="Escritório DL-034 Aviso Natureza", cnpj=_cnpj_sintetico()
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa Aviso Natureza Divergente DL-034 Ltda",
+        cnpj=_cnpj_sintetico(),
+    )
+    ativo = _conta(
+        empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D, aceita_lancamento=False
+    )
+    # O CONTÊINER nunca é classificado — só as duas FOLHAS, abaixo (senão
+    # dispararia `contas_com_classificacao_aninhada`, um veto de verdade).
+    circulante = _conta(
+        empresa,
+        codigo="1.1",
+        nome="Ativo Circulante",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=ativo,
+        aceita_lancamento=False,
+    )
+    clientes = _conta(
+        empresa,
+        codigo="1.1.01",
+        nome="Clientes",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=circulante,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    pdd = _conta(
+        empresa,
+        codigo="1.1.02",
+        nome="(-) Provisão para Devedores Duvidosos",
+        tipo=TipoConta.ATIVO,
+        natureza=C,
+        pai=circulante,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    investimentos = _conta(
+        empresa,
+        codigo="1.2",
+        nome="Investimentos",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=ativo,
+        classificacao=ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS,
+    )
+    passivo = _conta(
+        empresa,
+        codigo="2",
+        nome="PASSIVO",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        aceita_lancamento=False,
+    )
+    fornecedores = _conta(
+        empresa,
+        codigo="2.1",
+        nome="Fornecedores",
+        tipo=TipoConta.PASSIVO,
+        natureza=C,
+        pai=passivo,
+        classificacao=ClassificacaoPatrimonial.PASSIVO_CIRCULANTE,
+    )
+    capital_social = _conta(
+        empresa, codigo="3", nome="Capital Social", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C
+    )
+    hoje = timezone.localdate()
+    # Só contas de BALANÇO (Ativo/Passivo/PL) — nenhum lançamento toca
+    # Receita/Despesa, para `resultado_nao_transferido` ficar ZERO e não
+    # acrescentar uma ressalva (BL-503) que não é o que este teste mede.
+    _lancar(empresa, hoje, "Integralização de capital", clientes, capital_social, "1220.00")
+    _lancar(empresa, hoje, "Provisão para devedores duvidosos", capital_social, pdd, "50.00")
+    _lancar(
+        empresa, hoje, "Aplicação em investimento a prazo", investimentos, fornecedores, "500.00"
+    )
+    return {"escritorio": escritorio, "empresa": empresa, "data_base": hoje}
+
+
+def test_lista_que_so_avisa_nao_bloqueia_e_a_tela_emite_mostrando_o_aviso(
+    client, cenario_com_aviso_de_natureza_divergente
+):
+    """DE-070/critério de aceite 6 da correção: a condição 3 deixou de
+    vetar — a tela mostra os GRUPOS (emite de verdade, "Total do Ativo"
+    presente) e exibe o aviso, nunca como "Erro" bloqueante."""
+    _autenticar(client, cenario_com_aviso_de_natureza_divergente["escritorio"])
+    url = reverse(
+        "contabilidade_web:balanco",
+        args=[cenario_com_aviso_de_natureza_divergente["empresa"].id],
+    )
+    resposta = client.get(url)
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+
+    # Emitiu de verdade — a tabela foi montada, não só "não foi recusada".
+    assert "Total do Ativo" in conteudo
+    assert "Total do Passivo + Patrimônio Líquido" in conteudo
+    assert "O Balanço NÃO pode ser emitido nesta data-base" not in conteudo
+
+    # O aviso aparece — mas como AVISO, nunca como "Erro" bloqueante.
+    assert "<strong>Aviso:</strong> não impede a emissão do Balanço." in conteudo
+    assert "mensagem mensagem-warning" in conteudo
+    assert "Clientes" in conteudo
+    assert "(-) Provisão para Devedores Duvidosos" in conteudo
+    # A ação (confirmar, não necessariamente corrigir — é aviso) está no
+    # corpo, e nomeia o caminho de correção SE for de fato um erro.
+    assert "Confira se a natureza cadastrada de cada conta abaixo está correta" in conteudo
+
+    _assert_sem_nome_cru_de_campo_no_corpo(conteudo)
+
+
+def test_lista_que_so_avisa_continua_visivel_mesmo_quando_outra_pendencia_bloqueia(
+    client, cenario_com_aviso_de_natureza_divergente
+):
+    """O aviso não fica escondido só porque, NA MESMA apuração, alguma
+    OUTRA lista também está pendente e bloqueia — cria uma conta extra,
+    sem classificação, com saldo (dispara `contas_sem_classificacao_
+    patrimonial`, que VETA) ao lado da topologia do BL-486 (que só
+    avisa). O aviso tem de continuar aparecendo, fora do bloco "Erro"."""
+    empresa = cenario_com_aviso_de_natureza_divergente["empresa"]
+    hoje = cenario_com_aviso_de_natureza_divergente["data_base"]
+    conta_pendente = _conta(
+        empresa,
+        codigo="4",
+        nome="Máquinas Sem Classificação",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+    )
+    capital_social = Conta.objects.get(empresa=empresa, codigo="3")
+    _lancar(
+        empresa, hoje, "Compra de máquina sem classificar", conta_pendente, capital_social, "10.00"
+    )
+
+    _autenticar(client, cenario_com_aviso_de_natureza_divergente["escritorio"])
+    url = reverse("contabilidade_web:balanco", args=[empresa.id])
+    conteudo = client.get(url).content.decode()
+
+    assert "O Balanço NÃO pode ser emitido nesta data-base" in conteudo
+    assert "Total do Ativo" not in conteudo  # não emitiu — outra lista vetou
+    # O AVISO continua presente, FORA do bloco de erro.
+    assert "<strong>Aviso:</strong> não impede a emissão do Balanço." in conteudo
+    assert "Clientes" in conteudo and "(-) Provisão para Devedores Duvidosos" in conteudo
+    _assert_sem_nome_cru_de_campo_no_corpo(conteudo)

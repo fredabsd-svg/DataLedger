@@ -475,10 +475,11 @@ def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero()
     natureza NATURAL do tipo (devedora no Ativo) — o PDD credora entra
     SUBTRAINDO — e o número fica CERTO: 1.220,00 − 50,00 = 1.170,00,
     resíduo `0,00`. A correção do NÚMERO não remove a topologia de risco:
-    a guarda ESTRUTURAL nova (condição 3 do critério 1 da DL-034, "cinto e
-    suspensório" enquanto (b) não tem prova para toda retificadora de
-    grupo) continua nomeando as duas contas e BLOQUEANDO a emissão — ver
-    a asserção de `avaliar_emissao_do_balanco` no fim deste teste."""
+    a guarda ESTRUTURAL (condição 3 do critério 1 da DL-034) continua
+    nomeando as duas contas — mas desde a DE-070 (auditoria da DL-034,
+    achados A1/A2) ela é só AVISO, não veto mais: com resíduo `0,00` e as
+    outras seis listas vazias, o Balanço EMITE mesmo assim. Ver a asserção
+    de `avaliar_emissao_do_balanco` no fim deste teste."""
     empresa = _empresa("DL-033 BL-486")
     raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
     clientes = _conta(
@@ -531,11 +532,18 @@ def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero()
     # continua correta e fechando — o dinheiro nunca se moveu de verdade.
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
 
-    # A guarda ESTRUTURAL (condição 3 do critério 1/DL-034) nomeia as DUAS
-    # contas — mesmo com o número já certo — porque (b) não tem prova para
-    # TODA topologia de retificadora de grupo (declaração do próprio
-    # auditor). Resíduo zero e cinco listas antigas vazias NÃO bastam
-    # para emitir: esta lista sozinha já bloqueia.
+    # A guarda ESTRUTURAL (condição 3 do critério 1/DL-034) continua
+    # NOMEANDO as duas contas — a topologia de risco (irmãs topo
+    # classificadas com natureza divergente) não desapareceu.
+    #
+    # ⚠️ **CONTROLE NEGATIVO, atualizado pela DE-070 (auditoria da DL-034,
+    # achado A1/A2 — BL-499/BL-500):** a auditoria MEDIU que a correção (b)
+    # dá o número CERTO também para retificadora DE GRUPO — o pressuposto
+    # que sustentava esta condição como VETO deixou de existir. Ela agora
+    # é só AVISO: continua na lista (nomeada abaixo — é o controle negativo
+    # que prova que a correção do BL-499 não apagou a detecção, só tirou o
+    # poder de bloquear), mas com resíduo zero e as outras seis listas
+    # vazias o Balanço EMITE.
     irmas_divergentes = {
         linha["conta"]
         for linha in saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"]
@@ -547,11 +555,16 @@ def test_bl486_contas_irmas_com_naturezas_diferentes_produzem_residuo_nao_zero()
     from apps.contabilidade.services import avaliar_emissao_do_balanco
 
     emissao = avaliar_emissao_do_balanco(saldos)
-    assert emissao["pode_emitir"] is False
+    assert emissao["pode_emitir"] is True
     assert emissao["residuo_pendente"] == {}
+    # ⚠️ Correção de CONTRATO (pedida pelo arquiteto-senior na rodada de
+    # correção da DL-034): a lista NÃO aparece mais em `listas_pendentes`
+    # — esse nome passa a significar só "o que IMPEDE". Ela é declarada,
+    # não escondida, em `listas_informativas`, separada.
+    assert emissao["listas_pendentes"] == {}
     assert (
         "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
-        in (emissao["listas_pendentes"])
+        in (emissao["listas_informativas"])
     )
 
 
@@ -648,7 +661,12 @@ def test_cenario_totalmente_classificado_nao_tem_conta_aninhada_nem_sem_classifi
     from apps.contabilidade.services import avaliar_emissao_do_balanco
 
     emissao = avaliar_emissao_do_balanco(saldos)
-    assert emissao == {"pode_emitir": True, "residuo_pendente": {}, "listas_pendentes": {}}
+    assert emissao == {
+        "pode_emitir": True,
+        "residuo_pendente": {},
+        "listas_pendentes": {},
+        "listas_informativas": {},
+    }
 
 
 def test_classificacao_gravada_fora_do_enum_e_nomeada_nunca_derruba():

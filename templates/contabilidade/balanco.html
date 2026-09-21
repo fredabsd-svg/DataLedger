@@ -113,6 +113,14 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                     {% endfor %}
                 </ul>
             {% endif %}
+            {% comment %}
+            BL-508 (correção 4 do auditor): "explica" tem de ser
+            VERIFICÁVEL — cada lista traz, junto das contas, a AÇÃO que
+            RESOLVE aquela pendência específica (`lista.acao`,
+            `ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA` em views_web.py) —
+            nunca só o link genérico "ir ao plano de contas" que ficava
+            abaixo de TODAS as listas, sem dizer o que fazer lá.
+            {% endcomment %}
             {% for lista in listas_pendentes %}
                 <p>{{ lista.titulo }}:</p>
                 <ul>
@@ -123,6 +131,7 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                         </li>
                     {% endfor %}
                 </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
             {% endfor %}
             <p>
                 <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
@@ -136,19 +145,25 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
         só a ausência de recusa. `pode_emitir` chegou `True` do servidor,
         então a tabela é montada.
         {% endcomment %}
-        <div class="faixa-fechamento" role="status">
+        {% comment %}
+        BL-504 (auditoria DL-034, achado A6): "Balanço pronto para
+        emissão" é estado de FLUXO INTERNO — de bancada, para quem está
+        prestes a emitir decidir se emite — não conteúdo da demonstração
+        (o Balanço é classe 2, `personalizacao-de-relatorio.md` §1: só
+        fora do bloco obrigatório pode variar, e mesmo assim texto de
+        bancada não pertence ao papel que vai ao cliente). Diferente da
+        faixa "Fecha"/"Não fecha" do Balancete (classe 1, relatório de
+        CONFERÊNCIA — ali o veredito é o próprio conteúdo e continua
+        saindo no papel, ver `@media print` em base.css), esta faixa é
+        SÓ TELA: existe para o contador decidir antes de imprimir, nunca
+        para sair impressa. `faixa-fechamento--somente-tela` soma-se à
+        classe base (cor/borda do modo impressão continuam definidas
+        para `.faixa-fechamento` em geral — não a repita fora daqui) só
+        para ESCONDER este bloco específico no papel.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
             <strong class="faixa-fechamento__veredito">Balanço pronto para emissão</strong>
         </div>
-
-        {% if grupos.resultado_nao_transferido_ptbr %}
-            <p class="texto-apoio">
-                {% if grupos.resultado_nao_transferido_ptbr.e_prejuizo %}Prejuízo{% else %}Lucro{% endif %}
-                do período ainda não transferido ao Patrimônio Líquido:
-                <span class="valor-monetario">{{ grupos.resultado_nao_transferido_ptbr.valor_ptbr }}</span>
-                — é a diferença entre o Total do Ativo e o Total do Passivo + Patrimônio Líquido
-                abaixo, e some depois do lançamento de encerramento (RC-104).
-            </p>
-        {% endif %}
 
         {% comment %}
         DL-034, critério 4 (o mais medido desta etapa): o bloco de
@@ -164,6 +179,24 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
         que só sai na folha 1), é o que faz a identificação da EMPRESA
         repetir também, e não só o cabeçalho de coluna. Medido no
         navegador real: ver o relatório da etapa.
+
+        BL-503 (auditoria DL-034, achado A5): a ressalva do resultado NÃO
+        transferido (RC-104) mora AQUI dentro, como quarto parágrafo do
+        MESMO bloco — antes ficava num `<p>` solto ANTES da tabela, e por
+        isso só saía na folha 1. Medido: num documento de 6 folhas com
+        lucro não transferido de R$ 77.777,77, "Total do Ativo" caiu na
+        folha 3 e "Total do Passivo + Patrimônio Líquido" na folha 6 —
+        quem recebesse qualquer uma das duas soltas via dois totais que
+        não batem, sem explicação em nenhuma delas. Repetir a nota EM
+        TODA folha (em vez de só ao lado de cada total) é a escolha
+        DELIBERADA: a paginação é decidida pelo NAVEGADOR/impressora, não
+        pelo template — nada aqui garante que uma nota colada a um total
+        caia NA MESMA folha que ele (a própria régua `break-inside: avoid`
+        de `.tabela-dados tr`, BL-282, pode empurrar a linha do total
+        inteira para a folha seguinte, sem a nota junto). O `<thead>` é o
+        ÚNICO mecanismo de repetição por folha já PROVADO neste documento
+        (o próprio bloco do item 51, acima) — reaproveitá-lo remove a
+        dependência de onde a paginação decidir cortar.
         {% endcomment %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">
@@ -194,6 +227,16 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                                 Valores em {{ identificacao.moeda_de_apresentacao }} —
                                 {{ identificacao.nivel_de_arredondamento|capfirst }}
                             </p>
+                            {% if grupos.resultado_nao_transferido %}
+                                <p>
+                                    {% if grupos.resultado_nao_transferido.e_prejuizo %}Prejuízo{% else %}Lucro{% endif %}
+                                    do período ainda não transferido ao Patrimônio Líquido:
+                                    <span class="valor-monetario">{{ grupos.resultado_nao_transferido.valor_ptbr }}</span>
+                                    — é a diferença entre o Total do Ativo e o Total do Passivo +
+                                    Patrimônio Líquido apresentados neste documento, e some depois do
+                                    lançamento de encerramento (RC-104).
+                                </p>
+                            {% endif %}
                         </div>
                     </th>
                 </tr>
@@ -240,5 +283,43 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                 </tr>
             </tbody>
         </table>
+    {% endif %}
+
+    {% comment %}
+    DE-070/BL-508 (critério de aceite 6 da correção): a condição 3
+    (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`)
+    DEIXOU de vetar a emissão — vira AVISO, e a tela precisa TRATÁ-LA
+    como aviso, não como bloqueio: fora do `{% if/elif/else %}` acima
+    (que decide "monta a tabela ou não"), porque este bloco aparece nos
+    DOIS desfechos — Balanço EMITIDO com aviso, ou Balanço RECUSADO por
+    outro motivo com este aviso também presente. `listas_apenas_aviso`
+    só existe no contexto depois do estado vazio (empresa sem plano de
+    contas) — indefinida ali, o que o Django trata como falsa, sem erro.
+
+    ⚠️ Decisão do arquiteto-senior (mesma janela desta correção): o aviso
+    é conferência de BANCADA — para o contador decidir se o plano de
+    contas está como pretendido ANTES de entregar — nunca conteúdo do
+    documento (mesmo raciocínio do BL-504 para "Balanço pronto para
+    emissão"). `mensagem--somente-tela` soma-se à classe base
+    (`.mensagem-warning` continua definindo cor/borda em geral) só para
+    ESCONDER este bloco específico no papel — mesmo padrão de
+    `faixa-fechamento--somente-tela`, acima.
+    {% endcomment %}
+    {% if listas_apenas_aviso %}
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+            <strong>Aviso:</strong> não impede a emissão do Balanço.
+            {% for lista in listas_apenas_aviso %}
+                <p>{{ lista.titulo }}:</p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>
+                            Conta {{ linha.conta }} — {{ linha.nome }}
+                            {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+        </div>
     {% endif %}
 {% endblock %}

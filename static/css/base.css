@@ -1282,6 +1282,31 @@ button:disabled {
         display: none;
     }
 
+    /* BL-504 (auditoria DL-034, achado A6): "Balanço pronto para emissão"
+       é estado de FLUXO INTERNO (decisão de bancada, antes de emitir),
+       não conteúdo da demonstração — sai da TELA, nunca some da tela em
+       si (só desta folha impressa). Modificador PRÓPRIO, sem tocar em
+       `.faixa-fechamento` puro: o Balancete usa a MESMA classe base para
+       o veredito "Fecha"/"Não fecha", que é conteúdo de um relatório de
+       CONFERÊNCIA (classe 1) e CONTINUA saindo no papel — ver o
+       comentário no topo deste bloco `@media print`. */
+    .faixa-fechamento--somente-tela {
+        display: none;
+    }
+
+    /* DE-070 (rodada de correção da DL-034): o AVISO da lista que só
+       avisa (`contas_topo_classificadas_com_natureza_divergente_entre_
+       irmas`) é conferência de BANCADA, para o contador decidir ANTES de
+       entregar — mesmo raciocínio do BL-504, dois comentários acima,
+       aplicado a um segundo elemento. `.mensagem-warning` continua
+       definindo cor/borda para QUALQUER outro aviso do produto (ex.:
+       `_aviso_movimento_fora_do_periodo.html`, que É conteúdo relevante
+       de um relatório de CONFERÊNCIA e continua saindo no papel) — só
+       este modificador soma `display: none`. */
+    .mensagem--somente-tela {
+        display: none;
+    }
+
     /* BL-282: timbre do ESCRITÓRIO — razão social, endereço e registro
        profissional, uma linha por parágrafo (`Escritorio.linhas_do_timbre`,
        decidido NO SERVIDOR; o template só itera — ver o comentário
