@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    ClassificacaoPatrimonial,
     Competencia,
     Conta,
     EstadoCompetencia,
@@ -1653,6 +1654,42 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
             raizes_por_id[conta_id] = raiz_id_de(conta.conta_pai_id)
         return raizes_por_id[conta_id]
 
+    # DL-033 (RC-106): classificação (circulante/não circulante) do
+    # ANCESTRAL MAIS PRÓXIMO desta conta — estritamente ACIMA, nunca a
+    # própria —, memoizado como `raiz_id_de` acima, sem consulta nova.
+    # Diferente de `tipo` (sempre preenchido em toda conta), a classificação
+    # é OPCIONAL e pode ser declarada em QUALQUER nível da árvore (o nó que
+    # representa "Ativo Circulante", por exemplo, normalmente um ou dois
+    # níveis abaixo da raiz "Ativo" — nunca a raiz inteira, que a lei não
+    # classifica). Existe para `apurar_saldos` distinguir, sem consulta
+    # nova, três situações: (1) a própria conta DEFINE a classificação do
+    # grupo (tem `classificacao_patrimonial` própria e NENHUM ancestral
+    # também classificado) — soma o `saldo_final` dela (já CONSOLIDADO,
+    # própria + toda a subárvore, pela mesma regra única de saldo — DE-020
+    # — que `tipo_da_raiz` já usa) no grupo; (2) a conta está ANINHADA sob
+    # outra já classificada (tem a própria E um ancestral classificado —
+    # dado inconsistente: duas contas da MESMA árvore declarando o MESMO
+    # dinheiro) — DECLARADA, nunca somada de novo, mesmo padrão do achado
+    # A2/BL-475 da DL-032; (3) a conta HERDA a classificação de um
+    # ancestral (não tem a própria, mas um ancestral tem) — já está coberta
+    # pelo saldo consolidado desse ancestral, não entra em soma nem em
+    # declaração de "sem classificação".
+    classificacoes_ancestrais_por_id = {}
+
+    def classificacao_ancestral_de(conta_id):
+        if conta_id in classificacoes_ancestrais_por_id:
+            return classificacoes_ancestrais_por_id[conta_id]
+        conta = contas_por_id[conta_id]
+        if conta.conta_pai_id is None:
+            resultado = None
+        else:
+            pai = contas_por_id[conta.conta_pai_id]
+            resultado = pai.classificacao_patrimonial or classificacao_ancestral_de(
+                conta.conta_pai_id
+            )
+        classificacoes_ancestrais_por_id[conta_id] = resultado
+        return resultado
+
     # A ÚNICA consulta agregada de valores POR CONTA: filtra por
     # `data <= fim` (itens posteriores ao período não interessam a NENHUMA
     # das quatro colunas) e separa, por conta, quatro somas condicionais —
@@ -1832,6 +1869,16 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 "tipo": conta.tipo,
                 "tipo_da_raiz": contas_por_id[raiz_id_de(conta.id)].tipo,
                 "raiz": conta.conta_pai_id is None,
+                # `classificacao_patrimonial`/`classificacao_patrimonial_
+                # ancestral` (DL-033/RC-106): a classificação PRÓPRIA desta
+                # conta (ou `None`) e a do ANCESTRAL mais próximo que tiver
+                # uma (ou `None`, inclusive quando a conta é raiz — sem
+                # ancestral nenhum). Ver o docstring de
+                # `classificacao_ancestral_de`, acima, para os três casos
+                # que os dois campos juntos permitem `apurar_saldos`
+                # distinguir sem consulta nova.
+                "classificacao_patrimonial": conta.classificacao_patrimonial,
+                "classificacao_patrimonial_ancestral": classificacao_ancestral_de(conta.id),
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
@@ -2005,11 +2052,31 @@ def apurar_saldos(*, empresa, data_base):
     serializer sempre validam `choices`). Esta função NUNCA estoura
     `KeyError` nem cria uma chave nova dentro de `totais_por_tipo` (o que
     desmontaria a garantia do critério 4/DE-056, que `totais_por_tipo` tem
-    EXATAMENTE as chaves de `TipoConta.values`): o tipo desconhecido é
-    OMITIDO da soma e aparece, nomeado, em
-    `contas_com_tipo_desconhecido` (`{"conta", "nome", "tipo"}`), vazia no
-    caso normal. Mesma defesa que `views_web.py` já aplica ao campo irmão
-    `natureza`.
+    EXATAMENTE as chaves de `TipoConta.values`): o tipo desconhecido
+    aparece, nomeado, em `contas_com_tipo_desconhecido`
+    (`{"conta", "nome", "tipo"}`), vazia no caso normal.
+
+    ⚠️ **A frase acima ("tipo desconhecido") NÃO diz que o DINHEIRO some —
+    e essa distinção depende de a conta corrompida ser RAIZ ou DESCENDENTE
+    (achado NOVO, BL-484, nascido da própria correção do A1):** quando a
+    conta corrompida É a raiz, o valor dela fica de fato OMITIDO de
+    `totais_por_tipo` (nenhum `TipoConta` real recebe aquele saldo — é o
+    caso do teste `test_tipo_gravado_fora_de_tipoconta_e_nomeado_nunca_
+    derruba`). Quando a conta corrompida é DESCENDENTE de uma raiz com
+    `tipo` VÁLIDO, o dinheiro NÃO desaparece: a regra única de saldo
+    (DE-020) consolida a subárvore inteira — inclusive a conta corrompida
+    — no saldo da raiz, que continua entrando normalmente em
+    `totais_por_tipo` pelo `tipo` dela (válido). A conta corrompida, nesse
+    caso, aparece NOMEADA em DUAS listas — `contas_com_tipo_desconhecido`
+    **e** `contas_com_tipo_divergente_da_raiz` (o `tipo` dela nunca bate
+    com o `tipo_da_raiz`, por construção) — mas o valor dela CONTINUA
+    somado, por dentro do consolidado da raiz (ver `test_tipo_desconhecido_
+    em_descendente_e_nomeado_mas_continua_somado`). **Omitir o descendente
+    da soma seria PIOR** — o Balanço perderia dinheiro de verdade — então o
+    comportamento certo nos dois casos não é "sempre omitir": é "nunca
+    inventar", e as duas listas declaram o que a soma sozinha não diz.
+    Mesma defesa (nomear, nunca inventar) que `views_web.py` já aplica ao
+    campo irmão `natureza`.
 
     **`raiz` é repassado em cada linha de `contas` (achado A8/BL-481):**
     `linha["raiz"]` é EXATAMENTE `linha["nivel"] == 1` (toda conta sem pai
@@ -2054,6 +2121,36 @@ def apurar_saldos(*, empresa, data_base):
     desta fatia (leitura ad-hoc, sem view ainda). A fatia que gerar o
     documento imprimível decide o snapshot.
 
+    ⚠️ **Circulante × não circulante (DL-033/RC-106), o que falta para o
+    Balanço Patrimonial existir:** `totais_por_classificacao` soma o
+    `saldo_final` (CONSOLIDADO — própria conta + subárvore) de cada conta
+    que DEFINE uma classificação (tem `classificacao_patrimonial` própria
+    e nenhum ancestral também classificado — é o "raiz" de `tipo_da_raiz`,
+    generalizado: aqui não é o topo absoluto da árvore, é o nó mais alto
+    ONDE a classificação foi declarada, porque a lei não classifica o
+    Ativo inteiro, só as suas subdivisões). **Esta camada NÃO adivinha
+    classificação nenhuma** (a classe de erro do achado A2/BL-475 que
+    reprovou a DL-032): conta sem classificação própria nem ancestral
+    classificado é DECLARADA em `contas_sem_classificacao_patrimonial`
+    (só para folhas — contas sem descendentes — de tipo Ativo ou Passivo;
+    Patrimônio Líquido, Receita e Despesa não entram na separação
+    circulante/não circulante, RC-106); duas contas da mesma árvore
+    tentando classificar o MESMO grupo (uma conta com classificação
+    própria sob um ancestral TAMBÉM classificado) são DECLARADAS em
+    `contas_com_classificacao_aninhada`, sem nunca somar o mesmo
+    lançamento duas vezes. Um valor gravado fora de `ClassificacaoPatrimonial`
+    (só por ORM/SQL direto — mesma defesa em profundidade do achado
+    A1/BL-476 para `tipo`) NUNCA estoura `KeyError`: aparece, nomeado, em
+    `contas_com_classificacao_desconhecida`. As três listas são VAZIAS no
+    caso normal (plano de contas totalmente classificado, sem aninhamento
+    nem dado corrompido) — controle positivo do critério 5 do plano. Quando
+    a cobertura é total, a soma dos valores de `totais_por_classificacao`
+    do lado do Ativo bate, centavo a centavo, com
+    `totais_por_tipo[TipoConta.ATIVO]` — e o mesmo
+    vale para o Passivo (critério 4); com cobertura parcial, a soma fica
+    MENOR que o total do tipo, pela diferença exata do que ainda não foi
+    classificado — nunca maior, e nunca silenciosamente igual.
+
     **Desempenho:** UMA chamada a `apurar_balancete` (já livre de N+1 —
     3 consultas, independente do número de contas) mais UM laço em Python
     sobre as linhas já carregadas — mesma classe de custo do Balancete.
@@ -2075,6 +2172,9 @@ def apurar_saldos(*, empresa, data_base):
             # quem quiser reproduzir `totais_por_tipo` a partir de `contas`
             # sem contar cada descendente em dobro (ver docstring).
             "raiz": linha["raiz"],
+            # DL-033/RC-106: classificação PRÓPRIA desta conta (ou `None`,
+            # a maioria das contas — o produto nunca infere uma).
+            "classificacao_patrimonial": linha["classificacao_patrimonial"],
             "saldo": linha["saldo_final"],
         }
         for linha in balancete["contas"]
@@ -2115,6 +2215,69 @@ def apurar_saldos(*, empresa, data_base):
                 }
             )
 
+    # DL-033 (RC-106), critério 1: os grupos circulante/não circulante
+    # vêm de UMA fonte única no código — `ClassificacaoPatrimonial.values`,
+    # lido do MODELO — nunca de uma tupla escrita à mão (mesmo padrão de
+    # `totais_por_tipo` acima). Um grupo novo aparece aqui automaticamente,
+    # com zero, em vez de ficar fora em silêncio.
+    totais_por_classificacao = {
+        classificacao: zero for classificacao in ClassificacaoPatrimonial.values
+    }
+    # Conta que tem classificação PRÓPRIA E TAMBÉM um ancestral já
+    # classificado — dado inconsistente (duas contas da MESMA árvore
+    # declarando o MESMO grupo). DECLARADA, nunca somada duas vezes: o
+    # ancestral já consolida esta conta dentro do próprio `saldo_final`
+    # dele (regra única de saldo, DE-020) — somar esta linha de novo
+    # contaria o mesmo lançamento duas vezes. Vazia no caso são.
+    contas_com_classificacao_aninhada = []
+    # Mesma defesa do achado A1/BL-476 (`contas_com_tipo_desconhecido`),
+    # agora para o campo NOVO desta etapa: um valor gravado fora de
+    # `ClassificacaoPatrimonial` (só alcançável por ORM/SQL direto — a
+    # tela e o serializer sempre validam `choices`, e a guarda de
+    # consistência do `Conta.clean()` nem chega a rodar fora do caminho
+    # validado) NUNCA estoura `KeyError` dentro de `totais_por_classificacao`
+    # nem cria uma chave nova ali — aparece, nomeada, aqui.
+    contas_com_classificacao_desconhecida = []
+    # Conta de tipo ATIVO ou PASSIVO, ANALÍTICA (sem descendentes —
+    # DE-022), cuja própria classificação E a de TODOS os ancestrais estão
+    # vazias: nenhum lugar da árvore, do topo até esta folha, declarou
+    # circulante ou não circulante. Critério 5 do plano DL-033: DECLARADA,
+    # NUNCA presumida a partir do código ou do nome da conta — a classe de
+    # erro do achado A2/BL-475 da DL-032. Vazia quando todas as contas
+    # relevantes estão classificadas (controle positivo do critério 5).
+    contas_sem_classificacao_patrimonial = []
+    for linha in balancete["contas"]:
+        propria = linha["classificacao_patrimonial"]
+        ancestral = linha["classificacao_patrimonial_ancestral"]
+        if propria:
+            if propria not in totais_por_classificacao:
+                contas_com_classificacao_desconhecida.append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                    }
+                )
+            elif ancestral:
+                contas_com_classificacao_aninhada.append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                        "classificacao_patrimonial_ancestral": ancestral,
+                    }
+                )
+            else:
+                totais_por_classificacao[propria] += linha["saldo_final"]
+        elif (
+            ancestral is None
+            and linha["analitica"]
+            and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO)
+        ):
+            contas_sem_classificacao_patrimonial.append(
+                {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
+            )
+
     ativo = totais_por_tipo[TipoConta.ATIVO]
     passivo = totais_por_tipo[TipoConta.PASSIVO]
     patrimonio_liquido = totais_por_tipo[TipoConta.PATRIMONIO_LIQUIDO]
@@ -2136,6 +2299,13 @@ def apurar_saldos(*, empresa, data_base):
         "totais_por_tipo": totais_por_tipo,
         "contas_com_tipo_desconhecido": contas_com_tipo_desconhecido,
         "contas_com_tipo_divergente_da_raiz": contas_com_tipo_divergente_da_raiz,
+        # DL-033/RC-106 — circulante × não circulante do Balanço
+        # Patrimonial (fatia 1): ver os comentários acima, no bloco que os
+        # monta.
+        "totais_por_classificacao": totais_por_classificacao,
+        "contas_com_classificacao_aninhada": contas_com_classificacao_aninhada,
+        "contas_com_classificacao_desconhecida": contas_com_classificacao_desconhecida,
+        "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,
         "equacao": {
             "ativo": ativo,
             "passivo": passivo,

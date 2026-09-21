@@ -16,6 +16,7 @@ isso é responsabilidade da VIEW (que esta fatia não cria).
 Dados 100% sintéticos, criados nos próprios testes.
 """
 
+import hashlib
 import itertools
 import random
 import time
@@ -570,6 +571,93 @@ def test_conta_descendente_com_tipo_diferente_da_raiz_e_declarada_nunca_corrigid
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
 
 
+def test_tipo_da_raiz_em_subarvore_profunda_nomeia_todas_as_divergentes_e_nao_move_dinheiro():
+    """BL-483 (ressalva R1 da auditoria DL-032 rodada 1): fixa a semântica
+    de `tipo_da_raiz` como "o `tipo` do ANCESTRAL RAIZ (topo absoluto da
+    árvore)" — nunca "o `tipo` do PAI DIRETO", que COINCIDE com a raiz numa
+    árvore rasa (profundidade 2, como o teste acima) e por isso não os
+    distingue.
+
+    Construção com profundidade 4:
+
+        1     ATIVO      (raiz, tipo=ATIVO)
+        1.1   Sub         (tipo=ATIVO — mesmo tipo da raiz)
+        1.1.1 Divergente   (tipo=DESPESA — diverge da raiz)
+        1.1.1.1 Neta       (tipo=DESPESA — MESMO tipo do PAI DIRETO, mas
+                            ainda diverge da RAIZ)
+
+    Um mutante que trocasse "tipo da raiz" por "tipo do pai direto" deixaria
+    de nomear "1.1.1.1" (o pai dela, "1.1.1", também é DESPESA — pai direto
+    e própria coincidem, "sem divergência" na leitura errada), mas
+    continuaria nomeando "1.1.1" (cujo pai direto, "1.1", é ATIVO ≠
+    DESPESA — ainda divergiria mesmo pela leitura errada). Este teste
+    reprovaria um mutante desses: exige as DUAS na lista, com
+    `tipo_da_raiz` igual ao da RAIZ ("1", ATIVO) nas duas."""
+    empresa = _empresa("DL-032 Profundidade BL-483")
+    raiz = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    sub = _conta(empresa, codigo="1.1", nome="Sub", tipo=TipoConta.ATIVO, natureza=D, pai=raiz)
+    divergente = _conta(
+        empresa, codigo="1.1.1", nome="Divergente", tipo=TipoConta.DESPESA, natureza=D, pai=sub
+    )
+    neta = _conta(
+        empresa, codigo="1.1.1.1", nome="Neta", tipo=TipoConta.DESPESA, natureza=D, pai=divergente
+    )
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Capitalização", sub, capital, "1000.00")
+    _lancar(empresa, date(2026, 1, 10), "Movimento na divergente", divergente, sub, "300.00")
+    _lancar(empresa, date(2026, 1, 15), "Movimento na neta", neta, divergente, "50.00")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    divergentes = {linha["conta"]: linha for linha in saldos["contas_com_tipo_divergente_da_raiz"]}
+    # AS DUAS aparecem — é o que um mutante "tipo do pai direto" derrubaria
+    # para "1.1.1.1" (ver docstring acima).
+    assert "1.1.1" in divergentes, saldos["contas_com_tipo_divergente_da_raiz"]
+    assert "1.1.1.1" in divergentes, saldos["contas_com_tipo_divergente_da_raiz"]
+    # E as duas apontam para o tipo da RAIZ ABSOLUTA ("1", ATIVO) — nunca
+    # para o tipo de um ancestral intermediário.
+    assert divergentes["1.1.1"]["tipo_da_raiz"] == TipoConta.ATIVO
+    assert divergentes["1.1.1.1"]["tipo_da_raiz"] == TipoConta.ATIVO
+    # O dinheiro NUNCA se move: o consolidado do Ativo continua o mesmo,
+    # qualquer que seja o `tipo` das contas descendentes.
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1000.00")
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
+
+
+# BL-485 (ressalva R3 da auditoria DL-032 rodada 1): o literal `"custo"`
+# como valor "fora de TipoConta" colidia (silenciosamente) se o modelo um
+# dia ganhasse `CUSTO = "custo", "Custo"` — cenário PLAUSÍVEL, não teórico
+# (RC-104 e o catálogo de relatórios tornam "separar despesa de custo"
+# provável). `_TIPO_IMPOSSIVEL` é DERIVADO de `TipoConta.values` (nunca um
+# segundo literal escrito à mão, e curto o bastante para caber na coluna
+# `tipo`, `max_length=20`) e CONFERIDO contra o enum antes de qualquer
+# teste usá-lo — se um `TipoConta` novo algum dia colidir com ele
+# (praticamente impossível: é um hash hexadecimal, não uma palavra que
+# alguém escolheria para um tipo contábil), o teste de guarda abaixo
+# reprova NOMEANDO a colisão, em vez de os testes que o usam ficarem
+# silenciosamente sem sentido.
+_hash_dos_tipos_reais = hashlib.md5(
+    "|".join(sorted(TipoConta.values)).encode(), usedforsecurity=False
+).hexdigest()
+_TIPO_IMPOSSIVEL = f"x-{_hash_dos_tipos_reais[:12]}"
+
+
+def test_tipo_impossivel_nao_colide_com_nenhum_tipoconta_real():
+    """Guarda da própria guarda (BL-485): se isto um dia reprovar, o valor
+    de `_TIPO_IMPOSSIVEL` deixou de ser impossível — o que só aconteceria
+    se um `TipoConta` real chegasse a conter um hífen no valor, o que o
+    projeto não usa em lugar nenhum do enum."""
+    assert _TIPO_IMPOSSIVEL not in TipoConta.values
+
+
 def test_tipo_gravado_fora_de_tipoconta_e_nomeado_nunca_derruba():
     """BL-476/achado A1 — reproduz a sonda Q1: um `tipo` gravado fora de
     `TipoConta` (só alcançável por escrita direta no ORM/SQL — a tela e o
@@ -577,20 +665,85 @@ def test_tipo_gravado_fora_de_tipoconta_e_nomeado_nunca_derruba():
     ser criado como chave nova dentro de `totais_por_tipo` (o que
     desmontaria a garantia do critério 4/DE-056 de que as chaves são
     EXATAMENTE as de `TipoConta.values`). Tem que aparecer, nomeado, em
-    `contas_com_tipo_desconhecido`."""
+    `contas_com_tipo_desconhecido`.
+
+    Este é o caso em que a conta corrompida É A RAIZ: o valor fica FORA da
+    soma de `totais_por_tipo` — ver `test_tipo_desconhecido_em_descendente_
+    e_nomeado_mas_continua_somado` logo abaixo para o caso em que a conta
+    corrompida é DESCENDENTE (BL-484): aí o dinheiro NÃO some, porque a
+    raiz (com `tipo` válido) continua consolidando o saldo da subárvore
+    inteira — a diferença entre os dois casos é exatamente o que a
+    correção da BL-484 documenta."""
     empresa = _empresa("DL-032 Tipo Desconhecido")
     raiz_torta = _conta(
         empresa, codigo="7", nome="Conta corrompida", tipo=TipoConta.ATIVO, natureza=D
     )
-    Conta.objects.filter(pk=raiz_torta.pk).update(tipo="custo")
+    Conta.objects.filter(pk=raiz_torta.pk).update(tipo=_TIPO_IMPOSSIVEL)
 
     saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
 
     assert set(saldos["totais_por_tipo"].keys()) == set(TipoConta.values)  # nunca cria chave nova
     desconhecidos = {linha["conta"]: linha for linha in saldos["contas_com_tipo_desconhecido"]}
     assert "7" in desconhecidos, saldos["contas_com_tipo_desconhecido"]
-    assert desconhecidos["7"]["tipo"] == "custo"
+    assert desconhecidos["7"]["tipo"] == _TIPO_IMPOSSIVEL
     assert desconhecidos["7"]["nome"] == "Conta corrompida"
+    # A conta corrompida É A RAIZ: nenhum `TipoConta` real recebe o valor
+    # dela — omitida da soma, no sentido literal (BL-484).
+    assert sum(saldos["totais_por_tipo"].values()) == Decimal("0")
+
+
+def test_tipo_desconhecido_em_descendente_e_nomeado_mas_continua_somado():
+    """BL-484 (achado NOVO nascido da correção do A1/BL-476): quando a
+    conta com `tipo` corrompido é DESCENDENTE (não a raiz), o docstring de
+    `apurar_saldos` afirmava "omitido da soma" — verdadeiro só para o caso
+    RAIZ (teste acima). Aqui a raiz "1" continua com `tipo=ATIVO` válido, e
+    a regra única de saldo (DE-020) consolida a subárvore INTEIRA —
+    inclusive a conta corrompida "1.9" — no saldo da raiz. O dinheiro NÃO
+    desaparece (omiti-lo faria pior: o Balanço perderia dinheiro de
+    verdade), mas a conta corrompida precisa aparecer nomeada em DUAS
+    listas: `contas_com_tipo_desconhecido` (tipo dela não bate com
+    nenhum `TipoConta`) e `contas_com_tipo_divergente_da_raiz` (tipo dela
+    diverge do `tipo_da_raiz`, por construção — um valor fora de
+    `TipoConta` nunca é igual ao `tipo` de nenhuma raiz válida)."""
+    empresa = _empresa("DL-032 Tipo Desconhecido Descendente")
+    raiz_ativo = _conta(empresa, codigo="1", nome="ATIVO", tipo=TipoConta.ATIVO, natureza=D)
+    caixa = _conta(
+        empresa, codigo="1.1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D, pai=raiz_ativo
+    )
+    filha_torta = _conta(
+        empresa,
+        codigo="1.9",
+        nome="Filha corrompida",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        pai=raiz_ativo,
+    )
+    Conta.objects.filter(pk=filha_torta.pk).update(tipo=_TIPO_IMPOSSIVEL)
+    raiz_pl = _conta(empresa, codigo="3", nome="PL", tipo=TipoConta.PATRIMONIO_LIQUIDO, natureza=C)
+    capital = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=raiz_pl,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Capitalização", caixa, capital, "1000.00")
+    _lancar(
+        empresa, date(2026, 1, 10), "Movimento na filha corrompida", filha_torta, caixa, "300.00"
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+
+    desconhecidos = {linha["conta"]: linha for linha in saldos["contas_com_tipo_desconhecido"]}
+    assert "1.9" in desconhecidos, saldos["contas_com_tipo_desconhecido"]
+    divergentes = {linha["conta"]: linha for linha in saldos["contas_com_tipo_divergente_da_raiz"]}
+    assert "1.9" in divergentes, saldos["contas_com_tipo_divergente_da_raiz"]
+    # A metade que o docstring descrevia ERRADO: o valor NÃO é omitido —
+    # a raiz "1" (tipo válido, ATIVO) consolida a subárvore inteira,
+    # inclusive "1.9", e a equação fecha em zero (nenhum dinheiro perdido).
+    assert saldos["totais_por_tipo"][TipoConta.ATIVO] == Decimal("1000.00")
+    assert saldos["equacao"]["diferenca"] == Decimal("0.00")
 
 
 def test_tipos_tratados_na_equacao_batem_com_tipoconta(cenario_completo):

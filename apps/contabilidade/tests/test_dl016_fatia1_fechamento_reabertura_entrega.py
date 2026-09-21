@@ -1398,7 +1398,20 @@ def test_criterio11_migracao_0006_sobre_base_com_dados_nao_altera_competencia_ex
     )
 
     alvo_anterior = [("contabilidade", "0005_check_lancamento_empresa_not_null")]
-    alvo_atual = [("contabilidade", "0006_fechamento_reabertura_e_entrega_de_competencia")]
+    # DL-033 (correção de regressão, achada ao rodar a suíte completa desta
+    # etapa): ANTES, `alvo_atual` era o literal `[("contabilidade",
+    # "0006_...")]` — a migração mais recente NO MOMENTO em que este teste
+    # foi escrito. Ao acrescentar a migração 0007
+    # (`0007_conta_classificacao_patrimonial`), esse literal passou a ser a
+    # migração ANTEPENÚLTIMA, não a mais recente: o `finally` abaixo restaurava
+    # o schema para 0006 — sem a coluna `classificacao_patrimonial` — e o
+    # deixava assim pelo resto da SESSÃO de teste inteira (este teste usa
+    # `transaction=True`, então não há rollback automático entre testes),
+    # derrubando com `ProgrammingError` qualquer teste posterior que criasse
+    # uma `Conta`. `leaf_nodes(...)` lê a migração mais recente do GRAFO em
+    # tempo de execução — nunca mais fica desatualizado quando a
+    # `contabilidade` ganhar a próxima migração.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("contabilidade")
     try:
         # Volta o SCHEMA da `contabilidade` para o estado ANTERIOR a esta
         # migração — as outras apps (tenancy, empresas) permanecem na versão
