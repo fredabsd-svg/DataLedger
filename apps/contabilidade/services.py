@@ -16,6 +16,7 @@ from apps.contabilidade.models import (
     ItemLancamento,
     LancamentoContabil,
     NaturezaConta,
+    TipoConta,
     TipoPartida,
 )
 from apps.contabilidade.validators import (
@@ -1562,7 +1563,10 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     Quatro colunas CONSOLIDADAS por conta (saldo_anterior, débitos, créditos,
     saldo_final) mais duas colunas PRÓPRIAS (débitos_proprios,
     creditos_proprios — achado novo 3 da rodada 3 / DE-024 §2, ver comentário
-    junto do `append` abaixo). `nivel` é opcional: ausente, devolve todas as
+    junto do `append` abaixo) e duas colunas de CLASSIFICAÇÃO (`tipo`,
+    `raiz` — DL-032 fatia 1, para `apurar_saldos` agregar por `TipoConta`
+    reusando esta mesma função, sem reimplementar a hierarquia). `nivel` é
+    opcional: ausente, devolve todas as
     contas (analíticas e sintéticas); presente, devolve só as contas com
     nível <= `nivel` (raiz = nível 1) — mas o TOTAL da resposta continua
     somando TODOS os itens do período da empresa, sem recorte (ver
@@ -1786,6 +1790,18 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 # (o valor "continua Decimal até o template" — DL-017,
                 # seção de riscos).
                 "natureza": conta.natureza,
+                # `tipo` e `raiz` (DL-032, fatia 1): expostos SÓ para que
+                # `apurar_saldos` agregue por `TipoConta` sem reabrir o
+                # banco nem reimplementar a hierarquia — os dois vêm do
+                # MESMO objeto `Conta` já carregado nesta função, sem
+                # consulta extra. `raiz` é `conta_pai_id is None`: é o que
+                # permite a `apurar_saldos` somar cada árvore EXATAMENTE
+                # uma vez (a raiz já vem CONSOLIDADA — próprio + toda a
+                # subárvore, regra única de saldo acima —, então somar
+                # TODAS as linhas, não só as raízes, contaria o mesmo
+                # lançamento mais de uma vez).
+                "tipo": conta.tipo,
+                "raiz": conta.conta_pai_id is None,
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
@@ -1826,6 +1842,158 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         "contas": linhas,
         "total_debitos": totais["debitos"],
         "total_creditos": totais["creditos"],
+    }
+
+
+def apurar_saldos(*, empresa, data_base):
+    """Camada de saldos (DL-032, fatia 1): saldo de CADA conta da empresa em
+    `data_base`, mais os cinco totais por `TipoConta` e a equação contábil
+    que fecha nos dois estados do exercício — RC-104 (confirmado pelo Fred em
+    2026-09-20).
+
+    ⚠️ **CONTRATO DE DERIVAÇÃO, não tabela.** Esta função é LEITURA PURA — não
+    grava saldo, cache nem trilha (critério 6; provado por
+    `test_apurar_saldos_nao_grava_nada` (e
+    `test_competencia_encerrada_e_entregue_nao_muda_o_resultado_nem_grava`),
+    capturando as consultas SQL da chamada e conferindo que todas são
+    `SELECT`). Se um dia o desempenho exigir materializar, isso é decisão
+    própria do `arquiteto-senior`, com verificador que reprove divergência —
+    nunca cache silencioso (ver docstring do plano DL-032).
+
+    **Reusa o motor do Balancete — não reimplementa a DE-020.** Chama
+    `apurar_balancete(empresa=empresa, inicio=data_base, fim=data_base)` e lê
+    `saldo_final` de cada linha. Isso é MATEMATICAMENTE equivalente ao saldo
+    em `data_base` de QUALQUER outra chamada a `apurar_balancete` com o MESMO
+    `fim` e um `inicio` diferente (inclusive um início de exercício real),
+    contanto que `inicio <= fim`: `_saldo_por_natureza` é linear em
+    (débito, crédito), e a partição de `apurar_balancete` entre
+    "saldo_anterior" (data < inicio) e "período" (inicio <= data <= fim)
+    cobre exatamente o mesmo universo (data <= fim) qualquer que seja o
+    ponto de corte `inicio` — corta o total em dois pedaços diferentes, mas
+    o produto da soma (com a natureza aplicada UMA vez, no fim, sobre a
+    soma) é o mesmo. **É esta prova, não uma coincidência de teste, que
+    garante o critério 1** (`apurar_saldos` e `apurar_balancete` nunca
+    discordam): as duas funções literalmente fazem a mesma conta.
+
+    **Saldo de abertura (escopo item 5):** `data_base` anterior a qualquer
+    lançamento não é caso especial — `apurar_balancete` já devolve
+    `saldo_final = 0` para toda conta sem movimento até `fim`, então esta
+    função devolve zeros sem precisar de `if`.
+
+    **Data futura e data absurda (critério 7):** qualquer `datetime.date` é
+    aceito, sem checagem de faixa. Não é lacuna: `apurar_balancete` já
+    aceita qualquer par de datas — é o mesmo mecanismo que a DL-020 usa para
+    achar lançamento fora da faixa (BL-198), alargando o período até o ano
+    9999 sem erro. `apurar_saldos` herda esse comportamento por reuso, de
+    propósito: `data_base=date(9999, 12, 31)` sem lançamento nenhum devolve
+    saldo zero em toda conta, não exceção. A validação de FORMATO (texto →
+    `datetime.date`) é responsabilidade da fronteira que ainda não existe
+    nesta fatia (view) — `apurar_saldos`, como `apurar_balancete` e
+    `apurar_razao`, confia que quem chama já entregou um `datetime.date`.
+
+    **A equação, e o momento da verdade (RC-104):**
+    `ativo = passivo + patrimonio_liquido + (receita - despesa)`. O termo
+    `(receita - despesa)` é o resultado AINDA NÃO transferido ao PL — durante
+    o exercício ele é diferente de zero sem que haja erro nenhum; depois do
+    zeramento (RC-104: mensal, trimestral ou anual, por lançamento, contra
+    uma conta "Resultado do Exercício" e desta para "Lucros Acumulados" ou,
+    no prejuízo, para a retificadora "(-) Prejuízos Acumulados") o termo
+    zera por construção e a equação vira a forma clássica — as duas formas
+    são o MESMO cálculo, nunca um `if` de "já encerrou". A diferença
+    (`equacao["diferenca"]`) é CALCULADA e DEVOLVIDA, com valor e sinal;
+    NENHUM saldo é alterado para fechá-la (critério 2) — "o que eu somei
+    fecha, e quando não fecha eu digo, nunca conserto".
+
+    **Os cinco totais por `TipoConta`, e por que são as RAÍZES, não todas as
+    linhas (critério 4, DE-056):** `totais_por_tipo` nasce de
+    `{tipo: 0 for tipo in TipoConta.values}` — lido do MODELO, nunca de uma
+    tupla escrita à mão; um `TipoConta` novo aparece aqui com zero, em vez de
+    ficar de fora em silêncio. A soma em si usa só as linhas com `raiz=True`
+    (`conta_pai is None`): a raiz já vem CONSOLIDADA pela regra única de
+    saldo (própria + TODA a subárvore, com a natureza da RAIZ aplicada uma
+    única vez — DE-020), então somar as raízes cobre a árvore inteira
+    exatamente uma vez. Sem hierarquia (conta sem pai nem filho), cada conta
+    é sua própria raiz e a soma continua correta. **É por isto, e não por
+    uma tabela de "natureza esperada por tipo", que uma retificadora
+    SUBTRAI em vez de somar** (RC-104: "(-) Prejuízos Acumulados", natureza
+    DEVEDORA dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão
+    já existente na base de medição de 73 contas, em "(-) Depreciação
+    acumulada" e em "Deduções da receita bruta"): quem aplica o sinal final
+    é a natureza da RAIZ do grupo (o motor do Balancete, DE-020), nunca a da
+    retificadora isolada — somar `saldo_final` de CADA conta por `tipo`
+    PRÓPRIO (em vez de só das raízes) contaria a retificadora com a
+    natureza DELA, na direção errada, e SOMARIA onde deveria SUBTRAIR (a
+    conta é a prova:
+    `test_retificadora_dentro_do_patrimonio_liquido_subtrai_nunca_soma`).
+    Depende de a retificadora estar aninhada sob um ancestral do MESMO
+    grupo — é assim que o plano de contas de referência do Fred já está
+    estruturado (RC-104), e é exatamente o caso que a DE-020 existe para
+    resolver; um plano de contas em que a retificadora fosse uma raiz
+    isolada (sem ancestral do grupo) não teria como ser corrigido por
+    algoritmo nenhum sem reclassificar a conta — o que esta camada está
+    proibida de fazer.
+
+    **Conta sem tipo coerente com a natureza:** deliberado (o modelo
+    permite retificadora). Esta função NUNCA reclassifica — soma o que está
+    lá, com a natureza e o tipo que a conta tem.
+
+    **Desempenho:** UMA chamada a `apurar_balancete` (já livre de N+1 —
+    3 consultas, independente do número de contas) mais UM laço em Python
+    sobre as linhas já carregadas — mesma classe de custo do Balancete.
+    Medido em `test_desempenho_em_plano_de_contas_realista` num plano de
+    contas realista (73 contas, 4 níveis, mesma base de
+    `scripts/semear_base_de_medicao.py`); o número está no `print` daquele
+    teste, não aqui, para não haver dois lugares para desatualizar.
+    """
+    balancete = apurar_balancete(empresa=empresa, inicio=data_base, fim=data_base)
+
+    contas = [
+        {
+            "conta": linha["conta"],
+            "nome": linha["nome"],
+            "tipo": linha["tipo"],
+            "natureza": linha["natureza"],
+            "nivel": linha["nivel"],
+            "saldo": linha["saldo_final"],
+        }
+        for linha in balancete["contas"]
+    ]
+
+    # DE-056 / critério 4: os totais nascem de TODOS os `TipoConta` do
+    # MODELO — nunca de uma tupla de cinco strings escrita à mão (o
+    # anti-padrão que este projeto já pagou caro). Um tipo novo no modelo
+    # aparece aqui automaticamente, com zero, em vez de ficar fora em
+    # silêncio.
+    zero = Decimal("0")
+    totais_por_tipo = {tipo: zero for tipo in TipoConta.values}
+    for linha in balancete["contas"]:
+        if linha["raiz"]:
+            totais_por_tipo[linha["tipo"]] += linha["saldo_final"]
+
+    ativo = totais_por_tipo[TipoConta.ATIVO]
+    passivo = totais_por_tipo[TipoConta.PASSIVO]
+    patrimonio_liquido = totais_por_tipo[TipoConta.PATRIMONIO_LIQUIDO]
+    receita = totais_por_tipo[TipoConta.RECEITA]
+    despesa = totais_por_tipo[TipoConta.DESPESA]
+    resultado_do_periodo = receita - despesa
+
+    # O momento da verdade: a diferença é CALCULADA e DEVOLVIDA — nunca usada
+    # para ajustar saldo nenhum, aqui ou em quem chama (critério 2).
+    diferenca = ativo - (passivo + patrimonio_liquido + resultado_do_periodo)
+
+    return {
+        "data_base": data_base,
+        "contas": contas,
+        "totais_por_tipo": totais_por_tipo,
+        "equacao": {
+            "ativo": ativo,
+            "passivo": passivo,
+            "patrimonio_liquido": patrimonio_liquido,
+            "receita": receita,
+            "despesa": despesa,
+            "resultado_do_periodo": resultado_do_periodo,
+            "diferenca": diferenca,
+        },
     }
 
 
