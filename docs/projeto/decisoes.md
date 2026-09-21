@@ -3639,3 +3639,141 @@ mediu. A DE-068 continua valendo: `Σ(grupos) + resíduo == totais_por_tipo` é
 verdadeira **por tipo** e **não** limita o erro de grupo nenhum. **O que mudou
 não foi a invariante: foi a prova de que (b) torna o número certo nas duas
 topologias de retificadora que restavam.**
+
+## DE-071 — Desligar uma trava exige prova de COMPORTAMENTO, uma por trava que sobrou; prova de ESTRUTURA não serve
+
+**Data:** 2026-09-21
+
+**Decisão:** quando uma decisão **desliga uma verificação que impedia uma
+operação**, a prova exigida no plano é de **comportamento**: para **cada** trava
+que permaneceu, um cenário em que **só ela** está acionada, exigindo que a
+operação seja **recusada**. E o conjunto desses cenários é **derivado da própria
+estrutura** que lista as travas — `pytest.mark.parametrize` sobre a tupla —, para
+que a trava seguinte **nasça com o cenário junto**.
+
+⚠️ **Prova de estrutura não substitui:** partição, união, interseção vazia,
+congelamento de chaves e contagem de itens provam que **a lista está completa**.
+**Nunca provam que um item está do lado certo.**
+
+**Motivo, medido.** Na [DE-070](#de-070) eu aposentei a condição 3 do Balanço e
+comprei como garantia que as duas tuplas — o que impede e o que só avisa — fossem
+uma **partição exata** do inventário real de `apurar_saldos`. O auditor mediu o
+que essa garantia **não** cobre:
+
+> Movendo, **uma por vez**, cada uma das seis listas que vetam para a tupla que
+> só avisa: **cinco delas passam com 1657 testes verdes**. E para uma —
+> `contas_com_classificacao_aninhada`, justamente a que produz **resíduo zero** —
+> **o Balanço passa a EMITIR**.
+
+A partição continua **verdadeira** depois da troca: união e interseção não mudam
+quando um nome muda de lado. **Partição é invariante de FORMA; veto é
+comportamento.**
+
+⚠️ **E o código escreveu a promessa que a medição desmente**, em dois docstrings
+— o do teste do BL-502 e o de `avaliar_emissao_do_balanco` — afirmando que mover
+uma lista de uma tupla para a outra faria um teste reprovar. **Vale para 1 das
+6.**
+
+**Alternativas descartadas:**
+
+- *Não aposentar a condição 3* — o mérito da DE-070 não está em discussão: o
+  pressuposto que a sustentava foi medido e caiu, e mantê-la recusaria planos
+  corretos. O erro não foi desligar; foi **o que aceitei como prova**.
+- *Um teste escrito à mão por trava* — resolve hoje e apodrece amanhã: a trava
+  seguinte nasce sem cenário. Tem de ser derivado da tupla.
+- *Confiar na revisão humana* — é exatamente a promessa que a A4 da rodada 1 já
+  desmentiu.
+
+**Consequência, e recai sobre mim primeiro:** ao escrever critério de aceite para
+qualquer mudança que **afrouxe** uma verificação, a pergunta obrigatória passa a
+ser *"qual cenário, sozinho, prova que cada trava restante ainda recusa?"* — e a
+resposta vai no plano **antes** da implementação.
+
+⚠️ **Relação com a [DE-058](#de-058), a [DE-068](#de-068) e a
+[DE-069](#de-069):** é a mesma família, na quarta forma. Justificativa escrita
+não é medida (DE-058); invariante precisa de escopo (DE-068); número de auditor
+não testado é hipótese (DE-069); **e prova de estrutura não é prova de
+comportamento**. ⚠️ **A DE-058 precisa alcançar o DOCSTRING, e não só o
+comentário de justificativa** — foi ali que a promessa falsa morou desta vez, e é
+a terceira ocorrência no projeto.
+
+## DE-072 — Critério que toca fronteira definida por norma ou por documento do projeto cita o documento e a fronteira, nunca uma frase de prosa
+
+**Data:** 2026-09-21
+
+**Decisão:** quando um critério de aceite toca uma **fronteira** que uma norma ou
+um documento do projeto define — o que está **dentro** e o que está **fora** de
+um bloco, de uma classe de documento, de um período —, o critério **cita o
+documento e a fronteira**, com a palavra que o documento usa. **Prosa de
+recomendação não vira contrato sem essa citação.**
+
+**Motivo, e o erro é meu e do auditor juntos.** O relatório da rodada 1 da DL-034
+recomendou que a nota do RC-104 *"acompanhe o documento — **dentro do `<thead>`**,
+junto do bloco do item 51"*. Eu transcrevi a frase para a tarefa. O implementador
+leu *"dentro do bloco"* e pôs a nota **dentro** da
+`<div class="identificacao-do-documento">`.
+
+E a [personalizacao-de-relatorio.md](personalizacao-de-relatorio.md), §1, diz
+para a classe 2: *"só **fora** do bloco obrigatório, que sai em cada página"*.
+
+⚠️ **"Dentro do `<thead>`" e "dentro do bloco" são coisas diferentes, e só uma
+respeita a regra do projeto.** A preposição era **carga contratual**. O resultado
+está funcionalmente certo — a nota sai nas seis folhas, medido —, mas o bloco que
+o instrumento trata como "o bloco prescrito pela norma" passou a conter um
+parágrafo que **não é** nenhuma das cinco alíneas, com valor monetário dentro. O
+oráculo do job passou a exigir a nota inteira como parte do bloco normativo.
+
+**Foi o próprio auditor quem achou o erro dele**, na rodada seguinte, sem ser
+perguntado — como na DE-068.
+
+**Alternativas descartadas:**
+
+- *Confiar na leitura do implementador* — ele leu exatamente o que estava
+  escrito. O defeito é do enunciado.
+- *Proibir recomendação em prosa* — perderíamos a melhor parte dos relatórios. O
+  que muda é a **transcrição para o plano**, não o relatório.
+
+**Consequência:** ao transcrever recomendação de auditoria que envolva fronteira,
+eu cito o documento (arquivo e seção) e a palavra que ele usa — *dentro*, *fora*,
+*em cada página* — em vez de reescrever com as minhas palavras. ⚠️ **É a
+[DE-069](#de-069) numa escala menor: desconfie do número que o auditor não
+testou, e desconfie também da PREPOSIÇÃO.**
+
+## DE-073 — Quando duas frentes tocam o mesmo arquivo, o commit de integração declara a procedência
+
+**Data:** 2026-09-21
+
+**Decisão:** quando mais de uma frente tocou o **mesmo arquivo** numa janela de
+trabalho, o **commit de integração declara no corpo** quais arquivos vieram de
+qual frente e **quem mediu o quê**. Não é confissão: é **dado de auditoria**.
+
+**Motivo.** Na rodada de correção da DL-034 um terceiro `especialista-frontend`
+editou `views_web.py`, `balanco.html` e o CSS antes de eu mandá-lo parar —
+sobreposição que **eu** causei ao distribuir. O agente que relatou a frente **não
+escreveu parte do código que relatou**, declarou isso, e afirmou ter medido o que
+herdou.
+
+**Não houve defeito, e o auditor foi preciso sobre o motivo:**
+
+> *"O terceiro agente não quebrou nada. Mas o único motivo de eu poder afirmar
+> isso é que rodei `git diff | grep '^-'` e três mutações — **o histórico não
+> distingue quem escreveu qual hunk**. O commit é uma frente só para quem o lê.
+> (…) a próxima colisão vai depender de o auditor desconfiar — e **desconfiança
+> não é mecanismo**."*
+
+**O custo real da colisão foi tempo de auditoria**, e ele é invisível no relatório
+se ninguém o disser.
+
+**Alternativas descartadas:**
+
+- *Confiar na divisão de arquivos para que isso não aconteça* — a divisão existe e
+  eu a violei mesmo assim. Regra sem registro não sobrevive ao primeiro descuido.
+- *Um commit por frente* — quebraria a integração: o contrato entre servidor e
+  tela mudou no meio da janela, e commitar metade grava um estado vermelho.
+- *Registrar só no relatório* — o relatório não acompanha o arquivo. O commit sim.
+
+**Consequência:** a declaração entra no corpo do commit, junto da lista de
+verificações executadas. E, quando houver código **herdado** de outra frente, a
+tarefa do auditor diz com todas as letras: **verifique o herdado como se ninguém
+o tivesse medido.** Foi o que fiz nesta rodada, e é o que deu base ao V11 do
+relatório.

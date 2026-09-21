@@ -1791,3 +1791,54 @@ declarada.**
 | 5 | Desempenho: o maior documento foi 7 folhas / ~170 contas | **Não medido** |
 | 6 | **Trilha de auditoria da emissão** — a view não registra nada em `apps.auditoria`. Não era critério do plano; **é o evento que um escritório mais precisa saber quando aconteceu e por quem** | **Registrado como pergunta** |
 | 7 | Impressão em papel físico (PE-57/PE-58 seguem abertas) | **Não medido** |
+
+## Reconferência da DL-034 — rodada 2, APROVADA COM RESSALVAS (2026-09-21)
+
+Relatório integral em
+[2026-09-21-dl-034-rodada-2.md](../auditorias/2026-09-21-dl-034-rodada-2.md).
+**BL-499 (o que reprovou), BL-500, BL-501, BL-502, BL-492, BL-503, BL-504,
+BL-508 e BL-509 FECHADOS e medidos.** **A DL-034 está entregue**, em duas
+rodadas. Pela §3.1 **não há terceira**: as ressalvas vão ao backlog com dono.
+
+⚠️ **O achado mais importante da rodada nasceu de uma frase que eu escrevi na
+tarefa do auditor** — *"mova uma lista que hoje impede para a tupla de aviso e
+veja se algum teste de comportamento reprova"*. Rendeu a R2. **O que faltou foi
+exigir esse teste do IMPLEMENTADOR, não do auditor**, e virou a
+[DE-071](decisoes.md#de-071).
+
+⚠️ **E o auditor achou um erro de PREPOSIÇÃO no próprio relatório dele**, que eu
+copiei literalmente: *"dentro do `<thead>`"* virou *"dentro do bloco"*, e a
+`personalizacao-de-relatorio.md` §1 diz *"só fora do bloco obrigatório"*. Virou a
+[DE-072](decisoes.md#de-072).
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-514 | **MÉDIA (R1) — o bloco do item 51 sai INVISÍVEL do papel por declaração de COR, com o job verde E a suíte verde.** Seis sabotagens reprovam (`display:none`, `clip-path`, `font-size:0`, `font-size:1px`, quebra da repetição do `<thead>`, esconder uma alínea só) — **`color: transparent` e `color: #FFFFFF` PASSAM**, código 0. Medido no pixel: na folha 4, cinza mínimo dentro da caixa da palavra "CNPJ" vai de **0 (tinta preta) para 255 (zero pixel de tinta)**; com `#FFFFFF`, 171 — abaixo do piso WCAG que o **próprio instrumento já exige do timbre**. ⚠️ **O oráculo que fecha isto JÁ EXISTE no mesmo arquivo**, escrito e testado para o timbre do escritório (`_localizar_linhas_do_timbre_no_documento`, bbox + contraste por linha, criado no BL-372/J1 depois de ataque idêntico). **Não falta capacidade, falta reuso.** É a PE-61 na última forma sobrevivente | `especialista-frontend` | — | **Aberta — vai na DL-035** | `color: transparent` e `#FFFFFF` no seletor do bloco devolvem **código 1**, com mensagem que nomeie **CONTRASTE** (não "ausente do texto"); as seis sabotagens continuam reprovando; o controle positivo (6 folhas, `folhas_sem_bloco_do_item_51 == []`) continua em **código 0** |
+| BL-515 | **MÉDIA (R2) — a separação veto/aviso É uma porta de saída.** Movendo, uma por vez, cada uma das seis listas que vetam para a tupla de aviso: **cinco passam com 1657 testes verdes**, e para `contas_com_classificacao_aninhada` — justamente a que produz **resíduo zero** — **o Balanço passa a EMITIR** com a pendência declarada. ⚠️ **E dois docstrings prometem o contrário**, afirmando que mover uma lista faria um teste reprovar: **vale para 1 das 6**. É a terceira vez que o projeto escreve, dentro do código, garantia que o teste ao lado não entrega. O teste de partição **não pode** pegar isso: união e interseção não mudam quando um nome troca de lado — **partição é invariante de FORMA; veto é comportamento** | `desenvolvedor-pleno` | — | **Aberta — vai na DL-035** | Um cenário **por lista que veta**, derivado da tupla com `pytest.mark.parametrize(_LISTAS_QUE_IMPEDEM_A_EMISSAO)`: só aquela lista não vazia, resíduo zero, exigindo `pode_emitir is False`. **Prova: as seis mutações reprovam, nomeando a lista movida.** E os dois docstrings corrigidos |
+| BL-516 | **BAIXA (R3) — o BL-499 fechou, mas ESTREITOU.** Duas raízes do **mesmo tipo** com natureza divergente (`1 Clientes` D e `2 (-) PDD` C, as duas raízes, as duas `ativo_circulante`) eram nomeadas em `e20f0a5` (`['1','2']`) e **não são mais** (`[]`). O Balanço é recusado nos dois casos (resíduo 100,00), então **nenhum papel errado sai** — mas a recusa deixou de nomear conta. ⚠️ **E a exclusão de raiz era desnecessária:** o auditor mediu que `(conta_pai, tipo)` **sozinho** já fecha o A1, e que sem o `if` a detecção volta sem quebrar nada. ⚠️ **DECIDIDO por mim: opção (i)** — remover o `if linha["conta_pai"] is not None`, mantendo `(conta_pai, tipo)`, e **reescrever o rótulo** para algo verdadeiro nos dois casos. O implementador ajustou o **dado** para a **frase** continuar verdadeira; o certo é corrigir a frase | `desenvolvedor-pleno` | — | **Aberta — decisão tomada, vai na DL-035** | O cenário L4 aparece em `listas_informativas` com `['1','2']`; L1 e L2 continuam emitindo; o rótulo não afirma "sob o mesmo ancestral não classificado" quando não há ancestral |
+| BL-517 | **BAIXA (R4) — a nota do RC-104 ficou DENTRO do bloco normativo, e a regra do projeto diz "só fora".** `personalizacao-de-relatorio.md` §1, classe 2: *"só **fora** do bloco obrigatório"*. O BL-503 está funcionalmente certo e medido (a nota sai nas 6 folhas), mas `.identificacao-do-documento` passou a conter um quarto parágrafo que não é nenhuma das cinco alíneas, com valor monetário dentro — e o oráculo do job passou a exigir **a nota inteira** como parte do bloco normativo. ⚠️ **A imprecisão de origem é minha e do auditor**: [DE-072](decisoes.md#de-072) | `especialista-frontend` | — | **Aberta — vai na DL-035** | Um segundo `<div class="nota-de-reconciliacao">` **irmão**, dentro do mesmo `<th>` do `<thead>`: a repetição por folha é do `<thead>`, não da `div`. A nota continua nas 6 folhas, e o texto derivado de `.identificacao-do-documento` deixa de conter "não transferido ao Patrimônio Líquido" |
+| BL-518 | **BAIXA (R5) — BL-504 e o aviso da DE-070 estão MEDIDOS e NÃO GUARDADOS.** Substituindo os dois seletores `@media print` por um seletor inexistente: **1657 testes verdes, job verde**, e no PDF real voltam ao papel do cliente *"Balanço pronto para emissão"* e *"Confira se a natureza…"*. O teste confere a **classe no HTML**; nada confere que a folha de estilo ainda desliga o gancho. ⚠️ **Agravante de tendência:** é o **terceiro** modificador `--somente-tela` do projeto, cada um com a mesma regra copiada — **lista crescendo onde cabia propriedade** (AGENTS.md §8) | `especialista-frontend` | — | **Aberta — vai na DL-035** | Guarda **derivada**, não uma terceira asserção: varrer `templates/**` por classe terminada em `--somente-tela` e exigir regra `@media print { display: none }` correspondente em `static/css/**` — assim o modificador seguinte **nasce guardado**. Melhor ainda: classe utilitária única. **Prova: apagar qualquer uma das três regras reprova, nomeando a classe órfã** |
+
+### Ressalvas de gravidade baixa da reconferência (DE-066 — não reabrem rodada)
+
+| ID | Achado | Estado |
+| --- | --- | --- |
+| BL-519 | **B1** — `_PADRAO_BLOCO_IDENTIFICACAO_DO_DOCUMENTO` usa `(.*?)</div>` **não-guloso**: um `<div>` aninhado trunca o texto esperado **em silêncio** (o `_recusar` só dispara com extração vazia, nunca parcial). ⚠️ **E a R4 acabou de acrescentar conteúdo lá dentro** | **Aberta** — fecha junto com BL-517 |
+| BL-520 | **B2** — `N_PARES_PARA_SEIS_FOLHAS = 60` é calibrado contra **este** template, e nada assere que o controle positivo tenha ≥ 6 folhas. Se o documento cair para 2, o job fica verde **medindo menos** | **Aberta** — asserção de piso de folhas |
+| BL-521 | **B3** — o renomeio `resultado_nao_transferido_ptbr` → `resultado_nao_transferido` foi feito **para a varredura parar de reclamar**. O auditor provou por mutação que a guarda **continua mordendo** o valor real. Ainda assim, o certo é a guarda distinguir **condição** de **saída** | **Declarada** — guarda intacta, medida |
+| BL-522 | **B4** — o instrumento passou a **gravar** no banco do job uma empresa de medição própria (CNPJ sintético, 60 pares de contas). Idempotente e declarado; é a primeira vez que este script escreve em vez de só navegar | **Declarada** |
+| BL-523 | **B5** — **BL-507** segue aberto e declarado fora por mim (`_subtotal_do_balanco` reimplementa `NATUREZA_NATURAL_DO_TIPO`). Resultado coincide hoje | **Aberta** — ver BL-507 |
+| BL-524 | **B6** — sobraram no PostgreSQL bancos de teste de outros agentes desta sessão (`ag_bal`, `ag_tela`, `ag_r12`, `esp_frontend_bl501`, `ci_*`, `mig_r3`…). Higiene do BL-273 | **Aberta** — limpeza |
+| BL-525 | **B7** — a emissão do Balanço continua **sem registro em `apps.auditoria`**. Não era critério do plano; **a emissão de uma demonstração contábil é o evento que um escritório mais precisa saber quando aconteceu e por quem** | **Aberta** — pergunta de produto ao Fred |
+
+### O que o auditor NÃO conseguiu medir na reconferência
+
+| # | Limite | Consequência |
+| --- | --- | --- |
+| 1 | `pwsh ./scripts/validate-docs.ps1` — `pwsh` ausente. Ele **reimplementou as cinco regras em Python** (133 arquivos, 0 problemas) e **declarou que é substituto, não o instrumento versionado** | **Testado por substituto declarado** (DE-060 cumprida) |
+| 2 | O job de CI **no runner do GitHub** — rodou o script com o mesmo contrato de código de saída, não o workflow | **Inspecionado no YAML, executado só localmente** |
+| 3 | Validação normativa independente — NBC TG 26 (R5) 51/52 e Lei 6.404/76 art. 178 seguem em **uma** transcrição | **Não medido** — cabe ao Fred |
+| 4 | Contraste do bloco no documento base, medido só nas caixas usadas para provar a R1 (folhas 2 e 4) | **Parcial** |
+| 5 | Concorrência sob carga e desempenho — maior documento: 6 folhas / ~125 contas | **Não medido** |
+| 6 | Papel físico (PE-57/PE-58), Safari, leitor de tela real com accesskey | **Não medido** |
+| 7 | Ordens adversariais da suíte e fuzzing de data-base (BL-506 segue aberto) | **Não medido** |

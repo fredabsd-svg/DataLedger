@@ -889,7 +889,70 @@ está MEDIDO e NÃO GUARDADO** (BL-501).
 o Balanço **pode ser emitido sem zeramento**, e a nota que reconcilia os dois
 totais fica só na folha 1 enquanto os totais saem nas folhas 3 e 6 (BL-503).
 
-**Em curso agora:** a **rodada de correção**, em arquivos **disjuntos** —
+###### A RECONFERÊNCIA APROVOU COM RESSALVAS — `48d65e5`. ✅ **A DL-034 ESTÁ ENTREGUE**
+
+**Relatório integral:
+[2026-09-21-dl-034-rodada-2.md](../auditorias/2026-09-21-dl-034-rodada-2.md).**
+Ressalvas registradas como **BL-514 a BL-525**.
+
+**Os dois achados que reprovaram a rodada 1 fecharam e estão medidos:** os dois
+planos de raiz do A1 **emitem**, e a sabotagem de CSS que o auditor inventou
+**reprova agora com código 1** — junto com mais **quatro** construções que o
+relatório não tinha nomeado. A separação veto/aviso é disjunta e completa contra
+o **inventário real**, `pode_emitir` continua **derivado**, o V1d continua
+recusado **por resíduo e pela condição 4**, e o estado novo (`pode_emitir=True`
+com aviso) aparece na tela e **não** no papel — medido em PDF de verdade.
+Não-regressão conferida por mim **e** por ele: **2107 passed, 14 skipped**,
+`--collect-only 2121`.
+
+⚠️ **As cinco ressalvas são todas sobre GUARDA, não sobre o que o produto
+entrega.** Palavras do auditor: *"nenhum documento errado sai desta revisão"*.
+As duas médias:
+
+- **BL-514** — o bloco normativo sai **invisível do papel** por `color:
+  transparent` / `#FFFFFF`, com job **e** suíte verdes. Medido no pixel: zero
+  tinta. ⚠️ **O oráculo que fecha isto já existe no mesmo arquivo**, para o
+  timbre — falta **reuso**, não capacidade.
+- **BL-515** — mover 5 das 6 listas de veto para a tupla de aviso **não reprova
+  nada**, e para a classificação aninhada **o Balanço passa a emitir**. ⚠️ **E
+  dois docstrings prometem o contrário.**
+
+**Três decisões saíram desta rodada:**
+
+1. **[DE-071](../projeto/decisoes.md#de-071)** — desligar uma trava exige prova
+   de **comportamento**, uma por trava que sobrou, **derivada da tupla**. Prova
+   de **estrutura** (partição, união, congelamento de chaves) prova que a lista
+   está **completa**, nunca que um item está do **lado certo**. ⚠️ **É a quarta
+   forma da mesma família: DE-058, DE-068, DE-069 e agora esta.**
+2. **[DE-072](../projeto/decisoes.md#de-072)** — critério que toca fronteira
+   definida por norma ou documento do projeto **cita o documento e a palavra**.
+   *"Dentro do `<thead>`"* e *"dentro do bloco"* são coisas diferentes, e eu
+   copiei a preposição errada.
+3. **[DE-073](../projeto/decisoes.md#de-073)** — quando duas frentes tocam o
+   mesmo arquivo, o **commit de integração declara a procedência**. A colisão
+   desta rodada foi minha e não produziu defeito — *"e isso foi sorte, não
+   processo"*.
+
+###### ➡️ PRÓXIMA: [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) — as guardas da demonstração
+
+**Decisão minha, em 2026-09-21, informada ao Fred:** as cinco ressalvas viram
+**etapa própria**, não uma terceira volta disfarçada (a §3.1 proíbe a terceira).
+Escopo: BL-514, BL-515, BL-516 (decidido: opção (i), a detecção volta e o rótulo
+é que se corrige), BL-517 + BL-519 e BL-518. **BL-507 destrava ali**, em
+sequência declarada.
+
+⚠️ **Por que não adiar:** este projeto já pagou caro pela distância entre
+**medido** e **guardado** — BL-337 e PE-61/BL-372. A DL-034 fechou com essa
+distância aberta em **dois** pontos.
+
+**Continua com o Fred, e não bloqueia a DL-035:** o Balanço pode ser emitido sem
+zeramento? Três caminhos apresentados a ele em 2026-09-21, com recomendação
+(mostrar o resultado do período dentro do PL, para a demonstração fechar).
+
+---
+
+**Como esta rodada correu, para quem retomar:** a **rodada de correção**, em
+arquivos **disjuntos** —
 **BL-499** (alta), **BL-500** e **BL-502** com o `desenvolvedor-pleno`
 (`services.py`, `models.py` e testes de backend); **BL-501**, **BL-503**,
 **BL-504**, **BL-508** e **BL-509** com o `especialista-frontend`
