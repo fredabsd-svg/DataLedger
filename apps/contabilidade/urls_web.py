@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.contabilidade.views_web import (
     balancete,
+    balanco,
     competencia_entregar,
     competencia_fechar,
     competencia_reabrir,
@@ -54,6 +55,10 @@ urlpatterns = [
         name="razao",
     ),
     path("empresas/<int:empresa_id>/balancete/", balancete, name="balancete"),
+    # DL-034: "balanco", não "balanco-patrimonial" — mesmo padrão curto de
+    # "balancete"/"diario"/"razao" já usados nesta urlconf; o nome completo
+    # do documento aparece no <h1>/<title> da tela, não na URL.
+    path("empresas/<int:empresa_id>/balanco/", balanco, name="balanco"),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-016 fatia 1 no servidor; DL-031 é a PORTA (fatia 2 — painel e as
     # três ações de fechamento). 'ano'/'mes' viajam por querystring (GET,

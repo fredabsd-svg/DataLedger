@@ -1,12 +1,12 @@
 {% comment %}
 Navegação contextual da empresa: Plano de contas, Diário, Balancete,
-Conferência, Fechamento e Novo lançamento. Parcial ÚNICA incluída por TODA
-tela de contabilidade — as DOZE que existem hoje em
-templates/contabilidade/: balancete.html, diario.html, razao.html,
-plano_de_contas.html, conferencia.html, lancamento_form.html,
+Balanço, Conferência, Fechamento e Novo lançamento. Parcial ÚNICA incluída
+por TODA tela de contabilidade — as TREZE que existem hoje em
+templates/contabilidade/: balancete.html, balanco.html, diario.html,
+razao.html, plano_de_contas.html, conferencia.html, lancamento_form.html,
 conta_form.html, lancamento_detalhe.html, fechamento.html,
 competencia_fechar.html, competencia_reabrir.html e
-competencia_entregar.html — para que os MESMOS seis atalhos de teclado
+competencia_entregar.html — para que os MESMOS sete atalhos de teclado
 funcionem identicamente em qualquer uma delas — exigência do
 arquiteto-senior ao aprovar o enxerto de atalhos da DL-026/DE-053:
 "atalho que só existe numa tela não é atalho, é decoração".
@@ -16,6 +16,14 @@ accesskey "z" — arbitrária e DECLARADA como tal (a inicial natural, "f",
 colide com o atalho nativo do navegador em Chrome/Edge, ver a nota de teclas
 abaixo), mesmo padrão que "Conferência" já usa "k" por não ter letra segura
 disponível.
+
+DL-034: "Balanço" entrou como sétimo item, com accesskey "a" — também
+arbitrária e DECLARADA: a inicial natural, "b", colide com o mnemônico de
+Favoritos do menu clássico do Firefox (ver a nota de teclas abaixo, mesma
+lista que já bloqueia "b" para Balancete → "l"). "a" não aparece em nenhuma
+das duas listas de colisão (Chrome/Edge: D/E/F; Firefox: F/E/V/S/B/T/H) nem
+está em uso por nenhum atalho já existente nesta parcial ou em
+templates/base.html (p, m, c, i, l, k, z, n).
 
 B3/BL-283 (auditoria DL-026, rodada 1): até a rodada 2, este comentário
 dizia "toda tela de contabilidade" e listava só SEIS — conta_form.html e
@@ -43,11 +51,12 @@ alguém atualiza um lugar").
 
 Variável esperada no contexto: `empresa` (todas as views já a passam).
 Variável opcional: `pagina_atual`, um destes valores — "plano_de_contas",
-"diario", "balancete", "conferencia", "fechamento", "lancamento_novo" — que
-faz o item correspondente aparecer como texto simples, com
-aria-current="page", em vez de link (a página não linka para si mesma).
-Sem `pagina_atual`, os seis aparecem como link (caso da Razão e das telas de
-ação do fechamento, que não têm "página atual" entre estas seis).
+"diario", "balancete", "balanco", "conferencia", "fechamento",
+"lancamento_novo" — que faz o item correspondente aparecer como texto
+simples, com aria-current="page", em vez de link (a página não linka para
+si mesma). Sem `pagina_atual`, os sete aparecem como link (caso da Razão e
+das telas de ação do fechamento, que não têm "página atual" entre estas
+sete).
 
 Teclas escolhidas evitando as que colidem com o próprio navegador —
 D/E/F em Chrome/Edge (barra de endereço e menu) e, no Firefox, também
@@ -85,6 +94,15 @@ só o rótulo (ver o comentário completo em templates/base.html).
             {% else %}
                 <a href="{% url 'contabilidade_web:balancete' empresa.id %}" accesskey="l" aria-keyshortcuts="Alt+L">
                     Balancete <kbd class="tecla" aria-hidden="true">Alt+L</kbd>
+                </a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "balanco" %}
+                <span class="item-atual" aria-current="page">Balanço</span>
+            {% else %}
+                <a href="{% url 'contabilidade_web:balanco' empresa.id %}" accesskey="a" aria-keyshortcuts="Alt+A">
+                    Balanço <kbd class="tecla" aria-hidden="true">Alt+A</kbd>
                 </a>
             {% endif %}
         </li>

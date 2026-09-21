@@ -751,6 +751,41 @@ button:disabled {
     border-left: var(--traco-fina) solid var(--borda-hairline);
 }
 
+/* DL-034 — o bloco de identificação do item 51 (NBC TG 26) é a PRIMEIRA
+   linha do <thead> do Balanço (templates/contabilidade/balanco.html),
+   dentro de um <th colspan="3"> — só para satisfazer a guarda de escopo
+   (test_todo_cabecalho_de_tabela_declara_escopo) e para repetir junto do
+   <thead> em TODA página impressa (`.tabela-dados thead { display:
+   table-header-group }`, já provado pelo Balancete/BL-282). Ela NÃO é um
+   RÓTULO de coluna — é prosa (razão social, CNPJ, data-base, moeda,
+   arredondamento) — então esta regra, escopada pela classe própria da
+   linha (nunca `:first-child`, que pegaria a PRIMEIRA linha de QUALQUER
+   `.tabela-dados`, inclusive o cabeçalho de coluna de verdade do
+   Balancete/Diário/Razão — a classe teria vazado para outras tabelas),
+   desfaz três coisas que `.tabela-dados th` aplica por padrão a todo
+   cabeçalho: `position: sticky` (senão esta linha disputa `top: 0` com a
+   linha seguinte, "Código/Conta/Saldo", as duas sobrepostas na tela) e a
+   tipografia de RÓTULO (caixa alta, --tipo-2xs, --rastreio-amplo) — este
+   texto é lido como prosa, não como nome de coluna. */
+.linha-identificacao-do-documento th {
+    position: static;
+    text-align: left;
+    text-transform: none;
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-sm);
+    font-weight: 400;
+    letter-spacing: normal;
+    color: var(--tinta);
+}
+
+.linha-identificacao-do-documento p {
+    margin: 0 0 var(--esp-1);
+}
+
+.linha-identificacao-do-documento p:first-child {
+    font-weight: 700;
+}
+
 .tabela-dados tbody tr:hover {
     background: var(--papel-alt);
 }

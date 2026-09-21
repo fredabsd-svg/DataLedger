@@ -47,11 +47,26 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    # DL-034: os cinco nomes abaixo (ClassificacaoPatrimonial, GrupoDaLei,
+    # GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL, TIPO_DA_CLASSIFICACAO_
+    # PATRIMONIAL, TipoConta) servem só a tela do Balanço — ver
+    # `_montar_grupos_do_balanco`/`balanco`, mais abaixo. Nenhum é
+    # redeclarado: são os MESMOS enums e os MESMOS mapas que `apurar_saldos`
+    # (services.py, DL-032/DL-033) já usa para montar `totais_por_grupo`/
+    # `totais_por_classificacao` — a tela só precisa deles para saber COMO
+    # REPARTIR essas duas chaves em seções impressas (quatro subgrupos do
+    # Ativo Não Circulante, título de cada grupo), nunca para recalcular
+    # nada que o servidor já apurou.
+    ClassificacaoPatrimonial,
     Competencia,
     Conta,
     EstadoCompetencia,
+    GrupoDaLei,
     LancamentoContabil,
     NaturezaConta,
+    TipoConta,
     TipoPartida,
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
@@ -76,6 +91,7 @@ from apps.contabilidade.services import (
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
+    apurar_balanco_patrimonial,
     apurar_razao,
     criar_lancamento,
     data_maxima_lancamento,
@@ -2498,6 +2514,377 @@ def balancete(request, empresa_id):
         }
     )
     return render(request, "contabilidade/balancete.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Balanço Patrimonial (DL-034) — nível 1: a primeira DEMONSTRAÇÃO CONTÁBIL
+# que o produto emite (classe 2 de personalizacao-de-relatorio.md), não
+# conferência. "O que eu vou entregar fecha, e eu sei o que ele NÃO diz":
+# quem decide SE PODE emitir é o SERVIDOR
+# (apps.contabilidade.services.avaliar_emissao_do_balanco) — esta view
+# pergunta, obedece e explica; nunca recompõe a decisão.
+# ---------------------------------------------------------------------------
+
+# Rótulo humano de cada lista de pendência que `avaliar_emissao_do_balanco`
+# pode devolver em `emissao["listas_pendentes"]` — SÓ apresentação (a
+# REGRA de quando cada lista fica não vazia mora inteira em services.py,
+# nunca duplicada aqui). `.get(nome, nome)` no ponto de uso cobre uma
+# lista futura que `_LISTAS_DE_PENDENCIA_DO_BALANCO` (services.py) venha a
+# ganhar sem que este dicionário tenha sido atualizado ainda — a tela
+# nomeia a CHAVE crua em vez de quebrar ou silenciar a pendência.
+NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO = {
+    "contas_com_tipo_desconhecido": ("Conta com tipo gravado fora do cadastro (dado corrompido)"),
+    "contas_com_tipo_divergente_da_raiz": (
+        "Conta cujo tipo diverge do tipo da raiz da sua hierarquia"
+    ),
+    "contas_com_classificacao_aninhada": (
+        "Duas contas da mesma hierarquia classificando o mesmo grupo (circulante/não circulante)"
+    ),
+    "contas_com_classificacao_desconhecida": (
+        "Conta com classificação patrimonial gravada fora do cadastro (dado corrompido)"
+    ),
+    "contas_sem_classificacao_patrimonial": (
+        "Conta com saldo, do Ativo ou do Passivo, sem classificação circulante/não circulante"
+    ),
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+        "Contas classificadas de forma independente, sob o mesmo ancestral "
+        "não classificado, com natureza cadastrada diferente entre si"
+    ),
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+        "Conta que agrupa outras contas (não é folha), sem classificação "
+        "própria nem de um ancestral, com movimento lançado diretamente nela"
+    ),
+}
+
+
+def _data_base_do_formulario(request):
+    """Lê e valida 'data_base' da querystring do Balanço — DIFERENTE de
+    `_periodo_do_formulario` (Diário/Razão/Balancete, um INTERVALO): o
+    Balanço é uma FOTOGRAFIA de uma única data (NBC TG 26 item 51(c), "a
+    data de encerramento do período de reporte ou o período coberto").
+
+    Ausência do parâmetro (primeira visita) usa HOJE como valor inicial
+    sugerido — mesma convenção de conveniência de `_periodo_do_formulario`
+    (é a TELA quem escolhe um padrão por conveniência de quem a usa todo
+    dia; `apurar_saldos`/`apurar_balanco_patrimonial` não têm padrão
+    próprio nenhum). Uma data enviada e malformada nunca "cai" no padrão em
+    silêncio — mesma regra de `_periodo_do_formulario`.
+
+    Devolve `(data_base, mensagem_de_erro)`.
+    """
+    bruto = request.GET.get("data_base", "").strip()
+    if not bruto:
+        return timezone.localdate(), None
+    try:
+        return para_data(bruto), None
+    except DataInvalida:
+        return None, "Data inválida: use o seletor de data (ou o formato AAAA-MM-DD)."
+
+
+def _cnpj_mascarado(cnpj):
+    """Formata um CNPJ de 14 caracteres como XX.XXX.XXX/XXXX-XX — MESMA
+    regra de `apps.empresas.views._mascara_cnpj`, reescrita aqui de
+    propósito: esta etapa (DL-034) não tem permissão para editar
+    `apps/empresas/**` (divisão de arquivos do plano), e `_mascara_cnpj`
+    é privada daquele módulo — importar um símbolo de prefixo `_` de outro
+    app seria acoplamento não pretendido por quem o escreveu. Duplicação
+    CONSCIENTE e declarada, não descoberta depois: se a regra de máscara
+    mudar num dos dois lugares, este comentário é o ponto para lembrar do
+    outro. RC-93 exige CNPJ na identificação obrigatória do documento —
+    nenhuma tela de contabilidade mostra CNPJ hoje (PE-51 ainda em aberto
+    sobre "as demais informações"); esta etapa cobre a exigência PARA O
+    BALANÇO, sem prometer que as demais telas já a cumprem.
+
+    Só apresentação: se o valor não tiver exatamente 14 caracteres, devolve
+    o original em vez de mascarar errado.
+    """
+    if len(cnpj) != 14:
+        return cnpj
+    return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
+
+
+def _linhas_de_pendencia(itens):
+    """Uma linha por conta pendente, a partir de UMA das listas de
+    `emissao["listas_pendentes"]` — genérica de propósito: cada lista de
+    `apurar_saldos` nomeia campos diferentes além de "conta"/"nome" (ex.:
+    "tipo"/"tipo_da_raiz", "classificacao_patrimonial"/"...ancestral"), e
+    esta função nunca precisa CONHECER o formato de uma lista específica
+    para mostrar o que ela trouxe — qualquer chave além de "conta"/"nome"
+    vira um par rótulo/valor de apoio. Isso evita que esta view mantenha um
+    catálogo de formatos por lista (a mesma classe de fragilidade que
+    `apurar_saldos` documenta ter trocado por identidade aritmética no
+    resíduo) e faz uma lista NOVA (ex.: uma oitava, amanhã) aparecer
+    completa aqui sem precisar de mudança nenhuma neste módulo.
+    """
+    linhas = []
+    for item in itens:
+        detalhes = [
+            f"{chave}: {valor}" for chave, valor in item.items() if chave not in ("conta", "nome")
+        ]
+        linhas.append(
+            {
+                "conta": item.get("conta"),
+                "nome": item.get("nome"),
+                "detalhe": "; ".join(detalhes) if detalhes else None,
+            }
+        )
+    return linhas
+
+
+def _linha_de_conta_do_balanco(linha):
+    """Uma linha IMPRESSA do Balanço, a partir de uma linha de
+    `saldos["contas"]` (apurar_saldos) — MESMA conversão saldo-assinado ->
+    (valor absoluto, D/C) que o Balancete já usa
+    (`_saldo_absoluto_com_natureza`), pela natureza CADASTRADA desta
+    própria conta (`linha["natureza"]`) — nunca a natureza do grupo: é a
+    mesma prova que RC-61/BL-77 já sustentam para o Razão e o Balancete.
+    """
+    saldo_abs, saldo_natureza = _saldo_absoluto_com_natureza(linha["saldo"], linha["natureza"])
+    natureza_cadastrada = linha["natureza"] if linha["natureza"] in NaturezaConta.values else None
+    return {
+        "codigo": linha["conta"],
+        "nome": linha["nome"],
+        "conta": {"natureza": natureza_cadastrada},
+        "saldo_ptbr": _valor_ptbr(saldo_abs),
+        "saldo_natureza": _indicador_natureza(saldo_natureza),
+    }
+
+
+def _subtotal_do_balanco(valor, tipo_do_grupo):
+    """Um subtotal/total IMPRESSO do Balanço (subgrupo, grupo ou grande
+    total) — mesma conversão de `_linha_de_conta_do_balanco`, mas pela
+    natureza NATURAL DO TIPO (devedora no Ativo, credora no Passivo e no
+    Patrimônio Líquido — o mesmo referencial da normalização do critério 1
+    do plano DL-034/`avaliar_emissao_do_balanco`), porque um subtotal soma
+    VÁRIAS contas e não tem uma única "natureza cadastrada" própria para
+    servir de referência. Reaproveita `_saldo_absoluto_com_natureza`
+    (RC-61) passando essa natureza esperada no lugar da natureza cadastrada
+    de uma conta — mesma função, argumento diferente, nenhuma regra nova.
+    """
+    natureza_esperada = (
+        NaturezaConta.DEVEDORA if tipo_do_grupo == TipoConta.ATIVO else NaturezaConta.CREDORA
+    )
+    valor_abs, natureza_apurada = _saldo_absoluto_com_natureza(valor, natureza_esperada)
+    return {
+        "valor_ptbr": _valor_ptbr(valor_abs),
+        "natureza": _indicador_natureza(natureza_apurada),
+        # Consumido por templates/contabilidade/_saldo_grupo.html — igual
+        # em espírito a `conta.natureza` de `_saldo.html` (RC-61), mas em
+        # texto puro: um SUBTOTAL não tem uma única conta cadastrada para
+        # servir de referência de inversão.
+        "natureza_esperada": (
+            "devedora" if natureza_esperada == NaturezaConta.DEVEDORA else "credora"
+        ),
+    }
+
+
+def _montar_grupos_do_balanco(saldos):
+    """Monta as CINCO seções impressas do Balanço a partir de `saldos`
+    (`apurar_saldos`, dentro de `apurar_balanco_patrimonial`) — Ativo
+    Circulante, Ativo Não Circulante (com os QUATRO subgrupos do art. 178
+    §1º II e o subtotal), Passivo Circulante, Passivo Não Circulante e
+    Patrimônio Líquido (RC-106; escopo do plano DL-034, critério 1) — mais
+    os DOIS grandes totais (Ativo; Passivo + Patrimônio Líquido) que a
+    folha imprime lado a lado para o contador CONFERIR a equação a olho,
+    sem precisar somar na mão.
+
+    ⚠️ Só é chamada quando `emissao["pode_emitir"]` é `True` — quem chama
+    (a view `balanco`) nunca monta esta estrutura para uma apuração
+    pendente (critério "a tela não emite... mostra o que falta").
+
+    As LINHAS de cada (sub)grupo vêm de `saldos["contas"]`, filtradas pelas
+    que DEFINEM uma classificação própria (`classificacao_patrimonial` não
+    `None`) — exatamente o mesmo conjunto que `totais_por_classificacao`
+    soma (ver o docstring de `apurar_saldos`), nunca por prefixo de código
+    nem por nível da árvore. Com `pode_emitir` verdadeiro, nenhuma conta
+    está classificada em mais de um lugar (a lista de aninhamento já
+    garantiu isso) — filtrar por "tem classificação própria" não duplica
+    nenhuma linha.
+    """
+    linhas_por_classificacao = {}
+    for linha in saldos["contas"]:
+        classificacao = linha["classificacao_patrimonial"]
+        if classificacao:
+            linhas_por_classificacao.setdefault(classificacao, []).append(
+                _linha_de_conta_do_balanco(linha)
+            )
+
+    def _secao(classificacao):
+        tipo_do_grupo = TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        return {
+            "titulo": ClassificacaoPatrimonial(classificacao).label,
+            "linhas": linhas_por_classificacao.get(classificacao, []),
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_classificacao"][classificacao], tipo_do_grupo
+            ),
+        }
+
+    # Os QUATRO subgrupos do Ativo Não Circulante, na ORDEM DE DECLARAÇÃO
+    # do enum (art. 178 §1º II: realizável a longo prazo, investimentos,
+    # imobilizado, intangível) — derivados do MAPA da lei (BL-490), nunca
+    # uma lista de strings escrita à mão: toda `ClassificacaoPatrimonial`
+    # cujo grupo da lei é `ATIVO_NAO_CIRCULANTE`.
+    subgrupos_ativo_nao_circulante = [
+        _secao(classificacao)
+        for classificacao in ClassificacaoPatrimonial.values
+        if GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        == GrupoDaLei.ATIVO_NAO_CIRCULANTE
+    ]
+
+    # Patrimônio Líquido é o TERCEIRO grupo do passivo (art. 178 §2º III) —
+    # não é circulante nem não circulante (RC-106) — e por isso não tem
+    # `classificacao_patrimonial` nenhuma. As linhas vêm das RAÍZES de tipo
+    # PATRIMONIO_LIQUIDO (mesmo conjunto que `totais_por_tipo` já soma,
+    # DE-056), no molde do Balancete: cada raiz já vem CONSOLIDADA com a
+    # subárvore inteira (DE-020).
+    linhas_pl = [
+        _linha_de_conta_do_balanco(linha)
+        for linha in saldos["contas"]
+        if linha["raiz"] and linha["tipo"] == TipoConta.PATRIMONIO_LIQUIDO
+    ]
+
+    return {
+        "ativo_circulante": _secao(ClassificacaoPatrimonial.ATIVO_CIRCULANTE),
+        "ativo_nao_circulante": {
+            "titulo": GrupoDaLei.ATIVO_NAO_CIRCULANTE.label,
+            "subgrupos": subgrupos_ativo_nao_circulante,
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_grupo"][GrupoDaLei.ATIVO_NAO_CIRCULANTE], TipoConta.ATIVO
+            ),
+        },
+        "passivo_circulante": _secao(ClassificacaoPatrimonial.PASSIVO_CIRCULANTE),
+        "passivo_nao_circulante": _secao(ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE),
+        "patrimonio_liquido": {
+            "titulo": TipoConta.PATRIMONIO_LIQUIDO.label,
+            "linhas": linhas_pl,
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_tipo"][TipoConta.PATRIMONIO_LIQUIDO],
+                TipoConta.PATRIMONIO_LIQUIDO,
+            ),
+        },
+        "total_ativo": _subtotal_do_balanco(
+            saldos["totais_por_tipo"][TipoConta.ATIVO], TipoConta.ATIVO
+        ),
+        "total_passivo_e_pl": _subtotal_do_balanco(
+            saldos["totais_por_tipo"][TipoConta.PASSIVO]
+            + saldos["totais_por_tipo"][TipoConta.PATRIMONIO_LIQUIDO],
+            TipoConta.PASSIVO,
+        ),
+        # Informativo, NUNCA usado para gatear emissão (essa decisão é
+        # inteira de `avaliar_emissao_do_balanco` — ver o cabeçalho desta
+        # seção): quando não-zero, é o resultado do período que AINDA não
+        # foi transferido ao Patrimônio Líquido por lançamento de
+        # encerramento (RC-104) — é a diferença honesta entre "Total do
+        # Ativo" e "Total do Passivo + PL" que o contador vê no papel, e
+        # que a equação de `apurar_saldos` já calcula. Mostrar isto é
+        # cumprir "eu sei o que ele NÃO diz" em vez de deixar duas somas
+        # divergentes sem explicação no documento. Formatado em VALOR
+        # ABSOLUTO com o sinal preservado só em PALAVRA ("lucro"/
+        # "prejuízo") — nunca "-" na frente do número (RC-90: sinal nunca é
+        # o único canal, e este projeto nem usa sinal para valor negativo
+        # em lugar nenhum do documento).
+        "resultado_nao_transferido_ptbr": (
+            {
+                "valor_ptbr": _valor_ptbr(abs(saldos["equacao"]["resultado_nao_transferido"])),
+                "e_prejuizo": saldos["equacao"]["resultado_nao_transferido"] < 0,
+            }
+            if saldos["equacao"]["resultado_nao_transferido"] != 0
+            else None
+        ),
+    }
+
+
+@login_required
+@require_safe
+def balanco(request, empresa_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    data_base, erro_data_base = _data_base_do_formulario(request)
+    contexto = {"empresa": empresa, "data_base": data_base}
+    if erro_data_base:
+        messages.error(request, erro_data_base)
+        return render(request, "contabilidade/balanco.html", contexto, status=400)
+
+    try:
+        # DE-067: a ÚNICA porta de entrada que gera o documento impresso do
+        # Balanço chama `apurar_balanco_patrimonial` — nunca `apurar_saldos`
+        # direto —, porque só ela paga o snapshot (REPEATABLE READ) que
+        # impede o documento sair com números de dois instantes diferentes.
+        resultado = apurar_balanco_patrimonial(empresa=empresa, data_base=data_base)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/balanco.html", contexto, status=409)
+
+    saldos = resultado["saldos"]
+    emissao = resultado["emissao"]
+
+    contexto.update(
+        {
+            # NBC TG 26 item 51/52 (RC-95) — o bloco de identificação é
+            # consumido pelo template DENTRO do `<thead>` da tabela, para
+            # se repetir em TODA página impressa (critério 4 do plano
+            # DL-034; mesmo mecanismo já provado pelo cabeçalho de coluna
+            # do Balancete, BL-282: `display: table-header-group`).
+            "identificacao": resultado["identificacao"],
+            "cnpj_mascarado": _cnpj_mascarado(empresa.cnpj),
+            # BL-282/RC-97: mesmo timbre do escritório que Balancete/
+            # Diário/Razão já usam — ver o comentário em `diario` para o
+            # contrato completo. Continua só na folha 1 (não é exigência do
+            # item 51, que fala da ENTIDADE cliente, não do escritório
+            # emitente); o bloco que PRECISA repetir em toda folha é o de
+            # `identificacao`, acima, tratado à parte no template.
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # Estado VAZIO (critério do Balancete, B4/BL-283) — calculado
+            # UMA vez, aqui, para o template nunca precisar adivinhar
+            # "ausência de chave" como "vazio": a chave está SEMPRE
+            # presente a partir deste ponto.
+            "empresa_tem_plano_de_contas": bool(saldos["contas"]),
+        }
+    )
+
+    if not saldos["contas"]:
+        # Estado VAZIO: empresa sem NENHUMA conta cadastrada — mesmo
+        # critério do Balancete (B4/BL-283): nada para classificar, nada
+        # para recusar ainda, e mostrar uma recusa aqui confundiria "falta
+        # cadastrar o plano" com "há pendência de classificação".
+        return render(request, "contabilidade/balanco.html", contexto)
+
+    if not emissao["pode_emitir"]:
+        # "O que eu vou entregar fecha, e eu sei o que ele NÃO diz": havendo
+        # QUALQUER pendência, a tela NÃO monta a tabela do Balanço — só o
+        # que falta, nomeado (critério 1 e "o momento da verdade" do plano
+        # DL-034). 200, não um código de erro: a tela RESPONDEU
+        # corretamente à pergunta "pode emitir?" — a resposta é "não, e eis
+        # o porquê", que é sucesso da TELA, não falha de protocolo.
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "residuo_pendente": [
+                    {
+                        "tipo_label": TipoConta(tipo).label,
+                        "diferenca_ptbr": _valor_ptbr(abs(valor)),
+                    }
+                    for tipo, valor in emissao["residuo_pendente"].items()
+                ],
+                "listas_pendentes": [
+                    {
+                        "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO.get(nome, nome),
+                        "linhas": _linhas_de_pendencia(itens),
+                    }
+                    for nome, itens in emissao["listas_pendentes"].items()
+                ],
+            }
+        )
+        return render(request, "contabilidade/balanco.html", contexto)
+
+    contexto.update({"pode_emitir": True, "grupos": _montar_grupos_do_balanco(saldos)})
+    return render(request, "contabilidade/balanco.html", contexto)
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
+    # DL-034: sob o cenário PADRÃO deste módulo (plano de contas simples,
+    # sem `classificacao_patrimonial`), a tela renderiza 200 no estado "não
+    # pode emitir" (ver `views_web.py::balanco` e `avaliar_emissao_do_
+    # balanco` em services.py) — é um 200 de verdade, não uma exceção
+    # tolerada: a tela RESPONDE corretamente "não, e eis o porquê", nunca
+    # 500.
+    "balanco": "contabilidade_web:balanco",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -127,6 +134,10 @@ def _urls_de_contabilidade(cenario):
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),
+        # DL-034: sem querystring — a tela usa HOJE como data-base padrão
+        # (mesma convenção de conveniência do período do Balancete/Diário/
+        # Razão), nunca um padrão do motor de cálculo.
+        "balanco": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
