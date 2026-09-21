@@ -120,8 +120,22 @@ exercício anterior, exportação em arquivo, e o histórico cadastral da alíne
    | --- | --- |
    | 1 | `residuo_por_tipo` é **zero** em todos os tipos |
    | 2 | as **cinco** listas de declaração estão **vazias** |
-   | 3 | **nenhum grupo tem nó topo-classificado irmão de natureza cadastrada divergente**, sob o mesmo ancestral não classificado |
+   | 3 | ~~**nenhum grupo tem nó topo-classificado irmão de natureza cadastrada divergente**, sob o mesmo ancestral não classificado~~ — **APOSENTADA como veto em 2026-09-21, [DE-070](../projeto/decisoes.md#de-070)**: permanece **calculada e declarada**, não impede a emissão |
    | 4 | **nenhum nó não-folha sem classificação própria nem ancestral tem movimento próprio** |
+
+   ⚠️ **Por que a condição 3 caiu, e a data importa.** Eu a mantive como
+   suspensório enquanto **(b) não tivesse prova para retificadora de grupo** —
+   limite que o próprio auditor da DL-033 declarou. A
+   [auditoria da DL-034](../auditorias/2026-09-21-dl-034-rodada-1.md) **mediu a
+   interação e ela não existe**: grupo retificador inteiro irmão do grupo bruto
+   dá `ativo_nao_circulante = 12.000,00`, **certo**, conciliando com
+   `totais_por_tipo` no primeiro centavo. **O pressuposto que sustentava o
+   suspensório deixou de existir**, e a condição 3 passou a recusar apenas
+   números certos — inclusive o Imobilizado com depreciação acumulada em grupo
+   próprio, que é arranjo normal. ⚠️ **Isso NÃO dispensa a correção do A1
+   (BL-499)**: enquanto a lista agrupar por `conta_pai` — `None` para **toda**
+   raiz —, ela nomeia contas corretas numa frase falsa, e **aviso mentiroso é
+   pior que veto mentiroso, porque ninguém o corrige**.
 
    ⚠️ **E a correção de FUNDO, que é a opção (b) do auditor e eu a adoto como
    preferida:** somar o nó classificado **normalizando o sinal pela natureza
@@ -135,9 +149,19 @@ exercício anterior, exportação em arquivo, e o histórico cadastral da alíne
 
    **Teste obrigatório:** o cenário **V1d** do relatório, exigindo **recusa**; e
    **controle positivo** no cenário V1c (cinco classificações, retificadoras em
-   dois grupos, centavos quebrados) exigindo **emissão** com resíduo `0,00`. Se
-   a opção (b) for implementada, exigir também os números certos por grupo:
-   `ativo_circulante == 2.750,00` e `ativo_nao_circulante == 8.500,00`.
+   dois grupos, centavos quebrados) exigindo **emissão** com resíduo `0,00`.
+
+   ⚠️ **CORRIGIDO em 2026-09-21 — o erro era meu.** Este critério exigia
+   *"`ativo_circulante == 2.750,00` e `ativo_nao_circulante == 8.500,00`"* **no
+   V1d**. **O número é impossível**: no V1d o `ativo_nao_circulante` é
+   **8.000,00 e não pode ser outro**, porque (b) corrige **sinal** e o defeito do
+   lado do Imobilizado é de **cobertura** — 500,00 parados num nó sem
+   classificação. Os dois números saíram de uma frase que o **próprio auditor
+   declarou não ter testado**, e eu os promovi a asserção. **O implementador
+   recusou, escreveu por quê, e estava certo.** Virou a
+   [DE-069](../projeto/decisoes.md#de-069). **A forma correta do critério é
+   medir e justificar o valor encontrado**, e quem implementa tem autoridade
+   para recusar o número previsto desde que escreva o motivo.
 
    ⚠️ **A lição de método, que virou [DE-068](../projeto/decisoes.md):**
    **invariante mal dimensionada é mais perigosa que lista, porque parece

@@ -841,6 +841,58 @@ genérica** (item 25: encerramento por lançamentos que transferem o resultado),
 então a pergunta ao Fred ficou menor — foi a regra dele de 2026-09-20, *"consulte
 os manuais antes de me perguntar"*, pagando de novo.
 
+###### AS DUAS FRENTES ENTREGARAM (`e20f0a5`) e a AUDITORIA REPROVOU — por um FALSO POSITIVO
+
+**Relatório integral:
+[2026-09-21-dl-034-rodada-1.md](../auditorias/2026-09-21-dl-034-rodada-1.md).**
+Achados registrados como **BL-499 a BL-513** no
+[backlog](../projeto/backlog.md).
+
+⚠️ **O que reprova é A1, de gravidade ALTA, e é um FALSO POSITIVO — nenhum
+documento errado é produzido.** A guarda estrutural agrupa por `conta_pai`, e
+`conta_pai` é `None` para **toda raiz**: um plano mínimo e legítimo
+(`1 ATIVO CIRCULANTE` devedora, `2 PASSIVO CIRCULANTE` credora, `3 CAPITAL
+SOCIAL`) fica **permanentemente impedido** de emitir, e a tela acusa as duas
+contas com uma frase **factualmente falsa** — *"sob o mesmo ancestral não
+classificado"*, quando não há ancestral — e manda corrigir o que está correto.
+**`Conta.full_clean()` aceita esse plano**: o dado é alcançável pelo produto.
+
+**Tudo o que a etapa prometeu MEDIR foi medido e PASSOU:** a correção (b)
+inclusive na retificadora **de grupo** que ninguém tinha provado
+(`ativo_nao_circulante = 12.000,00`, certo), o bloco do item 51 completo em
+**todas as sete folhas**, o servidor como dono único da decisão (varredura:
+**não existe segunda porta**), autorização com **corpo assertado** (403 sem
+nenhuma das 11 agulhas; 404 byte a byte igual ao inexistente; superusuário sem
+vínculo sem dado), snapshot `repeatable read` provado por mutação, e
+não-regressão **2095 passed, 14 skipped**, `--collect-only 2109`.
+
+**Duas decisões minhas, tomadas ao arquivar:**
+
+1. **[DE-070](../projeto/decisoes.md#de-070) — a condição 3 é APOSENTADA como
+   veto** e vira informação declarada. Eu a mantive como suspensório enquanto
+   (b) não tivesse prova para retificadora de grupo; **o auditor mediu e a
+   interação não existe**. O pressuposto acabou. ⚠️ **Isso não dispensa o A1**:
+   aviso mentiroso é pior que veto mentiroso, porque ninguém o corrige.
+2. **[DE-069](../projeto/decisoes.md#de-069) — e o erro é meu, pela segunda vez
+   seguida.** Promovi a número assertável (`8.500,00`) uma frase que o **próprio
+   auditor declarou não ter testado**. No V1d o valor é **8.000,00 e não pode ser
+   outro**: (b) corrige **sinal**, e o defeito é de **cobertura**. **O
+   implementador recusou o número, escreveu por quê, e estava certo.**
+
+⚠️ **E a sabotagem que eu mandei fazer rendeu o achado que ninguém veria:** três
+linhas de CSS (`@media print { .identificacao-do-documento { display: none; } }`)
+**apagam o bloco normativo de todas as folhas com 1810 testes verdes** — o job de
+CI mede `.timbre-impressao`, nunca `.identificacao-do-documento`. **O critério 4
+está MEDIDO e NÃO GUARDADO** (BL-501).
+
+**Uma pergunta de produto foi ao Fred em 2026-09-21** e não bloqueia a correção:
+o Balanço **pode ser emitido sem zeramento**, e a nota que reconcilia os dois
+totais fica só na folha 1 enquanto os totais saem nas folhas 3 e 6 (BL-503).
+
+**Em curso agora:** a **rodada de correção** — BL-499 (alta) e BL-500, BL-502,
+BL-507 com o `desenvolvedor-pleno`; BL-501, BL-503, BL-504, BL-508, BL-509 com o
+`especialista-frontend`. Depois, **uma reconferência, sem terceira** (§3.1).
+
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
 e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em

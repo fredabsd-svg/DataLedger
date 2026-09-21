@@ -3535,3 +3535,107 @@ não fiz.
 a própria recomendação, sem ser perguntado, na rodada seguinte.** É o
 comportamento que este projeto quer, e é por isso que o erro virou decisão em
 vez de virar nota de rodapé.
+
+## DE-069 — Recomendação que o auditor declarou NÃO ter testado entra como hipótese a medir, nunca como número a assertar
+
+**Data:** 2026-09-21
+
+**Decisão:** quando um relatório de auditoria traz uma recomendação e o próprio
+auditor **declara** que não a implementou nem a testou, ela entra no plano
+**como hipótese a medir**, com a medição escrita como tarefa. ⚠️ **Nunca como
+número literal em critério de aceite**, e nunca como afirmação de que o
+resultado será aquele.
+
+**Motivo — e é a SEGUNDA ocorrência seguida da mesma falha minha.** Na rodada 2
+da DL-033 o auditor sugeriu a correção (b) — normalizar o sinal pela natureza
+natural do tipo — e escreveu, com todas as letras, que **conferira a aritmética
+à mão, sem implementar nem testar**. Escreveu também que, naquele cenário, os
+grupos dariam `ativo_circulante == 2.750,00` e `ativo_nao_circulante ==
+8.500,00`. **Eu copiei os dois números para o critério 1 da DL-034 como
+asserção obrigatória**, e repeti "no V1d" na tarefa do implementador.
+
+**O implementador mediu e recusou, e estava certo.** No V1d o
+`ativo_nao_circulante` é **8.000,00 e não pode ser outro**: (b) corrige
+**sinal**, e o defeito do lado do Imobilizado no V1d é de **cobertura** — 500,00
+parados num nó sem classificação. Nenhuma correção de sinal alcança isso. Ele
+escreveu o motivo no comentário do teste (*"(b) é correção de SINAL, não de
+COBERTURA"*) e montou um controle positivo separado, declarando honestamente que
+**aquele** teste não depende de (b). A auditoria da DL-034 confirmou a
+aritmética dele.
+
+**Na rodada anterior foi a identidade aritmética** (DE-068). **Aqui foi um
+número.** O padrão é o mesmo: frase de auditor promovida a critério **sem ser
+redimensionada**.
+
+**Alternativas descartadas:**
+
+- *Não registrar a recomendação no plano* — pior: a boa ideia se perde e a
+  medição nunca acontece. O valor da recomendação não está em dúvida; o que está
+  em dúvida é o **número**.
+- *Registrar o número com um "aproximadamente"* — critério de aceite não admite
+  advérbio. Ou é asserção, ou é tarefa de medição.
+
+**Consequência, e ela recai sobre mim:** ao transcrever recomendação de
+auditoria para plano, procuro no relatório a declaração de limite do próprio
+auditor. Havendo uma, o critério passa a ter a forma *"medir X no cenário Y e
+registrar o valor encontrado, justificando-o"* — e **quem implementa tem
+autoridade para recusar o número previsto, desde que escreva por quê**. Foi
+exatamente o que aconteceu, e é o comportamento que queremos: a etapa foi salva
+por um implementador que não obedeceu a um critério errado do arquiteto.
+
+⚠️ **Relação com a [DE-058](#de-058) e a [DE-068](#de-068):** justificativa
+escrita não é justificativa medida (DE-058); invariante precisa de escopo
+(DE-068); e agora — **número de auditor sem execução é hipótese, não fato**. As
+três são a mesma família: **o texto convence mais do que a medição que ele não
+teve**.
+
+## DE-070 — A condição 3 do Balanço é APOSENTADA como veto e vira informação declarada; o resíduo continua como cinto
+
+**Data:** 2026-09-21
+
+**Decisão:** a condição 3 do critério 1 da
+[DL-034](../planos/DL-034-a-tela-do-balanco.md) —
+*"nenhum grupo tem nó topo-classificado irmão de natureza cadastrada divergente"*
+— **deixa de impedir a emissão**. Ela permanece **calculada e declarada** na
+resposta, e a tela pode exibi-la como aviso; **não veta**. Permanecem como veto:
+a condição 1 (`residuo_por_tipo` zero), a condição 2 (as listas de declaração
+vazias) e a condição 4 (nó não-folha sem classificação própria nem ancestral com
+movimento próprio).
+
+⚠️ **E isto NÃO dispensa a correção do A1**, que continua **alta e obrigatória**:
+enquanto a lista for calculada agrupando por `conta_pai` — `None` para **toda**
+raiz —, ela **nomeia contas corretas** numa frase factualmente falsa
+(*"sob o mesmo ancestral não classificado"*, quando não há ancestral). Um aviso
+mentiroso é pior que um veto mentiroso, porque ninguém o corrige.
+
+**Motivo.** Eu mandei "cinto e suspensório" — implementar (b) **e** manter as
+guardas 3 e 4 — com um pressuposto explícito e datado: *"o próprio auditor
+declarou o limite da sugestão dele (…) pode haver interação com retificadora **de
+grupo** que ele não enxergou"*. **A auditoria da DL-034 mediu essa interação e ela
+não existe:** com grupo retificador inteiro irmão do grupo bruto — a forma
+clássica do Imobilizado brasileiro —, `ativo_nao_circulante = 12.000,00`, certo,
+conciliando com `totais_por_tipo` no primeiro centavo. E na topologia do BL-486
+puro, `ativo_circulante = 1.170,00`, certo. **O pressuposto que sustentava o
+suspensório deixou de existir**; a partir daí a condição 3 só recusa casos em que
+o número está **certo**.
+
+**O caso concreto que isso destrava:** empresa com depreciação acumulada
+classificada como grupo próprio — arranjo normal — não emitia Balanço.
+
+**Alternativas descartadas:**
+
+- *Manter a condição 3 como veto* — recusaria permanentemente planos corretos.
+  O auditor colocou a bifurcação com precisão: mantê-la obriga a corrigir A1 de
+  qualquer forma, e mesmo corrigida ela vetaria a retificadora de grupo, cujo
+  número está provado certo.
+- *Apagar a condição 3 inteira* — perderíamos um sinal barato sobre plano de
+  contas incoerente. Declarar custa nada e não bloqueia ninguém.
+- *Substituir por veto só quando o resíduo for diferente de zero* — é a
+  condição 1, que já existe; não acrescenta.
+
+**Consequência:** a condição 4 permanece **veto** porque cobre o defeito de
+**cobertura** (valor que some dos grupos), que (b) não alcança — é o que o V1d
+mediu. A DE-068 continua valendo: `Σ(grupos) + resíduo == totais_por_tipo` é
+verdadeira **por tipo** e **não** limita o erro de grupo nenhum. **O que mudou
+não foi a invariante: foi a prova de que (b) torna o número certo nas duas
+topologias de retificadora que restavam.**
