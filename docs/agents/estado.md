@@ -889,9 +889,23 @@ está MEDIDO e NÃO GUARDADO** (BL-501).
 o Balanço **pode ser emitido sem zeramento**, e a nota que reconcilia os dois
 totais fica só na folha 1 enquanto os totais saem nas folhas 3 e 6 (BL-503).
 
-**Em curso agora:** a **rodada de correção** — BL-499 (alta) e BL-500, BL-502,
-BL-507 com o `desenvolvedor-pleno`; BL-501, BL-503, BL-504, BL-508, BL-509 com o
-`especialista-frontend`. Depois, **uma reconferência, sem terceira** (§3.1).
+**Em curso agora:** a **rodada de correção**, em arquivos **disjuntos** —
+**BL-499** (alta), **BL-500** e **BL-502** com o `desenvolvedor-pleno`
+(`services.py`, `models.py` e testes de backend); **BL-501**, **BL-503**,
+**BL-504**, **BL-508** e **BL-509** com o `especialista-frontend`
+(`views_web.py`, templates, CSS, instrumento de medição e testes de tela).
+Depois, **uma reconferência, sem terceira** (§3.1).
+
+⚠️ **BL-507 fica DE FORA desta rodada, e a decisão é minha, com o motivo
+escrito:** a correção mora em `views_web.py` (frente da tela) mas depende de uma
+entrada nova em `NATUREZA_NATURAL_DO_TIPO`, que mora em `models.py` (frente do
+servidor). **Duas frentes no mesmo passo criam dependência de ordem entre
+agentes que correm em paralelo** — é exatamente o que a divisão de arquivos
+existe para evitar. É gravidade **baixa**, o resultado hoje **coincide**, e a
+DE-066 não manda reabrir rodada por baixa. **Fica aberto e nomeado**, não
+esquecido. **BL-506, BL-510, BL-511, BL-512 e BL-513** também seguem abertos:
+os dois primeiros e o quarto são limites declarados, e **BL-511 depende de uma
+decisão de apresentação que ainda não tomei**.
 
 **AGORA, em 2026-09-20:
 [DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
