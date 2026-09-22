@@ -171,7 +171,7 @@ def test_view_balancete_quando_totais_divergem_retorna_409_e_nao_renderiza(
         empresa=cen["empresa"], inicio=hoje.replace(day=1), fim=hoje, nivel=None
     )
 
-    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
         divergente = dict(apuracao_real)
         divergente["total_creditos"] = apuracao_real["total_creditos"] + Decimal("0.01")
         return divergente

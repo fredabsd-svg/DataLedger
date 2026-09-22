@@ -1008,6 +1008,24 @@ button:disabled {
     white-space: nowrap;
 }
 
+/* DL-027 Fatia B.2: o critério de apuração é um grupo de radio
+   buttons, não um input único — o wrapper recebe `flex-wrap` para
+   quebrar em uma segunda linha quando a tela é estreita, e cada opção
+   carrega sua própria classe para acessibilidade por teclado (o radio
+   é o controle focável, o texto é o rótulo). Mantém o padrão dos
+   outros campos do formulário (`.campo`) para o rótulo à esquerda e
+   a entrada à direita. */
+.campo-criterio-de-apuracao {
+    flex-wrap: wrap;
+}
+
+.campo-criterio-de-apuracao__opcao {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--esp-1);
+    font-weight: 400;
+}
+
 .formulario-periodo input[type="date"] {
     font-family: var(--fonte-numerica);
 }

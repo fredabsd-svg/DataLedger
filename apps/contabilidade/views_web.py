@@ -490,6 +490,38 @@ def _nivel_do_formulario(request):
     return nivel, None
 
 
+_CRITERIOS_DE_APURACAO_VALIDOS = frozenset({"todas", "com_movimento"})
+_TEXTO_DO_CRITERIO = {
+    "todas": "todas as contas",
+    "com_movimento": "apenas contas com movimento no período",
+}
+
+
+def _criterio_de_apuracao_do_formulario(request):
+    """Lê e valida o parâmetro opcional 'criterio_de_apuracao' do Balancete
+    (DL-027 Fatia B.2).
+
+    Ausente (ou vazio) devolve `("todas", None)` — o default, que mantém o
+    comportamento atual. Presente e fora do conjunto aceito vira mensagem
+    de erro, nunca um 500 silencioso nem a aceitação de um valor
+    desconhecido que passaria pelo service sem filtro.
+
+    O par devolvido é `(valor_normalizado, mensagem_de_erro)` — mesmo
+    contrato de `_nivel_do_formulario` e `_periodo_do_formulario`, para a
+    view tratar uniformemente.
+    """
+    bruto = request.GET.get("criterio_de_apuracao", "").strip()
+    if not bruto:
+        return "todas", None
+    if bruto not in _CRITERIOS_DE_APURACAO_VALIDOS:
+        opcoes = ", ".join(sorted(_CRITERIOS_DE_APURACAO_VALIDOS))
+        return (
+            "todas",
+            f"'Critério de apuração' deve ser um destes: {opcoes}.",
+        )
+    return bruto, None
+
+
 # ---------------------------------------------------------------------------
 # Plano de contas
 # ---------------------------------------------------------------------------
@@ -2362,16 +2394,34 @@ def balancete(request, empresa_id):
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
     nivel, erro_nivel = _nivel_do_formulario(request)
-    contexto = {"empresa": empresa, "inicio": inicio, "fim": fim, "nivel": nivel}
+    criterio, erro_criterio = _criterio_de_apuracao_do_formulario(request)
+    contexto = {
+        "empresa": empresa,
+        "inicio": inicio,
+        "fim": fim,
+        "nivel": nivel,
+        "criterio_de_apuracao": criterio,
+        "criterio_de_apuracao_texto": _TEXTO_DO_CRITERIO[criterio],
+        "criterio_de_apuracao_opcoes": sorted(_CRITERIOS_DE_APURACAO_VALIDOS),
+    }
     if erro_periodo:
         messages.error(request, erro_periodo)
         return render(request, "contabilidade/balancete.html", contexto, status=400)
     if erro_nivel:
         messages.error(request, erro_nivel)
         return render(request, "contabilidade/balancete.html", contexto, status=400)
+    if erro_criterio:
+        messages.error(request, erro_criterio)
+        return render(request, "contabilidade/balancete.html", contexto, status=400)
 
     try:
-        apuracao = apurar_balancete(empresa=empresa, inicio=inicio, fim=fim, nivel=nivel)
+        apuracao = apurar_balancete(
+            empresa=empresa,
+            inicio=inicio,
+            fim=fim,
+            nivel=nivel,
+            criterio_de_apuracao=criterio,
+        )
     except HierarquiaInconsistente as exc:
         messages.error(request, str(exc))
         return render(request, "contabilidade/balancete.html", contexto, status=409)

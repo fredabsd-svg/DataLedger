@@ -902,7 +902,7 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
         nivel=None,
     )
 
-    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
         # As LINHAS continuam vindo da apuração real (para a tabela e a
         # soma "própria" do rodapé baterem entre si, como já testado por
         # test_balancete_soma_das_linhas_proprias_bate_com_rodape) — só o

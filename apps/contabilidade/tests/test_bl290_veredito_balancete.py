@@ -144,7 +144,7 @@ def test_totais_divergentes_e_nao_fecha_com_diferenca(client, cen, monkeypatch):
         empresa=cen["empresa"], inicio=hoje.replace(day=1), fim=hoje, nivel=None
     )
 
-    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
         # Só o TOTAL é corrompido — as linhas continuam vindo da apuração
         # real, para a soma "própria" das linhas bater com o rodapé (o que
         # já é coberto por outro teste); aqui o que importa é só a faixa.
@@ -185,7 +185,7 @@ def test_veredito_e_decidido_em_decimal_nao_por_texto(client, cen, monkeypatch):
         empresa=cen["empresa"], inicio=hoje.replace(day=1), fim=hoje, nivel=None
     )
 
-    def _apuracao_quase_igual(*, empresa, inicio, fim, nivel=None):
+    def _apuracao_quase_igual(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
         divergente = dict(apuracao_real)
         # `_valor_ptbr` faz `.quantize(Decimal("0.01"))` — 300,004 e 300,00
         # formatam para o MESMO texto ("300,00"); só a comparação em
