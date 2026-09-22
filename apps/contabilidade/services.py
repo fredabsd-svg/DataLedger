@@ -1978,6 +1978,93 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     }
 
 
+def avaliar_emissao_do_balancete(apuracao):
+    """DL-027 Fatia B (item 3 do plano): decide, no SERVIDOR, se o Balancete
+    de verificação PODE ser emitido a partir do resultado de
+    `apurar_balancete`, e devolve um veredito estruturado para a view
+    consumir.
+
+    Função PURA: não toca em banco, não lê request, não chama models.
+    Recebe a apuração pronta (o mesmo dict que `apurar_balancete`
+    devolve) e devolve três chaves:
+
+    - `pode_emitir` (bool): a decisão que a view obedece.
+    - `veredito` (Literal["fecha", "nao_fecha", "nada_a_conferir"]):
+      rótulo para a faixa do documento, no mesmo formato que a view já
+      usava para o display (BL-290 / A2 da DL-026 rodada 2).
+    - `diferenca_ptbr` (Optional[str]): `None` exceto quando `veredito
+      == "nao_fecha"`, onde traz `|total_debitos - total_creditos|` em
+      pt-BR (`_valor_ptbr`) — a tela mostra onde está o desvio.
+
+    TrÊS ramos:
+
+    1. `nada_a_conferir`: total_debitos == 0 E total_creditos == 0 — não
+       há o que conferir (sem movimento no período). **Pode emitir**
+       (o BL-302/B4 da DL-026 corrigiu exatamente o veto silencioso que
+       dizer "Fecha" sobre 0,00/0,00 seria).
+    2. `fecha`: total_debitos == total_creditos, com movimento no
+       período. **Pode emitir**.
+    3. `nao_fecha`: total_debitos != total_creditos. **NÃO pode
+       emitir** — o documento sai com um desvio que a partida dobrada
+       proíbe. Por construção de `criar_lancamento`, isto é
+       inalcançável em uso normal do produto; a porta existe para o dia
+       em que algo corromper o dado (rede de segurança — uma rede que
+       ninguém nunca viu funcionar não é rede).
+
+    Comparação em `Decimal`, nunca em texto pt-BR já formatado (a mesma
+    lição do BL-290: `_valor_ptbr` arredonda, e 300,004 vs 300,00 viram
+    o mesmo "300,00" lado a lado). A função `_valor_ptbr` mora na
+    view porque é formatação para a tela; aqui só decide em Decimal.
+
+    Não verifica autorização nem papel: o que a `request` pode fazer
+    continua sendo da `view` (e da `Empresa.objects.filter(...)` que
+    antecede a chamada a `apurar_balancete`).
+
+    O contrato paralelo é o de `avaliar_emissao_do_balanco` (DL-034):
+    mesma forma de devolver a decisão, mesma regra de "decide no
+    server, view pergunta e obedece". Diário e Razão vão reusar a
+    mesma estrutura quando entrarem na mesma etapa — é o catálogo
+    do plano, não três implementações separadas (AGENTS.md §8).
+    """
+    total_debitos = apuracao["total_debitos"]
+    total_creditos = apuracao["total_creditos"]
+
+    if total_debitos == 0 and total_creditos == 0:
+        return {
+            "pode_emitir": True,
+            "veredito": "nada_a_conferir",
+            "diferenca_ptbr": None,
+        }
+    if total_debitos == total_creditos:
+        return {
+            "pode_emitir": True,
+            "veredito": "fecha",
+            "diferenca_ptbr": None,
+        }
+    diferenca = abs(total_debitos - total_creditos)
+    return {
+        "pode_emitir": False,
+        "veredito": "nao_fecha",
+        "diferenca_ptbr": _formatar_diferenca_ptbr(diferenca),
+    }
+
+
+def _formatar_diferenca_ptbr(valor_decimal):
+    """`Decimal` → pt-BR com 2 casas. Função local de `services` (não
+    importa a de `views_web`) porque a função pura não pode puxar o
+    módulo da view — `views_web` importa `services` (dependência
+    invertida), e o ciclo seria import-time. A view usa a sua
+    própria `_valor_ptbr` para o display, e aqui só calcula o texto
+    que vai na mensagem do veto."""
+    # Mesma convenção que `_valor_ptbr` em views_web — quantiza a 2
+    # casas e troca ponto por vírgula. Replicado aqui por simetria com
+    # a regra do AGENTS.md §8 ("evitar duplicação de regras entre
+    # tela, API, tarefa e IA"); a view continua usando a sua. É
+    # formatação de moeda: 1 lugar, 1 regra.
+    quantizado = valor_decimal.quantize(Decimal("0.01"))
+    return f"{quantizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def apurar_saldos(*, empresa, data_base):
     """Camada de saldos (DL-032, fatia 1): saldo de CADA conta da empresa em
     `data_base`, mais os cinco totais por `TipoConta` e a equação contábil
