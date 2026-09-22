@@ -1,9 +1,18 @@
-"""BL-244 (DL-024): trilha do painel administrativo.
+"""BL-244 (DL-024) / DL-030: trilha do painel administrativo.
 
 Medido pelo auditor: nenhum `apps/*/admin.py` chama `registrar()`. Salvar
-ou excluir `Empresa`, `Conta`, `Estabelecimento`, `HistoricoRegimeTributario`,
-`Escritorio` ou `VinculoUsuarioEscritorio` pelo admin saía sem rastro na
-trilha do produto (só o `LogEntry` interno do Django, log de framework).
+ou excluir modelo administrável pelo admin saía sem rastro na trilha do
+produto (só o `LogEntry` interno do Django, log de framework).
+
+DL-030 substituiu a cobertura original (tupla fixa de seis modelos,
+`MODELOS_DA_TRILHA_DO_ADMIN`) por uma PROPRIEDADE derivada do registro de
+apps do Django — ver `signals.modelos_cobertos_pela_trilha()` e o teste
+`test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_exclusao`
+abaixo. Os testes de R2 (guarda da cobertura), R4 (redação de segredo), R5
+(atomicidade do admin), R6 (escritório do objeto) e R7 (inline) da DL-030
+vivem em `apps/core/tests/test_dl030_trilha_cobre_o_admin.py`, arquivo
+próprio da etapa — este arquivo manteve os testes originais da DL-024
+que continuam válidos sem alteração de comportamento.
 
 Esta correção adiciona três signals genéricos em
 `apps/auditoria/signals.py`:
@@ -65,34 +74,54 @@ def test_thread_local_de_current_request_existe():
         )
 
 
-def test_signals_de_admin_existem_e_cobrem_os_seis_modelos():
-    """`apps/auditoria/signals.py` precisa definir `MODELOS_DA_TRILHA_DO_ADMIN`
-    com exatamente os seis modelos da CA-4:
-    `Empresa`, `Conta`, `Estabelecimento`, `HistoricoRegimeTributario`,
-    `Escritorio`, `VinculoUsuarioEscritorio`.
+def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_exclusao():
+    """DL-030 (R1), substituindo o RETRATO anterior (tupla fixa de seis
+    nomes — `MODELOS_DA_TRILHA_DO_ADMIN`, removida): a cobertura agora é a
+    PROPRIEDADE "todo modelo concreto de app PRÓPRIO do projeto está
+    coberto, exceto o que estiver declarado em
+    `EXCLUSAO_DA_TRILHA_DO_ADMIN` com motivo".
 
-    Cobertura explícita (não ancorada em `sender=Model`) porque se
-    `ModelAdmin` for registrado para um modelo que NÃO está aqui, a
-    falha tem de ser visível (em vez de cair fora por engano).
+    Não é mais um conjunto fixo de nomes — modelo novo criado em
+    `apps/*/models.py` (accounts, auditoria, contabilidade, core,
+    empresas, tenancy) precisa aparecer aqui SOZINHO, sem editar este
+    teste. Hoje são doze modelos concretos nesses apps; a lista serve só
+    de evidência do estado medido, não de fonte da verdade (a fonte é
+    `signals.modelos_cobertos_pela_trilha()`).
     """
+    from apps.accounts.models import Usuario
     from apps.auditoria import signals
+    from apps.auditoria.models import RegistroAuditoria
+    from apps.contabilidade.models import Competencia, Conta, ItemLancamento, LancamentoContabil
+    from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+    from apps.tenancy.models import ConviteEscritorio, Escritorio, VinculoUsuarioEscritorio
 
-    assert hasattr(signals, "MODELOS_DA_TRILHA_DO_ADMIN"), (
-        "BL-244: `MODELOS_DA_TRILHA_DO_ADMIN` precisa existir em signals.py"
-    )
+    cobertos = signals.modelos_cobertos_pela_trilha()
 
-    esperados = {
-        "Empresa",
-        "Conta",
-        "Estabelecimento",
-        "HistoricoRegimeTributario",
-        "Escritorio",
-        "VinculoUsuarioEscritorio",
+    esperados_cobertos = {
+        Usuario,
+        Escritorio,
+        VinculoUsuarioEscritorio,
+        ConviteEscritorio,
+        Empresa,
+        HistoricoRegimeTributario,
+        Estabelecimento,
+        Competencia,
+        Conta,
+        LancamentoContabil,
+        ItemLancamento,
     }
-    nomes = {m.__name__ for m in signals.MODELOS_DA_TRILHA_DO_ADMIN}
-    assert nomes == esperados, (
-        f"BL-244: lista da trilha do admin divergente.\n"
-        f"Esperado: {sorted(esperados)}\nObtido: {sorted(nomes)}"
+    assert cobertos == esperados_cobertos, (
+        f"DL-030: cobertura da trilha divergente.\n"
+        f"Esperado: {sorted(m.__name__ for m in esperados_cobertos)}\n"
+        f"Obtido: {sorted(m.__name__ for m in cobertos)}"
+    )
+    # RegistroAuditoria é a única exclusão hoje, e precisa continuar FORA
+    # da cobertura e DENTRO da lista de exclusão com motivo (evita o laço
+    # "trilha audita a si mesma" — ver docstring de EXCLUSAO_DA_TRILHA_DO_ADMIN).
+    assert RegistroAuditoria not in cobertos
+    assert RegistroAuditoria in signals.EXCLUSAO_DA_TRILHA_DO_ADMIN
+    assert signals.EXCLUSAO_DA_TRILHA_DO_ADMIN[RegistroAuditoria], (
+        "DL-030: toda exclusão precisa ter motivo não vazio escrito"
     )
 
 

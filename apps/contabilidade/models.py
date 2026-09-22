@@ -16,11 +16,23 @@ class LancamentoImutavelError(Exception):
 class EstadoCompetencia(models.TextChoices):
     """Ciclo de vida da competência contábil de uma empresa.
 
-    O fluxo previsto é `aberta -> em_encerramento -> encerrada`, com
-    `em_encerramento` reservado para a janela em que alguém iniciou o
-    fechamento mas ainda não consolidou (F3 — fechamento). Por enquanto F1
-    só cria a coluna e o default: as regras de transição moram em F2 (abrir
-    automaticamente o mês corrente) e F3 (passar de aberta para encerrada).
+    ⚠️ **Decisão da fatia 1 da DL-016, registrada aqui porque o campo já
+    existia com um plano de transição diferente do que foi implementado**
+    (o comentário anterior previa `aberta -> em_encerramento -> encerrada`,
+    de um plano F3/F4 que a DE-050 substituiu): o plano vigente
+    (`docs/planos/DL-016-competencia-e-fechamento.md`, seção "Fatia 1")
+    manda fechar com a transição DIRETA `aberta -> encerrada`. `EM_ENCERRAMENTO`
+    é, portanto, **RESERVADO e NÃO ALCANÇÁVEL** por nenhum código de produção
+    desta fatia — nenhum service escreve este valor. Ele continua declarado
+    no enum só para não quebrar a migração já aplicada (a coluna já existe
+    com estes três valores em `choices`) e para deixar um nome pronto **se**
+    um dia o produto precisar de um fechamento em duas etapas (ex.: uma
+    janela de conferência antes de consolidar) — decisão de produto que
+    ninguém tomou ainda. `test_dl016_fatia1_fechamento_reabertura_entrega.py`
+    tem um teste que prova esta reserva: nenhuma chamada aos services de
+    fechar/reabrir/entregar desta fatia deixa uma `Competencia` em
+    `EM_ENCERRAMENTO`.
+
     O estado é persistido como texto curto, não como FK, porque o domínio é
     fechado e a lista de valores é do próprio projeto (RC do DL-016).
     """
@@ -50,6 +62,32 @@ class Competencia(models.Model):
     - Não há nada a ganhar com um único campo `DATE`: a data do PRIMEIRO dia
       do mês seria convencional, e a regra de "mês fechado" sempre lê o par
       (ano, mês), não a data. Manter o par explícito reduz surpresa.
+
+    ## Fatia 1 da DL-016 (fechamento, reabertura, entrega)
+
+    Quatro campos novos, todos `null=True`/`blank=True` (nenhuma competência
+    existente muda de valor com a migração — critério 11 do plano):
+
+    - `fechada_em`/`fechada_por`: quando `estado == ENCERRADA`, registram
+      QUEM fechou e QUANDO (além do registro de auditoria em
+      `apps.auditoria`, que é a trilha completa — estes dois campos existem
+      para responder "quem fechou este mês" sem precisar consultar a
+      trilha). Reabrir (`apps.contabilidade.services.reabrir_competencia`)
+      LIMPA os dois: eles descrevem o fechamento ATUAL, não o histórico —
+      quem quer o histórico completo (inclusive fechamentos/reaberturas
+      anteriores) consulta `RegistroAuditoria`.
+    - `entregue_em`/`entregue_por`: **fato datado**, não um quarto estado
+      (decisão do `arquiteto-senior`, RC-101). Diferente de
+      `fechada_em`/`fechada_por`, estes DOIS campos NUNCA são limpos por
+      nenhum service desta fatia — uma vez entregue, a competência
+      permanece "entregue" para sempre (a trava de RC-101 depende disso:
+      reabrir uma competência entregue é recusado justamente PORQUE o fato
+      "já foi entregue" não se desfaz). "Marcar como entregue" pode ser
+      chamado mais de uma vez (a entrega "pode repetir-se" — balancete ao
+      cliente, depois ECD transmitida, no texto do plano): cada chamada
+      apenas ATUALIZA os dois campos para o evento mais recente; se um dia
+      for preciso o HISTÓRICO de todas as entregas (não só a última), isso
+      vira modelo próprio, sem refazer esta trava (nota do plano).
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="competencias")
@@ -62,6 +100,46 @@ class Competencia(models.Model):
         default=EstadoCompetencia.ABERTA,
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    fechada_em = models.DateTimeField(
+        "fechada em",
+        null=True,
+        blank=True,
+        help_text=(
+            "Preenchido quando o estado passa a 'encerrada'. Limpo se a competência for reaberta."
+        ),
+    )
+    fechada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="fechada por",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Usuário que fechou a competência (RC do DL-016, critério 3 da fatia 1).",
+    )
+    # RC-101 / decisão do arquiteto-senior: "entregue" é um FATO DATADO,
+    # nunca um quarto estado de `estado`. Ver o docstring da classe para o
+    # contrato completo (inclusive por que estes dois campos NUNCA são
+    # limpos por nenhum service, ao contrário de `fechada_em`/`fechada_por`).
+    entregue_em = models.DateTimeField(
+        "entregue em",
+        null=True,
+        blank=True,
+        help_text=(
+            "Data/hora em que o documento desta competência (balancete, ECD etc.) foi "
+            "entregue ao cliente. Uma vez preenchido, a reabertura da competência é "
+            "sempre recusada (RC-101) — o ajuste passa a ser feito no mês aberto."
+        ),
+    )
+    entregue_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="entregue por",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Usuário que marcou a competência como entregue.",
+    )
 
     class Meta:
         verbose_name = "competência"
@@ -130,6 +208,152 @@ class NaturezaConta(models.TextChoices):
     CREDORA = "credora", "Credora"
 
 
+class ClassificacaoPatrimonial(models.TextChoices):
+    """Classificação circulante × não circulante do Balanço Patrimonial —
+    DL-033, fatia 1. Fonte oficial (**RC-106**, com texto literal em
+    `docs/projeto/requisitos.md`): Lei 6.404/1976, art. 178, §1º e §2º
+    (redação da Lei 11.941/2009), e NBC TG 26 (R5), item 60.
+
+    No ATIVO a lei nomeia QUATRO subgrupos do não circulante (art. 178
+    §1º, II) — **não são dois grupos, são dois grupos e quatro
+    subdivisões** (o erro que o plano da DL-033 avisa para não cometer). No
+    PASSIVO não há subdivisão do não circulante: a lei separa só passivo
+    circulante de passivo não circulante — o TERCEIRO grupo do passivo,
+    Patrimônio Líquido, fica FORA desta classificação (não é circulante
+    nem não circulante; é o terceiro grupo, ao lado dos outros dois). Por
+    isso não há valor aqui para Patrimônio Líquido, Receita nem Despesa —
+    os dois últimos não fazem parte do Balanço Patrimonial.
+
+    ⚠️ **Decisão de modelagem — HI-18/PE-64 (`arquiteto-senior`):** este é
+    um CAMPO da conta, propriedade FIXA — não é calculado por data (a
+    norma é relativa à data do balanço, mas o produto não recalcula
+    sozinho). A passagem de longo prazo para curto prazo se faz por
+    LANÇAMENTO de reclassificação (conta nova + transferência do saldo),
+    nunca editando este campo de uma conta já movimentada — ver a guarda
+    em `Conta.clean()`, no mesmo molde do BL-83/BL-245/BL-261
+    (natureza/tipo). **Reversível com custo baixo** se o Fred (PE-64)
+    responder que o escritório dele edita a própria conta em vez de
+    lançar: o campo continua, e só a guarda muda (de "recusa" para
+    "versiona").
+
+    `Conta.classificacao_patrimonial` é `null=True`: conta existente (e
+    conta nova de Patrimônio Líquido/Receita/Despesa) nasce SEM
+    classificação — o produto NUNCA infere a partir do código ou do nome
+    da conta (a classe de erro do achado A2/BL-475 da DL-032, que reprovou
+    a etapa anterior por decidir grupo pela posição na árvore). É o
+    contador quem classifica; a camada de saldos só DECLARA o que falta
+    (critério 5 do plano DL-033) — nunca corrige, nunca presume.
+    """
+
+    ATIVO_CIRCULANTE = "ativo_circulante", "Ativo circulante"
+    ATIVO_NAO_CIRCULANTE_REALIZAVEL_A_LONGO_PRAZO = (
+        "ativo_nao_circulante_realizavel_a_longo_prazo",
+        "Ativo não circulante — realizável a longo prazo",
+    )
+    ATIVO_NAO_CIRCULANTE_INVESTIMENTOS = (
+        "ativo_nao_circulante_investimentos",
+        "Ativo não circulante — investimentos",
+    )
+    ATIVO_NAO_CIRCULANTE_IMOBILIZADO = (
+        "ativo_nao_circulante_imobilizado",
+        "Ativo não circulante — imobilizado",
+    )
+    ATIVO_NAO_CIRCULANTE_INTANGIVEL = (
+        "ativo_nao_circulante_intangivel",
+        "Ativo não circulante — intangível",
+    )
+    PASSIVO_CIRCULANTE = "passivo_circulante", "Passivo circulante"
+    PASSIVO_NAO_CIRCULANTE = "passivo_nao_circulante", "Passivo não circulante"
+
+
+# Fonte ÚNICA (DE-056/critério 1 do plano DL-033) de qual `TipoConta` cada
+# `ClassificacaoPatrimonial` pertence — usada pela guarda de consistência em
+# `Conta.clean()` logo abaixo. Existe num dict, ao lado do enum que ele
+# descreve, para (a) nunca comparar por PREFIXO DE STRING (frágil a rename
+# do valor) e (b) permitir a um teste derivado reprovar se um valor novo de
+# `ClassificacaoPatrimonial` nascer sem entrada aqui — o mesmo padrão que a
+# DL-032 já usa para `TipoConta.values` em `apurar_saldos`.
+TIPO_DA_CLASSIFICACAO_PATRIMONIAL = {
+    ClassificacaoPatrimonial.ATIVO_CIRCULANTE: TipoConta.ATIVO,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_REALIZAVEL_A_LONGO_PRAZO: TipoConta.ATIVO,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS: TipoConta.ATIVO,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_IMOBILIZADO: TipoConta.ATIVO,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INTANGIVEL: TipoConta.ATIVO,
+    ClassificacaoPatrimonial.PASSIVO_CIRCULANTE: TipoConta.PASSIVO,
+    ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE: TipoConta.PASSIVO,
+}
+
+
+# BL-496 (RESSALVA R1 da rodada 2 de auditoria da DL-033, opção (b) adotada
+# no critério 1 do plano DL-034 — DE-068): a natureza NATURAL de cada
+# `TipoConta` que participa da separação circulante/não circulante —
+# devedora no Ativo, credora no Passivo (Lei 6.404/76; a mesma convenção
+# que o docstring de `Conta`, acima, já registra como "regra geral", que a
+# MODELAGEM não impõe de propósito, porque conta retificadora existe).
+#
+# Usada por `apurar_saldos` (services.py) para somar um nó TOPO
+# classificado normalizando o sinal por ESTA natureza, em vez de pela
+# natureza CADASTRADA da própria conta (`Conta.natureza`/`linha["natureza"]`
+# do Balancete). Sem isto, duas contas IRMÃS com natureza cadastrada
+# diferente, ambas classificadas no MESMO grupo — ex.: "Clientes" devedora
+# (1.220,00) e "(-) PDD" credora (50,00), ambas `ativo_circulante` — somavam
+# cada saldo já assinado pela PRÓPRIA natureza (1.220,00 + 50,00 = 1.270,00)
+# em vez de aplicar UMA natureza sobre o valor combinado, como a regra
+# única de saldo (DE-020) já exige para hierarquia — o correto é
+# 1.220,00 − 50,00 = 1.170,00. Ver a RESSALVA R1 (cenário V1d) e o critério
+# 1 da DL-034.
+#
+# Só tem entrada para os `TipoConta` que participam da classificação
+# (exatamente `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`, conferido pelo
+# teste derivado `test_mapa_natureza_natural_cobre_exatamente_os_tipos_
+# classificaveis`) — Patrimônio Líquido, Receita e Despesa ficam de fora de
+# propósito, no mesmo espírito de `residuo_por_tipo`: a pergunta "qual é o
+# lado natural deste tipo, para o Balanço Patrimonial" não se aplica a eles
+# aqui.
+NATUREZA_NATURAL_DO_TIPO = {
+    TipoConta.ATIVO: NaturezaConta.DEVEDORA,
+    TipoConta.PASSIVO: NaturezaConta.CREDORA,
+}
+
+
+class GrupoDaLei(models.TextChoices):
+    """Os QUATRO grupos que a Lei 6.404/76, art. 178, realmente nomeia para
+    fins de separação circulante/não circulante (BL-490, achado A5 da
+    auditoria da DL-033): ativo circulante, ativo não circulante — o
+    GUARDA-CHUVA dos quatro subgrupos do art. 178 §1º II (realizável a
+    longo prazo, investimentos, imobilizado, intangível) —, passivo
+    circulante e passivo não circulante. **Não são sete grupos: são
+    quatro** — `ClassificacaoPatrimonial` tem sete valores porque o Ativo
+    Não Circulante se subdivide em código (para a conta poder apontar para
+    o subgrupo exato), mas o SUBTOTAL que a lei manda imprimir no Balanço é
+    só "Ativo Não Circulante", sobre a soma dos quatro.
+    """
+
+    ATIVO_CIRCULANTE = "ativo_circulante", "Ativo circulante"
+    ATIVO_NAO_CIRCULANTE = "ativo_nao_circulante", "Ativo não circulante"
+    PASSIVO_CIRCULANTE = "passivo_circulante", "Passivo circulante"
+    PASSIVO_NAO_CIRCULANTE = "passivo_nao_circulante", "Passivo não circulante"
+
+
+# Segundo mapa derivado (BL-490): dos SETE valores de `ClassificacaoPatrimonial`
+# para os QUATRO grupos que a lei nomeia — existe para que NENHUM código nem
+# teste precise comparar por PREFIXO DE STRING (`startswith("ativo")`, o
+# antipadrão que o achado apontou no próprio teste do critério 4) para somar
+# "todo o Ativo Não Circulante", por exemplo. Ao lado do enum que descreve,
+# como `TIPO_DA_CLASSIFICACAO_PATRIMONIAL` acima.
+GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL = {
+    ClassificacaoPatrimonial.ATIVO_CIRCULANTE: GrupoDaLei.ATIVO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_REALIZAVEL_A_LONGO_PRAZO: (
+        GrupoDaLei.ATIVO_NAO_CIRCULANTE
+    ),
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INVESTIMENTOS: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_IMOBILIZADO: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.ATIVO_NAO_CIRCULANTE_INTANGIVEL: GrupoDaLei.ATIVO_NAO_CIRCULANTE,
+    ClassificacaoPatrimonial.PASSIVO_CIRCULANTE: GrupoDaLei.PASSIVO_CIRCULANTE,
+    ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE: GrupoDaLei.PASSIVO_NAO_CIRCULANTE,
+}
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -146,6 +370,18 @@ class Conta(models.Model):
     nome = models.CharField("nome", max_length=200)
     tipo = models.CharField("tipo", max_length=20, choices=TipoConta.choices)
     natureza = models.CharField("natureza", max_length=10, choices=NaturezaConta.choices)
+    # DL-033/RC-106: circulante × não circulante do Balanço Patrimonial —
+    # PROPRIEDADE da conta (decisão HI-18), `null=True`/`blank=True` porque
+    # conta existente (e conta de Patrimônio Líquido/Receita/Despesa) nasce
+    # SEM classificação; ninguém infere a partir do código ou do nome (ver
+    # o docstring de `ClassificacaoPatrimonial`, acima).
+    classificacao_patrimonial = models.CharField(
+        "classificação (circulante/não circulante)",
+        max_length=60,
+        choices=ClassificacaoPatrimonial.choices,
+        null=True,
+        blank=True,
+    )
     aceita_lancamento = models.BooleanField(
         "aceita lançamento",
         default=True,
@@ -239,6 +475,32 @@ class Conta(models.Model):
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
             raise ValidationError("A conta pai deve pertencer à mesma empresa.")
 
+        # DL-033/RC-106: a classificação circulante/não circulante só existe
+        # para ATIVO e PASSIVO (Lei 6.404/76, art. 178, §1º/§2º) — Patrimônio
+        # Líquido é o TERCEIRO grupo do passivo, ao lado de circulante/não
+        # circulante, nunca dentro; Receita e Despesa não fazem parte do
+        # Balanço. Guarda de CONSISTÊNCIA interna (não é regra nova: é o que
+        # a própria norma já delimita), roda em TODA gravação — inclusive
+        # conta nova, sem `self.pk` — porque não depende de histórico. Usa
+        # `.get(...)` com `None` de propósito: um valor gravado fora de
+        # `ClassificacaoPatrimonial` (só alcançável por ORM/SQL direto, já
+        # que `choices` valida na tela e no serializer) não tem entrada no
+        # mapa — esta guarda se cala nesse caso em vez de estourar
+        # `KeyError`, mesma defesa em profundidade já usada para `tipo`
+        # desconhecido na camada de saldos (achado A1/BL-476 da DL-032).
+        if self.classificacao_patrimonial:
+            tipo_esperado = TIPO_DA_CLASSIFICACAO_PATRIMONIAL.get(self.classificacao_patrimonial)
+            if tipo_esperado is not None and self.tipo != tipo_esperado:
+                rotulo_classificacao = ClassificacaoPatrimonial(
+                    self.classificacao_patrimonial
+                ).label
+                rotulo_tipo_esperado = TipoConta(tipo_esperado).label
+                raise ValidationError(
+                    f'A classificação "{rotulo_classificacao}" não é compatível com o '
+                    f"tipo desta conta: só se aplica a contas de tipo {rotulo_tipo_esperado} "
+                    "(Lei 6.404/76, art. 178)."
+                )
+
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
         # sem esta checagem, atribuir como pai uma conta descendente da
         # própria conta (inclusive a própria conta, o caso degenerado de
@@ -330,7 +592,14 @@ class Conta(models.Model):
         if self.pk:
             original = (
                 Conta.objects.filter(pk=self.pk)
-                .values("empresa_id", "natureza", "tipo", "conta_pai_id", "empresa__escritorio_id")
+                .values(
+                    "empresa_id",
+                    "natureza",
+                    "tipo",
+                    "conta_pai_id",
+                    "empresa__escritorio_id",
+                    "classificacao_patrimonial",
+                )
                 .first()
             )
             if original is not None:
@@ -457,16 +726,52 @@ class Conta(models.Model):
 
                 mudou_natureza = original["natureza"] != self.natureza
                 mudou_tipo = original["tipo"] != self.tipo
+                # DL-033 (RC-106/HI-18): mesma lógica de TRANSIÇÃO acima,
+                # agora para a classificação circulante/não circulante —
+                # campo NOVO desta etapa, com uma diferença DELIBERADA em
+                # relação ao molde do BL-83: só conta como TROCA (bloqueável
+                # com movimento) quando já havia uma classificação GRAVADA e
+                # o valor novo é diferente dela. A PRIMEIRA classificação
+                # (gravado `None` -> qualquer valor) é SEMPRE livre, mesmo
+                # com movimento — é o caminho que o contador precisa para
+                # classificar o plano de contas JÁ EM USO: toda conta nasce
+                # SEM classificação nesta etapa (nenhuma migração classifica
+                # nada — ver `ClassificacaoPatrimonial`), e quase toda conta
+                # real de uma empresa em operação já tem movimento. Se a
+                # guarda bloqueasse também a primeira classificação, o
+                # recurso ficaria inutilizável: NENHUMA conta existente
+                # poderia ser classificada sem antes estornar tudo.
+                # Preencher o que faltava não reescreve nenhum Balanço
+                # anterior — antes da 1ª classificação a conta simplesmente
+                # não entrava em grupo nenhum (aparecia em `contas_sem_
+                # classificacao_patrimonial`, camada de saldos); TROCAR ou
+                # APAGAR uma classificação já declarada, essa sim,
+                # reescreveria um grupo que já apareceu num Balanço.
+                classificacao_gravada = original["classificacao_patrimonial"]
+                mudou_classificacao = (
+                    classificacao_gravada is not None
+                    and classificacao_gravada != self.classificacao_patrimonial
+                )
                 # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
-                # só roda quando natureza OU tipo de fato mudaram (short-
-                # circuit: a consulta recursiva de `_tem_movimento_proprio_
-                # ou_de_descendente` custa mais que `itens_lancamento.
-                # exists()`, e não há razão para pagá-la numa gravação que
-                # não toca nenhum dos dois campos). Movimento de QUALQUER
-                # descendente conta, não só o próprio: é a correção do
-                # requisito, não só do código — ver o docstring do método.
+                # só roda quando natureza, tipo OU classificação de fato
+                # mudaram (short-circuit: a consulta recursiva de
+                # `_tem_movimento_proprio_ou_de_descendente` custa mais que
+                # `itens_lancamento.exists()`, e não há razão para pagá-la
+                # numa gravação que não toca nenhum dos três campos).
+                # Movimento de QUALQUER descendente conta, não só o
+                # próprio — é a correção do requisito, não só do código
+                # (ver o docstring do método) — e vale igualmente para a
+                # classificação: reclassificar um GRUPO com movimento
+                # herdado de descendente reescreveria o Balanço da mesma
+                # forma que trocar a natureza/tipo do grupo reescreveria o
+                # Balancete (é a MESMA classe de dano, era só uma questão
+                # de tempo até precisar da mesma defesa). Computa o
+                # movimento no MÁXIMO uma vez para as duas guardas.
                 mudou_algo = mudou_natureza or mudou_tipo
-                if mudou_algo and self._tem_movimento_proprio_ou_de_descendente():
+                tem_movimento_para_guarda = None
+                if mudou_algo or mudou_classificacao:
+                    tem_movimento_para_guarda = self._tem_movimento_proprio_ou_de_descendente()
+                if mudou_algo and tem_movimento_para_guarda:
                     campo = (
                         "a natureza"
                         if mudou_natureza and not mudou_tipo
@@ -480,6 +785,25 @@ class Conta(models.Model):
                         "sinal (ou a classificação) do histórico da conta ou do grupo no "
                         "Balancete. Estorne o movimento antes de reclassificar, ou "
                         "cadastre uma conta nova."
+                    )
+
+                # DL-033 (RC-106/HI-18): mensagem PRÓPRIA — diferente da de
+                # natureza/tipo acima de propósito. O caminho certo aqui
+                # NÃO é estornar e cadastrar conta nova: é LANÇAR A
+                # RECLASSIFICAÇÃO (transferir o saldo para uma conta nova
+                # já com a classificação correta), porque a HI-18 decidiu
+                # que a classificação é propriedade FIXA da conta — editar
+                # uma conta já movimentada reescreveria, em silêncio,
+                # Balanços já entregues ao cliente que leram aquele saldo
+                # daquela conta.
+                if mudou_classificacao and tem_movimento_para_guarda:
+                    raise ValidationError(
+                        "Não é possível mudar a classificação (circulante/não "
+                        "circulante) desta conta: ela ou uma conta descendente já "
+                        "tem lançamento gravado — o Balanço já apurado com esta "
+                        "conta mudaria retroativamente. Cadastre uma conta nova "
+                        "com a classificação correta e lance a RECLASSIFICAÇÃO "
+                        "(a transferência do saldo), em vez de editar esta conta."
                     )
 
         # BL-261 (terceiro caminho da BL-83, achado novo 1 da auditoria DL-023
@@ -632,6 +956,31 @@ class LancamentoContabil(models.Model):
                 fields=["empresa", "chave_idempotencia"],
                 condition=models.Q(chave_idempotencia__isnull=False),
                 name="chave_idempotencia_unica_por_empresa",
+            ),
+            # BL-455/A5 (achado pré-existente, corrigido na rodada 2 de
+            # auditoria da fatia 1 — o `arquiteto-senior` autorizou tocar
+            # `apps/core/restricoes.py` para fechar esta correção): a
+            # `CheckConstraint` que a migração 0005 adicionou ao BANCO por
+            # `AddConstraint` avulso (hand-written) nunca tinha sido
+            # DECLARADA aqui, em `Meta.constraints` — divergência que fazia
+            # `manage.py makemigrations --check` reprovar em HEAD limpo
+            # (medido, não presumido) e que, se alguém aplicasse o resultado
+            # de um `makemigrations` real, DERRUBARIA esta defesa de banco
+            # contra `empresa_id NULL` por INSERT direto (DE-051). A
+            # declaração agora bate com o banco; nenhuma migração nova foi
+            # necessária — a 0005 já registrou esta constraint no ESTADO de
+            # migração (`manage.py makemigrations --check --dry-run`
+            # responde "No changes detected"; BL-465, achado B3 da rodada 2
+            # de auditoria: a versão anterior deste comentário citava uma
+            # "migração corretiva (0007)" que nunca existiu — mesma família
+            # do BL-460, comentário afirmando um artefato que não existe).
+            # Registrada também em
+            # `apps/core/restricoes.py::RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
+            # (exigido pela varredura de `apps/core/tests/test_dl019_
+            # varredura_de_restricoes.py`).
+            models.CheckConstraint(
+                condition=models.Q(empresa_id__isnull=False),
+                name="ck_lancamentocontabil_empresa_not_null",
             ),
         ]
 

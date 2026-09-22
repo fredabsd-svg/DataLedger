@@ -77,49 +77,65 @@ Usar os estados: `planejada`, `em desenvolvimento`, `em validação`, `bloqueada
 
 Não declarar uma etapa finalizada se faltar teste, push, PR ou verificação obrigatória. Falta de credenciais ou indisponibilidade do serviço deve ser registrada como bloqueio, nunca como sucesso.
 
+## 3.1 Níveis de risco — a cerimônia é proporcional ao dano
+
+**Regra criada em 2026-09-20 por ordem do Fred**, depois de medir que o projeto
+tinha **3,9 linhas de teste para cada linha de sistema** e que **47,7% delas
+guardavam o andaime, não a contabilidade**: *"estamos girando no mesmo lugar …
+preciso codar mais."*
+
+**O defeito do processo anterior era tratar todo trabalho como se tivesse o mesmo
+risco.** Uma regra de arredondamento monetário e uma guarda de folha de estilo
+pagavam plano, cinco etapas, PR por etapa, checklist e auditoria — iguais.
+
+| Nível | O que é | Cerimônia obrigatória |
+| --- | --- | --- |
+| **1 — o dinheiro e o livro** | Lançamento, saldo, conta, competência e fechamento, trilha de auditoria, isolamento entre empresas, cálculo monetário, e **o documento entregue ao cliente** | **Tudo**: plano, critérios de aceite, testes de sucesso/erro/limite, e **auditoria independente** |
+| **2 — o que o contador usa** | Telas, fluxos, relatórios de conferência, importadores, API | Plano de **uma página**; testes do **comportamento**; auditoria **só na primeira entrega do módulo**, não a cada rodada |
+| **3 — andaime** | Guardas, varreduras, ferramenta interna, CI, infraestrutura de documentação | **Sem plano, sem auditoria, sem registro de decisão.** Uma guarda **derivada** por regra, e só |
+
+**Como classificar, em uma pergunta:** *"se isto estiver errado, o contador
+perde dinheiro, perde dado ou entrega documento errado?"* Sim → nível 1. Não,
+mas ele vê → nível 2. Ele nem sabe que existe → nível 3.
+
+### A regra de parada, e ela é OBRIGATÓRIA
+
+**Auditoria é por etapa, não por rodada.** Uma auditoria, uma correção, uma
+reconferência. **A terceira rodada é PROIBIDA**: ela significa que o **critério
+de aceite** estava errado, não que o código está. Reabra o critério com o Fred em
+vez de comprar mais uma rodada.
+
+**Guarda que falha duas vezes é APAGADA, não corrigida pela terceira vez.** Se
+uma verificação precisou de duas correções, ela está no nível errado de
+abstração; o custo de mantê-la já superou o de perdê-la.
+
+⚠️ **Estas duas regras nasceram de medição, não de opinião:** a DL-026/DL-028
+consumiu **doze rodadas de auditoria**, e o próprio `auditor-qa` escreveu, na
+décima segunda, que *"o instrumento está certo sobre o produto há seis rodadas
+seguidas; o que não converge é a tentativa de provar uma frase que promete mais
+do que qualquer instrumento consegue"*. A cadeia BL-415 → BL-416 → BL-418 →
+BL-419 são **quatro guardas, cada uma guardando a anterior**.
+
+### O que NÃO muda
+
+**O nível 1 não perde nada.** Nenhuma linha de teste de regra contábil se corta,
+e a auditoria independente continua **obrigatória** nele. Andar mais rápido é
+deixar de pagar cerimônia onde não há dano — **nunca** onde há dinheiro do
+cliente.
+
 ## 4. Processo dividido por etapas
 
-### Etapa 1 — Diagnóstico e plano
+Cinco fases, e **a quantidade de PR por fase é do nível de risco** (§3.1), não da regra: nível 1 entrega fase a fase; níveis 2 e 3 podem entregar em um PR só.
 
-- Inspecionar o projeto e reproduzir o problema, quando houver.
-- Registrar o comportamento atual, o comportamento esperado e os critérios de aceite.
-- Definir arquitetura, contratos e plano de testes na proporção necessária.
-- Criar ou atualizar os documentos do plano.
-- Validar a documentação, caminhos, links locais e comandos documentados.
-- Concluir com commit, push e PR da etapa de planejamento.
+| Fase | O que produz |
+| --- | --- |
+| **1. Diagnóstico e plano** | Reproduzir o problema; registrar comportamento atual, esperado e **critérios de aceite**; definir arquitetura e contratos na proporção necessária. |
+| **2. Fundação** | Só a estrutura que a demanda exige: contratos, permissões, modelo, migração. Reusar padrão existente; justificar dependência nova. |
+| **3. Implementação** | Incrementos pequenos e testáveis. Não misturar módulos sem relação no mesmo PR. |
+| **4. Integração e regressão** | Fluxo completo, módulos afetados, suíte obrigatória, permissões e consistência de dados. |
+| **5. Entrega** | Documentação de uso e limitações; instalação e migração em ambiente limpo; evidências no PR. |
 
-### Etapa 2 — Fundação técnica necessária
-
-- Implementar apenas a estrutura necessária à demanda: contratos, permissões, modelo de dados, migrações ou configuração.
-- Aproveitar padrões existentes e justificar novas dependências.
-- Testar isolamento, validações, persistência e compatibilidade afetados.
-- Concluir com commit, push e PR próprio.
-
-### Etapa 3 — Implementação em incrementos funcionais
-
-- Dividir a funcionalidade em incrementos pequenos, revisáveis e testáveis.
-- Para cada incremento: implementar, comentar decisões relevantes, testar, revisar e documentar.
-- Integrar interface, backend e persistência quando fizerem parte do mesmo fluxo.
-- Cada incremento constitui uma etapa independente, com commit, push e PR próprios.
-- Não concentrar vários módulos ou mudanças sem relação em um único PR.
-
-### Etapa 4 — Integração e regressão
-
-- Validar o fluxo completo e os módulos que recebem seus efeitos.
-- Executar os testes de regressão afetados e a suíte obrigatória do projeto.
-- Verificar falhas de integração, reprocessamento, permissões e consistência de dados.
-- Versionar testes adicionais, correções ou relatório de validação, conforme os resultados.
-- Concluir com commit, push e PR próprio.
-
-### Etapa 5 — Entrega e operação
-
-- Finalizar a documentação de uso, execução, configuração e limitações.
-- Validar instalação e migrações em ambiente limpo ou equivalente reproduzível.
-- Verificar observabilidade e reversão quando aplicáveis.
-- Registrar evidências finais em documento versionado e no PR.
-- Concluir com commit, push e PR próprio.
-
-Para demandas pequenas, adaptar a quantidade de etapas no plano, mantendo todos os controles aplicáveis. Não criar commits vazios apenas para cumprir o processo: cada etapa deve produzir código, testes ou documentação útil e verificável.
+**Não criar commit vazio para cumprir processo:** cada entrega produz código, teste ou documentação útil e verificável.
 
 ## 5. Ciclo obrigatório ao concluir cada etapa
 
@@ -190,20 +206,14 @@ Regras adicionais:
 
 ## 8. Boas práticas de programação
 
-- Seguir a arquitetura e as convenções do projeto.
 - Separar interface, regras de negócio, persistência, integrações e protocolo MCP.
 - Evitar duplicação de regras entre tela, API, tarefas em segundo plano e ferramentas de IA.
-- Usar nomes que expressem a intenção e funções com responsabilidade definida.
 - Validar entradas nos limites do sistema e usar contratos explícitos.
-- Tratar erros de maneira consistente, com mensagens úteis e sem exposição de informações sensíveis.
 - Não ignorar exceções nem converter falhas em sucesso aparente.
 - Usar transações para operações que precisam ser atômicas.
 - Implementar idempotência para importações, cobranças e operações sujeitas a repetição.
 - Preservar compatibilidade de contratos ou versionar alterações incompatíveis.
-- Avaliar manutenção, licença, segurança e necessidade de cada nova dependência.
-- Evitar abstrações prematuras, soluções excessivamente complexas e otimizações sem evidência.
-- Manter consultas paginadas e verificar desempenho quando a mudança afetar volume ou tempo de resposta.
-- Remover código morto criado ou tornado desnecessário pela própria alteração.
+- Evitar abstração prematura e otimização sem evidência. **Guarda derivada de uma PROPRIEDADE aguenta; derivada de uma LISTA, não** — foi medido quinze vezes neste projeto.
 - Não deixar funcionalidades incompletas apresentadas como prontas; sinalizar seu estado de implementação.
 
 ## 9. Comentários obrigatórios no código
@@ -296,30 +306,74 @@ Itens não aplicáveis exigem justificativa no PR. Ausência de tempo não justi
 
 ## 15. Formato do relatório de entrega
 
-Ao finalizar cada etapa, informar:
+Objetivo e escopo; o que mudou por arquivo; **evidência executada** (comando e saída, não paráfrase); riscos e limites **declarados**; e o que ficou pendente, com motivo.
 
-1. O que mudou e por quê.
-2. Critérios de aceite atendidos.
-3. Testes executados, resultados e ambiente utilizado.
-4. Branch, hash do commit e link do PR.
-5. Resultado da CI para o commit mais recente.
-6. Riscos, limitações, dependências e próxima etapa.
-
-Se qualquer requisito obrigatório estiver pendente, usar o termo **etapa bloqueada** ou **em validação**, conforme o caso. Não afirmar “concluído”, “testado”, “enviado” ou “aprovado” sem evidência correspondente.
+Classificar cada item como **Implementado, Inspecionado, Testado, Não testado, Bloqueado** ou **Fora do escopo**. **Nunca dizer que um teste passou sem tê-lo executado.**
 
 ## Como estas regras são impostas
 
 Regra escrita é pedido; pedido depende de alguém ler. Desde a
 [DL-014](docs/planos/DL-014-guardas-de-processo.md) parte delas é **imposta por
-mecanismo**, e a diferença fica declarada aqui para ninguém confundir uma coisa
-com a outra:
+mecanismo**.
 
-| Imposto tecnicamente | Como |
-| --- | --- |
-| Este arquivo entra no contexto de toda sessão do Claude Code na web, antes da primeira ação | Gancho `SessionStart` em `.claude/hooks/session-start.sh` |
-| Pull request só fica verde com o atestado "Li o AGENTS.md" marcado e um plano `DL-xxx` citado | Workflow `Regras do projeto` |
-| Etapa com plano que não apareça no README e em `docs/agents/estado.md` reprova o build | `apps/core/tests/test_documentacao_do_estado.py` |
-| `main` só recebe alteração por PR com as verificações verdes | Proteção da branch no GitHub |
+⚠️ **LEIA A SEGUNDA COLUNA ANTES DE CONFIAR NA PRIMEIRA.** Verificação que
+**roda e reprova** não é verificação que **impede o merge** — e a segunda
+metade, hoje, **não existe**.
+
+| O que acontece | Mecanismo | Impede o merge? |
+| --- | --- | --- |
+| Este arquivo entra no contexto de toda sessão do Claude Code na web, antes da primeira ação | Gancho `SessionStart` em `.claude/hooks/session-start.sh` | **Sim** — não depende de proteção de branch |
+| Pull request fica **vermelho** sem o atestado "Li o AGENTS.md" marcado e sem um plano `DL-xxx` citado | Workflow `Regras do projeto` | ⚠️ **NÃO** — ver abaixo |
+| Etapa com plano que não apareça no README e em `docs/agents/estado.md` **reprova o build** | `apps/core/tests/test_documentacao_do_estado.py` | ⚠️ **NÃO** — ver abaixo |
+| O documento imprimível é medido no **navegador real** e o job fica vermelho se sair sem identificação do emitente | Workflow `Identificação do emitente` ([DL-028](docs/planos/DL-028-o-juiz-aponta-para-o-produto.md)) | ⚠️ **NÃO** — ver abaixo |
+
+⚠️ **A `main` NÃO tem proteção de branch, e isto foi MEDIDO — não presumido**,
+em três endpoints (`branches?protected=true` → `[]`; `rulesets` → `[]`;
+`branches/main` → `"protected": false`), e **remedido em três auditorias
+seguidas** (J2, K9, L8/M14).
+
+**Consequência, sem rodeio:** as três linhas marcadas acima **rodam, reprovam e
+avisam** — e **não impedem** o merge. São **conselho**, não trava. Até a proteção
+ser ligada e **lida na API**, este arquivo não afirma que elas são impostas —
+afirmar o contrário seria **garantia inexistente descrita como imposta**, o
+defeito de 2026-09-13 na forma mais grave.
+
+**Como ligar, e é ação do responsável pelo produto** (nenhum agente tem acesso
+para ler nem escrever essa configuração): *Settings → Rules → Rulesets* (ou
+*Settings → Branches*, o caminho antigo) → regra para `main` → exigir pull
+request e marcar como obrigatórias **estas quatro checagens, nestes nomes
+exatos**:
+
+```
+Lint e testes
+Validar documentação
+Regras do projeto
+Medir identificação do emitente no navegador
+```
+
+⚠️ **Esta lista estava ERRADA até 2026-09-20** (mandava `Backend` e
+`Documentação`, que são nomes de **workflow**). O contexto de um status check é o
+nome do **job**. Medido na API na décima primeira auditoria (**L5**).
+
+⚠️ **E o dano do nome errado é o OPOSTO do esperado:** contexto obrigatório que
+nunca reporta **não** afrouxa a proteção — **trava a `main` para sempre**, com o
+PR em *"pendente"* e nenhum erro para investigar (é a armadilha do BL-371).
+
+**Como conferir, buscando em vez de afirmar** (BL-412 — número digitado por
+humano é disciplina):
+
+```
+GET /repos/fredabsd-svg/DataLedger/commits/<sha_de_uma_BRANCH_DE_TRABALHO>/check-runs
+    → os quatro nomes. NÃO use o sha da `main`: ver o aviso abaixo.
+GET /repos/fredabsd-svg/DataLedger/branches?protected=true   → deve devolver main
+GET /repos/fredabsd-svg/DataLedger/branches/main             → required_status_checks.contexts
+GET /repos/fredabsd-svg/DataLedger/rulesets                  → se a regra for ruleset
+```
+
+⚠️ **Contra a `main`, `check-runs` devolve só DOIS dos quatro** — `Regras do
+projeto` só dispara em `pull_request`, e o job de identificação não tem execução
+lá. Medido na décima segunda auditoria (M6). Por isso os quatro nomes ficam
+**escritos acima**: a consulta serve para **conferi-los**, não para descobri-los.
 
 **Só instrução, sem mecanismo:** entender o que se leu; sessões locais fora da
 web; ferramentas que não leem `AGENTS.md`; revisão humana obrigatória, que hoje

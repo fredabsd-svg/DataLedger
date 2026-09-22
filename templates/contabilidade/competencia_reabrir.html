@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block titulo %}Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
+    <p><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Voltar para o painel de fechamento</a></p>
+    <h1>Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A competência volta ao estado <strong>aberta</strong>: lançamento volta a
+            ser aceito nela. O motivo abaixo <strong>fica registrado na trilha de
+            auditoria</strong>, junto com quem fechou antes e quando.
+        </p>
+        <form method="post" action="{% url 'contabilidade_web:competencia_reabrir' empresa.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="ano" value="{{ ano }}">
+            <input type="hidden" name="mes" value="{{ mes }}">
+            {% comment %}
+            Critério 3: motivo é obrigatório NA TELA — `required` é
+            conveniência do navegador; a recusa de verdade é do serviço
+            (reabrir_competencia, CompetenciaOperacaoInvalida), que a view
+            já traduz sem 500 se este campo chegar vazio de outro jeito.
+            {% endcomment %}
+            <div class="campo">
+                <label for="id_motivo">Motivo da reabertura</label>
+                <textarea id="id_motivo" name="motivo" required rows="3">{{ motivo }}</textarea>
+                <p class="texto-apoio">Obrigatório — fica na trilha de auditoria desta competência.</p>
+            </div>
+            <button type="submit">Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+        </form>
+    </div>
+{% endblock %}

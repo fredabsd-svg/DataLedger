@@ -557,7 +557,8 @@ kbd.tecla {
 }
 
 .campo input,
-.campo select {
+.campo select,
+.campo textarea {
     padding: var(--esp-2);
     border: var(--traco-fina) solid var(--borda-input);
     border-radius: var(--raio);
@@ -568,9 +569,72 @@ kbd.tecla {
 }
 
 .campo input:focus,
-.campo select:focus {
+.campo select:focus,
+.campo textarea:focus {
     outline: var(--traco-grossa) solid var(--acento);
     outline-offset: var(--desloc-foco-campo);
+}
+
+/* DL-031 (fatia 2 da DL-016): caixa de marcação do "assistente com etapas"
+   (arquétipo E) — usada hoje só na confirmação de "marcar como entregue"
+   (competencia_entregar.html), a única ação sem volta desta fatia (RC-101).
+   `flex-direction: row` porque a caixa de marcação e o texto do rótulo
+   ficam lado a lado, ao contrário do padrão rótulo-acima-do-campo de
+   `.campo` — mesma exceção documentada de `.formulario-periodo .campo`,
+   acima, por um motivo diferente (aqui é o PRÓPRIO controle, não um filtro
+   de fila). `font-weight: 400` porque o texto do rótulo aqui é uma frase de
+   confirmação corrida, não um rótulo curto de campo — negrito nela
+   competiria com `.painel-etapa--risco` pela atenção. */
+.campo--caixa {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--esp-2);
+}
+
+.campo--caixa label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--esp-2);
+    font-weight: 400;
+}
+
+/* DL-031: moldura do "assistente com etapas" (arquétipo E) — o que vai
+   acontecer, e o que deixa de ser possível, ANTES do botão de ação
+   (fechar/reabrir/entregar competência). Reaproveita só tokens já
+   existentes (borda hairline, raio, espaçamento) — nenhum valor novo. */
+.painel-etapa {
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    padding: var(--esp-4);
+    margin-bottom: var(--esp-4);
+}
+
+.painel-etapa h2 {
+    margin-top: 0;
+}
+
+/* Variante de RISCO (competencia_entregar.html): a única ação desta fatia
+   sem volta pelo produto (RC-101) recebe o mesmo tratamento visual de
+   destaque que `.mensagem-error`/`.faixa-fechamento--nao-fecha` já usam —
+   borda mais grossa à esquerda e fundo de alerta —, nunca como o ÚNICO
+   sinal: o texto do `<h2>` ("sem volta pelo produto") já diz isso, a cor é
+   reforço. */
+.painel-etapa--risco {
+    border-color: var(--erro);
+    border-left-width: var(--traco-destaque);
+    background: var(--erro-fundo);
+}
+
+/* DL-031: estado da competência no painel de fechamento
+   (fechamento.html) — o TEXTO da célula ("Aberta"/"Encerrada") já
+   distingue rascunho de efetivado; peso e cor aqui são reforço, nunca o
+   único canal (mesma regra de `.linha-total__veredito--*`, acima). */
+.estado-competencia--aberta {
+    color: var(--tinta-suave);
+}
+
+.estado-competencia--encerrada {
+    color: var(--sucesso);
 }
 
 /* Texto de apoio VISÍVEL abaixo de um campo — diferente de
@@ -685,6 +749,41 @@ button:disabled {
 .tabela-dois-niveis th[scope="colgroup"] {
     text-align: center;
     border-left: var(--traco-fina) solid var(--borda-hairline);
+}
+
+/* DL-034 — o bloco de identificação do item 51 (NBC TG 26) é a PRIMEIRA
+   linha do <thead> do Balanço (templates/contabilidade/balanco.html),
+   dentro de um <th colspan="3"> — só para satisfazer a guarda de escopo
+   (test_todo_cabecalho_de_tabela_declara_escopo) e para repetir junto do
+   <thead> em TODA página impressa (`.tabela-dados thead { display:
+   table-header-group }`, já provado pelo Balancete/BL-282). Ela NÃO é um
+   RÓTULO de coluna — é prosa (razão social, CNPJ, data-base, moeda,
+   arredondamento) — então esta regra, escopada pela classe própria da
+   linha (nunca `:first-child`, que pegaria a PRIMEIRA linha de QUALQUER
+   `.tabela-dados`, inclusive o cabeçalho de coluna de verdade do
+   Balancete/Diário/Razão — a classe teria vazado para outras tabelas),
+   desfaz três coisas que `.tabela-dados th` aplica por padrão a todo
+   cabeçalho: `position: sticky` (senão esta linha disputa `top: 0` com a
+   linha seguinte, "Código/Conta/Saldo", as duas sobrepostas na tela) e a
+   tipografia de RÓTULO (caixa alta, --tipo-2xs, --rastreio-amplo) — este
+   texto é lido como prosa, não como nome de coluna. */
+.linha-identificacao-do-documento th {
+    position: static;
+    text-align: left;
+    text-transform: none;
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-sm);
+    font-weight: 400;
+    letter-spacing: normal;
+    color: var(--tinta);
+}
+
+.linha-identificacao-do-documento p {
+    margin: 0 0 var(--esp-1);
+}
+
+.linha-identificacao-do-documento p:first-child {
+    font-weight: 700;
 }
 
 .tabela-dados tbody tr:hover {
@@ -1180,6 +1279,31 @@ button:disabled {
        nenhuma (a mesma classe de defeito do achado A1/BL-331: esconder sem
        repor). Ver o comentário completo em templates/base.html. */
     .contexto-item--somente-tela {
+        display: none;
+    }
+
+    /* BL-504 (auditoria DL-034, achado A6): "Balanço pronto para emissão"
+       é estado de FLUXO INTERNO (decisão de bancada, antes de emitir),
+       não conteúdo da demonstração — sai da TELA, nunca some da tela em
+       si (só desta folha impressa). Modificador PRÓPRIO, sem tocar em
+       `.faixa-fechamento` puro: o Balancete usa a MESMA classe base para
+       o veredito "Fecha"/"Não fecha", que é conteúdo de um relatório de
+       CONFERÊNCIA (classe 1) e CONTINUA saindo no papel — ver o
+       comentário no topo deste bloco `@media print`. */
+    .faixa-fechamento--somente-tela {
+        display: none;
+    }
+
+    /* DE-070 (rodada de correção da DL-034): o AVISO da lista que só
+       avisa (`contas_topo_classificadas_com_natureza_divergente_entre_
+       irmas`) é conferência de BANCADA, para o contador decidir ANTES de
+       entregar — mesmo raciocínio do BL-504, dois comentários acima,
+       aplicado a um segundo elemento. `.mensagem-warning` continua
+       definindo cor/borda para QUALQUER outro aviso do produto (ex.:
+       `_aviso_movimento_fora_do_periodo.html`, que É conteúdo relevante
+       de um relatório de CONFERÊNCIA e continua saindo no papel) — só
+       este modificador soma `display: none`. */
+    .mensagem--somente-tela {
         display: none;
     }
 

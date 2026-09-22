@@ -16,25 +16,47 @@ não é medição do projeto" — a mesma lição que já valia para densidade,
 impressão).
 
 **DECISÃO (o arquiteto deveria revisar): script NOVO, não extensão de
-`docs/assets/design/gauntlet/juiz.py`.** O juiz consome pastas de HTML
+`scripts/juiz.py`.** O juiz consome pastas de HTML
 AUTÔNOMO — protótipos do gauntlet de design, sem Django nem banco. As
 telas medidas aqui são RENDERIZAÇÃO REAL do produto (dados de
 `scripts/semear_base_de_medicao.py`, usuário autenticado,
 `request.escritorio` resolvido pelo middleware de verdade) — o
 instrumento PRECISA estar dentro do processo Django para produzi-las. Só
-a geração do PDF em si depende de Chromium/Playwright, que não está nas
-dependências do projeto (`requirements/`) — a MESMA separação de ambiente
-que o próprio `juiz.py` já declara ("Rode com o Python do sistema (tem
-playwright)") e que o auditor precisou reproduzir manualmente com uma
-venv isolada. Este script orquestra as DUAS pontas com UM comando
+a geração do PDF em si depende de Chromium/Playwright — a MESMA separação
+de ambiente que o próprio `juiz.py` já declara ("Rode com o Python do
+sistema (tem playwright)") e que o auditor precisou reproduzir manualmente
+com uma venv isolada. Este script orquestra as DUAS pontas com UM comando
 publicado: renderiza com o Django do venv do projeto e delega só a
 geração do PDF a um subprocesso do PYTHON DO SISTEMA
-(`DL_PYTHON_DO_SISTEMA`, com o mesmo padrão de `CHROMIUM` do `juiz.py`).
+(`DL_PYTHON_DO_SISTEMA`). A resolução do executável do Chromium em si
+segue `sonda_visibilidade.lancar_chromium` (BL-381) — o MESMO módulo que
+`juiz.py` já usa desde que seu próprio `CHROMIUM` fixo saiu de lá; ver o
+comentário completo perto de `_DIRETORIO_SONDA`, abaixo.
+
+⚠️ **Atualizado na DL-028 fatia 2 (BL-357/BL-358, achado do arquiteto-senior
+sobre a fatia 2 — mensagem de guarda que mandava procurar o vizinho
+errado):** desde então, Playwright **é** dependência — de DESENVOLVIMENTO
+e de CI (`playwright==1.63.0` em `requirements/dev.txt`), nunca de
+PRODUTO (`base.txt` continua intocado, DE-011 preservada) — porque
+`scripts/medir_identificacao_do_emitente.py` (o instrumento que MEDE se o
+documento sai identificado, e que **roda na CI**, delimitado por caminho)
+reaproveita as funções deste arquivo (`_preparar_cliente_e_cenario_de_
+medicao`, `_com_css_local`, `_exigir_ferramentas_de_pdf`, `_exigir_python_
+do_sistema_com_playwright`). Este script (`medir_impressao.py`) em si
+continua sendo ferramenta de BANCADA — sua função `main()` não é chamada
+pela integração contínua —, mas suas funções auxiliares agora são
+importadas por um script que É chamado por ela. Quem lê esta docstring
+achando que nada aqui participa da CI está lendo uma afirmação que deixou
+de ser verdade no mesmo dia em que foi escrita.
 
 Medição de página (contagem de folhas, texto por página) usa
 `pdfinfo`/`pdftotext` (poppler-utils) via subprocesso — de propósito
-NENHUMA biblioteca Python de PDF nova em `requirements/` por uma
-ferramenta de BANCADA que não roda na CI.
+NENHUMA biblioteca Python de PDF nova em `requirements/`: é uma
+DEPENDÊNCIA DE SISTEMA (binário, não pacote Python), continua sendo a
+escolha certa mesmo agora que uma medição que a usa roda em CI — o job
+que a executa (`.github/workflows/identificacao-do-emitente.yml`) instala
+`poppler-utils` como pacote do SISTEMA operacional do runner, nunca via
+`requirements/`.
 
 ## Como usar
 
@@ -112,11 +134,30 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-# Mesmo binário que docs/assets/design/gauntlet/juiz.py já usa — não
-# retypado como literal novo: se o caminho mudar lá, este script também
-# precisa mudar, e um `grep` encontra os dois de uma vez por serem a
-# MESMA string.
-CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+# BL-381 (achado J11 da nona auditoria,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md): até esta
+# correção, este arquivo tinha `CHROMIUM =
+# "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"` — um caminho
+# FIXO de uma máquina específica, em ARQUIVO VERSIONADO, exatamente o
+# que o critério 4 da DL-028/DE-057 proíbe. O comentário que o
+# justificava ("um grep encontra os dois de uma vez, docs/assets/design/
+# gauntlet/juiz.py usa o MESMO binário") ficou FALSO no mesmo commit que
+# extraiu `sonda_visibilidade.py` de `juiz.py`: `juiz.py` perdeu essa
+# string, e o grep passou a encontrar só ESTE arquivo — sem ninguém
+# perceber, porque o comentário nunca foi reconferido depois de mexer no
+# arquivo que ele cita. `sonda_visibilidade.resolver_executavel_do_
+# chromium`/`lancar_chromium` (mesmo módulo que `scripts/medir_
+# identificacao_do_emitente.py` já usa) resolvem o executável por
+# `DL_CHROMIUM_EXECUTAVEL` ou por descoberta NATIVA do Playwright — nunca
+# um literal de caminho. `_DIRETORIO_SONDA`, abaixo, é só a localização
+# do MÓDULO (`sonda_visibilidade.py` é irmão de `juiz.py`, não um pacote
+# instalado) — não um caminho de EXECUTÁVEL. BL-408/K5 (décima
+# auditoria): os dois viviam em `docs/assets/design/gauntlet/`, fora do
+# alcance do `ruff`/`pytest` (`docs/**` tratado como prosa); agora moram
+# em `scripts/`, sibling deste arquivo — `_DIRETORIO_SONDA` passa a ser
+# simplesmente o diretório deste próprio script, não mais um caminho
+# fixo sob `docs/`.
+_DIRETORIO_SONDA = str(Path(__file__).resolve().parent)
 
 # O Python do VENV do projeto não tem Playwright (não é dependência de
 # `requirements/` — decisão registrada na docstring do módulo). Este
@@ -183,9 +224,12 @@ def _exigir_ferramentas_de_pdf():
         sys.exit(
             f"Recusado: {', '.join(faltando)} (poppler-utils) não encontrado(s) no "
             "PATH — este script mede paginação com pdfinfo/pdftotext DE PROPÓSITO, "
-            "para não acrescentar biblioteca Python de PDF a requirements/ por uma "
-            "ferramenta de bancada que não roda na CI (ver a docstring do módulo). "
-            "Instale poppler-utils (ex.: apt install poppler-utils)."
+            "para não acrescentar biblioteca Python de PDF a requirements/ (ver a "
+            "docstring do módulo). poppler-utils é DEPENDÊNCIA DE SISTEMA, não "
+            "pacote Python: instale-a no ambiente que roda este script — "
+            "localmente, 'apt install poppler-utils'; na integração contínua, é "
+            "um passo do job em .github/workflows/identificacao-do-emitente.yml, "
+            "nunca requirements/."
         )
 
 
@@ -198,8 +242,8 @@ def _exigir_python_do_sistema_com_playwright():
         sys.exit(
             f"Recusado: {PYTHON_DO_SISTEMA!r} não importa playwright.sync_api — este "
             "script delega a geração do PDF a um Python DIFERENTE do venv do "
-            "projeto (a mesma separação de ambiente que docs/assets/design/gauntlet/"
-            "juiz.py já assume). Aponte DL_PYTHON_DO_SISTEMA para um interpretador "
+            "projeto (a mesma separação de ambiente que scripts/juiz.py já "
+            "assume). Aponte DL_PYTHON_DO_SISTEMA para um interpretador "
             "com Playwright instalado, ou instale Playwright nele."
         )
 
@@ -209,23 +253,17 @@ def _exigir_python_do_sistema_com_playwright():
 # ---------------------------------------------------------------------------
 
 
-def _renderizar_paginas():
+def _configurar_django():
+    """`django.setup()` + `setup_test_environment()`, extraído (DL-028
+    fatia 1) porque `scripts/medir_identificacao_do_emitente.py` precisa
+    do MESMO passo antes de montar seu próprio cenário — nunca uma segunda
+    chamada reimplementada à parte."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
     import django
 
     django.setup()
 
-    from django.conf import settings
-    from django.contrib.auth import get_user_model
-    from django.db.models import Count
-    from django.test import Client
     from django.test.utils import setup_test_environment
-
-    from apps.contabilidade.models import Conta
-    from apps.empresas.models import Empresa
-    from apps.tenancy.models import Escritorio
-
-    _exigir_banco_descartavel(settings.DATABASES["default"]["NAME"])
 
     # Fora do pytest, ALLOWED_HOSTS não ganha "testserver" sozinho — é o
     # próprio Django quem faz isso em `setup_test_environment` (a mesma
@@ -234,38 +272,36 @@ def _renderizar_paginas():
     # este script, que não usa sinal nenhum do restante do ambiente de teste.
     setup_test_environment()
 
-    usuario_modelo = get_user_model()
-    try:
-        escritorio = Escritorio.objects.get(cnpj=CNPJ_ESCRITORIO_DE_MEDICAO)
-        empresa = Empresa.objects.get(cnpj=CNPJ_EMPRESA_DE_MEDICAO, escritorio=escritorio)
-        usuario = usuario_modelo.objects.get(username=USUARIO_DE_MEDICAO)
-    except (Escritorio.DoesNotExist, Empresa.DoesNotExist, usuario_modelo.DoesNotExist) as exc:
-        sys.exit(
-            "Recusado: base de medição não encontrada neste banco — rode primeiro "
-            "'python scripts/semear_base_de_medicao.py' contra o MESMO banco antes "
-            f"deste script.\nDetalhe: {exc}"
-        )
 
-    # Qual conta o Razão mede, e por que a escolha NÃO pode ser "a primeira
-    # por código" (decisão do `arquiteto-senior` ao integrar a rodada 7).
-    #
-    # A primeira versão deste script pegava `.order_by("codigo").first()`, o
-    # que nesta base cai em `1.1.1.01` (Caixa geral) e produz um Razão de
-    # **uma folha**. O próprio implementador sinalizou a consequência: o
-    # backlog dizia "Razão 4 folhas", medido antes com OUTRA conta, e os dois
-    # números ficaram se contradizendo sem que nenhum estivesse errado.
-    #
-    # A decisão: **a conta com mais partidas no período**, com empate desfeito
-    # pelo código para o resultado ser determinístico. O motivo não é estético
-    # — é que a coisa medida aqui é **paginação**, e paginação de um relatório
-    # que cabe numa folha não exercita nada do que interessa (repetição de
-    # cabeçalho entre folhas, linha partida ao meio, `break-inside`). Medir a
-    # conta mais movimentada é medir o caso em que o defeito existe.
-    #
-    # Isto é o BL-337 aplicado a si mesmo: instrumento publicado só vale se o
-    # número que ele devolve for o MESMO para quem rodar depois. "A primeira
-    # conta por código" é reproduzível; "a primeira conta por código" NÃO é
-    # significativo. As duas propriedades são exigidas, não uma delas.
+def _conta_mais_movimentada(empresa):
+    """Qual conta o Razão mede, e por que a escolha NÃO pode ser "a primeira
+    por código" (decisão do `arquiteto-senior` ao integrar a rodada 7).
+
+    A primeira versão deste script pegava `.order_by("codigo").first()`, o
+    que nesta base cai em `1.1.1.01` (Caixa geral) e produz um Razão de
+    **uma folha**. O próprio implementador sinalizou a consequência: o
+    backlog dizia "Razão 4 folhas", medido antes com OUTRA conta, e os dois
+    números ficaram se contradizendo sem que nenhum estivesse errado.
+
+    A decisão: **a conta com mais partidas no período**, com empate desfeito
+    pelo código para o resultado ser determinístico. O motivo não é estético
+    — é que a coisa medida aqui é **paginação**, e paginação de um relatório
+    que cabe numa folha não exercita nada do que interessa (repetição de
+    cabeçalho entre folhas, linha partida ao meio, `break-inside`). Medir a
+    conta mais movimentada é medir o caso em que o defeito existe.
+
+    Isto é o BL-337 aplicado a si mesmo: instrumento publicado só vale se o
+    número que ele devolve for o MESMO para quem rodar depois. "A primeira
+    conta por código" é reproduzível; "a primeira conta por código" NÃO é
+    significativo. As duas propriedades são exigidas, não uma delas.
+
+    Extraída (DL-028 fatia 1) para `scripts/medir_identificacao_do_emitente.py`
+    reusar a MESMA escolha ao montar a URL do Razão — duas seleções de "qual
+    conta medir" divergem assim que uma mudar sem a outra."""
+    from django.db.models import Count
+
+    from apps.contabilidade.models import Conta
+
     conta = (
         Conta.objects.filter(empresa=empresa, aceita_lancamento=True)
         .annotate(total_de_partidas=Count("itens_lancamento"))
@@ -280,6 +316,44 @@ def _renderizar_paginas():
             "paginação não teria o que paginar. Rode 'python scripts/semear_base_de_medicao.py' "
             "contra o MESMO banco antes deste script."
         )
+    return conta
+
+
+def _preparar_cliente_e_cenario_de_medicao():
+    """Django configurado, cliente de teste AUTENTICADO e o `(empresa,
+    conta)` da base semeada por `scripts/semear_base_de_medicao.py` — o
+    trecho comum a QUALQUER script de bancada que precise renderizar telas
+    reais do produto contra a base de medição. Extraída de
+    `_renderizar_paginas` (DL-028 fatia 1) para
+    `scripts/medir_identificacao_do_emitente.py` reusar a MESMA
+    autenticação e o MESMO cenário, sem reimplementar a busca de
+    escritório/empresa/usuário nem a seleção de conta (`_conta_mais_
+    movimentada`, acima) — só a derivação de QUAIS telas visitar muda
+    entre os dois scripts."""
+    _configurar_django()
+
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+    from django.test import Client
+
+    from apps.empresas.models import Empresa
+    from apps.tenancy.models import Escritorio
+
+    _exigir_banco_descartavel(settings.DATABASES["default"]["NAME"])
+
+    usuario_modelo = get_user_model()
+    try:
+        escritorio = Escritorio.objects.get(cnpj=CNPJ_ESCRITORIO_DE_MEDICAO)
+        empresa = Empresa.objects.get(cnpj=CNPJ_EMPRESA_DE_MEDICAO, escritorio=escritorio)
+        usuario = usuario_modelo.objects.get(username=USUARIO_DE_MEDICAO)
+    except (Escritorio.DoesNotExist, Empresa.DoesNotExist, usuario_modelo.DoesNotExist) as exc:
+        sys.exit(
+            "Recusado: base de medição não encontrada neste banco — rode primeiro "
+            "'python scripts/semear_base_de_medicao.py' contra o MESMO banco antes "
+            f"deste script.\nDetalhe: {exc}"
+        )
+
+    conta = _conta_mais_movimentada(empresa)
     print(
         f"Razão medido na conta {conta.codigo} ({conta.nome}), "
         f"com {conta.total_de_partidas} partida(s) — a mais movimentada da base. "
@@ -290,6 +364,23 @@ def _renderizar_paginas():
     cliente = Client()
     # force_login não devolve nada — se falhar, lança exceção; nada a checar aqui.
     cliente.force_login(usuario)
+    return cliente, empresa, conta
+
+
+def _com_css_local(html, caminho_css=None):
+    """Reescreve `href="/static/css/base.css"` para o caminho REAL do
+    arquivo no disco, via `file://` — o Chromium do subprocesso abre HTML
+    local sem servidor Django nenhum para resolver a URL absoluta. Nunca
+    uma CÓPIA do CSS à parte, que divergiria do arquivo de verdade assim
+    que alguém o editasse. Extraída (DL-028 fatia 1) para
+    `scripts/medir_identificacao_do_emitente.py` reusar a MESMA
+    reescrita."""
+    caminho_css = caminho_css or (RAIZ / "static" / "css" / "base.css").resolve()
+    return html.replace('href="/static/css/base.css"', f'href="file://{caminho_css}"')
+
+
+def _renderizar_paginas():
+    cliente, empresa, conta = _preparar_cliente_e_cenario_de_medicao()
 
     periodo = f"?inicio={PERIODO_INICIO}&fim={PERIODO_FIM}"
     rotas = {
@@ -298,7 +389,6 @@ def _renderizar_paginas():
         "razao": f"/contabilidade/painel/empresas/{empresa.id}/razao/{conta.id}/{periodo}",
     }
 
-    caminho_css = (RAIZ / "static" / "css" / "base.css").resolve()
     paginas = {}
     for nome, url in rotas.items():
         resposta = cliente.get(url)
@@ -307,17 +397,7 @@ def _renderizar_paginas():
                 f"Recusado: {nome} respondeu {resposta.status_code} em {url!r} — "
                 "a base semeada ou a rota mudou de forma incompatível com este script."
             )
-        html = resposta.content.decode()
-        # O Chromium do subprocesso abre o arquivo via file:// — sem
-        # servidor Django nenhum para resolver "/static/css/base.css".
-        # Reescreve para o caminho REAL do arquivo no disco (o mesmo que
-        # o servidor de desenvolvimento serve) — nunca uma cópia à parte,
-        # que divergiria do CSS de verdade assim que alguém o editasse.
-        html = html.replace(
-            'href="/static/css/base.css"',
-            f'href="file://{caminho_css}"',
-        )
-        paginas[nome] = html
+        paginas[nome] = _com_css_local(resposta.content.decode())
     return paginas
 
 
@@ -331,7 +411,13 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 especificacao = json.loads(sys.argv[1])
-chromium = especificacao["chromium"]
+# BL-381: resolução do Chromium por `sonda_visibilidade` (variável de
+# ambiente ou descoberta nativa do Playwright) — nunca um caminho fixo
+# recebido na especificação. `sonda_visibilidade.py` é módulo IRMÃO deste
+# script (scripts/, desde o BL-408/K5), não pacote instalado — daí o
+# `sys.path.insert` antes de importar.
+sys.path.insert(0, especificacao["diretorio_sonda"])
+import sonda_visibilidade
 pasta_html = Path(especificacao["pasta_html"])
 pasta_saida = Path(especificacao["pasta_saida"])
 nomes = especificacao["nomes"]
@@ -364,7 +450,7 @@ _JS_FONTES_ATIVAS = '''
 
 pasta_saida.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as p:
-    navegador = p.chromium.launch(executable_path=chromium)
+    navegador = sonda_visibilidade.lancar_chromium(p)
     pagina = navegador.new_page()
     for nome in nomes:
         pagina.goto((pasta_html / f"{nome}.html").as_uri(), wait_until="networkidle")
@@ -394,7 +480,7 @@ print("OK")
 def _gerar_pdfs(pasta_html, pasta_saida, nomes):
     especificacao = json.dumps(
         {
-            "chromium": CHROMIUM,
+            "diretorio_sonda": _DIRETORIO_SONDA,
             "pasta_html": str(pasta_html),
             "pasta_saida": str(pasta_saida),
             "nomes": nomes,

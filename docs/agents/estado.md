@@ -233,6 +233,9 @@ diverge.
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
 | [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, por decisão: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324) |
+| [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
+| [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
+| [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md) | A trilha de auditoria cobre o **admin**: quem alterou, quando, e **com que valor antes e depois**. Cobertura **derivada** de `admin.site._registry`, não de lista nossa. **Remendo declarado**, não o histórico com vigência que o BL-396 vai exigir | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo das demais: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -267,9 +270,1225 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-**AGORA, em 2026-09-19:
-[DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual.
-Em desenvolvimento.**
+### ⚠️ MUDANÇA DE PROCESSO, 2026-09-20 — leia isto antes de qualquer coisa
+
+**Ordem do Fred**, com medição dele: *"estamos girando no mesmo lugar e gastando
+tokens à toa … preciso codar mais. Sei que os testes e a auditoria são
+necessários, mas do jeito que está está travando o processo."*
+
+Duas coisas mudaram, e as duas estão no `AGENTS.md`:
+
+1. **[§3.1 — níveis de risco](../../AGENTS.md).** A cerimônia passa a ser
+   proporcional ao dano. **Nível 1** (dinheiro, livro, documento do cliente):
+   tudo, auditoria inclusive. **Nível 2** (o que o contador usa): plano de uma
+   página, auditoria só na primeira entrega do módulo. **Nível 3** (andaime):
+   **sem plano, sem auditoria, sem registro de decisão**.
+2. **A regra de parada, obrigatória.** Auditoria é **por etapa**, não por
+   rodada: uma auditoria, uma correção, uma reconferência. **A terceira rodada é
+   PROIBIDA** — ela significa que o **critério** estava errado, e o critério
+   reabre com o Fred. E **guarda que falha duas vezes é apagada**, não corrigida
+   pela terceira vez.
+
+⚠️ **E o dado que corrige a intuição de todos, inclusive a minha:** cortar linha
+de teste **quase não economiza token**. As 5.290 linhas que eu apaguei estavam
+paradas em disco. **O que consumiu foi a RODADA** — doze auditorias, cada uma
+com agente próprio, mais a correção e a integração de cada uma. **A regra de
+parada vale muito mais que o corte.**
+
+**O corte executado:** 5.290 linhas, 142 testes — a família do motor de CSS
+simulado, que a DE-057 já havia rebaixado quando o navegador real entrou.
+Proporção **3,9 : 1 → 3,5 : 1**, suíte **1917 passed**. Registrado em
+**[DE-063](../projeto/decisoes.md)**.
+
+⚠️ **Os outros três candidatos que eu propus NÃO qualificaram, e eu os
+examinei antes de cortar:** `test_agentes_multiplataforma` guarda um gerador com
+`--escrever` destrutivo e codifica defeitos reais já ocorridos (BL-177);
+`test_dl024_varredura_de_interface` e `test_dl019_varredura_de_contratos` são
+**derivadas**, não enumerações, e existem porque o produto vai ganhar cinco
+módulos. **Eu havia proposto cortá-los pelo TAMANHO do arquivo — que é um
+substituto, não a propriedade.** DE-060 aplicada a mim mais uma vez.
+
+### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
+
+**Aberto em 2026-09-20**, logo depois da mudança de processo, porque o Fred
+pediu *"vamos codar produto"*. É a primeira etapa a nascer sob a
+[§3.1 do AGENTS.md](../../AGENTS.md), classificada **NÍVEL 1** — mexe no livro.
+
+**O fato que faltava**, respondido pelo Fred na mesma conversa, à pergunta
+*"quando um mês já fechado precisa de correção, o que vocês fazem?"*:
+
+> **(c) Depende — reabrem antes da entrega ao cliente, ajustam depois dela.**
+
+Vira três comportamentos, e o terceiro é o que nenhum plano anterior tinha:
+
+| Situação | O que o sistema faz |
+| --- | --- |
+| Competência **aberta** | Lança livremente |
+| **Encerrada**, ainda **não entregue** | **Reabre**, com motivo obrigatório, autorização e trilha |
+| **Encerrada e ENTREGUE** | **Não reabre.** O ajuste vai no mês aberto, apontando para a competência de origem |
+
+**Decisão minha, de modelagem:** *"entregue"* **não** é um quarto estado da
+competência — é um **fato datado** (`entregue_em`, `entregue_por`). Estado
+descreve o que se pode fazer; entrega descreve o que já saiu porta afora, e as
+duas coisas evoluem separado.
+
+**O que a fatia 1 entrega, e ela é de servidor:**
+
+1. Fechar a competência.
+2. **Recusar lançamento em competência encerrada — NO SERVIDOR.**
+3. Reabrir com motivo, **recusado se já entregue**.
+4. Marcar como entregue.
+
+⚠️ **A tela fica para a fatia 2, e é de propósito:** a trava tem de existir
+**antes** de haver botão para acioná-la. Hoje `Competencia.estado` existe no
+modelo (`aberta → em_encerramento → encerrada`) e **ninguém lê**: `grep '\.estado\b'`
+fora de testes não devolve nada. É campo decorativo até esta fatia.
+
+Plano: [DL-016](../planos/DL-016-competencia-e-fechamento.md).
+
+#### A fatia 1 ENTREGOU (`16b9ec4`) e a auditoria REPROVOU — o bloqueador é uma CORRIDA
+
+**Relatório integral:**
+[2026-09-20-dl-016-fatia-1-rodada-1.md](../auditorias/2026-09-20-dl-016-fatia-1-rodada-1.md).
+Números que o **auditor** mediu (não os que o implementador reportou, embora
+confiram): **1962 passed, 14 skipped**, `ruff check` e `ruff format --check`
+limpos, `manage.py check` limpo, migrações em banco vazio limpas.
+
+**Onze dos doze critérios passam**, e dois resistiram melhor do que eu esperava:
+a autorização do **RC-102** recusa cinco papéis **e o superusuário sem vínculo**,
+com o banco intacto; e o isolamento entre escritórios devolve **404**, sem
+confirmar existência.
+
+⚠️ **O BLOQUEADOR, e ele derruba uma decisão declarada por escrito — [BL-456](../projeto/backlog.md).**
+O implementador escreveu, em comentário, que não travar a competência na leitura
+era *"risco residual proporcional, janela estreita"*. Eu mandei **medir** em vez
+de aceitar o argumento, pela [DE-058](../projeto/decisoes.md). A reprodução
+**natural** — sem instrumentação, sem espião, só duas threads com a que fecha
+começando **0,6 ms** depois — gravou lançamento em competência encerrada **30
+vezes em 30**. E o auditor reproduziu o caso que fere o cliente: **lançamento
+entrando em competência já ENTREGUE**.
+
+**A "janela estreita" é, na prática, toda a duração da transação de lançamento.**
+É o fim de mês do escritório: o analista lança enquanto o gestor fecha.
+
+⚠️ **E a construção que nem o plano nem o relatório nomearam ([DE-055](../projeto/decisoes.md)) — [BL-457](../projeto/backlog.md):**
+a tela de **lançamento** devolve **HTTP 500** quando a trava dispara. Nada é
+gravado — a trava do servidor funciona —, mas o contador vê página de erro em vez
+da mensagem que diz para reabrir. O plano dizia *"a tela vem na fatia 2"*, e isso
+valia para a tela **de fechamento**; a de lançamento está em produção desde a
+DL-017 e, pela DE-026, chama o serviço **direto**, sem API no meio.
+
+**Achados abertos:** [BL-456](../projeto/backlog.md) (bloqueador),
+[BL-457](../projeto/backlog.md) (alta), [BL-458](../projeto/backlog.md) (média —
+a trilha mora na view, não no serviço), [BL-455](../projeto/backlog.md) (média,
+**pré-existente**, confirmada de forma independente),
+[BL-459](../projeto/backlog.md), [BL-460](../projeto/backlog.md) e
+[BL-461](../projeto/backlog.md) (baixas). O **BL-462** (este arquivo não
+atualizado pela entrega) era meu e está fechado por esta seção.
+
+⚠️ **Uma hipótese MINHA que a auditoria NÃO confirmou, registrada para não se
+repetir:** eu suspeitava que reabrir **perdesse** quem assinou o fechamento
+anterior. Não perde — a trilha preserva o autor ao longo de fechar → reabrir →
+fechar. O que falta é contexto no registro (BL-459), não a identidade.
+
+#### A RECONFERÊNCIA APROVOU (`d1da551`) — e o achado principal é do AUDITOR, sobre ele mesmo
+
+**Relatório integral:**
+[2026-09-20-dl-016-fatia-1-rodada-2.md](../auditorias/2026-09-20-dl-016-fatia-1-rodada-2.md).
+**Parecer: APROVADO COM RESSALVAS.** **A fatia 1 está fechada em duas rodadas** —
+a primeira vez que a regra de parada da §3.1 governa uma etapa inteira.
+
+Números que o **auditor** mediu: **1973 passed, 14 skipped**; `ruff check`,
+`ruff format --check` e `manage.py check` limpos; migrações limpas; e
+`makemigrations --check` agora **exit 0**, que era exit 1 (BL-455 fechado).
+
+⚠️ **O ACHADO PRINCIPAL DESTA RODADA É DO AUDITOR, SOBRE O PRÓPRIO AUDITOR.**
+O oráculo que ele exigiu na rodada 1 — *"a reprodução natural tem de devolver 0
+em 30"* — era **não-discriminante**. Ele mesmo mediu: o predicado acusa
+**20/30 no código CORRIGIDO**, porque *"lançou E o mês terminou fechado"* é o
+desfecho **legítimo** de qualquer correção certa. **O implementador recusou a
+régua, argumentou, e tinha razão.**
+
+**O que cai e o que fica, e a distinção importa:** cai o número que eu e ele
+transformamos em manchete. **Fica o bloqueador** — ele nunca dependeu daquele
+número: as reproduções R1 e R1b da rodada 1 eram **deterministas**, impunham a
+ordem *"fechamento commitou, depois o lançamento inseriu"*, e o lançamento
+entrou assim mesmo, inclusive em competência **já entregue**.
+
+**Frase do auditor que vale guardar:** *"a conclusão da rodada 1 estava certa, e
+uma das três evidências que usei para sustentá-la era imprestável. Eu a destaquei
+como manchete, e foi a pior escolha editorial possível — dei o holofote à medição
+fraca."*
+
+⚠️ **E ele não parou no reconhecimento: construiu o oráculo CERTO e mediu.** Dois
+instrumentos independentes, que não usam nenhuma função exclusiva da revisão
+corrigida, rodados nas **duas** revisões: **violam em `16b9ec4`, não violam em
+`d1da551`**. E **matou o mutante**: revertida **uma linha** da correção, três dos
+quatro testes do implementador reprovam. *"Um instrumento que acusa no código
+defeituoso e não acusa no corrigido é um instrumento; o meu da rodada 1 não
+era."*
+
+**Fechados:** BL-455, BL-456, BL-457, BL-458, BL-459, BL-460, BL-461.
+
+**Ressalvas declaradas, nenhuma tocando valor contábil:**
+[BL-463](../projeto/backlog.md) (média — o fechamento segura o lock durante a
+varredura da base inteira, e não há `lock_timeout`; é **disponibilidade**, não
+correção), [BL-464](../projeto/backlog.md), [BL-465](../projeto/backlog.md),
+[BL-466](../projeto/backlog.md), [BL-467](../projeto/backlog.md) e
+[BL-468](../projeto/backlog.md).
+
+**Decisão minha sobre o BL-467:** o teste que não mata o mutante **fica, com o
+nome corrigido**. Ele não guarda o BL-456 — e o nome não pode prometer que
+guarda —, mas guarda o que nenhum outro cobre: que a corrida natural não produz
+exceção inesperada, deadlock nem estado inconsistente. **Guarda de robustez é
+guarda; guarda mal nomeada é armadilha.**
+
+#### A FATIA 2 ESTÁ ABERTA: [DL-031](../planos/DL-031-fatia-2-a-tela-do-fechamento.md) — a tela do fechamento
+
+**Autorizada pelo Fred em 2026-09-20** — *"pode abrir a fatia 2"*. Paga a dívida
+que a ordem "trava antes do botão" criou de propósito
+([DE-065](../projeto/decisoes.md)): **hoje o contador não consegue fechar o
+mês**, porque a trava existe e não há porta.
+
+⚠️ **É a primeira etapa classificada NÍVEL 2** pela §3.1 — plano de **uma
+página**, **sem auditoria completa de etapa**, verificação dirigida aos oito
+critérios por `auxiliar-verificacao`. **E o nível 2 é legítimo aqui, não
+conveniência:** fechar, reabrir, entregar e recusar lançamento em mês encerrado
+são decididos **no serviço**, já medidos sob concorrência real na fatia 1.
+Nenhuma regra contábil mora na tela. Tela errada impede operar; **não** grava
+livro errado.
+
+**O momento da verdade da tela**, escrito antes de desenhar como o §3 da
+[direção de arte](../projeto/direcao-de-arte.md) exige: *"o que eu estou prestes
+a congelar está conferido, e eu sei o que deixo de poder fazer depois"*.
+Arquétipos **D** (painel de período) e **E** (assistente com etapas).
+
+**Duas frentes em paralelo, com arquivos disjuntos:** o `especialista-frontend`
+na tela (`templates/**`, `views_web.py`, `urls_web.py`) e o
+`desenvolvedor-pleno` nas ressalvas da fatia 1 (`services.py`, `models.py`,
+`config/settings.py`) — **BL-463 a BL-468**.
+
+##### AS DUAS FRENTES ENTREGARAM — `a2e4ab4` e `0e6651f`, em verificação dirigida
+
+**A tela existe.** Painel de competências (arquétipo D) com três telas de ação
+(arquétipo E): fechar, reabrir e entregar, cada uma dizendo **o que vai
+acontecer antes de acontecer**. A de entrega usa caixa de confirmação explícita,
+por ser a única ação sem volta (RC-101). Atalho `Alt+Z` na navegação —
+**arbitrário e declarado**, porque `f` colide com o navegador.
+
+**O que o frontend mediu, e não julgou a olho:** `111111` e `888888` com
+**57,796875 px** cada, no Chromium; contrastes calculados de **7,38:1** a
+**14,58:1**, todos acima dos pisos. Percorreu as quatro telas **por teclado**,
+com o foco mudando de fato. ⚠️ **E declarou um limite espontaneamente:** *"esta
+tela não exibe valor monetário, então a régua de tabulação de coluna não se
+aplica a ela diretamente"*.
+
+**O que o desenvolvedor mediu no BL-463**, que era a ressalva de peso:
+
+| | Espera do lançamento enquanto o mês fecha |
+| --- | --- |
+| Antes | **1,73 s** |
+| Depois | **~20 ms** |
+
+Conseguido movendo a conferência RC-58 para **antes** do lock, e com
+`lock_timeout=1210 ms` calibrado por medição (100× o pior caso medido de
+fechamento, ~4% do timeout do worker) — **não** por número redondo. O estouro
+vira exceção nomeada, detectada por **SQLSTATE `55P03`**, nunca por texto de
+mensagem.
+
+**Números das duas frentes, coincidentes:** **2006 passed, 14 skipped**;
+`ruff`, `manage.py check` e `makemigrations --check` limpos.
+
+⚠️ **E um incidente de processo, declarado pelo próprio agente sem ser
+perguntado: [BL-469](../projeto/backlog.md).** Um `env | grep` foi executado
+contra a proibição da BL-327. **Dano medido: nenhum** — valores sintéticos,
+`.env` fora do versionamento e coberto pelo `.gitignore`, as duas coisas
+conferidas por mim sem imprimir valor nenhum. **Fica registrado mesmo sem dano**,
+porque a regra protege o caso em que ela é necessária, não o caso em que é
+confortável. ⚠️ **A autodelação espontânea é o comportamento certo e não será
+punida:** punir honestidade produz silêncio, que é o que custa caro.
+
+##### A VERIFICAÇÃO DIRIGIDA ACHOU UM BLOQUEADOR — e ele NÃO está na tela
+
+**Relatório integral:**
+[2026-09-20-dl-031-verificacao-dirigida-1.md](../auditorias/2026-09-20-dl-031-verificacao-dirigida-1.md).
+
+**Os oito critérios da tela PASSAM**, com teste nomeado cada um, e a
+não-regressão inteira foi reproduzida pelo verificador: **2006 passed, 14
+skipped**, `ruff`, `manage.py check` e `makemigrations --check` limpos. Ele
+também **confirmou de forma independente** dois números do frontend (7,38:1 e
+14,58:1) e mediu **zero** elementos abaixo do piso de contraste nas quatro telas.
+
+⚠️ **O BLOQUEADOR é a [DE-055](../projeto/decisoes.md) pagando de novo, e o lugar
+é irônico: [BL-470](../projeto/backlog.md) está no CAMINHO DE ERRO da correção
+que fechou o BL-463.**
+
+Quando o `lock_timeout` estoura no lançamento, o `except` está certo e a detecção
+por SQLSTATE `55P03` está certa — **quem falha é a FRASE de erro**. Ela acessa
+`competencia.empresa`, uma chave estrangeira **não cacheada**, o que dispara nova
+consulta numa transação PostgreSQL **já abortada**. O erro cru substitui a
+exceção certa, sobe sem ser capturado pela view e vira **HTTP 500** em produção —
+exatamente o que o critério 5 proíbe, no cenário que o BL-463 existe para tornar
+seguro.
+
+**Nenhum dos 2.006 testes alcança esse caminho.** Foi achado porque eu pedi
+explicitamente um eixo que nenhum dos dois relatórios tivesse discutido.
+
+**Duas ressalvas baixas:** [BL-471](../projeto/backlog.md) (as três telas de ação
+herdam a proteção de isolamento por função compartilhada, mas sem teste dedicado
+nesta fatia) e [BL-472](../projeto/backlog.md) (procedência de um número citado).
+
+⚠️ **E uma ressalva do frontend que o verificador CONFIRMOU em vez de derrubar:**
+*"esta tela não exibe valor monetário, então a régua de tabulação de coluna não
+se aplica"*. Verificado contra o instrumento do próprio produto
+(`scripts/juiz.py` isenta data por desenho) e contra o precedente de
+Diário/Razão/Balancete. **Declaração espontânea de limite, e correta.**
+
+##### A DL-031 FECHOU — `206f4b1`, reconferência sem nenhum achado
+
+**Relatório integral:**
+[2026-09-20-dl-031-reconferencia-2.md](../auditorias/2026-09-20-dl-031-reconferencia-2.md).
+**BL-470 fechado.** **A fatia 2 está entregue**, em **duas rodadas**, como a
+fatia 1 — a regra de parada da §3.1 governou as duas etapas do começo ao fim.
+
+Números medidos pelo verificador: **2008 passed, 14 skipped** (2006 + os dois
+testes novos); `ruff check`, `ruff format --check`, `manage.py check` e
+`makemigrations --check` limpos.
+
+⚠️ **O item que EU acrescentei ao escopo, e que não estava no relatório de
+ninguém:** para corrigir o BL-470 o implementador mudou a **assinatura** de uma
+função e, por isso, **editou três testes que já existiam** — justamente os que o
+`auditor-qa` validara **por mutação** na reconferência da fatia 1. Editar teste
+para acompanhar mudança de código é legítimo e corriqueiro; **é também o jeito
+mais discreto de cegar uma guarda**, porque o teste continua verde, o nome
+continua lá, e ninguém nota que ele parou de detectar.
+
+**Mandei refazer a prova de mutação DEPOIS da edição.** Reintroduzida a falha do
+BL-456 em cópia isolada, **os três voltaram a reprovar**. A guarda não foi
+cegada. **Prova de mutação envelhece quando o teste é editado** — e isso passa a
+valer como regra, não como episódio.
+
+⚠️ **E a afirmação mais sutil da varredura foi MEDIDA, não aceita.** O
+implementador alegou que o bloco de idempotência é seguro porque o Django faz
+`ROLLBACK TO SAVEPOINT` antes do `except`. O verificador capturou o **log SQL
+real** da thread perdedora de uma corrida de idempotência e viu a sequência
+exata. **Alegação sobre comportamento de biblioteca é hipótese até alguém
+medir** — é a [DE-058](../projeto/decisoes.md) aplicada a dependência, não a
+código nosso.
+
+**Ressalvas abertas, baixas, com dono** (DE-066, não seguram a etapa):
+[BL-471](../projeto/backlog.md) (teste dedicado de isolamento nas três telas de
+ação) e [BL-472](../projeto/backlog.md) (procedência de número citado). Vão para
+a próxima fatia.
+
+**O contador agora consegue fechar o mês pelo produto.** A dívida que a ordem
+"trava antes do botão" criou está paga.
+
+#### A DL-032 FATIA 1 ESTÁ ENTREGUE (`2e4ad02`) — a camada de saldos
+
+**Autorizada pelo Fred em 2026-09-20** — *"pode seguir com a camada de saldos"*,
+depois de ler o
+[cruzamento do catálogo de 120 relatórios](../projeto/catalogo-de-relatorios.md)
+que ele mesmo trouxe. **Nível 1.**
+
+⚠️ **O catálogo corrigiu a pergunta que EU tinha feito ao Fred.** Eu havia
+oferecido três opções soltas — exportação, livro, demonstrações — como se fossem
+escolha de gosto. O manual mostra que **não são**: todo relatório contábil sai de
+**uma** cadeia, e a ordem delas é de **possibilidade**, não de preferência. Não
+existe Balanço antes de existir camada de saldos.
+
+**Decisão de arquitetura, minha, e está no plano: NÃO MATERIALIZAR.** A camada é
+um **contrato de derivação**, não uma tabela `SaldoConta`. Uma tabela de saldos
+que diverge dos lançamentos **não avisa** — passa a contar outra história, e a
+divergência só aparece quando o cliente confronta o papel. Mesma classe da
+**[DE-019](../projeto/decisoes.md)**, e viola o RC-19. Se um dia o desempenho
+exigir cache, **é decisão própria, com verificador que reprove na divergência**.
+
+**A equação, na forma que é honesta o ano inteiro:**
+`Ativo = Passivo + PL + (Receita − Despesa)`. O último termo é o **resultado
+ainda não transferido**; depois do encerramento ele é zero e a equação vira a
+clássica. ⚠️ **Não é norma que eu esteja citando** — é a consequência aritmética
+de o encerramento ser feito por lançamento.
+
+⚠️ **E a regra que veio do catálogo e virou o momento da verdade da camada:**
+*"saldos contábeis não devem ser alterados apenas para fechar a equação"*. A
+camada **reporta** a diferença; **nunca conserta**.
+
+**O critério que justifica a etapa inteira:** `apurar_saldos` e
+`apurar_balancete` **nunca discordam**, provado conta a conta, reprovando no
+primeiro centavo. Se as duas fontes puderem divergir, não construímos uma camada
+— construímos um segundo problema.
+
+##### A AUDITORIA REPROVOU (`b73c729`) — e o achado alto está onde eu apontei, com a métrica que eu errei
+
+**Relatório integral:**
+[2026-09-21-dl-032-rodada-1.md](../auditorias/2026-09-21-dl-032-rodada-1.md).
+**Parecer: REPROVADO**, por **um achado alto**. **Nenhum bloqueador** — nas
+palavras do auditor, *"nenhum número está errado quando o plano de contas está
+coerente, e a arquitetura está certa e é o acerto central desta entrega"*.
+
+Números medidos **pelo auditor**: **2025 passed, 14 skipped**; `ruff`,
+`manage.py check` e `makemigrations --check` limpos, sem migração nova.
+**Desempenho, medido em três escalas:** três consultas **fixas**, sem N+1, e
+crescimento **~linear** — 15× mais lançamentos custou 2,7× o tempo; 31× mais
+contas custou 4,2×. **O risco de desempenho do plano está fechado por medição**,
+e com ele a decisão de não materializar.
+
+⚠️ **[BL-475](../projeto/backlog.md), o achado alto:** conta descendente com
+`tipo` diferente do da raiz cai no **grupo errado**; a linha devolvida diz um
+`tipo` e o `totais_por_tipo` diz outro — **o mesmo dicionário se contradiz** —, e
+a equação responde **`diferenca = 0,00`**. **A camada afirma que fechou**, que é
+o oposto literal do momento da verdade do plano.
+
+**A decisão de agregar por raízes está CERTA**, e o auditor provou por mutação:
+as duas alternativas óbvias quebram a retificadora do RC-104. **O defeito é a
+ausência de declaração** quando a premissa dela não se cumpre.
+
+⚠️ **E a inconsistência que ele mediu é o argumento:** a mesma classe de mau
+cadastro, com a retificadora solta como raiz, **é** declarada. **Um caso grita, o
+outro é mudo — e o mudo é o mais provável.**
+
+**Médias, todas nesta rodada:** [BL-476](../projeto/backlog.md) (`KeyError` cru
+com `tipo` fora do enum — a camada nova é **menos robusta que a que ela reusa**),
+[BL-477](../projeto/backlog.md), [BL-478](../projeto/backlog.md),
+[BL-479](../projeto/backlog.md). **Baixas:** BL-480 a BL-482.
+
+⚠️ **DECISÃO MINHA sobre o achado A6, que o auditor me encaminhou por ser de
+arquitetura: [DE-067](../projeto/decisoes.md).** A leitura roda em três consultas
+sem isolamento e pode produzir **diferença fantasma** sob escrita concorrente.
+**Declarar agora, pagar o snapshot na fatia 2** — hoje **ninguém consegue
+provocar a corrida pelo produto**, porque a camada **não tem view**; e `atomic()`
+sozinho não resolveria, exigiria `REPEATABLE READ`, que alteraria o **Balancete
+do produto** por causa de uma fatia que ainda não tem porta. ⚠️ **O que a decisão
+NÃO autoriza é o silêncio** — o limite entra no docstring.
+
+#### ⚠️ ONDE O ERRO FOI MEU, e eu pedi que ele escrevesse
+
+**Três das minhas suspeitas caíram, medidas:**
+
+1. **Eu disse que o critério 1 era tautologia por reuso. Não é.** O teste compara
+   contra uma segunda chamada, e três mutantes morrem nele. **Quem o cega é a
+   FIXTURE** — a `data_base` cai num dia sem lançamento, e aí as duas colunas são
+   iguais. Certo no espírito, errado na mecânica; e a mecânica importa, porque a
+   correção é **mudar uma data**, não reescrever o critério.
+2. **"Verifique se a soma das raízes cobre todas as contas" era a pergunta
+   errada.** Cobre, sempre. **O dano não é conta de FORA; é conta DENTRO, no
+   grupo errado.** Apontei o lugar certo com a métrica errada.
+3. **A pista do arredondamento era infundada.** Não há arredondamento em ponto
+   nenhum do caminho — subtração pura de `Decimal`, `DecimalField(18,2)` de ponta
+   a ponta. **Descartada por medição.**
+
+**E uma que se confirmou:** *"a agregação soma só as raízes, e é aí que eu mais
+desconfio"*. Era ali.
+
+##### A RECONFERÊNCIA APROVOU — `2e4ad02`, com três ressalvas baixas
+
+**Relatório integral:**
+[2026-09-21-dl-032-rodada-2.md](../auditorias/2026-09-21-dl-032-rodada-2.md).
+**APROVADO COM RESSALVAS.** **A fatia 1 está entregue**, em **duas rodadas** — a
+terceira etapa seguida governada pela §3.1 do começo ao fim.
+
+Números medidos pelo auditor: **2035 passed, 14 skipped** (2025 + 10 novos);
+`ruff`, `manage.py check` e `makemigrations --check` limpos, sem migração nova.
+
+⚠️ **O achado alto fechou do jeito certo, e o NÚMERO prova:** `totais_por_tipo`
+e `diferenca` saíram **idênticos** aos medidos antes da correção. **A correção
+não moveu um centavo** — só acrescentou a declaração. E os mutantes que provam a
+agregação por raízes continuam morrendo, agora matando **mais** testes que antes
+(6→8 e 5→7). O risco que eu mais temia — mexer na agregação para "resolver" o
+achado, quebrando a retificadora do RC-104 — **não se realizou**.
+
+⚠️ **A minha PREOCUPAÇÃO CENTRAL desta rodada também não se realizou, e a razão
+vale mais que o alívio.** Eu temia que mexer na fixture para acordar uma guarda
+adormecesse outra. Medido com os 11 mutantes: **zero enfraquecidos, cinco
+fortalecidos.** O auditor explicou por quê, e é o tipo de coisa que eu quero
+lembrar: mover a `data_base` numa fixture cujos totais **não mudam** é uma
+mudança **monotônica** na força das guardas — só acrescenta movimento a um dia
+antes vazio. **Não era 50/50**, e eu tratei como se fosse.
+
+⚠️ **E o achado R1 nasceu de uma instrução minha:** *"confirme com o SEU
+mutante, não com o dele"*. **O único mutante sobrevivente foi exatamente o que o
+implementador não escreveu.** A regra custou uma rodada de esforço e pagou uma
+vez — e uma vez bastou.
+
+**Ressalvas abertas, baixas, com dono** (DE-066, registradas como itens próprios
+por recomendação do auditor): [BL-483](../projeto/backlog.md),
+[BL-484](../projeto/backlog.md) e [BL-485](../projeto/backlog.md).
+
+**O que a camada NÃO faz, declarado no próprio contrato:** não apura DRE — com
+zeramento mensal ela reportaria zero todo mês; a DRE se faz pelo **movimento** do
+período. E a leitura não tem snapshot ([DE-067](../projeto/decisoes.md)), limite
+que a fatia 2 herda como requisito, junto com a **autorização**, que o auditor
+registrou como pendência que migra inteira.
+
+**Próximo passo, esperando decisão do Fred:** circulante × não circulante (o que
+falta para existir Balanço apresentável), os parâmetros contábeis por empresa
+([BL-474](../projeto/backlog.md)), e as três ausências do
+[catálogo](../projeto/catalogo-de-relatorios.md).
+
+**Estado:** rodada 1 de 2 **concluída**.
+
+#### A DL-033 FATIA 1 ESTÁ ENTREGUE (`d3a2aaa`) — circulante e não circulante
+
+**Autorizada pelo Fred em 2026-09-21.** **Nível 1** — muda o modelo e é o único
+dado que falta para o Balanço existir.
+
+⚠️ **A norma foi levantada em FONTE OFICIAL antes de eu desenhar qualquer coisa**
+(**RC-106**: Lei 6.404/76 arts. 178-180, redação da Lei 11.941/2009; NBC TG 26
+(R5) itens 60-76), e ela **impôs três coisas que eu não adivinharia**:
+
+1. O critério é **relativo à data** — *"até doze meses após a data do balanço"* —,
+   não propriedade eterna do direito.
+2. O **ciclo operacional** pode alargar o corte; os doze meses só se presumem
+   quando ele **não** é claramente identificável.
+3. **O ativo não circulante tem QUATRO subgrupos nomeados por lei** (realizável
+   a longo prazo, investimentos, imobilizado, intangível). Eu teria modelado
+   dois grupos e errado.
+
+**Decisão minha:** a classificação é **campo da conta**, e a passagem de longo
+prazo para curto prazo se faz por **lançamento de reclassificação**, não
+editando a conta — porque o modelo **já recusa** mudar natureza ou tipo de conta
+com movimento (BL-83/BL-245/BL-261), pelo mesmo motivo: a troca **reescreveria o
+histórico**, e aqui reescreveria **Balanços já entregues ao cliente**.
+
+⚠️ **Marcado como HI-18, com a PE-64 aberta ao Fred:** a norma diz **o que**
+classificar, não **como o escritório opera**. Se ele disser que lá se troca a
+classificação da conta, o campo fica e **só a guarda muda**. Sigo pela
+conservadora porque **o erro dela é barato e o da outra é caro**.
+
+⚠️ **E o que a etapa NÃO faz, deliberadamente: não adivinha a classificação das
+contas que já existem.** Ler o código (`1.1` = circulante) ou o nome seria
+inferir semântica da nomenclatura do contador — **exatamente a classe do
+BL-475**, que reprovou a DL-032 nesta semana. Conta existente nasce **sem**
+classificação, e a camada **declara** quais faltam.
+
+##### A RECONFERÊNCIA APROVOU — `d3a2aaa`, com duas ressalvas médias
+
+**Relatório integral:**
+[2026-09-21-dl-033-rodada-2.md](../auditorias/2026-09-21-dl-033-rodada-2.md).
+**APROVADO COM RESSALVAS.** **BL-486 (bloqueador), BL-487, BL-489, BL-490,
+BL-493 e BL-494 fechados e medidos.** Números do auditor: **2072 passed, 14
+skipped**, tudo limpo, **sem migração nova**.
+
+A identidade aritmética resistiu a **nove cenários** construídos por ele e a
+**dois mutantes** (zerar o resíduo e inverter o sinal) — os dois reprovam,
+nomeando os testes certos.
+
+⚠️ **E aqui está o documento mais honesto que este repositório produziu: o
+auditor RETRATA A PRÓPRIA RECOMENDAÇÃO da rodada 1.** Ele havia escrito que a
+identidade *"fecha qualquer outro caso que nem eu nem o implementador
+pensamos"*. **Não fecha.** Ela vale **por TIPO**, não por **grupo** — e é o
+grupo que o Balanço imprime.
+
+**Ele construiu o contra-exemplo e mediu ([BL-496](../projeto/backlog.md)):**
+dois defeitos calibrados para se anularem — retificadora entre irmãs (+500,00) e
+nó intermediário movimentado sem classificação (−500,00) — produzem **resíduo
+`0,00`, cinco listas vazias, equação fechando** e **dois grupos do Balanço
+errados em R$ 500,00 cada**.
+
+⚠️ **O excesso nasceu NELE, passou por MIM e chegou ao CÓDIGO.** Eu promovi a
+frase dele a critério de aceite confiando nela; o implementador a repetiu no
+docstring. **Foi ele quem a desmontou, sem ser perguntado.** Virou a
+**[DE-068](../projeto/decisoes.md)**: *invariante mal dimensionada é mais
+perigosa que lista, porque **parece completa***.
+
+⚠️ **A bifurcação que ele me deixou, e a minha resposta.** Ele aprovou com
+ressalva **porque a DL-034 ainda não existia**, e escreveu: *"se a DL-034 for
+escrita sem essa frase, a ressalva vira defeito"*. **Escrevi a frase no critério
+1 da DL-034 antes de arquivar o relatório.** A condição de emissão passou a ser
+**conjunção de quatro**, não um número só.
+
+**Segunda ressalva ([BL-497](../projeto/backlog.md)):** apontar o **imobilizado**
+para o grupo **circulante** — erro de norma — **passa em 1.622 testes**. O mapa
+hoje está **correto**, conferido linha a linha; **falta a guarda**.
+[BL-498](../projeto/backlog.md) é baixa e declarada.
+
+##### ➡️ PRÓXIMA: [DL-034](../planos/DL-034-a-tela-do-balanco.md) — a tela do Balanço
+
+**Autorizada pelo Fred em 2026-09-21.** ✅ **A DL-033 fechou — a implementação
+está LIBERADA.** O contrato de `apurar_saldos` parou de se mover.
+
+⚠️ **NÍVEL 1, e não 2 — a diferença é o TIPO DO DOCUMENTO.** A tela do
+fechamento foi nível 2 porque as regras moravam no servidor. **O Balanço é a
+primeira DEMONSTRAÇÃO CONTÁBIL do produto** — Diário, Razão e Balancete são
+conferência ou livro —, e demonstração tem **bloco de identificação prescrito
+por norma**.
+
+**RC-95 (NBC TG 26 (R5), item 51) exige cinco itens, e TRÊS não existem:**
+entidade **individual ou de grupo**, **moeda de apresentação** e **nível de
+arredondamento**. O RC-95 já registrava a ausência do terceiro desde
+2026-09-19. Entram como **valores declarados, nunca presumidos**.
+
+⚠️ **E o item 52 torna NORMATIVO o que parecia diagramação:** o bloco vai **em
+cada página**. A **PE-61** já mediu que hoje só a **folha 1** carrega empresa e
+período. **Para Balancete isso é ressalva; para o Balanço é descumprimento.**
+
+**Três dívidas declaradas vencem aqui**, nenhuma nova: **autorização no
+servidor** (o auditor da DL-032 registrou que *"migra inteira para a fatia 2"*,
+porque não havia superfície onde medi-la), **leitura sob snapshot**
+([DE-067](../projeto/decisoes.md)) e **recusa de emissão com declaração
+pendente** (BL-488).
+
+**O momento da verdade da tela:** *"o que eu vou entregar fecha, e eu sei o que
+ele NÃO diz"*. ⚠️ **É a lição das três últimas auditorias virada regra de
+tela** — o sistema errou três vezes seguidas **afirmando que tinha fechado**.
+Aqui ele não vai poder afirmar: ou fecha e emite, ou não emite e diz por quê.
+
+**Pendência aberta, que não bloqueia:** **PE-62** — como o escritório do Fred faz
+o encerramento do exercício (por lançamento ou derivado), com que periodicidade,
+e qual conta do PL recebe o resultado. ⚠️ **O catálogo já respondeu a parte
+genérica** (item 25: encerramento por lançamentos que transferem o resultado),
+então a pergunta ao Fred ficou menor — foi a regra dele de 2026-09-20, *"consulte
+os manuais antes de me perguntar"*, pagando de novo.
+
+###### AS DUAS FRENTES ENTREGARAM (`e20f0a5`) e a AUDITORIA REPROVOU — por um FALSO POSITIVO
+
+**Relatório integral:
+[2026-09-21-dl-034-rodada-1.md](../auditorias/2026-09-21-dl-034-rodada-1.md).**
+Achados registrados como **BL-499 a BL-513** no
+[backlog](../projeto/backlog.md).
+
+⚠️ **O que reprova é A1, de gravidade ALTA, e é um FALSO POSITIVO — nenhum
+documento errado é produzido.** A guarda estrutural agrupa por `conta_pai`, e
+`conta_pai` é `None` para **toda raiz**: um plano mínimo e legítimo
+(`1 ATIVO CIRCULANTE` devedora, `2 PASSIVO CIRCULANTE` credora, `3 CAPITAL
+SOCIAL`) fica **permanentemente impedido** de emitir, e a tela acusa as duas
+contas com uma frase **factualmente falsa** — *"sob o mesmo ancestral não
+classificado"*, quando não há ancestral — e manda corrigir o que está correto.
+**`Conta.full_clean()` aceita esse plano**: o dado é alcançável pelo produto.
+
+**Tudo o que a etapa prometeu MEDIR foi medido e PASSOU:** a correção (b)
+inclusive na retificadora **de grupo** que ninguém tinha provado
+(`ativo_nao_circulante = 12.000,00`, certo), o bloco do item 51 completo em
+**todas as sete folhas**, o servidor como dono único da decisão (varredura:
+**não existe segunda porta**), autorização com **corpo assertado** (403 sem
+nenhuma das 11 agulhas; 404 byte a byte igual ao inexistente; superusuário sem
+vínculo sem dado), snapshot `repeatable read` provado por mutação, e
+não-regressão **2095 passed, 14 skipped**, `--collect-only 2109`.
+
+**Duas decisões minhas, tomadas ao arquivar:**
+
+1. **[DE-070](../projeto/decisoes.md#de-070) — a condição 3 é APOSENTADA como
+   veto** e vira informação declarada. Eu a mantive como suspensório enquanto
+   (b) não tivesse prova para retificadora de grupo; **o auditor mediu e a
+   interação não existe**. O pressuposto acabou. ⚠️ **Isso não dispensa o A1**:
+   aviso mentiroso é pior que veto mentiroso, porque ninguém o corrige.
+2. **[DE-069](../projeto/decisoes.md#de-069) — e o erro é meu, pela segunda vez
+   seguida.** Promovi a número assertável (`8.500,00`) uma frase que o **próprio
+   auditor declarou não ter testado**. No V1d o valor é **8.000,00 e não pode ser
+   outro**: (b) corrige **sinal**, e o defeito é de **cobertura**. **O
+   implementador recusou o número, escreveu por quê, e estava certo.**
+
+⚠️ **E a sabotagem que eu mandei fazer rendeu o achado que ninguém veria:** três
+linhas de CSS (`@media print { .identificacao-do-documento { display: none; } }`)
+**apagam o bloco normativo de todas as folhas com 1810 testes verdes** — o job de
+CI mede `.timbre-impressao`, nunca `.identificacao-do-documento`. **O critério 4
+está MEDIDO e NÃO GUARDADO** (BL-501).
+
+**Uma pergunta de produto foi ao Fred em 2026-09-21** e não bloqueia a correção:
+o Balanço **pode ser emitido sem zeramento**, e a nota que reconcilia os dois
+totais fica só na folha 1 enquanto os totais saem nas folhas 3 e 6 (BL-503).
+
+###### A RECONFERÊNCIA APROVOU COM RESSALVAS — `48d65e5`. ✅ **A DL-034 ESTÁ ENTREGUE**
+
+**Relatório integral:
+[2026-09-21-dl-034-rodada-2.md](../auditorias/2026-09-21-dl-034-rodada-2.md).**
+Ressalvas registradas como **BL-514 a BL-525**.
+
+**Os dois achados que reprovaram a rodada 1 fecharam e estão medidos:** os dois
+planos de raiz do A1 **emitem**, e a sabotagem de CSS que o auditor inventou
+**reprova agora com código 1** — junto com mais **quatro** construções que o
+relatório não tinha nomeado. A separação veto/aviso é disjunta e completa contra
+o **inventário real**, `pode_emitir` continua **derivado**, o V1d continua
+recusado **por resíduo e pela condição 4**, e o estado novo (`pode_emitir=True`
+com aviso) aparece na tela e **não** no papel — medido em PDF de verdade.
+Não-regressão conferida por mim **e** por ele: **2107 passed, 14 skipped**,
+`--collect-only 2121`.
+
+⚠️ **As cinco ressalvas são todas sobre GUARDA, não sobre o que o produto
+entrega.** Palavras do auditor: *"nenhum documento errado sai desta revisão"*.
+As duas médias:
+
+- **BL-514** — o bloco normativo sai **invisível do papel** por `color:
+  transparent` / `#FFFFFF`, com job **e** suíte verdes. Medido no pixel: zero
+  tinta. ⚠️ **O oráculo que fecha isto já existe no mesmo arquivo**, para o
+  timbre — falta **reuso**, não capacidade.
+- **BL-515** — mover 5 das 6 listas de veto para a tupla de aviso **não reprova
+  nada**, e para a classificação aninhada **o Balanço passa a emitir**. ⚠️ **E
+  dois docstrings prometem o contrário.**
+
+**Três decisões saíram desta rodada:**
+
+1. **[DE-071](../projeto/decisoes.md#de-071)** — desligar uma trava exige prova
+   de **comportamento**, uma por trava que sobrou, **derivada da tupla**. Prova
+   de **estrutura** (partição, união, congelamento de chaves) prova que a lista
+   está **completa**, nunca que um item está do **lado certo**. ⚠️ **É a quarta
+   forma da mesma família: DE-058, DE-068, DE-069 e agora esta.**
+2. **[DE-072](../projeto/decisoes.md#de-072)** — critério que toca fronteira
+   definida por norma ou documento do projeto **cita o documento e a palavra**.
+   *"Dentro do `<thead>`"* e *"dentro do bloco"* são coisas diferentes, e eu
+   copiei a preposição errada.
+3. **[DE-073](../projeto/decisoes.md#de-073)** — quando duas frentes tocam o
+   mesmo arquivo, o **commit de integração declara a procedência**. A colisão
+   desta rodada foi minha e não produziu defeito — *"e isso foi sorte, não
+   processo"*.
+
+###### ➡️ PRÓXIMA: [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) — as guardas da demonstração
+
+**Decisão minha, em 2026-09-21, informada ao Fred:** as cinco ressalvas viram
+**etapa própria**, não uma terceira volta disfarçada (a §3.1 proíbe a terceira).
+Escopo: BL-514, BL-515, BL-516 (decidido: opção (i), a detecção volta e o rótulo
+é que se corrige), BL-517 + BL-519 e BL-518. **BL-507 destrava ali**, em
+sequência declarada.
+
+⚠️ **Por que não adiar:** este projeto já pagou caro pela distância entre
+**medido** e **guardado** — BL-337 e PE-61/BL-372. A DL-034 fechou com essa
+distância aberta em **dois** pontos.
+
+**Continua com o Fred, e não bloqueia a DL-035:** o Balanço pode ser emitido sem
+zeramento? Três caminhos apresentados a ele em 2026-09-21, com recomendação
+(mostrar o resultado do período dentro do PL, para a demonstração fechar).
+
+---
+
+**Como esta rodada correu, para quem retomar:** a **rodada de correção**, em
+arquivos **disjuntos** —
+**BL-499** (alta), **BL-500** e **BL-502** com o `desenvolvedor-pleno`
+(`services.py`, `models.py` e testes de backend); **BL-501**, **BL-503**,
+**BL-504**, **BL-508** e **BL-509** com o `especialista-frontend`
+(`views_web.py`, templates, CSS, instrumento de medição e testes de tela).
+Depois, **uma reconferência, sem terceira** (§3.1).
+
+⚠️ **BL-507 fica DE FORA desta rodada, e a decisão é minha, com o motivo
+escrito:** a correção mora em `views_web.py` (frente da tela) mas depende de uma
+entrada nova em `NATUREZA_NATURAL_DO_TIPO`, que mora em `models.py` (frente do
+servidor). **Duas frentes no mesmo passo criam dependência de ordem entre
+agentes que correm em paralelo** — é exatamente o que a divisão de arquivos
+existe para evitar. É gravidade **baixa**, o resultado hoje **coincide**, e a
+DE-066 não manda reabrir rodada por baixa. **Fica aberto e nomeado**, não
+esquecido. **BL-506, BL-510, BL-511, BL-512 e BL-513** também seguem abertos:
+os dois primeiros e o quarto são limites declarados, e **BL-511 depende de uma
+decisão de apresentação que ainda não tomei**.
+
+**AGORA, em 2026-09-20:
+[DL-026](../planos/DL-026-identidade-visual-e-interface.md) — identidade visual —
+e [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md). Em
+desenvolvimento, com uma DECISÃO MATERIAL no colo do Fred.**
+
+➡️ **DECIDIDO em 2026-09-20, e a decisão é a [DE-059](../projeto/decisoes.md).**
+O Fred delegou com uma frase — *"Você decide"* — depois de eu levar os dois lados
+com o custo de cada um (PE-56). A resposta é **as duas coisas**, porque elas
+respondem a perguntas diferentes:
+
+1. **Comprar a frase executável** do critério 9 inteiro. É a
+   **[DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md)**, e ela
+   fecha BL-404, BL-405, BL-406 e BL-407 **juntos**.
+2. **Declarar hoje a verdade de hoje:** DL-026 e DL-028 **NÃO estão fechadas**.
+   O que existe é **produto bom, garantia parcial**, com **BL-404** nomeado como
+   o buraco aberto. Vale enquanto a DL-029 não entrar, e vale independentemente
+   dela.
+
+⚠️ **O que NÃO é defensável, e o auditor foi explícito:** fechar dizendo que o
+critério 9 está garantido. Não está.
+
+➡️ **Leia a seção "A décima auditoria" mais abaixo** para o porquê, com os
+números.
+
+### Onde a DL-029 parou — para quem retomar amanhã
+
+**Nada está solto: árvore limpa, local e remoto iguais.** A revisão de
+referência desta anotação é `59b6499`; o `git log` da branch
+`claude/accounting-agent-team-setup-mn6lyf` é a autoridade sobre o que veio
+depois — **não** descreva revisão nova aqui sem conferir lá.
+
+| Cláusula | Estado | Observação |
+| --- | --- | --- |
+| **C5** — fornecedor fora do papel (**BL-404**, o bloqueador) | **Fechada e medida** | Identificador **derivado** de `templates/base.html`, de **duas** fontes, com **recusa (código 2)** se divergirem; busca normalizada sobre **todas** as páginas; e a checagem alcança também os **metadados do PDF** nos campos que o produto controla |
+| **C4** — cada linha no seu lugar (**BL-405**) | **Fechada e medida** | Âncora por **ocorrência**, não por texto |
+| **C3** — exatamente as linhas declaradas | **Fechada e medida** | Comparação de **conjuntos**: faltar **e** sobrar reprovam |
+| **C1** — toda folha, toda tela (**BL-406**, **BL-410**) | **Parcial** | `lancamento_id` entrou e a tela é medida; paginação passa a ser **nomeada**. Falta o tratamento das rotas com `pk`/`token` genéricos, hoje **limite declarado** |
+| **C2** — tinta que contrasta (**BL-407**) | **Limiar PROVISÓRIO no código** | A decisão já está tomada e escrita no critério 7 do plano: o piso é **derivado do WCAG 2.2**, por linha. O código ainda carrega o valor provisório |
+
+⚠️ **ATUALIZAÇÃO da mesma madrugada — `3fd1384`: as CINCO cláusulas estão
+fechadas e medidas.** O C2 fechou com o piso do **WCAG 2.2 (1.4.3, AA)**
+aplicado **por linha**, a partir do tamanho e peso **realmente renderizados**
+(pedidos ao navegador via `getComputedStyle`, nunca deduzidos de token CSS). O
+limiar provisório de 2,4 **saiu do código**. Números medidos: controle limpo
+**21,0:1** nas três telas, com **8,1×** de margem em pixels; penhasco entre
+`opacity` **0,55** (reprova) e **0,60** (passa); e as duas causas de reprovação
+ficaram **estruturalmente distinguíveis** — *"CONTRASTE insuficiente — X:1
+medido, mínimo exigido 4,5:1"* contra *"POUCOS PIXELS de tinta visível"*. Suíte
+inteira: **2016 passed, 15 skipped**.
+
+⚠️ **E um quase-erro que virou registro, a [BL-423](../projeto/backlog.md):** a
+conversão pt→px do piso nasceu **invertida**, e o implementador a achou e
+corrigiu **antes** de reportar. Importa pela **direção**: invertida, ela fazia o
+instrumento exigir **3:1** onde o devido é **4,5:1** nas linhas reais do timbre —
+ou seja, **afrouxava a guarda e continuava verde**. É a assinatura do defeito
+mais caro desta etapa inteira.
+
+**A etapa NÃO está declarada pronta.** Está em **verificação independente**, por
+quem não escreveu a correção (DE-055), em quatro regiões que **nenhum critério de
+aceite exercitou**: (R1) o vão entre *"texto ilegível"* e *"pixels de menos"* —
+os casos de `1px`/`3px` reprovam por uma checagem **anterior** (*"ausente do
+texto do PDF"*), então a regra nova de contagem nunca foi exercitada com texto
+extraível e tinta preta; (R2) o corte de *"negrito"* do WCAG; (R3) as quatro
+fronteiras da conversão pt→px, que é onde a BL-423 se escondia; (R4) papel que
+não é branco. **Só depois disso vai ao `auditor-qa`.**
+
+**A verificação independente VOLTOU, e o resultado está abaixo.**
+
+#### O que a verificação independente achou (2026-09-20, sobre `3fd1384`)
+
+**Três das quatro regiões estão limpas**, e duas delas confirmam o trabalho:
+
+- **R2 — sem achado.** `PESO_MINIMO_NEGRITO = 700` está certo: `font-weight: 600`
+  exige **4,5:1** e `700` exige **3:1**. A hipótese de guarda frouxa não se
+  confirmou.
+- **R3 — sem achado.** As **quatro** fronteiras pt→px batem exatamente (18pt→3,0;
+  17,9pt→4,5; 14pt negrito→3,0; 13,9pt negrito→4,5). A correção da BL-423 está
+  certa **onde erro de conversão se esconde**.
+- **R4 — o instrumento acerta nos dois regimes**, e o que falta é premissa
+  escrita: **BL-426**.
+
+⚠️ **R1 achou o que eu procurava, e é a [BL-424](../projeto/backlog.md):
+`PISO_PIXELS_ESCUROS_POR_LINHA = 40` é o ÚLTIMO número mágico do instrumento.**
+Com `font-size: 8px` no timbre, o instrumento **PASSA** — contraste 19,8:1, e
+contagem de **57–58** pixels contra piso 40 — enquanto o produto real mede
+**324–773**. O piso admite linha com **1/6 da tinta** do normal. Em 7px reprova,
+em 8px passa, e **ninguém decidiu isso**.
+
+**A observação de forma é a que importa:** o C2 trocou o limiar de luminância por
+propriedade derivada de padrão externo; o piso de **contagem** ficou para trás. É
+a mesma forma de `MARCA_DO_FORNECEDOR` e de `_PROPRIEDADES_DE_INTERESSE` — o
+resto do arquivo virou propriedade e **esta constante sobreviveu**. E a pergunta
+que ela responde **mudou de dona**: depois que o contraste passou a pegar tinta
+apagada, a única coisa que a contagem ainda guarda é *"o texto foi renderizado em
+tamanho legível?"* — pergunta de **tamanho**, que o instrumento **já sabe
+responder** porque pede o tamanho ao navegador.
+
+⚠️ **E eu NÃO afirmo que 8px é ilegível.** Pela **BL-422**, juízo visual de
+agente não vale perto do limiar. Afirmo o medido. A pergunta *"qual é o tamanho
+mínimo aceitável para o timbre do documento que vai ao cliente?"* é do Fred e
+está registrada como **PE-58** — ele responde olhando uma folha impressa, que é
+coisa que nenhum de nós consegue fazer.
+
+**Mais dois limites a declarar, ambos achados não pedidos:** **BL-425** —
+`presente_no_pdf` (`-layout` + substring) e a localização por `-bbox` são **dois
+mecanismos distintos que divergem** em tamanhos pequenos, então o veredito pode
+dizer *"ausente do papel"* sobre linha que **está** no papel; e **BL-426** — a
+folha medida é **sempre branca** hoje, porque nenhum CSS usa
+`print-color-adjust: exact` e `print_background` nunca é passado ao Playwright.
+
+#### `100140e` — as três tratadas, e a DL-029 foi PARA A AUDITORIA
+
+**BL-424 fechada.** `TAMANHO_MINIMO_RENDERIZADO_PX = 11`, terceira causa de
+reprovação distinguível de contraste e de contagem, com mensagem própria
+(*"renderizada a Npx, abaixo do mínimo de Mpx"*), lida do mesmo
+`getComputedStyle` que já alimenta o piso do WCAG.
+
+⚠️ **E o valor não foi inventado, que era o risco:** vem de `--tipo-2xs`, token
+que o **próprio produto** já documenta como piso legível (BL-283), fixado por um
+teste que **lê `static/css/base.css` de verdade** — não um número solto.
+`8px` passa a reprovar **nomeando tamanho**; 16px e 14px, que é o produto real,
+continuam passando. `PISO_PIXELS_ESCUROS_POR_LINHA` fica como sanidade residual:
+não guarda mais nem tamanho nem contraste, os dois com checagem própria.
+
+**BL-425 e BL-426 declaradas**, com a medição ao lado, não fechadas.
+
+**Conferido por mim nesta revisão, com banco próprio (`arq_dl029`):**
+`pytest` → **2017 passed, 15 skipped, 4 subtests**, 67,48 s; `ruff check .`
+limpo; `ruff format --check .` 210 arquivos; `manage.py check` limpo.
+
+#### A DÉCIMA PRIMEIRA AUDITORIA voltou — REPROVADO, e o achado MUDOU DE CLASSE
+
+Relatório integral em
+[2026-09-20-dl-029-rodada-11.md](../auditorias/2026-09-20-dl-029-rodada-11.md).
+**Preservado sem uma palavra minha.** Cinco achados **ALTA**, quatro dentro do
+instrumento que a etapa entregou.
+
+**Não houve o K12 que ele mesmo previu.** A régua foi a **frase**, e o achado
+subiu de *"o instrumento não faz a pergunta"* para *"o instrumento faz a pergunta
+contra um **substituto**"*. Isso virou a [DE-060](../projeto/decisoes.md), e é a
+primeira formulação **finita** em doze rodadas: o instrumento faz **cinco**
+medições, e a pergunta *"isto é a propriedade ou um substituto dela?"* tem cinco
+respostas — três delas corrigíveis com dado que o arquivo **já calcula e
+descarta** (o `bbox` real).
+
+| Achado | O que fura |
+| --- | --- |
+| **BL-427** | Timbre com **2 das 3** linhas declaradas sai como *"FALHA DE INFRAESTRUTURA — não é um veredito sobre o produto"*. O código da cláusula C3 é **inalcançável** |
+| **BL-428** | `transform: scale(0.6)` e `zoom: 0.6` **passam** com o glifo a 9,1 px, enquanto `font-size: 8px` (8,7 px) reprova |
+| **BL-429** | `color: #FF0000` mede **8,45:1** e passa; a razão WCAG real é **4,00:1**. O número rotulado *"WCAG 2.2"* não é o do WCAG |
+| **BL-430** | `letter-spacing: 0.2em`, no tamanho real do produto, diz *"AUSENTE do texto do PDF"* sobre linha com **306 px de tinta** medidos na mesma execução |
+| **BL-431** | O `AGENTS.md` mandava o Fred marcar `Backend` e `Documentação`; os contextos reais são `Lint e testes` e `Validar documentação` |
+
+⚠️ **O BL-431 eu corrigi imediatamente**, em `AGENTS.md` e `CLAUDE.md`, com os
+quatro nomes exatos e o comando que **busca** em vez de afirmar. **O dano do nome
+errado é o oposto do esperado: contexto obrigatório que nunca reporta TRAVA a
+`main` para sempre**, com o PR em *"pendente"* e nenhum erro para investigar.
+
+⚠️ **E eu corrijo o relatório num ponto, com evidência, sem tocar nele:** o
+auditor infere que o `AGENTS.md` foi *"com grande probabilidade"* a causa do erro
+do Fred hoje, *"exatamente os dois"*. **Não foram.** Eu vi a tela: os erros do
+Fred foram `tanto fazer projeto` e `emissor` — os **outros** dois, por corretor
+de celular. O achado é real; a atribuição de causa não se sustenta. Registrado em
+**BL-431**.
+
+#### Ele mediu a PRÓPRIA FRASE e achou que ela promete o impossível
+
+Exportando com as **opções padrão** do diálogo de impressão, a faixa que o
+navegador acrescenta por fora carrega a **URL** — que em produção **é** o
+identificador do fornecedor, em toda folha. E o `base.css` já declarava (BL-332)
+que nenhuma folha de estilo a suprime. **O produto está certo; a frase é que
+prometia o que ninguém entrega.** Corrigida na
+[DE-061](../projeto/decisoes.md), com a fronteira nomeada — *"no conteúdo que o
+documento controla"*. Isso não é afrouxar: é parar de chamar de garantia o
+impossível, que é o defeito de 2026-09-13.
+
+#### O que ele reafirma, e eu não quero que se perca
+
+**BL-404 fechou de verdade** — refeito por um canal que ele não usava,
+`::after { content: ... }` com `DATALEDGER` em caixa alta e o domínio, e o
+instrumento reprovou nomeando a normalização. **C4 e C5 aguentaram tudo.** A
+cobertura de **metadados do PDF alarga** o critério além da frase original e é
+*"o sinal mais forte de que comprar a frase valeu"*. A paginação **erra para o
+lado seguro** (medido: a exportação padrão do navegador é **mais** permissiva que
+a do instrumento). Os quatro números **conferem**, e o custo do critério 9 é real:
+**4 s** de medição, com cinco cláusulas a mais. **Terceira rodada seguida em que
+ele não recomenda reverter o caminho A.**
+
+#### E ele venceu uma discussão comigo, a meu pedido
+
+Eu pedi que atacasse o meu argumento do **BL-419** (parar de escrever guarda). Ele
+mostrou que o argumento publicado **expira** no dia em que o BL-373 for fechado,
+que o ataque que eu descrevi **se autodestrói** com proteção ligada, e que o meu
+modelo de ameaça era *"atacante"* quando o risco real é **acidente** — e que os
+dois **não têm a mesma detectabilidade**. **Adotei a formulação dele**, que não
+expira: *"toda guarda que eu escrever mora no mesmo YAML que ela guarda; a
+regressão é infinita por construção, e o único lugar em que ela pode terminar é
+fora do repositório"*. A decisão continua a mesma; a razão publicada era mais
+fraca que a verdadeira.
+
+#### Onde isso deixa o fechamento
+
+**Em termos da frase, não de achados:** **C1, C4 e C5 fecham** (com limites
+declarados). **C2 e C3 NÃO fecham.** Continua valendo **produto bom, garantia
+parcial** — mas o **nome do buraco muda**: BL-404 fechou, e o que está aberto
+agora são **C2** e **C3**. É uma frase muito mais curta de carregar do que uma
+lista de achados.
+
+⚠️ **E ele declarou o critério de parada, que é o que eu mais queria:** se
+depois desta rodada aparecer um **sexto** eixo, a conversa deixa de ser de
+engenharia e passa a ser *"quanta garantia o produto precisa"* — **pergunta do
+Fred**.
+
+#### DL-030 em execução — o Fred autorizou o remendo da trilha
+
+*"Pode encaminhar o remendo da trilha"*, 2026-09-20, depois de eu levar a ele o
+**BL-435** com a medição.
+
+⚠️ **E o plano nasceu de uma premissa MINHA que estava ERRADA — corrigida no
+mesmo dia, antes de virar código.** Eu afirmei que *"a razão social é apagada no
+ato e não fica em lugar nenhum"*. **É falso.** A trilha **cobre** o admin desde a
+DL-024/BL-244, por **signal genérico** em `apps/auditoria/signals.py`, e há teste
+que prova exatamente o cenário que eu disse não existir. Conferido por mim:
+`pytest apps/core/tests/test_dl024_trilha_admin.py` → **`7 passed`**; e
+`git merge-base --is-ancestor febdc9f ab35715` → **verdadeiro**, o código já
+estava lá quando eu "medi".
+
+**A classe do meu erro é a [DE-060](../projeto/decisoes.md), aplicada a mim:** eu
+rodei `grep "registrar(" apps/empresas/admin.py`, não achei, e conclui *"a trilha
+não cobre o admin"*. A **medição era literalmente verdadeira e a conclusão era
+falsa** — medi um **substituto** no lugar da **propriedade**, sem declarar que era
+substituto, e publiquei ao Fred **como fato**. Registrado em **BL-435**, que
+deixou de ser achado e virou o registro do erro. **Quem o encontrou foi o
+`desenvolvedor-pleno`, medindo antes de escrever, porque o plano mandava parar se
+a premissa não batesse — terceira vez na semana que essa regra evita um
+defeito.**
+
+**O escopo está no nome: é REMENDO.** Plano em
+[DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md), e a seção *"O que esta
+etapa NÃO é"* vem **antes** dos requisitos, de propósito:
+
+1. **Não** é o `HistoricoCadastralEmpresa` com vigência que o BL-396 vai exigir —
+   esse depende da **PE-60**, cuja metade normativa eu **ainda não levantei** em
+   fonte oficial.
+2. **Não** fecha BL-244, BL-14, BL-16 nem BL-57. A trilha completa continua sendo
+   o **pacote 3**.
+3. **Não** promete dado recuperável em forma de cadastro: fica em `detalhes`, como
+   **prova de que existiu e qual era**.
+
+⚠️ **O valor é exatamente esse, e é grande: depois dela a informação EXISTE.
+Antes, não existia.**
+
+**As duas exigências de forma**, e são a lição da semana: a cobertura é
+**derivada de `admin.site._registry`** (enumerar os `ModelAdmin` seria a décima
+sétima ocorrência da classe), e a **guarda da cobertura também é derivada** — um
+teste anda pelo registro e reprova se alguma `ModelAdmin` ficar de fora, de modo
+que modelo novo entre **sozinho** ou o build fique vermelho.
+
+**Duas frentes em paralelo, em arquivos disjuntos:** `scripts/**` com a rodada 2
+da DL-029; `apps/**` com a DL-030.
+
+#### A RODADA 2 da DL-029 ENTREGOU — `92679e0`, C2 e C3 fechados
+
+**Os quatro substitutos viraram propriedade**, e é a DE-060 sendo aplicada em vez
+de citada:
+
+| A propriedade | Antes | Agora |
+| --- | --- | --- |
+| Quantas linhas o papel carrega | contagem colada à recusa de infraestrutura | **contagem própria**, código **1** com a frase do C3; `None` continua recusando (código 2) |
+| Que tamanho a linha tem no papel | `getComputedStyle().fontSize` | **altura do bbox no papel**, com fator **medido** (1,088 idêntico em 4 tamanhos × 2 pesos) |
+| A razão de contraste do WCAG | luminância de raster em **cinza** | **cor**, luminância de **três canais** |
+| A linha está no papel | substring do `pdftotext -layout` | **o bbox foi localizado** |
+
+**Medido no produto real:** `transform: scale(0.6)` e `zoom: 0.6` reprovam
+nomeando **tamanho** (9,60 px e 8,40 px); `color: #FF0000` reprova relatando
+**4,00:1** — que é a razão WCAG real e **bate com o cálculo à mão do auditor**;
+`letter-spacing: 0.2em` a 14 px **passa**; timbre com 2 de 3 linhas sai com
+código **1** dizendo *"número de linhas no papel (2) diverge do declarado (3)"*,
+não mais *"falha de infraestrutura"*.
+
+**O BL-434 saiu de zero para 14 testes ponta a ponta**, com Django, subprocesso,
+Chromium e `poppler` **reais**, um por cláusula, afirmando **código de saída** e
+**substring da mensagem**. Era o teste que teria pegado o BL-427.
+
+**Custo, que era o meu ponto de parada:** 3,4–3,7 s antes, **3,5–3,6 s depois**.
+A rasterização em cor **não** custou o que eu temia.
+
+**Conferido por mim, com banco próprio (`arq_r2`):** `pytest` → **2045 passed,
+15 skipped, 4 subtests**, 88,65 s; `ruff check` limpo; `ruff format --check` 210
+arquivos; árvore limpa.
+
+⚠️ **E o implementador declarou quatro achados próprios, dois deles contra a
+própria entrega** — [BL-436](../projeto/backlog.md) a **BL-439**. O **BL-436** é
+o substituto que **sobrou**: a classificação *"texto grande"* do WCAG ainda lê o
+tamanho **declarado**. Ele argumenta que a checagem de tamanho mascara isso na
+prática; **eu acho que o mascaramento não é completo** e mandei medir —
+`font-size: 24px` com `scale(0.6)` dá 14,4 px, **acima** do mínimo de 11, e a
+classificação continuaria exigindo 3:1 quando o devido seria 4,5:1.
+**Registrei a hipótese ANTES do resultado, e ela pode estar errada** — hoje eu já
+publiquei uma conclusão falsa por não medir (BL-435).
+
+#### A DL-030 ENTREGOU — `8de86a7`, e a cobertura virou propriedade
+
+**Conferido por mim, com banco próprio (`arq_dl030v`):** `pytest` → **2054
+passed, 15 skipped, 4 subtests**, 90,75 s; `ruff check` limpo;
+`ruff format --check` **211** arquivos; árvore limpa.
+
+| Gap | Como fechou |
+| --- | --- |
+| `escritorio` vinha da **sessão** | Passa a ser **derivado do objeto** por inspeção do modelo (FK direta ou um nível de indireção), com `request.escritorio` como segunda opção. **Era o mais grave, e não era nenhum dos meus** |
+| `Usuario` sem cobertura | Coberto, com a senha **redigida** — e a redação vem do **widget**, não de lista de nomes |
+| Tupla de seis modelos | Vira *"todo modelo concreto de `apps.*`"* menos uma exclusão **pequena**, com motivo **por item** |
+| Atomicidade **afirmada** | **Medida**: `IntegrityError` forçado em `RegistroAuditoria.objects.create` e a alteração **não persiste** |
+| Inline, delete, DE-060 | Provados por **requisição**, inclusive o `delete`, que **não tinha teste no repositório** |
+
+**A guarda do R2 foi provada com força:** um `ModelAdmin` de mentira **sem**
+cobertura é registrado dentro do próprio teste, e a varredura **reprova
+nomeando-o**. Modelo novo amanhã entra sozinho, ou o build fica vermelho.
+
+⚠️ **E ele declarou o substituto que sobrou, sem eu perguntar:** a redação por
+widget é estruturalmente um substituto de *"este valor é secreto"*, e ele nomeou
+a divergência **com exemplo concreto do projeto** — `ConviteEscritorio.token`, um
+`CharField` opaco que hoje não tem `ModelAdmin`; se ganhar um, sem widget de
+senha, este mecanismo não o protege.
+
+**Dois achados meus na integração:** [BL-441](../projeto/backlog.md) — o prefixo
+`"/admin/"` está escrito duas vezes, no `urls.py` e no `signals.py`, sem
+derivação; **gravidade BAIXA, e eu medi o modo de falha antes de classificar**:
+os nove testes usam caminhos literais, então mover o admin faz **todos irem a
+vermelho**. É falha **barulhenta**, não silenciosa. O que fica ruim é a
+**mensagem**, que acusaria *"trilha não gravada"* quando a causa é *"o admin
+mudou de endereço"*.
+
+⚠️ **E [BL-442](../projeto/backlog.md), que é contra MIM e é o segundo do dia:**
+pela **segunda vez** eu publiquei uma **razão** mais fraca que a verdadeira, e as
+duas eram **verificáveis e falsas**. Aqui eu escrevi que *"o signal cobre
+qualquer caminho de escrita"* para recusar a troca por `save_model`. **Medido:
+falso** — ele sai cedo se a origem não é o admin, e isso é **deliberado e certo**
+(as views já fazem o próprio `registrar()`; cobrir os dois lados duplicaria a
+trilha). **A decisão continua certa; a razão era outra:** *o signal pode crescer
+afrouxando um `if`; o `save_model` não pode, por construção.*
+
+**E é isso que torna o padrão perigoso: razão errada com conclusão certa não é
+corrigida por ninguém, porque o resultado parece bom.** Virou regra minha —
+argumento verificável que eu publique vai **verificado**, ou vai marcado como
+**não medido**.
+
+#### A verificação independente voltou: a minha hipótese estava CERTA, e havia mais dois
+
+**R1 — [BL-436](../projeto/backlog.md), falso conforme reproduzido.** Com o
+instrumento ponta a ponta: `font-size: 24px` + `transform: scale(0.6)` + tinta
+`#D0D0D0` → **`CODIGO=0`**, `"veredito": "PASSOU"`, `"motivos": []`. E o JSON
+entrega a contradição na mesma linha — `declarado: 24`, `renderizado: 14.40`,
+`razao_minima_wcag_exigida: 3.0`, `contraste_medido: 4.174`. **14,4 px é texto
+normal e exigiria 4,5:1.** São **dois pipelines de tamanho que nunca se cruzam**.
+
+⚠️ **E a lição é mais fina que *"sobrou um substituto"*:** o argumento do
+implementador — *"a checagem de tamanho dispara antes, mascarando a divergência
+na prática"* — é **afirmação de comportamento escrita no código e não medida**.
+É a forma que a **DE-058** proíbe, e medida ela é **falsa**.
+
+**R2 — [BL-437](../projeto/backlog.md), e é FALSO ALARME hoje, não limite
+teórico.** Sem sabotagem nenhuma — só `font-family: monospace` com
+`font-size: 11px`, que é **exatamente o piso** — a linha **reprova**:
+`renderizado: 9.85`, `CODIGO=1`. Razão real medida: **0,9743** em `monospace`,
+**0,9269** em `serif`, **0,9351** em `sans-serif`, contra o **1,088** da
+constante. **O piso efetivo vira ~12,3–12,9 px.** É o **BL-321** dentro da
+verificação que o Fred escolheu tornar obrigatória.
+
+⚠️ **[BL-440](../projeto/backlog.md) — o achado NÃO PEDIDO, e é o que pode
+derrubar a cláusula C2 inteira.** A tinta rasterizada **não é** a tinta
+declarada: `#898989` no CSS, confirmada por `getComputedStyle`, mede como
+**(53, 53, 53)** no papel — reproduzido em **quatro DPIs**, com o próprio
+rasterizador do instrumento. O contraste relatado (12,266:1) **bate com
+precisão** com um cinza efetivo de 53: a conta está certa, **a entrada é que não
+é a cor declarada**.
+
+**A direção do erro é a perigosa:** tinta medida **mais escura** do que é
+significa relatar **mais** contraste do que existe — o lado do **falso
+conforme**, o mesmo do BL-429 que acabou de ser fechado.
+
+⚠️ **O verificador NÃO diagnosticou a causa e se recusou a afirmá-la.** Está
+registrado como **pergunta aberta** — Chromium na exportação, poppler na
+rasterização, ou a nossa leitura do PPM —, e continua assim até alguém medir.
+
+➡️ **Rodada 3 delegada, e com ordem explícita: DIAGNOSTICAR o BL-440 ANTES de
+corrigir qualquer coisa.** Escolher a correção sem saber onde a cor muda seria
+adivinhar. Os BL-436 e BL-437 fecham **juntos**, por uma propriedade que dispensa
+o fator de fonte: pedir ao navegador a **escala acumulada**
+(`getBoundingClientRect().height / offsetHeight`, que inclui `transform`, `zoom`
+e ancestrais) e usar `declarado × escala` nas **duas** leituras. ⚠️ **E mandei
+medir a minha própria proposta antes de aceitá-la** — hoje eu já errei uma
+premissa por não medir.
+
+**Depois desta, auditoria, e eu vou cumprir — já adiei uma vez.**
+
+#### A rodada 3 entregou — `9b14e20`, e o BL-440 mudou de natureza
+
+**BL-436 e BL-437 fechados**, os dois pela mesma propriedade. ⚠️ **E a minha
+proposta foi REJEITADA por medição, pela terceira vez hoje:**
+`getBoundingClientRect().height / offsetHeight` passou em **5 casos sintéticos**
+e **falhou contra o produto real** — `offsetHeight` é **inteiro**, e `serif` a
+exatos 11 px dava escala 0,9961 → 10,957 px → **falso alarme no próprio piso que
+a correção existe para fechar**. A versão que ficou decompõe a escala da matriz
+de `transform` (`√(c²+d²)`) × `zoom`, por todos os ancestrais, **sem caixa de
+layout arredondada**.
+
+**Suíte: 2058 passed**, custo 3,7 s, dentro do orçamento.
+
+⚠️ **E o [BL-440](../projeto/backlog.md) mudou de natureza duas vezes numa
+tarde.** O implementador determinou o **local** por inspeção dos **bytes** do
+PDF — descompressão dos fluxos, operadores `rg`, sem PIL e sem PNG no caminho: o
+fluxo já traz `.2078 … rg`, e `.5373` (137/255) **não aparece em lugar nenhum**.
+**A transformação está na exportação do Chromium, não no `pdftoppm`.** E ele foi
+honesto no limite: *"determinei o LOCAL com certeza; não determinei o
+MECANISMO"*.
+
+**Aí eu fiz a conta que ele não fez, e ela derruba a família inteira de
+hipóteses:** as diferenças da tabela são **84, 84, 84, 84, 84, 84, 84, 85, 85** —
+**subtração CONSTANTE**, com identidade abaixo de ~106. Gestão de cor, perfil
+ICC, gama e conversão de espaço são **multiplicativas ou potências**; **nenhuma é
+aditiva com descontinuidade**. Degrau seco mais offset fixo **não é transformação
+de cor** — é aritmética de outra coisa.
+
+**Sobram três causas muito diferentes:** leitura do fluxo pegando o número
+errado; um **segundo objeto de desenho** cuja cor foi lida no lugar; ou
+deslocamento real do escritor de PDF. Pedi **três medições**, e a que pode
+**eliminar** o achado vem primeiro: cor **assimétrica** `rgb(137,138,139)` — se
+sair `(53,54,55)`, o deslocamento é real; qualquer outra coisa prova que a
+leitura pega o número errado.
+
+#### BL-440 RESOLVIDO — e a medição que eu desenhei derrubou a MINHA explicação
+
+**Não é defeito do instrumento.** É fato de produto, e está registrado onde vai
+ser lido: na [direção de arte](../projeto/direcao-de-arte.md), §7.
+
+**O que ficou determinado:** a exportação de **texto** do Chromium/Skia distorce
+cor clara com **múltiplos canais RGB elevados** — `rgb(137,138,139)` vira
+`(54,54,55)`. **Cor de canal único passa intacta**; **forma vetorial SVG é
+fiel** (o mesmo cinza num `<rect>` exporta exato); a **captura de tela é fiel**.
+**Só o texto no PDF diverge.**
+
+⚠️ **E a minha aritmética de *"subtração constante de 84"* estava ERRADA — foi o
+teste que EU pedi que a derrubou.** Eu a deduzi de uma tabela **só de cinzas**;
+com cor assimétrica, R e G **colapsam no mesmo valor**, o que nenhuma subtração
+por canal produz. **A medição que eu desenhei para *"eliminar o achado"* não o
+eliminou: refinou o achado e eliminou a minha explicação dele.**
+
+**É o quarto enquadramento meu que a medição derruba no mesmo dia.** As outras
+duas hipóteses que eu levantei — leitura errada do fluxo e segundo objeto de
+desenho — **também foram descartadas por medição**: o operador de cor é **único**
+e imediatamente anterior ao `Tj`, e há **um só** bloco `BT…ET` por elemento.
+
+**O mecanismo interno continua NÃO DETERMINADO**, e fica escrito assim: o
+implementador recusou-se a afirmá-lo sem acesso ao código do Chromium, e está
+certo.
+
+**Por que não é defeito:** o instrumento mede o **artefato** — o PDF que o
+escritório entrega. Tinta mais escura é **mais** contraste: a direção do desvio é
+a **segura**. **Nenhuma linha de código foi alterada.** **Por que importa mesmo
+assim:** a **DL-027** deixa cada escritório escolher a cor do timbre, e *a cor
+escolhida na tela não é a que sai no papel*.
+
+⚠️ **E eu corrijo o meu próprio enquadramento, que é o TERCEIRO que a medição
+derruba hoje.** Eu havia escrito que a direção do erro é *"o lado do falso
+conforme"*. **Não é.** O instrumento mede o **artefato** — o PDF, que é o que o
+escritório entrega. Se a tinta no PDF é **de fato** 53, a folha **tem** tinta
+escura e a medição está **certa sobre o documento**. O que diverge é o **CSS**,
+que é intenção, não entrega. Se confirmar, o achado **muda de dono**: vira fato
+de **produto** — *"a tinta na tela não é a tinta no papel"* —, assunto da direção
+de arte e da **DL-027**.
+
+Delegada sobre `2f1e596`, com os critérios **11 a 20** escritos na seção
+*"Rodada 2"* do
+[plano](../planos/DL-029-a-frase-executavel-do-criterio-9.md). Ordem de ataque
+por **custo do erro**, não por número: **BL-427** primeiro (documento sem o
+registro profissional do contador rotulado como falha de infraestrutura),
+depois BL-430 (é de uma linha), BL-428 e BL-429.
+
+⚠️ **Decisão minha, tomada com a delegação para o implementador não ter de
+tomá-la:** o **BL-429** exige escolher entre medir a folha em **cinza** ou em
+**cor**, e a **PE-59** (a pergunta do Fred sobre impressão monocromática) ainda
+não tem resposta. **Decidi medir em COR**, e a razão é de **risco**, não de
+gosto: a medida em cor é a **mais estrita** das duas e cobre os dois usos — o PDF
+na tela do cliente, onde a cor existe, e a impressora monocromática, onde ela
+vira cinza e o critério só fica **mais folgado**. Escolher o inverso aprovaria
+folha que o próprio piso adotado reprova, que é o BL-429 exatamente.
+**A impressão monocromática fica declarada como cenário mais permissivo, e o
+lado seguro não espera pela resposta do Fred.**
+
+⚠️ **E pedi para o implementador PARAR e avisar em um ponto concreto:** raster em
+cor é 3× os bytes do cinza; se o passo de medição passar de **~10 s**, eu quero
+saber **antes** da entrega. O custo do job é critério declarado desde a rodada 1,
+e descobrir regressão de custo na auditoria seria repetir o **BL-411**.
+
+**A frase do critério 9, no plano, já está na redação corrigida da DE-061** — com
+a fronteira *"no conteúdo que o documento controla"* e a exclusão nomeada da
+faixa que o navegador imprime por fora (BL-332).
+
+⚠️ **Duas coisas que NÃO são de engenharia e não se resolvem no código:**
+
+1. **A ação do Fred no GitHub (BL-373).** Em 2026-09-20 ele chegou a criar a
+   regra, e **dois dos quatro nomes de verificação saíram errados** —
+   `tanto fazer projeto` no lugar de `Regras do projeto`, e
+   `…identificação do **emissor**…` no lugar de `…do **emitente**…`. Conferi
+   contra os nomes reais dos jobs e avisei antes de ele salvar. ⚠️ **Exigir uma
+   verificação que não existe é pior que não exigir nada: ela nunca reporta, e
+   o repositório trava — nenhum PR consegue ser mesclado.** Os quatro nomes
+   corretos são `Lint e testes`, `Validar documentação`, `Regras do projeto` e
+   `Medir identificação do emitente no navegador`. **Quando ele salvar, confira
+   por API — não pela tela.**
+2. **A PE-57**, que nasceu hoje: existe piso normativo de **legibilidade** para
+   documento contábil? Sem consequência hoje (o produto imprime ~21:1), com
+   consequência na **DL-027**.
+
+**E a lição do dia, que vale para quem retomar:** a mesma classe apareceu
+**quatro** vezes em uma tarde — BL-415, BL-416, BL-418 e o nome digitado pelo
+Fred na tela do GitHub —, todas da forma *"valor copiado à mão em vez de
+derivado da fonte"*. **Onde a guarda derivou de uma propriedade, ela aguentou.**
 
 **A revisão viva é `920822a`, na `main`, mesclada pelo PR #36** — a rodada 9 da
 etapa. Antes dela, o PR #35 (`d22c580`) levou a rodada 5. Quem quiser conferir o
@@ -314,7 +1533,7 @@ conjunto de propriedades que ele considera** e **onde a cadeia termina**.
 `_PROPRIEDADES_DE_INTERESSE = ("display",)` é uma lista de **um item**, a quinze
 linhas de um motor reescrito **três vezes**, e ela sobreviveu às três porque as
 três atacaram o **seletor**. Resultado medido em Chromium e em PDF A4 do produto:
-**onze construções banais apagam a identificação do escritório da folha que o
+**dez construções banais apagam a identificação do escritório da folha que o
 contador entrega ao cliente, com a suíte inteira verde** (BL-362, bloqueador), e
 a cadeia do timbre é derivada só do Balancete — Diário e Razão são cobertos por
 uma cadeia que não é a deles (BL-363, alto). BL-364 e BL-365 ficam como
@@ -341,9 +1560,10 @@ desta etapa foi encontrado abrindo um Chromium e olhando o PDF**. O sinal
 olhar o eixo ao lado para o achado voltar ao tamanho de bloqueador.
 
 Ele recomenda **trocar o instrumento**, e metade da troca já está escrita e
-paga: `visivelDeVerdade` (`docs/assets/design/gauntlet/juiz.py`) já é a
+paga: `visivelDeVerdade` (`scripts/juiz.py`, que em 2026-09-20 morava em
+`docs/assets/design/gauntlet/` — ver BL-408) já é a
 derivação certa — três medições gerais, limites medidos e declarados — e cobre
-as onze construções **sem saber que elas existem**; `scripts/medir_impressao.py`
+as dez construções **sem saber que elas existem**; `scripts/medir_impressao.py`
 já sobe o produto real e gera PDF A4. O que falta é **apontar o juiz para o
 produto em vez de para os protótipos** e pôr a medição no ciclo.
 
@@ -360,7 +1580,198 @@ produto em vez de para os protótipos** e pôr a medição no ciclo.
 
 **O que não é defensável é a quarta:** declarar a etapa fechada afirmando que o
 critério 9 está garantido, quando construções banais o derrubam com a suíte
-verde. **A escolha entre as três é do Fred**, e as três são defensáveis.
+verde.
+
+### A decisão do Fred, em 2026-09-19: caminho A
+
+**O Fred escolheu A — navegador de verdade na integração contínua.** A
+delimitação por caminho é minha: o job roda quando muda `static/css/**`,
+`templates/**` ou as guardas de impressão, nunca em alteração só de
+documentação. Registrada como [DE-057](../projeto/decisoes.md), com plano de
+execução em [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md).
+
+O que decide entre A e B é o princípio que já governa este projeto: **mecanismo
+em vez de disciplina**. A instrução permanente do Fred de 2026-09-13 virou
+teste, não lembrete. Escolher B seria voltar a apostar em alguém lembrar,
+justamente na propriedade cuja falha chega ao cliente **em papel**.
+
+### O que está em vigor agora, e onde
+
+**A revisão viva é `7c5b1d4`, na `main`, mesclada pelo PR #37** — as rodadas 10
+e 11. Antes dela, o PR #36 (`920822a`) levou a rodada 9, e o #35 (`d22c580`) a
+rodada 5.
+
+O merge foi decisão minha, operacional e reversível, e informo o critério:
+alteração **só de guarda**, sem uma linha de produto, com a integração contínua
+verde nas três verificações e sem conflito; o buraco que a oitava auditoria
+achou (BL-362) **já existia na `main`** e não foi introduzido por este PR, que
+fecha outros cinco. Reverter é no-op para dados. **O merge não fechou a etapa** —
+são duas perguntas diferentes desde a [DE-054](../projeto/decisoes.md).
+
+**Duas frentes em paralelo, em arquivos disjuntos:**
+
+| Frente | Responsável | Escopo | Arquivos |
+| --- | --- | --- | --- |
+| **DL-026 rodada 12** | `especialista-frontend` | BL-362 (bloqueador) e BL-363 — o conserto barato do motor simulado, para ele parar de estar simplesmente errado enquanto o instrumento novo é construído | `apps/contabilidade/tests/**` |
+| **DL-028 fatia 1** | `desenvolvedor-pleno` | Apontar `visivelDeVerdade` e as sondas de impressão para o **produto** em vez dos protótipos do gauntlet | `scripts/**` (inclusive `scripts/juiz.py`, movido para lá pelo BL-408), `.github/workflows/**`, `requirements/**` |
+
+**Proibido às duas:** `static/css/base.css` e `templates/**`. Nenhuma das duas
+frentes muda produto.
+
+### O que as duas frentes trouxeram, e o BL-362 continua ABERTO
+
+**A fatia 1 da DL-028 está entregue e medida:** existe um instrumento que, sobre
+o **produto real**, sobe o servidor com banco descartável, deriva sozinho as
+telas que têm timbre (achou as três — Balancete, Diário, Razão — sem nenhuma
+escrita à mão), mede no navegador sob `emulate_media("print")` e confere o PDF
+A4 com `pdftotext`. **Ele pega as dez construções do BL-362**, mais quatro que eu
+escolhi e que o relatório não nomeou. Roda em **3,5 s**.
+
+⚠️ **Achado do `desenvolvedor-pleno` construindo, e ele corrige o meu plano:** a
+`visivelDeVerdade` cobre **nove** das dez, não as dez. A décima é `color:
+transparent`, e ela escapa por **dois** caminhos ao mesmo tempo —
+`checkVisibility` não muda com a tinta, e o `pdftotext` lê o **objeto** de texto,
+não o pixel. Ele mediu, fechou o buraco **fora** da função geral e não
+contaminou o que o gauntlet também usa.
+
+**A rodada 12 fechou três dos quatro itens:** a cadeia do timbre passou a
+incluir os descendentes que carregam o texto; pseudo-classe fora do conjunto
+**fechado** de interação passou a **recusar julgar** em vez de ser tratada como
+`:hover`; e o BL-363 foi resolvido por **varredura de `templates/**`** — as três
+telas entram sozinhas, e a sabotagem morre **nomeando a tela**. BL-365 também.
+
+⚠️ **O quarto item não fechou, e o defeito era do meu pedido — [BL-367](../projeto/backlog.md).**
+Eu especifiquei a recusa como *"qualquer declaração que não seja `display`, em
+regra que case com a cadeia"*. Medido pelo implementador: dispara **9 vezes** no
+`base.css` real **sem sabotagem nenhuma**, porque a cadeia inclui
+`<html>`/`<body>`. Ele **parou antes de integrar**, como eu havia exigido, e
+registrou o conflito em vez de inventar exceção.
+
+**E a medição dele provou o que o §7 do auditor só argumentava:** o motor
+simulado **não consegue** responder *"o timbre aparece"* sem construir uma lista
+(que cresce com a linguagem) ou produzir falso alarme. Tentei formulação mais
+estreita e não existe — restringir às regras que alvejam o timbre ainda deixa
+três declarações de layout legítimas disparando.
+
+**Decisão minha, e o enquadramento é o que muda:** o motor simulado responde a
+condição **necessária** (*nenhum nó da cadeia com `display: none` sob
+impressão*); o **navegador** responde a **suficiente**. Isso deixa de ser
+pendência e passa a ser **limite declarado com prova medida**, escrito no
+próprio código.
+
+⚠️ **Consequência que não disfarço: o BL-362 continua ABERTO.** As construções 2
+a 8 do §H1 não são pegas pela suíte, e só ficam cobertas quando a **fatia 2** da
+DL-028 puser o instrumento de navegador na integração contínua — em construção
+agora. O implementador classificou essas seis como **Bloqueado**, não como
+corrigido, e eu preservo a classificação dele.
+
+### A DL-028 entregou as três fatias, e o navegador está no ciclo
+
+**Fatia 2 entregue e VERDE**, verificada por mim **por disparo real** — não por
+leitura do `yaml`, que é a única forma que valeria aqui:
+
+| Caso | Medido por disparo real |
+| --- | --- |
+| Commit tocando caminho vigiado (`c26f5d8`) | job roda **inteiro**, `0 de 11` passos caros pulados, **54 s**, verde |
+| Commit só de documentação (`7d6b60f`) | job roda, **`11 de 11`** passos caros **pulados**, **23 s**, verde |
+| A medição em si, dentro dos 54 s | **3 s** |
+
+O caminho longo custa 54 s: containers 12 s, Chromium **20 s**, `poppler-utils`
+4 s, dependências 7 s. **Três segundos** é o que custa responder à pergunta; o
+resto é montar a bancada.
+
+⚠️ **Dois achados meus na verificação, os dois por disparo real:**
+
+- **[BL-370](../projeto/backlog.md) — o job reprovava**: faltava `poppler-utils`
+  no runner. Mas o **modo** como ele falhou é o melhor resultado do dia: disse
+  literalmente *"FALHA DE INFRAESTRUTURA — não é um veredito sobre o produto"*.
+  Sem essa distinção eu teria lido o vermelho como regressão do balancete. E o
+  instrumento **recusou** em vez de medir só metade e devolver verde.
+- **[BL-371](../projeto/backlog.md) — job que roda mas não é EXIGIDO é conselho,
+  não trava.** E marcá-lo como obrigatório com `paths:` no gatilho criaria a
+  armadilha inversa: checagem que **não reporta** num PR de documentação fica
+  **pendente para sempre**, travando o merge sem erro para investigar. Corrigido
+  tirando os `paths:` do gatilho e pondo a decisão **dentro** do job, com a
+  lista de padrões passando a viver **num lugar só** — antes eram duas, ligadas
+  por âncora YAML, que é o BL-352 esperando para acontecer.
+
+**Fatia 3 entregue:** a docstring de `test_bl329_marca_fora_do_papel.py` deixou
+de se apresentar como a garantia. Ela agora declara que responde à condição
+**necessária**, nomeia quem responde à **suficiente**, e sustenta o argumento com
+os **números medidos** (9 disparos pela cadeia inteira, 3 restritos ao timbre) e
+com os **dois testes** que os fixam. Também deixa escrito que o BL-362 **não**
+fecha por ela sozinha.
+
+**Medição minha, com a máquina livre:** `1910 passed, 15 skipped` em 69,9s;
+`ruff check` limpo; `ruff format --check` 206 arquivos; `manage.py check` limpo.
+Refiz as dezessete construções que eu havia guardado nas rodadas 10 e 11:
+**sem regressão** — as sete continuam corretas, o cruzamento com o navegador dá
+**zero falsos conformes**, e as dez da segunda leva continuam 9 recusas + 1
+aprovação.
+
+### A nona auditoria REPROVOU as duas etapas, com dois bloqueadores
+
+Relatório integral em
+[2026-09-19-dl-026-dl-028-rodada-9.md](../auditorias/2026-09-19-dl-026-dl-028-rodada-9.md).
+
+**[BL-372](../projeto/backlog.md) — a décima primeira ocorrência, DENTRO do
+instrumento criado para fechar a décima.** Uma linha de CSS com **token legítimo
+do projeto** — `.conteudo-principal { color: var(--papel-elevado) }` — apaga o
+timbre do papel com `1910 passed` **e** com o job de navegador **verde**. Folha
+A4 rasterizada a 96 dpi: **0 pixels escuros** na faixa do timbre (o controle tem
+1.558), e o corpo do documento intacto com 7.595. As **duas** camadas são cegas à
+mesma classe: a barata por construção declarada, e a caríssima porque
+`pdftotext` lê o **objeto** de texto — tinta branca é um glifo pintado. E o
+limite estava **declarado** em `sonda_visibilidade.py` e foi **herdado em
+silêncio**: a DE-056 item 3 violada no arquivo que nasceu da DE-056.
+
+**[BL-373](../projeto/backlog.md) — a `main` NÃO TEM PROTEÇÃO NENHUMA.** Medido
+pelo auditor em três endpoints. Isso não afeta só o job novo: `Backend`,
+`Documentação` e `Regras do projeto` — inclusive o atestado *"Li o AGENTS.md"* e
+o teste que reprova estado divergente — **também são conselho**. A linha da
+tabela do `AGENTS.md` que afirmava o contrário estava **factualmente falsa**.
+**Corrigi imediatamente** a metade documental, sem esperar nada: a tabela ganhou
+uma coluna **"Impede o merge?"** com **NÃO** onde é NÃO, a evidência dos três
+endpoints, e como ligar e conferir. O `CLAUDE.md` idem.
+
+⚠️ **Mais três ALTAS, todas no item 5 da DE-054:** BL-374 (o nome curto de rota
+não é único — uma tela homônima **desloca** o Balancete real e o job fica
+verde), BL-375 (a base semeada tem **uma** linha de timbre, então o diferencial
+"identificação parcial conta como falha" é um **no-op** na CI) e BL-376
+(`CAMINHOS_VIGIADOS` não cobre `apps/<modulo>/templates/`, que é onde a DL-027
+vai nascer — e as **duas** camadas desligam juntas). Mais BL-377 a BL-385.
+
+**A tese da DL-028 está CONFIRMADA, e o auditor é explícito:** três medições
+**gerais** pegam **nove das dez** construções *sem saber que elas existem*; 3,5 s
+para responder o que 1.800 linhas respondiam pela metade; e ele **não recomenda
+reverter** o caminho A.
+
+### A regra de parada, pela primeira vez em doze rodadas
+
+O auditor aponta uma formulação que, segundo ele, **não tem eixo ao lado**:
+
+> **O oráculo tem de ser o papel, rasterizado.** Não *"está visível segundo o
+> CSS"*, não *"está no texto do PDF"*, não *"o alfa não é zero"* — **tem tinta
+> escura na faixa onde o timbre deveria estar?**
+
+Não existe construção CSS futura que apague tinta do papel e passe por uma
+contagem de pixel. Ele implementou em **12 linhas** para produzir a evidência do
+BL-372. E generaliza: para cada propriedade dos cinco itens da DE-054, escolher
+**um oráculo que não seja derivável do código que ele julga** — é por isso que
+*"débito igual a crédito"* nunca gerou doze rodadas: o oráculo dela é o agregado
+no banco, e sempre foi.
+
+### ⚠️ Falta UMA ação, e ela é do Fred, na interface do GitHub
+
+**Settings → Branches → regra da `main` → Require status checks**, acrescentar:
+
+> **Identificação do emitente**
+
+Enquanto isso não for feito, o job roda e avisa, mas **não impede** que alguém
+mescle por cima dele vermelho — o BL-362 fecha **pela combinação**, e só
+enquanto a exigência existir. **Não consigo ler nem escrever essa configuração**
+(a API devolve `403 Resource not accessible by integration`), e registro isso
+como **não verificado** em vez de presumir que está feito.
 
 **A rodada 10 está integrada em `20da1fa`**, na branch
 `claude/accounting-agent-team-setup-mn6lyf` — **ainda não na `main`**, e sem PR
@@ -421,6 +1832,249 @@ trabalho novo que toque `static/css/base.css`, ou que crie tela imprimível fora
 da contabilidade, começa antes de BL-351 e BL-352 estarem corrigidos. Custa uma
 rodada; a alternativa era apostar em disciplina, que é justamente o que
 decidimos não fazer quando criamos as proteções.
+
+### A rodada 13 está integrada em `240fb0d`, PR #38
+
+Fechou **BL-372**, **BL-374**, **BL-375**, **BL-376**, **BL-377**, **BL-378**,
+**BL-379**, **BL-381**, **BL-382** e **BL-385**. A correção central é o **oráculo
+do pixel**: `pdftotext -bbox` para achar onde a linha do timbre realmente está na
+folha, `pdftoppm -gray` para rasterizar, e contagem de pixels escuros na faixa.
+Não pergunta mais *"o CSS diz que está visível?"* nem *"o texto está no PDF?"* —
+pergunta **se há tinta no papel**.
+
+O job de navegador foi **verificado por disparo real**, não por leitura de YAML:
+caminho longo 54 s (medição em 4 s), caminho curto 24 s com 11 de 11 passos
+pulados. Suíte: **1975 passed, 15 skipped**; lint, formatação e `manage.py check`
+limpos.
+
+### A décima auditoria REPROVOU, e trouxe uma decisão de CUSTO para o Fred
+
+Relatório integral em
+[2026-09-20-dl-026-dl-028-rodada-10.md](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md).
+**Preservado sem uma palavra minha.**
+
+**[BL-404](../projeto/backlog.md) — BLOQUEADOR, e é a décima segunda ocorrência
+da classe da etapa.** `MARCA_DO_FORNECEDOR = "DataLedger"` é uma **lista de um
+item**, a quinze linhas do topo do instrumento novo — a mesma forma de
+`_PROPRIEDADES_DE_INTERESSE = ("display",)` que reprovou a rodada 8. É comparação
+**literal e sensível a caixa** sobre o texto do PDF, então
+`Relatorio gerado por DATALEDGER - dataledger.com.br` sai impresso em preto no
+Balancete que o escritório entrega ao cliente, com `1975 passed` **e** com o job
+de navegador dizendo `PASSOU`.
+
+⚠️ **A assimetria estava à vista e ninguém a discutiu:** a metade *"o escritório
+entra no papel"* ganhou um oráculo de **pixel**; a metade *"o fornecedor sai do
+papel"* continuou uma **busca de substring**. A própria docstring do arquivo diz
+que as duas metades *"só se provam JUNTAS"*.
+
+**Mais quatro ALTAS, três delas dentro do instrumento:** **BL-405** (o oráculo
+ancora por **texto**, então mede a tinta do primeiro texto igual da folha, não a
+do timbre — 820 → 384 px; e a **DL-027** é literalmente a etapa que vai repetir
+esse texto), **BL-406** (tela nova com timbre em rota que peça outro parâmetro
+**nunca é medida**, e o job fica verde), **BL-407** (`opacity: 0.4` — timbre
+perfeitamente legível — mede **zero** e reprova, e a justificativa escrita no
+código é **falsificada por medição**) e **BL-408** (`docs/**` esconde 789 linhas
+de Python executável do `ruff`, do `pytest` **e** do job — o defeito que o BL-379
+existia para fechar, no arquivo de que a correção depende). **BL-409** a
+**BL-411** são ressalvas com dono.
+
+**O auditor retirou uma afirmação própria, medindo-a.** Ele havia escrito na
+rodada 9 que *"tem tinta escura na faixa onde o timbre deveria estar"* não tem
+eixo ao lado. Tem três — **onde** é a faixa, **o que** é tinta, **em qual folha**
+— mais o quarto, que é o pior: **o oráculo cobre metade do critério**. A lição
+que ele tira contra si mesmo: *"eu nomeei o **oráculo** e não o **requisito**.
+Oráculo para metade de um requisito gera rodada para sempre."*
+
+**E ele julgou o meu método.** *"Contar na fonte"* continua sendo **disciplina**,
+e a prova é contra a minha própria correção do BL-380: eu contei na fonte e
+publiquei *"11 de 11 pulados, 24 s"* — certo e **incompleto**, porque na mesma
+revisão havia uma segunda execução, de `pull_request`, com **0 pulados e 63 s**
+(**BL-411**, **BL-412**). E a correção do BL-388 é *"suficiente para o caso,
+insuficiente para a classe"*: conferência por **contagem** prova cardinalidade,
+não conteúdo — tem de comparar **conjuntos de identificadores** (**BL-413**).
+
+#### ⚠️ A decisão que está com o Fred, e é de custo, não de engenharia
+
+O auditor **não recomenda mais uma rodada desta forma**, e diz por que medindo:
+*"o produto está certo em tudo que eu consegui medir, de novo, pela quarta rodada
+seguida; o que se poliu foi a **garantia**; e a garantia continua descrita por uma
+lista de achados em vez de por um enunciado do critério … se a rodada 11 for
+escrita contra os meus K1–K4, eu prevejo K12 na rodada 11."*
+
+As duas saídas que ele põe na mesa estão registradas em **BL-414**:
+
+1. **Comprar uma frase executável** para o critério 9 inteiro, escrita **uma
+   vez**, e fazer o instrumento ser julgado por ela — os quatro achados caem
+   juntos porque todos são consequência de a frase não existir.
+2. **Não declarar DL-026 e DL-028 fechadas** e sim declarar, como a
+   [DE-054](../projeto/decisoes.md) já permite, **produto bom, garantia
+   parcial**, com BL-404 nomeado como o buraco aberto. *"Isso custa zero e é
+   verdadeiro. O que não é defensável é fechar dizendo que o critério 9 está
+   garantido."*
+
+**O que ele reafirma, e não pode se perder na reprovação:** os números declarados
+**conferem um a um**; o controle limpo mede **348** px contra piso de **40**
+(razão 8,7×) e toda sabotagem que apaga tinta mede **zero**; quebra de linha do
+timbre, fonte de 1 px e de 3 px **não** passam; a camada barata pegou o que é
+dela (12 e 17 reprovações nas duas sabotagens dele). **A tese do caminho A está
+confirmada pela segunda rodada seguida, e ele não recomenda revertê-la.** O que
+não está funcionando é o **processo de fechamento**, não o instrumento.
+
+**E o BL-373 segue aberto, reconferido hoje nos três endpoints:** a `main`
+continua **sem proteção**. Enquanto essa ação do Fred não for feita, tudo nesta
+auditoria — inclusive o job novo — é **conselho**.
+
+#### O que já andou, porque não depende da decisão
+
+**BL-408 e BL-409 estão corrigidos em `a8cebd0`**, na mesma branch. Os dois `.py`
+do gauntlet saíram de `docs/` e foram para `scripts/` — `git ls-files
+'docs/**/*.py'` devolve **vazio** —, e o `extend-exclude` de `docs/**` **ficou**,
+mas com justificativa **medida**: removê-lo reformataria 7 arquivos de
+`docs/auditorias/`, todos por causa de bloco de código **citado verbatim** de um
+relatório. É a DE-058 funcionando no primeiro uso: a justificativa antiga
+(*"não há código Python de produção sob `docs/`"*) era falsa, e a nova é uma
+medição com o comando ao lado. Suíte: **1976 passed, 15 skipped**.
+
+⚠️ **E eu achei o eixo ao lado na integração — [BL-415](../projeto/backlog.md),
+a décima terceira ocorrência.** O teste de propriedade que fechou o BL-409 é ele
+próprio uma **lista**: pergunta *"a extensão está em `{py, css, html, yml, yaml,
+toml}`?"*. Medido por mim em cópia isolada: três arquivos executáveis sob
+`docs/` — um `.sh`, um `.ps1` e um `.js` — ficam escondidos com a suíte do
+decisor em **`31 passed`**. Não é hipótese: `scripts/validate-docs.ps1` roda na
+CI e `.claude/hooks/session-start.sh` roda em toda sessão. A correção pedida é
+**inverter para o lado seguro** — enumerar o que pode ficar escondido (prosa e
+imagem) e recusar o resto, inclusive arquivo sem extensão.
+
+**Isto é a DE-055 funcionando como foi desenhada:** quem verificou não foi quem
+escreveu a correção, e a construção não estava em relatório nenhum.
+
+**O BL-415 foi corrigido em `81b8f0f`** — o teste passa a enumerar o que **pode**
+ficar escondido (`.md`, `.png`, `.svg`) e recusa o resto, inclusive arquivo sem
+extensão. Reprova os três executáveis do meu achado e o arquivo sem extensão;
+zero ofensores hoje entre os 158 arquivos escondidos.
+
+⚠️ **E na conferência seguinte eu achei o [BL-416](../projeto/backlog.md), a
+décima quarta ocorrência — que é o BL-415 um nível acima.** A guarda nova vigia
+**uma** das duas listas de exclusão, e a própria décima auditoria tinha nomeado
+as duas: *"nenhuma das duas sabe da outra, e as duas erram junto"*. Medido em
+cópia isolada: um arquivo com **quatro erros reais de `ruff`** mais **uma**
+entrada no `extend-exclude` do `pyproject.toml` dão `All checks passed!` e
+`31 passed`. Corrigimos o **efeito** nas duas listas e pusemos guarda só numa —
+a guarda herdou em silêncio a cegueira que o relatório já descrevia.
+
+A correção pedida é a forma de **propriedade**: o conjunto escondido vira a
+**união** das fontes de exclusão, lidas de onde elas moram (`tomllib` lê o
+`pyproject.toml`; o decisor exporta a sua lista), e a lista segura se aplica à
+união.
+
+**O implementador parou e perguntou, e foi o certo.** Medindo **antes** de
+escrever, ele bateu no aviso que eu tinha deixado: as **22 migrações** do projeto
+aparecem como as únicas ofensoras da união, e pôr `.py` na lista segura anularia
+o teste inteiro.
+
+**Decisão minha, em 2026-09-20 — o desenho é categoria com PROVA, não dispensa
+por caminho.** `*/migrations/*` fica de fora do teste, mas o motivo **não** é
+*"é código gerado"* nem *"é convenção da indústria"* — nenhum dos dois é
+verificável, e justificativa não verificável é o que a DE-058 acabou de proibir.
+O motivo é uma propriedade que se mede: **migração excluída do `ruff` continua
+sendo EXECUTADA** — roda em `manage.py migrate` sobre banco vazio na CI e em toda
+execução da suíte —, enquanto o `sonda_visibilidade.py` sob `docs/` não era
+alcançado por mecanismo nenhum. A categoria não é *"migração"*; é **"escondido do
+lint, mas alcançado pela execução"**.
+
+⚠️ **E a dispensa não pode ser "o caminho contém `migrations/`"** — seria porta
+aberta: bastaria criar `apps/qualquer/migrations/utilitario.py`. A dispensa é
+provada **contra o Django**: todo arquivo dispensado tem de estar no grafo do
+`MigrationLoader`, e arquivo sob `migrations/` que o Django não reconheça
+**reprova, nomeado**. Propriedade derivada de quem manda — não lista nossa.
+
+⚠️ **[BL-417](../projeto/backlog.md), achado do implementador na mesma medição, e
+eu confirmei:** `padrao_para_regex('*/migrations/*')` devolve **`False`** para
+`apps/contabilidade/migrations/0001_initial.py` (semântica do `paths:` do GitHub
+Actions, onde `*` não cruza `/`), enquanto o `ruff` **exclui** o arquivo
+(`ruff check --show-files . | grep -c migrations/` → **0**). Reusar o matcher
+errado faria o teste **mentir para o lado de deixar passar**. Ele mediu **antes
+de escrever**, e por isso o erro nunca entrou no código.
+
+⚠️ **Leia isto junto com a PE-56.** Em uma tarde, a mesma lição apareceu **três**
+vezes seguidas, nos três casos numa guarda escrita **para fechar a ocorrência
+anterior**. É o argumento vivo a favor de escrever o critério uma vez, em vez de
+comprar rodada atrás de rodada: *onde a guarda derivou de uma **propriedade**,
+ela aguentou; onde derivou de uma **lista**, o item seguinte apareceu em menos de
+uma hora*.
+
+### O BL-418 é a DE-057 de novo, um nível abaixo — e é onde eu parei de comprar
+
+O BL-416 foi corrigido em `40d8329`, e bem: a união das duas listas está feita, e
+a dispensa da migração é **provada contra o Django** (`MigrationLoader`, isolado
+por arquivo — o implementador mediu que `load_disk()` derrubaria as cinco
+migrações boas junto, e resolveu sem isso).
+
+Aí eu medi de novo. **Sem tocar** no `extend-exclude`, acrescentei a **chave
+irmã**, na mesma tabela `[tool.ruff]` do mesmo arquivo:
+
+```toml
+exclude = ["ferramentas/**"]
+```
+
+com um arquivo versionado de **4 erros reais**. `ruff check .` → `All checks
+passed!`; teste do decisor → `31 passed`. **Décima quinta ocorrência.**
+
+**E aqui eu parei de pedir "leia também essa chave".** O quinto item eu já sei
+qual é — `ruff.toml` e `.ruff.toml` na raiz **substituem** o `pyproject.toml`
+inteiro — e o sexto também. O defeito de forma é outro:
+
+> Nós estamos **reimplementando a configuração da ferramenta** para adivinhar o
+> que ela enxerga. É **exatamente** o que o motor de cascata fazia com o
+> navegador, e é por isso que a [DE-057](../projeto/decisoes.md) mandou abrir um
+> Chromium de verdade. Descemos um nível e repetimos o erro.
+
+O `fnmatch`, a questão de matcher do BL-417 e os quatro limites declarados
+existem **todos** só porque estamos simulando o `ruff`.
+
+**A correção é derivar da ferramenta:** *"escondido do `ruff`"* passa a ser o
+código versionado **menos** o que `ruff check --show-files .` devolve — medido
+hoje, **217** `.py` versionados contra **196** vistos. Isso fecha `exclude`,
+`extend-exclude`, `ruff.toml`, `.ruff.toml`, `respect-gitignore` e configuração
+por subdiretório **de uma vez, sem lista nenhuma**. O lado da CI não muda: ali o
+código é nosso, e importar a lista do decisor **é** perguntar à fonte.
+
+**Corrigido em `9cdcb32`**, e provado do jeito certo: um `ruff.toml` na raiz, com
+o `pyproject.toml` **intacto**, reprova — que é a prova de que a derivação é da
+ferramenta e não da nossa leitura. Custo do subprocesso: **11 ms**,
+indistinguível do ruído. Com o `ruff` ausente, o teste **pula nomeando o
+motivo** — nunca passa calado, que seria o BL-375 outra vez.
+
+### E aqui a cadeia termina: [BL-419](../projeto/backlog.md) e por que eu NÃO escrevi mais uma guarda
+
+Conferindo o `9cdcb32`, medi o espelho do BL-418 do outro lado. **Sem tocar** em
+`CAMINHOS_NAO_RELEVANTES` nem em nenhum `.py`, acrescentei três linhas ao
+`.github/workflows/identificacao-do-emitente.yml`:
+
+```yaml
+  pull_request:
+    paths-ignore:
+      - '**'
+```
+
+Suíte de `scripts/`: **`65 passed`**. O módulo Python que o BL-379 extraiu para
+ficar ao alcance do `ruff` e do `pytest` continua perfeito — e o arquivo que
+decide se ele **chega a rodar** não é lido por ninguém.
+
+⚠️ **Eu parei de escrever guarda aqui, e é decisão declarada, não cansaço.**
+Quem pode editar o workflow para desligar a verificação **também pode mesclar por
+cima dela vermelha**: a `main` não tem proteção (**BL-373**, remedido pelo
+auditor na décima rodada nos três endpoints). Uma guarda nova contra edição de
+workflow seria a **décima sexta** ocorrência e **não fecharia nada**, porque quem
+ela vigia tem a permissão que a torna irrelevante.
+
+> **A cadeia de guardas termina em proteção de branch com status check
+> obrigatório, e em nenhum outro lugar.**
+
+Então o BL-419 fica como **limite declarado** (DE-056), a correção real é a ação
+do Fred no GitHub (**BL-373**), e a guarda barata — conferir que o workflow não
+tem `paths`/`paths-ignore` — vale **depois** da proteção, nunca antes: antes,
+seria teatro. Enfileirado **atrás da DL-029**.
 
 ### O que a rodada 6 encontrou sobre o papel que sai da impressora
 

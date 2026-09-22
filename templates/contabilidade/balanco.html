@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block titulo %}Balanço Patrimonial — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332 (RC-97): mesmo formato "nome do relatório — razão social do
+cliente" que Balancete/Diário/Razão já usam — ver o comentário completo em
+balancete.html e em templates/base.html. O sufixo do fornecedor sai da
+tag title deste DOCUMENTO.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+DL-034: esta tela TEM timbre de impressão (do ESCRITÓRIO, BL-282/BL-338) —
+mesmo padrão de balancete.html/diario.html/razao.html. O bloco de
+identificação da ENTIDADE (empresa cliente), exigido pelo item 51 em CADA
+página (RC-95), é um bloco DIFERENTE — fica dentro do `<thead>` da tabela,
+mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if data_base %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Data-base</span>
+            <strong>{{ data_base|date:"d/m/Y" }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% comment %}
+    BL-282: mesmo timbre de impressão do Balancete — identifica o
+    ESCRITÓRIO emitente (RC-97/NBC ITG 2000 item 12), só na folha 1. Ver o
+    comentário completo em balancete.html.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balanco" %}
+
+    <h1>Balanço Patrimonial</h1>
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_data_base">Data-base</label>
+            <input type="date" id="id_data_base" name="data_base" value="{{ data_base|date:'Y-m-d' }}"
+                   aria-describedby="id_data_base_ajuda">
+        </div>
+        <button type="submit">Consultar data-base</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_data_base_ajuda">
+            O formato do campo acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+            O Balanço é sempre de UMA data — não de um período.
+        </p>
+    </form>
+
+    {% if not data_base %}
+        {% comment %}
+        Mesmo padrão do Balancete (B3/BL-301) para data inválida: saída
+        navegável equivalente à do estado vazio, sem exigir que a pessoa
+        lembre a sintaxe AAAA-MM-DD.
+        {% endcomment %}
+        <p>
+            A data-base informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:balanco' empresa.id %}">Voltar à data-base padrão (hoje)</a>
+            para ver o Balanço, ou corrija a data no filtro acima.
+        </p>
+    {% elif not empresa_tem_plano_de_contas %}
+        {% comment %}
+        Estado VAZIO (mesmo critério do Balancete, B4/BL-283): empresa sem
+        NENHUMA conta cadastrada — nada para classificar, nada para
+        recusar ainda.
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
+    {% elif not pode_emitir %}
+        {% comment %}
+        DL-034 — "o que eu vou entregar fecha, e eu sei o que ele NÃO diz":
+        quem decidiu que NÃO pode emitir foi o SERVIDOR
+        (apps.contabilidade.services.avaliar_emissao_do_balanco); esta
+        tela só OBEDECE e EXPLICA — nunca monta a tabela do Balanço
+        enquanto houver qualquer pendência (critério 1 do plano DL-034).
+        Reaproveita a MESMA linguagem visual de "faixa de fechamento" do
+        Balancete (mesma classe CSS) para a pergunta central desta tela
+        também ficar na SEGUNDA posição, logo após o filtro — DE-053 §3.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">O Balanço NÃO pode ser emitido nesta data-base</strong>
+        </div>
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> há pendência de classificação circulante/não circulante — corrija o que
+            está listado abaixo e consulte a data-base de novo.
+            {% if residuo_pendente %}
+                <p>O total classificado não bate com o total apurado pela escrituração:</p>
+                <ul>
+                    {% for item in residuo_pendente %}
+                        <li>
+                            {{ item.tipo_label }} — diferença de
+                            <span class="valor-monetario">{{ item.diferenca_ptbr }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {% comment %}
+            BL-508 (correção 4 do auditor): "explica" tem de ser
+            VERIFICÁVEL — cada lista traz, junto das contas, a AÇÃO que
+            RESOLVE aquela pendência específica (`lista.acao`,
+            `ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA` em views_web.py) —
+            nunca só o link genérico "ir ao plano de contas" que ficava
+            abaixo de TODAS as listas, sem dizer o que fazer lá.
+            {% endcomment %}
+            {% for lista in listas_pendentes %}
+                <p>{{ lista.titulo }}:</p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>
+                            Conta {{ linha.conta }} — {{ linha.nome }}
+                            {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+            <p>
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
+                para corrigir a classificação das contas listadas acima.
+            </p>
+        </div>
+    {% else %}
+        {% comment %}
+        DL-034 — controle POSITIVO: base completa (resíduo zero em todos
+        os tipos, as sete listas vazias) exige a emissão de verdade, não
+        só a ausência de recusa. `pode_emitir` chegou `True` do servidor,
+        então a tabela é montada.
+        {% endcomment %}
+        {% comment %}
+        BL-504 (auditoria DL-034, achado A6): "Balanço pronto para
+        emissão" é estado de FLUXO INTERNO — de bancada, para quem está
+        prestes a emitir decidir se emite — não conteúdo da demonstração
+        (o Balanço é classe 2, `personalizacao-de-relatorio.md` §1: só
+        fora do bloco obrigatório pode variar, e mesmo assim texto de
+        bancada não pertence ao papel que vai ao cliente). Diferente da
+        faixa "Fecha"/"Não fecha" do Balancete (classe 1, relatório de
+        CONFERÊNCIA — ali o veredito é o próprio conteúdo e continua
+        saindo no papel, ver `@media print` em base.css), esta faixa é
+        SÓ TELA: existe para o contador decidir antes de imprimir, nunca
+        para sair impressa. `faixa-fechamento--somente-tela` soma-se à
+        classe base (cor/borda do modo impressão continuam definidas
+        para `.faixa-fechamento` em geral — não a repita fora daqui) só
+        para ESCONDER este bloco específico no papel.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
+            <strong class="faixa-fechamento__veredito">Balanço pronto para emissão</strong>
+        </div>
+
+        {% comment %}
+        DL-034, critério 4 (o mais medido desta etapa): o bloco de
+        identificação do item 51 — nome da entidade, individual/grupo,
+        data-base, moeda, nível de arredondamento (NBC TG 26, item 51,
+        alíneas a/b/c/d/e) — vive DENTRO do `<thead>`, ao lado do
+        cabeçalho de coluna. O item 52 diz COMO se cumpre o item 51: "pela
+        apresentação apropriada de cabeçalhos de página... EM CADA
+        PÁGINA". `<thead>` já REPETE em toda folha nova, comprovado pelo
+        Balancete (BL-282, `static/css/base.css`: `.tabela-dados thead {
+        display: table-header-group }`) — colocar o bloco AQUI, em vez de
+        num `<div>` solto acima da tabela (como o timbre do escritório,
+        que só sai na folha 1), é o que faz a identificação da EMPRESA
+        repetir também, e não só o cabeçalho de coluna. Medido no
+        navegador real: ver o relatório da etapa.
+
+        BL-503 (auditoria DL-034, achado A5): a ressalva do resultado NÃO
+        transferido (RC-104) mora AQUI dentro, como quarto parágrafo do
+        MESMO bloco — antes ficava num `<p>` solto ANTES da tabela, e por
+        isso só saía na folha 1. Medido: num documento de 6 folhas com
+        lucro não transferido de R$ 77.777,77, "Total do Ativo" caiu na
+        folha 3 e "Total do Passivo + Patrimônio Líquido" na folha 6 —
+        quem recebesse qualquer uma das duas soltas via dois totais que
+        não batem, sem explicação em nenhuma delas. Repetir a nota EM
+        TODA folha (em vez de só ao lado de cada total) é a escolha
+        DELIBERADA: a paginação é decidida pelo NAVEGADOR/impressora, não
+        pelo template — nada aqui garante que uma nota colada a um total
+        caia NA MESMA folha que ele (a própria régua `break-inside: avoid`
+        de `.tabela-dados tr`, BL-282, pode empurrar a linha do total
+        inteira para a folha seguinte, sem a nota junto). O `<thead>` é o
+        ÚNICO mecanismo de repetição por folha já PROVADO neste documento
+        (o próprio bloco do item 51, acima) — reaproveitá-lo remove a
+        dependência de onde a paginação decidir cortar.
+        {% endcomment %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Balanço Patrimonial de {{ empresa.razao_social }} em {{ data_base|date:"d/m/Y" }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="3">
+                        {% comment %}
+                        `.identificacao-do-documento` é o seletor que o
+                        instrumento de medição (bancada, Playwright) usa
+                        para achar este bloco em CADA página do PDF
+                        exportado — ver o relatório da etapa. Não é
+                        decoração: é o gancho que prova o critério 4. A
+                        classe irmã, no `<tr>`, é só de ESTILO — ver
+                        `.linha-identificacao-do-documento` em
+                        static/css/base.css sobre por que esta linha NÃO
+                        herda o `position: sticky`/caixa-alta do cabeçalho
+                        de coluna comum.
+                        {% endcomment %}
+                        <div class="identificacao-do-documento">
+                            <p><strong>{{ empresa.razao_social }}</strong> — CNPJ {{ cnpj_mascarado }}</p>
+                            <p>
+                                Balanço Patrimonial ({{ identificacao.entidade_individual_ou_grupo|capfirst }})
+                                — data-base {{ data_base|date:"d/m/Y" }}
+                            </p>
+                            <p>
+                                Valores em {{ identificacao.moeda_de_apresentacao }} —
+                                {{ identificacao.nivel_de_arredondamento|capfirst }}
+                            </p>
+                            {% if grupos.resultado_nao_transferido %}
+                                <p>
+                                    {% if grupos.resultado_nao_transferido.e_prejuizo %}Prejuízo{% else %}Lucro{% endif %}
+                                    do período ainda não transferido ao Patrimônio Líquido:
+                                    <span class="valor-monetario">{{ grupos.resultado_nao_transferido.valor_ptbr }}</span>
+                                    — é a diferença entre o Total do Ativo e o Total do Passivo +
+                                    Patrimônio Líquido apresentados neste documento, e some depois do
+                                    lançamento de encerramento (RC-104).
+                                </p>
+                            {% endif %}
+                        </div>
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Código</th>
+                    <th scope="col">Conta</th>
+                    <th scope="col">Saldo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% comment %}
+                Cinco seções, na ORDEM da lei (art. 178): Ativo Circulante,
+                Ativo Não Circulante (com os quatro subgrupos e subtotal),
+                Passivo Circulante, Passivo Não Circulante, Patrimônio
+                Líquido — o TERCEIRO grupo do passivo (art. 178 §2º III),
+                nunca circulante nem não circulante.
+                {% endcomment %}
+                {% include "contabilidade/_secao_do_balanco.html" with secao=grupos.ativo_circulante nivel_titulo=1 nivel_linha=2 %}
+
+                <tr>
+                    <td colspan="2" class="nivel-1 conta-sintetica">{{ grupos.ativo_nao_circulante.titulo }}</td>
+                    <td></td>
+                </tr>
+                {% for subgrupo in grupos.ativo_nao_circulante.subgrupos %}
+                    {% include "contabilidade/_secao_do_balanco.html" with secao=subgrupo nivel_titulo=2 nivel_linha=3 %}
+                {% endfor %}
+                <tr class="linha-total">
+                    <td colspan="2">Total — {{ grupos.ativo_nao_circulante.titulo }}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_saldo_grupo.html" with valor=grupos.ativo_nao_circulante.subtotal.valor_ptbr natureza=grupos.ativo_nao_circulante.subtotal.natureza natureza_esperada=grupos.ativo_nao_circulante.subtotal.natureza_esperada %}</td>
+                </tr>
+
+                <tr class="linha-total">
+                    <td colspan="2">Total do Ativo</td>
+                    <td class="valor-monetario">{% include "contabilidade/_saldo_grupo.html" with valor=grupos.total_ativo.valor_ptbr natureza=grupos.total_ativo.natureza natureza_esperada=grupos.total_ativo.natureza_esperada %}</td>
+                </tr>
+
+                {% include "contabilidade/_secao_do_balanco.html" with secao=grupos.passivo_circulante nivel_titulo=1 nivel_linha=2 %}
+                {% include "contabilidade/_secao_do_balanco.html" with secao=grupos.passivo_nao_circulante nivel_titulo=1 nivel_linha=2 %}
+                {% include "contabilidade/_secao_do_balanco.html" with secao=grupos.patrimonio_liquido nivel_titulo=1 nivel_linha=2 %}
+
+                <tr class="linha-total">
+                    <td colspan="2">Total do Passivo + Patrimônio Líquido</td>
+                    <td class="valor-monetario">{% include "contabilidade/_saldo_grupo.html" with valor=grupos.total_passivo_e_pl.valor_ptbr natureza=grupos.total_passivo_e_pl.natureza natureza_esperada=grupos.total_passivo_e_pl.natureza_esperada %}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% comment %}
+    DE-070/BL-508 (critério de aceite 6 da correção): a condição 3
+    (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`)
+    DEIXOU de vetar a emissão — vira AVISO, e a tela precisa TRATÁ-LA
+    como aviso, não como bloqueio: fora do `{% if/elif/else %}` acima
+    (que decide "monta a tabela ou não"), porque este bloco aparece nos
+    DOIS desfechos — Balanço EMITIDO com aviso, ou Balanço RECUSADO por
+    outro motivo com este aviso também presente. `listas_apenas_aviso`
+    só existe no contexto depois do estado vazio (empresa sem plano de
+    contas) — indefinida ali, o que o Django trata como falsa, sem erro.
+
+    ⚠️ Decisão do arquiteto-senior (mesma janela desta correção): o aviso
+    é conferência de BANCADA — para o contador decidir se o plano de
+    contas está como pretendido ANTES de entregar — nunca conteúdo do
+    documento (mesmo raciocínio do BL-504 para "Balanço pronto para
+    emissão"). `mensagem--somente-tela` soma-se à classe base
+    (`.mensagem-warning` continua definindo cor/borda em geral) só para
+    ESCONDER este bloco específico no papel — mesmo padrão de
+    `faixa-fechamento--somente-tela`, acima.
+    {% endcomment %}
+    {% if listas_apenas_aviso %}
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+            <strong>Aviso:</strong> não impede a emissão do Balanço.
+            {% for lista in listas_apenas_aviso %}
+                <p>{{ lista.titulo }}:</p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>
+                            Conta {{ linha.conta }} — {{ linha.nome }}
+                            {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

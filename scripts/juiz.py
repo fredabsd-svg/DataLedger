@@ -8,9 +8,10 @@ Rode com o Python do sistema (tem playwright):
     /usr/bin/python3 juiz.py <pasta-da-variante> [...]
 
 **Este juiz NÃO roda na integração contínua.** Ele abre um Chromium de
-verdade (`CHROMIUM`, abaixo) — a suíte `pytest` do projeto não tem esse
-binário disponível, e não é objetivo deste instrumento ganhar essa
-dependência. É ferramenta de BANCADA: quem fecha uma etapa de design que
+verdade (resolvido por `sonda_visibilidade.lancar_chromium`, sem caminho
+fixo) — a suíte `pytest` do projeto não tem esse binário disponível, e não
+é objetivo deste instrumento ganhar essa dependência. É ferramenta de
+BANCADA: quem fecha uma etapa de design que
 mexa no "momento da verdade" de um módulo (contábil: débito/crédito; ver
 docs/projeto/direcao-de-arte.md §3) roda este script manualmente contra a
 tela renderizada antes de declarar a etapa pronta — a mesma obrigação que
@@ -32,6 +33,20 @@ SELETORES`, abaixo) — visibilidade REAL (medida pelo motor de layout do
 Chromium, não por uma lista de propriedades CSS suspeitas — ver
 `visivelDeVerdade` na sonda) e contraste (reaproveitando a composição de
 camadas de transparência que já existia para o resto da tela).
+
+DL-028, fatia 1 (docs/planos/DL-028-o-juiz-aponta-para-o-produto.md): a
+sonda de visibilidade (`JS_VISIVEL_DE_VERDADE`) e a montagem da sonda de
+impressão (`js_sonda_impressao`) foram EXTRAÍDAS para
+`sonda_visibilidade.py`, módulo irmão deste arquivo — agora também
+importado por `scripts/medir_identificacao_do_emitente.py`, o instrumento
+NOVO que aponta para o PRODUTO real (não para os protótipos autônomos que
+este juiz mede). Este arquivo continua servindo só o gauntlet; nada do
+comportamento dele mudou, só deixou de RETYPAR a lógica que os dois
+consumidores compartilham (AGENTS.md §8). O caminho fixo do Chromium
+(`CHROMIUM`, que existia aqui) também saiu: `sonda_visibilidade.
+lancar_chromium` resolve por variável de ambiente ou pela descoberta
+nativa do Playwright — nunca por um literal de caminho de uma máquina
+específica (ver a docstring daquela função).
 """
 
 import json
@@ -39,9 +54,9 @@ import re
 import sys
 from pathlib import Path
 
+import sonda_visibilidade
 from playwright.sync_api import sync_playwright
 
-CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 LARGURAS = [(1280, 800), (1920, 1080)]
 
 # Os dois elementos do "momento da verdade" do módulo contábil (direção de
@@ -79,35 +94,17 @@ SELETOR_MARCA_DO_FORNECEDOR = ".marca"
 SELETOR_TIMBRE_DO_ESCRITORIO = ".timbre-impressao"
 
 # BL-314/BL-329: a função `visivelDeVerdade` (visibilidade REAL via motor de
-# layout — ver o comentário completo, com as três medições e os limites
-# conhecidos, no ponto em que esta constante é interpolada dentro de SONDA)
-# passa a ser usada por DUAS sondas: SONDA (mídia de TELA, momento da
-# verdade contábil) e SONDA_IMPRESSAO (mídia de IMPRESSÃO, marca do
-# fornecedor — BL-329). Extraída para constante própria porque duas sondas
-# dependendo da MESMA lógica, escrita duas vezes, divergem assim que uma for
-# corrigida sem a outra (mesmo raciocínio de `fundoComposto`, dentro de
-# SONDA, comentado lá).
-JS_VISIVEL_DE_VERDADE = r"""
-    const visivelDeVerdade = (el) => {
-        const suportaApi = typeof el.checkVisibility === 'function';
-        const apiDiz = suportaApi
-            ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
-            : true;
-        const r = el.getBoundingClientRect();
-        const temArea = r.width > 0 && r.height > 0;
-        const alcancavelPorRolagem = r.right > 0 && r.bottom > 0
-            && r.left < document.scrollingElement.scrollWidth
-            && r.top < document.scrollingElement.scrollHeight;
-        return {
-            visivel: apiDiz && temArea && alcancavelPorRolagem,
-            suporta_check_visibility: suportaApi,
-            check_visibility: apiDiz,
-            tem_area: temArea,
-            alcancavel_por_rolagem: alcancavelPorRolagem,
-            retangulo: {largura: r.width, altura: r.height, esquerda: r.left, topo: r.top},
-        };
-    };
-"""
+# layout) passa a ser usada por DUAS sondas deste arquivo: SONDA (mídia de
+# TELA, momento da verdade contábil) e SONDA_IMPRESSAO (mídia de IMPRESSÃO,
+# marca do fornecedor/timbre do escritório — BL-329/BL-331) — e, desde a
+# DL-028 fatia 1, também por `scripts/medir_identificacao_do_emitente.py`,
+# fora deste arquivo. Por isso ela mora em `sonda_visibilidade.py` (módulo
+# irmão), não aqui: duas sondas DENTRO deste arquivo já exigiam constante
+# própria para não divergir (mesmo raciocínio de `fundoComposto`, comentado
+# dentro de SONDA); um consumidor a mais tornaria uma cópia local ainda mais
+# arriscada. `JS_VISIVEL_DE_VERDADE`, abaixo, é só uma referência ao texto
+# importado — não um literal novo.
+JS_VISIVEL_DE_VERDADE = sonda_visibilidade.JS_VISIVEL_DE_VERDADE
 
 
 def _luminancia(componentes):
@@ -159,18 +156,23 @@ SONDA = r"""
         tem_caption: document.querySelectorAll('table caption').length,
         tem_scope: document.querySelectorAll('th[scope]').length,
         th_total: document.querySelectorAll('th').length,
-        sticky: document.querySelectorAll('*').length && [...document.querySelectorAll('thead th, tfoot td, tfoot th, thead')].some(
-            e => getComputedStyle(e).position === 'sticky'),
+        sticky: document.querySelectorAll('*').length
+            && [...document.querySelectorAll('thead th, tfoot td, tfoot th, thead')]
+                .some(e => getComputedStyle(e).position === 'sticky'),
         pares_de_cor: [],
         focaveis: 0,
         script_tags: document.querySelectorAll('script').length,
-        script_inline_bytes: [...document.querySelectorAll('script')].reduce((s, e) => s + (e.textContent || '').length, 0),
+        script_inline_bytes: [...document.querySelectorAll('script')].reduce(
+            (s, e) => s + (e.textContent || '').length, 0
+        ),
     };
 
     // Linhas visíveis sem rolar: o critério de densidade.
     for (const tr of document.querySelectorAll('table tbody tr')) {
         const r = tr.getBoundingClientRect();
-        if (r.top >= 0 && r.bottom <= window.innerHeight) resultado.linhas_visiveis_no_primeiro_ecra++;
+        if (r.top >= 0 && r.bottom <= window.innerHeight) {
+            resultado.linhas_visiveis_no_primeiro_ecra++;
+        }
     }
 
     // Tabulação de algarismos — CORRIGIDO depois de um erro meu (arquiteto):
@@ -202,18 +204,26 @@ SONDA = r"""
             if (!/\\d[\\d.]*,\\d{2}/.test(texto)) continue;
             resultado.celulas_numericas++;
             const s = getComputedStyle(folha);
-            const chave = [s.fontFamily, s.fontVariantNumeric, s.fontFeatureSettings, s.fontSize].join('|');
+            const chave = [
+                s.fontFamily, s.fontVariantNumeric, s.fontFeatureSettings, s.fontSize,
+            ].join('|');
             if (!cacheTabulacao.has(chave)) {
-                const estilo = `font-family:${s.fontFamily};font-variant-numeric:${s.fontVariantNumeric};`
+                const estilo = `font-family:${s.fontFamily};`
+                    + `font-variant-numeric:${s.fontVariantNumeric};`
                     + `font-feature-settings:${s.fontFeatureSettings};font-size:${s.fontSize};`;
-                cacheTabulacao.set(chave,
-                    Math.abs(medirLargura(estilo, '111111') - medirLargura(estilo, '888888')) < 0.5);
+                cacheTabulacao.set(
+                    chave,
+                    Math.abs(medirLargura(estilo, '111111') - medirLargura(estilo, '888888')) < 0.5,
+                );
             }
             if (cacheTabulacao.get(chave)) resultado.tabular_nums.com++;
             else {
                 resultado.tabular_nums.sem++;
-                if (resultado.tabular_nums.exemplos_sem.length < 4)
-                    resultado.tabular_nums.exemplos_sem.push(texto.slice(0, 24) + ' @' + s.fontFamily.split(',')[0]);
+                if (resultado.tabular_nums.exemplos_sem.length < 4) {
+                    resultado.tabular_nums.exemplos_sem.push(
+                        texto.slice(0, 24) + ' @' + s.fontFamily.split(',')[0],
+                    );
+                }
             }
         }
     }
@@ -367,30 +377,15 @@ SELETORES_DE_IMPRESSAO = {
 # BL-329/BL-331: sonda DEDICADA, avaliada sob `page.emulate_media(media=
 # "print")` (ver `julgar_arquivo`) — pergunta, para CADA seletor de
 # `SELETORES_DE_IMPRESSAO`, se o elemento continua visível quando a
-# página é IMPRESSA. Reaproveita `visivelDeVerdade` (a mesma função da
-# SONDA principal, interpolada da mesma constante Python) — não uma cópia
-# JS separada. Deliberadamente pequena: não reavalia densidade, contraste
-# nem o resto da sonda principal, que não fazem sentido sob mídia de
-# impressão (a paginação real só existe em `page.pdf()` — ver
+# página é IMPRESSA. Montada por `sonda_visibilidade.js_sonda_impressao`
+# (DL-028 fatia 1: antes um literal só deste arquivo, agora a mesma
+# montagem que `scripts/medir_identificacao_do_emitente.py` usa para o
+# produto real) — reaproveita `visivelDeVerdade`, não uma cópia JS
+# separada. Deliberadamente pequena: não reavalia densidade, contraste nem
+# o resto da sonda principal, que não fazem sentido sob mídia de impressão
+# (a paginação real só existe em `page.pdf()` — ver
 # `scripts/medir_impressao.py`, BL-337, fora do escopo deste juiz).
-SONDA_IMPRESSAO = r"""
-() => {
-    __JS_VISIVEL_DE_VERDADE__
-    const seletores = __SELETORES_DE_IMPRESSAO_JSON__;
-    const resultado = {};
-    for (const [nome, seletor] of Object.entries(seletores)) {
-        const el = document.querySelector(seletor);
-        resultado[nome] = el
-            ? Object.assign({seletor, encontrado: true}, visivelDeVerdade(el))
-            : {seletor, encontrado: false};
-    }
-    return resultado;
-}
-"""
-SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace("__JS_VISIVEL_DE_VERDADE__", JS_VISIVEL_DE_VERDADE)
-SONDA_IMPRESSAO = SONDA_IMPRESSAO.replace(
-    "__SELETORES_DE_IMPRESSAO_JSON__", json.dumps(SELETORES_DE_IMPRESSAO)
-)
+SONDA_IMPRESSAO = sonda_visibilidade.js_sonda_impressao(SELETORES_DE_IMPRESSAO)
 
 
 def externo(url):
@@ -502,7 +497,15 @@ def julgar_arquivo(pagina, caminho, largura, altura):
 def main(pastas):
     relatorio = {}
     with sync_playwright() as p:
-        navegador = p.chromium.launch(executable_path=CHROMIUM)
+        # DL-028 fatia 1: sem caminho fixo — ver a docstring de
+        # `lancar_chromium` (variável de ambiente ou descoberta nativa do
+        # Playwright). `NavegadorIndisponivel` é FALHA DE INFRAESTRUTURA,
+        # reportada com `sys.exit` e mensagem própria, nunca confundida com
+        # um veredito de variante (BL-356).
+        try:
+            navegador = sonda_visibilidade.lancar_chromium(p)
+        except sonda_visibilidade.NavegadorIndisponivel as erro:
+            sys.exit(f"Recusado: {erro}")
         for pasta in pastas:
             pasta = Path(pasta).resolve()
             nome = pasta.name

@@ -117,6 +117,56 @@ if _database_url:
             "Configure DATABASE_URL com uma URL PostgreSQL, por exemplo "
             "postgres://usuario:senha@host:5432/nome_do_banco."
         )
+    if not _banco_e_sqlite:
+        # BL-463 (achado B1, rodada 2 de auditoria da DL-016 fatia 1): sem
+        # `lock_timeout`, uma espera por lock de linha (`SELECT ... FOR
+        # SHARE`/`FOR UPDATE`, usados por `apps.contabilidade.services` no
+        # fechamento/reabertura/entrega de competência e na trava de
+        # lançamento) fica PENDURADA indefinidamente — até o cliente
+        # desistir ou, pior, até o worker gunicorn matar o processo por
+        # timeout (30s, sem `--workers` — `Dockerfile:36`; achado da
+        # auditoria DL-017 rodada 3), o que derruba a requisição SEM
+        # nenhuma chance de responder uma mensagem legível. Nunca houve
+        # `statement_timeout` nem `ATOMIC_REQUESTS` aqui, e continuam sem
+        # existir de propósito: eles limitariam a duração de QUALQUER
+        # consulta ou requisição inteira, não só a ESPERA por um lock —
+        # afetariam relatórios legitimamente demorados (Razão/Balancete
+        # sobre anos de escrituração) sem relação nenhuma com este achado.
+        #
+        # Valor escolhido por DUAS âncoras medidas, não por um número
+        # redondo (AGENTS.md, "guarda derivada de uma PROPRIEDADE aguenta;
+        # de uma LISTA, não" — aqui as duas âncoras SÃO a propriedade):
+        #
+        # 1. Piso: a duração normal, CONTENDIDA, do trecho que hoje segura
+        #    o lock em `encerrar_competencia` (depois da correção do
+        #    próprio BL-463, que moveu a varredura RC-58 para ANTES do
+        #    lock — a janela caiu para a de um `UPDATE`) foi MEDIDA nesta
+        #    máquina, doze fechamentos sequenciais reais contra PostgreSQL:
+        #    média 7,38 ms, pior caso 12,10 ms (script de medição no
+        #    relatório de entrega desta etapa). `lock_timeout` precisa
+        #    ficar MUITO acima disso, ou uma espera legítima (duas
+        #    transações concorrentes na MESMA competência, critério 10)
+        #    estouraria por engano.
+        # 2. Teto: o timeout do worker gunicorn (30s, ver acima) — o
+        #    `lock_timeout` precisa terminar com folga GRANDE antes dele,
+        #    para que ESTE código, não o gunicorn, produza a resposta: só
+        #    assim a mensagem chega ao contador como "tente novamente" em
+        #    vez de o worker inteiro morrer sem responder nada.
+        #
+        # 1210ms = 100 × o pior caso medido (12,10 ms): duas ordens de
+        # grandeza de margem sobre uma espera legítima medida NESTA
+        # máquina (produção tem mais concorrência — DE-014, ~50 usuários —
+        # e possivelmente disco mais lento; a margem de 100× existe por
+        # isso) e, ao mesmo tempo, 1210ms é ~4% do teto do gunicorn —
+        # folga de 24× para o processo ainda montar e devolver a resposta
+        # de erro depois do estouro. Reavaliar esta conta se a medição do
+        # piso mudar materialmente (ex.: `localizar_lotes_desbalanceados`
+        # crescer muito com o tamanho real da base do Fred).
+        DATABASES["default"].setdefault("OPTIONS", {})
+        _options_previas = DATABASES["default"]["OPTIONS"].get("options", "")
+        DATABASES["default"]["OPTIONS"]["options"] = (
+            f"{_options_previas} -c lock_timeout=1210ms".strip()
+        )
 elif DEBUG:
     # Aviso DECLARADO, não silencioso: quem rodar localmente sem configurar
     # DATABASE_URL precisa saber que está em SQLite e que isso nunca deve

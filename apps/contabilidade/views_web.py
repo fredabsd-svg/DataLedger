@@ -46,7 +46,29 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoPartida
+from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    # DL-034: os cinco nomes abaixo (ClassificacaoPatrimonial, GrupoDaLei,
+    # GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL, TIPO_DA_CLASSIFICACAO_
+    # PATRIMONIAL, TipoConta) servem só a tela do Balanço — ver
+    # `_montar_grupos_do_balanco`/`balanco`, mais abaixo. Nenhum é
+    # redeclarado: são os MESMOS enums e os MESMOS mapas que `apurar_saldos`
+    # (services.py, DL-032/DL-033) já usa para montar `totais_por_grupo`/
+    # `totais_por_classificacao` — a tela só precisa deles para saber COMO
+    # REPARTIR essas duas chaves em seções impressas (quatro subgrupos do
+    # Ativo Não Circulante, título de cada grupo), nunca para recalcular
+    # nada que o servidor já apurou.
+    ClassificacaoPatrimonial,
+    Competencia,
+    Conta,
+    EstadoCompetencia,
+    GrupoDaLei,
+    LancamentoContabil,
+    NaturezaConta,
+    TipoConta,
+    TipoPartida,
+)
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 
 # RC-77 (faixa de data) e RC-79 (teto de partidas) vêm de
@@ -62,19 +84,27 @@ from apps.contabilidade.services import (
     DATA_MINIMA_LANCAMENTO,
     LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
+    CompetenciaEncerrada,
+    CompetenciaJaEntregue,
+    CompetenciaOperacaoInvalida,
+    CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
+    apurar_balanco_patrimonial,
     apurar_razao,
     criar_lancamento,
     data_maxima_lancamento,
+    encerrar_competencia,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
     localizar_inconsistencias_de_hierarquia,
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
+    marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
+    reabrir_competencia,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -100,12 +130,17 @@ from apps.contabilidade.services import (
 #   que aceitava dígito índico-arábico/fullwidth em silêncio. Usado só por
 #   `_inteiro_de_cliente` abaixo, que preserva a MAGNITUDE de um texto
 #   grande demais (ver o docstring dela para o porquê disso importar).
+# - PodeFecharCompetencia (DL-016 fatia 1 / DL-031 fatia 2): MESMA permissão
+#   (ADMINISTRADOR/GESTOR, RC-102) que a API já usa para fechar/reabrir/
+#   entregar competência — reaproveitada aqui pelo mesmo motivo de
+#   PodeEscriturar: não existe uma segunda lista de papéis "só para a tela".
 from apps.contabilidade.views import (
     _PADRAO_NIVEL_SIMPLES,
     LIMITE_MAGNITUDE_VALOR,
     TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA,
     TAMANHO_MAXIMO_HISTORICO,
     PodeEscriturar,
+    PodeFecharCompetencia,
     _saldo_absoluto_com_natureza,
 )
 
@@ -1839,6 +1874,23 @@ def lancamento_novo(request, empresa_id):
                         )
                     except ChaveIdempotenciaConflitante as exc:
                         erros.append(str(exc))
+                    except CompetenciaEncerrada as exc:
+                        # BL-457/A2 (rodada 2 de auditoria): `CompetenciaEncerrada`
+                        # é subclasse direta de `Exception`, DELIBERADAMENTE não
+                        # de `LancamentoInvalido` (ver o docstring dela em
+                        # services.py) — e por isso o `except LancamentoInvalido`
+                        # logo abaixo nunca a capturava. Pela DE-026 não há API
+                        # separada atrás desta tela: ela chama `criar_lancamento`
+                        # direto, então sem este `except` a exceção escapava até
+                        # o middleware de erro do Django e virava HTTP 500 — uma
+                        # página de erro genérica no lugar da mensagem de negócio
+                        # que o serviço já produz pronta (nomeando a competência
+                        # e orientando a reabrir ou lançar em mês aberto). Nada
+                        # era gravado (a trava funcionava); só a APRESENTAÇÃO da
+                        # recusa quebrava. Medido com controle positivo: o MESMO
+                        # POST com o mês aberto grava (302); só a competência
+                        # fechada produzia o 500.
+                        erros.append(str(exc))
                     except LancamentoInvalido as exc:
                         erros.append(str(exc))
                     else:
@@ -2465,6 +2517,567 @@ def balancete(request, empresa_id):
 
 
 # ---------------------------------------------------------------------------
+# Balanço Patrimonial (DL-034) — nível 1: a primeira DEMONSTRAÇÃO CONTÁBIL
+# que o produto emite (classe 2 de personalizacao-de-relatorio.md), não
+# conferência. "O que eu vou entregar fecha, e eu sei o que ele NÃO diz":
+# quem decide SE PODE emitir é o SERVIDOR
+# (apps.contabilidade.services.avaliar_emissao_do_balanco) — esta view
+# pergunta, obedece e explica; nunca recompõe a decisão.
+# ---------------------------------------------------------------------------
+
+# Rótulo humano de cada lista de pendência que `avaliar_emissao_do_balanco`
+# pode devolver em `emissao["listas_pendentes"]` — SÓ apresentação (a
+# REGRA de quando cada lista fica não vazia mora inteira em services.py,
+# nunca duplicada aqui). `.get(nome, nome)` no ponto de uso cobre uma
+# lista futura que `_LISTAS_DE_PENDENCIA_DO_BALANCO` (services.py) venha a
+# ganhar sem que este dicionário tenha sido atualizado ainda — a tela
+# nomeia a CHAVE crua em vez de quebrar ou silenciar a pendência.
+NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO = {
+    "contas_com_tipo_desconhecido": ("Conta com tipo gravado fora do cadastro (dado corrompido)"),
+    "contas_com_tipo_divergente_da_raiz": (
+        "Conta cujo tipo diverge do tipo da raiz da sua hierarquia"
+    ),
+    "contas_com_classificacao_aninhada": (
+        "Duas contas da mesma hierarquia classificando o mesmo grupo (circulante/não circulante)"
+    ),
+    "contas_com_classificacao_desconhecida": (
+        "Conta com classificação patrimonial gravada fora do cadastro (dado corrompido)"
+    ),
+    "contas_sem_classificacao_patrimonial": (
+        "Conta com saldo, do Ativo ou do Passivo, sem classificação circulante/não circulante"
+    ),
+    # BL-508/A1 (auditoria DL-034): a frase "sob o mesmo ancestral não
+    # classificado" só é VERDADEIRA porque `apurar_saldos` (BL-499)
+    # exclui a RAIZ do agrupamento — sem essa correção, duas contas de
+    # tipos diferentes (Ativo/Passivo), sem ancestral algum, caíam aqui
+    # com esta MESMA frase, factualmente falsa para elas. Ela permanece
+    # exata: quando esta lista é não vazia, as contas TÊM um ancestral
+    # comum de fato (o agrupamento é por `conta_pai`, e raiz nunca entra).
+    # DE-070: esta lista é AVISO, não veto — o rótulo evita "corrija",
+    # que era instrução IMPOSSÍVEL sempre que a classificação já estava
+    # certa (ver ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA, abaixo).
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+        "Contas classificadas de forma independente, sob o mesmo ancestral "
+        "não classificado, com natureza cadastrada diferente entre si — aviso, "
+        "não impede a emissão"
+    ),
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+        "Conta que agrupa outras contas (não é folha), sem classificação "
+        "própria nem de um ancestral, com movimento lançado diretamente nela"
+    ),
+}
+
+
+def _data_base_do_formulario(request):
+    """Lê e valida 'data_base' da querystring do Balanço — DIFERENTE de
+    `_periodo_do_formulario` (Diário/Razão/Balancete, um INTERVALO): o
+    Balanço é uma FOTOGRAFIA de uma única data (NBC TG 26 item 51(c), "a
+    data de encerramento do período de reporte ou o período coberto").
+
+    Ausência do parâmetro (primeira visita) usa HOJE como valor inicial
+    sugerido — mesma convenção de conveniência de `_periodo_do_formulario`
+    (é a TELA quem escolhe um padrão por conveniência de quem a usa todo
+    dia; `apurar_saldos`/`apurar_balanco_patrimonial` não têm padrão
+    próprio nenhum). Uma data enviada e malformada nunca "cai" no padrão em
+    silêncio — mesma regra de `_periodo_do_formulario`.
+
+    Devolve `(data_base, mensagem_de_erro)`.
+    """
+    bruto = request.GET.get("data_base", "").strip()
+    if not bruto:
+        return timezone.localdate(), None
+    try:
+        return para_data(bruto), None
+    except DataInvalida:
+        return None, "Data inválida: use o seletor de data (ou o formato AAAA-MM-DD)."
+
+
+def _cnpj_mascarado(cnpj):
+    """Formata um CNPJ de 14 caracteres como XX.XXX.XXX/XXXX-XX — MESMA
+    regra de `apps.empresas.views._mascara_cnpj`, reescrita aqui de
+    propósito: esta etapa (DL-034) não tem permissão para editar
+    `apps/empresas/**` (divisão de arquivos do plano), e `_mascara_cnpj`
+    é privada daquele módulo — importar um símbolo de prefixo `_` de outro
+    app seria acoplamento não pretendido por quem o escreveu. Duplicação
+    CONSCIENTE e declarada, não descoberta depois: se a regra de máscara
+    mudar num dos dois lugares, este comentário é o ponto para lembrar do
+    outro. RC-93 exige CNPJ na identificação obrigatória do documento —
+    nenhuma tela de contabilidade mostra CNPJ hoje (PE-51 ainda em aberto
+    sobre "as demais informações"); esta etapa cobre a exigência PARA O
+    BALANÇO, sem prometer que as demais telas já a cumprem.
+
+    Só apresentação: se o valor não tiver exatamente 14 caracteres, devolve
+    o original em vez de mascarar errado.
+    """
+    if len(cnpj) != 14:
+        return cnpj
+    return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
+
+
+# BL-508 (auditoria DL-034, achado A10): rótulo HUMANO de cada campo extra
+# que uma linha de pendência do Balanço pode carregar além de "conta"/
+# "nome" — nunca o NOME CRU do campo do banco (`classificacao_
+# patrimonial`, `natureza`, `tipo`, `tipo_da_raiz`, `...ancestral`), que a
+# tela mostrava ao contador antes desta correção. Cobre HOJE todos os
+# campos extras que as SETE listas de `_LISTAS_DE_PENDENCIA_DO_BALANCO`
+# (services.py) anexam — ver o comentário de `_linhas_de_pendencia` sobre
+# o que acontece quando um campo NOVO aparecer sem entrar aqui.
+_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
+    "tipo": "Tipo cadastrado",
+    "tipo_da_raiz": "Tipo da raiz da hierarquia",
+    "classificacao_patrimonial": "Classificação cadastrada",
+    "classificacao_patrimonial_ancestral": "Classificação do ancestral",
+    "natureza": "Natureza cadastrada",
+}
+
+# Os TRÊS `TextChoices`/enum do modelo que guardam o VALOR desses campos —
+# `EnumClasse(valor).label` é o mesmo rótulo que o CADASTRO já mostra
+# (formulário de conta, DL-018/DL-020); nunca uma segunda tradução escrita
+# à mão aqui (duas cópias do mesmo rótulo divergem — AGENTS.md §8).
+_ENUM_DO_CAMPO_DE_PENDENCIA = {
+    "tipo": TipoConta,
+    "tipo_da_raiz": TipoConta,
+    "classificacao_patrimonial": ClassificacaoPatrimonial,
+    "classificacao_patrimonial_ancestral": ClassificacaoPatrimonial,
+    "natureza": NaturezaConta,
+}
+
+
+def _humanizar_valor_de_campo_de_pendencia(chave, valor):
+    """Traduz o VALOR cru de um campo extra de pendência (ex.:
+    `"ativo_circulante"`, `"devedora"`) para o RÓTULO que o cadastro usa
+    (ex.: "Ativo circulante", "Devedora") — via `EnumClasse(valor).label`,
+    nunca uma tradução escrita à mão. As DUAS listas que existem
+    exatamente para nomear DADO CORROMPIDO
+    (`contas_com_tipo_desconhecido`/`contas_com_classificacao_
+    desconhecida` — ver `services.py`) carregam, de propósito, um valor
+    que NÃO está no enum (é o próprio defeito que a lista denuncia); para
+    essas, `EnumClasse(valor)` lança `ValueError` e a função devolve o
+    valor cru mesmo — não há rótulo humano possível para um valor que o
+    cadastro nunca aceitaria, e mostrar o valor bruto AQUI é diferente de
+    mostrar o NOME DO CAMPO cru (o defeito que o BL-508 fecha): o rótulo
+    da CHAVE (`_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA`, acima) já apareceu
+    antes deste valor, então a frase inteira continua legível."""
+    enum_do_campo = _ENUM_DO_CAMPO_DE_PENDENCIA.get(chave)
+    if enum_do_campo is None:
+        return str(valor)
+    try:
+        return enum_do_campo(valor).label
+    except ValueError:
+        return str(valor)
+
+
+# BL-508: a AÇÃO que resolve cada pendência — critério da correção 4 do
+# auditor ("toda pendência declarada nomeia uma ação que RESOLVE", não um
+# adjetivo do enunciado). Uma frase por lista, ao lado de
+# `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO` (mesmas SETE chaves —
+# `test_dl034_tela_do_balanco.py` cruza as duas e reprova se uma lista
+# ficar sem ação). A ÚNICA que não é imperativa
+# (`contas_topo_classificadas_com_natureza_divergente_entre_irmas`) é a
+# que a DE-070 tornou AVISO: ela nunca IMPEDE a emissão, então a "ação"
+# certa é CONFERIR, não necessariamente CORRIGIR — ver o comentário grande
+# em `avaliar_emissao_do_balanco` (services.py) sobre o motivo.
+ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA = {
+    "contas_com_tipo_desconhecido": (
+        "Corrigir o tipo cadastrado da conta no plano de contas, escolhendo um dos tipos "
+        "válidos (Ativo, Passivo, Patrimônio Líquido, Receita ou Despesa)."
+    ),
+    "contas_com_tipo_divergente_da_raiz": (
+        "Corrigir o tipo da conta ou o da raiz da sua hierarquia no plano de contas, para "
+        "que os dois coincidam."
+    ),
+    "contas_com_classificacao_aninhada": (
+        "Remover a classificação circulante/não circulante de uma das duas contas no plano "
+        "de contas — deixar só o grupo OU só as contas-folha classificadas, nunca os dois "
+        "ao mesmo tempo na mesma hierarquia."
+    ),
+    "contas_com_classificacao_desconhecida": (
+        "Corrigir a classificação patrimonial da conta no plano de contas, escolhendo uma "
+        "das opções válidas de circulante/não circulante."
+    ),
+    "contas_sem_classificacao_patrimonial": (
+        "Classificar a conta (ou um ancestral dela) como circulante ou não circulante no "
+        "plano de contas."
+    ),
+    # BL-508 (correção 4 do auditor) + relato do arquiteto sobre o
+    # contrato novo de services.py: esta é a ÚNICA ação que CONFERE, não
+    # CORRIGE — a pendência não impede a emissão (DE-070), e pode ser o
+    # desenho CORRETO do plano de contas (ex.: retificadora). O texto NÃO
+    # afirma "o Balanço já foi emitido" — isso depende de OUTRA pendência
+    # não estar bloqueando ao mesmo tempo (critério de aceite 6: o aviso
+    # aparece nos DOIS desfechos, emitido ou recusado por outro motivo) —
+    # quem decide "emitiu ou não" é a faixa de fechamento, não este texto.
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+        "Aviso, não bloqueio: esta pendência sozinha NUNCA impede a emissão do Balanço. "
+        "Confira se a natureza cadastrada de cada conta abaixo está correta — é o desenho "
+        "esperado quando uma delas é RETIFICADORA de propósito (ex.: “(-) Provisão para "
+        "devedores duvidosos” sob o mesmo grupo de “Clientes”); se não for o caso, corrija "
+        "a natureza cadastrada da conta errada no plano de contas."
+    ),
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+        "Classificar esta conta (ou um ancestral dela) como circulante/não circulante no "
+        "plano de contas, ou lançar os valores numa conta-folha já classificada, em vez de "
+        "lançar diretamente nesta conta-síntese."
+    ),
+}
+
+
+# DE-070 (services.py): `avaliar_emissao_do_balanco` devolve a separação
+# PRONTA — `listas_pendentes` (só o que IMPEDE) e `listas_informativas`
+# (só o que AVISA, nunca impede), as duas DISJUNTAS por construção do lado
+# do servidor (`_LISTAS_QUE_IMPEDEM_A_EMISSAO`/`_LISTAS_QUE_SO_AVISAM`,
+# ver o comentário grande de `avaliar_emissao_do_balanco`). Esta tela NÃO
+# recalcula veto nenhum nem duplica o nome de nenhuma lista específica —
+# só CONSOME as duas chaves e decide em qual bloco visual cada uma
+# aparece (Erro bloqueante vs. Aviso, nunca bloqueante).
+
+
+def _lista_de_pendencia_para_contexto(nome, itens):
+    """Uma entrada de `listas_pendentes`/`listas_apenas_aviso` do
+    contexto do template — título humano (`NOMES_HUMANOS_...`), linhas
+    humanizadas (`_linhas_de_pendencia`) e a AÇÃO que resolve
+    (`ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA`). Extraída para as DUAS
+    visões da view `balanco` (bloqueada e emitida-com-aviso) montarem a
+    MESMA estrutura sem repetir os três `.get`/chamada."""
+    return {
+        "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO.get(nome, nome),
+        "linhas": _linhas_de_pendencia(itens),
+        # BL-508 (correção 4 do auditor): "explica" tem de ser
+        # VERIFICÁVEL — toda pendência declarada nomeia uma ação que
+        # RESOLVE. `.get(nome, ...)` nomeia a CHAVE crua só se uma lista
+        # nova aparecer sem ação cadastrada ainda — nunca quebra a tela,
+        # mas fica claramente incompleto para quem lê (não finge ser uma
+        # instrução de verdade).
+        "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA.get(
+            nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+        ),
+    }
+
+
+def _linhas_de_pendencia(itens):
+    """Uma linha por conta pendente, a partir de UMA das listas de
+    `emissao["listas_pendentes"]` — genérica na FORMA (cada lista de
+    `apurar_saldos` nomeia campos diferentes além de "conta"/"nome": ex.
+    "tipo"/"tipo_da_raiz", "classificacao_patrimonial"/"...ancestral"),
+    mas HUMANIZADA no CONTEÚDO desde o BL-508 (achado A10 da auditoria da
+    DL-034): antes desta correção, o "rótulo/valor de apoio" de cada campo
+    extra era o PAR CRU (`f"{chave}: {valor}"`, ex.: "classificacao_
+    patrimonial: ativo_circulante"), mostrando ao contador o nome do campo
+    do banco e a constante interna gravada nele. Agora cada par vira
+    `_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA` (a CHAVE) +
+    `_humanizar_valor_de_campo_de_pendencia` (o VALOR, via `.label` do
+    enum) — uma chave NOVA que `apurar_saldos` ganhar no futuro sem entrar
+    nos dois dicionários acima ainda aparece aqui (nunca quebra: cai no
+    `.get(chave, chave)`/`str(valor)` cru — PIOR do que humanizado, mas
+    NUNCA pior do que o comportamento anterior a esta correção), e um
+    teste (`test_dl034_tela_do_balanco.py`) varre o CORPO da resposta
+    procurando os nomes crus dos campos conhecidos hoje.
+    """
+    linhas = []
+    for item in itens:
+        detalhes = [
+            f"{_ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA.get(chave, chave)}: "
+            f"{_humanizar_valor_de_campo_de_pendencia(chave, valor)}"
+            for chave, valor in item.items()
+            if chave not in ("conta", "nome")
+        ]
+        linhas.append(
+            {
+                "conta": item.get("conta"),
+                "nome": item.get("nome"),
+                "detalhe": "; ".join(detalhes) if detalhes else None,
+            }
+        )
+    return linhas
+
+
+def _linha_de_conta_do_balanco(linha):
+    """Uma linha IMPRESSA do Balanço, a partir de uma linha de
+    `saldos["contas"]` (apurar_saldos) — MESMA conversão saldo-assinado ->
+    (valor absoluto, D/C) que o Balancete já usa
+    (`_saldo_absoluto_com_natureza`), pela natureza CADASTRADA desta
+    própria conta (`linha["natureza"]`) — nunca a natureza do grupo: é a
+    mesma prova que RC-61/BL-77 já sustentam para o Razão e o Balancete.
+    """
+    saldo_abs, saldo_natureza = _saldo_absoluto_com_natureza(linha["saldo"], linha["natureza"])
+    natureza_cadastrada = linha["natureza"] if linha["natureza"] in NaturezaConta.values else None
+    return {
+        "codigo": linha["conta"],
+        "nome": linha["nome"],
+        "conta": {"natureza": natureza_cadastrada},
+        "saldo_ptbr": _valor_ptbr(saldo_abs),
+        "saldo_natureza": _indicador_natureza(saldo_natureza),
+    }
+
+
+def _subtotal_do_balanco(valor, tipo_do_grupo):
+    """Um subtotal/total IMPRESSO do Balanço (subgrupo, grupo ou grande
+    total) — mesma conversão de `_linha_de_conta_do_balanco`, mas pela
+    natureza NATURAL DO TIPO (devedora no Ativo, credora no Passivo e no
+    Patrimônio Líquido — o mesmo referencial da normalização do critério 1
+    do plano DL-034/`avaliar_emissao_do_balanco`), porque um subtotal soma
+    VÁRIAS contas e não tem uma única "natureza cadastrada" própria para
+    servir de referência. Reaproveita `_saldo_absoluto_com_natureza`
+    (RC-61) passando essa natureza esperada no lugar da natureza cadastrada
+    de uma conta — mesma função, argumento diferente, nenhuma regra nova.
+    """
+    natureza_esperada = (
+        NaturezaConta.DEVEDORA if tipo_do_grupo == TipoConta.ATIVO else NaturezaConta.CREDORA
+    )
+    valor_abs, natureza_apurada = _saldo_absoluto_com_natureza(valor, natureza_esperada)
+    return {
+        "valor_ptbr": _valor_ptbr(valor_abs),
+        "natureza": _indicador_natureza(natureza_apurada),
+        # Consumido por templates/contabilidade/_saldo_grupo.html — igual
+        # em espírito a `conta.natureza` de `_saldo.html` (RC-61), mas em
+        # texto puro: um SUBTOTAL não tem uma única conta cadastrada para
+        # servir de referência de inversão.
+        "natureza_esperada": (
+            "devedora" if natureza_esperada == NaturezaConta.DEVEDORA else "credora"
+        ),
+    }
+
+
+def _montar_grupos_do_balanco(saldos):
+    """Monta as CINCO seções impressas do Balanço a partir de `saldos`
+    (`apurar_saldos`, dentro de `apurar_balanco_patrimonial`) — Ativo
+    Circulante, Ativo Não Circulante (com os QUATRO subgrupos do art. 178
+    §1º II e o subtotal), Passivo Circulante, Passivo Não Circulante e
+    Patrimônio Líquido (RC-106; escopo do plano DL-034, critério 1) — mais
+    os DOIS grandes totais (Ativo; Passivo + Patrimônio Líquido) que a
+    folha imprime lado a lado para o contador CONFERIR a equação a olho,
+    sem precisar somar na mão.
+
+    ⚠️ Só é chamada quando `emissao["pode_emitir"]` é `True` — quem chama
+    (a view `balanco`) nunca monta esta estrutura para uma apuração
+    pendente (critério "a tela não emite... mostra o que falta").
+
+    As LINHAS de cada (sub)grupo vêm de `saldos["contas"]`, filtradas pelas
+    que DEFINEM uma classificação própria (`classificacao_patrimonial` não
+    `None`) — exatamente o mesmo conjunto que `totais_por_classificacao`
+    soma (ver o docstring de `apurar_saldos`), nunca por prefixo de código
+    nem por nível da árvore. Com `pode_emitir` verdadeiro, nenhuma conta
+    está classificada em mais de um lugar (a lista de aninhamento já
+    garantiu isso) — filtrar por "tem classificação própria" não duplica
+    nenhuma linha.
+    """
+    linhas_por_classificacao = {}
+    for linha in saldos["contas"]:
+        classificacao = linha["classificacao_patrimonial"]
+        if classificacao:
+            linhas_por_classificacao.setdefault(classificacao, []).append(
+                _linha_de_conta_do_balanco(linha)
+            )
+
+    def _secao(classificacao):
+        tipo_do_grupo = TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        return {
+            "titulo": ClassificacaoPatrimonial(classificacao).label,
+            "linhas": linhas_por_classificacao.get(classificacao, []),
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_classificacao"][classificacao], tipo_do_grupo
+            ),
+        }
+
+    # Os QUATRO subgrupos do Ativo Não Circulante, na ORDEM DE DECLARAÇÃO
+    # do enum (art. 178 §1º II: realizável a longo prazo, investimentos,
+    # imobilizado, intangível) — derivados do MAPA da lei (BL-490), nunca
+    # uma lista de strings escrita à mão: toda `ClassificacaoPatrimonial`
+    # cujo grupo da lei é `ATIVO_NAO_CIRCULANTE`.
+    subgrupos_ativo_nao_circulante = [
+        _secao(classificacao)
+        for classificacao in ClassificacaoPatrimonial.values
+        if GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]
+        == GrupoDaLei.ATIVO_NAO_CIRCULANTE
+    ]
+
+    # Patrimônio Líquido é o TERCEIRO grupo do passivo (art. 178 §2º III) —
+    # não é circulante nem não circulante (RC-106) — e por isso não tem
+    # `classificacao_patrimonial` nenhuma. As linhas vêm das RAÍZES de tipo
+    # PATRIMONIO_LIQUIDO (mesmo conjunto que `totais_por_tipo` já soma,
+    # DE-056), no molde do Balancete: cada raiz já vem CONSOLIDADA com a
+    # subárvore inteira (DE-020).
+    linhas_pl = [
+        _linha_de_conta_do_balanco(linha)
+        for linha in saldos["contas"]
+        if linha["raiz"] and linha["tipo"] == TipoConta.PATRIMONIO_LIQUIDO
+    ]
+
+    return {
+        "ativo_circulante": _secao(ClassificacaoPatrimonial.ATIVO_CIRCULANTE),
+        "ativo_nao_circulante": {
+            "titulo": GrupoDaLei.ATIVO_NAO_CIRCULANTE.label,
+            "subgrupos": subgrupos_ativo_nao_circulante,
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_grupo"][GrupoDaLei.ATIVO_NAO_CIRCULANTE], TipoConta.ATIVO
+            ),
+        },
+        "passivo_circulante": _secao(ClassificacaoPatrimonial.PASSIVO_CIRCULANTE),
+        "passivo_nao_circulante": _secao(ClassificacaoPatrimonial.PASSIVO_NAO_CIRCULANTE),
+        "patrimonio_liquido": {
+            "titulo": TipoConta.PATRIMONIO_LIQUIDO.label,
+            "linhas": linhas_pl,
+            "subtotal": _subtotal_do_balanco(
+                saldos["totais_por_tipo"][TipoConta.PATRIMONIO_LIQUIDO],
+                TipoConta.PATRIMONIO_LIQUIDO,
+            ),
+        },
+        "total_ativo": _subtotal_do_balanco(
+            saldos["totais_por_tipo"][TipoConta.ATIVO], TipoConta.ATIVO
+        ),
+        "total_passivo_e_pl": _subtotal_do_balanco(
+            saldos["totais_por_tipo"][TipoConta.PASSIVO]
+            + saldos["totais_por_tipo"][TipoConta.PATRIMONIO_LIQUIDO],
+            TipoConta.PASSIVO,
+        ),
+        # Informativo, NUNCA usado para gatear emissão (essa decisão é
+        # inteira de `avaliar_emissao_do_balanco` — ver o cabeçalho desta
+        # seção): quando não-zero, é o resultado do período que AINDA não
+        # foi transferido ao Patrimônio Líquido por lançamento de
+        # encerramento (RC-104) — é a diferença honesta entre "Total do
+        # Ativo" e "Total do Passivo + PL" que o contador vê no papel, e
+        # que a equação de `apurar_saldos` já calcula. Mostrar isto é
+        # cumprir "eu sei o que ele NÃO diz" em vez de deixar duas somas
+        # divergentes sem explicação no documento. Formatado em VALOR
+        # ABSOLUTO com o sinal preservado só em PALAVRA ("lucro"/
+        # "prejuízo") — nunca "-" na frente do número (RC-90: sinal nunca é
+        # o único canal, e este projeto nem usa sinal para valor negativo
+        # em lugar nenhum do documento).
+        #
+        # BL-501 (achado da auditoria DL-034 rodada 1): a CHAVE deste
+        # dicionário NÃO termina em "_ptbr" de propósito — só o campo
+        # FOLHA (`valor_ptbr`, abaixo) termina. A varredura de interface
+        # (`apps/core/tests/test_dl024_varredura_de_interface.py::
+        # test_todo_valor_em_celula_usa_a_classe_do_sistema`) reprova
+        # QUALQUER token que termine em "_ptbr" dentro de uma célula de
+        # tabela sem a classe `valor-monetario` ao redor — inclusive
+        # dentro de um `{% if %}` de template, que nunca é exibido. Com a
+        # chave se chamando "resultado_nao_transferido_ptbr", o PRÓPRIO
+        # `{% if grupos.resultado_nao_transferido_ptbr %}` (condição, não
+        # saída) contava como um valor monetário desprotegido — dois
+        # falsos positivos (a condição e o acesso a `.e_prejuizo`), medido
+        # rodando a suíte. Renomear a chave para "resultado_nao_
+        # transferido" (sem sufixo) resolve na raiz: a condição deixa de
+        # casar com o padrão, e o único token que ainda termina em
+        # "_ptbr" (`.valor_ptbr`, dentro do `<span class="valor-
+        # monetario">` no template) continua coberto.
+        "resultado_nao_transferido": (
+            {
+                "valor_ptbr": _valor_ptbr(abs(saldos["equacao"]["resultado_nao_transferido"])),
+                "e_prejuizo": saldos["equacao"]["resultado_nao_transferido"] < 0,
+            }
+            if saldos["equacao"]["resultado_nao_transferido"] != 0
+            else None
+        ),
+    }
+
+
+@login_required
+@require_safe
+def balanco(request, empresa_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    data_base, erro_data_base = _data_base_do_formulario(request)
+    contexto = {"empresa": empresa, "data_base": data_base}
+    if erro_data_base:
+        messages.error(request, erro_data_base)
+        return render(request, "contabilidade/balanco.html", contexto, status=400)
+
+    try:
+        # DE-067: a ÚNICA porta de entrada que gera o documento impresso do
+        # Balanço chama `apurar_balanco_patrimonial` — nunca `apurar_saldos`
+        # direto —, porque só ela paga o snapshot (REPEATABLE READ) que
+        # impede o documento sair com números de dois instantes diferentes.
+        resultado = apurar_balanco_patrimonial(empresa=empresa, data_base=data_base)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/balanco.html", contexto, status=409)
+
+    saldos = resultado["saldos"]
+    emissao = resultado["emissao"]
+
+    contexto.update(
+        {
+            # NBC TG 26 item 51/52 (RC-95) — o bloco de identificação é
+            # consumido pelo template DENTRO do `<thead>` da tabela, para
+            # se repetir em TODA página impressa (critério 4 do plano
+            # DL-034; mesmo mecanismo já provado pelo cabeçalho de coluna
+            # do Balancete, BL-282: `display: table-header-group`).
+            "identificacao": resultado["identificacao"],
+            "cnpj_mascarado": _cnpj_mascarado(empresa.cnpj),
+            # BL-282/RC-97: mesmo timbre do escritório que Balancete/
+            # Diário/Razão já usam — ver o comentário em `diario` para o
+            # contrato completo. Continua só na folha 1 (não é exigência do
+            # item 51, que fala da ENTIDADE cliente, não do escritório
+            # emitente); o bloco que PRECISA repetir em toda folha é o de
+            # `identificacao`, acima, tratado à parte no template.
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # Estado VAZIO (critério do Balancete, B4/BL-283) — calculado
+            # UMA vez, aqui, para o template nunca precisar adivinhar
+            # "ausência de chave" como "vazio": a chave está SEMPRE
+            # presente a partir deste ponto.
+            "empresa_tem_plano_de_contas": bool(saldos["contas"]),
+        }
+    )
+
+    if not saldos["contas"]:
+        # Estado VAZIO: empresa sem NENHUMA conta cadastrada — mesmo
+        # critério do Balancete (B4/BL-283): nada para classificar, nada
+        # para recusar ainda, e mostrar uma recusa aqui confundiria "falta
+        # cadastrar o plano" com "há pendência de classificação".
+        return render(request, "contabilidade/balanco.html", contexto)
+
+    # DE-070: `emissao["listas_informativas"]` já vem SEPARADA, pronta do
+    # servidor — a que só AVISA, nunca impede (ver o comentário grande de
+    # `avaliar_emissao_do_balanco`, services.py). A tela só monta a
+    # ESTRUTURA de apresentação (título/linhas/ação); aparece tanto
+    # emitindo quanto recusando, se estiver presente nos dois casos —
+    # fora do `{% if/elif/else %}` do template, que decide só "monta a
+    # tabela ou não".
+    contexto["listas_apenas_aviso"] = [
+        _lista_de_pendencia_para_contexto(nome, itens)
+        for nome, itens in emissao["listas_informativas"].items()
+    ]
+
+    if not emissao["pode_emitir"]:
+        # "O que eu vou entregar fecha, e eu sei o que ele NÃO diz": havendo
+        # QUALQUER pendência que VETE, a tela NÃO monta a tabela do Balanço
+        # — só o que falta, nomeado (critério 1 e "o momento da verdade" do
+        # plano DL-034). 200, não um código de erro: a tela RESPONDEU
+        # corretamente à pergunta "pode emitir?" — a resposta é "não, e eis
+        # o porquê", que é sucesso da TELA, não falha de protocolo.
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "residuo_pendente": [
+                    {
+                        "tipo_label": TipoConta(tipo).label,
+                        "diferenca_ptbr": _valor_ptbr(abs(valor)),
+                    }
+                    for tipo, valor in emissao["residuo_pendente"].items()
+                ],
+                # `emissao["listas_pendentes"]` já vem só com o que
+                # BLOQUEIA (DE-070/services.py) — a que só avisa está em
+                # `listas_informativas`, tratada acima, nunca aqui.
+                "listas_pendentes": [
+                    _lista_de_pendencia_para_contexto(nome, itens)
+                    for nome, itens in emissao["listas_pendentes"].items()
+                ],
+            }
+        )
+        return render(request, "contabilidade/balanco.html", contexto)
+
+    contexto.update({"pode_emitir": True, "grupos": _montar_grupos_do_balanco(saldos)})
+    return render(request, "contabilidade/balanco.html", contexto)
+
+
+# ---------------------------------------------------------------------------
 # Conferência
 # ---------------------------------------------------------------------------
 
@@ -2548,3 +3161,410 @@ def conferencia(request, empresa_id):
         ),
     }
     return render(request, "contabilidade/conferencia.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Fechamento de competência (DL-016 fatia 1 no servidor; DL-031 é a PORTA)
+#
+# NENHUMA regra contábil desta seção mora aqui — encerrar_competencia,
+# reabrir_competencia e marcar_competencia_como_entregue (services.py) já
+# decidem, já travam a linha sob concorrência e já gravam a trilha de
+# auditoria, auditados em duas rodadas na fatia 1. Esta tela só CHAMA os
+# três serviços, traduz cada exceção de negócio em mensagem de português
+# (nunca 500 — a lição do BL-457, medida na tela de lançamento) e trata o
+# "sem permissão" como ESTADO explicado, não como sumiço silencioso de botão
+# (critério 1 do plano DL-031).
+#
+# Arquétipos, pela direção de arte (§2): D (painel de período) para
+# `fechamento`, E (assistente com etapas) para as três telas de ação —
+# cada uma mostra o que vai acontecer e o que deixa de ser possível ANTES
+# do botão, e a de entrega (a única ação sem volta pelo produto, RC-101)
+# exige confirmação explícita em vez de um clique só.
+# ---------------------------------------------------------------------------
+
+# Mesma faixa das duas CheckConstraint de Competencia.Meta
+# ("competencia_mes_entre_1_e_12", "competencia_ano_entre_1970_e_2999") — a
+# MESMA faixa que apps.contabilidade.views._validar_ano_mes já aplica na
+# API, antes de chamar o serviço. Não importada de lá: aquele validador fala
+# o protocolo do DRF (levanta DRFValidationError), que esta tela não usa —
+# só o NÚMERO é compartilhado, por comentário, no mesmo padrão que
+# NIVEL_MAXIMO (acima) já copia o teto da API em vez de importar o nome.
+_MES_MINIMO_COMPETENCIA, _MES_MAXIMO_COMPETENCIA = 1, 12
+_ANO_MINIMO_COMPETENCIA, _ANO_MAXIMO_COMPETENCIA = 1970, 2999
+
+
+def _ano_mes_de_competencia_valido(ano, mes):
+    return (
+        _MES_MINIMO_COMPETENCIA <= mes <= _MES_MAXIMO_COMPETENCIA
+        and _ANO_MINIMO_COMPETENCIA <= ano <= _ANO_MAXIMO_COMPETENCIA
+    )
+
+
+def _pode_fechar_competencia(request):
+    return PodeFecharCompetencia().has_permission(request, None)
+
+
+def _competencia_pedida(fonte):
+    """Lê e valida 'ano'/'mes' de `fonte` (request.GET no GET das três telas
+    de ação — a competência viaja por querystring, como o período do
+    Diário/Razão/Balancete — e request.POST no POST, onde os dois campos
+    voltam como `<input type="hidden">` do próprio formulário, no mesmo
+    contrato que a tela já julga).
+
+    Nunca lança exceção: devolve `(ano, mes, None)` quando válido, ou
+    `(None, None, mensagem)` quando não — mesmo padrão de
+    `_periodo_do_formulario` (erro de entrada nunca é 500, sempre mensagem
+    em português). `_inteiro_de_cliente` é o mesmo julgador de QUANTIDADE de
+    cliente que o resto deste arquivo já usa (nunca reinterpreta dígito
+    Unicode, nunca lança exceção) — 'ano'/'mes' são quantidade de negócio,
+    não identificador de banco.
+    """
+    ano = _inteiro_de_cliente((fonte.get("ano") or "").strip())
+    mes = _inteiro_de_cliente((fonte.get("mes") or "").strip())
+    if ano is None or mes is None:
+        return None, None, "Informe ano e mês da competência."
+    if not _ano_mes_de_competencia_valido(ano, mes):
+        return (
+            None,
+            None,
+            f"Competência inválida: o mês deve estar entre {_MES_MINIMO_COMPETENCIA} e "
+            f"{_MES_MAXIMO_COMPETENCIA}, e o ano entre {_ANO_MINIMO_COMPETENCIA} e "
+            f"{_ANO_MAXIMO_COMPETENCIA}.",
+        )
+    return ano, mes, None
+
+
+# BL-196: contrato de cada ação — mesma política dos cinco dicionários que
+# `lancamento_novo`/`conta_nova` já aplicam, e pelo mesmo motivo (um campo
+# que a superfície não lê nunca deve ser ignorado em silêncio). As três são
+# rotas de AÇÃO: sem arquivo, sem querystring no POST (o GET usa
+# querystring só para MONTAR o formulário; o POST manda 'ano'/'mes' como
+# campo oculto do próprio `<form>`, como qualquer outro dado do corpo) e sem
+# `Idempotency-Key` (nenhuma das três usa cabeçalho para idempotência; as
+# três já são seguras para reenvio — fechar e entregar são idempotentes no
+# SERVIÇO, e reabrir é uma ação explícita com motivo, não um POST que se
+# repete sem querer).
+CONTRATO_FECHAR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no fechamento de competência",
+)
+CONTRATO_REABRIR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura de competência",
+)
+CONTRATO_ENTREGAR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "confirmar_entrega"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na entrega de competência",
+)
+
+
+@login_required
+@require_safe
+def fechamento(request, empresa_id):
+    """Painel de competências da empresa (arquétipo D) — critérios 1 e 2.
+
+    Lista os meses com estado, quem fechou, quando e se foi entregue; a
+    conferência do RC-58 é checada AQUI, uma vez, para a base inteira da
+    empresa — havendo lote desbalanceado, nenhum link de "Fechar" aparece
+    nas linhas 'aberta' (critério 2: nunca deixar o contador clicar para
+    descobrir). Quem não pode fechar/reabrir/entregar (RC-102) continua
+    vendo o painel inteiro — só a coluna de ações muda, com uma explicação
+    no topo em vez de sumir em silêncio (critério 1).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    # RC-58 / critério 2: mesma checagem que `encerrar_competencia`
+    # (services.py) aplica antes de fechar — repetida aqui só para EXIBIR o
+    # bloqueio antes do clique. A recusa de verdade continua sendo a do
+    # serviço; esta lista não é usada para decidir nada além do que a tela
+    # mostra.
+    lotes_desbalanceados = list(localizar_lotes_desbalanceados(empresa=empresa))
+
+    competencias = list(
+        Competencia.objects.filter(empresa=empresa)
+        .select_related("fechada_por", "entregue_por")
+        .order_by("-ano", "-mes")
+    )
+
+    hoje = timezone.localdate()
+    contexto = {
+        "empresa": empresa,
+        "competencias": competencias,
+        "pode_fechar": _pode_fechar_competencia(request),
+        "quantidade_lotes_desbalanceados": len(lotes_desbalanceados),
+        "ano_sugestao": hoje.year,
+        "mes_sugestao": hoje.month,
+        "opcoes_mes": range(1, 13),
+    }
+    return render(request, "contabilidade/fechamento.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_fechar(request, empresa_id):
+    """Fecha uma competência (arquétipo E, etapa única) — critérios 2, 3, 5, 8.
+
+    GET mostra o que vai ser fechado e o que deixa de ser possível ANTES do
+    botão (o "momento da verdade" do plano DL-031); se houver lote
+    desbalanceado (RC-58), nenhum botão aparece — só o caminho para a
+    Conferência. POST chama `encerrar_competencia` (services.py), que é
+    quem decide e trava de verdade: toda recusa do serviço vira mensagem em
+    português nesta mesma tela, nunca 500 (BL-457).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite fechar competências desta empresa — essa ação "
+            "exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_FECHAR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        try:
+            competencia = encerrar_competencia(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Critério 2/5 — RC-58 (lote desbalanceado) ou qualquer outro
+            # estado que impeça o fechamento: a mensagem do próprio serviço
+            # já nomeia a competência e o motivo. Nunca 500 (BL-457) — o
+            # teste desta tela leva controle positivo no mesmo caso.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        # Critério 4/idempotência do serviço: reflete o resultado REAL —
+        # `encerrada_agora=False` quando a competência já estava fechada
+        # (duas requisições, ou o usuário voltou nesta mesma tela) nunca vira
+        # "fechada agora" na mensagem.
+        if competencia.encerrada_agora:
+            messages.success(
+                request, f"Competência {mes:02d}/{ano} de {empresa} fechada com sucesso."
+            )
+        else:
+            messages.info(request, f"Competência {mes:02d}/{ano} de {empresa} já estava fechada.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: se já está encerrada, não há o que confirmar — volta ao painel
+    # com o estado explicado em vez de mostrar um formulário sem sentido.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is not None and competencia.estado == EstadoCompetencia.ENCERRADA:
+        messages.info(request, f"A competência {mes:02d}/{ano} de {empresa} já está encerrada.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    lotes_desbalanceados = list(localizar_lotes_desbalanceados(empresa=empresa))
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "quantidade_lotes_desbalanceados": len(lotes_desbalanceados),
+    }
+    return render(request, "contabilidade/competencia_fechar.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_reabrir(request, empresa_id):
+    """Reabre uma competência (arquétipo E, etapa única) — critérios 3, 5, 6, 8.
+
+    Motivo é obrigatório na tela (rótulo próprio, avisando que fica na
+    trilha); a recusa de verdade é do serviço (`reabrir_competencia`,
+    `CompetenciaOperacaoInvalida` para motivo vazio). Mês já entregue
+    (RC-101/BL-468) NUNCA oferece este formulário — nem no GET (precheck de
+    conveniência) nem, se a corrida acontecer, no POST (a exceção
+    `CompetenciaJaEntregue` do serviço vira mensagem, nunca 500).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite reabrir competências desta empresa — essa ação "
+            "exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_REABRIR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        motivo = request.POST.get("motivo", "")
+        try:
+            reabrir_competencia(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
+        except CompetenciaOperacaoInvalida as exc:
+            # Critério 3: motivo vazio é erro de FORMULÁRIO — a tela NUNCA
+            # some (o que já estava preenchido continua lá), status 400.
+            messages.error(request, str(exc))
+            return render(
+                request,
+                "contabilidade/competencia_reabrir.html",
+                {"empresa": empresa, "ano": ano, "mes": mes, "motivo": motivo},
+                status=400,
+            )
+        except CompetenciaJaEntregue as exc:
+            # Critério 6/BL-468: a mensagem do serviço já nomeia a data da
+            # entrega e orienta o ajuste no mês aberto (RC-101). Nunca 500
+            # (BL-457) — controle positivo no mesmo caso, no teste desta tela.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+        except CompetenciaOperacaoRecusada as exc:
+            # Ex.: tentar reabrir uma competência que nunca foi encerrada.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        messages.success(request, f"Competência {mes:02d}/{ano} de {empresa} reaberta com sucesso.")
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: só oferece o formulário quando há, de fato, o que reabrir.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is None or competencia.estado != EstadoCompetencia.ENCERRADA:
+        messages.info(
+            request,
+            f"A competência {mes:02d}/{ano} de {empresa} não está encerrada; não há o que reabrir.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+    if competencia.entregue_em is not None:
+        # Critério 6/BL-468 — precheck de conveniência: o servidor recusa do
+        # mesmo jeito se a corrida acontecer (ver o `except
+        # CompetenciaJaEntregue` acima), mas o contador nunca deveria
+        # precisar clicar num formulário para descobrir isto.
+        messages.error(
+            request,
+            f"A competência {mes:02d}/{ano} de {empresa} já foi entregue ao cliente em "
+            f"{timezone.localtime(competencia.entregue_em):%d/%m/%Y %H:%M}. Depois da "
+            "entrega, a competência não reabre — o ajuste vai no mês aberto.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    contexto = {"empresa": empresa, "ano": ano, "mes": mes, "motivo": ""}
+    return render(request, "contabilidade/competencia_reabrir.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def competencia_entregar(request, empresa_id):
+    """Marca uma competência como entregue ao cliente (arquétipo E, etapa
+    única) — critérios 4, 5, 8.
+
+    Esta é a ÚNICA ação da fatia sem volta pelo produto (RC-101: depois de
+    entregue, a competência nunca mais reabre) — por isso exige uma
+    confirmação EXPLÍCITA (caixa de marcação), não um único clique.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite marcar competências desta empresa como entregues "
+            "— essa ação exige administrador ou gestor (RC-102). Fale com um deles.",
+        )
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ENTREGAR_COMPETENCIA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        # Critério 4: a caixa de confirmação NÃO é regra de negócio — o
+        # serviço não sabe dela e não precisa saber. É só o que impede um
+        # clique não intencional de chegar ao serviço, proporcional ao
+        # risco desta ação (AGENTS.md §0, item 6: ação sem volta pede
+        # confirmação que identifique a operação).
+        if request.POST.get("confirmar_entrega") != "1":
+            messages.error(
+                request,
+                "Confirme a caixa de seleção para marcar esta competência como "
+                "entregue — nada foi gravado.",
+            )
+            return render(
+                request,
+                "contabilidade/competencia_entregar.html",
+                {"empresa": empresa, "ano": ano, "mes": mes},
+                status=400,
+            )
+
+        try:
+            marcar_competencia_como_entregue(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Ex.: tentar entregar uma competência que ainda está aberta.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        messages.success(
+            request,
+            f"Competência {mes:02d}/{ano} de {empresa} marcada como entregue. Depois da "
+            "entrega, ela não reabre pelo produto — qualquer ajuste vai no mês aberto "
+            "(RC-101).",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    # GET: só oferece a confirmação quando a competência está encerrada —
+    # entregar mês aberto não faz sentido e o serviço recusaria mesmo assim.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is None or competencia.estado != EstadoCompetencia.ENCERRADA:
+        messages.info(
+            request,
+            f"Só é possível marcar como entregue uma competência encerrada; feche a "
+            f"competência {mes:02d}/{ano} de {empresa} primeiro.",
+        )
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        # Docstring de marcar_competencia_como_entregue (services.py): a
+        # entrega "pode repetir-se" — confirmar de novo apenas atualiza a
+        # data/quem entregou. A tela avisa a diferença em vez de tratar como
+        # se fosse a primeira vez.
+        "ja_entregue_em": competencia.entregue_em,
+    }
+    return render(request, "contabilidade/competencia_entregar.html", contexto)

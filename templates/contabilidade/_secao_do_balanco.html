@@ -1,0 +1,43 @@
+{% comment %}
+DL-034 — uma seção "simples" do Balanço: um título de grupo (peso maior,
+mesma convenção de "conta sintética" do Balancete/Plano de contas —
+DE-053 §1, "hierarquia por peso e recuo, não por coluna nem por cor"),
+as contas classificadas nele e o subtotal.
+
+Variáveis esperadas:
+- `secao`: {"titulo": str, "linhas": [...], "subtotal": {"valor_ptbr",
+  "natureza", "natureza_esperada"}} — o formato que
+  `views_web.py::_montar_grupos_do_balanco` já produz para Ativo
+  Circulante, Passivo Circulante, Passivo Não Circulante, Patrimônio
+  Líquido e cada um dos quatro subgrupos do Ativo Não Circulante.
+- `nivel_titulo`/`nivel_linha`: inteiros — a classe "nivel-N" (recuo
+  visual, static/css/base.css) da linha de título e das linhas de conta,
+  respectivamente. Um grupo de primeiro nível usa 1/2; um SUBGRUPO
+  (dentro de "Ativo Não Circulante") usa 2/3 — um passo a mais de recuo,
+  mesma lógica de hierarquia por nível que o Plano de Contas já usa.
+
+Cada conta de `secao.linhas` já vem com a natureza CADASTRADA própria
+(`_saldo.html`, RC-61); o SUBTOTAL da seção usa `_saldo_grupo.html` (a
+natureza ESPERADA do grupo, não de uma conta — ver o comentário daquele
+parcial).
+{% endcomment %}
+<tr>
+    <td colspan="2" class="nivel-{{ nivel_titulo }} conta-sintetica">{{ secao.titulo }}</td>
+    <td></td>
+</tr>
+{% for linha in secao.linhas %}
+    <tr>
+        <td>{{ linha.codigo }}</td>
+        <td class="nivel-{{ nivel_linha }}">{{ linha.nome }}</td>
+        <td class="valor-monetario">{% include "contabilidade/_saldo.html" with valor=linha.saldo_ptbr natureza=linha.saldo_natureza conta=linha.conta %}</td>
+    </tr>
+{% empty %}
+    <tr>
+        <td></td>
+        <td class="nivel-{{ nivel_linha }} texto-apoio" colspan="2">Nenhuma conta classificada neste grupo.</td>
+    </tr>
+{% endfor %}
+<tr class="linha-total">
+    <td colspan="2">Total — {{ secao.titulo }}</td>
+    <td class="valor-monetario">{% include "contabilidade/_saldo_grupo.html" with valor=secao.subtotal.valor_ptbr natureza=secao.subtotal.natureza natureza_esperada=secao.subtotal.natureza_esperada %}</td>
+</tr>

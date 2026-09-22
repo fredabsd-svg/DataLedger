@@ -3,3 +3,16 @@
 pytest==9.1.1
 pytest-django==4.14.0
 ruff==0.16.7
+
+# DL-028 fatia 2 (docs/planos/DL-028-o-juiz-aponta-para-o-produto.md):
+# dependência de DESENVOLVIMENTO e de CI, nunca de produto — decisão do
+# arquiteto-senior, DE-057. O produto continua sem navegador, sem CDN e
+# sem passo de build (DE-011 intacta): nada em `base.txt` muda. Usada por
+# `scripts/medir_identificacao_do_emitente.py` e por
+# `docs/assets/design/gauntlet/juiz.py` — os dois resolvem o executável do
+# Chromium por variável de ambiente ou descoberta nativa do Playwright
+# (nunca caminho fixo em arquivo versionado; ver
+# `docs/assets/design/gauntlet/sonda_visibilidade.py`). O navegador em si
+# NÃO é instalado por este arquivo — é `playwright install --with-deps
+# chromium`, no job de integração contínua, com cache.
+playwright==1.63.0

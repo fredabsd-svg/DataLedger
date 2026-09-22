@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block titulo %}Marcar como entregue — {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
+    <p><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Voltar para o painel de fechamento</a></p>
+    <h1>Marcar competência {{ mes|stringformat:"02d" }}/{{ ano }} como entregue</h1>
+
+    {% if ja_entregue_em %}
+        <p class="mensagem mensagem-info" role="status">
+            Esta competência já foi entregue ao cliente em
+            {{ ja_entregue_em|date:"d/m/Y H:i" }}. Confirmar de novo abaixo apenas
+            atualiza a data de entrega — a entrega de um documento novo (por
+            exemplo, a ECD, depois do balancete) pode acontecer mais de uma vez.
+        </p>
+    {% endif %}
+
+    {% comment %}
+    Critério 4: esta é a ÚNICA ação da fatia sem volta pelo produto (RC-101)
+    — o aviso mais forte da tela, ANTES do botão, com o texto do RC-101
+    ("o ajuste vai no mês aberto"). `.painel-etapa--risco` (static/css/
+    base.css) reforça visualmente, mas o texto já carrega o significado
+    sozinho — cor nunca é o único canal.
+    {% endcomment %}
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>Esta é a única ação desta tela sem volta pelo produto</h2>
+        <p>
+            Depois de confirmar, esta competência <strong>não pode mais ser
+            reaberta</strong> pelo DataLedger (RC-101). Qualquer ajuste depois disso
+            é lançado no mês <strong>aberto</strong>, com histórico apontando para
+            esta competência de origem — o balancete já entregue nunca muda.
+        </p>
+        <form method="post" action="{% url 'contabilidade_web:competencia_entregar' empresa.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="ano" value="{{ ano }}">
+            <input type="hidden" name="mes" value="{{ mes }}">
+            <div class="campo campo--caixa">
+                <label>
+                    <input type="checkbox" name="confirmar_entrega" value="1" required>
+                    Confirmo que os documentos desta competência foram enviados ao
+                    cliente e sei que esta ação não tem volta pelo produto.
+                </label>
+            </div>
+            <button type="submit">Marcar como entregue</button>
+        </form>
+    </div>
+{% endblock %}

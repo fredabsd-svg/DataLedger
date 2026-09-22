@@ -1,18 +1,27 @@
 import hashlib
 import json
+import warnings
 from collections import defaultdict
 from decimal import Decimal
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
 
+from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    NATUREZA_NATURAL_DO_TIPO,
+    TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    ClassificacaoPatrimonial,
     Competencia,
     Conta,
+    EstadoCompetencia,
+    GrupoDaLei,
     ItemLancamento,
     LancamentoContabil,
     NaturezaConta,
+    TipoConta,
     TipoPartida,
 )
 from apps.contabilidade.validators import (
@@ -77,6 +86,86 @@ class ChaveIdempotenciaConflitante(Exception):
     chave que já está associada a outro lançamento. A view precisa devolver
     409 (conflito de estado), não 400 (entrada inválida), para que o cliente
     perceba que precisa gerar uma nova chave, não corrigir o corpo enviado.
+    """
+
+
+class CompetenciaEncerrada(Exception):
+    """Lançamento (ou estorno) recusado: a competência de destino já está
+    encerrada (RC-57, RC-101; fatia 1 da DL-016, critérios 1 e 2).
+
+    Deliberadamente distinta de `LancamentoInvalido`: o corpo do lançamento
+    em si é válido (partidas batem, contas existem) — o que recusa é o
+    ESTADO da competência em que ele cairia. A view traduz isto para 409
+    (conflito de estado), não 400, mesma distinção que
+    `ChaveIdempotenciaConflitante` já aplica. A mensagem sempre NOMEIA a
+    competência (mês/ano/empresa) recusada — critério 1 do plano exige que
+    o contador saiba QUAL competência está fechada, não só que alguma está.
+
+    Vale IGUALMENTE para lançamento novo e para estorno: `estornar_lancamento`
+    chama `criar_lancamento` com a DATA DO ESTORNO (nunca a do original — ver
+    o comentário de `estornar_lancamento`), então esta exceção, levantada
+    dentro de `criar_lancamento`, já cobre os dois casos sem nenhum código
+    especial no estorno (critério 2 do plano).
+    """
+
+
+class CompetenciaOcupada(CompetenciaEncerrada):
+    """`criar_lancamento` recusado porque a ESPERA pelo `FOR SHARE` da
+    competência estourou o `lock_timeout` do banco (BL-463, achado B1 da
+    rodada 2 de auditoria) — nunca porque a competência está de fato
+    encerrada. É deliberadamente subclasse de `CompetenciaEncerrada`, não
+    uma exceção irmã: a view (`apps/contabilidade/views.py`) já traduz
+    aquela classe para 409 com `str(exc)`, e o Python despacha uma
+    subclasse pelo `except CompetenciaEncerrada` já existente — sem
+    precisar tocar em `views.py`, que nesta etapa é arquivo de outra
+    frente (ver o plano DL-031). O DESFECHO para quem chama é o mesmo
+    (recusar e orientar a tentar de novo); só a CAUSA muda, e a mensagem
+    abaixo (`_mensagem_de_competencia_ocupada`) diz isso explicitamente —
+    nunca a frase de "está encerrada", que seria falsa aqui.
+    """
+
+
+class CompetenciaOperacaoInvalida(Exception):
+    """Entrada malformada para fechar, reabrir ou marcar como entregue uma
+    competência — ex.: motivo de reabertura vazio (critério 5).
+
+    A view traduz para 400: o cliente pode corrigir o que enviou. Contraste
+    com `CompetenciaOperacaoRecusada`, abaixo, que é sobre o ESTADO da
+    competência/base, não sobre a forma do pedido.
+    """
+
+
+class CompetenciaOperacaoRecusada(Exception):
+    """O ESTADO atual da competência (ou da base contábil da empresa) impede
+    a transição pedida — ex.: fechar com lote desbalanceado na base
+    (critério 3/RC-58), reabrir ou entregar uma competência que não está no
+    estado exigido para a operação.
+
+    A view traduz para 409 (conflito), nunca 400: o pedido em si é bem
+    formado, o que impede é o que já está gravado. Mesma distinção que
+    `ChaveIdempotenciaConflitante` já aplica para lançamento.
+    """
+
+
+class CompetenciaJaEntregue(CompetenciaOperacaoRecusada):
+    """Reabertura recusada: a competência já foi entregue ao cliente
+    (RC-101, critério 6 do plano). Subclasse de `CompetenciaOperacaoRecusada`
+    — mesma tradução HTTP (409) —, com mensagem própria que nomeia a DATA da
+    entrega e orienta o ajuste no mês aberto, como o critério exige.
+    """
+
+
+class CompetenciaTravadaPorOutraOperacao(CompetenciaOperacaoRecusada):
+    """`encerrar_competencia`, `reabrir_competencia` ou
+    `marcar_competencia_como_entregue` recusados porque a espera pelo
+    `select_for_update()` da competência estourou o `lock_timeout` do banco
+    (BL-463). Mesma técnica de `CompetenciaOcupada` acima: subclasse de
+    `CompetenciaOperacaoRecusada` para herdar a tradução HTTP 409 já
+    existente na view, sem editar `views.py`. Só acontece quando OUTRA
+    transação está segurando a mesma linha por tempo anormal (ex.: um
+    fechamento genuinamente travado, ou uma sessão de `psql` esquecida
+    aberta) — em operação normal a janela do lock é a de um `UPDATE`
+    (BL-463) e nunca chega perto do `lock_timeout`.
     """
 
 
@@ -164,6 +253,266 @@ def _impressao_digital(*, empresa_id, data, historico, itens):
     }
     texto = json.dumps(estrutura, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+@transaction.atomic
+def obter_ou_criar_competencia(*, empresa, ano, mes):
+    """Garante que existe uma `Competencia` para (empresa, ano, mes) e a
+    devolve — criando-a como `aberta` (o `default` do campo `estado`) se
+    ainda não existir.
+
+    Extraída de `criar_lancamento` (F2 da DL-016) para ser reutilizada pela
+    fatia 1 (`encerrar_competencia`, `reabrir_competencia`,
+    `marcar_competencia_como_entregue`): fechar um mês que ainda não tem
+    NENHUM lançamento é um caso real (RC-53 — implantar uma empresa é
+    declarar que tudo antes de uma certa data está fechado), e precisa da
+    MESMA linha `Competencia` para gravar o estado. Uma função, um
+    tratamento de corrida, reutilizado nos dois lugares — não uma segunda
+    cópia do `get_or_create` com seu próprio `except IntegrityError`.
+
+    Trata a corrida de duas transações concorrentes tentando criar a MESMA
+    linha pela primeira vez (`get_or_create` pode levantar `IntegrityError`
+    quando duas chegam juntas — a `UniqueConstraint(empresa, ano, mes)`
+    resolve qual das duas grava primeiro): a perdedora reconsulta por
+    `filter().first()` (nunca `.get()`, que levantaria `DoesNotExist` se o
+    `IntegrityError` tiver outra causa) dentro da MESMA transação.
+
+    Também é o ponto que faz um `mes`/`ano` fora da faixa das
+    `CheckConstraint` de `Competencia.Meta` (`1..12`, `1970..2999`) levantar
+    `IntegrityError` — que aqui vira o mesmo `LancamentoInvalido` de
+    "competência inconsistente", nunca um 500 cru. As views que expõem
+    `ano`/`mes` ao cliente (fechar/reabrir/entregar, `views.py`) validam a
+    faixa ANTES de chegar aqui, de propósito — ver `_validar_ano_mes` — para
+    que o erro comum (mês digitado errado) vire uma mensagem específica de
+    fronteira, e não a mensagem genérica de corrida que sobra para o caso
+    realmente raro.
+    """
+    try:
+        with transaction.atomic():
+            competencia, _ = Competencia.objects.get_or_create(empresa=empresa, ano=ano, mes=mes)
+            return competencia
+    except IntegrityError:
+        # Corrida: o outro lado gravou primeiro (ou o par ano/mês viola uma
+        # CheckConstraint — ver docstring acima). Reconsulta dentro da MESMA
+        # transação; se `None` persistir, não é corrida, é dado inválido ou
+        # inconsistência real — propaga como erro de domínio, nunca 500.
+        competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+        if competencia is None:
+            raise LancamentoInvalido(
+                f"Não foi possível preparar a competência contábil para {ano}-{mes:02d}: "
+                "a empresa informada não existe, o par ano/mês é inválido, ou a corrida "
+                "entre requisições deixou a competência em estado inconsistente. Tente "
+                "novamente."
+            ) from None
+        return competencia
+
+
+# BL-463 (rodada 2 de auditoria, achado B1): `config/settings.py` passou a
+# definir `lock_timeout` na conexão PostgreSQL — antes deste ajuste, uma
+# espera de lock por qualquer motivo (fechamento genuinamente travado,
+# sessão de `psql` esquecida aberta) prendia a requisição INDEFINIDAMENTE,
+# até o cliente ou o worker gunicorn (timeout de 30s, sem `--workers`,
+# `Dockerfile:36`) desistirem primeiro — e o segundo caminho mata o
+# processo com o worker inteiro, sem chance de responder nada legível.
+#
+# `lock_timeout` transforma essa espera indefinida num erro NOMEADO
+# (SQLSTATE 55P03, "lock_not_available") depois de um tempo comedido — mas
+# só é seguro definir o timeout se TODO ponto do código que pode esperar
+# por aquele lock também SOUBER traduzir esse erro para uma mensagem de
+# domínio, em vez de deixar o `OperationalError` cru propagar como 500.
+# Esta função compara pelo SQLSTATE (nunca pelo TEXTO da mensagem, que muda com
+# o idioma configurado no servidor via `lc_messages`) e é usada pelos
+# QUATRO pontos que adquirem lock de competência: o `FOR SHARE` de
+# `_travar_competencia_em_modo_compartilhado` (usado por `criar_lancamento`
+# — é o lado que a auditoria MEDIU esperando 1,73s na varredura simulada de
+# 2s) e o `select_for_update()` de `encerrar_competencia`,
+# `reabrir_competencia` e `marcar_competencia_como_entregue`.
+def _e_estouro_de_lock_timeout(excecao_de_banco):
+    """`True` quando `excecao_de_banco` (um `OperationalError` do Django,
+    capturado ao redor de uma consulta que pode esperar por um lock de
+    linha) foi causado pelo `lock_timeout` do PostgreSQL estourando — nunca
+    por outro motivo de `OperationalError` (conexão caída, servidor fora do
+    ar), que deve continuar propagando sem conversão.
+
+    O SQLSTATE `55P03` é a identidade ESTÁVEL do erro (classe 55, "objeto
+    não está em estado pré-requisito", código `lock_not_available`;
+    documentado no Apêndice A do manual do PostgreSQL) — `psycopg`
+    preserva esse código na exceção ORIGINAL do driver, acessível pelo
+    encadeamento padrão do Python (`exc.__cause__`, que o `DatabaseWrapper`
+    do Django sempre preenche). Comparar pelo SQLSTATE, e não pelo texto da
+    mensagem, é o que torna esta checagem independente do idioma do
+    servidor (`lc_messages`) e da versão exata da biblioteca cliente.
+    """
+    causa = excecao_de_banco.__cause__
+    return getattr(causa, "sqlstate", None) == "55P03"
+
+
+def _travar_competencia_em_modo_compartilhado(competencia, *, ano, mes, empresa):
+    """Bloqueia a linha de `competencia` com `SELECT ... FOR SHARE` e devolve
+    `(estado, entregue_em)` LIDOS NESTA MESMA CONSULTA — nunca os atributos
+    do objeto Python já em memória (correção do achado BL-456/A1, rodada 1
+    de auditoria da fatia 1: a versão anterior lia o atributo em memória,
+    SEM travar a linha, e a auditoria MEDIU 30 gravações em 30 tentativas de
+    uma corrida natural, sem nenhuma instrumentação, contra a hipótese
+    registrada de "janela estreita").
+
+    `ano`/`mes`/`empresa` são só para a MENSAGEM de erro (nomear a
+    competência), nunca para a consulta em si, que sempre trava pelo `pk`
+    já resolvido — mesmo contrato de `_travar_competencia_para_transicao`,
+    logo abaixo. Correção do achado BLOQUEADOR BL-470 (verificação dirigida
+    da DL-031, rodada 1): a versão anterior não recebia estes parâmetros e
+    construía a mensagem acessando `competencia.mes`/`competencia.ano`/
+    `competencia.empresa` DEPOIS de capturar o `OperationalError`. Os dois
+    primeiros são campos escalares já carregados (inofensivos), mas
+    `competencia.empresa` é uma FK **não cacheada** neste objeto — ele vem
+    de `obter_ou_criar_competencia`, e `get_or_create(empresa=empresa, ...)`
+    não popula o cache da relação. Acessá-la disparava uma SEGUNDA consulta
+    SQL, e essa consulta roda numa transação PostgreSQL já **abortada** pelo
+    próprio estouro do `FOR SHARE` (o `try/except` abaixo não abre um
+    savepoint próprio — ver o comentário do `try`), então a segunda consulta
+    falhava com `InternalError` ("current transaction is aborted"), que
+    SUBSTITUÍA a `CompetenciaOcupada` pretendida e propagava cru até a view
+    (500 em produção). A correção é não tocar em NENHUM atributo de
+    `competencia` dentro do `except`: usar só os parâmetros já em memória.
+
+    `entregue_em` entrou na MESMA consulta pela correção do achado B6/BL-468
+    (rodada 2 de auditoria): a mensagem de `CompetenciaEncerrada` (ver
+    `criar_lancamento`, abaixo) precisa saber se a competência já foi
+    ENTREGUE para não oferecer "reabra" quando esse caminho já está fechado
+    pelo RC-101 — e essa informação está sujeita à MESMA corrida que o
+    `estado` (uma entrega pode commitar enquanto este `criar_lancamento`
+    espera o `FOR SHARE`, exatamente o cenário do teste
+    `test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entregue`).
+    Buscar as duas colunas juntas, sob o mesmo lock, evita reabrir a MESMA
+    classe de defeito do BL-456 para um campo novo.
+
+    `FOR SHARE` é um lock COMPARTILHADO: duas transações podem segurá-lo ao
+    mesmo tempo sobre a MESMA linha — por isso dois lançamentos do MESMO mês
+    não se bloqueiam um ao outro, e a escrituração normal continua
+    concorrente. Mas ele CONFLITA com `FOR UPDATE` — o lock que
+    `select_for_update()` emite, e que `encerrar_competencia`,
+    `reabrir_competencia` e `marcar_competencia_como_entregue` JÁ usam, sem
+    nenhuma mudança nelas. Quando uma dessas três está seguindo a linha em
+    `FOR UPDATE`, esta consulta FICA BLOQUEADA até aquela transação commitar
+    ou reverter — e só então lê o `estado`, já ATUALIZADO (é essa
+    "espera, depois lê" que fecha a corrida: nenhuma leitura deste bloco
+    acontece antes do fechamento concorrente ter terminado). Precisa rodar
+    DENTRO de uma transação já aberta pelo chamador — `criar_lancamento`
+    garante isso.
+
+    Medição de custo (rodada 2 da auditoria, achado BL-456): comparei, com
+    threads reais e conexões PostgreSQL reais, N lançamentos concorrentes no
+    MESMO mês com `FOR SHARE` (esta função) contra a alternativa mais simples
+    (`select_for_update()` também no lançamento, que serializa todo mundo).
+    Números no relatório de entrega da rodada 2 — `FOR SHARE` não serializa
+    lançamentos entre si; `select_for_update()` serializa, com o tempo total
+    crescendo linearmente com N. Por isso esta é a escolha, não a mais
+    simples de escrever.
+
+    Django não expõe `FOR SHARE` por `QuerySet.select_for_update()` (só
+    `FOR UPDATE`/`FOR NO KEY UPDATE`), daí o SQL cru — nome de tabela e de
+    colunas resolvidos por `_meta`, nunca string fixa, mesmo padrão que
+    `apps.contabilidade.models._tem_movimento_proprio_ou_de_descendente` já
+    usa pelo mesmo motivo.
+
+    Limite DECLARADO de backend: `FOR SHARE` é sintaxe do PostgreSQL: o
+    SQLite (usado só em desenvolvimento local, nunca em produção — DE-014,
+    BL-50) não tem row-level locking equivalente e rejeitaria esta consulta.
+    Fora do PostgreSQL, esta função cai para `(estado, entregue_em)` já
+    carregados em `competencia` — a MESMA leitura desprotegida de antes
+    desta correção, documentada como limite de ambiente (mesma família de
+    declaração que `apps.core.restricoes._nome_da_constraint_violada`,
+    específica de psycopg). A suíte roda contra PostgreSQL
+    (`config/settings.py`); a concorrência real só é garantida lá.
+
+    ⚠️ Correção do achado B2/BL-464 (rodada 2 de auditoria): este ramo
+    degradava em SILÊNCIO — quem lê o código de fora vê uma trava; em
+    outro backend não há trava nenhuma, e nada avisava disso. O limite em
+    si já está CONTIDO (`config/settings.py` recusa subir com SQLite e
+    `DEBUG=False`, BL-50/DE-014, então produção nunca alcança este ramo) e
+    a trava SERIAL continua funcionando fora daqui (a constraint de banco
+    e a checagem de estado do objeto recém-lido ainda impedem a maioria
+    dos casos práticos) — o que faltava era o AVISO. `RuntimeWarning`,
+    mesma classe usada pelo aviso de "SQLite local" em
+    `config/settings.py`, para quem sobe localmente sem PostgreSQL saber
+    que a garantia de CONCORRÊNCIA (não a trava em si) está ausente.
+    """
+    if connection.vendor != "postgresql":
+        warnings.warn(
+            f"_travar_competencia_em_modo_compartilhado degradou para leitura "
+            f"em memória (SEM lock) porque a conexão é '{connection.vendor}', "
+            "não PostgreSQL: a garantia de CONCORRÊNCIA do BL-456 não vale "
+            "aqui, só a checagem serial de estado. Válido apenas em "
+            "desenvolvimento local (BL-50/DE-014 já recusa subir com SQLite "
+            "e DEBUG=False, então produção nunca alcança este ramo).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return competencia.estado, competencia.entregue_em
+    tabela = Competencia._meta.db_table
+    coluna_id = Competencia._meta.pk.column
+    coluna_estado = Competencia._meta.get_field("estado").column
+    coluna_entregue_em = Competencia._meta.get_field("entregue_em").column
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {coluna_estado}, {coluna_entregue_em} FROM {tabela} "
+                f"WHERE {coluna_id} = %s FOR SHARE",
+                [competencia.pk],
+            )
+            estado, entregue_em = cursor.fetchone()
+    except OperationalError as exc:
+        # BL-463: a espera por este `FOR SHARE` estourou o `lock_timeout`
+        # (ver o comentário acima de `_e_estouro_de_lock_timeout`) — quase
+        # sempre porque um `encerrar_competencia`/`reabrir_competencia`/
+        # `marcar_competencia_como_entregue` concorrente está segurando o
+        # `FOR UPDATE` por tempo anormal. `CompetenciaOcupada` é subclasse
+        # de `CompetenciaEncerrada`: a mesma tradução HTTP (409) já existe
+        # na view, sem editar `views.py`. Qualquer OUTRO `OperationalError`
+        # (conexão caída, servidor fora do ar) propaga sem conversão — não
+        # é um caso de negócio, é uma falha de infraestrutura.
+        if not _e_estouro_de_lock_timeout(exc):
+            raise
+        # BL-470: a mensagem usa SÓ `ano`/`mes`/`empresa` — os parâmetros já
+        # em memória, recebidos pelo chamador — e NUNCA `competencia.mes`/
+        # `competencia.ano`/`competencia.empresa`. Ver o comentário na
+        # docstring desta função: acessar a FK `competencia.empresa` aqui
+        # dispararia uma consulta na transação já abortada pelo estouro do
+        # `FOR SHARE`, e o `InternalError` resultante substituiria esta
+        # `CompetenciaOcupada` antes dela sequer ser levantada.
+        raise CompetenciaOcupada(
+            f"A competência {mes:02d}/{ano} de {empresa} está sendo fechada "
+            "por outra operação agora; não foi possível confirmar o estado "
+            "dela a tempo. Tente gravar este lançamento novamente em "
+            "instantes."
+        ) from exc
+    return estado, entregue_em
+
+
+def _travar_competencia_para_transicao(competencia, *, ano, mes, empresa):
+    """`select_for_update()` sobre a linha de `competencia`, traduzindo o
+    estouro de `lock_timeout` (BL-463; ver o comentário de
+    `_e_estouro_de_lock_timeout`) para `CompetenciaTravadaPorOutraOperacao`
+    em vez de deixar o `OperationalError` cru do driver propagar como 500.
+
+    Reunida aqui porque as TRÊS transições de estado desta fatia
+    (`encerrar_competencia`, `reabrir_competencia`,
+    `marcar_competencia_como_entregue`) adquirem o MESMO tipo de lock
+    (`FOR UPDATE`) sobre a MESMA tabela pelo mesmo motivo — uma função, uma
+    tradução de erro, nunca três cópias divergentes do mesmo `try/except`.
+    `ano`/`mes`/`empresa` são só para a MENSAGEM (nomear a competência),
+    nunca para a consulta em si, que sempre trava pelo `pk` já resolvido.
+    """
+    try:
+        return Competencia.objects.select_for_update().get(pk=competencia.pk)
+    except OperationalError as exc:
+        if not _e_estouro_de_lock_timeout(exc):
+            raise
+        raise CompetenciaTravadaPorOutraOperacao(
+            f"A competência {mes:02d}/{ano} de {empresa} está sendo alterada "
+            "por outra operação agora; não foi possível travá-la a tempo. "
+            "Tente novamente em instantes."
+        ) from exc
 
 
 @transaction.atomic
@@ -374,41 +723,81 @@ def criar_lancamento(
             # T1=A do plano (criar dentro do service, não via sinal pós-save
             # externo): a mesma transação atômica que grava o lançamento
             # também cria a competência; ou ambos gravam, ou nenhum grava.
-            # O sinal `post_save(LancamentoContabil)` de F2.4 fica como
-            # REDE DE SEGURANÇA para caminhos não-canônicos (ex.: importador
-            # em massa que chame `objects.create` direto contornando o
-            # service), mas o caminho do produto não depende dele. O
-            # `get_or_create` pode disparar `IntegrityError` quando dois
-            # lançamentos do MESMO (empresa, ano, mês) se cruzam em
-            # transações concorrentes — condição tão plausível quanto
-            # "duas requisições com a mesma Idempotency-Key" que o `try`
-            # acima já trata; capturamos em savepoint próprio para
-            # reconsultar (`get()`) e seguir se for mesmo a Competencia.
-            try:
-                with transaction.atomic():
-                    competencia, _ = Competencia.objects.get_or_create(
-                        empresa=empresa,
-                        ano=data.year,
-                        mes=data.month,
+            #
+            # ⚠️ Correção do achado BL-460/A6 (rodada 2 de auditoria): esta
+            # linha dizia existir um sinal `post_save(LancamentoContabil)`
+            # como "rede de segurança" para caminhos não-canônicos (ex.:
+            # `objects.create` direto). **Esse sinal nunca existiu** —
+            # `apps/contabilidade/` não tem `signals.py` nem `AppConfig.
+            # ready()`. Quem não passar por `criar_lancamento` não tem
+            # competência nem trava nenhuma; não há rede de segurança.
+            competencia = obter_ou_criar_competencia(empresa=empresa, ano=data.year, mes=data.month)
+
+            # DL-016 fatia 1 (RC-57, RC-101, RC-103; critérios 1 e 2 do
+            # plano): A TRAVA MORA AQUI, no serviço — não na view. Qualquer
+            # porta que chame `criar_lancamento` (a API, a tela, o estorno,
+            # uma futura importação em lote) herda a recusa sem precisar
+            # repeti-la.
+            #
+            # ⚠️ Correção do achado BLOQUEADOR BL-456/A1 (rodada 1 de
+            # auditoria): a versão anterior comparava `competencia.estado`
+            # — o atributo do objeto Python já em memória, de uma leitura
+            # ANTERIOR a qualquer lock — contra `ENCERRADA`, e um comentário
+            # aqui mesmo chamava a ausência de trava de "risco residual,
+            # janela de corrida ESTREITA, decisão proporcional". MEDIDO
+            # (DE-058: justificativa escrita não é justificativa medida):
+            # com duas conexões PostgreSQL reais, sem NENHUMA instrumentação,
+            # a corrida gravou lançamento em competência que terminava
+            # ENCERRADA em **30 gravações de 30 tentativas** — inclusive em
+            # competência já **entregue ao cliente** (RC-19). A janela era,
+            # na prática, a duração inteira desta transação.
+            #
+            # A correção trava a linha com `FOR SHARE`
+            # (`_travar_competencia_em_modo_compartilhado`, acima) e usa o
+            # `estado` LIDO NAQUELA CONSULTA — nunca mais o atributo em
+            # memória. `EM_ENCERRAMENTO` também passou a bloquear (BL-461/
+            # A7): a condição é `!= ABERTA`, não mais `== ENCERRADA` — mais
+            # segura, e sem efeito prático hoje porque nenhum service desta
+            # fatia escreve `EM_ENCERRAMENTO` (ver `EstadoCompetencia`).
+            #
+            # Estorno (critério 2): `estornar_lancamento` chama esta mesma
+            # função com a DATA DO ESTORNO (nunca a do lançamento original —
+            # ver o comentário lá), então a competência travada acima já É
+            # a do estorno. Nenhum código especial precisa existir para o
+            # estorno: o caso "original fechado, estorno em mês aberto" passa
+            # (confirmado pelo Fred, RC-57/RC-103), e "estorno cairia em mês
+            # fechado" é recusado pela MESMA linha abaixo.
+            estado_travado, entregue_em_travado = _travar_competencia_em_modo_compartilhado(
+                competencia, ano=data.year, mes=data.month, empresa=empresa
+            )
+            if estado_travado != EstadoCompetencia.ABERTA:
+                nome_do_estado = EstadoCompetencia(estado_travado).label.lower()
+                # BL-468 (achado B6, rodada 2 de auditoria): a mensagem
+                # ANTES oferecia "reabra a competência (se ela ainda não
+                # foi entregue ao cliente)" mesmo quando a competência JÁ
+                # tinha sido entregue — o parêntese salvava a frase de ser
+                # FALSA, mas ainda apontava um caminho que o RC-101 já
+                # fecha (`reabrir_competencia` recusa com
+                # `CompetenciaJaEntregue`). `entregue_em_travado` vem da
+                # MESMA consulta `FOR SHARE` que leu `estado_travado`
+                # (nunca do atributo em memória — mesma correção de
+                # classe do BL-456), então a distinção abaixo é segura
+                # mesmo sob corrida (é o cenário exato do teste
+                # `test_bl456_reproducao_2_..._entregue`).
+                if entregue_em_travado is not None:
+                    raise CompetenciaEncerrada(
+                        f"A competência {data.month:02d}/{data.year} de {empresa} já "
+                        "foi entregue ao cliente; não é possível gravar lançamento "
+                        "nela e ela não pode ser reaberta (RC-101). Lance o ajuste "
+                        "em uma competência ABERTA, com histórico apontando para "
+                        f"a competência de origem ({data.month:02d}/{data.year})."
                     )
-            except IntegrityError:
-                # Corrida: o outro lado gravou primeiro. Reconsulta dentro
-                # da MESMA transação (o `get_or_create` original teria
-                # visto o `None` inicial por causa da consistência da
-                # transação). Se o `None` persistir aqui, alguma coisa
-                # muito estranha aconteceu (a própria FK para Empresa não
-                # bate?); propaga como `LancamentoInvalido` em vez de
-                # deixar vazar 500.
-                competencia = Competencia.objects.filter(
-                    empresa=empresa, ano=data.year, mes=data.month
-                ).first()
-                if competencia is None:
-                    raise LancamentoInvalido(
-                        "Não foi possível preparar a competência contábil para "
-                        f"{data.year}-{data.month:02d}: a empresa informada não "
-                        "existe ou a corrida entre requisições deixou a "
-                        "competência em estado inconsistente. Tente novamente."
-                    ) from None
+                raise CompetenciaEncerrada(
+                    f"A competência {data.month:02d}/{data.year} de {empresa} está "
+                    f"'{nome_do_estado}'; não é possível gravar lançamento nela. Reabra a "
+                    "competência ou lance em uma competência aberta."
+                )
+
             lancamento = LancamentoContabil.objects.create(
                 empresa=empresa,
                 data=data,
@@ -482,6 +871,15 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
     `estorno_de_unico` é a defesa final, para qualquer corrida que a camada 1
     não cubra. Por isso a função é `@transaction.atomic`: `select_for_update()`
     exige uma transação aberta.
+
+    Competência encerrada (DL-016 fatia 1, RC-57, critério 2 do plano): NÃO
+    há checagem própria aqui — `criar_lancamento`, chamado no fim desta
+    função com `data=data_do_estorno`, já recusa (`CompetenciaEncerrada`) se
+    a competência DO ESTORNO estiver encerrada. É deliberado que seja a
+    competência do estorno, nunca a do original: a data do estorno é sempre
+    "hoje" (ou a data explícita informada), nunca herdada do lançamento
+    original — ver a checagem de RC-78 logo abaixo —, então "original em mês
+    fechado, estorno em mês aberto" É PERMITIDO (confirmado pelo Fred).
     """
     with transaction.atomic():
         lancamento = LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
@@ -559,6 +957,302 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
             # `criar_lancamento` — lá a conversão foi removida de propósito,
             # porque lá o chamador é genérico e não tem este contexto.
             raise LancamentoInvalido("Este lançamento já foi estornado.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Fechamento, reabertura e entrega de competência (DL-016, fatia 1)
+#
+# As três funções abaixo são NÍVEL 1 (AGENTS.md §3.1: mexem no livro
+# contábil) e implementam, e só implementam, os 12 critérios de aceite da
+# fatia 1 do plano DL-016 — nada de tela, filtro nas saídas da DL-015 ou
+# política de período de trabalho, que são fatias seguintes.
+#
+# As três recebem `(empresa, ano, mes)`, não uma `Competencia` já resolvida:
+# fechar (RC-53) precisa funcionar mesmo para um mês SEM nenhum lançamento
+# ainda — `obter_ou_criar_competencia` garante a linha nos três casos, com o
+# mesmo tratamento de corrida que `criar_lancamento` já usa (F2).
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def encerrar_competencia(*, empresa, ano, mes, usuario, request=None):
+    """Fecha a competência (ano, mes) da empresa: `aberta -> encerrada`.
+
+    Critério 3 do plano: recusa (`CompetenciaOperacaoRecusada`, 409) se
+    houver LOTE DESBALANCEADO na base da empresa (RC-58) — a conferência da
+    DL-015 é pré-condição do fechamento, verificada com
+    `localizar_lotes_desbalanceados`, que já existe e não tem período (uma
+    base torta é torta em qualquer recorte). Grava `fechada_em`/
+    `fechada_por` e devolve o objeto com o atributo NÃO PERSISTIDO
+    `encerrada_agora` (mesmo padrão de `criado_agora` em `criar_lancamento`):
+    `True` só quando esta chamada de fato fechou agora.
+
+    Idempotência (critério 4): se a competência JÁ está `encerrada`, esta
+    função é um NO-OP — devolve o objeto como está, com `encerrada_agora =
+    False`, SEM tocar `fechada_em`/`fechada_por` (o autor do PRIMEIRO
+    fechamento nunca é trocado) e SEM checar lote desbalanceado de novo (a
+    checagem só faz sentido na transição, não a cada chamada repetida) e
+    SEM gravar novo registro de trilha (ver abaixo) — repetir a chamada não
+    duplica a auditoria.
+
+    Concorrência (critério 10): `select_for_update()` bloqueia a linha da
+    Competencia durante a transição — duas requisições simultâneas de
+    fechamento da MESMA competência produzem UM único fechamento; a segunda,
+    ao adquirir o lock depois da primeira commitar, já encontra `encerrada`
+    e cai no ramo idempotente. Mesmo padrão que `estornar_lancamento`
+    já usa para `estorno_de_unico`. Este MESMO lock (`FOR UPDATE`) é o que
+    faz `_travar_competencia_em_modo_compartilhado` (usada por
+    `criar_lancamento`) esperar: um lançamento em voo não vê a competência
+    "sumir" no meio da gravação (BL-456/A1, rodada 2 de auditoria).
+
+    ⚠️ Correção do achado B1/BL-463 (rodada 2 de auditoria): a ORDEM entre
+    a checagem RC-58 (abaixo) e a aquisição do lock foi INVERTIDA. Antes,
+    o `select_for_update()` era adquirido primeiro e a varredura da base
+    INTEIRA (`localizar_lotes_desbalanceados`, sem período por desenho)
+    rodava com a linha travada — depois da correção do BL-456, isso
+    passou a bloquear TODO lançamento daquele mês pela duração inteira da
+    varredura (medido: 1,73s de espera do lançamento contra uma varredura
+    simulada de 2s). A checagem agora roda ANTES do lock, e isso é seguro:
+    `criar_lancamento` NUNCA consegue gravar um lote desbalanceado (a
+    igualdade débito = crédito é verificada antes de qualquer `save()`),
+    então a base não pode ficar torta ENTRE a checagem e o lock — o único
+    jeito de um lote desbalanceado existir é por um caminho que já
+    contorna a aplicação (ver o docstring de
+    `localizar_lotes_desbalanceados`), fora do alcance de qualquer lock
+    que esta função pudesse segurar de qualquer forma. Depois da correção,
+    a janela do lock caiu para a de um `UPDATE` — ver a medição no
+    relatório de entrega desta etapa.
+
+    Um segundo atalho, também sem lock, cobre o caso REPETIDO (critério 4):
+    se a leitura em memória de `competencia` (a mesma que
+    `obter_ou_criar_competencia` acabou de fazer) já mostra `ENCERRADA`,
+    devolve o NO-OP imediatamente, sem pagar nem o lock nem a varredura.
+    Essa leitura PODE estar desatualizada — não há problema: é só uma
+    OTIMIZAÇÃO. Quem garante a corrida do critério 10 é a releitura de
+    baixo, JÁ SOB o `FOR UPDATE`; se o atalho não disparar (leitura
+    desatualizada), o código simplesmente segue o caminho de sempre, sem
+    NENHUMA perda de correção.
+
+    `lock_timeout` (BL-463, `config/settings.py`): se a espera pelo
+    `select_for_update()` estourar — outra transação segurando a linha por
+    tempo anormal —, `_travar_competencia_para_transicao` traduz o
+    `OperationalError` cru para `CompetenciaTravadaPorOutraOperacao` (409,
+    mesma tradução HTTP de `CompetenciaOperacaoRecusada`, da qual é
+    subclasse), com mensagem que orienta tentar de novo.
+
+    ⚠️ Correção do achado BL-458/A3 (rodada 2 de auditoria): a trilha de
+    auditoria (`registrar()`) passou a ser gravada AQUI, dentro do serviço
+    — antes vivia só na view (`apps/contabilidade/views.py`), e qualquer
+    chamada direta a este serviço (`shell`, comando de gerência, futuro
+    importador ou tarefa em segundo plano) não deixava rastro NENHUM.
+    `request` é opcional e só serve para o `registrar()` capturar o
+    endereço IP quando existir uma requisição HTTP por trás — usuário e
+    escritório são sempre os parâmetros explícitos, nunca inferidos de
+    `request`, para que a chamada direta (sem `request`) grave do mesmo
+    jeito. `detalhes` carrega `ano`/`mes`/`empresa_id` (BL-459/A4): a
+    trilha se basta sozinha, sem precisar consultar a `Competencia` para
+    saber qual mês foi fechado.
+    """
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+
+    # Atalho idempotente SEM lock (BL-463) — ver docstring acima.
+    if competencia.estado == EstadoCompetencia.ENCERRADA:
+        competencia.encerrada_agora = False
+        return competencia
+
+    # RC-58 / critério 3: pré-condição de conferência, rodada ANTES do lock
+    # (BL-463) — ver docstring acima para o motivo de ser seguro.
+    if localizar_lotes_desbalanceados(empresa=empresa).exists():
+        raise CompetenciaOperacaoRecusada(
+            f"Não é possível fechar a competência {mes:02d}/{ano} de {empresa}: "
+            "há lançamento(s) desbalanceado(s) na base desta empresa. Resolva "
+            "a conferência (RC-58) antes de fechar."
+        )
+
+    # Só a partir daqui o lock é adquirido (BL-463): a janela que ele
+    # segura caiu para o tamanho de um `UPDATE`.
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
+
+    if competencia.estado == EstadoCompetencia.ENCERRADA:
+        # Corrida: outra transação fechou a competência ENTRE o atalho sem
+        # lock acima e a aquisição do `FOR UPDATE` agora. Não é erro — é o
+        # MESMO caminho idempotente, agora com leitura garantida pelo lock
+        # (é o que sustenta o critério 10 sob corrida real — ver
+        # `test_criterio10_corrida_real_de_fechamento_produz_um_unico_fechamento`).
+        competencia.encerrada_agora = False
+        return competencia
+
+    competencia.estado = EstadoCompetencia.ENCERRADA
+    competencia.fechada_em = timezone.now()
+    competencia.fechada_por = usuario
+    competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
+    competencia.encerrada_agora = True
+    registrar(
+        acao="competencia.encerrada",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
+    )
+    return competencia
+
+
+@transaction.atomic
+def reabrir_competencia(*, empresa, ano, mes, usuario, motivo, request=None):
+    """Reabre a competência (ano, mes) da empresa: `encerrada -> aberta`.
+
+    Critério 5: `motivo` é OBRIGATÓRIO — vazio ou só espaço em branco é
+    recusado com `CompetenciaOperacaoInvalida` (400), ANTES de qualquer
+    consulta com lock, porque é um erro de ENTRADA, não de estado.
+
+    Critério 6 / RC-101: recusa (`CompetenciaJaEntregue`, subclasse de
+    `CompetenciaOperacaoRecusada`, 409) se a competência já foi entregue ao
+    cliente (`entregue_em` não nulo) — é a decisão de modelagem do
+    arquiteto-senior: "entregue" é fato datado e NUNCA se desfaz por esta
+    função; a mensagem nomeia a DATA da entrega e orienta o ajuste no mês
+    aberto, como o critério exige. Esta checagem vem ANTES da checagem de
+    estado abaixo porque é a mais específica das duas — mas na prática
+    `entregue_em` só é gravado sobre competência `encerrada`
+    (`marcar_competencia_como_entregue` exige isso), então uma competência
+    `aberta` nunca chega com `entregue_em` preenchido.
+
+    Fora dos 12 critérios, mas necessário para a função ter sentido: só é
+    possível reabrir uma competência que ESTÁ `encerrada` — tentar reabrir
+    uma competência `aberta` (nunca foi fechada) é recusado com
+    `CompetenciaOperacaoRecusada` (409: o pedido é bem formado, o que
+    impede é o estado atual).
+
+    `select_for_update()` (via `_travar_competencia_para_transicao`) pelo
+    mesmo motivo de `encerrar_competencia`: embora não haja critério de
+    concorrência explícito para reabertura, a escrita do estado precisa
+    ler a linha mais recente antes de decidir — e é o mesmo lock que faz
+    `criar_lancamento` esperar (ver `_travar_competencia_em_modo_
+    compartilhado`). BL-463: se a espera por esse lock estourar o
+    `lock_timeout`, a mesma função traduz para
+    `CompetenciaTravadaPorOutraOperacao` (409), nunca um `OperationalError`
+    cru.
+
+    `fechada_em`/`fechada_por` são LIMPOS (`None`): eles descrevem o
+    fechamento ATUAL, que deixou de existir — ver o docstring de
+    `Competencia`.
+
+    ⚠️ Correção dos achados BL-458/A3 e BL-459/A4 (rodada 2 de auditoria):
+    o `registrar()` mora AQUI agora (era só na view — chamada direta ao
+    serviço não deixava NENHUM rastro, e esta é a operação mais afiada das
+    três: ela APAGA `fechada_em`/`fechada_por`). `detalhes` carrega
+    `ano`/`mes`/`empresa_id` e também `fechada_por_anterior`/
+    `fechada_em_anterior` — os valores que estão sendo apagados da linha,
+    capturados ANTES do `save()`, para que a trilha preserve "quem tinha
+    fechado" mesmo que a própria `Competencia` não preserve mais. Devolve
+    só `competencia` agora (antes devolvia `(competencia,
+    motivo_normalizado)` — o motivo já vai para `detalhes` aqui dentro, a
+    view não precisa mais dele).
+    """
+    motivo_normalizado = (motivo or "").strip()
+    if not motivo_normalizado:
+        raise CompetenciaOperacaoInvalida(
+            "Informe o motivo da reabertura: não pode ficar em branco."
+        )
+
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
+
+    if competencia.entregue_em is not None:
+        raise CompetenciaJaEntregue(
+            f"Não é possível reabrir a competência {mes:02d}/{ano} de {empresa}: "
+            f"ela já foi entregue ao cliente em "
+            f"{timezone.localtime(competencia.entregue_em):%d/%m/%Y %H:%M}. "
+            "Depois da entrega, a competência não reabre — a correção vai no mês "
+            "aberto, com histórico apontando para esta competência de origem."
+        )
+    if competencia.estado != EstadoCompetencia.ENCERRADA:
+        raise CompetenciaOperacaoRecusada(
+            f"Só é possível reabrir uma competência encerrada; a competência "
+            f"{mes:02d}/{ano} de {empresa} está '{competencia.get_estado_display()}'."
+        )
+
+    # Capturados ANTES do `save()` (BL-459/A4): são os valores que a linha
+    # está prestes a PERDER — a trilha precisa deles porque a `Competencia`
+    # não vai mais tê-los depois desta transação.
+    fechada_por_anterior = competencia.fechada_por_id
+    fechada_em_anterior = competencia.fechada_em
+
+    competencia.estado = EstadoCompetencia.ABERTA
+    competencia.fechada_em = None
+    competencia.fechada_por = None
+    competencia.save(update_fields=["estado", "fechada_em", "fechada_por"])
+    registrar(
+        acao="competencia.reaberta",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={
+            "ano": ano,
+            "mes": mes,
+            "empresa_id": empresa.id,
+            "motivo": motivo_normalizado,
+            "fechada_por_anterior": fechada_por_anterior,
+            "fechada_em_anterior": (
+                fechada_em_anterior.isoformat() if fechada_em_anterior else None
+            ),
+        },
+    )
+    return competencia
+
+
+@transaction.atomic
+def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario, request=None):
+    """Marca a competência (ano, mes) da empresa como entregue ao cliente.
+
+    Critério 7: só é possível entregar uma competência `encerrada` — mês
+    aberto é recusado (`CompetenciaOperacaoRecusada`, 409). Grava
+    `entregue_em`/`entregue_por`.
+
+    Repetível de propósito (ver o docstring de `Competencia`): a entrega
+    "pode repetir-se" (balancete ao cliente, depois ECD transmitida, no
+    texto do plano) — cada chamada bem-sucedida ATUALIZA os dois campos
+    para o evento mais recente; nenhuma trava de "já entregue" existe aqui
+    (a trava de RC-101 é sobre REABRIR uma competência entregue, não sobre
+    entregar de novo). Devolve o atributo não persistido `entregue_agora`
+    (sempre `True` quando a função retorna sem levantar exceção — mantido
+    pelo mesmo motivo de simetria de `criado_agora`/`encerrada_agora`, ainda
+    que aqui não haja um ramo "já estava assim" a distinguir).
+
+    ⚠️ Correção dos achados BL-458/A3 e BL-459/A4 (rodada 2 de auditoria):
+    `registrar()` mora AQUI, com `detalhes={"ano", "mes", "empresa_id"}` —
+    mesma correção das outras duas funções desta fatia.
+
+    BL-463: o lock é adquirido por `_travar_competencia_para_transicao`,
+    que traduz o estouro de `lock_timeout` para
+    `CompetenciaTravadaPorOutraOperacao` (409) em vez de propagar o
+    `OperationalError` cru — mesma função usada por `encerrar_competencia`
+    e `reabrir_competencia`.
+    """
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
+
+    if competencia.estado != EstadoCompetencia.ENCERRADA:
+        raise CompetenciaOperacaoRecusada(
+            f"Só é possível marcar como entregue uma competência encerrada; a "
+            f"competência {mes:02d}/{ano} de {empresa} está "
+            f"'{competencia.get_estado_display()}'."
+        )
+
+    competencia.entregue_em = timezone.now()
+    competencia.entregue_por = usuario
+    competencia.save(update_fields=["entregue_em", "entregue_por"])
+    competencia.entregue_agora = True
+    registrar(
+        acao="competencia.entregue",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        request=request,
+        detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
+    )
+    return competencia
 
 
 # ---------------------------------------------------------------------------
@@ -874,7 +1568,10 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     Quatro colunas CONSOLIDADAS por conta (saldo_anterior, débitos, créditos,
     saldo_final) mais duas colunas PRÓPRIAS (débitos_proprios,
     creditos_proprios — achado novo 3 da rodada 3 / DE-024 §2, ver comentário
-    junto do `append` abaixo). `nivel` é opcional: ausente, devolve todas as
+    junto do `append` abaixo) e duas colunas de CLASSIFICAÇÃO (`tipo`,
+    `raiz` — DL-032 fatia 1, para `apurar_saldos` agregar por `TipoConta`
+    reusando esta mesma função, sem reimplementar a hierarquia). `nivel` é
+    opcional: ausente, devolve todas as
     contas (analíticas e sintéticas); presente, devolve só as contas com
     nível <= `nivel` (raiz = nível 1) — mas o TOTAL da resposta continua
     somando TODOS os itens do período da empresa, sem recorte (ver
@@ -942,6 +1639,60 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     # (achado 6): ciclo ou conta_pai de outra empresa falha aqui, nomeando a
     # conta, nunca um RecursionError/KeyError mais adiante.
     contas_por_id, filhos_de, nivel_de = _construir_hierarquia(contas)
+
+    # DL-032 fatia 1, correção do achado A2 (BL-475): id da RAIZ de cada
+    # conta, para expor `tipo_da_raiz` por linha SEM consulta nova — só
+    # percorre `conta_pai_id`, já carregado em `contas_por_id` pela mesma
+    # `_construir_hierarquia` acima (memoizado, como `nivel_de`). Ciclo ou
+    # `conta_pai` de outra empresa já levantou `HierarquiaInconsistente`
+    # ali, então esta função nunca anda sobre uma cadeia quebrada.
+    raizes_por_id = {}
+
+    def raiz_id_de(conta_id):
+        if conta_id in raizes_por_id:
+            return raizes_por_id[conta_id]
+        conta = contas_por_id[conta_id]
+        if conta.conta_pai_id is None:
+            raizes_por_id[conta_id] = conta_id
+        else:
+            raizes_por_id[conta_id] = raiz_id_de(conta.conta_pai_id)
+        return raizes_por_id[conta_id]
+
+    # DL-033 (RC-106): classificação (circulante/não circulante) do
+    # ANCESTRAL MAIS PRÓXIMO desta conta — estritamente ACIMA, nunca a
+    # própria —, memoizado como `raiz_id_de` acima, sem consulta nova.
+    # Diferente de `tipo` (sempre preenchido em toda conta), a classificação
+    # é OPCIONAL e pode ser declarada em QUALQUER nível da árvore (o nó que
+    # representa "Ativo Circulante", por exemplo, normalmente um ou dois
+    # níveis abaixo da raiz "Ativo" — nunca a raiz inteira, que a lei não
+    # classifica). Existe para `apurar_saldos` distinguir, sem consulta
+    # nova, três situações: (1) a própria conta DEFINE a classificação do
+    # grupo (tem `classificacao_patrimonial` própria e NENHUM ancestral
+    # também classificado) — soma o `saldo_final` dela (já CONSOLIDADO,
+    # própria + toda a subárvore, pela mesma regra única de saldo — DE-020
+    # — que `tipo_da_raiz` já usa) no grupo; (2) a conta está ANINHADA sob
+    # outra já classificada (tem a própria E um ancestral classificado —
+    # dado inconsistente: duas contas da MESMA árvore declarando o MESMO
+    # dinheiro) — DECLARADA, nunca somada de novo, mesmo padrão do achado
+    # A2/BL-475 da DL-032; (3) a conta HERDA a classificação de um
+    # ancestral (não tem a própria, mas um ancestral tem) — já está coberta
+    # pelo saldo consolidado desse ancestral, não entra em soma nem em
+    # declaração de "sem classificação".
+    classificacoes_ancestrais_por_id = {}
+
+    def classificacao_ancestral_de(conta_id):
+        if conta_id in classificacoes_ancestrais_por_id:
+            return classificacoes_ancestrais_por_id[conta_id]
+        conta = contas_por_id[conta_id]
+        if conta.conta_pai_id is None:
+            resultado = None
+        else:
+            pai = contas_por_id[conta.conta_pai_id]
+            resultado = pai.classificacao_patrimonial or classificacao_ancestral_de(
+                conta.conta_pai_id
+            )
+        classificacoes_ancestrais_por_id[conta_id] = resultado
+        return resultado
 
     # A ÚNICA consulta agregada de valores POR CONTA: filtra por
     # `data <= fim` (itens posteriores ao período não interessam a NENHUMA
@@ -1073,6 +1824,40 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
             (brutos[filho_id]["credito_periodo"] for filho_id in filhos_exibidos_ids), zero
         )
 
+        # DL-034 (BL-496, critério 1 condição 4) — `debitos_proprios_totais`/
+        # `creditos_proprios_totais`: a MESMA ideia de "próprio" acima
+        # (bruto desta conta menos o dos filhos exibidos), mas somando
+        # ANTERIOR e PERÍODO juntos — "houve movimento próprio ALGUMA VEZ
+        # até `fim`", não só "neste período". Campo NOVO, aditivo: NÃO
+        # substitui `debitos_proprios`/`creditos_proprios` acima, cuja
+        # identidade com o rodapé (`total_debitos`/`total_creditos`, também
+        # escopados ao período) continua valendo exatamente como antes —
+        # mudar aquele campo para somar `saldo_anterior` quebraria essa
+        # reconciliação (BL-281) por uma necessidade de OUTRA camada. Existe
+        # porque `apurar_saldos` chama `apurar_balancete(inicio=fim=data_
+        # base)`: um lançamento antigo (a maioria, na prática) cai inteiro em
+        # `saldo_anterior`, e `debitos_proprios`/`creditos_proprios` (só
+        # período) ficariam ZERO para uma conta com movimento próprio real,
+        # só mais antigo que `data_base` — a guarda ficaria cega para o
+        # caso comum, só pegando quem tem movimento próprio bem no dia de
+        # corte.
+        debitos_totais = bruto["debito_anterior"] + bruto["debito_periodo"]
+        creditos_totais = bruto["credito_anterior"] + bruto["credito_periodo"]
+        debitos_proprios_totais = debitos_totais - sum(
+            (
+                brutos[filho_id]["debito_anterior"] + brutos[filho_id]["debito_periodo"]
+                for filho_id in filhos_exibidos_ids
+            ),
+            zero,
+        )
+        creditos_proprios_totais = creditos_totais - sum(
+            (
+                brutos[filho_id]["credito_anterior"] + brutos[filho_id]["credito_periodo"]
+                for filho_id in filhos_exibidos_ids
+            ),
+            zero,
+        )
+
         linhas.append(
             {
                 "conta": conta.codigo,
@@ -1098,11 +1883,63 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
                 # (o valor "continua Decimal até o template" — DL-017,
                 # seção de riscos).
                 "natureza": conta.natureza,
+                # `tipo` e `raiz` (DL-032, fatia 1): expostos SÓ para que
+                # `apurar_saldos` agregue por `TipoConta` sem reabrir o
+                # banco nem reimplementar a hierarquia — os dois vêm do
+                # MESMO objeto `Conta` já carregado nesta função, sem
+                # consulta extra. `raiz` é `conta_pai_id is None`: é o que
+                # permite a `apurar_saldos` somar cada árvore EXATAMENTE
+                # uma vez (a raiz já vem CONSOLIDADA — próprio + toda a
+                # subárvore, regra única de saldo acima —, então somar
+                # TODAS as linhas, não só as raízes, contaria o mesmo
+                # lançamento mais de uma vez).
+                #
+                # `tipo_da_raiz` (correção do achado A2, BL-475/DL-032): o
+                # `tipo` do ANCESTRAL raiz desta conta — igual ao próprio
+                # `tipo` quando a linha É a raiz. Existe para
+                # `apurar_saldos` DECLARAR (nunca corrigir) uma conta cujo
+                # `tipo` próprio diverge do `tipo` da árvore em que está
+                # pendurada: a agregação por raízes soma o saldo dela no
+                # grupo da RAIZ (é a regra única de saldo, correta —
+                # DE-020), então sem este campo a linha da conta e o
+                # `totais_por_tipo` da resposta podiam se contradizer em
+                # silêncio, e a equação fechava sem ter classificado nada.
+                "tipo": conta.tipo,
+                "tipo_da_raiz": contas_por_id[raiz_id_de(conta.id)].tipo,
+                "raiz": conta.conta_pai_id is None,
+                # `conta_pai` (DL-034, BL-496/critério 1 condição 3): o
+                # CÓDIGO da conta pai direta (ou `None` para raiz) — sem
+                # consulta nova, `contas_por_id` já carregou a árvore
+                # inteira. Existe só para `apurar_saldos` agrupar contas
+                # IRMÃS (mesmo pai) sem reabrir o banco, na guarda que
+                # detecta nós topo-classificados de natureza cadastrada
+                # divergente sob o mesmo ancestral não classificado (o
+                # mesmo padrão de "expor um campo extra, de graça, para
+                # quem consome" que `raiz`/`tipo_da_raiz` já seguem).
+                "conta_pai": (
+                    contas_por_id[conta.conta_pai_id].codigo
+                    if conta.conta_pai_id is not None
+                    else None
+                ),
+                # `classificacao_patrimonial`/`classificacao_patrimonial_
+                # ancestral` (DL-033/RC-106): a classificação PRÓPRIA desta
+                # conta (ou `None`) e a do ANCESTRAL mais próximo que tiver
+                # uma (ou `None`, inclusive quando a conta é raiz — sem
+                # ancestral nenhum). Ver o docstring de
+                # `classificacao_ancestral_de`, acima, para os três casos
+                # que os dois campos juntos permitem `apurar_saldos`
+                # distinguir sem consulta nova.
+                "classificacao_patrimonial": conta.classificacao_patrimonial,
+                "classificacao_patrimonial_ancestral": classificacao_ancestral_de(conta.id),
                 "saldo_anterior": saldo_anterior,
                 "debitos": debitos,
                 "creditos": creditos,
                 "debitos_proprios": debitos_proprios,
                 "creditos_proprios": creditos_proprios,
+                # DL-034/BL-496: "próprio", mas somando anterior + período —
+                # ver o comentário de origem, acima, no laço que os calcula.
+                "debitos_proprios_totais": debitos_proprios_totais,
+                "creditos_proprios_totais": creditos_proprios_totais,
                 "saldo_final": saldo_final,
             }
         )
@@ -1138,6 +1975,925 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         "contas": linhas,
         "total_debitos": totais["debitos"],
         "total_creditos": totais["creditos"],
+    }
+
+
+def apurar_saldos(*, empresa, data_base):
+    """Camada de saldos (DL-032, fatia 1): saldo de CADA conta da empresa em
+    `data_base`, mais os cinco totais por `TipoConta` e a equação contábil
+    que fecha nos dois estados do exercício — RC-104 (confirmado pelo Fred em
+    2026-09-20).
+
+    ⚠️ **CONTRATO DE DERIVAÇÃO, não tabela.** Esta função é LEITURA PURA — não
+    grava saldo, cache nem trilha (critério 6; provado por
+    `test_apurar_saldos_nao_grava_nada` (e
+    `test_competencia_encerrada_e_entregue_nao_muda_o_resultado_nem_grava`),
+    capturando as consultas SQL da chamada e conferindo que todas são
+    `SELECT`). Se um dia o desempenho exigir materializar, isso é decisão
+    própria do `arquiteto-senior`, com verificador que reprove divergência —
+    nunca cache silencioso (ver docstring do plano DL-032).
+
+    **Reusa o motor do Balancete — não reimplementa a DE-020.** Chama
+    `apurar_balancete(empresa=empresa, inicio=data_base, fim=data_base)` e lê
+    `saldo_final` de cada linha. Isso é MATEMATICAMENTE equivalente ao saldo
+    em `data_base` de QUALQUER outra chamada a `apurar_balancete` com o MESMO
+    `fim` e um `inicio` diferente (inclusive um início de exercício real),
+    contanto que `inicio <= fim`: `_saldo_por_natureza` é linear em
+    (débito, crédito), e a partição de `apurar_balancete` entre
+    "saldo_anterior" (data < inicio) e "período" (inicio <= data <= fim)
+    cobre exatamente o mesmo universo (data <= fim) qualquer que seja o
+    ponto de corte `inicio` — corta o total em dois pedaços diferentes, mas
+    o produto da soma (com a natureza aplicada UMA vez, no fim, sobre a
+    soma) é o mesmo. **É esta prova, não uma coincidência de teste, que
+    garante o critério 1** (`apurar_saldos` e `apurar_balancete` nunca
+    discordam): as duas funções literalmente fazem a mesma conta.
+
+    **Saldo de abertura (escopo item 5):** `data_base` anterior a qualquer
+    lançamento não é caso especial — `apurar_balancete` já devolve
+    `saldo_final = 0` para toda conta sem movimento até `fim`, então esta
+    função devolve zeros sem precisar de `if`.
+
+    **Data futura e data absurda (critério 7):** qualquer `datetime.date` é
+    aceito, sem checagem de faixa. Não é lacuna: `apurar_balancete` já
+    aceita qualquer par de datas — é o mesmo mecanismo que a DL-020 usa para
+    achar lançamento fora da faixa (BL-198), alargando o período até o ano
+    9999 sem erro. `apurar_saldos` herda esse comportamento por reuso, de
+    propósito: `data_base=date(9999, 12, 31)` sem lançamento nenhum devolve
+    saldo zero em toda conta, não exceção. A validação de FORMATO (texto →
+    `datetime.date`) é responsabilidade da fronteira que ainda não existe
+    nesta fatia (view) — `apurar_saldos`, como `apurar_balancete` e
+    `apurar_razao`, confia que quem chama já entregou um `datetime.date`.
+
+    **A equação, e o momento da verdade (RC-104):**
+    `ativo = passivo + patrimonio_liquido + (receita - despesa)`. O termo
+    `(receita - despesa)` é o resultado AINDA NÃO transferido ao PL —
+    exposto em `equacao["resultado_nao_transferido"]` (renomeado do
+    `resultado_do_periodo` original, achado A4/BL-478: o nome antigo
+    MENTIA sobre o que o valor é). Durante o exercício ele é diferente de
+    zero sem que haja erro nenhum; depois do zeramento (RC-104: mensal,
+    trimestral ou anual, por lançamento, contra uma conta "Resultado do
+    Exercício" e desta para "Lucros Acumulados" ou, no prejuízo, para a
+    retificadora "(-) Prejuízos Acumulados") o termo zera por construção e
+    a equação vira a forma clássica — as duas formas são o MESMO cálculo,
+    nunca um `if` de "já encerrou". A diferença (`equacao["diferenca"]`) é
+    CALCULADA e DEVOLVIDA, com valor e sinal; NENHUM saldo é alterado para
+    fechá-la (critério 2) — "o que eu somei fecha, e quando não fecha eu
+    digo, nunca conserto".
+
+    ⚠️ **Esta camada NÃO serve para apurar a DRE (RC-104, penúltima
+    ressalva).** Com zeramento mensal ou trimestral, `resultado_nao_
+    transferido` reporta ZERO logo depois de cada fechamento, mesmo num mês
+    lucrativo — porque é o SALDO ainda não transferido, e o zeramento acabou
+    de levá-lo a zero (ver
+    `test_apos_zeramento_resultado_nao_transferido_e_zero_mas_resultado_do_mes_nao`).
+    A DRE de um período se constrói pelo MOVIMENTO do período (créditos de
+    Receita, débitos de Despesa dentro de `[inicio, fim]`), nunca pelo saldo
+    de `data_base` — quem precisar disso chama `apurar_balancete(inicio,
+    fim)` diretamente e lê `debitos`/`creditos`, não `apurar_saldos`.
+
+    **Os cinco totais por `TipoConta`, e por que são as RAÍZES, não todas as
+    linhas (critério 4, DE-056):** `totais_por_tipo` nasce de
+    `{tipo: 0 for tipo in TipoConta.values}` — lido do MODELO, nunca de uma
+    tupla escrita à mão; um `TipoConta` novo aparece aqui com zero, em vez de
+    ficar de fora em silêncio. A soma em si usa só as linhas com `raiz=True`
+    (`conta_pai is None`): a raiz já vem CONSOLIDADA pela regra única de
+    saldo (própria + TODA a subárvore, com a natureza da RAIZ aplicada uma
+    única vez — DE-020), então somar as raízes cobre a árvore inteira
+    exatamente uma vez. Sem hierarquia (conta sem pai nem filho), cada conta
+    é sua própria raiz e a soma continua correta. **É por isto, e não por
+    uma tabela de "natureza esperada por tipo", que uma retificadora
+    SUBTRAI em vez de somar** (RC-104: "(-) Prejuízos Acumulados", natureza
+    DEVEDORA dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão
+    já existente na base de medição de 73 contas, em "(-) Depreciação
+    acumulada" e em "Deduções da receita bruta"): quem aplica o sinal final
+    é a natureza da RAIZ do grupo (o motor do Balancete, DE-020), nunca a da
+    retificadora isolada — somar `saldo_final` de CADA conta por `tipo`
+    PRÓPRIO (em vez de só das raízes) contaria a retificadora com a
+    natureza DELA, na direção errada, e SOMARIA onde deveria SUBTRAIR (a
+    conta é a prova:
+    `test_retificadora_dentro_do_patrimonio_liquido_subtrai_nunca_soma`).
+    Depende de a retificadora estar aninhada sob um ancestral do MESMO
+    grupo — é assim que o plano de contas de referência do Fred já está
+    estruturado (RC-104), e é exatamente o caso que a DE-020 existe para
+    resolver; um plano de contas em que a retificadora fosse uma raiz
+    isolada (sem ancestral do grupo) não teria como ser corrigido por
+    algoritmo nenhum sem reclassificar a conta — o que esta camada está
+    proibida de fazer.
+
+    **Conta sem tipo coerente com a natureza:** deliberado (o modelo
+    permite retificadora). Esta função NUNCA reclassifica — soma o que está
+    lá, com a natureza e o tipo que a conta tem.
+
+    ⚠️ **Conta descendente com `tipo` diferente do `tipo` da raiz (achado
+    A2/BL-475):** a agregação por raízes (acima) atribui o saldo
+    CONSOLIDADO da árvore inteira ao `tipo` da RAIZ — decisão certa,
+    provada por mutação contra a retificadora do RC-104 (somar todas as
+    linhas ou só as folhas quebra `test_retificadora_...`). Mas isso tem
+    uma premissa: a árvore é homogênea de `tipo`. Quando não é (mau
+    cadastro: uma conta "Despesa" pendurada sob a raiz do "Ativo"), esta
+    função NUNCA reclassifica nem corrige — DECLARA:
+    `contas_com_tipo_divergente_da_raiz` lista, para cada conta cujo
+    `tipo` PRÓPRIO diverge do `tipo` da sua raiz, `{"conta", "nome",
+    "tipo", "tipo_da_raiz"}`; VAZIA no caso são (plano de contas
+    coerente). Sem isto, a linha da conta dizia um `tipo` e
+    `totais_por_tipo` dizia outro, contradizendo-se no mesmo dicionário, e
+    a `equacao["diferenca"]` fechava em zero — a camada afirmando ter
+    classificado o que não classificou. Quem consumir esta camada (fatia
+    2) trata uma lista não vazia como aviso, no molde de
+    `HierarquiaInconsistente`.
+
+    ⚠️ **Tipo gravado fora de `TipoConta` (achado A1/BL-476):** o banco não
+    tem CHECK que impeça um `tipo` fora de `choices` (só alcançável por
+    ORM/SQL direto ou por uma migração de dado futura — a tela e o
+    serializer sempre validam `choices`). Esta função NUNCA estoura
+    `KeyError` nem cria uma chave nova dentro de `totais_por_tipo` (o que
+    desmontaria a garantia do critério 4/DE-056, que `totais_por_tipo` tem
+    EXATAMENTE as chaves de `TipoConta.values`): o tipo desconhecido
+    aparece, nomeado, em `contas_com_tipo_desconhecido`
+    (`{"conta", "nome", "tipo"}`), vazia no caso normal.
+
+    ⚠️ **A frase acima ("tipo desconhecido") NÃO diz que o DINHEIRO some —
+    e essa distinção depende de a conta corrompida ser RAIZ ou DESCENDENTE
+    (achado NOVO, BL-484, nascido da própria correção do A1):** quando a
+    conta corrompida É a raiz, o valor dela fica de fato OMITIDO de
+    `totais_por_tipo` (nenhum `TipoConta` real recebe aquele saldo — é o
+    caso do teste `test_tipo_gravado_fora_de_tipoconta_e_nomeado_nunca_
+    derruba`). Quando a conta corrompida é DESCENDENTE de uma raiz com
+    `tipo` VÁLIDO, o dinheiro NÃO desaparece: a regra única de saldo
+    (DE-020) consolida a subárvore inteira — inclusive a conta corrompida
+    — no saldo da raiz, que continua entrando normalmente em
+    `totais_por_tipo` pelo `tipo` dela (válido). A conta corrompida, nesse
+    caso, aparece NOMEADA em DUAS listas — `contas_com_tipo_desconhecido`
+    **e** `contas_com_tipo_divergente_da_raiz` (o `tipo` dela nunca bate
+    com o `tipo_da_raiz`, por construção) — mas o valor dela CONTINUA
+    somado, por dentro do consolidado da raiz (ver `test_tipo_desconhecido_
+    em_descendente_e_nomeado_mas_continua_somado`). **Omitir o descendente
+    da soma seria PIOR** — o Balanço perderia dinheiro de verdade — então o
+    comportamento certo nos dois casos não é "sempre omitir": é "nunca
+    inventar", e as duas listas declaram o que a soma sozinha não diz.
+    Mesma defesa (nomear, nunca inventar) que `views_web.py` já aplica ao
+    campo irmão `natureza`.
+
+    **`raiz` é repassado em cada linha de `contas` (achado A8/BL-481):**
+    `linha["raiz"]` é EXATAMENTE `linha["nivel"] == 1` (toda conta sem pai
+    é nível 1, e vice-versa) — dito aqui, com todas as letras, porque somar
+    `contas` por `tipo` SEM filtrar por `raiz` conta cada descendente E sua
+    raiz, dobrando (ou mais, em árvore mais funda) o valor de
+    `totais_por_tipo`: a leitura que o critério 4 convida é a errada.
+    `totais_por_tipo` já soma correto (só raízes) — é para quem quiser
+    REPRODUZIR essa soma a partir de `contas` que `raiz` existe.
+
+    **`HierarquiaInconsistente` pode escapar (achado A7/BL-480):** herdado
+    do reuso de `apurar_balancete` → `_construir_hierarquia` — ciclo na
+    hierarquia ou `conta_pai` de outra empresa (só alcançável por ORM
+    direto, BL-40) levantam `HierarquiaInconsistente`, nomeando a conta,
+    em vez de um `RecursionError`/`KeyError` cru. `apurar_saldos` NÃO
+    trata essa exceção — propaga. Quem chamar por uma view (fatia 2)
+    precisa do mesmo `try/except` que `views.py` e `views_web.py` já usam
+    para `apurar_balancete`.
+
+    **Conta inativa (`Conta.ativo=False`) entra no saldo (achado
+    A9/BL-482):** deliberado — a consulta de `apurar_balancete` não filtra
+    por `ativo`, então uma conta desativada com saldo residual continua
+    aparecendo em `contas` e contribuindo para `totais_por_tipo`; do
+    contrário o Balanço perderia dinheiro. A decisão de APRESENTAÇÃO
+    (esconder linha de saldo zero de conta inativa, por exemplo) é da
+    fatia que gerar o documento imprimível, não desta camada de leitura.
+
+    ⚠️ **Leitura sem snapshot único (achado A6/DE-067, decisão do
+    `arquiteto-senior`):** `apurar_balancete` faz TRÊS consultas
+    (hierarquia, agregados por conta, total geral) e nenhuma delas está
+    dentro de uma `transaction.atomic` com isolamento elevado — sob
+    `READ COMMITTED` (padrão do PostgreSQL), cada uma recebe snapshot
+    PRÓPRIO. Uma escrita concorrente (`criar_lancamento` de outra conexão)
+    entre a 1ª e a 2ª consulta pode produzir uma diferença TRANSITÓRIA em
+    `equacao["diferenca"]`, sem nenhum desbalanço real gravado na base —
+    a diferença some na chamada seguinte. Esta fatia NÃO implementa
+    `REPEATABLE READ` nem `SET TRANSACTION SNAPSHOT` (decisão consciente,
+    DE-067: mexer no isolamento agora alteraria o Balancete inteiro do
+    produto por causa de uma fatia que ainda não tem porta de entrada por
+    requisição). Conclusão prática: a diferença só é CONCLUSIVA quando lida
+    contra uma base parada (sem escrita concorrente) — é o caso de uso
+    desta fatia (leitura ad-hoc, sem view ainda). A fatia que gerar o
+    documento imprimível decide o snapshot.
+
+    ⚠️ **Circulante × não circulante (DL-033/RC-106), o que falta para o
+    Balanço Patrimonial existir:** `totais_por_classificacao` soma o
+    `saldo_final` (CONSOLIDADO — própria conta + subárvore) de cada conta
+    que DEFINE uma classificação (tem `classificacao_patrimonial` própria
+    e nenhum ancestral também classificado — é o "raiz" de `tipo_da_raiz`,
+    generalizado: aqui não é o topo absoluto da árvore, é o nó mais alto
+    ONDE a classificação foi declarada, porque a lei não classifica o
+    Ativo inteiro, só as suas subdivisões). **Esta camada NÃO adivinha
+    classificação nenhuma** (a classe de erro do achado A2/BL-475 que
+    reprovou a DL-032): conta sem classificação própria nem ancestral
+    classificado é DECLARADA em `contas_sem_classificacao_patrimonial`
+    (só para contas COM SALDO — critério BL-493, "a régua é o saldo, não
+    a marca de `ativo`": classificar uma conta de saldo zero é trabalho
+    sem efeito nenhum no Balanço — de tipo Ativo ou Passivo; Patrimônio
+    Líquido, Receita e Despesa não entram na separação circulante/não
+    circulante, RC-106); duas contas da mesma árvore tentando classificar
+    o MESMO grupo (uma conta com classificação própria sob um ancestral
+    TAMBÉM classificado) são DECLARADAS em `contas_com_classificacao_
+    aninhada`, sem nunca somar o mesmo lançamento duas vezes. Um valor
+    gravado fora de `ClassificacaoPatrimonial` (só por ORM/SQL direto —
+    mesma defesa em profundidade do achado A1/BL-476 para `tipo`) NUNCA
+    estoura `KeyError`: aparece, nomeado, em `contas_com_classificacao_
+    desconhecida`.
+
+    ⚠️ **As três listas acima são PISTAS, não a GARANTIA (achado BLOQUEADOR
+    BL-486, rodada 1 de auditoria da DL-033) — quem garante é o RESÍDUO,
+    abaixo.** A primeira versão desta camada tentou provar reconciliação
+    catalogando CASOS (aninhamento, folha sem classificação) — e um
+    catálogo de casos só cobre o que alguém pensou. O BL-486 mediu o caso
+    que ninguém tinha pensado: DUAS contas IRMÃS (nenhuma ancestral da
+    outra), cada uma com `classificacao_patrimonial` PRÓPRIA e naturezas
+    DIFERENTES — ex.: "Clientes" (devedora, 1.220,00) e "(-) PDD"
+    (credora, retificadora, 50,00), ambas `ativo_circulante`. As DUAS são
+    "topo classificado" (nenhuma tem ancestral classificado), então as DUAS
+    entram na soma — mas somar dois valores cada um já assinado pela
+    PRÓPRIA natureza (em vez de aplicar UMA natureza sobre o bruto
+    combinado, como a regra única de saldo exige) dá **1.220,00 + 50,00 =
+    1.270,00**, quando o correto (o que `totais_por_tipo` calcula
+    corretamente, via a raiz) é **1.170,00** — excesso de 100,00, o DOBRO
+    da retificadora. É literalmente a aritmética que justificou o desenho
+    (ver o comentário de `classificacao_ancestral_de`, em
+    `apurar_balancete`) escapando pela MESMA porta que o comentário do
+    código já nomeia: classificação "pode ser declarada em QUALQUER nível
+    da árvore", inclusive em duas folhas irmãs.
+
+    **A correção NÃO é mais uma lista — é uma IDENTIDADE ARITMÉTICA,
+    devolvida em `residuo_por_tipo`:**
+
+        residuo_por_tipo[tipo] = totais_por_tipo[tipo] − Σ(totais_por_classificacao
+                                                             dos grupos daquele tipo)
+
+    para cada `tipo` que PARTICIPA da separação (Ativo, Passivo — derivado
+    de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`, nunca uma lista
+    `[ATIVO, PASSIVO]` escrita à mão). **Diferente das três listas, o
+    resíduo NÃO depende de reconhecer a TOPOLOGIA do problema** — ele
+    reprova qualquer descasamento entre os dois totais, seja por
+    aninhamento, por folha esquecida, por contas irmãs com natureza
+    diferente, ou por qualquer topologia que ninguém pensou ainda. É
+    `0,00` no caso são (plano de contas totalmente classificado, sem
+    aninhamento nem irmãs de natureza mista) e DIFERENTE de zero sempre
+    que `totais_por_classificacao` não reflete fielmente o `totais_por_
+    tipo` correspondente — nomeando o TAMANHO e o SINAL da divergência,
+    nunca corrigindo nada (mesmo espírito de `equacao["diferenca"]`: "o
+    que eu somei fecha, e quando não fecha eu digo, nunca conserto").
+    **Isto fecha também o achado ALTO BL-487** (nó intermediário sem
+    classificação própria, com movimento próprio, desdobrado de uma conta
+    já em uso — `contas_sem_classificacao_patrimonial` só cobria FOLHAS, e
+    um nó que ganha filha deixa de ser folha sem deixar de precisar de
+    classificação; a DE-022 já registra que esse desdobramento é rotina
+    normal, não erro).
+
+    ⚠️ **BL-496 (RESSALVA R1 da rodada 2 de auditoria da DL-033, DE-068) —
+    o resíduo garante o TOTAL POR TIPO, NUNCA o subtotal por GRUPO, e é o
+    GRUPO que o Balanço imprime.** A rodada 2 mediu o cenário **V1d**: dois
+    defeitos no MESMO Ativo, calibrados para se ANULAREM na soma agregada
+    (retificadora entre irmãs, como acima, **e** um nó intermediário
+    desclassificado com movimento próprio, como o BL-487) — resíduo
+    `0,00`, as cinco listas vazias, equação fechando, **e dois grupos do
+    Balanço errados**. A identidade continua VERDADEIRA (ela soma
+    conjuntos de nós diferentes dos dois lados, não é tautologia); o que
+    era falso era achar que "resíduo zero" bastava. Duas respostas,
+    tomadas JUNTAS (DE-068: "enuncie a invariante E o escopo dela"):
+
+    1. **A correção de FUNDO (opção (b) do auditor):** o laço acima soma
+       cada nó topo classificado normalizando o sinal por
+       `NATUREZA_NATURAL_DO_TIPO` (models.py), não pela natureza CADASTRADA
+       da própria conta — torna o NÚMERO certo (ver o comentário no laço),
+       não só detectado, para a topologia exata do BL-486/V1a.
+    2. **Mas (b) não tem prova para TODA topologia** ("pode haver
+       interação com retificadora DE GRUPO que eu não enxerguei" — palavras
+       do próprio auditor). Por isso as condições 3 e 4 do critério 1 da
+       DL-034 continuam vivas como GUARDA ESTRUTURAL, cinto e suspensório
+       ao lado do resíduo:
+       `contas_topo_classificadas_com_natureza_divergente_entre_irmas`
+       (irmãos topo classificados com natureza cadastrada divergente — a
+       topologia do BL-486) e
+       `contas_nao_folha_sem_classificacao_com_movimento_proprio` (nó
+       não-folha desclassificado com movimento próprio — a topologia do
+       BL-487). **Nenhuma das duas é removida por (b) ter corrigido o
+       número** — ver `avaliar_emissao_do_balanco`, que exige a CONJUNÇÃO
+       de resíduo zero, as cinco listas antigas vazias e estas duas
+       também vazias antes de liberar a emissão.
+
+    ⚠️ **`totais_por_grupo` (BL-490, achado MÉDIO) — o subtotal que a lei
+    manda IMPRIMIR no Balanço:** soma `totais_por_classificacao` pelos
+    QUATRO grupos de `GrupoDaLei` (via `GRUPO_DA_LEI_DA_CLASSIFICACAO_
+    PATRIMONIAL`, o SEGUNDO mapa derivado — nunca `classificacao.
+    startswith("ativo")`, que nem distingue "Ativo Circulante" de "Ativo
+    Não Circulante"): os quatro subgrupos do Ativo Não Circulante (art.
+    178 §1º II) se somam num único "Ativo Não Circulante" aqui, que é o
+    que o Balanço de fato imprime.
+
+    **Desempenho:** UMA chamada a `apurar_balancete` (já livre de N+1 —
+    3 consultas, independente do número de contas) mais UM laço em Python
+    sobre as linhas já carregadas — mesma classe de custo do Balancete.
+    Medido em `test_desempenho_em_plano_de_contas_realista` num plano de
+    contas realista (73 contas, 4 níveis, mesma base de
+    `scripts/semear_base_de_medicao.py`); o número está no `print` daquele
+    teste, não aqui, para não haver dois lugares para desatualizar.
+    """
+    balancete = apurar_balancete(empresa=empresa, inicio=data_base, fim=data_base)
+
+    contas = [
+        {
+            "conta": linha["conta"],
+            "nome": linha["nome"],
+            "tipo": linha["tipo"],
+            "natureza": linha["natureza"],
+            "nivel": linha["nivel"],
+            # BL-481/achado A8: exatamente `nivel == 1` — repassado para
+            # quem quiser reproduzir `totais_por_tipo` a partir de `contas`
+            # sem contar cada descendente em dobro (ver docstring).
+            "raiz": linha["raiz"],
+            # DL-033/RC-106: classificação PRÓPRIA desta conta (ou `None`,
+            # a maioria das contas — o produto nunca infere uma).
+            "classificacao_patrimonial": linha["classificacao_patrimonial"],
+            "saldo": linha["saldo_final"],
+        }
+        for linha in balancete["contas"]
+    ]
+
+    # DE-056 / critério 4: os totais nascem de TODOS os `TipoConta` do
+    # MODELO — nunca de uma tupla de cinco strings escrita à mão (o
+    # anti-padrão que este projeto já pagou caro). Um tipo novo no modelo
+    # aparece aqui automaticamente, com zero, em vez de ficar fora em
+    # silêncio.
+    zero = Decimal("0")
+    totais_por_tipo = {tipo: zero for tipo in TipoConta.values}
+    # BL-476/achado A1: tipo gravado fora de `TipoConta` (só alcançável por
+    # dado corrompido — ver docstring) NUNCA cria chave dentro de
+    # `totais_por_tipo` nem estoura `KeyError` — aparece, nomeado, aqui.
+    contas_com_tipo_desconhecido = []
+    # BL-475/achado A2: conta cujo `tipo` PRÓPRIO diverge do `tipo` da sua
+    # RAIZ — o saldo dela já está (corretamente) consolidado no grupo da
+    # raiz; isto só DECLARA a divergência, nunca corrige nada. Vazia no
+    # caso são.
+    contas_com_tipo_divergente_da_raiz = []
+    for linha in balancete["contas"]:
+        tipo = linha["tipo"]
+        if tipo not in totais_por_tipo:
+            contas_com_tipo_desconhecido.append(
+                {"conta": linha["conta"], "nome": linha["nome"], "tipo": tipo}
+            )
+        elif linha["raiz"]:
+            totais_por_tipo[tipo] += linha["saldo_final"]
+
+        if tipo != linha["tipo_da_raiz"]:
+            contas_com_tipo_divergente_da_raiz.append(
+                {
+                    "conta": linha["conta"],
+                    "nome": linha["nome"],
+                    "tipo": tipo,
+                    "tipo_da_raiz": linha["tipo_da_raiz"],
+                }
+            )
+
+    # DL-033 (RC-106), critério 1: os grupos circulante/não circulante
+    # vêm de UMA fonte única no código — `ClassificacaoPatrimonial.values`,
+    # lido do MODELO — nunca de uma tupla escrita à mão (mesmo padrão de
+    # `totais_por_tipo` acima). Um grupo novo aparece aqui automaticamente,
+    # com zero, em vez de ficar fora em silêncio.
+    totais_por_classificacao = {
+        classificacao: zero for classificacao in ClassificacaoPatrimonial.values
+    }
+    # Conta que tem classificação PRÓPRIA E TAMBÉM um ancestral já
+    # classificado — dado inconsistente (duas contas da MESMA árvore
+    # declarando o MESMO grupo). DECLARADA, nunca somada duas vezes: o
+    # ancestral já consolida esta conta dentro do próprio `saldo_final`
+    # dele (regra única de saldo, DE-020) — somar esta linha de novo
+    # contaria o mesmo lançamento duas vezes. Vazia no caso são.
+    contas_com_classificacao_aninhada = []
+    # Mesma defesa do achado A1/BL-476 (`contas_com_tipo_desconhecido`),
+    # agora para o campo NOVO desta etapa: um valor gravado fora de
+    # `ClassificacaoPatrimonial` (só alcançável por ORM/SQL direto — a
+    # tela e o serializer sempre validam `choices`, e a guarda de
+    # consistência do `Conta.clean()` nem chega a rodar fora do caminho
+    # validado) NUNCA estoura `KeyError` dentro de `totais_por_classificacao`
+    # nem cria uma chave nova ali — aparece, nomeada, aqui.
+    contas_com_classificacao_desconhecida = []
+    # Conta de tipo ATIVO ou PASSIVO, ANALÍTICA (sem descendentes —
+    # DE-022), COM SALDO (BL-493, achado A8: "a régua é o saldo, não a
+    # marca de `ativo`" — mesmo princípio do BL-482/achado A9 da DL-032,
+    # onde conta desativada com saldo residual continua somando: aqui, o
+    # inverso — conta sem saldo nenhum não precisa de classificação,
+    # esteja ela ativa ou não, porque classificá-la não muda NADA no
+    # Balanço), cuja própria classificação E a de TODOS os ancestrais
+    # estão vazias: nenhum lugar da árvore, do topo até esta folha,
+    # declarou circulante ou não circulante. Critério 5 do plano DL-033:
+    # DECLARADA, NUNCA presumida a partir do código ou do nome da conta —
+    # a classe de erro do achado A2/BL-475 da DL-032. Vazia quando todas
+    # as contas relevantes (com saldo) estão classificadas (controle
+    # positivo do critério 5).
+    #
+    # ⚠️ BL-498 (achado BAIXO, "R3" da rodada 2 de auditoria da DL-033): a
+    # régua desta lista (e da lista irmã abaixo) é o SALDO/MOVIMENTO em
+    # `data_base` — não uma propriedade fixa da conta. Uma conta com
+    # movimento no período cujo saldo volta a `0,00` exatamente em
+    # `data_base` SAI da lista (classificá-la não mudaria o Balanço nesta
+    # data), e pode voltar a aparecer numa `data_base` diferente para o
+    # MESMO plano de contas. Aritmeticamente inofensivo (saldo zero
+    # contribui zero à soma), mas quem consome esta lista não pode tratá-la
+    # como "o que falta classificar no plano de contas" — é "o que falta
+    # classificar NESTA DATA".
+    contas_sem_classificacao_patrimonial = []
+    # BL-487, critério 1 condição 4 da DL-034 (guarda ESTRUTURAL, "cinto e
+    # suspensório" — ver a nota grande abaixo, depois do laço, sobre por
+    # que ela continua viva mesmo com `residuo_por_tipo` cobrindo o mesmo
+    # defeito): nó NÃO-FOLHA (tem descendente — o oposto exato da condição
+    # acima, que só olha folha) cuja classificação própria E ancestral
+    # estão vazias, mas que tem MOVIMENTO PRÓPRIO — `debitos_proprios_
+    # totais`/`creditos_proprios_totais` (anterior + período, "alguma vez
+    # até `fim`"), NUNCA `debitos_proprios`/`creditos_proprios` (só
+    # período): como `apurar_saldos` sempre chama `apurar_balancete` com
+    # `inicio=fim=data_base`, um lançamento antigo cai inteiro em
+    # `saldo_anterior` — usar os campos só-período deixaria esta guarda
+    # cega para o caso comum (conta com movimento próprio mais antigo que
+    # `data_base`), pegando só quem tem movimento bem no dia de corte. O
+    # desdobramento que a DE-022 já registra como ROTINA normal (conta
+    # ganha filha) deixa esse valor invisível para a lista de folhas
+    # acima, mesmo sem nenhum dado corrompido.
+    contas_nao_folha_sem_classificacao_com_movimento_proprio = []
+    # BL-496, critério 1 condição 3 da DL-034 — DECLARATIVA desde a DE-070
+    # (deixou de VETAR a emissão; ver o comentário grande depois do laço, e
+    # `avaliar_emissao_do_balanco`). Agrupa cada nó TOPO classificado
+    # (classificação própria válida, nenhum ancestral também classificado)
+    # com a sua natureza CADASTRADA — para, depois do laço, achar grupos de
+    # IRMÃOS de fato com natureza divergente entre si. É a topologia EXATA
+    # do BL-486 (ver a nota grande abaixo).
+    #
+    # ⚠️ **BL-499 (achado A1, auditoria DL-034 rodada 1) — a chave de
+    # agrupamento, corrigida:** a chave é `(conta_pai, tipo)`, NUNCA só
+    # `conta_pai`:
+    # 1. **Raiz não tem irmã para este fim.** `linha["conta_pai"]` é
+    #    `None` para TODA raiz (`_construir_hierarquia`, acima) — agrupar
+    #    por esse valor tratava CADA raiz do plano de contas como irmã de
+    #    TODAS as outras, sem exceção. Um plano com `1 ATIVO CIRCULANTE`,
+    #    `2 PASSIVO CIRCULANTE` e `3 CAPITAL SOCIAL`, todas raízes, sem
+    #    parentesco nenhum entre si, caía nesta lista e IMPEDIA a emissão
+    #    permanentemente — com uma mensagem que nomeava contas
+    #    corretamente classificadas. Por isso, abaixo, uma linha cuja
+    #    `conta_pai` é `None` NUNCA entra neste agrupamento.
+    # 2. **Natureza oposta só é anomalia DENTRO do mesmo `TipoConta`.**
+    #    Entre Ativo e Passivo, natureza oposta é a REGRA (Ativo devedor,
+    #    Passivo credor — `NATUREZA_NATURAL_DO_TIPO`), nunca a exceção. A
+    #    chave inclui `linha["tipo"]` para que a comparação de natureza,
+    #    no laço logo abaixo, nunca cruze contas de tipos diferentes.
+    topo_classificados_por_pai = defaultdict(list)
+    for linha in balancete["contas"]:
+        propria = linha["classificacao_patrimonial"]
+        ancestral = linha["classificacao_patrimonial_ancestral"]
+        if propria:
+            if propria not in totais_por_classificacao:
+                contas_com_classificacao_desconhecida.append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                    }
+                )
+            elif ancestral:
+                contas_com_classificacao_aninhada.append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                        "classificacao_patrimonial_ancestral": ancestral,
+                    }
+                )
+            else:
+                # BL-496 (RESSALVA R1, opção (b), DE-068) — a CORREÇÃO DE
+                # FUNDO desta etapa: soma o nó TOPO classificado
+                # normalizando o sinal pela natureza NATURAL do TIPO da
+                # classificação (`NATUREZA_NATURAL_DO_TIPO`, models.py —
+                # devedora no Ativo, credora no Passivo), NUNCA pela
+                # natureza CADASTRADA da própria conta
+                # (`linha["natureza"]`). `linha["saldo_final"]` já vem
+                # assinado relativo à natureza CADASTRADA (ver o
+                # comentário de origem em `apurar_balancete`) — quando ela
+                # coincide com a natural do tipo, o valor já está no sinal
+                # certo; quando diverge (a conta é uma RETIFICADORA, ex.:
+                # "(-) PDD" credora sob Ativo Circulante), o sinal precisa
+                # inverter para que a soma do grupo aplique UMA natureza
+                # sobre o valor combinado — exatamente a regra única de
+                # saldo (DE-020) que já vale para hierarquia, agora
+                # aplicada entre CONTAS IRMÃS classificadas
+                # independentemente no mesmo grupo. Sem isto, "Clientes"
+                # (D, 1.220,00) e "(-) PDD" (C, 50,00), ambas
+                # `ativo_circulante`, somavam 1.220,00 + 50,00 = 1.270,00;
+                # com a normalização, 1.220,00 − 50,00 = 1.170,00 —
+                # correto, e igual ao que `totais_por_tipo` já calculava
+                # via a raiz (prova: `test_bl486_...`, reescrito nesta
+                # etapa).
+                natureza_natural = NATUREZA_NATURAL_DO_TIPO[
+                    TIPO_DA_CLASSIFICACAO_PATRIMONIAL[propria]
+                ]
+                valor_normalizado = (
+                    linha["saldo_final"]
+                    if linha["natureza"] == natureza_natural
+                    else -linha["saldo_final"]
+                )
+                totais_por_classificacao[propria] += valor_normalizado
+                # BL-499: só entra no agrupamento quem TEM pai de fato —
+                # raiz (`conta_pai is None`) nunca tem irmã para esta
+                # guarda, e a chave leva o TIPO junto (ver o comentário
+                # grande acima, na criação de `topo_classificados_por_pai`).
+                if linha["conta_pai"] is not None:
+                    topo_classificados_por_pai[(linha["conta_pai"], linha["tipo"])].append(
+                        {
+                            "conta": linha["conta"],
+                            "nome": linha["nome"],
+                            "classificacao_patrimonial": propria,
+                            "natureza": linha["natureza"],
+                        }
+                    )
+        elif ancestral is None and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO):
+            if linha["analitica"]:
+                if linha["saldo_final"] != zero:
+                    contas_sem_classificacao_patrimonial.append(
+                        {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
+                    )
+            elif (
+                linha["debitos_proprios_totais"] != zero
+                or linha["creditos_proprios_totais"] != zero
+            ):
+                contas_nao_folha_sem_classificacao_com_movimento_proprio.append(
+                    {"conta": linha["conta"], "nome": linha["nome"], "tipo": linha["tipo"]}
+                )
+
+    # ⚠️ Fecha a condição 3 do critério 1 (DL-034) — DECLARATIVA desde a
+    # [DE-070](../../docs/projeto/decisoes.md#de-070), não mais VETO. Eu
+    # (arquiteto) tinha mandado mantê-la como "cinto e suspensório" porque o
+    # auditor que sugeriu a correção (b), acima, declarou o limite da
+    # própria sugestão — "conferi só a aritmética à mão... pode haver
+    # interação com retificadora DE GRUPO que eu não enxerguei" (RESSALVA
+    # R1). A auditoria da DL-034 MEDIU essa interação e ela NÃO EXISTE: (b)
+    # dá o número CERTO tanto para a retificadora de grupo quanto para a
+    # topologia pura do BL-486 — o pressuposto que sustentava o suspensório
+    # deixou de existir, e a condição 3, combinada com o defeito do BL-499
+    # (agrupar TODA raiz como irmã, corrigido acima), passou a recusar
+    # também planos de contas corretos, com mensagem factualmente falsa.
+    #
+    # A lista continua CALCULADA e DECLARADA — em `listas_informativas`,
+    # NUNCA em `listas_pendentes` (`avaliar_emissao_do_balanco`; correção
+    # de integração do arquiteto-senior: este comentário ficou apontando
+    # para `listas_pendentes` depois da separação em duas tuplas, e chave
+    # errada em comentário vira código errado na próxima leitura) — um
+    # grupo de contas IRMÃS (mesmo pai
+    # de fato, mesmo `TipoConta` — nunca mais raiz, nem entre tipos
+    # diferentes, BL-499), cada uma TOPO classificada, com natureza
+    # CADASTRADA divergente entre si (a topologia exata do BL-486,
+    # Clientes/PDD) continua sendo um AVISO útil ao contador sobre o plano
+    # de contas — só deixou de BLOQUEAR a emissão. Quem continua vetando:
+    # o resíduo (condição 1) e a condição 4 (cobertura), abaixo.
+    contas_topo_classificadas_com_natureza_divergente_entre_irmas = []
+    for irmaos in topo_classificados_por_pai.values():
+        naturezas_dos_irmaos = {irmao["natureza"] for irmao in irmaos}
+        if len(naturezas_dos_irmaos) > 1:
+            contas_topo_classificadas_com_natureza_divergente_entre_irmas.extend(irmaos)
+
+    # BL-490 (achado MÉDIO): o subtotal que a Lei 6.404/76 art. 178 manda
+    # IMPRIMIR no Balanço — os QUATRO grupos de `GrupoDaLei`, nunca sete —
+    # somado pelo SEGUNDO mapa derivado (`GRUPO_DA_LEI_DA_CLASSIFICACAO_
+    # PATRIMONIAL`), nunca por `classificacao.startswith("ativo")` (que
+    # nem distingue Ativo Circulante de Ativo Não Circulante).
+    totais_por_grupo = {grupo: zero for grupo in GrupoDaLei.values}
+    for classificacao, valor in totais_por_classificacao.items():
+        totais_por_grupo[GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL[classificacao]] += valor
+
+    # BL-486 (BLOQUEADOR, corrigido): a IDENTIDADE ARITMÉTICA que garante o
+    # critério 4 — não mais um catálogo de casos que alguém pensou. Só
+    # calculada para os `TipoConta` que PARTICIPAM da separação (Ativo,
+    # Passivo), derivado de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`
+    # (nunca uma lista `[ATIVO, PASSIVO]` escrita à mão): Patrimônio
+    # Líquido, Receita e Despesa nunca têm classificação (RC-106), então a
+    # pergunta "quanto falta classificar" não se aplica a eles — incluí-los
+    # aqui devolveria o saldo inteiro deles como "resíduo" sempre, o que
+    # não é discrepância nenhuma, é ausência de sentido da pergunta.
+    tipos_com_classificacao = set(TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values())
+    residuo_por_tipo = {
+        tipo: totais_por_tipo[tipo]
+        - sum(
+            (
+                valor
+                for classificacao, valor in totais_por_classificacao.items()
+                if TIPO_DA_CLASSIFICACAO_PATRIMONIAL[classificacao] == tipo
+            ),
+            zero,
+        )
+        for tipo in tipos_com_classificacao
+    }
+
+    ativo = totais_por_tipo[TipoConta.ATIVO]
+    passivo = totais_por_tipo[TipoConta.PASSIVO]
+    patrimonio_liquido = totais_por_tipo[TipoConta.PATRIMONIO_LIQUIDO]
+    receita = totais_por_tipo[TipoConta.RECEITA]
+    despesa = totais_por_tipo[TipoConta.DESPESA]
+    # BL-478/achado A4: renomeado de `resultado_do_periodo` — o nome antigo
+    # afirmava ser o resultado do PERÍODO; é o SALDO ainda não transferido
+    # ao PL, que o zeramento leva a zero mesmo num mês lucrativo (ver
+    # docstring, "esta camada NÃO serve para apurar a DRE").
+    resultado_nao_transferido = receita - despesa
+
+    # O momento da verdade: a diferença é CALCULADA e DEVOLVIDA — nunca usada
+    # para ajustar saldo nenhum, aqui ou em quem chama (critério 2).
+    diferenca = ativo - (passivo + patrimonio_liquido + resultado_nao_transferido)
+
+    return {
+        "data_base": data_base,
+        "contas": contas,
+        "totais_por_tipo": totais_por_tipo,
+        "contas_com_tipo_desconhecido": contas_com_tipo_desconhecido,
+        "contas_com_tipo_divergente_da_raiz": contas_com_tipo_divergente_da_raiz,
+        # DL-033/RC-106 — circulante × não circulante do Balanço
+        # Patrimonial (fatia 1): ver os comentários acima, no bloco que os
+        # monta.
+        "totais_por_classificacao": totais_por_classificacao,
+        # BL-490: subtotal pelos QUATRO grupos que a lei manda imprimir.
+        "totais_por_grupo": totais_por_grupo,
+        # BL-486: a identidade aritmética que GARANTE o critério 4 —
+        # `Σ(totais_por_classificacao do tipo) + residuo_por_tipo[tipo] ==
+        # totais_por_tipo[tipo]`, sempre, por construção. `0,00` no caso
+        # são; diferente de zero nomeia o tamanho e o sinal de qualquer
+        # descasamento, qualquer que seja a topologia que o causou.
+        "residuo_por_tipo": residuo_por_tipo,
+        "contas_com_classificacao_aninhada": contas_com_classificacao_aninhada,
+        "contas_com_classificacao_desconhecida": contas_com_classificacao_desconhecida,
+        "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,
+        # DL-034, critério 1, condição 3 (BL-496) — DECLARATIVA, não veto
+        # desde a DE-070 (ver o comentário grande acima, antes desta
+        # variável ser fechada). Vazia no caso são; nomeia TODA conta irmã
+        # DE FATO envolvida (mesmo pai que não é raiz, mesmo `TipoConta` —
+        # BL-499) quando duas ou mais, topo-classificadas, têm natureza
+        # cadastrada divergente entre si (a topologia do BL-486).
+        "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
+            contas_topo_classificadas_com_natureza_divergente_entre_irmas
+        ),
+        # DL-034, critério 1, condição 4 — guarda ESTRUTURAL (BL-487): vazia
+        # no caso são; nomeia nó NÃO-FOLHA sem classificação própria nem
+        # ancestral que tem movimento PRÓPRIO (não só consolidado).
+        "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
+            contas_nao_folha_sem_classificacao_com_movimento_proprio
+        ),
+        "equacao": {
+            "ativo": ativo,
+            "passivo": passivo,
+            "patrimonio_liquido": patrimonio_liquido,
+            "receita": receita,
+            "despesa": despesa,
+            "resultado_nao_transferido": resultado_nao_transferido,
+            "diferenca": diferenca,
+        },
+    }
+
+
+# ⚠️ Correção de CONTRATO pedida pelo arquiteto-senior na rodada de
+# correção da DL-034 (depois de eu ter devolvido, na primeira versão desta
+# correção, uma ÚNICA tupla com as sete listas e deixado a separação
+# veto/aviso só DENTRO de `avaliar_emissao_do_balanco`): um nome chamado
+# "pendência" cujo conteúdo pode não impedir NADA mente para quem lê o
+# código. A partir de agora são DUAS tuplas, nunca uma só — cada lista de
+# `apurar_saldos` pertence a EXATAMENTE uma das duas, nunca as duas, nunca
+# nenhuma (as três asserções do teste `test_bl502_...` no arquivo de
+# testes provam isto: união == inventário real, interseção vazia).
+#
+# 1) as que IMPEDEM a emissão (VETO) — a condição 2 (as cinco herdadas dos
+#    achados A1/A2 da DL-032 e BL-493 da DL-033) mais a condição 4 (BL-487,
+#    cobertura). A condição 1 (resíduo) é tratada à parte por ser um dict
+#    de Decimal, não uma lista.
+_LISTAS_QUE_IMPEDEM_A_EMISSAO = (
+    "contas_com_tipo_desconhecido",
+    "contas_com_tipo_divergente_da_raiz",
+    "contas_com_classificacao_aninhada",
+    "contas_com_classificacao_desconhecida",
+    "contas_sem_classificacao_patrimonial",
+    "contas_nao_folha_sem_classificacao_com_movimento_proprio",
+)
+
+# 2) a ÚNICA que só AVISA — a condição 3 (BL-496), aposentada como veto
+# pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
+# DL-034 mediu que a correção (b) dá o número CERTO também para
+# retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
+# existir) e que, sem essa prova, a condição bloqueava planos de contas
+# CORRETOS (BL-499 — ela tratava toda RAIZ como irmã). Continua CALCULADA
+# por `apurar_saldos` (com o defeito do BL-499 corrigido lá: raiz nunca é
+# "irmã", comparação só dentro do mesmo `TipoConta`) e DECLARADA — só não
+# impede mais nada, e por isso não entra na tupla acima.
+_LISTAS_QUE_SO_AVISAM = ("contas_topo_classificadas_com_natureza_divergente_entre_irmas",)
+
+
+def avaliar_emissao_do_balanco(saldos):
+    """ "O que eu vou entregar fecha, e eu sei o que ele NÃO diz" — DL-034,
+    critério 1: decide, no SERVIDOR (nunca só na tela), se o Balanço
+    Patrimonial PODE ser emitido a partir do resultado de `apurar_saldos`,
+    e — quando não pode — NOMEIA o que falta, para a tela mostrar o
+    caminho, nunca só recusar em silêncio.
+
+    A condição de VETO é a CONJUNÇÃO de três exigências — nenhuma sozinha é
+    suficiente (DE-068, a lição da RESSALVA R1/cenário V1d: "resíduo zero"
+    sozinho JÁ produziu, na auditoria, um Balanço com dois grupos errados
+    em R$ 500,00 cada, com as cinco listas antigas vazias e a equação
+    fechando):
+
+    1. `residuo_por_tipo` é ZERO em todos os tipos que participam da
+       separação (Ativo, Passivo).
+    2. as CINCO listas de declaração herdadas de `apurar_saldos`
+       (`contas_com_tipo_desconhecido`, `contas_com_tipo_divergente_da_
+       raiz`, `contas_com_classificacao_aninhada`, `contas_com_
+       classificacao_desconhecida`, `contas_sem_classificacao_
+       patrimonial`) estão vazias.
+    3. NENHUM nó não-folha sem classificação própria nem ancestral tem
+       movimento próprio
+       (`contas_nao_folha_sem_classificacao_com_movimento_proprio` vazia
+       — BL-487).
+
+    ⚠️ **A condição "nenhum grupo de contas IRMÃS topo classificadas tem
+    natureza cadastrada divergente entre si" (`contas_topo_classificadas_
+    com_natureza_divergente_entre_irmas` — BL-496) NÃO veta mais, desde a
+    [DE-070](../../docs/projeto/decisoes.md#de-070).** Ela continua
+    CALCULADA por `apurar_saldos` (guarda contra o defeito do BL-499
+    corrigida lá — raiz nunca é "irmã", comparação só dentro do mesmo
+    `TipoConta`) e é devolvida SEPARADA, em `listas_informativas` — nunca
+    misturada com `listas_pendentes`, que só contém o que IMPEDE (ver
+    "Retorna", abaixo). Eu (arquiteto) tinha mandado mantê-la como veto
+    ("cinto e suspensório") enquanto a correção (b) não tivesse prova para
+    retificadora DE GRUPO; a auditoria da DL-034 mediu essa prova e ela é
+    CERTA — o suspensório deixou de ter pressuposto.
+
+    ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
+    projeto já pagou caro por enumeração), com DUAS tuplas EXPLÍCITAS, não
+    uma inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
+    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM` (um
+    nome) nunca decide nada. Uma lista nova que `apurar_saldos` ganhar no
+    futuro só participa desta função se entrar em UMA das duas — o teste
+    do BL-502 (`test_dl034_balanco_patrimonial.py`) reprova se ela ficar de
+    fora das duas (esquecida), se entrar nas duas ao mesmo tempo
+    (ambígua), ou se uma lista que hoje impede for movida para a que só
+    avisa sem um teste de comportamento acusar.
+
+    Não verifica autorização nem papel nenhum — mesmo limite que
+    `apurar_saldos` já declara: esta função continua sem saber o que é uma
+    requisição HTTP. Quem chama (a view) verifica permissão ANTES de
+    chamar esta função.
+
+    Retorna:
+        {"pode_emitir": bool,
+         "residuo_pendente": {TipoConta: Decimal, ...},        # só os != 0
+         "listas_pendentes": {"nome_da_lista": [...], ...},    # só as que
+                                                                # IMPEDEM,
+                                                                # não vazias
+         "listas_informativas": {"nome_da_lista": [...], ...}} # só as que
+                                                                # AVISAM,
+                                                                # não vazias
+                                                                # — NUNCA
+                                                                # impedem
+
+    `residuo_pendente`, `listas_pendentes` e `listas_informativas` vêm
+    VAZIOS (`{}`) no caso são — quem consome não precisa checar
+    `pode_emitir` antes de iterá-los. ⚠️ `listas_pendentes` nunca contém
+    uma lista de `listas_informativas`, e vice-versa (são as duas tuplas
+    acima, disjuntas por construção).
+    """
+    zero = Decimal("0")
+    residuo_pendente = {
+        tipo: valor for tipo, valor in saldos["residuo_por_tipo"].items() if valor != zero
+    }
+    # Só o que IMPEDE decide `pode_emitir` — nenhum `if` por condição, a
+    # mesma derivação que a DL-034 já tinha (V3 da auditoria).
+    listas_pendentes = {
+        nome: saldos[nome] for nome in _LISTAS_QUE_IMPEDEM_A_EMISSAO if saldos[nome]
+    }
+    # A que só avisa (DE-070) vem SEPARADA — nunca contamina a decisão
+    # nem a mensagem de "o que impede".
+    listas_informativas = {nome: saldos[nome] for nome in _LISTAS_QUE_SO_AVISAM if saldos[nome]}
+    return {
+        "pode_emitir": not residuo_pendente and not listas_pendentes,
+        "residuo_pendente": residuo_pendente,
+        "listas_pendentes": listas_pendentes,
+        "listas_informativas": listas_informativas,
+    }
+
+
+def identificacao_da_demonstracao():
+    """DL-034 — NBC TG 26 (R5), item 51, alíneas (b), (d) e (e) (RC-95):
+    três campos do bloco de identificação OBRIGATÓRIO do Balanço que NÃO
+    EXISTEM hoje no produto. São "da entidade e da emissão" (o plano da
+    DL-034), mas NENHUM dos três VARIA por empresa nem por emissão no
+    DataLedger de hoje — por isso entram como CONSTANTE declarada, nunca
+    como campo de `Empresa` deduzido ou perguntado ao usuário: inventar uma
+    escolha que o produto não oferece seria pior do que declarar, com
+    fonte, o único valor que o produto de fato produz hoje (a instrução do
+    plano: "declarar não é adivinhar").
+
+    - **(b) individual ou de grupo:** o DataLedger **não consolida**
+      (nenhuma tela, nenhum serviço soma o Balanço de duas empresas) —
+      "individual" é a única resposta possível hoje.
+    - **(d) moeda de apresentação:** a NBC ITG 2000 (R1), item 5(d)
+      (RC-96), exige escrituração em moeda NACIONAL — não há escolha a
+      fazer.
+    - **(e) nível de arredondamento:** a política monetária do produto
+      inteiro já é "unidade de real, com centavos" (DE-010) — declarar
+      isso no documento É o cumprimento da alínea (e), sem campo novo
+      nem migração.
+
+    Função (não consulta banco, não faz parte de `apurar_saldos`) para que
+    a view/template chame em QUALQUER página do documento impresso —
+    critério 4 do plano, o bloco de identificação se repete em toda
+    página (NBC TG 26, item 52) — sem custo de consulta nenhuma.
+
+    Reversível pelo Fred a qualquer momento: se o produto vier a oferecer
+    consolidação, moeda estrangeira ou arredondamento em milhares, estes
+    três valores passam a ser CAMPO (de `Empresa` ou da emissão), não mais
+    constante — decisão que este limite deixa explícita, não escondida.
+    """
+    return {
+        "entidade_individual_ou_grupo": "individual",
+        "moeda_de_apresentacao": "Real (R$)",
+        "nivel_de_arredondamento": "unidade de real, com centavos",
+    }
+
+
+def apurar_balanco_patrimonial(*, empresa, data_base):
+    """Monta os TRÊS ingredientes que a tela do Balanço Patrimonial
+    consome (DL-034) num único ponto de entrada: os saldos classificados
+    (`apurar_saldos`), a decisão de emissão (`avaliar_emissao_do_balanco`)
+    e a identificação obrigatória do item 51 que não depende de dado
+    nenhum (`identificacao_da_demonstracao`).
+
+    Retorna `{"saldos": <dict de apurar_saldos>, "emissao": <dict de
+    avaliar_emissao_do_balanco>, "identificacao": <dict de
+    identificacao_da_demonstracao>}`.
+
+    ⚠️ **DE-067 — a leitura roda sob SNAPSHOT, aqui e SÓ aqui.** A
+    auditoria da DL-032 (achado A6) mediu que `apurar_balancete`/
+    `apurar_saldos` fazem TRÊS consultas fora de transação, sob `READ
+    COMMITTED`: uma escrita concorrente entre elas pode produzir uma
+    diferença TRANSITÓRIA na equação — sem nenhum desbalanço real gravado
+    na base, mas indistinguível de erro real para quem lê. A DE-067
+    decidiu ADIAR o custo do isolamento até existir uma superfície que
+    gera DOCUMENTO IMPRIMÍVEL — esta função é essa superfície, e paga a
+    dívida: `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` roda como a
+    PRIMEIRA instrução desta transação (exigência do PostgreSQL — em
+    qualquer outra posição da transação, o comando levanta erro). A partir
+    dela, TODAS as consultas de `apurar_saldos`/`apurar_balancete` dentro
+    deste `with` enxergam o MESMO snapshot do banco, tirado neste
+    instante: nenhuma escrita concorrente entre a primeira e a última
+    consulta pode mais produzir a diferença fantasma (prova de corrida:
+    `test_dl034_snapshot_do_balanco.py`).
+
+    `apurar_saldos`/`apurar_balancete` continuam sob `READ COMMITTED`
+    quando chamadas DIRETO (ex.: a API ad hoc que a DL-032 já expõe) — só
+    o caminho que GERA o Balanço paga o custo do isolamento elevado, como
+    a DE-067 manda; NENHUM comportamento do Balancete do produto muda.
+
+    Só leitura: nenhuma escrita acontece dentro deste `with`, então
+    `REPEATABLE READ` nunca produz "could not serialize access due to
+    concurrent update" aqui (erro exclusivo de CONFLITO escrita-escrita,
+    inexistente numa transação 100% de leitura) — não precisa de
+    `try/except` de serialização nem de `retry`.
+
+    ⚠️ **Precondição — degrada em vez de derrubar a página:** `SET
+    TRANSACTION ISOLATION LEVEL` só é válido como a PRIMEIRA instrução
+    depois do `BEGIN`. No caminho normal de produção (`ATOMIC_REQUESTS`
+    desligado de propósito — `config/settings.py` —, e nenhuma view abre
+    `atomic()` antes de chamar esta função), esta função abre a PRÓPRIA
+    transação de nível superior e recebe o `REPEATABLE READ` inteiro,
+    como descrito acima. **Se for chamada de dentro de um
+    `transaction.atomic()` JÁ aberto** — o caso do cliente de teste do
+    Django, que embrulha toda a requisição simulada num `atomic()` para
+    poder desfazer no fim (`@pytest.mark.django_db` padrão, sem
+    `transaction=True`) — o `with transaction.atomic()` abaixo vira uma
+    SAVEPOINT, e `SET TRANSACTION ISOLATION LEVEL` no meio de uma
+    transação em andamento levantaria erro do PostgreSQL. Em vez de deixar
+    a página quebrar por causa de como o AMBIENTE embrulhou a chamada
+    (nunca por decisão desta função), o comando é SIMPLESMENTE PULADO
+    nesse caso — a leitura roda sob o isolamento que a transação externa
+    já tiver (o padrão do Postgres, `READ COMMITTED`, na prática de hoje),
+    sem a garantia extra do snapshot único. **Isto é honesto, não
+    silencioso:** o dado não some nem mente — só a garantia de corrida
+    fica mais fraca nesse caminho aninhado específico, que hoje só existe
+    em teste, nunca em produção (medido: nenhuma view do projeto abre
+    `atomic()` antes de chamar esta função).
+
+    Não verifica autorização nem papel — mesmo limite que `apurar_saldos`
+    já declara; quem chama (a view) verifica permissão ANTES de chamar
+    esta função.
+    """
+    ja_estava_em_transacao = connection.in_atomic_block
+    with transaction.atomic():
+        if not ja_estava_em_transacao:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        saldos = apurar_saldos(empresa=empresa, data_base=data_base)
+
+    return {
+        "saldos": saldos,
+        "emissao": avaliar_emissao_do_balanco(saldos),
+        "identificacao": identificacao_da_demonstracao(),
     }
 
 

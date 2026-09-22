@@ -24,6 +24,7 @@ caso de conflito. Este documento é apenas o resumo operacional.
 | [docs/projeto/direcao-de-arte.md](docs/projeto/direcao-de-arte.md) | **Contrato visual do produto.** Obrigatório antes de criar tela de módulo novo (Fiscal, Folha, Honorários, Paralegal, Lalur) ou acrescentar tela às existentes. |
 | [docs/projeto/mapa-funcional-contabil.md](docs/projeto/mapa-funcional-contabil.md) | Capacidades da contabilidade, cruzamento honesto com o código e o que **não** copiar. |
 | [docs/projeto/personalizacao-de-relatorio.md](docs/projeto/personalizacao-de-relatorio.md) | As **três classes de documento** (conferência, demonstração, livro) e o que cada norma fixa. **Leia antes de mexer em qualquer relatório imprimível**, de qualquer módulo. |
+| [docs/projeto/catalogo-de-relatorios.md](docs/projeto/catalogo-de-relatorios.md) | Os 120 relatórios do catálogo cruzados com o que o produto atende **hoje**, medido. Traz a **cadeia** de onde todo relatório sai — e a conclusão de que **80 dos 120 são módulos que faltam, não relatórios**. **Leia antes de prometer relatório novo.** |
 | [docs/planos/](docs/planos/) | Plano versionado de cada demanda `DL-xxx`. |
 | [docs/auditorias/](docs/auditorias/) | Relatórios de auditoria efetivamente realizados. |
 
@@ -110,13 +111,72 @@ Regras que decorrem disso:
 A causa do problema não foi distração, foi **duplicação**. Texto repetido em
 quatro lugares diverge assim que alguém atualiza um.
 
+## Consulte os manuais ANTES de perguntar ao Fred
+
+Instrução do Fred, de 2026-09-20:
+
+> *"Grave na sua memória sempre consultar os manuais quando surgir qualquer
+> dúvida contábil antes de me perguntar."*
+
+Dita depois de eu levar a ele uma dúvida sobre rotina do sistema de referência
+que o manual responde em uma frase — e depois de o manual, na mesma leitura,
+**corrigir** uma hipótese minha que eu ia apresentar como certa.
+
+Onde está cada fonte: [docs/projeto/fontes-de-referencia.md](docs/projeto/fontes-de-referencia.md).
+
+| Tipo de dúvida | Onde se resolve |
+| --- | --- |
+| Como o sistema de referência se comporta; o que um campo significa; qual é a rotina usual do escritório | **Manual**, e depois pesquisa na internet — **nunca o Fred primeiro** |
+| Regra contábil ou exigência normativa: item, vigência, prazo, alíquota, leiaute | **Fonte oficial** (CFC, Receita), com item e data de consulta citados |
+| O que o escritório **dele** faz; o que ele quer que o produto faça; trade-off de produto | **Só o Fred** |
+
+⚠️ **A ressalva que protege o Fred, e ela é minha, não dele:** manual de
+concorrente responde **rotina**, nunca **norma**. Um manual de 2018 de outro
+produto não pode virar fundamento normativo nosso — isso violaria a regra de não
+inventar alíquota, prazo ou leiaute. As duas colunas de cima são diferentes de
+propósito.
+
+⚠️ **E o manual pode CORRIGIR a hipótese, não só confirmá-la.** Foi o que
+aconteceu na primeira aplicação desta regra. Ler antes não é só economizar o
+tempo do Fred: é evitar levar a ele uma pergunta cuja premissa já está errada.
+
 ## Regras impostas por mecanismo
 
 Parte das regras deixou de ser pedido: gancho de sessão que injeta o
 `AGENTS.md` no contexto, workflow que reprova PR sem atestado de leitura, teste
-que reprova estado divergente, e `main` protegida. O que é imposto e o que é só
-instrução está declarado no fim do [AGENTS.md](AGENTS.md) e no plano
-[DL-014](docs/planos/DL-014-guardas-de-processo.md).
+que reprova estado divergente, e o job que mede o documento imprimível no
+navegador real.
+
+⚠️ **Mas há uma diferença que você precisa saber antes de confiar em qualquer
+uma delas: verificação que RODA e reprova não é verificação que IMPEDE o
+merge.** A `main` **não tem proteção de branch** — medido em três endpoints da
+API do GitHub na nona auditoria
+([J2](docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md)). Então, hoje, as
+verificações ficam vermelhas e **não bloqueiam nada**: são conselho.
+
+A tabela no fim do [AGENTS.md](AGENTS.md) diz, linha por linha, o que impede o
+merge e o que não impede, e como ligar o que falta. **Não presuma imposição a
+partir da existência de um workflow.**
+
+⚠️ **Se for ajudar o Fred a ligar a proteção, os quatro nomes de checagem são
+estes, e só estes** — o contexto é o nome do **job**, não o do workflow:
+
+```
+Lint e testes
+Validar documentação
+Regras do projeto
+Medir identificação do emitente no navegador
+```
+
+O `AGENTS.md` trazia dois deles errados até 2026-09-20 (`Backend` e
+`Documentação`, que são nomes de workflow). **Nome errado não afrouxa a
+proteção: TRAVA a `main` para sempre**, porque a checagem exigida nunca
+reporta.
+
+⚠️ **E se for conferir pela API, use o `sha` de uma BRANCH DE TRABALHO, nunca o
+da `main`:** contra a `main`, `check-runs` devolve **dois** dos quatro —
+`Regras do projeto` só dispara em `pull_request`, e o job de identificação não
+tem execução lá. Medido na décima segunda auditoria (M6).
 
 ## Segredos
 

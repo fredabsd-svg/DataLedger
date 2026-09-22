@@ -16,11 +16,16 @@ from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
+    CompetenciaEncerrada,
+    CompetenciaJaEntregue,
+    CompetenciaOperacaoInvalida,
+    CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
     apurar_balancete,
     apurar_razao,
     criar_lancamento,
+    encerrar_competencia,
     estornar_lancamento,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
@@ -28,7 +33,9 @@ from apps.contabilidade.services import (
     localizar_inconsistencias_de_hierarquia,
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
+    marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
+    reabrir_competencia,
 )
 from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
@@ -138,6 +145,24 @@ CONTRATO_POST_ESTORNO = ContratoDeRequisicao(
     campos=frozenset(),
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no estorno",
+)
+# Fechar e entregar competência: rotas de AÇÃO, a competência vem da URL
+# (empresa/ano/mês), sem corpo nenhum — mesmo desenho do estorno.
+CONTRATO_POST_ENCERRAR_COMPETENCIA = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no fechamento de competência",
+)
+CONTRATO_POST_ENTREGAR_COMPETENCIA = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na entrega de competência",
+)
+# Reabrir é a ÚNICA das três com corpo: `motivo` é obrigatório (critério 5).
+CONTRATO_POST_REABRIR_COMPETENCIA = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura de competência",
 )
 
 
@@ -335,12 +360,55 @@ def _nivel_opcional(request):
     return nivel
 
 
+# Faixa de `ano`/`mes` na URL de fechar/reabrir/entregar competência — as
+# MESMAS faixas das duas `CheckConstraint` de `Competencia.Meta`
+# (`competencia_mes_entre_1_e_12`, `competencia_ano_entre_1970_e_2999`).
+# Validada AQUI, na fronteira, para que um mês/ano fora da faixa vire 400
+# com mensagem específica ("mês inválido") em vez do 400 genérico de
+# "corrida entre requisições" que `obter_ou_criar_competencia` devolve para
+# a violação de `CheckConstraint` (ver o docstring dela) — mesmo raciocínio
+# de `_nivel_opcional`/`_periodo_obrigatorio`: julgar o formato na fronteira
+# da API, não deixar o banco reportar por baixo.
+_MES_MINIMO, _MES_MAXIMO = 1, 12
+_ANO_MINIMO, _ANO_MAXIMO = 1970, 2999
+
+
+def _validar_ano_mes(ano, mes):
+    """Recusa (400) `ano`/`mes` fora da faixa que `Competencia` aceita.
+
+    `ano`/`mes` já chegam como `int` aqui — o `<int:...>` do urlconf
+    (`apps/contabilidade/urls.py`) já recusou texto não numérico antes de
+    a view rodar (404, comportamento padrão do conversor `int` do Django).
+    """
+    if not (_MES_MINIMO <= mes <= _MES_MAXIMO):
+        raise DRFValidationError(
+            f"'mes' inválido: {mes} — deve estar entre {_MES_MINIMO} e {_MES_MAXIMO}."
+        )
+    if not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+        raise DRFValidationError(
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO} e {_ANO_MAXIMO}."
+        )
+
+
 # Consulta é liberada a qualquer papel vinculado ao escritório ativo;
 # lançar/editar o plano de contas ou a escrituração é restrito a quem
 # efetivamente cuida da contabilidade do escritório.
 PodeEscriturar = papel_permitido(
     Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO
 )
+
+
+# DL-016 fatia 1, critério 8: fechar, reabrir e entregar competência exigem
+# papel autorizado, verificado NO SERVIDOR (nunca só escondendo botão na
+# tela — a tela nem existe ainda, esta fatia é só servidor).
+#
+# RC-102, CONFIRMADO pelo Fred em 2026-09-20 — resposta literal
+# "Administrador e gestor pode, analista não" — depois de ter sido hipótese
+# (HI-17) até este ponto da etapa: os papéis autorizados são ADMINISTRADOR e
+# GESTOR. ANALISTA lança (está em `PodeEscriturar`, acima) e não fecha/
+# reabre/entrega; FINANCEIRO, PARALEGAL e CLIENTE nunca estiveram em
+# questão para esta operação e ficam de fora pela mesma resposta.
+PodeFecharCompetencia = papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)
 
 
 # Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,
@@ -656,6 +724,12 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
             # Conflito de estado (a chave já existe com outro conteúdo), não
             # entrada inválida: 409, não 400 — e nada foi gravado (achado A2).
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaEncerrada as exc:
+            # DL-016 fatia 1, critério 1: mesma classe de conflito de estado
+            # que `ChaveIdempotenciaConflitante` — 409, e nada foi gravado (a
+            # recusa acontece DENTRO da transação de `criar_lancamento`,
+            # antes de qualquer INSERT).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -729,6 +803,12 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
 
         try:
             estorno = estornar_lancamento(lancamento, criado_por=request.user)
+        except CompetenciaEncerrada as exc:
+            # DL-016 fatia 1, critério 2: o estorno É um lançamento novo, e a
+            # competência que decide é a DELE (a data do estorno), não a do
+            # original — ver o comentário em `estornar_lancamento`. 409,
+            # nada gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -740,6 +820,147 @@ class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
         )
         serializer = LancamentoContabilSerializer(estorno)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+def _competencia_como_dict(competencia):
+    """Serialização mínima de `Competencia` para as três rotas de ação
+    abaixo (DL-016 fatia 1). Sem `serializers.ModelSerializer` de propósito:
+    não há entrada a validar (o corpo já foi julgado pelo contrato de cada
+    view), só saída — um dict simples evita um serializer que ninguém usa
+    para escrever.
+
+    `fechada_por`/`entregue_por` saem como ID (nunca o objeto `User`
+    inteiro nem o e-mail): as demais respostas desta API também não
+    expõem dados de usuário além do necessário, e "quem" já está na trilha
+    de auditoria com o contexto completo.
+    """
+    return {
+        "empresa": competencia.empresa_id,
+        "ano": competencia.ano,
+        "mes": competencia.mes,
+        "estado": competencia.estado,
+        "fechada_em": competencia.fechada_em.isoformat() if competencia.fechada_em else None,
+        "fechada_por": competencia.fechada_por_id,
+        "entregue_em": competencia.entregue_em.isoformat() if competencia.entregue_em else None,
+        "entregue_por": competencia.entregue_por_id,
+    }
+
+
+class EncerrarCompetenciaView(EmpresaEscopadaMixin, APIView):
+    """Fecha a competência (ano, mês) da empresa (DL-016 fatia 1).
+
+    Critérios do plano cobertos aqui: 1 (indiretamente — é o que TORNA a
+    trava do critério 1 possível de acionar), 3, 4, 8, 9, 10, 11.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ENCERRAR_COMPETENCIA)
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` foi MOVIDO para
+        # dentro de `encerrar_competencia` — o serviço já é
+        # `@transaction.atomic`, então a trilha commita junto com a
+        # transição sem a view precisar abrir savepoint nenhum. `request` só
+        # serve para o `registrar()` capturar o endereço IP; usuário e
+        # escritório são explícitos dentro do serviço.
+        try:
+            competencia = encerrar_competencia(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # RC-58 / critério 3: lote desbalanceado na base — conflito de
+            # ESTADO da base, não entrada malformada. Nada foi gravado (a
+            # recusa acontece antes de qualquer `save()`, dentro da
+            # transação atômica do serviço).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
+
+
+class ReabrirCompetenciaView(EmpresaEscopadaMixin, APIView):
+    """Reabre a competência (ano, mês) da empresa (DL-016 fatia 1).
+
+    Critérios do plano cobertos aqui: 5, 6, 8, 9.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_REABRIR_COMPETENCIA)
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        # `motivo` é o ÚNICO campo aceito por `CONTRATO_POST_REABRIR_
+        # COMPETENCIA` — a política dos cinco dicionários já recusou
+        # qualquer outra chave. Ausência (`None`) e tipo errado (não-texto)
+        # viram 400 aqui, na fronteira; string vazia/só espaço é recusada
+        # pelo SERVIÇO (`reabrir_competencia`, critério 5), porque "vazio"
+        # é regra de NEGÓCIO (o motivo é obrigatório), não de formato — a
+        # mesma distinção que `apps.core.requisicao` já traça entre "dado
+        # não contratado" e "dado contratado mas inválido".
+        motivo = request.data.get("motivo") if isinstance(request.data, dict) else None
+        if motivo is not None and not isinstance(motivo, str):
+            raise DRFValidationError("O campo 'motivo' deve ser texto.")
+
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` foi MOVIDO para
+        # dentro de `reabrir_competencia` — era a operação MAIS afiada de
+        # perder rastro (ela apaga `fechada_em`/`fechada_por` da linha), e
+        # chamar o serviço direto, sem view, gravava zero trilha. O serviço
+        # devolve só `competencia` agora (antes devolvia também
+        # `motivo_normalizado`, que a view usava para montar `detalhes` —
+        # isso passou para dentro do serviço, junto com `fechada_por_
+        # anterior`/`fechada_em_anterior`, BL-459/A4).
+        try:
+            competencia = reabrir_competencia(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
+        except CompetenciaOperacaoInvalida as exc:
+            # Critério 5: motivo vazio — entrada malformada, 400.
+            raise DRFValidationError(str(exc)) from exc
+        except CompetenciaJaEntregue as exc:
+            # Critério 6 / RC-101: já entregue — conflito de ESTADO, 409, com
+            # a data da entrega e a orientação de ajustar no mês aberto.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # Reabrir competência que não está encerrada — mesmo tratamento
+            # de conflito de estado, 409.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
+
+
+class EntregarCompetenciaView(EmpresaEscopadaMixin, APIView):
+    """Marca a competência (ano, mês) da empresa como entregue ao cliente
+    (DL-016 fatia 1).
+
+    Critérios do plano cobertos aqui: 7, 8, 9.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ENTREGAR_COMPETENCIA)
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        # BL-458/A3 (rodada 2 de auditoria): `registrar()` mora no serviço.
+        try:
+            competencia = marcar_competencia_como_entregue(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Critério 7: entregar mês aberto — conflito de estado, 409.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
 
 
 class DiarioView(EmpresaEscopadaMixin, APIView):

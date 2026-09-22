@@ -1,0 +1,265 @@
+name: Identificação do emitente
+
+# DL-028, fatia 2 (docs/planos/DL-028-o-juiz-aponta-para-o-produto.md;
+# DE-057). Responde, por medição do NAVEGADOR contra o PRODUTO real, se
+# cada documento imprimível sai com a identificação do escritório emitente
+# — a pergunta que a fatia 1 mediu que a suíte `pytest` sozinha (simulação
+# de cascata CSS, sem navegador) não garante.
+#
+# BL-501 (auditoria da DL-034, achado A3, docs/auditorias/2026-09-21-
+# dl-034-rodada-1.md): o mesmo job passou a medir TAMBÉM, por PÁGINA do
+# PDF exportado, o bloco de identificação do DOCUMENTO — item 51 da NBC
+# TG 26 (RC-95) — nas telas de CLASSE 2 (demonstração contábil; hoje só o
+# Balanço). É uma pergunta DIFERENTE do timbre do escritório (RC-97) —
+# ver `scripts/medir_identificacao_do_emitente.py`, seção logo acima de
+# `_descobrir_telas_com_identificacao_do_documento` — mas corre no MESMO
+# job, com o MESMO código de saída (1 = conteúdo, 2 = infraestrutura),
+# nenhum passo novo neste arquivo: o script constrói a própria empresa de
+# medição para esta checagem (a base padrão, semeada por `semear_base_de_
+# medicao.py`, não classifica conta nenhuma em circulante/não circulante,
+# então nunca teria o que medir aqui).
+#
+# BL-371 (arquiteto-senior, ALTA): a delimitação por caminho NÃO pode mais
+# viver em `on.push.paths`/`on.pull_request.paths`. Um job assim EXISTE só
+# quando o caminho bate — GitHub trata checagem OBRIGATÓRIA que nunca
+# reporta num PR (ex.: de documentação) como PENDENTE PARA SEMPRE, travando
+# o merge sem erro nenhum para investigar. E sem exigir a checagem, o
+# resultado dela é CONSELHO, não trava — o oposto do motivo de o Fred ter
+# escolhido o caminho A (mecanismo em vez de disciplina).
+#
+# A correção: o job roda SEMPRE (`on: push`/`pull_request`/
+# `workflow_dispatch`, sem `paths:`) e a decisão "os caminhos vigiados
+# mudaram?" vira um PASSO dele — "Decidir se os caminhos vigiados mudaram",
+# abaixo —, que roda primeiro, é barato (só `git diff` + comparação de
+# padrão, nenhuma instalação), e SEMPRE reporta um motivo no log. Quando a
+# resposta é "não", os passos caros (Playwright, poppler-utils, lint,
+# migração, medição) são PULADOS via `if:` — aparecem como "skipped" no
+# job, não ficam ausentes —, e o job termina VERDE. Isso permite exigir
+# esta checagem na proteção da `main` sem travar PR nenhum que não mexa em
+# impressão.
+#
+# A decisão em si (BL-379, achado J9 da nona auditoria,
+# docs/auditorias/2026-09-19-dl-026-dl-028-rodada-9.md) mora em
+# `scripts/decidir_caminhos_vigiados.py`, não mais numa string de Python
+# embutida no YAML — extraída porque `ruff`/`pytest` não alcançavam
+# aquele código, e o ramo `pull_request` (o único que de fato bloqueia
+# merge) nunca tinha rodado nas primeiras execuções reais. `CAMINHOS_
+# NAO_RELEVANTES`, dentro daquele arquivo, é a ÚNICA lista de padrões —
+# e, desde o BL-376 (achado J5), ela lista o que é IRRELEVANTE, não o
+# que importa: qualquer caminho fora dela é medido por padrão, o inverso
+# do filtro antigo (`CAMINHOS_VIGIADOS`), que deixava um módulo novo
+# escrevendo sua tela imprimível fora da vigilância, em silêncio.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DJANGO_SECRET_KEY: chave-de-teste-usada-somente-na-integracao-continua
+  DEBUG: 'True'
+  DATABASE_URL: postgres://dataledger:dataledger@localhost:5432/dataledger
+  # Senha do usuário SINTÉTICO da base de medição — não é segredo de
+  # verdade (não protege dado real nenhum), mas segue a mesma trava de
+  # `scripts/semear_base_de_medicao.py`: a variável precisa existir,
+  # nomeada, para o script recusar rodar sem ela por acidente.
+  DL_SENHA_DA_BASE_DE_MEDICAO: senha-sintetica-usada-somente-na-integracao-continua
+  DL_CONFIRMO_BANCO_DESCARTAVEL: dataledger
+
+jobs:
+  medir:
+    name: Medir identificação do emitente no navegador
+    runs-on: ubuntu-latest
+    # BL-356: navegador em integração contínua pode ficar instável por
+    # motivo alheio ao código. O timeout do JOB inteiro é a rede de
+    # segurança de último recurso — a distinção fina (infraestrutura vs.
+    # conteúdo) é feita pelo CÓDIGO DE SAÍDA do instrumento, no passo
+    # "Medir identificação do emitente", mais abaixo.
+    timeout-minutes: 15
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dataledger
+          POSTGRES_USER: dataledger
+          POSTGRES_PASSWORD: dataledger
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dataledger"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+        with:
+          # BL-371: o passo de decisão precisa de `git diff` contra a base
+          # (pull_request) ou o commit anterior (push) — um checkout raso
+          # (padrão: 1 commit) não tem esse histórico. `0` = histórico
+          # completo; custo aceito de propósito, é o preço de a decisão
+          # rodar DENTRO do job em vez de fora dele.
+          fetch-depth: 0
+
+      - name: Configurar Python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements/dev.txt
+
+      # BL-379 (achado J9 da nona auditoria): a lógica de decisão (antes
+      # 120 linhas de Python embutidas nesta string de YAML, fora do
+      # alcance de `ruff` e sem UM teste) mora agora em
+      # `scripts/decidir_caminhos_vigiados.py` — testado em
+      # `scripts/test_decidir_caminhos_vigiados.py` (11 cenários,
+      # inclusive `pull_request` com SHA vazios) e coberto por `ruff` e
+      # pelo job `Backend`, como qualquer outro `.py` do projeto. Só
+      # `stdlib`: não depende de `pip install -r requirements/dev.txt`
+      # ter rodado, então pode vir ANTES dele e decidir se ele é
+      # necessário.
+      - name: Decidir se os caminhos vigiados mudaram
+        id: decidir
+        env:
+          NOME_DO_EVENTO: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ANTES_SHA: ${{ github.event.before }}
+          DEPOIS_SHA: ${{ github.sha }}
+        run: python scripts/decidir_caminhos_vigiados.py
+
+      - name: Instalar dependências (inclui Playwright — DL-028 fatia 2, DE-057)
+        if: steps.decidir.outputs.relevante == 'true'
+        run: pip install -r requirements/dev.txt
+
+      # Cache do BINÁRIO do Chromium baixado pelo Playwright — separado do
+      # cache de pacotes Python acima (chaves e ciclo de vida diferentes).
+      # Chave inclui a versão do Playwright (via requirements/dev.txt):
+      # se o pacote mudar de versão, o cache antigo não serve, e
+      # `playwright install` baixa de novo em vez de usar um binário
+      # incompatível silenciosamente.
+      - name: Cache do navegador do Playwright
+        if: steps.decidir.outputs.relevante == 'true'
+        uses: actions/cache@v4
+        id: cache-playwright
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('requirements/dev.txt') }}
+
+      # Instala o Chromium pelo GERENCIADOR do Playwright — nunca caminho
+      # fixo (DE-057, restrição que atravessa as duas fatias). `--with-deps`
+      # também instala as bibliotecas de sistema que o Chromium precisa;
+      # roda sempre que o passo de decisão achar relevante (barato em
+      # cache-hit: o Playwright confere o que já está presente e não baixa
+      # de novo).
+      - name: Instalar o Chromium do Playwright
+        if: steps.decidir.outputs.relevante == 'true'
+        run: playwright install --with-deps chromium
+
+      # BL-370 (achado do arquiteto-senior sobre a primeira execução real
+      # deste job): faltava esta dependência de SISTEMA, e o job morreu no
+      # passo de medição com "pdfinfo, pdftotext (poppler-utils) não
+      # encontrado(s) no PATH". `--with-deps` do Playwright (passo acima)
+      # instala só as bibliotecas do PRÓPRIO Chromium — NÃO cobre
+      # poppler-utils, que é um pacote não relacionado (conferido: são
+      # dependências distintas, não presuma que uma cobre a outra).
+      # `pdfinfo`/`pdftotext` são usados por `scripts/medir_impressao.py`
+      # (reaproveitado por `scripts/medir_identificacao_do_emitente.py`) DE
+      # PROPÓSITO, para não acrescentar biblioteca Python de PDF a
+      # `requirements/` — a escolha continua certa; o que faltava era
+      # instalar a dependência de SISTEMA aqui, no job, não trocar a
+      # escolha.
+      - name: Instalar poppler-utils (pdfinfo/pdftotext)
+        if: steps.decidir.outputs.relevante == 'true'
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Lint (ruff check)
+        if: steps.decidir.outputs.relevante == 'true'
+        run: ruff check .
+
+      - name: Formatação (ruff format)
+        if: steps.decidir.outputs.relevante == 'true'
+        run: ruff format --check .
+
+      - name: Verificação do Django (system check)
+        if: steps.decidir.outputs.relevante == 'true'
+        run: python manage.py check
+
+      - name: Migrações aplicam no banco de medição
+        if: steps.decidir.outputs.relevante == 'true'
+        run: python manage.py migrate --no-input
+
+      # DL-028 fatia 2 + BL-434 (décima primeira auditoria, rodada 2 da
+      # DL-029): testes das funções PURAS do instrumento, e — desde o
+      # BL-434 — também os testes PONTA A PONTA (`test_ponta_a_ponta_*`)
+      # que exercitam `instrumento.main()` de verdade contra um cenário
+      # sintético renderizado pelo Django, com sabotagem aplicada só em
+      # MEMÓRIA (nunca em `static/css/base.css` nem `templates/**`) —
+      # ver o comentário da seção correspondente em
+      # scripts/test_medir_identificacao_do_emitente.py para o que cada
+      # um mede e por que NENHUM deles toca arquivo rastreado. Os testes
+      # puros já rodam também no job "Backend" (que não é delimitado por
+      # caminho); os ponta a ponta exigem Chromium/poppler-utils, que só
+      # ESTE job instala — por isso `DL_PYTHON_DO_SISTEMA` está presente
+      # aqui (mesmo valor do passo "Medir identificação do emitente",
+      # abaixo) e o nome do passo deixou de dizer "puras", que não é mais
+      # verdade sobre o que ele executa. Este job precisa ficar AUDITÁVEL
+      # sozinho: quem olha só este workflow vermelho não deveria precisar
+      # ir atrás de outro job para saber se o contrato de código de saída
+      # (infra vs. conteúdo, BL-356) e a frase do critério 9 (DL-029)
+      # estão testados.
+      - name: Testes automatizados do instrumento (puros e ponta a ponta)
+        if: steps.decidir.outputs.relevante == 'true'
+        env:
+          DL_PYTHON_DO_SISTEMA: ${{ steps.setup-python.outputs.python-path }}
+        run: pytest -q scripts/test_medir_identificacao_do_emitente.py
+
+      - name: Semear base sintética de medição
+        if: steps.decidir.outputs.relevante == 'true'
+        run: python scripts/semear_base_de_medicao.py
+
+      # O CÓDIGO DE SAÍDA decide a mensagem — nunca o inverso. `2` é
+      # INFRAESTRUTURA (navegador, banco, poppler-utils — nada sobre o
+      # produto); `1` é CONTEÚDO (o produto saiu sem emitente completo em
+      # alguma tela, com a tela e a linha nomeadas no log acima); `0` é
+      # sucesso. As duas falhas deixam o job vermelho (é o correto: as
+      # duas bloqueiam merge) — o que muda é a anotação que quem abre o PR
+      # lê primeiro, sem precisar rolar o log inteiro.
+      - name: Medir identificação do emitente
+        id: medir
+        if: steps.decidir.outputs.relevante == 'true'
+        env:
+          DL_PYTHON_DO_SISTEMA: ${{ steps.setup-python.outputs.python-path }}
+        run: |
+          set +e
+          python scripts/medir_identificacao_do_emitente.py
+          codigo=$?
+          set -e
+          if [ "$codigo" -eq 0 ]; then
+            echo "Identificação do emitente OK em todas as telas derivadas."
+          elif [ "$codigo" -eq 2 ]; then
+            echo "::error::FALHA DE INFRAESTRUTURA ao medir a identificação do emitente — não é um veredito sobre o produto (navegador, banco ou base de medição). Veja as linhas 'Recusado:' acima."
+            exit 1
+          elif [ "$codigo" -eq 1 ]; then
+            echo "::error::REPROVADO — o produto saiu sem identificação completa em pelo menos uma tela. Veja as linhas 'REPROVADO:' acima: pode ser o timbre do ESCRITÓRIO (RC-97, linha ausente/ilegível) ou, desde o BL-501, o bloco de identificação do DOCUMENTO — item 51 da NBC TG 26 (RC-95) — ausente em alguma página do PDF exportado, nas telas de classe 2 (hoje, o Balanço)."
+            exit 1
+          else
+            echo "::error::Código de saída inesperado ($codigo) do instrumento — nem sucesso (0), nem os dois códigos documentados (1 conteúdo / 2 infraestrutura). Trate como falha e investigue o script antes de confiar em qualquer resultado."
+            exit 1
+          fi
+
+      # BL-371: o job precisa reportar SEMPRE, com o motivo legível — este
+      # passo roda mesmo quando os anteriores foram pulados (`if: always()`
+      # limitado a não mascarar falha real: só imprime, nunca muda o
+      # resultado do job).
+      - name: Resumo
+        if: always()
+        run: |
+          if [ "${{ steps.decidir.outputs.relevante }}" = "true" ]; then
+            echo "Caminhos vigiados mudaram — medição completa executada (ver os passos acima)."
+          else
+            echo "Nenhum caminho vigiado mudou nesta revisão — medição pulada de propósito, job verde."
+          fi

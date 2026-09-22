@@ -2902,3 +2902,878 @@ procurou, não quanto sobrou**. A emenda melhora a busca; ela não substitui a
 decisão maior sobre o **instrumento**, que está em aberto com o Fred e
 registrada no
 [estado.md](../agents/estado.md).
+
+## DE-057 — O navegador entra na integração contínua, delimitado por caminho
+
+**Data:** 2026-09-19. **Decisão do Fred**, respondendo à pergunta de instrumento
+colocada pela oitava auditoria da DL-026
+([relatório](../auditorias/2026-09-19-dl-026-rodada-8.md), §7). Plano de
+execução: [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md).
+
+### A pergunta
+
+A DL-026 teve oito auditorias e onze rodadas. As onze percorreram **um eixo** —
+*o que o motor de cascata simulado consegue ler* — e o achado encolhia a cada
+passo, o que eu li como convergência. Na oitava auditoria o auditor olhou o eixo
+**ao lado** e o achado voltou a bloqueador: **dez construções banais de CSS
+apagam a identificação do escritório da folha A4 que o contador entrega ao
+cliente, com a suíte inteira verde**, medidas em Chromium e em PDF do produto.
+
+O auditor recomendou, contra o caminho que eu vinha seguindo, **trocar o
+instrumento** em vez de polir mais uma rodada. Três fatos sustentam isso:
+`test_bl329_marca_fora_do_papel.py` tem mais de 1800 linhas para uma pergunta
+que o navegador responde com uma chamada; a linguagem que ele simula cresce todo
+ano; e **todo bloqueador desta etapa foi encontrado abrindo um Chromium e
+olhando o PDF**.
+
+### As três opções levadas ao Fred, com o custo de cada uma
+
+| | Caminho | Custo |
+| --- | --- | --- |
+| **A** | Navegador de verdade na integração contínua | Cria dependência que o projeto decidiu, de propósito, não ter |
+| B | Conferência de bancada obrigatória, com evidência registrada | É **disciplina** — o que o projeto decidiu não usar como garantia quando criou as guardas |
+| C | Continuar polindo o motor simulado | Nunca fica completo |
+
+⚠️ Uma quarta opção foi descartada de saída, e não por mim: **declarar a etapa
+fechada afirmando que o critério 9 está garantido**, quando a medição desmente.
+
+### A decisão
+
+**O Fred escolheu A.** A delimitação por caminho é minha, e é ela que torna o
+custo aceitável: o job roda quando muda `static/css/**`, `templates/**` ou as
+guardas de impressão — nunca em alteração só de documentação.
+
+O que decide entre A e B é o princípio que já governa este projeto: **mecanismo
+em vez de disciplina**. A instrução permanente do Fred de 2026-09-13 — *"nunca
+esqueça de atualizar"* — virou teste, não lembrete, e a causa do problema foi
+nomeada como **duplicação**, não distração. Escolher B seria voltar a apostar em
+alguém lembrar, na propriedade em que a falha chega ao cliente em papel.
+
+### O que esta decisão NÃO significa
+
+1. **O motor simulado não é apagado.** Ele é rebaixado de *única linha* para
+   *primeira linha barata*, e isso fica **escrito na docstring dele** — quem
+   ler precisa saber que a palavra final é de outro. As recusas que as rodadas
+   10 e 11 instalaram continuam valendo.
+2. **Não se instala navegador por caminho fixo.** O
+   `/opt/pw-browsers/chromium-1194` desta máquina é acidente do ambiente, não
+   configuração do projeto. O job instala pelo gerenciador do Playwright.
+3. **Falha de infraestrutura precisa ser distinguível de falha de conteúdo.**
+   Job instável que reprova por motivo alheio ao código é falso alarme, e falso
+   alarme é, pelo argumento do BL-321, mais corrosivo que falso negativo.
+4. **Isso não fecha a DL-026.** BL-362 e BL-363 são da rodada 12, e correm em
+   paralelo, em arquivos disjuntos: enquanto o instrumento novo não existe, a
+   guarda atual não pode continuar simplesmente errada.
+
+## DE-058 — Justificativa escrita não é justificativa medida
+
+**Data:** 2026-09-20. Acréscimo à **DE-056** (acima, neste mesmo arquivo),
+proposto pelo `auditor-qa` na décima auditoria
+([relatório](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md), §2) e
+**decidido por mim**: é regra de processo, barata e reversível.
+
+### O que a décima auditoria mediu
+
+A DE-056 mandou **declarar** o limite de cada lista. Os dois implementadores
+fizeram isso: escreveram as justificativas nas docstrings dos arquivos novos. É
+melhor do que lista inexaminada, e não bastou, por **dois** motivos medidos na
+mesma rodada:
+
+1. **Eles responderam sobre as listas que o relatório anterior nomeou** — e a
+   única lista que ninguém tinha discutido foi a que virou **bloqueador**
+   (`MARCA_DO_FORNECEDOR`, BL-404).
+2. **Uma das justificativas escritas é falsa.** A docstring de
+   `LIMIAR_LUMINANCIA_TINTA` afirma que *"NENHUMA medição feita para calibrar
+   este oráculo produziu um pixel de linha do timbre entre 1 e 254"*. Uma linha
+   de CSS banal — `opacity: 0.4` — desmente a frase, e o instrumento passa a
+   reprovar produto correto dizendo *"0 pixels escuros"* (BL-407).
+
+### A regra
+
+**Toda frase de docstring, comentário ou documento que afirme um RESULTADO DE
+MEDIÇÃO precisa ter, ao lado, o teste que a reprova se ela deixar de valer.**
+
+Sem esse teste, a frase é exatamente o defeito de 2026-09-13 que originou a
+regra da fonte única — **garantia inexistente descrita como imposta** —, só que
+em escala pequena e dentro do código, onde ninguém vai reler.
+
+Três formas aceitáveis de cumprir, em ordem de preferência:
+
+1. **O teste existe e cita a frase.** A frase e o teste apontam um para o outro,
+   e quem mudar um vê o outro.
+2. **A frase vira a asserção.** Em vez de escrever o resultado, escreva a
+   verificação: o comentário some e o teste fica.
+3. **A frase é marcada como não verificada**, com a palavra *"não medido"* ou
+   *"hipótese"* nela, e com o que falta para medir. Isso é o mínimo, e só vale
+   quando medir custa mais do que a etapa comporta.
+
+O que **não** é aceitável é a forma atual: afirmação no tom de medição, sem
+medição ao lado e sem marca de que não foi medida.
+
+### O que isto NÃO é
+
+**Não é exigência de teste para toda docstring.** A regra alcança só frase que
+afirma resultado de medição — *"nenhum caso produz X"*, *"o custo é N
+segundos"*, *"isto dispara zero vezes hoje"*. Prosa explicativa, justificativa de
+desenho e contexto histórico continuam livres.
+
+### Dois itens de método que a mesma rodada gerou, e que são meus
+
+- **[BL-412] "Contar na fonte" é disciplina.** Eu contei e publiquei *"11 de 11
+  pulados, 24 s"*, e estava certo e **incompleto**: faltou **contar a fonte
+  inteira** — na mesma revisão havia uma segunda execução de CI, de
+  `pull_request`, com 0 pulados e 63 s. A versão-mecanismo é barata: o número é
+  **buscado** pelo script que monta o relatório, que itera **todas** as
+  execuções e **recusa publicar** se a busca falhar.
+- **[BL-413] Conferência por contagem prova cardinalidade, não conteúdo.** A
+  correção do BL-388 tem a mesma forma do `assert == 3` que eu mesmo corrigi:
+  seis linhas iguais passam, identificador trocado passa. A propriedade certa é
+  *"cada item que eu afirmo ter registrado é localizável no arquivo gravado pelo
+  seu próprio identificador"* — comparar **conjuntos**, não números.
+
+## DE-059 — Comprar a frase executável do critério 9, e dizer a verdade enquanto ela não chega
+
+**Data:** 2026-09-20. **Decisão delegada pelo Fred**, com uma frase — *"Você
+decide"* — depois de eu levar a ele os dois lados da **PE-56** com o custo de
+cada um. Plano de execução:
+[DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md).
+
+### A pergunta
+
+A décima auditoria
+([relatório](../auditorias/2026-09-20-dl-026-dl-028-rodada-10.md)) reprovou
+DL-026 e DL-028 com um bloqueador e quatro altas, e o auditor pôs duas saídas na
+mesa em vez de pedir a rodada 11:
+
+| | Caminho | Custo |
+| --- | --- | --- |
+| **1** | Escrever **uma** frase executável para o critério 9 inteiro e fazer o instrumento ser julgado por ela | ≈ uma rodada de trabalho, num arquivo e nos testes dele |
+| 2 | Não declarar as etapas fechadas e declarar **produto bom, garantia parcial**, com BL-404 nomeado | Zero |
+
+E foi explícito sobre o que **não** é defensável: *"fechar dizendo que o
+critério 9 está garantido"*.
+
+### A decisão
+
+**As duas, e elas não competem — respondem a perguntas diferentes.**
+
+1. **Compro a frase** (caminho 1). É a DL-029.
+2. **E declaro hoje a verdade de hoje** (caminho 2): DL-026 e DL-028 **não estão
+   fechadas**; o que existe é **produto bom, garantia parcial**, com **BL-404**
+   nomeado como o buraco aberto. Isso vale enquanto a DL-029 não entrar, e vale
+   **independentemente** dela.
+
+Isso é a **DE-054** (acima, neste mesmo arquivo) aplicada: *"isto melhora o produto?"* e *"isto está
+garantido?"* são perguntas separadas. O caminho 2 é uma afirmação sobre o
+**estado**; o caminho 1 é uma decisão sobre o **próximo trabalho**. Tratá-las
+como alternativa era o que amarrava uma na outra.
+
+### Por que o caminho 1, e a evidência é do mesmo dia
+
+O argumento do auditor é de **régua**: a régua de cada rodada tem sido o
+**relatório anterior**, não o **critério**; por isso o achado sobe de nível a
+cada vez e não acaba.
+
+Em **2026-09-20**, numa tarde, a mesma lição apareceu **três vezes seguidas** —
+**BL-415**, **BL-416**, **BL-418** — e nas três **dentro de uma guarda escrita
+para fechar a ocorrência anterior**. Na terceira, a causa raiz apareceu e ela
+**já estava decidida**: era a **DE-057** outra vez, um nível abaixo — estávamos
+reimplementando a configuração de uma ferramenta em vez de perguntar a ela,
+exatamente como o motor de cascata fazia com o navegador.
+
+Três ocorrências em uma tarde, com a causa raiz sendo uma decisão que o projeto
+já tinha tomado, é a medição que faltava. **Não é teoria sobre o futuro: é o
+registro do dia.**
+
+### O que esta decisão NÃO significa
+
+1. **Não fecha DL-026 nem DL-028.** Nenhuma das duas se declara fechada sem
+   auditoria da versão integrada (DE-054). A DL-029 é o trabalho; o fechamento é
+   outra conversa.
+2. **Não reverte o caminho A.** O instrumento de navegador **fica**. O auditor
+   reafirmou pela segunda rodada seguida: 4 s de medição responderam o que 1.800
+   linhas de cascata simulada não respondem, e o controle limpo mede 348 px
+   contra piso de 40.
+3. **Não promete que a frase é a última.** Prometer isso seria o defeito que a
+   DE-058 acabou de proibir. O que se afirma é o que se mede: os quatro achados
+   abertos são consequência de a frase não existir, e a frase os endereça
+   **juntos**. Se aparecer um quinto eixo, ele aparece contra **o critério**, que
+   é uma régua melhor que o relatório anterior.
+4. **Não fecha o limite do desenho.** Marca do fornecedor como logotipo vetorial
+   não tem objeto de texto, e nenhuma cláusula da frase a alcança. Fica
+   **declarada no código**, no formato da DE-056.
+5. **Não substitui a ação do Fred no GitHub.** Enquanto a `main` não tiver
+   proteção (BL-373), tudo isto — inclusive o job novo — é **conselho**.
+
+## DE-060 — A guarda APROXIMA: substituto não declarado é a nova forma do mesmo defeito
+
+**Data:** 2026-09-20. Nomeada pelo `auditor-qa` na décima primeira auditoria
+([relatório](../auditorias/2026-09-20-dl-029-rodada-11.md), resposta 2), adotada
+por mim. É o eixo seguinte da **DE-056**.
+
+### O que ele viu, e vale mais que os quatro achados somados
+
+Quatro achados de gravidade alta — **BL-427** a **BL-430** — têm **um** padrão
+por trás:
+
+> **O instrumento mede um SUBSTITUTO mais fácil de obter que a propriedade, e o
+> substituto não está declarado como substituto.**
+
+| A propriedade | O substituto medido | Diverge quando |
+| --- | --- | --- |
+| Que tamanho a linha tem **no papel** | `getComputedStyle().fontSize` | `transform`, `zoom` (BL-428) |
+| Qual é a **razão de contraste WCAG** | luminância de raster em **cinza** | a tinta não é cinza (BL-429) |
+| A linha **está no papel** | substring do `pdftotext -layout` | `letter-spacing` (BL-430) |
+| **Quantas** linhas o papel carrega | contagem de `<p>` do DOM | é a **mesma** consulta que alimenta a recusa de infraestrutura (BL-427) |
+
+### Por que isto é diferente da DE-056, e melhor
+
+A DE-056 diz *"a guarda ENUMERA"* — e a pergunta que ela gera (*"que lista
+existe aqui?"*) é **infinita**: sempre há outra lista.
+
+Esta diz *"a guarda APROXIMA"*, e a pergunta que ela gera é **finita e
+auditável**: o instrumento faz **cinco** medições; para cada uma, *"isto é a
+propriedade ou um substituto dela? se for substituto, de que ele diverge, e essa
+divergência foi medida?"*.
+
+⚠️ **E três das quatro correções usam dado que o instrumento JÁ CALCULA E
+DESCARTA** — o `bbox` real de cada linha, em pontos de PDF, do papel de verdade.
+**Não é escopo novo: é parar de jogar fora a medida melhor.**
+
+### A regra
+
+**Toda medição de guarda declara, no código, se mede a propriedade ou um
+substituto dela.** Quando for substituto: **de que ele diverge**, e **a medição
+dessa divergência** ao lado (DE-058). Substituto declarado é aceitável;
+substituto silencioso é o defeito.
+
+### O que isto NÃO significa
+
+1. **Não condena substituto.** Medir o papel inteiro em cor custa mais que medir
+   em cinza; a escolha pode ser certa. O que não pode é a etiqueta prometer o
+   que o número não entrega — foi o **BL-429**.
+2. **Não promete que é o último eixo.** O auditor foi explícito: *"a frase pagou
+   … e a frase não encerrou o ciclo, e eu não vou fingir que encerrou"*. O que
+   ele afirma é mais modesto e mais útil: é a **primeira vez em doze rodadas**
+   que o trabalho restante se escreve como **lista fechada** em vez de direção.
+   **E ele declarou o critério de parada:** se depois desta rodada aparecer um
+   **sexto** eixo, a conversa deixa de ser de engenharia e passa a ser *"quanta
+   garantia o produto precisa"* — pergunta do Fred.
+
+## DE-061 — A frase do critério 9, corrigida: ela prometia o impossível
+
+**Data:** 2026-09-20. Correção da frase adotada na **DE-059**, proposta pelo
+`auditor-qa` — que a escreveu — depois de **medir** a própria frase
+([relatório](../auditorias/2026-09-20-dl-029-rodada-11.md), resposta 1).
+
+### O que a medição mostrou
+
+A frase dizia *"a folha A4 **exportada** … não carrega **nenhum** identificador
+do fornecedor do software"*. Lida como um contador lê — a folha que sai apertando
+Ctrl+P —, essa cláusula é **impossível de cumprir**.
+
+Medido: exportando o Balancete com as **opções padrão** do diálogo de impressão
+(cabeçalho e rodapé marcados, que é o padrão do Chrome e do Edge), a faixa de
+baixo carrega a **URL**. Em produção, servida de um domínio da empresa, essa URL
+**é** o identificador do fornecedor, impresso em **toda folha**. E
+`static/css/base.css` já declara, no comentário do **BL-332**, que *"não existe
+propriedade CSS, atributo HTML nem cabeçalho HTTP que as suprima ou reescreva"*.
+
+**O produto está certo; a frase é que prometia o que ninguém pode entregar.**
+
+### A frase, corrigida
+
+> **A folha A4 exportada carrega, com tinta que contrasta com o papel,
+> exatamente as linhas de identificação do escritório emitente que o servidor
+> declarou, cada uma no seu próprio lugar; e — em tudo que o arquivo exportado
+> carrega e que o template ou a folha de estilo podem suprimir, excluída a faixa
+> que o navegador acrescenta por fora e que nenhuma folha de estilo alcança
+> (BL-332) — não carrega nenhum identificador do fornecedor do software, em
+> qualquer caixa ou espaçamento.**
+
+⚠️ **CORRIGIDA de novo em 2026-09-20, e o defeito era meu.** A primeira versão
+desta fronteira dizia *"isto é, tinta na folha e metadados do arquivo"* — uma
+**lista de dois canais**. A décima segunda auditoria mediu o custo (**M2**): o
+PDF entregue carrega **anotações de link**, e um `<a href>` com o domínio do
+fornecedor passava com `exit 0`. **Era a DE-056 acontecendo dentro da correção
+que eu propus para a DE-059.** A redação acima troca a lista por **critério**, e
+o instrumento já foi corrigido (`11fcfa7`).
+
+⚠️ **Isto NÃO é afrouxar.** É parar de chamar de garantia uma coisa que a
+medição diz ser impossível — que é, na definição do próprio projeto, o defeito de
+2026-09-13: **garantia inexistente descrita como imposta**.
+
+### O que a frase acertou, e fica sem mudar uma palavra
+
+*"Em qualquer caixa ou espaçamento"* se mostrou **mais larga** do que o autor
+tinha em mente: alcançou o canal de **metadados do PDF** (`/Title`), que ninguém
+tinha imaginado e que a equipe encontrou **ao executá-la**, e alcançou o
+`content:` de pseudo-elemento sem precisar de item novo. *"Uma frase que produz
+cobertura que o autor não antecipou é o sinal de que ela está no nível certo de
+abstração."*
+
+### Uma cláusula que a frase cobre em palavras e que o instrumento NÃO mede
+
+*"Do escritório **emitente**"*. A base de medição tem **um** escritório, então o
+instrumento nunca pode distinguir *"o escritório certo"* de *"algum escritório"*.
+Isso é coberto pela camada barata
+(`apps/tenancy/tests/test_bl282_timbre_escritorio.py:182`), e o auditor **não**
+recomenda duplicar no navegador. **Registrado para ninguém supor que o
+instrumento prova isolamento entre escritórios: ele não prova.**
+
+## DE-062 — A DE-058 vale para a PROSA, não só para o código
+
+**Data:** 2026-09-20. Proposta pelo `auditor-qa` na décima segunda auditoria
+([relatório](../auditorias/2026-09-20-dl-029-dl-030-rodada-12.md), resposta 4),
+**adotada por mim**, e o motivo é que o dado é contra mim.
+
+### O que ele mediu, e a separação é limpa
+
+Eu perguntei se quatro autocorreções num dia eram o processo funcionando ou
+sinal de que eu publico rápido demais. Ele **separou as duas coisas com
+medição**:
+
+| Tipo de afirmação minha | Verificadas | Confirmadas |
+| --- | --- | --- |
+| **Número medido** (suíte, lint, custo do job, contagem de testes) | 7 | **7** |
+| **Achado fechado** (BL-427 a BL-437, os sete gaps da DL-030) | 13 | **13** |
+| **Razão / mecanismo / enquadramento** | 3 | **1** |
+
+O veredito dele, textual: ***"Você mede bem e narra mal."***
+
+**O que erra é sempre a mesma coisa:** a **explicação** publicada ao lado do
+número, escrita no tom de quem mediu, quando não mediu. **Seis instâncias em um
+dia** — BL-435 (grep no lugar da propriedade), BL-442 caso 1 e caso 2, a
+aritmética do *"−84"*, a premissa nova do BL-419 (M10) e a generalização do
+*"lado seguro"* (M4).
+
+⚠️ **E a leitura que importa:** *"velocidade produziria erro **variado**. Seis
+instâncias da mesma forma, em um dia, é **mecanismo faltando**"* — e fui eu quem
+escreveu, no `CLAUDE.md`, que a causa do defeito de 2026-09-13 não foi distração,
+foi **estrutura**.
+
+### A regra
+
+**Toda afirmação VERIFICÁVEL escrita em `docs/projeto/**` e em
+`docs/agents/estado.md` carrega, ao lado, OU o comando que a produziu, OU as
+palavras "não medido".**
+
+A **DE-058** já dizia isso para **docstring**. Não valia para prosa — e
+`decisoes.md`, `backlog.md` e `estado.md` são hoje os documentos do projeto com
+**mais** afirmações verificáveis **sem verificação ao lado**. As seis instâncias
+estão **todas** lá; **nenhuma** no código.
+
+**Alcança:** *"o mecanismo X cobre Y"*, *"isto acontece porque Z"*, *"a falha é
+barulhenta"*, *"a direção do desvio é segura"*, *"o caminho é inalcançável" —*
+qualquer frase que alguém possa **conferir e derrubar**.
+
+**Não alcança:** recomendação, julgamento de prioridade, e o que já estiver
+marcado como **hipótese** ou **pendência** — essas categorias já existem e já
+dizem que não são fato.
+
+### O que esta decisão NÃO significa
+
+1. **Não é ordem para desacelerar, e o auditor foi explícito:** *"não recomendo
+   desacelerar. As quatro correções de ontem custaram horas; os dois defeitos que
+   sobreviveram — M1 e M2 — custaram **seis rodadas** de auditoria cada um, e
+   nenhum apareceu por falta de tempo: apareceram porque ninguém tinha escrito
+   aquela construção. **Velocidade não os teria evitado; a DE-055, sim, e ela já
+   está ligada.**"*
+2. **Não há mecanismo automático ainda, e isto fica declarado.** O
+   `scripts/validate-docs.ps1` anda por **todos** os `.md`, então o gancho
+   existe — mas **não sei se dá para verificar isto mecanicamente**, e **não
+   afirmo que dá**. É **hipótese**, não fato, e é a própria DE-062 aplicada a si
+   mesma na primeira linha que ela escreve.
+3. **Não apaga afirmação antiga.** Corrigir o que já se provou falso é
+   obrigação, e o registro do erro fica — foi assim com BL-435 e BL-442.
+
+## DE-063 — Teste que guarda ANDAIME se corta; teste que guarda REGRA CONTÁBIL não
+
+**Data:** 2026-09-20. **Ordem do Fred**, com a medição dele: *"a main tem ~11.800
+linhas de produção e ~45.000 de teste … estamos girando no mesmo lugar …
+precisamos contar mais e reduzir drasticamente essa quantidade de teste."*
+
+### A medição, conferida por mim antes de agir
+
+```
+git ls-files 'apps/**/*.py' 'config/**/*.py' | grep -v '/tests\?/' | grep -v test_ | grep -v /migrations/ | xargs wc -l
+  → 12.109 linhas de produção
+git ls-files 'apps/**/*.py' 'scripts/**/*.py' | grep -E '/tests?/|test_' | xargs wc -l
+  → 47.245 linhas de teste        proporção 3,9 : 1
+```
+
+**Os números do Fred estão certos.** Mas a distribuição diz o que a proporção
+não diz:
+
+| Fatia | Linhas | % | O que guarda |
+| --- | --- | --- | --- |
+| **Regra contábil e dados** | 18.372 | **36,9%** | Lançamento, conta, empresa, período, trilha, isolamento |
+| **Varredura de meta-regras** | 14.878 | **29,9%** | Nossos contratos, nossa interface, nossos arquivos de agente, nosso estado |
+| **Guarda do documento impresso** | 8.857 | **17,8%** | Timbre, marca, motor de CSS simulado, instrumento |
+| **Interface** | 7.660 | 15,4% | Telas, acessibilidade |
+
+⚠️ **Quase metade (47,7%) guarda o ANDAIME — a nossa própria disciplina —, não
+a contabilidade.** É isso que a proporção de 3,9:1 esconde, e é o diagnóstico
+que transforma a intuição do Fred em decisão.
+
+### A regra
+
+1. **Teste de regra do domínio contábil é intocável.** Débito igual a crédito,
+   precisão monetária, isolamento entre empresas, imutabilidade da trilha,
+   período encerrado, idempotência. **Não se corta, não se "simplifica".** É o
+   que faz o produto ser confiável, e é irreversível errar aqui.
+2. **Teste que guarda a nossa própria disciplina só existe se for DERIVADO** —
+   uma varredura curta que pergunta uma propriedade. **Nunca por enumeração**, e
+   nunca com motor próprio.
+3. **Quando existe medição direta, a simulação é APAGADA, não guardada "por
+   segurança".** Manter as duas é pagar duas vezes pela mesma pergunta — e foi
+   exatamente o que fizemos com o motor de CSS.
+
+### O primeiro corte, executado hoje
+
+**5.290 linhas, 142 testes, quatro arquivos** — a família do **motor de CSS
+simulado** (`test_bl329`, `test_bl331`, `test_bl332`, `test_bl338`).
+
+**Por que estes primeiro, e não outros:** a **DE-057** já os rebaixou de *única
+garantia* para *primeira linha barata* quando o Fred comprou o navegador real. O
+navegador responde a **mesma pergunta em 4 segundos**, e essas 5.290 linhas
+produziram, sozinhas, **doze rodadas de auditoria** — BL-343, BL-351, BL-352,
+BL-353, BL-360, BL-361, BL-362, BL-363, BL-372… **O custo delas não foi o
+tamanho: foi o número de rodadas que consumiram.**
+
+**Medido depois do corte:** `1917 passed, 14 skipped`, suíte verde; proporção
+**3,9 : 1 → 3,5 : 1**.
+
+⚠️ **O que se perde, declarado:** erro de CSS deixa de ter sinal **local
+instantâneo** e passa a aparecer no job de navegador na CI (~50 s), que roda nos
+caminhos vigiados — e `static/**` e `templates/**` **são** vigiados. É perda
+real e pequena; registro para não descobrirem depois.
+
+### O que esta decisão NÃO é
+
+1. **Não é "testar menos".** É **parar de testar o andaime**. A fatia contábil
+   (36,9%) não perde uma linha.
+2. **Não é desfazer a DE-057.** O navegador fica; o que sai é a **imitação** dele
+   que continuamos mantendo ao lado.
+3. **Não apaga história.** Os quatro arquivos continuam no histórico do Git, e
+   os doze relatórios de auditoria que os julgaram continuam preservados.
+
+## DE-064 — Trabalho EM VOO de outro agente não se commita, e a regra para de ser redecidida
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a delegação do
+Fred (*"Você decide"*), depois de o gancho de fim de turno cobrar commit **dez
+vezes na mesma sessão** sobre arquivos que pertenciam a um agente ainda
+executando.
+
+**A regra:** o `arquiteto-senior` **não** commita alteração que esteja sendo
+escrita por outro agente naquele momento. Quem entrega e commita é **quem
+escreveu**, com os números medidos no relatório.
+
+**O que o gancho mede, e por que erra:** ele pergunta *"existe diferença na
+árvore?"*. A pergunta certa é *"existe trabalho CONCLUÍDO sem dono?"*. Diferença
+na árvore com dono ativo é **trabalho em andamento**, não pendência. É a
+**[DE-060](#de-060--a-guarda-aproxima-substituto-não-declarado-é-a-nova-forma-do-mesmo-defeito)**
+aplicada ao próprio ferramental: o instrumento mede um **substituto** mais fácil
+de obter que a propriedade.
+
+**Por que a regra vale o atrito, e o exemplo é real:** durante a correção do
+**BL-456** — a corrida que grava lançamento em competência encerrada — o
+gancho cobrou commit de `apps/contabilidade/services.py` **no meio** da
+reescrita da trava. Commitar ali gravaria meia correção de concorrência, sem a
+prova exigida (30 tentativas, zero falhas) ter sido rodada uma única vez.
+**Código de concorrência pela metade parece pronto e não está.**
+
+**O que NÃO muda:** o `arquiteto-senior` commita e empurra o que é **dele**
+(documentação, planos, requisitos, relatórios de auditoria) a cada etapa, e
+confere que local e remoto batem antes de encerrar o turno. A árvore nunca fica
+com trabalho **concluído** sem commit.
+
+**Registrado como decisão para parar de ser redecidido.** O atrito é do
+instrumento (**BL-421**), não do processo; enquanto o gancho não distinguir
+"em andamento" de "concluído", a resposta é esta, e é uma linha.
+
+## DE-065 — A fatia 2 da DL-016 é a TELA, e ela vem antes de qualquer módulo novo
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a mesma
+delegação.
+
+**Assim que a fatia 1 fechar, a próxima etapa de código é a fatia 2: a tela de
+fechar, reabrir e marcar como entregue.** Não é o código reduzido da conta
+(RC-99/RC-100), não é módulo novo, não é a política de período de trabalho.
+
+**O motivo é de produto, e é simples de verificar:** hoje o contador **não
+consegue fechar o mês**. A trava existe no servidor e não há porta pela qual
+acioná-la — só requisição direta à API, que não é o que o escritório usa.
+**Funcionalidade que o usuário não alcança é funcionalidade que não existe para
+ele.** Uma trava sem tela transforma-se, na prática, em um sistema que recusa
+lançamentos sem que ninguém tenha como abrir o mês de volta.
+
+**A ordem inversa foi deliberada e continua certa** — a trava antes do botão
+(*"a trava tem de existir antes de haver botão para acioná-la"*). O que esta
+decisão diz é que a dívida gerada por essa ordem **se paga na etapa seguinte**,
+não depois de dois módulos.
+
+⚠️ **E a fatia 2 nasce com uma vantagem que a 1 não teve:** o **BL-457** mostrou
+que a tela de **lançamento** devolvia 500 em vez da mensagem da recusa. A fatia
+2 herda a obrigação de apresentar, em cada tela que toca a competência, a recusa
+**em texto que o contador entenda** — com o caminho de saída (reabrir, ou lançar
+no mês aberto) escrito na própria mensagem.
+
+## DE-066 — Achado de gravidade BAIXA não abre rodada; vira ressalva declarada
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-20**, sob a mesma
+delegação, para dar consequência prática à **regra de parada da §3.1 do
+`AGENTS.md`**.
+
+**A régua da reconferência**, a partir de agora:
+
+| Gravidade | O que acontece na reconferência |
+| --- | --- |
+| **Bloqueador** ou **alta** | **Tem de estar fechado e medido.** Se não estiver, a etapa **não** fecha, e o caso sobe ao Fred com o diagnóstico — **não** com uma terceira rodada |
+| **Média** | Fecha na mesma correção **quando o dono e os arquivos já estão abertos**; senão vira item de backlog com dono e momento |
+| **Baixa** | **Ressalva declarada.** Entra no relatório ao Fred, com o efeito prático escrito, e **não** segura a etapa |
+
+**Por que isto é decisão e não preguiça:** a auditoria da fatia 1 devolveu
+**oito** achados. Dois são o produto (bloqueador e alta); quatro são baixas —
+um comentário desatualizado, falta de contexto na trilha, um estado do enum que
+ninguém usa, e este arquivo de estado. **Tratar os oito com o mesmo rigor é o
+que transformou doze rodadas de auditoria em doze rodadas de polimento**, que é
+exatamente o que o Fred mandou parar.
+
+⚠️ **O que a régua NÃO afrouxa:** gravidade quem atribui é o **auditor**, não o
+implementador nem eu. Reclassificar achado para baixo a fim de fechar etapa é
+proibido, e seria a forma mais barata de fraudar este processo inteiro.
+
+## DE-067 — A leitura de saldos NÃO recebe snapshot nesta fatia; o limite é DECLARADO e pago na fatia 2
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-21**, respondendo ao achado
+**A6** da [auditoria da DL-032](../auditorias/2026-09-21-dl-032-rodada-1.md), que
+o auditor encaminhou explicitamente a mim por ser *"decisão de arquitetura, não
+de implementação"*.
+
+**O achado, em uma frase:** `apurar_saldos` lê em **três consultas**, fora de
+transação, sob `READ COMMITTED` — então uma escrita concorrente entre a primeira
+e a segunda pode produzir uma **diferença fantasma** na equação: diferente de
+zero num instante, zero no seguinte, **sem desbalanço real na base**.
+
+**A decisão: declarar agora, pagar o snapshot na fatia 2.** Três razões, em
+ordem de peso:
+
+1. **Hoje NINGUÉM consegue provocar a corrida pelo produto.** `apurar_saldos`
+   **não tem view** — é decisão do próprio plano. A exposição à concorrência
+   **começa quando a superfície existir**, e é exatamente aí que o custo deve ser
+   pago, junto com a autorização, que o auditor também apontou como pendência
+   que **migra inteira** para a fatia 2.
+2. **`atomic()` sozinho NÃO resolve**, e isso é a parte que engana: sob
+   `READ COMMITTED` cada instrução recebe um snapshot novo. A correção real
+   exige `REPEATABLE READ`, que muda o comportamento de **toda** a transação
+   — e `apurar_balancete`, a função reusada, é chamada de views que podem já
+   estar em transação. **Mexer nisso sem a superfície pronta é alterar o
+   Balancete do produto para resolver um problema de uma fatia que ainda não
+   tem porta.**
+3. **O dano é de confiança, não de dado.** Nada é gravado errado, nada se perde.
+   Mas para o contador uma diferença intermitente é **indistinguível** de erro
+   real — e o plano manda declarar a diferença, então ele vai declará-la.
+
+⚠️ **O que esta decisão NÃO autoriza, e é o ponto do auditor:** *"o que não me
+parece aceitável é o silêncio atual"*. **Concordo.** O limite entra no
+**docstring** de `apurar_saldos` — não só aqui —, dizendo que a leitura não é
+isolada e que a diferença só é conclusiva em base parada.
+
+**A fatia 2 herda isto como requisito, não como sugestão:** a leitura que gerar
+documento imprimível roda **sob snapshot**, e o teste de corrida que prova isso
+nasce junto com a view. ⚠️ **Registro para não ser esquecido**, que é o destino
+comum das dívidas declaradas sem dono e sem momento.
+
+## DE-068 — Enuncie a invariante E O ESCOPO DELA: invariante mal dimensionada é pior que lista
+
+**Decisão tomada pelo `arquiteto-senior` em 2026-09-21**, a partir de uma
+**retratação do próprio `auditor-qa`** na
+[reconferência da DL-033](../auditorias/2026-09-21-dl-033-rodada-2.md).
+
+**A história completa, porque a lição só se entende com ela:**
+
+1. Na **rodada 1**, o auditor recomendou trocar um catálogo de listas por uma
+   **identidade aritmética**, e escreveu que ela *"fecha de uma vez este achado,
+   o A2 e o A6 — **e qualquer outro caso que nem eu nem o implementador
+   pensamos**"*.
+2. **Eu promovi essa frase a critério de aceite**, confiando nela.
+3. O implementador **repetiu a promessa no docstring** do código.
+4. Na **rodada 2**, o próprio auditor **construiu o contra-exemplo e o mediu**:
+   dois defeitos calibrados para se anularem produzem **resíduo zero, cinco
+   listas vazias, equação fechando — e dois grupos do Balanço errados em
+   R$ 500,00 cada**.
+
+**A frase dele, que eu adoto como a decisão:**
+
+> *"Invariante mal dimensionada é mais perigosa que lista, porque **parece
+> completa**. Lista declara o que sabe e admite o que não sabe; identidade
+> aritmética convida a acreditar que fechou tudo."*
+
+**A regra, portanto:** ⚠️ **enunciar a invariante NÃO basta — é preciso enunciar
+o ESCOPO dela**: sobre qual agregação ela vale, e sobre qual **não** vale.
+
+**O caso concreto, como exemplo permanente:** `Σ(grupos) + resíduo ==
+totais_por_tipo` é **verdadeira sempre** — o auditor não achou nenhum cenário em
+que falhe, e não é tautologia, porque os dois lados somam conjuntos de nós
+**diferentes**. Mas ela é um cruzamento **líquido** e **por TIPO**. Ela **não**
+limita o erro de nenhum **grupo** individual — e é o grupo que o Balanço
+imprime.
+
+⚠️ **Isto corrige, sem revogar, a [DE-058](#de-058) e a lição da rodada 1 da
+DL-033** (*"enuncie a invariante, não o mecanismo suspeito"*). A regra continua
+certa; o que faltava era a segunda metade. **Enunciado por mecanismo erra por
+estreiteza; enunciado por invariante sem escopo erra por largueza — e a
+largueza é pior, porque não parece erro.**
+
+**A quem isto obriga, e é a mim primeiro:** quem escreve critério de aceite
+declara a agregação em que a propriedade vale. Frase de auditor, por melhor que
+seja, **não entra em plano sem ser dimensionada** — foi exatamente isso que eu
+não fiz.
+
+⚠️ **E o que esta decisão NÃO faz:** não culpa o auditor. **Ele mesmo desmontou
+a própria recomendação, sem ser perguntado, na rodada seguinte.** É o
+comportamento que este projeto quer, e é por isso que o erro virou decisão em
+vez de virar nota de rodapé.
+
+## DE-069 — Recomendação que o auditor declarou NÃO ter testado entra como hipótese a medir, nunca como número a assertar
+
+**Data:** 2026-09-21
+
+**Decisão:** quando um relatório de auditoria traz uma recomendação e o próprio
+auditor **declara** que não a implementou nem a testou, ela entra no plano
+**como hipótese a medir**, com a medição escrita como tarefa. ⚠️ **Nunca como
+número literal em critério de aceite**, e nunca como afirmação de que o
+resultado será aquele.
+
+**Motivo — e é a SEGUNDA ocorrência seguida da mesma falha minha.** Na rodada 2
+da DL-033 o auditor sugeriu a correção (b) — normalizar o sinal pela natureza
+natural do tipo — e escreveu, com todas as letras, que **conferira a aritmética
+à mão, sem implementar nem testar**. Escreveu também que, naquele cenário, os
+grupos dariam `ativo_circulante == 2.750,00` e `ativo_nao_circulante ==
+8.500,00`. **Eu copiei os dois números para o critério 1 da DL-034 como
+asserção obrigatória**, e repeti "no V1d" na tarefa do implementador.
+
+**O implementador mediu e recusou, e estava certo.** No V1d o
+`ativo_nao_circulante` é **8.000,00 e não pode ser outro**: (b) corrige
+**sinal**, e o defeito do lado do Imobilizado no V1d é de **cobertura** — 500,00
+parados num nó sem classificação. Nenhuma correção de sinal alcança isso. Ele
+escreveu o motivo no comentário do teste (*"(b) é correção de SINAL, não de
+COBERTURA"*) e montou um controle positivo separado, declarando honestamente que
+**aquele** teste não depende de (b). A auditoria da DL-034 confirmou a
+aritmética dele.
+
+**Na rodada anterior foi a identidade aritmética** (DE-068). **Aqui foi um
+número.** O padrão é o mesmo: frase de auditor promovida a critério **sem ser
+redimensionada**.
+
+**Alternativas descartadas:**
+
+- *Não registrar a recomendação no plano* — pior: a boa ideia se perde e a
+  medição nunca acontece. O valor da recomendação não está em dúvida; o que está
+  em dúvida é o **número**.
+- *Registrar o número com um "aproximadamente"* — critério de aceite não admite
+  advérbio. Ou é asserção, ou é tarefa de medição.
+
+**Consequência, e ela recai sobre mim:** ao transcrever recomendação de
+auditoria para plano, procuro no relatório a declaração de limite do próprio
+auditor. Havendo uma, o critério passa a ter a forma *"medir X no cenário Y e
+registrar o valor encontrado, justificando-o"* — e **quem implementa tem
+autoridade para recusar o número previsto, desde que escreva por quê**. Foi
+exatamente o que aconteceu, e é o comportamento que queremos: a etapa foi salva
+por um implementador que não obedeceu a um critério errado do arquiteto.
+
+⚠️ **Relação com a [DE-058](#de-058) e a [DE-068](#de-068):** justificativa
+escrita não é justificativa medida (DE-058); invariante precisa de escopo
+(DE-068); e agora — **número de auditor sem execução é hipótese, não fato**. As
+três são a mesma família: **o texto convence mais do que a medição que ele não
+teve**.
+
+## DE-070 — A condição 3 do Balanço é APOSENTADA como veto e vira informação declarada; o resíduo continua como cinto
+
+**Data:** 2026-09-21
+
+**Decisão:** a condição 3 do critério 1 da
+[DL-034](../planos/DL-034-a-tela-do-balanco.md) —
+*"nenhum grupo tem nó topo-classificado irmão de natureza cadastrada divergente"*
+— **deixa de impedir a emissão**. Ela permanece **calculada e declarada** na
+resposta, e a tela pode exibi-la como aviso; **não veta**. Permanecem como veto:
+a condição 1 (`residuo_por_tipo` zero), a condição 2 (as listas de declaração
+vazias) e a condição 4 (nó não-folha sem classificação própria nem ancestral com
+movimento próprio).
+
+⚠️ **E isto NÃO dispensa a correção do A1**, que continua **alta e obrigatória**:
+enquanto a lista for calculada agrupando por `conta_pai` — `None` para **toda**
+raiz —, ela **nomeia contas corretas** numa frase factualmente falsa
+(*"sob o mesmo ancestral não classificado"*, quando não há ancestral). Um aviso
+mentiroso é pior que um veto mentiroso, porque ninguém o corrige.
+
+**Motivo.** Eu mandei "cinto e suspensório" — implementar (b) **e** manter as
+guardas 3 e 4 — com um pressuposto explícito e datado: *"o próprio auditor
+declarou o limite da sugestão dele (…) pode haver interação com retificadora **de
+grupo** que ele não enxergou"*. **A auditoria da DL-034 mediu essa interação e ela
+não existe:** com grupo retificador inteiro irmão do grupo bruto — a forma
+clássica do Imobilizado brasileiro —, `ativo_nao_circulante = 12.000,00`, certo,
+conciliando com `totais_por_tipo` no primeiro centavo. E na topologia do BL-486
+puro, `ativo_circulante = 1.170,00`, certo. **O pressuposto que sustentava o
+suspensório deixou de existir**; a partir daí a condição 3 só recusa casos em que
+o número está **certo**.
+
+**O caso concreto que isso destrava:** empresa com depreciação acumulada
+classificada como grupo próprio — arranjo normal — não emitia Balanço.
+
+**Alternativas descartadas:**
+
+- *Manter a condição 3 como veto* — recusaria permanentemente planos corretos.
+  O auditor colocou a bifurcação com precisão: mantê-la obriga a corrigir A1 de
+  qualquer forma, e mesmo corrigida ela vetaria a retificadora de grupo, cujo
+  número está provado certo.
+- *Apagar a condição 3 inteira* — perderíamos um sinal barato sobre plano de
+  contas incoerente. Declarar custa nada e não bloqueia ninguém.
+- *Substituir por veto só quando o resíduo for diferente de zero* — é a
+  condição 1, que já existe; não acrescenta.
+
+**Consequência:** a condição 4 permanece **veto** porque cobre o defeito de
+**cobertura** (valor que some dos grupos), que (b) não alcança — é o que o V1d
+mediu. A DE-068 continua valendo: `Σ(grupos) + resíduo == totais_por_tipo` é
+verdadeira **por tipo** e **não** limita o erro de grupo nenhum. **O que mudou
+não foi a invariante: foi a prova de que (b) torna o número certo nas duas
+topologias de retificadora que restavam.**
+
+## DE-071 — Desligar uma trava exige prova de COMPORTAMENTO, uma por trava que sobrou; prova de ESTRUTURA não serve
+
+**Data:** 2026-09-21
+
+**Decisão:** quando uma decisão **desliga uma verificação que impedia uma
+operação**, a prova exigida no plano é de **comportamento**: para **cada** trava
+que permaneceu, um cenário em que **só ela** está acionada, exigindo que a
+operação seja **recusada**. E o conjunto desses cenários é **derivado da própria
+estrutura** que lista as travas — `pytest.mark.parametrize` sobre a tupla —, para
+que a trava seguinte **nasça com o cenário junto**.
+
+⚠️ **Prova de estrutura não substitui:** partição, união, interseção vazia,
+congelamento de chaves e contagem de itens provam que **a lista está completa**.
+**Nunca provam que um item está do lado certo.**
+
+**Motivo, medido.** Na [DE-070](#de-070) eu aposentei a condição 3 do Balanço e
+comprei como garantia que as duas tuplas — o que impede e o que só avisa — fossem
+uma **partição exata** do inventário real de `apurar_saldos`. O auditor mediu o
+que essa garantia **não** cobre:
+
+> Movendo, **uma por vez**, cada uma das seis listas que vetam para a tupla que
+> só avisa: **cinco delas passam com 1657 testes verdes**. E para uma —
+> `contas_com_classificacao_aninhada`, justamente a que produz **resíduo zero** —
+> **o Balanço passa a EMITIR**.
+
+A partição continua **verdadeira** depois da troca: união e interseção não mudam
+quando um nome muda de lado. **Partição é invariante de FORMA; veto é
+comportamento.**
+
+⚠️ **E o código escreveu a promessa que a medição desmente**, em dois docstrings
+— o do teste do BL-502 e o de `avaliar_emissao_do_balanco` — afirmando que mover
+uma lista de uma tupla para a outra faria um teste reprovar. **Vale para 1 das
+6.**
+
+**Alternativas descartadas:**
+
+- *Não aposentar a condição 3* — o mérito da DE-070 não está em discussão: o
+  pressuposto que a sustentava foi medido e caiu, e mantê-la recusaria planos
+  corretos. O erro não foi desligar; foi **o que aceitei como prova**.
+- *Um teste escrito à mão por trava* — resolve hoje e apodrece amanhã: a trava
+  seguinte nasce sem cenário. Tem de ser derivado da tupla.
+- *Confiar na revisão humana* — é exatamente a promessa que a A4 da rodada 1 já
+  desmentiu.
+
+**Consequência, e recai sobre mim primeiro:** ao escrever critério de aceite para
+qualquer mudança que **afrouxe** uma verificação, a pergunta obrigatória passa a
+ser *"qual cenário, sozinho, prova que cada trava restante ainda recusa?"* — e a
+resposta vai no plano **antes** da implementação.
+
+⚠️ **Relação com a [DE-058](#de-058), a [DE-068](#de-068) e a
+[DE-069](#de-069):** é a mesma família, na quarta forma. Justificativa escrita
+não é medida (DE-058); invariante precisa de escopo (DE-068); número de auditor
+não testado é hipótese (DE-069); **e prova de estrutura não é prova de
+comportamento**. ⚠️ **A DE-058 precisa alcançar o DOCSTRING, e não só o
+comentário de justificativa** — foi ali que a promessa falsa morou desta vez, e é
+a terceira ocorrência no projeto.
+
+## DE-072 — Critério que toca fronteira definida por norma ou por documento do projeto cita o documento e a fronteira, nunca uma frase de prosa
+
+**Data:** 2026-09-21
+
+**Decisão:** quando um critério de aceite toca uma **fronteira** que uma norma ou
+um documento do projeto define — o que está **dentro** e o que está **fora** de
+um bloco, de uma classe de documento, de um período —, o critério **cita o
+documento e a fronteira**, com a palavra que o documento usa. **Prosa de
+recomendação não vira contrato sem essa citação.**
+
+**Motivo, e o erro é meu e do auditor juntos.** O relatório da rodada 1 da DL-034
+recomendou que a nota do RC-104 *"acompanhe o documento — **dentro do `<thead>`**,
+junto do bloco do item 51"*. Eu transcrevi a frase para a tarefa. O implementador
+leu *"dentro do bloco"* e pôs a nota **dentro** da
+`<div class="identificacao-do-documento">`.
+
+E a [personalizacao-de-relatorio.md](personalizacao-de-relatorio.md), §1, diz
+para a classe 2: *"só **fora** do bloco obrigatório, que sai em cada página"*.
+
+⚠️ **"Dentro do `<thead>`" e "dentro do bloco" são coisas diferentes, e só uma
+respeita a regra do projeto.** A preposição era **carga contratual**. O resultado
+está funcionalmente certo — a nota sai nas seis folhas, medido —, mas o bloco que
+o instrumento trata como "o bloco prescrito pela norma" passou a conter um
+parágrafo que **não é** nenhuma das cinco alíneas, com valor monetário dentro. O
+oráculo do job passou a exigir a nota inteira como parte do bloco normativo.
+
+**Foi o próprio auditor quem achou o erro dele**, na rodada seguinte, sem ser
+perguntado — como na DE-068.
+
+**Alternativas descartadas:**
+
+- *Confiar na leitura do implementador* — ele leu exatamente o que estava
+  escrito. O defeito é do enunciado.
+- *Proibir recomendação em prosa* — perderíamos a melhor parte dos relatórios. O
+  que muda é a **transcrição para o plano**, não o relatório.
+
+**Consequência:** ao transcrever recomendação de auditoria que envolva fronteira,
+eu cito o documento (arquivo e seção) e a palavra que ele usa — *dentro*, *fora*,
+*em cada página* — em vez de reescrever com as minhas palavras. ⚠️ **É a
+[DE-069](#de-069) numa escala menor: desconfie do número que o auditor não
+testou, e desconfie também da PREPOSIÇÃO.**
+
+## DE-073 — Quando duas frentes tocam o mesmo arquivo, o commit de integração declara a procedência
+
+**Data:** 2026-09-21
+
+**Decisão:** quando mais de uma frente tocou o **mesmo arquivo** numa janela de
+trabalho, o **commit de integração declara no corpo** quais arquivos vieram de
+qual frente e **quem mediu o quê**. Não é confissão: é **dado de auditoria**.
+
+**Motivo.** Na rodada de correção da DL-034 um terceiro `especialista-frontend`
+editou `views_web.py`, `balanco.html` e o CSS antes de eu mandá-lo parar —
+sobreposição que **eu** causei ao distribuir. O agente que relatou a frente **não
+escreveu parte do código que relatou**, declarou isso, e afirmou ter medido o que
+herdou.
+
+**Não houve defeito, e o auditor foi preciso sobre o motivo:**
+
+> *"O terceiro agente não quebrou nada. Mas o único motivo de eu poder afirmar
+> isso é que rodei `git diff | grep '^-'` e três mutações — **o histórico não
+> distingue quem escreveu qual hunk**. O commit é uma frente só para quem o lê.
+> (…) a próxima colisão vai depender de o auditor desconfiar — e **desconfiança
+> não é mecanismo**."*
+
+**O custo real da colisão foi tempo de auditoria**, e ele é invisível no relatório
+se ninguém o disser.
+
+**Alternativas descartadas:**
+
+- *Confiar na divisão de arquivos para que isso não aconteça* — a divisão existe e
+  eu a violei mesmo assim. Regra sem registro não sobrevive ao primeiro descuido.
+- *Um commit por frente* — quebraria a integração: o contrato entre servidor e
+  tela mudou no meio da janela, e commitar metade grava um estado vermelho.
+- *Registrar só no relatório* — o relatório não acompanha o arquivo. O commit sim.
+
+**Consequência:** a declaração entra no corpo do commit, junto da lista de
+verificações executadas. E, quando houver código **herdado** de outra frente, a
+tarefa do auditor diz com todas as letras: **verifique o herdado como se ninguém
+o tivesse medido.** Foi o que fiz nesta rodada, e é o que deu base ao V11 do
+relatório.

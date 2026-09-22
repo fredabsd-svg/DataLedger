@@ -202,13 +202,15 @@ PADRAO_TAG_COM_ACCESSKEY = re.compile(
     re.IGNORECASE,
 )
 
-# As cinco páginas fixas de templates/contabilidade/_navegacao_empresa.html,
-# na ordem em que a parcial as lista.
+# As seis páginas fixas de templates/contabilidade/_navegacao_empresa.html,
+# na ordem em que a parcial as lista. "Fechamento" entrou com a DL-031
+# (fatia 2 da DL-016).
 ATALHOS_CONTABILIDADE = [
     ("c", "Plano de contas"),
     ("i", "Diário"),
     ("l", "Balancete"),
     ("k", "Conferência"),
+    ("z", "Fechamento"),
     ("n", "Novo lançamento"),
 ]
 
@@ -421,13 +423,20 @@ def cenario(client):
         "conferencia",
         "lancamento_novo",
         "lancamento_detalhe",
+        "fechamento",
+        "competencia_fechar",
     ],
 )
 def test_tela_de_contabilidade_e_acessivel_nos_atalhos(client, cenario, nome_tela):
-    """As quatro guardas, contra a renderização real de cada uma das oito
-    telas de `templates/contabilidade/` — não sobra tela sem a parcial
-    (critério: os cinco atalhos aparecem), e nenhuma delas introduz
-    `kbd.tecla` sem `aria-hidden` nem `accesskey` incoerente ou repetido.
+    """As quatro guardas, contra a renderização real de cada uma das telas
+    de `templates/contabilidade/` que rendem 200 sob o `cenario` PADRÃO —
+    não sobra tela sem a parcial (critério: os seis atalhos aparecem), e
+    nenhuma delas introduz `kbd.tecla` sem `aria-hidden` nem `accesskey`
+    incoerente ou repetido. `competencia_reabrir`/`competencia_entregar`
+    (DL-031) exigem competência ENCERRADA como pré-condição de estado e por
+    isso não entram nesta lista — ver `EXCLUSOES_NOMEADAS_DE_TELA`, abaixo,
+    e os testes de acessibilidade próprios em
+    test_dl031_fechamento_de_competencia.py.
     """
     url = _urls_de_contabilidade(cenario)[nome_tela]
     resposta = client.get(url)
@@ -822,6 +831,20 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
     "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",
+    # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
+    # competência ENCERRADA como pré-condição de estado — sob o `cenario`
+    # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o
+    # painel, nunca 200 (comportamento CERTO, não um defeito a esconder:
+    # ver o docstring de `competencia_reabrir`/`competencia_entregar` em
+    # views_web.py). Cobertas por teste PRÓPRIO, com cenário que fecha a
+    # competência antes de medir a tela, em
+    # apps/contabilidade/tests/test_dl031_fechamento_de_competencia.py.
+    "contabilidade_web:competencia_reabrir": (
+        "test_dl031_fechamento_de_competencia.py — exige competência encerrada; cenário próprio"
+    ),
+    "contabilidade_web:competencia_entregar": (
+        "test_dl031_fechamento_de_competencia.py — exige competência encerrada; cenário próprio"
+    ),
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
