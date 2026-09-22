@@ -93,6 +93,7 @@ from apps.contabilidade.services import (
     apurar_balancete,
     apurar_balanco_patrimonial,
     apurar_razao,
+    avaliar_emissao_do_balancete,
     criar_lancamento,
     data_maxima_lancamento,
     encerrar_competencia,
@@ -2461,16 +2462,49 @@ def balancete(request, empresa_id):
             }
         )
 
-    # BL-290 (A2 da auditoria DL-026 rodada 2): veredito da faixa de
-    # fechamento, calculado em `Decimal` sobre os totais de ORIGEM
-    # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre o
-    # texto pt-BR logo abaixo. Ver o docstring de `_veredito_balancete`.
-    veredito_balancete = _veredito_balancete(apuracao["total_debitos"], apuracao["total_creditos"])
-    diferenca_balancete_ptbr = None
-    if veredito_balancete == "nao_fecha":
-        diferenca_balancete_ptbr = _valor_ptbr(
-            abs(apuracao["total_debitos"] - apuracao["total_creditos"])
+    # DL-027 Fatia B (item 3 do plano): a trava de "Fecha / Não fecha"
+    # que o produto já calculava (BL-290 / A2 da DL-026 rodada 2) vira
+    # VETO aqui. A decisão mora no `services` —
+    # `avaliar_emissao_do_balancete` decide em `Decimal`, nunca em texto
+    # pt-BR já formatado (a mesma lição do BL-290: `_valor_ptbr`
+    # arredonda, e 300,004 vs 300,00 viram o mesmo "300,00"). A view
+    # pergunta e obedece (mesmo contrato de `avaliar_emissao_do_balanco`,
+    # DL-034). Quando `pode_emitir` é `False`, devolvemos 409 com a
+    # diferença em pt-BR e a orientação textual — o critério 9 do plano
+    # proíbe veto seco.
+    avaliacao = avaliar_emissao_do_balancete(apuracao)
+    if not avaliacao["pode_emitir"]:
+        messages.error(
+            request,
+            "O Balancete NÃO pode ser emitido: débitos e créditos do período "
+            f"divergem em R$ {avaliacao['diferenca_ptbr']}. Verifique os "
+            "lançamentos do período antes de reimprimir.",
         )
+        contexto.update(
+            {
+                "linhas": linhas,
+                "veredito_balancete": avaliacao["veredito"],
+                "diferenca_balancete_ptbr": avaliacao["diferenca_ptbr"],
+                "emissao_recusada": True,
+                # Os totais em pt-BR continuam no contexto mesmo no veto
+                # — o template mostra a divergência NA folha, e o controle
+                # de sub-centavo do BL-290 precisa do par texto para
+                # provar que o texto é igual em ambos os lados (a
+                # comparação em Decimal É o gatilho, mas a tela precisa
+                # exibir os mesmos "300,00" / "300,00" lado a lado).
+                "total_debitos_ptbr": _valor_ptbr(apuracao["total_debitos"]),
+                "total_creditos_ptbr": _valor_ptbr(apuracao["total_creditos"]),
+            }
+        )
+        return render(request, "contabilidade/balancete.html", contexto, status=409)
+
+    # Veredito calculado em `Decimal` sobre os totais de ORIGEM
+    # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre
+    # o texto pt-BR logo abaixo. Ver o docstring de
+    # `_veredito_balancete` (mantido aqui só para o display; a
+    # decisão de EMISSÃO vem de `avaliar_emissao_do_balancete`).
+    veredito_balancete = avaliacao["veredito"]
+    diferenca_balancete_ptbr = avaliacao["diferenca_ptbr"]
 
     contexto.update(
         {

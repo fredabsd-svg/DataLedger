@@ -118,7 +118,14 @@ def test_totais_divergentes_e_nao_fecha_com_diferenca(client, cen, monkeypatch):
     que produza débito != crédito no total do período. Forçado aqui via
     `monkeypatch` na função de apuração, no mesmo padrão que
     `test_dl017_telas.py` já usa para o mesmo fim: prova que o ramo existe
-    e calcula certo, em vez de ficar sem nunca ter sido exercitado."""
+    e calcula certo, em vez de ficar sem nunca ter sido exercitado.
+
+    DL-027 Fatia B (item 3): a partir desta etapa, "nao_fecha" deixa de
+    ser um aviso no display e vira VETO — `avaliar_emissao_do_balancete`
+    decide no server e a view devolve HTTP 409 com a diferença em
+    pt-BR e a orientação textual (critério 9 do plano). A forma como o
+    contexto vem (`veredito_balancete`, `diferenca_balancete_ptbr`,
+    `emissao_recusada`) continua a mesma — só o status mudou."""
     _login(client, cen)
     hoje = timezone.localdate()
     criar_lancamento(
@@ -148,9 +155,11 @@ def test_totais_divergentes_e_nao_fecha_com_diferenca(client, cen, monkeypatch):
     monkeypatch.setattr(views_web, "apurar_balancete", _apuracao_divergente)
 
     resposta = client.get(_url(cen, inicio=hoje.replace(day=1), fim=hoje))
-    assert resposta.status_code == 200
+    # DL-027 Fatia B: 409 em vez de 200 — o veto do server.
+    assert resposta.status_code == 409
     assert resposta.context["veredito_balancete"] == "nao_fecha"
     assert resposta.context["diferenca_balancete_ptbr"] == "0,01"
+    assert resposta.context["emissao_recusada"] is True
 
 
 def test_veredito_e_decidido_em_decimal_nao_por_texto(client, cen, monkeypatch):
@@ -187,9 +196,12 @@ def test_veredito_e_decidido_em_decimal_nao_por_texto(client, cen, monkeypatch):
     monkeypatch.setattr(views_web, "apurar_balancete", _apuracao_quase_igual)
 
     resposta = client.get(_url(cen, inicio=hoje.replace(day=1), fim=hoje))
-    assert resposta.status_code == 200
+    # DL-027 Fatia B: 409 em vez de 200 — mesmo o desvio sub-centavo é veto.
+    assert resposta.status_code == 409
     assert resposta.context["veredito_balancete"] == "nao_fecha"
+    assert resposta.context["emissao_recusada"] is True
     assert resposta.context["total_debitos_ptbr"] == resposta.context["total_creditos_ptbr"], (
         "controle: os dois TEXTOS precisam ser iguais para este caso valer algo "
-        "— é exatamente a comparação de string que o A2 reprovou"
+        "— é exatamente a comparação de string que o A2 reprovou, e a comparação "
+        "em Decimal (que PÕDE ver o desvio) tem que ser o gatilho do veto"
     )

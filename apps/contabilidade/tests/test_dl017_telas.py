@@ -874,12 +874,14 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     veredito, e a suíte inteira devolveu 1363 passed, porque NADA
     exercitava o ramo "Não fecha".
 
-    Este teste força a divergência sem corromper nenhum dado real: troca
-    `apurar_balancete` (apps.contabilidade.services, importado por
-    `apps.contabilidade.views_web`) por uma versão que devolve totais
-    PROPOSITALMENTE diferentes — o mesmo tipo de defeito que o ramo existe
-    para denunciar (corrupção de dado ou falha de agregação), simulado sem
-    tocar no banco.
+    DL-027 Fatia B (item 3 do plano): o que era aviso virou VETO. A
+    faixa "Não fecha" continua sendo exercitada (o motor de auditoria
+    precisa ver o ramo), mas o status code mudou de 200 para 409 — o
+    documento não é emitido. A forma como o contexto passa
+    (`veredito_balancete == "nao_fecha"`, `diferenca_balancete_ptbr`)
+    é a mesma; o que muda é que a página carrega a FLAG
+    `emissao_recusada` para o template mostrar a orientação, e o teste
+    continua provando que o texto certo aparece no HTML renderizado.
     """
     empresa = cenario["empresa_a"]
     hoje = timezone.localdate()
@@ -918,7 +920,9 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
         + f"?inicio={hoje.replace(day=1).isoformat()}&fim={hoje.isoformat()}"
     )
     resposta = client.get(url)
-    assert resposta.status_code == 200
+    # DL-027 Fatia B: 409 em vez de 200 — o veto do server.
+    assert resposta.status_code == 409
+    assert resposta.context["emissao_recusada"] is True
     conteudo = resposta.content.decode()
 
     # Pela CHAVE primeiro (ver o docstring de `_exige_veredito_balancete`):

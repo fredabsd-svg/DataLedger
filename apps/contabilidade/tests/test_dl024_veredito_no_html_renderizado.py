@@ -655,7 +655,12 @@ def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
     monkeypatch.setattr(views_web, "apurar_balancete", _apuracao_divergente)
 
     resposta = client.get(_url_balancete(cenario_pagina_real, inicio=hoje.replace(day=1), fim=hoje))
-    assert resposta.status_code == 200
+    # DL-027 Fatia B: o ramo "não fecha" virou VETO — 409 em vez de 200.
+    # A página carrega o contexto certo (`veredito_balancete ==
+    # "nao_fecha"`); o que muda é o código de status.
+    assert resposta.status_code == 409
+    assert resposta.context["veredito_balancete"] == "nao_fecha"
+    assert resposta.context["emissao_recusada"] is True
     html = resposta.content.decode()
     texto = _exige_texto_do_estado_na_pagina(
         _veredito_balancete_na_pagina, html, "Não fecha", "Nada a conferir"
