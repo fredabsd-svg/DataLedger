@@ -373,6 +373,47 @@ pytest apps/documentos/ apps/empresas/ apps/core/tests/test_documentacao_do_esta
 
 **Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (318 passed no escopo, 2002 passed na suíte completa, ruff limpo, manage.py check limpo) · **Inspecionado** (diff revisado arquivo a arquivo, comentários conferidos, contrato de função pura verificado) · **Não auditado** (auditor-qa pendente, §3.1) · **Bloqueado** (a próxima fatia B.2 não abre até a auditoria rodar, pela mesma §3.1).
 
+##### A "auditoria" rodada — pelo arquiteto-senior, com autorização explícita do Fred
+
+Fred ordenou, na conversa de 2026-09-22: *"Eu mesmo audito como arquiteto-senior"*. Quebra da §3.1 — o auditor é o mesmo agente que opera o projeto, e o autor do commit (`fred <fredabsd@gmail.com>`) é o próprio Fred. Sem independência, o parecer vale como **autoinspeção com disciplina de auditor**, não como aprovação independente. A próxima etapa NÍVEL 1 (e qualquer auditoria que se preze) precisa voltar a ser rodada por outro agente, em sessão Claude Code interativa, com `disallowedTools: Write, Edit, NotebookEdit` **técnico**.
+
+**Relatório integral:** [2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09-22-dl-027-fatia-b1-rodada-1.md). **Parecer: APROVADO COM RESSALVAS.**
+
+**Prova de mutação (a lição da DL-031 §3.1, registrada em 2026-09-20)**, em cópia isolada (`/tmp/opencode/audit-dl027/dataledger`, clone em `a328a0c`):
+
+| Mutante | Esperado | Resultado |
+| --- | --- | --- |
+| Baseline | 3 passed | 3 passed |
+| **M1**: avaliador sempre aprova | 3 FAILED | **3 FAILED** (primeiro: BL-290 `assert 200 == 409`) |
+| **M2 cirúrgico**: view usa 200 em vez de 409 (só balancete) | 3 FAILED | **3 FAILED** (primeiro: BL-290 `assert 200 == 409`) |
+| **M3**: view ignora o avaliador | 3 FAILED | **3 FAILED** (primeiro: BL-290 `assert 200 == 409`) |
+| **M4**: flag `emissao_recusada=False` | 3 FAILED | **3 FAILED** (primeiro: BL-290 `assert False is True`) |
+| **M5** (exploratório): mensagem de orientação some | ? | **3 passed** — **LACUNHA CONFIRMADA**, vira A4 |
+
+A edição 200→409 dos três testes pré-existentes **não cegou guardas** — 4 de 5 mutantes principais matam. M5 confirma o risco 2 que eu já tinha nomeado na estado.md.
+
+**Oito ressalvas, com gravidade e dono**:
+
+| # | Gravidade | Achado | Dono |
+| --- | --- | --- | --- |
+| **A1** | média | Formato divergente entre `avaliar_emissao_do_balancete` e `avaliar_emissao_do_balanco` (Balanço devolve listas; Balancete devolve string pt-BR pronta) — quebra a promessa de reuso do docstring de B.1 | Próxima fatia que reutilizar (Diário/Razão) — unificar o contrato |
+| **A2** | baixa | `_formatar_diferenca_ptbr` em `services.py` duplica `_valor_ptbr` de `views_web.py` | Próxima iteração da Fatia B; mover formatação para a view |
+| **A3** | baixa | Flag `emissao_recusada` setada mas **não usada pelo template** `balancete.html` | `especialista-frontend` |
+| **A4** | **média** | Texto da `messages.error(...)` do veto **não assertado por teste** — M5 sobrevive. Critério 9 do plano DL-027 fica sem guarda | **B.2 (próxima fatia)** — entrar junto, sem dissociação |
+| **A5** | média, já tem dono | `apurar_balancete` em `READ COMMITTED`, sem snapshot — [DE-067](../projeto/decisoes.md). A DL-035 paga para o Balanço; para o Balancete fica nomeada, não resolvida | Próxima fatia B que gerar documento imprimível |
+| **A6** | média | Template `balancete.html` não diferencia visualmente "diferença detectada" vs "emissão vetada" — depende do mesmo fix do A3 | `especialista-frontend` |
+| **A7** | baixa | Reuso prometido no docstring sem cobertura de teste | Quando entrar Diário/Razão na mesma etapa |
+| **A8** | baixa | `veredito` é string literal, não `enum.Enum` — comparação typo-silenciosa possível | Próxima iteração da Fatia B; mesmo padrão que `ClasseDocumento` (Fatia A) |
+
+**O que NÃO foi achado**: autorização quebrada; isolamento entre escritórios quebrado; duplicação de regra de cálculo entre tela/API/services; arredondamento novo; idempotência afetada (o veto é de leitura, não de escrita).
+
+**Não bloqueia a próxima fatia (B.2), com uma exceção**: A4 (mensagem do veto não assertada) entra **junto** com B.2, sem dissociação — é exatamente o tipo de regressão silenciosa que a §3.1 existe para impedir, e M5 sobreviver é a prova de que o instrumento não cobre o caminho. Os outros sete achados são donos nomeados e podem esperar a próxima iteração.
+
+**Flakiness preexistente, NÃO regressão da DL-027** (medido em duas rodadas da suíte completa):
+
+- `test_versao_minima_python.py::test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_versao_posterior` — o teste foi escrito para Python 3.14; a linha `ast.parse(codigo, feature_version=(3, 14))` falha em Python 3.12 (o parser 3.12 não conhece `except A, B:` em nenhuma versão declarada). Medido: falha na suíte completa, passa isolado. **Não relacionada à DL-027.**
+- `test_dl016_fatia1_fechamento_reabertura_entrega.py::test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente` — concorrência PostgreSQL com timing dependente. Falhou 1 de 2 vezes na suíte completa, passou isolada. **Não relacionada à DL-027.**
+
 ### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
 
 **Aberto em 2026-09-20**, logo depois da mudança de processo, porque o Fred
