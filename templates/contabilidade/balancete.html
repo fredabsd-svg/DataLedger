@@ -42,6 +42,10 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
             <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Emitido em</span>
+        <strong>{{ carimbo_de_emissao_texto }}</strong>
+    </span>
 {% endblock %}
 
 {% block content %}

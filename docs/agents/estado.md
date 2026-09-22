@@ -453,7 +453,40 @@ O mutante M5 (mensagem some) **passa a morrer** com este teste. M5b (diferença 
 
 **Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (10 passed no escopo, 1445 passed no escopo estendido, ruff limpo, manage.py check limpo) · **Inspecionado** (diff revisado, comentários conferidos, contrato da função pura verificado) · **Não auditado** (auditor-qa independente pendente, mesma pendência da B.1) · **Bloqueado** (a integração na `main` precisa de PR aberto pelo Fred via web UI — `gh` CLI não está disponível nesta sessão, e a auditoria independente também precisa de sessão Claude Code).
 
-**Próxima janela**: B.3 (próximo item da Fatia B do plano DL-027 — o catálogo lista 6 itens; B.1 e B.2 cobrem 2). As candidatas restantes são: carimbo de emissão, ocultar contas sem movimento (parcialmente coberto pelo critério, mas com semântica diferente — a ocultar via FILTRO de EMISSÃO, não de cadastro), via de conferência × oficial com marca d'água, dispensar coluna do exercício anterior. A ordem recomendada do plano (DE-054) é manter a trava antes do botão — a B.2 mantém essa ordem. **Mas a auditoria independente é o que destrava B.3**, pela mesma §3.1.
+### ➡️ DL-027 Fatia B.3 IMPLEMENTADA (mesma branch `feat/dl-027-fatia-b2-criterio-impresso`) — auditoria independente PENDENTE
+
+**Aberta por ordem do Fred em 2026-09-22**, na mesma branch da B.2: *"Continuar B.3 (carimbo) na mesma branch"*. Plano no item 1 da "O que entra, com o motivo" do plano DL-027: *"Carimbo de data e hora da emissão."* Continua **NÍVEL 1** (mexe no documento do cliente, §3.1).
+
+**O que entra na `main` por esta entrega** (5 testes novos, todos verdes; `ruff check` limpo, `ruff format --check` limpo, `manage.py check` 0 issues):
+
+- `timezone.localtime()` capturado **na view** (não no template) — garante que toda renderização da mesma request use o mesmo timestamp, e que a string pt-BR seja produzida uma única vez pela camada Python.
+- Fuso `settings.TIME_ZONE` ("America/Sao_Paulo", -03:00 desde 2019 quando o Brasil aboliu o DST) — não UTC. O usuário lê o carimbo no relógio dele.
+- Formato `dd/mm/AAAA às HH:MM:SS` (ex.: `22/09/2026 às 17:54:22`) — convenção brasileira, regex do teste é firme.
+- Renderizado no bloco `{% block contexto_extra %}` do `templates/contabilidade/balancete.html` — mesmo lugar onde Empresa e Período já aparecem. Aparece no papel, no `contexto-item` "Emitido em" sem a classe `--somente-tela`, então vai para a impressão também.
+
+**Medições locais, no branch `feat/dl-027-fatia-b2-criterio-impresso`** (após B.3):
+
+| Verificação | Resultado |
+| --- | --- |
+| `pytest apps/contabilidade/tests/test_dl027_fatia_b3_carimbo_emissao.py` | **5 passed em 10 s** |
+| Suíte estendida (B.1 + B.2 + B.3 + regressão) | **1450 passed, 2 skipped em 4 min 57 s** |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 225 files already formatted |
+| `manage.py check` | System check identified no issues (0 silenced) |
+
+**O que mudou por arquivo** (escopo só da B.3):
+
+- `apps/contabilidade/views_web.py` (+10) — captura `timezone.localtime()` e injeta `carimbo_de_emissao` (datetime) + `carimbo_de_emissao_texto` (string pt-BR) no contexto.
+- `templates/contabilidade/balancete.html` (+4) — novo `contexto-item` "Emitido em" dentro do bloco `contexto_extra`.
+- `apps/contabilidade/tests/test_dl027_fatia_b3_carimbo_emissao.py` (novo, +155) — 5 testes: presença no contexto, formato pt-BR, fuso São Paulo, presença no HTML, variação entre requests consecutivas.
+
+**Não escopo** (registrado):
+
+- Diário, Razão, Balanço — propagação é mecânica (mesmo bloco `contexto_extra` que essas views já preenchem), mas cada tela tem sua própria definição do bloco e o carimbo precisa ser injetado no contexto de cada view. Fica para quando essas telas entrarem na mesma etapa.
+- Carimbo persistente (gravado em banco) — sem necessidade hoje (cada emissão é uma nova request; carimbo "esquecido" não faria sentido para uma impressão sob demanda).
+- Outros itens da Fatia B (marca d'água, dispensar coluna, etc.) — ordem do plano (DE-054).
+
+**Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (5 passed no escopo, 1450 passed na suíte estendida) · **Inspecionado** (fuso, formato e propagação revisados) · **Não auditado** (mesma pendência da B.1 e B.2 — `auditor-qa` só em sessão Claude Code) · **Bloqueado para integração** (precisa de PR via web UI; auditoria independente é a próxima etapa).
 
 ### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
 

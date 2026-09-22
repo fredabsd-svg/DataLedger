@@ -2395,6 +2395,14 @@ def balancete(request, empresa_id):
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
     nivel, erro_nivel = _nivel_do_formulario(request)
     criterio, erro_criterio = _criterio_de_apuracao_do_formulario(request)
+    # DL-027 Fatia B.3: carimbo de data e hora da emissão — capturado
+    # AQUI (não no template) para garantir que toda renderização da
+    # mesma request use o mesmo timestamp, e que a string pt-BR seja
+    # produzida uma única vez pela camada Python. `timezone.localtime()`
+    # devolve o instante atual no fuso de `settings.TIME_ZONE`
+    # ("America/Sao_Paulo"), não em UTC — é o que o usuário vê no
+    # relógio dele.
+    carimbo_de_emissao = timezone.localtime()
     contexto = {
         "empresa": empresa,
         "inicio": inicio,
@@ -2403,6 +2411,8 @@ def balancete(request, empresa_id):
         "criterio_de_apuracao": criterio,
         "criterio_de_apuracao_texto": _TEXTO_DO_CRITERIO[criterio],
         "criterio_de_apuracao_opcoes": sorted(_CRITERIOS_DE_APURACAO_VALIDOS),
+        "carimbo_de_emissao": carimbo_de_emissao,
+        "carimbo_de_emissao_texto": carimbo_de_emissao.strftime("%d/%m/%Y às %H:%M:%S"),
     }
     if erro_periodo:
         messages.error(request, erro_periodo)
