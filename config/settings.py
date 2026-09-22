@@ -50,6 +50,14 @@ INSTALLED_APPS = [
     "apps.empresas",
     "apps.auditoria",
     "apps.contabilidade",
+    # DL-027 — módulo de plataforma para o documento emitido.
+    # Diferença importante em relação aos demais apps do produto:
+    # `apps.documentos` não tem models de negócio (ainda), só enumerações
+    # e funções puras — e é dependido pela varredura de templates que
+    # o AGENTS.md §13 obriga. Manter `apps.documentos` por último dos
+    # `apps.*` é o que garante que qualquer outro módulo já viu seu
+    # `INSTALLED_APPS` ao importar daqui.
+    "apps.documentos",
 ]
 
 MIDDLEWARE = [

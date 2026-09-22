@@ -232,7 +232,7 @@ diverge.
 | [DL-024](../planos/DL-024-trilha-integra-e-processo.md) | Trilha íntegra e processo: `registrar()` dentro da mesma transação que grava; `RegistroAuditoria` imutável contra `update()`/`delete()` em massa; PUT/PATCH com diff dos campos alterados; teste automatizado do gate SQLite/PostgreSQL | **Integrada (PR #28 + PR #29, `f9ee6c5`, DE-043)** — BL-14 (atomicidade), BL-16 (manager imutável), BL-57 (PUT/PATCH com diff), BL-244 (signal admin para 6 modelos via lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`), BL-50 (gate SQLite/PostgreSQL, 5/5), CA-6 (matriz de acesso fixada). CI: 1.345 testes, 2 pulados. CA-4 reconciliada: plano listava 6 ModelAdmin mas registry tem 4; `Estabelecimento` é inline de Empresa, `HistoricoRegimeTributario` removido pelo admin na DL-023. DE-043: o plano é artefato derivado do código, não o contrário. [Auditoria rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md). **Fora do escopo:** BL-02 (proteção da main, ação do Fred), BL-242, criptografia em repouso, logs externos |
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
-| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, por decisão: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324) |
+| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | **Em desenvolvimento (Fatia A — Identificação)** em `feat/dl-027-documento-emitido`, branch descendente do merge do PR #37 (DL-026). Status detalhado em **[Próximo passo](#próximo-passo)** — guardas, suíte local (40 passed nos arquivos da fatia) e o que falta para fechar |
 | [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md) | A trilha de auditoria cobre o **admin**: quem alterou, quando, e **com que valor antes e depois**. Cobertura **derivada** de `admin.site._registry`, não de lista nossa. **Remendo declarado**, não o histórico com vigência que o BL-396 vai exigir | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo das demais: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
@@ -307,6 +307,36 @@ examinei antes de cortar:** `test_agentes_multiplataforma` guarda um gerador com
 **derivadas**, não enumerações, e existem porque o produto vai ganhar cinco
 módulos. **Eu havia proposto cortá-los pelo TAMANHO do arquivo — que é um
 substituto, não a propriedade.** DE-060 aplicada a mim mais uma vez.
+
+### ➡️ Em paralelo, na mesma janela: DL-027 Fatia A — identificação obrigatória por classe
+
+**Aberta em 2026-09-22** na esteira do merge do PR #37 (DL-026), que
+destravou o timbre e o `<title>` no papel (BL-332 e BL-338). Pedido direto
+do Fred de 2026-09-19, plano em
+[`docs/planos/DL-027-documento-emitido-e-personalizacao.md`](../planos/DL-027-documento-emitido-e-personalizacao.md).
+Aberta como **NÍVEL 1** — mexe em **documento do cliente** (§3.1 do
+AGENTS.md).
+
+**Branch:** `feat/dl-027-documento-emitido`. PR atual: [#39](https://github.com/fredabsd-svg/DataLedger/pull/39).
+
+**O que está pronto e medido localmente** (40 testes nos arquivos da fatia, todos verdes; `ruff check .` e `ruff format --check .` limpos; `manage.py check` 0 issues):
+
+- `nire` e `nivel_de_arredondamento` no cadastro de Empresa (RC-93 + NBC TG 26 item 51e), migração `0006_empresa_nire_empresa_nivel_de_arredondamento`.
+- Enum `ClasseDocumento` (Conferência / Demonstração / Livro) e função pura `bloco_obrigatorio_para` em `apps/documentos/` — com regra do vazio `(não informado)` quando o NIRE está vazio.
+
+**O que falta para fechar a Fatia A** (item 5 do plano):
+
+- A **guarda que reprova classe não declarada** em templates imprimíveis (varredura nos moldes de `apps/core/tests/test_dl024_varredura_de_interface.py`).
+- O `views.py` da Contabilidade que constrói o `IdentificacaoContexto` a partir do `request` + `empresa` + `periodo`.
+
+**Suíte medida em 2026-09-22** com `DATABASE_URL=postgres://dataledger:dataledger@172.18.0.3:5432/dataledger` (o `.env` aponta `db`, que só resolve dentro da rede Docker — usar a variável de ambiente para rodar no host):
+
+```text
+pytest apps/documentos/ apps/empresas/ apps/core/tests/test_documentacao_do_estado.py
+       apps/core/tests/test_dl024_varredura_de_interface.py → 443 passed
+```
+
+**Correção in-loco detectada pelos próprios testes pré-existentes:** o campo `nivel_de_arredondamento` foi escrito inicialmente sem `blank=True`. Sete testes do admin da DL-023 (`test_dl023_empresa_nao_muda_de_escritorio.py` + `test_dl023_regime_tributario_periodo_unico.py`) passaram a falhar com status 200 no POST do change (o form re-renderizava pedindo o campo, que não vinha no payload — esses testes assumem todos os campos do model com `default` válido). `blank=True` foi adicionado ao `CharField`; a migração `0006` foi regenerada antes de ser comitada, dentro do trabalho não-compartilhado (AGENTS.md §12 não foi violado — vale para ambientes compartilhados).
 
 ### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
 

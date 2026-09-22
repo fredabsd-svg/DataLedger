@@ -69,6 +69,47 @@ class Empresa(models.Model):
     razao_social = models.CharField("razão social", max_length=200)
     nome_fantasia = models.CharField("nome fantasia", max_length=200, blank=True)
     cnpj = CNPJModelField("CNPJ", max_length=14, unique=True, validators=[validar_cnpj])
+    # DL-027 (Fatia A) — RC-93: identificação obrigatória do relatório
+    # exige "razão social, CNPJ, período, NIRE e as demais informações".
+    # Antes desta etapa NIRE não existia no cadastro (BL-340), e a
+    # obrigação do RC-93 não era atendível com os dados disponíveis.
+    # O campo é texto curto (até 14 dígitos — mesmo limite do CNPJ) e
+    # opcional: o sistema emite o relatório com `(não informado)`
+    # quando vazio (regra do vazio em `apps.documentos.identificacao`).
+    # A canonização (remoção de máscara, validação de DV) NÃO é
+    # declarada aqui porque depende de fonte oficial ainda não
+    # levantada — fica para o `BL-340` continuar quando a fonte vier.
+    nire = models.CharField(
+        "NIRE",
+        max_length=14,
+        blank=True,
+        default="",
+        help_text=(
+            "Número de Inscrição no Registro de Empresas. Opcional: "
+            "empresa sem NIRE imprime o marcador `(não informado)` no "
+            "cabeçalho do relatório (DL-027, RC-93)."
+        ),
+    )
+    # DL-027 (Fatia A) — RC-95, NBC TG 26 (R5) item 51(e): "o nível
+    # de arredondamento usado" é parte da identificação obrigatória
+    # de DEMONSTRAÇÃO contábil. Sem este campo o sistema não imprime
+    # o que a norma exige. Texto (não enum) porque a regra do DE-010
+    # é explícita por cálculo, e o default é só fallback para a
+    # impressão — o motor determinístico sobrescreve quando calcula.
+    # O limite de 100 caracteres cabe "2 casas decimais (ABNT NBR
+    # 5891)" e "4 casas para volume (TRUNCAR)" — variações razoáveis
+    # sem permitir texto de baixa qualidade.
+    nivel_de_arredondamento = models.CharField(
+        "nível de arredondamento",
+        max_length=100,
+        blank=True,
+        default="2 casas decimais (ABNT NBR 5891)",
+        help_text=(
+            "Texto que sai no cabeçalho do relatório de demonstração "
+            "(NBC TG 26 item 51e). Default segue a política monetária "
+            "ABNT NBR 5891 (DE-010)."
+        ),
+    )
     ativo = models.BooleanField("ativo", default=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
