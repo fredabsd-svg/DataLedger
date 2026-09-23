@@ -647,7 +647,7 @@ def test_pagina_real_balancete_nao_fecha_com_totais_forcados(
         empresa=cenario_pagina_real["empresa"], inicio=hoje.replace(day=1), fim=hoje, nivel=None
     )
 
-    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None):
+    def _apuracao_divergente(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
         divergente = dict(apuracao_real)
         divergente["total_creditos"] = apuracao_real["total_creditos"] + Decimal("0.01")
         return divergente

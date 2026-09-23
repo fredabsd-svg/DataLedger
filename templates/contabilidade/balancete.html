@@ -42,6 +42,10 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
             <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Emitido em</span>
+        <strong>{{ carimbo_de_emissao_texto }}</strong>
+    </span>
 {% endblock %}
 
 {% block content %}
@@ -134,6 +138,21 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
             O período informado não pôde ser usado, por isso nenhum dado foi carregado.
             <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Voltar ao período padrão (mês atual)</a>
             para ver o balancete, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
+    {% comment %}
+    DL-027 Fatia B.2: o critério de apuração sai IMPRESSO no documento
+    (critério 6 do plano), mesmo quando a tabela fica vazia pelo filtro
+    `com_movimento` — dois Balancetes com critérios diferentes devem ser
+    distinguíveis pelo papel, sem consultar o sistema. Renderização FORA
+    da faixa-fechamento (que só aparece com `linhas`) por isso mesmo:
+    o critério é da EMISSÃO, não da tabela.
+    {% endcomment %}
+    {% if inicio and fim %}
+        <p class="contexto-criterio-de-apuracao">
+            <span class="contexto-rotulo">Critério de apuração</span>
+            <strong>{{ criterio_de_apuracao_texto }}</strong>
         </p>
     {% endif %}
 
@@ -235,7 +254,7 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
     `<input type="date">` vem do navegador; ver o comentário completo em
     lancamento_form.html).
     {% endcomment %}
-    <form method="get" class="formulario-periodo">
+<form method="get" class="formulario-periodo">
         <div class="campo">
             <label for="id_inicio">Início</label>
             <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
@@ -250,9 +269,21 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
             <label for="id_nivel">Nível (opcional)</label>
             <input type="text" inputmode="numeric" id="id_nivel" name="nivel" value="{{ nivel|default:"" }}">
         </div>
+        <div class="campo campo-criterio-de-apuracao">
+            <span class="campo-rotulo">Critério de apuração</span>
+            {% for opcao in criterio_de_apuracao_opcoes %}
+                <label class="campo-criterio-de-apuracao__opcao">
+                    <input type="radio" name="criterio_de_apuracao" value="{{ opcao }}"
+                           {% if opcao == criterio_de_apuracao %}checked{% endif %}>
+                    {% if opcao == "todas" %}Todas as contas
+                    {% elif opcao == "com_movimento" %}Apenas com movimento no período
+                    {% endif %}
+                </label>
+            {% endfor %}
+        </div>
         <button type="submit">Consultar período</button>
         <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
-            O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+            O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
         </p>
     </form>
 

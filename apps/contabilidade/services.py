@@ -1562,7 +1562,7 @@ def apurar_razao(*, conta, empresa, inicio, fim):
     }
 
 
-def apurar_balancete(*, empresa, inicio, fim, nivel=None):
+def apurar_balancete(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
     """Apura o Balancete de verificação da empresa no período [inicio, fim] (BL-61).
 
     Quatro colunas CONSOLIDADAS por conta (saldo_anterior, débitos, créditos,
@@ -1576,6 +1576,25 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
     nível <= `nivel` (raiz = nível 1) — mas o TOTAL da resposta continua
     somando TODOS os itens do período da empresa, sem recorte (ver
     comentário perto do `return`).
+
+    `criterio_de_apuracao` (DL-027 Fatia B.2) controla o RECORTE da lista de
+    linhas exibidas — não afeta o TOTAL (que continua somando TODOS os
+    itens do período, em agregação independente). Dois valores aceitos:
+
+    - `"todas"` (padrão): comportamento idêntico ao código anterior. Todas
+      as contas da empresa aparecem, independente de saldo ou movimento.
+    - `"com_movimento"`: oculta contas que NÃO tiveram movimento
+      consolidado no período E não têm saldo anterior diferente de zero.
+      Sintéticas cujo movimento veio dos filhos continuam aparecendo
+      (porque o CONSOLIDADO delas é > 0), o que preserva a leitura
+      hierárquica. Saldo anterior ≠ 0 sem movimento no mês continua
+      aparecendo — é informação legítima de "saldo de abertura" e o
+      contador precisa vê-la para conferir contra o Razão.
+
+    O `criterio_de_apuracao` é uma propriedade da EMISSÃO (não do
+    cadastro), decidido na view via querystring — sem migração de modelo
+    nesta fatia (PE-65). O nome da função é puro: sem I/O, decide só
+    em cima do resultado já calculado.
 
     Regra ÚNICA de saldo (achados 2, 3 e 7 / DE-020): o saldo de QUALQUER
     conta é o movimento próprio dela MAIS o das descendentes — não depende
@@ -1778,6 +1797,21 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None):
         bruto = bruto_de(conta.id)
         if nivel is not None and nivel_de(conta.id) > nivel:
             continue
+        # DL-027 Fatia B.2: recorte "com_movimento". A regra é sobre o
+        # BRUTO (próprio + descendentes), não sobre o próprio da conta —
+        # sintéticas cujo movimento veio dos filhos continuam aparecendo,
+        # porque a regra única de saldo (DE-020) as considera COM
+        # movimento. Saldo anterior ≠ 0 sem movimento no mês também
+        # aparece (é informação legítima de "saldo de abertura").
+        # "Saldo anterior" aqui é BRUTO também: uma sintética que
+        # absorveu saldo anterior dos filhos continua visível.
+        if criterio_de_apuracao == "com_movimento":
+            tem_movimento_periodo = (
+                bruto["debito_periodo"] > zero or bruto["credito_periodo"] > zero
+            )
+            tem_saldo_anterior = bruto["debito_anterior"] > zero or bruto["credito_anterior"] > zero
+            if not (tem_movimento_periodo or tem_saldo_anterior):
+                continue
         saldo_anterior = _saldo_por_natureza(
             bruto["debito_anterior"], bruto["credito_anterior"], conta.natureza
         )

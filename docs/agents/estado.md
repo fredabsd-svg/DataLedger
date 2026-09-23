@@ -414,6 +414,80 @@ A edição 200→409 dos três testes pré-existentes **não cegou guardas** —
 - `test_versao_minima_python.py::test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_versao_posterior` — o teste foi escrito para Python 3.14; a linha `ast.parse(codigo, feature_version=(3, 14))` falha em Python 3.12 (o parser 3.12 não conhece `except A, B:` em nenhuma versão declarada). Medido: falha na suíte completa, passa isolado. **Não relacionada à DL-027.**
 - `test_dl016_fatia1_fechamento_reabertura_entrega.py::test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente` — concorrência PostgreSQL com timing dependente. Falhou 1 de 2 vezes na suíte completa, passou isolada. **Não relacionada à DL-027.**
 
+### ➡️ DL-027 Fatia B.2 IMPLEMENTADA (branch `feat/dl-027-fatia-b2-criterio-impresso`) — auditoria independente PENDENTE
+
+**Aberta por ordem do Fred em 2026-09-22**, depois de ler a auditoria da B.1: *"Abrir B.2 (critério impresso + A4)"*. Plano em [`docs/planos/DL-027-B2-criterio-de-apuracao-impresso.md`](../planos/DL-027-B2-criterio-de-apuracao-impresso.md). Classificada **NÍVEL 1** (mexe no documento do cliente, §3.1). **A4 entra junto**, sem dissociação — exatamente o tipo de regressão silenciosa que a §3.1 existe para impedir, e M5 sobreviver é a prova.
+
+**O que entra na `main` por esta entrega** (10 testes novos, todos verdes; `ruff check` limpo, `ruff format --check` limpo, `manage.py check` 0 issues):
+
+- `criterio_de_apuracao` ∈ `{"todas", "com_movimento"}` em `apurar_balancete` (default `"todas"`, retrocompatível). `"com_movimento"` oculta contas sem movimento consolidado no período E sem saldo anterior ≠ 0 — sintéticas com movimento consolidado continuam aparecendo (regra única de saldo / DE-020); saldo anterior ≠ 0 sem movimento no mês também continua aparecendo (é informação legítima de "saldo de abertura").
+- Novo helper `_criterio_de_apuracao_do_formulario(request)` em `views_web.py` — mesmo contrato dos outros parsers (`_periodo_do_formulario`, `_nivel_do_formulario`). Critério fora do conjunto aceito vira **HTTP 400** com mensagem que **nomeia as opções válidas** (orientação).
+- Formulário do Balancete ganha **grupo de radio buttons** com as duas opções; o critério escolhido SAI **IMPRESSO NO DOCUMENTO** (critério 6 do plano DL-027) num parágrafo dedicado próximo ao H1, **fora da faixa de veredito** — assim, dois Balancetes com critérios diferentes são distinguíveis pelo papel mesmo quando a tabela fica vazia pelo filtro.
+- O TOTAL da resposta (`total_debitos`/`total_creditos`) **não é afetado pelo filtro** — é a agregação independente de TODOS os itens do período (DE-020), garantindo que `total_debitos == total_creditos` continue valendo exatamente como antes.
+
+**Medições locais, no branch `feat/dl-027-fatia-b2-criterio-impresso`**:
+
+| Verificação | Resultado |
+| --- | --- |
+| `pytest apps/contabilidade/tests/test_dl027_fatia_b2_criterio_impresso.py` | **10 passed em 9 s** |
+| `pytest apps/documentos/ apps/empresas/ apps/contabilidade/tests/ apps/core/tests/test_documentacao_do_estado.py apps/core/tests/test_dl024_varredura_de_interface.py` | **1445 passed, 2 skipped em 5 min 45 s** |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 224 files already formatted |
+| `manage.py check` | System check identified no issues (0 silenced) |
+
+**O que mudou por arquivo**:
+
+- `apps/contabilidade/services.py` — `apurar_balancete` aceita `criterio_de_apuracao`; docstring da função explica os dois valores e a regra do filtro (consolidado, não próprio, para preservar sintéticas).
+- `apps/contabilidade/views_web.py` — `_criterio_de_apuracao_do_formulario` + `_CRITERIOS_DE_APURACAO_VALIDOS` + `_TEXTO_DO_CRITERIO`; view passa o critério para o serviço e para o contexto.
+- `apps/contabilidade/tests/test_bl290_veredito_balancete.py` (+4/-2), `test_dl017_telas.py` (+2/-2), `test_dl024_veredito_no_html_renderizado.py` (+2/-2), `test_dl027_fatia_b1_bloqueia_emissao_balancete.py` (+2/-2) — quatro monkeypatches internos do `apurar_balancete` ganham `criterio_de_apuracao="todas"` no keyword-only signature, sem mudança de comportamento (default explícito).
+- `apps/contabilidade/tests/test_dl027_fatia_b2_criterio_impresso.py` (+278, novo) — 9 testes da fatia B.2 + 1 teste de A4.
+- `templates/contabilidade/balancete.html` — radio buttons para o critério + parágrafo dedicado exibindo o critério no documento, sempre visível (não dependente de `linhas`).
+- `static/css/base.css` — `.campo-criterio-de-apuracao` (flex-wrap) e `.campo-criterio-de-apuracao__opcao` (inline-flex). Seguem o padrão dos outros campos do formulário (`.campo`).
+
+⚠️ **A4 FECHADO, com teste dedicado.** O novo teste `test_a4_view_balancete_quando_veta_mensagem_contem_diferenca_e_orientacao` em `test_dl027_fatia_b2_criterio_impresso.py` asserta:
+1. Que `messages.error(...)` foi chamado (status 409 implica isso, mas o teste captura a mensagem pelo contexto).
+2. Que a string contém a **diferença em pt-BR** (`"0,01"`).
+3. Que a string contém **uma orientação textual** (qualquer de: `Verifique`, `Reabra`, `Reabrir`, `lançamento`, `Lançamento`).
+
+O mutante M5 (mensagem some) **passa a morrer** com este teste. M5b (diferença some) e M5c (orientação some) também morreriam — o assert é firme quanto ao conteúdo mínimo, tolerante quanto à redação.
+
+**Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (10 passed no escopo, 1445 passed no escopo estendido, ruff limpo, manage.py check limpo) · **Inspecionado** (diff revisado, comentários conferidos, contrato da função pura verificado) · **Não auditado** (auditor-qa independente pendente, mesma pendência da B.1) · **Bloqueado** (a integração na `main` precisa de PR aberto pelo Fred via web UI — `gh` CLI não está disponível nesta sessão, e a auditoria independente também precisa de sessão Claude Code).
+
+### ➡️ DL-027 Fatia B.3 IMPLEMENTADA (mesma branch `feat/dl-027-fatia-b2-criterio-impresso`) — auditoria independente PENDENTE
+
+**Aberta por ordem do Fred em 2026-09-22**, na mesma branch da B.2: *"Continuar B.3 (carimbo) na mesma branch"*. Plano no item 1 da "O que entra, com o motivo" do plano DL-027: *"Carimbo de data e hora da emissão."* Continua **NÍVEL 1** (mexe no documento do cliente, §3.1).
+
+**O que entra na `main` por esta entrega** (5 testes novos, todos verdes; `ruff check` limpo, `ruff format --check` limpo, `manage.py check` 0 issues):
+
+- `timezone.localtime()` capturado **na view** (não no template) — garante que toda renderização da mesma request use o mesmo timestamp, e que a string pt-BR seja produzida uma única vez pela camada Python.
+- Fuso `settings.TIME_ZONE` ("America/Sao_Paulo", -03:00 desde 2019 quando o Brasil aboliu o DST) — não UTC. O usuário lê o carimbo no relógio dele.
+- Formato `dd/mm/AAAA às HH:MM:SS` (ex.: `22/09/2026 às 17:54:22`) — convenção brasileira, regex do teste é firme.
+- Renderizado no bloco `{% block contexto_extra %}` do `templates/contabilidade/balancete.html` — mesmo lugar onde Empresa e Período já aparecem. Aparece no papel, no `contexto-item` "Emitido em" sem a classe `--somente-tela`, então vai para a impressão também.
+
+**Medições locais, no branch `feat/dl-027-fatia-b2-criterio-impresso`** (após B.3):
+
+| Verificação | Resultado |
+| --- | --- |
+| `pytest apps/contabilidade/tests/test_dl027_fatia_b3_carimbo_emissao.py` | **5 passed em 10 s** |
+| Suíte estendida (B.1 + B.2 + B.3 + regressão) | **1450 passed, 2 skipped em 4 min 57 s** |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 225 files already formatted |
+| `manage.py check` | System check identified no issues (0 silenced) |
+
+**O que mudou por arquivo** (escopo só da B.3):
+
+- `apps/contabilidade/views_web.py` (+10) — captura `timezone.localtime()` e injeta `carimbo_de_emissao` (datetime) + `carimbo_de_emissao_texto` (string pt-BR) no contexto.
+- `templates/contabilidade/balancete.html` (+4) — novo `contexto-item` "Emitido em" dentro do bloco `contexto_extra`.
+- `apps/contabilidade/tests/test_dl027_fatia_b3_carimbo_emissao.py` (novo, +155) — 5 testes: presença no contexto, formato pt-BR, fuso São Paulo, presença no HTML, variação entre requests consecutivas.
+
+**Não escopo** (registrado):
+
+- Diário, Razão, Balanço — propagação é mecânica (mesmo bloco `contexto_extra` que essas views já preenchem), mas cada tela tem sua própria definição do bloco e o carimbo precisa ser injetado no contexto de cada view. Fica para quando essas telas entrarem na mesma etapa.
+- Carimbo persistente (gravado em banco) — sem necessidade hoje (cada emissão é uma nova request; carimbo "esquecido" não faria sentido para uma impressão sob demanda).
+- Outros itens da Fatia B (marca d'água, dispensar coluna, etc.) — ordem do plano (DE-054).
+
+**Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (5 passed no escopo, 1450 passed na suíte estendida) · **Inspecionado** (fuso, formato e propagação revisados) · **Não auditado** (mesma pendência da B.1 e B.2 — `auditor-qa` só em sessão Claude Code) · **Bloqueado para integração** (precisa de PR via web UI; auditoria independente é a próxima etapa).
+
 ### ➡️ O TRABALHO DE PRODUTO EM CURSO: DL-016, fatia 1 — a trava da competência
 
 **Aberto em 2026-09-20**, logo depois da mudança de processo, porque o Fred
