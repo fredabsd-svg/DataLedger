@@ -1,0 +1,34 @@
+{% extends "registration/public_base.html" %}
+{% block titulo %}Contabilidade com clareza{% endblock %}
+{% block public_content %}
+<section class="public-hero public-container" aria-labelledby="hero-title">
+    <div class="hero-copy">
+        <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> O próximo capítulo do seu escritório</p>
+        <h1 id="hero-title">Sua contabilidade.<br>Com mais <em>clareza.</em></h1>
+        <p class="hero-description">Cada empresa no seu lugar. Cada lançamento com sua história. Uma plataforma para organizar a rotina contábil e dar aos números a atenção que eles merecem.</p>
+        <div class="hero-actions"><a class="public-button" href="{% url 'cadastro' %}">Cadastrar minha empresa <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Já tenho uma conta <span aria-hidden="true">→</span></a></div>
+        <p class="hero-note">Seu primeiro acesso começa aqui. Crie sua conta e o espaço da sua empresa.</p>
+    </div>
+    <div class="hero-product">
+        <div class="product-heading"><span>Um olhar sobre a sua rotina</span><span class="demo-label">Demonstrativo</span></div>
+        <div class="ledger-preview">
+            <div class="ledger-top"><span class="preview-brand">DataLedger.</span><span class="preview-workspace">Escritório Exemplo</span></div>
+            <div class="ledger-body">
+                <div class="ledger-context"><span>CONTABILIDADE / VISÃO DO PERÍODO</span><span class="numerico">09/2026</span></div>
+                <h2>Os números contam<br>uma história.</h2>
+                <p class="ledger-company">Empresa Exemplo · dados ilustrativos</p>
+                <div class="ledger-balance"><div><span>Movimentação a débito</span><strong class="numerico">24.800,00</strong></div><span class="balance-equal" aria-hidden="true">=</span><div><span>Movimentação a crédito</span><strong class="numerico">24.800,00</strong></div></div>
+                <div class="ledger-rows" aria-label="Exemplos de lançamentos, valores em reais"><div class="ledger-row ledger-row--header"><span>Lançamento</span><span>Valor · R$</span></div><div class="ledger-row"><span>Recebimento de clientes<small>Banco / Clientes</small></span><strong class="numerico">18.400,00</strong></div><div class="ledger-row"><span>Pagamento a fornecedores<small>Fornecedores / Banco</small></span><strong class="numerico">6.400,00</strong></div></div>
+                <div class="ledger-check"><span aria-hidden="true">✓</span><span>Débitos e créditos em equilíbrio</span><span class="numerico">0,00</span></div>
+            </div>
+        </div>
+        <div class="product-caption"><span class="caption-rule" aria-hidden="true"></span><p>Da origem do lançamento<br><strong>à confiança na conferência.</strong></p><span class="caption-seal" aria-hidden="true">D / C</span></div>
+    </div>
+</section>
+<section class="public-pillars public-container" aria-label="Fundamentos da plataforma"><p><span class="numerico">01</span> Contabilidade estruturada</p><p><span class="numerico">02</span> Gestão multiempresa</p><p><span class="numerico">03</span> Rastreabilidade na origem</p></section>
+<section class="platform-section public-container" id="plataforma" aria-labelledby="platform-title">
+    <div class="section-heading"><p class="public-eyebrow">Feito para a rotina de quem confere</p><h2 id="platform-title">Menos dispersão.<br>Mais visão do conjunto.</h2><p>Uma base contábil organizada para trabalhar com contexto, acompanhar os registros e consultar o que importa.</p></div>
+    <div class="feature-grid"><article><span class="feature-number numerico">01 /</span><h3>O detalhe que fecha<br>a conta.</h3><p>Plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período. A estrutura que sustenta o seu trabalho.</p><span class="feature-tag">Núcleo contábil</span></article><article><span class="feature-number numerico">02 /</span><h3>Muitas empresas.<br>Cada uma no seu lugar.</h3><p>Organize as empresas atendidas em um espaço próprio do escritório, com contexto de empresa e controle de acesso.</p><span class="feature-tag">Organização multiempresa</span></article><article><span class="feature-number numerico">03 /</span><h3>O registro importa.<br>A origem também.</h3><p>Trilha de alterações e permissões no servidor ajudam a acompanhar quem fez o quê e preservar a separação entre escritórios.</p><span class="feature-tag">Permissões e auditoria</span></article></div>
+</section>
+<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Um começo bem organizado</p><h2 id="start-title">O seu próximo capítulo<br>começa com uma conta.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Cadastrar minha empresa <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Crie seu acesso</h3><p>Informe seus dados e escolha uma senha.</p></div></li><li><span class="numerico">02</span><div><h3>Abra seu espaço de trabalho</h3><p>Cadastre sua empresa ou escritório. Esse será o ambiente que você administra.</p></div></li><li><span class="numerico">03</span><div><h3>Organize as empresas atendidas</h3><p>Depois de entrar, cadastre as empresas clientes dentro do seu ambiente.</p></div></li></ol></div></section>
+{% endblock %}

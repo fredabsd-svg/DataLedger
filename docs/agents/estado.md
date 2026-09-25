@@ -1,5 +1,15 @@
 # Estado atual da equipe de agentes
 
+## Demanda atual — DL-036 (25/09/2026)
+
+**Em desenvolvimento:** [página inicial e cadastro](../planos/DL-036-entrada-e-cadastro.md),
+a pedido direto do Fred. O fluxo da DL-018 já cria escritório para usuário autenticado,
+mas faltava criar a própria conta pelo produto. Esta entrega fecha essa entrada e
+redesenha landing/login/cadastro. Branch `feat/dl-036-entrada-e-cadastro`, base `main`.
+Papéis de implementação separados e auditoria independente nesta sessão por
+subagentes; sem pretensão de equipe nativa Claude. Testes e PR pendentes.
+
+
 A DL-023 entrou na `main` pela rodada 2, após auditoria reprovada na rodada 1;
 o que mudou entre uma e outra está na tabela de etapas e no histórico.
 

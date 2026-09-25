@@ -1,47 +1,15 @@
-{% extends "base.html" %}
-
+{% extends "registration/public_base.html" %}
 {% block titulo %}Entrar{% endblock %}
-
-{% block content %}
-    <h1>Entrar</h1>
-
-    {% if form.non_field_errors %}
-        {% comment %}
-        Erro de autenticação: não indica qual campo está errado, por não
-        revelar se o usuário existe (prática de segurança do próprio
-        Django). Ainda assim precisa ser anunciado e associado aos dois
-        campos, para quem usa leitor de tela.
-        {% endcomment %}
-        <div id="erro-login" class="mensagem mensagem-error" role="alert">
-            {% for erro in form.non_field_errors %}
-                <p>{{ erro }}</p>
-            {% endfor %}
-        </div>
-    {% endif %}
-
-    <form method="post" class="formulario" novalidate>
-        {% csrf_token %}
-        <div class="campo">
-            {{ form.username.label_tag }}
-            <input
-                type="text"
-                name="username"
-                id="id_username"
-                autocomplete="username"
-                autofocus
-                required
-                {% if form.non_field_errors %}aria-describedby="erro-login" aria-invalid="true"{% endif %}>
-        </div>
-        <div class="campo">
-            {{ form.password.label_tag }}
-            <input
-                type="password"
-                name="password"
-                id="id_password"
-                autocomplete="current-password"
-                required
-                {% if form.non_field_errors %}aria-describedby="erro-login" aria-invalid="true"{% endif %}>
-        </div>
-        <button type="submit">Entrar</button>
-    </form>
+{% block public_content %}
+<section class="auth-layout public-container">
+    <div class="auth-story"><p class="public-eyebrow">Seu espaço de trabalho</p><h1>Bom ter você<br><em>de volta.</em></h1><p>A clareza de que você precisa para seguir com a rotina do seu escritório.</p><div class="auth-story-detail"><span class="numerico">D = C</span><p>Precisão em cada lançamento.<br>Contexto em cada decisão.</p></div></div>
+    <div class="auth-card"><p class="public-eyebrow">DataLedger / Acesso</p><h2>Entre na sua conta</h2><p class="auth-intro">Use o e-mail do cadastro. Se seu acesso foi criado por um administrador, use o nome de usuário informado.</p>
+    {% if form.non_field_errors %}<div id="erro-login" class="mensagem mensagem-error" role="alert">{% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}</div>{% endif %}
+    <form method="post" class="public-form" novalidate>
+        {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+        <div class="campo"><label for="id_username">E-mail ou nome de usuário</label><input type="text" name="username" id="id_username" value="{{ form.username.value|default_if_none:'' }}" autocomplete="username" autocapitalize="none" required {% if form.non_field_errors or form.username.errors %}aria-invalid="true" aria-describedby="{% if form.non_field_errors %}erro-login{% if form.username.errors %} {% endif %}{% endif %}{% if form.username.errors %}id_username_error{% endif %}"{% endif %}>{% if form.username.errors %}<div id="id_username_error" class="field-error">{{ form.username.errors }}</div>{% endif %}</div>
+        <div class="campo"><label for="id_password">Senha</label><input type="password" name="password" id="id_password" autocomplete="current-password" required {% if form.non_field_errors or form.password.errors %}aria-invalid="true" aria-describedby="{% if form.non_field_errors %}erro-login{% if form.password.errors %} {% endif %}{% endif %}{% if form.password.errors %}id_password_error{% endif %}"{% endif %}>{% if form.password.errors %}<div id="id_password_error" class="field-error">{{ form.password.errors }}</div>{% endif %}</div>
+        <button type="submit" class="public-button">Entrar <span aria-hidden="true">→</span></button>
+    </form><p class="auth-switch">Primeiro acesso? <a href="{% url 'cadastro' %}">Cadastrar minha empresa</a></p></div>
+</section>
 {% endblock %}

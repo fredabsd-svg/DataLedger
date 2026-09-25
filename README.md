@@ -105,11 +105,16 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-A verificação de saúde fica em `GET /api/health/`. Para entrar na aplicação, crie um usuário administrativo com `python manage.py createsuperuser` e acesse `/login/`.
+Abra `http://localhost:8000/` e escolha **Cadastrar minha empresa**. Informe os
+dados do responsável e do escritório para criar sua conta e seu espaço de trabalho.
+Você entra como administrador do seu próprio escritório; depois, cadastre as
+empresas clientes no painel. Para contas existentes, use **Entrar** (usuário antigo
+ou e-mail usado no novo cadastro). Não é necessário criar superusuário nem abrir
+o admin para começar. Fluxo e critérios: [DL-036](docs/planos/DL-036-entrada-e-cadastro.md).
 
-**Falta um passo, e ele hoje só existe no admin do Django.** Um usuário recém-criado não tem vínculo com nenhum escritório, então o painel responde *"Nenhum escritório ativo"* — corretamente, porque toda empresa pertence a um escritório. Em `/admin/`, crie um **Escritório** (CNPJ com 14 caracteres, só os dígitos) e, na mesma tela, um **vínculo** do seu usuário com papel **Administrador**. Depois disso o painel abre e você pode cadastrar empresas.
-
-Que esse passo dependa de ferramenta técnica é uma lacuna conhecida, não um jeito de fazer: está registrada como **BL-125** e planejada em [DL-018](docs/planos/DL-018-primeiro-acesso.md).
+A verificação de saúde fica em `GET /api/health/`. O comando
+`python manage.py createsuperuser` continua disponível para administração técnica,
+mas não faz parte do cadastro normal.
 
 Sem `DATABASE_URL` configurada e com `DEBUG=True`, o sistema usa SQLite local e avisa isso ao subir. **Com `DEBUG=False` ele exige PostgreSQL e recusa subir sem ele** — é proteção, não limitação.
 
@@ -122,13 +127,10 @@ docker compose up --build
 
 O `web` aplica as migrações e sobe o gunicorn em `http://localhost:8000`. Na primeira vez o PostgreSQL cria o volume do zero, e isso pode levar mais de um minuto antes de o `web` começar — é esperado.
 
-Depois que subir, em **outro terminal**, crie o usuário para entrar:
-
-```bash
-docker compose exec web python manage.py createsuperuser
-```
-
-Então acesse `http://localhost:8000/login/` — e siga o passo do **escritório e do vínculo** descrito acima, em `http://localhost:8000/admin/`, sem o qual o painel responde "Nenhum escritório ativo".
+Depois que subir, abra `http://localhost:8000/`: **Cadastrar minha empresa** cria
+conta e escritório pelo navegador; **Entrar** acessa uma conta já existente.
+Para atualizar uma instalação existente após integrar a alteração, execute
+`git pull` e `docker compose up --build -d`. Preserve o volume do banco de dados.
 
 ## 🧪 Verificações de desenvolvimento
 

@@ -295,3 +295,13 @@ O `arquiteto-senior` mantém este documento. Ao confirmar uma hipótese, mova-a
 para a tabela de confirmados citando a origem da confirmação. Ao resolver uma
 pendência, registre a decisão em
 [docs/projeto/decisoes.md](decisoes.md) e o requisito resultante aqui.
+
+
+## Cadastro e apresentação — demanda de 25/09/2026 (DL-036)
+
+Fred solicitou que a instalação via Docker abra uma página profissional com
+**Cadastrar minha empresa** e **Entrar**. Uma nova empresa/escritório deve criar
+sua conta e seu espaço pelo navegador, sem comandos administrativos. Esta ordem
+amplia o escopo anterior da DL-018, que excluía autocadastro público. O vínculo
+administrador pertence somente ao escritório criado; não concede privilégio de
+administração da plataforma nem acesso a empresas de outros escritórios.
