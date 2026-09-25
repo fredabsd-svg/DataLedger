@@ -27,7 +27,6 @@ from apps.fiscal.models import (
 )
 from apps.fiscal.tests.xml_sinteticos import (
     CNPJ_PRESTADOR_PADRAO,
-    CNPJ_TOMADOR_PADRAO,
     chave_nfse_de,
     identificador_nfse,
     xml_evento,
@@ -43,7 +42,9 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.mark.parametrize("versao", ["1.00", "1.01"])
-def test_recebe_nfse_solta_com_sucesso(escritorio_a, empresa_a, empresa_a2, usuario_gestor_a, versao):
+def test_recebe_nfse_solta_com_sucesso(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a, versao
+):
     conteudo = xml_nfse(versao=versao)
     lote = services.receber_envio(
         escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
@@ -60,10 +61,14 @@ def test_recebe_nfse_solta_com_sucesso(escritorio_a, empresa_a, empresa_a2, usua
     assert documento.v_liq == Decimal("95.00")
 
 
-def test_recebe_nfse_a_partir_de_arquivo_de_upload_do_django(escritorio_a, empresa_a, usuario_gestor_a):
+def test_recebe_nfse_a_partir_de_arquivo_de_upload_do_django(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     # `receber_envio` aceita bytes OU um objeto de upload real do Django
     # (contrato do plano: "arquivo = bytes ou arquivo enviado do Django").
-    upload = SimpleUploadedFile("nota.xml", xml_nfse(incluir_tomador=False), content_type="text/xml")
+    upload = SimpleUploadedFile(
+        "nota.xml", xml_nfse(incluir_tomador=False), content_type="text/xml"
+    )
     lote = services.receber_envio(
         escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=upload, nome_arquivo="nota.xml"
     )
@@ -96,7 +101,9 @@ def test_tomador_cliente_gera_vinculo_de_tomador(escritorio_a, empresa_a2, usuar
     assert vinculos[0].papel == PapelDocumento.TOMADOR
 
 
-def test_os_dois_clientes_um_documento_dois_vinculos(escritorio_a, empresa_a, empresa_a2, usuario_gestor_a):
+def test_os_dois_clientes_um_documento_dois_vinculos(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a
+):
     conteudo = xml_nfse()  # prestador=empresa_a, tomador=empresa_a2 (fixture)
     services.receber_envio(
         escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
@@ -115,7 +122,10 @@ def test_zip_com_varias_notas(escritorio_a, empresa_a, usuario_gestor_a):
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_arquivos == 3
     assert lote.total_recebidos == 3
@@ -145,7 +155,10 @@ def test_mesmo_xml_em_outro_zip_nao_duplica(escritorio_a, empresa_a, usuario_ges
     )
     conteudo_zip = zip_de({"outra/pasta/mesma-nota.xml": conteudo})
     lote2 = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote2.total_duplicados == 1
     assert DocumentoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
@@ -156,28 +169,38 @@ def test_mesma_nota_duas_pastas_do_mesmo_zip(escritorio_a, empresa_a, usuario_ge
     # duas vezes na MESMA pasta/zip (ex.: "Entradas" e "Saídas" da
     # ferramenta de origem).
     conteudo = xml_nfse(incluir_tomador=False)
-    conteudo_zip = zip_de(
-        {"Entradas/nota.xml": conteudo, "Saidas/nota.xml": conteudo}
-    )
+    conteudo_zip = zip_de({"Entradas/nota.xml": conteudo, "Saidas/nota.xml": conteudo})
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 1
     assert lote.total_duplicados == 1
     assert DocumentoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
 
 
-def test_mesma_nota_nome_de_arquivo_diferente_ainda_duplica(escritorio_a, empresa_a, usuario_gestor_a):
+def test_mesma_nota_nome_de_arquivo_diferente_ainda_duplica(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     conteudo = xml_nfse(incluir_tomador=False)
-    conteudo_zip = zip_de({"nome-completamente-diferente.xml": conteudo, "outro-nome.xml": conteudo})
+    conteudo_zip = zip_de(
+        {"nome-completamente-diferente.xml": conteudo, "outro-nome.xml": conteudo}
+    )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 1
     assert lote.total_duplicados == 1
 
 
-def test_notas_de_emitentes_distintos_com_mesmo_numero_coexistem(escritorio_a, empresa_a, usuario_gestor_a):
+def test_notas_de_emitentes_distintos_com_mesmo_numero_coexistem(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a
+):
     # Critério 16 / RC-74: nNFSe NÃO é chave.
     conteudo_zip = zip_de(
         {
@@ -187,16 +210,21 @@ def test_notas_de_emitentes_distintos_com_mesmo_numero_coexistem(escritorio_a, e
             "nota-emitente-2.xml": xml_nfse(
                 identificador=identificador_nfse(2),
                 numero="1",
-                prestador_documento="99988877000161",
+                prestador_documento=empresa_a2.cnpj,
                 incluir_tomador=False,
             ),
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 2
-    numeros = list(DocumentoFiscal.objects.filter(escritorio=escritorio_a).values_list("numero", flat=True))
+    numeros = list(
+        DocumentoFiscal.objects.filter(escritorio=escritorio_a).values_list("numero", flat=True)
+    )
     assert numeros == ["1", "1"]
 
 
@@ -206,13 +234,18 @@ def test_notas_de_emitentes_distintos_com_mesmo_numero_coexistem(escritorio_a, e
 def test_evento_orfao_e_aceito_e_guardado(escritorio_a, usuario_gestor_a):
     conteudo_evento = xml_evento()
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_evento, nome_arquivo="evento.xml"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_evento,
+        nome_arquivo="evento.xml",
     )
     assert lote.total_recebidos == 1
     assert EventoFiscal.objects.filter(escritorio=escritorio_a).exists()
 
 
-def test_evento_antes_da_nota_depois_a_nota_chega_cancelada(escritorio_a, empresa_a, usuario_gestor_a):
+def test_evento_antes_da_nota_depois_a_nota_chega_cancelada(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     identificador = identificador_nfse(10)
     chave = chave_nfse_de(identificador)
 
@@ -259,10 +292,16 @@ def test_nota_antes_do_evento_tambem_fica_cancelada(escritorio_a, empresa_a, usu
 def test_evento_duplicado_nao_duplica(escritorio_a, usuario_gestor_a):
     conteudo_evento = xml_evento()
     services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_evento, nome_arquivo="evento.xml"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_evento,
+        nome_arquivo="evento.xml",
     )
     lote2 = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_evento, nome_arquivo="evento.xml"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_evento,
+        nome_arquivo="evento.xml",
     )
     assert lote2.total_duplicados == 1
     assert EventoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
@@ -315,11 +354,15 @@ def test_tomador_ausente_e_prestador_fora_e_recusado(escritorio_a, usuario_gesto
     assert lote.resultados.get().motivo == services.MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO
 
 
-def test_prestador_pessoa_fisica_sem_cadastro_e_recusado_com_motivo_especifico(escritorio_a, usuario_gestor_a):
+def test_prestador_pessoa_fisica_sem_cadastro_e_recusado_com_motivo_especifico(
+    escritorio_a, usuario_gestor_a
+):
     # RC-112: o Fred confirmou que o escritório atende cliente pessoa
     # física, mas o cadastro ainda não existe — a mensagem tem que dizer
     # ISSO, não o genérico "nenhum participante".
-    conteudo = xml_nfse(prestador_tipo="CPF", prestador_documento="12345678909", incluir_tomador=False)
+    conteudo = xml_nfse(
+        prestador_tipo="CPF", prestador_documento="12345678909", incluir_tomador=False
+    )
     lote = services.receber_envio(
         escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
     )
@@ -362,7 +405,9 @@ def test_mensagem_de_recusa_e_identica_exista_ou_nao_empresa_em_outro_escritorio
 # --- Recusas: formato (critérios 7, 8, 18, 24) -----------------------------
 
 
-def test_versao_nao_suportada_e_recusada_sem_derrubar_o_lote(escritorio_a, empresa_a, usuario_gestor_a):
+def test_versao_nao_suportada_e_recusada_sem_derrubar_o_lote(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     conteudo_zip = zip_de(
         {
             "boa.xml": xml_nfse(identificador=identificador_nfse(30), incluir_tomador=False),
@@ -372,7 +417,10 @@ def test_versao_nao_suportada_e_recusada_sem_derrubar_o_lote(escritorio_a, empre
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 1
     assert lote.total_recusados == 1
@@ -389,7 +437,9 @@ def test_id_fora_do_formato_e_recusado(escritorio_a, empresa_a, usuario_gestor_a
     assert "Id fora do formato" in lote.resultados.get().motivo
 
 
-def test_xml_malformado_truncado_e_vazio_nao_derrubam_o_lote(escritorio_a, empresa_a, usuario_gestor_a):
+def test_xml_malformado_truncado_e_vazio_nao_derrubam_o_lote(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     boa = xml_nfse(identificador=identificador_nfse(40), incluir_tomador=False)
     conteudo_zip = zip_de(
         {
@@ -400,7 +450,10 @@ def test_xml_malformado_truncado_e_vazio_nao_derrubam_o_lote(escritorio_a, empre
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_arquivos == 4
     assert lote.total_recebidos == 1
@@ -415,14 +468,19 @@ def test_nfe_e_recusada_sem_derrubar_o_lote(escritorio_a, empresa_a, usuario_ges
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 1
     recusado = lote.resultados.get(resultado=TipoResultadoArquivo.RECUSADO)
     assert "NF-e" in recusado.motivo
 
 
-def test_nome_de_arquivo_enganoso_e_classificado_pelo_conteudo(escritorio_a, usuario_gestor_a):
+def test_nome_de_arquivo_enganoso_e_classificado_pelo_conteudo(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     # RC-71: um arquivo cujo NOME diz "evento" mas o CONTEÚDO é uma NFS-e
     # (e vice-versa) tem que ser classificado pelo conteúdo.
     conteudo_zip = zip_de(
@@ -432,7 +490,10 @@ def test_nome_de_arquivo_enganoso_e_classificado_pelo_conteudo(escritorio_a, usu
         }
     )
     services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert DocumentoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
     assert EventoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
@@ -443,13 +504,19 @@ def test_xml_com_dtd_e_recusado_sem_derrubar_o_lote(escritorio_a, empresa_a, usu
         b'<?xml version="1.0" encoding="UTF-8"?>'
         b'<!DOCTYPE NFSe [<!ENTITY x "1">]>'
         b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
-        b"<infNFSe Id=\"" + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
+        b'<infNFSe Id="' + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
     )
     conteudo_zip = zip_de(
-        {"boa.xml": xml_nfse(identificador=identificador_nfse(60), incluir_tomador=False), "hostil.xml": hostil}
+        {
+            "boa.xml": xml_nfse(identificador=identificador_nfse(60), incluir_tomador=False),
+            "hostil.xml": hostil,
+        }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_recebidos == 1
     assert lote.total_recusados == 1
@@ -466,7 +533,9 @@ def test_envio_vazio_levanta_envio_invalido(escritorio_a, usuario_gestor_a):
     assert not DocumentoFiscal.objects.filter(escritorio=escritorio_a).exists()
 
 
-def test_envio_acima_do_tamanho_maximo_levanta_envio_invalido(escritorio_a, usuario_gestor_a, monkeypatch):
+def test_envio_acima_do_tamanho_maximo_levanta_envio_invalido(
+    escritorio_a, usuario_gestor_a, monkeypatch
+):
     monkeypatch.setattr(services, "LIMITE_TAMANHO_ENVIO_BYTES", 100)
     with pytest.raises(services.EnvioInvalido):
         services.receber_envio(
@@ -477,7 +546,9 @@ def test_envio_acima_do_tamanho_maximo_levanta_envio_invalido(escritorio_a, usua
         )
 
 
-def test_envio_no_limite_de_tamanho_e_aceito(escritorio_a, empresa_a, usuario_gestor_a, monkeypatch):
+def test_envio_no_limite_de_tamanho_e_aceito(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
     conteudo = xml_nfse(incluir_tomador=False)
     monkeypatch.setattr(services, "LIMITE_TAMANHO_ENVIO_BYTES", len(conteudo))
     lote = services.receber_envio(
@@ -486,7 +557,9 @@ def test_envio_no_limite_de_tamanho_e_aceito(escritorio_a, empresa_a, usuario_ge
     assert lote.total_recebidos == 1
 
 
-def test_arquivo_acima_do_limite_individual_e_recusado(escritorio_a, empresa_a, usuario_gestor_a, monkeypatch):
+def test_arquivo_acima_do_limite_individual_e_recusado(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
     conteudo = xml_nfse(incluir_tomador=False)
     monkeypatch.setattr(services, "LIMITE_TAMANHO_XML_BYTES", len(conteudo) - 1)
     lote = services.receber_envio(
@@ -496,7 +569,9 @@ def test_arquivo_acima_do_limite_individual_e_recusado(escritorio_a, empresa_a, 
     assert "1 MB" in lote.resultados.get().motivo or "bytes" in lote.resultados.get().motivo
 
 
-def test_quantidade_de_arquivos_no_limite_e_aceita(escritorio_a, empresa_a, usuario_gestor_a, monkeypatch):
+def test_quantidade_de_arquivos_no_limite_e_aceita(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
     monkeypatch.setattr(services, "LIMITE_ARQUIVOS_NO_ENVIO", 2)
     conteudo_zip = zip_de(
         {
@@ -505,7 +580,10 @@ def test_quantidade_de_arquivos_no_limite_e_aceita(escritorio_a, empresa_a, usua
         }
     )
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_arquivos == 2
 
@@ -523,7 +601,10 @@ def test_quantidade_de_arquivos_acima_do_limite_levanta_envio_invalido(
     )
     with pytest.raises(services.EnvioInvalido):
         services.receber_envio(
-            escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=conteudo_zip,
+            nome_arquivo="lote.zip",
         )
     assert not DocumentoFiscal.objects.filter(escritorio=escritorio_a).exists()
 
@@ -535,7 +616,10 @@ def test_descompactado_acima_do_limite_declarado_levanta_envio_invalido(
     conteudo_zip = zip_de({"grande.xml": b"x" * 100})
     with pytest.raises(services.EnvioInvalido):
         services.receber_envio(
-            escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=conteudo_zip,
+            nome_arquivo="lote.zip",
         )
 
 
@@ -557,21 +641,41 @@ def test_zip_aninhado_levanta_envio_invalido(escritorio_a, usuario_gestor_a):
     zip_externo = zip_de({"interno.zip": zip_interno})
     with pytest.raises(services.EnvioInvalido, match="ZIP dentro de ZIP"):
         services.receber_envio(
-            escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=zip_externo, nome_arquivo="lote.zip"
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=zip_externo,
+            nome_arquivo="lote.zip",
         )
 
 
+def _com_bit_de_criptografia_marcado(conteudo_zip: bytes) -> bytes:
+    """`zipfile.ZipFile._open_to_write` ZERA `flag_bits` antes de escrever
+    (linha `zinfo.flag_bits = 0x00`), então não dá para produzir uma
+    entrada com o bit de senha marcado só setando `ZipInfo.flag_bits` antes
+    de `writestr` — a própria biblioteca padrão apaga. Marcamos o bit
+    diretamente nos BYTES já escritos: offset 6-7 do cabeçalho local
+    (assinatura `PK\\x03\\x04`) e offset 8-9 do cabeçalho do diretório
+    central (assinatura `PK\\x01\\x02`) são o campo "general purpose bit
+    flag"; o bit 0 (byte baixo, little-endian) é o de criptografia clássica
+    do formato ZIP.
+    """
+    dados = bytearray(conteudo_zip)
+    pos_local = dados.find(b"PK\x03\x04")
+    assert pos_local != -1
+    dados[pos_local + 6] |= 0x01
+    pos_central = dados.find(b"PK\x01\x02")
+    assert pos_central != -1
+    dados[pos_central + 8] |= 0x01
+    return bytes(dados)
+
+
 def test_zip_com_entrada_cifrada_levanta_envio_invalido(escritorio_a, usuario_gestor_a):
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w") as arquivo_zip:
-        info = zipfile.ZipInfo("nota.xml")
-        info.flag_bits |= 0x1  # bit de senha do formato ZIP clássico
-        arquivo_zip.writestr(info, xml_nfse())
+    conteudo_zip = _com_bit_de_criptografia_marcado(zip_de({"nota.xml": xml_nfse()}))
     with pytest.raises(services.EnvioInvalido, match="cifrada"):
         services.receber_envio(
             escritorio=escritorio_a,
             usuario=usuario_gestor_a,
-            arquivo=buffer.getvalue(),
+            arquivo=conteudo_zip,
             nome_arquivo="lote.zip",
         )
 
@@ -582,7 +686,10 @@ def test_zip_com_diretorio_e_ignorado(escritorio_a, empresa_a, usuario_gestor_a)
         arquivo_zip.writestr("pasta/", b"")
         arquivo_zip.writestr("pasta/nota.xml", xml_nfse(incluir_tomador=False))
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=buffer.getvalue(), nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=buffer.getvalue(),
+        nome_arquivo="lote.zip",
     )
     assert lote.total_arquivos == 1
     assert lote.total_recebidos == 1
@@ -591,7 +698,9 @@ def test_zip_com_diretorio_e_ignorado(escritorio_a, empresa_a, usuario_gestor_a)
 # --- Trilha de auditoria (critério 31) --------------------------------------
 
 
-def test_trilha_grava_contagens_e_sha256_sem_conteudo_sensivel(escritorio_a, empresa_a, usuario_gestor_a):
+def test_trilha_grava_contagens_e_sha256_sem_conteudo_sensivel(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     nome_prestador_sensivel = "Razão Social Confidencial Ltda"
     conteudo = xml_nfse(prestador_nome=nome_prestador_sensivel, incluir_tomador=False)
 
@@ -626,7 +735,9 @@ def test_envio_invalido_nao_grava_lote_nem_trilha(escritorio_a, usuario_gestor_a
 # --- Nunca levanta exceção por arquivo ruim (contrato do plano) ------------
 
 
-def test_receber_envio_nunca_levanta_por_arquivo_individual_ruim(escritorio_a, empresa_a, usuario_gestor_a):
+def test_receber_envio_nunca_levanta_por_arquivo_individual_ruim(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
     conteudo_zip = zip_de(
         {
             "boa.xml": xml_nfse(identificador=identificador_nfse(90), incluir_tomador=False),
@@ -643,7 +754,10 @@ def test_receber_envio_nunca_levanta_por_arquivo_individual_ruim(escritorio_a, e
     )
     # Não deve levantar NENHUMA exceção.
     lote = services.receber_envio(
-        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo_zip, nome_arquivo="lote.zip"
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
     )
     assert lote.total_arquivos == 4
     assert lote.total_recebidos == 1

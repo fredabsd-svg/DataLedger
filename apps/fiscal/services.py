@@ -80,8 +80,7 @@ MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO = (
 # próprio remetente já sabe — não sobre o que este ou outro escritório tem
 # cadastrado).
 MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO = (
-    "Participante pessoa física (CPF): cadastro de cliente pessoa física "
-    "ainda não disponível."
+    "Participante pessoa física (CPF): cadastro de cliente pessoa física ainda não disponível."
 )
 
 
@@ -234,8 +233,7 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
         return {
             "resultado": TipoResultadoArquivo.RECUSADO,
             "motivo": (
-                f"Arquivo acima do limite de {LIMITE_TAMANHO_XML_BYTES} bytes "
-                "por XML (HI-22)."
+                f"Arquivo acima do limite de {LIMITE_TAMANHO_XML_BYTES} bytes por XML (HI-22)."
             ),
         }
 
@@ -426,7 +424,9 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
     for caminho_no_zip, conteudo_arquivo in itens:
         info = _processar_um_arquivo(escritorio, conteudo_arquivo)
         resultado = info.pop("resultado")
-        ResultadoDoArquivo.objects.create(lote=lote, caminho_no_zip=caminho_no_zip, resultado=resultado, **info)
+        ResultadoDoArquivo.objects.create(
+            lote=lote, caminho_no_zip=caminho_no_zip, resultado=resultado, **info
+        )
         contagens[resultado] += 1
 
     lote.total_arquivos = len(itens)

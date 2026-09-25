@@ -154,8 +154,7 @@ def test_elemento_raiz_sem_namespace_e_recusado():
 
 def test_elemento_raiz_desconhecido_no_namespace_da_nfse_e_recusado():
     conteudo = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        f'<outraCoisa xmlns="{leitor.NS_NFSE}"/>'
+        f'<?xml version="1.0" encoding="UTF-8"?><outraCoisa xmlns="{leitor.NS_NFSE}"/>'
     ).encode()
     with pytest.raises(leitor.ArquivoRecusado, match="tipo ainda não suportado"):
         _ler(conteudo)
@@ -260,7 +259,7 @@ def test_xml_com_dtd_e_recusado():
         b'<?xml version="1.0" encoding="UTF-8"?>'
         b'<!DOCTYPE NFSe [<!ENTITY x "1">]>'
         b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
-        b"<infNFSe Id=\"" + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
+        b'<infNFSe Id="' + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
     )
     with pytest.raises(leitor.ArquivoRecusado, match="DTD|proibid"):
         _ler(conteudo)
@@ -271,7 +270,7 @@ def test_xml_com_entidade_externa_e_recusado():
         b'<?xml version="1.0" encoding="UTF-8"?>'
         b'<!DOCTYPE NFSe [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
         b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
-        b"<infNFSe Id=\"" + ("NFS" + "0" * 50).encode() + b'">&xxe;</infNFSe></NFSe>'
+        b'<infNFSe Id="' + ("NFS" + "0" * 50).encode() + b'">&xxe;</infNFSe></NFSe>'
     )
     with pytest.raises(leitor.ArquivoRecusado):
         _ler(conteudo)
@@ -282,7 +281,7 @@ def test_xml_com_expansao_de_entidade_e_recusado():
     # chega a expandir a primeira entidade.
     conteudo = (
         b'<?xml version="1.0" encoding="UTF-8"?>'
-        b"<!DOCTYPE lolz [ <!ENTITY lol \"lol\">"
+        b'<!DOCTYPE lolz [ <!ENTITY lol "lol">'
         b'<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">]>'
         b"<NFSe><infNFSe>&lol2;</infNFSe></NFSe>"
     )
@@ -321,9 +320,7 @@ def test_evento_chave_fora_do_formato_e_recusado():
         _ler(xml_evento(identificador=identificador_valido, chave_nfse="123"))
 
 
-@pytest.mark.parametrize(
-    "codigo", ["e202201", "e203202", "e202205", "e305102", "e305103"]
-)
+@pytest.mark.parametrize("codigo", ["e202201", "e203202", "e202205", "e305102", "e305103"])
 def test_le_eventos_que_nao_cancelam_tambem(codigo):
     # O leitor lê QUALQUER evento reconhecível — a decisão de "cancela ou
     # não" é do serviço (HI-20), não do leitor.

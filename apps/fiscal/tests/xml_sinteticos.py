@@ -136,7 +136,7 @@ def xml_nfse(
       <vLiq>{v_liq}</vLiq>
     </valores>
     <DPS versao="{versao}">
-      <infDPS Id="DPS{'0' * 42}">
+      <infDPS Id="DPS{"0" * 42}">
         <dhEmi>{dh_emi}</dhEmi>
         <dCompet>{d_compet}</dCompet>
         {toma_xml}
@@ -186,7 +186,7 @@ def xml_evento(
     corpo = f"""<evento xmlns="{NS_NFSE}" versao="{versao}">
   <infEvento Id="{identificador}">
     <pedRegEvento versao="{versao}">
-      <infPedReg Id="PRE{'0' * 56}">
+      <infPedReg Id="PRE{"0" * 56}">
         <dhEvento>{dh_evento}</dhEvento>
         {autor_xml}
         <chNFSe>{chave_nfse}</chNFSe>

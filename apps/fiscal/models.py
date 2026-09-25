@@ -72,7 +72,10 @@ class LoteDeRecepcao(models.Model):
     """
 
     escritorio = models.ForeignKey(
-        Escritorio, verbose_name="escritório", on_delete=models.PROTECT, related_name="lotes_de_recepcao"
+        Escritorio,
+        verbose_name="escritório",
+        on_delete=models.PROTECT,
+        related_name="lotes_de_recepcao",
     )
     usuario = models.ForeignKey(
         # PROTECT, não CASCADE/SET_NULL: um lote de recepção é trilha —
@@ -112,10 +115,16 @@ class DocumentoFiscal(models.Model):
     """
 
     escritorio = models.ForeignKey(
-        Escritorio, verbose_name="escritório", on_delete=models.PROTECT, related_name="documentos_fiscais"
+        Escritorio,
+        verbose_name="escritório",
+        on_delete=models.PROTECT,
+        related_name="documentos_fiscais",
     )
     tipo = models.CharField(
-        "tipo", max_length=20, choices=TipoDocumentoFiscal.choices, default=TipoDocumentoFiscal.NFSE_NACIONAL
+        "tipo",
+        max_length=20,
+        choices=TipoDocumentoFiscal.choices,
+        default=TipoDocumentoFiscal.NFSE_NACIONAL,
     )
     # TVerNFSe (tiposSimples_v1.0x.xsd): "1.00" ou "1.01" — RC-72.
     versao = models.CharField("versão do leiaute", max_length=4)
@@ -150,7 +159,9 @@ class DocumentoFiscal(models.Model):
         blank=True,
         default="",
     )
-    tomador_documento = models.CharField("documento do tomador", max_length=40, blank=True, default="")
+    tomador_documento = models.CharField(
+        "documento do tomador", max_length=40, blank=True, default=""
+    )
     tomador_nome = models.CharField("nome do tomador", max_length=300, blank=True, default="")
     # DE-010: Decimal a partir de TEXTO, nunca float. TSDec15V2 permite até
     # 15 dígitos inteiros + 2 decimais — max_digits=17.
@@ -184,7 +195,9 @@ class VinculoDocumentoEmpresa(models.Model):
     escritório gera DOIS vínculos (critério "os dois clientes" do plano).
     """
 
-    documento = models.ForeignKey(DocumentoFiscal, on_delete=models.CASCADE, related_name="vinculos")
+    documento = models.ForeignKey(
+        DocumentoFiscal, on_delete=models.CASCADE, related_name="vinculos"
+    )
     empresa = models.ForeignKey(
         Empresa, on_delete=models.PROTECT, related_name="vinculos_documento_fiscal"
     )
@@ -219,7 +232,10 @@ class EventoFiscal(models.Model):
     """
 
     escritorio = models.ForeignKey(
-        Escritorio, verbose_name="escritório", on_delete=models.PROTECT, related_name="eventos_fiscais"
+        Escritorio,
+        verbose_name="escritório",
+        on_delete=models.PROTECT,
+        related_name="eventos_fiscais",
     )
     # TSIdEvento: "EVT" + chave(50) + tipo do evento(6) + nPedRegEvento(3) =
     # 62 posições.

@@ -46,6 +46,9 @@ def test_papel_pode_consultar_documentos(papel, esperado):
 
 def test_quem_recebe_e_subconjunto_de_quem_consulta():
     # Invariante de coerência: ninguém pode ENVIAR sem poder CONSULTAR.
-    from apps.fiscal.permissoes import PAPEIS_QUE_CONSULTAM_DOCUMENTOS, PAPEIS_QUE_RECEBEM_DOCUMENTOS
+    from apps.fiscal.permissoes import (
+        PAPEIS_QUE_CONSULTAM_DOCUMENTOS,
+        PAPEIS_QUE_RECEBEM_DOCUMENTOS,
+    )
 
     assert set(PAPEIS_QUE_RECEBEM_DOCUMENTOS) <= set(PAPEIS_QUE_CONSULTAM_DOCUMENTOS)
