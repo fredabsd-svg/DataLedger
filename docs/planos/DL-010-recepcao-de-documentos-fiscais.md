@@ -503,3 +503,93 @@ notas do acervo são de **um único município**. O risco é ajustar o leitor ao
 provedor de software de uma prefeitura e descobrir no cliente seguinte. **Uma
 segunda amostra, de outro município, vale mais que qualquer refinamento sobre
 esta** — e é pedido ao Fred, não bloqueio.
+
+## Leiaute da NFS-e nacional — levantado em fonte oficial em 2026-09-25
+
+Levantamento do `auxiliar-pesquisa` contra o **pacote oficial de esquemas XSD
+vigente** (`NFSe-ESQUEMAS_XSD-v1.01-20260209.zip`, publicado 09/02/2026, da
+Documentação Técnica Atual do portal `gov.br/nfse`), **lido nos `.xsd`, não em
+prosa de manual**. Registrado como **RC-110 a RC-113** e **PE-66 a PE-68**.
+
+⚠️ **Nada do que segue foi deduzido.** Onde a fonte não respondeu, virou
+pendência declarada — não hipótese disfarçada de requisito.
+
+### O que está CONFIRMADO, e o que cada item obriga
+
+| Achado | O que obriga nesta fatia |
+| --- | --- |
+| **Namespace único** `http://www.sped.fazenda.gov.br/nfse`, **igual** em 1.00 e 1.01 **e igual para todos os tipos** | ⚠️ **O tipo do documento NÃO pode ser reconhecido pelo namespace.** O reconhecimento é pelo **elemento raiz** — a mesma armadilha já levantada para a NF-e, agora confirmada aqui |
+| **Elementos raiz:** `NFSe`, `DPS`, `evento`, `pedRegEvento` | Quatro raízes conhecidas. **Raiz desconhecida é recusa com mensagem específica**, nunca tentativa de adivinhar (mitiga a PE-66) |
+| **Versão no atributo `versao` da raiz**, restrita por esquema a `1.00` ou `1.01` | Versão fora dessas duas é **recusa com mensagem própria**, não erro genérico de esquema |
+| `Id` de `infNFSe` = `NFS` + 50 dígitos = **53 caracteres**, com regra de formação documentada no próprio esquema | Confirma a **RC-74**. É a chave, e a única |
+| `nNFSe` é `string` com `maxLength=13`, **sem mínimo** | Confirma que **não serve como chave** (critério 16) |
+| CNPJ e CPF são `xs:string` com `pattern`, **nunca tipo numérico** | Confirma o critério 22: zero à esquerda se preserva porque o campo **é texto na própria norma** |
+| `toma` (tomador) é **opcional**, e admite `NIF`/`cNaoNIF` para o exterior | Tomador ausente **não** é arquivo malformado. É a mesma armadilha do bloco `dest` da NF-e |
+| **UTF-8** | — |
+
+### ⚠️ O achado que MUDA o modelo de dados: a situação não está na nota
+
+`NFSe/infNFSe/cStat` é enumeração **fechada** de **quatro** valores, e **todos são
+de geração**: `100` gerada, `102` decisão judicial, `103` avulsa, `107` MEI.
+
+> **Nenhum valor significa "cancelada".** Cancelamento e substituição existem
+> **só como EVENTO, em arquivo separado**, que aponta para a nota pela **chave**
+> `chNFSe`.
+
+**Consequência de projeto, e ela é dura:** ⚠️ **a situação do documento é
+DERIVADA — nota mais eventos aplicados —, nunca um campo copiado do XML.** Um
+importador que gravasse `cStat` como "situação" afirmaria que a nota está válida
+**enquanto ela pode estar cancelada**. É exatamente o defeito que o critério 17
+existe para impedir, agora com **fundamento oficial** em vez de só a medição do
+acervo.
+
+E há **treze** eventos confirmados — cancelamento com motivo, cancelamento por
+substituição com a chave da substituta, análise fiscal deferida e indeferida,
+confirmações, rejeições, anulação de rejeição, cancelamento por ofício, bloqueio e
+desbloqueio. ⚠️ **Todos com o MESMO elemento raiz `evento`**: o código vive dentro
+de `pedRegEvento/infPedReg`, como escolha. Reconhecer "é cancelamento" pela raiz é
+impossível; é preciso ler o código dentro.
+
+### O que o levantamento acrescenta aos critérios de aceite
+
+Estes **somam** aos 22 já escritos; nenhum os substitui.
+
+| # | Critério |
+| --- | --- |
+| **23** | **Reconhecimento pelo ELEMENTO RAIZ** (RC-110), nunca pelo namespace nem pelo nome do arquivo. Teste com os quatro raízes conhecidas, e com **raiz desconhecida** exigindo recusa de mensagem específica |
+| **24** | **Versão fora de `1.00`/`1.01` é recusada com mensagem própria**, distinguível de erro genérico de esquema |
+| **25** | ⚠️ **A situação do documento é DERIVADA de nota + eventos** (RC-111), e `cStat` **não** é gravado como situação. Teste: nota com `cStat=100` **e** evento de cancelamento aplicado **não** é apresentada como válida — nas duas ordens de chegada |
+| **26** | **Tomador ausente não é arquivo inválido** (o bloco é opcional na norma). Teste com nota sem tomador, e com tomador no exterior |
+| **27** | **O código do evento é lido de dentro de `pedRegEvento/infPedReg`**, não da raiz. Teste com dois eventos de códigos diferentes provando que o importador os distingue |
+
+### ⚠️ A fonte oficial NÃO fechou a PE-41 — ela a CONFIRMOU como risco
+
+Texto literal da fonte: município que opta por sistema próprio **pode manter seu
+padrão técnico interno**, e só precisa se adaptar ao padrão nacional **para
+compartilhar** documentos pelo ambiente nacional (**RC-113**).
+
+**Ou seja:** as notas do município que concentra **82% do acervo** podem
+legitimamente **não** seguir este XSD, se vierem direto do provedor local. A
+norma não nos protege disso.
+
+⚠️ **Existe um teste barato que decide a questão, e ele entra como tarefa:**
+conferir se essas notas têm o `Id` de **53 caracteres** e a estrutura
+`infNFSe`/`infDPS`. Se tiverem, são padrão nacional **de fato**. **Isso vale mais
+que qualquer refinamento do leitor**, e depende da segunda amostra pedida ao Fred.
+
+### Três pendências declaradas, nenhuma bloqueando a fatia
+
+- **PE-66** — existe envelope de distribuição do ambiente nacional, com raiz
+  própria? Não localizado no pacote XSD. **Mitigado de graça** pelo critério 23:
+  raiz desconhecida é recusada com mensagem, não adivinhada.
+- **PE-67** — data exata em que o bloco de IBS/CBS entrou no esquema. Irrelevante
+  agora, pela DE-074; material quando a interpretação entrar.
+- **PE-68** — ⚠️ **pergunta ao Fred, e é a mais importante das três:** o acervo
+  medido tem os **arquivos de evento**, ou só as notas? Pela RC-111, sem os
+  eventos a situação de boa parte do acervo é **desconhecida**, não "válida".
+
+⚠️ **E um limite da própria fonte, que o pesquisador declarou em vez de
+esconder:** o manual conceitual que sustenta a RC-113 é classificado **pelo
+próprio portal** como *"leiaute e esquemas antigos (julho de 2022 a
+28/09/2025)"*, e **não foi localizado substituto** na Documentação Atual. O
+conceito pode ter mudado depois dessa data, e **isso não está confirmado**.
