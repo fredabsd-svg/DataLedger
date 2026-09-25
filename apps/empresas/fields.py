@@ -21,7 +21,7 @@ from django import forms
 from django.db import models
 from rest_framework import serializers
 
-from apps.empresas.validators import normalizar_cnpj, validar_cnpj
+from apps.empresas.validators import normalizar_cnpj, normalizar_cpf, validar_cnpj, validar_cpf
 
 
 class CNPJFormField(forms.CharField):
@@ -100,3 +100,46 @@ class CNPJSerializerField(serializers.CharField):
         data = super().to_internal_value(data)
         validar_cnpj(data)
         return normalizar_cnpj(data)
+
+
+class CPFFormField(forms.CharField):
+    """CharField de formulário que normaliza CPF antes dos validadores —
+    mesmo molde de `CNPJFormField` (DL-038, R2). `to_python` roda ANTES de
+    `validate()`/`run_validators()`, então o valor que chega aos
+    validadores já está canônico (11 dígitos, sem máscara).
+    """
+
+    def to_python(self, value):
+        value = super().to_python(value)
+        if value in self.empty_values:
+            # Vazio: devolve como está — quem decide se CPF é obrigatório
+            # (tipo de inscrição CPF ou CNPJ) é a validação cruzada de
+            # `Empresa`/`EmpresaSerializer`, não este campo isoladamente.
+            return value
+        return normalizar_cpf(value)
+
+
+class CPFModelField(models.CharField):
+    """CharField de modelo cujo formulário automático usa CPFFormField —
+    mesmo molde de `CNPJModelField`."""
+
+    def formfield(self, **kwargs):
+        defaults = {"form_class": CPFFormField, "max_length": None}
+        defaults.update(kwargs)
+        return super().formfield(**defaults)
+
+
+class CPFSerializerField(serializers.CharField):
+    """CharField do DRF que normaliza e valida CPF dentro do laço por-campo
+    — mesmo molde de `CNPJSerializerField`. Só roda a validação quando o
+    valor NÃO é vazio: `allow_blank=True` faz o DRF pular `to_internal_
+    value` inteiramente para entrada em branco (contrato de `Field.
+    validate_empty_values`), então uma empresa CNPJ que não envie `cpf`
+    nunca aciona `validar_cpf` — a obrigatoriedade cruzada com o tipo de
+    inscrição é responsabilidade de `EmpresaSerializer.validate`.
+    """
+
+    def to_internal_value(self, data):
+        data = super().to_internal_value(data)
+        validar_cpf(data)
+        return normalizar_cpf(data)

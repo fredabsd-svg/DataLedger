@@ -26,6 +26,7 @@ import re
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from functools import wraps
 
 from django import forms
 from django.contrib import messages
@@ -201,6 +202,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
+from apps.empresas.services import EmpresaEmModoLivroCaixa, recusar_se_livro_caixa
 
 # Mesmo teto de NÍVEL que a API aplica em `apps.contabilidade.views.NIVEL_
 # MAXIMO` — valor repetido aqui (não importado) porque é só uma guarda de
@@ -319,6 +321,39 @@ def _resposta_sem_escritorio(request):
     # Reaproveita o mesmo template de apps.empresas (mesma situação: sem
     # escritório ativo não há como saber de qual contabilidade se fala).
     return render(request, "empresas/sem_escritorio.html")
+
+
+def _sem_contabilidade_para_livro_caixa(view_func):
+    """Decorador aplicado a TODA view de tela da contabilidade que recebe
+    `empresa_id` (DL-038, R5/DE-075): recusa com a MESMA mensagem e a MESMA
+    regra da API quando a empresa resolvida está em modo `livro_caixa` — a
+    contabilidade por partidas dobradas não está disponível para ela.
+
+    A regra em si mora só em `apps.empresas.services.recusar_se_livro_caixa`
+    (fonte única, R5); este decorador apenas chama essa função depois de
+    resolver a empresa pelo MESMO caminho que já garante o isolamento por
+    escritório (`_empresa_do_escritorio_ativo`), e reaproveita o MESMO
+    template de "sem permissão" (403) que as outras recusas desta tela usam
+    — nunca 500, nunca uma segunda cópia da mensagem.
+
+    O lado API equivalente é `apps.contabilidade.views.
+    EmpresaEscopadaContabilMixin.get_empresa` — as duas pontas chamam a
+    mesma função de serviço, então a mensagem nunca diverge entre tela e
+    API. A prova de que TODA view desta tela com `empresa_id` está coberta
+    (varredura DERIVADA das rotas registradas, não lista escrita à mão) é
+    `apps/core/tests/test_dl038_recusa_contabilidade_livro_caixa.py`.
+    """
+
+    @wraps(view_func)
+    def _view(request, empresa_id, *args, **kwargs):
+        empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+        try:
+            recusar_se_livro_caixa(empresa)
+        except EmpresaEmModoLivroCaixa as exc:
+            return _resposta_sem_permissao(request, exc.mensagem)
+        return view_func(request, empresa_id, *args, **kwargs)
+
+    return _view
 
 
 def _pode_ler(request):
@@ -582,6 +617,7 @@ def _linhas_hierarquicas(contas):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def plano_de_contas(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -655,6 +691,7 @@ def _contas_mae_faltantes(empresa, codigo, conta_pai):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@_sem_contabilidade_para_livro_caixa
 def conta_nova(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1530,6 +1567,7 @@ def _mensagem_de_tela_para_dado_nao_contratado(excecao, *, explicacao_extra=""):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@_sem_contabilidade_para_livro_caixa
 def lancamento_novo(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -2059,6 +2097,7 @@ def lancamento_novo(request, empresa_id):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def lancamento_detalhe(request, empresa_id, lancamento_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -2187,6 +2226,7 @@ def _aviso_de_movimento_fora_do_periodo(
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def diario(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -2252,6 +2292,7 @@ def diario(request, empresa_id):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def razao(request, empresa_id, conta_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -2383,6 +2424,7 @@ def _veredito_balancete(total_debitos, total_creditos):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def balancete(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -3060,6 +3102,7 @@ def _montar_grupos_do_balanco(saldos):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def balanco(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -3170,6 +3213,7 @@ def balanco(request, empresa_id):
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def conferencia(request, empresa_id):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -3349,6 +3393,7 @@ CONTRATO_ENTREGAR_COMPETENCIA = ContratoDeRequisicao(
 
 @login_required
 @require_safe
+@_sem_contabilidade_para_livro_caixa
 def fechamento(request, empresa_id):
     """Painel de competências da empresa (arquétipo D) — critérios 1 e 2.
 
@@ -3396,6 +3441,7 @@ def fechamento(request, empresa_id):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@_sem_contabilidade_para_livro_caixa
 def competencia_fechar(request, empresa_id):
     """Fecha uma competência (arquétipo E, etapa única) — critérios 2, 3, 5, 8.
 
@@ -3472,6 +3518,7 @@ def competencia_fechar(request, empresa_id):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@_sem_contabilidade_para_livro_caixa
 def competencia_reabrir(request, empresa_id):
     """Reabre uma competência (arquétipo E, etapa única) — critérios 3, 5, 6, 8.
 
@@ -3566,6 +3613,7 @@ def competencia_reabrir(request, empresa_id):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@_sem_contabilidade_para_livro_caixa
 def competencia_entregar(request, empresa_id):
     """Marca uma competência como entregue ao cliente (arquétipo E, etapa
     única) — critérios 4, 5, 8.

@@ -73,9 +73,14 @@ class EmpresaAdmin(admin.ModelAdmin):
     ver apps/empresas/tests/test_dl023_empresa_nao_muda_de_escritorio.py.
     """
 
-    list_display = ["razao_social", "cnpj", "escritorio", "ativo"]
-    list_filter = ["escritorio", "ativo"]
-    search_fields = ["razao_social", "nome_fantasia", "cnpj"]
+    # DL-038: tipo_inscricao/modo_escrituracao entram na listagem e nos
+    # filtros — são o que diferencia uma empresa CPF/livro-caixa de uma
+    # CNPJ/contabilidade, e o admin sem eles esconderia a distinção mais
+    # importante desta etapa. cpf entra em search_fields pelo mesmo motivo
+    # de cnpj já estar lá.
+    list_display = ["razao_social", "tipo_inscricao", "cnpj", "cpf", "modo_escrituracao", "escritorio", "ativo"]
+    list_filter = ["escritorio", "ativo", "tipo_inscricao", "modo_escrituracao"]
+    search_fields = ["razao_social", "nome_fantasia", "cnpj", "cpf"]
     inlines = [EstabelecimentoInline]
 
     def get_readonly_fields(self, request, obj=None):

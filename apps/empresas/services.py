@@ -5,30 +5,55 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 from apps.auditoria.services import registrar
-from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+from apps.empresas.models import (
+    Empresa,
+    Estabelecimento,
+    HistoricoRegimeTributario,
+    ModoEscrituracao,
+)
 from apps.empresas.validators import mensagem_de_vigencia_de_regime_fora_da_faixa
 
-# Nome real da constraint de unicidade de cnpj no Postgres (confirmado via
-# pg_constraint), mapeado ao modelo correspondente. Usado para traduzir a
-# corrida na unicidade do CNPJ (R4 da reauditoria da etapa DL-011: duas
-# requisições simultâneas com o mesmo CNPJ, a segunda comita entre o SELECT
-# do UniqueValidator/validate_unique e o INSERT) em mensagem de campo, em
-# vez de deixar o IntegrityError subir como 500.
-_CONSTRAINTS_CNPJ_UNICO = {
-    "empresas_empresa_cnpj_key": Empresa,
-    "empresas_estabelecimento_cnpj_key": Estabelecimento,
+# Nome real da constraint de unicidade no Postgres, mapeado a
+# (modelo, nome do campo, rótulo humano). Usado para traduzir a corrida na
+# unicidade de CNPJ/CPF (R4 da reauditoria da etapa DL-011: duas requisições
+# simultâneas com o mesmo identificador, a segunda comita entre o SELECT do
+# UniqueValidator/validate_unique e o INSERT) em mensagem de campo, em vez
+# de deixar o IntegrityError subir como 500.
+#
+# DL-038: `empresas_empresa_cnpj_key` (índice implícito de `unique=True` de
+# campo) foi SUBSTITUÍDO por `empresa_cnpj_unico` (UniqueConstraint
+# condicional — ver apps/empresas/models.py) porque a unicidade do CNPJ de
+# `Empresa` deixou de poder ser incondicional: duas empresas CPF têm
+# `cnpj == ""` e isso NUNCA pode contar como duplicata. `empresa_cpf_unico`
+# é a entrada nova, simétrica, para CPF (R3/PE-21: mesma política GLOBAL do
+# CNPJ). `empresas_estabelecimento_cnpj_key` não muda — `Estabelecimento`
+# continua exclusivamente CNPJ (R7).
+_CONSTRAINTS_INSCRICAO_UNICA = {
+    "empresa_cnpj_unico": (Empresa, "cnpj", "CNPJ"),
+    "empresas_estabelecimento_cnpj_key": (Estabelecimento, "cnpj", "CNPJ"),
+    "empresa_cpf_unico": (Empresa, "cpf", "CPF"),
 }
 
 
-def mensagem_cnpj_duplicado(model):
-    """Mensagem de duplicidade de CNPJ, no mesmo formato que o DRF geraria
-    para um UniqueValidator automático (usa o verbose_name do modelo, para
-    não hardcodear "empresa"/"estabelecimento" em dois lugares)."""
-    return f"{model._meta.verbose_name} com este CNPJ já existe."
+def mensagem_cnpj_duplicado(model, rotulo="CNPJ"):
+    """Mensagem de duplicidade de CNPJ/CPF, no mesmo formato que o DRF
+    geraria para um UniqueValidator automático (usa o verbose_name do
+    modelo, para não hardcodear "empresa"/"estabelecimento" em dois
+    lugares). `rotulo` é "CNPJ" por padrão (compatibilidade com os dois
+    chamadores existentes, que só tratam CNPJ) — DL-038 passa "CPF" para
+    o caso novo."""
+    return f"{model._meta.verbose_name} com este {rotulo} já existe."
 
 
 class CNPJDuplicado(ValidationError):
-    """CNPJ já cadastrado, detectado pela corrida na constraint de unicidade.
+    """CNPJ **ou CPF** já cadastrado, detectado pela corrida na constraint
+    de unicidade. Nome da classe preservado por compatibilidade — é
+    consumida por várias views que só a reconhecem por este nome — mas
+    DL-038 estendeu a causa: a chave do dict pode ser ``"cnpj"`` OU
+    ``"cpf"``, dependendo de qual constraint colidiu (ver
+    ``mensagem_se_cnpj_duplicado``). Quem captura esta exceção já reencaminha
+    ``exc.message_dict`` inteiro (nunca lê a chave "cnpj" por presunção), e
+    por isso nenhuma view precisou mudar para o caso do CPF.
 
     Achado B1 da auditoria da etapa DL-011 (rodada 4): o gerenciador
     ``erro_de_cnpj_duplicado_como_400`` levantava ``ValidationError`` do
@@ -62,22 +87,24 @@ class CNPJDuplicado(ValidationError):
 
 
 def mensagem_se_cnpj_duplicado(exc):
-    """Traduz um IntegrityError de corrida na unicidade do CNPJ.
+    """Traduz um IntegrityError de corrida na unicidade do CNPJ **ou CPF**.
 
-    Devolve a mensagem amigável se `exc` for exatamente a violação da
-    constraint de unicidade de cnpj de Empresa ou Estabelecimento; devolve
-    None para qualquer outro IntegrityError. Quem chamar DEVE deixar
-    qualquer outro IntegrityError subir sem tratamento — não converter todo
-    IntegrityError em erro de cliente (instrução explícita do
-    `arquiteto-senior` na reauditoria, depois de um erro parecido na
+    Devolve `(campo, mensagem)` — `campo` é `"cnpj"` ou `"cpf"`, o nome que
+    vai virar chave do dict de erro — se `exc` for exatamente a violação de
+    uma das constraints de `_CONSTRAINTS_INSCRICAO_UNICA`; devolve
+    `(None, None)` para qualquer outro IntegrityError. Quem chamar DEVE
+    deixar qualquer outro IntegrityError subir sem tratamento — não
+    converter todo IntegrityError em erro de cliente (instrução explícita
+    do `arquiteto-senior` na reauditoria, depois de um erro parecido na
     DL-007: aquilo mascarou defeito de sistema como erro 400 do cliente).
     """
     diagnostico = getattr(exc.__cause__, "diag", None)
     nome_constraint = getattr(diagnostico, "constraint_name", None)
-    modelo = _CONSTRAINTS_CNPJ_UNICO.get(nome_constraint)
-    if modelo is None:
-        return None
-    return mensagem_cnpj_duplicado(modelo)
+    info = _CONSTRAINTS_INSCRICAO_UNICA.get(nome_constraint)
+    if info is None:
+        return None, None
+    modelo, campo, rotulo = info
+    return campo, mensagem_cnpj_duplicado(modelo, rotulo)
 
 
 @contextmanager
@@ -105,20 +132,22 @@ def erro_de_cnpj_duplicado_como_400():
     motivo. Os dois caminhos que usam isto (API e formulário da tela) sabem
     traduzir só o tipo estreito para o formato de erro certo.
 
-    Só a violação das constraints ``empresas_empresa_cnpj_key`` /
-    ``empresas_estabelecimento_cnpj_key`` é traduzida
-    (``mensagem_se_cnpj_duplicado`` devolve ``None`` para qualquer outra
-    causa, e este gerenciador deixa o ``IntegrityError`` original subir sem
-    tradução nesse caso) — não repetir o erro da DL-007, que converteu todo
-    ``IntegrityError`` em erro de cliente e mascarou defeito de sistema.
+    Só a violação das constraints de ``_CONSTRAINTS_INSCRICAO_UNICA``
+    (``empresa_cnpj_unico``, ``empresa_cpf_unico``,
+    ``empresas_estabelecimento_cnpj_key``) é traduzida
+    (``mensagem_se_cnpj_duplicado`` devolve ``(None, None)`` para qualquer
+    outra causa, e este gerenciador deixa o ``IntegrityError`` original
+    subir sem tradução nesse caso) — não repetir o erro da DL-007, que
+    converteu todo ``IntegrityError`` em erro de cliente e mascarou defeito
+    de sistema.
     """
     try:
         yield
     except IntegrityError as exc:
-        mensagem = mensagem_se_cnpj_duplicado(exc)
+        campo, mensagem = mensagem_se_cnpj_duplicado(exc)
         if mensagem is None:
             raise
-        raise CNPJDuplicado({"cnpj": [mensagem]}) from exc
+        raise CNPJDuplicado({campo: [mensagem]}) from exc
 
 
 # DL-023, BL-246 (achado P2 da auditoria rodada 1): nome da constraint que
@@ -384,3 +413,87 @@ def excluir_ultimo_regime_tributario(*, empresa, registro, usuario=None, request
                 "antes de tentar de novo."
             ) from exc
     return valores_antigos
+
+
+# ---------------------------------------------------------------------------
+# DL-038 (R5, DE-075): a contabilidade por partidas dobradas recusa empresa
+# em modo livro-caixa — FONTE ÚNICA da condição e da mensagem, para que
+# toda rota de contabilidade (tela e API) chame a MESMA função no ponto em
+# que resolve a empresa escopada, em vez de cada rota reimplementar a
+# comparação `modo_escrituracao == LIVRO_CAIXA` com seu próprio texto (o
+# defeito que o critério 4 do plano existe para impedir: duas mensagens
+# diferentes para o mesmo motivo de recusa).
+# ---------------------------------------------------------------------------
+
+MENSAGEM_RECUSA_CONTABILIDADE_LIVRO_CAIXA = (
+    "Esta empresa está em modo de escrituração livro-caixa, não contabilidade "
+    "por partidas dobradas. A contabilidade não está disponível para ela."
+)
+
+
+class EmpresaEmModoLivroCaixa(Exception):
+    """Levantada por `recusar_se_livro_caixa` quando a empresa está em modo
+    `livro_caixa` — ver o comentário da seção acima para o porquê de ser um
+    tipo próprio (não `ValueError` nem `ValidationError`): os DOIS
+    consumidores (mixin de API em `apps.contabilidade.views`, decorador de
+    tela em `apps.contabilidade.views_web`) precisam de tratamentos de HTTP
+    diferentes (400 JSON vs. HTML renderizado), e um tipo estreito e
+    próprio deixa cada lado traduzir sem arriscar capturar por engano outra
+    exceção de negócio que também herdasse de `ValueError`/`ValidationError`.
+    """
+
+    def __init__(self, mensagem=MENSAGEM_RECUSA_CONTABILIDADE_LIVRO_CAIXA):
+        self.mensagem = mensagem
+        super().__init__(mensagem)
+
+
+def recusar_se_livro_caixa(empresa):
+    """Levanta `EmpresaEmModoLivroCaixa` se `empresa.modo_escrituracao` for
+    `LIVRO_CAIXA` (R5). Não faz nada (devolve `None`) caso contrário —
+    quem chama só precisa saber que "não levantou nada" é o caminho livre.
+    """
+    if empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA:
+        raise EmpresaEmModoLivroCaixa()
+
+
+# ---------------------------------------------------------------------------
+# DL-038 (R6): não é possível mudar uma empresa PARA modo livro-caixa se ela
+# já tem plano de contas ou lançamento contábil gravado — mudaria o
+# significado da escrituração já feita sob a premissa de partidas dobradas,
+# sem nenhum registro do porquê. FONTE ÚNICA da condição e da mensagem,
+# consumida por `Empresa.clean()` (defesa para ModelForm/admin, DE-008) E
+# por `EmpresaSerializer.validate` (o caminho que a API realmente usa) —
+# nenhum dos dois reimplementa a comparação.
+# ---------------------------------------------------------------------------
+
+
+class TransicaoParaLivroCaixaInvalida(ValidationError):
+    """R6/DL-038: empresa com plano de contas ou lançamento não pode passar
+    para modo livro-caixa. Subclasse de `django.core.exceptions.
+    ValidationError` (não um tipo próprio) de propósito: `Empresa.clean()`
+    precisa poder deixá-la propagar sem tradução nenhuma — é exatamente o
+    contrato que `full_clean()` exige de uma exceção de validação de
+    modelo. `EmpresaSerializer.validate` já sabe traduzir qualquer
+    `ValidationError` do Django para o formato do DRF (ver o padrão já
+    usado por `mensagem_de_vigencia_de_regime_fora_da_faixa`)."""
+
+
+def recusar_transicao_para_livro_caixa_com_movimento(empresa, *, modo_anterior, modo_novo):
+    """Levanta `TransicaoParaLivroCaixaInvalida` se esta TRANSIÇÃO
+    (`modo_anterior` -> `modo_novo`) for para `LIVRO_CAIXA` e a empresa já
+    tiver plano de contas ou lançamento gravado.
+
+    Só examina a TRANSIÇÃO, nunca o estado por si só: uma empresa que JÁ
+    está em `LIVRO_CAIXA` (nenhuma mudança) ou que está migrando PARA
+    `CONTABILIDADE` não aciona esta regra — o requisito R6 é especificamente
+    sobre o momento em que a contabilidade por partidas dobradas deixaria
+    de valer para um histórico que já existe sob essa premissa.
+    """
+    if modo_novo != ModoEscrituracao.LIVRO_CAIXA or modo_anterior == ModoEscrituracao.LIVRO_CAIXA:
+        return
+    if empresa.contas.exists() or empresa.lancamentos.exists():
+        raise TransicaoParaLivroCaixaInvalida(
+            "Não é possível mudar esta empresa para livro-caixa: ela já tem plano de "
+            "contas ou lançamento contábil gravado. Empresas com escrituração "
+            "existente permanecem em modo contabilidade."
+        )

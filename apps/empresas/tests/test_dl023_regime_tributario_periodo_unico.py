@@ -153,7 +153,11 @@ def test_admin_nao_cria_regime_tributario_mesmo_recebendo_os_campos_do_antigo_in
             "escritorio": cenario["escritorio"].pk,
             "razao_social": "Empresa DL-023-R renomeada Ltda",
             "nome_fantasia": "",
+            # DL-038: campos novos do ModelForm automático do admin.
+            "tipo_inscricao": empresa.tipo_inscricao,
             "cnpj": empresa.cnpj,
+            "cpf": empresa.cpf,
+            "modo_escrituracao": empresa.modo_escrituracao,
             "ativo": "on",
             "estabelecimentos-TOTAL_FORMS": "0",
             "estabelecimentos-INITIAL_FORMS": "0",
@@ -199,7 +203,11 @@ def test_admin_nao_cria_regime_tributario_com_vigencia_futura(client, cenario):
             "escritorio": cenario["escritorio"].pk,
             "razao_social": "Empresa DL-023-R renomeada de novo Ltda",
             "nome_fantasia": "",
+            # DL-038: campos novos do ModelForm automático do admin.
+            "tipo_inscricao": empresa.tipo_inscricao,
             "cnpj": empresa.cnpj,
+            "cpf": empresa.cpf,
+            "modo_escrituracao": empresa.modo_escrituracao,
             "ativo": "on",
             "estabelecimentos-TOTAL_FORMS": "0",
             "estabelecimentos-INITIAL_FORMS": "0",

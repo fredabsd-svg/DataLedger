@@ -100,7 +100,15 @@ def _post_change(client, empresa, dados):
         "escritorio": empresa.escritorio_id,
         "razao_social": empresa.razao_social,
         "nome_fantasia": empresa.nome_fantasia,
+        # DL-038: `tipo_inscricao`/`modo_escrituracao`/`cpf` entraram no
+        # `ModelForm` automático do admin (que expõe TODOS os campos do
+        # modelo, sem `fields`/`exclude` em `EmpresaAdmin`) — o payload-base
+        # precisa continuar "sempre VÁLIDO" (ver o comentário da função),
+        # e por isso leva os valores ATUAIS da empresa, não um literal fixo.
+        "tipo_inscricao": empresa.tipo_inscricao,
         "cnpj": empresa.cnpj,
+        "cpf": empresa.cpf,
+        "modo_escrituracao": empresa.modo_escrituracao,
         "ativo": "on" if empresa.ativo else "",
         "estabelecimentos-TOTAL_FORMS": "0",
         "estabelecimentos-INITIAL_FORMS": "0",
@@ -246,7 +254,11 @@ def test_admin_add_grava_empresa_no_escritorio_escolhido(client, cenario):
             "escritorio": cenario["destino"].id,
             "razao_social": "Empresa nascida no add Ltda",
             "nome_fantasia": "",
+            # DL-038: campos novos do ModelForm automático do admin.
+            "tipo_inscricao": "CNPJ",
             "cnpj": "11122233000183",
+            "cpf": "",
+            "modo_escrituracao": "contabilidade",
             "ativo": "on",
             "estabelecimentos-TOTAL_FORMS": "0",
             "estabelecimentos-INITIAL_FORMS": "0",

@@ -2,10 +2,12 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Upper
 
-from apps.empresas.fields import CNPJModelField
+from apps.empresas.fields import CNPJModelField, CPFModelField
 from apps.empresas.validators import (
     normalizar_cnpj,
+    normalizar_cpf,
     validar_cnpj,
+    validar_cpf,
     validar_vigencia_de_regime,
 )
 from apps.tenancy.models import Escritorio
@@ -44,6 +46,41 @@ _CNPJ_E_CANONICO = models.Q(cnpj=Upper("cnpj")) & ~models.Q(cnpj__regex=r"[^A-Z0
 # `bulk_create`/`QuerySet.update()`, que continuam fora do alcance do DV
 # (mesma limitação documentada em `Empresa.save()` abaixo).
 _CNPJ_TEM_FORMATO_VALIDO = models.Q(cnpj__regex=r"^[A-Z0-9]{12}[0-9]{2}$")
+
+# DL-038 (R1/R2, DE-075): `cnpj` passa a ser BRANCO para empresa CPF — as
+# duas condições acima (canonicidade e formato) só podem valer QUANDO o
+# tipo de inscrição é CNPJ. `~models.Q(tipo_inscricao=TipoInscricao.CPF)`
+# expressa "não é CPF" em vez de "é CNPJ" de propósito: um terceiro valor
+# de `tipo_inscricao` que viesse a existir cairia no lado que EXIGE cnpj
+# canônico (mais restritivo), não no lado que dispensa — o padrão seguro
+# já usado neste projeto (ver comentário de "lado seguro" em
+# apps.auditoria.signals).
+#
+# CPF tem sua própria condição simétrica (formato, não DV — mesma
+# limitação documentada acima e em `Empresa.save()`): só dígitos, 11
+# posições, exigido apenas quando o tipo É CPF.
+_CPF_TEM_FORMATO_VALIDO = models.Q(cpf__regex=r"^[0-9]{11}$")
+
+
+class TipoInscricao(models.TextChoices):
+    """DL-038, R1: o tipo de inscrição da empresa no cadastro. Existentes
+    migram como CNPJ (migração aditiva, sem alterar dado — DE-075)."""
+
+    CNPJ = "CNPJ", "CNPJ"
+    CPF = "CPF", "CPF"
+
+
+class ModoEscrituracao(models.TextChoices):
+    """DL-038, R4: como a empresa é escriturada. Existentes migram como
+    CONTABILIDADE. HI-23 (hipótese, não confirmada pelo Fred): empresa CPF
+    nova SUGERE livro-caixa — é comportamento de TELA (a decidir na etapa
+    do `especialista-frontend`), não um padrão diferente aqui: o valor
+    padrão do campo continua CONTABILIDADE para qualquer tipo de
+    inscrição, para não haver dois comportamentos de "vazio" a explicar."""
+
+    CONTABILIDADE = "contabilidade", "Contabilidade (partidas dobradas)"
+    LIVRO_CAIXA = "livro_caixa", "Livro-caixa"
+
 
 # Lista oficial de siglas de unidade federativa (não é uma regra fiscal:
 # apenas os 26 estados e o Distrito Federal).
@@ -92,7 +129,57 @@ class Empresa(models.Model):
     )
     razao_social = models.CharField("razão social", max_length=200)
     nome_fantasia = models.CharField("nome fantasia", max_length=200, blank=True)
-    cnpj = CNPJModelField("CNPJ", max_length=14, unique=True, validators=[validar_cnpj])
+    # DL-038 (R1, DE-075): tipo de inscrição — CNPJ (pessoa jurídica) ou CPF
+    # (pessoa física, RC-112/RC-114). Decide qual dos dois campos abaixo é
+    # obrigatório; a consistência entre os três é imposta pela
+    # CheckConstraint "empresa_inscricao_consistente_com_tipo" no Meta.
+    tipo_inscricao = models.CharField(
+        "tipo de inscrição",
+        max_length=4,
+        choices=TipoInscricao.choices,
+        default=TipoInscricao.CNPJ,
+    )
+    # `unique=True` REMOVIDO nesta etapa (DL-038): a unicidade de CNPJ
+    # continua GLOBAL (R3/PE-21, política inalterada), mas agora é
+    # CONDICIONAL — vazio (empresa CPF) não pode contar como "duplicata" de
+    # outro vazio. Django não expressa unicidade condicional com
+    # `unique=True` de campo; a unicidade real está na UniqueConstraint
+    # "empresa_cnpj_unico" (Meta, abaixo), que substitui o índice implícito
+    # `empresas_empresa_cnpj_key` que existia antes (ver apps.empresas.
+    # services._CONSTRAINTS_INSCRICAO_UNICA e apps.core.restricoes).
+    #
+    # `default=""` (permite gravar vazio para empresa CPF), mas SEM
+    # `blank=True`: a obrigatoriedade em FORMULÁRIO (EmpresaForm,
+    # `especialista-frontend`, e o `ModelForm` automático do
+    # `EmpresaAdmin`) continua exatamente como era ANTES desta etapa —
+    # nenhum dos dois formulários conhece `tipo_inscricao` ainda, então
+    # "CNPJ obrigatório" é o comportamento CORRETO e de MENOR IMPACTO para
+    # os dois (medido: `apps/empresas/tests/test_forms.py` e as rotas do
+    # admin exigem isso hoje). `blank`/`required` do Django é regra de
+    # FORMULÁRIO, não de banco — não afeta a API (o serializer declara
+    # `required=False` explicitamente, sem olhar para `blank` do modelo) e
+    # não afeta a CheckConstraint (que roda no banco, sobre o VALOR
+    # gravado, nunca sobre este atributo Python). Uma empresa CPF só
+    # nasce, hoje, pela API — a tela ganha isso na etapa do
+    # `especialista-frontend`, quando o formulário souber pedir tipo de
+    # inscrição, e aí sim `EmpresaForm` (fora do meu escopo) decide como
+    # tornar `cnpj` condicionalmente obrigatório.
+    cnpj = CNPJModelField("CNPJ", max_length=14, default="", validators=[validar_cnpj])
+    # DL-038 (R2): CPF de 11 dígitos, sem máscara, com zero à esquerda
+    # preservado (é `CharField`, nunca convertido para número). Unicidade
+    # GLOBAL condicional, mesmo padrão do cnpj acima — ver
+    # "empresa_cpf_unico" no Meta. DV validado por `validar_cpf`
+    # (`apps.empresas.validators` — fonte NÃO oficial, declarada lá).
+    cpf = CPFModelField("CPF", max_length=11, blank=True, default="", validators=[validar_cpf])
+    # DL-038 (R4): como a empresa é escriturada. Ver ModoEscrituracao acima
+    # para a política de valor padrão (sempre CONTABILIDADE, mesmo para
+    # CPF — HI-23 é sugestão de TELA, não de modelo).
+    modo_escrituracao = models.CharField(
+        "modo de escrituração",
+        max_length=20,
+        choices=ModoEscrituracao.choices,
+        default=ModoEscrituracao.CONTABILIDADE,
+    )
     # DL-027 (Fatia A) — RC-93: identificação obrigatória do relatório
     # exige "razão social, CNPJ, período, NIRE e as demais informações".
     # Antes desta etapa NIRE não existia no cadastro (BL-340), e a
@@ -142,9 +229,70 @@ class Empresa(models.Model):
         verbose_name_plural = "empresas"
         ordering = ["razao_social"]
         constraints = [
+            # DL-038: agora CONDICIONAL a `tipo_inscricao != CPF` — ver o
+            # comentário de `_CPF_TEM_FORMATO_VALIDO` acima. O NOME
+            # continua "empresa_cnpj_canonico" (não renomeado): é o mesmo
+            # invariante de sempre, só que dispensado para empresa CPF —
+            # `apps.core.restricoes` e `apps.empresas.views` continuam
+            # reconhecendo esta constraint pelo nome antigo, sem qualquer
+            # mudança nos dois.
             models.CheckConstraint(
-                condition=_CNPJ_E_CANONICO & _CNPJ_TEM_FORMATO_VALIDO,
+                condition=(
+                    ~models.Q(tipo_inscricao=TipoInscricao.CPF)
+                    & _CNPJ_E_CANONICO
+                    & _CNPJ_TEM_FORMATO_VALIDO
+                )
+                | models.Q(tipo_inscricao=TipoInscricao.CPF),
                 name="empresa_cnpj_canonico",
+            ),
+            # DL-038 (R2): formato do CPF (11 dígitos), só exigido quando
+            # `tipo_inscricao` É CPF — o DV não é conferido aqui pelo mesmo
+            # motivo do CNPJ (constraint de banco não recalcula módulo 11);
+            # `apps.empresas.validators.validar_cpf` faz essa conferência
+            # nos caminhos que chamam `full_clean()`/serializer.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(tipo_inscricao=TipoInscricao.CPF) & _CPF_TEM_FORMATO_VALIDO
+                )
+                | ~models.Q(tipo_inscricao=TipoInscricao.CPF),
+                name="empresa_cpf_formato_valido",
+            ),
+            # DL-038: a invariante de CONSISTÊNCIA entre os três campos —
+            # exatamente um dos dois (cnpj XOR cpf) preenchido, e ele bate
+            # com `tipo_inscricao`. Sem isto, nada impediria uma empresa
+            # "CNPJ" com cnpj vazio E cpf preenchido (ou os dois vazios, ou
+            # os dois preenchidos) — um estado que nenhuma tela ou API
+            # pretende produzir, mas que só a restrição de banco fecha em
+            # TODA porta (shell, admin, bulk_create — camada 1 da DE-008).
+            models.CheckConstraint(
+                condition=(
+                    models.Q(tipo_inscricao=TipoInscricao.CNPJ)
+                    & ~models.Q(cnpj="")
+                    & models.Q(cpf="")
+                )
+                | (
+                    models.Q(tipo_inscricao=TipoInscricao.CPF)
+                    & models.Q(cnpj="")
+                    & ~models.Q(cpf="")
+                ),
+                name="empresa_inscricao_consistente_com_tipo",
+            ),
+            # DL-038 (R3/PE-21): substitui o índice implícito
+            # `empresas_empresa_cnpj_key` (unique=True de campo, removido
+            # do `cnpj` acima) — unicidade GLOBAL, mas só sobre valor NÃO
+            # vazio: duas empresas CPF (cnpj="") nunca colidem entre si por
+            # este motivo. Mesma política de sempre (global, não por
+            # escritório) — PE-21 continua aberta, para os dois tipos.
+            models.UniqueConstraint(
+                fields=["cnpj"],
+                condition=~models.Q(cnpj=""),
+                name="empresa_cnpj_unico",
+            ),
+            # DL-038 (R3/PE-21): simétrica à de cima, para CPF.
+            models.UniqueConstraint(
+                fields=["cpf"],
+                condition=~models.Q(cpf=""),
+                name="empresa_cpf_unico",
             ),
         ]
 
@@ -192,11 +340,61 @@ class Empresa(models.Model):
         # quebraria a suíte e, em produção, travaria a gravação de
         # escritórios já cadastrados. Não replicar este padrão em
         # Escritorio fora do BL-47.
-        self.cnpj = normalizar_cnpj(self.cnpj)
+        #
+        # DL-038: canoniza SÓ quando o campo não está vazio — `normalizar_
+        # cnpj("")`/`normalizar_cpf("")` levantam ValidationError (formato
+        # inválido), e uma empresa CPF tem `cnpj == ""` de propósito (e
+        # vice-versa). O `if` não verifica `tipo_inscricao`: normaliza
+        # qualquer um dos dois campos que estiver preenchido, o que é mais
+        # robusto (funciona mesmo se algum caminho legado só setar o campo
+        # sem setar o tipo) e continua sendo *no-op* para o campo vazio.
+        if self.cnpj:
+            self.cnpj = normalizar_cnpj(self.cnpj)
+        if self.cpf:
+            self.cpf = normalizar_cpf(self.cpf)
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.nome_fantasia or self.razao_social
+
+    def validate_constraints(self, exclude=None):
+        # DL-038 — achado desta etapa, medido por execução real (não
+        # presumido, ver `apps/empresas/tests/test_views.py`): desde o
+        # Django 4.1, `Model.validate_constraints()` faz uma checagem em
+        # PYTHON de `Meta.constraints` (inclusive `UniqueConstraint`),
+        # separada de `validate_unique()` (que só cobre `unique=True` de
+        # campo). `BaseModelForm._post_clean()` chama os DOIS: passa
+        # `validate_constraints=False` para `full_clean()`, mas depois
+        # chama `self.validate_constraints()` (do FORM) SEPARADAMENTE, que
+        # delega para `self.instance.validate_constraints(...)` — este
+        # método aqui. Sobrescrever `full_clean()` NÃO intercepta esse
+        # segundo caminho; só sobrescrever este método intercepta os DOIS.
+        #
+        # Antes desta etapa isso não importava: `cnpj` era `unique=True`,
+        # então `validate_unique()` (que `ModelForm.is_valid()` também
+        # chama) já cobria a duplicidade, com a mensagem amigável do
+        # `UniqueValidator`. Ao trocar para `UniqueConstraint` condicional
+        # ("empresa_cnpj_unico"/"empresa_cpf_unico" — a unicidade
+        # condicional NÃO é expressável com `unique=True` de campo),
+        # `validate_constraints()` virou o único caminho que a detecta
+        # dentro do ciclo de vida do `ModelForm`, e ele produz uma
+        # mensagem GENÉRICA do próprio Django ("Restrição "X" foi
+        # violada."), em vez do texto amigável de `apps.empresas.services.
+        # mensagem_cnpj_duplicado`. Medido: o cliente via tela via essa
+        # mensagem genérica para um CNPJ/CPF duplicado comum, pior
+        # experiência para o caso mais frequente.
+        #
+        # No-op aqui restaura o desenho ORIGINAL da DE-008:
+        # `full_clean()`/`Model.clean()` são conveniência de ModelForm/
+        # admin, NUNCA a defesa principal. A defesa real continua em DUAS
+        # camadas, intactas: (1) a `UniqueConstraint`/`CheckConstraint` no
+        # BANCO (camada 1 da DE-008, sobrevive a qualquer ORM — este
+        # método não toca nelas, só no PRÉ-AVISO em Python);
+        # (2) `erro_de_cnpj_duplicado_como_400` traduzindo o
+        # `IntegrityError` real em `CNPJDuplicado`, com a mensagem boa —
+        # exatamente o caminho que `criar_empresa`/`EmpresaListCreateView`
+        # já percorrem quando a gravação de fato viola a constraint.
+        return
 
     def clean(self):
         # DL-023, critério 5 (BL-211/A3): `EmpresaAdmin` deixava mover uma
@@ -255,6 +453,31 @@ class Empresa(models.Model):
                         "com o responsável técnico do sistema, se este for um caso "
                         "real do escritório."
                     )
+
+            # DL-038, R6: mesma TRANSIÇÃO acima, para `modo_escrituracao`.
+            # Import LOCAL (dentro do método, não no topo do módulo): evita
+            # ciclo de import — `apps.empresas.services` já importa `Empresa`
+            # deste módulo (mesmo motivo do comentário sobre "Escrituração"
+            # logo acima, para plano de contas/lançamento/estabelecimento).
+            # A REGRA (condição + mensagem) mora só em `apps.empresas.
+            # services.recusar_transicao_para_livro_caixa_com_movimento` —
+            # aqui e em `EmpresaSerializer.validate` (o caminho que a API
+            # de fato usa) só CHAMAM essa função, nunca reimplementam a
+            # comparação. Mesmo limite de `full_clean()` documentado acima
+            # (não cobre ORM direto nem `QuerySet.update()`) — a defesa que
+            # cobre o caminho real de escrita (API) é a do serializer.
+            from apps.empresas.services import recusar_transicao_para_livro_caixa_com_movimento
+
+            modo_gravado = (
+                Empresa.objects.filter(pk=self.pk).values_list("modo_escrituracao", flat=True).first()
+            )
+            if modo_gravado is not None and modo_gravado != self.modo_escrituracao:
+                # Levanta `TransicaoParaLivroCaixaInvalida`, subclasse de
+                # `ValidationError` — propaga direto, sem tradução: é
+                # exatamente o contrato que `full_clean()` espera.
+                recusar_transicao_para_livro_caixa_com_movimento(
+                    self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
+                )
 
 
 class RegimeTributario(models.TextChoices):

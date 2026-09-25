@@ -89,6 +89,21 @@ MENSAGENS_DE_RESTRICAO = {
         "O CNPJ do estabelecimento precisa ser gravado em formato canônico: só "
         "letras maiúsculas e dígitos, sem máscara."
     ),
+    # DL-038 (R1/R2): as duas constraints novas de `Empresa` — formato do
+    # CPF e consistência entre tipo_inscricao/cnpj/cpf. Mesma classe de
+    # armadilha das duas de cima: inalcançáveis pelo caminho normal (o
+    # serializer valida antes), mas `bulk_create`/`QuerySet.update()`
+    # vazam `IntegrityError` cru, e `apps/empresas/views.py` já as passa
+    # para `restricao_como_400` via `mensagens_de(...)` em
+    # `perform_create`/`perform_update`.
+    "empresa_cpf_formato_valido": (
+        "O CPF da empresa precisa ter 11 dígitos numéricos, sem máscara."
+    ),
+    "empresa_inscricao_consistente_com_tipo": (
+        "O tipo de inscrição da empresa precisa bater com o campo preenchido: "
+        "CNPJ preenchido e CPF vazio para tipo CNPJ; CPF preenchido e CNPJ vazio "
+        "para tipo CPF."
+    ),
 }
 
 # Restrições cuja tradução NÃO passa por `restricao_como_400`, com o ponto
@@ -100,7 +115,14 @@ MENSAGENS_DE_RESTRICAO = {
 # elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
-    "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    # DL-038: `empresas_empresa_cnpj_key` (índice implícito de `unique=True`
+    # de campo) foi SUBSTITUÍDO por `empresa_cnpj_unico` — uma
+    # `UniqueConstraint` condicional, porque a unicidade do CNPJ de
+    # `Empresa` deixou de poder ser incondicional (empresa CPF tem
+    # `cnpj == ""`, e dois vazios nunca podem colidir). Mesmo ponto de
+    # tradução de sempre. `empresa_cpf_unico` é a entrada NOVA, simétrica.
+    "empresa_cnpj_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "empresa_cpf_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",

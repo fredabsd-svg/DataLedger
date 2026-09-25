@@ -32,6 +32,7 @@ from apps.empresas.models import (
     Estabelecimento,
     HistoricoRegimeTributario,
     RegimeTributario,
+    TipoInscricao,
 )
 from apps.empresas.serializers import (
     EmpresaSerializer,
@@ -111,6 +112,28 @@ def _recusar_dado_nao_contratado(request, contrato):
         recusar_dado_nao_contratado(request, contrato)
     except DadoNaoContratado as exc:
         raise DRFValidationError(exc.mensagem) from exc
+
+
+# DL-038: qual campo do serializer cada `RestricaoViolada` de `Empresa`
+# reporta — `RestricaoViolada.nome` é o nome da CONSTRAINT (nunca o texto
+# da mensagem, que é conteúdo de produto e muda), então o mapeamento é
+# estável mesmo que a mensagem seja reescrita. `empresa_inscricao_
+# consistente_com_tipo` reporta em "tipo_inscricao": é a invariante entre
+# os TRÊS campos, e não faz sentido apontar só para "cnpj" ou só para
+# "cpf" quando o problema pode ser qualquer lado da combinação.
+_CAMPO_DA_RESTRICAO_DE_EMPRESA = {
+    "empresa_cnpj_canonico": "cnpj",
+    "empresa_cpf_formato_valido": "cpf",
+    "empresa_inscricao_consistente_com_tipo": "tipo_inscricao",
+}
+
+
+def _campo_da_restricao_de_empresa(nome_constraint):
+    # `.get(..., "cnpj")` preserva o comportamento ANTERIOR à DL-038 (só
+    # existia "empresa_cnpj_canonico", sempre reportado em "cnpj") para
+    # qualquer nome não mapeado — nunca estoura KeyError por uma constraint
+    # nova que um dia apareça aqui sem entrada.
+    return _CAMPO_DA_RESTRICAO_DE_EMPRESA.get(nome_constraint, "cnpj")
 
 
 def _contrato_da_tela_de_empresa():
@@ -223,18 +246,28 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # acreditar num 201 falso. O `CNPJDuplicado` e o `RestricaoViolada`
         # continuam sendo traduzidos para 400 como antes; qualquer outra
         # exceção (incluindo a do `registrar()`) propaga como 500.
+        # DL-038: as duas constraints novas (BL-CPF, mesma lógica da
+        # "empresa_cnpj_canonico" citada acima) entram no MESMO `with` —
+        # ver `_CAMPO_DA_RESTRICAO_DE_EMPRESA` para qual campo cada uma
+        # reporta.
         try:
             with (
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
-                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+                restricao_como_400(
+                    mensagens_de(
+                        "empresa_cnpj_canonico",
+                        "empresa_cpf_formato_valido",
+                        "empresa_inscricao_consistente_com_tipo",
+                    )
+                ),
             ):
                 empresa = serializer.save()
                 registrar(acao="empresa.criada", objeto=empresa, request=self.request)
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
+            raise DRFValidationError({_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}) from exc
 
 
 class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
@@ -306,7 +339,13 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
             with (
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
-                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+                restricao_como_400(
+                    mensagens_de(
+                        "empresa_cnpj_canonico",
+                        "empresa_cpf_formato_valido",
+                        "empresa_inscricao_consistente_com_tipo",
+                    )
+                ),
             ):
                 serializer.save()
                 if diff_anterior:  # houve mudança em algum campo
@@ -322,7 +361,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
+            raise DRFValidationError({_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}) from exc
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
@@ -551,6 +590,15 @@ def _mascara_cnpj(cnpj):
     return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
+def _mascara_cpf(cpf):
+    """Formata um CPF de 11 dígitos como XXX.XXX.XXX-XX — mesma política de
+    `_mascara_cnpj` (puramente de apresentação; devolve o valor original se
+    não tiver exatamente 11 caracteres, em vez de mascarar errado)."""
+    if len(cpf) != 11:
+        return cpf
+    return f"{cpf[0:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:11]}"
+
+
 @login_required
 @require_safe
 def lista_empresas(request):
@@ -559,9 +607,27 @@ def lista_empresas(request):
     empresas = list(Empresa.objects.filter(escritorio=request.escritorio))
     # Formatação de apresentação (CNPJ mascarado) feita aqui, na view, e não
     # em template tag própria: esta etapa não tem permissão para criar
-    # arquivos em apps/empresas/templatetags/ (ver docs/planos/DL-009).
+    # arquivos em apps/empresas/templatetags/ (ver docs/projeto/DL-009).
+    #
+    # DL-038 — critério 7: `cnpj_formatado` é PRESERVADO tal como estava
+    # (formata `empresa.cnpj`, que fica em branco para empresa CPF) porque
+    # `templates/empresas/lista.html` é escopo do `especialista-frontend`
+    # (etapa 2) e ainda lê exatamente este atributo — não há como trocar o
+    # que o template exibe sem tocar nele, fora do meu escopo aqui.
+    # `inscricao_formatada`/`rotulo_inscricao` são NOVOS, calculados pelo
+    # tipo de inscrição de cada empresa, prontos para a tela que a etapa 2
+    # vai desenhar — declarado como PENDÊNCIA, não escondido: até a
+    # template mudar, uma empresa CPF aparece com a célula de CNPJ em
+    # branco (não quebra, não mostra dado errado, só não mostra o CPF
+    # ainda).
     for empresa in empresas:
         empresa.cnpj_formatado = _mascara_cnpj(empresa.cnpj)
+        if empresa.tipo_inscricao == TipoInscricao.CPF:
+            empresa.rotulo_inscricao = "CPF"
+            empresa.inscricao_formatada = _mascara_cpf(empresa.cpf)
+        else:
+            empresa.rotulo_inscricao = "CNPJ"
+            empresa.inscricao_formatada = empresa.cnpj_formatado
     contexto = {
         "empresas": empresas,
         # Booleano calculado com o enum e passado pronto ao template: a
