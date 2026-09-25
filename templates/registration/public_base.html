@@ -4,13 +4,13 @@
 {% block moldura %}
 <a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
 <header class="public-header public-container">
-    <a class="public-brand" href="{% url 'tenancy:painel' %}" aria-label="DataLedger, início"><span class="brand-symbol" aria-hidden="true">D<span></span></span>DataLedger<span class="brand-period">.</span></a>
+    <a class="public-brand" href="{% url 'tenancy:painel' %}" aria-label="DataLedger, início"><span class="brand-symbol" aria-hidden="true">D</span><span>DataLedger<span class="brand-period">.</span></span></a>
     <nav class="public-nav" aria-label="Navegação principal">
-        <a class="nav-detail" href="{% url 'tenancy:painel' %}#plataforma">O sistema</a>
-        <a href="{% url 'login' %}">Entrar</a>
-        <a class="public-button public-button--small" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a>
+        <a class="nav-detail" href="{% url 'tenancy:painel' %}#plataforma">A plataforma</a>
+        <a href="{% url 'login' %}">Já tenho acesso</a>
+        <a class="public-button public-button--small" href="{% url 'cadastro' %}">Criar ambiente <span aria-hidden="true">↗</span></a>
     </nav>
 </header>
 <main id="conteudo">{% block public_content %}{% endblock %}</main>
-<footer class="public-footer public-container"><a class="footer-brand" href="{% url 'tenancy:painel' %}">DataLedger.</a><p>Inteligência com contexto. Execução com rigor.</p><span>Feito para a contabilidade brasileira.</span></footer>
+<footer class="public-footer public-container"><a class="footer-brand" href="{% url 'tenancy:painel' %}">DataLedger.</a><p>Inteligência com contexto. Execução com rigor.</p><span>Concebido para a contabilidade brasileira.</span></footer>
 {% endblock %}

@@ -1,5 +1,19 @@
 # Estado atual da equipe de agentes
 
+## Demanda atual — DL-037 (25/09/2026)
+
+**Em validação:** Fred rejeitou a aparência da tela de login após o merge do
+PR #45 e enviou captura. O redesign da entrada pública está na branch
+`fix/dl-037-entrada-visual`, destino `main`. Landing, login e cadastro
+ganham hierarquia de leitura, caminho explícito para novo escritório e uma
+apresentação da concepção com IA sem afirmar integração já disponível. Plano:
+[DL-037](../planos/DL-037-entrada-visual.md). A DL-036 foi integrada pelo PR
+#45; a seção abaixo é histórico daquela entrega. Nenhuma mudança de dados ou
+permissões nesta correção visual.
+Validação local: 241 testes direcionados, lint e formatação aprovados;
+Chromium inspecionado em desktop e celular, sem overflow; coleta de estáticos
+aprovada. CI do novo PR ainda pendente.
+
 ## Demanda atual — DL-036 (25/09/2026)
 
 **Correção solicitada pelo Fred:** apresentação e primeiro acesso revistos para

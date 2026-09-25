@@ -24,9 +24,19 @@ def dados():
 
 
 def test_visitante_tem_landing_e_cadastro(client):
-    assert client.get("/").status_code == 200
+    landing = client.get("/")
+    assert landing.status_code == 200
+    assert f'href="{reverse("cadastro")}"' in landing.content.decode()
+    assert f'href="{reverse("login")}"' in landing.content.decode()
     assert client.get(reverse("cadastro")).status_code == 200
     assert client.get(reverse("tenancy:api-escritorios")).status_code in (401, 403)
+
+
+def test_login_mostra_caminho_para_novo_escritorio(client):
+    response = client.get(reverse("login"))
+    assert response.status_code == 200
+    assert f'href="{reverse("cadastro")}"' in response.content.decode()
+    assert "Criar ambiente para meu escritório" in response.content.decode()
 
 
 def test_cadastro_cria_ambiente_isolado_e_login_funciona(client, dados):

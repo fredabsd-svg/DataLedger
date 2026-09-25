@@ -1,29 +1,26 @@
 {% extends "registration/public_base.html" %}
 {% block titulo %}Inteligência aplicada à gestão contábil{% endblock %}
 {% block public_content %}
-<section class="public-hero public-container" aria-labelledby="hero-title">
-    <div class="hero-copy">
-        <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> DataLedger · Sistema de gestão contábil</p>
-        <h1 id="hero-title">Rigor contábil.<br>Concebido para<br><em>trabalhar com IA.</em></h1>
-        <p class="hero-description">Fiscal, Folha e Contabilidade em uma arquitetura integrada, projetada para trabalhar com modelos de inteligência artificial. Contexto para analisar. Regras para executar. Controle para decidir.</p>
-        <div class="hero-actions"><a class="public-button" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Entrar no sistema <span aria-hidden="true">→</span></a></div>
-        <p class="hero-note">Primeiro acesso? Cadastre o responsável e o escritório nesta instalação do DataLedger.</p>
-    </div>
-    <div class="hero-product">
-        <div class="product-heading"><span>A concepção do DataLedger</span><span class="demo-label">Visão de arquitetura</span></div>
-        <div class="ledger-preview">
-            <div class="ledger-top"><span class="preview-brand">DataLedger.</span><span class="preview-workspace">Inteligência com contexto</span></div>
-            <div class="ledger-body">
-                <div class="ledger-context"><span>EMPRESA · COMPETÊNCIA · PERMISSÕES</span></div>
-                <h2>O modelo compreende.<br>O sistema valida.<br>Você decide.</h2>
-                <p class="ledger-company">Arquitetura prevista para integração com IA</p>
-                <div class="architecture-step"><span class="feature-number numerico">01 /</span><div><h3>Modelos de inteligência artificial</h3><p>Consultar, explicar variações e propor ações com referência aos registros utilizados.</p></div></div>
-                <div class="architecture-step"><span class="feature-number numerico">02 /</span><div><h3>Serviços e ferramentas autorizadas</h3><p>Assistente interno e clientes externos via MCP, sujeitos às permissões do usuário.</p></div></div>
-                <div class="architecture-step"><span class="feature-number numerico">03 /</span><div><h3>Núcleo de regras do DataLedger</h3><p>Cálculos determinísticos, validação de dados e trilha de auditoria.</p></div></div>
-                <div class="ledger-check"><span>Assistente de IA e MCP: integração planejada, ainda indisponível nesta versão.</span></div>
-            </div>
+<section class="hero-stage" aria-labelledby="hero-title">
+    <div class="public-hero public-container">
+        <div class="hero-copy">
+            <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> DataLedger / Uma nova forma de operar</p>
+            <h1 id="hero-title">O próximo capítulo da contabilidade começa com <em>inteligência.</em></h1>
+            <p class="hero-description">Um sistema brasileiro de gestão contábil concebido para trabalhar com modelos de IA. O contexto certo para analisar, regras confiáveis para executar e você no comando de cada decisão.</p>
+            <div class="hero-actions"><a class="public-button public-button--light" href="{% url 'cadastro' %}">Criar ambiente do escritório <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Já tenho acesso <span aria-hidden="true">→</span></a></div>
+            <p class="hero-note">Primeiro acesso nesta instalação? Cadastre o responsável e seu escritório.</p>
         </div>
-        <div class="product-caption"><span class="caption-rule" aria-hidden="true"></span><p>Inteligência para interpretar.<br><strong>Precisão para executar.</strong></p></div>
+        <div class="hero-product" aria-label="Concepção do DataLedger">
+            <div class="product-heading"><span>Como o DataLedger foi pensado</span><span class="demo-label">Visão de arquitetura</span></div>
+            <div class="intelligence-map">
+                <div class="map-node map-node--model"><span class="map-index">01 / Inteligência</span><strong>Modelos de IA</strong><p>Consultam, explicam e propõem com contexto.</p><small>Integração planejada</small></div>
+                <div class="map-connector" aria-hidden="true"><span>↓</span></div>
+                <div class="map-node map-node--core"><span class="map-index">02 / Núcleo confiável</span><strong>DataLedger</strong><p>Valida permissões, calcula e registra.</p><small>Contabilidade disponível</small></div>
+                <div class="map-connector" aria-hidden="true"><span>↓</span></div>
+                <div class="map-node map-node--human"><span class="map-index">03 / Decisão</span><strong>Você no controle</strong><p>Ações críticas dependem da sua aprovação.</p></div>
+            </div>
+            <p class="product-caption">Assistente de IA, provedores e MCP estão planejados; ainda não estão disponíveis nesta versão.</p>
+        </div>
     </div>
 </section>
 <section class="public-pillars public-container" aria-label="Fundamentos do sistema"><p><span class="numerico">01</span> Contexto para a IA</p><p><span class="numerico">02</span> Cálculo determinístico</p><p><span class="numerico">03</span> Decisão rastreável</p></section>
@@ -43,5 +40,5 @@
         <article><span class="feature-tag">Planejado</span><h3>Folha de Pagamento</h3><p>Vínculos, eventos, cálculos, obrigações e integração contábil, com regras e memórias de cálculo próprias.</p></article>
     </div>
 </section>
-<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Primeiro acesso à instalação</p><h2 id="start-title">Prepare seu ambiente.<br>Comece pelo essencial.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Cadastre o responsável</h3><p>Defina o acesso de quem vai administrar o escritório.</p></div></li><li><span class="numerico">02</span><div><h3>Configure o escritório</h3><p>Informe nome e CNPJ para criar o ambiente de trabalho nesta instalação.</p></div></li><li><span class="numerico">03</span><div><h3>Acesse os módulos disponíveis</h3><p>Cadastre as empresas atendidas e organize a operação. A configuração de IA será disponibilizada em uma etapa futura.</p></div></li></ol></div></section>
+<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Primeiro acesso à instalação</p><h2 id="start-title">Seu espaço de trabalho começa aqui.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Criar ambiente do escritório <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Cadastre o responsável</h3><p>Defina o acesso de quem vai administrar o escritório.</p></div></li><li><span class="numerico">02</span><div><h3>Configure o escritório</h3><p>Informe nome e CNPJ para criar o ambiente de trabalho nesta instalação.</p></div></li><li><span class="numerico">03</span><div><h3>Acesse os módulos disponíveis</h3><p>Cadastre as empresas atendidas e organize a operação. A configuração de IA virá em uma etapa futura.</p></div></li></ol></div></section>
 {% endblock %}
