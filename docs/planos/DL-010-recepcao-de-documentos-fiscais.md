@@ -3,7 +3,11 @@
 Primeira fatia do módulo Fiscal, escolhida pelo Fred: **importação e
 conferência** é a rotina que mais consome tempo no escritório (RC-40).
 
-**Estado:** **revisado em 2026-09-14 pelo acervo real do escritório.** O Fred
+**Execução:** a fatia 1 (NFS-e nacional) foi aberta em 2026-09-25 e tem plano
+próprio em [DL-010-F1](DL-010-F1-recepcao-nfse.md); o estado mora em
+[estado.md](../agents/estado.md).
+
+**Revisão:** **em 2026-09-14 pelo acervo real do escritório.** O Fred
 confirmou o foco: *"foca na importação e conferência"*.
 
 > ## Revisão de prioridade — o plano estava com a ordem invertida

@@ -3777,3 +3777,42 @@ verificações executadas. E, quando houver código **herdado** de outra frente,
 tarefa do auditor diz com todas as letras: **verifique o herdado como se ninguém
 o tivesse medido.** Foi o que fiz nesta rodada, e é o que deu base ao V11 do
 relatório.
+
+## DE-074 — Recepção de NFS-e: XML guardado inteiro, deduplicação por escritório e situação derivada
+
+**Data:** 2026-09-25
+
+**Decisão:** a fatia 1 da DL-010 ([plano](../planos/DL-010-F1-recepcao-nfse.md))
+cria o app `apps/fiscal` com cinco escolhas:
+
+1. **O XML original é guardado byte a byte**, com SHA-256, no PostgreSQL.
+2. **Leitura por `defusedxml`**, com DTD proibido — dependência nova.
+3. **Deduplicação por `(escritório, identificador)`**; a mesma nota vista por
+   duas empresas do escritório é um documento com dois vínculos.
+4. **Situação derivada dos eventos**, nunca gravada no documento.
+5. **Processamento síncrono**, com limites (HI-22) e um `savepoint` por arquivo.
+
+**Motivo.** (1) O bloco IBS/CBS já chega em 12% das notas (RC-76) e ainda não
+tem regra confirmada (PE-39): guardar o original inteiro permite interpretá-lo
+depois sem pedir o arquivo de novo ao cliente. (2) Arquivo de terceiro é a
+superfície de ataque mais comum de um importador; proibir DTD elimina entidade
+externa e expansão exponencial de uma vez. (3) RC-69 mediu a mesma nota em
+pastas de dois clientes; como documento, ela é uma só, e a unicidade por
+escritório impede que um escritório descubra o que outro recebeu. (4) RC-70
+mediu que o evento chega sem a nota no caso normal; situação gravada exigiria
+atualizar a nota quando o evento chega antes, e a ordem de chegada viraria
+defeito. (5) Não existe fila de tarefas no projeto, e o acervo inteiro do
+escritório (5.850 arquivos) cabe num envio.
+
+**Alternativas descartadas:**
+
+- *Guardar só os campos extraídos* — perde o que ainda não se sabe interpretar.
+- *Armazenamento de arquivos externo* — mais uma peça de infraestrutura, backup
+  e isolamento, sem volume que a justifique hoje.
+- *Unicidade global do identificador* — revelaria a um escritório que outro já
+  recebeu a nota (mesmo defeito do BL-48 com o CNPJ).
+- *Fila em segundo plano já na fatia 1* — infraestrutura nova antes de medir
+  necessidade; fica como próximo passo se o limite não bastar.
+
+**Reversão:** as cinco escolhas são locais ao `apps/fiscal`. Mover o XML para
+armazenamento externo depois é uma migração de dados sem mudança de contrato.
