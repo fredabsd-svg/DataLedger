@@ -175,8 +175,12 @@ arquivo do acervo do Fred entra no repositório.
 
 ## Limites declarados
 
-- Cliente **pessoa física** (prestador com CPF) não tem onde ser cadastrado hoje:
-  `Empresa` só aceita CNPJ. Essas notas serão recusadas com motivo (PE-66).
+- Cliente **pessoa física** (prestador com CPF): o Fred confirmou em 25/09 que o
+  escritório atende (RC-112), mas `Empresa` só aceita CNPJ e o cadastro de
+  pessoa física é etapa própria. Nesta fatia essas notas são recusadas com
+  motivo **específico** de pessoa física, e a função única de identificação
+  recebe a inscrição **com o tipo** (CNPJ ou CPF), para o cadastro novo se
+  ligar num ponto só.
 - A recepção **não** foi rodada contra o lote real do escritório; os testes usam
   arquivos sintéticos. Rodar contra o acervo é o primeiro uso real e fica
   pendente até o Fred fazê-lo.

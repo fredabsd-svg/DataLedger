@@ -113,6 +113,11 @@ Fila depois dela, em ordem recomendada e sujeita ao Fred:
 3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
+**Cliente pessoa física** — o Fred confirmou em 25/09 que o escritório atende
+(RC-112). O cadastro hoje só aceita CNPJ; a modelagem está em estudo (consulta ao
+manual do sistema de referência em andamento) e vira etapa própria logo depois da
+DL-010 F1, que recusa essas notas com motivo específico até lá.
+
 Decisões que estão com o Fred e afetam a fila:
 
 - O Balanço pode ser emitido sem o zeramento? Três caminhos apresentados em
