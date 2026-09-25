@@ -85,7 +85,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração (BL-514 a BL-519) | Integrada (PR #43 e #44) |
 | [DL-036](../planos/DL-036-entrada-e-cadastro.md) | Página inicial pública e cadastro de novo escritório | Integrada (PR #45) |
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
-| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Planejada |
+| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Em desenvolvimento |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -100,6 +100,21 @@ recomendou a recepção de notas como próxima entrega. Plano da fatia em
 [DL-010-F1](../planos/DL-010-F1-recepcao-nfse.md). Nível 1 (§3.1 do AGENTS.md):
 isolamento entre empresas e dado do cliente — plano, testes de
 sucesso/erro/limite e auditoria independente.
+
+Andamento em 25/09/2026, na branch `claude/vigilant-bardeen-jo12l4`:
+
+- **Servidor** (`apps/fiscal`, BL-54): implementado pelo `desenvolvedor-pleno`,
+  revisado; quatro correções da revisão aplicadas (limite de memória no envio e
+  por entrada do ZIP, situação calculada no banco, aviso de duplicado com
+  conteúdo diferente). Evidência do implementador: suíte completa com 2349
+  aprovados e só a falha de ambiente conhecida.
+- **Telas** (envio, relatório do envio, lista, detalhe, download do XML):
+  implementadas pelo `especialista-frontend`, revisadas. Declarado: tabelas
+  largas rolam na horizontal em celular; teclado inspecionado, não testado ao
+  vivo.
+- **Falta:** auditoria independente da versão integrada, junto com a DL-038.
+- Commits `wip: preservação, não entrega` na branch protegem trabalho em
+  andamento neste ambiente efêmero; **não** são entrega.
 
 Fila depois dela, em ordem recomendada e sujeita ao Fred:
 
