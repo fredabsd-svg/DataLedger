@@ -73,11 +73,14 @@ def test_usuario_nao_consegue_ativar_escritorio_de_terceiros(client, duas_empres
     assert response.status_code == 403
 
 
-def test_painel_exige_login(client):
+def test_visitante_recebe_landing_sem_dados_privados(client, duas_empresas_com_usuarios):
     response = client.get(reverse("tenancy:painel"))
 
-    assert response.status_code == 302
-    assert reverse("login") in response.url
+    assert response.status_code == 200
+    assert response.templates[0].name == "registration/landing.html"
+    assert "escritorios" not in response.context
+    for nome in ("escritorio_a", "escritorio_b"):
+        assert duas_empresas_com_usuarios[nome].cnpj not in response.content.decode()
 
 
 def test_ativar_escritorio_gera_registro_de_auditoria(client, duas_empresas_com_usuarios):

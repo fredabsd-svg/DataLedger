@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block estilos_extras %}<meta name="description" content="DataLedger: sistema de Fiscal, Folha e Contabilidade concebido para trabalhar com modelos de inteligência artificial. Configure seu ambiente ou entre no sistema."><link rel="stylesheet" href="/static/css/public.css">{% endblock %}
+{% block classe_body %}public-page{% endblock %}
+{% block moldura %}
+<a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
+<header class="public-header public-container">
+    <a class="public-brand" href="{% url 'tenancy:painel' %}" aria-label="DataLedger, início"><span class="brand-symbol" aria-hidden="true">D<span></span></span>DataLedger<span class="brand-period">.</span></a>
+    <nav class="public-nav" aria-label="Navegação principal">
+        <a class="nav-detail" href="{% url 'tenancy:painel' %}#plataforma">O sistema</a>
+        <a href="{% url 'login' %}">Entrar</a>
+        <a class="public-button public-button--small" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a>
+    </nav>
+</header>
+<main id="conteudo">{% block public_content %}{% endblock %}</main>
+<footer class="public-footer public-container"><a class="footer-brand" href="{% url 'tenancy:painel' %}">DataLedger.</a><p>Inteligência com contexto. Execução com rigor.</p><span>Feito para a contabilidade brasileira.</span></footer>
+{% endblock %}

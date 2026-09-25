@@ -295,3 +295,23 @@ O `arquiteto-senior` mantém este documento. Ao confirmar uma hipótese, mova-a
 para a tabela de confirmados citando a origem da confirmação. Ao resolver uma
 pendência, registre a decisão em
 [docs/projeto/decisoes.md](decisoes.md) e o requisito resultante aqui.
+
+
+## Cadastro e apresentação — demanda de 25/09/2026 (DL-036)
+
+Fred solicitou que a instalação via Docker abra uma página profissional com
+**Cadastrar minha empresa** e **Entrar**. Uma nova empresa/escritório deve criar
+sua conta e seu espaço pelo navegador, sem comandos administrativos. Esta ordem
+amplia o escopo anterior da DL-018, que excluía autocadastro público. O vínculo
+administrador pertence somente ao escritório criado; não concede privilégio de
+administração da plataforma nem acesso a empresas de outros escritórios.
+
+
+## Correção de posicionamento — DL-036, 25/09/2026
+
+Fred esclareceu que o DataLedger é um sistema de alto nível concebido para uso
+com modelos de inteligência artificial, não uma oferta comercial de SaaS. A entrada
+deve representar configuração do ambiente e acesso ao sistema. Assistente interno,
+provedores e MCP têm destaque na proposta, com seu estado planejado explícito.
+Esta orientação substitui a linguagem comercial da primeira versão da DL-036;
+preserva os controles e a arquitetura multiempresa e não declara integrações prontas.

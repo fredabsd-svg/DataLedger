@@ -90,6 +90,7 @@ from django.urls import get_resolver, include, path, reverse
 from django.urls.resolvers import URLPattern, URLResolver
 from django.utils import timezone
 
+from apps.accounts.views import cadastro
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
 from apps.contabilidade.services import criar_lancamento
 from apps.contabilidade.tests.universo_de_telas import (
@@ -115,6 +116,7 @@ from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 # (ver a docstring de módulo de lá sobre por que este espelho existe e não
 # substitui apps.contabilidade.tests.test_dl017_urlconf_integrado).
 urlpatterns = [
+    path("cadastro/", cadastro, name="cadastro"),
     path(
         "login/",
         auth_views.LoginView.as_view(template_name="registration/login.html"),
@@ -939,6 +941,20 @@ def test_tela_de_login_e_acessivel(client):
     coberta, não esquecida."""
     resposta = client.get(reverse("login"))
     assert resposta.status_code == 200
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_de_cadastro_e_acessivel(client):
+    """A nova porta pública também participa da cobertura real de acessibilidade."""
+    resposta = client.get(reverse("cadastro"))
+    assert resposta.status_code == 200
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_landing_publica_e_acessivel(client):
+    resposta = client.get(reverse("tenancy:painel"))
+    assert resposta.status_code == 200
+    assert "registration/landing.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

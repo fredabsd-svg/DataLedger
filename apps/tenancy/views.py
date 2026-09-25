@@ -189,7 +189,6 @@ class EscritorioAtivoView(APIView):
         return Response({"status": "ok"})
 
 
-@login_required
 @require_safe
 def painel(request):
     """Página inicial pós-login: mostra o escritório ativo e permite trocar.
@@ -198,6 +197,8 @@ def painel(request):
     entram quando houver necessidade real de atualização parcial de
     página, evitando complexidade sem uso imediato.
     """
+    if not request.user.is_authenticated:
+        return render(request, "registration/landing.html")
     escritorios = Escritorio.objects.filter(
         vinculos__usuario=request.user, vinculos__ativo=True
     ).distinct()

@@ -88,6 +88,7 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
 # (`base.html`). Movida aqui pelo BL-352 pela mesma razão da anterior.
 NOMES_DE_TELA_FORA_DA_CONTABILIDADE = {
     "login": "test_tela_de_login_e_acessivel",
+    "cadastro": "test_tela_de_cadastro_e_acessivel",
     "empresas:lista": (
         "test_tela_empresas_lista_e_acessivel, "
         "test_tela_empresas_sem_escritorio_e_acessivel, "
@@ -166,6 +167,7 @@ def _urls_de_contabilidade(cenario):
 # TELA`, nunca deste dicionário).
 ARGS_DE_ROTA_FORA_DA_CONTABILIDADE = {
     "login": [],
+    "cadastro": [],
     "empresas:lista": [],
     "empresas:criar": [],
     "tenancy:painel": [],

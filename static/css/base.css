@@ -208,6 +208,21 @@
     --recuo-nivel-8: 9.5rem;
     --recuo-nivel-9: 10.75rem;
     --recuo-nivel-10: 12rem;
+
+    /* DL-034: escala da entrada pública; não altera a densidade das telas internas. */
+    --public-fonte-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --public-titulo: 4.5rem;
+    --public-subtitulo: 2.75rem;
+    --public-titulo-mobile: 2.75rem;
+    --public-secao: 6rem;
+    --public-respiro: 4rem;
+    --public-largura-texto: 36rem;
+    --public-marca: 2.5rem;
+    --public-linha: 1.08;
+    --public-sombra: 0 24px 70px rgba(20, 42, 80, 0.12);
+    --public-grid: 2rem;
+    --public-linha-grid: rgba(29, 58, 110, 0.06);
+    --public-curva: 0.5rem;
 }
 
 * {

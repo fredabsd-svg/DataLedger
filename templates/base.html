@@ -74,8 +74,10 @@
     deploy, e então voltar a usar a tag "static".
     {% endcomment %}
     <link rel="stylesheet" href="/static/css/base.css">
+    {% block estilos_extras %}{% endblock %}
 </head>
-<body>
+<body class="{% block classe_body %}{% endblock %}">
+    {% block moldura %}
     <a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
 
     <header class="cabecalho">
@@ -254,5 +256,6 @@
 
         {% block content %}{% endblock %}
     </main>
+    {% endblock moldura %}
 </body>
 </html>

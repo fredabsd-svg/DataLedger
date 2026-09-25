@@ -5,11 +5,11 @@
 # 📊 DataLedger
 
 <p align="center">
-  <strong>Sistema contábil brasileiro, multiempresa, auditável e preparado para evoluir por módulos.</strong>
+  <strong>Sistema brasileiro de Fiscal, Folha e Contabilidade, concebido para trabalhar com modelos de inteligência artificial.</strong>
 </p>
 
 <p align="center">
-  <em>Feito para escritórios de contabilidade: cada número com origem, cada regra com vigência, cada alteração com autor.</em>
+  <em>Inteligência com contexto, cálculos determinísticos e operações rastreáveis.</em>
 </p>
 
 <p align="center">
@@ -29,6 +29,18 @@
 </p>
 
 > **Onde o projeto está agora:** a fonte única do estado é [`docs/agents/estado.md`](docs/agents/estado.md) — revisão atual, etapas concluídas, próximo passo e pendências. Este README descreve o **produto e o processo**, que mudam pouco; o estado, que muda a cada etapa, mora num lugar só, de propósito. Em uma frase: a fundação (multiempresa, permissões, auditoria, contabilidade básica, política monetária, CNPJ alfanumérico) está entregue e auditada; **Fiscal, Folha, Honorários, Processos/Paralegal, IA e MCP ainda não existem**.
+
+## Proposta do sistema
+
+O DataLedger é concebido para ser operado no navegador e, conforme as integrações
+forem implementadas, com modelos de inteligência artificial: assistente interno,
+provedores configuráveis e clientes externos autorizados via MCP. A IA consulta,
+explica e propõe; os serviços do sistema validam, calculam e registram as operações.
+Ações críticas dependem de aprovação do usuário autorizado.
+
+Esta é a direção do produto, não uma afirmação de disponibilidade: assistente,
+provedores e MCP ainda estão planejados. O primeiro acesso configura o responsável
+e o escritório na instalação; não é adesão a um serviço comercial do DataLedger.
 
 ## ✨ O que o DataLedger quer resolver
 
@@ -105,11 +117,16 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-A verificação de saúde fica em `GET /api/health/`. Para entrar na aplicação, crie um usuário administrativo com `python manage.py createsuperuser` e acesse `/login/`.
+Abra `http://localhost:8000/` e escolha **Configurar meu ambiente**. Informe os
+dados do responsável e do escritório para configurar seu acesso e ambiente nesta instalação.
+Você entra como administrador do seu próprio escritório; depois, cadastre as
+empresas clientes no painel. Para contas existentes, use **Entrar** (usuário antigo
+ou e-mail usado no novo cadastro). Não é necessário criar superusuário nem abrir
+o admin para começar. Fluxo e critérios: [DL-036](docs/planos/DL-036-entrada-e-cadastro.md).
 
-**Falta um passo, e ele hoje só existe no admin do Django.** Um usuário recém-criado não tem vínculo com nenhum escritório, então o painel responde *"Nenhum escritório ativo"* — corretamente, porque toda empresa pertence a um escritório. Em `/admin/`, crie um **Escritório** (CNPJ com 14 caracteres, só os dígitos) e, na mesma tela, um **vínculo** do seu usuário com papel **Administrador**. Depois disso o painel abre e você pode cadastrar empresas.
-
-Que esse passo dependa de ferramenta técnica é uma lacuna conhecida, não um jeito de fazer: está registrada como **BL-125** e planejada em [DL-018](docs/planos/DL-018-primeiro-acesso.md).
+A verificação de saúde fica em `GET /api/health/`. O comando
+`python manage.py createsuperuser` continua disponível para administração técnica,
+mas não faz parte do cadastro normal.
 
 Sem `DATABASE_URL` configurada e com `DEBUG=True`, o sistema usa SQLite local e avisa isso ao subir. **Com `DEBUG=False` ele exige PostgreSQL e recusa subir sem ele** — é proteção, não limitação.
 
@@ -122,13 +139,12 @@ docker compose up --build
 
 O `web` aplica as migrações e sobe o gunicorn em `http://localhost:8000`. Na primeira vez o PostgreSQL cria o volume do zero, e isso pode levar mais de um minuto antes de o `web` começar — é esperado.
 
-Depois que subir, em **outro terminal**, crie o usuário para entrar:
-
-```bash
-docker compose exec web python manage.py createsuperuser
-```
-
-Então acesse `http://localhost:8000/login/` — e siga o passo do **escritório e do vínculo** descrito acima, em `http://localhost:8000/admin/`, sem o qual o painel responde "Nenhum escritório ativo".
+Depois que subir, abra `http://localhost:8000/`: **Configurar meu ambiente** cria
+conta e escritório pelo navegador; **Entrar** acessa uma conta já existente.
+Para atualizar uma instalação existente após integrar a alteração, execute
+`git pull` e `docker compose up --build -d`. Preserve o volume do banco de dados.
+Os arquivos estáticos são servidos pela própria imagem; um volume antigo de
+estáticos deixa de ser utilizado, sem apagar seus dados.
 
 ## 🧪 Verificações de desenvolvimento
 

@@ -1,5 +1,26 @@
 # Estado atual da equipe de agentes
 
+## Demanda atual — DL-036 (25/09/2026)
+
+**Correção solicitada pelo Fred:** apresentação e primeiro acesso revistos para
+refletir um sistema concebido para trabalhar com IA, sem posicionamento comercial
+de SaaS. Assistente/provedores/MCP apresentados como planejados; CTA de configuração
+do ambiente. Revisão no mesmo PR #45, com nova validação; os resultados abaixo
+referem-se à entrega anterior até a conclusão dos checks da revisão.
+
+
+**Em revisão:** [página inicial e cadastro](../planos/DL-036-entrada-e-cadastro.md),
+a pedido direto do Fred. O fluxo da DL-018 já cria escritório para usuário autenticado,
+mas faltava criar a própria conta pelo produto. Esta entrega fecha essa entrada e
+redesenha landing/login/cadastro. Branch `feat/dl-036-entrada-e-cadastro`, base `main`.
+Papéis de implementação separados e auditoria independente nesta sessão por
+subagentes; sem pretensão de equipe nativa Claude. PR [#45](https://github.com/fredabsd-svg/DataLedger/pull/45).
+390 testes locais aprovados, E2E Chromium mobile sem JavaScript aprovado e auditoria
+independente aprovada. CI inicial identificou duas lacunas na cobertura da nova rota, corrigidas e
+retestadas; checks finais no PR. Falha contábil SQLite preexistente
+reproduzida na main; Docker indisponível para execução. Detalhes no plano DL-036.
+
+
 A DL-023 entrou na `main` pela rodada 2, após auditoria reprovada na rodada 1;
 o que mudou entre uma e outra está na tabela de etapas e no histórico.
 
