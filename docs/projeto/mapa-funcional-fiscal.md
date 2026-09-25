@@ -290,3 +290,88 @@ Registradas em [requisitos.md](requisitos.md) como pendências:
 4. Quais **segmentos especializados** (combustíveis, imobiliário, transporte)
    fazem parte da carteira? Se nenhum, ficam fora e o escopo encolhe bastante.
 5. Qual a rotina que **mais consome tempo** hoje no escritório?
+
+## Rotina de recepção no sistema de referência — consultada em 2026-09-25
+
+Consulta ao manual do módulo de Escrita Fiscal, no diretório público indicado
+pelo Fred, feita **antes** de abrir a implementação da fatia 1 da DL-010 — é a
+instrução permanente dele de 2026-09-20, que ele reforçou em 2026-09-25.
+
+⚠️ **O que esta seção é:** descrição de **rotina** — como um escritório opera,
+em que ordem, e que decisões o sistema pede. **O que ela NÃO é:** fundamento
+normativo. Manual de 2018 de outro produto responde rotina, **nunca** norma.
+Nada foi copiado: nem texto, nem nome de menu, nem estrutura de tela.
+
+### ⚠️ O manual CORRIGIU quatro premissas minhas — e é o motivo da regra existir
+
+**1. A classificação fiscal não é perguntada nota a nota, nem deixada em
+aberto.** Eu tinha formulado a pergunta com três opções — pede na importação,
+sugere, ou deixa em branco. **Nenhuma das três é o que acontece.** É uma quarta:
+
+> Existe uma **tabela de mapeamento cadastrada ANTES da importação** — por
+> item de serviço, natureza da operação e tipo de ISS — que atribui a
+> classificação **automaticamente**. E existe um valor de **exceção
+> obrigatório**, usado quando nenhuma regra casa. Portanto **nenhum documento
+> fica sem classificação** depois de importado, e a correção é **posterior e em
+> lote**, nunca item a item na entrada.
+
+⚠️ **Consequência para o nosso modelo de dados:** o caminho natural é
+**mapeamento configurável com valor de exceção obrigatório**, não um campo de
+classificação em aberto esperando decisão humana documento por documento. **Isto
+é da próxima fatia**, não da recepção — mas a recepção **não pode** ser desenhada
+de forma a exigir classificação na entrada.
+
+**2. A importação é por EMPRESA ATIVA, escolhida antes.** O operador seleciona a
+empresa e só então importa o lote; o sistema **não** recebe um lote misto de
+vários clientes e distribui sozinho.
+
+**3. Não existe trava de fechamento por pendências.** A conferência é feita por
+**relatórios sob demanda** — notas fora de sequência, resumo por classificação
+(que é literalmente o relatório de conferência da classificação) e
+inconsistências de apuração. Não há tela de pendências que bloqueie.
+
+**4. Cancelamento sem a nota original é RECUSADO** — no fluxo de NF-e o manual é
+explícito: sem a nota lançada, o arquivo de cancelamento não entra. Para nota de
+serviço esse comportamento **não** aparece documentado.
+
+### A rotina de resultado do lote, que vale adotar em espírito
+
+O resultado da importação é apresentado em **baldes distintos**, e a distinção é
+melhor que a nossa:
+
+| Balde | Comportamento |
+| --- | --- |
+| Pronto para gravar | Passou por toda validação; ainda exige ação do operador para efetivar |
+| **Com advertência** | Não impede a gravação, **mas nada é gravado automaticamente** — o operador **marca manualmente** o que aceita |
+| Com erro | Não pode ser importado nesta rodada |
+| **Crítica de estrutura** | Erro do **arquivo**, não do registro — separado dos erros de conteúdo |
+
+⚠️ **As duas ideias que valem:** (a) **advertência exige ação humana explícita**
+em vez de passar calado; (b) **erro de arquivo é categoria diferente de erro de
+registro**. A segunda o nosso plano já tem nos critérios 7 e 8; a primeira é
+ganho novo.
+
+O manual também descreve processamento **em lotes de tamanho configurável** e
+**guarda dos arquivos problemáticos** para reprocessamento — reconhecimento de
+que lote grande vai e volta em partes.
+
+### O que o sistema de referência faz e nós NÃO vamos copiar
+
+- **Contraparte não identificada cai num "cliente padrão" pré-configurado**, e há
+  criação automática de cadastro. ⚠️ **Não copiamos sem decisão do Fred:** em
+  contabilidade, preencher automaticamente quem é a outra ponta de um documento
+  fiscal é o tipo de conveniência que vira erro difícil de achar depois.
+- **Correção em massa sem restrição de período.** O manual não menciona bloqueio
+  quando o período já foi encerrado ou o documento já foi transmitido. ⚠️ **Nós
+  temos competência com fechamento** (DL-016/DL-031), e alteração em massa
+  **respeitará** a competência encerrada — é diferença deliberada, não omissão.
+
+### O que o manual não respondeu
+
+- Precondição para cancelamento de **nota de serviço** chegar sem a nota, ou
+  antes dela — documentado só para NF-e.
+- Qualquer trava de alteração em massa por período encerrado ou documento já
+  transmitido.
+- Detecção automática de **duplicidade** reportada no resultado: o que existe é
+  uma **escolha prévia** do operador entre sobrescrever e importar só o que não
+  existe — não a deduplicação por identificador que a nossa medição exige.

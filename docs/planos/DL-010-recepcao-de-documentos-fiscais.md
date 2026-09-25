@@ -593,3 +593,67 @@ esconder:** o manual conceitual que sustenta a RC-113 é classificado **pelo
 próprio portal** como *"leiaute e esquemas antigos (julho de 2022 a
 28/09/2025)"*, e **não foi localizado substituto** na Documentação Atual. O
 conceito pode ter mudado depois dessa data, e **isso não está confirmado**.
+
+## O manual foi consultado em 2026-09-25, e corrigiu quatro premissas minhas
+
+Instrução permanente do Fred, reforçada por ele no mesmo dia. O levantamento está
+em [mapa-funcional-fiscal.md](../projeto/mapa-funcional-fiscal.md); aqui fica só o
+que **muda esta fatia**.
+
+⚠️ **Manual responde ROTINA, nunca NORMA.** Nada dele é fundamento normativo, e
+nada foi copiado.
+
+### As duas divergências que eu DECIDI, com a medição como árbitro
+
+| Tema | Sistema de referência | **Nossa decisão** |
+| --- | --- | --- |
+| **Evento sem a nota** | **Recusa** — sem a nota lançada, o cancelamento não entra | **Guardamos e aplicamos depois** — [DE-075](../projeto/decisoes.md#de-075). ⚠️ **Copiar custaria 100% dos cancelamentos do acervo:** dos 29 medidos, **os 29** são órfãos (RC-70). E a **RC-111** explica por quê: o evento é a **única** fonte da informação de cancelamento |
+| **A qual empresa o documento pertence** | Operador **escolhe a empresa antes**; o lote todo vale para ela | **Pelo CNPJ/CPF DO DOCUMENTO**, conferido contra o escritório ativo — [DE-076](../projeto/decisoes.md#de-076). ⚠️ **A organização de pastas do escritório é comprovadamente inconfiável:** 36 notas idênticas em **duas pastas de clientes diferentes** e 105 repetidas na mesma pasta (RC-69). Confiar na escolha prévia escritura receita **no cliente errado, em silêncio** |
+
+### O que o manual acrescentou ao desenho, e não estava no plano
+
+**A classificação fiscal não se pede na entrada.** No sistema de referência ela é
+atribuída por **tabela de mapeamento cadastrada antes**, com **valor de exceção
+obrigatório** — nenhum documento fica sem classificação, e a correção é
+**posterior e em lote**.
+
+⚠️ **Isto é da PRÓXIMA fatia, e não entra aqui** — mas impõe uma restrição de
+desenho **nesta**: **a recepção não pode exigir classificação para gravar o
+documento.** Um modelo que tornasse a classificação obrigatória na entrada
+inviabilizaria o mapeamento automático depois, e é erro barato de evitar agora e
+caro de desfazer.
+
+**Critério novo, que nasce disso:**
+
+| # | Critério |
+| --- | --- |
+| **28** | **O documento é gravado SEM classificação fiscal**, e isso é estado normal — não pendência de erro. Teste que prove que a recepção completa sem nenhuma classificação existir no sistema |
+
+### Duas coisas que NÃO copiamos, com o motivo escrito
+
+- **Contraparte não identificada caindo num "cliente padrão"**, com criação
+  automática de cadastro. ⚠️ Preencher automaticamente quem é a outra ponta de um
+  documento fiscal é conveniência que vira erro difícil de achar. Fica como
+  **PE-69**, e não afeta esta fatia: cadastro de participantes está fora dela, e o
+  XML íntegro (DE-074) não perde nada.
+- **Correção em massa sem restrição de período.** O manual não menciona trava por
+  período encerrado. **Nós temos competência com fechamento** (DL-016/DL-031), e
+  alteração em massa **vai respeitá-la** — diferença deliberada, não omissão.
+
+### E uma ideia do manual que vale adotar: advertência não passa calado
+
+O resultado do lote, lá, tem um balde de **advertência** que **não grava nada
+automaticamente** — o operador **marca** o que aceita. Somado à separação entre
+**erro de arquivo** e **erro de registro**, dá quatro desfechos em vez de três.
+
+Registrado como **HI-20**, hipótese a validar com o Fred: custa um clique por
+lote e é o que impede aceitação silenciosa. Se ele não quiser, o desfecho volta a
+ser aceito × recusado.
+
+### O que o manual NÃO respondeu, e fica declarado
+
+Precondição para cancelamento de **nota de serviço** chegar sem a nota
+(documentado só para NF-e); trava de alteração em massa por período encerrado; e
+**detecção de duplicidade** reportada no resultado — lá existe apenas uma escolha
+prévia entre sobrescrever e importar só o que não existe, **não** a deduplicação
+por identificador que a nossa medição exige (critério 15).

@@ -3832,3 +3832,85 @@ de trabalho.**
   volume: é armazenamento a dimensionar, não gratuito.
 - A trilha de auditoria registra **que** um documento foi recebido, por quem e
   quando, **sem** copiar conteúdo.
+
+## DE-075 — Evento órfão é GUARDADO, não recusado: aqui divergimos do sistema de referência, e a medição decide
+
+**Data:** 2026-09-25
+
+**Decisão:** documento de **evento** — cancelamento, substituição, rejeição — é
+**aceito e guardado mesmo quando a nota a que ele se refere não está no sistema**,
+e é **aplicado à nota quando ela chegar depois**. As duas ordens de chegada
+funcionam.
+
+**Motivo — e ele é um número, não uma preferência.** A consulta ao manual do
+sistema de referência (2026-09-25) mostrou o comportamento oposto: no fluxo de
+NF-e, **sem a nota já lançada o arquivo de cancelamento não entra**.
+
+⚠️ **Se tivéssemos copiado esse comportamento, o acervo real do Fred perderia
+100% dos cancelamentos.** A medição de 5.850 XMLs (**RC-70**) encontrou **29
+cancelamentos, e os 29 apontam para nota que não está no acervo**. Evento órfão
+**não é a exceção neste escritório: é o caso normal.**
+
+**E a norma explica por que:** o leiaute oficial confirma (**RC-111**) que a
+situação de cancelamento **não existe dentro do XML da nota** — `cStat` tem quatro
+valores e nenhum é "cancelada". **O evento é a única fonte da informação de
+cancelamento.** Recusá-lo por falta da nota é descartar a única prova de que a
+nota não vale.
+
+**Alternativas descartadas:**
+
+- *Recusar, como o sistema de referência* — descartaria os 29 de 29. O precedente
+  de outro produto não sobrevive a uma medição do acervo real.
+- *Aceitar e aplicar só se a nota chegar na mesma importação* — o acervo prova que
+  não chega: as notas correspondentes não estão nem no arquivo inteiro.
+- *Guardar o evento como arquivo solto, sem interpretar* — perderíamos a aplicação
+  automática quando a nota chegar, que é justamente o que o escritório precisa.
+
+**Consequência:** a **situação do documento é derivada** — nota mais eventos
+aplicados —, nunca copiada do XML (RC-111). E existe um estado que precisa ser
+nomeado na tela e no relatório: **evento que ainda não encontrou a nota**. Ele
+não é erro, não é pendência de cadastro: é informação guardada esperando par.
+
+⚠️ **E o que isto NÃO autoriza:** apresentar como **válida** uma nota cuja
+situação é desconhecida. Se os eventos não foram coletados, a situação de parte do
+acervo é **desconhecida** — é a **PE-68**, levada ao Fred.
+
+## DE-076 — A empresa do documento é identificada pelo CNPJ DO DOCUMENTO, não por uma empresa escolhida antes
+
+**Data:** 2026-09-25
+
+**Decisão:** na recepção, a empresa a que o documento pertence é determinada pelo
+**CNPJ ou CPF gravado no próprio documento**, conferido contra as empresas do
+**escritório ativo**. Documento que não casa com nenhuma empresa do escritório é
+**recusado, com motivo, e não gravado** — nunca atribuído por dedução. Um mesmo
+lote pode conter documentos de **várias** empresas do escritório, e cada um vai
+para a sua.
+
+**Motivo.** O sistema de referência faz o contrário (consulta ao manual em
+2026-09-25): o operador **escolhe a empresa ativa antes** e o lote inteiro vale
+para ela. É rotina legítima — e **perigosa no nosso contexto**, por uma razão
+medida:
+
+⚠️ **A organização de pastas do escritório é comprovadamente inconfiável.** A
+medição do acervo (**RC-69**) encontrou **36 notas idênticas em duas pastas de
+clientes DIFERENTES** e **105 notas repetidas dentro da mesma pasta**, catalogadas
+ao mesmo tempo como entrada e como saída pela ferramenta de origem.
+
+**Num lote assim, confiar na escolha prévia do operador importa documento para a
+empresa errada — e silenciosamente.** Isso é pior que não importar: vira receita
+escriturada no cliente errado.
+
+**Alternativas descartadas:**
+
+- *Copiar a empresa ativa do sistema de referência* — pelas 36 notas acima.
+- *Deduzir a empresa pela pasta ou pelo nome do arquivo* — a **RC-71** já
+  reprovou isso por medição: uma nota estava numa pasta chamada `DESCONHECIDO`,
+  com `evento` no nome do arquivo, e era outro tipo de documento.
+- *Criar a empresa automaticamente quando o CNPJ não é conhecido* — cria cadastro
+  a partir de arquivo não conferido, e fere o isolamento entre escritórios.
+
+**Consequência:** o critério 5 da DL-010 **recusa em vez de adivinhar**, e a
+recusa **nomeia o motivo**. Um lote misto é suportado por desenho, não por
+acidente. ⚠️ **E fica declarado o que isto custa:** documento de cliente novo,
+ainda sem cadastro de empresa, **não entra** — e essa recusa tem de ser
+compreensível, porque é a que o escritório vai encontrar no primeiro dia de uso.
