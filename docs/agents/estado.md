@@ -284,7 +284,9 @@ commit. A correção foi feita e reconferida no commit
 `75a3530b529cd737e884f3442bcdf0ea00198f45`, com árvore limpa. O parecer
 integral da rodada 1 e a reconferência aprovada estão em
 [`docs/auditorias/2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Push, PR e CI da DL-035 continuam pendentes.
+Branch publicada; o [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
+está aberto contra `main`. A CI da DL-035 continua pendente no head mais
+recente; a etapa não está integrada.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:

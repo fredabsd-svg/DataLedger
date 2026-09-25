@@ -10,8 +10,9 @@ desatualizada de que não havia commit; a reconferência aprovou a correção e
 confirmou que os critérios de código BL-514 a BL-519 estavam atendidos. Os dois
 pareceres integrais estão em
 [`2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Push, PR e CI continuam pendentes; não declarar integração antes dos quatro
-workflows passarem.
+Branch publicada e [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
+aberto contra a `main`. Os quatro workflows do PR continuam pendentes; não
+declarar integração antes de todos passarem no head mais recente.
 
 **Origem:** as cinco ressalvas da
 [reconferência da DL-034](../auditorias/2026-09-21-dl-034-rodada-2.md), que
@@ -187,6 +188,6 @@ plano.
 A primeira auditoria foi **reprovada apenas** porque o estado do commit não
 acompanhou a criação de `38e7a6b`; os critérios de código BL-514 a BL-519 foram
 aprovados. A correção única e a reconferência previstas pela §3.1 do `AGENTS.md`
-foram concluídas, e a reconferência aprovou. Push, PR e os quatro workflows da
-CI ainda são pendentes; o aceite de integração só será declarado depois desses
-resultados.
+foram concluídas, e a reconferência aprovou. O [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
+está aberto; os quatro workflows da CI ainda são pendentes. O aceite de
+integração só será declarado depois desses resultados.
