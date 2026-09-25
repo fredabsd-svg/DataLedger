@@ -3839,3 +3839,41 @@ corrigiu.
 
 **Reversão:** migração aditiva; com empresa CPF já cadastrada, a correção é
 progressiva, nunca apagar.
+
+## DE-076 — Correções da rodada 1 da DL-010 F1: um envio por vez por escritório, e envio menor
+
+**Data:** 2026-09-25
+
+**Contexto:** a [auditoria rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md)
+mediu que dois envios simultâneos do mesmo escritório terminam em espera de
+bloqueio ou impasse (*deadlock*) com erro 500 (A3), e que 5.850 arquivos levam
+37 s e 10.000 levam 61 s, acima dos 30 s do servidor de aplicação (A4).
+
+**Decisão:**
+
+1. **Um envio por vez por escritório.** O envio adquire, sem esperar, um
+   bloqueio consultivo do PostgreSQL pelo escritório
+   (`pg_try_advisory_xact_lock`). Se outro envio do mesmo escritório está em
+   andamento, o novo é recusado inteiro, sem gravar nada, com a mensagem
+   "já há um envio em processamento neste escritório; aguarde terminar e envie
+   de novo". Qualquer `OperationalError` de bloqueio ou impasse que ainda
+   ocorra vira mensagem legível, nunca 500.
+2. **Limite de 2.000 arquivos por envio** (HI-22 revista), com a consulta por
+   arquivo otimizada e a vazão **medida e registrada**. Se 2.000 não couber com
+   folga (metade do tempo-limite), o limite desce ao que couber. O acervo de
+   5.850 arquivos entra em três envios.
+3. **Nota de homologação é recusada** (`tpAmb` = 2): não tem valor fiscal.
+   Evento incoerente (`Id` que não confere com a chave ou com o código, ou mais
+   de um código) é recusado com motivo.
+
+**Motivo.** A unicidade dos documentos é por escritório (DE-074), então só
+envios do **mesmo** escritório disputam o mesmo índice: serializá-los elimina
+espera e impasse na origem, sem mudar a atomicidade do envio. Tentar sem esperar
+evita segurar uma requisição até o tempo-limite. O limite menor é reversível e
+mantém a promessa verificável hoje; o processamento em segundo plano continua
+sendo o passo seguinte se o escritório precisar de envios maiores.
+
+**Alternativas descartadas:** `ON CONFLICT DO NOTHING` (ainda espera pela
+transação alheia no mesmo índice); gravação por arquivo fora da transação do
+envio (perde a atomicidade do relatório e da trilha); aumentar o tempo-limite do
+servidor (mascara, e proxies à frente têm os seus).

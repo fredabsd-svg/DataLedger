@@ -167,9 +167,11 @@ arquivo do acervo do Fred entra no repositório.
   base representativa cobre isso.
 - **Segurança:** arquivo de terceiro é a principal superfície de ataque; tratada
   pelos critérios 24, 25 e 29.
-- **Desempenho:** 10.000 arquivos por envio em uma requisição é o teto aceito
-  nesta fatia (HI-22). Se a rotina real exigir mais, o próximo passo é
-  processamento em segundo plano, e não aumentar o limite.
+- **Desempenho:** a auditoria mediu 37 s para 5.850 arquivos e 61 s para
+  10.000, acima dos 30 s do servidor. O teto passou a **2.000 arquivos por
+  envio**, um envio por vez por escritório (DE-076), com a vazão medida e
+  registrada. Envio maior exige processamento em segundo plano, não limite
+  maior.
 - **Reversão:** reverter o merge e a migração do `apps/fiscal` (sem dado contábil
   envolvido). A migração do BL-54 é reversível.
 
@@ -185,6 +187,15 @@ arquivo do acervo do Fred entra no repositório.
   arquivos sintéticos. Rodar contra o acervo é o primeiro uso real e fica
   pendente até o Fred fazê-lo.
 - A retenção de ISS é **lida e exibida**, não interpretada nem calculada.
+
+## Rodada 1 da auditoria
+
+[Relatório integral](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md):
+**REPROVADA**, com três achados altos (A1 arquivo ruim derruba o envio, A3
+concorrência com 500, A4 tempo-limite) e nove de gravidade média ou baixa.
+Correções decididas em DE-076 e distribuídas: `desenvolvedor-pleno` (A1–A6
+servidor, A8–A11) e `especialista-frontend` (A6 telas, A7, A12). Depois, **uma**
+reconferência; não há terceira rodada (§3.1 do AGENTS.md).
 
 ## Evidências
 

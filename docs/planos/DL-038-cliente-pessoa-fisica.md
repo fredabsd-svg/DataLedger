@@ -74,3 +74,13 @@ próprio, planejado depois.
   além do que já aparece para o CNPJ; exibido só a quem já vê o cadastro.
 - **Reversão:** reverter a migração só é segura sem empresa CPF cadastrada; com
   dado real, a correção é progressiva (nova migração), nunca apagar.
+
+## Rodada 1 da auditoria
+
+[Relatório integral](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md):
+**REPROVADA**, sem achado alto: B1 (admin com 500), B2 (estabelecimento
+oferecido a empresa CPF, e a recepção vinculando por ele), B3 (varredura da
+recusa sem exercitar escrita), B5 (tela e API decidem o modo de forma
+diferente), mais B4, B7 e B8 de gravidade baixa. Todos com o
+`desenvolvedor-pleno`. **B6** — a unicidade global revela a um escritório que o
+CPF é cliente de outro — depende de decisão do Fred (PE-21 agravada).
