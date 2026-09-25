@@ -49,7 +49,12 @@ Diretório público indicado pelo Fred:
 
 ```
 https://ftpdownload.dominiosistemas.com.br/manuais/
+https://download.dominiosistemas.com.br/manuais/
 ```
+
+⚠️ **Dois hosts, o mesmo diretório.** O segundo foi indicado pelo Fred em
+2026-09-25; **medi os dois e ambos responderam `200`**. Registro os dois porque
+endereço que cai é o motivo mais bobo de uma consulta obrigatória ser pulada.
 
 Contém manual de **cada módulo**, útil como mapa de capacidades quando formos
 planejar o módulo correspondente:
