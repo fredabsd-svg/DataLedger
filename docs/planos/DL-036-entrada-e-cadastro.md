@@ -1,6 +1,6 @@
 # DL-036 — Página inicial e cadastro de uma nova empresa
 
-**Estado:** em desenvolvimento. **Demanda:** Fred, 25/09/2026: primeira tela
+**Estado:** em validação. **Demanda:** Fred, 25/09/2026: primeira tela
 com cadastro para empresa nova e apresentação profissional do DataLedger.
 **Branch:** `feat/dl-036-entrada-e-cadastro`, destino `main`.
 
@@ -42,5 +42,41 @@ Docker e produção só serão declarados testados com execução comprovada.
 
 ## Evidências e entrega
 
-Resultados finais, auditoria e PR serão registrados após execução. Merge e
+PR [#45](https://github.com/fredabsd-svg/DataLedger/pull/45), publicado pela conexão
+GitHub. Código local `353c9ed` e remoto `279707f` têm a mesma árvore `3a7b0f7`.
+
+Evidências executadas (Python 3.12, dependências fixadas do projeto):
+
+```text
+pytest accounts + tenancy + interface + documentação + contratos:
+352 passed, 1 warning in 3.56s
+ruff check .: All checks passed!
+ruff format --check .: 228 files already formatted
+manage.py check: System check identified no issues (0 silenced).
+manage.py makemigrations --check --dry-run: No changes detected
+manage.py collectstatic --noinput: 164 static files copied, 474 post-processed
+```
+
+Chromium 153: landing/login/cadastro em 1440×1000 e 390×844, sem overflow;
+inspeção das capturas desktop/mobile. E2E mobile sem JavaScript, SQLite migrado:
+
+```text
+Cadastro mobile sem JavaScript: erro acessível, sucesso e escritório ativo confirmados
+Logout e novo login com caixa original do e-mail: aprovados
+```
+
+Auditoria independente do cadastro: **APROVADO**, 30 testes e experimento SQL
+real de colisão/rollback, escape, isolamento e recusa de redirecionamento externo.
+Relatório em [auditoria DL-036](../auditorias/2026-09-25-dl-036.md).
+
+A suíte completa local para no teste contábil
+`test_codigo_repetido_na_mesma_empresa_retorna_400_nao_500`:
+`1 failed, 69 passed, 5 warnings in 3.73s`. Reproduzido na main intacta
+`4c19715` com SQLite: `1 failed in 1.39s`. Não é alteração desta demanda.
+CI com PostgreSQL em acompanhamento no PR; não declarada aprovada antecipadamente.
+
+Correção operacional adicional: removido apenas o volume de estáticos do serviço
+web. WhiteNoise passa a usar o CSS coletado na imagem; volume antigo mascarava
+estáticos novos após rebuild. Volume PostgreSQL preservado. Docker não está
+disponível neste ambiente: mudança inspecionada, contêiner não executado. Merge e
 implantação não autorizados nesta demanda. Abertura do PR integra o escopo.

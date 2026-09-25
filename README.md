@@ -131,6 +131,8 @@ Depois que subir, abra `http://localhost:8000/`: **Cadastrar minha empresa** cri
 conta e escritório pelo navegador; **Entrar** acessa uma conta já existente.
 Para atualizar uma instalação existente após integrar a alteração, execute
 `git pull` e `docker compose up --build -d`. Preserve o volume do banco de dados.
+Os arquivos estáticos são servidos pela própria imagem; um volume antigo de
+estáticos deixa de ser utilizado, sem apagar seus dados.
 
 ## 🧪 Verificações de desenvolvimento
 
