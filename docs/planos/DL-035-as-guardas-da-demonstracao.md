@@ -1,5 +1,10 @@
 # DL-035 — As guardas da demonstração
 
+**Estado em 2026-09-24:** em validação local na branch
+`feat/dl-035-guardas-demonstracao`, baseada na `main` `22a0241`. Ainda sem
+commit, push ou PR; a auditoria independente da versão integrada e o CI são
+pendentes. Atualizar este registro antes da entrega.
+
 **Origem:** as cinco ressalvas da
 [reconferência da DL-034](../auditorias/2026-09-21-dl-034-rodada-2.md), que
 **aprovou com ressalvas**. Pela §3.1 não havia terceira rodada; as ressalvas
@@ -102,8 +107,14 @@ pode ser feito por quem passar por ali.
 5. **BL-518:** apagar **qualquer uma** das três regras `@media print` reprova,
    **nomeando a classe órfã**. A guarda é **derivada de varredura**, nunca uma
    lista de três asserções.
-6. **Sem regressão**, com os números declarados e conferidos por
-   `--collect-only`. Base: **2107 passed, 14 skipped**, `--collect-only 2121`.
+6. **Sem regressão**, confirmado pelo workflow integral `Lint e testes` em
+   Python 3.14 para o commit mais recente do PR. Base medida na cabeça final
+   do PR #42 (`6fb5fd6`): **2148 passed, 37 skipped**. Nesta branch,
+   `pytest --collect-only -q` reportou **2210 testes coletados**, mas encerrou
+   com código 1 porque a conferência BL-218 exige requisições realmente
+   executadas e reprova uma sessão de coleta sem execução; esse comportamento
+   preexistente está registrado na verificação dirigida da DL-031. O número
+   coletado serve para conferência de inventário, não como resultado da suíte.
 
 ## Divisão de arquivos
 
@@ -113,13 +124,20 @@ auditor mediu o herdado ([DE-073](../projeto/decisoes.md#de-073)).
 
 | Frente | Responsável | Pode editar |
 | --- | --- | --- |
-| Instrumento, template e CSS | `especialista-frontend` | `scripts/medir_identificacao_do_emitente.py`, `templates/**`, `static/css/**`, `scripts/test_medir_identificacao_do_emitente.py` |
+| Instrumento, template, CSS e rótulo da tela BL-516 | `especialista-frontend` | `scripts/medir_identificacao_do_emitente.py`, `templates/**`, `static/css/**`, `scripts/test_medir_identificacao_do_emitente.py`, `apps/contabilidade/views_web.py` e, apenas para a asserção de tela do BL-516 com raízes, `apps/contabilidade/tests/test_dl034_tela_do_balanco.py` |
 | Guardas do servidor | `desenvolvedor-pleno` | `apps/contabilidade/services.py`, `apps/contabilidade/tests/test_dl034_balanco_patrimonial.py` |
 | Documentação | `arquiteto-senior` | `docs/**` |
 
-⚠️ **`apps/contabilidade/views_web.py` fica com a frente da TELA**, e o BL-516
-**não** o toca — só `services.py` e o rótulo, que é da tela. Se a correção do
-rótulo exigir as duas frentes, **executar em sequência**, nunca em paralelo.
+⚠️ **`apps/contabilidade/views_web.py` fica com a frente da TELA.** No BL-516,
+o `desenvolvedor-pleno` altera `services.py` e a frente da tela ajusta o rótulo
+em `views_web.py`. Como a correção depende das duas frentes, **executar em
+sequência**, nunca em paralelo.
+
+O teste de tela do rótulo BL-516 também pertence à frente da TELA. Depois que o
+`desenvolvedor-pleno` terminar as alterações de serviço e teste de backend, a
+frente da TELA acrescenta em `test_dl034_tela_do_balanco.py` o cenário de duas
+raízes divergentes; a sequência evita edição simultânea e mede o aviso real
+renderizado pela view sem ancestral comum.
 
 ⚠️ **E o BL-507 destrava aqui, se houver folga:** ele ficou fora da DL-034
 porque cruzava as duas frentes no mesmo passo. Nesta etapa o `desenvolvedor-pleno`
@@ -128,4 +146,35 @@ frente da tela consome **depois** — em sequência declarada, não em paralelo.
 
 ## Git
 
-Branch `claude/accounting-agent-team-setup-mn6lyf`. O PR cita este plano.
+Branch `feat/dl-035-guardas-demonstracao`, destino `main`. O PR cita este
+plano.
+
+## Evidências da validação local — 2026-09-24
+
+- Migrações em PostgreSQL 16 descartável e testes integrados das duas frentes
+  de contabilidade: **42 passed in 38.10s**.
+- Instrumento, incluindo Chromium real, exportação de PDF e testes ponta a
+  ponta/sabotagens: **135 passed in 214.16s**. O controle positivo confirma
+  seis páginas, o bloco do item 51 em todas elas e a nota de reconciliação em
+  todas; as mutações `color: transparent` e `#FFFFFF` devolvem código 1 e
+  mencionam contraste.
+- Prova backend em cópia descartável: seis cenários comportamentais e seis
+  probes de mutação BL-515: **12 passed**; cada lista movida é nomeada.
+- `ruff check .`, `ruff format --check .` (**225 arquivos**) e
+  `manage.py check`: aprovados.
+- `pwsh` não está instalado localmente. O substituto Python aplicou as mesmas
+  regras de `scripts/validate-docs.ps1` em **139 arquivos Markdown**, sem
+  problemas; o workflow oficial de documentação ainda precisa rodar no PR.
+- A suíte ampla `apps/contabilidade apps/core` executada pelo
+  `desenvolvedor-pleno` no Python 3.12.3 teve **1668 passed, 34 skipped, 1
+  failed e 4 subtests passed**. A única falha foi
+  `apps/core/tests/test_versao_minima_python.py::test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_versao_posterior`,
+  que valida sintaxe PEP 758 não reconhecida pelo Python 3.12 local; a CI usa
+  Python 3.14 e precisa confirmar a suíte integral.
+- `pytest --collect-only -q` imprimiu `2210 tests collected` e encerrou com
+  código 1 pela conferência BL-218 em sessão sem execução. A suíte real e o
+  workflow completo são a prova de regressão; não declarar a coleta como teste
+  aprovado.
+
+Auditoria independente, commit, push, PR e quatro workflows da CI ainda são
+pendentes. O aceite de integração só será declarado depois desses resultados.

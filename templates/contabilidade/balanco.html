@@ -227,7 +227,9 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                                 Valores em {{ identificacao.moeda_de_apresentacao }} —
                                 {{ identificacao.nivel_de_arredondamento|capfirst }}
                             </p>
-                            {% if grupos.resultado_nao_transferido %}
+                        </div>
+                        {% if grupos.resultado_nao_transferido %}
+                            <div class="nota-de-reconciliacao">
                                 <p>
                                     {% if grupos.resultado_nao_transferido.e_prejuizo %}Prejuízo{% else %}Lucro{% endif %}
                                     do período ainda não transferido ao Patrimônio Líquido:
@@ -236,8 +238,8 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                                     Patrimônio Líquido apresentados neste documento, e some depois do
                                     lançamento de encerramento (RC-104).
                                 </p>
-                            {% endif %}
-                        </div>
+                            </div>
+                        {% endif %}
                     </th>
                 </tr>
                 <tr>

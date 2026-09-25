@@ -881,6 +881,51 @@ def cenario_com_aviso_de_natureza_divergente():
     return {"escritorio": escritorio, "empresa": empresa, "data_base": hoje}
 
 
+@pytest.fixture
+def cenario_com_aviso_de_natureza_divergente_em_raizes():
+    """Duas contas-raiz de Ativo, ambas classificadas, com naturezas
+    cadastradas divergentes. Elas compartilham `conta_pai=None` e tipo,
+    sem ancestral entre elas — topologia L4 do BL-516. O PL fecha a
+    equação com o saldo líquido do Ativo, sem introduzir outra raiz de
+    Ativo no grupo do aviso.
+    """
+    escritorio = Escritorio.objects.create(
+        nome="Escritório DL-035 Raízes Divergentes", cnpj=_cnpj_sintetico()
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa DL-035 Raízes Divergentes Ltda",
+        cnpj=_cnpj_sintetico(),
+    )
+    clientes = _conta(
+        empresa,
+        codigo="1",
+        nome="Clientes Raiz",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    pdd = _conta(
+        empresa,
+        codigo="2",
+        nome="(-) PDD Raiz",
+        tipo=TipoConta.ATIVO,
+        natureza=C,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    capital_social = _conta(
+        empresa,
+        codigo="3",
+        nome="Capital Social",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+    )
+    hoje = timezone.localdate()
+    _lancar(empresa, hoje, "Integralização de capital", clientes, capital_social, "1000.00")
+    _lancar(empresa, hoje, "Provisão para devedores duvidosos", capital_social, pdd, "100.00")
+    return {"escritorio": escritorio, "empresa": empresa, "data_base": hoje}
+
+
 def test_lista_que_so_avisa_nao_bloqueia_e_a_tela_emite_mostrando_o_aviso(
     client, cenario_com_aviso_de_natureza_divergente
 ):
@@ -909,6 +954,34 @@ def test_lista_que_so_avisa_nao_bloqueia_e_a_tela_emite_mostrando_o_aviso(
     # A ação (confirmar, não necessariamente corrigir — é aviso) está no
     # corpo, e nomeia o caminho de correção SE for de fato um erro.
     assert "Confira se a natureza cadastrada de cada conta abaixo está correta" in conteudo
+
+    _assert_sem_nome_cru_de_campo_no_corpo(conteudo)
+
+
+def test_bl516_duas_raizes_de_mesmo_tipo_exibem_aviso_generico_sem_ancestral_comum(
+    client, cenario_com_aviso_de_natureza_divergente_em_raizes
+):
+    """BL-516: a view real nomeia as raízes no aviso sem inventar
+    ancestral comum. O resíduo aritmético independente continua vetando
+    a emissão e o aviso informativo permanece visível.
+    """
+    cenario = cenario_com_aviso_de_natureza_divergente_em_raizes
+    _autenticar(client, cenario["escritorio"])
+    url = reverse("contabilidade_web:balanco", args=[cenario["empresa"].id])
+    resposta = client.get(url)
+
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "O Balanço NÃO pode ser emitido nesta data-base" in conteudo
+    assert "Total do Ativo" not in conteudo
+    assert "O total classificado não bate com o total apurado pela escrituração" in conteudo
+    assert "200,00" in conteudo
+    assert "<strong>Aviso:</strong> não impede a emissão do Balanço." in conteudo
+    assert "Conta 1 — Clientes Raiz" in conteudo
+    assert "Conta 2 — (-) PDD Raiz" in conteudo
+    assert "Contas de topo do mesmo tipo (irmãs ou raízes) com natureza cadastrada" in conteudo
+    assert "diferente entre si — aviso, não impede a emissão" in conteudo
+    assert "mesmo ancestral não classificado" not in conteudo
 
     _assert_sem_nome_cru_de_campo_no_corpo(conteudo)
 

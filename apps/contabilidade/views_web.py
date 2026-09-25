@@ -2636,20 +2636,16 @@ NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO = {
     "contas_sem_classificacao_patrimonial": (
         "Conta com saldo, do Ativo ou do Passivo, sem classificação circulante/não circulante"
     ),
-    # BL-508/A1 (auditoria DL-034): a frase "sob o mesmo ancestral não
-    # classificado" só é VERDADEIRA porque `apurar_saldos` (BL-499)
-    # exclui a RAIZ do agrupamento — sem essa correção, duas contas de
-    # tipos diferentes (Ativo/Passivo), sem ancestral algum, caíam aqui
-    # com esta MESMA frase, factualmente falsa para elas. Ela permanece
-    # exata: quando esta lista é não vazia, as contas TÊM um ancestral
-    # comum de fato (o agrupamento é por `conta_pai`, e raiz nunca entra).
+    # BL-516: o agrupamento desta lista abrange contas-irmãs e contas-raiz
+    # do mesmo tipo (para raízes, `conta_pai` é `None`). O rótulo descreve
+    # a divergência de natureza sem afirmar que existe ancestral comum ou
+    # não classificado.
     # DE-070: esta lista é AVISO, não veto — o rótulo evita "corrija",
     # que era instrução IMPOSSÍVEL sempre que a classificação já estava
     # certa (ver ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA, abaixo).
     "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
-        "Contas classificadas de forma independente, sob o mesmo ancestral "
-        "não classificado, com natureza cadastrada diferente entre si — aviso, "
-        "não impede a emissão"
+        "Contas de topo do mesmo tipo (irmãs ou raízes) com natureza cadastrada "
+        "diferente entre si — aviso, não impede a emissão"
     ),
     "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
         "Conta que agrupa outras contas (não é folha), sem classificação "

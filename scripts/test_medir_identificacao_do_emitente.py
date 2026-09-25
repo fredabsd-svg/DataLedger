@@ -54,6 +54,153 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import medir_identificacao_do_emitente as instrumento  # noqa: E402
 import pytest  # noqa: E402
 
+
+def _texto_dos_templates_sem_comentarios():
+    """Lê classes de templates ativos, ignorando comentários de documentação."""
+    caminhos = sorted((instrumento.RAIZ / "templates").rglob("*.html"))
+    conteudos = []
+    for caminho in caminhos:
+        conteudo = caminho.read_text(encoding="utf-8")
+        conteudo = re.sub(r"\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}", "", conteudo, flags=re.S)
+        conteudo = re.sub(r"\{#.*?#\}|<!--.*?-->", "", conteudo, flags=re.S)
+        conteudos.append(conteudo)
+    return "\n".join(conteudos)
+
+
+def _modificadores_somente_tela_dos_templates():
+    return frozenset(
+        re.findall(
+            r"(?<![\w-])[A-Za-z_][\w-]*--somente-tela(?![\w-])",
+            _texto_dos_templates_sem_comentarios(),
+        )
+    )
+
+
+def _blocos_print_e_regras_css(conteudo_css):
+    """Deriva regras simples de seletor/declaracões dentro de `@media print`."""
+    sem_comentarios = re.sub(r"/\*.*?\*/", "", conteudo_css, flags=re.S)
+    padrao_media = re.compile(r"@media\s+print\b[^{}]*\{((?:[^{}]|\{[^{}]*\})*)\}", re.I | re.S)
+    padrao_regra = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
+    return [
+        (seletor.strip(), declaracoes.strip())
+        for media in padrao_media.finditer(sem_comentarios)
+        for seletor, declaracoes in padrao_regra.findall(media.group(1))
+    ]
+
+
+def _classes_somente_tela_sem_regra_de_impressao(css_por_arquivo):
+    classes = _modificadores_somente_tela_dos_templates()
+    classes_com_regra = set()
+    for conteudo_css in css_por_arquivo.values():
+        for seletor, declaracoes in _blocos_print_e_regras_css(conteudo_css):
+            if not re.search(r"\bdisplay\s*:\s*none\b", declaracoes, re.I):
+                continue
+            for classe in classes:
+                if re.search(rf"(?<![\w-])\.{re.escape(classe)}(?![\w-])", seletor):
+                    classes_com_regra.add(classe)
+    return sorted(classes - classes_com_regra)
+
+
+def _remover_regra_de_impressao_da_classe(css, classe):
+    """Retira em memória a regra print para testar a propriedade derivada."""
+    sem_comentarios = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    padrao_media = re.compile(r"@media\s+print\b[^{}]*\{((?:[^{}]|\{[^{}]*\})*)\}", re.I | re.S)
+    padrao_regra = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
+    for media in reversed(list(padrao_media.finditer(sem_comentarios))):
+        corpo = media.group(1)
+        for regra in reversed(list(padrao_regra.finditer(corpo))):
+            seletor, declaracoes = regra.groups()
+            tem_classe = re.search(rf"(?<![\w-])\.{re.escape(classe)}(?![\w-])", seletor)
+            tem_display_none = re.search(r"\bdisplay\s*:\s*none\b", declaracoes, re.I)
+            if tem_classe and tem_display_none:
+                corpo_sem_regra = corpo[: regra.start()] + corpo[regra.end() :]
+                return (
+                    sem_comentarios[: media.start(1)]
+                    + corpo_sem_regra
+                    + sem_comentarios[media.end(1) :]
+                )
+    raise AssertionError(f"nenhuma regra @media print encontrada para {classe}")
+
+
+_MODIFICADORES_SOMENTE_TELA = _modificadores_somente_tela_dos_templates()
+_CSS_DE_PRODUCAO = {
+    str(caminho): caminho.read_text(encoding="utf-8")
+    for caminho in sorted((instrumento.RAIZ / "static" / "css").rglob("*.css"))
+}
+
+
+def test_extracao_do_item_51_separa_a_nota_irma_no_mesmo_cabecalho():
+    html_da_tela = (
+        '<th><div class="identificacao-do-documento"><p>Entidade e CNPJ</p></div>'
+        '<div class="nota-de-reconciliacao"><p>Lucro não transferido ao Patrimônio Líquido</p>'
+        "</div></th>"
+    )
+    texto_normativo = instrumento._derivar_texto_da_identificacao_do_documento(html_da_tela)
+    texto_nota = instrumento._derivar_texto_da_nota_de_reconciliacao(html_da_tela)
+
+    assert texto_normativo == "EntidadeeCNPJ"
+    assert "nãotransferidoaoPatrimônioLíquido" not in texto_normativo
+    assert texto_nota == "LucronãotransferidoaoPatrimônioLíquido"
+
+
+def test_extracao_do_item_51_le_o_div_aninhado_ate_o_fechamento_correspondente():
+    html_da_tela = (
+        '<div class="identificacao-do-documento"><p>Entidade</p>'
+        '<div class="detalhe"><span>parte interna</span></div>'
+        "<p>Data-base</p></div>"
+    )
+
+    assert instrumento._derivar_texto_da_identificacao_do_documento(html_da_tela) == (
+        "EntidadeparteinternaData-base"
+    )
+    assert instrumento._derivar_linhas_da_identificacao_do_documento(html_da_tela) == [
+        "Entidade",
+        "Data-base",
+    ]
+
+
+def test_extracao_do_item_51_recusa_div_aninhado_sem_fechamento_do_bloco_alvo():
+    html_da_tela = (
+        '<div class="identificacao-do-documento"><p>Entidade</p>'
+        '<div class="detalhe"><span>parte interna</span></div>'
+    )
+
+    assert instrumento._derivar_texto_da_identificacao_do_documento(html_da_tela) is None
+
+
+def test_modificadores_somente_tela_dos_templates_sao_descobertos():
+    assert _MODIFICADORES_SOMENTE_TELA, (
+        "a varredura dos templates não encontrou nenhum modificador `--somente-tela`; "
+        "confira a coleta antes de confiar na guarda de CSS"
+    )
+
+
+def test_todo_modificador_somente_tela_tem_regra_de_impressao_derivada():
+    orfas = _classes_somente_tela_sem_regra_de_impressao(_CSS_DE_PRODUCAO)
+    assert not orfas, (
+        "modificador(es) `--somente-tela` sem `display: none` correspondente em "
+        f"`@media print`: {orfas}"
+    )
+
+
+@pytest.mark.parametrize("classe", sorted(_MODIFICADORES_SOMENTE_TELA))
+def test_remover_regra_print_deixa_o_modificador_orfao(classe):
+    mutado = dict(_CSS_DE_PRODUCAO)
+    for caminho, conteudo in mutado.items():
+        try:
+            mutado[caminho] = _remover_regra_de_impressao_da_classe(conteudo, classe)
+        except AssertionError:
+            continue
+        break
+    else:
+        pytest.fail(f"a varredura dos templates encontrou {classe}, mas nenhum CSS a define")
+
+    orfas = _classes_somente_tela_sem_regra_de_impressao(mutado)
+    assert classe in orfas, (
+        f"ao remover a regra de impressão de {classe}, a guarda não nomeou a classe órfã: {orfas}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # _tinta_invisivel — fecha o limite declarado de `visivelDeVerdade` (ver o
 # comentário em sonda_visibilidade.js_sonda_container_e_filhos): texto com
@@ -1483,7 +1630,15 @@ def _injetar_link_de_sabotagem_no_corpo(html, href, texto_ancora):
     return html[:fim_da_tag] + link + html[fim_da_tag:]
 
 
-def _rodar_instrumento_sabotado(monkeypatch, capsys, cliente, empresa, html_sabotada, url):
+def _rodar_instrumento_sabotado(
+    monkeypatch,
+    capsys,
+    cliente,
+    empresa,
+    html_sabotada,
+    url,
+    sabotagem_documento_css=None,
+):
     """Roda `instrumento.main([])` de VERDADE contra UMA tela fabricada a
     partir de HTML genuinamente renderizado — ver o comentário da seção,
     acima, para o que é e o que não é substituído. Devolve `(codigo_de_
@@ -1507,6 +1662,21 @@ def _rodar_instrumento_sabotado(monkeypatch, capsys, cliente, empresa, html_sabo
     )
     monkeypatch.setattr(instrumento, "TELAS_MINIMAS_COM_TIMBRE_ESPERADAS", frozenset({nome_tela}))
 
+    if sabotagem_documento_css:
+        descobrir_documentos = instrumento._descobrir_telas_com_identificacao_do_documento
+
+        def descobrir_documentos_sabotados(cliente_, empresa_, conta_):
+            telas = descobrir_documentos(cliente_, empresa_, conta_)
+            for tela in telas.values():
+                tela["html"] = _injetar_estilo_de_impressao(tela["html"], sabotagem_documento_css)
+            return telas
+
+        monkeypatch.setattr(
+            instrumento,
+            "_descobrir_telas_com_identificacao_do_documento",
+            descobrir_documentos_sabotados,
+        )
+
     codigo = 0
     try:
         instrumento.main([])
@@ -1526,11 +1696,79 @@ def test_ponta_a_ponta_controle_limpo_passa_com_codigo_zero(monkeypatch, capsys)
     cliente = _client_autenticado(usuario)
     url, html = _html_real_do_balancete(cliente, empresa)
 
-    codigo, _saida, err = _rodar_instrumento_sabotado(
+    codigo, saida, err = _rodar_instrumento_sabotado(
         monkeypatch, capsys, cliente, empresa, html, url
     )
 
     assert codigo == 0, f"controle limpo REPROVOU — stderr:\n{err}"
+    assert '"total_paginas": 6' in saida
+    assert '"folhas_sem_bloco_do_item_51": []' in saida
+    assert '"folhas_sem_nota_de_reconciliacao": []' in saida
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+@pytest.mark.parametrize("cor_css", ["transparent", "#FFFFFF"])
+def test_ponta_a_ponta_bl514_contraste_do_item_51_reprova(monkeypatch, capsys, cor_css):
+    """BL-514: presença de texto no PDF não basta quando a tinta não contrasta."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+    css = f".identificacao-do-documento {{ color: {cor_css} !important; }}"
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch,
+        capsys,
+        cliente,
+        empresa,
+        html,
+        url,
+        sabotagem_documento_css=css,
+    )
+
+    assert codigo == 1, f"esperava código 1; saiu {codigo}. stderr:\n{err}"
+    assert "CONTRASTE" in err
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("nome_sabotagem", "css"),
+    [
+        ("bloco oculto", ".identificacao-do-documento { display: none !important; }"),
+        ("recorte", ".identificacao-do-documento { clip-path: inset(100%) !important; }"),
+        ("fonte zero", ".identificacao-do-documento { font-size: 0 !important; }"),
+        ("fonte mínima", ".identificacao-do-documento { font-size: 1px !important; }"),
+        (
+            "cabeçalho sem repetição",
+            ".tabela-dados, .tabela-dados thead, .tabela-dados tbody "
+            "{ display: block !important; }",
+        ),
+        (
+            "parágrafo normativo escondido",
+            ".identificacao-do-documento p:nth-of-type(3) { display: none !important; }",
+        ),
+    ],
+)
+def test_ponta_a_ponta_sabotagens_anteriores_do_item_51_continuam_reprovando(
+    monkeypatch, capsys, nome_sabotagem, css
+):
+    """BL-514: as seis sabotagens já medidas continuam sendo conteúdo reprovado."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch,
+        capsys,
+        cliente,
+        empresa,
+        html,
+        url,
+        sabotagem_documento_css=css,
+    )
+
+    assert codigo == 1, f"{nome_sabotagem} passou. stderr:\n{err}"
 
 
 @pytestmark_ponta_a_ponta

@@ -145,6 +145,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -576,16 +577,83 @@ TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset({"contabilida
 _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
     r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'
 )
+_PADRAO_MARCADOR_NOTA_DE_RECONCILIACAO = re.compile(r'class="[^"]*\bnota-de-reconciliacao\b[^"]*"')
 
-# Extrai o CONTEÚDO do bloco (para derivar o texto esperado — ver
-# `_derivar_texto_da_identificacao_do_documento`, abaixo). Não confundir
-# com o padrão de MARCADOR acima: aquele só confirma que a classe existe
-# em algum lugar do HTML (para decidir "esta tela é candidata"); este lê
-# o TEXTO de dentro para saber O QUE deveria repetir em cada página.
-_PADRAO_BLOCO_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
-    r'<div class="identificacao-do-documento">(.*?)</div>', re.DOTALL
-)
-_PADRAO_TAG_HTML = re.compile(r"<[^>]+>")
+
+class _ExtratorDeBlocoDoDocumento(HTMLParser):
+    """Extrai um bloco `div` completo e seus parágrafos sem aceitar prefixos.
+
+    Contar os fechamentos de `div` é necessário porque um regex não-guloso
+    termina no primeiro `</div>` aninhado e pode produzir um texto esperado
+    parcial sem sinalizar erro (BL-519). O estado só fica completo quando o
+    fechamento correspondente ao `div` que carrega a classe alvo é lido.
+    """
+
+    def __init__(self, classe_alvo):
+        super().__init__(convert_charrefs=True)
+        self.classe_alvo = classe_alvo
+        self.profundidade_div = 0
+        self.profundidade_alvo = None
+        self.encontrado = False
+        self.completo = False
+        self.capturando = False
+        self.texto = []
+        self.paragrafos = []
+        self.paragrafo_atual = None
+
+    def handle_starttag(self, tag, attrs):
+        atributos = dict(attrs)
+        if tag == "div":
+            self.profundidade_div += 1
+            classes = (atributos.get("class") or "").split()
+            if not self.encontrado and self.classe_alvo in classes:
+                self.encontrado = True
+                self.capturando = True
+                self.profundidade_alvo = self.profundidade_div
+        if self.capturando and tag == "p" and self.paragrafo_atual is None:
+            self.paragrafo_atual = []
+
+    def handle_startendtag(self, tag, attrs):
+        # Tags vazias não alteram a profundidade do bloco. Tratá-las como
+        # início/fim preserva também qualquer texto gerado pelo parser.
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_data(self, data):
+        if self.capturando:
+            self.texto.append(data)
+            if self.paragrafo_atual is not None:
+                self.paragrafo_atual.append(data)
+
+    def handle_endtag(self, tag):
+        if self.capturando and tag == "p" and self.paragrafo_atual is not None:
+            texto = "".join(self.paragrafo_atual)
+            linha = "".join(texto.split())
+            if linha:
+                self.paragrafos.append(linha)
+            self.paragrafo_atual = None
+        if tag == "div" and self.profundidade_div:
+            if self.capturando and self.profundidade_div == self.profundidade_alvo:
+                self.capturando = False
+                self.completo = True
+            self.profundidade_div -= 1
+
+
+def _extrair_conteudo_do_bloco(html_da_tela, classe):
+    """Devolve texto normalizado e parágrafos do `div` completo, ou `None`.
+
+    A extração não-gulosa anterior aceitava um prefixo quando havia um `div`
+    aninhado. A estrutura balanceada faz o instrumento recusar essa mudança
+    até que o HTML completo possa ser interpretado, em vez de aprovar uma
+    medição parcial.
+    """
+    extrator = _ExtratorDeBlocoDoDocumento(classe)
+    extrator.feed(html_da_tela)
+    extrator.close()
+    if not extrator.encontrado or not extrator.completo:
+        return None
+    texto = "".join("".join(extrator.texto).split())
+    return {"texto": texto, "paragrafos": extrator.paragrafos}
 
 
 def _derivar_texto_da_identificacao_do_documento(html_da_tela):
@@ -611,12 +679,20 @@ def _derivar_texto_da_identificacao_do_documento(html_da_tela):
     nenhuma palavra) — ou `None` se a tela não tiver o bloco (não é
     candidata a esta checagem; `main` trata isso como o bloco NUNCA
     tendo existido, não como "vazio mas presente")."""
-    casamento = _PADRAO_BLOCO_IDENTIFICACAO_DO_DOCUMENTO.search(html_da_tela)
-    if casamento is None:
-        return None
-    texto_sem_tags = _PADRAO_TAG_HTML.sub(" ", casamento.group(1))
-    texto_sem_tags = html.unescape(texto_sem_tags)
-    return "".join(texto_sem_tags.split())
+    bloco = _extrair_conteudo_do_bloco(html_da_tela, "identificacao-do-documento")
+    return bloco["texto"] if bloco is not None else None
+
+
+def _derivar_linhas_da_identificacao_do_documento(html_da_tela):
+    """Deriva cada parágrafo do bloco normativo para a medição no papel."""
+    bloco = _extrair_conteudo_do_bloco(html_da_tela, "identificacao-do-documento")
+    return bloco["paragrafos"] if bloco is not None else None
+
+
+def _derivar_texto_da_nota_de_reconciliacao(html_da_tela):
+    """Lê a nota repetida no cabeçalho sem incorporá-la ao bloco normativo."""
+    bloco = _extrair_conteudo_do_bloco(html_da_tela, "nota-de-reconciliacao")
+    return bloco["texto"] if bloco is not None else None
 
 
 # CNPJ sintético FIXO (não gerado a cada execução) — a mesma convenção de
@@ -3107,56 +3183,24 @@ def main(argv):
                 entrada["pdf"] = str(caminho_pdf)
 
                 if not motivos and caminho_pdf.exists():
-                    # O TEXTO esperado em CADA página vem do que o
-                    # PRÓPRIO SERVIDOR escreveu para esta tela (nunca um
-                    # literal da norma reescrito aqui — ver a docstring
-                    # de `_derivar_texto_da_identificacao_do_documento`).
-                    texto_esperado = _derivar_texto_da_identificacao_do_documento(
-                        telas_documento[nome]["html"]
+                    html_da_tela = telas_documento[nome]["html"]
+                    bloco_identificacao = _extrair_conteudo_do_bloco(
+                        html_da_tela, "identificacao-do-documento"
+                    )
+                    texto_esperado = (
+                        bloco_identificacao["texto"] if bloco_identificacao is not None else None
                     )
                     if not texto_esperado:
-                        # O marcador de DESCOBERTA (regex de classe, em
-                        # `_descobrir_telas_com_identificacao_do_
-                        # documento`) e o marcador de EXTRAÇÃO (o `<div
-                        # class="identificacao-do-documento">...</div>`
-                        # inteiro, aqui) são DOIS padrões — MEDIDAMENTE
-                        # diferentes (BL-425/C1: dois mecanismos podem
-                        # divergir). Se o primeiro achou a tela mas o
-                        # segundo não extraiu texto nenhum, o template
-                        # mudou de forma que este instrumento não
-                        # reconhece mais — infraestrutura do PRÓPRIO
-                        # instrumento, não veredito sobre o produto (ele
-                        # pode estar certo ou errado; este script não
-                        # sabe dizer).
+                        # A varredura reconheceu a classe, mas o parser não
+                        # encontrou o `div` completo. Um fechamento aninhado
+                        # não pode virar extração parcial silenciosa (BL-519).
                         _recusar(
                             f"{nome}: '.identificacao-do-documento' foi ENCONTRADO pela "
-                            "varredura (marcador de classe), mas este instrumento não "
-                            "conseguiu extrair o TEXTO de dentro do bloco (padrão de "
-                            "_derivar_texto_da_identificacao_do_documento desatualizado "
-                            "em relação ao template) — atualize o padrão junto com o "
-                            "template, nunca volte a um literal fixo aqui."
+                            "varredura, mas o instrumento não conseguiu extrair o TEXTO "
+                            "do bloco completo — atualize a extração junto com o template; "
+                            "extração parcial é recusada."
                         )
 
-                    # ⚠️ LIMITE DECLARADO (não fechado por esta correção,
-                    # mesmo padrão de honestidade que `sonda_
-                    # visibilidade.py` já assume para `.timbre-impressao`):
-                    # esta checagem confirma que o TEXTO do bloco existe
-                    # como objeto de texto em cada página — `pdftotext`
-                    # extrai o CONTEÚDO do fluxo, não o pixel pintado, então
-                    # `color: transparent` (tinta da MESMA cor do papel)
-                    # continuaria sendo extraída aqui como "presente", sem
-                    # ficar LEGÍVEL. O bloco do timbre fecha esse caso com
-                    # `_localizar_linhas_do_timbre_no_documento` (bbox +
-                    # contraste, por LINHA); estender a MESMA análise de
-                    # contraste ao bloco do item 51 por página é escopo
-                    # maior do que esta correção comprou — fica registrado,
-                    # não escondido. A verificação de VISIBILIDADE no
-                    # navegador (`medida.get("visivel")`, acima, via
-                    # `checkVisibility({checkOpacity: true, ...})`) já
-                    # cobre `opacity: 0`/`display: none`/`visibility:
-                    # hidden`, que é a classe de sabotagem que o critério de
-                    # aceite 1 desta correção exige reprovar — só
-                    # `color: transparent` fica fora, hoje.
                     total_paginas = _total_de_paginas(caminho_pdf)
                     folhas_sem_bloco = [
                         pagina
@@ -3176,6 +3220,111 @@ def main(argv):
                             f"{total_paginas} página(s): folha(s) {folhas_sem_bloco} — "
                             "medido no TEXTO do PDF exportado, não só no HTML servido"
                         )
+
+                    # A nota explica a conciliação enquanto o resultado não
+                    # foi transferido ao PL. Ela é conteúdo de conferência e
+                    # fica fora do bloco normativo, mas no mesmo cabeçalho
+                    # repetido. O cenário sintético desta medição contém
+                    # resultado não transferido; se o gancho sumir, reprova.
+                    marcador_nota = _PADRAO_MARCADOR_NOTA_DE_RECONCILIACAO.search(html_da_tela)
+                    nota_esperada = _derivar_texto_da_nota_de_reconciliacao(html_da_tela)
+                    if marcador_nota and not nota_esperada:
+                        _recusar(
+                            f"{nome}: '.nota-de-reconciliacao' foi encontrada, mas não foi "
+                            "possível extrair o bloco completo; extração parcial é recusada."
+                        )
+                    if not marcador_nota:
+                        motivos.append(
+                            "nota de reconciliação esperada para o cenário sintético não "
+                            "encontrada no HTML"
+                        )
+                    else:
+                        folhas_sem_nota = [
+                            pagina
+                            for pagina in range(1, total_paginas + 1)
+                            if nota_esperada not in _texto_da_pagina_sem_espaco(caminho_pdf, pagina)
+                        ]
+                        entrada["folhas_sem_nota_de_reconciliacao"] = folhas_sem_nota
+                        if folhas_sem_nota:
+                            motivos.append(
+                                "nota de reconciliação AUSENTE em "
+                                f"{len(folhas_sem_nota)} de {total_paginas} página(s): "
+                                f"folha(s) {folhas_sem_nota} — medido no PDF exportado"
+                            )
+
+                    # Reuso direto do oráculo que mede bbox e tinta contra o
+                    # papel para cada linha do timbre. Os filhos são os `<p>`
+                    # completos do bloco, derivados do HTML servido; o texto
+                    # da nota irmã não entra nesta lista nem no item 51.
+                    linhas_identificacao = bloco_identificacao["paragrafos"]
+                    if not linhas_identificacao:
+                        _recusar(
+                            f"{nome}: o bloco completo de identificação foi encontrado, mas "
+                            "não contém parágrafos que o instrumento possa medir."
+                        )
+                    fonte_das_linhas = medida.get("fonte_das_linhas")
+                    if fonte_das_linhas is None:
+                        _recusar(
+                            f"{nome}: a medição de fonte das linhas do item 51 veio ausente; "
+                            "não é possível aplicar o oráculo de contraste."
+                        )
+                    if len(fonte_das_linhas) != len(linhas_identificacao):
+                        motivos.append(
+                            "número de parágrafos de identificação no navegador "
+                            f"({len(fonte_das_linhas)}) diverge do HTML servido "
+                            f"({len(linhas_identificacao)})"
+                        )
+
+                    razoes_minimas = [
+                        _razao_minima_wcag_para_linha(
+                            fonte_das_linhas[indice]["tamanho_efetivo_px"],
+                            fonte_das_linhas[indice]["peso"],
+                        )
+                        if indice < len(fonte_das_linhas)
+                        else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
+                        for indice in range(len(linhas_identificacao))
+                    ]
+                    localizacoes = _localizar_linhas_do_timbre_no_documento(
+                        caminho_pdf, linhas_identificacao, razoes_minimas
+                    )
+                    filhos = medida.get("filhos", [])
+                    linhas_medidas = []
+                    for indice, linha in enumerate(linhas_identificacao):
+                        localizacao = localizacoes[indice]
+                        contraste_maximo = localizacao["contraste_maximo_medido"]
+                        razao_minima = razoes_minimas[indice]
+                        linha_medida = {
+                            "texto": linha,
+                            "folha": localizacao["folha"],
+                            "pixels_com_contraste": localizacao["pixels_com_contraste"],
+                            "contraste_maximo_medido": round(contraste_maximo, 3),
+                            "razao_minima_exigida": razao_minima,
+                        }
+                        linhas_medidas.append(linha_medida)
+
+                        if localizacao["bbox"] is None:
+                            filho = filhos[indice] if indice < len(filhos) else None
+                            if filho and _tinta_invisivel(filho.get("cor_efetiva")):
+                                motivos.append(
+                                    "linha da identificação do documento com CONTRASTE "
+                                    f"insuficiente contra o papel (tinta transparente): {linha!r}"
+                                )
+                            continue
+                        if contraste_maximo < razao_minima:
+                            motivos.append(
+                                "linha da identificação do documento com CONTRASTE "
+                                f"insuficiente contra o papel: {linha!r} — "
+                                f"{contraste_maximo:.2f}:1 medido, mínimo exigido "
+                                f"{razao_minima:.1f}:1"
+                            )
+                        elif localizacao["pixels_com_contraste"] < PISO_PIXELS_ESCUROS_POR_LINHA:
+                            motivos.append(
+                                "linha da identificação do documento com POUCOS PIXELS "
+                                f"de tinta contrastante: {linha!r} — "
+                                f"{localizacao['pixels_com_contraste']} pixel(s), piso "
+                                f"{PISO_PIXELS_ESCUROS_POR_LINHA}"
+                            )
+                    entrada["linhas_identificacao_do_documento"] = linhas_medidas
 
                 entrada["veredito"] = "PASSOU" if not motivos else "REPROVADO"
                 entrada["motivos"] = motivos
