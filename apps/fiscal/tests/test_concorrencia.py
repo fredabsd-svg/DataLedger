@@ -28,7 +28,9 @@ from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 @pytest.mark.django_db(transaction=True)
 def test_corrida_real_de_documento_produz_um_unico_documento():
     escritorio = Escritorio.objects.create(nome="Escritório Corrida Fiscal", cnpj="33333333000144")
-    empresa = Empresa.objects.create(
+    # A empresa precisa existir (prestador da NFS-e sintética) para o
+    # documento ser aceito, mas não é referenciada diretamente no teste.
+    Empresa.objects.create(
         escritorio=escritorio, razao_social="Empresa Corrida Fiscal Ltda", cnpj="11222333000181"
     )
     usuario = get_user_model().objects.create_user(

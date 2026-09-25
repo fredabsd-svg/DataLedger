@@ -44,7 +44,10 @@ def identificador_nfse(
     testes."""
     numero = f"{sufixo:013d}"
     codigo_numerico = f"{sufixo:09d}"
-    base = f"{municipio}{ambiente}{tipo_inscricao}{inscricao_federal}{numero}{competencia}{codigo_numerico}{dv}"
+    base = (
+        f"{municipio}{ambiente}{tipo_inscricao}{inscricao_federal}"
+        f"{numero}{competencia}{codigo_numerico}{dv}"
+    )
     assert len(base) == 50, f"base do Id da NFS-e com tamanho errado: {len(base)}"
     return "NFS" + base
 
