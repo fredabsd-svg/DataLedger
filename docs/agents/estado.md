@@ -290,8 +290,75 @@ Backend #655, Documentação #658 e Identificação do emitente #217 — todos
 verde é a #195 no head do PR, e não há execução desse workflow no `push` do
 merge.
 
-**Próximo passo:** não há plano DL-036 declarado. Priorizar a etapa seguinte a
-partir do backlog e registrar seu plano antes de iniciar implementação.
+### DL-036 — o checklist único, e a marca do README que mentiu (2026-09-25)
+
+**Estado: em integração nesta sessão**, na branch
+`claude/accounting-agent-team-setup-mn6lyf`. Plano em
+[DL-036](../planos/DL-036-o-checklist-unico-e-a-marca-do-readme.md). Ordem direta
+do Fred, em duas falas: *"pode fazer a varredura de reconciliação do README"* e
+*"faça um check-list para colocar no processo"* — demanda formal pela DL-025.
+
+**Como nasceu:** ao responder *"quais módulos já temos prontos?"*, eu medi o
+código em vez de ler a documentação, e o checklist do `README.md` afirmava que
+etapas integradas na `main` **não tinham sido feitas**.
+
+⚠️ **O achado que importa não é a divergência: é que já existiam DOIS
+checklists** — `AGENTS.md` §14 e o modelo de pull request — **e ela atravessou
+vários PRs com os dois marcados como cumpridos**, porque o item dizia
+*"documentação e evidências atualizadas"*. **Item vago é item que se marca sem
+fazer.** É a reincidência literal da instrução permanente de 2026-09-13: a causa
+é **duplicação**, não distração.
+
+**O que mudou:**
+
+1. **`AGENTS.md` §14 é o checklist único do projeto** — 30 itens específicos em
+   cinco fases, cada um com **coluna dizendo quem impõe**: `teste`, `workflow`,
+   `gancho` ou `honra`.
+2. **O modelo de pull request parou de repetir a lista** e aponta para o §14,
+   guardando só as caixas que a CI lê.
+3. **Caixa nomeada** exigida pelo workflow `Regras do projeto` —
+   *"Conferi o checklist de etapas do README contra a branch padrão"* —, para que
+   marcá-la sem conferir seja afirmação **específica e falsa**.
+4. **O significado das marcas foi DEFINIDO** no próprio README, porque a
+   ambiguidade era a causa: `[x]` = escopo inteiro na branch padrão; `[ ]` = não
+   existe **ou existe só em parte**, e o texto diz o que já está no ar.
+
+**Resultado da varredura, medida contra código e Git por duas frentes de leitura
+somente-leitura, e revista por mim:**
+
+| Correção | Itens |
+| --- | --- |
+| Passaram a `[x]` | **DL-024, DL-025, DL-027, DL-028, DL-030, DL-031** |
+| Seguem `[ ]`, agora com o motivo escrito | **DL-016, DL-026, DL-029** |
+| Afirmação em presente que já era **falsa**, corrigida | **DL-031, DL-032, DL-033, DL-026** |
+
+⚠️ **Em três itens eu fui MAIS RIGOROSO que a varredura, e o motivo fica
+registrado:** os pesquisadores marcaram DL-016, DL-026 e DL-029 como "marca
+errada". **Conferi e discordo.** A DL-016 tem **três critérios das fatias
+seguintes abertos**, declarados no próprio plano (política de período de
+trabalho, competência como período nas saídas, e origem do lançamento/BL-72) —
+medi: nenhum existe no modelo. A DL-026 tem a **PE-61** aberta, que é critério de
+escopo e reapareceu na auditoria da DL-034. Na DL-029 **o escopo É a garantia**, e
+ela segue parcial. **Marcar `[x]` ali seria arredondar para cima** — o que o
+critério 2 do plano proíbe com essas palavras.
+
+⚠️ **E conferi com as minhas mãos as duas dúvidas que a varredura deixou:** os
+achados **M8** (critério de aceite 5 da DL-030 sem teste) e **M9**
+(`ItemLancamento` sem derivação de escritório) **seguem abertos** — nenhum teste
+menciona o critério 5, e `ItemLancamento` não aparece em
+`apps/auditoria/signals.py`. Ficaram declarados na linha do README.
+
+**O limite desta etapa, escrito para ela não cometer o defeito que denuncia:** o
+workflow confere o **atestado**, não o **fato**. A correção de fundo é mecanismo
+e está em **BL-526** — fonte legível por máquina e README derivado dela, ou teste
+que compare marca × branch padrão. **Enquanto isso, a divergência continua
+possível; só ficou mais difícil de marcar sem mentir.**
+
+**Próximo passo:** decisão do Fred sobre a ordem de prioridade. Três frentes
+nomeadas, nenhuma iniciada: **BL-526** (o mecanismo que falta), o **zeramento /
+encerramento do exercício** com a pergunta de produto ainda aberta, e a
+**escrita fiscal**, que a medição do catálogo aponta como o maior salto de
+utilidade real — 80 dos 120 relatórios dependem de módulo que não existe.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:

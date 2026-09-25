@@ -287,22 +287,17 @@ Este arquivo define as regras; ele não configura essas proteções sozinho. Se 
 
 ## 14. Checklist de conclusão de cada etapa
 
-- [ ] Instruções e contexto lidos antes da alteração.
-- [ ] Plano e critérios de aceite registrados.
-- [ ] Escopo da etapa implementado sem alterações indevidas.
-- [ ] Regras relevantes comentadas no código.
-- [ ] Testes aplicáveis implementados ou atualizados e executados.
-- [ ] Regressões afetadas e verificações obrigatórias aprovadas.
-- [ ] Permissões, isolamento e dados sensíveis verificados quando afetados.
-- [ ] Documentação e evidências atualizadas.
-- [ ] Diff completo revisado e sem segredos.
-- [ ] Commit realizado e hash registrado na entrega.
-- [ ] Push concluído.
-- [ ] PR criado ou atualizado, com base correta e descrição completa.
-- [ ] CI do commit mais recente aprovada.
-- [ ] Pendências e limitações informadas sem ocultar bloqueios.
+**O checklist é um só, e mora em
+[docs/projeto/checklist-de-encerramento.md](docs/projeto/checklist-de-encerramento.md)**
+— 30 itens em cinco fases, cada um com a coluna **quem impõe** (`teste`,
+`workflow`, `gancho` ou `honra`). **Percorra-o item por item ao fechar etapa.**
+⚠️ **Item vago é item que se marca sem fazer, e marcar o que não foi conferido é
+pior que deixar em branco:** o checklist passa a ser prova falsa.
 
-Itens não aplicáveis exigem justificativa no PR. Ausência de tempo não justifica dispensar teste obrigatório.
+⚠️ **Ele não está aqui por MEDIÇÃO, não por gosto:** este arquivo estava a 20
+bytes da margem quando o checklist foi reescrito. Acima de **32.768 bytes** o
+Codex CLI trunca estas regras **em silêncio**, cortando **primeiro as últimas
+seções** — a tabela de imposição e a divisão de trabalho da equipe.
 
 ## 15. Formato do relatório de entrega
 

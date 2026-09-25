@@ -46,6 +46,25 @@ jobs:
                   "A caixa 'Atualizei o estado do projeto em docs/agents/estado.md' "
                   "não está marcada."
               )
+          # Acrescentado em 2026-09-25, depois de a divergência ACONTECER: o
+          # checklist de etapas do README afirmava que a DL-027 e a DL-030 não
+          # tinham sido feitas enquanto as duas já estavam na branch padrão,
+          # e vários PRs passaram com a caixa genérica de documentação
+          # marcada. Esta caixa é NOMEADA para que marcá-la sem conferir seja
+          # uma afirmação específica e falsa, não um "documentação atualizada"
+          # que qualquer coisa satisfaz (AGENTS.md §14.5, item 26).
+          #
+          # ⚠️ LIMITE DECLARADO, e ele importa: isto verifica o ATESTADO, não
+          # o FATO. Ninguém compara aqui a marca do README com a branch
+          # padrão — para isso falta o teste registrado como pendência de
+          # mecanismo no backlog. Não leia esta linha como garantia de que o
+          # README está certo.
+          if not marcado("Conferi o checklist de etapas do README"):
+              problemas.append(
+                  "A caixa 'Conferi o checklist de etapas do README contra a branch "
+                  "padrão' não está marcada. A marca [x] vale só para o que já está "
+                  "na branch padrão (AGENTS.md §14.5, item 26)."
+              )
           if not re.search(r"DL-\d{3}", corpo):
               problemas.append(
                   "O PR não cita nenhuma etapa DL-xxx. Toda alteração pertence a um "

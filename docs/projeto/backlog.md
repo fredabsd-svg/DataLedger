@@ -1842,3 +1842,28 @@ copiei literalmente: *"dentro do `<thead>`"* virou *"dentro do bloco"*, e a
 | 5 | Concorrência sob carga e desempenho — maior documento: 6 folhas / ~125 contas | **Não medido** |
 | 6 | Papel físico (PE-57/PE-58), Safari, leitor de tela real com accesskey | **Não medido** |
 | 7 | Ordens adversariais da suíte e fuzzing de data-base (BL-506 segue aberto) | **Não medido** |
+
+## Reconciliação do checklist do README — DL-036 (2026-09-25)
+
+Ordem direta do Fred, em duas falas: *"pode fazer a varredura de reconciliação do
+README"* e *"faça um check-list para colocar no processo"*. Plano em
+[DL-036](../planos/DL-036-o-checklist-unico-e-a-marca-do-readme.md).
+
+⚠️ **O achado que importa não é a divergência: é que já existiam DOIS checklists
+— `AGENTS.md` §14 e o modelo de pull request — e a divergência atravessou vários
+PRs com os dois marcados como cumpridos.** O item dizia *"documentação e
+evidências atualizadas"*. **Item vago é item que se marca sem fazer**, e criar um
+terceiro checklist seria repetir a causa raiz de 2026-09-13: **duplicação**.
+
+| ID | Tarefa | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-526 | **O MECANISMO que falta, e é a correção de fundo.** Hoje o workflow `Regras do projeto` exige uma caixa **nomeada** — *"Conferi o checklist de etapas do README contra a branch padrão"* — e o `test_documentacao_do_estado.py` exige que a etapa **apareça** no README e no `estado.md`. ⚠️ **Nenhum dos dois compara a MARCA `[x]` com o que está na branch padrão:** o workflow confere o **atestado**, não o **fato**. Enquanto isso, a divergência continua **possível** — só ficou mais difícil de marcar sem mentir, e isso é **menos que uma trava** (DE-058 aplicada a nós mesmos). ⚠️ **Falhou DUAS vezes medidas:** DL-027 e DL-030 marcadas como não feitas estando na `main`, e a DL-016 idem | `arquiteto-senior` decide o formato, `desenvolvedor-pleno` executa | DL-036 | **Aberta — etapa própria, fora do escopo da DL-036** | Uma **fonte legível por máquina** do que está entregue, e o README **derivado dela** (molde do arquivo gerado da DL-019/DE-037) **ou** um teste que compare marca × branch padrão. **Prova: trocar um `[x]` por `[ ]` no README, ou o contrário, tem de REPROVAR** |
+| BL-527 | **Divergências medidas na varredura, a corrigir no `README.md`.** **DL-016** marcada `[ ]` com as **duas fatias entregues** na `main` — o produto já fecha, reabre com motivo e marca como entregue, com auditoria aprovada em cada fatia. **DL-027** marcada `[ ]`, integrada pelo **PR #42**. **DL-030** marcada `[ ]`, entregou em `8de86a7`. ⚠️ **A DL-016 é a mais grave das três**, porque é funcionalidade que o contador usa: o README nega uma rotina que existe | `arquiteto-senior` | — | **Em correção nesta etapa** | `[x]` para as três, e as demais marcas conferidas item por item contra o código |
+
+### Ressalvas registradas pela varredura, sem arredondar
+
+| # | Ressalva | Estado |
+| --- | --- | --- |
+| — | **DL-014** entregou o mecanismo em **código** (gancho e workflow), mas a **proteção da `main` continua desligada** — é ação administrativa do Fred (**BL-02/BL-373**), fora do código. A marca `[x]` está certa **para o escopo de código**; não leia como "a `main` está protegida" | **Declarada** |
+| — | **DL-019** foi **encerrada** por decisão do Fred sob a régua da DE-038, **não aprovada**, com achados baixos preservados (BL-190 a BL-194), nenhum tocando dado, cálculo, isolamento ou período. O mecanismo funciona; o histórico **não** é um "aprovado" limpo | **Declarada** |
+| — | **DL-010** marcada `[ ]` está **certa**: varredura confirma **zero** código de recepção de XML/ZIP/SPED. `apps/documentos/` é o bloco de identificação da DL-027, **não** importação fiscal | **Confirmada** |
