@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block titulo %}Recepção de documentos fiscais{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
+    <h1>Recepção de documentos fiscais</h1>
+
+    {% comment %}
+    Arquétipo C (caixa de entrada e conferência, direção de arte §2.C): o
+    "momento da verdade" do Fiscal — "o documento é elegível, não é
+    duplicado, e a apuração confere com a memória de cálculo?" — começa
+    aqui, com o envio; a PRIMEIRA parte da pergunta ("elegível, não
+    duplicado") é respondida por este envio e pelo relatório dele
+    (fiscal/relatorio_envio.html). A apuração é fora do escopo desta fatia
+    (declarado no plano DL-010-F1).
+    {% endcomment %}
+    <form method="post" enctype="multipart/form-data" action="{% url 'fiscal_web:recepcao' %}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_arquivo">Arquivo (um XML de NFS-e, ou um ZIP com vários)</label>
+            <input type="file" id="id_arquivo" name="arquivo" required aria-describedby="id_arquivo_ajuda">
+            <p class="texto-apoio" id="id_arquivo_ajuda">
+                Aceita o mesmo ZIP (ou XML solto) que você já exporta da ferramenta de gestão de XML.
+                O nome do arquivo ou da pasta não decide o que é: o conteúdo decide.
+            </p>
+        </div>
+        <button type="submit">Enviar</button>
+    </form>
+
+    <h2>Envios recentes</h2>
+    {% if pagina.object_list %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Envios de documentos fiscais deste escritório</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Data/hora</th>
+                    <th scope="col">Arquivo</th>
+                    <th scope="col">Usuário</th>
+                    <th scope="col">Recebidos</th>
+                    <th scope="col">Duplicados</th>
+                    <th scope="col">Recusados</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lote in pagina.object_list %}
+                    <tr>
+                        <td>{{ lote.criado_em|date:"d/m/Y H:i" }}</td>
+                        <td>
+                            <a href="{% url 'fiscal_web:relatorio_envio' lote.id %}">{{ lote.nome_arquivo }}</a>
+                        </td>
+                        <td>{{ lote.usuario.get_username }}</td>
+                        <td>{{ lote.total_recebidos }}</td>
+                        <td>{{ lote.total_duplicados }}</td>
+                        <td>{{ lote.total_recusados }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "fiscal/_paginacao.html" %}
+    {% else %}
+        <p>Nenhum envio de documentos fiscais foi feito ainda neste escritório.</p>
+    {% endif %}
+{% endblock %}
