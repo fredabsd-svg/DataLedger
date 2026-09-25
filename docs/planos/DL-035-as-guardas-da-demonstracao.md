@@ -1,14 +1,17 @@
 # DL-035 — As guardas da demonstração
 
-**Estado em 2026-09-25:** correção única após a primeira auditoria, na branch
-`feat/dl-035-guardas-demonstracao`, baseada na `main` `22a0241`. O commit local
-`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43` existe; a árvore desse commit estava
-limpa quando foi auditada. A correção documental pós-auditoria está em curso.
-O auditor aprovou os critérios de código, mas reprovou o estado documental
-porque ele ainda dizia que não havia commit; reconferir uma vez. O parecer
-integral está em
+**Estado em 2026-09-25:** auditoria independente aprovada após uma correção e
+uma reconferência, na branch `feat/dl-035-guardas-demonstracao`, baseada na
+`main` `22a0241`. A implementação está no commit local
+`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a correção documental da primeira
+auditoria foi registrada no commit `75a3530b529cd737e884f3442bcdf0ea00198f45`,
+cuja árvore foi reconferida limpa. A auditoria inicial reprovou só a declaração
+desatualizada de que não havia commit; a reconferência aprovou a correção e
+confirmou que os critérios de código BL-514 a BL-519 estavam atendidos. Os dois
+pareceres integrais estão em
 [`2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Push, PR e CI continuam pendentes.
+Push, PR e CI continuam pendentes; não declarar integração antes dos quatro
+workflows passarem.
 
 **Origem:** as cinco ressalvas da
 [reconferência da DL-034](../auditorias/2026-09-21-dl-034-rodada-2.md), que
@@ -181,9 +184,9 @@ plano.
   workflow completo são a prova de regressão; não declarar a coleta como teste
   aprovado.
 
-O commit local existe. A primeira auditoria foi **reprovada apenas** porque o
-estado do commit não acompanhou a criação de `38e7a6b`; os critérios de código
-BL-514 a BL-519 foram aprovados. Esta é a correção única e a reconferência
-permitidas pela §3.1 do `AGENTS.md`. Push, PR e os quatro workflows da CI ainda
-são pendentes; o aceite de integração só será declarado depois desses
+A primeira auditoria foi **reprovada apenas** porque o estado do commit não
+acompanhou a criação de `38e7a6b`; os critérios de código BL-514 a BL-519 foram
+aprovados. A correção única e a reconferência previstas pela §3.1 do `AGENTS.md`
+foram concluídas, e a reconferência aprovou. Push, PR e os quatro workflows da
+CI ainda são pendentes; o aceite de integração só será declarado depois desses
 resultados.

@@ -273,18 +273,18 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ### DL-035 — as guardas da demonstração (2026-09-25)
 
-**Estado: correção documental única após a primeira auditoria; reconferência
-pendente.** A branch `feat/dl-035-guardas-demonstracao` parte da `main`
+**Estado: auditoria independente aprovada após a correção única e a
+reconferência.** A branch `feat/dl-035-guardas-demonstracao` parte da `main`
 `22a0241`. Os implementadores `desenvolvedor-pleno` e
 `especialista-frontend` concluíram as frentes em sequência. A implementação
 está no commit local
-`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a árvore estava limpa na auditoria.
-O auditor independente aprovou BL-514 a BL-519 e reprovou somente uma
-inconsistência documental que dizia que o commit ainda não existia. O parecer
-integral está em
+`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a primeira auditoria aprovou
+BL-514 a BL-519 e reprovou apenas o estado documental que dizia que não havia
+commit. A correção foi feita e reconferida no commit
+`75a3530b529cd737e884f3442bcdf0ea00198f45`, com árvore limpa. O parecer
+integral da rodada 1 e a reconferência aprovada estão em
 [`docs/auditorias/2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Este ajuste registra o commit e o parecer; a reconferência autorizada pela
-§3.1 é a única restante. Push, PR e CI da DL-035 continuam pendentes.
+Push, PR e CI da DL-035 continuam pendentes.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:
