@@ -190,8 +190,13 @@ e o mesmo pai `03984abedfa5bc6e20788d8c07133bb3eb17b9f5`. Depois da
 reconferência, a CI do commit `f20e24f` apontou que a página de recusa 409 não
 incluía a navegação da empresa exigida pelo teste existente do BL-296. O papel
 `especialista-frontend` incluiu a parcial compartilhada no template; o teste
-focado passou localmente. Essa alteração posterior não foi reconferida pelo
-auditor, e a CI completa na nova cabeça continua sendo requisito para o merge.
+focado passou localmente. Na cabeça `4033c2f`, a CI encontrou outra regressão:
+a razão social, proibida no HTML de recusa por teste existente, aparecia no
+`aria-label` da parcial. O mesmo papel acrescentou à parcial a opção
+`rotulo_generico=True`, usada somente na página 409. Os dois testes focados
+passaram localmente. Essas alterações posteriores não foram reconferidas pelo
+auditor; a execução completa dos quatro checks na nova cabeça continua sendo
+requisito para o merge.
 
 O auditor não mediu PDF/paginação A4 real. O job `Medir identificação do
 emitente no navegador` permanece obrigatório no CI do PR #42, mas seu escopo
