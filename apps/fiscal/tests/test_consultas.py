@@ -228,6 +228,47 @@ def test_evento_de_outro_escritorio_nao_cancela_documento_deste(
     assert services.situacao_do_documento(documento) == "valida"
 
 
+def test_evento_de_outro_escritorio_nao_cancela_documento_deste_via_lista_anotada(
+    escritorio_a, escritorio_b, empresa_a, empresa_b, usuario_gestor_a
+):
+    # Achado A6/F04 (auditoria rodada 1): o teste acima
+    # (`test_evento_de_outro_escritorio_nao_cancela_documento_deste`) busca
+    # o documento por `DocumentoFiscal.objects.get(...)`, SEM a anotação
+    # `.cancelada` — então `situacao_do_documento` cai no FALLBACK manual
+    # (que já filtra por `escritorio_id` corretamente), nunca exercitando
+    # o `OuterRef("escritorio_id")` de dentro de `documentos_do_escritorio`
+    # (a subconsulta correlacionada que a tela de fato usa para listar).
+    # Uma mutação que removesse esse filtro sobrevivia à suíte inteira.
+    # Este teste passa pela LISTA anotada — o caminho real da tela.
+    from django.contrib.auth import get_user_model
+
+    from apps.tenancy.models import Papel, VinculoUsuarioEscritorio
+
+    identificador = identificador_nfse(301)
+    _receber(
+        escritorio_a, usuario_gestor_a, xml_nfse(identificador=identificador, incluir_tomador=False)
+    )
+
+    usuario_b = get_user_model().objects.create_user(
+        username="gestor-b-cancela-lista",
+        email="gestor-b-cancela-lista@x.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario_b, escritorio=escritorio_b, papel=Papel.GESTOR
+    )
+    _receber(
+        escritorio_b,
+        usuario_b,
+        xml_evento(chave_nfse=chave_nfse_de(identificador), codigo="e101101"),
+        nome="evento.xml",
+    )
+
+    documento = services.documentos_do_escritorio(escritorio_a).get(identificador=identificador)
+    assert documento.cancelada is False
+    assert services.situacao_do_documento(documento) == "valida"
+
+
 # --- Preservação do XML original (critério 29) -----------------------------
 
 

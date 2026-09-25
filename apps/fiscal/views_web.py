@@ -65,6 +65,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.core.identificadores import IdentificadorInvalido, para_id
@@ -78,11 +79,13 @@ from apps.fiscal.models import DocumentoFiscal, EventoFiscal, LoteDeRecepcao
 from apps.fiscal.permissoes import papel_pode_consultar_documentos, papel_pode_receber_documentos
 from apps.fiscal.services import (
     CODIGOS_QUE_CANCELAM,
+    LIMITE_TAMANHO_ENVIO_BYTES,
     EnvioInvalido,
     documentos_do_escritorio,
     receber_envio,
     situacao_do_documento,
 )
+from apps.fiscal.uploads import LimiteDeTamanhoUploadHandler
 
 # Tamanho de página das duas listas desta etapa (envios e documentos). Não é
 # regra de negócio — é só quantas linhas cabem numa página de HTML antes de
@@ -318,10 +321,42 @@ _CONTRATO_DO_FORMULARIO_DE_ENVIO = ContratoDeRequisicao(
     contexto="no envio de documentos fiscais",
 )
 
+_MENSAGEM_ARQUIVO_GRANDE_DEMAIS = (
+    f"Arquivo acima do limite de {LIMITE_TAMANHO_ENVIO_BYTES} bytes (HI-22). "
+    "Selecione um arquivo menor."
+)
+
 
 @login_required
+# Achado A10 (auditoria rodada 1): `csrf_exempt` AQUI, e `csrf_protect` na
+# view INTERNA (`_recepcao_verificada`, logo abaixo) — é o padrão que a
+# própria documentação do Django recomenda para "Modifying upload handlers
+# on the fly" (tópico "File Uploads"). O middleware de CSRF padrão lê
+# `request.POST` para validar o token ANTES da view rodar — e isso já
+# dispara o parser multipart com os handlers PADRÃO, antes que esta view
+# tivesse a chance de inserir `LimiteDeTamanhoUploadHandler` na frente da
+# lista. Isento aqui (nada é processado sem proteção: o corpo só é
+# consumido dentro da função interna) e força a checagem de CSRF a
+# acontecer DEPOIS do handler já estar na lista, chamando `_recepcao_
+# verificada` explicitamente.
+@csrf_exempt
 @require_http_methods(["GET", "POST"])
 def recepcao(request):
+    if request.method == "POST":
+        # Acha A10: o handler PRÓPRIO entra na FRENTE da lista — é o
+        # PRIMEIRO a ver cada pedaço do corpo, antes dos handlers padrão do
+        # Django (memória/arquivo temporário) gravarem qualquer coisa. Só
+        # nesta view: nenhuma outra rota deste sistema aceita upload de
+        # arquivo grande (RC-71/critério 25).
+        handler = LimiteDeTamanhoUploadHandler(request, limite_bytes=LIMITE_TAMANHO_ENVIO_BYTES)
+        request.upload_handlers.insert(0, handler)
+    else:
+        handler = None
+    return _recepcao_verificada(request, handler)
+
+
+@csrf_protect
+def _recepcao_verificada(request, handler):
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
     if not _pode_receber(request):
@@ -330,13 +365,29 @@ def recepcao(request):
         )
 
     if request.method == "POST":
+        # Achado A10: acessar `request.FILES` AQUI é o que de fato DISPARA
+        # o parser multipart — Django é preguiçoso, só analisa o corpo da
+        # requisição no primeiro acesso a `.POST`/`.FILES`. Só DEPOIS
+        # deste acesso o `handler` sabe se abortou (`StopUpload` é
+        # capturado DENTRO do parser, silenciosamente — não propaga como
+        # exceção até aqui). Por isso a checagem de `handler.excedeu`
+        # precisa vir DEPOIS, nunca antes, deste acesso.
+        arquivo = request.FILES.get("arquivo")
+        if handler is not None and handler.excedeu:
+            # O upload foi abortado PELO HANDLER antes de terminar de ser
+            # gravado em disco/memória — `request.FILES` não tem o
+            # arquivo completo (pode nem ter a chave). Mensagem de
+            # formulário legível, nunca 500, nunca um "selecione um
+            # arquivo" genérico que esconderia o motivo real.
+            messages.error(request, _MENSAGEM_ARQUIVO_GRANDE_DEMAIS)
+            return _tela_de_recepcao(request, status=400)
+
         try:
             recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_ENVIO)
         except DadoNaoContratado as exc:
             messages.error(request, exc.mensagem)
             return _tela_de_recepcao(request, status=400)
 
-        arquivo = request.FILES.get("arquivo")
         if arquivo is None:
             messages.error(request, "Selecione um arquivo (XML ou ZIP) para enviar.")
             return _tela_de_recepcao(request, status=400)

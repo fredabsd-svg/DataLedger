@@ -292,6 +292,30 @@ class Empresa(models.Model):
                 condition=~models.Q(cpf=""),
                 name="empresa_cpf_unico",
             ),
+            # Achado B8 da auditoria rodada 1: `modo_escrituracao` não tinha
+            # NENHUMA restrição de domínio no banco — `Empresa.objects.
+            # create(..., modo_escrituracao="qualquer")` gravava, e
+            # `apps.empresas.services.recusar_se_livro_caixa` passava a
+            # tratar essa empresa como "contabilidade" (só recusa quando o
+            # valor é EXATAMENTE "livro_caixa"), silenciosamente. Diferente
+            # de `tipo_inscricao` — coberto INDIRETAMENTE por
+            # "empresa_inscricao_consistente_com_tipo" acima, porque aquela
+            # constraint só reconhece os dois valores do enum nas suas duas
+            # condições — `modo_escrituracao` não tinha nenhuma constraint
+            # que dependesse do seu valor para fechar o domínio.
+            # `choices=` (ModoEscrituracao.choices, no campo) é só
+            # validação de FORM/serializer — nunca alcança ORM direto,
+            # bulk_create nem shell (camada 1 da DE-008, a única que
+            # sobrevive a todos esses caminhos).
+            models.CheckConstraint(
+                condition=models.Q(
+                    modo_escrituracao__in=[
+                        ModoEscrituracao.CONTABILIDADE,
+                        ModoEscrituracao.LIVRO_CAIXA,
+                    ]
+                ),
+                name="empresa_modo_escrituracao_valido",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -464,7 +488,10 @@ class Empresa(models.Model):
             # comparação. Mesmo limite de `full_clean()` documentado acima
             # (não cobre ORM direto nem `QuerySet.update()`) — a defesa que
             # cobre o caminho real de escrita (API) é a do serializer.
-            from apps.empresas.services import recusar_transicao_para_livro_caixa_com_movimento
+            from apps.empresas.services import (
+                recusar_transicao_para_cpf_com_estabelecimento,
+                recusar_transicao_para_livro_caixa_com_movimento,
+            )
 
             modo_gravado = (
                 Empresa.objects.filter(pk=self.pk)
@@ -477,6 +504,20 @@ class Empresa(models.Model):
                 # exatamente o contrato que `full_clean()` espera.
                 recusar_transicao_para_livro_caixa_com_movimento(
                     self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
+                )
+
+            # DL-038, R7 (achado B2 da auditoria): mesma TRANSIÇÃO acima,
+            # agora para `tipo_inscricao` — trocar para CPF com
+            # estabelecimento gravado deixaria o cadastro inconsistente
+            # (matriz/filial é conceito de pessoa jurídica). A REGRA mora
+            # só em `apps.empresas.services.recusar_transicao_para_cpf_
+            # com_estabelecimento`.
+            tipo_gravado = (
+                Empresa.objects.filter(pk=self.pk).values_list("tipo_inscricao", flat=True).first()
+            )
+            if tipo_gravado is not None and tipo_gravado != self.tipo_inscricao:
+                recusar_transicao_para_cpf_com_estabelecimento(
+                    self, tipo_anterior=tipo_gravado, tipo_novo=self.tipo_inscricao
                 )
 
 
@@ -616,6 +657,21 @@ class Estabelecimento(models.Model):
         # nesses caminhos.
         self.cnpj = normalizar_cnpj(self.cnpj)
         super().save(*args, **kwargs)
+
+    def clean(self):
+        # DL-038, R7 (achado B2 da auditoria rodada 1): estabelecimento
+        # (matriz/filial) é conceito de pessoa JURÍDICA — não existe para
+        # empresa CPF. A REGRA mora só em `apps.empresas.services.
+        # recusar_estabelecimento_para_empresa_cpf`; este `clean()` é a
+        # defesa de ModelForm/admin (DE-008) — o caminho real de escrita
+        # (API) tem a mesma checagem em `EstabelecimentoListCreateView.
+        # perform_create` (apps/empresas/views.py). Mesmo limite já
+        # documentado no restante do arquivo: não cobre ORM direto
+        # (`objects.create()`) nem `bulk_create()`/`QuerySet.update()`.
+        from apps.empresas.services import recusar_estabelecimento_para_empresa_cpf
+
+        if self.empresa_id is not None:
+            recusar_estabelecimento_para_empresa_cpf(self.empresa)
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()}) — {self.empresa}"

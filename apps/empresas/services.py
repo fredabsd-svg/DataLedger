@@ -10,6 +10,7 @@ from apps.empresas.models import (
     Estabelecimento,
     HistoricoRegimeTributario,
     ModoEscrituracao,
+    TipoInscricao,
 )
 from apps.empresas.validators import mensagem_de_vigencia_de_regime_fora_da_faixa
 
@@ -33,6 +34,67 @@ _CONSTRAINTS_INSCRICAO_UNICA = {
     "empresas_estabelecimento_cnpj_key": (Estabelecimento, "cnpj", "CNPJ"),
     "empresa_cpf_unico": (Empresa, "cpf", "CPF"),
 }
+
+
+def modo_escrituracao_sugerido(tipo_inscricao):
+    """HI-23 (hipótese registrada em `docs/projeto/requisitos.md`, NÃO
+    confirmada pelo Fred): nova empresa CPF SUGERE o modo livro-caixa; o
+    usuário pode trocar. FONTE ÚNICA da sugestão — achado B5 da auditoria
+    rodada 1: antes desta função, a sugestão só existia em `EmpresaForm.
+    clean()` (apps/empresas/forms.py); a API sempre assumia `contabilidade`
+    para QUALQUER tipo quando `modo_escrituracao` vinha omitido — o MESMO
+    pedido ("CPF sem modo") dava `livro_caixa` pela tela e `contabilidade`
+    pela API, o oposto do objetivo 3 do plano DL-038 ("a contabilidade por
+    partidas dobradas não seja aplicada por engano a quem escritura
+    livro-caixa"). Chamada por `EmpresaForm.clean()` (tela) e por
+    `EmpresaSerializer` (API, apps/empresas/serializers.py) — nenhum dos
+    dois reimplementa a condição.
+
+    É só a SUGESTÃO do valor-padrão quando `modo_escrituracao` vem OMITIDO
+    — uma escolha EXPLÍCITA do cliente (mesmo que igual à sugestão) nunca
+    passa por aqui; quem chama só usa o resultado quando o campo estiver
+    ausente/vazio no envio.
+    """
+    return (
+        ModoEscrituracao.LIVRO_CAIXA
+        if tipo_inscricao == TipoInscricao.CPF
+        else ModoEscrituracao.CONTABILIDADE
+    )
+
+
+def erros_de_consistencia_de_inscricao(tipo_inscricao, cnpj, cpf):
+    """Consistência CRUZADA entre `tipo_inscricao`, `cnpj` e `cpf` — a MESMA
+    invariante que a `CheckConstraint` "empresa_inscricao_consistente_com_
+    tipo" (apps/empresas/models.py) garante no banco (camada 1 da DE-008).
+    FONTE ÚNICA desta regra em Python: chamada por `EmpresaSerializer.
+    validate` (API, apps/empresas/serializers.py) e por `EmpresaAdminForm.
+    clean` (admin, apps/empresas/admin.py) — nenhum dos dois reimplementa a
+    comparação (achado B1 da auditoria rodada 1: antes desta função, só a
+    API tinha a checagem em Python; o admin dependia de `Model.
+    validate_constraints()`, que virou no-op nesta mesma etapa por outro
+    motivo — ver o comentário em `Empresa.validate_constraints` — e por
+    isso um `tipo_inscricao=CPF` com os dois campos preenchidos batia
+    direto na `CheckConstraint` do banco, sem mensagem por campo: 500).
+
+    Devolve um `dict {campo: mensagem}` — vazio quando está tudo
+    consistente. Nunca levanta: quem chama decide o tipo de exceção (DRF
+    ou `forms.ValidationError`).
+    """
+    if tipo_inscricao == TipoInscricao.CNPJ:
+        erros = {}
+        if not cnpj:
+            erros["cnpj"] = "CNPJ é obrigatório quando o tipo de inscrição é CNPJ."
+        if cpf:
+            erros["cpf"] = "CPF não pode ser informado quando o tipo de inscrição é CNPJ."
+        return erros
+    if tipo_inscricao == TipoInscricao.CPF:
+        erros = {}
+        if not cpf:
+            erros["cpf"] = "CPF é obrigatório quando o tipo de inscrição é CPF."
+        if cnpj:
+            erros["cnpj"] = "CNPJ não pode ser informado quando o tipo de inscrição é CPF."
+        return erros
+    return {}
 
 
 def mensagem_cnpj_duplicado(model, rotulo="CNPJ"):
@@ -496,4 +558,67 @@ def recusar_transicao_para_livro_caixa_com_movimento(empresa, *, modo_anterior, 
             "Não é possível mudar esta empresa para livro-caixa: ela já tem plano de "
             "contas ou lançamento contábil gravado. Empresas com escrituração "
             "existente permanecem em modo contabilidade."
+        )
+
+
+# ---------------------------------------------------------------------------
+# DL-038 (R7), achado B2 da auditoria rodada 1: NIRE e ESTABELECIMENTO são
+# conceitos de pessoa JURÍDICA — não fazem sentido para um cliente pessoa
+# física (matriz/filial pressupõe CNPJ). Antes desta correção, a API criava
+# `Estabelecimento` para qualquer `Empresa`, inclusive CPF, e o `PATCH` que
+# trocava CNPJ->CPF não olhava se havia estabelecimento gravado; a medição
+# do auditor: NFS-e com prestador igual ao CNPJ dessa filial entrava
+# vinculada a uma "pessoa física" — o cadastro central ficava inconsistente
+# e uma nota de CNPJ caía numa pessoa física. FONTE ÚNICA das duas regras
+# abaixo, consumida pela API (`EstabelecimentoSerializer`/`EmpresaSerializer.
+# validate`, apps/empresas/serializers.py) e pelo admin (`Estabelecimento.
+# clean()`/`Empresa.clean()`, apps/empresas/models.py).
+#
+# Sem `CheckConstraint` de banco: Postgres não permite uma CHECK que
+# consulte outra TABELA (o tipo mora em `Empresa`, o registro que a regra
+# protege é `Estabelecimento`) — a defesa de banco possível aqui seria um
+# TRIGGER, fora do padrão de constraint declarativa que o resto do projeto
+# usa; fica como camada 2/3 da DE-008 (serviço + serializer/clean), não
+# camada 1. Registrado, não escondido.
+# ---------------------------------------------------------------------------
+
+
+class EstabelecimentoParaEmpresaCPF(ValidationError):
+    """R7/DL-038 (achado B2): `Estabelecimento` não pode existir para uma
+    `Empresa` de `tipo_inscricao=CPF`. Subclasse de `ValidationError` (não
+    um tipo próprio) — mesmo contrato de `TransicaoParaLivroCaixaInvalida`,
+    para `Estabelecimento.clean()`/`Empresa.clean()` poderem propagar sem
+    tradução, e `EstabelecimentoSerializer`/`EmpresaSerializer` traduzirem
+    para o formato do DRF do mesmo jeito que já fazem para R6."""
+
+
+def recusar_estabelecimento_para_empresa_cpf(empresa):
+    """Levanta `EstabelecimentoParaEmpresaCPF` se `empresa.tipo_inscricao`
+    for `CPF`. Chamada tanto na CRIAÇÃO de um `Estabelecimento` novo
+    (API/admin) quanto — indiretamente, via `recusar_transicao_para_cpf_
+    com_estabelecimento` — na TROCA de tipo de uma empresa que já tem
+    estabelecimento gravado.
+    """
+    if empresa.tipo_inscricao == TipoInscricao.CPF:
+        raise EstabelecimentoParaEmpresaCPF(
+            "Não é possível cadastrar estabelecimento (matriz/filial) para uma "
+            "empresa do tipo CPF: NIRE e estabelecimento são exclusivos de pessoa "
+            "jurídica (CNPJ)."
+        )
+
+
+def recusar_transicao_para_cpf_com_estabelecimento(empresa, *, tipo_anterior, tipo_novo):
+    """Levanta `EstabelecimentoParaEmpresaCPF` se esta TRANSIÇÃO
+    (`tipo_anterior` -> `tipo_novo`) for para `CPF` e a empresa já tiver
+    `Estabelecimento` gravado (mesmo padrão de `recusar_transicao_para_
+    livro_caixa_com_movimento`, R6: só examina a TRANSIÇÃO, nunca o estado
+    por si só).
+    """
+    if tipo_novo != TipoInscricao.CPF or tipo_anterior == TipoInscricao.CPF:
+        return
+    if empresa.estabelecimentos.exists():
+        raise EstabelecimentoParaEmpresaCPF(
+            "Não é possível mudar esta empresa para CPF: ela já tem estabelecimento "
+            "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
+            "tipo de inscrição."
         )

@@ -10,6 +10,7 @@ Cobre os cenários da seção "Cenários de teste obrigatórios" do plano
 from __future__ import annotations
 
 import zipfile
+import zlib
 from decimal import Decimal
 from io import BytesIO
 
@@ -229,6 +230,95 @@ def test_notas_de_emitentes_distintos_com_mesmo_numero_coexistem(
     assert numeros == ["1", "1"]
 
 
+# --- Achado A5 (auditoria rodada 1): reenvio acrescenta vínculo que faltava
+
+
+def test_reenvio_apos_cadastro_do_segundo_participante_acrescenta_vinculo(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Cenário exato do achado A5: nota com prestador cliente (empresa_a) e
+    # tomador AINDA NÃO cadastrado — recebida com 1 vínculo. A tomadora é
+    # cadastrada DEPOIS. O reenviar da MESMA nota tem que acrescentar o
+    # vínculo que faltava, sem duplicar o documento nem o vínculo já
+    # existente.
+    conteudo = xml_nfse()  # prestador=empresa_a, tomador=CNPJ_TOMADOR_PADRAO (ainda não cliente)
+    lote1 = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    assert lote1.total_recebidos == 1
+    documento = DocumentoFiscal.objects.get(escritorio=escritorio_a)
+    assert documento.vinculos.count() == 1
+
+    from apps.fiscal.tests.xml_sinteticos import CNPJ_TOMADOR_PADRAO
+
+    tomadora = Empresa.objects.create(
+        escritorio=escritorio_a,
+        razao_social="Tomadora Cadastrada Depois Ltda",
+        cnpj=CNPJ_TOMADOR_PADRAO,
+    )
+
+    lote2 = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    assert lote2.total_duplicados == 1
+    assert lote2.total_recebidos == 0
+    documento.refresh_from_db()
+    assert documento.vinculos.count() == 2
+    assert set(documento.vinculos.values_list("empresa_id", "papel")) == {
+        (empresa_a.pk, PapelDocumento.PRESTADOR),
+        (tomadora.pk, PapelDocumento.TOMADOR),
+    }
+    # A mensagem registra QUE algo mudou — não é o mesmo "já recebido"
+    # genérico do reenvio comum.
+    assert "Vínculo novo" in lote2.resultados.get().motivo
+    assert tomadora.razao_social in lote2.resultados.get().motivo
+
+
+def test_reenvio_sem_novo_cadastro_nao_cria_vinculo_a_mais(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a
+):
+    # Reenvio comum (os dois participantes já eram clientes desde o
+    # início) NÃO deve ganhar vínculo novo — idempotência: reenviar duas,
+    # três vezes dá sempre o mesmo resultado.
+    conteudo = xml_nfse()  # prestador=empresa_a, tomador=empresa_a2 (fixture)
+    services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    documento = DocumentoFiscal.objects.get(escritorio=escritorio_a)
+    assert documento.vinculos.count() == 2
+
+    lote2 = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    assert lote2.total_duplicados == 1
+    documento.refresh_from_db()
+    assert documento.vinculos.count() == 2
+    assert "Vínculo novo" not in lote2.resultados.get().motivo
+
+
+# --- Achado A9/F30: nota de uma empresa para ela mesma ---------------------
+
+
+def test_nota_com_prestador_igual_ao_tomador_gera_um_unico_vinculo(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Sem a guarda `empresa_tomador != empresa_prestador`, o segundo
+    # vínculo (mesma empresa, papel diferente) violaria a unicidade
+    # `(documento, empresa)` DENTRO do savepoint do arquivo — a nota
+    # viraria "duplicado" sem nunca ter sido gravada de verdade.
+    conteudo = xml_nfse(tomador_documento=empresa_a.cnpj)
+    lote = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    assert lote.total_recebidos == 1
+    assert lote.total_recusados == 0
+    documento = DocumentoFiscal.objects.get(escritorio=escritorio_a)
+    vinculos = list(documento.vinculos.all())
+    assert len(vinculos) == 1
+    assert vinculos[0].empresa == empresa_a
+    assert vinculos[0].papel == PapelDocumento.PRESTADOR
+
+
 # --- Eventos (critério 17, RC-70) ----------------------------------------
 
 
@@ -371,6 +461,39 @@ def test_prestador_pessoa_fisica_sem_cadastro_e_recusado_com_motivo_especifico(
     resultado = lote.resultados.get()
     assert resultado.motivo == services.MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO
     assert "pessoa física" in resultado.motivo
+
+
+def test_estabelecimento_de_outro_escritorio_nao_vincula_nota_deste(
+    escritorio_a, escritorio_b, usuario_gestor_a
+):
+    # Achado A6/F02 (auditoria rodada 1): `_localizar_empresa_por_cnpj`
+    # busca em `Empresa.cnpj` E em `Estabelecimento.cnpj` — o teste
+    # `test_mensagem_de_recusa_e_identica_exista_ou_nao_empresa_em_outro_
+    # escritorio` (abaixo) só exercita o lado `Empresa`. Este exercita o
+    # lado `Estabelecimento`: uma FILIAL de outro escritório com o mesmo
+    # CNPJ do prestador não pode vincular a nota — sem o filtro
+    # `empresa__escritorio=escritorio`, ela vincularia por engano.
+    from apps.empresas.models import Empresa, Estabelecimento, TipoEstabelecimento
+
+    empresa_matriz_b = Empresa.objects.create(
+        escritorio=escritorio_b, razao_social="Matriz Outro Escritório Ltda", cnpj="55566677000100"
+    )
+    cnpj_da_filial_b = "55566677000280"
+    Estabelecimento.objects.create(
+        empresa=empresa_matriz_b,
+        tipo=TipoEstabelecimento.FILIAL,
+        nome="Filial de B",
+        cnpj=cnpj_da_filial_b,
+    )
+
+    conteudo = xml_nfse(prestador_documento=cnpj_da_filial_b, incluir_tomador=False)
+    lote = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+
+    assert lote.total_recusados == 1
+    assert lote.resultados.get().motivo == services.MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO
+    assert not DocumentoFiscal.objects.filter(escritorio=escritorio_a).exists()
 
 
 def test_mensagem_de_recusa_e_identica_exista_ou_nao_empresa_em_outro_escritorio(
@@ -533,6 +656,113 @@ def test_xml_malformado_truncado_e_vazio_nao_derrubam_o_lote(
     assert lote.total_recusados == 3
 
 
+# --- Achado A1 (auditoria rodada 1), reprodução do critério 7/8: um ARQUIVO
+# ruim, dentro de um envio com uma nota BOA, não pode derrubar o envio
+# inteiro. Cada caso abaixo era 500 na revisão auditada.
+
+
+def _nfse_com_xnome_grande():
+    return xml_nfse(
+        identificador=identificador_nfse(600), prestador_nome="A" * 301, incluir_tomador=False
+    )
+
+
+def _nfse_com_nnfse_grande():
+    return xml_nfse(identificador=identificador_nfse(601), numero="1" * 14, incluir_tomador=False)
+
+
+def _nfse_com_nif_grande():
+    return xml_nfse(
+        identificador=identificador_nfse(602),
+        tomador_tipo="NIF",
+        tomador_documento="1" * 41,
+    )
+
+
+def _nfse_com_namespace_grande():
+    return (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse' + b"x" * 600 + b'" versao="1.01">'
+        b'<infNFSe Id="' + identificador_nfse(603).encode() + b'"/></NFSe>'
+    )
+
+
+def _nfse_com_versao_grande():
+    return xml_nfse(
+        identificador=identificador_nfse(604), versao="1" + "0" * 600, incluir_tomador=False
+    )
+
+
+def _nfse_com_encoding_desconhecido():
+    return (
+        b'<?xml version="1.0" encoding="x-inexistente"?>'
+        b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
+        b'<infNFSe Id="' + identificador_nfse(605).encode() + b'"/></NFSe>'
+    )
+
+
+@pytest.mark.parametrize(
+    "nome_arquivo_ruim,conteudo_ruim_fn",
+    [
+        ("xnome-grande.xml", _nfse_com_xnome_grande),
+        ("nnfse-grande.xml", _nfse_com_nnfse_grande),
+        ("nif-grande.xml", _nfse_com_nif_grande),
+        ("namespace-grande.xml", _nfse_com_namespace_grande),
+        ("versao-grande.xml", _nfse_com_versao_grande),
+        ("encoding-desconhecido.xml", _nfse_com_encoding_desconhecido),
+    ],
+)
+def test_arquivo_ruim_com_campo_gigante_nao_derruba_o_lote_com_nota_boa(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a, nome_arquivo_ruim, conteudo_ruim_fn
+):
+    boa = xml_nfse(identificador=identificador_nfse(599), incluir_tomador=False)
+    conteudo_zip = zip_de({"boa.xml": boa, nome_arquivo_ruim: conteudo_ruim_fn()})
+
+    lote = services.receber_envio(
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
+    )
+
+    assert lote.total_arquivos == 2
+    assert lote.total_recebidos == 1
+    assert lote.total_recusados == 1
+    assert DocumentoFiscal.objects.filter(escritorio=escritorio_a).count() == 1
+    resultado_ruim = lote.resultados.exclude(resultado=TipoResultadoArquivo.RECEBIDO).get()
+    assert resultado_ruim.motivo  # tem motivo, não fica em branco
+    assert len(resultado_ruim.motivo) <= 500  # nunca estoura a coluna (truncamento, A1)
+
+
+def test_nome_de_entrada_do_zip_com_600_caracteres_e_truncado_sem_derrubar_o_lote(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a
+):
+    # Achado A1: `caminho_no_zip` (`ResultadoDoArquivo`) tem `max_length=500`
+    # — um nome de entrada de 600 caracteres estourava `DataError` na
+    # gravação do RESULTADO, não do documento (o XML em si é válido). Isto
+    # derrubava o envio INTEIRO, mesmo a nota boa junto tendo sido lida com
+    # sucesso.
+    boa = xml_nfse(identificador=identificador_nfse(606), incluir_tomador=False)
+    nome_gigante = "n" * 600 + ".xml"
+    conteudo_zip = zip_de(
+        {"boa.xml": boa, nome_gigante: boa}
+    )  # mesmo conteúdo -> duplicado, não recusado
+
+    lote = services.receber_envio(
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_zip,
+        nome_arquivo="lote.zip",
+    )
+
+    assert lote.total_arquivos == 2
+    assert lote.total_recebidos == 1
+    assert lote.total_duplicados == 1
+    caminhos = list(lote.resultados.values_list("caminho_no_zip", flat=True))
+    assert any(len(c) <= 500 for c in caminhos)
+    assert all(len(c) <= 500 for c in caminhos)  # nunca estoura a coluna (truncamento, A1)
+
+
 def test_nfe_e_recusada_sem_derrubar_o_lote(escritorio_a, empresa_a, usuario_gestor_a):
     conteudo_zip = zip_de(
         {
@@ -640,6 +870,21 @@ def test_arquivo_acima_do_limite_individual_e_recusado(
     )
     assert lote.total_recusados == 1
     assert "1 MB" in lote.resultados.get().motivo or "bytes" in lote.resultados.get().motivo
+
+
+def test_arquivo_exatamente_no_limite_individual_e_aceito(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Achado A9/F21: o teste acima prende só o lado "1 byte A MAIS que o
+    # limite é recusado" — uma mutação que trocasse `>` por `>=` ainda
+    # passaria nele. Este prende o outro lado: exatamente NO limite (nem
+    # um byte a mais) tem que ser ACEITO.
+    conteudo = xml_nfse(incluir_tomador=False)
+    monkeypatch.setattr(services, "LIMITE_TAMANHO_XML_BYTES", len(conteudo))
+    lote = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+    assert lote.total_recebidos == 1
 
 
 def test_quantidade_de_arquivos_no_limite_e_aceita(
@@ -751,6 +996,107 @@ def test_zip_com_entrada_cifrada_levanta_envio_invalido(escritorio_a, usuario_ge
             arquivo=conteudo_zip,
             nome_arquivo="lote.zip",
         )
+
+
+# --- Achado A2 (auditoria rodada 1): falha ao LER uma entrada do ZIP -------
+#
+# Só o CONSTRUTOR de `zipfile.ZipFile` estava protegido — abrir/ler uma
+# entrada com deflate corrompido, CRC-32 incompatível, ou método de
+# compressão não suportado (deflate64) derrubava o ENVIO INTEIRO com 500.
+# Simulado por monkeypatch em `zipfile.ZipFile.open`: reproduzir os três
+# tipos exatos de corrupção byte a byte é frágil e não acrescenta cobertura
+# além do ponto de código exercitado — o que importa é que QUALQUER falha
+# na abertura/leitura de uma entrada vira `EnvioInvalido`, nunca 500.
+
+
+@pytest.mark.parametrize(
+    "excecao",
+    [
+        zlib.error("Error -3 while decompressing data"),
+        zipfile.BadZipFile("Bad CRC-32 for file 'a.xml'"),
+        NotImplementedError("compression type 9 (deflate64)"),
+        EOFError("Unexpected end of file"),
+        OSError("I/O operation failed"),
+    ],
+)
+def test_falha_ao_ler_entrada_do_zip_levanta_envio_invalido(
+    escritorio_a, usuario_gestor_a, monkeypatch, excecao
+):
+    zip_valido = zip_de({"nota.xml": xml_nfse()})
+
+    def _open_com_erro(self, *args, **kwargs):
+        raise excecao
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", _open_com_erro)
+    with pytest.raises(services.EnvioInvalido, match="corrompid"):
+        services.receber_envio(
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=zip_valido,
+            nome_arquivo="lote.zip",
+        )
+    assert not DocumentoFiscal.objects.filter(escritorio=escritorio_a).exists()
+
+
+# --- Achado A8 (auditoria rodada 1): contagem de entradas pelo EOCD --------
+
+
+def test_contagem_de_entradas_pelo_eocd_recusa_zip_com_muitas_entradas_vazias(
+    escritorio_a, usuario_gestor_a, monkeypatch
+):
+    # Reproduz o ataque medido pela auditoria (ZIP de 601.184 entradas
+    # VAZIAS) numa escala menor: o ponto sob teste é que a recusa acontece
+    # pela LEITURA DO EOCD, sem `infolist()` — provado indiretamente por
+    # `test_contagem_de_entradas_do_zip_bate_com_zipfile` (services) e
+    # `test_infolist_nao_e_chamado_quando_o_eocd_ja_recusa` (monkeypatch)
+    # abaixo; aqui, o comportamento OBSERVÁVEL: recusado com a mensagem
+    # certa, mesmo limite de sempre.
+    monkeypatch.setattr(services, "LIMITE_ARQUIVOS_NO_ENVIO", 100)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as arquivo_zip:
+        for i in range(150):
+            arquivo_zip.writestr(f"{i}.xml", b"")
+    with pytest.raises(services.EnvioInvalido, match="150 arquivos"):
+        services.receber_envio(
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=buffer.getvalue(),
+            nome_arquivo="lote.zip",
+        )
+
+
+def test_infolist_nao_e_chamado_quando_o_eocd_ja_recusa(
+    escritorio_a, usuario_gestor_a, monkeypatch
+):
+    # Achado A8: a checagem cedo (EOCD) evita PAGAR o custo de
+    # `infolist()` quando já dá para recusar sem ele. Mata o mutante que
+    # apagaria a chamada cedo (`_contagem_de_entradas_do_zip`) sem
+    # reintroduzir o comportamento errado (`infolist()` sempre chamado):
+    # se a checagem cedo não existisse, `ZipFile.infolist` SERIA chamado
+    # antes da recusa — este teste falharia.
+    monkeypatch.setattr(services, "LIMITE_ARQUIVOS_NO_ENVIO", 2)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as arquivo_zip:
+        for i in range(5):
+            arquivo_zip.writestr(f"{i}.xml", b"")
+    conteudo = buffer.getvalue()
+
+    chamado = {"vezes": 0}
+    infolist_original = zipfile.ZipFile.infolist
+
+    def _infolist_contado(self, *args, **kwargs):
+        chamado["vezes"] += 1
+        return infolist_original(self, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", _infolist_contado)
+    with pytest.raises(services.EnvioInvalido, match="5 arquivos"):
+        services.receber_envio(
+            escritorio=escritorio_a,
+            usuario=usuario_gestor_a,
+            arquivo=conteudo,
+            nome_arquivo="lote.zip",
+        )
+    assert chamado["vezes"] == 0, "infolist() foi chamado mesmo com o EOCD já recusando cedo."
 
 
 def test_zip_com_diretorio_e_ignorado(escritorio_a, empresa_a, usuario_gestor_a):

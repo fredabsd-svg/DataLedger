@@ -374,9 +374,7 @@ def _ler_nfse(raiz, conteudo: bytes, sha256: str) -> DocumentoLido:
     # "2" — nunca adivinhamos homologação por omissão).
     tp_amb = _texto(inf_dps, "n:tpAmb")
     if tp_amb == "2":
-        raise ArquivoRecusado(
-            "NFS-e emitida em ambiente de homologação (teste), sem valor fiscal."
-        )
+        raise ArquivoRecusado("NFS-e emitida em ambiente de homologação (teste), sem valor fiscal.")
 
     dh_emissao = _data_hora(_texto(inf_dps, "n:dhEmi"), "dhEmi")
     d_competencia = _data(_texto(inf_dps, "n:dCompet"), "dCompet")

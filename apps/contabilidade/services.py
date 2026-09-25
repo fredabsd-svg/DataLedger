@@ -48,6 +48,7 @@ from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_deci
 # import de `Empresa` em `apps/contabilidade/models.py`), então este app já
 # depende daquele — este import só nomeia o enum que faltava.
 from apps.empresas.models import TipoInscricao
+from apps.empresas.services import EmpresaEmModoLivroCaixa, recusar_se_livro_caixa
 
 # Campo de saída explícito para os agregados condicionais abaixo (Sum com
 # `filter=` combinado com `default=`): sem `output_field`, o Django pode não
@@ -577,6 +578,20 @@ def criar_lancamento(
     "criado"); é melhor o serviço informar isso do que a view reconsultar o
     banco tentando adivinhar.
     """
+    # Achado B4 da auditoria rodada 1 (DL-038, R5): defesa em profundidade
+    # no SERVIÇO — a API (`EmpresaEscopadaContabilMixin`) e a tela (decorador
+    # `_sem_contabilidade_para_livro_caixa`) já recusam ANTES de chegar
+    # aqui, mas este é o ponto por onde QUALQUER caminho de escrita passa
+    # (inclusive um chamador futuro que não use nenhuma das duas portas).
+    # A REGRA mora só em `apps.empresas.services.recusar_se_livro_caixa`;
+    # aqui só se traduz para `LancamentoInvalido`, o vocabulário de exceção
+    # que este serviço já usa (para não obrigar todo chamador a conhecer
+    # um segundo tipo de exceção só para este caso).
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        raise LancamentoInvalido(exc.mensagem) from exc
+
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
 

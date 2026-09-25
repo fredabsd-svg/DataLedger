@@ -42,9 +42,11 @@ from apps.empresas.serializers import (
 )
 from apps.empresas.services import (
     CNPJDuplicado,
+    EstabelecimentoParaEmpresaCPF,
     ExclusaoDeRegimeInvalida,
     erro_de_cnpj_duplicado_como_400,
     excluir_ultimo_regime_tributario,
+    recusar_estabelecimento_para_empresa_cpf,
     registrar_regime_tributario,
 )
 from apps.tenancy.models import Papel
@@ -396,6 +398,16 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         return super().post(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        # Achado B2 da auditoria rodada 1 (DL-038, R7): estabelecimento é
+        # conceito de pessoa jurídica — recusado ANTES de qualquer escrita
+        # para empresa CPF. A REGRA mora só em `apps.empresas.services.
+        # recusar_estabelecimento_para_empresa_cpf`.
+        empresa = self.get_empresa()
+        try:
+            recusar_estabelecimento_para_empresa_cpf(empresa)
+        except EstabelecimentoParaEmpresaCPF as exc:
+            raise DRFValidationError({"empresa": exc.messages}) from exc
+
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
         # (ver comentário lá): cnpj de Estabelecimento também é unique=True.
         #
@@ -428,7 +440,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
                     mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico")
                 ),
             ):
-                estabelecimento = serializer.save(empresa=self.get_empresa())
+                estabelecimento = serializer.save(empresa=empresa)
                 registrar(
                     acao="estabelecimento.criado",
                     objeto=estabelecimento,

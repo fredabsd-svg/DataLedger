@@ -1,6 +1,7 @@
 from django import forms
 
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+from apps.empresas.services import modo_escrituracao_sugerido
 
 
 class EmpresaForm(forms.ModelForm):
@@ -198,11 +199,12 @@ class EmpresaForm(forms.ModelForm):
         # constrói a instância a partir de `self.cleaned_data` (que passa
         # a ser este `cleaned`, por `_clean_form()`) DEPOIS deste método
         # retornar — não precisamos tocar `self.instance` aqui.
+        #
+        # Achado B5 (auditoria rodada 1): a CONDIÇÃO da sugestão mora só em
+        # `apps.empresas.services.modo_escrituracao_sugerido` — a mesma
+        # função que `EmpresaSerializer` (API) passou a chamar, para a
+        # tela e a API nunca mais divergirem no mesmo pedido.
         if not cleaned.get("modo_escrituracao"):
-            cleaned["modo_escrituracao"] = (
-                ModoEscrituracao.LIVRO_CAIXA
-                if tipo == TipoInscricao.CPF
-                else ModoEscrituracao.CONTABILIDADE
-            )
+            cleaned["modo_escrituracao"] = modo_escrituracao_sugerido(tipo)
 
         return cleaned

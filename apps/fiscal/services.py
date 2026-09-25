@@ -22,8 +22,8 @@ import zipfile
 import zlib
 
 from django.core.exceptions import ValidationError
-from django.db import DataError, IntegrityError, OperationalError, connection, transaction
 from django.db import Error as DjangoDBError
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Exists, OuterRef
 from django.db.models.functions import Substr
 
@@ -195,9 +195,9 @@ def _mapa_de_inscricoes_do_escritorio(escritorio):
             mapa[("CNPJ", empresa.cnpj)] = empresa
         if empresa.cpf:
             mapa[("CPF", empresa.cpf)] = empresa
-    estabelecimentos = Estabelecimento.objects.filter(empresa__escritorio=escritorio).select_related(
-        "empresa"
-    )
+    estabelecimentos = Estabelecimento.objects.filter(
+        empresa__escritorio=escritorio
+    ).select_related("empresa")
     for estabelecimento in estabelecimentos:
         # `setdefault`: se um CNPJ de Estabelecimento coincidisse com o de
         # uma Empresa (não deveria, mas não é este ponto que garante isso),
@@ -350,7 +350,9 @@ def _adicionar_vinculos_que_faltam(documento, escritorio, lido: leitor.Documento
             continue
         try:
             with transaction.atomic():
-                VinculoDocumentoEmpresa.objects.create(documento=documento, empresa=empresa, papel=papel)
+                VinculoDocumentoEmpresa.objects.create(
+                    documento=documento, empresa=empresa, papel=papel
+                )
         except IntegrityError:
             # Corrida: outro processo já criou este vínculo entre a
             # consulta de `ja_vinculadas` e este INSERT — idempotente.
@@ -359,7 +361,9 @@ def _adicionar_vinculos_que_faltam(documento, escritorio, lido: leitor.Documento
     return vinculada_agora
 
 
-def _criar_documento_e_vinculos(escritorio, lido: leitor.DocumentoLido, *, mapa=None) -> DocumentoFiscal:
+def _criar_documento_e_vinculos(
+    escritorio, lido: leitor.DocumentoLido, *, mapa=None
+) -> DocumentoFiscal:
     # A checagem de isolamento acontece ANTES de qualquer escrita: uma nota
     # sem participante do escritório nunca chega a tocar o banco.
     vinculos_alvo = _vincular_participantes(escritorio, lido, mapa=mapa)
@@ -412,9 +416,7 @@ def _criar_evento(escritorio, lido: leitor.EventoLido, *, mapa=None) -> EventoFi
     # tratado por quem chama, fora deste savepoint.
 
 
-def _motivo_de_duplicado(
-    existente, sha256_novo: str, rotulo: str, *, vinculo_novo=None
-) -> str:
+def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str, *, vinculo_novo=None) -> str:
     """Mensagem de um resultado "duplicado" — distingue o caso NORMAL
     (reenviar o mesmo arquivo, RC-69) do caso que merece CONFERÊNCIA:
     mesmo identificador (`escritorio` + `identificador`), conteúdo
@@ -445,7 +447,7 @@ def _motivo_de_duplicado(
     return base
 
 
-def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
+def _processar_um_arquivo(escritorio, conteudo: bytes, *, mapa=None) -> dict:
     """Processa UM arquivo já extraído (XML solto, ou uma entrada do ZIP).
 
     Nunca levanta exceção — devolve um dicionário pronto para
@@ -455,6 +457,8 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
     um `IntegrityError` de unicidade dentro dele vira "duplicado"; qualquer
     outro problema vira "recusado" — nenhum dos dois propaga e derruba o
     envio inteiro (critério 7/8).
+
+    `mapa`: ver `localizar_empresa_do_escritorio` (achado A4).
     """
     if len(conteudo) > LIMITE_TAMANHO_XML_BYTES:
         return {
@@ -476,13 +480,13 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
     try:
         # `transaction.atomic()` aninhado dentro do `atomic()` de
         # `receber_envio` vira SAVEPOINT (comportamento padrão do Django) —
-        # é o que isola o `IntegrityError` de um arquivo sem poluir a
-        # transação do lote inteiro.
+        # é o que isola o `IntegrityError`/`DataError` de um arquivo sem
+        # poluir a transação do lote inteiro.
         with transaction.atomic():
             if eh_documento:
-                documento = _criar_documento_e_vinculos(escritorio, lido)
+                documento = _criar_documento_e_vinculos(escritorio, lido, mapa=mapa)
             else:
-                evento = _criar_evento(escritorio, lido)
+                evento = _criar_evento(escritorio, lido, mapa=mapa)
     except leitor.ArquivoRecusado as exc:
         return {"resultado": TipoResultadoArquivo.RECUSADO, "motivo": str(exc)}
     except IntegrityError:
@@ -493,9 +497,20 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
             existente = DocumentoFiscal.objects.filter(
                 escritorio=escritorio, identificador=lido.identificador
             ).first()
+            # Achado A5: o reenvio de uma nota já recebida acrescenta
+            # qualquer vínculo que faltava (empresa cadastrada depois do
+            # primeiro recebimento) — idempotente, dentro do seu próprio
+            # savepoint (ver `_adicionar_vinculos_que_faltam`).
+            vinculo_novo = None
+            if existente is not None:
+                vinculo_novo = _adicionar_vinculos_que_faltam(
+                    existente, escritorio, lido, mapa=mapa
+                )
             return {
                 "resultado": TipoResultadoArquivo.DUPLICADO,
-                "motivo": _motivo_de_duplicado(existente, sha256, "Documento"),
+                "motivo": _motivo_de_duplicado(
+                    existente, sha256, "Documento", vinculo_novo=vinculo_novo
+                ),
                 "documento": existente,
             }
         existente = EventoFiscal.objects.filter(
@@ -505,6 +520,25 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
             "resultado": TipoResultadoArquivo.DUPLICADO,
             "motivo": _motivo_de_duplicado(existente, sha256, "Evento"),
             "evento": existente,
+        }
+    except DjangoDBError as exc:
+        # Achado A1 (auditoria rodada 1): ÚLTIMA linha de defesa DENTRO do
+        # savepoint deste arquivo — qualquer erro de banco que as
+        # checagens do leitor não tenham antecipado (`DataError` de campo
+        # grande demais, tipo incompatível etc.) vira "recusado" deste
+        # ARQUIVO, nunca um 500 que derruba o envio inteiro. Exclui
+        # `OperationalError` de propósito: lock/deadlock (A3, DE-076 item
+        # 1) é problema do ENVIO, não deste arquivo — precisa subir para
+        # `receber_envio` tratar (ou propagar de verdade, se não for
+        # lock/deadlock), nunca virar um "recusado" silencioso por
+        # arquivo que mascararia uma falha real de sistema.
+        if isinstance(exc, OperationalError):
+            raise
+        return {
+            "resultado": TipoResultadoArquivo.RECUSADO,
+            "motivo": _truncar(
+                f"Arquivo recusado pelo banco de dados: {exc}", _TAMANHO_MAXIMO_MOTIVO
+            ),
         }
 
     if eh_documento:
@@ -591,6 +625,70 @@ def _e_zip(conteudo: bytes) -> bool:
     return conteudo[:4] in (b"PK\x03\x04", b"PK\x05\x06")
 
 
+# Achado A8 da auditoria (rodada 1): `zipfile.ZipFile()` materializa o
+# diretório central INTEIRO em memória (`infolist()`) antes de qualquer
+# checagem de limite — um ZIP de 49 MB com 601.184 entradas VAZIAS chegava
+# a consumir ~340 MB de RSS por requisição só para ser recusado depois.
+# As constantes e a função abaixo leem o TOTAL DE ENTRADAS diretamente do
+# registro de fim de diretório central (EOCD) — e do EOCD64, quando o
+# total não cabe em 16 bits —, sem construir `ZipFile` nem alocar nada
+# proporcional ao número de entradas.
+_TAMANHO_EOCD = 22
+_TAMANHO_MAXIMO_COMENTARIO_ZIP = 65535
+_ASSINATURA_EOCD = b"PK\x05\x06"
+_ASSINATURA_EOCD64_LOCATOR = b"PK\x06\x07"
+_ASSINATURA_EOCD64 = b"PK\x06\x06"
+_TAMANHO_EOCD64_LOCATOR = 20
+_TAMANHO_MINIMO_EOCD64 = 56
+
+
+def _contagem_de_entradas_do_zip(conteudo: bytes) -> int | None:
+    """Lê o total de entradas do ZIP a partir do EOCD (e do EOCD64, se
+    necessário), SEM construir `zipfile.ZipFile`. Devolve `None` quando
+    não consegue localizar o registro com confiança — quem chama trata
+    isso como "não sei", NUNCA como "zero": o caminho normal (mais caro,
+    mas correto) continua protegido pela checagem de `len(infolist())`
+    depois. Nunca um FALSO NEGATIVO aqui vira um ZIP hostil aceito.
+    """
+    tamanho_busca = min(len(conteudo), _TAMANHO_EOCD + _TAMANHO_MAXIMO_COMENTARIO_ZIP)
+    janela = conteudo[-tamanho_busca:]
+    posicao = janela.rfind(_ASSINATURA_EOCD)
+    if posicao == -1 or len(janela) - posicao < _TAMANHO_EOCD:
+        return None
+    eocd = janela[posicao : posicao + _TAMANHO_EOCD]
+    comprimento_comentario = int.from_bytes(eocd[20:22], "little")
+    # Confirma que este é o EOCD de VERDADE, não uma coincidência de bytes
+    # dentro de um comentário anterior: o comprimento do comentário
+    # declarado tem que fechar EXATAMENTE com o fim do buffer.
+    if posicao + _TAMANHO_EOCD + comprimento_comentario != len(janela):
+        return None
+
+    total = int.from_bytes(eocd[10:12], "little")
+    if total != 0xFFFF:
+        return total
+
+    # ZIP64: o total de 16 bits declarado é o valor-sentinela 0xFFFF — o
+    # número real está no EOCD64, localizado pelo "locator" que antecede
+    # o EOCD em exatamente 20 bytes (posição ABSOLUTA no conteúdo, não na
+    # janela recortada acima).
+    offset_absoluto_eocd = len(conteudo) - len(janela) + posicao
+    offset_locator = offset_absoluto_eocd - _TAMANHO_EOCD64_LOCATOR
+    if offset_locator < 0:
+        return None
+    locator = conteudo[offset_locator : offset_locator + _TAMANHO_EOCD64_LOCATOR]
+    if len(locator) != _TAMANHO_EOCD64_LOCATOR or locator[:4] != _ASSINATURA_EOCD64_LOCATOR:
+        return None
+    offset_eocd64 = int.from_bytes(locator[8:16], "little")
+    if offset_eocd64 < 0 or offset_eocd64 + _TAMANHO_MINIMO_EOCD64 > len(conteudo):
+        return None
+    eocd64 = conteudo[offset_eocd64 : offset_eocd64 + _TAMANHO_MINIMO_EOCD64]
+    if eocd64[:4] != _ASSINATURA_EOCD64:
+        return None
+    # Total de entradas no EOCD64: offset 32, 8 bytes (little-endian) —
+    # ver o layout do registro na especificação APPNOTE.TXT §4.3.14.
+    return int.from_bytes(eocd64[32:40], "little")
+
+
 def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
     """Extrai (caminho, bytes) de cada entrada do ZIP, sem escrever nada em
     disco (critério 25). Levanta `EnvioInvalido` para as condições que
@@ -601,6 +699,15 @@ def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
     bytes ao descompactar), ZIP dentro de ZIP, ou entrada cifrada.
     Diretórios são ignorados.
     """
+    # Achado A8: recusa CEDO, pelo EOCD, sem pagar o custo de
+    # `infolist()` quando já dá para saber que o envio é hostil.
+    contagem_estimada = _contagem_de_entradas_do_zip(conteudo)
+    if contagem_estimada is not None and contagem_estimada > LIMITE_ARQUIVOS_NO_ENVIO:
+        raise EnvioInvalido(
+            f"O envio tem {contagem_estimada} arquivos, acima do limite de "
+            f"{LIMITE_ARQUIVOS_NO_ENVIO} (HI-22)."
+        )
+
     try:
         arquivo_zip = zipfile.ZipFile(io.BytesIO(conteudo))
     except zipfile.BadZipFile as exc:
@@ -608,6 +715,10 @@ def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
 
     infos = arquivo_zip.infolist()
     if len(infos) > LIMITE_ARQUIVOS_NO_ENVIO:
+        # Checagem AUTORITATIVA (não confia só na estimativa do EOCD acima
+        # — ela é uma otimização, esta é a garantia): um EOCD ambíguo ou
+        # deliberadamente incoerente com o diretório central real ainda
+        # cai aqui.
         raise EnvioInvalido(
             f"O envio tem {len(infos)} arquivos, acima do limite de "
             f"{LIMITE_ARQUIVOS_NO_ENVIO} (HI-22)."
@@ -634,19 +745,32 @@ def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
     for info in infos:
         if info.is_dir():
             continue
-        with arquivo_zip.open(info) as membro:
-            # Lê no máximo LIMITE_TAMANHO_XML_BYTES + 1 bytes desta
-            # ENTRADA — nunca o resto da cota total (correção do
-            # arquiteto): o limite por arquivo já é 1 MB (HI-22); ler até
-            # ~200 MB de uma única entrada só para descartá-la depois como
-            # "recusado" (arquivo grande demais) desperdiça memória à toa
-            # e é o mesmo ataque do ZIP que mente no `file_size` do
-            # cabeçalho, só que por dentro de uma entrada só. Este limite
-            # NÃO precisa ser lido por inteiro para sabermos que excede: o
-            # byte a mais já prova isso, e o conteúdo truncado nunca chega
-            # a ser interpretado como XML — `_processar_um_arquivo` recusa
-            # pelo tamanho ANTES de chamar o leitor.
-            dados = membro.read(LIMITE_TAMANHO_XML_BYTES + 1)
+        try:
+            with arquivo_zip.open(info) as membro:
+                # Lê no máximo LIMITE_TAMANHO_XML_BYTES + 1 bytes desta
+                # ENTRADA — nunca o resto da cota total (correção do
+                # arquiteto): o limite por arquivo já é 1 MB (HI-22); ler até
+                # ~200 MB de uma única entrada só para descartá-la depois como
+                # "recusado" (arquivo grande demais) desperdiça memória à toa
+                # e é o mesmo ataque do ZIP que mente no `file_size` do
+                # cabeçalho, só que por dentro de uma entrada só. Este limite
+                # NÃO precisa ser lido por inteiro para sabermos que excede: o
+                # byte a mais já prova isso, e o conteúdo truncado nunca chega
+                # a ser interpretado como XML — `_processar_um_arquivo` recusa
+                # pelo tamanho ANTES de chamar o leitor.
+                dados = membro.read(LIMITE_TAMANHO_XML_BYTES + 1)
+        except (zipfile.BadZipFile, zlib.error, NotImplementedError, EOFError, OSError) as exc:
+            # Achado A2 da auditoria: só o CONSTRUTOR de `ZipFile` estava
+            # protegido — abrir/ler uma entrada com deflate corrompido
+            # (`zlib.error`), CRC-32 incompatível (`zipfile.BadZipFile`) ou
+            # método de compressão não suportado (`NotImplementedError`,
+            # ex.: deflate64) derrubava o ENVIO INTEIRO com 500. Um ZIP com
+            # UMA entrada corrompida é ZIP INTEIRO hostil (não dá para
+            # confiar no restante do diretório central) — vira
+            # `EnvioInvalido`, nada é gravado, com mensagem legível.
+            raise EnvioInvalido(
+                f"ZIP corrompido (entrada {info.filename!r} não pôde ser lida): {exc}"
+            ) from exc
         # A soma acumulada ENTRE entradas continua protegendo o limite
         # total descompactado (HI-22): mesmo com cada leitura individual
         # capada, um ZIP com milhares de entradas grandes ainda esbarra
@@ -680,15 +804,54 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
     continua para os demais (critério 7/8). Levanta `EnvioInvalido` só
     quando o ENVIO INTEIRO é inválido: vazio, acima de
     `LIMITE_TAMANHO_ENVIO_BYTES`, ZIP corrompido, com mais de
-    `LIMITE_ARQUIVOS_NO_ENVIO` entradas, ou com mais de
-    `LIMITE_DESCOMPACTADO_BYTES` de conteúdo descompactado (HI-22) — nesses
-    casos nada é gravado, nem o `LoteDeRecepcao`.
+    `LIMITE_ARQUIVOS_NO_ENVIO` entradas, com mais de
+    `LIMITE_DESCOMPACTADO_BYTES` de conteúdo descompactado (HI-22), ou
+    quando já há outro envio do MESMO escritório em processamento (DE-076
+    item 1, achado A3) — nesses casos nada é gravado, nem o
+    `LoteDeRecepcao`.
 
     Todo o processamento — o lote, cada arquivo (em seu próprio savepoint)
     e o registro de auditoria — roda em UMA transação (`@transaction.
     atomic`, DE-074 item 5, critério 31): ou o envio inteiro é gravado, ou
     nada é.
+
+    DE-076 item 1: o PRIMEIRO passo, ainda antes de ler o corpo do envio, é
+    tentar o bloqueio consultivo do escritório — sem esperar (`pg_try_
+    advisory_xact_lock`). Se outro envio do mesmo escritório já o segura,
+    recusa IMEDIATAMENTE, sem gastar tempo lendo ou processando nada. Isso
+    elimina, na origem, a espera de lock e o impasse (deadlock) que a
+    auditoria mediu entre dois envios concorrentes do MESMO escritório
+    disputando o mesmo índice único de documento — a unicidade é POR
+    ESCRITÓRIO (DE-074), então só envios do mesmo escritório disputam o
+    mesmo índice.
     """
+    if not _adquirir_lock_de_envio_do_escritorio(escritorio):
+        raise EnvioInvalido(MENSAGEM_ENVIO_EM_ANDAMENTO)
+
+    try:
+        return _receber_envio_com_lock_adquirido(
+            escritorio=escritorio, usuario=usuario, arquivo=arquivo, nome_arquivo=nome_arquivo
+        )
+    except OperationalError as exc:
+        # Defesa em profundidade (DE-076 item 1): o bloqueio acima já
+        # deveria eliminar espera e impasse ENTRE envios do mesmo
+        # escritório — mas qualquer `OperationalError` de lock/deadlock
+        # que ainda assim escape (concorrência com alguma outra operação
+        # do banco, fora deste mecanismo) vira mensagem legível, nunca
+        # 500. Qualquer OUTRO `OperationalError` — que não seja de
+        # lock/deadlock — sobe intacto: não é este código que decide que
+        # todo erro de banco é "conflito de envio".
+        if _e_erro_de_lock_ou_deadlock(exc):
+            raise EnvioInvalido(
+                "Não foi possível concluir o envio agora (conflito de banco de dados); "
+                "tente novamente em instantes."
+            ) from exc
+        raise
+
+
+def _receber_envio_com_lock_adquirido(
+    *, escritorio, usuario, arquivo, nome_arquivo
+) -> LoteDeRecepcao:
     conteudo = _ler_bytes_do_arquivo_enviado(arquivo)
 
     if not conteudo:
@@ -709,16 +872,24 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
         tamanho_bytes=len(conteudo),
     )
 
+    # Achado A4: resolvido UMA VEZ por envio, não uma vez por arquivo — ver
+    # `_mapa_de_inscricoes_do_escritorio`.
+    mapa = _mapa_de_inscricoes_do_escritorio(escritorio)
+
     contagens = {
         TipoResultadoArquivo.RECEBIDO: 0,
         TipoResultadoArquivo.DUPLICADO: 0,
         TipoResultadoArquivo.RECUSADO: 0,
     }
     for caminho_no_zip, conteudo_arquivo in itens:
-        info = _processar_um_arquivo(escritorio, conteudo_arquivo)
+        info = _processar_um_arquivo(escritorio, conteudo_arquivo, mapa=mapa)
         resultado = info.pop("resultado")
         ResultadoDoArquivo.objects.create(
-            lote=lote, caminho_no_zip=caminho_no_zip, resultado=resultado, **info
+            lote=lote,
+            caminho_no_zip=_truncar(caminho_no_zip, _TAMANHO_MAXIMO_CAMINHO_NO_ZIP),
+            resultado=resultado,
+            motivo=_truncar(info.pop("motivo", ""), _TAMANHO_MAXIMO_MOTIVO),
+            **info,
         )
         contagens[resultado] += 1
 

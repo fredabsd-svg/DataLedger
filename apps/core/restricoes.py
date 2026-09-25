@@ -304,6 +304,22 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "já é barrado antes disso por `documento_fiscal_unico_por_"
         "escritorio`. Sem caminho de escrita por cliente hoje."
     ),
+    # Achado B8 da auditoria rodada 1 (DL-038): CheckConstraint de DOMÍNIO
+    # nova (`modo_escrituracao` só {"contabilidade", "livro_caixa"}).
+    "empresa_modo_escrituracao_valido": (
+        "`CheckConstraint` de domínio de `Empresa.modo_escrituracao` "
+        "(DL-038). Os DOIS caminhos de cliente que gravam este campo "
+        "restringem o valor ANTES do INSERT: a API usa `serializers."
+        "ChoiceField(choices=ModoEscrituracao.choices)` (EmpresaSerializer, "
+        "apps/empresas/serializers.py) — valor fora do domínio nunca passa "
+        "de `to_internal_value`, 400 antes de qualquer escrita; o admin do "
+        "Django usa o `<select>` gerado pelo `ChoiceField` do próprio "
+        "campo do modelo — não existe como submeter um valor fora da "
+        "lista pelo formulário (um POST forjado direto, fora do "
+        "navegador, cairia na constraint do banco como IntegrityError cru "
+        "— não há relato nem teste desse caminho hoje). Sem caminho de "
+        "escrita por cliente REALISTA para o valor inválido."
+    ),
 }
 
 

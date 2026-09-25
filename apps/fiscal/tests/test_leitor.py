@@ -198,9 +198,103 @@ def test_id_com_letra_e_recusado():
         _ler(xml_nfse(identificador=identificador_invalido))
 
 
+def test_id_com_52_caracteres_e_recusado():
+    # Achado A9/F36 (auditoria rodada 1): um dígito A MENOS que os 50
+    # exigidos (NFS + 49 dígitos = 52 caracteres, não 53) precisa ser
+    # recusado — o teste anterior só cobria formatos claramente errados
+    # (letra, "NFS123"), nunca o limite exato do comprimento.
+    identificador_curto = "NFS" + "0" * 49
+    assert len(identificador_curto) == 52
+    with pytest.raises(leitor.ArquivoRecusado, match="Id fora do formato"):
+        _ler(xml_nfse(identificador=identificador_curto))
+
+
 def test_prestador_sem_cnpj_nem_cpf_e_recusado():
     with pytest.raises(leitor.ArquivoRecusado, match="prestador"):
         _ler(xml_nfse(prestador_tipo=None))
+
+
+# --- Achado A1 (auditoria rodada 1): tamanhos do XSD conferidos ANTES da
+# gravação — sem isso, um arquivo passava a leitura inteira e só estourava
+# `django.db.DataError` na hora de gravar, derrubando o ENVIO INTEIRO com
+# 500 em vez de recusar só o arquivo (critério 7/8 quebrado). ------------
+
+
+def test_nnfse_acima_do_limite_e_recusado():
+    with pytest.raises(leitor.ArquivoRecusado, match="nNFSe"):
+        _ler(xml_nfse(numero="1" * 14, incluir_tomador=False))
+
+
+def test_nnfse_no_limite_e_aceito():
+    lido = _ler(xml_nfse(numero="1" * 13, incluir_tomador=False))
+    assert lido.numero == "1" * 13
+
+
+def test_xnome_do_prestador_acima_do_limite_e_recusado():
+    with pytest.raises(leitor.ArquivoRecusado, match="xNome"):
+        _ler(xml_nfse(prestador_nome="A" * 301, incluir_tomador=False))
+
+
+def test_xnome_do_prestador_no_limite_e_aceito():
+    lido = _ler(xml_nfse(prestador_nome="A" * 300, incluir_tomador=False))
+    assert lido.prestador.nome == "A" * 300
+
+
+def test_nif_do_tomador_acima_do_limite_e_recusado():
+    with pytest.raises(leitor.ArquivoRecusado, match="NIF"):
+        _ler(xml_nfse(tomador_tipo="NIF", tomador_documento="1" * 41))
+
+
+def test_nif_do_tomador_no_limite_e_aceito():
+    lido = _ler(xml_nfse(tomador_tipo="NIF", tomador_documento="1" * 40))
+    assert lido.tomador.documento == "1" * 40
+
+
+def test_codificacao_declarada_desconhecida_e_recusada():
+    # Achado A1: `encoding="x-inexistente"` faz o parser levantar
+    # `LookupError` ao tentar resolver o codec — sem tratamento, isso
+    # derrubava o ENVIO INTEIRO com 500.
+    conteudo = (
+        b'<?xml version="1.0" encoding="x-inexistente"?>'
+        b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
+        b'<infNFSe Id="' + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
+    )
+    with pytest.raises(leitor.ArquivoRecusado, match="codifica"):
+        _ler(conteudo)
+
+
+# --- Achado A9/F35: versão vizinha da suportada, não só "claramente errada" --
+
+
+def test_versao_1_02_e_recusada():
+    # "2.00" (test_versao_nao_suportada_e_recusada, acima) está longe do
+    # domínio suportado — "1.02" é o vizinho IMEDIATO de "1.01" (a última
+    # versão suportada), o caso que de fato prova que o conjunto é
+    # FECHADO ({"1.00", "1.01"}), não "qualquer coisa que comece com 1.0".
+    with pytest.raises(leitor.ArquivoRecusado, match="versão não suportada"):
+        _ler(xml_nfse(versao="1.02", incluir_tomador=False))
+
+
+# --- Achado A11 (auditoria rodada 1 / DE-076 item 3): ambiente de
+# homologação e coerência do evento -----------------------------------------
+
+
+def test_nfse_em_homologacao_e_recusada():
+    with pytest.raises(leitor.ArquivoRecusado, match="homologação"):
+        _ler(xml_nfse(tp_amb="2", incluir_tomador=False))
+
+
+def test_nfse_em_producao_e_aceita():
+    lido = _ler(xml_nfse(tp_amb="1", incluir_tomador=False))
+    assert isinstance(lido, leitor.DocumentoLido)
+
+
+def test_nfse_sem_tpamb_nao_e_recusada_por_omissao():
+    # A recusa vale só quando o valor é EXPLICITAMENTE "2" — nunca por
+    # ausência do campo (caso residual de XML que não segue o esquema à
+    # risca; adivinhar "homologação" por omissão seria pior que aceitar).
+    lido = _ler(xml_nfse(tp_amb=None, incluir_tomador=False))
+    assert isinstance(lido, leitor.DocumentoLido)
 
 
 # --- Decimal estrito (critério 32 / DE-010) -------------------------------
@@ -346,6 +440,61 @@ def test_le_eventos_que_nao_cancelam_tambem(codigo):
     # não" é do serviço (HI-20), não do leitor.
     lido = _ler(xml_evento(codigo=codigo))
     assert lido.codigo == codigo
+
+
+# --- Achado A11 (auditoria rodada 1): coerência entre Id, chNFSe e código --
+#
+# `TSIdEvento` ("EVT" + chave(50) + tipo do evento(6) + nº do pedido(3))
+# TRAZ a chave e o código dentro de si mesmo, codificados. Antes desta
+# correção, só o FORMATO do Id era conferido (regex EVT+59 dígitos) — um Id
+# com a chave de OUTRA nota, ou com o tipo de OUTRO evento, passava sem
+# aviso (experimentos E13/E14/E15 da auditoria).
+
+
+def test_evento_com_id_que_traz_chave_diferente_de_chnfse_e_recusado():
+    chave_real = chave_nfse_de(identificador_nfse(sufixo=201))
+    chave_de_outra_nota = chave_nfse_de(identificador_nfse(sufixo=202))
+    identificador_forjado = identificador_evento(chave_de_outra_nota, "e101101")
+    with pytest.raises(leitor.ArquivoRecusado, match="não confere com chNFSe"):
+        _ler(
+            xml_evento(chave_nfse=chave_real, codigo="e101101", identificador=identificador_forjado)
+        )
+
+
+def test_evento_com_id_que_traz_tipo_diferente_do_codigo_e_recusado():
+    chave = chave_nfse_de(identificador_nfse(sufixo=203))
+    # O Id é construído para o código e105102, mas o elemento de código no
+    # corpo do XML é e101101 — os dois têm que bater, e não batem aqui.
+    identificador_com_outro_tipo = identificador_evento(chave, "e105102")
+    with pytest.raises(leitor.ArquivoRecusado, match="não confere com o código"):
+        _ler(
+            xml_evento(
+                chave_nfse=chave, codigo="e101101", identificador=identificador_com_outro_tipo
+            )
+        )
+
+
+def test_evento_com_mais_de_um_elemento_de_codigo_e_recusado():
+    # Achado A11/E15: a versão anterior pegava o PRIMEIRO elemento
+    # reconhecível e ignorava um segundo em silêncio (e202201 "vencia"
+    # e101101 só por vir depois no percurso). Construído manualmente
+    # porque `xml_evento()` só admite um código por vez.
+    chave = chave_nfse_de(identificador_nfse(sufixo=204))
+    identificador = identificador_evento(chave, "e101101")
+    conteudo = f"""<evento xmlns="{leitor.NS_NFSE}" versao="1.01">
+  <infEvento Id="{identificador}">
+    <pedRegEvento versao="1.01">
+      <infPedReg Id="PRE{"0" * 56}">
+        <dhEvento>2024-01-20T10:00:00-03:00</dhEvento>
+        <chNFSe>{chave}</chNFSe>
+        <e101101><xDesc>Primeiro</xDesc></e101101>
+        <e202201><xDesc>Segundo</xDesc></e202201>
+      </infPedReg>
+    </pedRegEvento>
+  </infEvento>
+</evento>""".encode()
+    with pytest.raises(leitor.ArquivoRecusado, match="mais de um código"):
+        _ler(conteudo)
 
 
 # --- Tipagem defensiva -------------------------------------------------
