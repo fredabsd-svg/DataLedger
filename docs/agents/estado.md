@@ -116,7 +116,10 @@ Fila depois dela, em ordem recomendada e sujeita ao Fred:
 **Cliente pessoa física** — o Fred confirmou em 25/09 que o escritório atende
 (RC-112). O cadastro hoje só aceita CNPJ; a modelagem está em estudo (consulta ao
 manual do sistema de referência em andamento) e vira etapa própria logo depois da
-DL-010 F1, que recusa essas notas com motivo específico até lá.
+DL-010 F1, que recusa essas notas com motivo específico até lá. Para esses
+clientes o escritório faz **carnê-leão e livro-caixa** (RC-113): o cadastro de
+pessoa física é a base de um módulo novo, fora da contabilidade por partidas
+dobradas, cujas regras ainda precisam de fonte oficial.
 
 Decisões que estão com o Fred e afetam a fila:
 
