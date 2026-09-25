@@ -107,6 +107,7 @@ from apps.contabilidade.services import (
     marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
     reabrir_competencia,
+    rotulo_e_inscricao_da_empresa,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -358,7 +359,11 @@ def _sem_contabilidade_para_livro_caixa(view_func):
     mesma função de serviço, então a mensagem nunca diverge entre tela e
     API. A prova de que TODA view desta tela com `empresa_id` está coberta
     (varredura DERIVADA das rotas registradas, não lista escrita à mão) é
-    `apps/core/tests/test_dl038_recusa_contabilidade_livro_caixa.py`.
+    `apps/contabilidade/tests/test_dl038_recusa_livro_caixa.py` — nome
+    corrigido nesta etapa (DL-038, etapa 2): a docstring citava
+    `apps/core/tests/test_dl038_recusa_contabilidade_livro_caixa.py`, um
+    arquivo que nunca existiu nesse caminho; o teste real sempre morou em
+    `apps/contabilidade/tests/`, app a que a varredura pertence.
     """
 
     @wraps(view_func)
@@ -2737,26 +2742,16 @@ def _data_base_do_formulario(request):
         return None, "Data inválida: use o seletor de data (ou o formato AAAA-MM-DD)."
 
 
-def _cnpj_mascarado(cnpj):
-    """Formata um CNPJ de 14 caracteres como XX.XXX.XXX/XXXX-XX — MESMA
-    regra de `apps.empresas.views._mascara_cnpj`, reescrita aqui de
-    propósito: esta etapa (DL-034) não tem permissão para editar
-    `apps/empresas/**` (divisão de arquivos do plano), e `_mascara_cnpj`
-    é privada daquele módulo — importar um símbolo de prefixo `_` de outro
-    app seria acoplamento não pretendido por quem o escreveu. Duplicação
-    CONSCIENTE e declarada, não descoberta depois: se a regra de máscara
-    mudar num dos dois lugares, este comentário é o ponto para lembrar do
-    outro. RC-93 exige CNPJ na identificação obrigatória do documento —
-    nenhuma tela de contabilidade mostra CNPJ hoje (PE-51 ainda em aberto
-    sobre "as demais informações"); esta etapa cobre a exigência PARA O
-    BALANÇO, sem prometer que as demais telas já a cumprem.
-
-    Só apresentação: se o valor não tiver exatamente 14 caracteres, devolve
-    o original em vez de mascarar errado.
-    """
-    if len(cnpj) != 14:
-        return cnpj
-    return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
+# `_cnpj_mascarado` (DL-034) foi REMOVIDA nesta etapa (DL-038, etapa 2):
+# ela sempre lia `empresa.cnpj` direto, e uma empresa CPF em modo
+# contabilidade (permitida — nada no R4 proíbe isso) tem `empresa.cnpj`
+# vazio por invariante de banco, o que imprimiria o Balanço com a
+# inscrição EM BRANCO. O ponto único agora é `apps.contabilidade.services.
+# rotulo_e_inscricao_da_empresa` — mesma app, sem o problema de
+# acoplamento que motivava a duplicação original (import de símbolo
+# PRIVADO de outro app): a nova função mora no MESMO app que a consome,
+# só reescreve a máscara em vez de importar de `apps.empresas` (mesma
+# decisão consciente, mesmo motivo, ver a docstring dela).
 
 
 # BL-508 (auditoria DL-034, achado A10): rótulo HUMANO de cada campo extra
@@ -3148,6 +3143,14 @@ def balanco(request, empresa_id):
     saldos = resultado["saldos"]
     emissao = resultado["emissao"]
 
+    # DL-038 (etapa 2, critério 7): rótulo e inscrição corretos —
+    # "CNPJ 12.345.678/0001-95" para pessoa jurídica, "CPF 123.456.789-09"
+    # para pessoa física — nunca CNPJ fixo, que sairia em branco para
+    # empresa CPF (`empresa.cnpj` é vazio por invariante de banco nesse
+    # caso). Ver `rotulo_e_inscricao_da_empresa` para o porquê deste ser o
+    # ponto único da formatação.
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+
     contexto.update(
         {
             # NBC TG 26 item 51/52 (RC-95) — o bloco de identificação é
@@ -3156,7 +3159,8 @@ def balanco(request, empresa_id):
             # DL-034; mesmo mecanismo já provado pelo cabeçalho de coluna
             # do Balancete, BL-282: `display: table-header-group`).
             "identificacao": resultado["identificacao"],
-            "cnpj_mascarado": _cnpj_mascarado(empresa.cnpj),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
             # BL-282/RC-97: mesmo timbre do escritório que Balancete/
             # Diário/Razão já usam — ver o comentário em `diario` para o
             # contrato completo. Continua só na folha 1 (não é exigência do

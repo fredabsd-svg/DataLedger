@@ -31,6 +31,7 @@ from apps.empresas.models import (
     Empresa,
     Estabelecimento,
     HistoricoRegimeTributario,
+    ModoEscrituracao,
     RegimeTributario,
     TipoInscricao,
 )
@@ -609,23 +610,32 @@ def lista_empresas(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
     empresas = list(Empresa.objects.filter(escritorio=request.escritorio))
-    # Formatação de apresentação (CNPJ mascarado) feita aqui, na view, e não
-    # em template tag própria: esta etapa não tem permissão para criar
+    # Formatação de apresentação (CNPJ/CPF mascarado) feita aqui, na view, e
+    # não em template tag própria: esta etapa não tem permissão para criar
     # arquivos em apps/empresas/templatetags/ (ver docs/projeto/DL-009).
     #
-    # DL-038 — critério 7: `cnpj_formatado` é PRESERVADO tal como estava
-    # (formata `empresa.cnpj`, que fica em branco para empresa CPF) porque
-    # `templates/empresas/lista.html` é escopo do `especialista-frontend`
-    # (etapa 2) e ainda lê exatamente este atributo — não há como trocar o
-    # que o template exibe sem tocar nele, fora do meu escopo aqui.
-    # `inscricao_formatada`/`rotulo_inscricao` são NOVOS, calculados pelo
-    # tipo de inscrição de cada empresa, prontos para a tela que a etapa 2
-    # vai desenhar — declarado como PENDÊNCIA, não escondido: até a
-    # template mudar, uma empresa CPF aparece com a célula de CNPJ em
-    # branco (não quebra, não mostra dado errado, só não mostra o CPF
-    # ainda).
+    # DL-038 — critério 7 (etapa 2, `especialista-frontend`):
+    # `templates/empresas/lista.html` agora lê `rotulo_inscricao`/
+    # `inscricao_formatada` (não mais `cnpj_formatado` — a coluna mostra
+    # CNPJ OU CPF conforme o tipo de cada linha, e um cabeçalho fixo
+    # "CNPJ" mentiria para empresa CPF). `cnpj_formatado` continua
+    # calculado abaixo por retrocompatibilidade (nenhum outro código deste
+    # módulo lê o atributo, mas remover um atributo de apresentação sem
+    # necessidade não é o escopo desta etapa).
+    #
+    # `em_livro_caixa`: booleano calculado com o enum e passado pronto ao
+    # template (mesmo padrão de `pode_cadastrar`, abaixo) — decide se a
+    # célula "Contabilidade" mostra os links de escrituração ou um aviso
+    # (R5: a contabilidade por partidas dobradas não se aplica a empresa em
+    # livro-caixa). Não é a recusa de verdade — essa continua só no
+    # servidor, em `apps.empresas.services.recusar_se_livro_caixa`,
+    # aplicada pelo decorador de cada view da contabilidade
+    # (`apps.contabilidade.views_web._sem_contabilidade_para_livro_caixa`);
+    # isto só evita oferecer, na lista, um link que o servidor sempre
+    # recusaria — link ausente aqui não é a defesa, só evita o passeio.
     for empresa in empresas:
         empresa.cnpj_formatado = _mascara_cnpj(empresa.cnpj)
+        empresa.em_livro_caixa = empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA
         if empresa.tipo_inscricao == TipoInscricao.CPF:
             empresa.rotulo_inscricao = "CPF"
             empresa.inscricao_formatada = _mascara_cpf(empresa.cpf)
@@ -685,8 +695,21 @@ def criar_empresa(request):
                 with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                     empresa.save()
             except CNPJDuplicado as exc:
-                for mensagem in exc.message_dict.get("cnpj", []):
-                    form.add_error("cnpj", mensagem)
+                # DL-038: `exc.message_dict` já vem com a CHAVE certa —
+                # "cnpj" ou "cpf", conforme qual constraint colidiu (ver
+                # `mensagem_se_cnpj_duplicado`, apps/empresas/services.py).
+                # Antes desta etapa só existia "cnpj", e o `.get("cnpj",
+                # [])` fixo bastava; fixo, ele passou a ENGOLIR em silêncio
+                # a duplicidade de CPF — a exceção era capturada, a
+                # transação desfeita (o savepoint), mas NENHUM erro ia para
+                # o formulário: o contador via a MESMA tela sem aviso
+                # nenhum e sem a empresa cadastrada, a classe de defeito
+                # que o AGENTS.md §8 proíbe (falha convertida em sucesso
+                # aparente). Iterar `.items()` cobre as duas chaves sem
+                # supor qual delas colidiu.
+                for campo, mensagens in exc.message_dict.items():
+                    for mensagem in mensagens:
+                        form.add_error(campo, mensagem)
             else:
                 registrar(acao="empresa.criada", objeto=empresa, request=request)
                 messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")

@@ -218,7 +218,14 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
                         de coluna comum.
                         {% endcomment %}
                         <div class="identificacao-do-documento">
-                            <p><strong>{{ empresa.razao_social }}</strong> — CNPJ {{ cnpj_mascarado }}</p>
+                            {% comment %}
+                            DL-038 (etapa 2, critério 7): `rotulo_inscricao`
+                            é "CNPJ" ou "CPF" conforme o tipo de inscrição da
+                            empresa (`apps.contabilidade.services.
+                            rotulo_e_inscricao_da_empresa`) — nunca "CNPJ"
+                            fixo, que sairia em branco para empresa CPF.
+                            {% endcomment %}
+                            <p><strong>{{ empresa.razao_social }}</strong> — {{ rotulo_inscricao }} {{ inscricao_formatada }}</p>
                             <p>
                                 Balanço Patrimonial ({{ identificacao.entidade_individual_ou_grupo|capfirst }})
                                 — data-base {{ data_base|date:"d/m/Y" }}

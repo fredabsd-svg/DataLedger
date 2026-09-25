@@ -16,27 +16,95 @@
             </div>
         {% endif %}
         {% for campo in form %}
-            <div class="campo">
-                {{ campo.label_tag }}
-                {{ campo }}
-                {% if campo.errors %}
-                    {% comment %}
-                    O próprio Django (BoundField.aria_describedby, desde a
-                    5.0) já anota o widget acima com
-                    aria-describedby="{auto_id}_error" quando o campo tem
-                    erro — o id aqui só precisa casar com isso, não pode
-                    inventar outro prefixo (achado A1 da auditoria de
-                    DL-009: "erro-{id_for_label}" não batia com o que o
-                    Django gerava, e o aria-describedby ficava pendurado no
-                    vazio).
-                    {% endcomment %}
-                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
-                        {% for erro in campo.errors %}
-                            <p>{{ erro }}</p>
+            {% comment %}
+            DL-038: `tipo_inscricao` e `modo_escrituracao` são grupo de
+            radio button (RadioSelect, ver EmpresaForm.__init__) — as duas
+            opções ficam sempre visíveis, sem JavaScript nenhum escondendo
+            campo (direcao-de-arte.md §4.6). `<fieldset>`/`<legend>` é
+            marcação nativa para "isto é UM grupo de controles com UM
+            nome", mais forte para leitor de tela do que `label_tag`
+            apontando para um único `id` de checkbox/radio — os campos de
+            texto comuns (razão social, CNPJ, CPF) continuam no ramo
+            `{{ campo.label_tag }}`/`{{ campo }}` de sempre, sem mudança.
+            {% endcomment %}
+            {% if campo.field.widget.input_type == "radio" %}
+                {% comment %}
+                Django NÃO anota `aria-describedby` em cada `<input
+                type="radio">` individual de um RadioSelect — nem mesmo
+                renderizando `{{ campo }}` puro (conferido: a mesma
+                ausência acontece com o widget padrão, não é efeito de
+                renderizar por `subwidgets`). O `aria-describedby` aqui vai
+                no PRÓPRIO `<fieldset>`, que é o elemento que agrupa os
+                radios e fica logo antes da mensagem de erro — mesmo papel
+                que o Django dá ao campo de texto comum, aplicado ao nível
+                que o RadioSelect tem de verdade (grupo, não input único).
+                MESMA convenção de id que o Django usa nos outros campos
+                (`{auto_id}_helptext`/`{auto_id}_error`, `BoundField.
+                aria_describedby` desde a 5.0) — não inventa outro prefixo
+                (achado A1 da auditoria de DL-009, ver o comentário
+                completo no ramo de campo de texto, abaixo).
+                {% endcomment %}
+                <fieldset class="campo campo-radio"{% if campo.help_text or campo.errors %} aria-describedby="{% if campo.help_text %}{{ campo.auto_id }}_helptext{% endif %}{% if campo.help_text and campo.errors %} {% endif %}{% if campo.errors %}{{ campo.auto_id }}_error{% endif %}"{% endif %}>
+                    <legend>{{ campo.label }}</legend>
+                    <div class="campo-radio__opcoes">
+                        {% for subcampo in campo.subwidgets %}
+                            <label class="campo-radio__opcao">
+                                {{ subcampo.tag }}
+                                {{ subcampo.choice_label }}
+                            </label>
                         {% endfor %}
                     </div>
-                {% endif %}
-            </div>
+                    {% if campo.help_text %}
+                        <p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>
+                    {% endif %}
+                    {% if campo.errors %}
+                        <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                            {% for erro in campo.errors %}
+                                <p>{{ erro }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </fieldset>
+            {% else %}
+                <div class="campo">
+                    {{ campo.label_tag }}
+                    {{ campo }}
+                    {% if campo.help_text %}
+                        {% comment %}
+                        `id="{auto_id}_helptext"` — MESMO id que `BoundField.
+                        aria_describedby` (Django, desde a 5.0) já injeta no
+                        widget acima, sempre que o campo tem `help_text`
+                        (junto com `{auto_id}_error`, quando também há
+                        erro). Sem este id existir de verdade na página, o
+                        atributo fica pendurado no vazio — mesma classe do
+                        achado A1 da auditoria de DL-009, agora para
+                        help_text em vez de erro (nenhum campo desta tela
+                        tinha help_text antes do DL-038; o teste genérico
+                        `test_form_com_erro_todo_aria_describedby_aponta_
+                        para_id_existente`, apps/empresas/tests/
+                        test_views.py, foi quem acusou a ausência).
+                        {% endcomment %}
+                        <p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>
+                    {% endif %}
+                    {% if campo.errors %}
+                        {% comment %}
+                        O próprio Django (BoundField.aria_describedby, desde a
+                        5.0) já anota o widget acima com
+                        aria-describedby="{auto_id}_error" quando o campo tem
+                        erro — o id aqui só precisa casar com isso, não pode
+                        inventar outro prefixo (achado A1 da auditoria de
+                        DL-009: "erro-{id_for_label}" não batia com o que o
+                        Django gerava, e o aria-describedby ficava pendurado no
+                        vazio).
+                        {% endcomment %}
+                        <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                            {% for erro in campo.errors %}
+                                <p>{{ erro }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
         {% endfor %}
         <button type="submit">Salvar</button>
     </form>
