@@ -3,7 +3,9 @@
 Contrato obrigatório do plano (docs/planos/DL-010-F1-recepcao-nfse.md):
 
 - `receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepcao`
-- `documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situacao=None)`
+- `documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situacao=None)
+  -> QuerySet[DocumentoFiscal]`, SEMPRE queryset, cada linha anotada com o
+  booleano `cancelada` (calculado no banco — contrato repassado à tela).
 - `situacao_do_documento(documento) -> "valida" | "cancelada"`
 
 Nenhuma regra deste módulo é duplicada em `apps.fiscal.permissoes` nem em
@@ -19,6 +21,8 @@ import zipfile
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
+from django.db.models.functions import Substr
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, Estabelecimento
@@ -218,6 +222,28 @@ def _criar_evento(escritorio, lido: leitor.EventoLido) -> EventoFiscal:
     # tratado por quem chama, fora deste savepoint.
 
 
+def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str) -> str:
+    """Mensagem de um resultado "duplicado" — distingue o caso NORMAL
+    (reenviar o mesmo arquivo, RC-69) do caso que merece CONFERÊNCIA:
+    mesmo identificador (`escritorio` + `identificador`), conteúdo
+    DIFERENTE do já guardado.
+
+    O original NUNCA é sobrescrito de nenhum dos dois jeitos — a
+    correção de lançamento fiscal já efetivado segue procedimento
+    rastreável (AGENTS.md §10), nunca edição silenciosa; aqui não há
+    edição alguma, só a mensagem muda para sinalizar a divergência.
+
+    `rotulo` é "Documento" ou "Evento", para reusar a mesma função nos
+    dois `except IntegrityError` de `_processar_um_arquivo`.
+    """
+    if existente is not None and existente.sha256_arquivo != sha256_novo:
+        return (
+            f"{rotulo} já recebido, mas o conteúdo deste arquivo é DIFERENTE "
+            "do recebido antes — conferir."
+        )
+    return f"{rotulo} já recebido anteriormente por este escritório."
+
+
 def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
     """Processa UM arquivo já extraído (XML solto, ou uma entrada do ZIP).
 
@@ -268,7 +294,7 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
             ).first()
             return {
                 "resultado": TipoResultadoArquivo.DUPLICADO,
-                "motivo": "Documento já recebido anteriormente por este escritório.",
+                "motivo": _motivo_de_duplicado(existente, sha256, "Documento"),
                 "documento": existente,
             }
         existente = EventoFiscal.objects.filter(
@@ -276,7 +302,7 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
         ).first()
         return {
             "resultado": TipoResultadoArquivo.DUPLICADO,
-            "motivo": "Evento já recebido anteriormente por este escritório.",
+            "motivo": _motivo_de_duplicado(existente, sha256, "Evento"),
             "evento": existente,
         }
 
@@ -285,18 +311,75 @@ def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
     return {"resultado": TipoResultadoArquivo.RECEBIDO, "motivo": "", "evento": evento}
 
 
+_TAMANHO_DO_BLOCO_DE_LEITURA = 65536  # 64 KiB — só para o caminho genérico de `.read()`
+
+
 def _ler_bytes_do_arquivo_enviado(arquivo) -> bytes:
     """`arquivo` é `bytes`/`bytearray` puro OU um arquivo de upload do
-    Django (`UploadedFile`, que tem `.chunks()`). Devolve sempre `bytes`."""
+    Django (`UploadedFile`, que tem `.chunks()`). Devolve sempre `bytes`.
+
+    Confere o limite de tamanho ANTES de terminar de ler, não depois
+    (correção do arquiteto sobre a versão anterior desta função): um
+    upload de 2 GB era lido por INTEIRO na memória — `b"".join(arquivo.
+    chunks())` — antes de `receber_envio` sequer olhar o tamanho. Aqui:
+
+    1. Se o objeto expõe `.size` (todo `UploadedFile` do Django expõe —
+       `InMemoryUploadedFile` e `TemporaryUploadedFile`), o tamanho
+       DECLARADO é conferido ANTES de chamar `.chunks()` — um upload que já
+       se anuncia grande demais nunca chega a ser lido.
+    2. Ao iterar `.chunks()` (ou, na ausência delas, ao ler em blocos
+       fixos), a soma acumulada é conferida a CADA pedaço — a leitura para
+       assim que ultrapassa o limite, sem terminar de consumir o restante
+       do fluxo. Só o caso de `bytes`/`bytearray` já em memória (usado
+       pelos testes e por chamadores que já têm o conteúdo pronto) escapa
+       dessa checagem incremental; para ele, `receber_envio` confere o
+       tamanho logo em seguida, e o custo de memória já existia antes de
+       chegar aqui.
+
+    Levanta `EnvioInvalido` diretamente quando o limite é ultrapassado —
+    mais cedo do que `receber_envio`, de propósito.
+    """
     if isinstance(arquivo, (bytes, bytearray)):
         return bytes(arquivo)
+
+    tamanho_declarado = getattr(arquivo, "size", None)
+    if tamanho_declarado is not None and tamanho_declarado > LIMITE_TAMANHO_ENVIO_BYTES:
+        raise EnvioInvalido(
+            f"O envio excede o limite de {LIMITE_TAMANHO_ENVIO_BYTES} bytes (HI-22)."
+        )
+
     if hasattr(arquivo, "chunks"):
-        return b"".join(arquivo.chunks())
+        pedacos = []
+        total = 0
+        for pedaco in arquivo.chunks():
+            pedacos.append(pedaco)
+            total += len(pedaco)
+            if total > LIMITE_TAMANHO_ENVIO_BYTES:
+                raise EnvioInvalido(
+                    f"O envio excede o limite de {LIMITE_TAMANHO_ENVIO_BYTES} bytes (HI-22)."
+                )
+        return b"".join(pedacos)
+
     if hasattr(arquivo, "read"):
-        conteudo = arquivo.read()
+        # Objeto genérico de arquivo (não é UploadedFile do Django, sem
+        # `.chunks()`): lê em blocos fixos, nunca `arquivo.read()` sem
+        # argumento, pela mesma razão do ramo acima.
+        pedacos = []
+        total = 0
+        while True:
+            bloco = arquivo.read(_TAMANHO_DO_BLOCO_DE_LEITURA)
+            if not bloco:
+                break
+            pedacos.append(bloco)
+            total += len(bloco)
+            if total > LIMITE_TAMANHO_ENVIO_BYTES:
+                raise EnvioInvalido(
+                    f"O envio excede o limite de {LIMITE_TAMANHO_ENVIO_BYTES} bytes (HI-22)."
+                )
         if hasattr(arquivo, "seek"):
             arquivo.seek(0)
-        return conteudo
+        return b"".join(pedacos)
+
     raise TypeError("arquivo deve ser bytes ou um objeto de upload do Django.")
 
 
@@ -351,13 +434,22 @@ def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
         if info.is_dir():
             continue
         with arquivo_zip.open(info) as membro:
-            # Lê com um limite REAL (nunca confia só no header declarado):
-            # pedimos 1 byte A MAIS do que o restante da cota — se vier
-            # esse byte extra, o conteúdo descompactado real excede o
-            # limite, e abortamos sem ter lido o arquivo inteiro na
-            # memória.
-            cota_restante = LIMITE_DESCOMPACTADO_BYTES - total_lido
-            dados = membro.read(cota_restante + 1)
+            # Lê no máximo LIMITE_TAMANHO_XML_BYTES + 1 bytes desta
+            # ENTRADA — nunca o resto da cota total (correção do
+            # arquiteto): o limite por arquivo já é 1 MB (HI-22); ler até
+            # ~200 MB de uma única entrada só para descartá-la depois como
+            # "recusado" (arquivo grande demais) desperdiça memória à toa
+            # e é o mesmo ataque do ZIP que mente no `file_size` do
+            # cabeçalho, só que por dentro de uma entrada só. Este limite
+            # NÃO precisa ser lido por inteiro para sabermos que excede: o
+            # byte a mais já prova isso, e o conteúdo truncado nunca chega
+            # a ser interpretado como XML — `_processar_um_arquivo` recusa
+            # pelo tamanho ANTES de chamar o leitor.
+            dados = membro.read(LIMITE_TAMANHO_XML_BYTES + 1)
+        # A soma acumulada ENTRE entradas continua protegendo o limite
+        # total descompactado (HI-22): mesmo com cada leitura individual
+        # capada, um ZIP com milhares de entradas grandes ainda esbarra
+        # aqui antes de qualquer uma delas ser processada.
         total_lido += len(dados)
         if total_lido > LIMITE_DESCOMPACTADO_BYTES:
             raise EnvioInvalido(
@@ -457,32 +549,6 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
     return lote
 
 
-def documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situacao=None):
-    """Consulta de `DocumentoFiscal`, SEMPRE filtrada pelo escritório
-    (RC-18/AGENTS.md §11) — nunca lista documento de outro escritório,
-    mesmo que `empresa` pertença a outro por engano do chamador (o filtro
-    de `empresa` é ADICIONAL ao de `escritorio`, nunca um substituto).
-
-    `empresa`: filtra pelos documentos em que essa `Empresa` tem vínculo
-    (prestador ou tomador).
-    `competencia`: tupla/sequência `(ano, mes)` — filtra por `d_competencia`.
-    `situacao`: `"valida"` ou `"cancelada"` — como a situação é DERIVADA dos
-    eventos (nunca uma coluna), filtrar por ela materializa a consulta em
-    uma lista (não uma queryset preguiçosa); sem esse filtro, o retorno
-    continua sendo uma queryset, para quem chama poder paginar/encadear.
-    """
-    qs = DocumentoFiscal.objects.filter(escritorio=escritorio)
-    if empresa is not None:
-        qs = qs.filter(vinculos__empresa=empresa).distinct()
-    if competencia is not None:
-        ano, mes = competencia
-        qs = qs.filter(d_competencia__year=ano, d_competencia__month=mes)
-    qs = qs.order_by("-dh_emissao")
-    if situacao is None:
-        return qs
-    return [documento for documento in qs if situacao_do_documento(documento) == situacao]
-
-
 # HI-20 (docs/projeto/requisitos.md): os quatro códigos de evento que
 # CANCELAM a NFS-e. Fonte: leitura das DESCRIÇÕES de cada elemento em
 # tiposEventos_v1.01.xsd (xs:documentation de e101101/e105102/e105104/
@@ -493,6 +559,60 @@ def documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situ
 CODIGOS_QUE_CANCELAM = frozenset({"e101101", "e105102", "e105104", "e305101"})
 
 
+def documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situacao=None):
+    """Consulta de `DocumentoFiscal`, SEMPRE filtrada pelo escritório
+    (RC-18/AGENTS.md §11) — nunca lista documento de outro escritório,
+    mesmo que `empresa` pertença a outro por engano do chamador (o filtro
+    de `empresa` é ADICIONAL ao de `escritorio`, nunca um substituto).
+
+    Devolve SEMPRE uma `QuerySet` (nunca materializa em lista), anotada com
+    um booleano `cancelada` em cada linha — correção do arquiteto sobre a
+    versão anterior, que calculava a situação em PYTHON, um `SELECT` de
+    eventos por documento (5.000 notas viravam 5.000 consultas). A
+    anotação usa `Exists`/`OuterRef` — a situação é calculada no PRÓPRIO
+    banco, então listar N documentos com `situacao` continua custando UMA
+    consulta, não N. **Este é o contrato que a tela (etapa 2) consome:**
+    cada `DocumentoFiscal` do resultado tem `.cancelada` (`bool`) pronto,
+    sem consulta adicional.
+
+    `empresa`: filtra pelos documentos em que essa `Empresa` tem vínculo
+    (prestador ou tomador).
+    `competencia`: tupla/sequência `(ano, mes)` — filtra por `d_competencia`.
+    `situacao`: `"valida"` ou `"cancelada"` — vira `.filter(cancelada=...)`
+    sobre a anotação, dentro da mesma consulta. Qualquer outro valor não
+    nulo levanta `ValueError` — silenciosamente devolver uma lista vazia
+    para um valor digitado errado esconderia o erro de quem chama.
+    """
+    qs = DocumentoFiscal.objects.filter(escritorio=escritorio)
+    if empresa is not None:
+        qs = qs.filter(vinculos__empresa=empresa).distinct()
+    if competencia is not None:
+        ano, mes = competencia
+        qs = qs.filter(d_competencia__year=ano, d_competencia__month=mes)
+
+    # `Substr(..., 4)` descarta os 3 primeiros caracteres ("NFS") do
+    # identificador do documento (posição 1-indexada do SQL: começa no
+    # 4º caractere) para comparar com `EventoFiscal.chave_nfse`, que é só
+    # os 50 dígitos sem o prefixo — mesma conversão que a versão anterior
+    # fazia em Python (`documento.identificador[3:]`), agora dentro da
+    # subconsulta correlacionada.
+    eventos_de_cancelamento = EventoFiscal.objects.filter(
+        escritorio_id=OuterRef("escritorio_id"),
+        chave_nfse=Substr(OuterRef("identificador"), 4),
+        codigo__in=CODIGOS_QUE_CANCELAM,
+    )
+    qs = qs.annotate(cancelada=Exists(eventos_de_cancelamento))
+    qs = qs.order_by("-dh_emissao")
+
+    if situacao is None:
+        return qs
+    if situacao == "cancelada":
+        return qs.filter(cancelada=True)
+    if situacao == "valida":
+        return qs.filter(cancelada=False)
+    raise ValueError(f"situacao deve ser 'valida' ou 'cancelada' (recebido {situacao!r}).")
+
+
 def situacao_do_documento(documento: DocumentoFiscal) -> str:
     """`"valida"` ou `"cancelada"` — DERIVADA dos eventos do MESMO
     escritório cuja chave referencia esta nota (DE-074 item 4), NUNCA
@@ -500,14 +620,25 @@ def situacao_do_documento(documento: DocumentoFiscal) -> str:
     evento, RC-70) não importa, e não existe um campo de estado para
     envelhecer.
 
+    Se `documento` veio de `documentos_do_escritorio` (já anotado com
+    `.cancelada`), usa a anotação — CUSTO ZERO, nenhuma consulta nova, o
+    que evita o N+1 ao percorrer uma lista de documentos. Se veio de outro
+    caminho (ex.: `DocumentoFiscal.objects.get(...)`, sem a anotação),
+    consulta os eventos diretamente. `Exists` nunca devolve `NULL`, então
+    distinguir "sem anotação" de "anotação com valor `False`" por
+    `getattr(..., None)` é seguro.
+
     `DocumentoFiscal.identificador` é "NFS" + 50 dígitos (TSIdNFSe);
     `EventoFiscal.chave_nfse` é só os 50 dígitos, sem o prefixo (TSChaveNFSe)
-    — a conversão entre os dois formatos vive só aqui.
+    — a conversão entre os dois formatos vive só aqui (e, em SQL, dentro de
+    `documentos_do_escritorio` acima).
     """
-    chave_sem_prefixo = documento.identificador[3:]
-    tem_cancelamento = EventoFiscal.objects.filter(
-        escritorio_id=documento.escritorio_id,
-        chave_nfse=chave_sem_prefixo,
-        codigo__in=CODIGOS_QUE_CANCELAM,
-    ).exists()
-    return "cancelada" if tem_cancelamento else "valida"
+    cancelada = getattr(documento, "cancelada", None)
+    if cancelada is None:
+        chave_sem_prefixo = documento.identificador[3:]
+        cancelada = EventoFiscal.objects.filter(
+            escritorio_id=documento.escritorio_id,
+            chave_nfse=chave_sem_prefixo,
+            codigo__in=CODIGOS_QUE_CANCELAM,
+        ).exists()
+    return "cancelada" if cancelada else "valida"

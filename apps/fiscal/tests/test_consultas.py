@@ -245,3 +245,89 @@ def test_xml_original_do_evento_preserva_bytes_exatos(escritorio_a, usuario_gest
     evento = EventoFiscal.objects.get()
     assert bytes(evento.xml_original) == conteudo
     assert evento.sha256_arquivo == hashlib.sha256(conteudo).hexdigest()
+
+
+# --- Correção do arquiteto: situação calculada no BANCO, não em Python -----
+# (revisão da entrega original — 5.000 notas não podem virar 5.000 consultas)
+
+
+def test_documentos_do_escritorio_sempre_devolve_queryset_anotada(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    from django.db.models import QuerySet
+
+    _receber(
+        escritorio_a,
+        usuario_gestor_a,
+        xml_nfse(identificador=identificador_nfse(400), incluir_tomador=False),
+    )
+    resultado = services.documentos_do_escritorio(escritorio_a)
+    assert isinstance(resultado, QuerySet)
+    documento = resultado.get()
+    # A anotação `cancelada` é o contrato repassado à tela (etapa 2): cada
+    # linha já vem com o booleano pronto, sem consulta adicional.
+    assert documento.cancelada is False
+
+
+def test_documentos_do_escritorio_anota_cancelada_corretamente(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    identificador = identificador_nfse(401)
+    _receber(
+        escritorio_a, usuario_gestor_a, xml_nfse(identificador=identificador, incluir_tomador=False)
+    )
+    _receber(
+        escritorio_a,
+        usuario_gestor_a,
+        xml_evento(chave_nfse=chave_nfse_de(identificador), codigo="e101101"),
+        nome="evento.xml",
+    )
+    documento = services.documentos_do_escritorio(escritorio_a).get(identificador=identificador)
+    assert documento.cancelada is True
+    assert services.situacao_do_documento(documento) == "cancelada"
+
+
+def test_situacao_invalida_levanta_valueerror(escritorio_a):
+    with pytest.raises(ValueError, match="valida|cancelada"):
+        services.documentos_do_escritorio(escritorio_a, situacao="feita-a-mao")
+
+
+def test_listar_documentos_com_situacao_custa_uma_consulta_constante(
+    django_assert_num_queries, escritorio_a, empresa_a, usuario_gestor_a
+):
+    # A versão anterior calculava a situação em PYTHON — uma consulta de
+    # eventos POR DOCUMENTO (5.000 notas viravam 5.000 consultas). A
+    # correção anota `cancelada` no próprio SELECT (Exists/OuterRef), então
+    # listar N documentos com `situacao` continua custando UMA consulta,
+    # não N — este teste prova isso por MEDIÇÃO, não por leitura do código.
+    for i in range(5):
+        _receber(
+            escritorio_a,
+            usuario_gestor_a,
+            xml_nfse(identificador=identificador_nfse(410 + i), incluir_tomador=False),
+        )
+
+    with django_assert_num_queries(1):
+        documentos = list(services.documentos_do_escritorio(escritorio_a, situacao="valida"))
+        for documento in documentos:
+            # situacao_do_documento usa a anotação já carregada — nenhuma
+            # consulta extra por documento (o N+1 que este teste existe
+            # para provar que NÃO acontece).
+            assert services.situacao_do_documento(documento) == "valida"
+
+    assert len(documentos) == 5
+
+
+def test_situacao_do_documento_sem_anotacao_ainda_consulta(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Caminho de fallback: documento obtido por FORA de
+    # `documentos_do_escritorio` (sem a anotação `cancelada`) — continua
+    # funcionando, só que com uma consulta.
+    identificador = identificador_nfse(420)
+    _receber(
+        escritorio_a, usuario_gestor_a, xml_nfse(identificador=identificador, incluir_tomador=False)
+    )
+    documento_sem_anotacao = DocumentoFiscal.objects.get(identificador=identificador)
+    assert not hasattr(documento_sem_anotacao, "cancelada")
+    assert services.situacao_do_documento(documento_sem_anotacao) == "valida"
