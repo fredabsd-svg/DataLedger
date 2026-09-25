@@ -17,6 +17,7 @@ from apps.fiscal import leitor
 from apps.fiscal.tests.xml_sinteticos import (
     CNPJ_COM_ZERO_A_ESQUERDA,
     chave_nfse_de,
+    identificador_evento,
     identificador_nfse,
     xml_evento,
     xml_nfe_minimo,
