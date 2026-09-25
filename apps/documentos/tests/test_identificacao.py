@@ -290,3 +290,58 @@ class TestIdentificacaoContexto:
         )
         with pytest.raises(FrozenInstanceError):
             ctx.empresa_razao_social = "outra"  # type: ignore[misc]
+
+    def test_empresa_rotulo_inscricao_tem_default_cnpj_por_compatibilidade(self):
+        """DL-038: `empresa_rotulo_inscricao` é campo novo, com valor
+        padrão `"CNPJ"` — o único rótulo que existia antes desta etapa.
+        Sem chamador de produção nesta camada ainda (só este arquivo de
+        teste), o default garante que a assinatura continua construível
+        exatamente como antes, sem passar o campo novo."""
+        ctx = IdentificacaoContexto(
+            empresa_razao_social="x",
+            empresa_cnpj="y",
+            empresa_nire=None,
+            empresa_nivel_arredondamento="z",
+            periodo_coberto="w",
+            moeda="BRL",
+            data_emissao="01/01/2026",
+            relatorio_nome="Balancete",
+            escritorio_razao_social="e",
+            escritorio_crc="c",
+            profissional_nome="p",
+            profissional_crc="pc",
+            folha_atual=1,
+            folha_total=1,
+        )
+        assert ctx.empresa_rotulo_inscricao == "CNPJ"
+
+
+class TestRotuloDeInscricaoPessoaFisica:
+    """DL-038: quando o contexto vem de uma empresa cliente pessoa física
+    (CPF), o bloco de identificação mostra o rótulo `"CPF"` em vez de
+    `"CNPJ"` — nas três classes de documento, já que as três reaproveitam
+    a mesma linha `_campo_obrigatorio(ctx.empresa_rotulo_inscricao, ...)`.
+    """
+
+    @pytest.mark.parametrize(
+        "classe",
+        [ClasseDocumento.CONFERENCIA, ClasseDocumento.DEMONSTRACAO, ClasseDocumento.LIVRO],
+    )
+    def test_rotulo_cpf_substitui_cnpj_em_todas_as_classes(self, ctx_minimo, classe):
+        from dataclasses import replace
+
+        ctx = replace(ctx_minimo, empresa_cnpj="12345678909", empresa_rotulo_inscricao="CPF")
+        bloco = bloco_obrigatorio_para(classe, ctx)
+        labels = [campo.label for campo in bloco.campos]
+        assert "CPF" in labels
+        assert "CNPJ" not in labels
+        campo = next(c for c in bloco.campos if c.label == "CPF")
+        assert campo.valor == "12345678909"
+
+    def test_rotulo_default_continua_cnpj_quando_nao_informado(self, ctx_minimo):
+        # ctx_minimo não passa `empresa_rotulo_inscricao` — confirma que o
+        # comportamento de ANTES da DL-038 não mudou por omissão.
+        bloco = bloco_obrigatorio_para(ClasseDocumento.CONFERENCIA, ctx_minimo)
+        labels = [campo.label for campo in bloco.campos]
+        assert "CNPJ" in labels
+        assert "CPF" not in labels

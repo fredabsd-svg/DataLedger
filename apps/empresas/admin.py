@@ -78,7 +78,15 @@ class EmpresaAdmin(admin.ModelAdmin):
     # CNPJ/contabilidade, e o admin sem eles esconderia a distinção mais
     # importante desta etapa. cpf entra em search_fields pelo mesmo motivo
     # de cnpj já estar lá.
-    list_display = ["razao_social", "tipo_inscricao", "cnpj", "cpf", "modo_escrituracao", "escritorio", "ativo"]
+    list_display = [
+        "razao_social",
+        "tipo_inscricao",
+        "cnpj",
+        "cpf",
+        "modo_escrituracao",
+        "escritorio",
+        "ativo",
+    ]
     list_filter = ["escritorio", "ativo", "tipo_inscricao", "modo_escrituracao"]
     search_fields = ["razao_social", "nome_fantasia", "cnpj", "cpf"]
     inlines = [EstabelecimentoInline]

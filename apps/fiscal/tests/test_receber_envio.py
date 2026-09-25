@@ -17,6 +17,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.auditoria.models import RegistroAuditoria
+from apps.empresas.models import Empresa, TipoInscricao
 from apps.fiscal import services
 from apps.fiscal.models import (
     DocumentoFiscal,
@@ -400,6 +401,78 @@ def test_mensagem_de_recusa_e_identica_exista_ou_nao_empresa_em_outro_escritorio
     )
 
     assert lote_1.resultados.get().motivo == lote_2.resultados.get().motivo
+
+
+# --- DL-038 (R8): prestador/tomador pessoa física COM cadastro -------------
+
+
+def test_prestador_cpf_cadastrado_no_escritorio_entra_vinculado(escritorio_a, usuario_gestor_a):
+    # R8: CPF casa com `Empresa` de `tipo_inscricao=CPF` do MESMO
+    # escritório — mesmo comportamento de sucesso que já existe para CNPJ
+    # (test_prestador_cliente_gera_vinculo_de_prestador), agora para pessoa
+    # física cadastrada.
+    empresa_cpf = Empresa.objects.create(
+        escritorio=escritorio_a,
+        razao_social="Fulano de Tal",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="12345678909",
+        cnpj="",
+    )
+    conteudo = xml_nfse(
+        prestador_tipo="CPF", prestador_documento="12345678909", incluir_tomador=False
+    )
+    lote = services.receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=conteudo, nome_arquivo="nota.xml"
+    )
+
+    assert lote.total_recebidos == 1
+    assert lote.total_recusados == 0
+    documento = DocumentoFiscal.objects.get(escritorio=escritorio_a)
+    vinculos = list(documento.vinculos.all())
+    assert len(vinculos) == 1
+    assert vinculos[0].empresa == empresa_cpf
+    assert vinculos[0].papel == PapelDocumento.PRESTADOR
+
+
+def test_cpf_de_outro_escritorio_continua_recusado_com_mensagem_identica(
+    escritorio_a, escritorio_b, usuario_gestor_a
+):
+    # Critério 27 (agora para CPF): o CPF cadastrado em OUTRO escritório
+    # não pode dar pista de que existe — a recusa "sem cadastro" tem que
+    # ser a MESMA, cadastrado alhures ou nunca cadastrado.
+    Empresa.objects.create(
+        escritorio=escritorio_b,
+        razao_social="Fulano de Outro Escritório",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="98765432100",
+        cnpj="",
+    )
+    conteudo_cpf_de_outro_escritorio = xml_nfse(
+        prestador_tipo="CPF", prestador_documento="98765432100", incluir_tomador=False
+    )
+    conteudo_cpf_nunca_cadastrado = xml_nfse(
+        identificador=identificador_nfse(21),
+        prestador_tipo="CPF",
+        prestador_documento="12345678909",
+        incluir_tomador=False,
+    )
+
+    lote_1 = services.receber_envio(
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_cpf_de_outro_escritorio,
+        nome_arquivo="nota1.xml",
+    )
+    lote_2 = services.receber_envio(
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=conteudo_cpf_nunca_cadastrado,
+        nome_arquivo="nota2.xml",
+    )
+
+    esperado = services.MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO
+    assert lote_1.resultados.get().motivo == lote_2.resultados.get().motivo
+    assert lote_1.resultados.get().motivo == esperado
 
 
 # --- Recusas: formato (critérios 7, 8, 18, 24) -----------------------------

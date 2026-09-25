@@ -267,7 +267,9 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}) from exc
+            raise DRFValidationError(
+                {_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}
+            ) from exc
 
 
 class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
@@ -361,7 +363,9 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}) from exc
+            raise DRFValidationError(
+                {_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}
+            ) from exc
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):

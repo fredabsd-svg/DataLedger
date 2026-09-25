@@ -81,6 +81,7 @@ class EmpresaEscopadaContabilMixin(EmpresaEscopadaMixin):
             raise DRFValidationError({"empresa": [exc.mensagem]}) from exc
         return empresa
 
+
 # Mesmo limite do CharField `chave_idempotencia` (models.py). Validado aqui,
 # na fronteira da API, para que um cabeçalho longo demais vire 400 (entrada
 # do cliente) em vez de vazar como 500 do banco (`DataError: value too long

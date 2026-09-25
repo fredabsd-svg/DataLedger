@@ -276,9 +276,7 @@ def validar_cpf(valor):
         raise ValidationError("CPF deve ter 11 dígitos numéricos.")
 
     if cpf in _SEQUENCIAS_REPETIDAS_CPF:
-        raise ValidationError(
-            "CPF inválido: sequência de dígito repetido não é um CPF válido."
-        )
+        raise ValidationError("CPF inválido: sequência de dígito repetido não é um CPF válido.")
 
     primeiro_digito = _calcular_digito_verificador_cpf(cpf[:9], _PESOS_CPF_PRIMEIRO_DIGITO)
     segundo_digito = _calcular_digito_verificador_cpf(

@@ -25,8 +25,8 @@ from django.db.models import Exists, OuterRef
 from django.db.models.functions import Substr
 
 from apps.auditoria.services import registrar
-from apps.empresas.models import Empresa, Estabelecimento
-from apps.empresas.validators import normalizar_cnpj
+from apps.empresas.models import Empresa, Estabelecimento, TipoInscricao
+from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
 from apps.fiscal import leitor
 from apps.fiscal.models import (
     DocumentoFiscal,
@@ -75,16 +75,19 @@ MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO = (
 
 # RC-112 (docs/projeto/requisitos.md, resposta do Fred de 2026-09-25 à
 # PE-66): o escritório ATENDE cliente pessoa física que emite NFS-e com
-# CPF. O cadastro de cliente pessoa física ainda NÃO existe nesta etapa
-# (modelagem própria, em estudo) — enquanto não existir, a nota é recusada,
-# mas com um motivo ESPECÍFICO, para não confundir "não é cliente" com "é
-# cliente, mas o sistema ainda não tem onde cadastrá-lo". O texto NÃO
-# depende de nada que exista ou não em outro escritório (critério 27
-# continua valendo: a mensagem é sobre o TIPO do documento do XML, que o
-# próprio remetente já sabe — não sobre o que este ou outro escritório tem
-# cadastrado).
+# CPF. Desde a DL-038, `Empresa` admite `tipo_inscricao=CPF` — o cadastro
+# existe. Esta mensagem passou a valer só quando o CPF do participante
+# GENUINAMENTE não está cadastrado como Empresa (tipo CPF) NESTE
+# escritório: com cadastro, `_localizar_empresa_por_cpf` encontra a
+# empresa e este código nem chega a ser alcançado (`_vincular_participantes`
+# só levanta esta recusa quando `vinculos` está vazio). O texto continua
+# sem depender de nada que exista ou não em OUTRO escritório (critério 27:
+# a mensagem não pode revelar se o CPF pertence a alguém alhures) — é
+# sempre "não está cadastrado NESTE escritório", com ou sem cadastro em
+# outro.
 MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO = (
-    "Participante pessoa física (CPF): cadastro de cliente pessoa física ainda não disponível."
+    "Participante pessoa física (CPF): nenhuma empresa deste escritório está "
+    "cadastrada com este CPF."
 )
 
 
@@ -102,11 +105,9 @@ def localizar_empresa_do_escritorio(escritorio, participante):
     if participante.tipo_documento == "CNPJ":
         return _localizar_empresa_por_cnpj(escritorio, participante.documento)
     if participante.tipo_documento == "CPF":
-        # PONTO DE EXTENSÃO (RC-112): quando existir cadastro de cliente
-        # pessoa física, a busca por CPF entra AQUI, no mesmo molde de
-        # `_localizar_empresa_por_cnpj` — sempre filtrada pelo escritório.
-        # Até lá, CPF nunca casa.
-        return None
+        # DL-038 (R8): CPF casa com `Empresa` de `tipo_inscricao=CPF` do
+        # MESMO escritório — mesmo molde de `_localizar_empresa_por_cnpj`.
+        return _localizar_empresa_por_cpf(escritorio, participante.documento)
     # NIF (identificação fiscal estrangeira) e "nao_informado" (cNaoNIF)
     # nunca casam: não são inscrição de empresa brasileira cadastrável
     # neste sistema.
@@ -134,6 +135,23 @@ def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto):
     if estabelecimento is not None:
         return estabelecimento.empresa
     return None
+
+
+def _localizar_empresa_por_cpf(escritorio, cpf_bruto):
+    """DL-038 (R8): busca em `Empresa.cpf`, restrita a `tipo_inscricao=CPF`
+    e ao escritório recebido — mesmo molde de `_localizar_empresa_por_cnpj`,
+    pela mesma razão de isolamento (critério 27): sem o filtro por
+    escritório, casaria com um CPF cadastrado em OUTRO escritório, que é
+    exatamente o vazamento que o isolamento proíbe. Diferente do CNPJ, não
+    existe "Estabelecimento" para pessoa física — só a própria `Empresa`.
+    """
+    try:
+        cpf = normalizar_cpf(cpf_bruto)
+    except ValidationError:
+        return None
+    return Empresa.objects.filter(
+        escritorio=escritorio, tipo_inscricao=TipoInscricao.CPF, cpf=cpf
+    ).first()
 
 
 def _tem_participante_pessoa_fisica(documento_lido: leitor.DocumentoLido) -> bool:

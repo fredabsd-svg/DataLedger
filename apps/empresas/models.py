@@ -251,9 +251,7 @@ class Empresa(models.Model):
             # `apps.empresas.validators.validar_cpf` faz essa conferência
             # nos caminhos que chamam `full_clean()`/serializer.
             models.CheckConstraint(
-                condition=(
-                    models.Q(tipo_inscricao=TipoInscricao.CPF) & _CPF_TEM_FORMATO_VALIDO
-                )
+                condition=(models.Q(tipo_inscricao=TipoInscricao.CPF) & _CPF_TEM_FORMATO_VALIDO)
                 | ~models.Q(tipo_inscricao=TipoInscricao.CPF),
                 name="empresa_cpf_formato_valido",
             ),
@@ -469,7 +467,9 @@ class Empresa(models.Model):
             from apps.empresas.services import recusar_transicao_para_livro_caixa_com_movimento
 
             modo_gravado = (
-                Empresa.objects.filter(pk=self.pk).values_list("modo_escrituracao", flat=True).first()
+                Empresa.objects.filter(pk=self.pk)
+                .values_list("modo_escrituracao", flat=True)
+                .first()
             )
             if modo_gravado is not None and modo_gravado != self.modo_escrituracao:
                 # Levanta `TransicaoParaLivroCaixaInvalida`, subclasse de
