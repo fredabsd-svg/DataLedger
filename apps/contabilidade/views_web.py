@@ -306,8 +306,25 @@ def _empresa_do_escritorio_ativo(request, empresa_id):
     isolamento de `apps.empresas.mixins.EmpresaEscopadaMixin` (já usada
     pela API): uma empresa de outro escritório dá 404, não 403 — não
     confirma nem a existência do registro para quem não tem acesso.
+
+    DL-038 (R5): memorizada por REQUISIÇÃO (não entre requisições — o cache
+    vive só no objeto `request`, que é novo a cada chamada). Desde que o
+    decorador `_sem_contabilidade_para_livro_caixa` passou a resolver a
+    empresa ANTES da view (para recusar modo livro-caixa), cada view voltou
+    a resolvê-la de novo no próprio corpo — sem memoizar, isso soma uma
+    consulta a mais por requisição e estourava o teto de consultas da
+    DL-015/DL-019 (`test_dl019_razao_reaproveita_ids_contas.py`). Só
+    memoiza o resultado feliz: se `get_object_or_404` estourar Http404,
+    nada fica em cache e a próxima chamada tenta de novo (mesmo
+    comportamento de antes, sem mascarar erro).
     """
-    return get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+    cache = getattr(request, "_dl038_cache_empresa_do_escritorio_ativo", None)
+    if cache is None:
+        cache = {}
+        request._dl038_cache_empresa_do_escritorio_ativo = cache
+    if empresa_id not in cache:
+        cache[empresa_id] = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+    return cache[empresa_id]
 
 
 def _resposta_sem_permissao(request, mensagem):
