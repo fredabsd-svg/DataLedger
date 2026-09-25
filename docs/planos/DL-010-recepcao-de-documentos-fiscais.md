@@ -657,3 +657,31 @@ Precondição para cancelamento de **nota de serviço** chegar sem a nota
 **detecção de duplicidade** reportada no resultado — lá existe apenas uma escolha
 prévia entre sobrescrever e importar só o que não existe, **não** a deduplicação
 por identificador que a nossa medição exige (critério 15).
+
+## ⚠️ Decisão de segurança, tomada em 2026-09-25 ANTES da implementação
+
+**Esta fatia é a primeira vez que o produto lê arquivo vindo de fora.** Todo o
+resto do sistema processa dado que ele mesmo gravou; aqui entra arquivo de
+terceiro, em lote de milhares, e o leitor de XML da biblioteca padrão do Python
+tem uma fragilidade **documentada**: expansão de entidade declarada em `DTD`
+permite que um arquivo de poucos KB consuma toda a memória da máquina.
+
+**A decisão, e ela é barata porque a norma nos ajuda:** o leiaute oficial da
+NFS-e **não usa `DTD`**. Portanto:
+
+> **Arquivo que contenha declaração `DOCTYPE`/`DTD` é RECUSADO, com mensagem
+> específica**, antes de qualquer tentativa de interpretação.
+
+**Alternativas descartadas:**
+
+- *Acrescentar uma biblioteca de XML endurecido* — resolveria, e acrescenta
+  dependência nova a um projeto que hoje tem **seis**. Recusar `DOCTYPE` resolve o
+  mesmo problema com zero dependência, e é **verificável por teste**.
+- *Confiar que o arquivo do escritório é inofensivo* — o arquivo é de terceiro por
+  definição. Quem o emitiu não somos nós, e o caminho até nós passa por sistemas
+  que não controlamos.
+
+| # | Critério |
+| --- | --- |
+| **29** | **Arquivo com `DOCTYPE`/`DTD` é recusado com mensagem específica**, distinguível de XML malformado, **sem** ser interpretado. Teste com o caso clássico de expansão de entidade, provando que **não** há consumo de memória — e que o **resto do lote continua** |
+| **30** | **Limite de tamanho declarado** por arquivo e por lote, com recusa nomeada ao ultrapassar. ⚠️ **O número é decisão de operação e fica ESCRITO no código**, não espalhado: lote de milhares de arquivos é o caso normal, não a exceção |
