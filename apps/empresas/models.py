@@ -21,6 +21,30 @@ from apps.tenancy.models import Escritorio
 # nenhum dado que `normalizar_cnpj` já aceitaria.
 _CNPJ_E_CANONICO = models.Q(cnpj=Upper("cnpj")) & ~models.Q(cnpj__regex=r"[^A-Z0-9]")
 
+# DL-010, etapa BL-54 (pré-requisito de nível 1, dinheiro/isolamento):
+# _CNPJ_E_CANONICO garante maiúsculas e alfabeto A-Z0-9, mas sozinha não
+# garante o FORMATO do Anexo I da NT 2025.001 (14 caracteres, com os 2
+# últimos sempre numéricos — ver `_FORMATO_CNPJ` em
+# `apps.empresas.validators`). Por `bulk_create`/`bulk_update`/
+# `QuerySet.update()`/`loaddata` — que não passam por `Model.save()` nem por
+# `validar_cnpj` — valores como `""`, `"ABC"` ou `"AB123CDE0001AA"` (13
+# caracteres alfanuméricos seguidos de LETRA no lugar do dígito verificador)
+# eram canônicos (só A-Z0-9, já maiúsculo) e passavam pela constraint antiga
+# sem serem CNPJ nenhum. `_CNPJ_TEM_FORMATO_VALIDO` fecha isso: mesma regex
+# de formato usada por `validar_cnpj`, expressa como `Q` porque
+# `CheckConstraint.condition` roda no banco, não em Python.
+#
+# ATENÇÃO — o que esta constraint NÃO faz: ela confere o FORMATO (tamanho e
+# que os 2 últimos caracteres são dígitos), não o DÍGITO VERIFICADOR
+# calculado pelo módulo 11. Aceita, por exemplo, "AB123CDE000199" mesmo que
+# "99" não seja o DV correto para aquela base — isso é aceitável para uma
+# restrição de banco (não replicamos módulo 11 em SQL). Quem confere o DV é
+# `apps.empresas.validators.validar_cnpj`, chamado por `full_clean()`
+# (formulário/admin) e pelo serializer — não pela constraint, e não por
+# `bulk_create`/`QuerySet.update()`, que continuam fora do alcance do DV
+# (mesma limitação documentada em `Empresa.save()` abaixo).
+_CNPJ_TEM_FORMATO_VALIDO = models.Q(cnpj__regex=r"^[A-Z0-9]{12}[0-9]{2}$")
+
 # Lista oficial de siglas de unidade federativa (não é uma regra fiscal:
 # apenas os 26 estados e o Distrito Federal).
 _UFS = [
@@ -119,7 +143,7 @@ class Empresa(models.Model):
         ordering = ["razao_social"]
         constraints = [
             models.CheckConstraint(
-                condition=_CNPJ_E_CANONICO,
+                condition=_CNPJ_E_CANONICO & _CNPJ_TEM_FORMATO_VALIDO,
                 name="empresa_cnpj_canonico",
             ),
         ]
@@ -354,7 +378,7 @@ class Estabelecimento(models.Model):
             # caminhos de gravação em massa que Estabelecimento.save() não
             # alcança (R1 da reauditoria da etapa DL-011).
             models.CheckConstraint(
-                condition=_CNPJ_E_CANONICO,
+                condition=_CNPJ_E_CANONICO & _CNPJ_TEM_FORMATO_VALIDO,
                 name="estabelecimento_cnpj_canonico",
             ),
         ]

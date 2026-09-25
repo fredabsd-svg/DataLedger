@@ -50,6 +50,10 @@ INSTALLED_APPS = [
     "apps.empresas",
     "apps.auditoria",
     "apps.contabilidade",
+    # DL-010 F1 (DE-074 item 1): recepção de documentos fiscais (NFS-e
+    # nacional). Precisa entrar ANTES de "apps.documentos" — ver o
+    # comentário abaixo sobre por que aquele app fica sempre por último.
+    "apps.fiscal",
     # DL-027 — módulo de plataforma para o documento emitido.
     # Diferença importante em relação aos demais apps do produto:
     # `apps.documentos` não tem models de negócio (ainda), só enumerações
