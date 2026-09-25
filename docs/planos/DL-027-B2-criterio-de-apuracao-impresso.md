@@ -195,8 +195,10 @@ a razão social, proibida no HTML de recusa por teste existente, aparecia no
 `aria-label` da parcial. O mesmo papel acrescentou à parcial a opção
 `rotulo_generico=True`, usada somente na página 409. Os dois testes focados
 passaram localmente. Essas alterações posteriores não foram reconferidas pelo
-auditor; a execução completa dos quatro checks na nova cabeça continua sendo
-requisito para o merge.
+auditor. Na cabeça `32bb184`, os quatro workflows obrigatórios passaram:
+Backend (2148 passaram, 37 pulados), Identificação do emitente, Documentação e
+Regras do projeto. O merge ainda depende da confirmação dos quatro checks na
+cabeça mais recente do PR, inclusive após esta atualização documental.
 
 O auditor não mediu PDF/paginação A4 real. O job `Medir identificação do
 emitente no navegador` permanece obrigatório no CI do PR #42, mas seu escopo

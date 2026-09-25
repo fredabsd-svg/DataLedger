@@ -313,9 +313,12 @@ teste de recusa sem identidade da empresa — passaram localmente (`2 passed`).
 Essas duas inclusões/correções são posteriores à reconferência aprovada do
 código em `befd652`; portanto, não são apresentadas como cobertas por aquele
 parecer. Não haverá terceira rodada de auditoria, pela regra de parada da
-§3.1. Os quatro checks obrigatórios precisam passar na próxima cabeça antes do
-merge; essa execução completa ainda está pendente. A DL-035 segue após a
-integração desta correção.
+§3.1. Na cabeça `32bb184`, os quatro workflows obrigatórios passaram: Backend
+(run 647, **2148 passaram e 37 foram pulados**), Identificação do emitente
+(run 209), Documentação (run 650) e Regras do projeto (run 188). Esse resultado
+vale para essa cabeça. O merge exige confirmar os quatro workflows na cabeça
+mais recente do PR #42; esta regra também se aplica a qualquer commit posterior.
+A DL-035 segue após a integração desta correção.
 
 **Desvio de processo registrado:** no primeiro envio pela API GitHub, três
 arquivos grandes foram truncados porque a saída local excedeu o limite do
