@@ -269,24 +269,29 @@ cliente), e uma decisão que afirmava funcionar em produção sem que o
 `collectstatic` existisse no `Dockerfile`. Os três foram encontrados pela
 auditoria independente — que é exatamente o motivo de ela existir.
 
-## Próximo passo
+## Etapa integrada mais recente
 
-### DL-035 — as guardas da demonstração (2026-09-25)
+### DL-035 — as guardas da demonstração (PR #43, 2026-09-25)
 
-**Estado: auditoria independente aprovada após a correção única e a
-reconferência.** A branch `feat/dl-035-guardas-demonstracao` parte da `main`
-`22a0241`. Os implementadores `desenvolvedor-pleno` e
-`especialista-frontend` concluíram as frentes em sequência. A implementação
-está no commit local
-`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a primeira auditoria aprovou
-BL-514 a BL-519 e reprovou apenas o estado documental que dizia que não havia
-commit. A correção foi feita e reconferida no commit
-`75a3530b529cd737e884f3442bcdf0ea00198f45`, com árvore limpa. O parecer
-integral da rodada 1 e a reconferência aprovada estão em
+**Estado: integrada** no merge commit `898b334ce58dfa9bdb27d20ae165633948532844`.
+O PR #43 foi aberto da branch `feat/dl-035-guardas-demonstracao` para `main`,
+com head `ce127b0e4aac09f82be8ec3cec8006f8215b79cf`. Os implementadores
+`desenvolvedor-pleno` e `especialista-frontend` concluíram as frentes em
+sequência. A auditoria inicial aprovou BL-514 a BL-519 e reprovou apenas o
+estado documental que dizia que não havia commit; a correção foi reconferida e
+aprovada. Os pareceres integrais estão em
 [`docs/auditorias/2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Branch publicada; o [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
-está aberto contra `main`. A CI da DL-035 continua pendente no head mais
-recente; a etapa não está integrada.
+
+**CI do head do PR** `ce127b0e4aac09f82be8ec3cec8006f8215b79cf`: Backend #654,
+Documentação #657, Regras do projeto #195 e Identificação do emitente #216 —
+todos `success`. **CI no merge da `main`** `898b334ce58dfa9bdb27d20ae165633948532844`:
+Backend #655, Documentação #658 e Identificação do emitente #217 — todos
+`success`. Regras do projeto é acionado pelo evento `pull_request`; sua execução
+verde é a #195 no head do PR, e não há execução desse workflow no `push` do
+merge.
+
+**Próximo passo:** não há plano DL-036 declarado. Priorizar a etapa seguinte a
+partir do backlog e registrar seu plano antes de iniciar implementação.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:
@@ -309,7 +314,7 @@ passed` entre casos e probes). No PR #42, a cabeça `6fb5fd6` teve 2148
 aprovados e 37 pulados no Backend, e os quatro workflows obrigatórios
 passaram; isso é apenas a linha de base, não CI da DL-035.
 
-O escopo cobre BL-514 (contraste real do item 51), BL-515 (prova de cada veto),
+O escopo cobriu BL-514 (contraste real do item 51), BL-515 (prova de cada veto),
 BL-516 (aviso das raízes do mesmo tipo), BL-517/BL-519 (nota irmã e extração
 completa) e BL-518 (regra de impressão derivada). BL-507 continua fora do
 escopo.

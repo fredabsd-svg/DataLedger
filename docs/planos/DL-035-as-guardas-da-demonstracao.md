@@ -1,18 +1,20 @@
 # DL-035 — As guardas da demonstração
 
-**Estado em 2026-09-25:** auditoria independente aprovada após uma correção e
-uma reconferência, na branch `feat/dl-035-guardas-demonstracao`, baseada na
-`main` `22a0241`. A implementação está no commit local
-`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a correção documental da primeira
-auditoria foi registrada no commit `75a3530b529cd737e884f3442bcdf0ea00198f45`,
-cuja árvore foi reconferida limpa. A auditoria inicial reprovou só a declaração
-desatualizada de que não havia commit; a reconferência aprovou a correção e
-confirmou que os critérios de código BL-514 a BL-519 estavam atendidos. Os dois
-pareceres integrais estão em
+**Estado em 2026-09-25: integrada** pelo [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43),
+merge commit `898b334ce58dfa9bdb27d20ae165633948532844`. A implementação foi
+feita na branch `feat/dl-035-guardas-demonstracao`, baseada na `main`
+`22a0241`; commit local de código `38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`,
+correção documental `75a3530b529cd737e884f3442bcdf0ea00198f45` e registro de
+reconferência `b076d3e495a1252e0a680c70cd56e60f0c6917f6`. A auditoria inicial
+reprovou somente a declaração desatualizada de que não havia commit; a
+reconferência aprovou a correção e confirmou BL-514 a BL-519. Os dois pareceres
+integrais estão em
 [`2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
-Branch publicada e [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
-aberto contra a `main`. Os quatro workflows do PR continuam pendentes; não
-declarar integração antes de todos passarem no head mais recente.
+Os quatro workflows do PR passaram no head `ce127b0e4aac09f82be8ec3cec8006f8215b79cf`:
+Backend #654, Documentação #657, Regras do projeto #195 e Identificação do
+emitente #216. Na `main`, no merge commit, passaram Backend #655, Documentação
+#658 e Identificação do emitente #217. Regras do projeto roda em `pull_request`
+e passou no PR #43; não houve execução desse workflow no evento `push` do merge.
 
 **Origem:** as cinco ressalvas da
 [reconferência da DL-034](../auditorias/2026-09-21-dl-034-rodada-2.md), que
@@ -189,5 +191,5 @@ A primeira auditoria foi **reprovada apenas** porque o estado do commit não
 acompanhou a criação de `38e7a6b`; os critérios de código BL-514 a BL-519 foram
 aprovados. A correção única e a reconferência previstas pela §3.1 do `AGENTS.md`
 foram concluídas, e a reconferência aprovou. O [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
-está aberto; os quatro workflows da CI ainda são pendentes. O aceite de
-integração só será declarado depois desses resultados.
+foi mesclado em `898b334`; os quatro workflows de PR e os três workflows
+disparados no merge passaram nos SHAs acima. A árvore não contém migrações.
