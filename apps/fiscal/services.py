@@ -412,7 +412,9 @@ def _criar_evento(escritorio, lido: leitor.EventoLido, *, mapa=None) -> EventoFi
     # tratado por quem chama, fora deste savepoint.
 
 
-def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str) -> str:
+def _motivo_de_duplicado(
+    existente, sha256_novo: str, rotulo: str, *, vinculo_novo=None
+) -> str:
     """Mensagem de um resultado "duplicado" — distingue o caso NORMAL
     (reenviar o mesmo arquivo, RC-69) do caso que merece CONFERÊNCIA:
     mesmo identificador (`escritorio` + `identificador`), conteúdo
@@ -425,13 +427,22 @@ def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str) -> str:
 
     `rotulo` é "Documento" ou "Evento", para reusar a mesma função nos
     dois `except IntegrityError` de `_processar_um_arquivo`.
+
+    `vinculo_novo` (achado A5): quando o reenvio acrescentou um vínculo
+    que faltava (empresa cadastrada depois do primeiro recebimento), a
+    mensagem registra QUAL empresa entrou — sem isso, o resultado
+    "duplicado" pareceria idêntico ao reenvio comum, escondendo que algo
+    de fato mudou no documento.
     """
     if existente is not None and existente.sha256_arquivo != sha256_novo:
         return (
             f"{rotulo} já recebido, mas o conteúdo deste arquivo é DIFERENTE "
             "do recebido antes — conferir."
         )
-    return f"{rotulo} já recebido anteriormente por este escritório."
+    base = f"{rotulo} já recebido anteriormente por este escritório."
+    if vinculo_novo is not None:
+        base += f" Vínculo novo criado com {vinculo_novo.razao_social}."
+    return base
 
 
 def _processar_um_arquivo(escritorio, conteudo: bytes) -> dict:
