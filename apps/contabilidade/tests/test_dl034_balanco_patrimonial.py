@@ -517,15 +517,16 @@ def test_v1c_cinco_classificacoes_retificadoras_e_centavos_quebrados():
 
 # ---------------------------------------------------------------------------
 # BL-499/BL-500/BL-502 — rodada de CORREÇÃO da auditoria da DL-034 (rodada
-# 1, REPROVADA por A1: a guarda da condição 3 tratava TODA raiz como
-# irmã). Três achados, três correções:
+# 1, REPROVADA por A1: agrupar só por pai cruzava raízes de tipos
+# diferentes. Três achados, três correções:
 #
 # - **BL-499 (ALTA)**: `apurar_saldos` agrupava os nós topo-classificados
-#   por `linha["conta_pai"]`, e `conta_pai` é `None` para TODA raiz —
-#   plano de contas legítimo, aceito pelo `full_clean()` do produto,
-#   ficava PERMANENTEMENTE impedido de emitir, com mensagem factualmente
-#   falsa. Corrigido: raiz nunca é "irmã" para esta guarda, e a
-#   comparação de natureza só vale dentro do MESMO `TipoConta`.
+#   só por `linha["conta_pai"]`; todas as raízes compartilham `None`, então
+#   contas de Ativo e Passivo entravam no mesmo grupo e podiam impedir a
+#   emissão com mensagem factualmente falsa. Corrigido com a chave
+#   `(conta_pai, tipo)`, que separa tipos diferentes. O BL-516 remove a
+#   exclusão de raiz: divergência de natureza entre raízes do mesmo tipo
+#   continua nomeada como aviso, sem vetar.
 # - **BL-500 (DE-070)**: a condição 3 deixa de VETAR a emissão — vira
 #   aviso declarado, em `listas_informativas` (correção de CONTRATO
 #   pedida pelo arquiteto-senior: `listas_pendentes` só contém o que
@@ -538,7 +539,7 @@ def test_v1c_cinco_classificacoes_retificadoras_e_centavos_quebrados():
 # ---------------------------------------------------------------------------
 
 
-def test_bl499_tres_raizes_classificadas_nao_sao_irmas_e_o_balanco_emite():
+def test_bl499_tres_raizes_de_tipos_diferentes_nao_se_cruzam_e_emitem():
     """Reprodução EXATA do achado A1 (auditoria da DL-034, rodada 1) —
     plano mínimo, TRÊS raízes, sem pai nenhum:
 
@@ -553,8 +554,8 @@ def test_bl499_tres_raizes_classificadas_nao_sao_irmas_e_o_balanco_emite():
     acusava `['1', '2']` como "irmãs de natureza divergente" — falso: as
     duas não têm ancestral NENHUM, são de TIPOS diferentes (Ativo/Passivo),
     e a natureza oposta entre elas é exatamente a REGRA (Lei 6.404/76).
-    DEPOIS da correção, raiz nunca entra no agrupamento: a lista sai
-    VAZIA, e o Balanço emite."""
+    Com a chave `(conta_pai, tipo)`, as raízes de Ativo e Passivo ficam em
+    grupos separados: a lista sai VAZIA, e o Balanço emite."""
     empresa = _empresa("DL-034 BL-499 Três Raízes")
     ativo_circulante = _conta(
         empresa,
@@ -594,8 +595,8 @@ def test_bl499_tres_raizes_classificadas_nao_sao_irmas_e_o_balanco_emite():
         TipoConta.PASSIVO: Decimal("0.00"),
     }
     assert saldos["equacao"]["diferenca"] == Decimal("0.00")
-    # A prova do BL-499: raiz não é irmã, mesmo com natureza cadastrada
-    # divergente entre elas.
+    # A chave por tipo evita cruzar Ativo e Passivo, mesmo com natureza
+    # cadastrada divergente entre eles.
     assert saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"] == []
 
     emissao = avaliar_emissao_do_balanco(saldos)
@@ -607,11 +608,12 @@ def test_bl499_tres_raizes_classificadas_nao_sao_irmas_e_o_balanco_emite():
     }
 
 
-def test_bl499_cinco_raizes_grupo_nao_sao_irmas_e_o_balanco_emite():
+def test_bl499_cinco_raizes_grupo_com_naturezas_coerentes_emitem():
     """Segundo cenário do achado A1: as raízes SÃO os próprios grupos —
     `1 AC`, `2 ANC`, `3 PC`, `4 PNC`, `5 PL`. ANTES da correção do BL-499,
-    a lista acusava QUATRO contas (`['1','2','3','4']`); depois, vazia —
-    nenhuma delas tem irmã de fato (todas são raiz)."""
+    a lista acusava QUATRO contas (`['1','2','3','4']`); com a chave
+    `(conta_pai, tipo)`, grupos de tipos diferentes não se cruzam e as
+    naturezas dentro de cada tipo são coerentes, então a lista fica vazia."""
     empresa = _empresa("DL-034 BL-499 Cinco Raízes-Grupo")
     ativo_circulante = _conta(
         empresa,
@@ -694,6 +696,57 @@ def test_bl499_cinco_raizes_grupo_nao_sao_irmas_e_o_balanco_emite():
         "listas_pendentes": {},
         "listas_informativas": {},
     }
+
+
+def test_bl516_duas_raizes_do_mesmo_tipo_com_natureza_divergente_sao_informadas():
+    """Cenário L4 do BL-516: duas contas-raiz de Ativo, ambas no mesmo
+    grupo patrimonial, com naturezas cadastradas diferentes. A lista
+    informativa volta a nomear os códigos `1` e `2`; a chave não inventa
+    ancestral para elas e essa condição continua sem vetar a emissão."""
+    empresa = _empresa("DL-035 BL-516 Duas Raízes do Ativo")
+    clientes = _conta(
+        empresa,
+        codigo="1",
+        nome="Clientes",
+        tipo=TipoConta.ATIVO,
+        natureza=D,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    pdd = _conta(
+        empresa,
+        codigo="2",
+        nome="(-) PDD",
+        tipo=TipoConta.ATIVO,
+        natureza=C,
+        classificacao=ClassificacaoPatrimonial.ATIVO_CIRCULANTE,
+    )
+    capital = _conta(
+        empresa,
+        codigo="3",
+        nome="Capital",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+    )
+    _lancar(empresa, date(2026, 1, 2), "Clientes", clientes, capital, "1220.00")
+    _lancar(empresa, date(2026, 1, 3), "Provisão — PDD", capital, pdd, "50.00")
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(2026, 1, 31))
+    aviso = saldos["contas_topo_classificadas_com_natureza_divergente_entre_irmas"]
+    assert {linha["conta"] for linha in aviso} == {"1", "2"}
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+    assert (
+        emissao["listas_informativas"][
+            "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+        ]
+        == aviso
+    )
+    assert (
+        emissao["listas_pendentes"].get(
+            "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+        )
+        is None
+    )
 
 
 def test_a2_retificadora_de_grupo_emite_com_totais_por_grupo_certo():
@@ -818,6 +871,59 @@ def _saldos_minimos_para_avaliacao(
     }
 
 
+_LISTA_INFORMATIVA_DE_CONTRATO_BL515 = (
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+)
+
+
+def test_bl515_a_tupla_de_veto_preserva_as_travas_revisadas():
+    """A parametrização abaixo acompanha a tupla atual, então remover um
+    item também removeria seu caso de teste. Este contrato independente
+    deriva as travas do inventário local de `saldos` menos a única lista
+    informativa confirmada, e acusa uma remoção de lado pelo nome. Ele
+    protege a presença do cenário; não substitui a prova comportamental
+    parametrizada. Nomes novos continuam ganhando cenário pela tupla."""
+    nomes_de_listas = {
+        nome for nome in _saldos_minimos_para_avaliacao() if nome.startswith("contas_")
+    }
+    esperadas = nomes_de_listas - {_LISTA_INFORMATIVA_DE_CONTRATO_BL515}
+    atuais = set(contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)
+    informativas = tuple(contabilidade_services._LISTAS_QUE_SO_AVISAM)
+    assert informativas == (_LISTA_INFORMATIVA_DE_CONTRATO_BL515,), (
+        "BL-515: lista(s) movida(s) para avisos: "
+        f"{sorted(set(informativas) - {_LISTA_INFORMATIVA_DE_CONTRATO_BL515})}"
+    )
+    assert atuais == esperadas, (
+        "BL-515: a tupla de veto divergiu do inventário esperado; "
+        f"retiradas: {sorted(esperadas - atuais)}; adicionadas: {sorted(atuais - esperadas)}"
+    )
+
+
+@pytest.mark.parametrize(
+    "lista_que_veta",
+    contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO,
+)
+def test_bl515_cada_lista_que_veta_sozinha_continua_impedindo(lista_que_veta):
+    """DE-071/BL-515: cada trava da tupla, isolada das demais, recusa a
+    emissão com resíduo zero. Os IDs de pytest vêm do próprio nome da
+    lista, então a mutação de uma trava acusa qual delas deixou de vetar."""
+    saldos = _saldos_minimos_para_avaliacao()
+    saldos[lista_que_veta] = [{"marcador": lista_que_veta}]
+    assert saldos["residuo_por_tipo"] == {}
+    assert (
+        sum(bool(saldos[nome]) for nome in contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)
+        == 1
+    )
+
+    emissao = avaliar_emissao_do_balanco(saldos)
+
+    assert emissao["pode_emitir"] is False, (
+        f"{lista_que_veta} deixou de impedir a emissão quando movida para a tupla de avisos"
+    )
+    assert emissao["listas_pendentes"] == {lista_que_veta: saldos[lista_que_veta]}
+    assert emissao["listas_informativas"] == {}
+
+
 def test_de070_condicao_3_sozinha_nao_veta_a_emissao():
     """Prova ISOLADA da DE-070: com resíduo zero e a condição 4 vazia, uma
     condição 3 NÃO vazia, SOZINHA, não impede `pode_emitir` — e (correção
@@ -906,11 +1012,12 @@ def test_bl502_as_duas_tuplas_particionam_o_inventario_real_de_apurar_saldos(_ce
        tempo — inscrever a mesma lista nova nas DUAS tuplas também
        reprova aqui.
 
-    (A terceira prova do arquiteto — "`pode_emitir` deriva só da tupla que
-    impede" — está nos testes isolados acima, `test_de070_condicao_3_
-    sozinha_nao_veta_a_emissao` e `test_de070_condicao_4_sozinha_continua_
-    vetando_a_emissao`: mover uma lista de uma tupla para a outra faz um
-    deles reprovar.)"""
+    A partição prova somente o inventário e sua forma; não prova que cada
+    item da tupla de veto recusa. O teste independente
+    `test_bl515_a_tupla_de_veto_preserva_as_travas_revisadas` acusa a
+    remoção de uma lista pelo nome, e
+    `test_bl515_cada_lista_que_veta_sozinha_continua_impedindo` prova o
+    comportamento de cada item restante, parametrizando a própria tupla."""
     saldos = apurar_saldos(empresa=_cenario_simples["empresa"], data_base=date(2026, 1, 31))
     chaves_contas_em_saldos = {chave for chave in saldos if chave.startswith("contas_")}
     impedem = set(contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)

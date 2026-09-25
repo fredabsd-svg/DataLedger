@@ -2540,27 +2540,18 @@ def apurar_saldos(*, empresa, data_base):
     # (deixou de VETAR a emissão; ver o comentário grande depois do laço, e
     # `avaliar_emissao_do_balanco`). Agrupa cada nó TOPO classificado
     # (classificação própria válida, nenhum ancestral também classificado)
-    # com a sua natureza CADASTRADA — para, depois do laço, achar grupos de
-    # IRMÃOS de fato com natureza divergente entre si. É a topologia EXATA
-    # do BL-486 (ver a nota grande abaixo).
+    # por seu pai declarado e tipo, com a natureza CADASTRADA — para,
+    # depois do laço, achar grupos com natureza divergente entre si. É a
+    # topologia EXATA do BL-486 (ver a nota grande abaixo).
     #
-    # ⚠️ **BL-499 (achado A1, auditoria DL-034 rodada 1) — a chave de
-    # agrupamento, corrigida:** a chave é `(conta_pai, tipo)`, NUNCA só
-    # `conta_pai`:
-    # 1. **Raiz não tem irmã para este fim.** `linha["conta_pai"]` é
-    #    `None` para TODA raiz (`_construir_hierarquia`, acima) — agrupar
-    #    por esse valor tratava CADA raiz do plano de contas como irmã de
-    #    TODAS as outras, sem exceção. Um plano com `1 ATIVO CIRCULANTE`,
-    #    `2 PASSIVO CIRCULANTE` e `3 CAPITAL SOCIAL`, todas raízes, sem
-    #    parentesco nenhum entre si, caía nesta lista e IMPEDIA a emissão
-    #    permanentemente — com uma mensagem que nomeava contas
-    #    corretamente classificadas. Por isso, abaixo, uma linha cuja
-    #    `conta_pai` é `None` NUNCA entra neste agrupamento.
-    # 2. **Natureza oposta só é anomalia DENTRO do mesmo `TipoConta`.**
-    #    Entre Ativo e Passivo, natureza oposta é a REGRA (Ativo devedor,
-    #    Passivo credor — `NATUREZA_NATURAL_DO_TIPO`), nunca a exceção. A
-    #    chave inclui `linha["tipo"]` para que a comparação de natureza,
-    #    no laço logo abaixo, nunca cruze contas de tipos diferentes.
+    # ⚠️ **BL-499/BL-516 — chave de agrupamento `(conta_pai, tipo)`:**
+    # agrupar só por `conta_pai` juntava raízes de tipos diferentes porque
+    # todas têm pai `None`; a chave também inclui `tipo`, então Ativo e
+    # Passivo nunca se cruzam. Raízes do mesmo tipo permanecem comparáveis:
+    # se suas naturezas divergem, a lista informativa as nomeia (BL-516).
+    # Os cenários L1 e L2 em `test_dl034_balanco_patrimonial.py` provam
+    # que os planos de contas coerentes continuam emitindo. A lista é
+    # aviso, não veto.
     topo_classificados_por_pai = defaultdict(list)
     for linha in balancete["contas"]:
         propria = linha["classificacao_patrimonial"]
@@ -2599,8 +2590,9 @@ def apurar_saldos(*, empresa, data_base):
                 # inverter para que a soma do grupo aplique UMA natureza
                 # sobre o valor combinado — exatamente a regra única de
                 # saldo (DE-020) que já vale para hierarquia, agora
-                # aplicada entre CONTAS IRMÃS classificadas
-                # independentemente no mesmo grupo. Sem isto, "Clientes"
+                # aplicada entre contas classificadas independentemente
+                # no mesmo grupo, seja qual for sua posição na árvore.
+                # Sem isto, "Clientes"
                 # (D, 1.220,00) e "(-) PDD" (C, 50,00), ambas
                 # `ativo_circulante`, somavam 1.220,00 + 50,00 = 1.270,00;
                 # com a normalização, 1.220,00 − 50,00 = 1.170,00 —
@@ -2616,19 +2608,18 @@ def apurar_saldos(*, empresa, data_base):
                     else -linha["saldo_final"]
                 )
                 totais_por_classificacao[propria] += valor_normalizado
-                # BL-499: só entra no agrupamento quem TEM pai de fato —
-                # raiz (`conta_pai is None`) nunca tem irmã para esta
-                # guarda, e a chave leva o TIPO junto (ver o comentário
-                # grande acima, na criação de `topo_classificados_por_pai`).
-                if linha["conta_pai"] is not None:
-                    topo_classificados_por_pai[(linha["conta_pai"], linha["tipo"])].append(
-                        {
-                            "conta": linha["conta"],
-                            "nome": linha["nome"],
-                            "classificacao_patrimonial": propria,
-                            "natureza": linha["natureza"],
-                        }
-                    )
+                # BL-516: mantenha também as raízes na chave. O `None`
+                # comum só aproxima contas de mesmo tipo; naturezas
+                # divergentes viram aviso nomeado, sem afirmar que há um
+                # ancestral ou vetar a emissão.
+                topo_classificados_por_pai[(linha["conta_pai"], linha["tipo"])].append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "classificacao_patrimonial": propria,
+                        "natureza": linha["natureza"],
+                    }
+                )
         elif ancestral is None and linha["tipo"] in (TipoConta.ATIVO, TipoConta.PASSIVO):
             if linha["analitica"]:
                 if linha["saldo_final"] != zero:
@@ -2660,14 +2651,12 @@ def apurar_saldos(*, empresa, data_base):
     # NUNCA em `listas_pendentes` (`avaliar_emissao_do_balanco`; correção
     # de integração do arquiteto-senior: este comentário ficou apontando
     # para `listas_pendentes` depois da separação em duas tuplas, e chave
-    # errada em comentário vira código errado na próxima leitura) — um
-    # grupo de contas IRMÃS (mesmo pai
-    # de fato, mesmo `TipoConta` — nunca mais raiz, nem entre tipos
-    # diferentes, BL-499), cada uma TOPO classificada, com natureza
-    # CADASTRADA divergente entre si (a topologia exata do BL-486,
-    # Clientes/PDD) continua sendo um AVISO útil ao contador sobre o plano
-    # de contas — só deixou de BLOQUEAR a emissão. Quem continua vetando:
-    # o resíduo (condição 1) e a condição 4 (cobertura), abaixo.
+    # errada em comentário vira código errado na próxima leitura) — contas
+    # topo-classificadas com o mesmo valor de `conta_pai` (inclusive `None`
+    # para raízes) e mesmo `TipoConta`, com natureza CADASTRADA divergente
+    # entre si (BL-486/BL-516), continuam sendo um AVISO útil ao contador
+    # sobre o plano de contas — só deixaram de BLOQUEAR a emissão. Quem
+    # continua vetando: o resíduo (condição 1) e a condição 4 (cobertura).
     contas_topo_classificadas_com_natureza_divergente_entre_irmas = []
     for irmaos in topo_classificados_por_pai.values():
         naturezas_dos_irmaos = {irmao["natureza"] for irmao in irmaos}
@@ -2744,10 +2733,10 @@ def apurar_saldos(*, empresa, data_base):
         "contas_sem_classificacao_patrimonial": contas_sem_classificacao_patrimonial,
         # DL-034, critério 1, condição 3 (BL-496) — DECLARATIVA, não veto
         # desde a DE-070 (ver o comentário grande acima, antes desta
-        # variável ser fechada). Vazia no caso são; nomeia TODA conta irmã
-        # DE FATO envolvida (mesmo pai que não é raiz, mesmo `TipoConta` —
-        # BL-499) quando duas ou mais, topo-classificadas, têm natureza
-        # cadastrada divergente entre si (a topologia do BL-486).
+        # variável ser fechada). Vazia no caso são; nomeia contas
+        # topo-classificadas com o mesmo valor de pai (inclui None para
+        # raízes) e mesmo `TipoConta` quando duas ou mais têm natureza
+        # cadastrada divergente entre si (BL-486/BL-516).
         "contas_topo_classificadas_com_natureza_divergente_entre_irmas": (
             contas_topo_classificadas_com_natureza_divergente_entre_irmas
         ),
@@ -2797,10 +2786,10 @@ _LISTAS_QUE_IMPEDEM_A_EMISSAO = (
 # DL-034 mediu que a correção (b) dá o número CERTO também para
 # retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
 # existir) e que, sem essa prova, a condição bloqueava planos de contas
-# CORRETOS (BL-499 — ela tratava toda RAIZ como irmã). Continua CALCULADA
-# por `apurar_saldos` (com o defeito do BL-499 corrigido lá: raiz nunca é
-# "irmã", comparação só dentro do mesmo `TipoConta`) e DECLARADA — só não
-# impede mais nada, e por isso não entra na tupla acima.
+# CORRETOS (BL-499 — agrupar só por pai cruzava raízes de tipos diferentes).
+# Continua CALCULADA por `apurar_saldos`, com a chave `(conta_pai, tipo)`
+# que também nomeia raízes do mesmo tipo com natureza divergente (BL-516),
+# e DECLARADA — só não impede mais nada, e por isso não entra na tupla acima.
 _LISTAS_QUE_SO_AVISAM = ("contas_topo_classificadas_com_natureza_divergente_entre_irmas",)
 
 
@@ -2829,29 +2818,31 @@ def avaliar_emissao_do_balanco(saldos):
        (`contas_nao_folha_sem_classificacao_com_movimento_proprio` vazia
        — BL-487).
 
-    ⚠️ **A condição "nenhum grupo de contas IRMÃS topo classificadas tem
-    natureza cadastrada divergente entre si" (`contas_topo_classificadas_
-    com_natureza_divergente_entre_irmas` — BL-496) NÃO veta mais, desde a
+    ⚠️ **A condição de natureza cadastrada divergente entre contas
+    topo-classificadas (`contas_topo_classificadas_com_natureza_divergente_
+    entre_irmas` — BL-496) NÃO veta mais, desde a
     [DE-070](../../docs/projeto/decisoes.md#de-070).** Ela continua
-    CALCULADA por `apurar_saldos` (guarda contra o defeito do BL-499
-    corrigida lá — raiz nunca é "irmã", comparação só dentro do mesmo
-    `TipoConta`) e é devolvida SEPARADA, em `listas_informativas` — nunca
-    misturada com `listas_pendentes`, que só contém o que IMPEDE (ver
-    "Retorna", abaixo). Eu (arquiteto) tinha mandado mantê-la como veto
-    ("cinto e suspensório") enquanto a correção (b) não tivesse prova para
-    retificadora DE GRUPO; a auditoria da DL-034 mediu essa prova e ela é
-    CERTA — o suspensório deixou de ter pressuposto.
+    CALCULADA por `apurar_saldos`, com agrupamento `(conta_pai, tipo)`:
+    raízes de tipos diferentes não se cruzam (BL-499), e raízes do mesmo
+    tipo com natureza divergente continuam nomeadas (BL-516). O resultado
+    é devolvido SEPARADO, em `listas_informativas` — nunca misturado com
+    `listas_pendentes`, que só contém o que IMPEDE (ver "Retorna", abaixo).
+    Eu (arquiteto) tinha mandado mantê-la como veto ("cinto e suspensório")
+    enquanto a correção (b) não tivesse prova para retificadora DE GRUPO;
+    a auditoria da DL-034 mediu essa prova e ela é CERTA — o suspensório
+    deixou de ter pressuposto.
 
     ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
     projeto já pagou caro por enumeração), com DUAS tuplas EXPLÍCITAS, não
-    uma inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
+    um inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
     EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM` (um
-    nome) nunca decide nada. Uma lista nova que `apurar_saldos` ganhar no
-    futuro só participa desta função se entrar em UMA das duas — o teste
-    do BL-502 (`test_dl034_balanco_patrimonial.py`) reprova se ela ficar de
-    fora das duas (esquecida), se entrar nas duas ao mesmo tempo
-    (ambígua), ou se uma lista que hoje impede for movida para a que só
-    avisa sem um teste de comportamento acusar.
+    nome) nunca decide nada. O teste do BL-502
+    (`test_bl502_as_duas_tuplas_particionam_o_inventario_real_de_apurar_saldos`)
+    prova apenas a forma da partição. O teste parametrizado
+    `test_bl515_cada_lista_que_veta_sozinha_continua_impedindo` percorre
+    cada nome da tupla, com resíduo zero e só aquela lista não vazia, e
+    exige recusa. Uma lista nova que `apurar_saldos` ganhar no futuro só
+    participa desta função se entrar em UMA das duas tuplas.
 
     Não verifica autorização nem papel nenhum — mesmo limite que
     `apurar_saldos` já declara: esta função continua sem saber o que é uma

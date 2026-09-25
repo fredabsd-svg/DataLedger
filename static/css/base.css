@@ -782,7 +782,7 @@ button:disabled {
     margin: 0 0 var(--esp-1);
 }
 
-.linha-identificacao-do-documento p:first-child {
+.identificacao-do-documento > p:first-child {
     font-weight: 700;
 }
 

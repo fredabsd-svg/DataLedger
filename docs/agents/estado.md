@@ -232,10 +232,11 @@ diverge.
 | [DL-024](../planos/DL-024-trilha-integra-e-processo.md) | Trilha íntegra e processo: `registrar()` dentro da mesma transação que grava; `RegistroAuditoria` imutável contra `update()`/`delete()` em massa; PUT/PATCH com diff dos campos alterados; teste automatizado do gate SQLite/PostgreSQL | **Integrada (PR #28 + PR #29, `f9ee6c5`, DE-043)** — BL-14 (atomicidade), BL-16 (manager imutável), BL-57 (PUT/PATCH com diff), BL-244 (signal admin para 6 modelos via lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`), BL-50 (gate SQLite/PostgreSQL, 5/5), CA-6 (matriz de acesso fixada). CI: 1.345 testes, 2 pulados. CA-4 reconciliada: plano listava 6 ModelAdmin mas registry tem 4; `Estabelecimento` é inline de Empresa, `HistoricoRegimeTributario` removido pelo admin na DL-023. DE-043: o plano é artefato derivado do código, não o contrário. [Auditoria rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md). **Fora do escopo:** BL-02 (proteção da main, ação do Fred), BL-242, criptografia em repouso, logs externos |
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
-| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — Fatia A (PR #39), B.1 (PR #40) e B.2+B.3 (PR #41, `03984ab`) integradas. A correção única foi reconferida como aprovada e está no PR #42; acompanhe ali a CI antes de retomar a DL-035 |
+| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | **Integrada (PR #42)**; registro da auditoria, verificações e transição no histórico imediatamente abaixo de **[Próximo passo](#próximo-passo)** |
 | [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md) | A trilha de auditoria cobre o **admin**: quem alterou, quando, e **com que valor antes e depois**. Cobertura **derivada** de `admin.site._registry`, não de lista nossa. **Remendo declarado**, não o histórico com vigência que o BL-396 vai exigir | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo das demais: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
+| [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração contábil: BL-514 a BL-519 | Situação em **[Próximo passo](#próximo-passo)** — fonte única do estado desta etapa |
 | [DL-022](../planos/DL-022-plano-mestre-e-reconciliacao.md) | Plano mestre de evolução por módulos, incorporado sem edição, com a análise do arquiteto depois dele; e reconciliação da documentação que estava se contradizendo | **Integrada (PR #23, `24f6bbc`)** — etapa **documental**, nenhuma linha de código de produto. Entregou [`docs/projeto/plano-mestre.md`](../projeto/plano-mestre.md), a desduplicação da DL-020 no README, a DL-021 corrigida nos três lugares errados, a nota de precisão da **BL-211** (o plano mestre corrigiu uma descrição minha de defeito), **DE-041**, **RC-87**, **PE-47** e **BL-243** |
 | [DL-018](../planos/DL-018-primeiro-acesso.md) | Primeiro acesso de uma instalação nova: criar o primeiro escritório e o primeiro vínculo **pelo produto**, sem admin técnico | **Integrada (PR #27, `1b828e7`)** — autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). Três contratos expostos em `apps/tenancy/services/primeiro_acesso.py` (`criar_primeiro_escritorio_e_vinculo_admin`, `emitir_convite_para_escritorio`, `aceitar_convite_e_criar_vinculo`), com a exceção `ConviteTokenColidiu` traduzida por handler na view. **17 testes novos** (14 service + 3 view-por-POST real para a BL-218); recusa de `chave não contratada` aplicada nas três views. **Fora do escopo declarado:** SMTP real (etapa posterior), papéis GESTOR/FINANCEIRO/PARALEGAL/CLIENTE no convite inicial, e PE-36 (vínculo usuário-empresa) |
 | [DL-019](../planos/DL-019-portabilidade-entre-ferramentas-de-ia.md) | Portabilidade entre ferramentas de IA: os sete papéis passam a ter **uma fonte** em `docs/agents/papeis/` e arquivos **gerados** para Claude Code e Codex CLI | **Integrada (PR #20, `7e9dc56`)**, encerrada reprovada sob a régua da DE-038, com as pendências de baixa gravidade preservadas no backlog |
@@ -270,7 +271,50 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-### DL-027 Fatias B.2+B.3 — correção única após auditoria (2026-09-24)
+### DL-035 — as guardas da demonstração (2026-09-25)
+
+**Estado: auditoria independente aprovada após a correção única e a
+reconferência.** A branch `feat/dl-035-guardas-demonstracao` parte da `main`
+`22a0241`. Os implementadores `desenvolvedor-pleno` e
+`especialista-frontend` concluíram as frentes em sequência. A implementação
+está no commit local
+`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a primeira auditoria aprovou
+BL-514 a BL-519 e reprovou apenas o estado documental que dizia que não havia
+commit. A correção foi feita e reconferida no commit
+`75a3530b529cd737e884f3442bcdf0ea00198f45`, com árvore limpa. O parecer
+integral da rodada 1 e a reconferência aprovada estão em
+[`docs/auditorias/2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
+Branch publicada; o [PR #43](https://github.com/fredabsd-svg/DataLedger/pull/43)
+está aberto contra `main`. A CI da DL-035 continua pendente no head mais
+recente; a etapa não está integrada.
+
+**Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
+aplicaram e os dois módulos de contabilidade alterados passaram juntos:
+`42 passed in 38.10s` (25 do serviço e 17 da tela). `ruff check .`,
+`ruff format --check .` (225 arquivos) e `manage.py check` passaram. A
+validação oficial `pwsh` não está instalada; seu substituto Python aplicou as
+mesmas regras a 139 arquivos Markdown e encontrou zero problemas. O workflow
+oficial ainda precisa rodar no PR. A coleta atual imprimiu `2210 tests
+collected`; seu código de saída foi 1 porque
+a BL-218 exige requisições realmente executadas, comportamento preexistente
+registrado na verificação dirigida da DL-031. A suíte de
+`apps/contabilidade apps/core` teve `1668 passed, 34 skipped, 1 failed` no
+Python local 3.12: a única falha é o teste de sintaxe PEP 758 que exige Python
+3.14. Esse resultado parcial não substitui o workflow completo em Python 3.14.
+O instrumento de identificação com Chromium e PDF passou: `135 passed in
+214.16s`; o controle positivo produziu seis folhas com o bloco do item 51 e a
+nota em todas, e as mutações de contraste foram reprovadas com código 1. Os
+seis probes de mutação BL-515 também passaram em cópia descartável (`12
+passed` entre casos e probes). No PR #42, a cabeça `6fb5fd6` teve 2148
+aprovados e 37 pulados no Backend, e os quatro workflows obrigatórios
+passaram; isso é apenas a linha de base, não CI da DL-035.
+
+O escopo cobre BL-514 (contraste real do item 51), BL-515 (prova de cada veto),
+BL-516 (aviso das raízes do mesmo tipo), BL-517/BL-519 (nota irmã e extração
+completa) e BL-518 (regra de impressão derivada). BL-507 continua fora do
+escopo.
+
+### Histórico recente — DL-027 Fatias B.2+B.3 (2026-09-24)
 
 O PR #41 (`03984ab`, já integrado em `main`) entregou B.2 e B.3, mas o
 campo de auditoria estava vazio. A auditoria independente agora está
@@ -318,7 +362,12 @@ parecer. Não haverá terceira rodada de auditoria, pela regra de parada da
 (run 209), Documentação (run 650) e Regras do projeto (run 188). Esse resultado
 vale para essa cabeça. O merge exige confirmar os quatro workflows na cabeça
 mais recente do PR #42; esta regra também se aplica a qualquer commit posterior.
-A DL-035 segue após a integração desta correção.
+Em 2026-09-24, o PR #42 foi integrado em `main` no merge commit `22a0241`.
+Na cabeça final do PR, `6fb5fd6`, os quatro workflows obrigatórios passaram:
+Backend (`Lint e testes`, run 649: 2148 aprovados e 37 pulados), Documentação
+(run 652), Regras do projeto (run 192) e Identificação do emitente no
+navegador (run 211). Esta integração libera a DL-035, cujo estado atual está
+registrado no início desta seção.
 
 **Desvio de processo registrado:** no primeiro envio pela API GitHub, três
 arquivos grandes foram truncados porque a saída local excedeu o limite do
