@@ -19,10 +19,10 @@ exibindo 300,00 e 300,00, enquanto o rodapé mostra 300,00 e 300,01.
 Requisito geral do arquiteto-senior para esta rodada (não só este
 achado): NENHUM teste desta faixa pode afirmar uma igualdade/diferença
 num estado em que os dois valores comparados são INDISTINGUÍVEIS POR
-CONSTRUÇÃO. A correção em `test_dl017_telas.py` move a guarda de verdade
-para o estado divergente (a única correção que os critérios de aceite
-exigem). Este arquivo é a prova, isolada e por mutação, de que a
-sabotagem exata do relatório:
+CONSTRUÇÃO. Desde a correção da auditoria B.2+B.3, a view veta o estado
+divergente sem renderizar esta faixa; o endpoint é testado para recusar
+sem entregar conteúdo do relatório. Este arquivo mantém a verificação
+isolada do fragmento em contextos sintéticos, para que a sabotagem exata:
 
 1. É PEGA no estado divergente (débitos 300,00 / créditos 300,01 — os
    dois distinguíveis por construção).
@@ -174,10 +174,8 @@ def test_sabotagem_creditos_por_debitos_e_pega_no_estado_divergente():
     assert "diferença de" in html_mutado
     assert "0,01" in html_mutado
 
-    # O fragmento REAL, no MESMO contexto, não tem essa contradição — é o
-    # que prova que a mutação MATA a guarda de
-    # `test_dl017_telas.py::test_balancete_veredito_nao_fecha_e_
-    # exercitado_com_totais_divergentes`: o real distingue, o mutante não.
+    # O fragmento REAL, no MESMO contexto sintético, não tem essa
+    # contradição: o real distingue, o mutante não.
     html_real = _renderizar(fragmento_real, _CTX_DIVERGENTE)
     creditos_real = _valor_por_rotulo(html_real, "Créditos próprios do período")
     debitos_real = _valor_por_rotulo(html_real, "Débitos próprios do período")
@@ -200,9 +198,9 @@ def test_sabotagem_e_invisivel_no_estado_balanceado_por_construcao():
     — 1451 passed, medido pelo auditor. Este teste não é uma falha de
     cobertura a corrigir: é a prova, por construção, de que NENHUMA
     asserção de igualdade escrita no estado balanceado pode ser guarda
-    contra esta classe de sabotagem — por isso a correção real mora no
-    estado divergente (teste 2, acima, e a mudança em
-    `test_dl017_telas.py`).
+    contra esta classe de sabotagem — por isso os testes do fragmento
+    usam o estado divergente sintético (teste 2, acima). A view tem uma
+    guarda própria para impedir que esse estado produza um Balancete.
     """
     fragmento_real = _fragmento_faixa()
     fragmento_mutado = _fragmento_sabotado(fragmento_real)

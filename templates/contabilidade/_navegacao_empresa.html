@@ -67,6 +67,10 @@ simples, com aria-current="page", em vez de link (a página não linka para
 si mesma). Sem `pagina_atual`, os sete aparecem como link (caso da Razão e
 das telas de ação do fechamento, que não têm "página atual" entre estas
 sete).
+Variável opcional: `rotulo_generico=True`, para usar o rótulo acessível
+"Navegação da contabilidade" sem expor a razão social (caso da tela de
+recusa do Balancete, cuja resposta 409 não deve incluir dados da empresa).
+Por padrão, o rótulo continua identificando a razão social.
 
 Teclas escolhidas evitando as que colidem com o próprio navegador —
 D/E/F em Chrome/Edge (barra de endereço e menu de três pontos; estas
@@ -88,7 +92,7 @@ JavaScript (R6 da DL-026). O texto do atalho é aria-hidden e o link
 carrega aria-keyshortcuts, para o nome acessível continuar sendo só o
 rótulo (ver o comentário completo em templates/base.html).
 {% endcomment %}
-<nav class="navegacao-empresa" aria-label="Contabilidade — {{ empresa.razao_social }}">
+<nav class="navegacao-empresa" aria-label="{% if rotulo_generico %}Navegação da contabilidade{% else %}Contabilidade — {{ empresa.razao_social }}{% endif %}">
     <ul>
         <li>
             {% if pagina_atual == "plano_de_contas" %}

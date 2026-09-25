@@ -276,7 +276,7 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
                     <input type="radio" name="criterio_de_apuracao" value="{{ opcao }}"
                            {% if opcao == criterio_de_apuracao %}checked{% endif %}>
                     {% if opcao == "todas" %}Todas as contas
-                    {% elif opcao == "com_movimento" %}Apenas com movimento no período
+                    {% elif opcao == "com_movimento" %}Movimento no período ou saldo anterior diferente de zero
                     {% endif %}
                 </label>
             {% endfor %}

@@ -1583,13 +1583,11 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="
 
     - `"todas"` (padrão): comportamento idêntico ao código anterior. Todas
       as contas da empresa aparecem, independente de saldo ou movimento.
-    - `"com_movimento"`: oculta contas que NÃO tiveram movimento
-      consolidado no período E não têm saldo anterior diferente de zero.
-      Sintéticas cujo movimento veio dos filhos continuam aparecendo
-      (porque o CONSOLIDADO delas é > 0), o que preserva a leitura
-      hierárquica. Saldo anterior ≠ 0 sem movimento no mês continua
-      aparecendo — é informação legítima de "saldo de abertura" e o
-      contador precisa vê-la para conferir contra o Razão.
+    - `"com_movimento"`: mantém contas com movimento consolidado no
+      período OU saldo líquido de abertura diferente de zero. Débitos e
+      créditos históricos compensatórios não contam como saldo de
+      abertura. Sintéticas cujo movimento ou saldo veio dos filhos
+      continuam aparecendo, o que preserva a leitura hierárquica.
 
     O `criterio_de_apuracao` é uma propriedade da EMISSÃO (não do
     cadastro), decidido na view via querystring — sem migração de modelo
@@ -1797,24 +1795,23 @@ def apurar_balancete(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="
         bruto = bruto_de(conta.id)
         if nivel is not None and nivel_de(conta.id) > nivel:
             continue
-        # DL-027 Fatia B.2: recorte "com_movimento". A regra é sobre o
-        # BRUTO (próprio + descendentes), não sobre o próprio da conta —
-        # sintéticas cujo movimento veio dos filhos continuam aparecendo,
-        # porque a regra única de saldo (DE-020) as considera COM
-        # movimento. Saldo anterior ≠ 0 sem movimento no mês também
-        # aparece (é informação legítima de "saldo de abertura").
-        # "Saldo anterior" aqui é BRUTO também: uma sintética que
-        # absorveu saldo anterior dos filhos continua visível.
+        saldo_anterior = _saldo_por_natureza(
+            bruto["debito_anterior"], bruto["credito_anterior"], conta.natureza
+        )
+        # DL-027 Fatia B.2: recorte "com_movimento" mantém movimento
+        # consolidado no período OU saldo líquido de abertura não zero.
+        # O teste do saldo é líquido e leva em conta a natureza da conta:
+        # débitos e créditos históricos compensatórios não deixam saldo
+        # para conferir. Movimento e saldo são consolidados (próprio +
+        # descendentes), portanto sintéticas continuam visíveis quando
+        # algum filho tem atividade ou saldo de abertura relevante.
         if criterio_de_apuracao == "com_movimento":
             tem_movimento_periodo = (
                 bruto["debito_periodo"] > zero or bruto["credito_periodo"] > zero
             )
-            tem_saldo_anterior = bruto["debito_anterior"] > zero or bruto["credito_anterior"] > zero
+            tem_saldo_anterior = saldo_anterior != zero
             if not (tem_movimento_periodo or tem_saldo_anterior):
                 continue
-        saldo_anterior = _saldo_por_natureza(
-            bruto["debito_anterior"], bruto["credito_anterior"], conta.natureza
-        )
         debitos = bruto["debito_periodo"]
         creditos = bruto["credito_periodo"]
         saldo_final = saldo_anterior + _saldo_por_natureza(debitos, creditos, conta.natureza)

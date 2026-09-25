@@ -232,7 +232,7 @@ diverge.
 | [DL-024](../planos/DL-024-trilha-integra-e-processo.md) | Trilha íntegra e processo: `registrar()` dentro da mesma transação que grava; `RegistroAuditoria` imutável contra `update()`/`delete()` em massa; PUT/PATCH com diff dos campos alterados; teste automatizado do gate SQLite/PostgreSQL | **Integrada (PR #28 + PR #29, `f9ee6c5`, DE-043)** — BL-14 (atomicidade), BL-16 (manager imutável), BL-57 (PUT/PATCH com diff), BL-244 (signal admin para 6 modelos via lista explícita `MODELOS_DA_TRILHA_DO_ADMIN`), BL-50 (gate SQLite/PostgreSQL, 5/5), CA-6 (matriz de acesso fixada). CI: 1.345 testes, 2 pulados. CA-4 reconciliada: plano listava 6 ModelAdmin mas registry tem 4; `Estabelecimento` é inline de Empresa, `HistoricoRegimeTributario` removido pelo admin na DL-023. DE-043: o plano é artefato derivado do código, não o contrário. [Auditoria rodada 1](../auditorias/2026-09-16-dl-024-rodada-1.md). **Fora do escopo:** BL-02 (proteção da main, ação do Fred), BL-242, criptografia em repouso, logs externos |
 | [DL-025](../planos/DL-025-ordens-diretas-do-responsavel.md) | Reconhecer ordens diretas de Fred como demanda formal e autorização para executar o escopo pedido | **Integrada (PR #29, `f9ee6c5`)** — alteração documental, sem código de produto ou migração. Formaliza ordens diretas de Fred como demanda legítima, com processo de registro e validação |
 | [DL-026](../planos/DL-026-identidade-visual-e-interface.md) | Identidade visual e redesenho da interface: o produto é funcional e acessível, e **não tem identidade nenhuma** — parece o admin do Django. Método: **gauntlet** — três direções cegas em paralelo, juiz **mecânico** medindo contraste, densidade e dependência externa antes de qualquer julgamento de gosto, eliminação e enxerto | **O estado desta etapa NÃO é descrito aqui.** Ele muda a cada rodada, e descrevê-lo em dois lugares foi exatamente o defeito que o auditor achou (B1 da [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md)): esta célula parou na rodada 1 enquanto o "Próximo passo" já registrava a rodada 4. Leia **[Próximo passo](#próximo-passo)**, que é o único lugar onde o estado da DL-026 mora. Relatórios preservados: [rodada 1](../auditorias/2026-09-18-dl-024-rodada-1.md), [rodada 2](../auditorias/2026-09-18-dl-024-rodada-2.md), [rodada 3](../auditorias/2026-09-18-dl-024-rodada-3.md). ⚠️ **Não estava na fila do RC-88**: o pacote 3 (trilha íntegra, BL-14/16/57) era o próximo e volta a ser quando esta fechar — registrar o desvio é o que impede a fila de virar ficção |
-| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-026 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe, e foi assim que a DL-026 divergiu dentro do próprio arquivo (BL-324). Em resumo para a tabela: Fatia A integrada (PR #39, `e84bcfc`); Fatia B.1 integrada (PR #40, `a328a0c`) **com auditoria independente pendente** — próximo passo abre B.2 |
+| [DL-027](../planos/DL-027-documento-emitido-e-personalizacao.md) | O documento emitido: identificação obrigatória por **classe de documento** e personalização do que é legítimo personalizar. Mecanismo de **plataforma**, não da Contabilidade — vale para todos os módulos (RC-94) | Situação em **[Próximo passo](#próximo-passo)** — Fatia A (PR #39), B.1 (PR #40) e B.2+B.3 (PR #41, `03984ab`) integradas. A correção única foi reconferida como aprovada e está no PR #42; acompanhe ali a CI antes de retomar a DL-035 |
 | [DL-028](../planos/DL-028-o-juiz-aponta-para-o-produto.md) | O juiz aponta para o produto: a pergunta *"o documento sai identificado?"* passa a ser respondida pelo **navegador**, em job delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-029](../planos/DL-029-a-frase-executavel-do-criterio-9.md) | A frase executável do critério 9: o critério inteiro passa a ser escrito **uma vez**, como frase verificável, e o instrumento passa a ser julgado por ela — cinco cláusulas que fecham BL-404, BL-405, BL-406 e BL-407 **juntos**, em vez de achado a achado (DE-059) | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo da DL-027 e da DL-028: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
 | [DL-030](../planos/DL-030-a-trilha-cobre-o-admin.md) | A trilha de auditoria cobre o **admin**: quem alterou, quando, e **com que valor antes e depois**. Cobertura **derivada** de `admin.site._registry`, não de lista nossa. **Remendo declarado**, não o histórico com vigência que o BL-396 vai exigir | Situação em **[Próximo passo](#próximo-passo)** — esta célula não descreve estado, pelo mesmo motivo das demais: descrever em dois lugares é a duplicação que a instrução permanente de 2026-09-13 proíbe |
@@ -269,6 +269,88 @@ cliente), e uma decisão que afirmava funcionar em produção sem que o
 auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
+
+### DL-027 Fatias B.2+B.3 — correção única após auditoria (2026-09-24)
+
+O PR #41 (`03984ab`, já integrado em `main`) entregou B.2 e B.3, mas o
+campo de auditoria estava vazio. A auditoria independente agora está
+registrada integralmente em
+[`docs/auditorias/2026-09-24-dl-027-b2-b3-rodada-1.md`](../auditorias/2026-09-24-dl-027-b2-b3-rodada-1.md)
+e **reprovou** com dois achados: (1) a resposta 409 do veto ainda renderizava
+tabela, linhas e carimbo do Balancete; (2) o filtro considerava débito/crédito
+histórico bruto, mantendo contas com saldo líquido de abertura zero.
+
+**Correção implementada** na branch `fix/dl-027-b2-b3-audit`, criada sobre o
+`origin/main` que contém o PR #41. O veto usa uma página de erro sem conteúdo
+imprimível do Balancete; o filtro usa saldo líquido de abertura; e o rótulo
+impresso e o plano descrevem a regra. A reconferência independente da §3.1 foi
+**aprovada** no commit local `befd652`; o commit remoto do PR #42 tem a mesma
+árvore de arquivos (`4f432015`) e o mesmo pai `03984ab`. O parecer integral está
+em [`2026-09-24-dl-027-b2-b3-reconferencia-2.md`](../auditorias/2026-09-24-dl-027-b2-b3-reconferencia-2.md).
+
+O PR #42 é o canal de integração. A primeira execução do CI encontrou título
+ausente e links locais no relatório, além do atestado/checklist obrigatório
+ausente no corpo do PR; esses itens documentais foram corrigidos. Na cabeça
+`f20e24f`, a CI encontrou outra falha: o teste existente
+`test_toda_tela_de_contabilidade_inclui_a_navegacao_da_empresa` exige a
+navegação padrão também na nova página de recusa 409. O job Backend registrou
+1 falha, 2147 aprovações e 37 testes pulados; Documentação, Regras do projeto
+e Identificação do emitente passaram naquela cabeça.
+
+O papel `especialista-frontend` corrigiu o template da recusa para incluir
+`_navegacao_empresa.html`, sem alterar o teste. Na cabeça `4033c2f`, o
+BL-296 passou, mas o Backend apontou outra regressão no teste
+`test_pagina_real_balancete_nao_fecha_com_totais_forcados`: a razão social não
+pode aparecer na resposta 409, e a parcial a incluía no `aria-label`. O job
+registrou 1 falha, 2147 aprovações e 37 testes pulados; Documentação, Regras do
+projeto e Identificação do emitente passaram nessa cabeça.
+
+O mesmo papel `especialista-frontend` acrescentou à parcial um rótulo acessível
+genérico optativo e o ativou somente na página 409. O rótulo padrão das outras
+telas continua identificando a empresa; a recusa mantém a navegação e seus
+links sem incluir a razão social no HTML. Os dois testes focados — BL-296 e o
+teste de recusa sem identidade da empresa — passaram localmente (`2 passed`).
+Essas duas inclusões/correções são posteriores à reconferência aprovada do
+código em `befd652`; portanto, não são apresentadas como cobertas por aquele
+parecer. Não haverá terceira rodada de auditoria, pela regra de parada da
+§3.1. Na cabeça `32bb184`, os quatro workflows obrigatórios passaram: Backend
+(run 647, **2148 passaram e 37 foram pulados**), Identificação do emitente
+(run 209), Documentação (run 650) e Regras do projeto (run 188). Esse resultado
+vale para essa cabeça. O merge exige confirmar os quatro workflows na cabeça
+mais recente do PR #42; esta regra também se aplica a qualquer commit posterior.
+A DL-035 segue após a integração desta correção.
+
+**Desvio de processo registrado:** no primeiro envio pela API GitHub, três
+arquivos grandes foram truncados porque a saída local excedeu o limite do
+comando. Comparei a árvore incompleta, reconstruí os blobs completos e
+verifiquei igualdade do hash de árvore com o código auditado. Para substituir
+o commit provisório recém-criado, usei `force=true` na referência do branch,
+contrariando o `AGENTS.md`. O branch havia sido criado por mim e não continha
+trabalho de terceiros, mas a reescrita não deveria ter sido usada. A partir
+desta correção, as atualizações seguintes são commits fast-forward.
+
+**Validação da correção:** 238 testes direcionados e de regressão passaram
+em PostgreSQL 16, com Python 3.14.7; `ruff check` passou, `ruff format
+--check` confirmou 225 arquivos formatados e `manage.py check` não encontrou
+problemas. A prova de mutação da A4 foi executada em worktree isolada: M5
+(mensagem removida), M5b (diferença removida) e M5c (orientação removida)
+foram todos mortos pelo teste. Os relatórios inicial e de reconferência
+registram que o auditor não mediu PDF/paginação A4 real por falta de Chromium.
+O job `Medir identificação do emitente no navegador` verifica a identificação
+nas telas cobertas pelo instrumento; ele não atesta a presença impressa do
+critério B.2 nem a paginação da página de recusa 409.
+
+**Papéis acionados nesta retomada:** `desenvolvedor-pleno` confirmou por
+leitura estática a regra e os três cenários do filtro B.2; `especialista-
+frontend` confirmou que os dois caminhos 409 usam o template exclusivo e não
+entregam o relatório contábil, a tabela, os totais, o carimbo ou o timbre do
+Balancete, e depois corrigiu a navegação exigida pelo BL-296. A página genérica
+ainda pode imprimir título, instrução, link de retorno e o contexto global
+“Escritório ativo” quando presente; a mensagem detalhada do veto fica visível
+na tela e o CSS global a oculta na impressão. O teste existente cobre a
+ausência do Balancete, mas não mede essa página em papel. `auditor-qa` aprovou
+os achados originais e a correção anterior à inclusão de navegação; não se
+afirma que essa inclusão posterior recebeu reconferência independente.
 
 ### ⚠️ MUDANÇA DE PROCESSO, 2026-09-20 — leia isto antes de qualquer coisa
 
@@ -414,7 +496,7 @@ A edição 200→409 dos três testes pré-existentes **não cegou guardas** —
 - `test_versao_minima_python.py::test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_versao_posterior` — o teste foi escrito para Python 3.14; a linha `ast.parse(codigo, feature_version=(3, 14))` falha em Python 3.12 (o parser 3.12 não conhece `except A, B:` em nenhuma versão declarada). Medido: falha na suíte completa, passa isolado. **Não relacionada à DL-027.**
 - `test_dl016_fatia1_fechamento_reabertura_entrega.py::test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente` — concorrência PostgreSQL com timing dependente. Falhou 1 de 2 vezes na suíte completa, passou isolada. **Não relacionada à DL-027.**
 
-### ➡️ DL-027 Fatia B.2 IMPLEMENTADA (branch `feat/dl-027-fatia-b2-criterio-impresso`) — auditoria independente PENDENTE
+### DL-027 Fatia B.2 IMPLEMENTADA E INTEGRADA (PR #41, `03984ab`) — auditoria REPROVADA; ver correção atual acima
 
 **Aberta por ordem do Fred em 2026-09-22**, depois de ler a auditoria da B.1: *"Abrir B.2 (critério impresso + A4)"*. Plano em [`docs/planos/DL-027-B2-criterio-de-apuracao-impresso.md`](../planos/DL-027-B2-criterio-de-apuracao-impresso.md). Classificada **NÍVEL 1** (mexe no documento do cliente, §3.1). **A4 entra junto**, sem dissociação — exatamente o tipo de regressão silenciosa que a §3.1 existe para impedir, e M5 sobreviver é a prova.
 
@@ -453,7 +535,7 @@ O mutante M5 (mensagem some) **passa a morrer** com este teste. M5b (diferença 
 
 **Classificação do item no formato §15**: **Implementado** (código e testes) · **Testado** (10 passed no escopo, 1445 passed no escopo estendido, ruff limpo, manage.py check limpo) · **Inspecionado** (diff revisado, comentários conferidos, contrato da função pura verificado) · **Não auditado** (auditor-qa independente pendente, mesma pendência da B.1) · **Bloqueado** (a integração na `main` precisa de PR aberto pelo Fred via web UI — `gh` CLI não está disponível nesta sessão, e a auditoria independente também precisa de sessão Claude Code).
 
-### ➡️ DL-027 Fatia B.3 IMPLEMENTADA (mesma branch `feat/dl-027-fatia-b2-criterio-impresso`) — auditoria independente PENDENTE
+### DL-027 Fatia B.3 IMPLEMENTADA E INTEGRADA (PR #41, `03984ab`) — auditoria REPROVADA; ver correção atual acima
 
 **Aberta por ordem do Fred em 2026-09-22**, na mesma branch da B.2: *"Continuar B.3 (carimbo) na mesma branch"*. Plano no item 1 da "O que entra, com o motivo" do plano DL-027: *"Carimbo de data e hora da emissão."* Continua **NÍVEL 1** (mexe no documento do cliente, §3.1).
 
@@ -1113,7 +1195,7 @@ As duas médias:
    desta rodada foi minha e não produziu defeito — *"e isso foi sorte, não
    processo"*.
 
-###### ➡️ PRÓXIMA: [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) — as guardas da demonstração
+###### ➡️ DEPOIS DA RECONFERÊNCIA DA DL-027: [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) — as guardas da demonstração
 
 **Decisão minha, em 2026-09-21, informada ao Fred:** as cinco ressalvas viram
 **etapa própria**, não uma terceira volta disfarçada (a §3.1 proíbe a terceira).

@@ -1,7 +1,10 @@
 # DL-027 — Fatia B.2: critério de apuração impresso no documento (com A4)
 
-**Estado:** **planejada.** Plano redigido em 2026-09-22, após auditoria
-DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09-22-dl-027-fatia-b1-rodada-1.md)).
+**Estado:** **correção única reconferida como aprovada** em 2026-09-24. B.2 e
+B.3 foram integradas no PR #41 (`03984ab`); a correção está no PR #42. Os
+relatórios integrais da auditoria e da reconferência estão em
+- auditoria inicial: [`2026-09-24-dl-027-b2-b3-rodada-1.md`](../auditorias/2026-09-24-dl-027-b2-b3-rodada-1.md);
+- reconferência: [`2026-09-24-dl-027-b2-b3-reconferencia-2.md`](../auditorias/2026-09-24-dl-027-b2-b3-reconferencia-2.md).
 
 > **Autorização.** Fred ordenou, na conversa de 2026-09-22: *"Abrir B.2
 > (critério impresso + A4)"*. Esta é a segunda sub-etapa da **Fatia B**
@@ -12,7 +15,8 @@ DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09
 ## Objetivo
 
 1. Permitir que o usuário do Balancete escolha o **critério de apuração**
-   entre "Todas as contas" e "Apenas contas com movimento no período".
+   entre "Todas as contas" e "Movimento no período ou saldo anterior
+   diferente de zero".
 2. **Imprimir o critério escolhido no documento**, de modo que dois
    Balancetes com critérios diferentes sejam **distinguíveis pelo papel**
    sem consultar o sistema (critério 6 do plano DL-027).
@@ -48,18 +52,20 @@ DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09
 1. O formulário do Balancete oferece seleção de **critério de apuração**
    com duas opções visíveis:
    - "Todas as contas" (padrão — comportamento idêntico ao atual).
-   - "Apenas contas com movimento no período" (novo).
+   - "Movimento no período ou saldo anterior diferente de zero" (novo).
 2. A seleção padrão é "Todas as contas". URL sem o parâmetro
    `criterio_de_apuracao` produz o mesmo Balancete que o código atual.
-3. Quando `criterio_de_apuracao=com_movimento`, o serviço devolve
-   apenas linhas com **movimento próprio no período** (débitos próprios
-   > 0 OU créditos próprios > 0), e mantém as sintéticas com
-   movimento de algum filho.
+3. Quando `criterio_de_apuracao=com_movimento`, o serviço devolve linhas
+   com **movimento consolidado no período** (débitos > 0 OU créditos > 0)
+   ou **saldo líquido de abertura diferente de zero**, calculado conforme
+   a natureza da conta. Débitos e créditos históricos compensatórios não
+   contam como saldo de abertura. Sintéticas continuam visíveis quando
+   movimento ou saldo relevante vem de algum filho.
 4. O critério escolhido aparece **explicitamente no papel**, próximo à
    faixa de veredito. Texto:
    - "Critério de apuração: **todas as contas**" (padrão)
-   - "Critério de apuração: **apenas contas com movimento no
-     período**" (alternativo)
+   - "Critério de apuração: **movimento no período ou saldo anterior
+     diferente de zero**" (alternativo)
 5. Dois Balancetes, mesmo período, mesma empresa, critérios
    diferentes: as páginas têm **texto de critério distinto** (verificável
    por leitura do HTML renderizado).
@@ -76,9 +82,13 @@ DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09
 8. **A prova de mutação mata M5** (mensagem some): o novo teste deve
    reprovar quando a `messages.error(...)` é removida, ou quando a
    string perde a diferença ou a orientação.
-9. Suíte direcionada verde, `ruff check` limpo, `manage.py check` 0
+9. Quando o avaliador veta a emissão, HTTP 409 renderiza uma página de
+   erro sem linhas contábeis, tabela, totais, timbre ou carimbo de emissão.
+   O erro e sua orientação continuam visíveis, com caminho para voltar ao
+   Balancete.
+10. Suíte direcionada verde, `ruff check` limpo, `manage.py check` 0
    issues.
-10. Suíte completa verde ou com regressões pré-existentes
+11. Suíte completa verde ou com regressões pré-existentes
     **declaradas** (nãointroduzidas por esta entrega).
 
 ## Cenários de teste
@@ -87,9 +97,12 @@ DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09
 | --- | --- |
 | URL sem `criterio` | Comportamento idêntico ao atual (todas as contas) |
 | URL `?criterio=todas` | Idem |
-| URL `?criterio=com_movimento`, sem movimento | Tabela zerada, faixa "Nada a conferir" |
-| URL `?criterio=com_movimento`, com movimento em 2 contas de 5 | Tabela mostra só as 2 contas (e sintéticas com movimento) |
+| URL `?criterio=com_movimento`, sem movimento nem saldo anterior não zero | Tabela zerada, faixa "Nada a conferir" |
+| URL `?criterio=com_movimento`, movimento em 2 das 5 contas | Mostra as 2 contas e suas sintéticas; outras contas sem saldo anterior não zero somem |
+| Sem movimento no período, lançamentos anteriores compensatórios | Contas com saldo líquido de abertura zero somem |
+| Sem movimento no período, saldo líquido de abertura diferente de zero | Conta permanece visível |
 | URL `?criterio=invalido` | 400 com mensagem orientativa, sem gravar nada |
+| Totais divergem e emissão é vetada | 409 sem tabela, linhas, totais ou carimbo; mensagem orientativa visível |
 | Mutante M5 (mensagem do veto some) | Teste dedicado reprova |
 | Mutante M5b (diferença some da mensagem) | Teste dedicado reprova |
 | Mutante M5c (orientação some da mensagem) | Teste dedicado reprova |
@@ -101,11 +114,12 @@ DL-027 Fatia B.1 ([2026-09-22-dl-027-fatia-b1-rodada-1.md](../auditorias/2026-09
    ausência de parâmetro = comportamento idêntico. Verificação: rodar
    a suíte com URLs explícitas sem o parâmetro.
 2. **R2 — Filtro esconde conta com saldo anterior relevante.** Se a
-   regra for só "movimento próprio no período", uma conta com saldo
-   anterior diferente de zero e sem movimento no mês some da tabela.
-   Isso pode quebrar a conferência de saldo anterior. Mitigação: a
-   regra de "com movimento" inclui saldo anterior ≠ 0; a faixa do
-   critério é explícita no papel para o contador conferir.
+   regra olhar apenas o movimento no período, uma conta com saldo de
+   abertura líquido diferente de zero e sem movimento no mês some da
+   tabela. Isso pode quebrar a conferência de saldo anterior. Mitigação:
+   a regra mantém esse saldo; débitos e créditos anteriores compensatórios
+   com saldo líquido zero não mantêm a conta. O critério é explícito no
+   papel para o contador conferir.
 3. **R3 — Migração de modelo adiada.** Sem persistência por empresa,
    cada emissão precisa carregar o critério na URL. Mitigação:
    aceitação consciente — decisão registrada como PE-65, fica para a
@@ -128,8 +142,8 @@ ausência do parâmetro = comportamento idêntico.
 
 ## Branch e destino
 
-- **Branch de trabalho:** `feat/dl-027-fatia-b2-criterio-impresso`
-  (criada em 2026-09-22 a partir de `main`).
+- **Branch de trabalho da correção:** `fix/dl-027-b2-b3-audit`, criada
+  a partir do `origin/main` que contém o PR #41.
 - **Branch de destino:** `main`, por PR.
 - **Pré-requisito:** auditoria da Fatia B.1 feita (mesmo sem §3.1
   independente — registrada em
@@ -143,3 +157,50 @@ ausência do parâmetro = comportamento idêntico.
   DL-035 paga para o Balanço; para o Balancete fica nomeada, não
   resolvida.
 - **PE-65** — o que decide se o critério vira campo de Empresa.
+
+## Achados da auditoria e correção desta rodada
+
+1. **Alta — o veto de B.1 ainda renderizava o Balancete completo.** A
+   resposta 409 continha tabela, linhas e carimbo B.3, podendo ser
+   impressa apesar da recusa. Correção: retornar página de erro dedicada
+   sem contexto de apuração nem elementos imprimíveis do relatório; os
+   testes cobrem ausência desses dados e preservação da orientação.
+2. **Média — saldos anteriores brutos mantinham contas sem saldo líquido.**
+   A regra corrigida mantém contas por movimento consolidado no período
+   ou saldo líquido de abertura diferente de zero. O texto do formulário e
+   do documento foi alinhado ao contrato; testes cobrem histórico
+   compensado e saldo de abertura não zero.
+
+O plano anterior tinha conflito entre o critério de aceite 3 e R2. O texto
+acima é o contrato atualizado. A auditoria inicial e a reconferência não
+mediram PDF/paginação A4 real; a correção não afirma essa medição. A
+reconferência independente aprovou os dois achados corrigidos e os testes
+correspondentes, conforme o relatório vinculado acima. Pela regra do
+AGENTS.md, não haverá terceira rodada.
+
+**Prova de mutação A4, em worktree isolada:** M5 (remover
+`messages.error(...)`), M5b (remover a diferença em pt-BR) e M5c (remover a
+orientação) foram todos mortos pelo teste
+`test_a4_view_balancete_quando_veta_mensagem_contem_diferenca_e_orientacao`.
+
+**Reconferência independente da §3.1:** **APROVADA** no commit local
+`befd65263a8aabee786db0943f1705b42fb972cb`. A primeira publicação de código
+em PR #42 tinha a mesma árvore (`4f432015d510eec298120e90dbfbb924722a3761`)
+e o mesmo pai `03984abedfa5bc6e20788d8c07133bb3eb17b9f5`. Depois da
+reconferência, a CI do commit `f20e24f` apontou que a página de recusa 409 não
+incluía a navegação da empresa exigida pelo teste existente do BL-296. O papel
+`especialista-frontend` incluiu a parcial compartilhada no template; o teste
+focado passou localmente. Na cabeça `4033c2f`, a CI encontrou outra regressão:
+a razão social, proibida no HTML de recusa por teste existente, aparecia no
+`aria-label` da parcial. O mesmo papel acrescentou à parcial a opção
+`rotulo_generico=True`, usada somente na página 409. Os dois testes focados
+passaram localmente. Essas alterações posteriores não foram reconferidas pelo
+auditor. Na cabeça `32bb184`, os quatro workflows obrigatórios passaram:
+Backend (2148 passaram, 37 pulados), Identificação do emitente, Documentação e
+Regras do projeto. O merge ainda depende da confirmação dos quatro checks na
+cabeça mais recente do PR, inclusive após esta atualização documental.
+
+O auditor não mediu PDF/paginação A4 real. O job `Medir identificação do
+emitente no navegador` permanece obrigatório no CI do PR #42, mas seu escopo
+não comprova a presença impressa do critério B.2 nem a paginação da página
+de recusa 409.
