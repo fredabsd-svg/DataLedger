@@ -186,8 +186,12 @@ orientação) foram todos mortos pelo teste
 **Reconferência independente da §3.1:** **APROVADA** no commit local
 `befd65263a8aabee786db0943f1705b42fb972cb`. A primeira publicação de código
 em PR #42 tinha a mesma árvore (`4f432015d510eec298120e90dbfbb924722a3761`)
-e o mesmo pai `03984abedfa5bc6e20788d8c07133bb3eb17b9f5`; as atualizações
-seguintes do PR são documentais.
+e o mesmo pai `03984abedfa5bc6e20788d8c07133bb3eb17b9f5`. Depois da
+reconferência, a CI do commit `f20e24f` apontou que a página de recusa 409 não
+incluía a navegação da empresa exigida pelo teste existente do BL-296. O papel
+`especialista-frontend` incluiu a parcial compartilhada no template; o teste
+focado passou localmente. Essa alteração posterior não foi reconferida pelo
+auditor, e a CI completa na nova cabeça continua sendo requisito para o merge.
 
 O auditor não mediu PDF/paginação A4 real. O job `Medir identificação do
 emitente no navegador` permanece obrigatório no CI do PR #42, mas seu escopo

@@ -290,9 +290,20 @@ em [`2026-09-24-dl-027-b2-b3-reconferencia-2.md`](../auditorias/2026-09-24-dl-02
 
 O PR #42 é o canal de integração. A primeira execução do CI encontrou título
 ausente e links locais no relatório, além do atestado/checklist obrigatório
-ausente no corpo do PR; esta atualização corrige os itens documentais. O merge
-só ocorre depois de os quatro jobs obrigatórios passarem na cabeça final do PR;
-as execuções ficam registradas nele. Não haverá terceira rodada de auditoria.
+ausente no corpo do PR; esses itens documentais foram corrigidos. Na cabeça
+`f20e24f`, a CI encontrou outra falha: o teste existente
+`test_toda_tela_de_contabilidade_inclui_a_navegacao_da_empresa` exige a
+navegação padrão também na nova página de recusa 409. O job Backend registrou
+1 falha, 2147 aprovações e 37 testes pulados; Documentação, Regras do projeto
+e Identificação do emitente passaram naquela cabeça.
+
+O papel `especialista-frontend` corrigiu o template da recusa para incluir
+`_navegacao_empresa.html`, sem alterar o teste. O teste que falhou passou
+isoladamente no ambiente local (`1 passed`). Essa inclusão foi feita depois da
+reconferência aprovada do código em `befd652`; portanto, ela não é apresentada
+como coberta por aquele parecer. Não haverá terceira rodada de auditoria, pela
+regra de parada da §3.1. A nova cabeça precisa passar pelos quatro checks
+obrigatórios antes do merge; a CI completa dessa correção ainda está pendente.
 A DL-035 segue após a integração desta correção.
 
 **Desvio de processo registrado:** no primeiro envio pela API GitHub, três
@@ -319,11 +330,13 @@ critério B.2 nem a paginação da página de recusa 409.
 leitura estática a regra e os três cenários do filtro B.2; `especialista-
 frontend` confirmou que os dois caminhos 409 usam o template exclusivo e não
 entregam o relatório contábil, a tabela, os totais, o carimbo ou o timbre do
-Balancete. A página genérica ainda pode imprimir título, instrução, link de
-retorno e o contexto global “Escritório ativo” quando presente; a mensagem
-detalhada do veto fica visível na tela e o CSS global a oculta na impressão.
-O teste existente cobre a ausência do Balancete, mas não mede essa página em
-papel.
+Balancete, e depois corrigiu a navegação exigida pelo BL-296. A página genérica
+ainda pode imprimir título, instrução, link de retorno e o contexto global
+“Escritório ativo” quando presente; a mensagem detalhada do veto fica visível
+na tela e o CSS global a oculta na impressão. O teste existente cobre a
+ausência do Balancete, mas não mede essa página em papel. `auditor-qa` aprovou
+os achados originais e a correção anterior à inclusão de navegação; não se
+afirma que essa inclusão posterior recebeu reconferência independente.
 
 ### ⚠️ MUDANÇA DE PROCESSO, 2026-09-20 — leia isto antes de qualquer coisa
 

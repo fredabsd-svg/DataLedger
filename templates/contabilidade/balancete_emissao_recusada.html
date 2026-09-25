@@ -4,6 +4,7 @@
 {% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
 {% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     <h1>Emissão do Balancete recusada</h1>
     <p>O Balancete não foi emitido. Corrija a divergência indicada e tente novamente.</p>
     <p><a href="{% url 'contabilidade_web:balancete' empresa.id %}">Voltar ao Balancete</a></p>
