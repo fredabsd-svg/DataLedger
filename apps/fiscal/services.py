@@ -69,26 +69,55 @@ MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO = (
     "uma empresa deste escritório."
 )
 
+# RC-112 (docs/projeto/requisitos.md, resposta do Fred de 2026-09-25 à
+# PE-66): o escritório ATENDE cliente pessoa física que emite NFS-e com
+# CPF. O cadastro de cliente pessoa física ainda NÃO existe nesta etapa
+# (modelagem própria, em estudo) — enquanto não existir, a nota é recusada,
+# mas com um motivo ESPECÍFICO, para não confundir "não é cliente" com "é
+# cliente, mas o sistema ainda não tem onde cadastrá-lo". O texto NÃO
+# depende de nada que exista ou não em outro escritório (critério 27
+# continua valendo: a mensagem é sobre o TIPO do documento do XML, que o
+# próprio remetente já sabe — não sobre o que este ou outro escritório tem
+# cadastrado).
+MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO = (
+    "Participante pessoa física (CPF): cadastro de cliente pessoa física "
+    "ainda não disponível."
+)
+
 
 def localizar_empresa_do_escritorio(escritorio, participante):
-    """Ponto ÚNICO de identificação de empresa por CNPJ, dentro de um
-    escritório (critério 13 do plano; DE-074 item 7).
+    """Ponto ÚNICO de identificação de empresa a partir de uma inscrição,
+    dentro de um escritório (critério 13 do plano; DE-074 item 7).
 
-    Procura em `Empresa.cnpj` E em `Estabelecimento.cnpj`, SEMPRE filtrando
+    `participante` é um `apps.fiscal.leitor.ParticipanteLido` (ou `None`) —
+    carrega a inscrição JUNTO do seu tipo (CNPJ/CPF/NIF/nao_informado), e é
+    o tipo que decide o ramo de busca abaixo. Nenhum outro ponto do código
+    presume que participante é sempre CNPJ.
+    """
+    if participante is None:
+        return None
+    if participante.tipo_documento == "CNPJ":
+        return _localizar_empresa_por_cnpj(escritorio, participante.documento)
+    if participante.tipo_documento == "CPF":
+        # PONTO DE EXTENSÃO (RC-112): quando existir cadastro de cliente
+        # pessoa física, a busca por CPF entra AQUI, no mesmo molde de
+        # `_localizar_empresa_por_cnpj` — sempre filtrada pelo escritório.
+        # Até lá, CPF nunca casa.
+        return None
+    # NIF (identificação fiscal estrangeira) e "nao_informado" (cNaoNIF)
+    # nunca casam: não são inscrição de empresa brasileira cadastrável
+    # neste sistema.
+    return None
+
+
+def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto):
+    """Busca em `Empresa.cnpj` E em `Estabelecimento.cnpj`, SEMPRE filtrando
     pelo escritório recebido — o CNPJ é único no sistema inteiro (PE-21),
     então uma busca SEM esse filtro encontraria empresa de OUTRO escritório,
     que é exatamente o vazamento que o critério 27 (isolamento) proíbe.
-
-    `participante` é um `apps.fiscal.leitor.ParticipanteLido` (ou `None`).
-    CPF NUNCA casa: `Empresa` não tem campo de CPF hoje (PE-66 — cliente
-    pessoa física prestador de serviço não tem onde ser cadastrado; a nota
-    é recusada com motivo, não adivinhada). `NIF` e `nao_informado` também
-    nunca casam, pelo mesmo motivo — não são CNPJ.
     """
-    if participante is None or participante.tipo_documento != "CNPJ":
-        return None
     try:
-        cnpj = normalizar_cnpj(participante.documento)
+        cnpj = normalizar_cnpj(cnpj_bruto)
     except ValidationError:
         return None
     empresa = Empresa.objects.filter(escritorio=escritorio, cnpj=cnpj).first()
@@ -104,10 +133,19 @@ def localizar_empresa_do_escritorio(escritorio, participante):
     return None
 
 
+def _tem_participante_pessoa_fisica(documento_lido: leitor.DocumentoLido) -> bool:
+    if documento_lido.prestador is not None and documento_lido.prestador.tipo_documento == "CPF":
+        return True
+    return documento_lido.tomador is not None and documento_lido.tomador.tipo_documento == "CPF"
+
+
 def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido):
     """Localiza prestador e tomador entre as empresas do escritório e
     devolve a lista de `(empresa, papel)` a vincular. Levanta
-    `leitor.ArquivoRecusado` se NENHUM dos dois casar — critério 5.
+    `leitor.ArquivoRecusado` se NENHUM dos dois casar — critério 5. A
+    mensagem distingue "nenhum é cliente" de "o único candidato é pessoa
+    física, sem cadastro ainda" (RC-112) — sem revelar, em nenhum dos dois
+    casos, se o CNPJ pertence a alguém em outro escritório (critério 27).
 
     Quando prestador e tomador são a MESMA empresa do escritório (nota de
     uma empresa para ela mesma), só um vínculo é criado, como prestador —
@@ -122,6 +160,8 @@ def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido):
     if empresa_tomador is not None and empresa_tomador != empresa_prestador:
         vinculos.append((empresa_tomador, PapelDocumento.TOMADOR))
     if not vinculos:
+        if _tem_participante_pessoa_fisica(documento_lido):
+            raise leitor.ArquivoRecusado(MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO)
         raise leitor.ArquivoRecusado(MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO)
     return vinculos
 
