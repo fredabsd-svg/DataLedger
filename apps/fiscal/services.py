@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import zipfile
+import zlib
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import DataError, IntegrityError, OperationalError, connection, transaction
+from django.db import Error as DjangoDBError
 from django.db.models import Exists, OuterRef
 from django.db.models.functions import Substr
 
@@ -40,15 +43,92 @@ from apps.fiscal.models import (
 )
 
 # ---------------------------------------------------------------------------
-# HI-22 (docs/projeto/requisitos.md): limites de um envio. NÃO são regra
-# confirmada pelo Fred — são hipótese registrada, dimensionada pelo acervo
-# real que ele enviou (5.850 arquivos cabem com folga). Existem para que um
-# ZIP hostil não consuma memória/tempo proporcional a um conteúdo forjado
-# pelo remetente, não porque medimos o teto real do escritório.
+# HI-22 (docs/projeto/requisitos.md), REVISTA por DE-076 (auditoria rodada
+# 1, achado A4): a auditoria mediu 37 s para 5.850 arquivos e 61 s para
+# 10.000, acima dos 30 s do servidor de aplicação (`Dockerfile`, `gunicorn`
+# sem `--timeout`). LIMITE_ARQUIVOS_NO_ENVIO caiu de 10.000 para 2.000 —
+# ver a medição de vazão registrada no relatório desta rodada de correção
+# (test_dl076_vazao_do_envio.py) — e a identificação de empresa por arquivo
+# passou a reaproveitar um DICIONÁRIO montado uma vez por envio
+# (`_mapa_de_inscricoes_do_escritorio`), em vez de consultar o banco a cada
+# arquivo. Os demais limites não são regra confirmada pelo Fred — são
+# hipótese registrada. Existem para que um ZIP hostil não consuma memória/
+# tempo proporcional a um conteúdo forjado pelo remetente, não porque
+# medimos o teto real do escritório.
 LIMITE_TAMANHO_ENVIO_BYTES = 50 * 1024 * 1024  # 50 MB
-LIMITE_ARQUIVOS_NO_ENVIO = 10_000
+LIMITE_ARQUIVOS_NO_ENVIO = 2_000
 LIMITE_TAMANHO_XML_BYTES = 1 * 1024 * 1024  # 1 MB por XML
 LIMITE_DESCOMPACTADO_BYTES = 200 * 1024 * 1024  # 200 MB
+
+# DE-076 item 1 (achado A3): um envio por vez, por escritório. Namespace
+# FIXO e arbitrário (as duas metades de um lock consultivo do PostgreSQL
+# são sempre DOIS `int4`) — combinado com o `id` do escritório, forma uma
+# chave estável e específica deste mecanismo, que não colide com nenhum
+# outro uso de `pg_advisory_xact_lock` no sistema (não há outro, hoje; o
+# namespace existe para o dia em que houver).
+_NAMESPACE_LOCK_ENVIO_FISCAL = 0x444C3130  # arbitrário, só precisa ser fixo
+
+MENSAGEM_ENVIO_EM_ANDAMENTO = (
+    "Já há um envio em processamento neste escritório; aguarde terminar e envie de novo."
+)
+
+# Qualquer OperationalError que ESCAPE do bloqueio consultivo acima (ele
+# não espera, então não deveria produzir espera nem impasse — mas a DE-076
+# pede defesa em profundidade para qualquer um que ainda ocorra, por
+# concorrência com outra operação do banco fora deste mecanismo) — SÓ os
+# dois SQLSTATE abaixo (e o texto equivalente, quando o driver não expõe
+# `pgcode`) viram `EnvioInvalido` legível. Qualquer outro `OperationalError`
+# sobe intacto — nunca mascarar um erro de sistema genuíno como se fosse
+# concorrência de envio.
+_SQLSTATE_LOCK_OU_DEADLOCK = frozenset({"40P01", "55P03", "57014"})
+_PADRAO_LOCK_OU_DEADLOCK = re.compile(
+    r"deadlock detected|lock timeout|could not obtain lock|canceling statement due to lock timeout",
+    re.IGNORECASE,
+)
+
+
+def _e_erro_de_lock_ou_deadlock(exc: OperationalError) -> bool:
+    pgcode = getattr(getattr(exc, "__cause__", None), "pgcode", None)
+    if pgcode in _SQLSTATE_LOCK_OU_DEADLOCK:
+        return True
+    return bool(_PADRAO_LOCK_OU_DEADLOCK.search(str(exc)))
+
+
+def _adquirir_lock_de_envio_do_escritorio(escritorio) -> bool:
+    """`pg_try_advisory_xact_lock` — NÃO espera: devolve na hora `True`
+    (conseguiu) ou `False` (outro envio do MESMO escritório já segura o
+    lock). O lock é escopado à TRANSAÇÃO (`_xact_`) — libera sozinho no
+    COMMIT ou ROLLBACK, mesmo se o processo morrer no meio; nunca precisa
+    de unlock explícito. `receber_envio` é `@transaction.atomic`, então a
+    transação já está aberta quando esta função roda.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s, %s)",
+            [_NAMESPACE_LOCK_ENVIO_FISCAL, escritorio.pk],
+        )
+        (obteve,) = cursor.fetchone()
+    return obteve
+
+
+_TAMANHO_MAXIMO_MOTIVO = 500  # ResultadoDoArquivo.motivo (models.py)
+_TAMANHO_MAXIMO_CAMINHO_NO_ZIP = 500  # ResultadoDoArquivo.caminho_no_zip (models.py)
+
+
+def _truncar(texto: str, tamanho: int) -> str:
+    """Corta `texto` no limite de COLUNA do banco, sem levantar nada —
+    achado A1: um namespace de XML ou um nome de entrada de ZIP de 600
+    caracteres ecoava sem corte na mensagem de recusa e estourava
+    `django.db.DataError` (`value too long for type character
+    varying(500)`) ao gravar `ResultadoDoArquivo`, derrubando o ENVIO
+    INTEIRO com 500 em vez de recusar só o arquivo. Corte é SEMPRE seguro
+    aqui: `motivo`/`caminho_no_zip` são só para EXIBIÇÃO (RC-71, critério
+    18) — nunca usados para classificar nem para deduplicar.
+    """
+    if len(texto) <= tamanho:
+        return texto
+    marcador = "… (truncado)"
+    return texto[: tamanho - len(marcador)] + marcador
 
 
 class EnvioInvalido(ValidationError):
@@ -91,7 +171,44 @@ MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO = (
 )
 
 
-def localizar_empresa_do_escritorio(escritorio, participante):
+def _mapa_de_inscricoes_do_escritorio(escritorio):
+    """Achado A4 da auditoria (DE-076 item 2): resolve, em DUAS consultas
+    (uma vez por ENVIO, não por arquivo), todas as inscrições do
+    escritório — CNPJ e CPF de `Empresa`, mais CNPJ de cada
+    `Estabelecimento` — para um dicionário `{(tipo, inscrição
+    canonizada): Empresa}`.
+
+    Isto é só o DADO; a REGRA de identificação continua num ponto só,
+    em `_localizar_empresa_por_cnpj`/`_localizar_empresa_por_cpf`
+    (critério 13 do plano) — elas apenas passam a consultar este
+    dicionário em vez do banco quando ele é fornecido. `receber_envio`
+    monta o mapa UMA VEZ e passa adiante para cada arquivo do mesmo
+    envio; nada aqui é reaproveitado ENTRE envios (o mapa vive só na
+    pilha de uma chamada de `receber_envio`, nunca em cache global —
+    uma empresa cadastrada no meio de um envio gigante não é vista pelos
+    arquivos já processados, mas isso é aceitável: o próprio envio, e
+    qualquer reenvio futuro, resolvem pela consulta fresca de novo).
+    """
+    mapa = {}
+    for empresa in Empresa.objects.filter(escritorio=escritorio):
+        if empresa.cnpj:
+            mapa[("CNPJ", empresa.cnpj)] = empresa
+        if empresa.cpf:
+            mapa[("CPF", empresa.cpf)] = empresa
+    estabelecimentos = Estabelecimento.objects.filter(empresa__escritorio=escritorio).select_related(
+        "empresa"
+    )
+    for estabelecimento in estabelecimentos:
+        # `setdefault`: se um CNPJ de Estabelecimento coincidisse com o de
+        # uma Empresa (não deveria, mas não é este ponto que garante isso),
+        # a Empresa continua vencendo — mesma prioridade da consulta direta
+        # em `_localizar_empresa_por_cnpj` (Empresa primeiro, Estabelecimento
+        # como resultado supletivo).
+        mapa.setdefault(("CNPJ", estabelecimento.cnpj), estabelecimento.empresa)
+    return mapa
+
+
+def localizar_empresa_do_escritorio(escritorio, participante, *, mapa=None):
     """Ponto ÚNICO de identificação de empresa a partir de uma inscrição,
     dentro de um escritório (critério 13 do plano; DE-074 item 7).
 
@@ -99,22 +216,28 @@ def localizar_empresa_do_escritorio(escritorio, participante):
     carrega a inscrição JUNTO do seu tipo (CNPJ/CPF/NIF/nao_informado), e é
     o tipo que decide o ramo de busca abaixo. Nenhum outro ponto do código
     presume que participante é sempre CNPJ.
+
+    `mapa` (opcional): dicionário de `_mapa_de_inscricoes_do_escritorio`
+    (achado A4) — quando fornecido, a busca é O(1) em memória, sem
+    consulta ao banco. Sem ele, cada chamada consulta o banco direto
+    (usado por quem processa um único participante avulso, fora do laço
+    de um envio — ex.: teste unitário).
     """
     if participante is None:
         return None
     if participante.tipo_documento == "CNPJ":
-        return _localizar_empresa_por_cnpj(escritorio, participante.documento)
+        return _localizar_empresa_por_cnpj(escritorio, participante.documento, mapa=mapa)
     if participante.tipo_documento == "CPF":
         # DL-038 (R8): CPF casa com `Empresa` de `tipo_inscricao=CPF` do
         # MESMO escritório — mesmo molde de `_localizar_empresa_por_cnpj`.
-        return _localizar_empresa_por_cpf(escritorio, participante.documento)
+        return _localizar_empresa_por_cpf(escritorio, participante.documento, mapa=mapa)
     # NIF (identificação fiscal estrangeira) e "nao_informado" (cNaoNIF)
     # nunca casam: não são inscrição de empresa brasileira cadastrável
     # neste sistema.
     return None
 
 
-def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto):
+def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto, *, mapa=None):
     """Busca em `Empresa.cnpj` E em `Estabelecimento.cnpj`, SEMPRE filtrando
     pelo escritório recebido — o CNPJ é único no sistema inteiro (PE-21),
     então uma busca SEM esse filtro encontraria empresa de OUTRO escritório,
@@ -124,6 +247,8 @@ def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto):
         cnpj = normalizar_cnpj(cnpj_bruto)
     except ValidationError:
         return None
+    if mapa is not None:
+        return mapa.get(("CNPJ", cnpj))
     empresa = Empresa.objects.filter(escritorio=escritorio, cnpj=cnpj).first()
     if empresa is not None:
         return empresa
@@ -137,7 +262,7 @@ def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto):
     return None
 
 
-def _localizar_empresa_por_cpf(escritorio, cpf_bruto):
+def _localizar_empresa_por_cpf(escritorio, cpf_bruto, *, mapa=None):
     """DL-038 (R8): busca em `Empresa.cpf`, restrita a `tipo_inscricao=CPF`
     e ao escritório recebido — mesmo molde de `_localizar_empresa_por_cnpj`,
     pela mesma razão de isolamento (critério 27): sem o filtro por
@@ -149,6 +274,8 @@ def _localizar_empresa_por_cpf(escritorio, cpf_bruto):
         cpf = normalizar_cpf(cpf_bruto)
     except ValidationError:
         return None
+    if mapa is not None:
+        return mapa.get(("CPF", cpf))
     return Empresa.objects.filter(
         escritorio=escritorio, tipo_inscricao=TipoInscricao.CPF, cpf=cpf
     ).first()
@@ -160,7 +287,7 @@ def _tem_participante_pessoa_fisica(documento_lido: leitor.DocumentoLido) -> boo
     return documento_lido.tomador is not None and documento_lido.tomador.tipo_documento == "CPF"
 
 
-def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido):
+def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido, *, mapa=None):
     """Localiza prestador e tomador entre as empresas do escritório e
     devolve a lista de `(empresa, papel)` a vincular. Levanta
     `leitor.ArquivoRecusado` se NENHUM dos dois casar — critério 5. A
@@ -172,12 +299,16 @@ def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido):
     uma empresa para ela mesma), só um vínculo é criado, como prestador —
     a igualdade evita a violação da unicidade `(documento, empresa)` de
     `VinculoDocumentoEmpresa`.
+
+    `mapa`: ver `localizar_empresa_do_escritorio` (achado A4).
     """
     vinculos = []
-    empresa_prestador = localizar_empresa_do_escritorio(escritorio, documento_lido.prestador)
+    empresa_prestador = localizar_empresa_do_escritorio(
+        escritorio, documento_lido.prestador, mapa=mapa
+    )
     if empresa_prestador is not None:
         vinculos.append((empresa_prestador, PapelDocumento.PRESTADOR))
-    empresa_tomador = localizar_empresa_do_escritorio(escritorio, documento_lido.tomador)
+    empresa_tomador = localizar_empresa_do_escritorio(escritorio, documento_lido.tomador, mapa=mapa)
     if empresa_tomador is not None and empresa_tomador != empresa_prestador:
         vinculos.append((empresa_tomador, PapelDocumento.TOMADOR))
     if not vinculos:
@@ -187,10 +318,51 @@ def _vincular_participantes(escritorio, documento_lido: leitor.DocumentoLido):
     return vinculos
 
 
-def _criar_documento_e_vinculos(escritorio, lido: leitor.DocumentoLido) -> DocumentoFiscal:
+def _adicionar_vinculos_que_faltam(documento, escritorio, lido: leitor.DocumentoLido, *, mapa=None):
+    """Achado A5 da auditoria: um documento RECEBIDO antes, quando só um
+    dos participantes era cliente cadastrado, ganha o vínculo que faltava
+    quando o OUTRO participante é cadastrado depois e a mesma nota é
+    reenviada (RC-69, "um documento com dois vínculos"; R8 da DL-038 —
+    vale também para o cliente pessoa física recém-cadastrado).
+
+    Chamado só no caminho de "duplicado" (o documento já existe). Reusa
+    `_vincular_participantes` — a MESMA regra de identificação, nunca uma
+    segunda cópia — e cria só os vínculos que ainda NÃO existem,
+    respeitando a unicidade `(documento, empresa)` mesmo sob corrida
+    (savepoint próprio por vínculo, IntegrityError vira "já existe,
+    ignora" — idempotente).
+
+    Devolve a primeira `Empresa` recém-vinculada (para a mensagem), ou
+    `None` se nada mudou.
+    """
+    try:
+        vinculos_alvo = _vincular_participantes(escritorio, lido, mapa=mapa)
+    except leitor.ArquivoRecusado:
+        # Documento já existia (teve pelo menos um vínculo antes), mas
+        # NENHUM participante casa agora — caso degenerado (ex.: a
+        # empresa vinculada foi excluída entre os dois envios). Nada a
+        # acrescentar; o vínculo antigo, se ainda existir, permanece.
+        return None
+    ja_vinculadas = set(documento.vinculos.values_list("empresa_id", flat=True))
+    vinculada_agora = None
+    for empresa, papel in vinculos_alvo:
+        if empresa.pk in ja_vinculadas:
+            continue
+        try:
+            with transaction.atomic():
+                VinculoDocumentoEmpresa.objects.create(documento=documento, empresa=empresa, papel=papel)
+        except IntegrityError:
+            # Corrida: outro processo já criou este vínculo entre a
+            # consulta de `ja_vinculadas` e este INSERT — idempotente.
+            continue
+        vinculada_agora = empresa
+    return vinculada_agora
+
+
+def _criar_documento_e_vinculos(escritorio, lido: leitor.DocumentoLido, *, mapa=None) -> DocumentoFiscal:
     # A checagem de isolamento acontece ANTES de qualquer escrita: uma nota
     # sem participante do escritório nunca chega a tocar o banco.
-    vinculos_alvo = _vincular_participantes(escritorio, lido)
+    vinculos_alvo = _vincular_participantes(escritorio, lido, mapa=mapa)
 
     documento = DocumentoFiscal.objects.create(
         escritorio=escritorio,
@@ -220,13 +392,13 @@ def _criar_documento_e_vinculos(escritorio, lido: leitor.DocumentoLido) -> Docum
     return documento
 
 
-def _criar_evento(escritorio, lido: leitor.EventoLido) -> EventoFiscal:
+def _criar_evento(escritorio, lido: leitor.EventoLido, *, mapa=None) -> EventoFiscal:
     # Evento ÓRFÃO (sem empresa identificável) é aceito e guardado — RC-70,
     # critério 17. Diferente do documento, o evento NUNCA é recusado por
     # falta de participante do escritório.
     empresa = None
     if lido.autor is not None:
-        empresa = localizar_empresa_do_escritorio(escritorio, lido.autor)
+        empresa = localizar_empresa_do_escritorio(escritorio, lido.autor, mapa=mapa)
     return EventoFiscal.objects.create(
         escritorio=escritorio,
         identificador=lido.identificador,

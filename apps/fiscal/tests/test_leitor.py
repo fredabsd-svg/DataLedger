@@ -265,6 +265,26 @@ def test_xml_com_dtd_e_recusado():
         _ler(conteudo)
 
 
+def test_xml_com_dtd_simples_sem_entidade_e_recusado():
+    # Achado A9/F18 (auditoria rodada 1): o teste acima (`test_xml_com_dtd_
+    # e_recusado`) usa uma DTD com `<!ENTITY x "1">` — mesmo se `forbid_dtd`
+    # virasse `False` por mutação, o `forbid_entities` (independente, TRUE
+    # por padrão do defusedxml) ainda pegaria a ENTIDADE e a mensagem
+    # continuaria batendo em `match="DTD|proibid"`, mascarando a mutação.
+    # Este teste usa uma DTD SEM entidade nenhuma — só `forbid_dtd=True`
+    # pode recusá-la; se a mutação zerar essa flag, este XML passa como
+    # válido (e falha adiante por outro motivo, "sem prestador"), matando
+    # o mutante de verdade.
+    conteudo = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b"<!DOCTYPE NFSe>"
+        b'<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">'
+        b'<infNFSe Id="' + ("NFS" + "0" * 50).encode() + b'"/></NFSe>'
+    )
+    with pytest.raises(leitor.ArquivoRecusado, match="DTD|proibid"):
+        _ler(conteudo)
+
+
 def test_xml_com_entidade_externa_e_recusado():
     conteudo = (
         b'<?xml version="1.0" encoding="UTF-8"?>'

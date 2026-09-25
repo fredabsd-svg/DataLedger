@@ -113,12 +113,18 @@ def xml_nfse(
     v_serv: str = "100.00",
     v_liq: str = "95.00",
     tp_ret_issqn: str = "1",
+    tp_amb: str | None = "1",
     declaracao: str | None = "UTF-8",
     minificado: bool = False,
     crlf: bool = False,
 ) -> bytes:
     """NFS-e nacional sintética. Todos os parâmetros têm um valor padrão
-    válido; sobrescreva só o que o cenário do teste precisa variar."""
+    válido; sobrescreva só o que o cenário do teste precisa variar.
+
+    `tp_amb`: "1" (Produção, padrão) ou "2" (Homologação — DE-076 item 3,
+    achado A11: recusada pelo leitor). `None` omite o elemento inteiro
+    (XML sem o campo, caso residual do acervo real que não deve recusar).
+    """
     if identificador is None:
         identificador = identificador_nfse()
 
@@ -130,6 +136,7 @@ def xml_nfse(
     emit_xml = _bloco_pessoa(
         "emit", tipo=prestador_tipo, documento=prestador_documento, nome=prestador_nome
     )
+    tp_amb_xml = f"<tpAmb>{tp_amb}</tpAmb>" if tp_amb is not None else ""
 
     corpo = f"""<NFSe xmlns="{NS_NFSE}" versao="{versao}">
   <infNFSe Id="{identificador}">
@@ -140,6 +147,7 @@ def xml_nfse(
     </valores>
     <DPS versao="{versao}">
       <infDPS Id="DPS{"0" * 42}">
+        {tp_amb_xml}
         <dhEmi>{dh_emi}</dhEmi>
         <dCompet>{d_compet}</dCompet>
         {toma_xml}
