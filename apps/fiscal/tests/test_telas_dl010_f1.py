@@ -98,6 +98,68 @@ def test_analista_recebe_e_consulta(client, usuario_analista_a):
     assert client.get(reverse("fiscal_web:documentos_lista")).status_code == 200
 
 
+def _usuario_paralegal_a(escritorio_a):
+    """PARALEGAL do escritório A — está em `papel_pode_consultar_documentos`
+    (HI-21), mas NÃO em `papel_pode_receber_documentos`. Não é fixture de
+    `conftest.py` (arquivo fora do escopo desta rodada de correção — auditoria
+    DL-010-F1/DL-038, rodada 1, achado A7); criado localmente, no mesmo molde
+    de `_usuario_qualquer_de`, abaixo."""
+    usuario = get_user_model().objects.create_user(
+        username="paralegal-fiscal-a",
+        email="paralegal-fiscal-a@escritorio-fiscal-teste.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio_a, papel=Papel.PARALEGAL
+    )
+    return usuario
+
+
+def test_paralegal_nao_envia_documentos_get(client, escritorio_a):
+    """A7 (auditoria DL-010-F1/DL-038, rodada 1): `PARALEGAL` consulta mas
+    NÃO envia (HI-21) — kills a mutação F15 (`_pode_receber` trocado por
+    `_pode_consultar` em `recepcao`, `apps/fiscal/views_web.py`)."""
+    client.force_login(_usuario_paralegal_a(escritorio_a))
+    resposta = client.get(reverse("fiscal_web:recepcao"))
+    assert resposta.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta.templates]
+
+
+def test_paralegal_nao_envia_documentos_post_sem_gravar(client, escritorio_a):
+    """A7: o POST de `PARALEGAL` é recusado ANTES de gravar — nem lote, nem
+    trilha. Mesma mutação F15 do teste acima, do lado de escrita."""
+    client.force_login(_usuario_paralegal_a(escritorio_a))
+    total_lotes_antes = LoteDeRecepcao.objects.count()
+    total_trilha_antes = RegistroAuditoria.objects.count()
+
+    resposta = client.post(
+        reverse("fiscal_web:recepcao"), {"arquivo": _upload("nota.xml", xml_nfse())}
+    )
+
+    assert resposta.status_code == 403
+    assert LoteDeRecepcao.objects.count() == total_lotes_antes
+    assert RegistroAuditoria.objects.count() == total_trilha_antes
+
+
+def test_paralegal_nao_ve_relatorio_do_envio(client, escritorio_a, empresa_a, usuario_gestor_a):
+    """A7: kills a mutação F16 (`_pode_receber` trocado por `_pode_consultar`
+    em `relatorio_envio`, `apps/fiscal/views_web.py`)."""
+    lote = receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=xml_nfse(), nome_arquivo="a.xml"
+    )
+    client.force_login(_usuario_paralegal_a(escritorio_a))
+    resposta = client.get(reverse("fiscal_web:relatorio_envio", args=[lote.id]))
+    assert resposta.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta.templates]
+
+
+def test_paralegal_consulta_lista_de_documentos(client, escritorio_a):
+    """A7: o lado positivo — `PARALEGAL` CONSULTA (HI-21), 200."""
+    client.force_login(_usuario_paralegal_a(escritorio_a))
+    resposta = client.get(reverse("fiscal_web:documentos_lista"))
+    assert resposta.status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Critério 27 — isolamento em todas as portas (404, nunca 403)
 # ---------------------------------------------------------------------------
@@ -176,6 +238,62 @@ def test_filtro_por_empresa_de_outro_escritorio_nao_vaza(client, empresa_b, usua
     # a asserção evita o caractere para não depender da forma de escape.
     assert "Empresa" in resposta.content.decode()
     assert "inválida" in resposta.content.decode()
+
+
+def test_detalhe_nao_lista_evento_de_outro_escritorio_com_mesma_chave(
+    client, escritorio_a, escritorio_b, empresa_a, usuario_gestor_a
+):
+    """A6/F11 (auditoria DL-010-F1/DL-038, rodada 1): um evento de
+    CANCELAMENTO gravado no escritório B, referenciando a CHAVE de uma nota
+    do escritório A, não pode aparecer no detalhe da nota em A — nem mudar a
+    situação dela lá. Kills a mutação que tira `escritorio=documento.
+    escritorio_id` da consulta de eventos em `documento_detalhe`
+    (apps/fiscal/views_web.py)."""
+    receber_envio(
+        escritorio=escritorio_a, usuario=usuario_gestor_a, arquivo=xml_nfse(), nome_arquivo="a.xml"
+    )
+    documento_a = DocumentoFiscal.objects.get(escritorio=escritorio_a)
+
+    # Sem empresa correspondente em B de propósito: o evento é aceito
+    # ÓRFÃO mesmo assim (RC-70/DE-074 item 4) — e um CNPJ SEGUNDO cadastro
+    # com o mesmo `CNPJ_PRESTADOR_PADRAO` violaria a unicidade GLOBAL de
+    # CNPJ (PE-21), que já está ocupada por `empresa_a` neste teste.
+    receber_envio(
+        escritorio=escritorio_b,
+        usuario=_usuario_qualquer_de(escritorio_b),
+        arquivo=xml_evento(chave_nfse=chave_nfse_de(documento_a.identificador), codigo="e101101"),
+        nome_arquivo="evento-b-mesma-chave.xml",
+    )
+
+    client.force_login(usuario_gestor_a)
+    resposta = client.get(reverse("fiscal_web:documento_detalhe", args=[documento_a.id]))
+    texto = resposta.content.decode()
+
+    assert resposta.status_code == 200
+    assert "Nenhum evento fiscal referencia esta nota até o momento." in texto
+    assert "e101101" not in texto
+    assert "situacao-documento--cancelada" not in texto
+
+
+def test_recepcao_nao_lista_lote_de_outro_escritorio(
+    client, escritorio_a, escritorio_b, usuario_gestor_a
+):
+    """A6/F14: a lista de "Envios recentes" é sempre filtrada pelo
+    escritório ATIVO — kills `LoteDeRecepcao.objects.all()` no lugar de
+    `.filter(escritorio=request.escritorio)` em `recepcao`
+    (apps/fiscal/views_web.py). O arquivo de B é recusado (nenhuma empresa
+    casa em B), mas o LOTE ainda é criado — é exatamente esse lote que não
+    pode vazar para a tela de A."""
+    receber_envio(
+        escritorio=escritorio_b,
+        usuario=_usuario_qualquer_de(escritorio_b),
+        arquivo=xml_nfse(),
+        nome_arquivo="nota-do-escritorio-b-nunca-deveria-aparecer.xml",
+    )
+    client.force_login(usuario_gestor_a)
+    resposta = client.get(reverse("fiscal_web:recepcao"))
+    assert resposta.status_code == 200
+    assert "nota-do-escritorio-b-nunca-deveria-aparecer.xml" not in resposta.content.decode()
 
 
 def _usuario_qualquer_de(escritorio):

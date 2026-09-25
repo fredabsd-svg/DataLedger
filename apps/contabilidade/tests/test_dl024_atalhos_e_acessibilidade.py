@@ -100,6 +100,17 @@ from apps.contabilidade.tests.universo_de_telas import (
 )
 from apps.core.marcacao import tem_classe, tokens_de_atributo
 from apps.empresas.models import Empresa
+
+# A11 da auditoria DL-010-F1/DL-038 (docs/auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md):
+# import cruzado de apoio de teste (apps.fiscal.tests.xml_sinteticos), no
+# mesmo espírito de apps.contabilidade.tests.universo_de_telas já ser usado
+# por este arquivo — módulo de TESTE, não de produção, então a fronteira
+# entre apps não se aplica (AGENTS.md só proíbe duplicar REGRA DE NEGÓCIO
+# entre apps, e aqui não há regra nenhuma sendo reimplementada: é o MESMO
+# gerador de XML sintético que os testes de servidor do Fiscal já usam).
+from apps.fiscal.models import DocumentoFiscal
+from apps.fiscal.services import receber_envio
+from apps.fiscal.tests.xml_sinteticos import CNPJ_PRESTADOR_PADRAO, xml_nfse
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 # BL-352 (rodada 10 da auditoria DL-026): NOMES_DE_TELA_DE_CONTABILIDADE,
@@ -126,6 +137,11 @@ urlpatterns = [
     path("empresas/", include("apps.empresas.urls")),
     path("contabilidade/", include("apps.contabilidade.urls")),
     path("contabilidade/painel/", include("apps.contabilidade.urls_web")),
+    # A12 da auditoria DL-010-F1/DL-038 (rodada 1): sem esta linha, este
+    # espelho de urlconf não conhece `fiscal_web:*` — exatamente o defeito
+    # que a DL-036 já mediu uma vez ("o espelho de URLs e o universo de
+    # telas não conheciam a rota nova"). Mesmo prefixo de `config/urls.py`.
+    path("fiscal/", include("apps.fiscal.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]
 
@@ -407,6 +423,37 @@ def cenario(client):
         "capital": capital,
         "lancamento": lancamento,
     }
+
+
+# ---------------------------------------------------------------------------
+# A12 da auditoria DL-010-F1/DL-038 (rodada 1): cenário PRÓPRIO do Fiscal —
+# `cenario`, acima, é do domínio contábil (empresa/caixa/lancamento) e não
+# tem lote nem documento fiscal nenhum. As quatro telas HTML do Fiscal
+# (recepção, relatório do envio, lista de documentos — inclusive o estado de
+# erro 400 — e detalhe do documento) precisam de um envio de verdade para
+# renderizar com dado, não só o caminho vazio.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cenario_fiscal(client):
+    escritorio = Escritorio.objects.create(nome="Escritório Fiscal A11y", cnpj="33555777000144")
+    # CNPJ do prestador é o MESMO que `xml_nfse()` usa por padrão
+    # (`CNPJ_PRESTADOR_PADRAO`) — sem isso, `receber_envio` recusaria a nota
+    # sintética por "nenhum participante do escritório", e a tela renderizaria
+    # sempre no estado vazio, nunca com uma linha de dado de verdade.
+    Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Prestadora Fiscal A11y Ltda",
+        cnpj=CNPJ_PRESTADOR_PADRAO,
+    )
+    _autenticar(client, escritorio, papel=Papel.GESTOR, username="gestor-fiscal-a11y")
+    usuario = get_user_model().objects.get(username="gestor-fiscal-a11y")
+    lote = receber_envio(
+        escritorio=escritorio, usuario=usuario, arquivo=xml_nfse(), nome_arquivo="nota-a11y.xml"
+    )
+    documento = DocumentoFiscal.objects.get(escritorio=escritorio)
+    return {"escritorio": escritorio, "usuario": usuario, "lote": lote, "documento": documento}
 
 
 # ---------------------------------------------------------------------------
@@ -847,24 +894,19 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "contabilidade_web:competencia_entregar": (
         "test_dl031_fechamento_de_competencia.py — exige competência encerrada; cenário próprio"
     ),
-    # DL-010 (fatia 1, etapa 2 — especialista-frontend): as seis rotas do
-    # módulo Fiscal. Nenhuma entra em `NOMES_DE_TELA_FORA_DA_CONTABILIDADE`
-    # porque esse dicionário (e o `cenario`/`ARGS_DE_ROTA_FORA_DA_
-    # CONTABILIDADE` que o acompanham neste arquivo) foi moldado para as
-    # SEIS telas sem estado que já existiam quando o BL-352 o criou — nenhum
-    # `lote`/`documento`/`evento` na fixture `cenario` (só `empresa`/
-    # `caixa`/`lancamento`, do domínio contábil), e duas das rotas do Fiscal
-    # exigem um `<int:...>` de um registro que só EXISTE depois de um envio
-    # de verdade (mesmo motivo de `competencia_reabrir`/`competencia_
-    # entregar`, acima: rota que depende de ESTADO PRÓPRIO ganha teste
-    # PRÓPRIO, não o genérico deste arquivo). As seis são exercitadas de
-    # ponta a ponta — renderização real, os cinco estados (vazio/erro/
-    # sucesso/sem permissão, mais 404 de isolamento) e permissão por
-    # requisição — em apps/fiscal/tests/test_telas_dl010_f1.py.
-    "fiscal_web:recepcao": "apps/fiscal/tests/test_telas_dl010_f1.py",
-    "fiscal_web:relatorio_envio": "apps/fiscal/tests/test_telas_dl010_f1.py",
-    "fiscal_web:documentos_lista": "apps/fiscal/tests/test_telas_dl010_f1.py",
-    "fiscal_web:documento_detalhe": "apps/fiscal/tests/test_telas_dl010_f1.py",
+    # DL-010 (fatia 1, etapa 2 — especialista-frontend). A12 da auditoria
+    # DL-010-F1/DL-038 (rodada 1): as QUATRO telas HTML do Fiscal
+    # (recepção, relatório do envio, lista de documentos, detalhe do
+    # documento) SAÍRAM desta lista de exclusão — moram agora em
+    # `NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE`, exercitadas de verdade
+    # por `assert_moldura_acessivel` (ver as cinco funções
+    # `test_tela_fiscal_*_e_acessivel`, acima). A justificativa antiga
+    # ("cobertas em test_telas_dl010_f1.py, que não verifica acessibilidade
+    # nenhuma") era exatamente o ponto cego que o achado A12 mediu: aquele
+    # arquivo prova isolamento, permissão e estado, nunca `kbd.tecla`/
+    # `accesskey`. Só os DOIS downloads de XML continuam aqui, porque não
+    # são HTML — nunca porque "já tem teste em outro lugar".
+    #
     # As duas de download NÃO são "tela" no sentido desta guarda (que mede
     # HTML que estende base.html) — devolvem application/xml como anexo
     # (critério 29 do plano DL-010-F1), no mesmo espírito de "core:health"
@@ -876,6 +918,27 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "fiscal_web:evento_xml": (
         "download de anexo (application/xml), não HTML — apps/fiscal/tests/test_telas_dl010_f1.py"
     ),
+}
+
+# A12: cobertura REAL das quatro telas HTML do Fiscal, no mesmo papel de
+# `NOMES_DE_TELA_FORA_DA_CONTABILIDADE` (universo_de_telas.py) — mas LOCAL a
+# este arquivo, e não naquele módulo. Motivo: a correção desta rodada de
+# auditoria está restrita a `apps/fiscal/tests/test_telas_dl010_f1.py` e a
+# este arquivo (instrução da rodada de correção); mover estas quatro linhas
+# para `universo_de_telas.py` — o lugar mais correto a longo prazo, para o
+# Fiscal ficar ao lado da contabilidade na MESMA fonte que qualquer guarda
+# usa — é trabalho de quem tiver permissão de editar aquele arquivo depois.
+# Até lá, esta cópia LOCAL seguindo o MESMO formato evita que a rota fique
+# sem classificação: `test_toda_rota_do_produto_esta_coberta_ou_excluida`,
+# abaixo, inclui este dicionário na união de `cobertas`.
+NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
+    "fiscal_web:recepcao": "test_tela_fiscal_recepcao_e_acessivel",
+    "fiscal_web:relatorio_envio": "test_tela_fiscal_relatorio_envio_e_acessivel",
+    "fiscal_web:documentos_lista": (
+        "test_tela_fiscal_documentos_lista_e_acessivel, "
+        "test_tela_fiscal_documentos_lista_estado_de_erro_e_acessivel"
+    ),
+    "fiscal_web:documento_detalhe": "test_tela_fiscal_documento_detalhe_e_acessivel",
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
@@ -928,12 +991,15 @@ def _nomes_de_rota_do_produto(urlconf="config.urls"):
 def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
     alcançável a partir de `config/urls.py`, sem entrada em
-    `NOMES_DE_TELA_DE_CONTABILIDADE`/`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`
-    NEM em `EXCLUSOES_NOMEADAS_DE_TELA`, reprova — nomeando a rota que
-    falta classificar, para quem lê a falha saber exatamente o que fazer."""
+    `NOMES_DE_TELA_DE_CONTABILIDADE`/`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`/
+    `NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE` NEM em `EXCLUSOES_
+    NOMEADAS_DE_TELA`, reprova — nomeando a rota que falta classificar, para
+    quem lê a falha saber exatamente o que fazer."""
     nomes_reais = _nomes_de_rota_do_produto()
-    cobertas = set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE) | set(
-        NOMES_DE_TELA_DE_CONTABILIDADE.values()
+    cobertas = (
+        set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
+        | set(NOMES_DE_TELA_DE_CONTABILIDADE.values())
+        | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
 
@@ -1061,6 +1127,60 @@ def test_tela_bootstrap_primeiro_acesso_e_acessivel(client, django_user_model):
     resposta = client.get(reverse("tenancy:bootstrap-primeiro-acesso"))
     assert resposta.status_code == 200
     assert "tenancy/primeiro_acesso.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# ---------------------------------------------------------------------------
+# A12 da auditoria DL-010-F1/DL-038 (rodada 1,
+# docs/auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md): as quatro telas
+# HTML do Fiscal (`templates/fiscal/*.html`, exceto os dois downloads de
+# XML, que não são HTML — ver o comentário deles em
+# `EXCLUSOES_NOMEADAS_DE_TELA`, mais abaixo), com cenário PRÓPRIO
+# (`cenario_fiscal`) porque nenhuma delas usa `_navegacao_empresa.html` nem
+# o `cenario` contábil.
+# ---------------------------------------------------------------------------
+
+
+def test_tela_fiscal_recepcao_e_acessivel(client, cenario_fiscal):
+    resposta = client.get(reverse("fiscal_web:recepcao"))
+    assert resposta.status_code == 200
+    assert "fiscal/recepcao.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_fiscal_relatorio_envio_e_acessivel(client, cenario_fiscal):
+    resposta = client.get(reverse("fiscal_web:relatorio_envio", args=[cenario_fiscal["lote"].id]))
+    assert resposta.status_code == 200
+    assert "fiscal/relatorio_envio.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_fiscal_documentos_lista_e_acessivel(client, cenario_fiscal):
+    resposta = client.get(reverse("fiscal_web:documentos_lista"))
+    assert resposta.status_code == 200
+    assert "fiscal/documentos_lista.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_fiscal_documentos_lista_estado_de_erro_e_acessivel(client, cenario_fiscal):
+    """Estado ALTERNATIVO de `fiscal_web:documentos_lista`: filtro de
+    competência malformado devolve 400 com o formulário re-exibido — a
+    mesma classe de achado que `test_tela_erro_sem_permissao_e_acessivel`
+    já cobre para `empresas:criar` (template different, mesma lição: um
+    estado de ERRO renderizado também é tela do produto, não só o caminho
+    feliz)."""
+    resposta = client.get(reverse("fiscal_web:documentos_lista"), {"ano": "abc", "mes": "1"})
+    assert resposta.status_code == 400
+    assert "fiscal/documentos_lista.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_fiscal_documento_detalhe_e_acessivel(client, cenario_fiscal):
+    resposta = client.get(
+        reverse("fiscal_web:documento_detalhe", args=[cenario_fiscal["documento"].id])
+    )
+    assert resposta.status_code == 200
+    assert "fiscal/documento_detalhe.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 
