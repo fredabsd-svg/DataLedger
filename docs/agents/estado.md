@@ -371,8 +371,9 @@ escrito com **22 critérios de aceite**, cada um com um número medido por trás
 
 | Ordem | Frente | Estado |
 | --- | --- | --- |
-| **1** | Leiaute oficial da NFS-e nacional — `auxiliar-pesquisa`, somente leitura | **em curso** |
-| **2** | Servidor: app `fiscal`, persistência, importador, deduplicação, eventos órfãos, relatório de conferência como dado | aguarda o passo 1 |
+| **1** | Leiaute oficial da NFS-e nacional — `auxiliar-pesquisa`, somente leitura | ✅ **CONCLUÍDO** — RC-110 a RC-113, PE-66 a PE-68 |
+| **1b** | Rotina de recepção no manual do sistema de referência | ✅ **CONCLUÍDO** — corrigiu **quatro** premissas minhas; DE-075, DE-076, HI-20, PE-69 |
+| **2** | Servidor: app `fiscal`, persistência, importador, deduplicação, eventos órfãos, relatório de conferência como dado | ⏸️ **NÃO INICIADO** — ver "Onde parar e como retomar", abaixo |
 | **3** | Tela de importação e conferência | aguarda o passo 2 |
 
 ⚠️ **O passo 1 vem antes por REGRA:** *"não invente leiaute oficial"*. Nome de
@@ -408,6 +409,67 @@ acervo são de um único município**. O risco concreto é ajustar o leitor ao
 provedor de software de uma prefeitura e descobrir isso no cliente seguinte. **Uma
 segunda amostra, de outro município, vale mais que qualquer refinamento sobre
 esta** — é pedido ao Fred, não bloqueio.
+
+#### ⚠️ ONDE PAREI E COMO RETOMAR — handoff de 2026-09-25 para OUTRO DESENVOLVEDOR
+
+**O Fred avisou que outro desenvolvedor entra no projeto e pediu para eu encerrar
+e commitar tudo.** Encerrei **antes de escrever qualquer código fiscal**, de
+propósito: implementação a meio caminho no rastro de outra pessoa é a colisão que
+esta semana já custou retrabalho ([DE-073](../projeto/decisoes.md#de-073)).
+
+**Estado exato, verificado:** árvore **limpa**, local e remoto **idênticos**,
+**nenhum arquivo de código fiscal criado**. O app `fiscal` **não existe**.
+
+##### O que está PRONTO para quem assumir — e é a parte caríssima
+
+Tudo o que evita adivinhação já está escrito e fundamentado:
+
+| Onde | O que tem |
+| --- | --- |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | **30 critérios de aceite**, o contrato de leiaute confirmado em fonte oficial, as divergências decididas e a decisão de segurança |
+| `requisitos.md` | **RC-110 a RC-113** (leiaute oficial, consulta 2026-09-25), **RC-66 e RC-69 a RC-76** (acervo real), **HI-20**, **PE-41** e **PE-66 a PE-69** |
+| `decisoes.md` | **DE-074** XML íntegro · **DE-075** evento órfão · **DE-076** empresa pelo documento |
+| `mapa-funcional-fiscal.md` | A rotina do sistema de referência, e **as quatro premissas minhas que o manual corrigiu** |
+
+##### As cinco coisas que quem assumir precisa saber, e que não são óbvias no código
+
+1. ⚠️ **O tipo do documento NÃO se reconhece pelo namespace** — ele é idêntico
+   para nota, para o documento de origem e para eventos. **É pelo elemento raiz**:
+   `NFSe`, `DPS`, `evento`, `pedRegEvento`.
+2. ⚠️ **A situação do documento é DERIVADA, nunca copiada.** `cStat` tem quatro
+   valores e **nenhum é "cancelada"** (RC-111). Gravá-lo como situação afirma que a
+   nota é válida **quando ela pode estar cancelada**.
+3. ⚠️ **Evento órfão é o caso NORMAL**, não a exceção: **29 de 29** cancelamentos
+   do acervo real apontam para nota ausente. Recusá-lo, como faz o sistema de
+   referência, descartaria **100%** deles (DE-075).
+4. ⚠️ **A empresa vem do CNPJ DO DOCUMENTO**, nunca da pasta nem de escolha prévia:
+   36 notas idênticas foram medidas em **duas pastas de clientes diferentes**
+   (DE-076).
+5. ⚠️ **A recepção NÃO pode exigir classificação fiscal** para gravar. A
+   classificação é de outra fatia, e virá por **tabela de mapeamento com valor de
+   exceção obrigatório** — desenho que o manual revelou. Modelo que a torne
+   obrigatória na entrada inviabiliza isso depois.
+
+##### Como retomar, na ordem
+
+1. Reler a `DL-010` integral. **Os 30 critérios são o contrato**, não sugestão.
+2. Criar o app `fiscal`: modelos, importador, serviços, migração aditiva, testes.
+   **Sem tela e sem rota** — o resultado é estrutura de dados, e o motivo está no
+   plano.
+3. **Fixtures sintéticas, sempre.** O acervo real **não está neste ambiente** e não
+   deve estar. Os números reais são a **justificativa** do teste, nunca o insumo.
+4. Auditoria independente da versão integrada, com a regra de parada da §3.1.
+
+##### Três perguntas abertas com o Fred, e nenhuma bloqueia o código
+
+1. **PE-68** — o acervo tem os arquivos de **evento**, ou só as notas? Sem eles, a
+   situação de parte do acervo é **desconhecida**, não "válida".
+2. **HI-20** — o desfecho do lote tem o balde de **advertência com marcação
+   manual**, ou simplifica para aceito × recusado?
+3. **PE-41** — a **segunda amostra, de outro município**. É o que decide se o
+   leitor está amarrado ao provedor de uma prefeitura só: **82%** do acervo vem de
+   um único município, e a fonte oficial **confirmou** que município com sistema
+   próprio pode manter padrão técnico interno (RC-113).
 
 **Duas frentes seguem esperando prioridade dele:** **BL-526** (o mecanismo que
 falta para a marca do README) e o **zeramento / encerramento do exercício**, cuja
