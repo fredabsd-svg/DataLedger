@@ -142,6 +142,15 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "um_periodo_de_regime_aberto_por_empresa": (
         "apps.empresas.services.registrar_regime_tributario"
     ),
+    # DL-010 F1 (DE-074 item 5, critério 28 do plano): as duas restrições
+    # de deduplicação por escritório da recepção de NFS-e. Não traduzem
+    # para 400 — a repetição de um documento/evento já recebido NÃO é erro
+    # de entrada, é o caso NORMAL de reimportar um lote (RC-69). A
+    # tradução vira um resultado de NEGÓCIO ("duplicado" em
+    # `ResultadoDoArquivo`), dentro do savepoint por arquivo de
+    # `_processar_um_arquivo` — nunca sobe como exceção HTTP.
+    "documento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
+    "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
@@ -258,6 +267,20 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`LancamentoContabil` sem `empresa`. Defesa em profundidade contra "
         "INSERT direto via psql/shell-admin, sem caminho de escrita por "
         "cliente."
+    ),
+    # DL-010 F1: `apps.fiscal.services._vincular_participantes` nunca monta
+    # dois vínculos para a MESMA empresa no mesmo documento (o ramo do
+    # tomador é descartado quando `empresa_tomador == empresa_prestador`) —
+    # e a criação do documento, que aconteceria ANTES na mesma
+    # `transaction.atomic()`, já teria levantado `documento_fiscal_unico_
+    # por_escritorio` primeiro num reenvio. Nenhum caminho de cliente
+    # alcança esta restrição hoje.
+    "vinculo_documento_empresa_unico": (
+        "`UniqueConstraint(documento, empresa)` de `VinculoDocumentoEmpresa` "
+        "(DL-010 F1). `_vincular_participantes` nunca gera dois vínculos "
+        "para a mesma empresa no mesmo documento, e um documento duplicado "
+        "já é barrado antes disso por `documento_fiscal_unico_por_"
+        "escritorio`. Sem caminho de escrita por cliente hoje."
     ),
 }
 
