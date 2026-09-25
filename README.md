@@ -218,6 +218,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-035** — as **guardas da demonstração**: as cinco ressalvas da reconferência da DL-034, numa etapa própria em vez de uma terceira volta (a §3.1 proíbe a terceira). ⚠️ **Nenhum item é defeito no que o produto entrega hoje** — todos são buracos na **guarda**, o que passaria numa mudança futura: o bloco normativo sai **invisível do papel** por uma declaração de cor com o job verde (BL-514), e mover 5 das 6 travas de emissão para a tupla de aviso **não reprova nada** (BL-515). Plano em [docs/planos/DL-035-as-guardas-da-demonstracao.md](docs/planos/DL-035-as-guardas-da-demonstracao.md) — integrada pelo PR #43 (`898b334`); auditoria aprovada e BL-514–519 encerradas.
 - **DL-036** — página inicial pública e cadastro de um novo escritório pelo próprio produto, sem terminal nem admin
 - **DL-037** — redesenho visual da entrada pública: hierarquia de leitura e caminho explícito para o novo escritório
+- **DL-038** — cliente pessoa física no cadastro de empresas: inscrição por CPF e modo de escrituração (contabilidade ou livro-caixa)
 
 Ainda não existem:
 

@@ -3816,3 +3816,26 @@ escritório (5.850 arquivos) cabe num envio.
 
 **Reversão:** as cinco escolhas são locais ao `apps/fiscal`. Mover o XML para
 armazenamento externo depois é uma migração de dados sem mudança de contrato.
+
+## DE-075 — Cliente pessoa física no mesmo cadastro de empresas
+
+**Data:** 2026-09-25
+
+**Decisão:** do Fred, opção A da PE-67 (RC-114). `Empresa` ganha **tipo de
+inscrição** (CNPJ ou CPF) e **modo de escrituração** (contabilidade ou
+livro-caixa). A recusa da contabilidade a empresa em livro-caixa fica em **um
+ponto só**. Plano: [DL-038](../planos/DL-038-cliente-pessoa-fisica.md).
+
+**Motivo.** O manual do sistema de referência mostra pessoa física e jurídica na
+mesma entidade cadastral e o livro-caixa como modo de escrituração por empresa —
+rotina, não norma. Um cadastro só mantém um único seletor de cliente, um único
+isolamento e um único ponto de identificação para a recepção fiscal. O modo de
+escrituração é o primeiro parâmetro por empresa que o BL-474 pedia.
+
+**Alternativa descartada:** cadastro separado de pessoa física (opção B) —
+duplicaria isolamento, permissões e telas, e prenderia o livro-caixa a um
+cadastro à parte. Era a minha recomendação antes de ler o manual; o manual a
+corrigiu.
+
+**Reversão:** migração aditiva; com empresa CPF já cadastrada, a correção é
+progressiva, nunca apagar.

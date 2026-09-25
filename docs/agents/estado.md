@@ -85,6 +85,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração (BL-514 a BL-519) | Integrada (PR #43 e #44) |
 | [DL-036](../planos/DL-036-entrada-e-cadastro.md) | Página inicial pública e cadastro de novo escritório | Integrada (PR #45) |
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
+| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Planejada |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -102,21 +103,26 @@ sucesso/erro/limite e auditoria independente.
 
 Fila depois dela, em ordem recomendada e sujeita ao Fred:
 
-1. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
+1. **DL-038 — cliente pessoa física** (opção A escolhida pelo Fred, RC-114):
+   [plano](../planos/DL-038-cliente-pessoa-fisica.md). Começa quando o servidor
+   da DL-010 F1 terminar, porque os dois alteram o cadastro de empresas.
+2. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
    por lançamento em duas etapas (RC-104), periodicidade alternativa por empresa
    (RC-105). Só o **plano** existe, na branch não integrada
    `claude/dl-016-f3-encerramento-competencia`; revisar antes de reaproveitar.
    Depende de onde guardar **parâmetro contábil por empresa** (BL-474).
-2. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
+3. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
    camada de saldos (limite declarado no próprio código). Depende do mesmo
    BL-474.
-3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+4. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
+   regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
+5. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o Fred confirmou em 25/09 que o escritório atende
-(RC-112). O cadastro hoje só aceita CNPJ; a modelagem está em estudo (consulta ao
-manual do sistema de referência em andamento) e vira etapa própria logo depois da
-DL-010 F1, que recusa essas notas com motivo específico até lá. Para esses
+(RC-112). O cadastro hoje só aceita CNPJ; o Fred escolheu cadastrá-lo na própria
+`Empresa`, com tipo de inscrição e modo de escrituração (RC-114, DL-038). Até lá a
+DL-010 F1 recusa essas notas com motivo específico. Para esses
 clientes o escritório faz **carnê-leão e livro-caixa** (RC-113): o cadastro de
 pessoa física é a base de um módulo novo, fora da contabilidade por partidas
 dobradas, cujas regras ainda precisam de fonte oficial.
