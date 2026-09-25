@@ -1,10 +1,10 @@
 # DL-027 — Fatia B.2: critério de apuração impresso no documento (com A4)
 
-**Estado:** **em correção única após auditoria independente reprovada** em
-2026-09-24. B.2 e B.3 foram integradas no PR #41 (`03984ab`); o relatório
-integral da rodada 1 está em
-[`2026-09-24-dl-027-b2-b3-rodada-1.md`](../auditorias/2026-09-24-dl-027-b2-b3-rodada-1.md).
-Esta correção trata os dois achados antes de uma reconferência independente.
+**Estado:** **correção única reconferida como aprovada** em 2026-09-24. B.2 e
+B.3 foram integradas no PR #41 (`03984ab`); a correção está no PR #42. Os
+relatórios integrais da auditoria e da reconferência estão em
+- auditoria inicial: [`2026-09-24-dl-027-b2-b3-rodada-1.md`](../auditorias/2026-09-24-dl-027-b2-b3-rodada-1.md);
+- reconferência: [`2026-09-24-dl-027-b2-b3-reconferencia-2.md`](../auditorias/2026-09-24-dl-027-b2-b3-reconferencia-2.md).
 
 > **Autorização.** Fred ordenou, na conversa de 2026-09-22: *"Abrir B.2
 > (critério impresso + A4)"*. Esta é a segunda sub-etapa da **Fatia B**
@@ -172,12 +172,24 @@ ausência do parâmetro = comportamento idêntico.
    compensado e saldo de abertura não zero.
 
 O plano anterior tinha conflito entre o critério de aceite 3 e R2. O texto
-acima é o contrato atualizado. A auditoria de rodada 1 não mediu PDF/A4
-real; a correção não afirma essa medição. Uma reconferência independente
-deve confirmar os dois achados e os testes correspondentes; pela regra do
+acima é o contrato atualizado. A auditoria inicial e a reconferência não
+mediram PDF/paginação A4 real; a correção não afirma essa medição. A
+reconferência independente aprovou os dois achados corrigidos e os testes
+correspondentes, conforme o relatório vinculado acima. Pela regra do
 AGENTS.md, não haverá terceira rodada.
 
 **Prova de mutação A4, em worktree isolada:** M5 (remover
 `messages.error(...)`), M5b (remover a diferença em pt-BR) e M5c (remover a
 orientação) foram todos mortos pelo teste
 `test_a4_view_balancete_quando_veta_mensagem_contem_diferenca_e_orientacao`.
+
+**Reconferência independente da §3.1:** **APROVADA** no commit local
+`befd65263a8aabee786db0943f1705b42fb972cb`. A primeira publicação de código
+em PR #42 tinha a mesma árvore (`4f432015d510eec298120e90dbfbb924722a3761`)
+e o mesmo pai `03984abedfa5bc6e20788d8c07133bb3eb17b9f5`; as atualizações
+seguintes do PR são documentais.
+
+O auditor não mediu PDF/paginação A4 real. O job `Medir identificação do
+emitente no navegador` permanece obrigatório no CI do PR #42, mas seu escopo
+não comprova a presença impressa do critério B.2 nem a paginação da página
+de recusa 409.
