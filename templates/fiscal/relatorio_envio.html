@@ -37,9 +37,11 @@
             <tbody>
                 {% for linha in linhas %}
                     <tr class="{{ linha.classe_css }}">
-                        <td>{{ linha.resultado.caminho_no_zip|default:"(arquivo solto)" }}</td>
+                        <td class="valor-quebravel">
+                            {{ linha.resultado.caminho_no_zip|default:"(arquivo solto)" }}
+                        </td>
                         <td>{{ linha.resultado.get_resultado_display }}</td>
-                        <td>{{ linha.resultado.motivo|default:"—" }}</td>
+                        <td class="valor-quebravel">{{ linha.resultado.motivo|default:"—" }}</td>
                         <td>
                             {% if linha.resultado.documento %}
                                 <a href="{% url 'fiscal_web:documento_detalhe' linha.resultado.documento.id %}">

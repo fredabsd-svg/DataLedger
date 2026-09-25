@@ -46,7 +46,7 @@
                 {% for lote in pagina.object_list %}
                     <tr>
                         <td>{{ lote.criado_em|date:"d/m/Y H:i" }}</td>
-                        <td>
+                        <td class="valor-quebravel">
                             <a href="{% url 'fiscal_web:relatorio_envio' lote.id %}">{{ lote.nome_arquivo }}</a>
                         </td>
                         <td>{{ lote.usuario.get_username }}</td>

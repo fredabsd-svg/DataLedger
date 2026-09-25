@@ -177,6 +177,12 @@
        (--esp-N), é a régua que limita a linha de texto/tabela. --- */
     --largura-conteudo: 75rem;    /* .conteudo-principal */
     --largura-formulario: 32rem;  /* .formulario (cadastro simples) */
+    /* DL-010 (fatia 1): largura da coluna de RÓTULO/VALOR de
+       `.lista-de-definicao` (documento_detalhe.html do módulo Fiscal) —
+       flex-basis, não largura máxima de conteúdo nem de formulário, por
+       isso dois tokens próprios em vez de reaproveitar os dois acima. */
+    --largura-rotulo-definicao: 14rem;
+    --largura-valor-definicao: 16rem;
 
     /* --- Técnica de acessibilidade consagrada (WebAIM): afastar da tela
        ou reduzir a 1px sem tirar o elemento do fluxo do leitor de tela.
@@ -1229,6 +1235,135 @@ button:disabled {
     display: none;
 }
 
+/* ==========================================================================
+   DL-010 (fatia 1) — recepção de documentos fiscais. Só tokens já
+   existentes (nenhum valor novo declarado aqui — direção de arte §1: "se o
+   token não existe, crie o token", e nenhum destes precisou de um novo).
+   ========================================================================== */
+
+/* Definição de campo (documento_detalhe.html): rótulo à esquerda, valor à
+   direita, cada par numa linha própria com divisória leve — molde próprio
+   (nenhuma tela existente tinha um `<dl>` de pares rótulo/valor fora da
+   faixa de contexto do cabeçalho, que é outro componente,
+   `.cabecalho__contexto`). `flex-wrap` em vez de grid: em qualquer largura
+   estreita o valor desce para a linha seguinte por conta própria, sem
+   rolagem horizontal (direção de arte §4.7). */
+.lista-de-definicao {
+    margin: 0 0 var(--esp-4);
+    padding: 0;
+}
+
+.lista-de-definicao > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-1) var(--esp-3);
+    padding: var(--esp-2) 0;
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.lista-de-definicao dt {
+    flex: 0 0 var(--largura-rotulo-definicao);
+    margin: 0;
+    font-weight: 700;
+    color: var(--tinta-suave);
+}
+
+.lista-de-definicao dd {
+    flex: 1 1 var(--largura-valor-definicao);
+    margin: 0;
+    /* O Id da NFS-e (TSIdNFSe) é uma string de 53 caracteres SEM espaço —
+       sem isto, um token que não pode quebrar por palavra força a caixa
+       flex inteira a exceder a viewport (medido em 390px: 472px de
+       largura real, rolagem horizontal). `anywhere` só entra em ação
+       quando o token não cabe; texto comum continua quebrando por
+       palavra normalmente. */
+    overflow-wrap: anywhere;
+}
+
+/* Célula de tabela com texto que pode chegar sem espaço (nome de arquivo,
+   mensagem técnica de recusa) — mesmo motivo de `.lista-de-definicao dd`,
+   acima, aplicado às tabelas do Fiscal (recepcao.html/relatorio_envio.html)
+   onde nome de arquivo e motivo de recusa são texto de TERCEIRO, de
+   tamanho imprevisível. */
+.valor-quebravel {
+    overflow-wrap: anywhere;
+}
+
+/* Contagens do relatório de um envio (relatorio_envio.html) — arquétipo C,
+   "duplicidade e rejeição são primeira classe": os três números aparecem
+   juntos, ANTES da tabela linha a linha, cada um com o texto que diz o que
+   ele conta ("recebido(s)"/"duplicado(s)"/"recusado(s)") — nunca só um
+   número solto. */
+.resumo-envio {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-5);
+    list-style: none;
+    margin: 0 0 var(--esp-4);
+    padding: var(--esp-3) var(--esp-4);
+    background: var(--papel-alt);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+}
+
+.resumo-envio strong {
+    font-family: var(--fonte-numerica);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--tipo-md);
+}
+
+/* Situação do documento (documentos_lista.html/documento_detalhe.html):
+   "Cancelada" é sempre TEXTO (nunca só a cor) — a classe só reforça com
+   peso e tinta de erro, mesmo padrão de `.estado-competencia--*`
+   (contabilidade, ver o comentário lá) para a mesma garantia: nota
+   cancelada nunca pode parecer válida à primeira vista, nem para quem não
+   distingue as duas cores. */
+.situacao-documento--cancelada {
+    color: var(--erro);
+    font-weight: 700;
+}
+
+.situacao-documento--valida {
+    color: var(--tinta-suave);
+}
+
+/* Linha de resultado por arquivo (relatorio_envio.html): reforço visual de
+   fundo para recusado/duplicado — nunca o único canal, o texto da própria
+   célula "Resultado" já diz "Recusado"/"Duplicado"/"Recebido". "Recebido"
+   (o caminho esperado, a maioria das linhas de um envio saudável) fica sem
+   realce: colorir a norma inteira de verde competiria, linha após linha,
+   com o destaque que as duas exceções precisam ter. */
+.resultado-arquivo--recusado {
+    background: var(--erro-fundo);
+}
+
+.resultado-arquivo--duplicado {
+    background: var(--aviso-fundo);
+}
+
+/* Paginação das duas listas do Fiscal (recepcao.html/documentos_lista.html
+   — fiscal/_paginacao.html). Sem JavaScript: dois links, texto quando
+   desabilitado (nunca um link morto). */
+.paginacao {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--esp-4);
+    margin: var(--esp-3) 0;
+}
+
+.paginacao ul {
+    display: flex;
+    gap: var(--esp-4);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.paginacao [aria-disabled="true"] {
+    color: var(--tinta-media);
+}
+
 /* BL-282 (achado M6 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
    tamanho de página de impressão. `@page` é a ÚNICA forma de declarar isto
    em CSS — não existe propriedade equivalente dentro de `@media print` — e
@@ -1408,6 +1543,8 @@ button:disabled {
     .linha-total td,
     .coluna-nao-somavel,
     .faixa-fechamento,
+    .resultado-arquivo--recusado,
+    .resultado-arquivo--duplicado,
     .tabela-dados tbody tr:hover {
         background: var(--impressao-fundo) !important;
         color: var(--impressao-tinta) !important;

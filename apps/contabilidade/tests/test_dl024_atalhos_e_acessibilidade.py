@@ -847,6 +847,35 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "contabilidade_web:competencia_entregar": (
         "test_dl031_fechamento_de_competencia.py — exige competência encerrada; cenário próprio"
     ),
+    # DL-010 (fatia 1, etapa 2 — especialista-frontend): as seis rotas do
+    # módulo Fiscal. Nenhuma entra em `NOMES_DE_TELA_FORA_DA_CONTABILIDADE`
+    # porque esse dicionário (e o `cenario`/`ARGS_DE_ROTA_FORA_DA_
+    # CONTABILIDADE` que o acompanham neste arquivo) foi moldado para as
+    # SEIS telas sem estado que já existiam quando o BL-352 o criou — nenhum
+    # `lote`/`documento`/`evento` na fixture `cenario` (só `empresa`/
+    # `caixa`/`lancamento`, do domínio contábil), e duas das rotas do Fiscal
+    # exigem um `<int:...>` de um registro que só EXISTE depois de um envio
+    # de verdade (mesmo motivo de `competencia_reabrir`/`competencia_
+    # entregar`, acima: rota que depende de ESTADO PRÓPRIO ganha teste
+    # PRÓPRIO, não o genérico deste arquivo). As seis são exercitadas de
+    # ponta a ponta — renderização real, os cinco estados (vazio/erro/
+    # sucesso/sem permissão, mais 404 de isolamento) e permissão por
+    # requisição — em apps/fiscal/tests/test_telas_dl010_f1.py.
+    "fiscal_web:recepcao": "apps/fiscal/tests/test_telas_dl010_f1.py",
+    "fiscal_web:relatorio_envio": "apps/fiscal/tests/test_telas_dl010_f1.py",
+    "fiscal_web:documentos_lista": "apps/fiscal/tests/test_telas_dl010_f1.py",
+    "fiscal_web:documento_detalhe": "apps/fiscal/tests/test_telas_dl010_f1.py",
+    # As duas de download NÃO são "tela" no sentido desta guarda (que mede
+    # HTML que estende base.html) — devolvem application/xml como anexo
+    # (critério 29 do plano DL-010-F1), no mesmo espírito de "core:health"
+    # e das rotas "...:api-..." já excluídas acima por devolverem JSON, não
+    # HTML.
+    "fiscal_web:documento_xml": (
+        "download de anexo (application/xml), não HTML — apps/fiscal/tests/test_telas_dl010_f1.py"
+    ),
+    "fiscal_web:evento_xml": (
+        "download de anexo (application/xml), não HTML — apps/fiscal/tests/test_telas_dl010_f1.py"
+    ),
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL

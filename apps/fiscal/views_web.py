@@ -61,8 +61,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.contrib import messages
-from django.core.paginator import Paginator
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods, require_safe
@@ -194,9 +194,7 @@ def _lote_do_escritorio_ativo(request, lote_id):
 
 
 def _documento_do_escritorio_ativo(request, documento_id):
-    return get_object_or_404(
-        DocumentoFiscal, pk=documento_id, escritorio=request.escritorio
-    )
+    return get_object_or_404(DocumentoFiscal, pk=documento_id, escritorio=request.escritorio)
 
 
 def _evento_do_escritorio_ativo(request, evento_id):
@@ -437,9 +435,9 @@ def documentos_lista(request):
     # template é sempre contra o texto que a pessoa digitou, nunca contra o
     # objeto já resolvido (que pode nem existir, no caminho de erro).
     contexto_comum = {
-        "empresas_do_escritorio": Empresa.objects.filter(
-            escritorio=request.escritorio
-        ).order_by("razao_social"),
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
         "empresa_filtro_bruto": request.GET.get("empresa", ""),
         "ano_filtro": request.GET.get("ano", ""),
         "mes_filtro": request.GET.get("mes", ""),
@@ -456,7 +454,15 @@ def documentos_lista(request):
     )
     pagina = Paginator(documentos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
     linhas = [
-        {"documento": documento, "situacao": _situacao_de_exibicao(documento)}
+        {
+            "documento": documento,
+            "situacao": _situacao_de_exibicao(documento),
+            # Convenção do projeto (varredura de interface, apps/core/tests/
+            # test_dl024_varredura_de_interface.py): todo valor monetário
+            # chega ao template já formatado, com o sufixo '_ptbr' —
+            # `Decimal` até aqui, texto só a partir daqui (AGENTS.md §10).
+            "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        }
         for documento in pagina.object_list
     ]
     contexto = {
@@ -500,6 +506,8 @@ def documento_detalhe(request, documento_id):
     contexto = {
         "documento": documento,
         "situacao": _situacao_de_exibicao(documento),
+        "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        "v_liq_ptbr": _valor_ptbr(documento.v_liq),
         "vinculos": vinculos,
         "eventos": eventos,
         "codigos_que_cancelam": CODIGOS_QUE_CANCELAM,
