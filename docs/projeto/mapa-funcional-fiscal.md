@@ -196,8 +196,9 @@ Cruzamento honesto com o que está implementado hoje:
 | Permissões por papel | **Pronto** |
 | Trilha de auditoria | **Pronto** (com ressalvas no backlog) |
 | Plano de contas e partidas dobradas | **Pronto e auditado** |
+| Livros Diário e Razão, Balancete e **Balanço Patrimonial** | **Prontos e auditados** (DL-015, DL-017, DL-032 a DL-035) — acrescentado em 2026-09-25 |
 | Precisão monetária e política de arredondamento | **Pronto** (DE-010) |
-| Competência | **Não existe** — BL-15 |
+| Competência | **Pronta e auditada** — o BL-15 fechou na DL-016 (trava no servidor) e na DL-031 (a tela). ⚠️ **Corrigido em 2026-09-25:** esta linha dizia "não existe", e era falso desde 2026-09-21 |
 | Cadastro de participantes | Não existe |
 | Produtos, NCM | Não existe |
 | Classificação fiscal | Não existe |
@@ -212,7 +213,7 @@ A fundação está sólida e a parte fiscal está **integralmente por fazer**.
 
 A ordem técnica natural, se o Fiscal for escolhido, seria:
 
-1. **Competência** (BL-15) — nada fiscal funciona sem período de referência.
+1. ~~**Competência** (BL-15) — nada fiscal funciona sem período de referência.~~ **JÁ FEITO** (DL-016 + DL-031): o escritório fecha, reabre com motivo e marca como entregue. O primeiro passo da ordem abaixo passou a ser o segundo.
 2. **Participantes** — fornecedores e clientes.
 3. **Produtos e NCM**.
 4. **Classificação fiscal versionada por vigência** — a decisão estrutural.

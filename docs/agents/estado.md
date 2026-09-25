@@ -354,11 +354,65 @@ e está em **BL-526** — fonte legível por máquina e README derivado dela, ou
 que compare marca × branch padrão. **Enquanto isso, a divergência continua
 possível; só ficou mais difícil de marcar sem mentir.**
 
-**Próximo passo:** decisão do Fred sobre a ordem de prioridade. Três frentes
-nomeadas, nenhuma iniciada: **BL-526** (o mecanismo que falta), o **zeramento /
-encerramento do exercício** com a pergunta de produto ainda aberta, e a
-**escrita fiscal**, que a medição do catálogo aponta como o maior salto de
-utilidade real — 80 dos 120 relatórios dependem de módulo que não existe.
+### ➡️ EM CURSO: a ESCRITA FISCAL — [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md), fatia 1
+
+**Autorizada pelo Fred em 2026-09-25:** *"pode seguir com a escrita fiscal"*.
+Ele escolheu a maior das três frentes que eu tinha nomeado — e a medição do
+catálogo sustenta a escolha: **80 dos 120 relatórios dependem de módulo que não
+existe**, e o Fiscal é o maior deles.
+
+**A primeira fatia é a RECEPÇÃO DE NFS-e NACIONAL**, e não NF-e. O motivo é
+medido, não suposto: no acervo real do escritório, **nota de serviço prestado é
+85% do movimento** (4.979 de 5.850 XMLs, RC-66) e NF-e é 11%. O plano já estava
+escrito com **22 critérios de aceite**, cada um com um número medido por trás
+(RC-69 a RC-76) — ele esperava prioridade, não conteúdo.
+
+**Sequência decidida, deliberadamente SEM paralelismo:**
+
+| Ordem | Frente | Estado |
+| --- | --- | --- |
+| **1** | Leiaute oficial da NFS-e nacional — `auxiliar-pesquisa`, somente leitura | **em curso** |
+| **2** | Servidor: app `fiscal`, persistência, importador, deduplicação, eventos órfãos, relatório de conferência como dado | aguarda o passo 1 |
+| **3** | Tela de importação e conferência | aguarda o passo 2 |
+
+⚠️ **O passo 1 vem antes por REGRA:** *"não invente leiaute oficial"*. Nome de
+elemento XML e caminho de campo não se adivinham.
+
+⚠️ **E os passos 2 e 3 são sequenciais por LIÇÃO CARA, não por cautela.** Na
+DL-034 as duas frentes correram em paralelo sobre um contrato novo, **o contrato
+mudou duas vezes no meio da janela**, a frente da tela refez trabalho duas vezes,
+e ainda houve **colisão de dois agentes no mesmo arquivo** —
+[DE-073](../projeto/decisoes.md#de-073), e a falha de coordenação foi minha. Aqui
+o contrato **nasce do zero**, então ele vai se mover. A tela entra quando parar.
+
+**Duas coisas que eu reconciliei ao abrir a etapa:**
+
+1. **O mapa funcional fiscal afirmava que a competência "não existe"** — falso
+   desde 2026-09-21. Corrigido, junto com a tabela do que já está pronto. É o
+   item 26 do checklist novo funcionando **no primeiro uso**.
+2. **[DE-074](../projeto/decisoes.md#de-074): o XML original é guardado íntegro**,
+   e os campos lidos são projeção derivada dele. Isso **dissolve a PE-39** em vez
+   de decidi-la: as duas respostas erravam — interpretar o bloco de IBS/CBS exige
+   leiaute oficial que não temos confirmado, e não recepcionar descarta
+   informação que já chega em **12% das notas**. Com o original guardado, nada se
+   perde. ⚠️ **Custo declarado:** é dado real de cliente, com o mesmo isolamento
+   por empresa, **nunca** em log, erro, trilha ou teste, e entra no backup.
+
+⚠️ **O acervo real NÃO está mais neste ambiente** — o contêiner é efêmero. **Toda
+fixture é XML sintético** reproduzindo a característica medida; os números reais
+são a **justificativa** do teste, não o insumo. Nenhum arquivo de cliente entra no
+repositório.
+
+⚠️ **PE-41 é o maior risco de fundo, e continua aberta:** **82% das notas do
+acervo são de um único município**. O risco concreto é ajustar o leitor ao
+provedor de software de uma prefeitura e descobrir isso no cliente seguinte. **Uma
+segunda amostra, de outro município, vale mais que qualquer refinamento sobre
+esta** — é pedido ao Fred, não bloqueio.
+
+**Duas frentes seguem esperando prioridade dele:** **BL-526** (o mecanismo que
+falta para a marca do README) e o **zeramento / encerramento do exercício**, cuja
+pergunta de produto — *o Balanço pode ser emitido sem zeramento?* — continua
+aberta desde 2026-09-21.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:

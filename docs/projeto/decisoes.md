@@ -3777,3 +3777,58 @@ verificações executadas. E, quando houver código **herdado** de outra frente,
 tarefa do auditor diz com todas as letras: **verifique o herdado como se ninguém
 o tivesse medido.** Foi o que fiz nesta rodada, e é o que deu base ao V11 do
 relatório.
+
+## DE-074 — O XML original é guardado ÍNTEGRO; os campos lidos são projeção derivada dele
+
+**Data:** 2026-09-25
+
+**Decisão:** na recepção de documento fiscal, o **arquivo original é persistido
+íntegro**, byte a byte, como recebido. Os campos que o produto lê — identificador,
+prestador, tomador, datas, valores — são uma **projeção derivada** desse
+original, nunca a única cópia da informação. Reprocessar um documento já recebido
+é **releitura do original guardado**, sem pedir nada ao escritório.
+
+**Motivo — e ele tem um número medido por trás.** O acervo real do Fred mostrou
+(**RC-76**) que **~12% das notas de serviço já trazem o bloco de IBS/CBS da
+Reforma Tributária**, em 22 de 52 municípios. A pendência **PE-39** perguntava se
+esse bloco entra no escopo da recepção agora ou depois, e a pergunta tinha uma
+armadilha: **as duas respostas erravam.** Interpretar o bloco agora exige leiaute
+e regra em fonte oficial vigente que não temos confirmados; **não** recepcionar o
+bloco descarta informação que **já está chegando**.
+
+Guardar o original íntegro **dissolve a pendência** em vez de decidi-la: nada se
+perde, e a interpretação do bloco passa a ser uma etapa futura que lê o que já
+está no banco. ⚠️ **A PE-39 deixa de ser bloqueio de escopo e passa a ser ordem
+de trabalho.**
+
+**E há três razões que valem independentemente da Reforma:**
+
+1. **O documento é a prova.** Numa fiscalização, o que vale é o arquivo
+   autorizado, não a nossa leitura dele.
+2. **Todo leitor de leiaute erra na primeira versão.** Com o original guardado, o
+   defeito se corrige e **reprocessa**; sem ele, o escritório reimporta 5.850
+   arquivos à mão.
+3. **O leiaute muda sem avisar** — o projeto já mediu duas versões convivendo
+   (**RC-72**, `1.00` e `1.01`) e, na NF-e, manual e esquema **divergindo entre
+   si**. Original guardado é a defesa contra leitura que envelheceu.
+
+**Alternativas descartadas:**
+
+- *Guardar só os campos lidos* — é o desenho que obriga reimportação a cada
+  correção de leitor, e joga fora exatamente o que ainda não sabemos ler.
+- *Guardar o original fora do banco, em pasta* — perde a atomicidade com o
+  registro e o isolamento por empresa, e cria um segundo lugar para backup
+  esquecer.
+- *Decidir a PE-39 pelo "depois"* — seria descartar, hoje, informação de 12% das
+  notas.
+
+**Consequência, e o custo fica declarado, não escondido:**
+
+- ⚠️ **O original contém dado real de cliente.** Ele é submetido ao **mesmo
+  isolamento por empresa** de qualquer outro dado, **nunca** aparece em log, em
+  mensagem de erro, na trilha de auditoria ou em teste — os testes usam **XML
+  sintético**, sempre.
+- **Entra no plano de backup e restauração** (AGENTS.md §10), e cresce com o
+  volume: é armazenamento a dimensionar, não gratuito.
+- A trilha de auditoria registra **que** um documento foi recebido, por quem e
+  quando, **sem** copiar conteúdo.

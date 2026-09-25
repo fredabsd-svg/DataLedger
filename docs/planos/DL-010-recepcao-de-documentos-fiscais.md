@@ -416,3 +416,90 @@ Isso ficará declarado no relatório da etapa, não escondido.
 | `desenvolvedor-pleno` | `apps/fiscal/**` (novo), `config/settings.py` |
 | `especialista-frontend` | telas de importação e relatório, em etapa própria |
 | `auditor-qa` | nenhum (somente leitura) |
+
+## ⚠️ ABERTURA DA ETAPA — autorização do Fred em 2026-09-25: *"pode seguir com a escrita fiscal"*
+
+Este plano estava escrito e **medido contra 5.850 XMLs reais** desde 2026-09-14,
+e ficou parado esperando prioridade. A prioridade veio. **O que muda daqui para
+frente é a execução, não o escopo** — os 22 critérios acima continuam valendo.
+
+### O que mudou no projeto desde que este plano foi escrito, e afeta a execução
+
+| Então | Agora |
+| --- | --- |
+| **Competência não existia** (BL-15) e era o passo 1 da ordem técnica | **Pronta e auditada** (DL-016 + DL-031). O primeiro passo já está pago |
+| A contabilidade tinha Diário, Razão e Balancete | Tem também **Balanço Patrimonial**, camada de saldos e classificação patrimonial (DL-032 a DL-035) |
+| Nenhum documento imprimível tinha guarda de identificação medida | O instrumento mede **por página, no navegador real** (DL-035/BL-501) |
+
+### ⚠️ O acervo real NÃO está mais neste ambiente, e isso MUDA a forma de testar
+
+O contêiner é efêmero: os 5.850 XMLs que produziram RC-66 a RC-76 **não estão
+aqui**. Isso não é perda — é o comportamento correto, e a regra do projeto já
+exigia o mesmo resultado:
+
+⚠️ **Toda fixture é XML SINTÉTICO, construído para reproduzir a característica
+medida.** Nenhum arquivo de cliente entra no repositório, em nenhuma
+circunstância. Os critérios 15 a 22 continuam obrigatórios: o que eles exigem é
+**o comportamento diante da característica**, não a posse do arquivo original.
+
+Exemplo do que isso significa na prática: o critério 22 exige provar que **CNPJ
+com zero à esquerda** é preservado. A fixture é um CNPJ sintético começando com
+`0`; os 553 casos reais são a **justificativa** do teste, não o seu insumo.
+
+### Decisão nova, e ela dissolve a PE-39: [DE-074](../projeto/decisoes.md#de-074)
+
+**O XML original é guardado íntegro; os campos lidos são projeção derivada dele.**
+
+A PE-39 perguntava se o bloco de **IBS/CBS** (12% das notas, RC-76) entra no
+escopo agora ou depois — e **as duas respostas erravam**: interpretar exige
+leiaute oficial que não temos confirmado; não recepcionar descarta informação que
+já chega hoje. Guardando o original, **nada se perde** e a interpretação do bloco
+vira etapa futura que lê o que já está no banco.
+
+⚠️ **E o custo fica declarado:** o original contém **dado real de cliente**. Mesmo
+isolamento por empresa de qualquer outro dado; **nunca** em log, em mensagem de
+erro, na trilha ou em teste; entra no plano de backup; e cresce com o volume.
+
+### Sequência de execução, e por que NÃO em paralelo
+
+| Ordem | Frente | Responsável |
+| --- | --- | --- |
+| **1** | **Leiaute oficial da NFS-e nacional** — fonte, namespace, elemento raiz por tipo, caminhos dos campos, versões vigentes, eventos, IBS/CBS, e a diferença entre **padrão nacional e padrão municipal** | `auxiliar-pesquisa` (somente leitura) |
+| **2** | **Servidor:** app `fiscal` novo, persistência, importador, deduplicação, eventos órfãos, relatório de conferência **como estrutura de dados**, e os testes dos 22 critérios | `desenvolvedor-pleno` |
+| **3** | **Tela** de importação e conferência | `especialista-frontend` |
+
+⚠️ **O passo 1 vem antes por regra, não por cautela:** *"não invente leiaute
+oficial"*. Nome de elemento e caminho de campo **não se adivinham**.
+
+⚠️ **E os passos 2 e 3 são SEQUENCIAIS, não paralelos — a razão é uma lição
+recente e caríssima.** Na DL-034 as duas frentes correram juntas sobre um
+contrato **novo**, o contrato mudou **duas vezes** no meio da janela, a frente da
+tela refez trabalho duas vezes, e ainda houve colisão de agentes no mesmo arquivo
+([DE-073](../projeto/decisoes.md#de-073)). **Aqui o contrato nasce do zero, então
+ele vai se mover.** A tela entra quando ele parar.
+
+### Nível de risco: 1 — e os dois motivos são de dado, não de tela
+
+1. **Importar documento para a empresa errada é pior que não importar.** Por isso
+   o critério 5 **recusa** em vez de adivinhar.
+2. **É a primeira vez que o produto guarda documento de terceiro com dado real de
+   cliente.** Isolamento, trilha sem conteúdo e ausência em log deixam de ser
+   boas práticas e passam a ser critério.
+
+Verificação: **auditoria independente da versão integrada**, com a regra de
+parada da §3.1 — uma auditoria, uma correção, uma reconferência, **sem terceira**.
+
+### O que segue FORA, e agora com o motivo de cada um
+
+Além do que a seção de escopo já declara: **NF-e modelo 55** (fatia 2, leiaute já
+levantado neste plano), **SPED Fiscal** (espera amostra do Fred), **NFCom, CT-e e
+GTVe** (1% do acervo, e o NFCom vem de um único emitente), **apuração**,
+**classificação fiscal versionada** e **contabilização automática** — esta última
+é a integração fiscal-contábil, e só faz sentido depois de existir escrituração
+para contabilizar.
+
+⚠️ **PE-41 continua aberta e é o maior risco de fundo desta fatia:** 82% das
+notas do acervo são de **um único município**. O risco é ajustar o leitor ao
+provedor de software de uma prefeitura e descobrir no cliente seguinte. **Uma
+segunda amostra, de outro município, vale mais que qualquer refinamento sobre
+esta** — e é pedido ao Fred, não bloqueio.
