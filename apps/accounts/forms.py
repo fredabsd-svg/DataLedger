@@ -11,11 +11,11 @@ from apps.tenancy.models import Escritorio
 
 
 class CadastroForm(forms.Form):
-    nome = forms.CharField(label="Seu nome", max_length=150)
+    nome = forms.CharField(label="Nome do responsável", max_length=150)
     email = forms.EmailField(
         label="E-mail", max_length=150, help_text="Você usará este e-mail para entrar."
     )
-    nome_escritorio = forms.CharField(label="Nome da empresa ou escritório", max_length=200)
+    nome_escritorio = forms.CharField(label="Nome do escritório", max_length=200)
     cnpj = forms.CharField(label="CNPJ", max_length=18, help_text="Com ou sem pontuação.")
     password1 = forms.CharField(
         label="Senha",

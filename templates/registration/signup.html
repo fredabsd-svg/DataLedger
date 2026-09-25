@@ -1,13 +1,13 @@
 {% extends "registration/public_base.html" %}
-{% block titulo %}Cadastrar minha empresa{% endblock %}
+{% block titulo %}Configurar meu ambiente{% endblock %}
 {% block public_content %}
 <section class="auth-layout auth-layout--signup public-container">
-    <div class="auth-story"><p class="public-eyebrow">Seu primeiro passo</p><h1>Um novo espaço.<br>Uma visão <em>mais clara.</em></h1><p>Crie sua conta e o ambiente da sua empresa ou escritório de contabilidade.</p><div class="signup-explainer"><h2>O que você está criando?</h2><p>Um espaço de trabalho próprio, com você como administrador. As empresas clientes serão cadastradas depois, dentro desse ambiente.</p><p>Já faz parte de uma equipe? Peça ao administrador o seu acesso para evitar criar um escritório separado.</p></div></div>
-    <div class="auth-card"><p class="public-eyebrow">DataLedger / Novo cadastro</p><h2>Cadastrar minha empresa</h2><p class="auth-intro">Preencha os dados abaixo para começar. Todos os campos são obrigatórios.</p>
+    <div class="auth-story"><p class="public-eyebrow">Primeiro acesso à instalação</p><h1>Configure a base.<br>Assuma o <em>controle.</em></h1><p>Cadastre o responsável e configure o escritório que você vai administrar nesta instalação do DataLedger.</p><div class="signup-explainer"><h2>O que será configurado?</h2><p>Seu acesso de administrador do escritório e o ambiente para organizar as empresas atendidas. O cadastro das empresas clientes vem depois, no painel.</p><p>Já faz parte de uma equipe? Peça ao administrador o seu acesso para evitar criar um escritório separado.</p></div></div>
+    <div class="auth-card"><p class="public-eyebrow">DataLedger / Configuração inicial</p><h2>Configurar meu ambiente</h2><p class="auth-intro">Informe os dados do responsável e do escritório. Todos os campos são obrigatórios.</p>
     {% if form.errors %}<div class="mensagem mensagem-error" role="alert"><p><strong>Confira os dados informados.</strong> Corrija os campos indicados para continuar.</p>{% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}</div>{% endif %}
     <form method="post" class="public-form" novalidate>{% csrf_token %}
         {% for field in form.visible_fields %}<div class="campo">{{ field.label_tag }}{{ field }}{% if field.help_text %}<div id="{{ field.auto_id }}_helptext" class="field-help">{{ field.help_text|safe }}</div>{% endif %}{% if field.errors %}<div id="{{ field.auto_id }}_error" class="field-error">{{ field.errors }}</div>{% endif %}</div>{% endfor %}
-        <button type="submit" class="public-button">Criar conta e espaço de trabalho <span aria-hidden="true">→</span></button>
+        <button type="submit" class="public-button">Concluir configuração e entrar <span aria-hidden="true">→</span></button>
     </form><p class="auth-switch">Já tem uma conta? <a href="{% url 'login' %}">Entrar no DataLedger</a></p></div>
 </section>
 {% endblock %}

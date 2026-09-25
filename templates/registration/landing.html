@@ -1,34 +1,47 @@
 {% extends "registration/public_base.html" %}
-{% block titulo %}Contabilidade com clareza{% endblock %}
+{% block titulo %}Inteligência aplicada à gestão contábil{% endblock %}
 {% block public_content %}
 <section class="public-hero public-container" aria-labelledby="hero-title">
     <div class="hero-copy">
-        <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> O próximo capítulo do seu escritório</p>
-        <h1 id="hero-title">Sua contabilidade.<br>Com mais <em>clareza.</em></h1>
-        <p class="hero-description">Cada empresa no seu lugar. Cada lançamento com sua história. Uma plataforma para organizar a rotina contábil e dar aos números a atenção que eles merecem.</p>
-        <div class="hero-actions"><a class="public-button" href="{% url 'cadastro' %}">Cadastrar minha empresa <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Já tenho uma conta <span aria-hidden="true">→</span></a></div>
-        <p class="hero-note">Seu primeiro acesso começa aqui. Crie sua conta e o espaço da sua empresa.</p>
+        <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> DataLedger · Sistema de gestão contábil</p>
+        <h1 id="hero-title">Rigor contábil.<br>Concebido para<br><em>trabalhar com IA.</em></h1>
+        <p class="hero-description">Fiscal, Folha e Contabilidade em uma arquitetura integrada, projetada para trabalhar com modelos de inteligência artificial. Contexto para analisar. Regras para executar. Controle para decidir.</p>
+        <div class="hero-actions"><a class="public-button" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Entrar no sistema <span aria-hidden="true">→</span></a></div>
+        <p class="hero-note">Primeiro acesso? Cadastre o responsável e o escritório nesta instalação do DataLedger.</p>
     </div>
     <div class="hero-product">
-        <div class="product-heading"><span>Um olhar sobre a sua rotina</span><span class="demo-label">Demonstrativo</span></div>
+        <div class="product-heading"><span>A concepção do DataLedger</span><span class="demo-label">Visão de arquitetura</span></div>
         <div class="ledger-preview">
-            <div class="ledger-top"><span class="preview-brand">DataLedger.</span><span class="preview-workspace">Escritório Exemplo</span></div>
+            <div class="ledger-top"><span class="preview-brand">DataLedger.</span><span class="preview-workspace">Inteligência com contexto</span></div>
             <div class="ledger-body">
-                <div class="ledger-context"><span>CONTABILIDADE / VISÃO DO PERÍODO</span><span class="numerico">09/2026</span></div>
-                <h2>Os números contam<br>uma história.</h2>
-                <p class="ledger-company">Empresa Exemplo · dados ilustrativos</p>
-                <div class="ledger-balance"><div><span>Movimentação a débito</span><strong class="numerico">24.800,00</strong></div><span class="balance-equal" aria-hidden="true">=</span><div><span>Movimentação a crédito</span><strong class="numerico">24.800,00</strong></div></div>
-                <div class="ledger-rows" aria-label="Exemplos de lançamentos, valores em reais"><div class="ledger-row ledger-row--header"><span>Lançamento</span><span>Valor · R$</span></div><div class="ledger-row"><span>Recebimento de clientes<small>Banco / Clientes</small></span><strong class="numerico">18.400,00</strong></div><div class="ledger-row"><span>Pagamento a fornecedores<small>Fornecedores / Banco</small></span><strong class="numerico">6.400,00</strong></div></div>
-                <div class="ledger-check"><span aria-hidden="true">✓</span><span>Débitos e créditos em equilíbrio</span><span class="numerico">0,00</span></div>
+                <div class="ledger-context"><span>EMPRESA · COMPETÊNCIA · PERMISSÕES</span></div>
+                <h2>O modelo compreende.<br>O sistema valida.<br>Você decide.</h2>
+                <p class="ledger-company">Arquitetura prevista para integração com IA</p>
+                <div class="architecture-step"><span class="feature-number numerico">01 /</span><div><h3>Modelos de inteligência artificial</h3><p>Consultar, explicar variações e propor ações com referência aos registros utilizados.</p></div></div>
+                <div class="architecture-step"><span class="feature-number numerico">02 /</span><div><h3>Serviços e ferramentas autorizadas</h3><p>Assistente interno e clientes externos via MCP, sujeitos às permissões do usuário.</p></div></div>
+                <div class="architecture-step"><span class="feature-number numerico">03 /</span><div><h3>Núcleo de regras do DataLedger</h3><p>Cálculos determinísticos, validação de dados e trilha de auditoria.</p></div></div>
+                <div class="ledger-check"><span>Assistente de IA e MCP: integração planejada, ainda indisponível nesta versão.</span></div>
             </div>
         </div>
-        <div class="product-caption"><span class="caption-rule" aria-hidden="true"></span><p>Da origem do lançamento<br><strong>à confiança na conferência.</strong></p><span class="caption-seal" aria-hidden="true">D / C</span></div>
+        <div class="product-caption"><span class="caption-rule" aria-hidden="true"></span><p>Inteligência para interpretar.<br><strong>Precisão para executar.</strong></p></div>
     </div>
 </section>
-<section class="public-pillars public-container" aria-label="Fundamentos da plataforma"><p><span class="numerico">01</span> Contabilidade estruturada</p><p><span class="numerico">02</span> Gestão multiempresa</p><p><span class="numerico">03</span> Rastreabilidade na origem</p></section>
+<section class="public-pillars public-container" aria-label="Fundamentos do sistema"><p><span class="numerico">01</span> Contexto para a IA</p><p><span class="numerico">02</span> Cálculo determinístico</p><p><span class="numerico">03</span> Decisão rastreável</p></section>
 <section class="platform-section public-container" id="plataforma" aria-labelledby="platform-title">
-    <div class="section-heading"><p class="public-eyebrow">Feito para a rotina de quem confere</p><h2 id="platform-title">Menos dispersão.<br>Mais visão do conjunto.</h2><p>Uma base contábil organizada para trabalhar com contexto, acompanhar os registros e consultar o que importa.</p></div>
-    <div class="feature-grid"><article><span class="feature-number numerico">01 /</span><h3>O detalhe que fecha<br>a conta.</h3><p>Plano de contas, lançamentos por partidas dobradas, Diário, Razão e Balancete por período. A estrutura que sustenta o seu trabalho.</p><span class="feature-tag">Núcleo contábil</span></article><article><span class="feature-number numerico">02 /</span><h3>Muitas empresas.<br>Cada uma no seu lugar.</h3><p>Organize as empresas atendidas em um espaço próprio do escritório, com contexto de empresa e controle de acesso.</p><span class="feature-tag">Organização multiempresa</span></article><article><span class="feature-number numerico">03 /</span><h3>O registro importa.<br>A origem também.</h3><p>Trilha de alterações e permissões no servidor ajudam a acompanhar quem fez o quê e preservar a separação entre escritórios.</p><span class="feature-tag">Permissões e auditoria</span></article></div>
+    <div class="section-heading"><p class="public-eyebrow">A inteligência faz parte da concepção</p><h2 id="platform-title">Uma base confiável.<br>Múltiplas formas de operar.</h2><p>Interface no navegador, assistente interno e conexão com modelos externos compõem a visão do projeto. Cada acesso deve respeitar empresa, período e autorização.</p></div>
+    <div class="feature-grid">
+        <article><span class="feature-number numerico">01 /</span><h3>Assistência com contexto.</h3><p>Conversa em português para consultar pendências, explicar variações e propor classificações, com os registros de origem à vista.</p><span class="feature-tag">Assistente de IA · Planejado</span></article>
+        <article><span class="feature-number numerico">02 /</span><h3>Liberdade de modelos.</h3><p>Previsão de provedores configuráveis e ferramentas MCP para clientes autorizados, com limites de uso e controle dos dados compartilhados.</p><span class="feature-tag">Provedores e MCP · Planejados</span></article>
+        <article><span class="feature-number numerico">03 /</span><h3>Controle em cada operação.</h3><p>A IA consulta, explica e propõe. Os serviços validam e calculam; ações críticas exigem aprovação vinculada à operação e aos dados exatos.</p><span class="feature-tag">Princípio de arquitetura</span></article>
+    </div>
 </section>
-<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Um começo bem organizado</p><h2 id="start-title">O seu próximo capítulo<br>começa com uma conta.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Cadastrar minha empresa <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Crie seu acesso</h3><p>Informe seus dados e escolha uma senha.</p></div></li><li><span class="numerico">02</span><div><h3>Abra seu espaço de trabalho</h3><p>Cadastre sua empresa ou escritório. Esse será o ambiente que você administra.</p></div></li><li><span class="numerico">03</span><div><h3>Organize as empresas atendidas</h3><p>Depois de entrar, cadastre as empresas clientes dentro do seu ambiente.</p></div></li></ol></div></section>
+<section class="platform-section public-container module-section" aria-labelledby="modules-title">
+    <div class="section-heading"><p class="public-eyebrow">Evolução por módulos</p><h2 id="modules-title">Fiscal. Folha.<br>Contabilidade.</h2><p>Uma visão integrada, construída sobre entregas verificáveis. Veja o que está disponível nesta versão e o que está no plano de desenvolvimento.</p></div>
+    <div class="feature-grid">
+        <article><span class="feature-tag">Disponível · Núcleo contábil</span><h3>Contabilidade</h3><p>Plano de contas, lançamentos, Diário, Razão, Balancete e Balanço Patrimonial. Com organização multiempresa e trilha de auditoria.</p></article>
+        <article><span class="feature-tag">Planejado</span><h3>Fiscal</h3><p>Recepção de documentos, escrituração, apuração e integração com a contabilidade, em etapas de implementação.</p></article>
+        <article><span class="feature-tag">Planejado</span><h3>Folha de Pagamento</h3><p>Vínculos, eventos, cálculos, obrigações e integração contábil, com regras e memórias de cálculo próprias.</p></article>
+    </div>
+</section>
+<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Primeiro acesso à instalação</p><h2 id="start-title">Prepare seu ambiente.<br>Comece pelo essencial.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Cadastre o responsável</h3><p>Defina o acesso de quem vai administrar o escritório.</p></div></li><li><span class="numerico">02</span><div><h3>Configure o escritório</h3><p>Informe nome e CNPJ para criar o ambiente de trabalho nesta instalação.</p></div></li><li><span class="numerico">03</span><div><h3>Acesse os módulos disponíveis</h3><p>Cadastre as empresas atendidas e organize a operação. A configuração de IA será disponibilizada em uma etapa futura.</p></div></li></ol></div></section>
 {% endblock %}

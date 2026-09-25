@@ -2,6 +2,13 @@
 
 ## Demanda atual — DL-036 (25/09/2026)
 
+**Correção solicitada pelo Fred:** apresentação e primeiro acesso revistos para
+refletir um sistema concebido para trabalhar com IA, sem posicionamento comercial
+de SaaS. Assistente/provedores/MCP apresentados como planejados; CTA de configuração
+do ambiente. Revisão no mesmo PR #45, com nova validação; os resultados abaixo
+referem-se à entrega anterior até a conclusão dos checks da revisão.
+
+
 **Em revisão:** [página inicial e cadastro](../planos/DL-036-entrada-e-cadastro.md),
 a pedido direto do Fred. O fluxo da DL-018 já cria escritório para usuário autenticado,
 mas faltava criar a própria conta pelo produto. Esta entrega fecha essa entrada e

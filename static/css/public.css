@@ -138,3 +138,10 @@
     .ledger-balance strong { font-size: var(--tipo-md); }
     .ledger-context { font-size: var(--tipo-2xs); }
 }
+
+/* A visão de arquitetura é explicativa; não simula uma IA já conectada. */
+.architecture-step { display: flex; gap: var(--esp-4); padding-block: var(--esp-4); border-top: var(--traco-fina) solid var(--borda-hairline); }
+.architecture-step h3 { font-size: var(--tipo-base); color: var(--acento-escuro); margin-bottom: var(--esp-2); }
+.architecture-step p { color: var(--tinta-suave); font-size: var(--tipo-sm); margin: 0; }
+.architecture-step > span { flex-shrink: 0; }
+.module-section { padding-top: 0; }

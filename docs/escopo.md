@@ -4,7 +4,7 @@ Este documento consolida a orientação inicial de produto para desenvolvimento 
 
 ## Objetivo e orientação de execução
 
-Construir uma aplicação web para escritórios contábeis brasileiros, com Fiscal, Folha, Contabilidade, Honorários e Processos/Paralegal integrados. Usar a abrangência funcional da Domínio como referência, com identidade e código próprios.
+Construir um sistema de alto nível para escritórios contábeis brasileiros, com Fiscal, Folha, Contabilidade, Honorários e Processos/Paralegal integrados, concebido para trabalhar com modelos de inteligência artificial. A interface web, o assistente interno e o acesso autorizado via MCP compõem a visão do produto. Usar a abrangência funcional da Domínio como referência, com identidade e código próprios.
 
 O desenvolvedor deverá atuar na arquitetura, modelagem e implementação por etapas, com entregas funcionais e persistência real. Primeiro deve inspecionar o repositório e apresentar premissas, contratos, plano de dados e testes. Decisões reversíveis podem seguir uma opção documentada; decisões bloqueantes devem ser esclarecidas.
 

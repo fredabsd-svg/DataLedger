@@ -97,3 +97,33 @@ volume PostgreSQL preservado e estáticos coletados na imagem confirmados.
 
 A evidência vigente da CI pertence ao commit mais recente do PR #45; não se
 transporta aprovação entre hashes. Verificar os checks do PR antes de integrar.
+
+
+## Correção de posicionamento solicitada pelo Fred — 25/09/2026
+
+A primeira apresentação adotou linguagem de SaaS convencional e omitiu o papel
+central dos modelos de IA na concepção do DataLedger. Fred rejeitou esse
+posicionamento e solicitou correção no mesmo PR. Referências relidas:
+`docs/escopo.md` (Assistente de IA, MCP e arquitetura), plano mestre §14,
+DL-002 e decisões DE-014/DE-042 (implantação e primeiro acesso).
+
+Critérios da revisão (nível 2, interface e texto): apresentar o sistema de Fiscal,
+Folha e Contabilidade concebido para trabalhar com IA; explicitar assistente,
+provedores e MCP como planejados; substituir a vitrine de lançamentos por visão
+de arquitetura; orientar a entrada por **Configurar meu ambiente** e **Entrar no
+sistema**. Cadastro cria o administrador do próprio escritório, não superusuário
+da plataforma. Preservar a arquitetura multiempresa autorizada e as regras de
+isolamento existentes; esta revisão não cria bloqueio global de instalação nem
+implementa integrações de IA.
+
+README e escopo alinhados à correção. Verificação: páginas públicas, acesso aos
+formulários, validação/isolamento já cobertos, acessibilidade e inspeção visual
+responsiva. Evidência da nova revisão será publicada no PR #45; resultados dos
+commits anteriores acima são históricos, não aprovação antecipada desta revisão.
+
+Validação executada desta correção: `390 passed, 26 warnings in 2.24s`;
+`ruff check .`: `All checks passed!`; `ruff format --check .`:
+`228 files already formatted`. Chromium: três páginas em 1440 e 390 pixels,
+HTTP 200 e sem overflow; CTA de configuração abre formulário e erros de campos
+são exibidos sem JavaScript. Capturas desktop/mobile inspecionadas. Apenas texto,
+rótulos e apresentação alterados; regras de cadastro e permissões preservadas.
