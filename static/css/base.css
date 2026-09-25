@@ -223,6 +223,20 @@
     --public-grid: 2rem;
     --public-linha-grid: rgba(29, 58, 110, 0.06);
     --public-curva: 0.5rem;
+    /* DL-037: entrada pública em escala de leitura, sem alterar o produto interno. */
+    --public-largura: 82rem;
+    --public-heroi: 4.25rem;
+    --public-heroi-mobile: 3rem;
+    --public-autenticacao: 38rem;
+    --public-corpo: 1.125rem;
+    --public-campo: 3.5rem;
+    --public-arredondado: 0.75rem;
+    --public-anel: 12rem;
+    --public-branco-transparente: rgba(255, 255, 255, 0.76);
+    --public-borda-escura: rgba(255, 255, 255, 0.18);
+    --public-camada-escura: rgba(255, 255, 255, 0.07);
+    --public-grade-escura: rgba(255, 255, 255, 0.045);
+    --public-sombra-painel: 0 28px 70px rgba(20, 42, 80, 0.2);
 }
 
 * {

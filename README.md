@@ -123,6 +123,8 @@ Você entra como administrador do seu próprio escritório; depois, cadastre as
 empresas clientes no painel. Para contas existentes, use **Entrar** (usuário antigo
 ou e-mail usado no novo cadastro). Não é necessário criar superusuário nem abrir
 o admin para começar. Fluxo e critérios: [DL-036](docs/planos/DL-036-entrada-e-cadastro.md).
+O desenho responsivo da entrada e a distinção visual entre criar um ambiente e
+entrar estão em [DL-037](docs/planos/DL-037-entrada-visual.md).
 
 A verificação de saúde fica em `GET /api/health/`. O comando
 `python manage.py createsuperuser` continua disponível para administração técnica,
