@@ -1,9 +1,14 @@
 # DL-035 — As guardas da demonstração
 
-**Estado em 2026-09-24:** em validação local na branch
-`feat/dl-035-guardas-demonstracao`, baseada na `main` `22a0241`. Ainda sem
-commit, push ou PR; a auditoria independente da versão integrada e o CI são
-pendentes. Atualizar este registro antes da entrega.
+**Estado em 2026-09-25:** correção única após a primeira auditoria, na branch
+`feat/dl-035-guardas-demonstracao`, baseada na `main` `22a0241`. O commit local
+`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43` existe; a árvore desse commit estava
+limpa quando foi auditada. A correção documental pós-auditoria está em curso.
+O auditor aprovou os critérios de código, mas reprovou o estado documental
+porque ele ainda dizia que não havia commit; reconferir uma vez. O parecer
+integral está em
+[`2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
+Push, PR e CI continuam pendentes.
 
 **Origem:** as cinco ressalvas da
 [reconferência da DL-034](../auditorias/2026-09-21-dl-034-rodada-2.md), que
@@ -176,5 +181,9 @@ plano.
   workflow completo são a prova de regressão; não declarar a coleta como teste
   aprovado.
 
-Auditoria independente, commit, push, PR e quatro workflows da CI ainda são
-pendentes. O aceite de integração só será declarado depois desses resultados.
+O commit local existe. A primeira auditoria foi **reprovada apenas** porque o
+estado do commit não acompanhou a criação de `38e7a6b`; os critérios de código
+BL-514 a BL-519 foram aprovados. Esta é a correção única e a reconferência
+permitidas pela §3.1 do `AGENTS.md`. Push, PR e os quatro workflows da CI ainda
+são pendentes; o aceite de integração só será declarado depois desses
+resultados.

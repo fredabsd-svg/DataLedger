@@ -271,14 +271,20 @@ auditoria independente — que é exatamente o motivo de ela existir.
 
 ## Próximo passo
 
-### DL-035 — as guardas da demonstração (2026-09-24)
+### DL-035 — as guardas da demonstração (2026-09-25)
 
-**Estado: em validação local.** A branch `feat/dl-035-guardas-demonstracao`
-parte da `main` `22a0241`. Os implementadores
-`desenvolvedor-pleno` e `especialista-frontend` concluíram as frentes em
-sequência, sem commit; esta sessão integrou e revisou as nove alterações
-delimitadas no plano. A auditoria independente da versão integrada, commit,
-push, PR e CI desta etapa ainda estão pendentes.
+**Estado: correção documental única após a primeira auditoria; reconferência
+pendente.** A branch `feat/dl-035-guardas-demonstracao` parte da `main`
+`22a0241`. Os implementadores `desenvolvedor-pleno` e
+`especialista-frontend` concluíram as frentes em sequência. A implementação
+está no commit local
+`38e7a6b2e0dfa4c6dff558d0b48b034c72b0ff43`; a árvore estava limpa na auditoria.
+O auditor independente aprovou BL-514 a BL-519 e reprovou somente uma
+inconsistência documental que dizia que o commit ainda não existia. O parecer
+integral está em
+[`docs/auditorias/2026-09-25-dl-035-rodada-1.md`](../auditorias/2026-09-25-dl-035-rodada-1.md).
+Este ajuste registra o commit e o parecer; a reconferência autorizada pela
+§3.1 é a única restante. Push, PR e CI da DL-035 continuam pendentes.
 
 **Validação integrada já concluída:** no PostgreSQL 16 descartável, migrations
 aplicaram e os dois módulos de contabilidade alterados passaram juntos:
@@ -304,7 +310,7 @@ passaram; isso é apenas a linha de base, não CI da DL-035.
 O escopo cobre BL-514 (contraste real do item 51), BL-515 (prova de cada veto),
 BL-516 (aviso das raízes do mesmo tipo), BL-517/BL-519 (nota irmã e extração
 completa) e BL-518 (regra de impressão derivada). BL-507 continua fora do
-escopo. O relatório independente será preservado em `docs/auditorias/`.
+escopo.
 
 ### Histórico recente — DL-027 Fatias B.2+B.3 (2026-09-24)
 
