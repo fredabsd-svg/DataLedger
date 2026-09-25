@@ -3914,3 +3914,94 @@ recusa **nomeia o motivo**. Um lote misto é suportado por desenho, não por
 acidente. ⚠️ **E fica declarado o que isto custa:** documento de cliente novo,
 ainda sem cadastro de empresa, **não entra** — e essa recusa tem de ser
 compreensível, porque é a que o escritório vai encontrar no primeiro dia de uso.
+
+## DE-077 — A mesma nota pertence legitimamente a DUAS empresas: a deduplicação é por (empresa, chave), nunca por chave global
+
+**Data:** 2026-09-25
+
+**Decisão:** a chave de deduplicação do documento fiscal é o par
+**(empresa, chave)**, e **não** a chave sozinha. O documento carrega o **papel**
+que aquela empresa tem nele — **serviço prestado** ou **serviço tomado** —,
+derivado de o CNPJ/CPF da empresa casar com o **prestador** ou com o **tomador**.
+
+**Motivo — e é a correção de um defeito que eu quase deixei passar.** O desenho
+proposto pelo implementador punha `unique=True` **global** na chave, com o
+argumento de que *"um `chNFSe` real pertence a uma nota real"*. A afirmação é
+verdadeira **sobre o documento** e **falsa sobre a escrituração**:
+
+> **Uma nota de serviço tem DOIS lados, e os dois podem ser clientes do
+> escritório.** Para o prestador é **receita**; para o tomador é **serviço
+> tomado**. Se o escritório atende as duas pontas — o que é comum —, a **mesma
+> nota** precisa ser escriturada **duas vezes, em empresas diferentes**. Com
+> `unique` global, a segunda importação seria recusada como "duplicada", e o
+> escritório perderia a escrituração de um cliente **sem erro visível**.
+
+⚠️ **E isto explica um número medido que estava classificado como defeito
+alheio.** A **RC-69** registrou *"105 NFS-e idênticas dentro da mesma pasta — a
+mesma nota catalogada em **Entradas** e em **Saídas** pela ferramenta de
+origem"*. Isso não é só desorganização: é a ferramenta reconhecendo que **a nota
+tem dois lados**. A rotina do sistema de referência confirma pelo outro ângulo —
+a importação pergunta se é *serviço tomado* ou *prestado*.
+
+**Dentro de uma mesma empresa**, a mesma chave duas vezes **é** duplicidade e é
+ignorada (critério 15). **Entre empresas diferentes**, é a mesma nota vista dos
+dois lados, e **as duas valem**.
+
+**Alternativas descartadas:**
+
+- *`unique` global na chave* — recusa silenciosamente a escrituração da segunda
+  ponta. É o defeito descrito acima.
+- *Gravar um registro só, compartilhado pelas duas empresas* — feriria o
+  isolamento entre empresas, que é regra dura do projeto, e tornaria o documento
+  de uma empresa visível na consulta da outra.
+- *Perguntar ao operador de que lado é*, como o sistema de referência faz — o
+  documento **já diz**: basta ver se o CNPJ/CPF da empresa está no prestador ou no
+  tomador. Perguntar é pedir ao humano o que o dado responde.
+
+**Consequência:** o papel é **derivado**, não digitado. Documento em que a empresa
+aparece **nos dois lados** é anomalia e precisa ser **declarada**, nunca
+adivinhada. E a recusa do critério 5 passa a valer quando **nenhum** dos dois
+lados pertence a empresa alguma do escritório.
+
+## DE-078 — Evento é escopado pelo ESCRITÓRIO e deduplicado por substituto DECLARADO
+
+**Data:** 2026-09-25
+
+**Decisão, em três partes:**
+
+1. **O evento é escopado pelo escritório** que o importou, não pela empresa —
+   porque o leiaute **não dá CNPJ/CPF ao evento**: ele traz apenas a referência à
+   nota (`chNFSe`) e o código. Ele se liga à nota quando uma nota com aquela chave
+   existir **no mesmo escritório**.
+2. **A deduplicação do evento usa hash do conteúdo bruto**, e isso é **substituto
+   declarado**, não campo normativo: ⚠️ **o leiaute não confirma identificador
+   próprio para o evento**, diferente do `Id` de 53 caracteres da nota (RC-74).
+3. **`DPS` e `pedRegEvento` avulsos são reconhecidos e contados em desfecho
+   próprio** — nem aceitos como documento, nem marcados como erro —, porque o
+   acervo medido não tem exemplar de nenhum dos dois e persistí-los exigiria
+   inventar contrato.
+
+**Motivo.** A **DE-076** manda identificar a empresa **pelo documento**. O
+implementador achou o vão: **evento órfão não tem nota de quem herdar a empresa, e
+não tem CNPJ próprio** — e órfão é o **caso normal** (29 de 29, RC-70). Sem uma
+regra explícita, cada implementação inventaria a sua.
+
+**O que faz a parte 2 ser honesta e não um atalho:** a [DE-060](#de-060) proíbe
+**substituto não declarado**, não substituto. Hash de conteúdo **declarado como
+substituto**, com o motivo escrito no código e o limite nomeado — reimportar o
+**mesmo arquivo** não duplica; dois arquivos com formatação diferente e o mesmo
+evento **podem** duplicar — é engenharia honesta. Chamá-lo de identificador do
+evento seria a violação.
+
+**Alternativas descartadas:**
+
+- *Escopar o evento por empresa* — impossível para o órfão, que é a maioria.
+- *Recusar o órfão para não ter o problema* — é a DE-075, já decidida contra, com
+  a medição de 29 de 29.
+- *Usar `chNFSe` + código como chave do evento* — a mesma nota pode receber o mesmo
+  código mais de uma vez em fluxos de análise fiscal; e não há confirmação
+  normativa de que o par seja único.
+
+**Consequência:** existe um estado que a tela e o relatório terão de **nomear** —
+**evento guardado, ainda sem nota**. Não é erro nem pendência de cadastro. E a
+limitação do hash fica **escrita no código**, junto da constante.

@@ -450,15 +450,67 @@ Tudo o que evita adivinhação já está escrito e fundamentado:
    exceção obrigatório** — desenho que o manual revelou. Modelo que a torne
    obrigatória na entrada inviabiliza isso depois.
 
+##### ⚠️ O DESENHO já raciocinado, e os TRÊS vãos do contrato que ele achou
+
+O `desenvolvedor-pleno` leu tudo e **parou antes de escrever**, como mandado.
+O raciocínio de desenho dele está preservado aqui porque **economiza horas** de
+quem assumir — e porque ele achou o que nenhuma releitura de plano acharia.
+
+**Modelagem proposta, que eu aceito com duas correções minhas:**
+
+- `LoteImportacao` — escritório, usuário, data, e resumo, para rastreio e para a
+  reversão por lote que o plano prevê.
+- `DocumentoFiscal` — **isolamento por `empresa` com join (`empresa__escritorio`),
+  sem coluna redundante de escritório**, seguindo o padrão que `Estabelecimento`
+  já usa; `cStat` guardado num campo **nomeado para nunca parecer "situação"**; e o
+  **XML original em campo binário** (DE-074).
+- **Situação nunca é campo**: função que consulta os eventos ligados e devolve o
+  resultado — exatamente o que o critério 25 exige.
+- **`DOCTYPE` conferido no BYTE CRU**, antes de qualquer decodificação — para não
+  depender de a decodificação ter funcionado. ⚠️ **Melhor que o que eu escrevi no
+  plano.**
+- **CNPJ/CPF de terceiro NÃO passa pelo validador do cadastro**: documento com
+  identificador malformado precisa ser **gravado e reportado**, não estourar
+  validação de campo. ⚠️ **Aceito, e é a leitura certa:** recusar por formato
+  esconderia o problema em vez de mostrá-lo.
+
+⚠️ **As duas correções que EU fiz no desenho dele estão em
+[DE-077](../projeto/decisoes.md#de-077) e
+[DE-078](../projeto/decisoes.md#de-078)** — e a primeira é um defeito que quase
+passou: ele propôs chave **única global**, e **a mesma nota pertence
+legitimamente a DUAS empresas** (prestador e tomador podem ser os dois clientes
+do escritório). Com única global, a escrituração da segunda ponta seria recusada
+como "duplicada", **sem erro visível**. A deduplicação é por **(empresa, chave)**,
+e o **papel** — prestado ou tomado — é **derivado**, não digitado.
+
+**Os três vãos do contrato, e eles precisam de resposta ANTES de qualquer código:**
+
+1. ⚠️ **PE-70 — BLOQUEADOR de modelagem:** o caminho exato do `DPS` dentro de um
+   documento de raiz `NFSe` **não está confirmado**. Sem ele **não se sabe de onde
+   tirar tomador, data de emissão, competência e valor**. **Resolve-se em fonte
+   oficial**, não com o Fred. ⚠️ **Ele parou aqui em vez de inferir por analogia
+   com a NF-e — era exatamente o que a regra manda.**
+2. **Evento não tem CNPJ próprio** → resolvido por mim na **DE-078**: escopado
+   pelo escritório, ligado à nota quando a chave casar ali.
+3. **Evento não tem identificador normativo** → resolvido por mim na **DE-078**:
+   hash do conteúdo bruto, **declarado como substituto** (DE-060), com o limite
+   escrito ao lado da constante.
+
+**E uma descoberta de escopo: `apps/empresas` não tem CPF, só CNPJ** — mas o
+critério 20 exige aceitar CPF em qualquer papel. É a **PE-71**, e é decisão de
+escopo minha, não do Fred.
+
 ##### Como retomar, na ordem
 
-1. Reler a `DL-010` integral. **Os 30 critérios são o contrato**, não sugestão.
-2. Criar o app `fiscal`: modelos, importador, serviços, migração aditiva, testes.
+1. ⚠️ **Fechar a PE-70 em fonte oficial ANTES de modelar** — é bloqueador, e é
+   pesquisa de leiaute, não pergunta ao Fred.
+2. Reler a `DL-010` integral. **Os 30 critérios são o contrato**, não sugestão.
+3. Criar o app `fiscal`: modelos, importador, serviços, migração aditiva, testes.
    **Sem tela e sem rota** — o resultado é estrutura de dados, e o motivo está no
    plano.
-3. **Fixtures sintéticas, sempre.** O acervo real **não está neste ambiente** e não
+4. **Fixtures sintéticas, sempre.** O acervo real **não está neste ambiente** e não
    deve estar. Os números reais são a **justificativa** do teste, nunca o insumo.
-4. Auditoria independente da versão integrada, com a regra de parada da §3.1.
+5. Auditoria independente da versão integrada, com a regra de parada da §3.1.
 
 ##### Três perguntas abertas com o Fred, e nenhuma bloqueia o código
 
