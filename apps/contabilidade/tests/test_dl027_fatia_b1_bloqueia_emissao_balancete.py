@@ -150,10 +150,9 @@ def test_view_balancete_quando_totais_divergem_retorna_409_e_nao_renderiza(
     """O caminho de divergência que NUNCA acontece em uso normal do
     produto (criar_lancamento garante débitos == créditos por construção
     de partidas dobradas), mas que pode acontecer por corrupção de
-    dado. Aqui o veto se prova: HTTP 409, não 200, e o contexto carrega
-    a estrutura que a tela usa para orientar — veredito, diferença em
-    pt-BR, e a flag `emissao_recusada` que o template vai usar para
-    mostrar a faixa de erro."""
+    dado. Aqui o veto se prova: HTTP 409, não 200, a orientação fica
+    visível e nenhum dado ou carimbo do Balancete é entregue no contexto
+    ou no HTML."""
     _login(client, cen)
     hoje = timezone.localdate()
     criar_lancamento(
@@ -186,19 +185,15 @@ def test_view_balancete_quando_totais_divergem_retorna_409_e_nao_renderiza(
         "situação normal, e o contador entrega o documento ao cliente sem "
         "ver que o sistema detectou o desvio."
     )
-    # Estrutura completa do contexto que a view passa para o template
-    # — é o que a tela vai ler para orientar, e que esta separado do
-    # código de status (mensagens vão no `messages.error()`).
-    assert resposta.context["veredito_balancete"] == "nao_fecha"
-    assert resposta.context["diferenca_balancete_ptbr"] == "0,01"
-    assert resposta.context["emissao_recusada"] is True
-    # Os totais em pt-BR continuam no contexto — a tela precisa exibi-los
-    # lado a lado para o contador VER onde está a diferença (o BL-310
-    # prova que o texto pt-BR divergente É a única coisa que torna a
-    # troca débito/crédito pela faixa DETECTÁVEL). Aqui a divergência
-    # foi de 0,01 em cima de 300,00 — o crédito fica em "300,01".
-    assert resposta.context["total_debitos_ptbr"] == "300,00"
-    assert resposta.context["total_creditos_ptbr"] == "300,01"
+    assert "linhas" not in resposta.context
+    assert "total_debitos_ptbr" not in resposta.context
+    assert "total_creditos_ptbr" not in resposta.context
+    assert "carimbo_de_emissao_texto" not in resposta.context
+    html = resposta.content.decode()
+    assert "<table" not in html
+    assert "Emitido em" not in html
+    assert "0,01" in html
+    assert "Verifique" in html
 
 
 def test_view_balancete_quando_totais_batem_segue_200_com_veredito_fecha(client, cen, monkeypatch):

@@ -493,7 +493,7 @@ def _nivel_do_formulario(request):
 _CRITERIOS_DE_APURACAO_VALIDOS = frozenset({"todas", "com_movimento"})
 _TEXTO_DO_CRITERIO = {
     "todas": "todas as contas",
-    "com_movimento": "apenas contas com movimento no período",
+    "com_movimento": "movimento no período ou saldo anterior diferente de zero",
 }
 
 
@@ -2434,7 +2434,12 @@ def balancete(request, empresa_id):
         )
     except HierarquiaInconsistente as exc:
         messages.error(request, str(exc))
-        return render(request, "contabilidade/balancete.html", contexto, status=409)
+        return render(
+            request,
+            "contabilidade/balancete_emissao_recusada.html",
+            {"empresa": empresa},
+            status=409,
+        )
 
     # Necessário só para montar o link "ver Razão desta conta" (critério
     # 12): `apurar_balancete` devolve o CÓDIGO da conta (é o que o
@@ -2531,7 +2536,9 @@ def balancete(request, empresa_id):
     # pergunta e obedece (mesmo contrato de `avaliar_emissao_do_balanco`,
     # DL-034). Quando `pode_emitir` é `False`, devolvemos 409 com a
     # diferença em pt-BR e a orientação textual — o critério 9 do plano
-    # proíbe veto seco.
+    # proíbe veto seco. A resposta recusada não recebe contexto de
+    # apuração, carimbo, timbre ou template imprimível do Balancete: um
+    # HTTP 409 não pode entregar o documento que acabou de vetar.
     avaliacao = avaliar_emissao_do_balancete(apuracao)
     if not avaliacao["pode_emitir"]:
         messages.error(
@@ -2540,23 +2547,12 @@ def balancete(request, empresa_id):
             f"divergem em R$ {avaliacao['diferenca_ptbr']}. Verifique os "
             "lançamentos do período antes de reimprimir.",
         )
-        contexto.update(
-            {
-                "linhas": linhas,
-                "veredito_balancete": avaliacao["veredito"],
-                "diferenca_balancete_ptbr": avaliacao["diferenca_ptbr"],
-                "emissao_recusada": True,
-                # Os totais em pt-BR continuam no contexto mesmo no veto
-                # — o template mostra a divergência NA folha, e o controle
-                # de sub-centavo do BL-290 precisa do par texto para
-                # provar que o texto é igual em ambos os lados (a
-                # comparação em Decimal É o gatilho, mas a tela precisa
-                # exibir os mesmos "300,00" / "300,00" lado a lado).
-                "total_debitos_ptbr": _valor_ptbr(apuracao["total_debitos"]),
-                "total_creditos_ptbr": _valor_ptbr(apuracao["total_creditos"]),
-            }
+        return render(
+            request,
+            "contabilidade/balancete_emissao_recusada.html",
+            {"empresa": empresa},
+            status=409,
         )
-        return render(request, "contabilidade/balancete.html", contexto, status=409)
 
     # Veredito calculado em `Decimal` sobre os totais de ORIGEM
     # (`apuracao["total_debitos"]`/`["total_creditos"]`) — nunca sobre

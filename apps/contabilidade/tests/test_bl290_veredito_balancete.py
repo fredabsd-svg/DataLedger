@@ -4,7 +4,8 @@ balancete comparava TEXTO pt-BR (`total_debitos_ptbr == total_creditos_ptbr`)
 em vez de `Decimal` — a mesma classe de defeito do BL-289/A1, agora na tela
 do balancete —, e o ramo "Fecha" cobria também o dia 1º de todo mês (sem
 movimento nenhum no período), mostrando "Fecha" verde sobre 0,00/0,00
-(BL-302/B4).
+(BL-302/B4). A divergência detectada hoje é vetada com HTTP 409 e não
+renderiza o documento.
 
 Escopo desta correção: entrou no meio da rodada 4 por decisão do
 arquiteto-senior — o CONTRATO DE CONTEXTO original já descrevia as chaves
@@ -14,8 +15,8 @@ arquiteto-senior — o CONTRATO DE CONTEXTO original já descrevia as chaves
 metade do servidor ficou sem dono. O `especialista-frontend` já escreveu o
 template e um teste de tela esperando essas chaves
 (`test_dl017_telas.py::test_balancete_veredito_nao_fecha_e_exercitado_com_
-totais_divergentes`); este arquivo testa a DECISÃO em si, lendo
-`response.context`, sem depender do HTML renderizado pelo outro lado.
+totais_divergentes`); após o veto de emissão, este arquivo verifica o
+status e a ausência de conteúdo contábil na resposta.
 
 Dados 100% sintéticos, criados nos próprios testes.
 """
@@ -123,9 +124,8 @@ def test_totais_divergentes_e_nao_fecha_com_diferenca(client, cen, monkeypatch):
     DL-027 Fatia B (item 3): a partir desta etapa, "nao_fecha" deixa de
     ser um aviso no display e vira VETO — `avaliar_emissao_do_balancete`
     decide no server e a view devolve HTTP 409 com a diferença em
-    pt-BR e a orientação textual (critério 9 do plano). A forma como o
-    contexto vem (`veredito_balancete`, `diferenca_balancete_ptbr`,
-    `emissao_recusada`) continua a mesma — só o status mudou."""
+    pt-BR e a orientação textual (critério 9 do plano). A recusa não
+    entrega contexto nem HTML imprimível do Balancete."""
     _login(client, cen)
     hoje = timezone.localdate()
     criar_lancamento(
@@ -157,9 +157,12 @@ def test_totais_divergentes_e_nao_fecha_com_diferenca(client, cen, monkeypatch):
     resposta = client.get(_url(cen, inicio=hoje.replace(day=1), fim=hoje))
     # DL-027 Fatia B: 409 em vez de 200 — o veto do server.
     assert resposta.status_code == 409
-    assert resposta.context["veredito_balancete"] == "nao_fecha"
-    assert resposta.context["diferenca_balancete_ptbr"] == "0,01"
-    assert resposta.context["emissao_recusada"] is True
+    assert "linhas" not in resposta.context
+    assert "carimbo_de_emissao_texto" not in resposta.context
+    html = resposta.content.decode()
+    assert "<table" not in html
+    assert "Emitido em" not in html
+    assert "0,01" in html
 
 
 def test_veredito_e_decidido_em_decimal_nao_por_texto(client, cen, monkeypatch):
@@ -198,10 +201,6 @@ def test_veredito_e_decidido_em_decimal_nao_por_texto(client, cen, monkeypatch):
     resposta = client.get(_url(cen, inicio=hoje.replace(day=1), fim=hoje))
     # DL-027 Fatia B: 409 em vez de 200 — mesmo o desvio sub-centavo é veto.
     assert resposta.status_code == 409
-    assert resposta.context["veredito_balancete"] == "nao_fecha"
-    assert resposta.context["emissao_recusada"] is True
-    assert resposta.context["total_debitos_ptbr"] == resposta.context["total_creditos_ptbr"], (
-        "controle: os dois TEXTOS precisam ser iguais para este caso valer algo "
-        "— é exatamente a comparação de string que o A2 reprovou, e a comparação "
-        "em Decimal (que PÕDE ver o desvio) tem que ser o gatilho do veto"
-    )
+    assert "linhas" not in resposta.context
+    assert "carimbo_de_emissao_texto" not in resposta.context
+    assert "<table" not in resposta.content.decode()

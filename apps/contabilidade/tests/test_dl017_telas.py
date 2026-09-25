@@ -703,9 +703,10 @@ def test_balancete_soma_das_linhas_proprias_bate_com_rodape(client, cenario):
     # posição: o estado "não fecha" tem um terceiro valor monetário — a
     # diferença — que desloca a contagem). A guarda de verdade contra a
     # troca débito/crédito só é possível no estado DIVERGENTE, onde os
-    # dois números são diferentes entre si por construção — ver
-    # `test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes`,
-    # logo abaixo, que é quem a exerce.
+    # dois números são diferentes entre si por construção — ver a prova
+    # sintética em `test_bl308_faixa_distingue_debito_de_credito.py`. O
+    # teste HTTP logo abaixo verifica que a view veta esse estado sem
+    # entregar o relatório.
     faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
     assert faixa, "controle: a faixa de fechamento precisa estar presente com movimento"
     debitos_proprios_faixa = _extrair_valor_por_rotulo(
@@ -874,14 +875,9 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     veredito, e a suíte inteira devolveu 1363 passed, porque NADA
     exercitava o ramo "Não fecha".
 
-    DL-027 Fatia B (item 3 do plano): o que era aviso virou VETO. A
-    faixa "Não fecha" continua sendo exercitada (o motor de auditoria
-    precisa ver o ramo), mas o status code mudou de 200 para 409 — o
-    documento não é emitido. A forma como o contexto passa
-    (`veredito_balancete == "nao_fecha"`, `diferenca_balancete_ptbr`)
-    é a mesma; o que muda é que a página carrega a FLAG
-    `emissao_recusada` para o template mostrar a orientação, e o teste
-    continua provando que o texto certo aparece no HTML renderizado.
+    DL-027 Fatia B (item 3 do plano): divergência é VETO. A resposta 409
+    precisa conter a orientação, sem entregar o relatório, os totais ou
+    o carimbo de emissão.
     """
     empresa = cenario["empresa_a"]
     hoje = timezone.localdate()
@@ -903,11 +899,8 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
     )
 
     def _apuracao_divergente(*, empresa, inicio, fim, nivel=None, criterio_de_apuracao="todas"):
-        # As LINHAS continuam vindo da apuração real (para a tabela e a
-        # soma "própria" do rodapé baterem entre si, como já testado por
-        # test_balancete_soma_das_linhas_proprias_bate_com_rodape) — só o
-        # TOTAL que a faixa mostra é corrompido, propositalmente, para
-        # forçar o ramo que nenhum lançamento balanceado alcança.
+        # Só o total recebido pelo avaliador é corrompido, para forçar o
+        # veto que nenhum lançamento balanceado alcança.
         divergente = dict(apuracao_real)
         divergente["total_creditos"] = apuracao_real["total_creditos"] + Decimal("0.01")
         return divergente
@@ -920,69 +913,16 @@ def test_balancete_veredito_nao_fecha_e_exercitado_com_totais_divergentes(
         + f"?inicio={hoje.replace(day=1).isoformat()}&fim={hoje.isoformat()}"
     )
     resposta = client.get(url)
-    # DL-027 Fatia B: 409 em vez de 200 — o veto do server.
+    # DL-027 Fatia B: 409, sem conteúdo ou carimbo de relatório.
     assert resposta.status_code == 409
-    assert resposta.context["emissao_recusada"] is True
     conteudo = resposta.content.decode()
-
-    # Pela CHAVE primeiro (ver o docstring de `_exige_veredito_balancete`):
-    # reprova ausência de `veredito_balancete` ou valor errado, não só o
-    # texto que o ramo "Não fecha" produz na tela.
-    _exige_veredito_balancete(resposta.context, "nao_fecha")
-
-    faixa = re.search(r'<div class="faixa-fechamento[^"]*"[^>]*>.*?</div>', conteudo, re.DOTALL)
-    assert faixa, "controle: a faixa precisa estar presente"
-    assert "faixa-fechamento--nao-fecha" in faixa.group(0), (
-        "o ramo 'Não fecha' não foi exercitado: " + faixa.group(0)
-    )
-    assert "Não fecha" in faixa.group(0)
-    assert "Fecha</strong>" not in faixa.group(0).replace("Não fecha", "")
-    # O rodapé (dentro da <table>) continua mostrando os totais
-    # DIVERGENTES tal como a view os recebeu — a tela não esconde a
-    # inconsistência, denuncia.
-    tabela = re.search(r"<table\b.*?</table>", conteudo, re.DOTALL).group(0)
-    rodape = re.search(r'<tr class="linha-total">.*?</tr>', tabela, re.DOTALL).group(0)
-    valores_rodape = _extrair_valores_ptbr(rodape)
-    total_debitos_rodape = _ptbr_para_decimal(valores_rodape[0])
-    total_creditos_rodape = _ptbr_para_decimal(valores_rodape[1])
-    assert total_debitos_rodape != total_creditos_rodape
-
-    # BL-308 (achado A2 da auditoria DL-026, rodada 3) — A GUARDA DE
-    # VERDADE contra "o crédito da faixa foi trocado pelo débito" só
-    # existe AQUI, neste estado divergente: é o único em que os dois
-    # números não são iguais por construção, então é o único em que a
-    # troca de um pelo outro produz um resultado OBSERVÁVEL. O teste do
-    # estado balanceado
-    # (`test_balancete_soma_das_linhas_proprias_bate_com_rodape`) compara
-    # 1700,00 com 1700,00 — a mesma troca lá dá `1451 passed`, medido pelo
-    # auditor; não conta como guarda contra esta classe de sabotagem,
-    # ainda que sirva de conciliação (critério 6).
-    #
-    # Extração ANCORADA PELO RÓTULO (não pela posição do N-ésimo
-    # `class="valor-monetario"`): a faixa, no ramo "não fecha", tem um
-    # valor monetário A MAIS antes dos dois de sempre — a própria
-    # diferença, dentro do texto do veredito —, então contar posição
-    # pegaria o valor errado.
-    debitos_proprios_faixa = _extrair_valor_por_rotulo(
-        faixa.group(0), "Débitos próprios do período"
-    )
-    creditos_proprios_faixa = _extrair_valor_por_rotulo(
-        faixa.group(0), "Créditos próprios do período"
-    )
-    # Os dois números da faixa batem com os do rodapé, cada um sob o seu
-    # PRÓPRIO rótulo — não apenas "os dois conjuntos de números
-    # coincidem", que a troca de um pelo outro também satisfaria.
-    assert _ptbr_para_decimal(debitos_proprios_faixa) == total_debitos_rodape == Decimal("300.00")
-    assert _ptbr_para_decimal(creditos_proprios_faixa) == total_creditos_rodape == Decimal("300.01")
-    # E os dois são DIFERENTES entre si — a faixa não pode dizer "diferença
-    # de 0,01" e mostrar dois números iguais: é exatamente a contradição
-    # que o auditor mediu no produto (300,00 e 300,00 sob "diferença de
-    # 0,01"), e que este par de asserções torna impossível passar
-    # despercebido.
-    assert debitos_proprios_faixa != creditos_proprios_faixa, (
-        debitos_proprios_faixa,
-        creditos_proprios_faixa,
-    )
+    assert "linhas" not in resposta.context
+    assert "carimbo_de_emissao_texto" not in resposta.context
+    assert "<table" not in conteudo
+    assert "Emitido em" not in conteudo
+    assert "300,00" not in conteudo
+    assert "300,01" not in conteudo
+    assert "R$ 0,01" in conteudo
 
 
 def test_balancete_sem_movimento_diz_nada_a_conferir_por_decisao(client, cenario):

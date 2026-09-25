@@ -4,9 +4,9 @@ Plano DL-027-B2-criterio-de-apuracao-impresso.md:
 
 1. O serviço `apurar_balancete` aceita `criterio_de_apuracao` ∈
    {"todas", "com_movimento"}. Default = "todas" (comportamento atual).
-2. "com_movimento" oculta contas SEM movimento consolidado no período
-   E SEM saldo anterior diferente de zero. Sintéticas com movimento
-   consolidado continuam aparecendo (regra única de saldo / DE-020).
+2. "com_movimento" mantém contas com movimento consolidado no período
+   OU saldo anterior líquido diferente de zero. Sintéticas com movimento
+   ou saldo consolidado continuam aparecendo (regra única de saldo / DE-020).
 3. O critério é uma propriedade da EMISSÃO (decidido na view via
    querystring), não do cadastro — sem migração de modelo (PE-65).
 4. A4 (entra junto): o texto da `messages.error(...)` do veto
@@ -14,6 +14,7 @@ Plano DL-027-B2-criterio-de-apuracao-impresso.md:
    de mutação da auditoria da B.1.
 """
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -59,13 +60,14 @@ def cen():
         tipo=TipoConta.RECEITA,
         natureza=NaturezaConta.CREDORA,
     )
-    # Sintética SEM movimento, SEM saldo anterior — DEVE sumir em "com_movimento"
+    # Sintética sem movimento, sem saldo anterior — DEVE sumir em "com_movimento".
     despesa_geral = Conta.objects.create(
         empresa=empresa,
         codigo="4",
         nome="Despesas Gerais",
         tipo=TipoConta.DESPESA,
         natureza=NaturezaConta.DEVEDORA,
+        aceita_lancamento=False,
     )
     usuario = get_user_model().objects.create_user(
         username="gestor-dl027b2",
@@ -181,6 +183,118 @@ def test_servico_quando_criterio_com_movimento_preserva_conta_com_movimento(cen)
     )
 
 
+def test_servico_com_movimento_preserva_sintetica_com_movimento_de_filho(cen):
+    """O movimento de uma conta analítica mantém sua sintética visível no
+    recorte consolidado, sem incluir contas não relacionadas."""
+    from apps.contabilidade.services import criar_lancamento
+
+    grupo = Conta.objects.create(
+        empresa=cen["empresa"],
+        codigo="5",
+        nome="Imobilizado",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+        aceita_lancamento=False,
+    )
+    equipamento = Conta.objects.create(
+        empresa=cen["empresa"],
+        conta_pai=grupo,
+        codigo="5.1",
+        nome="Equipamentos",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    hoje = timezone.localdate()
+    criar_lancamento(
+        empresa=cen["empresa"],
+        data=hoje,
+        historico="DL-027 B.2 — movimento em conta filha",
+        itens=[
+            {"conta": equipamento, "tipo": "debito", "valor": Decimal("50.00")},
+            {"conta": cen["receita"], "tipo": "credito", "valor": Decimal("50.00")},
+        ],
+        criado_por=None,
+        chave_idempotencia="k-dl027b2-sintetica-com-movimento",
+    )
+
+    apuracao = apurar_balancete(
+        empresa=cen["empresa"],
+        inicio=hoje,
+        fim=hoje,
+        criterio_de_apuracao="com_movimento",
+    )
+
+    assert [linha["conta"] for linha in apuracao["contas"]] == ["3", "5", "5.1"]
+
+
+def test_servico_com_movimento_oculta_saldos_de_abertura_historicos_compensados(cen):
+    """Débitos e créditos anteriores que se compensam não deixam saldo de
+    abertura. Sem movimento dentro do período, nenhuma das contas deve
+    aparecer no recorte "com_movimento"."""
+    from apps.contabilidade.services import criar_lancamento
+
+    inicio = timezone.localdate().replace(day=1)
+    criar_lancamento(
+        empresa=cen["empresa"],
+        data=inicio - timedelta(days=2),
+        historico="DL-027 B.2 — movimento histórico compensatório 1",
+        itens=[
+            {"conta": cen["caixa"], "tipo": "debito", "valor": Decimal("50.00")},
+            {"conta": cen["receita"], "tipo": "credito", "valor": Decimal("50.00")},
+        ],
+        criado_por=None,
+        chave_idempotencia="k-dl027b2-abertura-compensada-1",
+    )
+    criar_lancamento(
+        empresa=cen["empresa"],
+        data=inicio - timedelta(days=1),
+        historico="DL-027 B.2 — movimento histórico compensatório 2",
+        itens=[
+            {"conta": cen["receita"], "tipo": "debito", "valor": Decimal("50.00")},
+            {"conta": cen["caixa"], "tipo": "credito", "valor": Decimal("50.00")},
+        ],
+        criado_por=None,
+        chave_idempotencia="k-dl027b2-abertura-compensada-2",
+    )
+
+    apuracao = apurar_balancete(
+        empresa=cen["empresa"],
+        inicio=inicio,
+        fim=timezone.localdate(),
+        criterio_de_apuracao="com_movimento",
+    )
+
+    assert apuracao["contas"] == []
+
+
+def test_servico_com_movimento_preserva_saldo_de_abertura_liquido_nao_zero(cen):
+    """Saldo líquido de abertura diferente de zero continua visível mesmo
+    sem movimento no período, conforme R2 do plano de B.2."""
+    from apps.contabilidade.services import criar_lancamento
+
+    inicio = timezone.localdate().replace(day=1)
+    criar_lancamento(
+        empresa=cen["empresa"],
+        data=inicio - timedelta(days=1),
+        historico="DL-027 B.2 — saldo de abertura relevante",
+        itens=[
+            {"conta": cen["caixa"], "tipo": "debito", "valor": Decimal("50.00")},
+            {"conta": cen["receita"], "tipo": "credito", "valor": Decimal("50.00")},
+        ],
+        criado_por=None,
+        chave_idempotencia="k-dl027b2-abertura-nao-zero",
+    )
+
+    apuracao = apurar_balancete(
+        empresa=cen["empresa"],
+        inicio=inicio,
+        fim=timezone.localdate(),
+        criterio_de_apuracao="com_movimento",
+    )
+
+    assert [linha["conta"] for linha in apuracao["contas"]] == ["1", "3"]
+
+
 def test_servico_com_movimento_preserva_totais_gerais(cen):
     """O total NÃO é afetado pelo filtro — é a agregação independente de
     TODOS os itens do período (DE-020). Aqui não há movimento nenhum, mas
@@ -258,7 +372,8 @@ def test_view_balancete_quando_criterio_com_movimento_renderiza_apenas_com_movim
     assert resposta.status_code == 200
     assert resposta.context["criterio_de_apuracao"] == "com_movimento"
     assert (
-        resposta.context["criterio_de_apuracao_texto"] == "apenas contas com movimento no período"
+        resposta.context["criterio_de_apuracao_texto"]
+        == "movimento no período ou saldo anterior diferente de zero"
     )
     assert resposta.context["linhas"] == []
 
@@ -278,7 +393,7 @@ def test_view_balancete_criterio_aparece_no_html_renderizado(client, cen):
     )
     html = resposta.content.decode()
     assert "Critério de apuração" in html
-    assert "apenas contas com movimento no período" in html
+    assert "movimento no período ou saldo anterior diferente de zero" in html
 
 
 # ---------------------------------------------------------------------------
