@@ -1,6 +1,6 @@
 # DL-036 — Página inicial e cadastro de uma nova empresa
 
-**Estado:** em validação. **Demanda:** Fred, 25/09/2026: primeira tela
+**Estado:** em revisão. **Demanda:** Fred, 25/09/2026: primeira tela
 com cadastro para empresa nova e apresentação profissional do DataLedger.
 **Branch:** `feat/dl-036-entrada-e-cadastro`, destino `main`.
 
@@ -80,3 +80,20 @@ web. WhiteNoise passa a usar o CSS coletado na imagem; volume antigo mascarava
 estáticos novos após rebuild. Volume PostgreSQL preservado. Docker não está
 disponível neste ambiente: mudança inspecionada, contêiner não executado. Merge e
 implantação não autorizados nesta demanda. Abertura do PR integra o escopo.
+
+
+## Integração e correção da cobertura
+
+A primeira execução PostgreSQL no GitHub encontrou **2 failed, 2187 passed,
+45 skipped**: o espelho de URLs da suíte de acessibilidade não conhecia `cadastro`
+e a lista de cobertura não classificava a nova tela. Foram atualizados o espelho
+e o universo de telas, com testes reais de acessibilidade do cadastro e da landing.
+Nenhuma regra de produção ou expectativa de segurança foi enfraquecida.
+
+Validação local após correção: `390 passed, 26 warnings in 4.15s`; lint e formatação
+aprovados. Os avisos são de locks contábeis indisponíveis no SQLite local.
+Reconferência independente do delta Docker: **APROVADO**, YAML analisado,
+volume PostgreSQL preservado e estáticos coletados na imagem confirmados.
+
+A evidência vigente da CI pertence ao commit mais recente do PR #45; não se
+transporta aprovação entre hashes. Verificar os checks do PR antes de integrar.

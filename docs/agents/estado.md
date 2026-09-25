@@ -2,14 +2,15 @@
 
 ## Demanda atual — DL-036 (25/09/2026)
 
-**Em validação:** [página inicial e cadastro](../planos/DL-036-entrada-e-cadastro.md),
+**Em revisão:** [página inicial e cadastro](../planos/DL-036-entrada-e-cadastro.md),
 a pedido direto do Fred. O fluxo da DL-018 já cria escritório para usuário autenticado,
 mas faltava criar a própria conta pelo produto. Esta entrega fecha essa entrada e
 redesenha landing/login/cadastro. Branch `feat/dl-036-entrada-e-cadastro`, base `main`.
 Papéis de implementação separados e auditoria independente nesta sessão por
 subagentes; sem pretensão de equipe nativa Claude. PR [#45](https://github.com/fredabsd-svg/DataLedger/pull/45).
-352 testes locais aprovados, E2E Chromium mobile sem JavaScript aprovado e auditoria
-independente aprovada. CI em acompanhamento. Falha contábil SQLite preexistente
+390 testes locais aprovados, E2E Chromium mobile sem JavaScript aprovado e auditoria
+independente aprovada. CI inicial identificou duas lacunas na cobertura da nova rota, corrigidas e
+retestadas; checks finais no PR. Falha contábil SQLite preexistente
 reproduzida na main; Docker indisponível para execução. Detalhes no plano DL-036.
 
 
