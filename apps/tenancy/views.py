@@ -200,9 +200,197 @@ class EscritorioAtivoView(APIView):
         return Response({"status": "ok"})
 
 
+# ---------------------------------------------------------------------------
+# DL-042 (2ª passada): "Início" como fila do que precisa de atenção — o
+# anti-padrão que a skill saas-design-excellence nomeia é o "dashboard de
+# KPI vazio" (quatro caixinhas com número colorido, sem dizer que decisão o
+# usuário toma). Aqui, cada categoria só aparece com dado REAL do produto
+# (nunca uma métrica inventada), sempre filtrada pelo ESCRITÓRIO ATIVO
+# (nunca uma consulta sem esse filtro — isolamento entre escritórios,
+# AGENTS.md) e só para quem o SERVIDOR já deixaria ler aquele domínio — as
+# MESMAS funções de permissão que as telas de contabilidade/fiscal usam
+# (`papel_pode_ler_contabilidade`/`papel_pode_consultar_documentos`), nunca
+# uma lista de papéis própria desta view (mesma disciplina do context
+# processor `apps.core.context_processors.navegacao_do_menu`).
+#
+# Cada categoria devolve `None` quando não há nada pendente (a função
+# `_fila_de_atencao` descarta), para o template distinguir "esta categoria
+# está zerada" (não aparece) de "nenhuma categoria pendente" (estado vazio
+# "tudo em dia"). O papel sem NENHUMA permissão relevante (ex.: CLIENTE)
+# recebe `fila_de_atencao=None` do view — o template não renderiza a seção
+# inteira, porque a fila não é "vazia para ele", é "não é dele".
+# ---------------------------------------------------------------------------
+
+LIMITE_ITENS_POR_CATEGORIA_DA_FILA = 8
+JANELA_FISCAL_RECENTE = timedelta(days=30)
+
+
+def _empresas_sem_plano_de_contas(escritorio):
+    """Empresas em contabilidade por partidas dobradas sem NENHUMA conta
+    cadastrada — não têm como lançar. Livro-caixa fica de fora: a
+    contabilidade por partidas dobradas não se aplica a elas (mesmo
+    critério já usado em templates/base.html, dropdown de Contabilidade)."""
+    tem_conta = Conta.objects.filter(empresa_id=OuterRef("pk"))
+    qs = (
+        Empresa.objects.filter(
+            escritorio=escritorio, modo_escrituracao=ModoEscrituracao.CONTABILIDADE
+        )
+        .annotate(tem_conta=Exists(tem_conta))
+        .filter(tem_conta=False)
+        .order_by("razao_social")
+    )
+    total = qs.count()
+    if not total:
+        return None
+    return {
+        "chave": "empresas-sem-plano-de-contas",
+        "titulo": "Empresas sem plano de contas",
+        "descricao": "Em contabilidade por partidas dobradas, sem nenhuma conta cadastrada — não há como lançar ainda.",
+        "total": total,
+        "itens": [
+            {
+                "titulo": empresa.razao_social,
+                "url": reverse("contabilidade_web:plano_de_contas", args=[empresa.id]),
+            }
+            for empresa in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
+        ],
+    }
+
+
+def _competencias_abertas_de_meses_anteriores(escritorio):
+    """Competências (meses com lançamento) de meses ANTERIORES ao atual,
+    ainda no estado 'aberta' — candidatas a fechamento atrasado. Uma
+    `Competencia` só existe quando o mês teve ao menos um lançamento
+    (apps.contabilidade.models.Competencia, docstring), então isto nunca
+    aponta mês sem movimento nenhum."""
+    hoje = timezone.localdate()
+    qs = (
+        Competencia.objects.filter(
+            empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA
+        )
+        .filter(Q(ano__lt=hoje.year) | (Q(ano=hoje.year) & Q(mes__lt=hoje.month)))
+        .select_related("empresa")
+        .order_by("ano", "mes")
+    )
+    total = qs.count()
+    if not total:
+        return None
+    return {
+        "chave": "competencias-abertas",
+        "titulo": "Competências de meses anteriores ainda abertas",
+        "descricao": "Meses com lançamento que já passaram e continuam sem fechar.",
+        "total": total,
+        "itens": [
+            {
+                "titulo": f"{competencia.empresa.razao_social} — {competencia.mes:02d}/{competencia.ano}",
+                "url": reverse("contabilidade_web:fechamento", args=[competencia.empresa_id]),
+            }
+            for competencia in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
+        ],
+    }
+
+
+def _lotes_fiscais_com_recusa_recente(escritorio):
+    """Lotes de recepção fiscal dos últimos 30 dias com pelo menos um
+    arquivo recusado — a "conferência" que a Recepção já registra, trazida
+    para o Início em vez de exigir visita à tela para descobrir."""
+    corte = timezone.now() - JANELA_FISCAL_RECENTE
+    qs = LoteDeRecepcao.objects.filter(
+        escritorio=escritorio, total_recusados__gt=0, criado_em__gte=corte
+    ).order_by("-criado_em")
+    total = qs.count()
+    if not total:
+        return None
+    return {
+        "chave": "lotes-fiscais-com-recusa",
+        "titulo": "Envios fiscais com recusas recentes",
+        "descricao": "Últimos 30 dias, com pelo menos um arquivo recusado no envio.",
+        "total": total,
+        "itens": [
+            {
+                "titulo": f"{lote.nome_arquivo} — {lote.total_recusados} recusado(s)",
+                "url": reverse("fiscal_web:relatorio_envio", args=[lote.id]),
+            }
+            for lote in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
+        ],
+    }
+
+
+def _notas_canceladas_recentes(escritorio):
+    """NFS-e recebidas nos últimos 30 dias cuja situação (derivada dos
+    eventos — apps.fiscal.services.situacao_do_documento) é 'cancelada'.
+    Reusa `documentos_do_escritorio`, que já anota a situação com UMA
+    consulta (Exists/OuterRef), nunca N+1 por documento."""
+    corte = timezone.now() - JANELA_FISCAL_RECENTE
+    qs = documentos_do_escritorio(escritorio, situacao="cancelada").filter(criado_em__gte=corte)
+    total = qs.count()
+    if not total:
+        return None
+    return {
+        "chave": "notas-canceladas",
+        "titulo": "Notas canceladas recebidas",
+        "descricao": "Últimos 30 dias, com evento de cancelamento identificado.",
+        "total": total,
+        "itens": [
+            {
+                "titulo": f"NFS-e {documento.numero or documento.identificador[-6:]} — "
+                f"{documento.tomador_nome or documento.prestador_nome or 'sem nome'}",
+                "url": reverse("fiscal_web:documento_detalhe", args=[documento.id]),
+            }
+            for documento in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
+        ],
+    }
+
+
+def _empresas_cpf_em_livro_caixa(escritorio):
+    """Informativo (não é uma pendência a resolver): empresas CPF em
+    livro-caixa, para lembrar que a contabilidade por partidas dobradas
+    não se aplica a elas — mesmo aviso que o dropdown de Contabilidade
+    (templates/base.html) já mostra tela a tela, reunido aqui."""
+    qs = (
+        Empresa.objects.filter(escritorio=escritorio, modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA)
+        .exclude(cpf="")
+        .order_by("razao_social")
+    )
+    total = qs.count()
+    if not total:
+        return None
+    return {
+        "chave": "empresas-cpf-livro-caixa",
+        "titulo": "Empresas CPF em livro-caixa",
+        "descricao": "Informativo — a contabilidade por partidas dobradas não se aplica a estas empresas.",
+        "total": total,
+        "informativo": True,
+        "itens": [{"titulo": empresa.razao_social, "url": None} for empresa in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]],
+        "url_ver_todos": reverse("empresas:lista"),
+    }
+
+
+def _fila_de_atencao(*, escritorio, papel):
+    """`None` quando o papel não lê NEM contabilidade NEM fiscal (a fila
+    não é "vazia" para ele, é "não é dele" — o template não desenha a
+    seção). Lista (possivelmente vazia) quando ao menos uma permissão
+    existe — lista vazia é o estado "tudo em dia", desenhado no template."""
+    pode_contabilidade = papel_pode_ler_contabilidade(papel)
+    pode_fiscal = papel_pode_consultar_documentos(papel)
+    if not pode_contabilidade and not pode_fiscal:
+        return None
+
+    categorias = []
+    if pode_contabilidade:
+        categorias.append(_empresas_sem_plano_de_contas(escritorio))
+        categorias.append(_competencias_abertas_de_meses_anteriores(escritorio))
+        categorias.append(_empresas_cpf_em_livro_caixa(escritorio))
+    if pode_fiscal:
+        categorias.append(_lotes_fiscais_com_recusa_recente(escritorio))
+        categorias.append(_notas_canceladas_recentes(escritorio))
+    return [categoria for categoria in categorias if categoria is not None]
+
+
 @require_safe
 def painel(request):
-    """Página inicial pós-login: mostra o escritório ativo e permite trocar.
+    """Página inicial pós-login: mostra o escritório ativo, permite trocar,
+    e — DL-042 — a fila do que precisa de atenção no escritório ATIVO.
 
     Fluxo simples com formulário HTML padrão nesta etapa; HTMX/Alpine
     entram quando houver necessidade real de atualização parcial de
@@ -213,10 +401,19 @@ def painel(request):
     escritorios = Escritorio.objects.filter(
         vinculos__usuario=request.user, vinculos__ativo=True
     ).distinct()
+    fila_de_atencao = None
+    if request.escritorio is not None:
+        fila_de_atencao = _fila_de_atencao(
+            escritorio=request.escritorio, papel=getattr(request, "papel", None)
+        )
     return render(
         request,
         "tenancy/painel.html",
-        {"escritorios": escritorios, "escritorio_ativo": request.escritorio},
+        {
+            "escritorios": escritorios,
+            "escritorio_ativo": request.escritorio,
+            "fila_de_atencao": fila_de_atencao,
+        },
     )
 
 
