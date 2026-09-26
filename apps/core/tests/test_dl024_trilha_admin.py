@@ -92,7 +92,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     from apps.accounts.models import Usuario
     from apps.auditoria import signals
     from apps.auditoria.models import RegistroAuditoria
-    from apps.contabilidade.models import Competencia, Conta, ItemLancamento, LancamentoContabil
+    from apps.contabilidade.models import (
+        Competencia,
+        Conta,
+        ItemLancamento,
+        LancamentoContabil,
+        ParametroContabilEmpresa,
+    )
     from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
     from apps.fiscal.models import (
         DocumentoFiscal,
@@ -117,6 +123,18 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         Conta,
         LancamentoContabil,
         ItemLancamento,
+        # DL-043 (BL-474): `ParametroContabilEmpresa` entrou na cobertura
+        # pelo MESMO mecanismo "por padrão" do bloco de `apps.fiscal`
+        # abaixo — nenhum admin.py registra este modelo de propósito (ver
+        # o docstring da classe em `apps/contabilidade/models.py`: a
+        # ÚNICA porta de escrita é o serviço, sob `select_for_update()`,
+        # e um `ModelForm` de admin contornaria essa trava de
+        # concorrência/vigência, o mesmo motivo que já tirou o inline de
+        # `HistoricoRegimeTributario` do admin de empresas). Sem registro
+        # no admin, os handlers deste módulo nunca disparam por essa
+        # rota hoje — a cobertura aqui é só a garantia de que, se algum
+        # dia alguém registrar o modelo no admin, a trilha já alcança.
+        ParametroContabilEmpresa,
         # DL-010 F1 (2026-09-25): apps.fiscal é um app PRÓPRIO do projeto e
         # não tem entrada em EXCLUSAO_DA_TRILHA_DO_ADMIN — entrou na
         # cobertura por PADRÃO (R1/DE-056), sem decisão explícita, mesmo
