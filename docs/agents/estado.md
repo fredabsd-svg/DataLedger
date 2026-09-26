@@ -94,6 +94,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Integrada (PR #49) |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -125,6 +126,11 @@ correção da auditoria.**
   **reprovada** (veto, hierarquia e estorno de zeramento; a aritmética bate);
   correção em andamento, depois reconferência única com a tela. O plano, a
   auditoria e as decisões (DE-085, RC-118 a RC-126) entram no PR da DL-045.
+- **DL-046** (livro-caixa e carnê-leão, nível 1): plano com fontes (RIR/2018
+  arts. 68-69 e 118-125, Receita Federal, leiaute público do Carnê-Leão Web,
+  manual do sistema de referência) e respostas do Fred (RC-127 a RC-129).
+  Fatia 1 (livro-caixa) em implementação na branch local
+  `dl046-livro-caixa`. A fatia 2 depende da PE-71.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
@@ -132,9 +138,7 @@ correção da auditoria.**
 
 Fila depois da DL-045, em ordem recomendada e sujeita ao Fred:
 
-1. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
-   regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-2. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+1. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e
