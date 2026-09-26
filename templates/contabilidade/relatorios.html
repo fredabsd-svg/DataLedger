@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block titulo %}Relatórios — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-044 (3ª iteração — retorno do Fred: "os botões para abrir os
+relatórios [...] tá esquisito", referência escolhida por ele, Conta
+Azul — docs/assets/telas/dl044/pesquisa.md §7): hub em cartões, um por
+relatório, no lugar do link de menu que ele achou "amador". Segundo
+caminho para as MESMAS cinco rotas que a barra lateral já oferece
+(Contabilidade → Relatórios) — nenhum link foi removido de lá; esta
+tela só dá um segundo lugar, mais visual, para abrir a mesma coisa.
+
+DL-044 (4ª iteração): título migra para a faixa do topo (`{% block
+titulo_pagina %}`, templates/base.html), sem repetir a razão social — a
+pílula "Empresa" (`contexto_extra`, acima) já mostra, na MESMA faixa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Relatórios</h1>{% endblock %}
+
+{% block content %}
+    <div class="grade-de-relatorios">
+        {% for cartao in cartoes %}
+            <a class="cartao-de-relatorio" href="{{ cartao.url }}">
+                <svg class="cartao-de-relatorio__icone" aria-hidden="true"><use href="#icone-{{ cartao.icone }}"></use></svg>
+                <span class="cartao-de-relatorio__corpo">
+                    <span class="cartao-de-relatorio__titulo">{{ cartao.titulo }}</span>
+                    <span class="cartao-de-relatorio__descricao">{{ cartao.descricao }}</span>
+                </span>
+                <span class="cartao-de-relatorio__acao" aria-hidden="true">Abrir →</span>
+            </a>
+        {% endfor %}
+    </div>
+{% endblock %}

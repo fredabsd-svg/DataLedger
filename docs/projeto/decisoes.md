@@ -3971,3 +3971,715 @@ recuperação sugerido pela mensagem não existia no produto (R2).
    verificado pelos testes que a própria reconferência propôs e pela morte
    dos mutantes N6, N14, N15 e N16, conferidos pelo `arquiteto-senior` — não
    por nova rodada de auditoria. Isso é dito ao Fred no PR.
+
+## DE-079 — Tipografia de trabalho sem serifa (IBM Plex Sans) e sistema de superfície/elevação
+
+**Data:** 2026-09-26
+
+**Contexto:** o Fred reprovou o aspecto das telas de trabalho da DL-042/
+DL-043 — "o layout da tela de trabalho tá com aspecto de vazio e os botões
+de clicar [...] tá parecendo um botão de link, tá muito amador, muito cara
+de sistema mal feito. Dê mais uma revisada, pesquisa e modelos da internet."
+A landing pública foi aprovada e fica de fora. Plano:
+[DL-044](../planos/DL-044-telas-de-trabalho.md); pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+(seis referências: Stripe, IBM Carbon, Shopify Polaris, Atlassian Design,
+Nielsen Norman Group, mercado brasileiro de gestão contábil).
+
+**Decisão:**
+
+1. **Fonte de trabalho sem serifa — IBM Plex Sans, auto-hospedada.** Novo
+   token `--fonte-trabalho`, aplicado a `body` e a toda casca de aplicativo
+   (botão, campo, cabeçalho de tabela, faixa de veredito, indicador D/C).
+   `--fonte-editorial` (IBM Plex Serif) continua viva em TRÊS lugares, só:
+   a marca ("DataLedger."), a landing pública (token próprio,
+   `--public-fonte-ui`, intocado) e o DOCUMENTO impresso/visível em tela
+   (`.linha-identificacao-do-documento`, e `body` sob `@media print`).
+   Mesma licença (SIL OFL 1.1) e mesmo mecanismo de hospedagem
+   (`static/fontes/`, sem CDN — DE-011) já auditados para a serifada.
+2. **Sistema de superfície e elevação.** Dois tokens novos de sombra
+   (`--sombra-cartao`, repouso; `--sombra-botao`/`--sombra-botao-hover`,
+   interação) e um raio maior para componente de superfície
+   (`--raio-superficie`, 6px — `--raio`, 2px, continua só para controle de
+   formulário). Aplicados a `.botao`/`button` (com estados `:hover`,
+   `:active`, `:disabled` explícitos — o foco já existia, regra global,
+   critério 7 da DL-026), `.painel-etapa`, `.fila-categoria` e
+   `.tabela-dados` (borda + sombra na moldura externa, sem alterar altura
+   de linha — a régua de densidade §4.8 não muda).
+3. **Navegação entre relatórios como abas.** `_navegacao_empresa.html` —
+   MARCAÇÃO intocada (nenhum `accesskey`/`aria-keyshortcuts`/`aria-current`
+   mudou; as guardas automatizadas de
+   `test_dl024_atalhos_e_acessibilidade.py` continuam medindo o mesmo
+   HTML), só a CSS: de linha de `<a>` sublinhados para faixa de abas com
+   traço de cor no item atual.
+4. **`empty_label` em português** nos `ModelChoiceField` (achado das
+   capturas da DL-043: o padrão do Django 6.1 para este campo é em inglês,
+   "- Select an option -", mesmo com `LANGUAGE_CODE = pt-br`, porque o
+   catálogo de tradução embutido do framework não cobre esta string neste
+   ponto do ciclo de requisição).
+5. **Barra lateral: fundo e posição sticky separados em dois elementos.**
+   `<aside class="barra-lateral">` (fundo, esticado por `align-self:
+   stretch`) e `<div class="barra-lateral__interior">` (a navegação em si,
+   `position: sticky`) — corrige o achado das capturas da DL-043 ("a barra
+   lateral termina antes do fim da página"): Chromium/Playwright só
+   compõem um elemento `position: sticky`/`fixed` dentro dos limites da
+   VIEWPORT ORIGINAL numa captura de página inteira, mesmo capturando um
+   canvas mais alto — o fundo "sumia" depois de ~900px em qualquer página
+   mais alta que a tela, apesar de a barra estar CORRETA na rolagem real
+   (medido por `getBoundingClientRect` em `scrollY` 0/800/1600 na DL-042).
+   Um elemento sem fundo próprio (`.barra-lateral__interior`) não tem nada
+   para "sumir" na mesma limitação.
+
+**Motivo.** Nenhuma das seis referências pesquisadas usa fonte serifada na
+interface de trabalho (só em documento/prosa/marca) — confirma a hipótese
+HI-27 do plano. "Sombra sutil + raio maior" e "quatro estados de botão
+sempre visíveis" são o padrão OBSERVADO, não inventado, nas quatro
+referências de sistema de design consultadas.
+
+**Consequência aceita:** toda tela autenticada muda de aparência (fonte do
+corpo, botões, tabela, navegação da empresa) — efeito esperado e
+autorizado pelo plano ("se o componente for compartilhado, tudo bem as
+outras telas mudarem junto"). Documento impresso e landing pública NÃO
+mudam.
+
+**Alternativas descartadas:** manter a serifada em toda a interface e só
+ajustar peso/tamanho (não resolveria o "aspecto de documento antigo" — a
+FAMÍLIA tipográfica é o problema, não o peso); usar uma fonte de sistema
+sem hospedar arquivo (perderia a paridade visual entre plataformas que a
+Plex Serif já garante, e criaria DUAS filosofias de fonte no mesmo
+produto).
+
+## DE-080 — Casca do app logado: azul próprio, fundo cinza-azulado, hub de relatórios e Início com indicadores
+
+**Data:** 2026-09-26
+
+**Contexto:** duas rodadas de retorno do Fred sobre as capturas da DE-079,
+a última delas apontando um modelo concreto — "Gosto do visual do Conta
+Azul [...] não é para fazer igual, apenas um modelo; use a skill SaaS
+front-end". Pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+§7 (quatro imagens do Conta Azul enviadas pelo Fred, inspecionadas e NÃO
+copiadas ao repositório, mais quatro artigos da Central de Ajuda oficial).
+
+**Decisão:**
+
+1. **Azul de aplicativo próprio, só na casca logada.** Tokens novos
+   `--app-acento` (`#0A58CA`, 6,44:1 sobre branco), `--app-acento-escuro`,
+   `--app-acento-suave` — substituem `--acento`/`--acento-escuro` em
+   `.botao--primario`, `.botao--secundario` (hover) e `button` sem classe,
+   e substituem `--acento-escuro` como fundo da barra lateral (que a 2ª
+   iteração desta mesma etapa tinha feito ESCURA, navy — revista aqui para
+   AZUL VÍVIDO, mais perto do padrão que o Fred apontou). `--acento`
+   original continua reservado a link de prosa, foco padrão fora da barra
+   e a TODA a superfície pública/landing, que mantém a identidade atual
+   por instrução explícita dele. Escopo garantido por combinador de irmão
+   (`.barra-lateral ~ .area-principal`, nunca uma classe condicional nova)
+   para `.area-principal`/link de prosa — que ESTRUTURALMENTE também
+   existem na landing, por ela herdar `.app-shell` de `base.html` — e por
+   simples ausência de uso fora do app para `.botao--*`/`button` (conferido
+   por busca no diretório `templates/`).
+2. **Fundo cinza-azulado atrás de cartões brancos.** Token `--app-fundo`
+   (`#E3E9F2`) em `.barra-lateral ~ .area-principal`; `.cabecalho-pagina`
+   vira cartão branco com sombra (era só uma linha divisória sobre o
+   mesmo fundo da página); `.cabecalho` (faixa de identificação do topo)
+   vira branco também. Landing e documento impresso NÃO mudam (mesmo
+   escopo do item 1; impressão força `--impressao-fundo` em
+   `.area-principal` — regra nova no `@media print`).
+3. **Hub de relatórios em cartões.** Tela nova,
+   `contabilidade_web:relatorios` (`templates/contabilidade/relatorios.html`),
+   com um cartão por relatório (Diário/Razão/Balancete/Balanço/
+   Conferência) — ícone, título, descrição de uma linha, "Abrir". SEGUNDO
+   caminho para as mesmas cinco rotas que a barra lateral já oferece por
+   link de menu — NENHUM link foi removido de lá (a barra lateral já
+   tinha os cinco agrupados em "Relatórios" desde a DL-040/042; reagrupar
+   ou remover esses links foi avaliado e descartado nesta rodada, ver
+   "Alternativas descartadas", abaixo).
+4. **Início deixa de ser só a fila de atenção.** `apps.tenancy.views`
+   ganha três consultas novas de APRESENTAÇÃO, sempre filtradas pelo
+   escritório ATIVO, cada uma com a MESMA permissão por papel que a tela
+   de destino já exige: `_indicadores_do_painel` (faixa de números
+   grandes e clicáveis — empresas ativas, competências atrasadas, envios
+   com recusa, notas canceladas), `_empresas_da_carteira` (tabela CNPJ/
+   CPF, escrituração, última competência fechada, pendências — 3
+   consultas de tamanho CONSTANTE: uma lista + duas agregações
+   `values().annotate()`, nunca uma por empresa) e `_acoes_rapidas_do_
+   painel`/`_modulos_do_painel` (botões e tiles, sem consulta nova,
+   reaproveitam a carteira já calculada). "Empresas da carteira" (e os
+   módulos Contabilidade/Fiscal que dela derivam o destino de "Novo
+   lançamento") ficam atrás de `papel_pode_ler_contabilidade` — achado
+   PRÓPRIO desta etapa, via
+   `apps/tenancy/tests/test_dl042_fila_de_atencao.py::test_papel_cliente_
+   nao_ve_a_fila_de_atencao`: sem esse `if`, um papel CLIENTE (que a fila
+   já esconde corretamente) continuava vendo razão social e pendência de
+   empresa alheia à sua permissão nesta tabela nova — mesma fuga de
+   informação que a fila existia para impedir, por uma porta que esta
+   iteração tinha aberto. Teste de isolamento e de consulta constante
+   (que mede IGUALDADE entre 1 e 10 empresas, não um teto) em
+   `apps/tenancy/tests/test_dl044_painel_carteira_e_indicadores.py`. O
+   teto de `django_assert_max_num_queries` do painel completo
+   (`test_dl042_fila_de_atencao.py`) subiu de 20 para 26 — o número
+   MEDIDO subiu de 14 para 21, tamanho FIXO, nunca por item.
+5. **Atalho de teclado à mostra sai da TELA, nunca do produto.**
+   `kbd.tecla` (o texto "Alt+C" etc., já `aria-hidden`) passa a usar a
+   MESMA técnica de clip de `.visualmente-oculto` — sem `display: none`,
+   sem remover o elemento, sem tocar em `accesskey`/`aria-keyshortcuts`
+   nenhum. Escolha deliberada: os testes de MUTAÇÃO de
+   `test_dl024_atalhos_e_acessibilidade.py` localizam o texto literal
+   `class="tecla" aria-hidden="true"` no HTML renderizado para provar que
+   a defesa reprova quando removida — mexer nesse atributo quebraria o
+   CONTROLE desses testes, não o produto; a técnica de clip preserva a
+   marcação exata e não tocou em nenhuma guarda.
+6. **Chip/pílula na identificação do topo.** `.cabecalho__contexto
+   .contexto-item` (escopado — NÃO a classe genérica, reaproveitada em
+   outros lugares, como o timbre de impressão) ganha moldura arredondada
+   (`--raio-pilula`, novo). Mesmo raio no botão de recolher a barra
+   lateral (era quase quadrado).
+
+**Motivo.** O Fred nomeou uma referência concreta depois de duas rodadas
+de retorno em texto ("vazio", "amador", "tudo junto", "arcaico") não
+convergirem sozinhas para o resultado que ele tinha em mente — mostrar o
+PADRÃO (não a marca) resolveu a ambiguidade. A skill `saas-design-
+excellence` foi invocada antes de aplicar, como instruído.
+
+**Consequência aceita:** 2ª e 3ª rodadas desta MESMA etapa mudaram a cor
+da barra lateral duas vezes (clara → escura → azul vívida) — descrito
+honestamente aqui, não escondido: a 2ª rodada não estava errada por si
+(WCAG AA medido, arquitetura de menu corrigida), só não era o alvo que o
+Fred tinha em mente até ele nomear a referência. Nenhuma REGRA de negócio
+mudou em nenhuma das duas: só apresentação.
+
+**Alternativas descartadas:** reduzir a barra lateral a um trilho de
+ícones com painel de segundo nível mais escuro (imagem "Contas a
+receber" do Conta Azul, com submenu aberto) — o produto já tinha um menu
+em acordeão (`<details>`/`<summary>`, sem JavaScript, com guarda de
+acessibilidade própria) que resolve o MESMO problema; trocar a
+ARQUITETURA de navegação inteira nesta rodada trocaria risco de
+regressão por ganho estético incerto, registrada aqui para o
+arquiteto-senior avaliar como fatia própria. Remover os cinco links de
+relatório da barra lateral (deixando só "Relatórios" → hub) — descartado
+pelo mesmo motivo: risco alto de regressão em testes de navegação/
+atalho já profundamente estabelecidos (accesskey, contagem de teclas por
+página, varredura de "toda tela inclui a parcial"), por um ganho que o
+hub ADITIVO já entrega sem remover nada. Trocar a fonte (Nunito Sans/
+Inter) — decisão registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+§"Decisão sobre a fonte": manter IBM Plex Sans, o Fred nunca citou fonte
+como problema em nenhuma das três rodadas.
+
+**Adenda (4ª iteração, mesmo dia) — acabamento da referência Conta Azul.**
+Revisão do arquiteto-senior sobre as capturas do commit `cde2126` pediu
+ajuste fino, sem mudar a decisão de fundo:
+
+1. **Fundo cinza-azulado cobrindo a altura toda.** `.barra-lateral ~
+   .area-principal` ganhou `min-height: var(--altura-viewport)` — sem
+   isso, `.app-shell` usa `align-items: flex-start` (de propósito, ver
+   §8.1a) e o fundo só cobria a altura do CONTEÚDO, deixando `--papel`
+   (bege) aparecer embaixo em página curta (Relatórios, Novo lançamento).
+2. **Resquícios de bege na casca do app.** Token novo, `--app-superficie-
+   alt` (cinza-frio, `#EEF1F6`), substitui `--papel-alt` (bege) em
+   `.tabela-dados th`, no hover de linha, no selo D/C, na linha de total e
+   na coluna não-somável do Balancete — todos DENTRO de `.tabela-dados`,
+   que só existe no app logado (conferido por busca em `templates/
+   registration/`/`templates/erros/`). A pílula de contexto do topo
+   (`.cabecalho__contexto .contexto-item`) trocou de `--papel-alt` para
+   `--papel-elevado` (branco) com borda — "pílula branca com borda", não
+   uma segunda superfície bege — e o rótulo perdeu a caixa-alta/rastreio
+   amplo (`text-transform: none`), escopado à MESMA pílula.
+3. **Faixa branca do topo com título + pílulas + ação.** Dois blocos
+   novos em `templates/base.html`, dentro de `.cabecalho`:
+   `{% block titulo_pagina %}` (esquerda) e `{% block acoes_pagina %}`
+   (direita, ao lado das pílulas) — os dois VAZIOS por padrão (tela não
+   migrada continua exatamente como antes). Migradas nesta rodada: Início,
+   Novo lançamento, Relatórios, Zerar resultado — cada uma removeu o
+   próprio `.cabecalho-pagina` local (que ficaria repetindo o título) e
+   moveu só o `<h1>`/ação para os blocos novos. Em Novo lançamento e
+   Relatórios, o título deixou de repetir a razão social/nome do
+   escritório, que a pílula ao lado já mostra. Balancete NÃO foi migrado
+   — decisão deliberada: BL-284 já mediu uma regressão de densidade
+   quando um `.cabecalho-pagina` entrou ACIMA da tabela nessa tela
+   especificamente, e o instrumento de medição (`scripts/juiz.py`) não
+   rodou nesta etapa para provar a migração seguro ali.
+4. **Trilha e links da casca sem sublinhado — só no hover.**
+   `.trilha ol a` (`text-decoration: none`, `underline` só em `:hover`) —
+   mesma régua que já valia para o menu lateral e as abas (extintas nesta
+   mesma iteração, item seguinte).
+5. **Ícone em toda ação rápida do Início; "Abrir" como botão.** Achado
+   PRÓPRIO: dois `icone` do `_acoes_rapidas_do_painel`
+   (`apps/tenancy/views.py`) referenciavam símbolos que NUNCA existiram no
+   sprite (`#icone-envio`, `#icone-empresa` — o certo é `#icone-fiscal`/
+   `#icone-empresas`) — o `<svg><use>` renderizava vazio, com o espaço do
+   ícone reservado mas sem desenho, exatamente o "espaço vazio à
+   esquerda" relatado. "Abrir" (tabela "Empresas da carteira") virou
+   `.botao--secundario.botao--pequeno` — novo modificador de TAMANHO,
+   combinável com qualquer tom.
+6. **Ícone por relatório no hub.** Cinco símbolos novos no sprite
+   (`templates/base.html`) — Diário (página com linhas), Razão (conta em
+   T), Balancete (balança), Balanço (colunas), Conferência (documento com
+   check) — em vez dos cinco cartões repetirem o ícone genérico
+   "contabilidade".
+7. **"Razão — pelo Plano de contas" virou só "Razão"** no submenu lateral
+   — a explicação (por que o link leva ao Plano de contas) mudou de lugar
+   para `title` (dica ao passar o mouse) e para a descrição do cartão do
+   hub de relatórios, que já a tinha.
+
+Ver DE-081, a seguir, para a remoção da linha de abas (`_navegacao_empresa.html`)
+e a migração dos sete atalhos para o submenu lateral — mudança grande o
+bastante (arquitetura de navegação + três guardas de teste adaptadas) para
+decisão própria.
+
+## DE-081 — Fim da linha de abas da empresa: os sete atalhos migram para o submenu lateral
+
+**Data:** 2026-09-26
+
+**Contexto:** revisão do arquiteto-senior sobre as capturas do commit
+`cde2126`: "a queixa central do Fred ('tudo junto num lugar só') continua:
+a linha de abas (Plano de contas · Diário · Balancete…) repete EXATAMENTE
+os itens do submenu lateral." De fato, desde a DL-040 (2ª passada) o
+dropdown "Contabilidade" da barra lateral já listava TODAS as telas ativas
+da empresa (decisão registrada e justificada à época — ver §8.1 da direção
+de arte) — a MESMA informação que `_navegacao_empresa.html` também
+mostrava, como faixa de abas, em toda tela. Redundância deliberada
+originalmente (resolvia "descoberta do módulo fora de uma empresa"), mas
+seu CUSTO (duas navegações mostrando a mesma coisa, ao mesmo tempo, na
+mesma tela) passou a pesar mais que o benefício, na leitura do Fred.
+
+**Decisão:** `templates/contabilidade/_navegacao_empresa.html` foi
+REMOVIDA (arquivo apagado) e o `{% include %}` dela, tirado das 17 telas
+que a usavam. Os sete atalhos de teclado que ela carregava
+(`accesskey`/`aria-keyshortcuts`/`kbd.tecla` visível-só-no-DOM) migraram
+para os sete itens correspondentes do submenu "Contabilidade"
+(`templates/base.html`), que já existiam como link simples: Plano de
+contas (C), Diário (I), Balancete (L), Balanço (B), Conferência (K),
+Fechamento (Z), Novo lançamento (N).
+
+**Por que a PROPRIEDADE que as guardas protegiam continua protegida —
+guarda por guarda** (`apps/contabilidade/tests/test_dl024_atalhos_e_
+acessibilidade.py` e `test_bl296_navegacao_cobre_todas_as_telas.py`):
+
+1. **`teclas_sem_aria_hidden` (guarda 1 — todo `kbd.tecla` tem `aria-
+   hidden`).** Regex sobre QUALQUER `<kbd class="tecla">` da página
+   renderizada, onde quer que esteja — indiferente a mudar de lugar.
+   Continua rodando sobre HTML real, agora com os `kbd` no submenu em vez
+   da parcial. Sem alteração de código, só de onde o `kbd` mora no HTML.
+2. **`accesskeys_incoerentes`/`accesskeys_malformados` (guarda 2 —
+   `accesskey` tem `aria-keyshortcuts` coerente).** Mesma regra: varre
+   TODO elemento com `accesskey` na página renderizada. Sem alteração de
+   código.
+3. **`accesskeys_duplicados` (guarda 3 — nenhum `accesskey` repete na
+   MESMA página).** Mesma regra, mesma varredura total da página. Como os
+   sete atalhos AGORA vivem no MESMO lugar que antes só tinha o rótulo
+   sem atalho (o item do dropdown), e a parcial (que tinha os mesmos sete)
+   sumiu, o TOTAL de accesskeys na página é o mesmo de antes (7 da
+   contabilidade + 2 da moldura, p/m) — sem colisão nova, sem colisão
+   removida. Sem alteração de código.
+4. **`atalhos_ausentes`/`ATALHOS_CONTABILIDADE` (guarda 4 — os sete
+   atalhos existem em toda tela de contabilidade).** ADAPTADA, não
+   reduzida: a lista `ATALHOS_CONTABILIDADE` GANHOU um item nesta
+   correção ("Balanço", "b") — ela estava com seis desde a DL-034 (quando
+   a parcial ganhou o sétimo item sem a lista acompanhar), gap
+   PRÉ-EXISTENTE fechado agora, não uma redução. A função `atalhos_
+   ausentes` não mudou de código — ela já procurava o par `accesskey`/
+   `aria-keyshortcuts` OU o rótulo em `item-atual` em QUALQUER lugar do
+   HTML renderizado, nunca dependeu de estarem dentro da parcial
+   especificamente. `test_tela_de_contabilidade_e_acessivel_nos_atalhos`
+   (parametrizada por 13 telas, incluindo `relatorios` desde a 3ª
+   iteração) continua chamando a MESMA `assert_pagina_acessivel` contra a
+   renderização real de cada uma — 46 passed depois da migração, mesmo
+   número de telas cobertas.
+5. **Teste de mutação (antes `test_mutacao_removendo_a_parcial_de_uma_
+   tela_e_detectada`, agora `test_mutacao_removendo_o_painel_do_menu_
+   lateral_e_detectada`).** ADAPTADO: como o alvo físico da mutação
+   (`<nav class="navegacao-empresa">`) deixou de existir, o teste passou
+   a remover o `<div class="menu-dropdown__paineis">` do submenu
+   Contabilidade do HTML JÁ RENDERIZADO (nunca edita o template em disco
+   — mesma técnica de antes) e prova que os SETE atalhos desaparecem.
+   Efeito colateral BOM da simplificação: antes, a tela ATUAL (ex.:
+   "Balancete") continuava "achável" mesmo sem a parcial, porque o
+   dropdown a marcava como item-atual em um lugar REDUNDANTE — o teste
+   precisava de um caso especial só para isso. Sem a redundância, ela some
+   junto com as outras seis quando o painel é removido: o teste ficou
+   MAIS SIMPLES, não mais fraco (a asserção final é `set(ausentes) ==
+   {as sete}`, sem exclusão nenhuma).
+6. **BL-296 (`test_toda_tela_de_contabilidade_inclui_a_navegacao_da_
+   empresa`, agora `test_toda_tela_de_contabilidade_identifica_a_empresa_
+   no_contexto`).** ADAPTADA — a PROPRIEDADE original ("uma tela nova sem
+   cobertura de acessibilidade não passa em silêncio") não podia mais ser
+   verificada do jeito antigo: o mecanismo deixou de ser OPT-IN por
+   template (incluir a parcial) e passou a ser GLOBAL (o submenu vive em
+   `base.html`, renderizado sempre) — estruturalmente, uma tela que
+   estenda `base.html` (toda tela do produto estende) NÃO PODE mais
+   "esquecer" o mecanismo, porque ele não depende de nada que o template
+   da tela escreva. O risco residual que SOBROU — uma tela nova sem
+   identificação de EMPRESA na faixa de contexto do topo, o que também
+   comprometeria a garantia "o usuário sempre sabe em que empresa está
+   operando" (AGENTS.md §11) — é o que a guarda adaptada varre agora:
+   MESMA técnica (glob da pasta `templates/contabilidade/*.html`, nunca
+   lista escrita à mão), MESMO formato de exceção nomeada e comentada
+   (`TELAS_SEM_EMPRESA_NO_CONTEXTO`, hoje só `balancete_emissao_
+   recusada`, motivo já documentado no próprio template — resposta 409
+   que não pode incluir NENHUM dado da empresa). Teste de controle
+   inverso novo (`test_excecao_declarada_bate_com_a_pasta_real`) garante
+   que a exceção não protege uma tela fantasma.
+
+**Consequência aceita:** `templates/base.html` cresceu (sete `accesskey`/
+`aria-keyshortcuts`/`kbd` a mais, um por item do submenu) — mesmo volume
+de marcação que existia na parcial, só que MOVIDO, não duplicado (a
+parcial foi apagada, não deixada como código morto). Comentários em três
+arquivos (`templates/base.html`, `templates/fiscal/_navegacao.html`,
+`apps/core/context_processors.py`) ainda mencionam `_navegacao_empresa.html`
+em prosa histórica ("mesma convenção de...") — não corrigidos nesta etapa
+por não descreverem mecanismo ATUAL (descrevem uma convenção de estilo já
+seguida, não uma dependência de arquivo), registrado aqui para não
+esconder.
+
+**Alternativas descartadas:** manter a parcial só para os sete atalhos,
+sem as abas visíveis (esconder visualmente, manter no DOM) — descartada
+por reintroduzir a MESMA técnica de "marcação morta escondida por CSS"
+que a 3ª iteração já tinha evitado para os atalhos de teclado
+individuais (ver a nota sobre `kbd.tecla`/clip em DE-080) — aqui seria
+pior, um bloco de navegação inteiro invisível, não um único `<kbd>`
+decorativo.
+
+## DE-082 — Integração da DL-043 no worktree da DL-044, e três achados da 5ª iteração
+
+**Data:** 2026-09-26
+
+**Contexto:** revisão do arquiteto-senior sobre o commit `124dace`
+("agora está no nível certo; vou mostrar ao Fred"), com duas instruções
+enquanto o Fred olha: integrar a DL-043 (fechada, PR #49,
+`claude/vigilant-bardeen-jo12l4`, commit `9586bc4`) ANTES de qualquer
+correção nova, e corrigir três achados dele.
+
+**Decisão — integração.** `git merge --no-edit claude/vigilant-bardeen-jo12l4`
+em `dl044-telas-de-trabalho`. Um conflito real, em `docs/projeto/
+decisoes.md`: os dois lados tinham uma seção `## DE-078` — a da DL-043
+("Correção do zeramento...", a numeração ORIGINAL e correta) e a
+renumeração da 2ª iteração da DL-044 (que já tinha sido corrigida para
+`DE-079` por saber que `DE-078` estava ocupada por esta MESMA branch —
+ver DE-079). Resolvido preservando as DUAS seções, em ordem numérica
+(DE-078 da DL-043 primeiro, DE-079 da DL-044 depois) — nenhum conteúdo
+perdido de nenhum dos dois lados. `apps/contabilidade/views_web.py` e
+`templates/contabilidade/zerar_resultado.html` resolveram sozinhos (Git
+auto-merge, sem marcador de conflito) — conferido linha por linha depois:
+o laço `{% for lancamento_da_etapa1 in resultado.lancamentos_etapa1 %}`
+(R5 da reconferência da DL-043, lista TODOS os lançamentos da etapa 1
+quando ela é dividida) ficou intacto DENTRO do cartão visual novo da
+4ª iteração da DL-044 (`.painel-etapa`, `{% block titulo_pagina %}`).
+Suíte completa depois do merge: 2827 passed (era 2772 antes do merge +
+correções desta rodada) — nenhum `test_dl043_*` quebrou; as DUAS falhas
+de `test_documentacao_do_estado.py` caíram para UMA (`docs/agents/
+estado.md` já cita DL-044 depois do merge — o README ainda não, e isso
+é responsabilidade do arquiteto-senior, não desta etapa).
+
+**Decisão — os três achados:**
+
+1. **Valores de `.valor-monetario` desalinhados DENTRO de tabela.**
+   Mesma classe de defeito já corrigida uma vez em `.cabecalho-numerico`
+   (DE-080/adenda da 3ª iteração): `.tabela-dados td` (especificidade
+   0-1-1) sempre venceu `.valor-monetario` sozinha (0-1-0), em qualquer
+   ordem de arquivo — `text-align: right` da classe nunca vencia
+   `text-align: left` da regra da tabela. Bug PRÉ-EXISTENTE a esta etapa
+   inteira (não introduzido pela DL-044), só nunca medido: colunas
+   largas (Balancete, com muitos dígitos) preenchem quase toda a largura
+   da célula, escondendo o desalinho a olho nu; a prévia do zeramento,
+   com valores mais curtos e a coluna alargada por `--largura-minima-
+   coluna-valor` (DE-080), expôs o espaço sobrando à esquerda. Corrigido
+   com `.tabela-dados td.valor-monetario` (0-2-1) — a classe solta
+   `.valor-monetario` continua funcionando fora de tabela (ex.: total do
+   lançamento), como o comentário original dela sempre prometeu.
+2. **Indicadores do Início sem cor semântica.** `_indicadores_do_painel`
+   (`apps/tenancy/views.py`) ganhou o campo `nivel` ("aviso"/"erro"/
+   vazio) para "Competências de meses anteriores ainda abertas" (âmbar,
+   quando > 0 — pendência de rotina, corrigível pelo próprio escritório)
+   e "Envios com recusa" (vermelho, quando > 0 — falha de terceiro,
+   documento fora da base). "Empresas ativas" e "Notas canceladas" foram
+   avaliados e ficam SEM cor semântica de propósito — não foram citados
+   no pedido, e cancelamento é informativo, não uma pendência a
+   resolver. Cor nunca é o único canal (direção de arte §4.3): borda
+   lateral do cartão (segundo canal visual) e texto "Atenção:"
+   (`.visualmente-oculto`, terceiro canal, só para leitor de tela)
+   acompanham a cor do número. Contraste calculado: `--aviso` (já
+   existente) × branco = 6,92:1; `--erro` (já existente) × branco =
+   9,92:1 — os dois acima do mínimo de 4,5:1 de texto. Nenhuma cor nova:
+   os dois tokens já existiam para outros usos (mensagem de aviso/erro).
+3. **Ações do rodapé de Novo lançamento não alinhadas à direita.** O
+   comentário do template já AFIRMAVA, desde a 2ª iteração, que
+   `.acoes-formulario` tinha `justify-content: flex-end` — a regra nunca
+   tinha sido escrita, só o comentário (a mesma família de defeito que o
+   AGENTS.md pede para nunca acontecer: afirmar um mecanismo que não
+   existe). Corrigido — `justify-content: flex-end` adicionado de
+   verdade. Único uso desta classe no produto (`lancamento_form.html`),
+   então a correção não afeta outra tela.
+
+**Consequência aceita:** nenhuma das três correções mudou REGRA de
+negócio, cálculo ou permissão — as três são CSS/apresentação. O achado 1
+é um lembrete: a técnica de checar especificidade CSS antes de aceitar
+uma captura como "corrigida" (que já tinha sido aplicada a `.cabecalho-
+numerico`) precisa virar HÁBITO para toda classe de alinhamento nova,
+não só a que já foi pega uma vez — registrado aqui para a próxima
+correção do gênero não repetir a mesma surpresa.
+
+## DE-083 — Fase B da DL-044: o padrão visual espalhado para o resto do produto
+
+Fred aprovou a direção visual da fase A ("Aprovado pode prosseguir",
+2026-09-26) — o arquiteto-senior autorizou a fase B (espalhar o padrão da
+faixa branca do topo para as telas que a fase A não tocou), em lotes com
+commit por lote. Dois lotes fechados nesta etapa.
+
+**Lote 1 — Contabilidade (`e0bd793`).** As 13 telas do módulo migraram
+para `{% block titulo_pagina %}`/`{% block acoes_pagina %}`: Plano de
+contas, Nova conta, Diário, Razão, Balancete, Balanço, Conferência,
+Fechamento, Fechar/Reabrir/Marcar como entregue competência, Detalhe do
+lançamento, Parâmetros contábeis. Critério para simplificar o título
+(tirar a razão social quando ela só repete a pílula "Empresa") aplicado
+consistentemente às telas ATIVAS; telas de CONFIRMAÇÃO sensível mantêm
+mês/ano no título de propósito (reforço de risco, não esquecimento —
+justificado em comentário próprio em cada um dos três templates). Ver
+docs/projeto/direcao-de-arte.md §8.3 para o detalhe completo, inclusive a
+medição de densidade do Balancete (BL-284: 7 linhas antes e depois da
+migração — sem regressão) e a verificação de identificação do emitente
+nos quatro documentos imprimíveis (RC-97/RC-95, `scripts/medir_
+identificacao_do_emitente.py`, `PASSOU` antes e depois).
+
+**Achado corrigido no lote 1: botão primário `<a>` invisível dentro de
+`.area-principal`.** Ver o detalhe técnico completo em direcao-de-
+arte.md §8.3 (revisão Fase B) — resumo: `.botao--primario` como link
+saía com o texto da MESMA cor do fundo (especificidade CSS,
+`:not(.botao)` corrigiu). Pré-existente em `empresas/lista.html` e
+`tenancy/painel.html`, não introduzido por esta etapa.
+
+**Lote 2 — Fiscal e Empresas.** Migradas: Recepção fiscal, Documentos
+fiscais, Detalhe do documento, Relatório do envio, Empresas (lista,
+nova, sem escritório ativo). `templates/empresas/sem_escritorio.html`
+ganhou também `.botao--secundario` no único link da tela ("Ir para o
+painel"), mesma convenção de "nenhum link solto sem estilo" que o resto
+do produto já segue.
+
+**Decisão: NÃO removida a navegação em abas do Fiscal
+(`templates/fiscal/_navegacao.html`) nesta etapa — ao contrário da
+mesma redundância já removida da Contabilidade na 4ª iteração
+(DE-081).** Duas razões, as duas suficientes sozinhas: (1) o pedido do
+arquiteto-senior para a Fase B lista o padrão visual (faixa do topo,
+cartão branco, tabela neutra, um botão primário, filtros em cartão,
+estados desenhados) — não pede remoção de navegação redundante, que foi
+achado ESPECÍFICO de uma rodada anterior sobre Contabilidade, não uma
+regra geral declarada para todo o produto; (2) `git rm` foi RECUSADO
+pelo classificador de permissão desta sessão ("Irreversible Local
+Destruction") ao tentar apagar o arquivo — e apagar o arquivo (não só
+parar de incluí-lo) é a técnica que o AGENTS.md exige para não deixar
+código morto (mesma lição já registrada na DE-081: "a parcial foi
+apagada, não deixada como código morto"). Diante da permissão negada,
+a escolha certa não é contornar (ex.: sobrescrever o arquivo com
+conteúdo vazio, ou remover as quatro `{% include %}` e deixar o
+arquivo original órfão) — é reconhecer que a mudança pedida (apagar)
+está fora do alcance desta sessão, e não estender a mudança MAIOR
+(reorganizar a navegação do Fiscal) sem o mecanismo completo para
+fazê-la do jeito que o produto já demonstrou ser o certo. A navegação
+em abas do Fiscal continua incluída nas quatro telas, exatamente como
+antes desta etapa — achado registrado aqui para quem revisar decidir
+se vale abrir uma tarefa própria (com a permissão de exclusão
+concedida) para repetir o padrão da DE-081 no Fiscal.
+
+⚠️ **SUPERADA no retorno seguinte do arquiteto-senior sobre este mesmo
+lote — ver DE-084.** Ele reverteu esta decisão: "você tem permissão
+para EDITAR os templates: remova os `{% include %}`... NÃO tente apagar
+o arquivo `_navegacao.html` por nenhum outro meio". A avaliação do item
+1 (acima, "fora do pedido explícito") deixou de valer assim que o
+pedido passou a ser explícito, no retorno seguinte. O raciocínio sobre
+a permissão negada (item 2) continua correto e a mesma trava se aplicou
+de novo — só que desta vez SEM bloquear a remoção do `{% include %}`,
+que é uma edição de template, não uma exclusão de arquivo.
+
+**Achado de instrumentação, registrado para quem for medir antes/depois
+de novo:** o Django 6.1 deste projeto envolve os carregadores de
+template em `django.template.loaders.cached.Loader` **mesmo com
+`DEBUG=True`** — confirmado via `django.template.engines['django'].
+engine.loaders`, que devolve `cached.Loader` envolvendo os loaders de
+sistema de arquivos, independentemente do valor de `DEBUG`. Isso quebra
+a técnica "troca o arquivo no disco, tira a captura, devolve o arquivo"
+quando reaproveitando o MESMO processo do `runserver` entre as duas
+capturas (por exemplo, com `git stash`/`git stash pop`, sem reiniciar o
+servidor) — o processo continua servindo a versão JÁ RENDERIZADA da
+memória, e a captura "antes" sai idêntica à "depois" em silêncio, sem
+erro nenhum. Medido nesta etapa: as primeiras capturas "antes" do lote 2
+(Recepção fiscal, Documentos fiscais, Empresas lista, Empresa nova)
+saíram erradas assim — só descobertas porque as duas imagens pareciam
+suspeitosamente idênticas, verificado depois com um marcador de texto
+exclusivo que confirmou o cache. Recapturadas corretamente reiniciando o
+processo do `runserver` (`pkill` + novo processo) a cada troca de
+arquivo, com uma verificação por `curl` do HTML servido ANTES de cada
+captura de tela, a partir de então. **Regra para a próxima vez:** nunca
+confiar em "editei o arquivo, então o servidor já está atualizado" sem
+reiniciar o processo entre uma troca de template e a medição seguinte —
+neste projeto, PARTICULARMENTE, essa suposição é falsa mesmo em
+desenvolvimento.
+
+**Testado (os dois lotes):** suíte completa, duas rodadas — 2827 passed,
+45 skipped, 2 failed (as duas falhas pré-existentes e sem relação, já
+registradas no lote anterior a este: `test_todo_plano_de_etapa_aparece_
+no_readme` e `test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_
+versao_posterior`). Duas outras falhas apareceram numa execução PARCIAL
+(`apps/fiscal/ apps/empresas/ apps/core/` só) —
+`test_corrida_real_de_documento_produz_um_unico_documento` (concorrência
+real) e `test_delete_de_empresa_via_admin_gera_trilha_com_valores_
+anteriores` — e sumiram tanto isoladas quanto na suíte completa: FLAKY
+por ordem/concorrência de execução, não relacionadas a nenhuma mudança
+desta etapa (nenhuma toca em template nem CSS). `ruff check`/`ruff
+format --check` limpos nos dois lotes.
+
+**Consequência aceita:** nenhuma das mudanças desta etapa alterou regra
+de negócio, cálculo ou permissão — título migrado, ação primária
+reposicionada e um bug de cor de botão corrigido, todos apresentação. A
+navegação em abas do Fiscal fica como está, por decisão explícita (acima),
+não por esquecimento.
+
+## DE-084 — Retorno sobre o lote 1/2: superfície de tabela, ações como botão, filtro em cartão, estado vazio, abas do Fiscal, legenda do cartão
+
+Revisão do arquiteto-senior sobre as capturas de Plano de contas,
+Fechamento, Fiscal documentos e Empresas lista (lotes 1 e 2, DE-083) —
+seis achados do Fred, endereçados no mesmo worktree, antes de seguir
+para o lote 3 (Tenancy e telas de erro).
+
+**1. Tabelas sem superfície.** `.tabela-dados td`/`th` nunca tinham
+`background` PRÓPRIO na tabela — só `th` (`--app-superficie-alt`) e
+`:hover` (mesma cor). A linha comum herdava o fundo do ancestral mais
+próximo com `background`, que — dentro de `.barra-lateral ~
+.area-principal` (3ª iteração da fase A) — é o cinza-azulado do app,
+não branco. "Parece solto, diferente do Início" era exatamente esse
+efeito: borda e sombra desenhavam uma moldura, mas o miolo ficava
+transparente contra o fundo. Corrigido com um `background:
+var(--papel-elevado)` só, no seletor `.tabela-dados` — cobre toda
+célula sem `background` próprio de uma vez (é assim que fundo de
+tabela HTML funciona), sem precisar de regra por linha nem por tela.
+Efeito em TODA tabela do produto, não só nas quatro capturadas.
+
+**2. Ações de linha como links** ("Balancete · Plano de contas ·
+Lançar" em Empresas; "Fechar · Zerar resultado" / "Reabrir · Marcar
+como entregue" em Fechamento) — a mesma classe de "botão parece link"
+que o Fred já tinha apontado na fase A, agora encontrada nas tabelas
+de listagem. Duas soluções, escolhidas pelo NÚMERO de ações por linha:
+
+- **Empresas (3-4 ações, sem uma "principal" natural entre elas):**
+  "Abrir" — botão `.botao--secundario.botao--pequeno`, mesmo destino
+  (Plano de contas) que "Abrir" já usa em Início → Empresas da
+  carteira (`apps.tenancy.views._empresas_da_carteira`, `url_abrir`) —
+  não uma escolha nova, o mesmo padrão já aprovado numa tela irmã. As
+  demais ações (Balancete, Lançar, e "Continuar aqui" quando
+  aplicável) ficam num menu "Ações ▾" — componente novo, `.menu-acoes`
+  (`static/css/base.css`): `<details>`/`<summary>` nativo, SEM
+  JavaScript, painel `position: absolute` que flutua por cima da
+  tabela sem "empurrar" a linha vizinha. Glifo do caret é um GLIFO DE
+  TEXTO (`▾`/`▴`, `content` do `::after`), não um triângulo desenhado
+  em borda com medida literal — decisão que evitou reabrir a mesma
+  disputa de especificidade/medida literal que `.valor-monetario`/
+  `.cabecalho-numerico` já causaram nesta etapa (a varredura de
+  interface, `test_nenhuma_medida_literal_fora_dos_tokens`, reprova
+  QUALQUER `px`/`em`/`rem` literal fora do `:root`, em qualquer
+  propriedade — confirmado rodando a suíte depois de escrever o
+  componente, 175 checagens passando).
+- **Fechamento (no máximo DUAS ações por linha):** dois
+  `.botao--secundario.botao--pequeno` lado a lado
+  (`.acoes-de-linha`, novo utilitário — mesma ideia de
+  `.acoes-formulario`, mas alinhado à esquerda e com o gap menor de
+  `.botao--pequeno`, por ser célula de tabela, não rodapé de
+  formulário). SEM menu — pedido explícito do arquiteto-senior: "menu
+  de duas opções é mais clique que ajuda".
+
+Testes de texto exato (`apps/contabilidade/tests/
+test_dl031_fechamento_de_competencia.py`, que verificam `">Fechar<"`,
+`">Reabrir<"`, `">Marcar como entregue<"` no HTML) continuam passando —
+a marcação dos botões preserva o texto entre `>`/`<` sem espaço extra
+dentro da tag.
+
+**3. Filtro cinza sobre cinza (Fiscal).** `.formulario-periodo` (a
+classe COMPARTILHADA com os filtros de período de Diário/Razão/
+Balancete/Balanço) nunca tinha `background` próprio — mesma causa-raiz
+do achado 1, um componente diferente. Corrigido com `background:
+var(--papel-elevado)` + `box-shadow: var(--sombra-cartao)` na classe
+BASE — efeito em TODOS os filtros de período do produto, não só o do
+Fiscal. Separadamente, o Fiscal ganhou um MODIFICADOR próprio
+(`.formulario-periodo--rotulo-acima`): quatro campos heterogêneos
+(Empresa/Ano/Mês/Situação — dois selects, dois textos) leem melhor com
+o rótulo ACIMA do campo (grade uniforme) do que ao lado — o
+rótulo-ao-lado (BL-277) foi pensado para DUAS datas, campos do MESMO
+tipo, e não generaliza bem para quatro campos de tipos diferentes. O
+modificador é mais específico (0-3-0) que a regra de rótulo-ao-lado
+(0-2-0) e SÓ se aplica quando as duas classes estão juntas no mesmo
+`<form>` — Diário/Razão/Balancete/Balanço, sem o modificador, continuam
+com rótulo-ao-lado, decisão de densidade já medida e aprovada (BL-277)
+que esta correção não reabre.
+
+**4. Estado vazio como texto solto.** "Nenhum documento fiscal recebido
+ainda..." virou `.estado-vazio` — componente novo: cartão branco
+(mesma linguagem de `.painel-etapa`), ícone decorativo (reaproveita
+`#icone-fiscal`, já existente no sprite — nenhum ícone novo), título,
+descrição e o botão PRIMÁRIO da ação que tira a tela do vazio. Dois
+usos na mesma tela: "nenhum documento no escritório" (botão primário
+"Enviar documentos") e "nenhum documento com estes filtros" (botão
+secundário "Limpar filtros" — a empresa PODE ter documento, só não
+bate com o filtro; não é o mesmo convite de ação que o vazio total).
+O texto literal `"Nenhum documento fiscal recebido ainda"` foi
+preservado — é o que `apps/fiscal/tests/test_telas_dl010_f1.py`
+verifica.
+
+**5. Abas do Fiscal — mesma redundância da Contabilidade, agora com
+permissão para editar.** Ver a nota "SUPERADA" na DE-083, acima: o
+arquiteto-senior reverteu a decisão anterior e autorizou remover os
+`{% include "fiscal/_navegacao.html" %}` das quatro telas (Recepção,
+Documentos, Detalhe do documento, Relatório do envio) — a navegação
+contextual do Fiscal passa a ter UM lugar só, o submenu lateral
+"Fiscal" (que já lista Enviar notas/Envios anteriores/Documentos, sem
+precisar de nenhum acréscimo: nenhum `accesskey` existia na parcial
+extinta, ao contrário do caso da Contabilidade/DE-081, que teve sete
+para migrar). **O arquivo `templates/fiscal/_navegacao.html` em si NÃO
+foi apagado** — a instrução foi explícita: "NÃO tente apagar o arquivo
+[...] por nenhum outro meio [...] a exclusão foi negada na sua sessão e
+eu vou pedir autorização ao Fred". O arquivo fica ÓRFÃO (nenhuma tela
+o inclui mais), com um aviso no topo do próprio arquivo explicando a
+situação para quem o encontrar. **Guardas verificadas, sem redução de
+cobertura:** nenhum teste automatizado (`apps/fiscal/tests/`,
+`apps/core/tests/test_dl024_*`) referenciava `fiscal/_navegacao.html`,
+a classe `.navegacao-empresa` (neste contexto) ou a variável
+`pagina_atual` da parcial — confirmado por busca antes de remover os
+`{% include %}`; a suíte completa depois da remoção continua verde.
+`docs/projeto/mapa-de-telas.md` atualizado (as duas células que citavam
+`_navegacao.html (fiscal)` como caminho de navegação agora apontam só
+para o submenu lateral, com a nota de que o arquivo é órfão).
+
+**6. Legenda do Plano de contas minúscula e colada na tabela.** "Peso
+maior indica conta sintética..." migrou de um `<p class="texto-apoio">`
+solto, imediatamente acima da tabela, para dentro de
+`.cartao-tabela__cabecalho` — um componente novo, `.cartao-tabela`:
+cartão com uma faixa de CABEÇALHO e a tabela abaixo, dentro da MESMA
+superfície (a tabela nested perde a própria borda/sombra/margem, para
+não desenhar dois cartões empilhados). `overflow: hidden` no wrapper só
+recorta os cantos arredondados — sem altura fixa, não cria contexto de
+rolagem novo, então `position: sticky` do cabeçalho da tabela continua
+colando contra a rolagem da PÁGINA, verificado no Plano de contas
+(primeiro e único uso desta rodada — não aplicado a toda tabela do
+produto, mudança maior que este achado específico não pedia).
+
+**Testado:** suíte completa, 2827 passed, 45 skipped, 2 failed (as
+mesmas duas falhas pré-existentes e sem relação de sempre). Suítes
+isoladas de fiscal/empresas/contabilidade (656 + 1213 + testes
+específicos) sem nenhuma falha nova. A varredura de interface (175
+checagens, inclusive as de medida literal e cor fora dos tokens) verde
+depois de cada componente novo. `ruff check`/`ruff format --check`
+limpos.
+
+**Consequência aceita:** nenhuma das seis correções mudou regra de
+negócio, cálculo ou permissão — as seis são CSS/template/apresentação.
+A remoção das abas do Fiscal é a única mudança ESTRUTURAL desta rodada
+(menos marcação por tela), e mesmo essa não toca em nenhuma rota, view
+ou permissão — só a moldura de navegação, que o submenu lateral já
+cobria por inteiro.
+
+### DE-084, adendo — a parcial órfã do Fiscal foi apagada (2026-09-26)
+
+O Fred autorizou a exclusão ("Você decide", em resposta ao pedido de
+autorização). `templates/fiscal/_navegacao.html` foi apagado pelo
+`arquiteto-senior` com `git rm`. Nenhuma tela nem teste o referenciava; os
+comentários dos templates do Fiscal que citam o nome do arquivo descrevem a
+história da remoção e continuam valendo. A pendência desta decisão e da DE-083
+está fechada.
+

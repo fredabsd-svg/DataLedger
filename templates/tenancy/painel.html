@@ -2,38 +2,179 @@
 
 {% block titulo %}Painel{% endblock %}
 
-{% block content %}
-    {% comment %}
-    DL-040: padrão de cabeçalho de página (`.cabecalho-pagina`,
-    static/css/base.css) — título único (h1) e a área de ações à direita,
-    numa faixa só. Aqui a ação primária muda com o estado (empresas / criar
-    escritório), mas a MOLDURA do cabeçalho é a mesma de qualquer outra
-    tela que a adotar (templates/empresas/lista.html,
-    templates/fiscal/documentos_lista.html).
-    {% endcomment %}
+{% comment %}
+DL-044 (4ª iteração — referência Conta Azul, achado do arquiteto-senior:
+"faixa branca do topo com o título à esquerda [...] elimine o cartão de
+título separado quando ele só repete o título"): título e ação principal
+migram para a faixa do topo (`{% block titulo_pagina %}`/`{% block
+acoes_pagina %}`, templates/base.html) — sem `.cabecalho-pagina` local
+aqui embaixo, que ficaria repetindo o título. O escritório NÃO vira mais
+subtítulo (2ª iteração): a pílula "Escritório ativo" já mora na MESMA
+faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
+2ª iteração já tinha corrigido uma vez, só que contra um alvo novo.
+{% endcomment %}
+{% block titulo_pagina %}
+    {% if escritorio_ativo or not escritorios %}
+        <h1>Início</h1>
+    {% endif %}
+{% endblock %}
+{% block acoes_pagina %}
     {% if escritorio_ativo %}
-        <div class="cabecalho-pagina">
-            <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a>
+        <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a>
+    {% elif not escritorios %}
+        {% comment %} DL-018 — primeira superfície para o usuário sem
+        vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2). O
+        link só aparece aqui quando o usuário ainda não tem vínculo — a
+        própria view `bootstrap_primeiro_acesso` redireciona para o painel
+        se o usuário já tiver. {% endcomment %}
+        <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% if not escritorio_ativo %}
+        {% if escritorios %}
+            <h1>Selecione um escritório</h1>
+            <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
+        {% else %}
+            <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
+        {% endif %}
+    {% endif %}
+
+    {% comment %}
+    DL-044 (2ª iteração — achado do Fred: "Início continua 60% vazio").
+    `indicadores` vem de `apps.tenancy.views._indicadores_do_painel`, já
+    filtrada pelo escritório ATIVO e pelas MESMAS permissões por domínio
+    da fila de atenção abaixo. Cada indicador é um LINK — número grande,
+    clicável, nunca decorativo.
+    {% endcomment %}
+    {% if indicadores %}
+        <section aria-labelledby="titulo-indicadores">
+            <h2 id="titulo-indicadores" class="visualmente-oculto">Indicadores</h2>
+            <div class="indicadores-do-painel">
+                {% for indicador in indicadores %}
+                    {% comment %}
+                    DL-044 (5ª iteração — achado do arquiteto-senior: "cor
+                    semântica quando pedem atenção [...] AA medido").
+                    `indicador.nivel` ("aviso"/"erro"/vazio) vem de
+                    `apps.tenancy.views._indicadores_do_painel` — cor é
+                    REFORÇO, nunca o único canal: o texto "Atenção:" (só
+                    para leitor de tela, `.visualmente-oculto`) e a borda
+                    lateral colorida do cartão acompanham a cor do
+                    número, nunca sozinha.
+                    {% endcomment %}
+                    <a class="indicador-do-painel{% if indicador.nivel %} indicador-do-painel--{{ indicador.nivel }}{% endif %}" href="{{ indicador.url }}">
+                        <span class="indicador-do-painel__total">
+                            {% if indicador.nivel %}<span class="visualmente-oculto">Atenção: </span>{% endif %}
+                            {{ indicador.total }}
+                        </span>
+                        <span class="indicador-do-painel__titulo">{{ indicador.titulo }}</span>
+                    </a>
+                {% endfor %}
             </div>
+        </section>
+    {% endif %}
+
+    {% comment %}
+    DL-044 (2ª iteração): ações rápidas — botões (`.botao`), nunca link
+    solto, cada um já filtrado pela MESMA permissão que a tela de destino
+    exige no servidor (`apps.tenancy.views._acoes_rapidas_do_painel`).
+    {% endcomment %}
+    {% if acoes_rapidas %}
+        <div class="acoes-rapidas-do-painel">
+            {% for acao in acoes_rapidas %}
+                <a class="botao botao--secundario" href="{{ acao.url }}">
+                    <svg class="icone-menu" aria-hidden="true"><use href="#icone-{{ acao.icone }}"></use></svg>
+                    {{ acao.rotulo }}
+                </a>
+            {% endfor %}
         </div>
-    {% elif escritorios %}
-        <h1>Selecione um escritório</h1>
-        <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
-    {% else %}
-        <div class="cabecalho-pagina">
-            <h1>Nenhum escritório ativo</h1>
-            {% comment %} DL-018 — primeira superfície para o usuário sem
-            vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
-            O link só aparece aqui quando o usuário ainda não tem vínculo —
-            a própria view `bootstrap_primeiro_acesso` redireciona para o
-            painel se o usuário já tiver. {% endcomment %}
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
+    {% endif %}
+
+    {% comment %}
+    DL-044 (3ª iteração — retorno do Fred, referência Conta Azul: "módulos
+    no Início também como tiles com ícone"). `modulos` vem de
+    `apps.tenancy.views._modulos_do_painel` — Contabilidade/Fiscal só
+    aparecem quando o papel já os lê (mesma permissão da faixa de
+    indicadores); Empresas é sempre visível; Folha/Honorários aparecem
+    "Planejado" (mesma palavra e mesmo estado da landing pública, nunca
+    "em breve" escondendo o que não existe), sem link, discretos.
+    {% endcomment %}
+    {% if modulos %}
+        <section aria-labelledby="titulo-modulos">
+            <h2 id="titulo-modulos" class="visualmente-oculto">Módulos</h2>
+            <div class="grade-de-modulos">
+                {% for modulo in modulos %}
+                    {% if modulo.planejado %}
+                        <span class="tile-de-modulo tile-de-modulo--planejado">
+                            <svg class="tile-de-modulo__icone" aria-hidden="true"><use href="#icone-{{ modulo.icone }}"></use></svg>
+                            <span class="tile-de-modulo__titulo">{{ modulo.titulo }}</span>
+                            <span class="tile-de-modulo__descricao">{{ modulo.descricao }}</span>
+                        </span>
+                    {% else %}
+                        <a class="tile-de-modulo" href="{{ modulo.url }}">
+                            <svg class="tile-de-modulo__icone" aria-hidden="true"><use href="#icone-{{ modulo.icone }}"></use></svg>
+                            <span class="tile-de-modulo__titulo">{{ modulo.titulo }}</span>
+                            <span class="tile-de-modulo__descricao">{{ modulo.descricao }}</span>
+                        </a>
+                    {% endif %}
+                {% endfor %}
             </div>
-        </div>
-        <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
+        </section>
+    {% endif %}
+
+    {% comment %}
+    DL-044 (2ª iteração): "Empresas da carteira" — CNPJ/CPF, modo de
+    escrituração, última competência fechada e pendências, com ação
+    "Abrir". `empresas_da_carteira` vem de
+    `apps.tenancy.views._empresas_da_carteira`, já filtrada pelo
+    escritório ATIVO.
+    {% endcomment %}
+    {% if empresas_da_carteira is not None %}
+        <section aria-labelledby="titulo-empresas-da-carteira">
+            <h2 id="titulo-empresas-da-carteira">Empresas da carteira</h2>
+            {% if empresas_da_carteira %}
+                <table class="tabela-dados tabela-empresas-da-carteira">
+                    <caption class="visualmente-oculto">Empresas do escritório ativo</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Razão social</th>
+                            <th scope="col">Inscrição</th>
+                            <th scope="col">Escrituração</th>
+                            <th scope="col">Última competência fechada</th>
+                            <th scope="col">Pendências</th>
+                            <th scope="col">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in empresas_da_carteira %}
+                            <tr>
+                                <td>{{ linha.empresa.razao_social }}</td>
+                                <td>{{ linha.rotulo_inscricao }} {{ linha.inscricao_formatada }}</td>
+                                <td>{{ linha.empresa.get_modo_escrituracao_display }}</td>
+                                <td>{{ linha.ultima_competencia_fechada|default:"—" }}</td>
+                                <td>
+                                    {% if linha.pendencias %}
+                                        <span class="selo selo--atencao">{{ linha.pendencias }}</span>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if linha.url_abrir %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_abrir }}">Abrir</a>
+                                    {% else %}
+                                        <span class="texto-apoio">Livro-caixa</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Nenhuma empresa cadastrada neste escritório ainda.</p>
+            {% endif %}
+        </section>
     {% endif %}
 
     {% comment %}
@@ -45,10 +186,11 @@
     fiscal — `None` quando o papel não lê nenhum dos dois domínios (a
     seção inteira não aparece: não é um estado vazio, é "não é dele"),
     lista vazia `[]` quando o papel lê mas não há pendência nenhuma (o
-    estado "tudo em dia", com a ação comum "Ver empresas").
+    estado "tudo em dia", com a ação comum "Ver empresas"). `id`
+    "fila-de-atencao" é o alvo dos indicadores acima (`#fila-de-atencao`).
     {% endcomment %}
     {% if fila_de_atencao is not None %}
-        <section aria-labelledby="titulo-fila-de-atencao">
+        <section id="fila-de-atencao" aria-labelledby="titulo-fila-de-atencao">
             <h2 id="titulo-fila-de-atencao">O que precisa de atenção</h2>
             {% if fila_de_atencao %}
                 <div class="fila-de-atencao">

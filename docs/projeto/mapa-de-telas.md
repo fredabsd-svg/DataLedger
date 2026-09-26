@@ -29,6 +29,23 @@ novas são **Ativa** (`parametros_contabeis`) e **Secundária**
 (`zerar_resultado`, assistente com etapas). Nenhuma rota de API nova (as
 três já existiam desde a fatia 2 do servidor).
 
+⚠️ **DL-044 (3ª iteração) acrescentou mais uma linha**, também sem
+recontagem dos totais acima: `contabilidade_web:relatorios`, hub de
+relatórios em cartões — **+1** rota web nomeada, **+1** tela **Ativa**.
+Segundo caminho ADITIVO para Diário/Razão/Balancete/Balanço/Conferência —
+nenhuma rota existente foi removida nem alterada.
+
+⚠️ **DL-044 (4ª iteração, DE-081) removeu `templates/contabilidade/
+_navegacao_empresa.html`** — nenhuma rota mudou (a coluna "Como se chega"
+da tabela abaixo é sobre NAVEGAÇÃO, não rota), mas as seis células que
+diziam `` `_navegacao_empresa.html` (item fixo) `` ficaram desatualizadas:
+o caminho passou a ser só o submenu lateral "Contabilidade" (§8.1 da
+direção de arte) — que já existia como caminho de descoberta desde a
+DL-040 (segunda passada), só não estava listado nestas seis células
+específicas porque a faixa de abas também servia. Não reescrito célula
+por célula nesta rodada — registrado aqui para não afirmar um caminho
+que não existe mais sem também apontar o que passou a valer.
+
 | | Quantidade |
 | --- | --- |
 | Rotas web nomeadas (fora de `api/` e `admin/`) | **30** |
@@ -96,14 +113,15 @@ links que a DL-040 acrescentou estão marcados).
 | `contabilidade_web:parametros_contabeis` | Parâmetros contábeis | `contabilidade/parametros_contabeis.html` | A + B combinados | Ativa | Lê: mesmos papéis do Plano de contas; escreve (registrar vigência): ADMINISTRADOR, GESTOR | Menu "Contabilidade → Cadastros" (DL-043), `fechamento.html` (nota de rodapé); inclui `_navegacao_empresa.html` sem `pagina_atual` (mesmo caso da Razão/Nova conta: as sete telas fixas aparecem como link) |
 | `contabilidade_web:parametro_contabil_encerrar` | Encerrar vigência de parâmetro contábil | — (405 em GET, nunca renderiza) | — | Secundária (ação, sem tela) | ADMINISTRADOR, GESTOR | Botão na tabela de `parametros_contabeis.html` |
 | `contabilidade_web:zerar_resultado` | Zerar resultado do período | `contabilidade/zerar_resultado.html` | E | Secundária (assistente com etapas — prévia GET + confirmação POST) | ADMINISTRADOR, GESTOR | `fechamento.html` (link "Zerar resultado" por competência aberta) |
+| `contabilidade_web:relatorios` | Hub de relatórios (DL-044) | `contabilidade/relatorios.html` | A (variante — cartões, não linhas) | Ativa | Lê (mesmos papéis do Plano de contas) | Menu "Contabilidade → Relatórios" (aditivo — não substitui o grupo existente), tiles de módulo do Início |
 
 ### Fiscal (`fiscal_web`, prefixo `fiscal/` — escopo do escritório, não de uma empresa só)
 
 | Rota | Tela | Template | Arquétipo | Classe | Quem acessa | De onde se chega |
 | --- | --- | --- | --- | --- | --- | --- |
-| `fiscal_web:recepcao` | Recepção de documentos | `fiscal/recepcao.html` | C | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO | `_navegacao.html` (fiscal), DL-040: menu "Fiscal" |
+| `fiscal_web:recepcao` | Recepção de documentos | `fiscal/recepcao.html` | C | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO | DL-040: menu "Fiscal" (submenu lateral; a antiga linha de abas foi apagada — DE-084) |
 | `fiscal_web:relatorio_envio` | Relatório do envio | `fiscal/relatorio_envio.html` | C | Secundária (relatório de uma ação) | Mesmos papéis da Recepção | `recepcao.html`, após um envio (PRG) |
-| `fiscal_web:documentos_lista` | Documentos fiscais | `fiscal/documentos_lista.html` | A | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO, PARALEGAL | `_navegacao.html` (fiscal), DL-040: menu "Fiscal" |
+| `fiscal_web:documentos_lista` | Documentos fiscais | `fiscal/documentos_lista.html` | A | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO, PARALEGAL | DL-040: menu "Fiscal" (submenu lateral; a antiga linha de abas foi apagada — DE-084) |
 | `fiscal_web:documento_detalhe` | Detalhe do documento | `fiscal/documento_detalhe.html` | A (detalhe) | Secundária (detalhe) | Mesmos papéis da lista | `documentos_lista.html`, `relatorio_envio.html` |
 | `fiscal_web:documento_xml` | Download do XML | — (anexo `application/xml`) | — | Secundária (download) | Mesmos papéis da lista | `documento_detalhe.html` |
 | `fiscal_web:evento_xml` | Download do XML do evento | — (anexo `application/xml`) | — | Secundária (download) | Mesmos papéis da lista | `documento_detalhe.html` |

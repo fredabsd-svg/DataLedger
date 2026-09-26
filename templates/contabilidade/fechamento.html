@@ -9,10 +9,14 @@
     </span>
 {% endblock %}
 
-{% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="fechamento" %}
-    <h1>Fechamento de competência — {{ empresa.razao_social }}</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo, sem a razão
+social — a pílula "Empresa" já mostra, mesmo padrão das demais telas de
+contabilidade migradas nesta etapa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Fechamento de competência</h1>{% endblock %}
 
+{% block content %}
     <p class="texto-apoio">
         A coluna "Zerar resultado" usa a periodicidade e as contas de destino
         cadastradas em
@@ -96,41 +100,56 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% comment %}
+                            DL-044 (Fase B, achado do Fred: "'Fechar ·
+                            Zerar resultado' [...] botão parece link"):
+                            no máximo DUAS ações por linha aqui — dois
+                            `.botao--secundario.botao--pequeno` lado a
+                            lado (`.acoes-de-linha`, static/css/
+                            base.css), sem menu: um menu de duas opções é
+                            mais clique que ajuda.
+                            {% endcomment %}
                             {% if pode_fechar %}
                                 {% if competencia.estado == "aberta" %}
                                     {% if quantidade_lotes_desbalanceados %}
                                         <span class="texto-apoio">Bloqueado pela conferência</span>
                                     {% else %}
-                                        <a href="{% url 'contabilidade_web:competencia_fechar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Fechar</a>
-                                        &middot;
-                                        {% comment %}
-                                        DL-043 fatia 3: zeramento é ação da
-                                        competência ainda ABERTA (RC-57 recusa em
-                                        competência encerrada — o zeramento
-                                        acontece ANTES de fechar, não depois). O
-                                        link aparece para todo mês aberto, mesmo
-                                        fora de um mês de encerramento da
-                                        periodicidade vigente ou sem parâmetro
-                                        contábil nenhum — a tela de destino explica
-                                        os dois estados com o texto do próprio
-                                        serviço, em vez desta linha tentar adivinhar
-                                        se um clique valeria a pena.
-                                        {% endcomment %}
-                                        <a href="{% url 'contabilidade_web:zerar_resultado' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Zerar resultado</a>
+                                        <div class="acoes-de-linha">
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'contabilidade_web:competencia_fechar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Fechar</a>
+                                            {% comment %}
+                                            DL-043 fatia 3: zeramento é ação da
+                                            competência ainda ABERTA (RC-57 recusa em
+                                            competência encerrada — o zeramento
+                                            acontece ANTES de fechar, não depois). O
+                                            botão aparece para todo mês aberto, mesmo
+                                            fora de um mês de encerramento da
+                                            periodicidade vigente ou sem parâmetro
+                                            contábil nenhum — a tela de destino explica
+                                            os dois estados com o texto do próprio
+                                            serviço, em vez desta linha tentar adivinhar
+                                            se um clique valeria a pena.
+                                            {% endcomment %}
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'contabilidade_web:zerar_resultado' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Zerar resultado</a>
+                                        </div>
                                     {% endif %}
                                 {% elif competencia.estado == "encerrada" %}
-                                    {% if not competencia.entregue_em %}
-                                        {% comment %}
-                                        Critério 6/BL-468: mês já entregue NUNCA
-                                        oferece o link de reabrir — nem aqui, nem
-                                        na tela de ação (que também faz o mesmo
-                                        precheck, e o serviço recusa de qualquer
-                                        forma se a corrida acontecer).
-                                        {% endcomment %}
-                                        <a href="{% url 'contabilidade_web:competencia_reabrir' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Reabrir</a>
-                                        &middot;
-                                    {% endif %}
-                                    <a href="{% url 'contabilidade_web:competencia_entregar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Marcar como entregue</a>
+                                    <div class="acoes-de-linha">
+                                        {% if not competencia.entregue_em %}
+                                            {% comment %}
+                                            Critério 6/BL-468: mês já entregue NUNCA
+                                            oferece o botão de reabrir — nem aqui, nem
+                                            na tela de ação (que também faz o mesmo
+                                            precheck, e o serviço recusa de qualquer
+                                            forma se a corrida acontecer).
+                                            {% endcomment %}
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'contabilidade_web:competencia_reabrir' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Reabrir</a>
+                                        {% endif %}
+                                        <a class="botao botao--secundario botao--pequeno"
+                                           href="{% url 'contabilidade_web:competencia_entregar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Marcar como entregue</a>
+                                    </div>
                                 {% endif %}
                             {% else %}
                                 —

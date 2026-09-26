@@ -9,10 +9,14 @@
     </span>
 {% endblock %}
 
-{% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="conferencia" %}
-    <h1>Conferência — {{ empresa.razao_social }}</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo, sem a razão
+social — a pílula "Empresa" (`contexto_extra`, acima) já mostra, mesmo
+padrão das demais telas de contabilidade migradas nesta etapa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Conferência</h1>{% endblock %}
 
+{% block content %}
     {% if tudo_certo %}
         <p class="mensagem mensagem-success" role="status">Nenhuma inconsistência encontrada.</p>
     {% endif %}

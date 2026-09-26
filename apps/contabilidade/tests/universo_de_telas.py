@@ -89,6 +89,10 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # EXCLUSOES_NOMEADAS_DE_TELA em test_dl024_atalhos_e_acessibilidade.py.
     "parametros_contabeis": "contabilidade_web:parametros_contabeis",
     "zerar_resultado": "contabilidade_web:zerar_resultado",
+    # DL-044 (3ª iteração): hub de relatórios em cartões — segundo caminho
+    # para Diário/Razão/Balancete/Balanço/Conferência, sempre 200 sob o
+    # `cenario` padrão (mesma permissão de leitura que as cinco).
+    "relatorios": "contabilidade_web:relatorios",
 }
 
 # rota COMPLETA (`namespace:nome`) → documentação (nome dos testes desta
@@ -175,6 +179,11 @@ def _urls_de_contabilidade(cenario):
             [empresa_id],
             f"?ano={timezone.localdate().year}&mes={timezone.localdate().month}",
         ),
+        # DL-044 (3ª iteração): sem querystring — a mesma empresa do
+        # cenário padrão já tem plano de contas e papel de leitura, então
+        # o hub sempre renderiza 200 (não depende de período nem de
+        # competência).
+        "relatorios": ([empresa_id], ""),
     }
     return {
         nome_curto: reverse(NOMES_DE_TELA_DE_CONTABILIDADE[nome_curto], args=args) + query
