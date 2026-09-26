@@ -287,3 +287,12 @@ nenhum campo de modelo mudou).
 - **PE-70 respondida** por fonte primária em 2026-09-26 (ver requisitos.md).
 - Comparativo com o exercício anterior: fora desta etapa.
 - Validação profissional da estrutura e dos casos de referência é do Fred.
+
+## Rodada 1 da auditoria
+
+A [rodada 1](../auditorias/2026-09-26-dl-045-rodada-1.md) **reprovou** o
+servidor: os casos de referência calculados à mão batem, mas há quatro achados
+altos no veto, na hierarquia e no estorno (A1 a A4), a leitura sem snapshot
+(A5) e 12 mutantes sobreviventes. Decisões em DE-085. Correção com o
+`desenvolvedor-pleno`; depois, uma reconferência única, que inclui a fatia 3.
+
