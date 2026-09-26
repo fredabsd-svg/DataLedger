@@ -29,3 +29,11 @@ migração nova se houver restrição de banco. Verificação: suíte completa, 
 formatação, `manage.py check`, `makemigrations --check`, e cada mutação citada
 reaplicada em worktree descartável. Depois, `auditor-qa` confere a versão
 integrada. Reversão: revert do commit; a migração, se houver, é reversível.
+
+## Auditoria
+
+[Rodada 1](../auditorias/2026-09-26-dl-039-rodada-1.md) em `c1aedd6`: **APROVADA COM
+RESSALVAS**. BL-526 a BL-528 fechados, sem mutação sobrevivente. Ressalvas médias
+BL-533 (gatilho vira 500 no admin e na API) e BL-534 (corrida entre os dois
+gatilhos) na correção única da etapa, seguida de uma reconferência; BL-535 aceita
+como limite de desenvolvimento.

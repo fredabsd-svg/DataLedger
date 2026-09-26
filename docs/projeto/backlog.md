@@ -1861,3 +1861,15 @@ BL-526 a BL-529 formam a [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-f
 | BL-530 | **A8 ressalva (baixa)** — ZIP com o fim de diretório forjado para declarar 1 entrada volta a custar ~318 MB e 3,9 s antes da recusa | `desenvolvedor-pleno` | — | aberta | Contagem real das entradas sem montar o índice inteiro, ou limite de memória medido |
 | BL-531 | **A10 ressalva (baixa)** — acima de 50 MB o upload é descartado, mas o corpo ainda é lido (banda). Exige limite de corpo no proxy da implantação | responsável pela implantação | DE-014 | aberta | Limite de corpo configurado e medido no ambiente de produção |
 | BL-532 | **A4 ressalva** — a vazão (2.000 notas em 7,3 s; pior caso sintético 14,4 s) foi medida com o cliente de teste, não sob gunicorn nem no hardware de produção | `desenvolvedor-pleno` | implantação | aberta | Medição sob gunicorn no ambiente real, abaixo da metade do tempo-limite |
+
+## Auditoria da DL-039 — rodada 1, APROVADA COM RESSALVAS (2026-09-26)
+
+Relatório integral em [2026-09-26-dl-039-rodada-1.md](../auditorias/2026-09-26-dl-039-rodada-1.md).
+BL-526, BL-527 e BL-528 **fechados**; BL-529 fechado com as ressalvas abaixo, que
+vão para a única correção da etapa, seguida de uma reconferência.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-533 | **D1 (média)** — quando o gatilho da 0010 dispara, admin e API respondem 500; no admin, criar empresa CPF com estabelecimento no inline é caminho comum | `desenvolvedor-pleno` | — | em desenvolvimento (DL-039) | `RAISE` com `CONSTRAINT` nomeada, traduzida para 400 na API e erro de formulário no admin; inline recusado quando o tipo é CPF, mesmo sem `empresa_id` |
+| BL-534 | **D2 (média)** — os dois gatilhos não fecham a corrida entre si: INSERT de estabelecimento e UPDATE para CPF simultâneos gravam empresa CPF com estabelecimento | `desenvolvedor-pleno` | — | em desenvolvimento (DL-039) | Leitura da empresa com `FOR SHARE` no gatilho; teste com duas conexões nas duas ordens; comentário da migração corrigido |
+| BL-535 | **D3 (baixa)** — em SQLite a invariante do estabelecimento fica só na aplicação | — | — | aceita (limite de desenvolvimento) | Produção nunca em SQLite (já exigido com `DEBUG=False`) |
