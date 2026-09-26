@@ -288,8 +288,15 @@ nenhum campo de modelo mudou).
 - **HI-29 (revista depois da PE-70):** resultado financeiro destacado e
   equivalência patrimonial em linha própria, como a NBC TG 26, a NBC TG 1000 e
   os modelos da ITG 1000. A letra do art. 187, III embute o financeiro no
-  operacional; o Fred confirma a apresentação.
+  operacional. **Estrutura substanciada por RC-121, RC-122, RC-123 e RC-125**
+  (requisitos.md, 26/09/2026 — dúvidas D1 a D6 da rodada 1 de auditoria,
+  decididas pelo arquiteto-senior por delegação do Fred, conferidas nos
+  manuais e normas); a validação profissional final continua sendo do Fred,
+  como cada RC registra.
 - **PE-70 respondida** por fonte primária em 2026-09-26 (ver requisitos.md).
+- **RC-124** (operações descontinuadas) e **RC-126** (DRE por período livre,
+  para conciliar com zeramento trimestral/anual) ficam fora desta etapa —
+  RC-126 sobe de prioridade na fila (ver estado.md).
 - Comparativo com o exercício anterior: fora desta etapa.
 - Validação profissional da estrutura e dos casos de referência é do Fred.
 
@@ -335,6 +342,15 @@ Implementada em cima do commit `31b5f2c` (docs da rodada 1 + DE-085), branch
 | M27 | Remover `conta__empresa=empresa`/`lancamento__empresa=empresa` de `_agregar_movimento_dre_por_conta` | **Não observável** (ver nota) |
 | M28 | Remover o `try/except HierarquiaInconsistente` de `DreView.get` | `test_caso5_ciclo_na_hierarquia_devolve_409_nunca_500` (mutante produz 500) |
 | M30 | `conta.tipo not in (RECEITA, DESPESA)` -> `conta.tipo != RECEITA` | `test_caso3_conta_despesa_sem_classificacao_com_movimento_aparece_na_lista` |
+
+**M21 deixou de ser provisório:** a D3 do relatório da rodada 1 ("deduções da
+receita só em conta de receita — decisão provisória") foi confirmada como
+**RC-123** (requisitos.md, 26/09/2026), junto com D1/D2/D4/D5/D6 (RC-121,
+RC-122, RC-124, RC-125, RC-126) — decididas pelo arquiteto-senior por
+delegação do Fred e conferidas nos manuais e normas. Nenhuma exigiu mudança
+de código nesta correção: a implementação já seguia RC-121, RC-122, RC-123 e
+RC-125; RC-124 (operações descontinuadas) e RC-126 (período livre) ficam
+fora desta etapa.
 
 **Nota sobre M27:** a correção do A10 (acima) reescreveu `total_debitos`/
 `total_creditos` para somar iterando `for conta in contas` (a lista JÁ

@@ -406,8 +406,11 @@ class ClassificacaoDre(models.TextChoices):
     `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`), então uma conta de DESPESA
     classificada nesta linha soma NEGATIVO ao resultado de equivalência.
     "Deduções da receita" (RECEITA) e "participações" (DESPESA) seguem
-    como estavam — se o Fred indicar outra convenção para elas, é só
-    trocar o valor no dict, nada mais depende da escolha em si.
+    como estavam. **Confirmadas em requisitos.md** (RC-123 e RC-122,
+    26/09/2026, delegação do Fred ao arquiteto-senior sobre as dúvidas
+    D1-D6 da rodada 1 de auditoria, conferidas nos manuais e normas) —
+    deixaram de ser inferência minha; se o Fred quiser revisitar, ainda
+    é só trocar o valor no dict, nada mais depende da escolha em si.
     """
 
     RECEITA_BRUTA = "receita_bruta", "Receita bruta de vendas e serviços"

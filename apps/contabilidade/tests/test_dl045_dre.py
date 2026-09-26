@@ -2795,9 +2795,10 @@ def test_a7_patch_isolamento_conta_de_outro_escritorio_e_404(client, cenario):
 
 
 # ---------------------------------------------------------------------------
-# M21 — deduções da receita só aceita conta de tipo RECEITA (decisão
-# PROVISÓRIA, pendente de confirmação do Fred, D3 do relatório de
-# auditoria).
+# M21 — deduções da receita só aceita conta de tipo RECEITA. Era decisão
+# provisória (D3 do relatório de auditoria) — CONFIRMADA como RC-123
+# (docs/projeto/requisitos.md), por delegação do Fred ao arquiteto-senior
+# e conferência nos manuais e normas (ITG 1000, art. 187, I).
 # ---------------------------------------------------------------------------
 
 
