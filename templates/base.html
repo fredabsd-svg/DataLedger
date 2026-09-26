@@ -163,6 +163,45 @@
         <symbol id="icone-recolher" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 5 9 12l6 7" />
         </symbol>
+        {% comment %}
+        DL-044 (2ª iteração): ícone "mais" — botão secundário "Adicionar
+        linha" (lancamento_form.html) e ação rápida "Novo lançamento"
+        (tenancy/painel.html). Mesma grade e traço dos ícones acima.
+        {% endcomment %}
+        <symbol id="icone-mais" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14" />
+        </symbol>
+        {% comment %}
+        DL-044 (4ª iteração — achado do arquiteto-senior: "hub de
+        relatórios: ícone diferente por relatório, hoje todos iguais"):
+        cinco ícones próprios, um por relatório, mesma grade e traço dos
+        acima — cada um lembra a FORMA do relatório (Diário: página
+        escrita em ordem; Razão: conta em T; Balancete: balança;
+        Balanço: colunas Ativo/Passivo; Conferência: documento
+        conferido).
+        {% endcomment %}
+        <symbol id="icone-diario" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 4.5h14v15H5z" />
+            <path d="M8 9h8M8 12.5h8M8 16h5" />
+        </symbol>
+        <symbol id="icone-razao" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 4.5h14v15H5z" />
+            <path d="M5 9h14M12 9v10.5" />
+        </symbol>
+        <symbol id="icone-balancete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4v3M6 7h12" />
+            <path d="M6 7l-2.5 5a2.5 2.5 0 0 0 5 0z" />
+            <path d="M18 7l-2.5 5a2.5 2.5 0 0 0 5 0z" />
+            <path d="M8 20h8M12 7v13" />
+        </symbol>
+        <symbol id="icone-balanco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20V10M10 20V5M16 20V13M20 20V8" />
+            <path d="M3.5 20h17" />
+        </symbol>
+        <symbol id="icone-conferencia" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6.5 4.5h8l3 3v12h-11z" />
+            <path d="M9 13.5l2 2 4-4.5" />
+        </symbol>
     </svg>
 
     {% if request.user.is_authenticated %}
@@ -177,6 +216,30 @@
             </details>
 
             <aside class="barra-lateral">
+                {% comment %}
+                DL-044 (achado das capturas da DL-043, Fred: "a barra
+                lateral bege termina antes do fim da página"): `<aside
+                class="barra-lateral">` deixou de carregar `position:
+                sticky` diretamente — passou a ser um bloco de fluxo
+                NORMAL, esticado (`align-self: stretch`) até a altura da
+                coluna mais alta (`.area-principal`), o que garante que o
+                FUNDO `--papel-alt` cubra a coluna inteira tanto na
+                rolagem real quanto numa captura de página inteira
+                (Chromium/Playwright têm uma limitação documentada:
+                elemento com `position: sticky`/`fixed` só é composto
+                dentro dos limites da VIEWPORT original numa captura de
+                página inteira, mesmo que o canvas capturado seja mais
+                alto — o fundo "sumia" depois de ~900px em qualquer
+                página mais alta que a tela, mesmo a barra estando CERTA
+                na rolagem real, medido por scroll de verdade na DL-042).
+                A posição STICKY (acompanhar a rolagem) agora mora só no
+                `<div class="barra-lateral__interior">` logo abaixo —
+                elemento SEM fundo próprio (herda o do `<aside>` pai), o
+                que o deixa imune ao mesmo problema: não há nada para
+                "sumir" nele, só o texto/ícone da navegação, que continua
+                a acompanhar a rolagem normalmente.
+                {% endcomment %}
+                <div class="barra-lateral__interior">
                 <div class="barra-lateral__topo">
                     <a class="marca" href="{% url 'tenancy:painel' %}">
                         <span class="rotulo-menu">DataLedger<span class="marca__ponto">.</span></span>
@@ -270,9 +333,13 @@
                 recusaria, nunca decide autorização por conta própria).
 
                 Nenhum item novo desta lista tem `accesskey`: as letras
-                seguras já estão ocupadas (p/m aqui, e as seis de
-                `_navegacao_empresa.html`) — um atalho novo colidindo
-                reprovaria `accesskeys_duplicados`
+                seguras já estão ocupadas (p/m aqui, e as sete dos itens
+                de Contabilidade — c/i/l/b/k/z/n — migradas da extinta
+                `_navegacao_empresa.html` nesta mesma etapa, DL-044 4ª
+                iteração: a barra lateral já tinha um item para cada uma
+                das sete rotas, e a linha de abas repetia exatamente as
+                mesmas — "tudo junto num lugar só", achado do Fred) — um
+                atalho novo colidindo reprovaria `accesskeys_duplicados`
                 (test_dl024_atalhos_e_acessibilidade.py).
                 {% endcomment %}
                 <nav class="navegacao-principal" aria-label="Navegação principal">
@@ -333,7 +400,9 @@
                                                                 {% if pagina_atual == "lancamento_novo" %}
                                                                     <span class="item-atual" aria-current="page">Novo lançamento</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:lancamento_novo' empresa_atual.id %}">Novo lançamento</a>
+                                                                    <a href="{% url 'contabilidade_web:lancamento_novo' empresa_atual.id %}" accesskey="n" aria-keyshortcuts="Alt+N">
+                                                                        Novo lançamento <kbd class="tecla" aria-hidden="true">Alt+N</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                         </ul>
@@ -345,7 +414,9 @@
                                                                 {% if pagina_atual == "plano_de_contas" %}
                                                                     <span class="item-atual" aria-current="page">Plano de contas</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}">Plano de contas</a>
+                                                                    <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}" accesskey="c" aria-keyshortcuts="Alt+C">
+                                                                        Plano de contas <kbd class="tecla" aria-hidden="true">Alt+C</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                             <li>
@@ -370,7 +441,9 @@
                                                                 {% if pagina_atual == "diario" %}
                                                                     <span class="item-atual" aria-current="page">Diário</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:diario' empresa_atual.id %}">Diário</a>
+                                                                    <a href="{% url 'contabilidade_web:diario' empresa_atual.id %}" accesskey="i" aria-keyshortcuts="Alt+I">
+                                                                        Diário <kbd class="tecla" aria-hidden="true">Alt+I</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                             <li>
@@ -378,14 +451,19 @@
                                                                 Razão exige uma CONTA (`conta_id`), não só a
                                                                 empresa — não existe "o Razão" genérico. Quando a
                                                                 tela atual É um Razão, marca como atual; fora
-                                                                disso, o link leva ao Plano de contas, com o
-                                                                texto dizendo o porquê.
+                                                                disso, o link leva ao Plano de contas — o
+                                                                PORQUÊ (DL-044, 4ª iteração: "Razão — pelo Plano
+                                                                de contas" em duas linhas ficava estranho no
+                                                                item de menu) mudou de lugar: `title` (dica ao
+                                                                passar o mouse) e a descrição do cartão do hub
+                                                                de relatórios (contabilidade_web:relatorios),
+                                                                nunca sumiu, só não repete mais aqui.
                                                                 {% endcomment %}
                                                                 {% if pagina_atual == "razao" %}
                                                                     <span class="item-atual" aria-current="page">Razão</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}">
-                                                                        Razão <span class="texto-apoio">— pelo Plano de contas</span>
+                                                                    <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}" title="Escolha a conta pelo Plano de contas">
+                                                                        Razão
                                                                     </a>
                                                                 {% endif %}
                                                             </li>
@@ -393,14 +471,18 @@
                                                                 {% if pagina_atual == "balancete" %}
                                                                     <span class="item-atual" aria-current="page">Balancete</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:balancete' empresa_atual.id %}">Balancete</a>
+                                                                    <a href="{% url 'contabilidade_web:balancete' empresa_atual.id %}" accesskey="l" aria-keyshortcuts="Alt+L">
+                                                                        Balancete <kbd class="tecla" aria-hidden="true">Alt+L</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                             <li>
                                                                 {% if pagina_atual == "balanco" %}
                                                                     <span class="item-atual" aria-current="page">Balanço</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:balanco' empresa_atual.id %}">Balanço</a>
+                                                                    <a href="{% url 'contabilidade_web:balanco' empresa_atual.id %}" accesskey="b" aria-keyshortcuts="Alt+B">
+                                                                        Balanço <kbd class="tecla" aria-hidden="true">Alt+B</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                         </ul>
@@ -412,14 +494,18 @@
                                                                 {% if pagina_atual == "conferencia" %}
                                                                     <span class="item-atual" aria-current="page">Conferência</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:conferencia' empresa_atual.id %}">Conferência</a>
+                                                                    <a href="{% url 'contabilidade_web:conferencia' empresa_atual.id %}" accesskey="k" aria-keyshortcuts="Alt+K">
+                                                                        Conferência <kbd class="tecla" aria-hidden="true">Alt+K</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                             <li>
                                                                 {% if pagina_atual == "fechamento" %}
                                                                     <span class="item-atual" aria-current="page">Fechamento</span>
                                                                 {% else %}
-                                                                    <a href="{% url 'contabilidade_web:fechamento' empresa_atual.id %}">Fechamento</a>
+                                                                    <a href="{% url 'contabilidade_web:fechamento' empresa_atual.id %}" accesskey="z" aria-keyshortcuts="Alt+Z">
+                                                                        Fechamento <kbd class="tecla" aria-hidden="true">Alt+Z</kbd>
+                                                                    </a>
                                                                 {% endif %}
                                                             </li>
                                                         </ul>
@@ -528,6 +614,7 @@
                         </div>
                     </details>
                 </div>
+                </div>
             </aside>
         {% endif %}
 
@@ -564,15 +651,38 @@
                 `static/css/base.css` — só o CONTÊINER mudou de lugar, nunca
                 a regra.
                 {% endcomment %}
+                {% comment %}
+                DL-044 (4ª iteração — achado do arquiteto-senior, referência
+                Conta Azul: "faixa branca do topo com o TÍTULO da página à
+                esquerda e as pílulas de escritório/empresa + ação
+                principal à direita"). `{% block titulo_pagina %}` e
+                `{% block acoes_pagina %}` são NOVOS, opcionais (vazios por
+                padrão — uma tela que não os preenche não ganha coluna de
+                título nem de ação aqui, só a faixa de contexto de sempre,
+                como já era). Telas migradas nesta etapa (Início, Novo
+                lançamento, Relatórios, Zerar resultado — ver cada
+                template) preenchem `titulo_pagina` e REMOVEM o próprio
+                `.cabecalho-pagina` local, que ficaria repetindo o título
+                aqui em cima e nesta faixa embaixo. Telas NÃO migradas
+                continuam exatamente como estavam: título dentro de
+                `{% block content %}`, nesta faixa só com as pílulas —
+                nenhuma regressão para quem ainda não foi tocado.
+                {% endcomment %}
                 <header class="cabecalho">
-                    <div class="cabecalho__contexto">
-                        {% if request.escritorio %}
-                            <span class="contexto-item{% block classe_escritorio_ativo_na_impressao %}{% endblock %}">
-                                <span class="contexto-rotulo">Escritório ativo</span>
-                                <strong>{{ request.escritorio.nome }}</strong>
-                            </span>
-                        {% endif %}
-                        {% block contexto_extra %}{% endblock %}
+                    <div class="cabecalho__faixa">
+                        {% block titulo_pagina %}{% endblock %}
+                        <div class="cabecalho__lado-direito">
+                            <div class="cabecalho__contexto">
+                                {% if request.escritorio %}
+                                    <span class="contexto-item{% block classe_escritorio_ativo_na_impressao %}{% endblock %}">
+                                        <span class="contexto-rotulo">Escritório ativo</span>
+                                        <strong>{{ request.escritorio.nome }}</strong>
+                                    </span>
+                                {% endif %}
+                                {% block contexto_extra %}{% endblock %}
+                            </div>
+                            {% block acoes_pagina %}{% endblock %}
+                        </div>
                     </div>
                 </header>
             {% endif %}

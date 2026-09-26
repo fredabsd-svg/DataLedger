@@ -13,8 +13,12 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo — inclui o
+selo de situação (cancelada/válida), que não repete nenhuma pílula de
+contexto (esta tela não tem faixa de contexto própria).
+{% endcomment %}
+{% block titulo_pagina %}
     <h1>
         NFS-e nacional
         {% if documento.numero %}nº {{ documento.numero }}{% endif %}
@@ -24,7 +28,19 @@
             <span class="situacao-documento situacao-documento--valida">Válida</span>
         {% endif %}
     </h1>
+{% endblock %}
 
+{% comment %}
+DL-044 (Fase B, achado do Fred: "a mesma redundância da Contabilidade" —
+DE-081): a navegação em abas do Fiscal (`fiscal/_navegacao.html`)
+repetia EXATAMENTE os itens que o submenu lateral "Fiscal" já lista
+(Enviar notas/Envios anteriores/Documentos) — removida daqui. Ver
+DE-083 para o detalhe completo, inclusive o arquivo `_navegacao.html`
+que fica ÓRFÃO (permissão de exclusão negada nesta sessão, pendência
+registrada) e a conferência de que nenhuma guarda automatizada dependia
+desta parcial.
+{% endcomment %}
+{% block content %}
     <dl class="lista-de-definicao">
         <div>
             <dt>Identificador (Id)</dt>
