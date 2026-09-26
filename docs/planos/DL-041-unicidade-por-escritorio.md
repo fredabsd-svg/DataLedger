@@ -54,3 +54,7 @@ Correção única em andamento: U-A1, U-B1 (gatilho também em `escritorio_id` e
 recusa de troca de escritório da empresa no banco), U-B2, U-B3 e, por decisão do
 arquiteto, U-B4 (CNPJ de estabelecimento igual ao de **outra** empresa do mesmo
 escritório é recusado na aplicação).
+
+[Reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md) em `6b76ddc`
+(commit de preservação cujo conteúdo é a correção completa): **APROVADA COM
+RESSALVAS**, baixas (BL-539, BL-540). **Etapa encerrada**; falta a integração por PR.

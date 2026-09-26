@@ -100,10 +100,10 @@ merge do PR #38, sem commit individual por etapa.
 **AGORA — três frentes em paralelo, e a integração.**
 
 - **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
-- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): entregue em `92b4503`
-  (a mensagem desse commit diz "preservação", mas o conteúdo é a entrega);
-  [rodada 1](../auditorias/2026-09-26-dl-041-rodada-1.md) **reprovou** por um
-  500 no admin; correção única em andamento.
+- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): **encerrada**, aprovada
+  com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md)
+  (BL-539, BL-540). Conteúdo nos commits `92b4503` e `6b76ddc`, cujas mensagens
+  dizem "preservação" por causa do gancho do ambiente. Falta integrar por PR.
 - **DL-040** (navegação e arquitetura de informação): em desenvolvimento com o
   `especialista-frontend` numa worktree isolada; integração depois de o Fred ver
   as capturas.
