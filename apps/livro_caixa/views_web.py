@@ -30,19 +30,21 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Exists, OuterRef
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
+from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.core.requisicao import (
     ContratoDeRequisicao,
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
 from apps.core.restricoes import RestricaoViolada
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, TipoInscricao
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
@@ -84,11 +86,24 @@ def _empresa_do_escritorio_ativo(request, empresa_id):
     modo (`_sem_livro_caixa_para_contabilidade`) resolve a empresa ANTES
     do corpo da view, e sem cache isso somaria uma consulta a mais por
     requisição.
+
+    B6 (achado da rodada 1 da auditoria da DL-046): a chave do cache é a
+    MESMA que `apps.core.context_processors._empresa_atual` já lê
+    (`_dl038_cache_empresa_do_escritorio_ativo`) — antes desta correção
+    este módulo usava uma chave própria (`_dl046_cache_...`), e o context
+    processor (que roda DEPOIS da view, no MESMO `request`, na
+    renderização do template) nunca a encontrava: cada tela do
+    livro-caixa pagava uma consulta a mais, só para a trilha de
+    navegação resolver de novo a MESMA empresa que a view já tinha
+    resolvido. Reaproveitar a chave do cache do context processor
+    elimina a consulta duplicada sem duas fontes de cache para o mesmo
+    dado — o nome ("dl038") ficou do primeiro módulo a criar o cache, não
+    é mais "propriedade" exclusiva da contabilidade.
     """
-    cache = getattr(request, "_dl046_cache_empresa_do_escritorio_ativo", None)
+    cache = getattr(request, "_dl038_cache_empresa_do_escritorio_ativo", None)
     if cache is None:
         cache = {}
-        request._dl046_cache_empresa_do_escritorio_ativo = cache
+        request._dl038_cache_empresa_do_escritorio_ativo = cache
     if empresa_id not in cache:
         cache[empresa_id] = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
     return cache[empresa_id]
@@ -405,7 +420,22 @@ def lancamento_caixa_novo(request, empresa_id):
             )
             return render(request, "livro_caixa/lancamento_form.html", contexto, status=400)
 
-        conta_id = request.POST.get("conta") or ""
+        # M1 (rodada 1 da auditoria da DL-046): `conta` chega da tela como
+        # TEXTO cru do formulário — "abc", "1.5" ou espaço em branco
+        # faziam `ContaLivroCaixa.objects.filter(pk=conta_id, ...)`
+        # levantar `ValueError` do ORM (o Django não recusa um `pk`
+        # textual malformado antes de montar a consulta), virando 500. A
+        # API já não tinha este defeito porque `_extrair_conta`
+        # (apps/livro_caixa/views.py) já usa `para_id` — aqui é a MESMA
+        # conversão, só que a mensagem de recusa continua a mesma de
+        # antes (nenhuma tela de teste dependia do texto da mensagem
+        # mudar entre "malformado" e "não encontrado" — os dois casos
+        # significam a mesma coisa para quem preenche o formulário:
+        # "essa não é uma conta válida desta empresa").
+        try:
+            conta_id = para_id(request.POST.get("conta") or "")
+        except IdentificadorInvalido:
+            return _recusa("Escolha uma conta do livro-caixa desta empresa.")
         conta = ContaLivroCaixa.objects.filter(pk=conta_id, empresa=empresa).first()
         if conta is None:
             return _recusa("Escolha uma conta do livro-caixa desta empresa.")
@@ -514,9 +544,17 @@ def lancamentos_caixa_lista(request, empresa_id):
         messages.error(request, "O período informado não pôde ser usado.")
         return render(request, "livro_caixa/lancamentos_lista.html", contexto, status=400)
 
+    # B6 (rodada 1 da auditoria da DL-046): `lancamento.estornos.exists()`
+    # por LINHA fazia uma consulta a mais por lançamento (14 consultas
+    # com 5 lançamentos, 59 com 50 — medido). `Exists(OuterRef("pk"))`
+    # anotado na MESMA consulta principal resolve "este lançamento já foi
+    # estornado?" para todas as linhas de uma vez, número de consultas
+    # CONSTANTE em relação à quantidade de lançamentos — mesmo padrão que
+    # `apurar_livro_caixa` (services.py) já segue para esta lista.
     lancamentos = list(
         LancamentoCaixa.objects.filter(empresa=empresa, data__gte=inicio, data__lte=fim)
         .select_related("conta")
+        .annotate(_tem_estorno=Exists(LancamentoCaixa.objects.filter(estorno_de=OuterRef("pk"))))
         .order_by("-data", "-id")
     )
     linhas = [
@@ -524,7 +562,7 @@ def lancamentos_caixa_lista(request, empresa_id):
             "lancamento": lancamento,
             "valor_ptbr": _valor_ptbr(lancamento.valor),
             "e_estorno": lancamento.estorno_de_id is not None,
-            "ja_estornado": lancamento.estornos.exists(),
+            "ja_estornado": lancamento._tem_estorno,
         }
         for lancamento in lancamentos
     ]
@@ -617,10 +655,33 @@ def livro_caixa_relatorio(request, empresa_id):
 
     inicio, fim = _periodo_do_formulario_caixa(request)
     carimbo_de_emissao = timezone.localtime()
+    # M6 (rodada 1 da auditoria da DL-046, DE-087 item 7): a identificação
+    # impressa segue o TIPO DE INSCRIÇÃO da empresa, nunca "CPF" fixo —
+    # antes desta correção o relatório de uma empresa CNPJ em livro-caixa
+    # (o módulo aceita qualquer tipo; a restrição a CPF é só do carnê-leão,
+    # fatia 2, decisão do Fred) saía com "— CPF " vazio. Mesmo padrão de
+    # `apps.empresas.views.lista_empresas` (`rotulo_inscricao`/
+    # `inscricao_formatada`) e de `apps.tenancy.views._empresas_da_
+    # carteira` — três lugares que já calculam a MESMA coisa a partir do
+    # MESMO enum, cada um com sua própria cópia local de `_mascara_cnpj`/
+    # `_mascara_cpf` (docstring do módulo: livro-caixa não importa
+    # helper "privado" de outro módulo).
+    if empresa.tipo_inscricao == TipoInscricao.CPF:
+        rotulo_inscricao = "CPF"
+        inscricao_formatada = _mascara_cpf(empresa.cpf)
+    else:
+        rotulo_inscricao = "CNPJ"
+        inscricao_formatada = _mascara_cnpj(empresa.cnpj)
     contexto = {
         "empresa": empresa,
         "inicio": inicio,
         "fim": fim,
+        "rotulo_inscricao": rotulo_inscricao,
+        "inscricao_formatada": inscricao_formatada,
+        # CAEPF (RC-129/HI-31): opcional, "sem máscara" (mesmo padrão do
+        # cadastro, apps/empresas/forms.py) — o template só imprime a
+        # linha quando `empresa.caepf` não é vazio.
+        "caepf": empresa.caepf,
         "cpf_formatado": _mascara_cpf(empresa.cpf),
         "cnpj_formatado": _mascara_cnpj(empresa.cnpj),
         "carimbo_de_emissao_texto": carimbo_de_emissao.strftime("%d/%m/%Y às %H:%M:%S"),
@@ -631,21 +692,44 @@ def livro_caixa_relatorio(request, empresa_id):
         return render(request, "livro_caixa/relatorio.html", contexto, status=400)
 
     apuracao = apurar_livro_caixa(empresa=empresa, inicio=inicio, fim=fim)
+    todos_os_itens = [
+        {
+            "lancamento_id": item["lancamento_id"],
+            "data": item["data"],
+            "conta": item["conta"],
+            "conta_nome": item["conta_nome"],
+            "natureza": item["natureza"],
+            "valor_ptbr": _valor_ptbr(item["valor"]),
+            "historico": item["historico"],
+            "documento_origem": item["documento_origem"],
+            # M8 (rodada 1 da auditoria da DL-046): o Nº do lançamento
+            # original — sem ele, a linha do estorno só dizia "Estorno",
+            # sem dizer QUAL lançamento foi estornado (a promessa de
+            # `lancamento_estornar.html`: "os dois ficam visíveis na
+            # lista e no relatório Livro Caixa, com a referência entre
+            # eles" — a lista (`lancamentos_lista.html`) já cumpria; o
+            # relatório, não).
+            "estorno_de_id": item["estorno_de_id"],
+            "e_estorno": item["e_estorno"],
+            # D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
+            # normativa): pagamentos P20 (imposto pago, previdência
+            # oficial, pensão) são DEDUÇÃO do carnê-leão, não despesa de
+            # custeio do art. 68 — quando `apurar_livro_caixa` (services.
+            # py) passar a marcar isso por item, este `.get(...)` deixa
+            # de ser sempre `False` sem precisar mudar mais nada aqui ou
+            # no template. Hoje a chave nunca existe no retorno do
+            # serviço, então este bloco é GENÉRICO e INERTE — nenhum item
+            # sai do grupo principal, nenhum teste muda de resultado, até
+            # o desenvolvedor completar o outro lado.
+            "eh_pagamento_p20_carne_leao": item.get("eh_pagamento_p20_carne_leao", False),
+        }
+        for item in apuracao["itens"]
+    ]
     contexto.update(
         {
-            "itens": [
-                {
-                    "lancamento_id": item["lancamento_id"],
-                    "data": item["data"],
-                    "conta": item["conta"],
-                    "conta_nome": item["conta_nome"],
-                    "natureza": item["natureza"],
-                    "valor_ptbr": _valor_ptbr(item["valor"]),
-                    "historico": item["historico"],
-                    "documento_origem": item["documento_origem"],
-                    "e_estorno": item["e_estorno"],
-                }
-                for item in apuracao["itens"]
+            "itens": [item for item in todos_os_itens if not item["eh_pagamento_p20_carne_leao"]],
+            "pagamentos_p20_carne_leao": [
+                item for item in todos_os_itens if item["eh_pagamento_p20_carne_leao"]
             ],
             "total_entradas_ptbr": _valor_ptbr(apuracao["total_entradas"]),
             "total_saidas_ptbr": _valor_ptbr(apuracao["total_saidas"]),

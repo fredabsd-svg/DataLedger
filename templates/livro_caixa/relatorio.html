@@ -98,20 +98,47 @@ escritório que o emite).
             <caption class="visualmente-oculto">Livro Caixa de {{ empresa.razao_social }} no período</caption>
             <thead>
                 <tr class="linha-identificacao-do-documento">
-                    <th scope="colgroup" colspan="5">
+                    {% comment %}
+                    M6 (rodada 1 da auditoria da DL-046, DE-087 item 7): a
+                    inscrição segue o TIPO da empresa (`rotulo_inscricao`/
+                    `inscricao_formatada`, calculados na view a partir do
+                    mesmo enum que `apps.empresas.views.lista_empresas` já
+                    usa) — nunca "CPF" fixo, que saía em branco para uma
+                    empresa CNPJ em livro-caixa. O CAEPF (RC-129/HI-31) só
+                    aparece quando existir, em linha própria, "sem
+                    máscara" (mesmo padrão do cadastro).
+                    {% endcomment %}
+                    <th scope="colgroup" colspan="6">
                         <div class="identificacao-do-documento">
-                            <p><strong>{{ empresa.razao_social }}</strong> — CPF {{ cpf_formatado }}</p>
+                            <p>
+                                <strong>{{ empresa.razao_social }}</strong> —
+                                {{ rotulo_inscricao }} {{ inscricao_formatada }}
+                            </p>
+                            {% if caepf %}
+                                <p>CAEPF {{ caepf }}</p>
+                            {% endif %}
                             <p>
                                 Livro Caixa — período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
                             </p>
+                            {% comment %}
+                            D2 (DE-087 item 12): a base legal cobre as DUAS
+                            obrigações que o livro-caixa sustenta — a
+                            escrituração em si (arts. 68 e 69) e o
+                            recolhimento mensal obrigatório do carnê-leão
+                            (arts. 118 a 125) — porque o livro aceita
+                            qualquer rendimento do art. 68 (aluguel,
+                            trabalho não assalariado etc.), não só o
+                            trabalho não assalariado.
+                            {% endcomment %}
                             <p>
-                                Base: Decreto 9.580/2018 (RIR/2018), arts. 68 e 69 — escrituração do
-                                trabalhador não assalariado com documentação idônea.
+                                Base: RIR/2018 (Decreto 9.580/2018), arts. 68 e 69 (livro-caixa) e
+                                118 a 125 (recolhimento mensal obrigatório).
                             </p>
                         </div>
                     </th>
                 </tr>
                 <tr>
+                    <th scope="col">Nº</th>
                     <th scope="col">Data</th>
                     <th scope="col">Conta</th>
                     <th scope="col">Histórico</th>
@@ -122,10 +149,22 @@ escritório que o emite).
             <tbody>
                 {% for item in itens %}
                     <tr>
+                        <td>{{ item.lancamento_id }}</td>
                         <td>{{ item.data|date:"d/m/Y" }}</td>
                         <td>
                             {{ item.conta }} — {{ item.conta_nome }}
-                            {% if item.e_estorno %}<br><span class="texto-apoio">Estorno</span>{% endif %}
+                            {% comment %}
+                            M8 (rodada 1 da auditoria da DL-046): "Estorno"
+                            sozinho não dizia QUAL lançamento foi
+                            estornado — com dois lançamentos do mesmo
+                            valor na mesma conta, o livro não distinguia
+                            qual foi corrigido. MESMO texto que
+                            `lancamentos_lista.html` já usa ("Estorno do
+                            lançamento nº X"), agora também no papel.
+                            {% endcomment %}
+                            {% if item.e_estorno %}
+                                <br><span class="texto-apoio">Estorno do lançamento nº {{ item.estorno_de_id }}</span>
+                            {% endif %}
                         </td>
                         <td>{{ item.historico|default:"—" }}</td>
                         <td>{% if item.natureza == "receita" %}Entrada{% else %}Saída{% endif %}</td>
@@ -150,10 +189,45 @@ escritório que o emite).
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="5">Nenhum lançamento neste período.</td>
+                        <td colspan="6">Nenhum lançamento neste período.</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+
+        {% comment %}
+        D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
+        normativa): pagamentos P20 (imposto pago, previdência oficial,
+        pensão) são DEDUÇÃO do carnê-leão, art. 68 — não despesa de
+        custeio. `pagamentos_p20_carne_leao` vem SEMPRE vazio hoje
+        (`apurar_livro_caixa`, services.py, ainda não marca nenhum item
+        assim) — este bloco fica pronto, mas INERTE, para quando o
+        serviço passar a marcar; até lá, nunca renderiza.
+        {% endcomment %}
+        {% if pagamentos_p20_carne_leao %}
+            <table class="tabela-dados">
+                <caption>Pagamentos que deduzem a base do carnê-leão — não são despesa de custeio</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nº</th>
+                        <th scope="col">Data</th>
+                        <th scope="col">Conta</th>
+                        <th scope="col">Histórico</th>
+                        <th scope="col" class="cabecalho-numerico">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in pagamentos_p20_carne_leao %}
+                        <tr>
+                            <td>{{ item.lancamento_id }}</td>
+                            <td>{{ item.data|date:"d/m/Y" }}</td>
+                            <td>{{ item.conta }} — {{ item.conta_nome }}</td>
+                            <td>{{ item.historico|default:"—" }}</td>
+                            <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
     {% endif %}
 {% endblock %}

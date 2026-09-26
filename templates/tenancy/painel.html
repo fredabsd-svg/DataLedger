@@ -161,10 +161,27 @@ faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% comment %}
+                                    A3 (rodada 1 da auditoria da DL-046):
+                                    `url_abrir` agora sempre aponta para o
+                                    Plano de contas do módulo certo
+                                    (`contabilidade_web` ou
+                                    `livro_caixa_web`, decidido em
+                                    `apps.tenancy.views._empresas_da_
+                                    carteira`) — antes desta correção era
+                                    `None` para toda empresa em
+                                    livro-caixa, e a linha ficava sem
+                                    NENHUM link (só o texto "Livro-caixa").
+                                    O `{% if %}` continua aqui como
+                                    defesa: se algum dia `url_abrir`
+                                    voltar a ser `None` por outro motivo,
+                                    a linha mostra texto em vez de um link
+                                    quebrado.
+                                    {% endcomment %}
                                     {% if linha.url_abrir %}
                                         <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_abrir }}">Abrir</a>
                                     {% else %}
-                                        <span class="texto-apoio">Livro-caixa</span>
+                                        <span class="texto-apoio">{{ linha.empresa.get_modo_escrituracao_display }}</span>
                                     {% endif %}
                                 </td>
                             </tr>
