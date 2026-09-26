@@ -249,6 +249,94 @@ já decide a favor da barra superior sem precisar do número exato. **Não**
 foi medida uma variante lateral de verdade nesta etapa — a decisão é por
 aplicação da régua já existente, não por um segundo protótipo.
 
+## Diagnóstico DL-042 (modo revisão da skill saas-design-excellence)
+
+Feito por leitura de `templates/**`, `static/css/base.css` e das telas
+renderizadas (capturas em `docs/assets/telas/dl042/`), contra o "portão de
+qualidade" e os anti-padrões da skill. Usuário: contador em rotina de
+produção, especialista, várias horas por dia — a densidade e o vocabulário
+técnico já assumidos pelo produto (competência, lançamento, balancete)
+continuam corretos e não foram simplificados.
+
+### O que já funcionava bem (preservado, não redesenhado)
+
+- Números tabulados, alinhados à direita, com D/C e parênteses de valor
+  invertido em TEXTO, nunca só cor — exatamente o que o portão de
+  qualidade cobra e o "SaaS genérico" costuma errar.
+- Cabeçalho de tabela fixo, densidade medida (§4.8 da direção de arte),
+  trilha, estados vazio/erro/sem permissão já tratados nas etapas
+  anteriores (DL-009/DL-017/DL-026).
+- Uma cor de acento só, foco visível e com contraste calculado, formatos
+  pt-BR corretos.
+- Nenhum dos anti-padrões "cartão para tudo", "dashboard de KPI vazio" ou
+  "modal para edição complexa" — o produto já evitava isso antes desta
+  etapa.
+
+### Achados, por severidade
+
+**Alto**
+
+1. **Nenhum ícone existia no produto** — a barra superior da DL-040 era só
+   texto. Isso é coerente com a identidade "papel e tinta" (tipografia é a
+   estrutura), mas inviabiliza uma barra lateral RECOLHÍVEL — sem ícone,
+   recolher para ~56px deixa a navegação ilegível. Corrigido nesta etapa
+   com um conjunto próprio de ícones SVG (sprite de `<symbol>`,
+   `templates/base.html`), mínimo e no mesmo traço, sem virar "decoração"
+   (a skill adverte: ênfase visual é orçamento, gasto só onde ajuda a
+   decisão — aqui o ícone existe só para o modo recolhido funcionar).
+
+**Médio**
+
+2. **Faltava o tom "fantasma" (ghost) de botão.** O plano cita "botões
+   (primário, secundário, perigoso, fantasma)"; o produto tem só os três
+   primeiros (`.botao--primario/secundario/perigoso`, DL-040). Não
+   introduzido nesta etapa — nenhuma tela hoje precisa de uma ação de
+   baixíssima ênfase que os três tons existentes não cubram, e criar um
+   quarto tom sem um uso real violaria "consistência é o produto" (a
+   skill: mesmo componente em toda parte). Registrado como pendência, não
+   como decisão de não fazer para sempre.
+3. **"Início" continua sendo só o seletor de escritório**, não a "fila do
+   que precisa de atenção" que o plano pede (empresas sem plano de contas,
+   competências abertas de meses passados, envios fiscais recusados,
+   notas canceladas). Não implementado nesta etapa — exigiria consultas
+   novas em `apps/tenancy/views.py` cruzando `contabilidade` e `fiscal`
+   (permitido, é camada de apresentação, mas arriscar regressão de
+   isolamento entre escritórios numa entrega já grande pesou contra
+   arriscar sem tempo de testar o isolamento com o rigor que o AGENTS.md
+   exige). Ver "Pendências" no relatório de entrega.
+4. **Distância do `<h1>` até o topo, a 390×844, piorou em relação à
+   DL-040**: 270px nesta etapa contra 230px antes (medido no Balancete,
+   mesmo método da DL-040 — `getBoundingClientRect`). Ainda muito melhor
+   que os ~470px de antes da DL-040, mas é uma regressão pontual, não uma
+   meta batida — a barra lateral, mesmo recolhida por padrão no celular
+   (vira gaveta fechada), ainda soma a faixa "marca + Menu" acima do
+   cabeçalho de contexto. Registrado, não escondido.
+
+**Polimento**
+
+5. Landing/login/cadastro usam uma escala tipográfica própria
+   (`--public-*`, DL-034/037), separada da escala do app autenticado — já
+   existia antes desta etapa, é uma escolha deliberada registrada em
+   `base.css` (marketing não usa a densidade do produto interno), não um
+   achado novo.
+6. O painel de submenu recolhido (barra a ~56px, grupo aberto) é um
+   flyout `position: absolute` que pode colidir com a borda direita da
+   tela em monitores muito estreitos entre 48rem e ~60rem — não medido
+   nesta etapa (o portão de qualidade pede 360/768/1280/ultralargo; esta
+   faixa intermediária específica ficou de fora).
+
+### Dois ou três ajustes de alto impacto, já aplicados
+
+- Ícones SVG inline (achado 1).
+- `align-content: flex-start` em `.app-shell` — sem isso, a barra lateral
+  recolhida em CSS "esticava" a primeira linha da moldura móvel e
+  empurrava o conteúdo ~230px para baixo (medido em 390×844,
+  `empresas/lista.html`; ver o comentário em `static/css/base.css`).
+- Remoção do indicador "empresa atual" que uma primeira versão desta etapa
+  pôs na barra: vazava a razão social em telas de recusa de permissão
+  (403) porque `empresa_atual` resolve pela URL, antes da autorização real
+  — medido pelos próprios testes automatizados, não por inspeção manual.
+
 ## Revisão DL-042: barra lateral, não superior
 
 **A decisão da seção anterior foi REVERTIDA nesta etapa**, por ordem direta

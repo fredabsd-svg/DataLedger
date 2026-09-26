@@ -382,6 +382,18 @@ summary:focus,
 .app-shell {
     display: flex;
     align-items: flex-start;
+    /* `align-content: flex-start` (não o `stretch` padrão): só tem efeito
+       quando `flex-wrap: wrap` cria VÁRIAS linhas (só acontece ≤48rem,
+       ver o `@media` no fim deste arquivo) — sem isto, o `min-height`
+       abaixo (quase a viewport inteira) sobrava como espaço extra
+       DISTRIBUÍDO entre as duas linhas (marca+"Menu" / conteúdo),
+       esticando a PRIMEIRA e empurrando a segunda para ~230px do topo.
+       Medido nesta etapa, por captura real em 390×844 (`empresas/lista.html`):
+       `.area-principal` começava em top:268px com uma única linha de
+       conteúdo antes dela — o mesmo defeito, em espírito, que a DL-040 já
+       tinha corrigido uma vez para a faixa de contexto (8.1a). Em telas
+       largas (uma linha só), esta propriedade não muda nada. */
+    align-content: flex-start;
     min-height: var(--altura-viewport);
 }
 
