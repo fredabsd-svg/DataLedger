@@ -43,3 +43,14 @@ escritório, a inscrição continua única.
 `desenvolvedor-pleno`: `apps/empresas/**`, `apps/core/restricoes.py`, testes
 afetados em `apps/*/tests`. `auditor-qa`: auditoria da versão integrada.
 Reversão: revert do commit e da migração, com o limite do critério 5.
+
+## Auditoria
+
+[Rodada 1](../auditorias/2026-09-26-dl-041-rodada-1.md) em `92b4503` (commit com
+mensagem de preservação; o conteúdo é a entrega do `desenvolvedor-pleno`):
+**REPROVADA** por U-A1 (média: estabelecimento duplicado no mesmo escritório dá
+500 no admin, regressão do critério 3). Objetivo central medido e atendido.
+Correção única em andamento: U-A1, U-B1 (gatilho também em `escritorio_id` e
+recusa de troca de escritório da empresa no banco), U-B2, U-B3 e, por decisão do
+arquiteto, U-B4 (CNPJ de estabelecimento igual ao de **outra** empresa do mesmo
+escritório é recusado na aplicação).

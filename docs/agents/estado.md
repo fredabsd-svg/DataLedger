@@ -57,7 +57,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-007](../planos/DL-007-correcao-bloqueadores-contabilidade.md) | Correção dos bloqueadores da auditoria inicial | Integrada (PR #11) |
 | [DL-008](../planos/DL-008-politica-monetaria-e-validacao-de-escala.md) | Política monetária e módulo de arredondamento | Integrada (PR #11) |
 | [DL-009](../planos/DL-009-fundacao-de-interface.md) | Fundação de interface, estados de erro, acessibilidade | Integrada (PR #11) |
-| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção e conferência de documentos fiscais | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção e conferência de documentos fiscais | Integrada (fatia 1, NFS-e nacional, PR #47) — fatias 2 (NF-e) e 3 ainda não planejadas em detalhe |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | README e identidade visual | Integrada (PR #13) |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial (conceito do Fred em vetor) | Integrada (PR #17) |
@@ -85,10 +85,10 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração (BL-514 a BL-519) | Integrada (PR #43 e #44) |
 | [DL-036](../planos/DL-036-entrada-e-cadastro.md) | Página inicial pública e cadastro de novo escritório | Integrada (PR #45) |
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
-| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Integrada (PR #47) |
+| [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
 | [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Em desenvolvimento |
-| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Planejada |
+| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -99,11 +99,11 @@ merge do PR #38, sem commit individual por etapa.
 
 **AGORA — três frentes em paralelo, e a integração.**
 
-- **DL-039** (ressalvas da recepção e da pessoa física): **encerrada**, aprovada
-  com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-039-reconferencia.md)
-  (BL-536 a BL-538). Falta integrar à `main`.
-- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): em desenvolvimento com o
-  `desenvolvedor-pleno` na árvore principal.
+- **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
+- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): entregue em `92b4503`
+  (a mensagem desse commit diz "preservação", mas o conteúdo é a entrega);
+  [rodada 1](../auditorias/2026-09-26-dl-041-rodada-1.md) **reprovou** por um
+  500 no admin; correção única em andamento.
 - **DL-040** (navegação e arquitetura de informação): em desenvolvimento com o
   `especialista-frontend` numa worktree isolada; integração depois de o Fred ver
   as capturas.
