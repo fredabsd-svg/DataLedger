@@ -2,8 +2,13 @@
 
 {% block titulo %}Primeiro acesso{% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo — mesmo
+padrão das demais telas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Bem-vindo ao DataLedger</h1>{% endblock %}
+
 {% block content %}
-    <h1>Bem-vindo ao DataLedger</h1>
     <p>Você ainda não tem vínculo com nenhum escritório de contabilidade. Esta é a porta de entrada — preencha os dados do seu escritório abaixo para começar.</p>
 
     <p><strong>O que acontece aqui:</strong> o escritório que você criar será a primeira fronteira de sigilo do produto. Quem você convidar depois entra dentro dela. Você será o ADMINISTRADOR — pode promover, convidar e desligar outros usuários, e é o único papel com poder de emitir convites.</p>

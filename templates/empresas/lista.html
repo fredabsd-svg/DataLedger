@@ -2,16 +2,18 @@
 
 {% block titulo %}Empresas{% endblock %}
 
-{% block content %}
-    <div class="cabecalho-pagina">
-        <h1>Empresas</h1>
-        {% if pode_cadastrar %}
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Nova empresa</a>
-            </div>
-        {% endif %}
-    </div>
+{% comment %}
+DL-044 (Fase B): título e ação primária migram para a faixa branca do
+topo — mesmo padrão das demais telas ativas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Empresas</h1>{% endblock %}
+{% block acoes_pagina %}
+    {% if pode_cadastrar %}
+        <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Nova empresa</a>
+    {% endif %}
+{% endblock %}
 
+{% block content %}
     <table class="tabela-dados">
         <caption class="visualmente-oculto">Empresas cadastradas no escritório ativo</caption>
         <thead>
@@ -82,28 +84,50 @@
                                 Livro-caixa — a contabilidade por partidas dobradas não se aplica.
                             </span>
                         {% else %}
-                            <a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a>
-                            ·
-                            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
-                            ·
-                            <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Lançar</a>
-                            {% if secao_de_troca %}
-                                {% comment %}
-                                DL-040: "Trocar de empresa" do menu global
-                                (templates/base.html) chega aqui com
-                                `?secao=<rota atual>` — este link devolve à
-                                MESMA seção, agora nesta empresa, via
-                                `empresas:trocar-secao`
-                                (apps.empresas.views.trocar_empresa_na_secao,
-                                que confirma no SERVIDOR que a empresa
-                                pertence ao escritório ativo antes de
-                                redirecionar).
-                                {% endcomment %}
-                                ·
-                                <a href="{% url 'empresas:trocar-secao' %}?empresa_id={{ empresa.id }}&secao={{ secao_de_troca }}">
-                                    Continuar aqui
-                                </a>
-                            {% endif %}
+                            {% comment %}
+                            DL-044 (Fase B, achado do Fred: "'Balancete ·
+                            Plano de contas · Lançar' [...] exatamente o
+                            'botão parece link'"): "Abrir" é o botão
+                            PRINCIPAL — mesmo destino (Plano de contas) que
+                            "Abrir" já usa em Início → Empresas da carteira
+                            (apps.tenancy.views._empresas_da_carteira,
+                            url_abrir), não uma escolha nova. As demais
+                            ações (sem uma "principal" natural entre elas)
+                            ficam no menu "Ações" (`.menu-acoes`,
+                            static/css/base.css — <details>/<summary> nativo,
+                            sem JavaScript).
+                            {% endcomment %}
+                            <div class="acoes-de-linha">
+                                <a class="botao botao--secundario botao--pequeno"
+                                   href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Abrir</a>
+                                <details class="menu-acoes">
+                                    <summary class="botao botao--secundario botao--pequeno">Ações</summary>
+                                    <ul class="menu-acoes__lista">
+                                        <li><a href="{% url 'contabilidade_web:balancete' empresa.id %}">Balancete</a></li>
+                                        <li><a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Lançar</a></li>
+                                        {% if secao_de_troca %}
+                                        {% comment %}
+                                        DL-040: "Trocar de empresa" do menu
+                                        global (templates/base.html) chega
+                                        aqui com `?secao=<rota atual>` — este
+                                        link devolve à MESMA seção, agora
+                                        nesta empresa, via
+                                        `empresas:trocar-secao`
+                                        (apps.empresas.views.
+                                        trocar_empresa_na_secao, que confirma
+                                        no SERVIDOR que a empresa pertence ao
+                                        escritório ativo antes de
+                                        redirecionar).
+                                        {% endcomment %}
+                                        <li>
+                                            <a href="{% url 'empresas:trocar-secao' %}?empresa_id={{ empresa.id }}&secao={{ secao_de_troca }}">
+                                                Continuar aqui
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                                </details>
+                            </div>
                         {% endif %}
                     </td>
                 </tr>

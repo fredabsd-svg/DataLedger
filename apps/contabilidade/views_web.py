@@ -699,6 +699,11 @@ class ContaCriarForm(forms.ModelForm):
         # escritório.
         self.fields["conta_pai"].queryset = Conta.objects.filter(empresa=empresa).order_by("codigo")
         self.fields["conta_pai"].required = False
+        # DL-044 — mesmo achado do `ParametroContabilForm` (ver o
+        # comentário lá): o padrão do Django para `empty_label` é em
+        # inglês. Aqui o rótulo também documenta o que a ausência de
+        # conta-pai SIGNIFICA (conta raiz), não só "nenhuma".
+        self.fields["conta_pai"].empty_label = "Nenhuma (conta raiz do plano)"
 
 
 def _codigos_das_contas_mae(codigo):
@@ -3515,6 +3520,78 @@ def fechamento(request, empresa_id):
 
 
 @login_required
+@require_safe
+def relatorios(request, empresa_id):
+    """Hub de relatórios da empresa (DL-044, 3ª iteração — retorno do
+    Fred: "os botões para abrir os relatórios [...] tá esquisito",
+    referência escolhida por ele, Conta Azul — ver docs/assets/telas/
+    dl044/pesquisa.md §7). Consulta de APRESENTAÇÃO só — nenhuma regra
+    nova, nenhum dado que a barra lateral já não oferecesse por link
+    direto (Diário/Razão via Plano de contas/Balancete/Balanço/
+    Conferência): esta tela é um SEGUNDO caminho para as MESMAS cinco
+    rotas, em cartão em vez de link de menu, aditivo — a barra lateral
+    continua exatamente como estava, nenhum link foi removido de lá.
+
+    Mesma permissão de leitura que as cinco telas de destino já exigem
+    (`_pode_ler`) e a mesma recusa de livro-caixa (`_sem_contabilidade_
+    para_livro_caixa`) — nunca uma cópia frouxa da regra: o hub só lista
+    o que o papel já pode abrir de qualquer forma.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    cartoes = [
+        {
+            "chave": "diario",
+            "icone": "diario",
+            "titulo": "Diário",
+            "descricao": "Todos os lançamentos da empresa, em ordem cronológica.",
+            "url": reverse("contabilidade_web:diario", args=[empresa.id]),
+        },
+        {
+            "chave": "razao",
+            "icone": "razao",
+            "titulo": "Razão",
+            "descricao": "Movimento de uma conta específica — escolha pelo Plano de contas.",
+            "url": reverse("contabilidade_web:plano_de_contas", args=[empresa.id]),
+        },
+        {
+            "chave": "balancete",
+            "icone": "balancete",
+            "titulo": "Balancete",
+            "descricao": "Saldo de todas as contas no período, com conferência D/C.",
+            "url": reverse("contabilidade_web:balancete", args=[empresa.id]),
+        },
+        {
+            "chave": "balanco",
+            "icone": "balanco",
+            "titulo": "Balanço",
+            "descricao": "Demonstração patrimonial pronta para emissão.",
+            "url": reverse("contabilidade_web:balanco", args=[empresa.id]),
+        },
+        {
+            "chave": "conferencia",
+            "icone": "conferencia",
+            "titulo": "Conferência",
+            "descricao": "Lotes com débito e crédito que não batem — resolva antes de fechar.",
+            "url": reverse("contabilidade_web:conferencia", args=[empresa.id]),
+        },
+    ]
+    return render(
+        request, "contabilidade/relatorios.html", {"empresa": empresa, "cartoes": cartoes}
+    )
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def competencia_fechar(request, empresa_id):
     """Fecha uma competência (arquétipo E, etapa única) — critérios 2, 3, 5, 8.
@@ -3841,19 +3918,31 @@ class ParametroContabilForm(forms.Form):
     periodicidade_zeramento = forms.ChoiceField(
         label="Periodicidade do zeramento", choices=PeriodicidadeZeramento.choices
     )
+    # DL-044 (achado das capturas da DL-043): `ModelChoiceField` sem
+    # `empty_label` próprio usa o padrão do Django 6.1, EM INGLÊS mesmo com
+    # `LANGUAGE_CODE = "pt-br"` — "- Select an option -" (medido
+    # diretamente: `forms.ModelChoiceField(...).empty_label`), porque o
+    # catálogo de tradução embutido do Django para este texto específico
+    # não está carregado neste ponto do request. Os três campos abaixo
+    # (e `ContaCriarForm.conta_pai`, a poucas linhas daqui) declaram
+    # `empty_label` em português, explicitamente — nunca dependendo da
+    # tradução automática do framework.
     conta_resultado_do_exercicio = forms.ModelChoiceField(
         label="Conta de resultado do exercício",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text="Conta analítica do grupo Patrimônio Líquido.",
     )
     conta_lucros_acumulados = forms.ModelChoiceField(
         label="Conta de lucros acumulados",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text="Conta analítica do grupo Patrimônio Líquido.",
     )
     conta_prejuizos_acumulados = forms.ModelChoiceField(
         label="Conta de (-) prejuízos acumulados",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text=(
             "Conta analítica do grupo Patrimônio Líquido, de natureza DEVEDORA "
             "— é retificadora (RC-61)."

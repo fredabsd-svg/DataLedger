@@ -2,9 +2,12 @@
 
 {% block titulo %}Aceitar convite{% endblock %}
 
-{% block content %}
-    <h1>Aceitar convite</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Aceitar convite</h1>{% endblock %}
 
+{% block content %}
     {% if not convite %}
         <p>Este convite é inexistente, expirou ou já foi consumido.</p>
     {% elif convite.expirado %}

@@ -2,8 +2,13 @@
 
 {% block titulo %}Sem escritório ativo{% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo — mesmo padrão
+das demais telas, inclusive o estado "sem escritório ativo".
+{% endcomment %}
+{% block titulo_pagina %}<h1>Nenhum escritório ativo</h1>{% endblock %}
+
 {% block content %}
-    <h1>Nenhum escritório ativo</h1>
     <p>Selecione um escritório ativo no painel antes de ver as empresas.</p>
-    <p><a href="{% url 'tenancy:painel' %}">Ir para o painel</a></p>
+    <p><a class="botao botao--secundario" href="{% url 'tenancy:painel' %}">Ir para o painel</a></p>
 {% endblock %}

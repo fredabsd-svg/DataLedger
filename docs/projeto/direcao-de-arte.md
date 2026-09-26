@@ -33,11 +33,13 @@ regra de uso:
 | Família | Papel | Regra |
 | --- | --- | --- |
 | Tinta (texto) | Principal, secundária, auxiliar | Texto auxiliar **também** respeita 4,5:1; "é só uma legenda" não isenta ninguém |
-| Papel (fundo) | Superfície da página, superfície elevada, faixa de destaque | Nunca branco puro na página inteira: a direção é papel, não tela de escritório |
-| Acento | **Uma** tinta, para ação principal e foco | Se aparecer uma segunda cor de acento, a direção foi quebrada |
+| Papel (fundo) | Superfície da página, superfície elevada, faixa de destaque | Nunca branco puro na página inteira: a direção é papel, não tela de escritório. Exceção declarada (DE-080): a ÁREA DE CONTEÚDO da casca do app logado usa `--app-fundo`, cinza-azulado, com cartões em branco puro (`--papel-elevado`) — referência escolhida pelo Fred (Conta Azul); a landing pública e o documento impresso continuam em `--papel` |
+| Acento | **Uma** tinta POR SUPERFÍCIE, para ação principal e foco | Se aparecer uma segunda cor de acento na MESMA superfície, a direção foi quebrada. Exceção declarada (DE-080): a casca do app logado usa `--app-acento` (azul vívido, próprio — nunca o hex de um produto de referência); `--acento` (editorial, navy) continua reservado a link de prosa, foco fora da barra, documento impresso e a landing pública inteira. As duas escalas nunca aparecem juntas na mesma superfície |
 | Semânticas | Sucesso, erro, aviso, informação | Sempre acompanhadas de **texto**; nunca sozinhas |
 | Numérico | Família monoespaçada tabulada | Todo algarismo de valor, sem exceção |
+| Tipografia (DL-044) | Editorial (serifada), trabalho (sem serifa), numérica | Editorial só para marca, landing pública e documento impresso/visível em tela (NBC ITG 2000 item 12); toda CASCA de aplicativo (corpo, botão, campo, cabeçalho de tabela) é trabalho — DE-079 |
 | Espaço | Escala de espaçamento | Nada de medida solta: se precisa de um valor que não existe na escala, a escala está errada ou o desenho está |
+| Elevação (DL-044) | Sombra de superfície (repouso) e de botão (interação) | Só em componente de SUPERFÍCIE (botão, cartão, painel, tabela); nunca em texto nem para indicar estado sozinha — DE-079 |
 
 **Proibido**: cor, tamanho de fonte, raio ou espaçamento escrito direto em
 template ou em regra CSS de tela. Se o token não existe, crie o token.
@@ -394,6 +396,29 @@ próximo módulo seguir sem reabrir a discussão.
   dropdown de Contabilidade mostra "Escolha uma empresa" apontando para
   `empresas:lista` — nunca um item de tela que exigiria uma empresa
   inexistente.
+- **Adição (DL-044, referência Conta Azul, DE-080).** O grupo
+  "Relatórios" do dropdown (Diário/Razão/Balancete/Balanço) ganhou um
+  TERCEIRO caminho, aditivo: `contabilidade_web:relatorios`, uma tela-hub
+  com um cartão por relatório (ícone, descrição de uma linha, "Abrir") —
+  o Fred apontou especificamente o "botão para abrir relatório" como
+  "esquisito"; o cartão substitui esse ponto de entrada visual sem tirar
+  nenhum dos dois já existentes na época (dropdown, abas de
+  `_navegacao_empresa.html`).
+- **Remoção (DL-044, 4ª iteração, DE-081).** A redundância que o item
+  acima (DL-040, segunda passada) tinha reintroduzido DE PROPÓSITO —
+  "a mesma tela aparece tanto no dropdown quanto em
+  `_navegacao_empresa.html`" — passou a pesar mais que o benefício: "a
+  queixa central do Fred ('tudo junto num lugar só') continua: a linha de
+  abas repete EXATAMENTE os itens do submenu lateral" (arquiteto-senior).
+  `_navegacao_empresa.html` foi REMOVIDA (arquivo apagado, não só
+  escondida); os sete atalhos de teclado migraram para os sete itens
+  correspondentes do dropdown, que já existiam como link simples. Ver
+  DE-081 para a explicação guarda-por-guarda de como cada uma das cinco
+  guardas de acessibilidade (`test_dl024_atalhos_e_acessibilidade.py`) e
+  a varredura de diretório (`test_bl296_...py`, adaptada, não
+  enfraquecida) continuam protegendo a MESMA propriedade depois da
+  mudança. O parágrafo acima (DL-040) descreve a redundância como ela
+  EXISTIU entre a DL-040 e a DL-044 — histórico, não mais o estado atual.
 
 ### 8.1a Menu em telas estreitas (≤48rem)
 
@@ -442,11 +467,13 @@ própria acima do cabeçalho de contexto, que a barra superior não tinha
   `<details>` fechado) porque a impressão depende dele em telas sem
   timbre (ver 8.5 e o teste
   `test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada`).
-- `_navegacao_empresa.html` (os seis atalhos com `Alt+`) fica oculta
-  nesta largura — com o dropdown/gaveta agora completo (8.1), ela vira
-  redundante justamente na largura onde espaço é mais caro; os atalhos
-  de teclado continuam documentados e funcionando (não dependem de
-  estarem visíveis), só o texto/link visual some.
+- **Histórico, superado na DL-044 4ª iteração (DE-081):** esta régua
+  dizia que `_navegacao_empresa.html` ficava oculta em telas estreitas
+  por ser redundante com o dropdown/gaveta ali. A parcial foi REMOVIDA
+  (não só escondida) na 4ª iteração — a redundância que a motivava não
+  existe mais em largura NENHUMA, não só nesta. Os sete atalhos de
+  teclado vivem hoje só no dropdown (8.1), que já era exibido em
+  qualquer largura.
 
 ### 8.1b Largura do conteúdo em telas grandes
 
@@ -485,6 +512,42 @@ pelo §4.8.
   `aria-current="page"` — nunca um link para a página atual (mesma regra
   do item de menu ativo).
 
+### 8.2a Navegação entre relatórios de uma empresa — extinta na DL-044 (4ª iteração, DE-081)
+
+**Histórico, não mais o estado atual.** Entre a fase A e a 3ª iteração da
+DL-044, `_navegacao_empresa.html` (Plano de contas/Diário/Balancete/
+Conferência/Fechamento/Parâmetros contábeis/Novo lançamento, toda tela de
+`templates/contabilidade/`) era uma faixa de **abas** — traço de cor sob
+o item ATUAL, sem sublinhado nos demais (achado do Fred na 1ª rodada: "a
+navegação entre relatórios é uma linha de links sublinhados"). Na 4ª
+iteração, o arquiteto-senior mediu que essa faixa de abas repetia
+EXATAMENTE os itens que o submenu lateral (§8.1) já listava — "tudo junto
+num lugar só", a MESMA queixa do Fred, ainda não resolvida pela virada
+para aba. A parcial foi REMOVIDA (arquivo apagado); os sete atalhos de
+teclado migraram para os itens do submenu lateral — ver DE-081 para a
+explicação guarda-por-guarda de como a acessibilidade continua protegida.
+Navegação contextual dentro de uma empresa passou a ter UM lugar só: o
+submenu "Contabilidade" da barra lateral (§8.1). A trilha (§8.2) continua
+com o próprio tratamento visual.
+
+### 8.2b Navegação do Fiscal — extinta na DL-044 (Fase B, DE-084)
+
+**Mesma correção da 8.2a, um módulo depois.** `templates/fiscal/
+_navegacao.html` (Recepção/Documentos/Detalhe do documento/Relatório do
+envio) era a MESMA classe de redundância — uma faixa de abas
+(Recepção/Documentos) repetindo exatamente os itens que o submenu
+lateral "Fiscal" (§8.1) já listava (Enviar notas/Envios anteriores/
+Documentos). Diferente da 8.2a: a parcial do Fiscal não tinha nenhum
+`accesskey`/`kbd.tecla` para migrar (o próprio arquivo já registrava
+isso, "sem tempo desta etapa para escolher a letra certa" — nunca foi
+resolvido, só ficou sem atalho), então a correção foi mais simples —
+só remover os quatro `{% include %}`.
+
+**O arquivo também foi apagado**, como na Contabilidade (DE-081). A
+exclusão tinha sido negada pelo mecanismo de permissão da sessão que fez a
+correção; o arquivo ficou órfão até o Fred autorizar, em 2026-09-26, e foi
+então apagado pelo `arquiteto-senior` (adendo da DE-084).
+
 ### 8.3 Cabeçalho de página
 
 Título (`<h1>` único), contexto (quando houver — empresa, competência) e
@@ -497,15 +560,138 @@ ao lado do título, porque ali o título É parte do papel impresso
 (`titulo_sufixo_do_fornecedor`, `templates/base.html`) e ações de tela
 (botões) já são ocultadas na impressão por regra própria.
 
-### 8.4 Botão de ação — três tons, nunca mais
+**Revisão (DL-044, referência Conta Azul, DE-080).** `.cabecalho-pagina`
+virou CARTÃO branco com sombra (`--papel-elevado` + `--sombra-cartao`) —
+antes era só uma linha divisória sobre o mesmo fundo da página. Ganhou
+também `.cabecalho-pagina__titulo` (coluna com `<h1>` + subtítulo de
+CONTEXTO, `.cabecalho-pagina__subtitulo`) para o Início parar de repetir
+"Escritório ativo: ..." como TÍTULO (já aparece na faixa de identificação
+do topo) — o título vira sempre "Início", e o escritório é subtítulo.
+
+**Revisão (DL-044, 4ª iteração).** A moldura acima (`.cabecalho-pagina`,
+DENTRO de `{% block content %}`) continua existindo — é o padrão para
+tela ainda não migrada. Para a tela MIGRADA, o título e a ação principal
+saem de `{% block content %}` e entram em dois blocos novos, DENTRO da
+faixa de identificação do topo (`templates/base.html`, `.cabecalho`):
+`{% block titulo_pagina %}` (esquerda) e `{% block acoes_pagina %}`
+(direita, ao lado das pílulas de contexto) — a referência Conta Azul
+("faixa branca do topo com o título à esquerda e as pílulas + ação à
+direita") pedia os DOIS elementos na MESMA faixa, não um embaixo do
+outro. Os dois blocos são VAZIOS por padrão — uma tela sem título
+migrado não ganha coluna de título ali, só a faixa de pílulas de sempre.
+Migradas nesta rodada: Início, Novo lançamento, Relatórios, Zerar
+resultado — cada uma removeu o `.cabecalho-pagina` local, que ficaria
+repetindo o título duas vezes (achado do arquiteto-senior, com exemplo:
+"em Novo lançamento o título 'Novo lançamento — Empresa' repete a
+pílula da empresa"). Balancete NÃO migrou — ver DE-080/adenda 4ª
+iteração para o motivo (risco de densidade, BL-284).
+
+**Revisão (DL-044, Fase B — Fred aprovou a direção visual, "Aprovado
+pode prosseguir"; arquiteto-senior autorizou espalhar o padrão para as
+telas ainda não tocadas).** Migradas: todas as 13 telas de Contabilidade
+(Plano de contas, Nova conta, Diário, Razão, **Balancete** — agora sim,
+ver abaixo —, Balanço, Conferência, Fechamento, Fechar/Reabrir/Marcar
+como entregue competência, Detalhe do lançamento, Parâmetros contábeis),
+Recepção fiscal, Documentos fiscais, Detalhe do documento, Relatório do
+envio, Empresas (lista, nova, sem escritório ativo). Mesmo critério da 4ª
+iteração para decidir se o nome da empresa sai do título: tela ATIVA cujo
+título só repetia a pílula "Empresa" perde a razão social do título
+(Plano de contas, Diário, Conferência, Fechamento, Nova conta, Parâmetros
+contábeis); tela de CONFIRMAÇÃO sensível (arquétipo E — Fechar/Reabrir/
+Entregar competência) MANTÉM o mês/ano no título mesmo repetindo a
+pílula "Competência" — reforço de risco deliberado, registrado em cada
+template, não um esquecimento da regra geral.
+
+**Balancete migrou nesta rodada — BL-284 medido, não regrediu.** O
+instrumento que faltava na 4ª iteração (`§4.8` já pedia "rodar a medição
+antes de fechar etapa que mexa na altura acima da primeira linha") foi
+escrito para esta rodada: 1280×900, período filtrado, mesmo método
+(linha inteiramente visível). Resultado: **7 linhas visíveis ANTES e
+DEPOIS** da migração do cabeçalho (nenhuma regressão), com o topo da
+primeira linha 11,6px mais alto. O número 7 já é menor que o piso
+histórico da tabela do item 8 (10 linhas, "com período filtrado") — mas
+essa diferença é efeito da MOLDURA (sidebar + trilha + faixa de contexto
+da DL-042/DL-044, chrome que não existia quando o piso de 10 foi medido
+originalmente), não desta migração específica, que por si só não perdeu
+nem ganhou linha nenhuma.
+
+**Documentos imprimíveis (Diário, Razão, Balancete, Balanço): migrados
+sem regredir a identificação do emitente.** `.cabecalho` (onde
+`titulo_pagina` agora vive) continua visível em `@media print` — só
+`.barra-lateral`/`.formulario-periodo`/`.trilha`/`button` somem do papel
+—, então o título migrado continua saindo no documento impresso.
+Verificado com `scripts/medir_identificacao_do_emitente.py` contra um
+banco descartável local, ANTES e DEPOIS da migração: as 4 telas com
+timbre continuam "PASSOU" (RC-97), e o Balanço (classe 2, item 51 da NBC
+TG 26, RC-95) também.
+
+**Achado à parte desta rodada, corrigido: `.botao--primario` como `<a>`
+saía com o texto da MESMA cor do fundo quando morava dentro de
+`.area-principal`.** `.barra-lateral ~ .area-principal a { color:
+var(--app-acento) }` (0-2-1, regra de "link de prosa usa o azul do app",
+3ª iteração) sempre vencia `.botao--primario { color:
+var(--app-acento-texto) }` (0-1-0) — mesma classe de defeito de
+especificidade que `.valor-monetario`/`.cabecalho-numerico` já tinham
+sofrido antes, aqui com efeito pior (botão inteiro sem rótulo legível,
+retângulo azul sólido). Medido: **pré-existente** em `empresas/
+lista.html` ("Nova empresa") e `tenancy/painel.html` ("Criar o primeiro
+escritório") — não introduzido por esta etapa, só nunca antes medido com
+`getComputedStyle` (a captura de tela mostrava um botão azul sólido,
+fácil de não notar como texto ausente numa inspeção visual rápida).
+Corrigido com `:not(.botao)` na regra geral de cor de link — a regra
+geral simplesmente PARA de casar com qualquer link `.botao`, então cada
+`.botao--*`/`.botao--*:hover` continua sendo a única fonte de cor para
+si mesmo, sem reabrir a disputa de especificidade a cada tom novo.
+
+### 8.3a Início: indicadores, ações rápidas, módulos e carteira (DL-044, DE-080)
+
+O Início deixou de ser só a fila de atenção (DL-042): ganhou, nesta
+ordem, uma faixa de INDICADORES (números grandes e clicáveis — empresas
+ativas, competências atrasadas, envios com recusa, notas canceladas, cada
+um filtrado pela MESMA permissão de domínio que a fila já aplicava),
+AÇÕES RÁPIDAS (botões — nunca link solto — para Novo lançamento, Receber
+NFS-e, Cadastrar empresa, cada um só quando o papel já teria acesso à
+tela de destino), tiles de MÓDULO (Contabilidade/Fiscal/Empresas
+clicáveis; Folha/Honorários "Planejado", sem link, mesma palavra e mesmo
+estado que a landing pública já usa — nunca "em breve" escondendo o que
+não existe) e a tabela "Empresas da carteira" (CNPJ/CPF, escrituração,
+última competência fechada, pendências, ação "Abrir" — atrás de
+`papel_pode_ler_contabilidade`, a mesma classe de conteúdo operacional
+que a fila já restringe). A fila de atenção continua por último, com
+âncora `#fila-de-atencao` que os indicadores usam como destino. Nenhum
+dos quatro blocos novos introduz consulta proporcional ao número de
+empresas — ver DE-080 para o detalhe de cada consulta.
+
+### 8.4 Botão de ação — quatro tons, nunca mais
+
+**Correção (DL-044):** este título dizia "três tons, nunca mais" desde a
+DL-040, mas `.botao--fantasma` (quarto tom) existe desde a DL-042 — o
+título não tinha sido atualizado quando o tom novo entrou. Corrigido aqui,
+junto da revisão de profundidade/estado (abaixo), para não deixar a mesma
+classe de defeito (afirmação que já foi desmentida) se repetir.
 
 `.botao--primario` (ação principal — mesmo visual do `<button>` padrão),
-`.botao--secundario` (ação alternativa — "Voltar", trocar contexto) e
+`.botao--secundario` (ação alternativa — "Voltar", trocar contexto),
 `.botao--perigoso` (ação sensível — reabrir competência, marcar como
-entregue). O TOM é reforço; o texto do botão já nomeia a consequência
-("Reabrir competência 09/2026", nunca só "Confirmar") — mesma regra do
-arquétipo E (§2) aplicada ao próprio rótulo do botão, não só ao texto ao
-redor dele.
+entregue) e `.botao--fantasma` (ação de MENOR ênfase ao lado de uma
+primária que já domina a tela — "Limpar filtros"). O TOM é reforço; o
+texto do botão já nomeia a consequência ("Reabrir competência 09/2026",
+nunca só "Confirmar") — mesma regra do arquétipo E (§2) aplicada ao
+próprio rótulo do botão, não só ao texto ao redor dele.
+
+**Profundidade e estado (DL-044, achado do Fred: "os botões [...] tá
+parecendo um botão de link").** Todo botão (os quatro tons, e o
+`<button>` nativo sem classe, que é o tom primário por padrão) tem sombra
+rasa em repouso (`--sombra-botao`) — exceto `.botao--fantasma`, o único
+tom sem sombra por desenho (é o de MENOR ênfase da escala). Os quatro
+estados, sempre visíveis: repouso (sombra rasa), `:hover` (sombra mais
+funda, `--sombra-botao-hover`), `:active`/pressionado (achatado — sem
+sombra, um passo visual para baixo) e `:disabled`/`[aria-disabled]`
+(opaco, sem sombra, cursor "não permitido"). O FOCO continua vindo da
+regra global de foco visível (§4, critério 4 — nunca duplicada por
+componente). Raio de `--raio-superficie` (maior que o raio quase-nulo de
+campo de formulário, `--raio`) — pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md).
 
 ### 8.4a Menu "Conta" (DL-040, segunda passada; reposicionado na DL-042)
 
@@ -529,6 +715,71 @@ que é o estado padrão. Não há hoje tela de "Configurações" nem
 "Convites" no produto (mapa-de-telas.md confirma: `tenancy:
 emitir-convite` não tem template) — o menu Conta não lista itens que
 não existem.
+
+### 8.4b Ações de linha de tabela — nunca link solto (DL-044, Fase B, DE-084)
+
+**Achado do Fred, de novo:** "'Balancete · Plano de contas · Lançar' [...]
+exatamente o 'botão parece link' [que eu já tinha reclamado]." Uma
+CÉLULA de ação, numa linha de tabela, segue a MESMA regra do §8.4 —
+nunca um link solto, mesmo dentro de uma célula estreita — escolhida
+pelo NÚMERO de ações da linha:
+
+- **Duas ações** (Fechamento: Fechar+Zerar resultado; Reabrir+Marcar
+  como entregue): dois `.botao--secundario.botao--pequeno` lado a
+  lado, dentro de `.acoes-de-linha` (flex, `gap` pequeno, alinhado à
+  esquerda — é célula de tabela, não rodapé de formulário, que usa
+  `.acoes-formulario`, alinhado à direita). Um menu para só duas
+  opções é mais clique que ajuda.
+- **Três ou mais ações, sem uma "principal" natural** (Empresas:
+  Balancete/Plano de contas/Lançar/Continuar aqui): um botão "Abrir"
+  — o destino mais comum, reaproveitando uma escolha JÁ feita em outro
+  lugar do produto (Início → Empresas da carteira, também "Abrir" →
+  Plano de contas — nunca uma escolha nova só para esta tela) — mais
+  um menu "Ações ▾" (`.menu-acoes`) para o resto.
+
+**`.menu-acoes`: `<details>`/`<summary>` nativo, sem JavaScript** — MESMA
+restrição do menu de módulo (§8.1, R6 da direção: "JavaScript é
+enfeite"), num componente menor: sem grupo, sem `accesskey` (letras
+livres já escassas — mesmo raciocínio da 8.2b sobre a antiga parcial do
+Fiscal), painel `position: absolute` que flutua por cima do resto da
+tabela sem empurrar a linha vizinha. O caret (▾/▴) é um GLIFO DE TEXTO
+(`content` do `::after`), nunca um triângulo desenhado em borda com
+medida própria — a varredura de interface reprova `px`/`em`/`rem`
+literal em QUALQUER propriedade fora do `:root` (`test_nenhuma_medida_
+literal_fora_dos_tokens`), e um triângulo em CSS puro precisa de
+`width`/`height`/`transform` com medida literal para funcionar. Um
+glifo evita a disputa inteira.
+
+### 8.4c Tabela, filtro e estado vazio — superfície branca (DL-044, Fase B, DE-084)
+
+**Achado do Fred: "as linhas da tabela ficam transparentes sobre o
+fundo cinza-azulado — parece solto, diferente do Início."** Desde a 3ª
+iteração da fase A, `.area-principal` (dentro do app logado) tem fundo
+cinza-azulado (`--app-fundo`) — mas `.tabela-dados` e
+`.formulario-periodo` nunca tinham `background` PRÓPRIO: só o
+cabeçalho da tabela e o `:hover` da linha pintavam alguma coisa; o
+resto herdava o fundo do ancestral mais próximo com cor, que passou a
+ser cinza-azulado a partir daquela iteração. Corrigido com `background:
+var(--papel-elevado)` (branco) nas duas classes BASE — efeito em TODA
+tabela e TODO filtro de período do produto de uma vez, não por tela.
+
+**Estado vazio ganhou componente próprio, `.estado-vazio`:** cartão
+branco (mesma linguagem de `.painel-etapa`), ícone decorativo, título,
+descrição e o botão PRIMÁRIO da ação que tira a tela do vazio (ou
+secundário, quando o vazio é por FILTRO — a informação pode existir,
+só não bate com o filtro; "Limpar filtros" é a saída, não criar dado
+novo). Primeiro uso: Documentos fiscais ("Nenhum documento fiscal
+recebido ainda" virou texto solto → cartão desenhado).
+
+**`.cartao-tabela`: cabeçalho de cartão para legenda/texto de apoio de
+UMA tabela específica** — não um padrão para toda tabela do produto.
+Primeiro (e único, até esta rodada) uso: a legenda "Peso maior indica
+conta sintética..." do Plano de contas, que estava minúscula e colada
+acima da tabela — migrou para dentro de `.cartao-tabela__cabecalho`,
+no MESMO cartão da tabela (a tabela nested perde a própria borda/
+sombra/margem, para não desenhar dois cartões empilhados). Usar este
+padrão numa tabela nova é decisão caso a caso — a maioria das tabelas
+do produto não tem legenda para justificar um cabeçalho de cartão.
 
 ### 8.5 Impressão
 

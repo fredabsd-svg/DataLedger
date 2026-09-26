@@ -13,7 +13,6 @@ test_pagina_real_balancete_nao_fecha_com_totais_forcados`).
 {% block trilha %}{% endblock %}
 
 {% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" rotulo_generico=True %}
     <h1>Emissão do Balancete recusada</h1>
     <p>O Balancete não foi emitido. Corrija a divergência indicada e tente novamente.</p>
     {% comment %}
