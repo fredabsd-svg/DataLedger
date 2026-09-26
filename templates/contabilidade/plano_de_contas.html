@@ -41,38 +41,48 @@ mesma regra de servidor de antes, só reposicionada.
         classe `.conta-sintetica` do Balancete — ver o comentário completo
         lá. Aqui "aceita lançamento" já é a própria coluna exibida mais
         abaixo; a classe só faz o peso tipográfico seguir o mesmo dado.
+
+        DL-044 (Fase B, achado do Fred: "a legenda está minúscula e
+        colada na tabela — mova para o cabeçalho do cartão"): a legenda
+        migra para dentro de `.cartao-tabela__cabecalho` — texto de
+        apoio, mas agora no cabeçalho de UM cartão só com a tabela
+        (`.cartao-tabela`, static/css/base.css), não solta acima dela.
         {% endcomment %}
-        <p class="texto-apoio">
-            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
-            indica conta analítica (aceita lançamento).
-        </p>
-        <table class="tabela-dados">
-            <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
-            <thead>
-                <tr>
-                    <th scope="col">Nível</th>
-                    <th scope="col">Código</th>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Tipo</th>
-                    <th scope="col">Natureza</th>
-                    <th scope="col">Aceita lançamento</th>
-                    <th scope="col">Situação</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for linha in linhas %}
+        <div class="cartao-tabela">
+            <div class="cartao-tabela__cabecalho">
+                <p class="texto-apoio">
+                    Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+                    indica conta analítica (aceita lançamento).
+                </p>
+            </div>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
+                <thead>
                     <tr>
-                        <td>{{ linha.nivel|default:"—" }}</td>
-                        <td>{{ linha.conta.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
-                        <td>{{ linha.conta.get_tipo_display }}</td>
-                        <td>{{ linha.conta.get_natureza_display }}</td>
-                        <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
-                        <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                        <th scope="col">Nível</th>
+                        <th scope="col">Código</th>
+                        <th scope="col">Nome</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Aceita lançamento</th>
+                        <th scope="col">Situação</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.nivel|default:"—" }}</td>
+                            <td>{{ linha.conta.codigo }}</td>
+                            <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
+                            <td>{{ linha.conta.get_tipo_display }}</td>
+                            <td>{{ linha.conta.get_natureza_display }}</td>
+                            <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
+                            <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
         <p>
             Esta empresa ainda não tem nenhuma conta cadastrada.

@@ -11,9 +11,13 @@ topo — mesmo padrão das demais telas ativas.
     <a class="botao botao--secundario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B, achado do Fred: "a mesma redundância da Contabilidade" —
+DE-081): a navegação em abas do Fiscal (`fiscal/_navegacao.html`)
+repetia EXATAMENTE os itens que o submenu lateral "Fiscal" já lista —
+removida daqui. Ver DE-083 para o detalhe completo.
+{% endcomment %}
 {% block content %}
-    {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
-
     {% comment %}
     Arquétipo A (tabela de consulta, direção de arte §2.A): filtro não come
     a tela — um formulário compacto, uma linha, antes da tabela. `action`
@@ -23,7 +27,18 @@ topo — mesmo padrão das demais telas ativas.
     própria URL) — aqui não há contrato de corpo (é GET), mas o cuidado com
     `action` evita acumular parâmetro velho de uma consulta anterior.
     {% endcomment %}
-    <form method="get" action="{% url 'fiscal_web:documentos_lista' %}" class="formulario-periodo">
+    {% comment %}
+    DL-044 (Fase B, achado do Fred: "o cartão de filtro do Fiscal está
+    cinza sobre cinza [...] rótulos acima dos campos, grade alinhada").
+    `.formulario-periodo` (agora com fundo branco/sombra própria, ver
+    static/css/base.css) ganha o modificador `--rotulo-acima`: quatro
+    campos heterogêneos (dois selects, dois textos) leem melhor com o
+    rótulo em cima de cada um (grade uniforme) do que ao lado (BL-277,
+    pensado para DUAS datas só) — ver o comentário completo do
+    modificador em base.css.
+    {% endcomment %}
+    <form method="get" action="{% url 'fiscal_web:documentos_lista' %}"
+          class="formulario-periodo formulario-periodo--rotulo-acima">
         <div class="campo">
             <label for="id_empresa">Empresa</label>
             <select id="id_empresa" name="empresa">
@@ -118,8 +133,36 @@ topo — mesmo padrão das demais telas ativas.
         </table>
         {% include "fiscal/_paginacao.html" %}
     {% elif algum_filtro_ativo %}
-        <p>Nenhum documento encontrado com estes filtros.</p>
+        {% comment %}
+        DL-044 (Fase B, achado do Fred: "desenhe o estado vazio"):
+        `.estado-vazio` (static/css/base.css) — mesmo componente do
+        estado "sem filtro", ação diferente: aqui a saída é limpar o
+        filtro, não enviar documento (já existe filtro ativo, então a
+        empresa PODE ter documento — só não bate com o filtro).
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum documento encontrado com estes filtros.</strong></p>
+            <p class="estado-vazio__descricao">
+                Tente ampliar o período ou trocar a empresa/situação filtrados.
+            </p>
+            <a class="botao botao--secundario" href="{% url 'fiscal_web:documentos_lista' %}">Limpar filtros</a>
+        </div>
     {% else %}
-        <p>Nenhum documento fiscal recebido ainda neste escritório. Use a <a href="{% url 'fiscal_web:recepcao' %}">Recepção</a> para enviar o primeiro.</p>
+        {% comment %}
+        DL-044 (Fase B, achado do Fred: "'Nenhum documento fiscal
+        recebido...' é texto solto [...] cartão branco, ícone, frase,
+        botão primário 'Enviar documentos'"). O texto "Nenhum documento
+        fiscal recebido ainda" precisa continuar literal — é o que
+        apps/fiscal/tests/test_telas_dl010_f1.py verifica.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum documento fiscal recebido ainda neste escritório.</strong></p>
+            <p class="estado-vazio__descricao">
+                Envie o primeiro XML de NFS-e (ou um ZIP com vários) pela Recepção.
+            </p>
+            <a class="botao botao--primario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
+        </div>
     {% endif %}
 {% endblock %}

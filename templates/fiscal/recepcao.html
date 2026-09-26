@@ -10,9 +10,13 @@ preservado — é o alvo do link "Enviar notas" do menu lateral.
 {% endcomment %}
 {% block titulo_pagina %}<h1 id="enviar">Recepção de documentos fiscais</h1>{% endblock %}
 
+{% comment %}
+DL-044 (Fase B, achado do Fred: "a mesma redundância da Contabilidade" —
+DE-081): a navegação em abas do Fiscal (`fiscal/_navegacao.html`)
+repetia EXATAMENTE os itens que o submenu lateral "Fiscal" já lista —
+removida daqui. Ver DE-083 para o detalhe completo.
+{% endcomment %}
 {% block content %}
-    {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
-
     {% comment %}
     DL-040 (v2): `id="enviar"` no h1 e `id="envios-anteriores"` no h2 de
     baixo — âncoras que o dropdown "Fiscal" do menu principal

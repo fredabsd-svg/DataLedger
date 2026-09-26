@@ -4480,6 +4480,16 @@ antes desta etapa — achado registrado aqui para quem revisar decidir
 se vale abrir uma tarefa própria (com a permissão de exclusão
 concedida) para repetir o padrão da DE-081 no Fiscal.
 
+⚠️ **SUPERADA no retorno seguinte do arquiteto-senior sobre este mesmo
+lote — ver DE-084.** Ele reverteu esta decisão: "você tem permissão
+para EDITAR os templates: remova os `{% include %}`... NÃO tente apagar
+o arquivo `_navegacao.html` por nenhum outro meio". A avaliação do item
+1 (acima, "fora do pedido explícito") deixou de valer assim que o
+pedido passou a ser explícito, no retorno seguinte. O raciocínio sobre
+a permissão negada (item 2) continua correto e a mesma trava se aplicou
+de novo — só que desta vez SEM bloquear a remoção do `{% include %}`,
+que é uma edição de template, não uma exclusão de arquivo.
+
 **Achado de instrumentação, registrado para quem for medir antes/depois
 de novo:** o Django 6.1 deste projeto envolve os carregadores de
 template em `django.template.loaders.cached.Loader` **mesmo com
@@ -4522,3 +4532,144 @@ de negócio, cálculo ou permissão — título migrado, ação primária
 reposicionada e um bug de cor de botão corrigido, todos apresentação. A
 navegação em abas do Fiscal fica como está, por decisão explícita (acima),
 não por esquecimento.
+
+## DE-084 — Retorno sobre o lote 1/2: superfície de tabela, ações como botão, filtro em cartão, estado vazio, abas do Fiscal, legenda do cartão
+
+Revisão do arquiteto-senior sobre as capturas de Plano de contas,
+Fechamento, Fiscal documentos e Empresas lista (lotes 1 e 2, DE-083) —
+seis achados do Fred, endereçados no mesmo worktree, antes de seguir
+para o lote 3 (Tenancy e telas de erro).
+
+**1. Tabelas sem superfície.** `.tabela-dados td`/`th` nunca tinham
+`background` PRÓPRIO na tabela — só `th` (`--app-superficie-alt`) e
+`:hover` (mesma cor). A linha comum herdava o fundo do ancestral mais
+próximo com `background`, que — dentro de `.barra-lateral ~
+.area-principal` (3ª iteração da fase A) — é o cinza-azulado do app,
+não branco. "Parece solto, diferente do Início" era exatamente esse
+efeito: borda e sombra desenhavam uma moldura, mas o miolo ficava
+transparente contra o fundo. Corrigido com um `background:
+var(--papel-elevado)` só, no seletor `.tabela-dados` — cobre toda
+célula sem `background` próprio de uma vez (é assim que fundo de
+tabela HTML funciona), sem precisar de regra por linha nem por tela.
+Efeito em TODA tabela do produto, não só nas quatro capturadas.
+
+**2. Ações de linha como links** ("Balancete · Plano de contas ·
+Lançar" em Empresas; "Fechar · Zerar resultado" / "Reabrir · Marcar
+como entregue" em Fechamento) — a mesma classe de "botão parece link"
+que o Fred já tinha apontado na fase A, agora encontrada nas tabelas
+de listagem. Duas soluções, escolhidas pelo NÚMERO de ações por linha:
+
+- **Empresas (3-4 ações, sem uma "principal" natural entre elas):**
+  "Abrir" — botão `.botao--secundario.botao--pequeno`, mesmo destino
+  (Plano de contas) que "Abrir" já usa em Início → Empresas da
+  carteira (`apps.tenancy.views._empresas_da_carteira`, `url_abrir`) —
+  não uma escolha nova, o mesmo padrão já aprovado numa tela irmã. As
+  demais ações (Balancete, Lançar, e "Continuar aqui" quando
+  aplicável) ficam num menu "Ações ▾" — componente novo, `.menu-acoes`
+  (`static/css/base.css`): `<details>`/`<summary>` nativo, SEM
+  JavaScript, painel `position: absolute` que flutua por cima da
+  tabela sem "empurrar" a linha vizinha. Glifo do caret é um GLIFO DE
+  TEXTO (`▾`/`▴`, `content` do `::after`), não um triângulo desenhado
+  em borda com medida literal — decisão que evitou reabrir a mesma
+  disputa de especificidade/medida literal que `.valor-monetario`/
+  `.cabecalho-numerico` já causaram nesta etapa (a varredura de
+  interface, `test_nenhuma_medida_literal_fora_dos_tokens`, reprova
+  QUALQUER `px`/`em`/`rem` literal fora do `:root`, em qualquer
+  propriedade — confirmado rodando a suíte depois de escrever o
+  componente, 175 checagens passando).
+- **Fechamento (no máximo DUAS ações por linha):** dois
+  `.botao--secundario.botao--pequeno` lado a lado
+  (`.acoes-de-linha`, novo utilitário — mesma ideia de
+  `.acoes-formulario`, mas alinhado à esquerda e com o gap menor de
+  `.botao--pequeno`, por ser célula de tabela, não rodapé de
+  formulário). SEM menu — pedido explícito do arquiteto-senior: "menu
+  de duas opções é mais clique que ajuda".
+
+Testes de texto exato (`apps/contabilidade/tests/
+test_dl031_fechamento_de_competencia.py`, que verificam `">Fechar<"`,
+`">Reabrir<"`, `">Marcar como entregue<"` no HTML) continuam passando —
+a marcação dos botões preserva o texto entre `>`/`<` sem espaço extra
+dentro da tag.
+
+**3. Filtro cinza sobre cinza (Fiscal).** `.formulario-periodo` (a
+classe COMPARTILHADA com os filtros de período de Diário/Razão/
+Balancete/Balanço) nunca tinha `background` próprio — mesma causa-raiz
+do achado 1, um componente diferente. Corrigido com `background:
+var(--papel-elevado)` + `box-shadow: var(--sombra-cartao)` na classe
+BASE — efeito em TODOS os filtros de período do produto, não só o do
+Fiscal. Separadamente, o Fiscal ganhou um MODIFICADOR próprio
+(`.formulario-periodo--rotulo-acima`): quatro campos heterogêneos
+(Empresa/Ano/Mês/Situação — dois selects, dois textos) leem melhor com
+o rótulo ACIMA do campo (grade uniforme) do que ao lado — o
+rótulo-ao-lado (BL-277) foi pensado para DUAS datas, campos do MESMO
+tipo, e não generaliza bem para quatro campos de tipos diferentes. O
+modificador é mais específico (0-3-0) que a regra de rótulo-ao-lado
+(0-2-0) e SÓ se aplica quando as duas classes estão juntas no mesmo
+`<form>` — Diário/Razão/Balancete/Balanço, sem o modificador, continuam
+com rótulo-ao-lado, decisão de densidade já medida e aprovada (BL-277)
+que esta correção não reabre.
+
+**4. Estado vazio como texto solto.** "Nenhum documento fiscal recebido
+ainda..." virou `.estado-vazio` — componente novo: cartão branco
+(mesma linguagem de `.painel-etapa`), ícone decorativo (reaproveita
+`#icone-fiscal`, já existente no sprite — nenhum ícone novo), título,
+descrição e o botão PRIMÁRIO da ação que tira a tela do vazio. Dois
+usos na mesma tela: "nenhum documento no escritório" (botão primário
+"Enviar documentos") e "nenhum documento com estes filtros" (botão
+secundário "Limpar filtros" — a empresa PODE ter documento, só não
+bate com o filtro; não é o mesmo convite de ação que o vazio total).
+O texto literal `"Nenhum documento fiscal recebido ainda"` foi
+preservado — é o que `apps/fiscal/tests/test_telas_dl010_f1.py`
+verifica.
+
+**5. Abas do Fiscal — mesma redundância da Contabilidade, agora com
+permissão para editar.** Ver a nota "SUPERADA" na DE-083, acima: o
+arquiteto-senior reverteu a decisão anterior e autorizou remover os
+`{% include "fiscal/_navegacao.html" %}` das quatro telas (Recepção,
+Documentos, Detalhe do documento, Relatório do envio) — a navegação
+contextual do Fiscal passa a ter UM lugar só, o submenu lateral
+"Fiscal" (que já lista Enviar notas/Envios anteriores/Documentos, sem
+precisar de nenhum acréscimo: nenhum `accesskey` existia na parcial
+extinta, ao contrário do caso da Contabilidade/DE-081, que teve sete
+para migrar). **O arquivo `templates/fiscal/_navegacao.html` em si NÃO
+foi apagado** — a instrução foi explícita: "NÃO tente apagar o arquivo
+[...] por nenhum outro meio [...] a exclusão foi negada na sua sessão e
+eu vou pedir autorização ao Fred". O arquivo fica ÓRFÃO (nenhuma tela
+o inclui mais), com um aviso no topo do próprio arquivo explicando a
+situação para quem o encontrar. **Guardas verificadas, sem redução de
+cobertura:** nenhum teste automatizado (`apps/fiscal/tests/`,
+`apps/core/tests/test_dl024_*`) referenciava `fiscal/_navegacao.html`,
+a classe `.navegacao-empresa` (neste contexto) ou a variável
+`pagina_atual` da parcial — confirmado por busca antes de remover os
+`{% include %}`; a suíte completa depois da remoção continua verde.
+`docs/projeto/mapa-de-telas.md` atualizado (as duas células que citavam
+`_navegacao.html (fiscal)` como caminho de navegação agora apontam só
+para o submenu lateral, com a nota de que o arquivo é órfão).
+
+**6. Legenda do Plano de contas minúscula e colada na tabela.** "Peso
+maior indica conta sintética..." migrou de um `<p class="texto-apoio">`
+solto, imediatamente acima da tabela, para dentro de
+`.cartao-tabela__cabecalho` — um componente novo, `.cartao-tabela`:
+cartão com uma faixa de CABEÇALHO e a tabela abaixo, dentro da MESMA
+superfície (a tabela nested perde a própria borda/sombra/margem, para
+não desenhar dois cartões empilhados). `overflow: hidden` no wrapper só
+recorta os cantos arredondados — sem altura fixa, não cria contexto de
+rolagem novo, então `position: sticky` do cabeçalho da tabela continua
+colando contra a rolagem da PÁGINA, verificado no Plano de contas
+(primeiro e único uso desta rodada — não aplicado a toda tabela do
+produto, mudança maior que este achado específico não pedia).
+
+**Testado:** suíte completa, 2827 passed, 45 skipped, 2 failed (as
+mesmas duas falhas pré-existentes e sem relação de sempre). Suítes
+isoladas de fiscal/empresas/contabilidade (656 + 1213 + testes
+específicos) sem nenhuma falha nova. A varredura de interface (175
+checagens, inclusive as de medida literal e cor fora dos tokens) verde
+depois de cada componente novo. `ruff check`/`ruff format --check`
+limpos.
+
+**Consequência aceita:** nenhuma das seis correções mudou regra de
+negócio, cálculo ou permissão — as seis são CSS/template/apresentação.
+A remoção das abas do Fiscal é a única mudança ESTRUTURAL desta rodada
+(menos marcação por tela), e mesmo essa não toca em nenhuma rota, view
+ou permissão — só a moldura de navegação, que o submenu lateral já
+cobria por inteiro.

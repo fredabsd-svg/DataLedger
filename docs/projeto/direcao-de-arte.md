@@ -530,6 +530,27 @@ Navegação contextual dentro de uma empresa passou a ter UM lugar só: o
 submenu "Contabilidade" da barra lateral (§8.1). A trilha (§8.2) continua
 com o próprio tratamento visual.
 
+### 8.2b Navegação do Fiscal — extinta na DL-044 (Fase B, DE-084)
+
+**Mesma correção da 8.2a, um módulo depois.** `templates/fiscal/
+_navegacao.html` (Recepção/Documentos/Detalhe do documento/Relatório do
+envio) era a MESMA classe de redundância — uma faixa de abas
+(Recepção/Documentos) repetindo exatamente os itens que o submenu
+lateral "Fiscal" (§8.1) já listava (Enviar notas/Envios anteriores/
+Documentos). Diferente da 8.2a: a parcial do Fiscal não tinha nenhum
+`accesskey`/`kbd.tecla` para migrar (o próprio arquivo já registrava
+isso, "sem tempo desta etapa para escolher a letra certa" — nunca foi
+resolvido, só ficou sem atalho), então a correção foi mais simples —
+só remover os quatro `{% include %}`.
+
+**Diferença do caso da Contabilidade: o arquivo NÃO foi apagado.** A
+DE-081 apagou `_navegacao_empresa.html` do repositório; aqui, a
+exclusão foi negada pelo mecanismo de permissão da sessão que fez a
+correção — `templates/fiscal/_navegacao.html` continua no repositório,
+ÓRFÃO (nenhuma tela o inclui), com um aviso no topo do próprio arquivo.
+Pendência registrada em DE-084, a fechar quando a exclusão for
+autorizada.
+
 ### 8.3 Cabeçalho de página
 
 Título (`<h1>` único), contexto (quando houver — empresa, competência) e
@@ -697,6 +718,71 @@ que é o estado padrão. Não há hoje tela de "Configurações" nem
 "Convites" no produto (mapa-de-telas.md confirma: `tenancy:
 emitir-convite` não tem template) — o menu Conta não lista itens que
 não existem.
+
+### 8.4b Ações de linha de tabela — nunca link solto (DL-044, Fase B, DE-084)
+
+**Achado do Fred, de novo:** "'Balancete · Plano de contas · Lançar' [...]
+exatamente o 'botão parece link' [que eu já tinha reclamado]." Uma
+CÉLULA de ação, numa linha de tabela, segue a MESMA regra do §8.4 —
+nunca um link solto, mesmo dentro de uma célula estreita — escolhida
+pelo NÚMERO de ações da linha:
+
+- **Duas ações** (Fechamento: Fechar+Zerar resultado; Reabrir+Marcar
+  como entregue): dois `.botao--secundario.botao--pequeno` lado a
+  lado, dentro de `.acoes-de-linha` (flex, `gap` pequeno, alinhado à
+  esquerda — é célula de tabela, não rodapé de formulário, que usa
+  `.acoes-formulario`, alinhado à direita). Um menu para só duas
+  opções é mais clique que ajuda.
+- **Três ou mais ações, sem uma "principal" natural** (Empresas:
+  Balancete/Plano de contas/Lançar/Continuar aqui): um botão "Abrir"
+  — o destino mais comum, reaproveitando uma escolha JÁ feita em outro
+  lugar do produto (Início → Empresas da carteira, também "Abrir" →
+  Plano de contas — nunca uma escolha nova só para esta tela) — mais
+  um menu "Ações ▾" (`.menu-acoes`) para o resto.
+
+**`.menu-acoes`: `<details>`/`<summary>` nativo, sem JavaScript** — MESMA
+restrição do menu de módulo (§8.1, R6 da direção: "JavaScript é
+enfeite"), num componente menor: sem grupo, sem `accesskey` (letras
+livres já escassas — mesmo raciocínio da 8.2b sobre a antiga parcial do
+Fiscal), painel `position: absolute` que flutua por cima do resto da
+tabela sem empurrar a linha vizinha. O caret (▾/▴) é um GLIFO DE TEXTO
+(`content` do `::after`), nunca um triângulo desenhado em borda com
+medida própria — a varredura de interface reprova `px`/`em`/`rem`
+literal em QUALQUER propriedade fora do `:root` (`test_nenhuma_medida_
+literal_fora_dos_tokens`), e um triângulo em CSS puro precisa de
+`width`/`height`/`transform` com medida literal para funcionar. Um
+glifo evita a disputa inteira.
+
+### 8.4c Tabela, filtro e estado vazio — superfície branca (DL-044, Fase B, DE-084)
+
+**Achado do Fred: "as linhas da tabela ficam transparentes sobre o
+fundo cinza-azulado — parece solto, diferente do Início."** Desde a 3ª
+iteração da fase A, `.area-principal` (dentro do app logado) tem fundo
+cinza-azulado (`--app-fundo`) — mas `.tabela-dados` e
+`.formulario-periodo` nunca tinham `background` PRÓPRIO: só o
+cabeçalho da tabela e o `:hover` da linha pintavam alguma coisa; o
+resto herdava o fundo do ancestral mais próximo com cor, que passou a
+ser cinza-azulado a partir daquela iteração. Corrigido com `background:
+var(--papel-elevado)` (branco) nas duas classes BASE — efeito em TODA
+tabela e TODO filtro de período do produto de uma vez, não por tela.
+
+**Estado vazio ganhou componente próprio, `.estado-vazio`:** cartão
+branco (mesma linguagem de `.painel-etapa`), ícone decorativo, título,
+descrição e o botão PRIMÁRIO da ação que tira a tela do vazio (ou
+secundário, quando o vazio é por FILTRO — a informação pode existir,
+só não bate com o filtro; "Limpar filtros" é a saída, não criar dado
+novo). Primeiro uso: Documentos fiscais ("Nenhum documento fiscal
+recebido ainda" virou texto solto → cartão desenhado).
+
+**`.cartao-tabela`: cabeçalho de cartão para legenda/texto de apoio de
+UMA tabela específica** — não um padrão para toda tabela do produto.
+Primeiro (e único, até esta rodada) uso: a legenda "Peso maior indica
+conta sintética..." do Plano de contas, que estava minúscula e colada
+acima da tabela — migrou para dentro de `.cartao-tabela__cabecalho`,
+no MESMO cartão da tabela (a tabela nested perde a própria borda/
+sombra/margem, para não desenhar dois cartões empilhados). Usar este
+padrão numa tabela nova é decisão caso a caso — a maioria das tabelas
+do produto não tem legenda para justificar um cabeçalho de cartão.
 
 ### 8.5 Impressão
 

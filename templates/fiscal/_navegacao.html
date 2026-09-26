@@ -1,4 +1,15 @@
 {% comment %}
+⚠️ ÓRFÃ desde DL-044 (Fase B, DE-083) — nenhuma tela inclui mais este
+arquivo (a navegação repetia EXATAMENTE os itens do submenu lateral
+"Fiscal", mesma redundância que `_navegacao_empresa.html` já tinha
+sido para a Contabilidade, DE-081). O arquivo NÃO foi apagado porque a
+exclusão foi recusada pelo classificador de permissão da sessão que fez
+a correção ("Irreversible Local Destruction") — pendência registrada em
+DE-083, a resolver quando a exclusão for autorizada (o arquiteto-senior
+vai pedir ao Fred). Não reintroduza um `{% include %}` para este
+arquivo sem reabrir essa decisão — o padrão do produto, hoje, é
+navegação contextual só pelo submenu lateral.
+
 Navegação do módulo Fiscal (DL-010, fatia 1): Recepção e Documentos.
 Parcial ÚNICA incluída por toda tela HTML de `templates/fiscal/` — mesmo
 motivo de `templates/contabilidade/_navegacao_empresa.html` (comentário

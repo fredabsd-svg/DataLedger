@@ -119,9 +119,9 @@ links que a DL-040 acrescentou estão marcados).
 
 | Rota | Tela | Template | Arquétipo | Classe | Quem acessa | De onde se chega |
 | --- | --- | --- | --- | --- | --- | --- |
-| `fiscal_web:recepcao` | Recepção de documentos | `fiscal/recepcao.html` | C | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO | `_navegacao.html` (fiscal), DL-040: menu "Fiscal" |
+| `fiscal_web:recepcao` | Recepção de documentos | `fiscal/recepcao.html` | C | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO | DL-040: menu "Fiscal" (submenu lateral — `_navegacao.html` órfã, permanece no repositório — DE-083) |
 | `fiscal_web:relatorio_envio` | Relatório do envio | `fiscal/relatorio_envio.html` | C | Secundária (relatório de uma ação) | Mesmos papéis da Recepção | `recepcao.html`, após um envio (PRG) |
-| `fiscal_web:documentos_lista` | Documentos fiscais | `fiscal/documentos_lista.html` | A | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO, PARALEGAL | `_navegacao.html` (fiscal), DL-040: menu "Fiscal" |
+| `fiscal_web:documentos_lista` | Documentos fiscais | `fiscal/documentos_lista.html` | A | Ativa | ADMINISTRADOR, GESTOR, ANALISTA, FINANCEIRO, PARALEGAL | DL-040: menu "Fiscal" (submenu lateral — `_navegacao.html` órfã, permanece no repositório — DE-083) |
 | `fiscal_web:documento_detalhe` | Detalhe do documento | `fiscal/documento_detalhe.html` | A (detalhe) | Secundária (detalhe) | Mesmos papéis da lista | `documentos_lista.html`, `relatorio_envio.html` |
 | `fiscal_web:documento_xml` | Download do XML | — (anexo `application/xml`) | — | Secundária (download) | Mesmos papéis da lista | `documento_detalhe.html` |
 | `fiscal_web:evento_xml` | Download do XML do evento | — (anexo `application/xml`) | — | Secundária (download) | Mesmos papéis da lista | `documento_detalhe.html` |

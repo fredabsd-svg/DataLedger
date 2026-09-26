@@ -1604,6 +1604,94 @@ kbd.tecla {
     gap: var(--esp-1);
 }
 
+/* DL-044 (Fase B, achado do Fred: "'Balancete · Plano de contas ·
+   Lançar' [...] exatamente o 'botão parece link' que o Fred reclamou").
+   Menu de ações de LINHA de tabela — `<details>`/`<summary>` nativo
+   (sem JavaScript, mesma técnica dos dropdowns da barra lateral), mas
+   um componente PRÓPRIO, mais simples: sem grupo, sem `accesskey`,
+   `position: absolute` sempre (nunca "empurra" o layout da linha
+   vizinha ao abrir). `display: inline-block` + `position: relative` no
+   próprio `<details>` ancoram o painel a ELE, não à célula — table cell
+   com `overflow` padrão (visível) deixa o painel flutuar por cima do
+   resto da tabela sem cortar.
+
+   Primeiro uso: `empresas/lista.html` (3-4 ações por empresa, sem uma
+   "principal" natural entre Balancete/Plano de contas/Lançar/Continuar
+   aqui — ao contrário do Início, cujo "Abrir" único já tinha destino
+   óbvio, Plano de contas). Onde uma tela só tem DUAS ações por linha
+   (Fechamento: Fechar+Zerar resultado, ou Reabrir+Marcar como
+   entregue), a tela usa dois `.botao--secundario.botao--pequeno` lado a
+   lado em vez deste menu — "menu de duas opções" é mais clique que
+   ajuda, pedido explícito do arquiteto-senior. */
+.menu-acoes {
+    position: relative;
+    display: inline-block;
+}
+
+/* `<summary>` sem marcador nativo (`::marker`/`::-webkit-details-marker`
+   removido) — o próprio triângulo (`::after`) substitui, mesmo padrão
+   visual de `.menu-dropdown` na barra lateral, escalado para o tamanho
+   `--pequeno`. `list-style: none` é o `<summary>`; navegadores baseados
+   em WebKit também precisam do pseudo-elemento próprio. */
+.menu-acoes > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.menu-acoes > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* Glifo de texto ("▾"), não um triângulo desenhado em borda — evita medida
+   literal (`width`/`height`/`translateY` em `px`/`em`) fora dos tokens,
+   que a varredura de interface (test_dl024_varredura_de_interface.py::
+   test_nenhuma_medida_literal_fora_dos_tokens) reprova em QUALQUER
+   propriedade fora do `:root`. `aria-hidden` não é necessário aqui: o
+   glifo é conteúdo GERADO por CSS (`::after`), nunca lido por leitor de
+   tela como texto do elemento. */
+.menu-acoes > summary::after {
+    content: "▾";
+    margin-left: var(--esp-1);
+}
+
+.menu-acoes[open] > summary::after {
+    content: "▴";
+}
+
+.menu-acoes__lista {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 3;
+    margin: var(--esp-1) 0 0;
+    padding: var(--esp-2);
+    list-style: none;
+    /* Mesmo token de largura mínima do painel flutuante da barra lateral
+       (`.menu-dropdown__paineis`, técnica de recolhimento) — nenhum
+       token novo só para este componente. */
+    min-width: var(--largura-menu-dropdown);
+    background: var(--papel-elevado);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra-cartao);
+    white-space: nowrap;
+}
+
+.menu-acoes__lista li + li {
+    margin-top: var(--esp-1);
+}
+
+.menu-acoes__lista a {
+    display: block;
+    padding: var(--esp-1) var(--esp-2);
+    border-radius: var(--raio);
+}
+
+.menu-acoes__lista a:hover {
+    background: var(--app-superficie-alt);
+    text-decoration: none;
+}
+
 /* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
    padronizada — logo no topo de `<main>` (`{% block trilha %}`,
    templates/base.html), antes de qualquer mensagem ou conteúdo da tela.
@@ -1912,6 +2000,47 @@ kbd.tecla {
     border-color: var(--erro);
     border-left-width: var(--traco-destaque);
     background: var(--erro-fundo);
+}
+
+/* DL-044 (Fase B, achado do Fred: "'Nenhum documento fiscal recebido...'
+   é texto solto [...] desenhe o estado vazio"): cartão branco (mesma
+   linguagem de `.painel-etapa`), ícone decorativo, frase e — quando a
+   tela tem uma ação clara para sair do vazio — o botão PRIMÁRIO dessa
+   ação. Primeiro uso: `fiscal/documentos_lista.html`. Centralizado, de
+   propósito: um estado vazio não é uma linha de tabela a menos, é a
+   tela inteira dizendo "nada aqui ainda, faça isto" — merece o mesmo
+   peso visual de um cartão de conteúdo, não uma nota de rodapé. */
+.estado-vazio {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--esp-3);
+    padding: var(--esp-6) var(--esp-5);
+    text-align: center;
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio-superficie);
+    background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
+}
+
+.estado-vazio__icone {
+    /* Reaproveita `--tamanho-icone-cartao` (2rem, já usado nos cartões do
+       hub de relatórios) — nenhum token novo só para este componente. */
+    width: var(--tamanho-icone-cartao);
+    height: var(--tamanho-icone-cartao);
+    color: var(--tinta-suave);
+}
+
+.estado-vazio__titulo {
+    margin: 0;
+}
+
+.estado-vazio__descricao {
+    margin: 0;
+    color: var(--tinta-media);
+    /* Mesmo token de largura de `.formulario` (32rem) — nenhum token novo
+       só para limitar a linha de leitura desta frase. */
+    max-width: var(--largura-formulario);
 }
 
 /* DL-042 (2ª passada): "Início" como fila do que precisa de atenção
@@ -2302,10 +2431,25 @@ button:disabled {
    muda um pixel por causa desta regra — testado nesta etapa (ver o
    retorno da DL-044). `border-collapse: collapse` continua — o `border`
    do próprio `<table>` desenha a moldura EXTERNA mesmo colapsado. */
+/* DL-044 (Fase B, achado do Fred: "tabelas sem superfície [...] parece
+   solto, diferente do Início"): `background` explícito na TABELA — até
+   esta correção, só `.tabela-dados th` (`--app-superficie-alt`) e
+   `:hover` tinham fundo próprio; a linha comum herdava o fundo do
+   ancestral mais próximo com `background` — que, dentro de
+   `.barra-lateral ~ .area-principal` (3ª iteração), é o cinza-azulado
+   do app (`--app-fundo`), não branco. O `border`/`box-shadow` acima já
+   desenhavam uma moldura, mas o MIOLO ficava transparente contra o
+   fundo — "parece solto" é exatamente esse efeito. Um `background` só,
+   no `<table>`, cobre TODAS as células sem `background` próprio (é
+   assim que fundo de tabela funciona em HTML — a célula só pinta por
+   cima quando tem cor própria, como `th`/`:hover` já têm), sem
+   precisar de uma regra por linha. Efeito ZERO em altura/padding —
+   mesma garantia do parágrafo acima. */
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
     border: var(--traco-fina) solid var(--borda-hairline);
+    background: var(--papel-elevado);
     font-size: var(--tipo-sm);
     margin-bottom: var(--esp-3);
     box-shadow: var(--sombra-cartao);
@@ -2317,6 +2461,43 @@ button:disabled {
     border-bottom: var(--traco-fina) solid var(--borda-hairline);
     text-align: left;
     line-height: var(--lh-densa);
+}
+
+/* DL-044 (Fase B, achado do Fred: "a legenda [...] está minúscula e
+   colada na tabela — mova para o cabeçalho do cartão"). Cartão com uma
+   faixa de CABEÇALHO (legenda/texto de apoio) e a tabela logo abaixo,
+   dentro da MESMA superfície — o `<table>` nested perde a própria
+   borda/sombra/margem (regra logo abaixo) para não desenhar DOIS
+   cartões empilhados. `overflow: hidden` só recorta os cantos
+   arredondados do topo/base da tabela para acompanhar o raio do
+   cartão — sem altura fixa no wrapper, não cria contexto de rolagem
+   novo, então `position: sticky` do cabeçalho da tabela continua
+   colando contra a rolagem da PÁGINA, exatamente como fora do cartão
+   (verificado nesta etapa, Plano de contas, primeiro uso). Primeiro uso:
+   Plano de contas — não aplicado a toda tabela do produto nesta rodada
+   (mudança maior, fora do pedido desta correção específica). */
+.cartao-tabela {
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio-superficie);
+    background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
+    margin-bottom: var(--esp-3);
+    overflow: hidden;
+}
+
+.cartao-tabela__cabecalho {
+    padding: var(--esp-3) var(--esp-4);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.cartao-tabela__cabecalho p {
+    margin: 0;
+}
+
+.cartao-tabela .tabela-dados {
+    border: none;
+    box-shadow: none;
+    margin-bottom: 0;
 }
 
 .tabela-dados th {
@@ -2660,6 +2841,16 @@ button:disabled {
     padding: var(--esp-2) var(--esp-3);
     border: var(--traco-fina) solid var(--borda-hairline);
     border-radius: var(--raio);
+    /* DL-044 (Fase B, achado do Fred: "o cartão de filtro do Fiscal está
+       cinza sobre cinza"): mesmo raciocínio de `.tabela-dados`, acima —
+       este cartão nunca tinha `background` próprio, então ficava
+       transparente contra `--app-fundo` fora do Balancete/Diário/Razão
+       (onde a folha de papel do documento já é branca). `--papel-
+       elevado` (branco) + a MESMA sombra rasa de `.painel-etapa`/
+       `.tabela-dados` deixa o filtro com a MESMA linguagem de cartão do
+       resto da casca, em toda tela que usa esta classe. */
+    background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
 }
 
 /* BL-277 (achado M1 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
@@ -2686,6 +2877,30 @@ button:disabled {
 
 .formulario-periodo .campo label {
     white-space: nowrap;
+}
+
+/* DL-044 (Fase B, achado do Fred: "rótulos acima dos campos, grade
+   alinhada" — Documentos fiscais). O rótulo-ao-lado do comentário acima
+   (BL-277) foi pensado para DUAS datas — aqui são QUATRO campos
+   heterogêneos (Empresa/Ano/Mês/Situação, dois selects e dois textos),
+   e rótulo-ao-lado nessa mistura desalinha a LEITURA vertical (cada
+   rótulo com largura própria empurra o campo ao lado por uma distância
+   diferente — "grade alinhada" é exatamente o que falta). Modificador
+   PRÓPRIO — nunca uma regra em `.formulario-periodo .campo` direto, que
+   mudaria TAMBÉM o Diário/Razão/Balancete/Balanço, medidos e aprovados
+   com rótulo-ao-lado (BL-277) — este seletor, mais específico (duas
+   classes no mesmo elemento + descendente, 0-3-0, vence o 0-2-0 da regra
+   acima em qualquer ordem de arquivo), devolve `.campo` ao padrão
+   COLUNA que já é o comportamento-base do produto inteiro (a regra
+   `.campo` no topo do arquivo), só dentro deste formulário. O botão
+   "Consultar" continua alinhado à base dos campos por herdar
+   `align-items: flex-end` de `.formulario-periodo`, sem precisar de
+   regra própria — ele não tem rótulo acima, então sua base já COINCIDE
+   com a base do campo (input), não do rótulo. */
+.formulario-periodo.formulario-periodo--rotulo-acima .campo {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--esp-1);
 }
 
 /* DL-027 Fatia B.2: o critério de apuração é um grupo de radio
@@ -2813,6 +3028,18 @@ button:disabled {
     justify-content: flex-end;
     gap: var(--esp-3);
     align-items: center;
+    flex-wrap: wrap;
+}
+
+/* DL-044 (Fase B): duas ou mais ações pequenas numa CÉLULA de tabela
+   (Fechamento: Fechar+Zerar resultado, Reabrir+Marcar como entregue) —
+   mesma ideia de `.acoes-formulario`, mas alinhada à ESQUERDA (é uma
+   célula de tabela, não o rodapé de um formulário) e com o gap menor de
+   `.botao--pequeno`. */
+.acoes-de-linha {
+    display: flex;
+    align-items: center;
+    gap: var(--esp-2);
     flex-wrap: wrap;
 }
 
