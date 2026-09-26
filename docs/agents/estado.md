@@ -85,7 +85,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração (BL-514 a BL-519) | Integrada (PR #43 e #44) |
 | [DL-036](../planos/DL-036-entrada-e-cadastro.md) | Página inicial pública e cadastro de novo escritório | Integrada (PR #45) |
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
-| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Em desenvolvimento |
+| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -94,56 +95,54 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-010, fatia 1: recepção de NFS-e nacional.** Ordem do Fred em
-25/09/2026 ("concordo com você, pode prosseguir"), depois da análise que
-recomendou a recepção de notas como próxima entrega. Plano da fatia em
-[DL-010-F1](../planos/DL-010-F1-recepcao-nfse.md). Nível 1 (§3.1 do AGENTS.md):
-isolamento entre empresas e dado do cliente — plano, testes de
-sucesso/erro/limite e auditoria independente.
+**AGORA — DL-039: ressalvas da recepção de NFS-e e do cliente pessoa física.**
+[Plano](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md). A BL-526 (erro
+de sistema do banco aparecendo como nota recusada) precisa estar corrigida antes
+do primeiro uso real da recepção.
 
-Andamento em 25/09/2026, na branch `claude/vigilant-bardeen-jo12l4`:
+Situação das duas etapas que a antecedem, na branch `claude/vigilant-bardeen-jo12l4`
+(ainda não integradas à `main`):
 
-- **Servidor** (`apps/fiscal`, BL-54): implementado pelo `desenvolvedor-pleno`,
-  revisado; quatro correções da revisão aplicadas (limite de memória no envio e
-  por entrada do ZIP, situação calculada no banco, aviso de duplicado com
-  conteúdo diferente). Evidência do implementador: suíte completa com 2349
-  aprovados e só a falha de ambiente conhecida.
-- **Telas** (envio, relatório do envio, lista, detalhe, download do XML):
-  implementadas pelo `especialista-frontend`, revisadas. Declarado: tabelas
-  largas rolam na horizontal em celular; teclado inspecionado, não testado ao
-  vivo.
-- **Falta:** auditoria independente da versão integrada, junto com a DL-038.
+- **DL-010 fatia 1** (recepção de NFS-e nacional) e **DL-038** (cliente pessoa
+  física): auditoria independente **reprovou** na
+  [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md) e
+  **aprovou com ressalvas** na
+  [reconferência](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md) em
+  `88e7ac5`. Correções decididas em DE-076 (um envio por vez por escritório,
+  2.000 arquivos por envio). Verificação do arquiteto nessa revisão: suíte
+  completa 2582 aprovados, 45 pulados, 1 falha preexistente de ambiente.
+- Ressalvas no backlog, BL-526 a BL-532; **PE-68** (unicidade de CPF e CNPJ por
+  escritório) aguarda o Fred.
+- Falta: PR para a `main` e CI verde (Python 3.14) no commit mais recente.
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
   andamento neste ambiente efêmero; **não** são entrega.
 
 Fila depois dela, em ordem recomendada e sujeita ao Fred:
 
-1. **DL-038 — cliente pessoa física** (opção A escolhida pelo Fred, RC-114):
-   [plano](../planos/DL-038-cliente-pessoa-fisica.md). Começa quando o servidor
-   da DL-010 F1 terminar, porque os dois alteram o cadastro de empresas.
-2. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
+1. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
    por lançamento em duas etapas (RC-104), periodicidade alternativa por empresa
    (RC-105). Só o **plano** existe, na branch não integrada
    `claude/dl-016-f3-encerramento-competencia`; revisar antes de reaproveitar.
    Depende de onde guardar **parâmetro contábil por empresa** (BL-474).
-3. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
+2. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
    camada de saldos (limite declarado no próprio código). Depende do mesmo
    BL-474.
-4. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
+3. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
    regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-5. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
-**Cliente pessoa física** — o Fred confirmou em 25/09 que o escritório atende
-(RC-112). O cadastro hoje só aceita CNPJ; o Fred escolheu cadastrá-lo na própria
-`Empresa`, com tipo de inscrição e modo de escrituração (RC-114, DL-038). Até lá a
-DL-010 F1 recusa essas notas com motivo específico. Para esses
-clientes o escritório faz **carnê-leão e livro-caixa** (RC-113): o cadastro de
-pessoa física é a base de um módulo novo, fora da contabilidade por partidas
-dobradas, cujas regras ainda precisam de fonte oficial.
+**Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e
+livro-caixa para esses clientes (RC-113). A DL-038 os cadastra na própria
+`Empresa`, com tipo de inscrição e modo de escrituração (RC-114); a recepção
+vincula as notas de CPF cadastrado. Livro-caixa e carnê-leão são módulo novo, com
+regras ainda a levantar em fonte oficial.
 
 Decisões que estão com o Fred e afetam a fila:
 
+- **PE-68:** unicidade de CPF e CNPJ por escritório (recomendação) ou no
+  sistema inteiro, como hoje — a auditoria mediu que o modelo atual revela a um
+  escritório que um CPF é cliente de outro.
 - O Balanço pode ser emitido sem o zeramento? Três caminhos apresentados em
   21/09; recomendação: mostrar o resultado do período dentro do PL.
 - Quem vê a contabilidade de quais empresas (PE-36).

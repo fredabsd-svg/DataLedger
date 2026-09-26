@@ -1842,3 +1842,22 @@ copiei literalmente: *"dentro do `<thead>`"* virou *"dentro do bloco"*, e a
 | 5 | Concorrência sob carga e desempenho — maior documento: 6 folhas / ~125 contas | **Não medido** |
 | 6 | Papel físico (PE-57/PE-58), Safari, leitor de tela real com accesskey | **Não medido** |
 | 7 | Ordens adversariais da suíte e fuzzing de data-base (BL-506 segue aberto) | **Não medido** |
+
+## Reconferência da DL-010 F1 e da DL-038 — APROVADAS COM RESSALVAS (2026-09-26)
+
+Relatório integral em
+[2026-09-25-dl-010-f1-dl-038-reconferencia.md](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md),
+sobre a [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md).
+Os três achados altos (A1, A3, A4) e B1–B5, B7, B8 estão **fechados e medidos**.
+Não há terceira rodada (§3.1); as ressalvas viram itens próprios, e os de
+BL-526 a BL-529 formam a [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-526 | **N1 (média)** — o `except` de erro de banco por arquivo na recepção transforma erro de **sistema** (`ProgrammingError`, `InternalError`, `NotSupportedError`) em "recusado", com lote e trilha de envio concluído, e ecoa texto interno do banco no motivo. **Deve ser corrigido antes do primeiro uso real** | `desenvolvedor-pleno` | — | planejada (DL-039) | Só `DataError` (e restrições conhecidas) vira recusa, com mensagem neutra; erro de sistema desfaz o envio inteiro, sem lote e sem trilha; teste com `ProgrammingError` simulado |
+| BL-527 | **N2 (baixa)** — trava por escritório e tratamento de `OperationalError` sem teste capaz de falhar (mutações N04, N05, N06 sobrevivem) | `desenvolvedor-pleno` | — | planejada (DL-039) | Envio do escritório B aceito enquanto A segura a trava; `OperationalError` que não é de bloqueio propaga; o de bloqueio por arquivo chega a `receber_envio` |
+| BL-528 | **N3 (baixa)** — duas implementações da identificação de empresa; o ramo sem dicionário, que nenhum código de produção usa, não tem teste de isolamento (F01, F02 sobrevivem) | `desenvolvedor-pleno` | — | planejada (DL-039) | Um único caminho de identificação, sempre filtrado pelo escritório, e F01/F02 mortas |
+| BL-529 | **B2 ressalva e N4 (baixa)** — estabelecimento de empresa CPF só é barrado na aplicação, não no banco; a checagem de transição em `Empresa.clean` não tem teste (N18); o admin não cria nem edita empresa CPF | `desenvolvedor-pleno` | — | planejada (DL-039) | Recusa por gatilho ou restrição equivalente, ou decisão registrada de não fazer; N18 morta; admin com CNPJ/CPF condicionais ao tipo, ou declarado sem suporte a CPF |
+| BL-530 | **A8 ressalva (baixa)** — ZIP com o fim de diretório forjado para declarar 1 entrada volta a custar ~318 MB e 3,9 s antes da recusa | `desenvolvedor-pleno` | — | aberta | Contagem real das entradas sem montar o índice inteiro, ou limite de memória medido |
+| BL-531 | **A10 ressalva (baixa)** — acima de 50 MB o upload é descartado, mas o corpo ainda é lido (banda). Exige limite de corpo no proxy da implantação | responsável pela implantação | DE-014 | aberta | Limite de corpo configurado e medido no ambiente de produção |
+| BL-532 | **A4 ressalva** — a vazão (2.000 notas em 7,3 s; pior caso sintético 14,4 s) foi medida com o cliente de teste, não sob gunicorn nem no hardware de produção | `desenvolvedor-pleno` | implantação | aberta | Medição sob gunicorn no ambiente real, abaixo da metade do tempo-limite |

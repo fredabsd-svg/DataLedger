@@ -197,6 +197,13 @@ Correções decididas em DE-076 e distribuídas: `desenvolvedor-pleno` (A1–A6
 servidor, A8–A11) e `especialista-frontend` (A6 telas, A7, A12). Depois, **uma**
 reconferência; não há terceira rodada (§3.1 do AGENTS.md).
 
+## Reconferência
+
+[Relatório integral](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md):
+**APROVADA COM RESSALVAS** em `88e7ac5`. A1, A3 e A4 fechados e medidos
+(2.000 notas em 7,3 s pela tela). Ressalvas: BL-526 (média, antes do primeiro uso
+real) a BL-532, com BL-526 a BL-529 na DL-039.
+
 ## Evidências
 
 Preenchidas ao fim de cada etapa: comandos executados e saída, commits, PR e

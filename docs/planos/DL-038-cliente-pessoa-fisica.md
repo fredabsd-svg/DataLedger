@@ -84,3 +84,10 @@ recusa sem exercitar escrita), B5 (tela e API decidem o modo de forma
 diferente), mais B4, B7 e B8 de gravidade baixa. Todos com o
 `desenvolvedor-pleno`. **B6** — a unicidade global revela a um escritório que o
 CPF é cliente de outro — depende de decisão do Fred (PE-21 agravada).
+
+## Reconferência
+
+[Relatório integral](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md):
+**APROVADA COM RESSALVAS** em `88e7ac5`. B1–B5, B7 e B8 fechados. Ressalvas:
+B6 com o Fred (PE-68) e BL-529 (restrição de banco do B2, teste da transição e
+admin com CPF), na DL-039.

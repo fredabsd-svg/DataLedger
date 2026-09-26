@@ -219,6 +219,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-036** — página inicial pública e cadastro de um novo escritório pelo próprio produto, sem terminal nem admin
 - **DL-037** — redesenho visual da entrada pública: hierarquia de leitura e caminho explícito para o novo escritório
 - **DL-038** — cliente pessoa física no cadastro de empresas: inscrição por CPF e modo de escrituração (contabilidade ou livro-caixa)
+- **DL-039** — ressalvas da recepção de NFS-e e do cliente pessoa física: erro de sistema nunca aparece como nota recusada, isolamento com um caminho só
 
 Ainda não existem:
 
