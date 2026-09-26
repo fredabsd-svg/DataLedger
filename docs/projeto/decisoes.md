@@ -3899,3 +3899,80 @@ só dentro do escritório (DE-074), e continua correta.
 
 **Alternativa descartada:** manter a unicidade global e trocar a mensagem por uma
 genérica — a recusa continuaria revelando a existência, só que sem texto.
+
+## DE-078 — Tipografia de trabalho sem serifa (IBM Plex Sans) e sistema de superfície/elevação
+
+**Data:** 2026-09-26
+
+**Contexto:** o Fred reprovou o aspecto das telas de trabalho da DL-042/
+DL-043 — "o layout da tela de trabalho tá com aspecto de vazio e os botões
+de clicar [...] tá parecendo um botão de link, tá muito amador, muito cara
+de sistema mal feito. Dê mais uma revisada, pesquisa e modelos da internet."
+A landing pública foi aprovada e fica de fora. Plano:
+[DL-044](../planos/DL-044-telas-de-trabalho.md); pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+(seis referências: Stripe, IBM Carbon, Shopify Polaris, Atlassian Design,
+Nielsen Norman Group, mercado brasileiro de gestão contábil).
+
+**Decisão:**
+
+1. **Fonte de trabalho sem serifa — IBM Plex Sans, auto-hospedada.** Novo
+   token `--fonte-trabalho`, aplicado a `body` e a toda casca de aplicativo
+   (botão, campo, cabeçalho de tabela, faixa de veredito, indicador D/C).
+   `--fonte-editorial` (IBM Plex Serif) continua viva em TRÊS lugares, só:
+   a marca ("DataLedger."), a landing pública (token próprio,
+   `--public-fonte-ui`, intocado) e o DOCUMENTO impresso/visível em tela
+   (`.linha-identificacao-do-documento`, e `body` sob `@media print`).
+   Mesma licença (SIL OFL 1.1) e mesmo mecanismo de hospedagem
+   (`static/fontes/`, sem CDN — DE-011) já auditados para a serifada.
+2. **Sistema de superfície e elevação.** Dois tokens novos de sombra
+   (`--sombra-cartao`, repouso; `--sombra-botao`/`--sombra-botao-hover`,
+   interação) e um raio maior para componente de superfície
+   (`--raio-superficie`, 6px — `--raio`, 2px, continua só para controle de
+   formulário). Aplicados a `.botao`/`button` (com estados `:hover`,
+   `:active`, `:disabled` explícitos — o foco já existia, regra global,
+   critério 7 da DL-026), `.painel-etapa`, `.fila-categoria` e
+   `.tabela-dados` (borda + sombra na moldura externa, sem alterar altura
+   de linha — a régua de densidade §4.8 não muda).
+3. **Navegação entre relatórios como abas.** `_navegacao_empresa.html` —
+   MARCAÇÃO intocada (nenhum `accesskey`/`aria-keyshortcuts`/`aria-current`
+   mudou; as guardas automatizadas de
+   `test_dl024_atalhos_e_acessibilidade.py` continuam medindo o mesmo
+   HTML), só a CSS: de linha de `<a>` sublinhados para faixa de abas com
+   traço de cor no item atual.
+4. **`empty_label` em português** nos `ModelChoiceField` (achado das
+   capturas da DL-043: o padrão do Django 6.1 para este campo é em inglês,
+   "- Select an option -", mesmo com `LANGUAGE_CODE = pt-br`, porque o
+   catálogo de tradução embutido do framework não cobre esta string neste
+   ponto do ciclo de requisição).
+5. **Barra lateral: fundo e posição sticky separados em dois elementos.**
+   `<aside class="barra-lateral">` (fundo, esticado por `align-self:
+   stretch`) e `<div class="barra-lateral__interior">` (a navegação em si,
+   `position: sticky`) — corrige o achado das capturas da DL-043 ("a barra
+   lateral termina antes do fim da página"): Chromium/Playwright só
+   compõem um elemento `position: sticky`/`fixed` dentro dos limites da
+   VIEWPORT ORIGINAL numa captura de página inteira, mesmo capturando um
+   canvas mais alto — o fundo "sumia" depois de ~900px em qualquer página
+   mais alta que a tela, apesar de a barra estar CORRETA na rolagem real
+   (medido por `getBoundingClientRect` em `scrollY` 0/800/1600 na DL-042).
+   Um elemento sem fundo próprio (`.barra-lateral__interior`) não tem nada
+   para "sumir" na mesma limitação.
+
+**Motivo.** Nenhuma das seis referências pesquisadas usa fonte serifada na
+interface de trabalho (só em documento/prosa/marca) — confirma a hipótese
+HI-27 do plano. "Sombra sutil + raio maior" e "quatro estados de botão
+sempre visíveis" são o padrão OBSERVADO, não inventado, nas quatro
+referências de sistema de design consultadas.
+
+**Consequência aceita:** toda tela autenticada muda de aparência (fonte do
+corpo, botões, tabela, navegação da empresa) — efeito esperado e
+autorizado pelo plano ("se o componente for compartilhado, tudo bem as
+outras telas mudarem junto"). Documento impresso e landing pública NÃO
+mudam.
+
+**Alternativas descartadas:** manter a serifada em toda a interface e só
+ajustar peso/tamanho (não resolveria o "aspecto de documento antigo" — a
+FAMÍLIA tipográfica é o problema, não o peso); usar uma fonte de sistema
+sem hospedar arquivo (perderia a paridade visual entre plataformas que a
+Plex Serif já garante, e criaria DUAS filosofias de fonte no mesmo
+produto).

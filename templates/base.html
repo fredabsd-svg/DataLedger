@@ -177,6 +177,30 @@
             </details>
 
             <aside class="barra-lateral">
+                {% comment %}
+                DL-044 (achado das capturas da DL-043, Fred: "a barra
+                lateral bege termina antes do fim da página"): `<aside
+                class="barra-lateral">` deixou de carregar `position:
+                sticky` diretamente — passou a ser um bloco de fluxo
+                NORMAL, esticado (`align-self: stretch`) até a altura da
+                coluna mais alta (`.area-principal`), o que garante que o
+                FUNDO `--papel-alt` cubra a coluna inteira tanto na
+                rolagem real quanto numa captura de página inteira
+                (Chromium/Playwright têm uma limitação documentada:
+                elemento com `position: sticky`/`fixed` só é composto
+                dentro dos limites da VIEWPORT original numa captura de
+                página inteira, mesmo que o canvas capturado seja mais
+                alto — o fundo "sumia" depois de ~900px em qualquer
+                página mais alta que a tela, mesmo a barra estando CERTA
+                na rolagem real, medido por scroll de verdade na DL-042).
+                A posição STICKY (acompanhar a rolagem) agora mora só no
+                `<div class="barra-lateral__interior">` logo abaixo —
+                elemento SEM fundo próprio (herda o do `<aside>` pai), o
+                que o deixa imune ao mesmo problema: não há nada para
+                "sumir" nele, só o texto/ícone da navegação, que continua
+                a acompanhar a rolagem normalmente.
+                {% endcomment %}
+                <div class="barra-lateral__interior">
                 <div class="barra-lateral__topo">
                     <a class="marca" href="{% url 'tenancy:painel' %}">
                         <span class="rotulo-menu">DataLedger<span class="marca__ponto">.</span></span>
@@ -527,6 +551,7 @@
                             </form>
                         </div>
                     </details>
+                </div>
                 </div>
             </aside>
         {% endif %}

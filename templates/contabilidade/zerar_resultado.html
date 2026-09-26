@@ -26,7 +26,10 @@
 
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" %}
-    <h1>Zerar resultado do período — {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+    {% comment %}DL-044: mesma moldura padrão de cabeçalho de página do resto do produto.{% endcomment %}
+    <div class="cabecalho-pagina">
+        <h1>Zerar resultado do período — {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+    </div>
 
     {% if erro_parametro %}
         {% comment %}

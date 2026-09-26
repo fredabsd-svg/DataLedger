@@ -37,7 +37,9 @@ regra de uso:
 | Acento | **Uma** tinta, para ação principal e foco | Se aparecer uma segunda cor de acento, a direção foi quebrada |
 | Semânticas | Sucesso, erro, aviso, informação | Sempre acompanhadas de **texto**; nunca sozinhas |
 | Numérico | Família monoespaçada tabulada | Todo algarismo de valor, sem exceção |
+| Tipografia (DL-044) | Editorial (serifada), trabalho (sem serifa), numérica | Editorial só para marca, landing pública e documento impresso/visível em tela (NBC ITG 2000 item 12); toda CASCA de aplicativo (corpo, botão, campo, cabeçalho de tabela) é trabalho — DE-078 |
 | Espaço | Escala de espaçamento | Nada de medida solta: se precisa de um valor que não existe na escala, a escala está errada ou o desenho está |
+| Elevação (DL-044) | Sombra de superfície (repouso) e de botão (interação) | Só em componente de SUPERFÍCIE (botão, cartão, painel, tabela); nunca em texto nem para indicar estado sozinha — DE-078 |
 
 **Proibido**: cor, tamanho de fonte, raio ou espaçamento escrito direto em
 template ou em regra CSS de tela. Se o token não existe, crie o token.
@@ -485,6 +487,20 @@ pelo §4.8.
   `aria-current="page"` — nunca um link para a página atual (mesma regra
   do item de menu ativo).
 
+### 8.2a Navegação entre relatórios de uma empresa (abas, DL-044)
+
+`_navegacao_empresa.html` (Plano de contas/Diário/Balancete/Conferência/
+Fechamento/Parâmetros contábeis/Novo lançamento, toda tela de
+`templates/contabilidade/`) é uma faixa de **abas** — traço de cor sob o
+item ATUAL, sem sublinhado nos demais — nunca mais uma linha de `<a>`
+sublinhados soltos (achado do Fred: "a navegação entre relatórios é uma
+linha de links sublinhados"). A MARCAÇÃO é a mesma de antes da DL-044
+(`accesskey`, `aria-keyshortcuts`, `kbd.tecla`, `aria-current="page"` —
+nada disso mudou, só a CSS); ver DE-078. Vale só para esta navegação
+CONTEXTUAL (de relatório dentro de uma empresa) — a trilha (§8.2) e o
+menu lateral (§8.1) continuam com o próprio tratamento visual, não viram
+aba.
+
 ### 8.3 Cabeçalho de página
 
 Título (`<h1>` único), contexto (quando houver — empresa, competência) e
@@ -497,15 +513,36 @@ ao lado do título, porque ali o título É parte do papel impresso
 (`titulo_sufixo_do_fornecedor`, `templates/base.html`) e ações de tela
 (botões) já são ocultadas na impressão por regra própria.
 
-### 8.4 Botão de ação — três tons, nunca mais
+### 8.4 Botão de ação — quatro tons, nunca mais
+
+**Correção (DL-044):** este título dizia "três tons, nunca mais" desde a
+DL-040, mas `.botao--fantasma` (quarto tom) existe desde a DL-042 — o
+título não tinha sido atualizado quando o tom novo entrou. Corrigido aqui,
+junto da revisão de profundidade/estado (abaixo), para não deixar a mesma
+classe de defeito (afirmação que já foi desmentida) se repetir.
 
 `.botao--primario` (ação principal — mesmo visual do `<button>` padrão),
-`.botao--secundario` (ação alternativa — "Voltar", trocar contexto) e
+`.botao--secundario` (ação alternativa — "Voltar", trocar contexto),
 `.botao--perigoso` (ação sensível — reabrir competência, marcar como
-entregue). O TOM é reforço; o texto do botão já nomeia a consequência
-("Reabrir competência 09/2026", nunca só "Confirmar") — mesma regra do
-arquétipo E (§2) aplicada ao próprio rótulo do botão, não só ao texto ao
-redor dele.
+entregue) e `.botao--fantasma` (ação de MENOR ênfase ao lado de uma
+primária que já domina a tela — "Limpar filtros"). O TOM é reforço; o
+texto do botão já nomeia a consequência ("Reabrir competência 09/2026",
+nunca só "Confirmar") — mesma regra do arquétipo E (§2) aplicada ao
+próprio rótulo do botão, não só ao texto ao redor dele.
+
+**Profundidade e estado (DL-044, achado do Fred: "os botões [...] tá
+parecendo um botão de link").** Todo botão (os quatro tons, e o
+`<button>` nativo sem classe, que é o tom primário por padrão) tem sombra
+rasa em repouso (`--sombra-botao`) — exceto `.botao--fantasma`, o único
+tom sem sombra por desenho (é o de MENOR ênfase da escala). Os quatro
+estados, sempre visíveis: repouso (sombra rasa), `:hover` (sombra mais
+funda, `--sombra-botao-hover`), `:active`/pressionado (achatado — sem
+sombra, um passo visual para baixo) e `:disabled`/`[aria-disabled]`
+(opaco, sem sombra, cursor "não permitido"). O FOCO continua vindo da
+regra global de foco visível (§4, critério 4 — nunca duplicada por
+componente). Raio de `--raio-superficie` (maior que o raio quase-nulo de
+campo de formulário, `--raio`) — pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md).
 
 ### 8.4a Menu "Conta" (DL-040, segunda passada; reposicionado na DL-042)
 

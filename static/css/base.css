@@ -61,6 +61,54 @@
     font-display: swap;
 }
 
+/* ==========================================================================
+   DL-044 (Fred, 2026-09-26, depois de ver as capturas da DL-042/DL-043):
+   "o layout da tela de trabalho tá com aspecto de vazio [...] muito cara
+   de sistema mal feito". Achado confirmado na pesquisa (docs/assets/telas/
+   dl044/pesquisa.md): nenhuma referência de mercado (Stripe, Carbon,
+   Polaris) usa fonte SERIFADA na interface de trabalho — serifa é para
+   TÍTULO editorial/documento impresso, não para rótulo de campo, botão ou
+   linha de tabela. IBM Plex Sans, mesma família e mesma licença (SIL OFL
+   1.1, ver static/fontes/ibm-plex-sans/OFL.txt) já verificada da Plex
+   Serif — combina tipograficamente (par oficial da própria IBM) e
+   continua auto-hospedada, sem CDN (DE-011). A editorial (`--fonte-
+   editorial`) continua viva: marca ("DataLedger."), landing pública
+   (`.public-page` tem token próprio, `--public-fonte-ui`, INTOCADO por
+   esta etapa — "a landing ficou boa") e o texto de documento impresso sem
+   timbre (`.linha-identificacao-do-documento`, ver o comentário dela mais
+   abaixo). Todo o resto da CASCA de trabalho (corpo, botão, campo,
+   cabeçalho de tabela, faixa de veredito) migra para `--fonte-trabalho`
+   — ver DE-058, decisoes.md.
+   ========================================================================== */
+@font-face {
+    font-family: "IBM Plex Sans";
+    src: url("../fontes/ibm-plex-sans/IBMPlexSans-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    src: url("../fontes/ibm-plex-sans/IBMPlexSans-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    src: url("../fontes/ibm-plex-sans/IBMPlexSans-Italic.ttf") format("truetype");
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    src: url("../fontes/ibm-plex-sans/IBMPlexSans-BoldItalic.ttf") format("truetype");
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+
 :root {
     color-scheme: light;
 
@@ -115,6 +163,10 @@
        @font-face acima), monoespaçada tabulada para TODO algarismo de
        valor, sem exceção (direcao-de-arte §4.1). --- */
     --fonte-editorial: "IBM Plex Serif", Georgia, "Iowan Old Style", "Noto Serif", "Liberation Serif", "Times New Roman", serif;
+    /* DL-044: fonte de TRABALHO — corpo, botão, campo, cabeçalho de
+       tabela, tudo que é CASCA de aplicativo, não prosa nem documento.
+       Ver o comentário grande junto aos @font-face da Plex Sans, acima. */
+    --fonte-trabalho: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --fonte-numerica: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
 
     --tipo-2xs: 0.6875rem;  /* 11px — rótulo miúdo, maiúsculas espaçadas */
@@ -139,7 +191,28 @@
     --esp-6: 2rem;     /* 32px */
     --esp-7: 3rem;     /* 48px */
 
-    --raio: 2px;       /* papel é plano; raio quase nulo, só suaviza clique */
+    --raio: 2px;       /* campo de formulário e outros controles miúdos — raio quase nulo, só suaviza clique */
+    /* DL-044: raio PRÓPRIO para SUPERFÍCIE (botão, cartão, painel, aba) —
+       maior que --raio, alinhado com a pesquisa (Carbon/Polaris/Stripe
+       usam 4–8px nesses componentes, nunca quase-reto) — mas ainda
+       discreto, "papel" continua sendo a metáfora, não um cartão com
+       raio de app móvel. Nunca usado em controle de formulário (input
+       continua com --raio) nem em documento impresso. */
+    --raio-superficie: 6px;
+
+    /* --- Elevação: sombra sutil para SUPERFÍCIE (botão, cartão, painel),
+       nunca para texto nem para tabela inteira (a tabela já se distingue
+       pelo cabeçalho/linhas, não precisa flutuar). Valor em rgba() com o
+       MESMO tom de --tinta (#1C1A16 = rgb(28, 26, 22)) — CSS não permite
+       `rgb(from var(...) ...)` com suporte garantido nos navegadores que
+       este produto tem de atender (DE-011), então o valor fica escrito
+       por extenso aqui, e só aqui; nenhuma sombra literal fora do
+       :root. Dois níveis: repouso (bem rasa, só separa a superfície do
+       fundo) e interação (hover/pressed de botão, um pouco mais funda —
+       "elevação com propósito", Atlassian Design/elevation). */
+    --sombra-cartao: 0 1px 2px rgba(28, 26, 22, 0.07), 0 1px 3px rgba(28, 26, 22, 0.08);
+    --sombra-botao: 0 1px 2px rgba(28, 26, 22, 0.16);
+    --sombra-botao-hover: 0 2px 4px rgba(28, 26, 22, 0.2);
 
     /* --- Traço: largura de borda/contorno — escala PRÓPRIA, mais fina que
        a de espaço (--esp-N começa em 4px; contorno de campo e divisória de
@@ -189,6 +262,15 @@
        conteúdo largo (tabela), nunca para campo de formulário. */
     --largura-conteudo: 90rem;    /* .conteudo-principal */
     --largura-formulario: 32rem;  /* .formulario (cadastro simples) */
+    /* DL-044: painel de CABEÇALHO de um formulário maior (ex.: Data +
+       Histórico do lançamento, antes da tabela de partidas) — mais largo
+       que --largura-formulario (dois campos lado a lado, não um só por
+       linha), mais estreito que --largura-conteudo (não é tabela). */
+    --largura-conteudo-agrupado: 40rem;
+    /* DL-044: base mínima de `flex-basis` de cada campo dentro de um
+       painel agrupado (--largura-conteudo-agrupado, acima) antes de
+       quebrar linha — Data/Histórico do cabeçalho do lançamento. */
+    --largura-minima-campo-agrupado: 12rem;
     /* DL-010 (fatia 1): largura da coluna de RÓTULO/VALOR de
        `.lista-de-definicao` (documento_detalhe.html do módulo Fiscal) —
        flex-basis, não largura máxima de conteúdo nem de formulário, por
@@ -298,7 +380,7 @@ html {
 
 body {
     margin: 0;
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-base);
     line-height: var(--lh-normal);
     color: var(--tinta);
@@ -353,7 +435,7 @@ summary:focus,
     padding: var(--esp-2) var(--esp-4);
     background: var(--tinta);
     color: var(--papel);
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     z-index: 100;
 }
 
@@ -477,12 +559,69 @@ summary:focus,
 .barra-lateral {
     flex: none;
     width: var(--largura-barra-lateral);
+    border-right: var(--traco-fina) solid var(--borda-forte);
+    background: var(--papel-alt);
+    /* `.app-shell` usa `align-items: flex-start` (não o `stretch` padrão) por
+       causa da linha móvel de marca/gatilho, que não deve esticar. A barra
+       precisa do próprio `align-self: stretch` para preencher a altura da
+       linha flex (>= 100vh, por causa do `min-height` de `.app-shell`) mesmo
+       em página curta — do contrário a caixa da barra para na altura do
+       próprio conteúdo de navegação e o resto da coluna esquerda fica sem o
+       fundo `--papel-alt`. DL-044: este elemento (o dono do FUNDO) não é
+       mais `position: sticky` — ver o comentário grande em
+       templates/base.html sobre a limitação de captura de página inteira
+       que isso resolve. `align-self: stretch` continua fazendo o trabalho
+       de altura; `.barra-lateral__interior`, logo abaixo, faz o de
+       rolagem. */
+    align-self: stretch;
+}
+
+/* DL-044: o CONTEÚDO da barra (antes vivia direto em `.barra-lateral`) —
+   sticky/scroll moram AQUI, não no `<aside>` pai, que só carrega o fundo
+   `--papel-alt` esticado por `align-self: stretch` acima. Um elemento
+   `position: sticky` SEM fundo próprio não tem nada para "sumir" numa
+   captura de página inteira: o pior caso é o TEXTO da navegação parar de
+   acompanhar a rolagem na imagem capturada, nunca uma faixa sem cor. */
+.barra-lateral__interior {
     display: flex;
     flex-direction: column;
     gap: var(--esp-4);
     padding: var(--esp-4) var(--esp-3);
-    border-right: var(--traco-fina) solid var(--borda-forte);
-    background: var(--papel-alt);
+    /* DL-044 (regressão que eu mesma medi antes de entregar — pego pela
+       própria captura de tela, não por revisão de código): `.barra-
+       lateral__rodape` usa `margin-top: auto` para ir para o RODAPÉ da
+       coluna (ver a regra dela, mais abaixo) — isso só funciona quando o
+       contêiner flex tem ALTURA definida com espaço sobrando. Antes desta
+       linha, este elemento não tinha altura própria nenhuma (só
+       `max-height`, um TETO, nunca um PISO) — em página curta, a coluna
+       encolhia para a altura do próprio conteúdo, sem sobra nenhuma, e
+       "Conta" subia para logo abaixo de "Fiscal" em vez de ficar no
+       rodapé (medido: sumiu da captura em 900px de viewport). `min-
+       height: 100%` resolve contra a altura do PAI (`.barra-lateral`,
+       esticado por `align-self: stretch`, ver a regra dele) — o mesmo
+       resultadode antes da divisão em dois elementos, sem reintroduzir o
+       problema da captura de página inteira (este elemento continua sem
+       fundo próprio). O resultado é o MESMO de antes da divisão em dois
+       elementos.
+
+       ⚠️ `min(100%, var(--altura-viewport))`, NUNCA só `100%` sozinho —
+       medido: `100%` sozinho quebrava a rolagem em página ALTA (Balancete
+       de 73 contas). Motivo: `100%` resolve contra a altura do PAI
+       esticado, que em página alta é a altura do DOCUMENTO inteiro
+       (~3283px no Balancete medido), não da viewport — e a regra CSS diz
+       que `min-height`, quando maior que `max-height`, GANHA do
+       `max-height` (min-height sempre vence o conflito). Sem o `min()`,
+       `max-height: 100vh` três linhas abaixo virava letra morta: a barra
+       parava de ser `sticky` de verdade (a caixa toda tinha 3283px, sem
+       nada para "prender" na rolagem) e passava a rolar junto com a
+       página — medido com `getBoundingClientRect` em três posições de
+       `scrollY`, o `top` saía NEGATIVO a cada rolagem, prova de que não
+       estava mais fixo. `min()` limita o PISO ao teto: em página curta,
+       100% (ex.: 900px, viewport inteira) já está dentro do teto — o
+       rodapé ainda vai para o fim da coluna; em página alta, o piso é
+       achatado para os mesmos 900px do teto, e os dois nunca mais
+       competem. */
+    min-height: min(100%, var(--altura-viewport));
     /* A barra é MOLDURA, não conteúdo — ao contrário de `.conteudo-
        principal`, ela não precisa da régua de densidade §4.8 (que é sobre
        TABELA), mas precisa continuar alcançável por teclado quando o
@@ -491,15 +630,6 @@ summary:focus,
     top: 0;
     max-height: var(--altura-viewport);
     overflow-y: auto;
-    /* `.app-shell` usa `align-items: flex-start` (não o `stretch` padrão) por
-       causa da linha móvel de marca/gatilho, que não deve esticar. A barra
-       precisa do próprio `align-self: stretch` para preencher a altura da
-       linha flex (>= 100vh, por causa do `min-height` de `.app-shell`) mesmo
-       em página curta — do contrário a caixa da barra para na altura do
-       próprio conteúdo de navegação e o resto da coluna esquerda fica sem o
-       fundo `--papel-alt`. `max-height` + `overflow-y: auto` continuam
-       cobrindo a rolagem em página alta. */
-    align-self: stretch;
 }
 
 .barra-lateral__topo {
@@ -516,6 +646,10 @@ summary:focus,
 
 .marca a,
 a.marca {
+    /* DL-044: exceção deliberada — a MARCA continua serifada mesmo depois
+       de `body` migrar para `--fonte-trabalho` (ver o comentário grande
+       junto aos @font-face da Plex Sans). "DataLedger." é identidade, não
+       casca de trabalho. */
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-md);
     font-weight: 700;
@@ -880,43 +1014,81 @@ kbd.tecla {
    a classe de defeito que o AGENTS.md pede para evitar: regra escrita em
    dois lugares diverge assim que uma das cópias for editada sem a outra.
    Corrigido nesta etapa — uma cópia só, a partir daqui. */
+/* DL-044 (Fred: "a navegação entre relatórios é uma linha de links
+   sublinhados"; critério 3 do plano — "nenhuma ação clicável com
+   aparência de link sublinhado solto"): a MARCAÇÃO desta parcial não
+   mudou nem uma letra (nenhum atributo `accesskey`/`aria-keyshortcuts`/
+   `aria-current` foi tocado — as guardas de
+   apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py
+   continuam medindo exatamente o mesmo HTML). O que mudou é só a
+   APARÊNCIA: de uma linha de `<a>` sublinhados para uma faixa de ABAS
+   (padrão confirmado pela pesquisa — Polaris "Tabs", usado para
+   "alternar entre visões relacionadas do mesmo contexto", que é
+   exatamente este caso: Plano de contas/Diário/Balancete/... da MESMA
+   empresa). */
 .navegacao-empresa {
-    margin-bottom: var(--esp-4);
+    margin-bottom: var(--esp-5);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
 }
 
 .navegacao-empresa ul {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--esp-5);
+    align-items: flex-end;
+    gap: var(--esp-1);
     margin: 0;
     padding: 0;
     list-style: none;
     font-size: var(--tipo-sm);
 }
 
-.navegacao-empresa a {
+.navegacao-empresa a,
+.navegacao-empresa .item-atual {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
-    color: var(--acento);
-    text-decoration: underline;
+    padding: var(--esp-2) var(--esp-3);
+    /* A aba "encosta" na borda-base da faixa (`border-bottom` de
+       `.navegacao-empresa`, acima) — por isso a MARGEM negativa: sem
+       ela, a borda de baixo do item ficaria 1px ACIMA da linha da faixa
+       (a espessura da própria borda), um desalinhamento de 1px visível
+       em qualquer tela com régua. */
+    margin-bottom: calc(-1 * var(--traco-fina));
+    border-bottom: var(--traco-media) solid transparent;
+    border-radius: var(--raio-superficie) var(--raio-superficie) 0 0;
+    text-decoration: none;
+}
+
+.navegacao-empresa a {
+    color: var(--tinta-suave);
 }
 
 .navegacao-empresa a:hover {
-    color: var(--acento-escuro);
+    color: var(--tinta);
+    background: var(--papel-alt);
+    border-bottom-color: var(--borda-input);
 }
 
 /* Rótulo da página ATUAL de uma navegação (nunca link para si mesma) —
    generalizada pela DL-040 de `.navegacao-empresa .item-atual` para
    `.item-atual` puro, porque o mesmo padrão passou a valer também dentro
    de `.menu-dropdown ul` (o submenu "Contabilidade" do menu principal,
-   templates/base.html). */
+   templates/base.html). Continua existindo BASE (cor + negrito, sem
+   padding/borda) para esse segundo uso; a aparência de ABA (padding,
+   sublinhado de cor, canto arredondado) é ADICIONADA só dentro de
+   `.navegacao-empresa`, pela regra combinada acima e pela específica
+   abaixo — nunca no seletor solto `.item-atual`, que vazaria a moldura de
+   aba para dentro do menu suspenso da barra lateral. */
 .item-atual {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
     color: var(--tinta);
     font-weight: 700;
+}
+
+.navegacao-empresa .item-atual {
+    border-bottom-color: var(--acento);
 }
 
 .sessao-usuario {
@@ -931,14 +1103,18 @@ kbd.tecla {
     margin: 0;
 }
 
+/* DL-044: mesmo fundo `--papel-elevado` de `.botao--secundario` (ver o
+   comentário lá) — `background: transparent` sobre `--papel-alt` (fundo
+   da barra lateral) deixava só a SOMBRA do `button` base visível, sem
+   preenchimento — lia como uma borda flutuante, não um botão. */
 .form-sair button {
-    background: transparent;
+    background: var(--papel-elevado);
     color: var(--tinta);
     border: var(--traco-fina) solid var(--borda-input);
 }
 
 .form-sair button:hover {
-    background: transparent;
+    background: var(--papel);
     border-color: var(--tinta);
     color: var(--tinta);
 }
@@ -950,19 +1126,45 @@ kbd.tecla {
    o caso em que um `<button>` precisa do tom secundário/perigoso — nunca
    redeclaradas onde já existe `.form-sair button` (mesmo visual
    secundário, tela própria, sem risco de esta classe nova competir com
-   aquela). */
+   aquela).
+
+   DL-044 (Fred: "os botões [...] tá parecendo um botão de link"): achado
+   confirmado na pesquisa (pesquisa.md) — toda referência (Carbon, Polaris,
+   Stripe) dá aos quatro tons de botão PROFUNDIDADE (sombra rasa em
+   repouso) e QUATRO estados sempre visíveis: repouso, `:hover` (sombra e
+   cor mais fortes), `:active` (achatado — sem sombra, um pixel para
+   baixo, "pressionado"), `:disabled`/`[aria-disabled]` (opaco, sem
+   sombra, cursor `not-allowed`). O foco continua vindo da regra GLOBAL
+   `a:focus, button:focus, ...` (linha ~337) — critério "o estilo muda de
+   fato ao focar" já cumprido antes desta etapa, nunca duplicado aqui. A
+   transição é cosmética (nunca a ÚNICA forma de perceber o estado —
+   cor/sombra mudam mesmo sem ela) e respeita `prefers-reduced-motion`. */
 .botao {
     display: inline-flex;
     align-items: center;
     gap: var(--esp-2);
     padding: var(--esp-2) var(--esp-4);
-    border-radius: var(--raio);
-    font-family: var(--fonte-editorial);
+    border-radius: var(--raio-superficie);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-base);
     font-weight: 700;
     text-decoration: none;
     cursor: pointer;
     border: var(--traco-fina) solid transparent;
+    box-shadow: var(--sombra-botao);
+    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 60ms ease;
+}
+
+.botao:active {
+    transform: translateY(var(--traco-fina));
+    box-shadow: none;
+}
+
+.botao:disabled,
+.botao[aria-disabled="true"] {
+    opacity: 0.55;
+    box-shadow: none;
+    cursor: not-allowed;
 }
 
 .botao--primario {
@@ -974,16 +1176,24 @@ kbd.tecla {
 .botao--primario:hover {
     background: var(--acento-escuro);
     border-color: var(--acento-escuro);
+    box-shadow: var(--sombra-botao-hover);
 }
 
+/* DL-044: ganhou FUNDO (`--papel-elevado`, o mesmo branco de campo de
+   formulário) — em repouso, contorno sem preenchimento e sombra rasa
+   ainda lia como texto sublinhado à distância (achado do Fred). Com
+   fundo + sombra, a MESMA hierarquia de ênfase (menor que o primário,
+   maior que o fantasma) fica clara sem depender só do contorno. */
 .botao--secundario {
-    background: transparent;
+    background: var(--papel-elevado);
     color: var(--tinta);
     border-color: var(--borda-input);
 }
 
 .botao--secundario:hover {
     border-color: var(--tinta);
+    background: var(--papel-alt);
+    box-shadow: var(--sombra-botao-hover);
 }
 
 /* Ação sensível (fechar/reabrir/entregar competência, estornar): o texto
@@ -999,6 +1209,7 @@ kbd.tecla {
     background: var(--erro);
     color: var(--acento-texto);
     border-color: var(--erro);
+    box-shadow: var(--sombra-botao-hover);
 }
 
 /* DL-042 (2ª passada): quarto tom — "fantasma" — para a ação de MENOR
@@ -1009,16 +1220,30 @@ kbd.tecla {
    quatro tons é a "calma" que a skill pede (ênfase é orçamento, gasto só
    onde há decisão). Criada só quando um uso real existe — nunca token
    novo sem tela que precise dele (direção de arte §1): o primeiro uso é
-   "Limpar filtros" em fiscal/documentos_lista.html. */
+   "Limpar filtros" em fiscal/documentos_lista.html.
+
+   DL-044: continua sem sombra/fundo em REPOUSO — de propósito, é o tom
+   MÍNIMO da escala — mas ganha `text-decoration: underline` no hover
+   (além do fundo que já tinha), para o toque de affordance de clique não
+   depender só da mudança de cor de fundo. `box-shadow: none` explícito
+   nas duas regras: este é o ÚNICO tom que nunca recebe a sombra padrão
+   de `.botao` (sobrescrita aqui de propósito, não esquecimento). */
 .botao--fantasma {
     background: transparent;
     color: var(--tinta-suave);
     border-color: transparent;
+    box-shadow: none;
 }
 
 .botao--fantasma:hover {
     color: var(--tinta);
     background: var(--papel-alt);
+    text-decoration: underline;
+    box-shadow: none;
+}
+
+.botao--fantasma:active {
+    box-shadow: none;
 }
 
 /* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
@@ -1073,13 +1298,19 @@ kbd.tecla {
    ações primária/secundária, num só padrão para reaproveitar em qualquer
    tela (templates/tenancy/painel.html, templates/empresas/lista.html,
    templates/fiscal/documentos_lista.html...). */
+/* DL-044: linha divisória — o padrão "cabeçalho de página" da pesquisa
+   (Polaris "Page", Stripe: chrome generoso ao redor do dado denso) separa
+   VISUALMENTE o título+ações do conteúdo abaixo, em vez do título flutuar
+   solto na página ("aspecto de vazio", achado do Fred). */
 .cabecalho-pagina {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--esp-4);
-    margin-bottom: var(--esp-4);
+    margin-bottom: var(--esp-5);
+    padding-bottom: var(--esp-4);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
 }
 
 .cabecalho-pagina h1 {
@@ -1169,7 +1400,7 @@ kbd.tecla {
     border-radius: var(--raio);
     background: var(--papel-elevado);
     color: var(--tinta);
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-base);
 }
 
@@ -1245,13 +1476,20 @@ kbd.tecla {
 
 /* DL-031: moldura do "assistente com etapas" (arquétipo E) — o que vai
    acontecer, e o que deixa de ser possível, ANTES do botão de ação
-   (fechar/reabrir/entregar competência). Reaproveita só tokens já
-   existentes (borda hairline, raio, espaçamento) — nenhum valor novo. */
+   (fechar/reabrir/entregar competência, zerar resultado). Reaproveita só
+   tokens já existentes (borda hairline, espaçamento).
+
+   DL-044 (Fred: "aspecto de vazio"): ganhou FUNDO (`--papel-elevado`,
+   distinto do `--papel` da página) e sombra/raio de SUPERFÍCIE — antes
+   era só um contorno sobre o MESMO fundo da página, sem se destacar como
+   painel. */
 .painel-etapa {
     border: var(--traco-fina) solid var(--borda-hairline);
-    border-radius: var(--raio);
-    padding: var(--esp-4);
+    border-radius: var(--raio-superficie);
+    padding: var(--esp-5);
     margin-bottom: var(--esp-4);
+    background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
 }
 
 .painel-etapa h2 {
@@ -1283,11 +1521,16 @@ kbd.tecla {
     margin-bottom: var(--esp-5);
 }
 
+/* DL-044 (Fred: "aspecto de vazio"): sombra + raio de SUPERFÍCIE — a
+   régua de "cartão com borda e sombra sutil" que a pesquisa confirma em
+   toda referência (Stripe, Carbon, Polaris nenhuma usa cartão liso sem
+   elevação para agrupar conteúdo do painel inicial). */
 .fila-categoria {
     border: var(--traco-fina) solid var(--borda-hairline);
-    border-radius: var(--raio);
+    border-radius: var(--raio-superficie);
     padding: var(--esp-4);
     background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
 }
 
 /* Informativo (empresas CPF em livro-caixa): não é uma pendência a
@@ -1368,27 +1611,48 @@ kbd.tecla {
     color: var(--tinta-media);
 }
 
+/* DL-044: mesma profundidade/estados de `.botao--primario` (ver o
+   comentário grande lá) — um `<button>` nativo sem classe É o tom
+   primário por padrão neste produto (docstring de `.botao`, acima), então
+   precisa da MESMA sombra/`:active`/transição, nunca uma cópia
+   divergente. */
 button {
     align-self: flex-start;
     padding: var(--esp-2) var(--esp-4);
     background: var(--acento);
     color: var(--acento-texto);
     border: var(--traco-fina) solid var(--acento);
-    border-radius: var(--raio);
-    font-family: var(--fonte-editorial);
+    border-radius: var(--raio-superficie);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-base);
     font-weight: 700;
     cursor: pointer;
+    box-shadow: var(--sombra-botao);
+    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 60ms ease;
 }
 
 button:hover {
     background: var(--acento-escuro);
     border-color: var(--acento-escuro);
+    box-shadow: var(--sombra-botao-hover);
+}
+
+button:active {
+    transform: translateY(var(--traco-fina));
+    box-shadow: none;
 }
 
 button:disabled {
     opacity: 0.55;
+    box-shadow: none;
     cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .botao,
+    button {
+        transition: none;
+    }
 }
 
 /* ==========================================================================
@@ -1415,11 +1679,20 @@ button:disabled {
    logo abaixo desta seção. Diário, Razão e Plano de Contas não têm essa
    faixa e HERDAM a mesma limitação que esta regra tinha antes: o total
    deles só é alcançável rolando a tabela — registrado, não escondido. */
+/* DL-044 (Fred: "tabelas sem superfície"): borda + sombra rasa ao redor
+   da tabela inteira — só EFEITO DE PINTURA (`box-shadow`/`border`), zero
+   impacto de ALTURA/padding de linha: a régua de densidade medida (§4.8
+   da direção de arte, "9 linhas no Balancete com período filtrado") não
+   muda um pixel por causa desta regra — testado nesta etapa (ver o
+   retorno da DL-044). `border-collapse: collapse` continua — o `border`
+   do próprio `<table>` desenha a moldura EXTERNA mesmo colapsado. */
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
+    border: var(--traco-fina) solid var(--borda-hairline);
     font-size: var(--tipo-sm);
     margin-bottom: var(--esp-3);
+    box-shadow: var(--sombra-cartao);
 }
 
 .tabela-dados th,
@@ -1435,7 +1708,7 @@ button:disabled {
     top: 0;
     background: var(--papel-alt);
     border-bottom: var(--traco-media) solid var(--borda-forte);
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-2xs);
     font-weight: 700;
     text-transform: uppercase;
@@ -1488,6 +1761,10 @@ button:disabled {
     position: static;
     text-align: left;
     text-transform: none;
+    /* DL-044: exceção deliberada, mesmo raciocínio de `.marca` acima —
+       esta linha É o documento (identificação do emitente, NBC ITG 2000
+       item 12), visível na TELA exatamente como sai no papel; continua
+       editorial mesmo com `body` em `--fonte-trabalho`. */
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-sm);
     font-weight: 400;
@@ -1526,7 +1803,7 @@ button:disabled {
    cor — sempre acompanhado, no HTML, de um texto por extenso só para
    leitor de tela (.visualmente-oculto, já definida acima). */
 .indicador-natureza {
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-weight: 700;
     margin-left: var(--esp-indicador);
 }
@@ -1649,7 +1926,7 @@ button:disabled {
 }
 
 .faixa-fechamento__veredito {
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-md);
     font-weight: 700;
     color: var(--sucesso);
@@ -1792,6 +2069,24 @@ button:disabled {
     gap: var(--esp-4);
 }
 
+/* DL-044: Data + Histórico lado a lado dentro do painel de cabeçalho do
+   lançamento (`.painel-etapa`, ver o comentário no template) — largura
+   MENOR que a tabela de partidas abaixo (que precisa da largura cheia),
+   em vez dos dois campos esticados edge-to-edge como o resto do
+   formulário-lançamento (achado do Fred, "formulários de largura total
+   sem agrupamento"). `flex-wrap` cai para coluna sozinho em telas
+   estreitas — sem media query própria. */
+.formulario-lancamento__cabecalho {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-4);
+    max-width: var(--largura-conteudo-agrupado);
+}
+
+.formulario-lancamento__cabecalho > .campo {
+    flex: 1 1 var(--largura-minima-campo-agrupado);
+}
+
 .formulario-lancamento .tabela-dados select,
 .formulario-lancamento .tabela-dados input {
     width: 100%;
@@ -1800,7 +2095,7 @@ button:disabled {
     border-radius: var(--raio);
     background: var(--papel-elevado);
     color: var(--tinta);
-    font-family: var(--fonte-editorial);
+    font-family: var(--fonte-trabalho);
     font-size: var(--tipo-base);
 }
 
@@ -2106,6 +2401,21 @@ button:disabled {
    `@media` no fim deste arquivo) entram na MESMA lista por serem a MESMA
    classe de elemento: moldura/navegação, nunca conteúdo do documento. */
 @media print {
+    /* DL-044: `body` passou a usar `--fonte-trabalho` (sans, casca de
+       aplicativo — ver o comentário grande junto aos @font-face da Plex
+       Sans). O DOCUMENTO impresso (Balancete, Diário, Razão, Balanço)
+       continua com a identidade EDITORIAL (serifada) da direção de arte —
+       "a serifa fica para [...] documentos imprimíveis" (hipótese da
+       DL-044, confirmada: nenhuma referência de mercado muda a fonte de
+       um relatório contábil formal para sans só porque a TELA virou
+       sans). Uma regra só, no topo deste bloco, restaura a editorial para
+       tudo que sai no papel — mais barato e mais robusto que recolocar
+       `font-family: var(--fonte-editorial)` em cada seletor de documento
+       espalhado pelo arquivo. */
+    body {
+        font-family: var(--fonte-editorial);
+    }
+
     /* Fora do papel: a barra lateral inteira (marca "DataLedger.",
        navegação, atalho de teclado — accesskey não existe em papel — e o
        menu "Conta"/Sair), o gatilho móvel e a marca móvel (telas
@@ -2381,6 +2691,19 @@ button:disabled {
 
     .menu-movel-gatilho[open] ~ .barra-lateral {
         display: flex;
+    }
+
+    /* DL-044: `.barra-lateral` virou um contêiner flex de UM filho só
+       (`.barra-lateral__interior`, que agora carrega padding/gap/scroll —
+       ver o comentário grande em templates/base.html). Sem isto, o filho
+       só ocuparia a própria largura de conteúdo dentro da gaveta cheia de
+       tela (o pai é `display: flex` sem `flex-direction: column`
+       declarado, então o eixo principal é horizontal por padrão) — `flex:
+       1` mais `width: 100%` fazem a gaveta móvel continuar preenchendo a
+       tela inteira, exatamente como antes da divisão em dois elementos. */
+    .barra-lateral__interior {
+        flex: 1;
+        width: 100%;
     }
 
     .area-principal {

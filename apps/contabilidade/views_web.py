@@ -699,6 +699,11 @@ class ContaCriarForm(forms.ModelForm):
         # escritório.
         self.fields["conta_pai"].queryset = Conta.objects.filter(empresa=empresa).order_by("codigo")
         self.fields["conta_pai"].required = False
+        # DL-044 — mesmo achado do `ParametroContabilForm` (ver o
+        # comentário lá): o padrão do Django para `empty_label` é em
+        # inglês. Aqui o rótulo também documenta o que a ausência de
+        # conta-pai SIGNIFICA (conta raiz), não só "nenhuma".
+        self.fields["conta_pai"].empty_label = "Nenhuma (conta raiz do plano)"
 
 
 def _codigos_das_contas_mae(codigo):
@@ -3837,19 +3842,31 @@ class ParametroContabilForm(forms.Form):
     periodicidade_zeramento = forms.ChoiceField(
         label="Periodicidade do zeramento", choices=PeriodicidadeZeramento.choices
     )
+    # DL-044 (achado das capturas da DL-043): `ModelChoiceField` sem
+    # `empty_label` próprio usa o padrão do Django 6.1, EM INGLÊS mesmo com
+    # `LANGUAGE_CODE = "pt-br"` — "- Select an option -" (medido
+    # diretamente: `forms.ModelChoiceField(...).empty_label`), porque o
+    # catálogo de tradução embutido do Django para este texto específico
+    # não está carregado neste ponto do request. Os três campos abaixo
+    # (e `ContaCriarForm.conta_pai`, a poucas linhas daqui) declaram
+    # `empty_label` em português, explicitamente — nunca dependendo da
+    # tradução automática do framework.
     conta_resultado_do_exercicio = forms.ModelChoiceField(
         label="Conta de resultado do exercício",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text="Conta analítica do grupo Patrimônio Líquido.",
     )
     conta_lucros_acumulados = forms.ModelChoiceField(
         label="Conta de lucros acumulados",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text="Conta analítica do grupo Patrimônio Líquido.",
     )
     conta_prejuizos_acumulados = forms.ModelChoiceField(
         label="Conta de (-) prejuízos acumulados",
         queryset=Conta.objects.none(),
+        empty_label="Selecione a conta",
         help_text=(
             "Conta analítica do grupo Patrimônio Líquido, de natureza DEVEDORA "
             "— é retificadora (RC-61)."

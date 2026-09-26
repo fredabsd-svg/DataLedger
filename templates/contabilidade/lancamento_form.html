@@ -11,7 +11,16 @@
 
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="lancamento_novo" %}
-    <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
+    {% comment %}
+    DL-044 (Fred: "aspecto de vazio"): moldura padrão de cabeçalho de
+    página — mesmo `.cabecalho-pagina` de tenancy/painel.html/empresas/
+    lista.html — mesmo sem ação própria no canto direito (o lançamento se
+    grava pelo botão dentro do formulário, não daqui), a linha divisória
+    já separa o título do conteúdo, em vez do <h1> flutuar solto.
+    {% endcomment %}
+    <div class="cabecalho-pagina">
+        <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
+    </div>
 
     {% if not contas %}
         <p>
@@ -44,6 +53,16 @@
             {% endcomment %}
             <input type="hidden" name="chave_idempotencia" value="{{ chave_idempotencia }}">
 
+            {% comment %}
+            DL-044 (Fred: "formulários de largura total sem agrupamento"):
+            Data e Histórico do CABEÇALHO do lançamento (nunca linha de
+            partida — essas moram na tabela, abaixo) agrupados num painel
+            próprio, mais estreito que a tabela — nem toda informação
+            deste formulário tem a mesma largura natural (padrão NN/g:
+            "usar fieldset/legend ou agrupamento visual para campos
+            relacionados", pesquisa.md).
+            {% endcomment %}
+            <div class="painel-etapa formulario-lancamento__cabecalho">
             <div class="campo">
                 {% comment %}
                 DE-031/A5 (rodada 4 da auditoria da DL-017): a correção do
@@ -108,6 +127,7 @@
             <div class="campo">
                 <label for="id_historico">Histórico</label>
                 <input type="text" id="id_historico" name="historico" value="{{ historico }}" maxlength="300">
+            </div>
             </div>
 
             <table class="tabela-dados">
