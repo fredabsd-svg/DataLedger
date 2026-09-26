@@ -399,3 +399,27 @@ referência (403, limite já documentado em
 indexados dos artigos sugerem que lá a compensação é lançamento separado, ligado
 à demonstração anual. Registrado como **HI-26** e ampliação da **PE-38**; a
 DL-043 entrega o que o RC-104 confirmou e **não** compensa automaticamente.
+
+## Verificação do fechamento (sem terceira rodada)
+
+AGENTS.md §3.1 proíbe a terceira rodada de auditoria. A correção da
+reconferência (`cbe7876`) foi conferida pelo `auxiliar-verificacao`, de forma
+independente, contra a evidência que a própria reconferência pediu
+(2026-09-26):
+
+- Os seis casos de teste propostos existem e passam (11 sub-casos); os cinco
+  arquivos `test_dl043_*.py`: 135 passed.
+- Mutantes aplicados em cópia descartável, todos mortos: N6, N14, N15, N16, R1
+  (sem `no_key=True`: o teste principal reprovou em todas as execuções, com 9 e
+  12 de 30 rodadas em deadlock, e a variante em 15 de 15), R2 (sem a recusa de
+  período anterior) e R4 (prefixo sem `.lower()`).
+- Cenário R2 reescrito do zero pela porta HTTP: zerar abril antes de março é
+  recusado com "Zere primeiro 03/2026" e banco inalterado; na ordem, abril grava
+  lucro de 200,00, lucros acumulados somam 500,00 e prejuízos não são tocados.
+- Suíte completa no `cbe7876`: 2818 passed, 45 skipped, com o arquivo de
+  versão mínima do Python desmarcado (falha de ambiente conhecida: Python 3.13
+  local, 3.14 na CI).
+- Ressalva registrada pelo verificador: o caso 2 não segue o roteiro literal
+  "zerar, estornar, refazer" de R2.7, porque a decisão (adendo da DE-078) foi a
+  terceira alternativa de R2.6 — recusar na entrada.
+
