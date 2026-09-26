@@ -30,6 +30,16 @@ comentário completo em balancete.html e em templates/base.html.
     {% endif %}
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B — mesmo padrão da 4ª iteração): título migra para a faixa
+branca do topo (`{% block titulo_pagina %}`, templates/base.html), sem a
+razão social — a pílula "Empresa" (`contexto_extra`, acima) já mostra.
+`.cabecalho` continua impresso (`.barra-lateral`/`.formulario-periodo`/
+`.trilha`/`button` são os únicos que somem do papel — ver `@media print`
+em base.css), então o título continua saindo no documento.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Diário</h1>{% endblock %}
+
 {% block content %}
     {% comment %}
     BL-282: mesmo timbre de impressão do Balancete — ver o comentário
@@ -42,9 +52,6 @@ comentário completo em balancete.html e em templates/base.html.
             <p>{{ linha }}</p>
         {% endfor %}
     </div>
-
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="diario" %}
-    <h1>Diário — {{ empresa.razao_social }}</h1>
 
     {% comment %}
     BL-287 (etapa própria, depois da rodada 3 da DL-026): mesmo arranjo do

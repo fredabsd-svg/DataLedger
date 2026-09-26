@@ -20,16 +20,20 @@
     </nav>
 {% endblock %}
 
+{% comment %}
+B3/BL-283 (auditoria DL-026, rodada 1): é justamente esta tela — onde
+se chega clicando numa linha do Razão ou do Diário — que ficava sem os
+cinco atalhos, obrigando a pessoa a voltar antes de navegar de novo.
+Sem `pagina_atual`: o detalhe de um lançamento não é uma das cinco
+páginas fixas do subnível.
+
+DL-044 (Fase B): título migra para a faixa branca do topo — o número do
+lançamento não repete nenhuma pílula, então nada foi simplificado além
+de mudar de lugar.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Lançamento nº {{ lancamento.id }}</h1>{% endblock %}
+
 {% block content %}
-    {% comment %}
-    B3/BL-283 (auditoria DL-026, rodada 1): é justamente esta tela — onde
-    se chega clicando numa linha do Razão ou do Diário — que ficava sem os
-    cinco atalhos, obrigando a pessoa a voltar antes de navegar de novo.
-    Sem `pagina_atual`: o detalhe de um lançamento não é uma das cinco
-    páginas fixas do subnível.
-    {% endcomment %}
-    {% include "contabilidade/_navegacao_empresa.html" %}
-    <h1>Lançamento nº {{ lancamento.id }}</h1>
     <p>
         <strong>Data:</strong> {{ lancamento.data|date:"d/m/Y" }}<br>
         <strong>Histórico:</strong> {{ lancamento.historico|default:"—" }}

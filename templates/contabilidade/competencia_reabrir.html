@@ -24,10 +24,14 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" %}
-    <h1>Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+{% comment %}
+DL-044 (Fase B): mesmo raciocínio de competencia_fechar.html — título
+migra para a faixa branca do topo, mês/ano PERMANECE (reforço de risco,
+ação sensível).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
 
+{% block content %}
     <div class="painel-etapa">
         <h2>O que vai acontecer</h2>
         <p>

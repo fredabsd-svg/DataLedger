@@ -224,6 +224,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-043** — parâmetros contábeis por empresa e zeramento do resultado em duas etapas, com destino pelo sinal
 - **DL-042** — redesenho global da interface: moldura em L com barra lateral recolhível, tokens, landing e componentes padronizados
 - **DL-041** — CNPJ e CPF únicos por escritório: nenhum escritório descobre, pelo cadastro, a carteira de outro
+- **DL-044** — telas de trabalho com aspecto de produto profissional: casca azul com barra lateral única, cartões sobre fundo neutro, Início com indicadores e carteira, hub de relatórios e ações de linha como botão, com o Conta Azul como referência de padrão escolhida pelo Fred
 
 Ainda não existem:
 

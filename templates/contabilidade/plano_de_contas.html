@@ -9,6 +9,22 @@
     </span>
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B — mesmo padrão da 4ª iteração, agora estendido às demais
+telas de contabilidade): título migra para a faixa branca do topo
+(`{% block titulo_pagina %}`/`{% block acoes_pagina %}`, templates/
+base.html), sem repetir a razão social — a pílula "Empresa"
+(`contexto_extra`, acima) já mostra, na MESMA faixa. `pode_escriturar`
+governa a ação primária "Nova conta" — quem só lê não ganha o botão,
+mesma regra de servidor de antes, só reposicionada.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Plano de contas</h1>{% endblock %}
+{% block acoes_pagina %}
+    {% if pode_escriturar %}
+        <a class="botao botao--primario" href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a>
+    {% endif %}
+{% endblock %}
+
 {% block content %}
     {% comment %}
     DL-042 (2ª passada): padronizado para `.botao--secundario` — mesmo tom
@@ -18,26 +34,6 @@
     de padronização de botões.
     {% endcomment %}
     <p><a class="botao botao--secundario" href="{% url 'empresas:lista' %}">‹ Voltar para empresas</a></p>
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="plano_de_contas" %}
-
-    {% comment %}
-    DL-042 (2ª passada): "Nova conta" promovida para `.cabecalho-pagina__
-    acoes` com `.botao--primario` — mesmo padrão de toda outra tela ATIVA
-    com ação primária clara (empresas/lista.html "Nova empresa",
-    fiscal/documentos_lista.html "Enviar documentos"), achado no
-    diagnóstico de padronização: esta tela tinha o único link de criação
-    de uma lista que continuava como `<p><a>` sem estilo nenhum.
-    {% endcomment %}
-    {% if pode_escriturar %}
-        <div class="cabecalho-pagina">
-            <h1>Plano de contas — {{ empresa.razao_social }}</h1>
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a>
-            </div>
-        </div>
-    {% else %}
-        <h1>Plano de contas — {{ empresa.razao_social }}</h1>
-    {% endif %}
 
     {% if linhas %}
         {% comment %}
@@ -45,38 +41,48 @@
         classe `.conta-sintetica` do Balancete — ver o comentário completo
         lá. Aqui "aceita lançamento" já é a própria coluna exibida mais
         abaixo; a classe só faz o peso tipográfico seguir o mesmo dado.
+
+        DL-044 (Fase B, achado do Fred: "a legenda está minúscula e
+        colada na tabela — mova para o cabeçalho do cartão"): a legenda
+        migra para dentro de `.cartao-tabela__cabecalho` — texto de
+        apoio, mas agora no cabeçalho de UM cartão só com a tabela
+        (`.cartao-tabela`, static/css/base.css), não solta acima dela.
         {% endcomment %}
-        <p class="texto-apoio">
-            Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
-            indica conta analítica (aceita lançamento).
-        </p>
-        <table class="tabela-dados">
-            <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
-            <thead>
-                <tr>
-                    <th scope="col">Nível</th>
-                    <th scope="col">Código</th>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Tipo</th>
-                    <th scope="col">Natureza</th>
-                    <th scope="col">Aceita lançamento</th>
-                    <th scope="col">Situação</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for linha in linhas %}
+        <div class="cartao-tabela">
+            <div class="cartao-tabela__cabecalho">
+                <p class="texto-apoio">
+                    Peso maior indica conta sintética (grupo, não aceita lançamento); peso normal
+                    indica conta analítica (aceita lançamento).
+                </p>
+            </div>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Plano de contas de {{ empresa.razao_social }}</caption>
+                <thead>
                     <tr>
-                        <td>{{ linha.nivel|default:"—" }}</td>
-                        <td>{{ linha.conta.codigo }}</td>
-                        <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
-                        <td>{{ linha.conta.get_tipo_display }}</td>
-                        <td>{{ linha.conta.get_natureza_display }}</td>
-                        <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
-                        <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                        <th scope="col">Nível</th>
+                        <th scope="col">Código</th>
+                        <th scope="col">Nome</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Aceita lançamento</th>
+                        <th scope="col">Situação</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.nivel|default:"—" }}</td>
+                            <td>{{ linha.conta.codigo }}</td>
+                            <td class="nivel-{{ linha.nivel_classe }}{% if not linha.conta.aceita_lancamento %} conta-sintetica{% endif %}">{{ linha.conta.nome }}</td>
+                            <td>{{ linha.conta.get_tipo_display }}</td>
+                            <td>{{ linha.conta.get_natureza_display }}</td>
+                            <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
+                            <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
         <p>
             Esta empresa ainda não tem nenhuma conta cadastrada.

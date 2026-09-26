@@ -48,6 +48,20 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
     </span>
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo (`{% block
+titulo_pagina %}`, templates/base.html) — mesmo padrão das telas já
+migradas na 4ª iteração. `.cabecalho` continua impresso (ver `@media
+print` em base.css — só `.barra-lateral`/`.formulario-periodo`/
+`.trilha`/`button` somem do papel), então o título continua saindo no
+documento, exatamente como já saía dentro de `{% block content %}`.
+BL-284 (risco de densidade, registrado na 4ª iteração): medido ANTES e
+DEPOIS desta mudança com instrumento próprio de contagem de linha
+(1280×800, período filtrado, mesmo método do §4.8) — ver o relatório da
+etapa para os dois números.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Balancete de verificação</h1>{% endblock %}
+
 {% block content %}
     {% comment %}
     BL-282 (achado M6 da auditoria DL-026, rodada 1, docs/projeto/backlog.md):
@@ -86,30 +100,16 @@ VISÍVEL) e só as telas COM timbre sobrescrevem.
             <p>{{ linha }}</p>
         {% endfor %}
     </div>
-
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" %}
     {% comment %}
-    BL-284 (rodada 3, DL-026): o <h1> repetia o nome da empresa que a
+    BL-284 (rodada 3, DL-026): o `<h1>` repetia o nome da empresa que a
     faixa de contexto do cabeçalho já mostra, dois blocos acima ("Empresa
-    — {{ empresa.razao_social }}"). Repetir não ajuda quem lê — quem
-    chegou até aqui já sabe em que empresa está — e é um dos itens que a
-    revisão integrada 2307de6 nomeou na decomposição dos 569px acima da
-    primeira linha do balancete (achado que fez a densidade cair de 9
-    para 6 linhas, §4.8 da direção de arte). O nome da empresa continua
-    na tag title da aba (block titulo, acima) e na faixa de contexto; sai
-    só da repetição dentro do conteúdo.
-
-    ⚠️ BL-332: a palavra "title" acima foi reescrita SEM sinais de
-    menor/maior ao redor nesta etapa — escrevê-la CERCADA por eles dentro
-    deste {% comment %} apagava, em silêncio, tudo que vem depois no HTML
-    para o parser tolerante de apps/contabilidade/tests/
-    test_bl329_marca_fora_do_papel.py (RCDATA de verdade para o
-    html.parser padrão do Python, que trata "title" como "textarea": sem
-    fechamento correspondente no arquivo, o parser engole o resto inteiro
-    como texto). Descoberto ao escrever a correção do BL-332 — ver o
-    comentário completo em templates/base.html.
+    — {{ empresa.razao_social }}") — o nome da empresa continua na tag
+    title da aba (block titulo, acima) e na faixa de contexto; nunca
+    voltou a se repetir aqui dentro. DL-044 (Fase B): o próprio `<h1>`
+    saiu deste bloco — mora agora em `{% block titulo_pagina %}`, no topo
+    do arquivo, junto do comentário que explica a mudança e a medição de
+    densidade que a acompanhou.
     {% endcomment %}
-    <h1>Balancete de verificação</h1>
 
     {% comment %}
     BL-301 (achado B3 da auditoria DL-026, rodada 2,

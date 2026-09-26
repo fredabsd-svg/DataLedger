@@ -12,7 +12,12 @@
     </nav>
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo — inclusive
+esta tela de erro, mesmo padrão do restante do produto.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Sem permissão</h1>{% endblock %}
+
 {% block content %}
-    <h1>Sem permissão</h1>
     <p>{{ mensagem|default:"Seu papel não permite realizar esta ação." }}</p>
 {% endblock %}

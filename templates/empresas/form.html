@@ -13,9 +13,12 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    <h1>Nova empresa</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Nova empresa</h1>{% endblock %}
 
+{% block content %}
     <form method="post" class="formulario" novalidate>
         {% csrf_token %}
         {% if form.non_field_errors %}

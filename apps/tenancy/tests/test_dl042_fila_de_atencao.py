@@ -276,11 +276,16 @@ def test_fila_com_pendencia_em_todas_as_categorias_tem_consultas_limitadas(
     ]:
         assert titulo in html_controle, f"controle: categoria {titulo!r} deveria aparecer"
 
-    # 20 é o TETO, não o número medido: com pendência nas cinco categorias
-    # (mais o carregamento normal do painel), esta etapa mediu 14
-    # consultas. A margem entre 14 e 20 é de propósito — o teto existe
-    # para pegar uma REGRESSÃO de N+1 futura, não para cravar o número
-    # exato de hoje, que quebraria a cada ajuste sem relação com N+1.
-    with django_assert_max_num_queries(20):
+    # 26 é o TETO, não o número medido. DL-044 (3ª iteração): a faixa de
+    # indicadores do topo (`_indicadores_do_painel` — até 4 `.count()`,
+    # tamanho FIXO, nunca por item) e "Empresas da carteira"
+    # (`_empresas_da_carteira` — 1 consulta de empresas + 2 agregações
+    # `values().annotate()`, tamanho FIXO, nunca uma sub-consulta por
+    # empresa) somaram ao teto anterior de 20 (que media 14 consultas de
+    # verdade) — o NOVO número medido é 21. A margem entre 21 e 26 continua
+    # de propósito — o teto existe para pegar uma REGRESSÃO de N+1 futura
+    # (uma consulta por item/empresa), não para cravar o número exato de
+    # hoje, que quebraria a cada ajuste sem relação com N+1.
+    with django_assert_max_num_queries(26):
         resposta = client.get(reverse("tenancy:painel"))
     assert resposta.status_code == 200
