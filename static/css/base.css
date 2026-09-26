@@ -367,6 +367,14 @@
        a coluna não "pular" de largura entre uma linha com "0,00" e outra
        com "1.234.567,89" — já vem do mínimo. */
     --largura-minima-coluna-valor: 8rem;
+    /* DL-046, fatia 1: largura mínima ESTREITA da coluna de valor, só para
+       a tabela "Lançamentos de caixa" (`.tabela-lancamentos-caixa`, ver o
+       breakpoint ≤48rem abaixo) — a coluna Valor desta tabela é a ÚNICA
+       numérica (ao contrário do Balancete/Diário, com várias colunas de
+       valor competindo por espaço), então uma largura menor ainda evita
+       o "pular" de largura sem disputar o espaço que falta para "Data" e
+       "Ação" caberem a 390px. */
+    --largura-minima-coluna-valor-estreita: 4.5rem;
     /* DL-040: largura mínima e máxima do painel de submenu do menu
        principal (`.menu-dropdown ul`/`.menu-dropdown__paineis`) — tokens
        próprios, no mesmo padrão dos dois acima, porque não são largura de
@@ -3738,5 +3746,32 @@ button:disabled {
     .campo-criterio-de-apuracao__opcao {
         white-space: normal;
         max-width: 100%;
+    }
+
+    /* DL-046, fatia 1: mesmo achado do Balancete/DRE, medida diferente —
+       "Lançamentos de caixa" (Data/Lançamento/Valor/Ação) estourava a
+       largura em 390px porque a coluna "Valor" reservava o mínimo GERAL
+       (8rem/128px) — o suficiente para uma tabela com VÁRIAS colunas de
+       valor competindo (Balancete/Diário), largo demais para uma tabela
+       com uma ÚNICA coluna numérica. `.cartao-tabela { overflow: hidden
+       }` CORTAVA "Ação" fora da tela em vez de rolar — o botão
+       "Estornar" ficava invisível, sem aviso. Medido: 425,9px de
+       largura de tabela antes desta regra, contra 390px de viewport. */
+    .tabela-lancamentos-caixa th.cabecalho-numerico {
+        min-width: var(--largura-minima-coluna-valor-estreita);
+    }
+
+    /* A redução do min-width (acima) sozinha não bastou: medido, a
+       tabela ainda somava 384px de largura NATURAL contra 342px do
+       `.cartao-tabela` (24px de margem de página em cada lado, a 390px
+       de viewport) — o padding padrão de CADA célula (`--esp-3`, 12px de
+       cada lado) soma 96px nas quatro colunas, mais da metade do
+       excedente. `--esp-2` (8px) ainda é o dobro do espaçamento mínimo
+       da escala (`--esp-1`) e continua distinguindo colunas vizinhas —
+       só reduzido NESTA tabela, NESTA largura, nunca a regra geral de
+       `.tabela-dados td` (que afeta toda tabela do produto). */
+    .tabela-lancamentos-caixa th,
+    .tabela-lancamentos-caixa td {
+        padding: var(--esp-2) var(--esp-1);
     }
 }

@@ -100,7 +100,7 @@ from apps.contabilidade.tests.universo_de_telas import (
     _urls_de_contabilidade,
 )
 from apps.core.marcacao import tem_classe, tokens_de_atributo
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 
 # A11 da auditoria DL-010-F1/DL-038 (docs/auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md):
 # import cruzado de apoio de teste (apps.fiscal.tests.xml_sinteticos), no
@@ -112,6 +112,8 @@ from apps.empresas.models import Empresa
 from apps.fiscal.models import DocumentoFiscal
 from apps.fiscal.services import receber_envio
 from apps.fiscal.tests.xml_sinteticos import CNPJ_PRESTADOR_PADRAO, xml_nfse
+from apps.livro_caixa.models import ContaLivroCaixa, NaturezaCaixa
+from apps.livro_caixa.services import criar_lancamento_caixa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 # BL-352 (rodada 10 da auditoria DL-026): NOMES_DE_TELA_DE_CONTABILIDADE,
@@ -143,6 +145,10 @@ urlpatterns = [
     # que a DL-036 já mediu uma vez ("o espelho de URLs e o universo de
     # telas não conheciam a rota nova"). Mesmo prefixo de `config/urls.py`.
     path("fiscal/", include("apps.fiscal.urls_web")),
+    # DL-046, fatia 1 (especialista-frontend): mesmo raciocínio da linha do
+    # Fiscal acima, para `livro_caixa_web:*` — mesmo prefixo de
+    # `config/urls.py`.
+    path("livro-caixa/painel/", include("apps.livro_caixa.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]
 
@@ -464,6 +470,45 @@ def cenario_fiscal(client):
     )
     documento = DocumentoFiscal.objects.get(escritorio=escritorio)
     return {"escritorio": escritorio, "usuario": usuario, "lote": lote, "documento": documento}
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 1 (especialista-frontend): cenário PRÓPRIO do livro-caixa —
+# `cenario`, acima, é uma empresa em modo CONTABILIDADE; as seis telas HTML
+# de `apps.livro_caixa.views_web` precisam de uma empresa CPF em modo
+# LIVRO_CAIXA, com conta e lançamento de verdade, para renderizar com dado.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cenario_livro_caixa(client):
+    escritorio = Escritorio.objects.create(
+        nome="Escritório Livro-caixa A11y", cnpj="44666888000122"
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Fulano de Tal A11y",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="11144477735",
+        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+    )
+    conta = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="R1",
+        nome="Honorários recebidos",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.003.001",
+    )
+    _autenticar(client, escritorio, papel=Papel.GESTOR, username="gestor-caixa-a11y")
+    lancamento = criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta,
+        data=timezone.localdate(),
+        valor=Decimal("100.00"),
+        historico="Lançamento sintético para a11y",
+        recebido_de="PJ",
+    )
+    return {"escritorio": escritorio, "empresa": empresa, "conta": conta, "lancamento": lancamento}
 
 
 # ---------------------------------------------------------------------------
@@ -1019,6 +1064,22 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:documento_detalhe": "test_tela_fiscal_documento_detalhe_e_acessivel",
 }
 
+# DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de
+# `apps.livro_caixa.views_web` — mesmo papel de `NOMES_DE_TELA_FISCAL_
+# FORA_DA_CONTABILIDADE`, LOCAL a este arquivo pelo MESMO motivo declarado
+# no comentário dela (a correção desta etapa está restrita aos arquivos que
+# o especialista-frontend tem permissão de editar; mover para
+# `universo_de_telas.py` fica para quem tiver permissão de editar aquele
+# módulo depois).
+NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE = {
+    "livro_caixa_web:plano_de_contas": "test_tela_livro_caixa_plano_de_contas_e_acessivel",
+    "livro_caixa_web:conta_nova": "test_tela_livro_caixa_conta_nova_e_acessivel",
+    "livro_caixa_web:lancamento_novo": "test_tela_livro_caixa_lancamento_novo_e_acessivel",
+    "livro_caixa_web:lancamentos": "test_tela_livro_caixa_lancamentos_e_acessivel",
+    "livro_caixa_web:lancamento_estornar": "test_tela_livro_caixa_lancamento_estornar_e_acessivel",
+    "livro_caixa_web:relatorio": "test_tela_livro_caixa_relatorio_e_acessivel",
+}
+
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
 # dela (`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`, importado de
 # universo_de_telas.py — BL-352, ver comentário junto ao import no topo
@@ -1070,14 +1131,16 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
     alcançável a partir de `config/urls.py`, sem entrada em
     `NOMES_DE_TELA_DE_CONTABILIDADE`/`NOMES_DE_TELA_FORA_DA_CONTABILIDADE`/
-    `NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE` NEM em `EXCLUSOES_
-    NOMEADAS_DE_TELA`, reprova — nomeando a rota que falta classificar, para
-    quem lê a falha saber exatamente o que fazer."""
+    `NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE`/`NOMES_DE_TELA_LIVRO_
+    CAIXA_FORA_DA_CONTABILIDADE` NEM em `EXCLUSOES_NOMEADAS_DE_TELA`,
+    reprova — nomeando a rota que falta classificar, para quem lê a falha
+    saber exatamente o que fazer."""
     nomes_reais = _nomes_de_rota_do_produto()
     cobertas = (
         set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DE_CONTABILIDADE.values())
         | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
+        | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
 
@@ -1259,6 +1322,74 @@ def test_tela_fiscal_documento_detalhe_e_acessivel(client, cenario_fiscal):
     )
     assert resposta.status_code == 200
     assert "fiscal/documento_detalhe.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 1 (especialista-frontend) — as seis telas HTML do
+# livro-caixa, cobertura real de acessibilidade (mesmo padrão das quatro
+# do Fiscal, acima): nenhuma delas tem atalho/accesskey próprio (letras
+# seguras já ocupadas — mesmo raciocínio da 8.2b da direção de arte para a
+# antiga parcial do Fiscal), então `assert_moldura_acessivel` (as quatro
+# guardas gerais) é a checagem certa, nunca `assert_pagina_acessivel` (que
+# cobraria os sete atalhos da contabilidade, que este módulo não tem).
+# ---------------------------------------------------------------------------
+
+
+def test_tela_livro_caixa_plano_de_contas_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:plano_de_contas", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/plano_de_contas.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_conta_nova_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:conta_nova", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/conta_form.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_lancamento_novo_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:lancamento_novo", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/lancamento_form.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_lancamentos_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:lancamentos", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/lancamentos_lista.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_lancamento_estornar_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse(
+            "livro_caixa_web:lancamento_estornar",
+            args=[cenario_livro_caixa["empresa"].id, cenario_livro_caixa["lancamento"].id],
+        )
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/lancamento_estornar.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_relatorio_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/relatorio.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

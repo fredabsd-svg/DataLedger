@@ -415,6 +415,13 @@ NOME_DO_MODULO_NA_TABELA = {
     "processos": "Processos/Paralegal",
     "lalur": "Lalur/ECF",
     "ecf": "Lalur/ECF",
+    # DL-046, fatia 1 (especialista-frontend): `templates/livro_caixa/`
+    # (pasta com "_", convenção Python) -> "Livro-caixa" (com hífen, o
+    # nome que o produto usa no menu e na tabela do §3) — mesma razão de
+    # "paralegal"/"processos" acima mapearem para o MESMO rótulo com
+    # hífen: nome de pasta e nome de produto não precisam coincidir
+    # caractere a caractere.
+    "livro_caixa": "Livro-caixa",
 }
 
 # BL-313 (M4 da auditoria DL-026 rodada 3): até esta correção, o detector só

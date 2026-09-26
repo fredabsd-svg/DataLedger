@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block titulo %}Novo lançamento de caixa — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">Lançamentos — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Novo lançamento</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">‹ Voltar para os lançamentos</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Novo lançamento de caixa</h1>{% endblock %}
+
+{% block content %}
+    {% if not contas %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta do livro-caixa ativa.
+            <a href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastre uma conta</a> antes de lançar.
+        </p>
+    {% else %}
+        <form method="post" action="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}"
+              class="formulario" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="chave_idempotencia" value="{{ chave_idempotencia }}">
+
+            <div class="painel-etapa">
+                <div class="campo">
+                    <label for="id_data">Data</label>
+                    <input type="date" id="id_data" name="data" value="{{ data_texto }}" required
+                           min="{{ data_minima_iso }}" max="{{ data_maxima_iso }}"
+                           aria-describedby="id_data_ajuda">
+                    <p class="texto-apoio ajuda-formato-data" id="id_data_ajuda">
+                        O formato deste campo é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+                        O sistema aceita data entre {{ data_minima_ptbr|date:"d/m/Y" }} e
+                        {{ data_maxima_ptbr|date:"d/m/Y" }}.
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_conta">Conta</label>
+                    <select id="id_conta" name="conta" required>
+                        <option value="">— Selecione —</option>
+                        {% for conta in contas %}
+                            <option value="{{ conta.id }}" {% if conta_selecionada_id == conta.id|stringformat:"s" %}selected{% endif %}>
+                                {{ conta.codigo }} — {{ conta.nome }} ({{ conta.get_natureza_display }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="campo">
+                    <label for="id_valor">Valor</label>
+                    <input type="text" inputmode="decimal" id="id_valor" name="valor"
+                           value="{{ valor_texto }}" placeholder="0,00" required>
+                </div>
+
+                <div class="campo">
+                    <label for="id_historico">Histórico</label>
+                    <input type="text" id="id_historico" name="historico" value="{{ historico }}" maxlength="300">
+                </div>
+
+                <div class="campo">
+                    <label for="id_documento_origem">Documento de origem</label>
+                    <input type="text" id="id_documento_origem" name="documento_origem"
+                           value="{{ documento_origem }}" maxlength="100">
+                </div>
+
+                {% comment %}
+                Os campos abaixo só se aplicam a lançamento de RECEITA
+                (`Conta.natureza`) — sem JavaScript não há como escondê-los
+                condicionalmente conforme a conta escolhida (a conta é
+                selecionada no MESMO envio, o servidor só sabe depois do
+                POST); ficam sempre visíveis, com o texto de ajuda
+                explicando, e o servidor recusa se preenchidos numa
+                despesa (`LancamentoCaixa.clean()`).
+                {% endcomment %}
+                <div class="campo campo-criterio-de-apuracao">
+                    <span class="campo-rotulo">Recebido de (só para receita)</span>
+                    {% for valor_opcao, rotulo_opcao in origens %}
+                        <label class="campo-criterio-de-apuracao__opcao">
+                            <input type="radio" name="recebido_de" value="{{ valor_opcao }}"
+                                   {% if valor_opcao == recebido_de_selecionado %}checked{% endif %}>
+                            {{ rotulo_opcao }}
+                        </label>
+                    {% endfor %}
+                </div>
+
+                <div class="campo">
+                    <label for="id_cpf_titular_pagamento">CPF do titular do pagamento</label>
+                    <input type="text" inputmode="numeric" id="id_cpf_titular_pagamento"
+                           name="cpf_titular_pagamento" value="{{ cpf_titular_pagamento }}"
+                           aria-describedby="id_cpf_titular_pagamento_ajuda">
+                    <p class="texto-apoio" id="id_cpf_titular_pagamento_ajuda">
+                        Exigido para rendimento do trabalho não assalariado recebido de pessoa física.
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_cpf_beneficiario_servico">CPF do beneficiário do serviço</label>
+                    <input type="text" inputmode="numeric" id="id_cpf_beneficiario_servico"
+                           name="cpf_beneficiario_servico" value="{{ cpf_beneficiario_servico }}"
+                           aria-describedby="id_cpf_beneficiario_servico_ajuda">
+                    <p class="texto-apoio" id="id_cpf_beneficiario_servico_ajuda">
+                        Exigido para rendimento do trabalho não assalariado recebido de pessoa física.
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_cnpj_pagador">CNPJ do pagador</label>
+                    <input type="text" inputmode="numeric" id="id_cnpj_pagador"
+                           name="cnpj_pagador" value="{{ cnpj_pagador }}"
+                           aria-describedby="id_cnpj_pagador_ajuda">
+                    <p class="texto-apoio" id="id_cnpj_pagador_ajuda">Opcional, quando recebido de pessoa jurídica.</p>
+                </div>
+
+                <div class="acoes-formulario">
+                    <button class="botao botao--primario" type="submit">Gravar lançamento</button>
+                </div>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

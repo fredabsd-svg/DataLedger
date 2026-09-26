@@ -36,6 +36,12 @@ urlpatterns = [
     # desapareceria sem erro nenhum. Levantado pelo `especialista-frontend`
     # ao entregar a fase B.
     path("contabilidade/painel/", include("apps.contabilidade.urls_web")),
+    # Telas do livro-caixa (DL-046, fatia 1). Prefixo "livro-caixa/painel/"
+    # — DIFERENTE do da API acima ("livro-caixa/") pelo MESMO motivo que
+    # levou "contabilidade/painel/" a existir (ver o comentário logo
+    # acima): rotas com o mesmo caminho literal ("contas/", "lancamentos/")
+    # sob o mesmo `empresa_id`.
+    path("livro-caixa/painel/", include("apps.livro_caixa.urls_web")),
     # Telas da recepção de documentos fiscais (DL-010, fatia 1, etapa 2).
     # Prefixo "fiscal/" — este módulo não tem API REST nesta fatia
     # (declarado fora do escopo no plano DL-010-F1), então não existe o

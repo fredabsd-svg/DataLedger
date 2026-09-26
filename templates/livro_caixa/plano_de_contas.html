@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block titulo %}Plano de contas do livro-caixa — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-046, fatia 1: mesmo padrão de apps.contabilidade (`plano_de_contas.html`,
+DL-044 Fase B) — título na faixa branca do topo, ação primária "Nova conta"
+ao lado (só quem pode escriturar).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Plano de contas do livro-caixa</h1>{% endblock %}
+{% block acoes_pagina %}
+    {% if pode_escriturar %}
+        <a class="botao botao--primario" href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Nova conta</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'empresas:lista' %}">‹ Voltar para empresas</a></p>
+
+    {% if contas %}
+        <div class="cartao-tabela">
+            <div class="cartao-tabela__cabecalho">
+                <p class="texto-apoio">
+                    O código do Carnê-Leão Web decide a dedutibilidade de cada conta (HI-30):
+                    rendimento (R01.xxx.xxx) para receita; P10 (dedutível), P11 (não dedutível) ou
+                    P20 (código fixo da Receita) para despesa.
+                </p>
+            </div>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Plano de contas do livro-caixa de {{ empresa.razao_social }}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Código</th>
+                        <th scope="col">Nome</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Código do Carnê-Leão Web</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for conta in contas %}
+                        <tr>
+                            <td>{{ conta.codigo }}</td>
+                            <td>{{ conta.nome }}</td>
+                            <td>{{ conta.get_natureza_display }}</td>
+                            <td>{{ conta.codigo_carne_leao }}</td>
+                            <td>{% if conta.ativa %}Ativa{% else %}Inativa{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta do livro-caixa cadastrada.
+            {% if pode_escriturar %}
+                <a href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastre a primeira conta</a>.
+            {% endif %}
+        </p>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block titulo %}Livro Caixa — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+RC-97: "nome do relatório — razão social do cliente" no título de um
+DOCUMENTO impresso — mesmo padrão de balancete.html/dre.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+Esta tela TEM timbre de impressão (`.timbre-impressao`, abaixo) — mesmo
+raciocínio de balancete.html/dre.html: "Escritório ativo" pode sair da
+impressão porque a identificação do emitente já sai pelo timbre. A
+identificação PRINCIPAL deste documento, porém, é a do CONTRIBUINTE (nome,
+CPF) — o livro-caixa é livro DO CLIENTE pessoa física, não demonstração da
+contabilidade do escritório (docs/projeto/personalizacao-de-relatorio.md:
+a forma de um livro é quase toda prescrita pelo que ele REGISTRA, não pelo
+escritório que o emite).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
+        </span>
+    {% endif %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Emitido em</span>
+        <strong>{{ carimbo_de_emissao_texto }}</strong>
+    </span>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Livro Caixa</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:relatorio' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver o Livro Caixa, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+    </form>
+
+    {% if inicio and fim %}
+        {% comment %}
+        Totais informativos, sem veredito (nunca "fecha/não fecha" — o
+        livro-caixa não tem essa pergunta, é regime de caixa, um valor por
+        lançamento): `.painel-etapa` é o cartão NEUTRO já usado em outras
+        telas (ex.: competencia_reabrir.html), nunca `.faixa-fechamento`
+        (que é verde por padrão, reservada a um VEREDITO de conferência —
+        usá-la aqui sugeriria um "aprovado" que não existe aqui).
+        {% endcomment %}
+        <div class="painel-etapa" role="status">
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Entradas</span>
+                <strong class="valor-monetario">{{ total_entradas_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saídas</span>
+                <strong class="valor-monetario">{{ total_saidas_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saldo do período</span>
+                <strong class="valor-monetario">{{ saldo_ptbr }}</strong>
+            </span>
+        </div>
+
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Livro Caixa de {{ empresa.razao_social }} no período</caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="5">
+                        <div class="identificacao-do-documento">
+                            <p><strong>{{ empresa.razao_social }}</strong> — CPF {{ cpf_formatado }}</p>
+                            <p>
+                                Livro Caixa — período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+                            </p>
+                            <p>
+                                Base: Decreto 9.580/2018 (RIR/2018), arts. 68 e 69 — escrituração do
+                                trabalhador não assalariado com documentação idônea.
+                            </p>
+                        </div>
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Conta</th>
+                    <th scope="col">Histórico</th>
+                    <th scope="col">Natureza</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                    <tr>
+                        <td>{{ item.data|date:"d/m/Y" }}</td>
+                        <td>
+                            {{ item.conta }} — {{ item.conta_nome }}
+                            {% if item.e_estorno %}<br><span class="texto-apoio">Estorno</span>{% endif %}
+                        </td>
+                        <td>{{ item.historico|default:"—" }}</td>
+                        <td>{% if item.natureza == "receita" %}Entrada{% else %}Saída{% endif %}</td>
+                        {% comment %}
+                        Direção de arte §2A: "valor invertido em relação à
+                        natureza do registro vai entre parênteses" — um
+                        estorno é uma linha de Entrada/Saída que, ao
+                        contrário do resto da coluna, SUBTRAI do total
+                        (`apurar_livro_caixa`, services.py, sinal
+                        invertido). Sem o parêntese, somar a coluna Valor a
+                        olho nunca bateria com Entradas/Saídas/Saldo do
+                        cartão acima — o parêntese é o que torna a soma
+                        literal da coluna consistente com o total.
+                        {% endcomment %}
+                        <td class="valor-monetario">
+                            {% if item.e_estorno %}
+                                <span class="valor-invertido">({{ item.valor_ptbr }})</span>
+                            {% else %}
+                                {{ item.valor_ptbr }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5">Nenhum lançamento neste período.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}
