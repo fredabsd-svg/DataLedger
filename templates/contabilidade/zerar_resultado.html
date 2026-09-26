@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block titulo %}Zerar resultado {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Fechamento — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Zerar resultado {{ mes|stringformat:"02d" }}/{{ ano }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:fechamento' empresa.id %}">‹ Voltar para o painel de fechamento</a>
+    </nav>
+{% endblock %}
+
+{% block content %}
+    {% include "contabilidade/_navegacao_empresa.html" %}
+    <h1>Zerar resultado do período — {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+
+    {% if erro_parametro %}
+        {% comment %}
+        Estados "sem parâmetro contábil vigente" e "competência fora da
+        periodicidade" (critério do plano) — as duas causas são a mesma
+        exceção do serviço (ParametroContabilInvalido); a MENSAGEM já vem
+        pronta de lá, nunca reescrita aqui. As duas levam ao mesmo lugar
+        de correção (a tela de parâmetros), então o link é o mesmo.
+        {% endcomment %}
+        <p class="mensagem mensagem-error" role="alert">{{ erro_parametro }}</p>
+        <p>
+            <a class="botao botao--primario" href="{% url 'contabilidade_web:parametros_contabeis' empresa.id %}">Ver parâmetros contábeis</a>
+        </p>
+    {% elif erro_competencia_encerrada %}
+        {% comment %}Estado "competência encerrada" (RC-57) — precheck de exibição; a recusa de verdade é do serviço.{% endcomment %}
+        <p class="mensagem mensagem-error" role="alert">{{ erro_competencia_encerrada }}</p>
+    {% elif resultado %}
+        <div class="painel-etapa">
+            <h2>Lançamentos gerados</h2>
+            {% if resultado.lancamentos_etapa1 %}
+                <p>
+                    {% if resultado.criado_etapa1 %}
+                        Lançamento(s) das contas de resultado gerado(s) agora:
+                    {% else %}
+                        Lançamento(s) das contas de resultado já existia(m) — nada
+                        novo a gravar nesta etapa:
+                    {% endif %}
+                    {% comment %}
+                    R5 (reconferência DL-043, BAIXA): quando a etapa 1 passa do
+                    teto de partidas (RC-79), `zerar_resultado` divide em VÁRIOS
+                    lançamentos balanceados — `resultado.lancamentos_etapa1` é a
+                    lista COMPLETA (`resultado.lancamento_etapa1`, singular,
+                    continua existindo só para compatibilidade e aponta para o
+                    primeiro). Listar todos aqui é o que faz o contador VER pela
+                    tela o(s) lançamento(s) das partes 2 em diante, não só o
+                    primeiro.
+                    {% endcomment %}
+                    {% for lancamento_da_etapa1 in resultado.lancamentos_etapa1 %}
+                        <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id lancamento_da_etapa1.id %}">nº {{ lancamento_da_etapa1.id }}</a>{% if not forloop.last %}, {% endif %}
+                    {% endfor %}.
+                </p>
+            {% else %}
+                <p>Nenhuma conta de receita ou despesa tinha saldo a zerar neste período.</p>
+            {% endif %}
+            {% if resultado.lancamento_etapa2 %}
+                <p>
+                    {% if resultado.criado_etapa2 %}
+                        Lançamento de transferência para
+                        {% if resultado.destino_etapa2 == "lucros_acumulados" %}lucros acumulados{% else %}(-) prejuízos acumulados{% endif %}
+                        gerado agora:
+                    {% else %}
+                        Lançamento de transferência para
+                        {% if resultado.destino_etapa2 == "lucros_acumulados" %}lucros acumulados{% else %}(-) prejuízos acumulados{% endif %}
+                        já existia — nada novo a gravar nesta etapa:
+                    {% endif %}
+                    <a href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id resultado.lancamento_etapa2.id %}">ver lançamento nº {{ resultado.lancamento_etapa2.id }}</a>.
+                </p>
+            {% else %}
+                <p>Resultado do exercício já estava zerado depois da etapa acima — nada a transferir.</p>
+            {% endif %}
+            <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:fechamento' empresa.id %}">‹ Voltar para o painel de fechamento</a></p>
+        </div>
+    {% elif nada_a_zerar %}
+        <p class="mensagem mensagem-info" role="status">
+            Nada a zerar neste período: todas as contas de receita e despesa já
+            têm saldo acumulado zero até {{ data_final|date:"d/m/Y" }}.
+        </p>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>O que vai acontecer</h2>
+            <p>
+                Dois lançamentos serão gravados na data
+                <strong>{{ data_final|date:"d/m/Y" }}</strong>, pela periodicidade
+                <strong>{{ periodicidade_display }}</strong> vigente desta empresa.
+            </p>
+            <p class="texto-apoio">
+                Se este período já foi zerado antes e houve lançamento novo desde
+                então (competência ainda aberta), os valores abaixo são só o
+                <strong>complemento</strong> — a diferença ainda não zerada, não o
+                total do período. Repetir esta ação sem movimento novo não gera
+                lançamento nenhum.
+            </p>
+
+            <h3>Etapa 1 — contas de resultado</h3>
+            {% if itens_etapa1 %}
+                <table class="tabela-dados">
+                    <caption class="visualmente-oculto">Itens da etapa 1 do zeramento</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Conta</th>
+                            <th scope="col">D/C</th>
+                            <th scope="col">Valor (R$)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in itens_etapa1 %}
+                            <tr>
+                                <td>{{ item.conta.codigo }} — {{ item.conta.nome }}</td>
+                                <td>{{ item.tipo_letra }}</td>
+                                <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                            </tr>
+                        {% endfor %}
+                        {% if item_resultado_etapa1 %}
+                            <tr>
+                                <td>{{ item_resultado_etapa1.conta.codigo }} — {{ item_resultado_etapa1.conta.nome }} (contrapartida)</td>
+                                <td>{{ item_resultado_etapa1.tipo_letra }}</td>
+                                <td class="valor-monetario">{{ item_resultado_etapa1.valor_ptbr }}</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Nenhuma conta de receita ou despesa tem saldo a zerar nesta etapa.</p>
+            {% endif %}
+
+            {% if etapa2 %}
+                <h3>Etapa 2 — transferência do resultado</h3>
+                <p>
+                    Destino:
+                    <strong>{% if etapa2.destino == "lucros_acumulados" %}lucros acumulados (lucro){% else %}(-) prejuízos acumulados (prejuízo){% endif %}</strong>.
+                </p>
+                <table class="tabela-dados">
+                    <caption class="visualmente-oculto">Itens da etapa 2 do zeramento</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Conta</th>
+                            <th scope="col">D/C</th>
+                            <th scope="col">Valor (R$)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>{{ etapa2.item_resultado.conta.codigo }} — {{ etapa2.item_resultado.conta.nome }}</td>
+                            <td>{{ etapa2.item_resultado.tipo_letra }}</td>
+                            <td class="valor-monetario">{{ etapa2.item_resultado.valor_ptbr }}</td>
+                        </tr>
+                        <tr>
+                            <td>{{ etapa2.item_destino.conta.codigo }} — {{ etapa2.item_destino.conta.nome }}</td>
+                            <td>{{ etapa2.item_destino.tipo_letra }}</td>
+                            <td class="valor-monetario">{{ etapa2.item_destino.valor_ptbr }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Sem transferência de resultado: a etapa 1 já fecha em zero, ou não há saldo a transferir.</p>
+            {% endif %}
+
+            <form method="post" action="{% url 'contabilidade_web:zerar_resultado' empresa.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="ano" value="{{ ano }}">
+                <input type="hidden" name="mes" value="{{ mes }}">
+                <div class="campo campo--caixa">
+                    <label>
+                        <input type="checkbox" name="confirmar_zeramento" value="1" required>
+                        Confirmo os valores acima e quero gravar os lançamentos de
+                        zeramento.
+                    </label>
+                </div>
+                <button type="submit">Gerar lançamentos de zeramento</button>
+            </form>
+        </div>
+    {% endif %}
+{% endblock %}

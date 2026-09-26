@@ -77,6 +77,18 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # (competência fechada) antes de medir essas duas telas.
     "fechamento": "contabilidade_web:fechamento",
     "competencia_fechar": "contabilidade_web:competencia_fechar",
+    # DL-043 fatia 3 (BL-474): as duas telas GET que renderizam 200 sob o
+    # `cenario` PADRÃO deste módulo — nenhuma exige um `ParametroContabil
+    # Empresa` já registrado. "parametros_contabeis" é a tabela (vazia sob
+    # o cenário padrão) + formulário de nova vigência; "zerar_resultado"
+    # pousa no estado "sem parâmetro contábil vigente" (o cenário padrão
+    # não registra nenhum) — um 200 de verdade, a mesma classe de estado
+    # que "balanco" já documenta acima ("não pode emitir" também é
+    # resposta certa, não exceção tolerada). "parametro_contabil_encerrar"
+    # fica de fora: só aceita POST (nunca renderiza página, 405) — ver
+    # EXCLUSOES_NOMEADAS_DE_TELA em test_dl024_atalhos_e_acessibilidade.py.
+    "parametros_contabeis": "contabilidade_web:parametros_contabeis",
+    "zerar_resultado": "contabilidade_web:zerar_resultado",
 }
 
 # rota COMPLETA (`namespace:nome`) → documentação (nome dos testes desta
@@ -149,6 +161,17 @@ def _urls_de_contabilidade(cenario):
         # estado em que `competencia_fechar` (GET) renderiza o formulário
         # de confirmação, 200.
         "competencia_fechar": (
+            [empresa_id],
+            f"?ano={timezone.localdate().year}&mes={timezone.localdate().month}",
+        ),
+        # DL-043 fatia 3: "parametros_contabeis" não precisa de querystring
+        # (lista + formulário, sempre a mesma URL). "zerar_resultado"
+        # precisa de ano/mes como "competencia_fechar" — qualquer mês serve
+        # sob o cenário padrão, porque a ausência de parâmetro contábil
+        # vigente é checada ANTES da periodicidade (mesma ordem de
+        # `apps.contabilidade.services._periodo_de_zeramento`).
+        "parametros_contabeis": ([empresa_id], ""),
+        "zerar_resultado": (
             [empresa_id],
             f"?ano={timezone.localdate().year}&mes={timezone.localdate().month}",
         ),

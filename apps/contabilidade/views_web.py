@@ -32,6 +32,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 # BL-217/A1 (auditoria DL-020 rodada 1): cada view de função deste módulo
@@ -66,6 +67,15 @@ from apps.contabilidade.models import (
     GrupoDaLei,
     LancamentoContabil,
     NaturezaConta,
+    # DL-043 fatia 3: modelo e enum do parâmetro contábil (fatia 1) — a
+    # tela LÊ `ParametroContabilEmpresa` diretamente (mesmo padrão de
+    # `Competencia` acima, já lida direto por `fechamento`), e usa o enum
+    # só para os `choices` do formulário de nova vigência. Nenhuma
+    # validação de negócio mora aqui: quem valida é sempre o serviço
+    # (`registrar_parametro_contabil`) — ver o docstring do próprio
+    # modelo, em models.py, sobre por que ele não tem `clean()`.
+    ParametroContabilEmpresa,
+    PeriodicidadeZeramento,
     TipoConta,
     TipoPartida,
 )
@@ -90,6 +100,13 @@ from apps.contabilidade.services import (
     CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
+    # DL-043 fatia 3 (BL-474): as quatro portas de serviço da fatia 1
+    # (vigência) e da fatia 2 (zeramento) — esta tela chama SÓ estas
+    # funções e SÓ traduz as duas exceções abaixo para mensagem em
+    # português, nunca reimplementa a validação (mesmo padrão de
+    # `encerrar_competencia`/`reabrir_competencia`, já usados aqui).
+    ParametroContabilInvalido,
+    VigenciaParametroContabilConflitante,
     apurar_balancete,
     apurar_balanco_patrimonial,
     apurar_razao,
@@ -97,6 +114,7 @@ from apps.contabilidade.services import (
     criar_lancamento,
     data_maxima_lancamento,
     encerrar_competencia,
+    encerrar_vigencia_de_parametro_contabil,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
@@ -105,8 +123,11 @@ from apps.contabilidade.services import (
     localizar_lotes_desbalanceados,
     marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
+    pre_visualizar_zeramento,
     reabrir_competencia,
+    registrar_parametro_contabil,
     rotulo_e_inscricao_da_empresa,
+    zerar_resultado,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -3765,3 +3786,461 @@ def competencia_entregar(request, empresa_id):
         "ja_entregue_em": competencia.entregue_em,
     }
     return render(request, "contabilidade/competencia_entregar.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DL-043 fatia 3 — telas de parâmetro contábil (fatia 1) e zeramento do
+# resultado (fatia 2). Mesma disciplina DE-026 do resto do arquivo: esta
+# tela NUNCA chama a própria API — chama `registrar_parametro_contabil`/
+# `encerrar_vigencia_de_parametro_contabil`/`pre_visualizar_zeramento`/
+# `zerar_resultado` (services.py) diretamente, e traduz as duas exceções do
+# módulo (`ParametroContabilInvalido`, 400/mensagem; `VigenciaParametro
+# ContabilConflitante`, 409/mensagem) para português — nunca 500, nunca uma
+# segunda cópia de regra de negócio.
+#
+# Permissão (decisão do especialista-frontend, por analogia com o
+# fechamento — RC-102 aplicada pelo PRÓPRIO serviço, ver o docstring de
+# `registrar_parametro_contabil`): LER a LISTA de vigências exige só
+# `papel_pode_ler_contabilidade` (`_pode_ler`) — o mesmo papel que já lê
+# Balancete/Razão/Diário desta empresa, e renderiza a página normalmente
+# (200), só sem o formulário de vigência nova e sem o botão "Encerrar
+# vigência" para quem não pode geri-la. A PRÉVIA do zeramento (GET),
+# REGISTRAR vigência, ENCERRAR vigência e EXECUTAR o zeramento (POST)
+# exigem `PodeFecharCompetencia` (`_pode_fechar_competencia`,
+# ADMINISTRADOR/GESTOR) — a MESMA classe que a API já usa nas quatro
+# portas correspondentes (`ParametrosContabeisListCreateView`,
+# `EncerrarVigenciaParametroContabilView`, `ZerarResultadoView` no GET e
+# no POST, em views.py). ⚠️ A prévia NÃO é uma leitura franqueada a quem
+# só lê, mesmo sendo um GET: corrigido pela reconferência da DL-043
+# (achado R6) — a versão anterior deste comentário dizia que a prévia
+# exigia só `_pode_ler`, mas o comportamento medido sempre foi
+# `_pode_fechar_competencia` (o mesmo papel que grava). Um papel que só
+# lê (ex. ANALISTA) recebe 403, com `erros/sem_permissao.html`
+# explicando o motivo (nunca sumindo em silêncio, mesmo critério 1 do
+# fechamento, e nunca um 403 cru) — testado em test_dl043_fatia3_telas.py.
+# ---------------------------------------------------------------------------
+
+
+class ParametroContabilForm(forms.Form):
+    """Formulário de UMA vigência nova de parâmetro contábil (DL-043 fatia
+    3) — `forms.Form`, nunca `ModelForm`: `ParametroContabilEmpresa` não
+    tem (e não deve ganhar) uma segunda porta de escrita por
+    `full_clean()`/admin, ver o docstring do próprio modelo. Este
+    formulário só RECORTA o que aparece nos quatro `<select>`/campo de
+    data; quem VALIDA de verdade — pertence à empresa, é analítica, é do
+    grupo Patrimônio Líquido, a de prejuízos é devedora, ordem de
+    vigência, sobreposição — é sempre `registrar_parametro_contabil`
+    (services.py), chamado pela view.
+
+    O recorte dos `queryset` dos três campos de conta é CONVENIÊNCIA (só
+    contas que o serviço aceitaria aparecem no `<select>`, então a maior
+    parte dos erros nunca chega a acontecer) — nunca a autorização de
+    verdade, que continua sendo o serviço.
+    """
+
+    periodicidade_zeramento = forms.ChoiceField(
+        label="Periodicidade do zeramento", choices=PeriodicidadeZeramento.choices
+    )
+    conta_resultado_do_exercicio = forms.ModelChoiceField(
+        label="Conta de resultado do exercício",
+        queryset=Conta.objects.none(),
+        help_text="Conta analítica do grupo Patrimônio Líquido.",
+    )
+    conta_lucros_acumulados = forms.ModelChoiceField(
+        label="Conta de lucros acumulados",
+        queryset=Conta.objects.none(),
+        help_text="Conta analítica do grupo Patrimônio Líquido.",
+    )
+    conta_prejuizos_acumulados = forms.ModelChoiceField(
+        label="Conta de (-) prejuízos acumulados",
+        queryset=Conta.objects.none(),
+        help_text=(
+            "Conta analítica do grupo Patrimônio Líquido, de natureza DEVEDORA "
+            "— é retificadora (RC-61)."
+        ),
+    )
+    vigencia_inicio = forms.DateField(
+        label="Vigência (início)", widget=forms.DateInput(attrs={"type": "date"})
+    )
+
+    def __init__(self, *args, empresa, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Isolamento (mesmo espírito de `ContaCriarForm.__init__`, acima):
+        # os três `<select>` nunca listam conta de OUTRA empresa.
+        contas_pl = Conta.objects.filter(
+            empresa=empresa, tipo=TipoConta.PATRIMONIO_LIQUIDO, aceita_lancamento=True
+        ).order_by("codigo")
+        self.fields["conta_resultado_do_exercicio"].queryset = contas_pl
+        self.fields["conta_lucros_acumulados"].queryset = contas_pl
+        # RC-61: só as DEVEDORAS entram no recorte da conta de prejuízos —
+        # a mesma regra que o serviço aplicaria de qualquer forma, só que
+        # aqui filtra o QUE APARECE no <select>, então tentar escolher uma
+        # conta credora nem é possível pela tela.
+        self.fields["conta_prejuizos_acumulados"].queryset = contas_pl.filter(
+            natureza=NaturezaConta.DEVEDORA
+        )
+
+
+CONTRATO_PARAMETRO_CONTABIL_WEB = ContratoDeRequisicao(
+    campos={
+        "csrfmiddlewaretoken",
+        "periodicidade_zeramento",
+        "conta_resultado_do_exercicio",
+        "conta_lucros_acumulados",
+        "conta_prejuizos_acumulados",
+        "vigencia_inicio",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro de parâmetro contábil",
+)
+CONTRATO_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL_WEB = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no encerramento de vigência do parâmetro contábil",
+)
+CONTRATO_ZERAR_RESULTADO_WEB = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "confirmar_zeramento"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no zeramento do resultado",
+)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def parametros_contabeis(request, empresa_id):
+    """Vigências de parâmetro contábil da empresa — arquétipos A (tabela)
+    e B (formulário) combinados numa só tela, no mesmo molde de
+    `fechamento` (tabela de competências + formulário de "fechar um mês
+    ainda sem lançamento" logo abaixo, na mesma página).
+
+    GET: qualquer papel que leia a contabilidade desta empresa vê a
+    tabela de vigências inteira. POST (registrar vigência nova): exige
+    `_pode_fechar_competencia` (RC-102 por analogia) — se um papel sem
+    essa permissão forçar o POST, a checagem AQUI devolve 403 antes de
+    chamar o serviço (o template nunca oferece o formulário a quem não
+    pode, mas a autorização de verdade não depende disso).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    pode_gerir = _pode_fechar_competencia(request)
+    form = None
+
+    if request.method == "POST":
+        if not pode_gerir:
+            return _resposta_sem_permissao(
+                request,
+                "Seu papel não permite registrar parâmetro contábil desta empresa "
+                "— essa ação exige administrador ou gestor (RC-102 por analogia com "
+                "o fechamento de competência). Fale com um deles.",
+            )
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_PARAMETRO_CONTABIL_WEB)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:parametros_contabeis", empresa_id=empresa.id)
+
+        form = ParametroContabilForm(request.POST, empresa=empresa)
+        if form.is_valid():
+            try:
+                registrar_parametro_contabil(
+                    empresa=empresa,
+                    periodicidade_zeramento=form.cleaned_data["periodicidade_zeramento"],
+                    conta_resultado_do_exercicio=form.cleaned_data["conta_resultado_do_exercicio"],
+                    conta_lucros_acumulados=form.cleaned_data["conta_lucros_acumulados"],
+                    conta_prejuizos_acumulados=form.cleaned_data["conta_prejuizos_acumulados"],
+                    vigencia_inicio=form.cleaned_data["vigencia_inicio"],
+                    usuario=request.user,
+                    request=request,
+                )
+            except ParametroContabilInvalido as exc:
+                # 400 de negócio: o formulário volta com o erro e TUDO o
+                # que a pessoa digitou continua nos campos (critério do
+                # arquétipo B — "o formulário não some quando dá erro").
+                form.add_error(None, str(exc))
+            except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
+                # `CompetenciaOperacaoRecusada`: estouro da trava por empresa
+                # (DE-078 item 3, `EmpresaTravadaPorOutraOperacao`).
+                # 409 de estado (concorrência, sobreposição, retroatividade
+                # sobre zeramento já gravado) — mesma tela, mesmo tratamento
+                # visual; a DIFERENÇA entre 400 e 409 não muda nada para
+                # quem está preenchendo o formulário, só para quem audita.
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "Vigência de parâmetro contábil registrada com sucesso.")
+                return redirect("contabilidade_web:parametros_contabeis", empresa_id=empresa.id)
+    elif pode_gerir:
+        form = ParametroContabilForm(empresa=empresa)
+
+    vigencias = list(
+        ParametroContabilEmpresa.objects.filter(empresa=empresa)
+        .select_related(
+            "conta_resultado_do_exercicio",
+            "conta_lucros_acumulados",
+            "conta_prejuizos_acumulados",
+        )
+        .order_by("-vigencia_inicio", "-id")
+    )
+    tem_contas_pl = Conta.objects.filter(
+        empresa=empresa, tipo=TipoConta.PATRIMONIO_LIQUIDO, aceita_lancamento=True
+    ).exists()
+    contexto = {
+        "empresa": empresa,
+        "vigencias": vigencias,
+        "pode_gerir": pode_gerir,
+        "form": form,
+        "tem_contas_pl": tem_contas_pl,
+    }
+    status = 400 if form is not None and form.is_bound and form.errors else 200
+    return render(request, "contabilidade/parametros_contabeis.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["POST"])
+def parametro_contabil_encerrar(request, empresa_id):
+    """Encerra HOJE a vigência aberta de parâmetro contábil da empresa —
+    rota de AÇÃO, só POST (mesmo desenho de `tenancy:emitir-convite`): sem
+    corpo além do CSRF, sem tela de confirmação própria porque a ação é
+    REVERSÍVEL (registrar uma vigência nova é sempre possível depois) —
+    diferente de "marcar como entregue" (RC-101, sem volta), que por isso
+    exige caixa de confirmação. O botão que dispara este POST fica na
+    própria tabela de `parametros_contabeis.html`, com o rótulo "Encerrar
+    vigência" — a ação que ele descreve.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite encerrar vigência de parâmetro contábil desta "
+            "empresa — essa ação exige administrador ou gestor (RC-102 por analogia "
+            "com o fechamento de competência). Fale com um deles.",
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL_WEB)
+    except DadoNaoContratado as exc:
+        messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+        return redirect("contabilidade_web:parametros_contabeis", empresa_id=empresa.id)
+
+    try:
+        encerrar_vigencia_de_parametro_contabil(
+            empresa=empresa, usuario=request.user, request=request
+        )
+    except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Vigência de parâmetro contábil encerrada hoje.")
+    return redirect("contabilidade_web:parametros_contabeis", empresa_id=empresa.id)
+
+
+def _item_de_zeramento_para_tela(item):
+    """`{"conta", "tipo", "valor"}` (services.py) -> dict pronto para o
+    template: `tipo_letra` ("D"/"C", RC-61 — nunca só cor) e `valor_ptbr`
+    (`_valor_ptbr`, mesma função de formatação que toda outra tela desta
+    fatia usa). Nunca calcula nada — só empacota o que o serviço já
+    decidiu.
+    """
+    return {
+        "conta": item["conta"],
+        "tipo_letra": "D" if item["tipo"] == TipoPartida.DEBITO else "C",
+        "valor_ptbr": _valor_ptbr(item["valor"]),
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def zeramento_do_periodo(request, empresa_id):
+    """Prévia (GET) e execução (POST) do zeramento do resultado do período
+    — arquétipo E ("assistente com etapas"): a última etapa mostra
+    exatamente o que vai ser gravado, antes de gravar, e só grava com
+    confirmação explícita (caixa de marcação + botão que nomeia a ação).
+
+    ⚠️ Nome desta VIEW é `zeramento_do_periodo`, DIFERENTE do nome da rota
+    (`contabilidade_web:zerar_resultado`, mesmo nome do CRITÉRIO do plano
+    e do serviço) de propósito: uma função `def zerar_resultado(request,
+    empresa_id)` neste módulo REBINDARIA o nome global `zerar_resultado`
+    que o `import` do topo do arquivo já aponta para a função de SERVIÇO
+    (`apps.contabilidade.services.zerar_resultado`) — a chamada dentro do
+    próprio corpo desta view deixaria de alcançar o serviço e passaria a
+    chamar a VIEW recursivamente (com a assinatura errada, estourando
+    `TypeError` na hora). `urls_web.py` mapeia o nome de rota `zerar_
+    resultado` para esta função por `path(..., zeramento_do_periodo,
+    name="zerar_resultado")` — nome de rota e nome de função Python são
+    namespaces INDEPENDENTES; só o SEGUNDO tem o risco de sombra aqui.
+
+    Estados tratados, nesta ordem: sem escritório/sem permissão/livro-
+    caixa (iguais a toda outra tela desta fatia); ano/mês ausente ou fora
+    da faixa (`_competencia_pedida`, mesmo padrão do fechamento); sem
+    parâmetro contábil vigente OU mês fora da periodicidade vigente
+    (`ParametroContabilInvalido` do serviço, mesma mensagem, com link para
+    cadastrar/gerir o parâmetro — as DUAS causas mostram o mesmo link,
+    porque as duas se resolvem no mesmo lugar); competência encerrada
+    (checada ANTES da prévia, mesmo padrão do RC-58 no fechamento — texto
+    igual ao que o serviço usaria, para o "recusa" da prévia não ficar
+    silencioso); nada a zerar (prévia sem nenhum item); e o caminho feliz
+    (prévia com itens, ou execução).
+
+    Sobre o estado "complemento" do critério de aceite: o serviço não
+    devolve, nem na prévia nem na execução, se um dado cálculo é a
+    PRIMEIRA vez que o período é zerado ou um COMPLEMENTO de uma vez
+    anterior (só devolve `criado_etapa1`/`criado_etapa2` — se a chamada
+    gravou algo novo ou reaproveitou um lançamento já existente por
+    idempotência). Alterar o serviço para expor isso está fora do escopo
+    desta etapa (não tenho permissão para editar services.py) — a tela
+    cobre o critério com uma nota PERMANENTE, sempre visível na prévia,
+    explicando o mecanismo (ver o template), e a tela de resultado mostra
+    `criado_etapa1`/`criado_etapa2` para quem confirma saber se algo foi
+    de fato gravado agora.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_fechar_competencia(request):
+        return _resposta_sem_permissao(
+            request,
+            "Seu papel não permite zerar o resultado desta empresa — essa ação "
+            "exige administrador ou gestor (RC-102 por analogia com o fechamento de "
+            "competência). Fale com um deles.",
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro_competencia = _competencia_pedida(fonte)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, CONTRATO_ZERAR_RESULTADO_WEB)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        # Critério "confirmação explícita" — mesmo padrão de
+        # `competencia_entregar` (caixa de marcação obrigatória): a caixa
+        # não é regra de negócio, é só o que impede um clique não
+        # intencional de chegar ao serviço.
+        if request.POST.get("confirmar_zeramento") != "1":
+            messages.error(
+                request,
+                "Confirme a caixa de seleção para gerar os lançamentos de "
+                "zeramento — nada foi gravado.",
+            )
+            url_previa = reverse("contabilidade_web:zerar_resultado", args=[empresa.id])
+            return redirect(f"{url_previa}?ano={ano}&mes={mes}")
+
+        try:
+            resultado = zerar_resultado(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except (
+            ParametroContabilInvalido,
+            LancamentoInvalido,
+            ChaveIdempotenciaConflitante,
+            CompetenciaEncerrada,
+            CompetenciaOperacaoRecusada,
+        ) as exc:
+            # Mesmas recusas que a API mapeia para 400/409 (DE-078 itens 2,
+            # 3, 5 e 6): na tela, todas viram mensagem de erro e voltam ao
+            # fechamento sem gravar — nunca o 500 cru do achado B3.
+            # `ZeramentoForaDeOrdem` é subclasse de `CompetenciaEncerrada` e
+            # `EmpresaTravadaPorOutraOperacao` de `CompetenciaOperacaoRecusada`.
+            messages.error(request, str(exc))
+            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
+
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "resultado": resultado,
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+
+    # GET — prévia.
+    try:
+        calculo = pre_visualizar_zeramento(empresa=empresa, ano=ano, mes=mes)
+    except ParametroContabilInvalido as exc:
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "erro_parametro": str(exc),
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+    except CompetenciaEncerrada as exc:
+        # `ZeramentoForaDeOrdem` (DE-078 item 2): a prévia também recusa
+        # quando já existe zeramento posterior. Mesmo estado de tela da
+        # competência encerrada — mensagem do serviço, sem botão de gravar.
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "erro_competencia_encerrada": str(exc),
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+
+    # RC-57: mesmo precheck que o fechamento já aplica para o RC-58 (lote
+    # desbalanceado) — mostra o bloqueio ANTES de qualquer botão, em vez
+    # de deixar a pessoa preencher a prévia para só então descobrir. A
+    # recusa de VERDADE é do serviço (dentro de `zerar_resultado`, sob a
+    # trava de competência); esta consulta é só para EXIBIR o estado.
+    competencia = Competencia.objects.filter(empresa=empresa, ano=ano, mes=mes).first()
+    if competencia is not None and competencia.estado == EstadoCompetencia.ENCERRADA:
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "erro_competencia_encerrada": (
+                f"A competência {mes:02d}/{ano} de {empresa} está encerrada; não é "
+                "possível zerar o resultado nela. A correção de período encerrado "
+                "segue o estorno (RC-103), nunca um novo zeramento por cima."
+            ),
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+
+    nada_a_zerar = not calculo["itens_etapa1"] and calculo["etapa2"] is None
+    itens_etapa1 = [_item_de_zeramento_para_tela(item) for item in calculo["itens_etapa1"]]
+    item_resultado_etapa1 = (
+        _item_de_zeramento_para_tela(calculo["item_resultado_etapa1"])
+        if calculo["item_resultado_etapa1"] is not None
+        else None
+    )
+    etapa2 = None
+    if calculo["etapa2"] is not None:
+        etapa2 = {
+            "destino": calculo["etapa2"]["destino"],
+            "item_resultado": _item_de_zeramento_para_tela(calculo["etapa2"]["item_resultado"]),
+            "item_destino": _item_de_zeramento_para_tela(calculo["etapa2"]["item_destino"]),
+        }
+
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "data_final": calculo["data_final"],
+        "periodicidade_display": calculo["parametro"].get_periodicidade_zeramento_display(),
+        "nada_a_zerar": nada_a_zerar,
+        "itens_etapa1": itens_etapa1,
+        "item_resultado_etapa1": item_resultado_etapa1,
+        "etapa2": etapa2,
+    }
+    return render(request, "contabilidade/zerar_resultado.html", contexto)

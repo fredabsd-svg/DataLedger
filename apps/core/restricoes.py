@@ -140,6 +140,20 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
         "tipo de inscrição."
     ),
+    # DL-043 (BL-474), camada 2 da não sobreposição de vigência de
+    # `ParametroContabilEmpresa` (migração 0009 de `apps.contabilidade`,
+    # mesmo padrão condicionado a `connection.vendor` das migrações
+    # 0010–0013 de `apps.empresas`): gatilho, só PostgreSQL, que recusa
+    # qualquer INSERT/UPDATE cujo intervalo de vigência se sobreponha ao de
+    # outra linha da MESMA empresa — inclusive vigências já FECHADAS, que a
+    # `UniqueConstraint` "um_periodo_de_parametro_contabil_aberto_por_
+    # empresa" não alcança (ela só protege a vigência aberta). Traduzido
+    # por `apps.contabilidade.services.registrar_parametro_contabil` via
+    # `restricao_como_400`/`mensagens_de_gatilho`, para
+    # `VigenciaParametroContabilConflitante` (409).
+    "parametro_contabil_sem_sobreposicao": (
+        "Esta vigência de parâmetro contábil sobrepõe outra já gravada para a mesma empresa."
+    ),
 }
 
 
@@ -229,6 +243,20 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # `_processar_um_arquivo` — nunca sobe como exceção HTTP.
     "documento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
     "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
+    # DL-043 (BL-474): a restrição que garante UMA vigência de parâmetro
+    # contábil ABERTA por empresa — mesmo molde de
+    # "um_periodo_de_regime_aberto_por_empresa", acima, e pelo MESMO
+    # motivo: `registrar_parametro_contabil` fecha a vigência anterior
+    # ANTES de criar a nova, então só chega a violar esta restrição na
+    # corrida residual (duas requisições simultâneas quando ainda não
+    # existe nenhuma vigência para o `select_for_update()` travar). O
+    # serviço converte o `IntegrityError` em
+    # `VigenciaParametroContabilConflitante` (409 — é conflito de ESTADO,
+    # não entrada malformada; ver a exceção em `apps.contabilidade.
+    # services`).
+    "um_periodo_de_parametro_contabil_aberto_por_empresa": (
+        "apps.contabilidade.services.registrar_parametro_contabil"
+    ),
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:

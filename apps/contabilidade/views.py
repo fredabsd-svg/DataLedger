@@ -11,7 +11,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.models import Conta, LancamentoContabil, NaturezaConta, TipoPartida
+from apps.contabilidade.models import (
+    Conta,
+    LancamentoContabil,
+    NaturezaConta,
+    ParametroContabilEmpresa,
+    TipoPartida,
+)
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
 from apps.contabilidade.services import (
@@ -22,10 +28,13 @@ from apps.contabilidade.services import (
     CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
+    ParametroContabilInvalido,
+    VigenciaParametroContabilConflitante,
     apurar_balancete,
     apurar_razao,
     criar_lancamento,
     encerrar_competencia,
+    encerrar_vigencia_de_parametro_contabil,
     estornar_lancamento,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
@@ -35,7 +44,10 @@ from apps.contabilidade.services import (
     localizar_lotes_desbalanceados,
     marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
+    pre_visualizar_zeramento,
     reabrir_competencia,
+    registrar_parametro_contabil,
+    zerar_resultado,
 )
 from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
@@ -193,6 +205,32 @@ CONTRATO_POST_REABRIR_COMPETENCIA = ContratoDeRequisicao(
     campos={"motivo"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na reabertura de competência",
+)
+
+# DL-043 fatia 1: criação de vigência de parâmetro contábil — os cinco
+# campos que `registrar_parametro_contabil` exige, nenhum outro (política
+# dos cinco dicionários, BL-196).
+CONTRATO_POST_PARAMETRO_CONTABIL = ContratoDeRequisicao(
+    campos={
+        "periodicidade_zeramento",
+        "conta_resultado_do_exercicio",
+        "conta_lucros_acumulados",
+        "conta_prejuizos_acumulados",
+        "vigencia_inicio",
+    },
+    contexto="no parâmetro contábil",
+)
+# Encerrar vigência é rota de AÇÃO, sem corpo — mesmo desenho do estorno e
+# do fechamento de competência.
+CONTRATO_POST_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL = ContratoDeRequisicao(
+    campos=frozenset(),
+    contexto="no encerramento de vigência do parâmetro contábil",
+)
+# DL-043 fatia 2: `zerar_resultado` (POST) não recebe corpo — ano/mês vêm
+# da URL, como o fechamento de competência.
+CONTRATO_POST_ZERAR_RESULTADO = ContratoDeRequisicao(
+    campos=frozenset(),
+    contexto="no zeramento do resultado",
 )
 
 
@@ -991,6 +1029,297 @@ class EntregarCompetenciaView(EmpresaEscopadaContabilMixin, APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
+
+
+def _parametro_contabil_como_dict(parametro):
+    """Serialização mínima de `ParametroContabilEmpresa` — mesmo molde de
+    `_competencia_como_dict`, acima: FKs saem como ID, nunca o objeto
+    inteiro.
+    """
+    return {
+        "id": parametro.pk,
+        "empresa": parametro.empresa_id,
+        "periodicidade_zeramento": parametro.periodicidade_zeramento,
+        "conta_resultado_do_exercicio": parametro.conta_resultado_do_exercicio_id,
+        "conta_lucros_acumulados": parametro.conta_lucros_acumulados_id,
+        "conta_prejuizos_acumulados": parametro.conta_prejuizos_acumulados_id,
+        "vigencia_inicio": parametro.vigencia_inicio.isoformat(),
+        "vigencia_fim": parametro.vigencia_fim.isoformat() if parametro.vigencia_fim else None,
+    }
+
+
+def _conta_da_empresa_ou_400(*, empresa, valor, rotulo):
+    """Resolve um id de conta (do corpo JSON) para uma `Conta` da MESMA
+    empresa escopada — nunca de outra empresa nem de outro escritório
+    (AGENTS.md §11).
+
+    Julga o identificador com `para_id` ANTES de consultar o banco, mesmo
+    motivo de `_ContaPaiField` em `apps.contabilidade.serializers`
+    (BL-142/DE-034: um `PrimaryKeyRelatedField` comum resolveria `1.9` ou
+    um dígito Unicode sem avisar). Um id que não resolva (ausente, tipo
+    errado, OU conta de outra empresa) sempre vira o MESMO texto de erro —
+    de propósito: distinguir "não existe" de "existe, mas é de outra
+    empresa" confirmaria a um cliente sem acesso que aquele id existe em
+    outra empresa (vazamento de enumeração), o mesmo cuidado que
+    `EmpresaEscopadaMixin.get_empresa()` já aplica devolvendo 404 (não
+    403) para empresa de outro escritório.
+    """
+    if valor is None:
+        raise DRFValidationError(f"'{rotulo}' é obrigatório.")
+    try:
+        conta_id = para_id(valor)
+    except IdentificadorInvalido as exc:
+        raise DRFValidationError(f"'{rotulo}': {exc}") from exc
+    conta = Conta.objects.filter(pk=conta_id, empresa=empresa).first()
+    if conta is None:
+        raise DRFValidationError(
+            f"'{rotulo}': nenhuma conta com este identificador foi encontrada nesta empresa."
+        )
+    return conta
+
+
+class ParametrosContabeisListCreateView(EmpresaEscopadaContabilMixin, APIView):
+    """Lista e cria vigências de parâmetro contábil da empresa (DL-043
+    fatia 1, BL-474).
+
+    Permissão RC-102 aplicada por analogia (o parâmetro decide o
+    zeramento, mesma sensibilidade do fechamento de competência): só
+    ADMINISTRADOR/GESTOR, verificado NO SERVIDOR — a tela é a fatia 3,
+    fora do escopo aqui.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        vigencias = ParametroContabilEmpresa.objects.filter(empresa=empresa)
+        return Response([_parametro_contabil_como_dict(v) for v in vigencias])
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_PARAMETRO_CONTABIL)
+        empresa = self.get_empresa()
+        dados = request.data if isinstance(request.data, dict) else {}
+
+        periodicidade = dados.get("periodicidade_zeramento")
+        if not isinstance(periodicidade, str):
+            raise DRFValidationError("'periodicidade_zeramento' é obrigatório e deve ser texto.")
+
+        conta_resultado = _conta_da_empresa_ou_400(
+            empresa=empresa,
+            valor=dados.get("conta_resultado_do_exercicio"),
+            rotulo="conta_resultado_do_exercicio",
+        )
+        conta_lucros = _conta_da_empresa_ou_400(
+            empresa=empresa,
+            valor=dados.get("conta_lucros_acumulados"),
+            rotulo="conta_lucros_acumulados",
+        )
+        conta_prejuizos = _conta_da_empresa_ou_400(
+            empresa=empresa,
+            valor=dados.get("conta_prejuizos_acumulados"),
+            rotulo="conta_prejuizos_acumulados",
+        )
+
+        bruto_vigencia = dados.get("vigencia_inicio")
+        if not isinstance(bruto_vigencia, str):
+            raise DRFValidationError("'vigencia_inicio' é obrigatório (formato AAAA-MM-DD).")
+        try:
+            vigencia_inicio = para_data(bruto_vigencia)
+        except DataInvalida as exc:
+            raise DRFValidationError(f"'vigencia_inicio' inválida: {exc}") from exc
+
+        try:
+            parametro = registrar_parametro_contabil(
+                empresa=empresa,
+                periodicidade_zeramento=periodicidade,
+                conta_resultado_do_exercicio=conta_resultado,
+                conta_lucros_acumulados=conta_lucros,
+                conta_prejuizos_acumulados=conta_prejuizos,
+                vigencia_inicio=vigencia_inicio,
+                usuario=request.user,
+                request=request,
+            )
+        except ParametroContabilInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except VigenciaParametroContabilConflitante as exc:
+            # Conflito de ESTADO (vigência aberta concorrente, sobreposição
+            # de banco, ou retroatividade sobre zeramento já gravado) — 409,
+            # nunca 400: nada foi enviado de errado, o que impede é o que já
+            # está gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3: estouro do `lock_timeout` na trava de EMPRESA
+            # (`EmpresaTravadaPorOutraOperacao`, subclasse desta) — outra
+            # operação de parâmetro/zeramento da mesma empresa está em
+            # andamento. 409, nada gravado — nunca o 500 cru que um
+            # `OperationalError` sem tradução produziria (achado B3).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(_parametro_contabil_como_dict(parametro), status=status.HTTP_201_CREATED)
+
+
+class EncerrarVigenciaParametroContabilView(EmpresaEscopadaContabilMixin, APIView):
+    """Encerra HOJE a vigência de parâmetro contábil aberta da empresa, sem
+    abrir uma nova (DL-043 fatia 1)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL)
+        empresa = self.get_empresa()
+        try:
+            parametro = encerrar_vigencia_de_parametro_contabil(
+                empresa=empresa, usuario=request.user, request=request
+            )
+        except VigenciaParametroContabilConflitante as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3: estouro do `lock_timeout` na trava de empresa
+            # — ver o mesmo `except` em `ParametrosContabeisListCreateView.
+            # post`.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(_parametro_contabil_como_dict(parametro), status=status.HTTP_200_OK)
+
+
+def _item_de_zeramento_como_dict(item):
+    """Serialização de um item calculado (`conta`, `tipo`, `valor` —
+    `apps.contabilidade.services._calcular_zeramento`) para a resposta
+    JSON: código+nome da conta bastam para o contador conferir a prévia,
+    nunca o objeto `Conta` inteiro.
+    """
+    return {
+        "conta": item["conta"].codigo,
+        "conta_nome": item["conta"].nome,
+        "tipo": item["tipo"],
+        "valor": _como_moeda(item["valor"]),
+    }
+
+
+def _zeramento_calculado_como_dict(calculo):
+    """Serialização comum da prévia (GET) e do resultado da execução
+    (POST) do zeramento: as duas respostas descrevem a MESMA forma de
+    dado (itens da etapa 1, incluindo a contrapartida em "resultado do
+    exercício"; e a etapa 2, se houver) — para o contador comparar
+    visualmente a prévia com o que foi de fato gravado.
+    """
+    itens_etapa1 = list(calculo["itens_etapa1"])
+    if calculo["item_resultado_etapa1"] is not None:
+        itens_etapa1.append(calculo["item_resultado_etapa1"])
+
+    etapa2 = None
+    if calculo["etapa2"] is not None:
+        etapa2 = {
+            "destino": calculo["etapa2"]["destino"],
+            "itens": [
+                _item_de_zeramento_como_dict(calculo["etapa2"]["item_resultado"]),
+                _item_de_zeramento_como_dict(calculo["etapa2"]["item_destino"]),
+            ],
+        }
+
+    return {
+        "etapa1": (
+            {"itens": [_item_de_zeramento_como_dict(item) for item in itens_etapa1]}
+            if itens_etapa1
+            else None
+        ),
+        "etapa2": etapa2,
+    }
+
+
+class ZerarResultadoView(EmpresaEscopadaContabilMixin, APIView):
+    """Prévia (GET) e execução (POST) do zeramento do resultado do período
+    cuja competência final é (ano, mês) — DL-043 fatia 2, RC-104/RC-105.
+
+    GET devolve os valores que SERIAM lançados, sem gravar nada (leitura
+    best-effort, sem trava de competência — ver `pre_visualizar_
+    zeramento`; pode divergir do POST se, entre os dois, outra requisição
+    gravar lançamento no período). POST executa de fato, dentro da trava
+    de competência (`zerar_resultado`) — idempotente: repetir sem
+    movimento novo não gera nada; com movimento novo (competência ainda
+    aberta), gera só o complemento.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharCompetencia]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+        try:
+            calculo = pre_visualizar_zeramento(empresa=empresa, ano=ano, mes=mes)
+        except ParametroContabilInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except CompetenciaEncerrada as exc:
+            # DE-078 item 2: `ZeramentoForaDeOrdem` é subclasse desta — já
+            # existe zeramento posterior gravado para a empresa. 409
+            # também na PRÉVIA: o contador vê o motivo da recusa antes de
+            # tentar gravar, não só depois do POST.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        resposta = _zeramento_calculado_como_dict(calculo)
+        resposta["data_final"] = calculo["data_final"].isoformat()
+        resposta["periodicidade_zeramento"] = calculo["parametro"].periodicidade_zeramento
+        return Response(resposta)
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ZERAR_RESULTADO)
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            resultado = zerar_resultado(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except ParametroContabilInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except LancamentoInvalido as exc:
+            # DE-078 item 5 (B3): qualquer recusa de `criar_lancamento` que
+            # não seja o teto de partidas (já dividido, ver `_dividir_em_
+            # lancamentos_balanceados`) — por exemplo, data fora da faixa
+            # do RC-77 num caminho não coberto pela checagem de HI-25.
+            # 400, nunca o 500 cru que a auditoria mediu (achado B3).
+            raise DRFValidationError(str(exc)) from exc
+        except ChaveIdempotenciaConflitante as exc:
+            # DE-078 item 6 (B4): a chave reservada já está ocupada — só
+            # alcançável hoje por uma corrida entre dois pedidos de
+            # zeramento (a recusa de prefixo em `criar_lancamento` já
+            # fecha a porta de um cliente forjar a chave). 409, nunca 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaEncerrada as exc:
+            # RC-57 (competência encerrada) OU DE-078 item 2/B2
+            # (`ZeramentoForaDeOrdem`, subclasse desta) — conflito de
+            # estado, 409, nada gravado (as duas checagens em
+            # `zerar_resultado` acontecem ANTES de calcular qualquer
+            # saldo).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3 (B2(b)/B10/B3): estouro do `lock_timeout` na
+            # trava de empresa OU de competência
+            # (`EmpresaTravadaPorOutraOperacao`/`CompetenciaTravadaPorOutra
+            # Operacao`, as duas subclasses desta). 409, nunca o 500 cru
+            # que a auditoria mediu em 1,23s (achado B3).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        lancamento_etapa1 = resultado["lancamento_etapa1"]
+        lancamento_etapa2 = resultado["lancamento_etapa2"]
+        return Response(
+            {
+                "data_final": resultado["data_final"].isoformat(),
+                "periodicidade_zeramento": resultado["periodicidade_zeramento"],
+                "lancamento_etapa1": lancamento_etapa1.pk if lancamento_etapa1 else None,
+                "criado_etapa1": resultado["criado_etapa1"],
+                # DE-078 item 5 (B3): lista COMPLETA dos lançamentos da
+                # etapa 1 — no caso comum (dentro do teto de partidas) tem
+                # exatamente UM id, igual a `lancamento_etapa1` acima;
+                # `lancamento_etapa1` continua existindo para quem já lia
+                # só essa chave (compatibilidade com a fatia 3).
+                "lancamentos_etapa1": [lanc.pk for lanc in resultado["lancamentos_etapa1"]],
+                "lancamento_etapa2": lancamento_etapa2.pk if lancamento_etapa2 else None,
+                "criado_etapa2": resultado["criado_etapa2"],
+                "destino_etapa2": resultado["destino_etapa2"],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DiarioView(EmpresaEscopadaContabilMixin, APIView):
