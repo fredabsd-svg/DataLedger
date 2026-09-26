@@ -512,7 +512,14 @@ def test_repeticao_pela_tela_e_idempotente(client, cenario):
     assert LancamentoContabil.objects.filter(empresa=empresa).count() == quantidade_apos_primeira
 
 
-def test_analista_le_previa_mas_nao_confirma(client, cenario):
+def test_analista_recebe_403_na_previa_e_na_confirmacao(client, cenario):
+    """R6 (reconferência DL-043, BAIXA): renomeado — o nome antigo
+    ('le_previa_mas_nao_confirma') dizia que o ANALISTA CONSEGUE ler a
+    prévia (GET, 200) e só é barrado na confirmação (POST); o próprio
+    corpo do teste, abaixo, sempre exigiu 403 nos DOIS, porque a prévia
+    exige `PodeFecharCompetencia` (ADMINISTRADOR/GESTOR), igual à
+    confirmação — nunca `_pode_ler`. O nome enganava o próximo leitor
+    sobre quem lê a prévia; o comportamento em si já estava correto."""
     empresa = cenario["empresa"]
     usuario = _autenticar(client, cenario["escritorio"], Papel.ADMINISTRADOR, "z1-setup-analista")
     _registrar_parametro(empresa, cenario)
@@ -559,6 +566,55 @@ def test_resultado_mostra_link_para_os_lancamentos_gerados(client, cenario):
     assert reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, etapa2.id]) in corpo
 
 
+def test_r5_etapa1_dividida_lista_todos_os_lancamentos_na_tela(client, cenario):
+    """R5 (BAIXA, reconferência): quando a etapa 1 é DIVIDIDA (RC-79, mais
+    de 199 contas de resultado com saldo), a tela mostrava só o PRIMEIRO
+    lançamento (`resultado.lancamento_etapa1`, singular) — o contador não
+    via, pela tela, o lançamento das partes 2 em diante. Corrigido
+    listando `resultado.lancamentos_etapa1` (a lista COMPLETA) no
+    template. Com 205 contas, a etapa 1 vira 2 lançamentos — os DOIS
+    números têm que aparecer no HTML da confirmação."""
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "r5-gestor")
+    _registrar_parametro(empresa, cenario)
+    for indice in range(205):
+        conta = _conta(
+            empresa,
+            codigo=f"4.9.{indice:04d}",
+            nome=f"Receita R5 {indice}",
+            tipo=TipoConta.RECEITA,
+            natureza=C,
+        )
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2026, 3, 31),
+            historico="R5 movimento",
+            itens=[
+                {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("1.00")},
+                {"conta": conta, "tipo": TipoPartida.CREDITO, "valor": Decimal("1.00")},
+            ],
+            criado_por=usuario,
+        )
+
+    resposta = client.post(
+        _url_zerar(empresa.id), data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"}
+    )
+
+    assert resposta.status_code == 200, resposta.content
+    corpo = resposta.content.decode()
+    lancamentos_de_zeramento = list(
+        LancamentoContabil.objects.filter(
+            empresa=empresa, chave_idempotencia__contains=":etapa1:"
+        ).order_by("id")
+    )
+    assert len(lancamentos_de_zeramento) == 2, lancamentos_de_zeramento
+    for lancamento in lancamentos_de_zeramento:
+        assert (
+            reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, lancamento.id])
+            in corpo
+        )
+
+
 # ---------------------------------------------------------------------------
 # Integração com o painel de fechamento — o link de entrada da ação.
 # ---------------------------------------------------------------------------
@@ -574,3 +630,147 @@ def test_link_zerar_resultado_aparece_no_painel_de_fechamento(client, cenario):
     corpo = resposta.content.decode()
     assert ">Zerar resultado<" in corpo
     assert _url_parametros(empresa.id) in corpo
+
+
+# ---------------------------------------------------------------------------
+# Integração da correção da rodada 1 (DE-078) com as telas: as recusas novas
+# do serviço chegam à tela como mensagem, nunca como 500 (achado B3), e o
+# zeramento feito pela tela grava o IP na trilha (achado B8).
+# ---------------------------------------------------------------------------
+
+
+def test_zeramento_pela_tela_grava_ip_na_trilha(client, cenario):
+    from apps.auditoria.models import RegistroAuditoria
+
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "b8-ip-tela")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="500.00")
+
+    resposta = client.post(
+        _url_zerar(empresa.id),
+        data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"},
+        REMOTE_ADDR="203.0.113.7",
+    )
+
+    assert resposta.status_code == 200
+    registro = RegistroAuditoria.objects.filter(acao="zeramento.resultado").order_by("-id").first()
+    assert registro is not None
+    assert registro.endereco_ip == "203.0.113.7"
+
+
+@pytest.mark.parametrize(
+    "excecao",
+    [
+        "ZeramentoForaDeOrdem",
+        "EmpresaTravadaPorOutraOperacao",
+        "ChaveIdempotenciaConflitante",
+        "LancamentoInvalido",
+    ],
+)
+def test_recusas_novas_do_zeramento_viram_mensagem_na_tela_sem_gravar(
+    client, cenario, monkeypatch, excecao
+):
+    from apps.contabilidade import services, views_web
+
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, f"b3-tela-{excecao}")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="500.00")
+    antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+
+    classe = getattr(services, excecao)
+
+    def _recusa(**kwargs):
+        raise classe("Recusa sintética de teste.")
+
+    monkeypatch.setattr(views_web, "zerar_resultado", _recusa)
+
+    resposta = client.post(
+        _url_zerar(empresa.id),
+        data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"},
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert "Recusa sintética de teste." in resposta.content.decode()
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == antes
+
+
+@pytest.mark.parametrize("rota", ["registrar", "encerrar"])
+def test_trava_por_empresa_no_parametro_vira_mensagem_na_tela(client, cenario, monkeypatch, rota):
+    from apps.contabilidade import services, views_web
+
+    empresa, contas = cenario["empresa"], cenario
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, f"b3-param-{rota}")
+    _registrar_parametro(empresa, cenario)
+
+    def _recusa(**kwargs):
+        raise services.EmpresaTravadaPorOutraOperacao("Empresa ocupada (teste).")
+
+    if rota == "registrar":
+        monkeypatch.setattr(views_web, "registrar_parametro_contabil", _recusa)
+        resposta = client.post(
+            _url_parametros(empresa.id),
+            data={
+                "periodicidade_zeramento": PeriodicidadeZeramento.MENSAL,
+                "conta_resultado_do_exercicio": contas["resultado"].id,
+                "conta_lucros_acumulados": contas["lucros"].id,
+                "conta_prejuizos_acumulados": contas["prejuizos"].id,
+                "vigencia_inicio": "2026-09-01",
+            },
+        )
+    else:
+        monkeypatch.setattr(views_web, "encerrar_vigencia_de_parametro_contabil", _recusa)
+        resposta = client.post(_url_encerrar_vigencia(empresa.id), follow=True)
+
+    assert resposta.status_code in (200, 400)
+    assert "Empresa ocupada (teste)." in resposta.content.decode()
+    assert ParametroContabilEmpresa.objects.filter(empresa=empresa).count() == 1
+
+
+def test_previa_fora_de_ordem_mostra_a_recusa_sem_botao_de_gravar(client, cenario):
+    """Com o mês 04 já zerado (fora de ordem, contra março ainda
+    pendente), a prévia do mês 03 recusa (DE-078 item 2) — mensagem do
+    serviço na tela, nunca 500, e sem o botão de gravar.
+
+    ⚠️ **Estado do mês 04 SIMULADO, não gravado pela tela (achado R2 da
+    reconferência):** depois da R2 (DE-078 adendo item 2), a PRÓPRIA
+    tentativa de zerar um período fora de ordem passa a ser recusada NA
+    ENTRADA — `client.post` para o mês 04 aqui daria "Zere primeiro
+    03/2026", nunca sucesso, porque março ainda está pendente. Este teste
+    continua útil para o caso RESIDUAL que `_recusar_zeramento_fora_de_
+    ordem` ainda cobre: um zeramento de abril JÁ GRAVADO (por exemplo,
+    estado legado de antes desta correção) continua recusando a prévia de
+    março, sem 500 e sem botão de gravar — daí simular o lançamento do
+    mês 04 diretamente pelo serviço (`criar_lancamento` com a chave
+    reservada, o mesmo mecanismo interno que `zerar_resultado` usa), em
+    vez de tentar gravá-lo pela tela."""
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "b2-previa-ordem")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="300.00")
+    _lancar_lucro(empresa, cenario, date(2026, 4, 15), usuario, valor="200.00")
+    criar_lancamento(
+        empresa=empresa,
+        data=date(2026, 4, 30),
+        historico="Simulação de zeramento legado (pré-R2) — etapa 1",
+        itens=[
+            {"conta": cenario["receita"], "tipo": TipoPartida.DEBITO, "valor": Decimal("500.00")},
+            {
+                "conta": cenario["resultado"],
+                "tipo": TipoPartida.CREDITO,
+                "valor": Decimal("500.00"),
+            },
+        ],
+        criado_por=usuario,
+        chave_idempotencia=f"zeramento:{empresa.pk}:2026-04:etapa1:0",
+        permitir_prefixo_reservado=True,
+    )
+
+    resposta = client.get(_url_zerar(empresa.id, 2026, 3))
+
+    assert resposta.status_code == 200
+    corpo = resposta.content.decode()
+    assert 'role="alert"' in corpo
+    assert "confirmar_zeramento" not in corpo

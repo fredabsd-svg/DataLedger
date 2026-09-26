@@ -3877,20 +3877,24 @@ def competencia_entregar(request, empresa_id):
 #
 # Permissão (decisão do especialista-frontend, por analogia com o
 # fechamento — RC-102 aplicada pelo PRÓPRIO serviço, ver o docstring de
-# `registrar_parametro_contabil`): LER a lista de vigências e a prévia do
-# zeramento exige só `papel_pode_ler_contabilidade` (`_pode_ler`) — o
-# mesmo papel que já lê Balancete/Razão/Diário desta empresa; REGISTRAR
-# vigência, ENCERRAR vigência e EXECUTAR o zeramento exigem
-# `PodeFecharCompetencia` (`_pode_fechar_competencia`, ADMINISTRADOR/
-# GESTOR) — a MESMA classe que a API já usa nas três portas
-# correspondentes (`ParametrosContabeisListCreateView`,
-# `EncerrarVigenciaParametroContabilView`, `ZerarResultadoView`, em
-# views.py). Um papel que só lê (ex. ANALISTA) consulta a tela inteira
-# normalmente — sem o formulário de nova vigência, sem o botão "Encerrar
-# vigência" e sem o botão de confirmação do zeramento, com uma explicação
-# no lugar deles (nunca sumindo em silêncio, mesmo critério 1 do
-# fechamento) — e o SERVIDOR recusa de qualquer forma se a requisição for
-# forçada (testado em test_dl043_fatia3_telas.py).
+# `registrar_parametro_contabil`): LER a LISTA de vigências exige só
+# `papel_pode_ler_contabilidade` (`_pode_ler`) — o mesmo papel que já lê
+# Balancete/Razão/Diário desta empresa, e renderiza a página normalmente
+# (200), só sem o formulário de vigência nova e sem o botão "Encerrar
+# vigência" para quem não pode geri-la. A PRÉVIA do zeramento (GET),
+# REGISTRAR vigência, ENCERRAR vigência e EXECUTAR o zeramento (POST)
+# exigem `PodeFecharCompetencia` (`_pode_fechar_competencia`,
+# ADMINISTRADOR/GESTOR) — a MESMA classe que a API já usa nas quatro
+# portas correspondentes (`ParametrosContabeisListCreateView`,
+# `EncerrarVigenciaParametroContabilView`, `ZerarResultadoView` no GET e
+# no POST, em views.py). ⚠️ A prévia NÃO é uma leitura franqueada a quem
+# só lê, mesmo sendo um GET: corrigido pela reconferência da DL-043
+# (achado R6) — a versão anterior deste comentário dizia que a prévia
+# exigia só `_pode_ler`, mas o comportamento medido sempre foi
+# `_pode_fechar_competencia` (o mesmo papel que grava). Um papel que só
+# lê (ex. ANALISTA) recebe 403, com `erros/sem_permissao.html`
+# explicando o motivo (nunca sumindo em silêncio, mesmo critério 1 do
+# fechamento, e nunca um 403 cru) — testado em test_dl043_fatia3_telas.py.
 # ---------------------------------------------------------------------------
 
 
@@ -4052,7 +4056,9 @@ def parametros_contabeis(request, empresa_id):
                 # que a pessoa digitou continua nos campos (critério do
                 # arquétipo B — "o formulário não some quando dá erro").
                 form.add_error(None, str(exc))
-            except VigenciaParametroContabilConflitante as exc:
+            except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
+                # `CompetenciaOperacaoRecusada`: estouro da trava por empresa
+                # (DE-078 item 3, `EmpresaTravadaPorOutraOperacao`).
                 # 409 de estado (concorrência, sobreposição, retroatividade
                 # sobre zeramento já gravado) — mesma tela, mesmo tratamento
                 # visual; a DIFERENÇA entre 400 e 409 não muda nada para
@@ -4124,7 +4130,7 @@ def parametro_contabil_encerrar(request, empresa_id):
         encerrar_vigencia_de_parametro_contabil(
             empresa=empresa, usuario=request.user, request=request
         )
-    except VigenciaParametroContabilConflitante as exc:
+    except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
         messages.error(request, str(exc))
     else:
         messages.success(request, "Vigência de parâmetro contábil encerrada hoje.")
@@ -4232,11 +4238,21 @@ def zeramento_do_periodo(request, empresa_id):
             return redirect(f"{url_previa}?ano={ano}&mes={mes}")
 
         try:
-            resultado = zerar_resultado(empresa=empresa, ano=ano, mes=mes, usuario=request.user)
-        except ParametroContabilInvalido as exc:
-            messages.error(request, str(exc))
-            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
-        except CompetenciaEncerrada as exc:
+            resultado = zerar_resultado(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except (
+            ParametroContabilInvalido,
+            LancamentoInvalido,
+            ChaveIdempotenciaConflitante,
+            CompetenciaEncerrada,
+            CompetenciaOperacaoRecusada,
+        ) as exc:
+            # Mesmas recusas que a API mapeia para 400/409 (DE-078 itens 2,
+            # 3, 5 e 6): na tela, todas viram mensagem de erro e voltam ao
+            # fechamento sem gravar — nunca o 500 cru do achado B3.
+            # `ZeramentoForaDeOrdem` é subclasse de `CompetenciaEncerrada` e
+            # `EmpresaTravadaPorOutraOperacao` de `CompetenciaOperacaoRecusada`.
             messages.error(request, str(exc))
             return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
 
@@ -4257,6 +4273,17 @@ def zeramento_do_periodo(request, empresa_id):
             "ano": ano,
             "mes": mes,
             "erro_parametro": str(exc),
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+    except CompetenciaEncerrada as exc:
+        # `ZeramentoForaDeOrdem` (DE-078 item 2): a prévia também recusa
+        # quando já existe zeramento posterior. Mesmo estado de tela da
+        # competência encerrada — mensagem do serviço, sem botão de gravar.
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "erro_competencia_encerrada": str(exc),
         }
         return render(request, "contabilidade/zerar_resultado.html", contexto)
 

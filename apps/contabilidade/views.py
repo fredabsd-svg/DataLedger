@@ -1147,6 +1147,13 @@ class ParametrosContabeisListCreateView(EmpresaEscopadaContabilMixin, APIView):
             # nunca 400: nada foi enviado de errado, o que impede é o que já
             # está gravado.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3: estouro do `lock_timeout` na trava de EMPRESA
+            # (`EmpresaTravadaPorOutraOperacao`, subclasse desta) — outra
+            # operação de parâmetro/zeramento da mesma empresa está em
+            # andamento. 409, nada gravado — nunca o 500 cru que um
+            # `OperationalError` sem tradução produziria (achado B3).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(_parametro_contabil_como_dict(parametro), status=status.HTTP_201_CREATED)
 
@@ -1165,6 +1172,11 @@ class EncerrarVigenciaParametroContabilView(EmpresaEscopadaContabilMixin, APIVie
                 empresa=empresa, usuario=request.user, request=request
             )
         except VigenciaParametroContabilConflitante as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3: estouro do `lock_timeout` na trava de empresa
+            # — ver o mesmo `except` em `ParametrosContabeisListCreateView.
+            # post`.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(_parametro_contabil_como_dict(parametro), status=status.HTTP_200_OK)
@@ -1237,6 +1249,12 @@ class ZerarResultadoView(EmpresaEscopadaContabilMixin, APIView):
             calculo = pre_visualizar_zeramento(empresa=empresa, ano=ano, mes=mes)
         except ParametroContabilInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
+        except CompetenciaEncerrada as exc:
+            # DE-078 item 2: `ZeramentoForaDeOrdem` é subclasse desta — já
+            # existe zeramento posterior gravado para a empresa. 409
+            # também na PRÉVIA: o contador vê o motivo da recusa antes de
+            # tentar gravar, não só depois do POST.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         resposta = _zeramento_calculado_como_dict(calculo)
         resposta["data_final"] = calculo["data_final"].isoformat()
@@ -1249,13 +1267,37 @@ class ZerarResultadoView(EmpresaEscopadaContabilMixin, APIView):
         _validar_ano_mes(ano, mes)
 
         try:
-            resultado = zerar_resultado(empresa=empresa, ano=ano, mes=mes, usuario=request.user)
+            resultado = zerar_resultado(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
         except ParametroContabilInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
+        except LancamentoInvalido as exc:
+            # DE-078 item 5 (B3): qualquer recusa de `criar_lancamento` que
+            # não seja o teto de partidas (já dividido, ver `_dividir_em_
+            # lancamentos_balanceados`) — por exemplo, data fora da faixa
+            # do RC-77 num caminho não coberto pela checagem de HI-25.
+            # 400, nunca o 500 cru que a auditoria mediu (achado B3).
+            raise DRFValidationError(str(exc)) from exc
+        except ChaveIdempotenciaConflitante as exc:
+            # DE-078 item 6 (B4): a chave reservada já está ocupada — só
+            # alcançável hoje por uma corrida entre dois pedidos de
+            # zeramento (a recusa de prefixo em `criar_lancamento` já
+            # fecha a porta de um cliente forjar a chave). 409, nunca 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except CompetenciaEncerrada as exc:
-            # RC-57: competência encerrada — conflito de estado, 409, nada
-            # gravado (a checagem em `zerar_resultado` acontece ANTES de
-            # calcular qualquer saldo).
+            # RC-57 (competência encerrada) OU DE-078 item 2/B2
+            # (`ZeramentoForaDeOrdem`, subclasse desta) — conflito de
+            # estado, 409, nada gravado (as duas checagens em
+            # `zerar_resultado` acontecem ANTES de calcular qualquer
+            # saldo).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaOperacaoRecusada as exc:
+            # DE-078 item 3 (B2(b)/B10/B3): estouro do `lock_timeout` na
+            # trava de empresa OU de competência
+            # (`EmpresaTravadaPorOutraOperacao`/`CompetenciaTravadaPorOutra
+            # Operacao`, as duas subclasses desta). 409, nunca o 500 cru
+            # que a auditoria mediu em 1,23s (achado B3).
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         lancamento_etapa1 = resultado["lancamento_etapa1"]
@@ -1266,6 +1308,12 @@ class ZerarResultadoView(EmpresaEscopadaContabilMixin, APIView):
                 "periodicidade_zeramento": resultado["periodicidade_zeramento"],
                 "lancamento_etapa1": lancamento_etapa1.pk if lancamento_etapa1 else None,
                 "criado_etapa1": resultado["criado_etapa1"],
+                # DE-078 item 5 (B3): lista COMPLETA dos lançamentos da
+                # etapa 1 — no caso comum (dentro do teto de partidas) tem
+                # exatamente UM id, igual a `lancamento_etapa1` acima;
+                # `lancamento_etapa1` continua existindo para quem já lia
+                # só essa chave (compatibilidade com a fatia 3).
+                "lancamentos_etapa1": [lanc.pk for lanc in resultado["lancamentos_etapa1"]],
                 "lancamento_etapa2": lancamento_etapa2.pk if lancamento_etapa2 else None,
                 "criado_etapa2": resultado["criado_etapa2"],
                 "destino_etapa2": resultado["destino_etapa2"],
