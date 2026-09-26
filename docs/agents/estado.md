@@ -89,7 +89,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
 | [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Planejada |
+| [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -99,24 +99,33 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — integrar DL-040, DL-041 e DL-042 por PR; DL-043 em auditoria.**
+**AGORA — PR #48 (DL-040, DL-041, DL-042) aguardando o merge do Fred; DL-043
+em correção final; DL-044 (visual das telas de trabalho) em desenho.**
 
 - **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
-- **DL-040** (navegação) e **DL-042** (redesenho global com a skill
-  `saas-design-excellence`, ordem do Fred de 26/09): prontas na branch
-  `claude/vigilant-bardeen-jo12l4`. Moldura em "L invertido" com barra lateral
-  recolhível só com CSS, ícones próprios, página pública, entrada e cadastro
-  refeitos, Início como fila de atenção, botões padronizados. Capturas em
-  [dl042/comparacao.md](../assets/telas/dl042/comparacao.md). Nível 2: sem
-  auditoria completa (§3.1). O Fred mandou abrir o PR e mesclar sem esperar
-  por ele (26/09).
-- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): **encerrada**, aprovada
-  com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md)
-  (BL-539, BL-540). Conteúdo nos commits `92b4503` e `6b76ddc`, cujas mensagens
-  dizem "preservação" por causa do gancho do ambiente. Vai no mesmo PR.
-- **DL-043** (parâmetros contábeis e zeramento): servidor pronto na branch local
-  `dl043-servidor` (worktree fora do repositório), em auditoria independente;
-  integra depois deste PR, com a fatia 3 (telas).
+- **PR #48** (DL-040 navegação, DL-041 unicidade por escritório, DL-042
+  redesenho global): as quatro checagens verdes e sem conflito em 26/09. Os
+  agentes deste ambiente não têm ferramenta de merge com escrita; **o merge é
+  do Fred**. DL-041 encerrada com ressalvas baixas na
+  [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md) (BL-539,
+  BL-540); conteúdo nos commits `92b4503` e `6b76ddc` (mensagens de
+  "preservação" por causa do gancho do ambiente).
+- **DL-043** (parâmetros contábeis e zeramento, nível 1): servidor, telas e
+  correções na branch local `dl043-correcao` (worktree fora do repositório).
+  Rodada 1 **reprovada**; reconferência **reprovada** por uma regressão
+  (deadlock da trava por empresa, R1) e pelo caminho de recuperação que o
+  produto não oferecia (R2). Decisões no adendo da DE-078; correção final em
+  andamento, **sem terceira rodada** (AGENTS.md §3.1) — fechamento pelos testes
+  que a reconferência propôs. Pendências novas para o Fred: HI-26/PE-38
+  (compensação de lucros e prejuízos acumulados) e PE-69 (desfazer zeramento).
+  Os relatórios entram no repositório com o PR da DL-043.
+- **DL-044** (telas de trabalho com aspecto de produto profissional, nível 2):
+  o Fred reprovou o visual das telas internas da DL-042 ("aspecto de vazio",
+  "botão parece link", "arcaico", "tudo junto num lugar só") e aprovou a
+  página pública. Referência visual escolhida por ele em 26/09: **Conta Azul**,
+  como modelo de padrão, sem copiar marca. Em desenho na branch local
+  `dl044-telas-de-trabalho`; o Fred vê as capturas antes de espalhar para
+  todas as telas. Integra depois da DL-043.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
