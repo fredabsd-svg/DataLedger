@@ -41,6 +41,15 @@ from apps.contabilidade.validators import (
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
 
+# DL-038 (etapa 2): só o ENUM de tipo de inscrição — usado por
+# `rotulo_e_inscricao_da_empresa`, abaixo, para decidir CNPJ ou CPF. Não
+# cria dependência nova de verdade: `apps.contabilidade.models` já importa
+# `Empresa` do mesmo `apps.empresas.models` no nível do módulo (ver o
+# import de `Empresa` em `apps/contabilidade/models.py`), então este app já
+# depende daquele — este import só nomeia o enum que faltava.
+from apps.empresas.models import TipoInscricao
+from apps.empresas.services import EmpresaEmModoLivroCaixa, recusar_se_livro_caixa
+
 # Campo de saída explícito para os agregados condicionais abaixo (Sum com
 # `filter=` combinado com `default=`): sem `output_field`, o Django pode não
 # conseguir inferir o tipo do resultado quando o valor por omissão é
@@ -569,6 +578,20 @@ def criar_lancamento(
     "criado"); é melhor o serviço informar isso do que a view reconsultar o
     banco tentando adivinhar.
     """
+    # Achado B4 da auditoria rodada 1 (DL-038, R5): defesa em profundidade
+    # no SERVIÇO — a API (`EmpresaEscopadaContabilMixin`) e a tela (decorador
+    # `_sem_contabilidade_para_livro_caixa`) já recusam ANTES de chegar
+    # aqui, mas este é o ponto por onde QUALQUER caminho de escrita passa
+    # (inclusive um chamador futuro que não use nenhuma das duas portas).
+    # A REGRA mora só em `apps.empresas.services.recusar_se_livro_caixa`;
+    # aqui só se traduz para `LancamentoInvalido`, o vocabulário de exceção
+    # que este serviço já usa (para não obrigar todo chamador a conhecer
+    # um segundo tipo de exceção só para este caso).
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        raise LancamentoInvalido(exc.mensagem) from exc
+
     if len(itens) < 2:
         raise LancamentoInvalido("Um lançamento precisa de ao menos duas partidas.")
 
@@ -2924,6 +2947,47 @@ def identificacao_da_demonstracao():
         "moeda_de_apresentacao": "Real (R$)",
         "nivel_de_arredondamento": "unidade de real, com centavos",
     }
+
+
+def rotulo_e_inscricao_da_empresa(empresa):
+    """DL-038 (etapa 2, critério 7) — PONTO ÚNICO de formatação da
+    inscrição da empresa para o cabeçalho de identificação de um
+    documento impresso desta app.
+
+    Devolve `(rotulo, inscricao_formatada)`:
+      - `("CNPJ", "XX.XXX.XXX/XXXX-XX")` para empresa pessoa jurídica;
+      - `("CPF", "XXX.XXX.XXX-XX")` para empresa pessoa física (RC-112).
+
+    Antes desta etapa, o único documento que imprimia a inscrição da
+    empresa (o Balanço — `_cnpj_mascarado`, `apps/contabilidade/
+    views_web.py`) assumia sempre CNPJ: uma empresa CPF em modo
+    contabilidade (permitida pelo modelo — nada no R4 proíbe CPF +
+    contabilidade, só CPF costuma SUGERIR livro-caixa, HI-23) sairia com
+    a inscrição EM BRANCO no papel, porque `empresa.cnpj` é vazio por
+    invariante de banco para empresa CPF (`empresa_inscricao_
+    consistente_com_tipo`, apps/empresas/models.py). Esta função é o
+    lugar ÚNICO que decide qual dos dois campos ler e como mascarar cada
+    um — nenhum template repete o `if tipo_inscricao == CPF` (mesmo
+    requisito de R7/critério 7 já aplicado à listagem de empresas,
+    `apps.empresas.views.lista_empresas`).
+
+    Reescreve, de propósito, a MESMA regra de máscara de
+    `apps.empresas.views._mascara_cnpj`/`_mascara_cpf` (não importa os
+    símbolos privados de outro app — mesma decisão consciente já
+    declarada na docstring de `_cnpj_mascarado`, que esta função
+    substitui). Puramente apresentação: devolve o valor original quando
+    o tamanho não bate com o esperado (dado herdado ou corrompido), em
+    vez de mascarar errado — nunca levanta exceção, porque não é validação.
+    """
+    if empresa.tipo_inscricao == TipoInscricao.CPF:
+        cpf = empresa.cpf
+        if len(cpf) != 11:
+            return "CPF", cpf
+        return "CPF", f"{cpf[0:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:11]}"
+    cnpj = empresa.cnpj
+    if len(cnpj) != 14:
+        return "CNPJ", cnpj
+    return "CNPJ", f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
 def apurar_balanco_patrimonial(*, empresa, data_base):

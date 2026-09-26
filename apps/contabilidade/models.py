@@ -6,7 +6,8 @@ from django.core.validators import MinValueValidator
 from django.db import connection, models
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, ModoEscrituracao
+from apps.empresas.services import MENSAGEM_RECUSA_CONTABILIDADE_LIVRO_CAIXA
 
 
 class LancamentoImutavelError(Exception):
@@ -472,6 +473,37 @@ class Conta(models.Model):
         return existe
 
     def clean(self):
+        # Achado B4 da auditoria rodada 1 (DL-038, R5): a recusa de
+        # contabilidade por partidas dobradas para empresa em modo
+        # livro-caixa só existia no mixin da API e no decorador da tela —
+        # o admin (`admin:contabilidade_conta_add`) e qualquer serviço de
+        # escrita que não passasse por essas duas portas continuavam
+        # aceitando. A REGRA mora só em `apps.empresas.services.
+        # recusar_se_livro_caixa` (nunca uma segunda cópia da comparação
+        # `modo_escrituracao == LIVRO_CAIXA`); aqui só se traduz para
+        # `ValidationError`, o contrato que `full_clean()` exige.
+        #
+        # `Empresa.objects.filter(pk=...).values_list(...).first()` — NUNCA
+        # `self.empresa` — pelo mesmo motivo já documentado mais abaixo
+        # neste método (BL-264/rodada 6): `self.empresa` resolve a FK e
+        # levanta `Empresa.DoesNotExist`/`TypeError`/`ValueError` crus para
+        # `empresa_id` inexistente ou de tipo inválido — não é papel desta
+        # checagem reportar isso (outro guard, abaixo, já cuida com
+        # mensagem própria); aqui, "não deu para confirmar o modo" apenas
+        # NÃO recusa por livro-caixa (a checagem de empresa inválida, mais
+        # abaixo, é quem recusa a gravação de qualquer forma).
+        if self.empresa_id:
+            try:
+                modo_escrituracao_gravado = (
+                    Empresa.objects.filter(pk=self.empresa_id)
+                    .values_list("modo_escrituracao", flat=True)
+                    .first()
+                )
+            except (TypeError, ValueError):
+                modo_escrituracao_gravado = None
+            if modo_escrituracao_gravado == ModoEscrituracao.LIVRO_CAIXA:
+                raise ValidationError(MENSAGEM_RECUSA_CONTABILIDADE_LIVRO_CAIXA)
+
         if self.conta_pai_id and self.conta_pai.empresa_id != self.empresa_id:
             raise ValidationError("A conta pai deve pertencer à mesma empresa.")
 

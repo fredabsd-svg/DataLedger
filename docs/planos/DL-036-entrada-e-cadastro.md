@@ -1,6 +1,6 @@
 # DL-036 — Página inicial e cadastro de uma nova empresa
 
-**Estado:** em revisão. **Demanda:** Fred, 25/09/2026: primeira tela
+**Estado:** integrada (PR #45, 25/09/2026). **Demanda:** Fred, 25/09/2026: primeira tela
 com cadastro para empresa nova e apresentação profissional do DataLedger.
 **Branch:** `feat/dl-036-entrada-e-cadastro`, destino `main`.
 

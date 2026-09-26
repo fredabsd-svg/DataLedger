@@ -89,7 +89,66 @@ MENSAGENS_DE_RESTRICAO = {
         "O CNPJ do estabelecimento precisa ser gravado em formato canônico: só "
         "letras maiúsculas e dígitos, sem máscara."
     ),
+    # DL-038 (R1/R2): as duas constraints novas de `Empresa` — formato do
+    # CPF e consistência entre tipo_inscricao/cnpj/cpf. Mesma classe de
+    # armadilha das duas de cima: inalcançáveis pelo caminho normal (o
+    # serializer valida antes), mas `bulk_create`/`QuerySet.update()`
+    # vazam `IntegrityError` cru, e `apps/empresas/views.py` já as passa
+    # para `restricao_como_400` via `mensagens_de(...)` em
+    # `perform_create`/`perform_update`.
+    "empresa_cpf_formato_valido": (
+        "O CPF da empresa precisa ter 11 dígitos numéricos, sem máscara."
+    ),
+    "empresa_inscricao_consistente_com_tipo": (
+        "O tipo de inscrição da empresa precisa bater com o campo preenchido: "
+        "CNPJ preenchido e CPF vazio para tipo CNPJ; CPF preenchido e CNPJ vazio "
+        "para tipo CPF."
+    ),
 }
+
+# Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
+# PostgreSQL da migração 0010/0011 (apps/empresas/migrations/
+# 0011_bl533_bl534_gatilho_com_nome_e_trava.py) agora informam `CONSTRAINT`
+# no `RAISE EXCEPTION`, então `IntegrityError` chega ao Django com
+# `diag.constraint_name` preenchido — traduzível pelo MESMO
+# `restricao_como_400` que já traduz `Meta.constraints`.
+#
+# Registro SEPARADO de `MENSAGENS_DE_RESTRICAO`, DE PROPÓSITO: aquele é
+# varrido por `apps/core/tests/test_dl019_varredura_de_restricoes.py`
+# contra `Meta.constraints` REAIS de modelo Django (`modelo._meta.
+# constraints`) — um gatilho SQL não é metadado do ORM, não tem
+# `Meta.constraints` nenhuma, e misturar os dois registros quebraria
+# aquela varredura (`test_cada_nome_de_mensagens_de_restricao_e_uma_
+# constraint_que_existe`) sem ganho nenhum: ela existe para pegar nome
+# ERRADO/desatualizado num registro que promete corresponder ao ORM, e um
+# gatilho nunca vai aparecer lá porque genuinamente não é uma
+# `Meta.constraint`. As MESMAS mensagens (texto idêntico) das funções de
+# serviço equivalentes — `apps.empresas.services.
+# recusar_estabelecimento_para_empresa_cpf`/`recusar_transicao_para_cpf_
+# com_estabelecimento` — para a API/admin nunca contarem duas histórias
+# diferentes do mesmo motivo (DE-026), mesmo quando é o BANCO, não o
+# Python, quem recusou (a janela de corrida entre a checagem em Python e
+# o INSERT/UPDATE).
+MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
+    "estabelecimento_empresa_nao_e_cpf": (
+        "Não é possível cadastrar estabelecimento (matriz/filial) para uma "
+        "empresa do tipo CPF: NIRE e estabelecimento são exclusivos de pessoa "
+        "jurídica (CNPJ)."
+    ),
+    "empresa_transicao_cpf_com_estabelecimento": (
+        "Não é possível mudar esta empresa para CPF: ela já tem estabelecimento "
+        "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
+        "tipo de inscrição."
+    ),
+}
+
+
+def mensagens_de_gatilho(*nomes):
+    """Mesmo papel de `mensagens_de()`, para `MENSAGENS_DE_RESTRICAO_DE_
+    GATILHO` — ver o comentário do registro acima sobre por que os dois
+    ficam separados."""
+    return {nome: MENSAGENS_DE_RESTRICAO_DE_GATILHO[nome] for nome in nomes}
+
 
 # Restrições cuja tradução NÃO passa por `restricao_como_400`, com o ponto
 # exato que as traduz. Existir aqui não é dispensa: é declaração verificável
@@ -100,7 +159,14 @@ MENSAGENS_DE_RESTRICAO = {
 # elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
-    "empresas_empresa_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    # DL-038: `empresas_empresa_cnpj_key` (índice implícito de `unique=True`
+    # de campo) foi SUBSTITUÍDO por `empresa_cnpj_unico` — uma
+    # `UniqueConstraint` condicional, porque a unicidade do CNPJ de
+    # `Empresa` deixou de poder ser incondicional (empresa CPF tem
+    # `cnpj == ""`, e dois vazios nunca podem colidir). Mesmo ponto de
+    # tradução de sempre. `empresa_cpf_unico` é a entrada NOVA, simétrica.
+    "empresa_cnpj_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "empresa_cpf_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
@@ -142,6 +208,15 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "um_periodo_de_regime_aberto_por_empresa": (
         "apps.empresas.services.registrar_regime_tributario"
     ),
+    # DL-010 F1 (DE-074 item 5, critério 28 do plano): as duas restrições
+    # de deduplicação por escritório da recepção de NFS-e. Não traduzem
+    # para 400 — a repetição de um documento/evento já recebido NÃO é erro
+    # de entrada, é o caso NORMAL de reimportar um lote (RC-69). A
+    # tradução vira um resultado de NEGÓCIO ("duplicado" em
+    # `ResultadoDoArquivo`), dentro do savepoint por arquivo de
+    # `_processar_um_arquivo` — nunca sobe como exceção HTTP.
+    "documento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
+    "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
@@ -258,6 +333,36 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`LancamentoContabil` sem `empresa`. Defesa em profundidade contra "
         "INSERT direto via psql/shell-admin, sem caminho de escrita por "
         "cliente."
+    ),
+    # DL-010 F1: `apps.fiscal.services._vincular_participantes` nunca monta
+    # dois vínculos para a MESMA empresa no mesmo documento (o ramo do
+    # tomador é descartado quando `empresa_tomador == empresa_prestador`) —
+    # e a criação do documento, que aconteceria ANTES na mesma
+    # `transaction.atomic()`, já teria levantado `documento_fiscal_unico_
+    # por_escritorio` primeiro num reenvio. Nenhum caminho de cliente
+    # alcança esta restrição hoje.
+    "vinculo_documento_empresa_unico": (
+        "`UniqueConstraint(documento, empresa)` de `VinculoDocumentoEmpresa` "
+        "(DL-010 F1). `_vincular_participantes` nunca gera dois vínculos "
+        "para a mesma empresa no mesmo documento, e um documento duplicado "
+        "já é barrado antes disso por `documento_fiscal_unico_por_"
+        "escritorio`. Sem caminho de escrita por cliente hoje."
+    ),
+    # Achado B8 da auditoria rodada 1 (DL-038): CheckConstraint de DOMÍNIO
+    # nova (`modo_escrituracao` só {"contabilidade", "livro_caixa"}).
+    "empresa_modo_escrituracao_valido": (
+        "`CheckConstraint` de domínio de `Empresa.modo_escrituracao` "
+        "(DL-038). Os DOIS caminhos de cliente que gravam este campo "
+        "restringem o valor ANTES do INSERT: a API usa `serializers."
+        "ChoiceField(choices=ModoEscrituracao.choices)` (EmpresaSerializer, "
+        "apps/empresas/serializers.py) — valor fora do domínio nunca passa "
+        "de `to_internal_value`, 400 antes de qualquer escrita; o admin do "
+        "Django usa o `<select>` gerado pelo `ChoiceField` do próprio "
+        "campo do modelo — não existe como submeter um valor fora da "
+        "lista pelo formulário (um POST forjado direto, fora do "
+        "navegador, cairia na constraint do banco como IntegrityError cru "
+        "— não há relato nem teste desse caminho hoje). Sem caminho de "
+        "escrita por cliente REALISTA para o valor inválido."
     ),
 }
 

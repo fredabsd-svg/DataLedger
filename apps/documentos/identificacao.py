@@ -111,6 +111,17 @@ class IdentificacaoContexto:
     profissional_crc: str
     folha_atual: int
     folha_total: int
+    # DL-038: `Empresa` passou a admitir cliente pessoa física (CPF), além
+    # de CNPJ. `empresa_cnpj` continua sendo o texto do NÚMERO da
+    # inscrição (venha ela de CNPJ ou de CPF — quem monta o contexto
+    # decide qual valor formatado passar); este campo novo é só o
+    # RÓTULO do campo de identificação impresso, para o bloco mostrar
+    # "CPF" em vez de "CNPJ" quando for o caso. Tem valor padrão "CNPJ"
+    # (o único rótulo que existia antes desta etapa) de propósito: nenhum
+    # chamador existente — hoje esta classe não tem nenhum chamador de
+    # produção, só `apps/documentos/tests/test_identificacao.py` — precisa
+    # mudar para continuar funcionando.
+    empresa_rotulo_inscricao: str = "CNPJ"
 
 
 def _campo_obrigatorio(label: str, valor: str) -> CampoIdentificacao:
@@ -154,7 +165,7 @@ def _campos_conferencia(ctx: IdentificacaoContexto) -> tuple[CampoIdentificacao,
     """
     return (
         _campo_obrigatorio("Razão social", ctx.empresa_razao_social),
-        _campo_obrigatorio("CNPJ", ctx.empresa_cnpj),
+        _campo_obrigatorio(ctx.empresa_rotulo_inscricao, ctx.empresa_cnpj),
         _campo_obrigatorio("NIRE", _marcador_de_vazio(ctx.empresa_nire)),
         _campo_obrigatorio("Período", ctx.periodo_coberto),
         _campo_obrigatorio("Relatório", ctx.relatorio_nome),
@@ -181,7 +192,7 @@ def _campos_demonstracao(ctx: IdentificacaoContexto) -> tuple[CampoIdentificacao
     """
     return (
         _campo_obrigatorio("Razão social", ctx.empresa_razao_social),
-        _campo_obrigatorio("CNPJ", ctx.empresa_cnpj),
+        _campo_obrigatorio(ctx.empresa_rotulo_inscricao, ctx.empresa_cnpj),
         _campo_obrigatorio("NIRE", _marcador_de_vazio(ctx.empresa_nire)),
         _campo_obrigatorio("Período", ctx.periodo_coberto),
         _campo_obrigatorio("Abrangência", "Demonstração individual"),  # item 51(b)
@@ -215,7 +226,7 @@ def _campos_livro(ctx: IdentificacaoContexto) -> tuple[CampoIdentificacao, ...]:
     """
     return (
         _campo_obrigatorio("Razão social", ctx.empresa_razao_social),
-        _campo_obrigatorio("CNPJ", ctx.empresa_cnpj),
+        _campo_obrigatorio(ctx.empresa_rotulo_inscricao, ctx.empresa_cnpj),
         _campo_obrigatorio("NIRE", _marcador_de_vazio(ctx.empresa_nire)),
         _campo_obrigatorio("Idioma", "Português (Brasil)"),  # item 5(a)
         _campo_obrigatorio("Moeda", ctx.moeda),  # item 5(a)

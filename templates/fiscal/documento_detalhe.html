@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block titulo %}Documento {{ documento.numero|default:documento.identificador }}{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
+    <p><a href="{% url 'fiscal_web:documentos_lista' %}">Voltar para Documentos</a></p>
+    <h1>
+        NFS-e nacional
+        {% if documento.numero %}nº {{ documento.numero }}{% endif %}
+        {% if situacao == "cancelada" %}
+            <span class="situacao-documento situacao-documento--cancelada">Cancelada</span>
+        {% else %}
+            <span class="situacao-documento situacao-documento--valida">Válida</span>
+        {% endif %}
+    </h1>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Identificador (Id)</dt>
+            <dd>{{ documento.identificador }}</dd>
+        </div>
+        <div>
+            <dt>Versão do leiaute</dt>
+            <dd>{{ documento.versao }}</dd>
+        </div>
+        <div>
+            <dt>Emissão</dt>
+            <dd>{{ documento.dh_emissao|date:"d/m/Y H:i" }}</dd>
+        </div>
+        <div>
+            <dt>Competência</dt>
+            <dd>{{ documento.d_competencia|date:"m/Y" }}</dd>
+        </div>
+        <div>
+            <dt>Valor do serviço (vServ)</dt>
+            <dd class="valor-monetario">{{ v_serv_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Valor líquido (vLiq)</dt>
+            <dd class="valor-monetario">{{ v_liq_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Retenção do ISSQN (tpRetISSQN)</dt>
+            {% comment %}
+            RC-110 (plano DL-010-F1): código lido e EXIBIDO, nunca
+            interpretado nem calculado — o texto vem de um mapa fixo dos
+            três valores já confirmados no plano; um código fora do mapa
+            (não deveria acontecer, mas a tela nunca confia só nisso)
+            mostra o código cru em vez de quebrar.
+            {% endcomment %}
+            <dd>{{ documento.tp_ret_issqn }}{% if descricao_retencao %} — {{ descricao_retencao }}{% endif %}</dd>
+        </div>
+    </dl>
+
+    <h2>Prestador</h2>
+    <p>
+        {{ documento.get_prestador_tipo_documento_display }} {{ documento.prestador_documento }}
+        {% if documento.prestador_nome %} — {{ documento.prestador_nome }}{% endif %}
+    </p>
+
+    <h2>Tomador</h2>
+    {% if documento.tomador_tipo_documento %}
+        <p>
+            {{ documento.get_tomador_tipo_documento_display }} {{ documento.tomador_documento }}
+            {% if documento.tomador_nome %} — {{ documento.tomador_nome }}{% endif %}
+        </p>
+    {% else %}
+        <p>Este documento não traz tomador (bloco opcional ausente no XML original).</p>
+    {% endif %}
+
+    <h2>Empresas vinculadas deste escritório</h2>
+    {% if vinculos %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Empresas do escritório vinculadas a este documento</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Empresa</th>
+                    <th scope="col">Papel</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for vinculo in vinculos %}
+                    <tr>
+                        <td>{{ vinculo.empresa.razao_social }}</td>
+                        <td>{{ vinculo.get_papel_display }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhuma empresa deste escritório está vinculada a este documento.</p>
+    {% endif %}
+
+    <h2>Eventos que referenciam esta nota</h2>
+    {% if eventos %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Eventos fiscais que referenciam este documento</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Código</th>
+                    <th scope="col">Data/hora</th>
+                    <th scope="col">Cancela a nota?</th>
+                    <th scope="col">XML</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for evento in eventos %}
+                    <tr>
+                        <td>{{ evento.codigo }}</td>
+                        <td>{{ evento.data_evento|date:"d/m/Y H:i" }}</td>
+                        <td>{% if evento.codigo in codigos_que_cancelam %}Sim{% else %}Não{% endif %}</td>
+                        <td><a href="{% url 'fiscal_web:evento_xml' evento.id %}">Baixar XML</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum evento fiscal referencia esta nota até o momento.</p>
+    {% endif %}
+
+    <p>
+        <a href="{% url 'fiscal_web:documento_xml' documento.id %}">Baixar XML original do documento</a>
+    </p>
+{% endblock %}

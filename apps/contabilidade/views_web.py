@@ -106,6 +106,7 @@ from apps.contabilidade.services import (
     marcar_competencia_como_entregue,
     movimento_fora_do_periodo,
     reabrir_competencia,
+    rotulo_e_inscricao_da_empresa,
 )
 
 # Reaproveitados de apps.contabilidade.views (API), de propósito, para não
@@ -201,6 +202,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
+from apps.empresas.services import EmpresaEmModoLivroCaixa, recusar_se_livro_caixa
 
 # Mesmo teto de NÍVEL que a API aplica em `apps.contabilidade.views.NIVEL_
 # MAXIMO` — valor repetido aqui (não importado) porque é só uma guarda de
@@ -304,8 +306,25 @@ def _empresa_do_escritorio_ativo(request, empresa_id):
     isolamento de `apps.empresas.mixins.EmpresaEscopadaMixin` (já usada
     pela API): uma empresa de outro escritório dá 404, não 403 — não
     confirma nem a existência do registro para quem não tem acesso.
+
+    DL-038 (R5): memorizada por REQUISIÇÃO (não entre requisições — o cache
+    vive só no objeto `request`, que é novo a cada chamada). Desde que o
+    decorador `_sem_contabilidade_para_livro_caixa` passou a resolver a
+    empresa ANTES da view (para recusar modo livro-caixa), cada view voltou
+    a resolvê-la de novo no próprio corpo — sem memoizar, isso soma uma
+    consulta a mais por requisição e estourava o teto de consultas da
+    DL-015/DL-019 (`test_dl019_razao_reaproveita_ids_contas.py`). Só
+    memoiza o resultado feliz: se `get_object_or_404` estourar Http404,
+    nada fica em cache e a próxima chamada tenta de novo (mesmo
+    comportamento de antes, sem mascarar erro).
     """
-    return get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+    cache = getattr(request, "_dl038_cache_empresa_do_escritorio_ativo", None)
+    if cache is None:
+        cache = {}
+        request._dl038_cache_empresa_do_escritorio_ativo = cache
+    if empresa_id not in cache:
+        cache[empresa_id] = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+    return cache[empresa_id]
 
 
 def _resposta_sem_permissao(request, mensagem):
@@ -319,6 +338,47 @@ def _resposta_sem_escritorio(request):
     # Reaproveita o mesmo template de apps.empresas (mesma situação: sem
     # escritório ativo não há como saber de qual contabilidade se fala).
     return render(request, "empresas/sem_escritorio.html")
+
+
+def _sem_contabilidade_para_livro_caixa(request, empresa):
+    """Recusa (403, com a MESMA mensagem e a MESMA regra da API) quando
+    `empresa` está em modo `livro_caixa` — a contabilidade por partidas
+    dobradas não está disponível para ela. Devolve a `HttpResponse` pronta
+    quando recusa, ou `None` quando a empresa está livre.
+
+    Achado B7 da auditoria rodada 1: até a rodada anterior, isto era um
+    DECORADOR aplicado por FORA de cada view — o que o fazia rodar ANTES
+    do escritório ativo e do papel serem checados PELO CORPO da view.
+    Efeito medido: usuário SEM escritório ativo via 404 em vez da tela
+    "sem escritório" (a empresa nunca chegava a ser resolvida pelo
+    caminho que checa isso primeiro); e um papel SEM permissão de LEITURA
+    (ex.: CLIENTE) via a MENSAGEM DE LIVRO-CAIXA em vez de "sem
+    permissão" — revelando o MODO de escrituração da empresa a quem não
+    tem acesso nem para ler. Agora é uma função CHAMADA por cada view,
+    sempre DEPOIS do `if request.escritorio is None`/`_empresa_do_
+    escritorio_ativo` e do `_pode_ler`/`_pode_escriturar` — nunca antes.
+
+    A regra em si mora só em `apps.empresas.services.recusar_se_livro_caixa`
+    (fonte única, R5); esta função só traduz para o MESMO template de "sem
+    permissão" (403) que as outras recusas desta tela usam — nunca 500,
+    nunca uma segunda cópia da mensagem.
+
+    O lado API equivalente é `apps.contabilidade.views.
+    EmpresaEscopadaContabilMixin.get_empresa` — as duas pontas chamam a
+    mesma função de serviço, então a mensagem nunca diverge entre tela e
+    API (a ORDEM relativa a escritório/papel é, por natureza, uma
+    responsabilidade só da TELA — a API resolve escritório e permissão por
+    outro mecanismo, o middleware e as `permission_classes`, ANTES do
+    corpo da view rodar). A prova de que TODA view desta tela com
+    `empresa_id` está coberta (varredura DERIVADA das rotas registradas,
+    não lista escrita à mão) é `apps/contabilidade/tests/test_dl038_
+    recusa_livro_caixa.py`.
+    """
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        return _resposta_sem_permissao(request, exc.mensagem)
+    return None
 
 
 def _pode_ler(request):
@@ -591,6 +651,10 @@ def plano_de_contas(request, empresa_id):
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
     contexto = {
         "empresa": empresa,
@@ -661,6 +725,10 @@ def conta_nova(request, empresa_id):
     empresa = _empresa_do_escritorio_ativo(request, empresa_id)
     if not _pode_escriturar(request):
         return _resposta_sem_permissao(request, "Seu papel não permite criar contas nesta empresa.")
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     if request.method == "POST":
         # BL-196/R6-2 (rodada 6) — a defesa que existia na tela vizinha
@@ -1537,6 +1605,10 @@ def lancamento_novo(request, empresa_id):
     if not _pode_escriturar(request):
         return _resposta_sem_permissao(request, "Seu papel não permite lançar nesta empresa.")
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     # Só contas que aceitam lançamento direto e estão ativas entram na
     # lista de escolha — restringe o que a tela OFERECE para digitar, não
     # o que o Plano de Contas MOSTRA (essa tela continua listando tudo,
@@ -2068,6 +2140,10 @@ def lancamento_detalhe(request, empresa_id, lancamento_id):
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     lancamento = get_object_or_404(
         LancamentoContabil.objects.prefetch_related("itens__conta"),
         pk=lancamento_id,
@@ -2196,6 +2272,10 @@ def diario(request, empresa_id):
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
     contexto = {"empresa": empresa, "inicio": inicio, "fim": fim}
     if erro_periodo:
@@ -2260,6 +2340,10 @@ def razao(request, empresa_id, conta_id):
         return _resposta_sem_permissao(
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
     conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
@@ -2391,6 +2475,10 @@ def balancete(request, empresa_id):
         return _resposta_sem_permissao(
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
     nivel, erro_nivel = _nivel_do_formulario(request)
@@ -2678,26 +2766,16 @@ def _data_base_do_formulario(request):
         return None, "Data inválida: use o seletor de data (ou o formato AAAA-MM-DD)."
 
 
-def _cnpj_mascarado(cnpj):
-    """Formata um CNPJ de 14 caracteres como XX.XXX.XXX/XXXX-XX — MESMA
-    regra de `apps.empresas.views._mascara_cnpj`, reescrita aqui de
-    propósito: esta etapa (DL-034) não tem permissão para editar
-    `apps/empresas/**` (divisão de arquivos do plano), e `_mascara_cnpj`
-    é privada daquele módulo — importar um símbolo de prefixo `_` de outro
-    app seria acoplamento não pretendido por quem o escreveu. Duplicação
-    CONSCIENTE e declarada, não descoberta depois: se a regra de máscara
-    mudar num dos dois lugares, este comentário é o ponto para lembrar do
-    outro. RC-93 exige CNPJ na identificação obrigatória do documento —
-    nenhuma tela de contabilidade mostra CNPJ hoje (PE-51 ainda em aberto
-    sobre "as demais informações"); esta etapa cobre a exigência PARA O
-    BALANÇO, sem prometer que as demais telas já a cumprem.
-
-    Só apresentação: se o valor não tiver exatamente 14 caracteres, devolve
-    o original em vez de mascarar errado.
-    """
-    if len(cnpj) != 14:
-        return cnpj
-    return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
+# `_cnpj_mascarado` (DL-034) foi REMOVIDA nesta etapa (DL-038, etapa 2):
+# ela sempre lia `empresa.cnpj` direto, e uma empresa CPF em modo
+# contabilidade (permitida — nada no R4 proíbe isso) tem `empresa.cnpj`
+# vazio por invariante de banco, o que imprimiria o Balanço com a
+# inscrição EM BRANCO. O ponto único agora é `apps.contabilidade.services.
+# rotulo_e_inscricao_da_empresa` — mesma app, sem o problema de
+# acoplamento que motivava a duplicação original (import de símbolo
+# PRIVADO de outro app): a nova função mora no MESMO app que a consome,
+# só reescreve a máscara em vez de importar de `apps.empresas` (mesma
+# decisão consciente, mesmo motivo, ver a docstring dela).
 
 
 # BL-508 (auditoria DL-034, achado A10): rótulo HUMANO de cada campo extra
@@ -3069,6 +3147,10 @@ def balanco(request, empresa_id):
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     data_base, erro_data_base = _data_base_do_formulario(request)
     contexto = {"empresa": empresa, "data_base": data_base}
     if erro_data_base:
@@ -3088,6 +3170,14 @@ def balanco(request, empresa_id):
     saldos = resultado["saldos"]
     emissao = resultado["emissao"]
 
+    # DL-038 (etapa 2, critério 7): rótulo e inscrição corretos —
+    # "CNPJ 12.345.678/0001-95" para pessoa jurídica, "CPF 123.456.789-09"
+    # para pessoa física — nunca CNPJ fixo, que sairia em branco para
+    # empresa CPF (`empresa.cnpj` é vazio por invariante de banco nesse
+    # caso). Ver `rotulo_e_inscricao_da_empresa` para o porquê deste ser o
+    # ponto único da formatação.
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+
     contexto.update(
         {
             # NBC TG 26 item 51/52 (RC-95) — o bloco de identificação é
@@ -3096,7 +3186,8 @@ def balanco(request, empresa_id):
             # DL-034; mesmo mecanismo já provado pelo cabeçalho de coluna
             # do Balancete, BL-282: `display: table-header-group`).
             "identificacao": resultado["identificacao"],
-            "cnpj_mascarado": _cnpj_mascarado(empresa.cnpj),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
             # BL-282/RC-97: mesmo timbre do escritório que Balancete/
             # Diário/Razão já usam — ver o comentário em `diario` para o
             # contrato completo. Continua só na folha 1 (não é exigência do
@@ -3178,6 +3269,10 @@ def conferencia(request, empresa_id):
         return _resposta_sem_permissao(
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     lotes = []
     for lancamento in localizar_lotes_desbalanceados(empresa=empresa):
@@ -3368,6 +3463,10 @@ def fechamento(request, empresa_id):
             request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
     # RC-58 / critério 2: mesma checagem que `encerrar_competencia`
     # (services.py) aplica antes de fechar — repetida aqui só para EXIBIR o
     # bloqueio antes do clique. A recusa de verdade continua sendo a do
@@ -3415,6 +3514,10 @@ def competencia_fechar(request, empresa_id):
             "Seu papel não permite fechar competências desta empresa — essa ação "
             "exige administrador ou gestor (RC-102). Fale com um deles.",
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     fonte = request.POST if request.method == "POST" else request.GET
     ano, mes, erro_competencia = _competencia_pedida(fonte)
@@ -3491,6 +3594,10 @@ def competencia_reabrir(request, empresa_id):
             "Seu papel não permite reabrir competências desta empresa — essa ação "
             "exige administrador ou gestor (RC-102). Fale com um deles.",
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     fonte = request.POST if request.method == "POST" else request.GET
     ano, mes, erro_competencia = _competencia_pedida(fonte)
@@ -3583,6 +3690,10 @@ def competencia_entregar(request, empresa_id):
             "Seu papel não permite marcar competências desta empresa como entregues "
             "— essa ação exige administrador ou gestor (RC-102). Fale com um deles.",
         )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
 
     fonte = request.POST if request.method == "POST" else request.GET
     ano, mes, erro_competencia = _competencia_pedida(fonte)

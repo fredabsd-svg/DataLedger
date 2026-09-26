@@ -1,6 +1,6 @@
 # DL-037 — Entrada pública com hierarquia e primeiro acesso claros
 
-**Estado:** em validação. **Demanda:** Fred rejeitou visualmente a tela de login
+**Estado:** integrada (PR #46, 25/09/2026). **Demanda:** Fred rejeitou visualmente a tela de login
 após a integração da DL-036 e enviou captura em 25/09/2026. **Risco:** nível 2
 (interface). **Branch:** `fix/dl-037-entrada-visual` → `main`.
 

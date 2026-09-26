@@ -83,16 +83,24 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
 
     Não é mais um conjunto fixo de nomes — modelo novo criado em
     `apps/*/models.py` (accounts, auditoria, contabilidade, core,
-    empresas, tenancy) precisa aparecer aqui SOZINHO, sem editar este
-    teste. Hoje são doze modelos concretos nesses apps; a lista serve só
-    de evidência do estado medido, não de fonte da verdade (a fonte é
-    `signals.modelos_cobertos_pela_trilha()`).
+    empresas, fiscal, tenancy) precisa aparecer aqui SOZINHO, sem editar
+    este teste. A LISTA abaixo é o retrato — precisa ser atualizada quando
+    um app novo entra (como `apps.fiscal`, DL-010 F1); a PROPRIEDADE que o
+    mecanismo garante é a fonte de verdade (`signals.
+    modelos_cobertos_pela_trilha()`), nunca esta lista sozinha.
     """
     from apps.accounts.models import Usuario
     from apps.auditoria import signals
     from apps.auditoria.models import RegistroAuditoria
     from apps.contabilidade.models import Competencia, Conta, ItemLancamento, LancamentoContabil
     from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
+    from apps.fiscal.models import (
+        DocumentoFiscal,
+        EventoFiscal,
+        LoteDeRecepcao,
+        ResultadoDoArquivo,
+        VinculoDocumentoEmpresa,
+    )
     from apps.tenancy.models import ConviteEscritorio, Escritorio, VinculoUsuarioEscritorio
 
     cobertos = signals.modelos_cobertos_pela_trilha()
@@ -109,6 +117,21 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         Conta,
         LancamentoContabil,
         ItemLancamento,
+        # DL-010 F1 (2026-09-25): apps.fiscal é um app PRÓPRIO do projeto e
+        # não tem entrada em EXCLUSAO_DA_TRILHA_DO_ADMIN — entrou na
+        # cobertura por PADRÃO (R1/DE-056), sem decisão explícita, mesmo
+        # sem admin.py próprio (o plano da etapa proíbe registrar estes
+        # modelos no admin — BL-262, admin não isola por escritório). Isso
+        # é seguro: sem registro no admin, não existe rota /admin/ para
+        # estes modelos, então os handlers deste módulo nunca disparam de
+        # fato hoje — a cobertura é só a garantia de que, se algum dia
+        # alguém registrar um destes modelos no admin, a trilha já os
+        # alcança sem precisar lembrar de habilitar nada aqui.
+        DocumentoFiscal,
+        EventoFiscal,
+        LoteDeRecepcao,
+        ResultadoDoArquivo,
+        VinculoDocumentoEmpresa,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"
@@ -192,7 +215,9 @@ def test_save_de_empresa_via_admin_gera_trilha():
             "escritorio": escritorio.pk,
             "razao_social": "R BL-244",
             "nome_fantasia": "F BL-244",
+            "tipo_inscricao": "CNPJ",
             "cnpj": "11122233000183",
+            "modo_escrituracao": "contabilidade",
             "ativo": "on",
             "estabelecimentos-TOTAL_FORMS": "0",
             "estabelecimentos-INITIAL_FORMS": "0",
@@ -240,7 +265,9 @@ def test_change_de_empresa_via_admin_gera_trilha_com_diff():
             "escritorio": escritorio.pk,
             "razao_social": "Atualizada",
             "nome_fantasia": "F Original",
+            "tipo_inscricao": "CNPJ",
             "cnpj": "44455566000183",
+            "modo_escrituracao": "contabilidade",
             "ativo": "on",
             "estabelecimentos-TOTAL_FORMS": "0",
             "estabelecimentos-INITIAL_FORMS": "0",

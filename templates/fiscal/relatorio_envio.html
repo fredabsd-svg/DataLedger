@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block titulo %}Relatório do envio — {{ lote.nome_arquivo }}{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
+    <p><a href="{% url 'fiscal_web:recepcao' %}">Voltar para Recepção</a></p>
+    <h1>Relatório do envio — {{ lote.nome_arquivo }}</h1>
+    <p class="texto-apoio">
+        Enviado por {{ lote.usuario.get_username }} em {{ lote.criado_em|date:"d/m/Y H:i" }}.
+    </p>
+
+    {% comment %}
+    Arquétipo C (direção de arte §2.C): "duplicidade e rejeição são
+    primeira classe, não nota de rodapé — é para isso que a tela existe".
+    As três contagens aparecem em TEXTO, na frente, antes da tabela linha a
+    linha — não só um número: cada uma nomeia o que aconteceu.
+    {% endcomment %}
+    <ul class="resumo-envio">
+        <li><strong>{{ lote.total_recebidos }}</strong> recebido(s)</li>
+        <li><strong>{{ lote.total_duplicados }}</strong> duplicado(s)</li>
+        <li><strong>{{ lote.total_recusados }}</strong> recusado(s)</li>
+        <li>{{ lote.total_arquivos }} arquivo(s) no envio, ao todo</li>
+    </ul>
+
+    {% if linhas %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Resultado por arquivo do envio {{ lote.nome_arquivo }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Arquivo</th>
+                    <th scope="col">Resultado</th>
+                    <th scope="col">Motivo</th>
+                    <th scope="col">Documento/evento</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr class="{{ linha.classe_css }}">
+                        <td class="valor-quebravel">
+                            {{ linha.resultado.caminho_no_zip|default:"(arquivo solto)" }}
+                        </td>
+                        <td>{{ linha.resultado.get_resultado_display }}</td>
+                        <td class="valor-quebravel">{{ linha.resultado.motivo|default:"—" }}</td>
+                        <td>
+                            {% if linha.resultado.documento %}
+                                <a href="{% url 'fiscal_web:documento_detalhe' linha.resultado.documento.id %}">
+                                    Ver documento
+                                </a>
+                            {% elif linha.resultado.evento %}
+                                Evento {{ linha.resultado.evento.codigo }}
+                                (<a href="{% url 'fiscal_web:evento_xml' linha.resultado.evento.id %}">XML</a>)
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum arquivo foi processado neste envio.</p>
+    {% endif %}
+{% endblock %}

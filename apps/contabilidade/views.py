@@ -49,8 +49,38 @@ from apps.core.requisicao import (
 )
 from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
 from apps.empresas.mixins import EmpresaEscopadaMixin
+from apps.empresas.services import EmpresaEmModoLivroCaixa, recusar_se_livro_caixa
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
+
+
+class EmpresaEscopadaContabilMixin(EmpresaEscopadaMixin):
+    """`EmpresaEscopadaMixin` + a recusa da contabilidade para empresa em
+    modo livro-caixa (R5/DL-038, DE-075) — PONTO ÚNICO desta recusa para
+    TODA rota de API da contabilidade, porque é aqui que toda uma delas já
+    resolve a empresa escopada (`self.get_empresa()`), sem exceção: as dez
+    classes abaixo (`ContaListCreateView` a
+    `ConferenciaLotesDesbalanceadosView`) usam esta mixin no lugar da
+    `EmpresaEscopadaMixin` genérica, e é a única mudança entre elas.
+
+    A REGRA (condição + mensagem) mora só em `apps.empresas.services.
+    recusar_se_livro_caixa` — este método só CHAMA e traduz para o formato
+    do DRF (`ValidationError` vira 400, nunca 403: não é falta de
+    permissão, é o TIPO de escrituração da empresa que não comporta a
+    operação). `apps/core/tests/test_dl038_recusa_contabilidade_livro_
+    caixa.py` prova, por VARREDURA das rotas registradas em `apps.
+    contabilidade.urls`/`urls_web` (não por lista escrita à mão), que
+    NENHUMA rota escapa desta recusa.
+    """
+
+    def get_empresa(self):
+        empresa = super().get_empresa()
+        try:
+            recusar_se_livro_caixa(empresa)
+        except EmpresaEmModoLivroCaixa as exc:
+            raise DRFValidationError({"empresa": [exc.mensagem]}) from exc
+        return empresa
+
 
 # Mesmo limite do CharField `chave_idempotencia` (models.py). Validado aqui,
 # na fronteira da API, para que um cabeçalho longo demais vire 400 (entrada
@@ -449,7 +479,7 @@ class PodeLerContabilidade(BasePermission):
         return papel_pode_ler_contabilidade(getattr(request, "papel", None))
 
 
-class ContaListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
+class ContaListCreateView(EmpresaEscopadaContabilMixin, generics.ListCreateAPIView):
     permission_classes = [TemEscritorioAtivo]
     serializer_class = ContaSerializer
 
@@ -619,7 +649,7 @@ def _extrair_itens(payload_itens, empresa):
     return itens
 
 
-class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
+class LancamentoListCreateView(EmpresaEscopadaContabilMixin, generics.ListAPIView):
     """Diário: lista cronológica dos lançamentos da empresa; POST cria um novo."""
 
     permission_classes = [TemEscritorioAtivo]
@@ -787,7 +817,7 @@ class LancamentoListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
         return Response(serializer.data, status=status_code)
 
 
-class EstornarLancamentoView(EmpresaEscopadaMixin, APIView):
+class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
     permission_classes = [TemEscritorioAtivo, PodeEscriturar]
 
     def post(self, request, empresa_id, lancamento_id):
@@ -846,7 +876,7 @@ def _competencia_como_dict(competencia):
     }
 
 
-class EncerrarCompetenciaView(EmpresaEscopadaMixin, APIView):
+class EncerrarCompetenciaView(EmpresaEscopadaContabilMixin, APIView):
     """Fecha a competência (ano, mês) da empresa (DL-016 fatia 1).
 
     Critérios do plano cobertos aqui: 1 (indiretamente — é o que TORNA a
@@ -880,7 +910,7 @@ class EncerrarCompetenciaView(EmpresaEscopadaMixin, APIView):
         return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
 
 
-class ReabrirCompetenciaView(EmpresaEscopadaMixin, APIView):
+class ReabrirCompetenciaView(EmpresaEscopadaContabilMixin, APIView):
     """Reabre a competência (ano, mês) da empresa (DL-016 fatia 1).
 
     Critérios do plano cobertos aqui: 5, 6, 8, 9.
@@ -937,7 +967,7 @@ class ReabrirCompetenciaView(EmpresaEscopadaMixin, APIView):
         return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
 
 
-class EntregarCompetenciaView(EmpresaEscopadaMixin, APIView):
+class EntregarCompetenciaView(EmpresaEscopadaContabilMixin, APIView):
     """Marca a competência (ano, mês) da empresa como entregue ao cliente
     (DL-016 fatia 1).
 
@@ -963,7 +993,7 @@ class EntregarCompetenciaView(EmpresaEscopadaMixin, APIView):
         return Response(_competencia_como_dict(competencia), status=status.HTTP_200_OK)
 
 
-class DiarioView(EmpresaEscopadaMixin, APIView):
+class DiarioView(EmpresaEscopadaContabilMixin, APIView):
     """Diário: lançamentos da empresa no período, em ordem cronológica (BL-59, DL-015)."""
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
@@ -1025,7 +1055,7 @@ class DiarioView(EmpresaEscopadaMixin, APIView):
         )
 
 
-class RazaoView(EmpresaEscopadaMixin, APIView):
+class RazaoView(EmpresaEscopadaContabilMixin, APIView):
     """Razão de uma conta no período: saldo anterior, itens e saldo final (BL-60, DL-015).
 
     Consolidação (achado 8 / DE-020, corrigida pela DE-022): o extrato
@@ -1129,7 +1159,7 @@ class RazaoView(EmpresaEscopadaMixin, APIView):
         )
 
 
-class BalanceteView(EmpresaEscopadaMixin, APIView):
+class BalanceteView(EmpresaEscopadaContabilMixin, APIView):
     """Balancete de verificação da empresa no período, com 4 colunas por conta
     (saldo anterior, débitos, créditos, saldo final) — BL-61, DL-015.
 
@@ -1216,7 +1246,7 @@ class BalanceteView(EmpresaEscopadaMixin, APIView):
         )
 
 
-class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaMixin, APIView):
+class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):
     """Conferência de inconsistências da base contábil da empresa (BL-64, DL-015).
 
     Sem período: uma base torta é torta em qualquer recorte. Em operação

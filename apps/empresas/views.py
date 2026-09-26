@@ -24,14 +24,21 @@ from apps.core.requisicao import (
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
-from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
+from apps.core.restricoes import (
+    RestricaoViolada,
+    mensagens_de,
+    mensagens_de_gatilho,
+    restricao_como_400,
+)
 from apps.empresas.forms import EmpresaForm
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.models import (
     Empresa,
     Estabelecimento,
     HistoricoRegimeTributario,
+    ModoEscrituracao,
     RegimeTributario,
+    TipoInscricao,
 )
 from apps.empresas.serializers import (
     EmpresaSerializer,
@@ -40,9 +47,11 @@ from apps.empresas.serializers import (
 )
 from apps.empresas.services import (
     CNPJDuplicado,
+    EstabelecimentoParaEmpresaCPF,
     ExclusaoDeRegimeInvalida,
     erro_de_cnpj_duplicado_como_400,
     excluir_ultimo_regime_tributario,
+    recusar_estabelecimento_para_empresa_cpf,
     registrar_regime_tributario,
 )
 from apps.tenancy.models import Papel
@@ -111,6 +120,35 @@ def _recusar_dado_nao_contratado(request, contrato):
         recusar_dado_nao_contratado(request, contrato)
     except DadoNaoContratado as exc:
         raise DRFValidationError(exc.mensagem) from exc
+
+
+# DL-038: qual campo do serializer cada `RestricaoViolada` de `Empresa`
+# reporta — `RestricaoViolada.nome` é o nome da CONSTRAINT (nunca o texto
+# da mensagem, que é conteúdo de produto e muda), então o mapeamento é
+# estável mesmo que a mensagem seja reescrita. `empresa_inscricao_
+# consistente_com_tipo` reporta em "tipo_inscricao": é a invariante entre
+# os TRÊS campos, e não faz sentido apontar só para "cnpj" ou só para
+# "cpf" quando o problema pode ser qualquer lado da combinação.
+_CAMPO_DA_RESTRICAO_DE_EMPRESA = {
+    "empresa_cnpj_canonico": "cnpj",
+    "empresa_cpf_formato_valido": "cpf",
+    "empresa_inscricao_consistente_com_tipo": "tipo_inscricao",
+    # Achado D1 da auditoria DL-039 rodada 1 (BL-533): gatilho de banco
+    # (não é `Meta.constraint` — ver `apps.core.restricoes.MENSAGENS_DE_
+    # RESTRICAO_DE_GATILHO`), disparado quando a checagem em Python
+    # (`recusar_transicao_para_cpf_com_estabelecimento`, chamada em
+    # `EmpresaSerializer.validate`) perde a corrida contra um
+    # `Estabelecimento` inserido depois da checagem e antes do UPDATE.
+    "empresa_transicao_cpf_com_estabelecimento": "tipo_inscricao",
+}
+
+
+def _campo_da_restricao_de_empresa(nome_constraint):
+    # `.get(..., "cnpj")` preserva o comportamento ANTERIOR à DL-038 (só
+    # existia "empresa_cnpj_canonico", sempre reportado em "cnpj") para
+    # qualquer nome não mapeado — nunca estoura KeyError por uma constraint
+    # nova que um dia apareça aqui sem entrada.
+    return _CAMPO_DA_RESTRICAO_DE_EMPRESA.get(nome_constraint, "cnpj")
 
 
 def _contrato_da_tela_de_empresa():
@@ -223,18 +261,30 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
         # acreditar num 201 falso. O `CNPJDuplicado` e o `RestricaoViolada`
         # continuam sendo traduzidos para 400 como antes; qualquer outra
         # exceção (incluindo a do `registrar()`) propaga como 500.
+        # DL-038: as duas constraints novas (BL-CPF, mesma lógica da
+        # "empresa_cnpj_canonico" citada acima) entram no MESMO `with` —
+        # ver `_CAMPO_DA_RESTRICAO_DE_EMPRESA` para qual campo cada uma
+        # reporta.
         try:
             with (
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
-                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+                restricao_como_400(
+                    mensagens_de(
+                        "empresa_cnpj_canonico",
+                        "empresa_cpf_formato_valido",
+                        "empresa_inscricao_consistente_com_tipo",
+                    )
+                ),
             ):
                 empresa = serializer.save()
                 registrar(acao="empresa.criada", objeto=empresa, request=self.request)
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
+            raise DRFValidationError(
+                {_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}
+            ) from exc
 
 
 class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
@@ -306,7 +356,19 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
             with (
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
-                restricao_como_400(mensagens_de("empresa_cnpj_canonico")),
+                restricao_como_400(
+                    {
+                        **mensagens_de(
+                            "empresa_cnpj_canonico",
+                            "empresa_cpf_formato_valido",
+                            "empresa_inscricao_consistente_com_tipo",
+                        ),
+                        # D1/BL-533: janela de corrida entre a checagem em
+                        # Python e o UPDATE — ver o comentário em
+                        # `_CAMPO_DA_RESTRICAO_DE_EMPRESA`.
+                        **mensagens_de_gatilho("empresa_transicao_cpf_com_estabelecimento"),
+                    }
+                ),
             ):
                 serializer.save()
                 if diff_anterior:  # houve mudança em algum campo
@@ -322,7 +384,9 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         except CNPJDuplicado as exc:
             raise DRFValidationError(exc.message_dict) from exc
         except RestricaoViolada as exc:
-            raise DRFValidationError({"cnpj": [str(exc)]}) from exc
+            raise DRFValidationError(
+                {_campo_da_restricao_de_empresa(exc.nome): [str(exc)]}
+            ) from exc
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
@@ -352,6 +416,16 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         return super().post(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        # Achado B2 da auditoria rodada 1 (DL-038, R7): estabelecimento é
+        # conceito de pessoa jurídica — recusado ANTES de qualquer escrita
+        # para empresa CPF. A REGRA mora só em `apps.empresas.services.
+        # recusar_estabelecimento_para_empresa_cpf`.
+        empresa = self.get_empresa()
+        try:
+            recusar_estabelecimento_para_empresa_cpf(empresa)
+        except EstabelecimentoParaEmpresaCPF as exc:
+            raise DRFValidationError({"empresa": exc.messages}) from exc
+
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
         # (ver comentário lá): cnpj de Estabelecimento também é unique=True.
         #
@@ -381,10 +455,21 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
                 restricao_como_400(
-                    mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico")
+                    {
+                        **mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico"),
+                        # D1/BL-533: janela de corrida entre a checagem de
+                        # `recusar_estabelecimento_para_empresa_cpf` (linha
+                        # acima) e o INSERT — se a empresa virar CPF nesse
+                        # meio-tempo, o gatilho de banco (não é
+                        # `Meta.constraint`; ver o comentário em
+                        # `apps.core.restricoes.MENSAGENS_DE_RESTRICAO_DE_
+                        # GATILHO`) recusa, e este `with` traduz para 400
+                        # em vez de 500.
+                        **mensagens_de_gatilho("estabelecimento_empresa_nao_e_cpf"),
+                    }
                 ),
             ):
-                estabelecimento = serializer.save(empresa=self.get_empresa())
+                estabelecimento = serializer.save(empresa=empresa)
                 registrar(
                     acao="estabelecimento.criado",
                     objeto=estabelecimento,
@@ -395,7 +480,12 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         except RestricaoViolada as exc:
             # O campo em que o erro aparece depende de QUAL constraint caiu —
             # `exc.nome`, nunca o texto da mensagem (ver `RestricaoViolada`).
-            campo = "cnpj" if exc.nome == "estabelecimento_cnpj_canonico" else "tipo"
+            if exc.nome == "estabelecimento_cnpj_canonico":
+                campo = "cnpj"
+            elif exc.nome == "estabelecimento_empresa_nao_e_cpf":
+                campo = "empresa"
+            else:
+                campo = "tipo"
             raise DRFValidationError({campo: [str(exc)]}) from exc
 
 
@@ -551,17 +641,53 @@ def _mascara_cnpj(cnpj):
     return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
+def _mascara_cpf(cpf):
+    """Formata um CPF de 11 dígitos como XXX.XXX.XXX-XX — mesma política de
+    `_mascara_cnpj` (puramente de apresentação; devolve o valor original se
+    não tiver exatamente 11 caracteres, em vez de mascarar errado)."""
+    if len(cpf) != 11:
+        return cpf
+    return f"{cpf[0:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:11]}"
+
+
 @login_required
 @require_safe
 def lista_empresas(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
     empresas = list(Empresa.objects.filter(escritorio=request.escritorio))
-    # Formatação de apresentação (CNPJ mascarado) feita aqui, na view, e não
-    # em template tag própria: esta etapa não tem permissão para criar
-    # arquivos em apps/empresas/templatetags/ (ver docs/planos/DL-009).
+    # Formatação de apresentação (CNPJ/CPF mascarado) feita aqui, na view, e
+    # não em template tag própria: esta etapa não tem permissão para criar
+    # arquivos em apps/empresas/templatetags/ (ver docs/projeto/DL-009).
+    #
+    # DL-038 — critério 7 (etapa 2, `especialista-frontend`):
+    # `templates/empresas/lista.html` agora lê `rotulo_inscricao`/
+    # `inscricao_formatada` (não mais `cnpj_formatado` — a coluna mostra
+    # CNPJ OU CPF conforme o tipo de cada linha, e um cabeçalho fixo
+    # "CNPJ" mentiria para empresa CPF). `cnpj_formatado` continua
+    # calculado abaixo por retrocompatibilidade (nenhum outro código deste
+    # módulo lê o atributo, mas remover um atributo de apresentação sem
+    # necessidade não é o escopo desta etapa).
+    #
+    # `em_livro_caixa`: booleano calculado com o enum e passado pronto ao
+    # template (mesmo padrão de `pode_cadastrar`, abaixo) — decide se a
+    # célula "Contabilidade" mostra os links de escrituração ou um aviso
+    # (R5: a contabilidade por partidas dobradas não se aplica a empresa em
+    # livro-caixa). Não é a recusa de verdade — essa continua só no
+    # servidor, em `apps.empresas.services.recusar_se_livro_caixa`,
+    # aplicada pelo decorador de cada view da contabilidade
+    # (`apps.contabilidade.views_web._sem_contabilidade_para_livro_caixa`);
+    # isto só evita oferecer, na lista, um link que o servidor sempre
+    # recusaria — link ausente aqui não é a defesa, só evita o passeio.
     for empresa in empresas:
         empresa.cnpj_formatado = _mascara_cnpj(empresa.cnpj)
+        empresa.em_livro_caixa = empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA
+        if empresa.tipo_inscricao == TipoInscricao.CPF:
+            empresa.rotulo_inscricao = "CPF"
+            empresa.inscricao_formatada = _mascara_cpf(empresa.cpf)
+        else:
+            empresa.rotulo_inscricao = "CNPJ"
+            empresa.inscricao_formatada = empresa.cnpj_formatado
     contexto = {
         "empresas": empresas,
         # Booleano calculado com o enum e passado pronto ao template: a
@@ -615,8 +741,21 @@ def criar_empresa(request):
                 with transaction.atomic(), erro_de_cnpj_duplicado_como_400():
                     empresa.save()
             except CNPJDuplicado as exc:
-                for mensagem in exc.message_dict.get("cnpj", []):
-                    form.add_error("cnpj", mensagem)
+                # DL-038: `exc.message_dict` já vem com a CHAVE certa —
+                # "cnpj" ou "cpf", conforme qual constraint colidiu (ver
+                # `mensagem_se_cnpj_duplicado`, apps/empresas/services.py).
+                # Antes desta etapa só existia "cnpj", e o `.get("cnpj",
+                # [])` fixo bastava; fixo, ele passou a ENGOLIR em silêncio
+                # a duplicidade de CPF — a exceção era capturada, a
+                # transação desfeita (o savepoint), mas NENHUM erro ia para
+                # o formulário: o contador via a MESMA tela sem aviso
+                # nenhum e sem a empresa cadastrada, a classe de defeito
+                # que o AGENTS.md §8 proíbe (falha convertida em sucesso
+                # aparente). Iterar `.items()` cobre as duas chaves sem
+                # supor qual delas colidiu.
+                for campo, mensagens in exc.message_dict.items():
+                    for mensagem in mensagens:
+                        form.add_error(campo, mensagem)
             else:
                 registrar(acao="empresa.criada", objeto=empresa, request=request)
                 messages.success(request, f"Empresa “{empresa}” cadastrada com sucesso.")

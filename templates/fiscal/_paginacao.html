@@ -1,0 +1,36 @@
+{% comment %}
+Paginação compartilhada das duas listas do Fiscal (envios e documentos).
+Sem JavaScript (R6 da DL-026/direção de arte, §4.6): dois links simples,
+"Anterior"/"Próxima", que preservam os filtros ativos (`querystring_sem_
+pagina`, montada pela view a partir de `request.GET` sem a chave 'pagina') e
+ficam desabilitados (texto, não link) no primeiro/último extremo — nunca um
+link que leva a uma página vazia.
+
+Variáveis esperadas: `pagina` (um `Page` de `django.core.paginator.
+Paginator`) e `querystring_sem_pagina` (string já `urlencode()`, sem o
+'?' inicial, sem 'pagina').
+{% endcomment %}
+{% if pagina.paginator.num_pages > 1 %}
+    <nav class="paginacao" aria-label="Páginas">
+        <span class="texto-apoio">
+            Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}
+            ({{ pagina.paginator.count }} no total)
+        </span>
+        <ul>
+            <li>
+                {% if pagina.has_previous %}
+                    <a href="?{{ querystring_sem_pagina }}&pagina={{ pagina.previous_page_number }}">Anterior</a>
+                {% else %}
+                    <span aria-disabled="true">Anterior</span>
+                {% endif %}
+            </li>
+            <li>
+                {% if pagina.has_next %}
+                    <a href="?{{ querystring_sem_pagina }}&pagina={{ pagina.next_page_number }}">Próxima</a>
+                {% else %}
+                    <span aria-disabled="true">Próxima</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+{% endif %}

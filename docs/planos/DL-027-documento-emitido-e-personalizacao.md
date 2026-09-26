@@ -1,6 +1,7 @@
 # DL-027 — O documento emitido: identificação obrigatória e personalização
 
-**Estado:** **planejada.** Aberta em 2026-09-19, a pedido do Fred.
+**Estado:** fatias A, B.1, B.2 e B.3 **integradas** (PR #39 a #42); fatias C e D
+**planejadas**. Aberta em 2026-09-19, a pedido do Fred.
 Situação atual em [docs/agents/estado.md](../agents/estado.md).
 
 > **Autorização.** Fred, em 2026-09-19, depois de ler o levantamento:

@@ -1,0 +1,48 @@
+{% comment %}
+Navegação do módulo Fiscal (DL-010, fatia 1): Recepção e Documentos.
+Parcial ÚNICA incluída por toda tela HTML de `templates/fiscal/` — mesmo
+motivo de `templates/contabilidade/_navegacao_empresa.html` (comentário
+completo lá): sem uma parcial só, cada tela nova corre o risco de listar um
+subconjunto diferente de links.
+
+Reaproveita a classe `.navegacao-empresa` (static/css/base.css) pelo MESMO
+tratamento visual que a navegação da contabilidade já usa — mesma direção
+de arte, "um sistema que muda de cara a cada módulo obriga o usuário a
+reaprender a ler" (DE-053). O nome da classe é histórico (nasceu
+"contextual da empresa"); aqui a navegação é do ESCRITÓRIO (a recepção
+fiscal recebe documentos de VÁRIAS empresas do escritório ao mesmo tempo,
+não de uma só) — CSS não carrega significado, só aparência, e criar uma
+segunda classe com as mesmas regras só para o nome bater seria exatamente
+a duplicação que o AGENTS.md pede para evitar.
+
+Sem `accesskey`/`kbd.tecla`: os atalhos de teclado da contabilidade
+(`_navegacao_empresa.html`) já ocupam a maioria das letras livres, e um
+atalho "que só existe numa tela não é atalho, é decoração" (nota do
+arquiteto-senior citada em `_navegacao_empresa.html`) — decidir a letra
+certa, sem colidir com o navegador nem com a navegação principal, é
+trabalho de UX que esta etapa não tem tempo de fazer com o mesmo cuidado
+que aquele comentário documenta (cada letra ali foi checada contra
+Chrome/Edge e o Firefox pt-BR). Os links funcionam por teclado normalmente
+(Tab), só sem atalho de UMA tecla — nenhum dado fica inacessível por isso.
+
+Variável opcional no contexto: `pagina_atual` — "recepcao" ou "documentos".
+Sem ela, os dois aparecem como link.
+{% endcomment %}
+<nav class="navegacao-empresa" aria-label="Fiscal — {{ request.escritorio.nome }}">
+    <ul>
+        <li>
+            {% if pagina_atual == "recepcao" %}
+                <span class="item-atual" aria-current="page">Recepção</span>
+            {% else %}
+                <a href="{% url 'fiscal_web:recepcao' %}">Recepção</a>
+            {% endif %}
+        </li>
+        <li>
+            {% if pagina_atual == "documentos" %}
+                <span class="item-atual" aria-current="page">Documentos</span>
+            {% else %}
+                <a href="{% url 'fiscal_web:documentos_lista' %}">Documentos</a>
+            {% endif %}
+        </li>
+    </ul>
+</nav>

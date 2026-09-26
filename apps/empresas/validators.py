@@ -171,6 +171,123 @@ def validar_cnpj(valor):
 
 
 # ---------------------------------------------------------------------------
+# CPF — DL-038 (R2). PESQUISA REALIZADA em 2026-09-25 pelo `auxiliar-pesquisa`
+# antes de escrever este algoritmo: a Receita Federal publica o algoritmo do
+# DV do CNPJ alfanumérico (NT Conjunta 2025.001 — ver _PESOS acima), mas
+# **não foi localizada** nenhuma publicação oficial da RFB com o algoritmo
+# matemático do DV do CPF — a prática dela é validar por consulta
+# (webservice), não publicar a fórmula. Isto está declarado aqui como
+# LIMITE, não escondido.
+#
+# ⚠️ FONTE, portanto, NÃO OFICIAL: o algoritmo abaixo é a convenção técnica
+# de mercado, replicada de forma idêntica e sem divergência em toda fonte
+# consultada — biblioteca `validate-docbr` (`validate_docbr/CPF.py`,
+# https://github.com/alvarofpp/validate-docbr, amplamente usada em produção
+# no Brasil) e artigos técnicos independentes convergentes (Secretaria da
+# Fazenda do Paraná, https://www.fazenda.pr.gov.br/Pagina/calculo-digito-
+# verificador; macoratti.net, https://www.macoratti.net/alg_cpf.htm).
+# Cruzamento de múltiplas fontes independentes é o que sustenta usar isto
+# como regra técnica de ENTRADA (formato de dado, não norma fiscal) — mas
+# não é fundamento normativo, e não deve ser citado como tal. Se algum dia
+# for necessário fundamento oficial, a pergunta é do Fred, não presunção
+# nossa (mesma régua da DE-010).
+_PESOS_CPF_PRIMEIRO_DIGITO = [10, 9, 8, 7, 6, 5, 4, 3, 2]
+_PESOS_CPF_SEGUNDO_DIGITO = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
+
+# Máscara oficial de apresentação do CPF: "XXX.XXX.XXX-XX". Mesma política
+# de rigor da máscara do CNPJ (_REGEX_MASCARA acima): só o formato EXATO é
+# reconhecido como máscara — qualquer outra combinação de "." ou "-" é
+# caractere inválido, nunca separador a descartar de qualquer posição
+# (mesmo raciocínio do achado 6 da auditoria DL-011).
+_REGEX_MASCARA_CPF = re.compile(r"^([0-9]{3})\.([0-9]{3})\.([0-9]{3})-([0-9]{2})$")
+
+# Sem máscara: exatamente 11 dígitos. Diferente do CNPJ, o CPF não tem
+# variante alfanumérica confirmada em nenhuma fonte — só dígitos.
+_REGEX_SEM_MASCARA_CPF = re.compile(r"^[0-9]{11}$")
+
+# As 10 sequências de dígito único repetido (RC-2 do plano DL-038: "sequência
+# repetida" recusada). Motivo MATEMÁTICO, não convenção arbitrária: se os 9
+# dígitos-base são todos iguais a k, a primeira soma pondera para 54k e a
+# segunda para 65k — as duas somas produzem o MESMO dígito verificador k
+# pelo cálculo abaixo, então as dez sequências "passam" no módulo 11 por
+# coincidência estrutural do algoritmo. Toda fonte consultada (nota acima)
+# trata isso como checagem SEPARADA do cálculo do DV, nunca decorrente dele
+# — por isso a rejeição explícita aqui, no mesmo espírito do "CNPJ zerado"
+# em validar_cnpj.
+_SEQUENCIAS_REPETIDAS_CPF = frozenset(str(digito) * 11 for digito in range(10))
+
+
+def normalizar_cpf(valor):
+    """Remove a máscara oficial do CPF — texto de 11 dígitos, sem máscara.
+
+    Função única de normalização (canonização), no mesmo molde de
+    ``normalizar_cnpj``: usada por ``validar_cpf`` e por todo caminho de
+    gravação, para que o mesmo CPF com ou sem máscara nunca vire dois
+    registros diferentes.
+
+    Levanta ``ValidationError`` para tipo, caractere ou máscara inválidos —
+    sempre antes de qualquer outra checagem.
+    """
+    if not isinstance(valor, str):
+        raise ValidationError("CPF deve ser um texto.")
+
+    # Mesmo tratamento de espaço em branco na borda do normalizar_cnpj —
+    # ver o comentário lá sobre a classe Unicode que str.strip() cobre.
+    valor = valor.strip()
+
+    mascarado = _REGEX_MASCARA_CPF.fullmatch(valor)
+    if mascarado:
+        sem_mascara = "".join(mascarado.groups())
+    elif _REGEX_SEM_MASCARA_CPF.fullmatch(valor):
+        sem_mascara = valor
+    else:
+        raise ValidationError(
+            "CPF deve ter 11 dígitos numéricos, com ou sem a máscara XXX.XXX.XXX-XX."
+        )
+
+    return sem_mascara
+
+
+def _calcular_digito_verificador_cpf(digitos, pesos):
+    """Soma módulo 11 do CPF — ver a nota de fonte acima de `_PESOS_CPF_
+    PRIMEIRO_DIGITO`. `digitos` é uma sequência de caracteres numéricos;
+    diferente do CNPJ alfanumérico, aqui é sempre `int(c)` direto (CPF não
+    tem letra)."""
+    soma = sum(int(c) * peso for c, peso in zip(digitos, pesos, strict=True))
+    resto = soma % 11
+    return "0" if resto < 2 else str(11 - resto)
+
+
+def validar_cpf(valor):
+    """Valida um CPF pelos dígitos verificadores (fonte não oficial — ver o
+    comentário de `_PESOS_CPF_PRIMEIRO_DIGITO`).
+
+    Aceita o valor com ou sem máscara; levanta ValidationError para tamanho,
+    formato, sequência repetida ou dígitos verificadores inválidos. Não
+    confirma que o CPF existe de fato — isso exigiria consulta externa,
+    fora do escopo desta etapa.
+
+    Não persiste o valor normalizado: quem grava o dado é responsável por
+    canonizar com ``normalizar_cpf`` antes de salvar. Esta função só valida.
+    """
+    cpf = normalizar_cpf(valor)
+
+    if not _REGEX_SEM_MASCARA_CPF.fullmatch(cpf):
+        raise ValidationError("CPF deve ter 11 dígitos numéricos.")
+
+    if cpf in _SEQUENCIAS_REPETIDAS_CPF:
+        raise ValidationError("CPF inválido: sequência de dígito repetido não é um CPF válido.")
+
+    primeiro_digito = _calcular_digito_verificador_cpf(cpf[:9], _PESOS_CPF_PRIMEIRO_DIGITO)
+    segundo_digito = _calcular_digito_verificador_cpf(
+        cpf[:9] + primeiro_digito, _PESOS_CPF_SEGUNDO_DIGITO
+    )
+
+    if cpf[9:] != primeiro_digito + segundo_digito:
+        raise ValidationError("CPF inválido: dígitos verificadores não conferem.")
+
+
+# ---------------------------------------------------------------------------
 # Faixa de `vigencia_inicio` de regime tributário (RC-85 confirmado, HI-07
 # hipótese) — achado R6-6 da auditoria DL-017 rodada 6, BL-200.
 #

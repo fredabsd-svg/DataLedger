@@ -28,5 +28,11 @@ urlpatterns = [
     # desapareceria sem erro nenhum. Levantado pelo `especialista-frontend`
     # ao entregar a fase B.
     path("contabilidade/painel/", include("apps.contabilidade.urls_web")),
+    # Telas da recepção de documentos fiscais (DL-010, fatia 1, etapa 2).
+    # Prefixo "fiscal/" — este módulo não tem API REST nesta fatia
+    # (declarado fora do escopo no plano DL-010-F1), então não existe o
+    # mesmo risco de colisão de caminho que levou "contabilidade/painel/" a
+    # ser diferente de "contabilidade/" (ver o comentário acima).
+    path("fiscal/", include("apps.fiscal.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]

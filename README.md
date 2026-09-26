@@ -179,43 +179,52 @@ Só aparece aqui o que está em `requirements/` ou no repositório. Biblioteca q
 
 ## 🗺️ Roadmap real do repositório
 
-A lista abaixo diz **o que existe**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração. A **sequência do que vem depois**, módulo por módulo e com critérios de conclusão, está em [`docs/projeto/plano-mestre.md`](docs/projeto/plano-mestre.md).
+A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de cada etapa — em execução, auditada, reprovada, integrada — vive num lugar só, [`docs/agents/estado.md`](docs/agents/estado.md). Descrever estado aqui já divergiu duas vezes; a causa é duplicação, não distração. A **sequência do que vem depois**, módulo por módulo e com critérios de conclusão, está em [`docs/projeto/plano-mestre.md`](docs/projeto/plano-mestre.md).
 
-- [x] **DL-001** — documentação inicial e regras de contribuição
-- [x] **DL-002** — arquitetura e fundação técnica
-- [x] **DL-003** — autenticação e isolamento multiempresa
-- [x] **DL-004** — cadastro central de empresas e estabelecimentos
-- [x] **DL-005** — permissões e auditoria
-- [x] **DL-006** — contabilidade básica
-- [x] **DL-007** — correções de bloqueadores da contabilidade
-- [x] **DL-008** — política monetária e validação de escala
-- [x] **DL-009** — fundação de interface
-- [x] **DL-011** — CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229)
-- [x] **DL-012** — redesenho do README e identidade visual
-- [x] **DL-013** — logo oficial
-- [x] **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
-- [x] **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si
-- [x] **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
-- [ ] **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
-- [ ] **DL-010** — recepção de documentos fiscais: XML, ZIP e SPED, em segundo plano
-- [x] **DL-018** — primeiro acesso de uma instalação nova: autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA). PR #27 em `1b828e7`, 5/5 checks verdes
-- [x] **DL-019** — portabilidade entre ferramentas de IA: os papéis da equipe em um formato só, gerados para Claude Code e Codex CLI
-- [x] **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
-- [x] **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
-- [x] **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
-- [x] **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita (rodadas 1/3/5/7 do auditor; correções das rodadas 4 e 6 integradas via PR #27; ressalvas contábeis BL-261/262/263 ainda abertas)
-- [ ] **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
-- [ ] **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
-- [ ] **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
-- [ ] **DL-027** — o documento emitido: identificação obrigatória por **classe de documento** (conferência, demonstração, livro) e personalização do que é legítimo personalizar — logotipo do escritório ou do cliente, marca d'água, e o critério de apuração impresso no próprio papel. Plano em [docs/planos/DL-027-documento-emitido-e-personalizacao.md](docs/planos/DL-027-documento-emitido-e-personalizacao.md)
-- [ ] **DL-028** — o juiz aponta para o produto: a pergunta *"o documento que o escritório entrega ao cliente sai identificado?"* passa a ser respondida pelo **navegador**, em job de integração contínua delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata. Plano em [docs/planos/DL-028-o-juiz-aponta-para-o-produto.md](docs/planos/DL-028-o-juiz-aponta-para-o-produto.md)
-- [ ] **DL-029** — a frase executável do critério 9: o critério *"o documento sai com a identificação do escritório e sem a marca do fornecedor"* passa a ser escrito **uma vez**, como frase verificável, e o instrumento de medição passa a ser julgado por ela em vez de corrigido achado a achado. Plano em [docs/planos/DL-029-a-frase-executavel-do-criterio-9.md](docs/planos/DL-029-a-frase-executavel-do-criterio-9.md)
-- [ ] **DL-030** — a trilha de auditoria passa a cobrir o **admin**: quem alterou, quando, e **com que valor antes e depois**. Nasce de uma medição — a razão social de uma empresa era sobrescrita no lugar, e o valor anterior deixava de existir no sistema. Plano em [docs/planos/DL-030-a-trilha-cobre-o-admin.md](docs/planos/DL-030-a-trilha-cobre-o-admin.md)
-- [ ] **DL-031** — a tela do fechamento (fatia 2 da DL-016): hoje a trava de competência encerrada existe no servidor e **não há porta para acioná-la** — o contador não consegue fechar o mês pelo produto. Painel de competências, fechar com a conferência à vista **antes** do botão, reabrir com motivo registrado, e marcar como entregue com o aviso de que não tem volta. Plano em [docs/planos/DL-031-fatia-2-a-tela-do-fechamento.md](docs/planos/DL-031-fatia-2-a-tela-do-fechamento.md)
-- [x] **DL-032** — a **camada de saldos**: o elo de que Balanço, DRE, DMPL e os indicadores vão derivar. Nasce do cruzamento do catálogo de 120 relatórios, que mostrou que todo relatório contábil sai de UMA cadeia e que o produto tem os três primeiros elos e não tem o quarto. **Contrato de derivação, não tabela** — saldo gravado que diverge dos lançamentos é o defeito mais caro de um sistema contábil. Plano em [docs/planos/DL-032-a-camada-de-saldos.md](docs/planos/DL-032-a-camada-de-saldos.md)
-- [x] **DL-033** — **circulante e não circulante**: o único dado que falta para o Balanço Patrimonial existir. A norma foi levantada em fonte oficial antes do desenho (Lei 6.404/76 arts. 178-180 e NBC TG 26 (R5) itens 60-76, RC-106), e ela impôs três consequências que não se adivinham — entre elas que o ativo não circulante tem **quatro** subgrupos nomeados por lei. ⚠️ **A etapa NÃO adivinha a classificação das contas existentes**: conta existente nasce sem classificação e a camada declara quais faltam — inferir grupo pela posição na árvore foi o achado que reprovou a DL-032. Plano em [docs/planos/DL-033-circulante-e-nao-circulante.md](docs/planos/DL-033-circulante-e-nao-circulante.md)
-- [x] **DL-034** — a **tela do Balanço Patrimonial**: a primeira **demonstração contábil** que o produto emite, e por isso a primeira sujeita ao bloco de identificação prescrito pela NBC TG 26 (R5) item 51, **em cada página** (RC-95). ⚠️ **Três dos cinco itens desse bloco NÃO existiam** — entidade individual ou de grupo, moeda de apresentação e nível de arredondamento. A etapa também venceu três dívidas declaradas: autorização no servidor (que nunca teve superfície onde ser medida), leitura sob snapshot (DE-067) e recusa de emissão com declaração pendente (BL-488). Plano em [docs/planos/DL-034-a-tela-do-balanco.md](docs/planos/DL-034-a-tela-do-balanco.md)
-- [x] **DL-035** — as **guardas da demonstração**: as cinco ressalvas da reconferência da DL-034, numa etapa própria em vez de uma terceira volta (a §3.1 proíbe a terceira). ⚠️ **Nenhum item é defeito no que o produto entrega hoje** — todos são buracos na **guarda**, o que passaria numa mudança futura: o bloco normativo sai **invisível do papel** por uma declaração de cor com o job verde (BL-514), e mover 5 das 6 travas de emissão para a tupla de aviso **não reprova nada** (BL-515). Plano em [docs/planos/DL-035-as-guardas-da-demonstracao.md](docs/planos/DL-035-as-guardas-da-demonstracao.md) — integrada pelo PR #43 (`898b334`); auditoria aprovada e BL-514–519 encerradas.
+- **DL-001** — documentação inicial e regras de contribuição
+- **DL-002** — arquitetura e fundação técnica
+- **DL-003** — autenticação e isolamento multiempresa
+- **DL-004** — cadastro central de empresas e estabelecimentos
+- **DL-005** — permissões e auditoria
+- **DL-006** — contabilidade básica
+- **DL-007** — correções de bloqueadores da contabilidade
+- **DL-008** — política monetária e validação de escala
+- **DL-009** — fundação de interface
+- **DL-011** — CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229)
+- **DL-012** — redesenho do README e identidade visual
+- **DL-013** — logo oficial
+- **DL-014** — guardas de processo: regras impostas por gancho, workflow e proteção da `main`
+- **DL-015** — contabilidade utilizável: Diário, Razão e Balancete por período, conciliáveis entre si
+- **DL-017** — interface da contabilidade: plano de contas, lançamento, Diário, Razão e Balancete no navegador
+- **DL-016** — competência e fechamento de período, com reabertura autorizada e auditada
+- **DL-010** — recepção e conferência de documentos fiscais, começando pela NFS-e nacional em XML e ZIP
+- **DL-018** — primeiro acesso de uma instalação nova: autocadastro assistido do primeiro escritório + primeiro usuário vira ADMINISTRADOR + convite por e-mail para o segundo funcionário (papel ANALISTA)
+- **DL-019** — portabilidade entre ferramentas de IA: os papéis da equipe em um formato só, gerados para Claude Code e Codex CLI
+- **DL-020** — consolidação pós-auditoria: as ressalvas da rodada 6 e as quatro regras contábeis confirmadas
+- **DL-021** — robustez do gerador de papéis em ambiente Windows: gravador não usa mais a camada de texto da plataforma; rede de segurança no repositório para `core.autocrlf`
+- **DL-022** — plano mestre de evolução por módulos e reconciliação da documentação divergente
+- **DL-023** — integridade administrativa: nenhuma regra de negócio vale só na porta pela qual foi escrita
+- **DL-024** — trilha íntegra e processo: `registrar()` dentro da mesma transação que grava, `RegistroAuditoria` imutável contra `update()`/`delete()` em massa, PUT/PATCH com diff dos campos alterados, e teste do gate SQLite/PostgreSQL. Plano em [docs/planos/DL-024-trilha-integra-e-processo.md](docs/planos/DL-024-trilha-integra-e-processo.md)
+- **DL-025** — ordens diretas do responsável: uma solicitação de Fred é demanda formal e autoriza a execução do escopo pedido
+- **DL-026** — identidade visual e redesenho da interface, por gauntlet de variantes cegas com juiz mecânico
+- **DL-027** — o documento emitido: identificação obrigatória por **classe de documento** (conferência, demonstração, livro) e personalização do que é legítimo personalizar — logotipo do escritório ou do cliente, marca d'água, e o critério de apuração impresso no próprio papel. Plano em [docs/planos/DL-027-documento-emitido-e-personalizacao.md](docs/planos/DL-027-documento-emitido-e-personalizacao.md)
+- **DL-028** — o juiz aponta para o produto: a pergunta *"o documento que o escritório entrega ao cliente sai identificado?"* passa a ser respondida pelo **navegador**, em job de integração contínua delimitado por caminho, e o motor de cascata simulado é rebaixado de única garantia para primeira linha barata. Plano em [docs/planos/DL-028-o-juiz-aponta-para-o-produto.md](docs/planos/DL-028-o-juiz-aponta-para-o-produto.md)
+- **DL-029** — a frase executável do critério 9: o critério *"o documento sai com a identificação do escritório e sem a marca do fornecedor"* passa a ser escrito **uma vez**, como frase verificável, e o instrumento de medição passa a ser julgado por ela em vez de corrigido achado a achado. Plano em [docs/planos/DL-029-a-frase-executavel-do-criterio-9.md](docs/planos/DL-029-a-frase-executavel-do-criterio-9.md)
+- **DL-030** — a trilha de auditoria passa a cobrir o **admin**: quem alterou, quando, e **com que valor antes e depois**. Nasce de uma medição — a razão social de uma empresa era sobrescrita no lugar, e o valor anterior deixava de existir no sistema. Plano em [docs/planos/DL-030-a-trilha-cobre-o-admin.md](docs/planos/DL-030-a-trilha-cobre-o-admin.md)
+- **DL-031** — a tela do fechamento (fatia 2 da DL-016): painel de competências para fechar, reabrir e marcar como entregue pelo navegador, com a trava contábil no servidor
+- **DL-032** — a **camada de saldos**: o elo de que Balanço, DRE, DMPL e os indicadores vão derivar. Nasce do cruzamento do catálogo de 120 relatórios, que mostrou que todo relatório contábil sai de UMA cadeia e que o produto tem os três primeiros elos e não tem o quarto. **Contrato de derivação, não tabela** — saldo gravado que diverge dos lançamentos é o defeito mais caro de um sistema contábil. Plano em [docs/planos/DL-032-a-camada-de-saldos.md](docs/planos/DL-032-a-camada-de-saldos.md)
+- **DL-033** — **circulante e não circulante**: o único dado que falta para o Balanço Patrimonial existir. A norma foi levantada em fonte oficial antes do desenho (Lei 6.404/76 arts. 178-180 e NBC TG 26 (R5) itens 60-76, RC-106), e ela impôs três consequências que não se adivinham — entre elas que o ativo não circulante tem **quatro** subgrupos nomeados por lei. ⚠️ **A etapa NÃO adivinha a classificação das contas existentes**: conta existente nasce sem classificação e a camada declara quais faltam — inferir grupo pela posição na árvore foi o achado que reprovou a DL-032. Plano em [docs/planos/DL-033-circulante-e-nao-circulante.md](docs/planos/DL-033-circulante-e-nao-circulante.md)
+- **DL-034** — a **tela do Balanço Patrimonial**: a primeira **demonstração contábil** que o produto emite, e por isso a primeira sujeita ao bloco de identificação prescrito pela NBC TG 26 (R5) item 51, **em cada página** (RC-95). ⚠️ **Três dos cinco itens desse bloco NÃO existiam** — entidade individual ou de grupo, moeda de apresentação e nível de arredondamento. A etapa também venceu três dívidas declaradas: autorização no servidor (que nunca teve superfície onde ser medida), leitura sob snapshot (DE-067) e recusa de emissão com declaração pendente (BL-488). Plano em [docs/planos/DL-034-a-tela-do-balanco.md](docs/planos/DL-034-a-tela-do-balanco.md)
+- **DL-035** — as **guardas da demonstração**: as cinco ressalvas da reconferência da DL-034, numa etapa própria em vez de uma terceira volta (a §3.1 proíbe a terceira). ⚠️ **Nenhum item é defeito no que o produto entrega hoje** — todos são buracos na **guarda**, o que passaria numa mudança futura: o bloco normativo sai **invisível do papel** por uma declaração de cor com o job verde (BL-514), e mover 5 das 6 travas de emissão para a tupla de aviso **não reprova nada** (BL-515). Plano em [docs/planos/DL-035-as-guardas-da-demonstracao.md](docs/planos/DL-035-as-guardas-da-demonstracao.md) — integrada pelo PR #43 (`898b334`); auditoria aprovada e BL-514–519 encerradas.
+- **DL-036** — página inicial pública e cadastro de um novo escritório pelo próprio produto, sem terminal nem admin
+- **DL-037** — redesenho visual da entrada pública: hierarquia de leitura e caminho explícito para o novo escritório
+- **DL-038** — cliente pessoa física no cadastro de empresas: inscrição por CPF e modo de escrituração (contabilidade ou livro-caixa)
+- **DL-039** — ressalvas da recepção de NFS-e e do cliente pessoa física: erro de sistema nunca aparece como nota recusada, isolamento com um caminho só
+- **DL-040** — navegação e arquitetura de informação: mapa de telas, menu principal por módulo, trilha de navegação e padrão de página
+- **DL-041** — CNPJ e CPF únicos por escritório: nenhum escritório descobre, pelo cadastro, a carteira de outro
+
+Ainda não existem:
+
 - [ ] **Fiscal completo** — escrituração, apuração, obrigações e integração contábil
 - [ ] **Folha de Pagamento**
 - [ ] **Honorários**

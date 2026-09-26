@@ -3777,3 +3777,125 @@ verificações executadas. E, quando houver código **herdado** de outra frente,
 tarefa do auditor diz com todas as letras: **verifique o herdado como se ninguém
 o tivesse medido.** Foi o que fiz nesta rodada, e é o que deu base ao V11 do
 relatório.
+
+## DE-074 — Recepção de NFS-e: XML guardado inteiro, deduplicação por escritório e situação derivada
+
+**Data:** 2026-09-25
+
+**Decisão:** a fatia 1 da DL-010 ([plano](../planos/DL-010-F1-recepcao-nfse.md))
+cria o app `apps/fiscal` com cinco escolhas:
+
+1. **O XML original é guardado byte a byte**, com SHA-256, no PostgreSQL.
+2. **Leitura por `defusedxml`**, com DTD proibido — dependência nova.
+3. **Deduplicação por `(escritório, identificador)`**; a mesma nota vista por
+   duas empresas do escritório é um documento com dois vínculos.
+4. **Situação derivada dos eventos**, nunca gravada no documento.
+5. **Processamento síncrono**, com limites (HI-22) e um `savepoint` por arquivo.
+
+**Motivo.** (1) O bloco IBS/CBS já chega em 12% das notas (RC-76) e ainda não
+tem regra confirmada (PE-39): guardar o original inteiro permite interpretá-lo
+depois sem pedir o arquivo de novo ao cliente. (2) Arquivo de terceiro é a
+superfície de ataque mais comum de um importador; proibir DTD elimina entidade
+externa e expansão exponencial de uma vez. (3) RC-69 mediu a mesma nota em
+pastas de dois clientes; como documento, ela é uma só, e a unicidade por
+escritório impede que um escritório descubra o que outro recebeu. (4) RC-70
+mediu que o evento chega sem a nota no caso normal; situação gravada exigiria
+atualizar a nota quando o evento chega antes, e a ordem de chegada viraria
+defeito. (5) Não existe fila de tarefas no projeto, e o acervo inteiro do
+escritório (5.850 arquivos) cabe num envio.
+
+**Alternativas descartadas:**
+
+- *Guardar só os campos extraídos* — perde o que ainda não se sabe interpretar.
+- *Armazenamento de arquivos externo* — mais uma peça de infraestrutura, backup
+  e isolamento, sem volume que a justifique hoje.
+- *Unicidade global do identificador* — revelaria a um escritório que outro já
+  recebeu a nota (mesmo defeito do BL-48 com o CNPJ).
+- *Fila em segundo plano já na fatia 1* — infraestrutura nova antes de medir
+  necessidade; fica como próximo passo se o limite não bastar.
+
+**Reversão:** as cinco escolhas são locais ao `apps/fiscal`. Mover o XML para
+armazenamento externo depois é uma migração de dados sem mudança de contrato.
+
+## DE-075 — Cliente pessoa física no mesmo cadastro de empresas
+
+**Data:** 2026-09-25
+
+**Decisão:** do Fred, opção A da PE-67 (RC-114). `Empresa` ganha **tipo de
+inscrição** (CNPJ ou CPF) e **modo de escrituração** (contabilidade ou
+livro-caixa). A recusa da contabilidade a empresa em livro-caixa fica em **um
+ponto só**. Plano: [DL-038](../planos/DL-038-cliente-pessoa-fisica.md).
+
+**Motivo.** O manual do sistema de referência mostra pessoa física e jurídica na
+mesma entidade cadastral e o livro-caixa como modo de escrituração por empresa —
+rotina, não norma. Um cadastro só mantém um único seletor de cliente, um único
+isolamento e um único ponto de identificação para a recepção fiscal. O modo de
+escrituração é o primeiro parâmetro por empresa que o BL-474 pedia.
+
+**Alternativa descartada:** cadastro separado de pessoa física (opção B) —
+duplicaria isolamento, permissões e telas, e prenderia o livro-caixa a um
+cadastro à parte. Era a minha recomendação antes de ler o manual; o manual a
+corrigiu.
+
+**Reversão:** migração aditiva; com empresa CPF já cadastrada, a correção é
+progressiva, nunca apagar.
+
+## DE-076 — Correções da rodada 1 da DL-010 F1: um envio por vez por escritório, e envio menor
+
+**Data:** 2026-09-25
+
+**Contexto:** a [auditoria rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md)
+mediu que dois envios simultâneos do mesmo escritório terminam em espera de
+bloqueio ou impasse (*deadlock*) com erro 500 (A3), e que 5.850 arquivos levam
+37 s e 10.000 levam 61 s, acima dos 30 s do servidor de aplicação (A4).
+
+**Decisão:**
+
+1. **Um envio por vez por escritório.** O envio adquire, sem esperar, um
+   bloqueio consultivo do PostgreSQL pelo escritório
+   (`pg_try_advisory_xact_lock`). Se outro envio do mesmo escritório está em
+   andamento, o novo é recusado inteiro, sem gravar nada, com a mensagem
+   "já há um envio em processamento neste escritório; aguarde terminar e envie
+   de novo". Qualquer `OperationalError` de bloqueio ou impasse que ainda
+   ocorra vira mensagem legível, nunca 500.
+2. **Limite de 2.000 arquivos por envio** (HI-22 revista), com a consulta por
+   arquivo otimizada e a vazão **medida e registrada**. Se 2.000 não couber com
+   folga (metade do tempo-limite), o limite desce ao que couber. O acervo de
+   5.850 arquivos entra em três envios.
+3. **Nota de homologação é recusada** (`tpAmb` = 2): não tem valor fiscal.
+   Evento incoerente (`Id` que não confere com a chave ou com o código, ou mais
+   de um código) é recusado com motivo.
+
+**Motivo.** A unicidade dos documentos é por escritório (DE-074), então só
+envios do **mesmo** escritório disputam o mesmo índice: serializá-los elimina
+espera e impasse na origem, sem mudar a atomicidade do envio. Tentar sem esperar
+evita segurar uma requisição até o tempo-limite. O limite menor é reversível e
+mantém a promessa verificável hoje; o processamento em segundo plano continua
+sendo o passo seguinte se o escritório precisar de envios maiores.
+
+**Alternativas descartadas:** `ON CONFLICT DO NOTHING` (ainda espera pela
+transação alheia no mesmo índice); gravação por arquivo fora da transação do
+envio (perde a atomicidade do relatório e da trilha); aumentar o tempo-limite do
+servidor (mascara, e proxies à frente têm os seus).
+
+## DE-077 — Unicidade de CNPJ e CPF por escritório
+
+**Data:** 2026-09-26
+
+**Decisão:** do Fred, na PE-68 (RC-115). A unicidade de inscrição passa a ser
+**por escritório** para empresa (CNPJ e CPF) e estabelecimento. Plano:
+[DL-041](../planos/DL-041-unicidade-por-escritorio.md).
+
+**Motivo.** A unicidade global fazia o cadastro responder "já existe" para uma
+inscrição de cliente de outro escritório — o que revela a um escritório a
+carteira de um concorrente, e, desde a DL-038, dado pessoal (CPF). A auditoria
+mediu o vazamento (B6 da [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md)).
+Decidido antes de haver dado real, quando a migração é barata.
+
+**Consequência aceita:** a mesma empresa pode estar cadastrada em dois
+escritórios — o caso normal de cliente que troca de contador. Nada é
+compartilhado entre os dois cadastros. A recepção fiscal já identifica a empresa
+só dentro do escritório (DE-074), e continua correta.
+
+**Alternativa descartada:** manter a unicidade global e trocar a mensagem por uma
+genérica — a recusa continuaria revelando a existência, só que sem texto.

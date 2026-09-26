@@ -135,6 +135,43 @@
                                     Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
                                 </a>
                             </li>
+                            {% comment %}
+                            DL-010 (fatia 1): ponto de entrada do módulo
+                            Fiscal na navegação principal — mesmo padrão de
+                            "Painel"/"Empresas" acima, sem `accesskey`
+                            próprio de propósito: as letras seguras já estão
+                            ocupadas por esta navegação e pela navegação da
+                            contabilidade (`_navegacao_empresa.html`), e
+                            escolher mais uma letra sem colidir com o
+                            navegador exigiria o mesmo levantamento
+                            cuidadoso que o comentário daquela parcial
+                            documenta — fora do escopo desta etapa. O link
+                            continua acessível por Tab normalmente.
+
+                            `{% url ... as url_fiscal %}` (em vez de
+                            interpolar direto): esta MOLDURA é incluída por
+                            TODA tela autenticada do produto, inclusive as
+                            que rodam sob um urlconf de teste ESPELHO
+                            (`apps.contabilidade.tests.test_dl017_telas` e
+                            outros quatro arquivos, cada um com o próprio
+                            `urlpatterns` local, via `@pytest.mark.urls`) —
+                            nenhum deles inclui `apps.fiscal.urls_web`, por
+                            não ser o objeto daqueles testes. Com `{% url %}`
+                            direto, `NoReverseMatch` quebraria TODA
+                            renderização de página nesses espelhos; com
+                            `as url_fiscal`, a tag não levanta exceção
+                            quando a rota não resolve — a variável
+                            simplesmente não é definida, e o `{% if %}`
+                            abaixo omite o link. Nada específico do Fiscal
+                            muda para quem não tem a rota; o link só aparece
+                            onde ela existe de fato.
+                            {% endcomment %}
+                            {% url 'fiscal_web:recepcao' as url_fiscal %}
+                            {% if url_fiscal %}
+                                <li>
+                                    <a href="{{ url_fiscal }}">Fiscal</a>
+                                </li>
+                            {% endif %}
                         </ul>
                     </nav>
                 {% endif %}

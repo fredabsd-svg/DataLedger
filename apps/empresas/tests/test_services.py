@@ -72,7 +72,11 @@ def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_outra_unique_constraint(e
         )
 
     assert "uma_matriz_por_empresa" in str(excinfo.value)
-    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+    # DL-038: mensagem_se_cnpj_duplicado passou a devolver a tupla
+    # (campo, mensagem) — (None, None) para IntegrityError que não é
+    # nenhuma das constraints de unicidade mapeadas (mesmo contrato de
+    # antes, só que agora com CPF também no mapa).
+    assert mensagem_se_cnpj_duplicado(excinfo.value) == (None, None)
 
 
 def test_mensagem_se_cnpj_duplicado_ignora_violacao_da_check_constraint_canonica(empresa):
@@ -90,7 +94,11 @@ def test_mensagem_se_cnpj_duplicado_ignora_violacao_da_check_constraint_canonica
         )
 
     assert "empresa_cnpj_canonico" in str(excinfo.value)
-    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+    # DL-038: mensagem_se_cnpj_duplicado passou a devolver a tupla
+    # (campo, mensagem) — (None, None) para IntegrityError que não é
+    # nenhuma das constraints de unicidade mapeadas (mesmo contrato de
+    # antes, só que agora com CPF também no mapa).
+    assert mensagem_se_cnpj_duplicado(excinfo.value) == (None, None)
 
 
 def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_chave_estrangeira():
@@ -109,7 +117,11 @@ def test_mensagem_se_cnpj_duplicado_ignora_violacao_de_chave_estrangeira():
         # tarde demais para o pytest.raises acima capturar).
         connection.check_constraints()
 
-    assert mensagem_se_cnpj_duplicado(excinfo.value) is None
+    # DL-038: mensagem_se_cnpj_duplicado passou a devolver a tupla
+    # (campo, mensagem) — (None, None) para IntegrityError que não é
+    # nenhuma das constraints de unicidade mapeadas (mesmo contrato de
+    # antes, só que agora com CPF também no mapa).
+    assert mensagem_se_cnpj_duplicado(excinfo.value) == (None, None)
 
 
 # --- B2 (auditoria da etapa DL-011, rodada 4): os três testes acima prendem

@@ -8,3 +8,7 @@ psycopg[binary]==3.3.5
 django-environ==0.14.0
 gunicorn==26.2.0
 whitenoise==6.12.0
+# DL-010 F1 (DE-074 item 2): única dependência nova da etapa. Leitura de XML
+# de terceiro (NFS-e) com DTD proibido — proteção contra entidade externa e
+# expansão exponencial, o ataque clássico a um importador de XML.
+defusedxml==0.7.1

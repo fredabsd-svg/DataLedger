@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block titulo %}Documentos fiscais{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
+    <h1>Documentos fiscais</h1>
+
+    {% comment %}
+    Arquétipo A (tabela de consulta, direção de arte §2.A): filtro não come
+    a tela — um formulário compacto, uma linha, antes da tabela. `action`
+    explícito e sem querystring (mesmo cuidado de
+    `apps/contabilidade/views_web.py::_mensagem_de_tela_para_dado_nao_
+    contratado`, sobre `<form>` sem `action` herdar a querystring da
+    própria URL) — aqui não há contrato de corpo (é GET), mas o cuidado com
+    `action` evita acumular parâmetro velho de uma consulta anterior.
+    {% endcomment %}
+    <form method="get" action="{% url 'fiscal_web:documentos_lista' %}" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_empresa">Empresa</label>
+            <select id="id_empresa" name="empresa">
+                <option value="">Todas</option>
+                {% for empresa in empresas_do_escritorio %}
+                    <option value="{{ empresa.id }}"{% if empresa_filtro_bruto == empresa.id|stringformat:"s" %} selected{% endif %}>
+                        {{ empresa.razao_social }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_ano">Ano da competência</label>
+            <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric"
+                   maxlength="4" aria-describedby="id_competencia_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_mes">Mês da competência</label>
+            <input type="text" id="id_mes" name="mes" value="{{ mes_filtro }}" inputmode="numeric"
+                   maxlength="2" aria-describedby="id_competencia_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_situacao">Situação</label>
+            <select id="id_situacao" name="situacao">
+                <option value=""{% if not situacao_filtro %} selected{% endif %}>Todas</option>
+                <option value="valida"{% if situacao_filtro == "valida" %} selected{% endif %}>Válida</option>
+                <option value="cancelada"{% if situacao_filtro == "cancelada" %} selected{% endif %}>Cancelada</option>
+            </select>
+        </div>
+        <button type="submit">Consultar</button>
+        <p class="texto-apoio" id="id_competencia_ajuda">
+            Informe ano (AAAA) e mês (1 a 12) juntos, ou deixe os dois em branco para não filtrar por competência.
+        </p>
+    </form>
+
+    {% if pagina.object_list %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Documentos fiscais recebidos por este escritório</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Número</th>
+                    <th scope="col">Emissão</th>
+                    <th scope="col">Competência</th>
+                    <th scope="col">Prestador</th>
+                    <th scope="col">Tomador</th>
+                    <th scope="col">Valor do serviço</th>
+                    <th scope="col">Situação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'fiscal_web:documento_detalhe' linha.documento.id %}">
+                                {{ linha.documento.numero|default:"—" }}
+                            </a>
+                        </td>
+                        <td>{{ linha.documento.dh_emissao|date:"d/m/Y H:i" }}</td>
+                        <td>{{ linha.documento.d_competencia|date:"m/Y" }}</td>
+                        <td class="valor-quebravel">{{ linha.documento.prestador_nome|default:"—" }}</td>
+                        <td class="valor-quebravel">
+                            {{ linha.documento.tomador_nome|default:"(sem tomador no documento)" }}
+                        </td>
+                        <td class="valor-monetario">{{ linha.v_serv_ptbr }}</td>
+                        <td>
+                            {% comment %}
+                            Cancelada nunca pode parecer válida (critério de
+                            tela do plano DL-010-F1): texto sempre presente
+                            ("Cancelada"/"Válida"), a classe só reforça com
+                            peso/cor — nunca o único canal (direção de arte
+                            §4.3).
+                            {% endcomment %}
+                            {% if linha.situacao == "cancelada" %}
+                                <span class="situacao-documento situacao-documento--cancelada">Cancelada</span>
+                            {% else %}
+                                <span class="situacao-documento situacao-documento--valida">Válida</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "fiscal/_paginacao.html" %}
+    {% elif algum_filtro_ativo %}
+        <p>Nenhum documento encontrado com estes filtros.</p>
+    {% else %}
+        <p>Nenhum documento fiscal recebido ainda neste escritório. Use a <a href="{% url 'fiscal_web:recepcao' %}">Recepção</a> para enviar o primeiro.</p>
+    {% endif %}
+{% endblock %}
