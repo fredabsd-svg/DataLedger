@@ -3800,20 +3800,24 @@ def competencia_entregar(request, empresa_id):
 #
 # Permissão (decisão do especialista-frontend, por analogia com o
 # fechamento — RC-102 aplicada pelo PRÓPRIO serviço, ver o docstring de
-# `registrar_parametro_contabil`): LER a lista de vigências e a prévia do
-# zeramento exige só `papel_pode_ler_contabilidade` (`_pode_ler`) — o
-# mesmo papel que já lê Balancete/Razão/Diário desta empresa; REGISTRAR
-# vigência, ENCERRAR vigência e EXECUTAR o zeramento exigem
-# `PodeFecharCompetencia` (`_pode_fechar_competencia`, ADMINISTRADOR/
-# GESTOR) — a MESMA classe que a API já usa nas três portas
-# correspondentes (`ParametrosContabeisListCreateView`,
-# `EncerrarVigenciaParametroContabilView`, `ZerarResultadoView`, em
-# views.py). Um papel que só lê (ex. ANALISTA) consulta a tela inteira
-# normalmente — sem o formulário de nova vigência, sem o botão "Encerrar
-# vigência" e sem o botão de confirmação do zeramento, com uma explicação
-# no lugar deles (nunca sumindo em silêncio, mesmo critério 1 do
-# fechamento) — e o SERVIDOR recusa de qualquer forma se a requisição for
-# forçada (testado em test_dl043_fatia3_telas.py).
+# `registrar_parametro_contabil`): LER a LISTA de vigências exige só
+# `papel_pode_ler_contabilidade` (`_pode_ler`) — o mesmo papel que já lê
+# Balancete/Razão/Diário desta empresa, e renderiza a página normalmente
+# (200), só sem o formulário de vigência nova e sem o botão "Encerrar
+# vigência" para quem não pode geri-la. A PRÉVIA do zeramento (GET),
+# REGISTRAR vigência, ENCERRAR vigência e EXECUTAR o zeramento (POST)
+# exigem `PodeFecharCompetencia` (`_pode_fechar_competencia`,
+# ADMINISTRADOR/GESTOR) — a MESMA classe que a API já usa nas quatro
+# portas correspondentes (`ParametrosContabeisListCreateView`,
+# `EncerrarVigenciaParametroContabilView`, `ZerarResultadoView` no GET e
+# no POST, em views.py). ⚠️ A prévia NÃO é uma leitura franqueada a quem
+# só lê, mesmo sendo um GET: corrigido pela reconferência da DL-043
+# (achado R6) — a versão anterior deste comentário dizia que a prévia
+# exigia só `_pode_ler`, mas o comportamento medido sempre foi
+# `_pode_fechar_competencia` (o mesmo papel que grava). Um papel que só
+# lê (ex. ANALISTA) recebe 403, com `erros/sem_permissao.html`
+# explicando o motivo (nunca sumindo em silêncio, mesmo critério 1 do
+# fechamento, e nunca um 403 cru) — testado em test_dl043_fatia3_telas.py.
 # ---------------------------------------------------------------------------
 
 

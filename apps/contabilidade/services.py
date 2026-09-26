@@ -378,6 +378,31 @@ def _e_estouro_de_lock_timeout(excecao_de_banco):
     return getattr(causa, "sqlstate", None) == "55P03"
 
 
+def _e_deadlock(excecao_de_banco):
+    """`True` quando `excecao_de_banco` foi causada por um DEADLOCK real
+    entre transações (SQLSTATE `40P01`, classe 40 "rollback de transação",
+    código `deadlock_detected`) — defesa em profundidade acrescentada pela
+    reconferência da DL-043 (achado R1, DE-078 adendo item 1).
+
+    ⚠️ **Por que isto existe além do `no_key=True` da trava de empresa:**
+    a causa RAIZ do deadlock que a reconferência mediu (16 de 30 rodadas
+    com HTTP 500) era a trava de empresa usando `FOR UPDATE`, que conflita
+    com o `FOR KEY SHARE` que toda FK `DEFERRABLE` verifica no COMMIT —
+    `_travar_empresa_para_operacao_de_zeramento` corrige isso trocando para
+    `FOR NO KEY UPDATE` (`select_for_update(no_key=True)`), que não
+    conflita com `FOR KEY SHARE`. Isto FECHA o deadlock medido. Esta função
+    é a camada de trás: se qualquer outra combinação de locks (presente ou
+    futura) ainda produzir um deadlock real, o PostgreSQL escolhe uma das
+    duas transações como VÍTIMA e devolve `40P01` para ela — sem esta
+    tradução, essa vítima veria um `OperationalError` cru propagar como
+    500, exatamente o dano que a DE-078 (item 5, "nenhum erro previsível
+    vira 500") pede para nunca acontecer. Mesmo padrão de comparação por
+    SQLSTATE (nunca por texto) de `_e_estouro_de_lock_timeout`, acima.
+    """
+    causa = excecao_de_banco.__cause__
+    return getattr(causa, "sqlstate", None) == "40P01"
+
+
 def _travar_competencia_em_modo_compartilhado(competencia, *, ano, mes, empresa):
     """Bloqueia a linha de `competencia` com `SELECT ... FOR SHARE` e devolve
     `(estado, entregue_em)` LIDOS NESTA MESMA CONSULTA — nunca os atributos
@@ -501,8 +526,10 @@ def _travar_competencia_em_modo_compartilhado(competencia, *, ano, mes, empresa)
         # de `CompetenciaEncerrada`: a mesma tradução HTTP (409) já existe
         # na view, sem editar `views.py`. Qualquer OUTRO `OperationalError`
         # (conexão caída, servidor fora do ar) propaga sem conversão — não
-        # é um caso de negócio, é uma falha de infraestrutura.
-        if not _e_estouro_de_lock_timeout(exc):
+        # é um caso de negócio, é uma falha de infraestrutura. R1/DE-078
+        # adendo: um deadlock real (`_e_deadlock`, SQLSTATE 40P01) recebe a
+        # MESMA tradução — defesa em profundidade, ver o docstring dela.
+        if not (_e_estouro_de_lock_timeout(exc) or _e_deadlock(exc)):
             raise
         # BL-470: a mensagem usa SÓ `ano`/`mes`/`empresa` — os parâmetros já
         # em memória, recebidos pelo chamador — e NUNCA `competencia.mes`/
@@ -537,7 +564,9 @@ def _travar_competencia_para_transicao(competencia, *, ano, mes, empresa):
     try:
         return Competencia.objects.select_for_update().get(pk=competencia.pk)
     except OperationalError as exc:
-        if not _e_estouro_de_lock_timeout(exc):
+        # R1/DE-078 adendo: deadlock (`_e_deadlock`) recebe a mesma tradução
+        # que o estouro de `lock_timeout` — defesa em profundidade.
+        if not (_e_estouro_de_lock_timeout(exc) or _e_deadlock(exc)):
             raise
         raise CompetenciaTravadaPorOutraOperacao(
             f"A competência {mes:02d}/{ano} de {empresa} está sendo alterada "
@@ -687,10 +716,30 @@ def criar_lancamento(
     # de cliente para contornar a recusa chamando `criar_lancamento` com
     # ele — a defesa continua sendo "todo caminho de CLIENTE passa pela
     # recusa", não "toda chamada a esta função".
+    #
+    # `.lower()` ANTES do `.startswith()` (achado R4 da reconferência, BAIXA):
+    # a versão anterior comparava com `.startswith()` puro, sensível a
+    # maiúsculas/minúsculas (`str.startswith` do Python, sempre — nunca
+    # depende do backend). Em PostgreSQL isso já bastava porque as DUAS
+    # buscas que localizam zeramento gravado (`_recusar_zeramento_fora_
+    # de_ordem`, `registrar_parametro_contabil`) usam `chave_idempotencia__
+    # startswith`, que o Postgres resolve com `LIKE` sensível a caixa — a
+    # MESMA sensibilidade da recusa aqui, então uma chave `ZERAMENTO:…`
+    # gravada (se a recusa não existisse) nunca seria "vista" como
+    # zeramento por aquelas buscas de qualquer forma. Mas em SQLite (usado
+    # em desenvolvimento e nas verificações de migração, nunca em
+    # produção — DE-014/BL-50) o `LIKE` padrão é insensível a caixa: a
+    # reconferência mediu que uma chave `ZERAMENTO:<id>:2026-09:etapa2:0`
+    # passava por esta recusa (sensível) e DEPOIS era encontrada pelas
+    # buscas (insensíveis), fazendo o zeramento forjado bloquear março
+    # como "fora de ordem" e recusar uma vigência nova — o mesmo ataque do
+    # B4 reaberto pela divergência de sensibilidade entre a escrita e a
+    # leitura. Normalizar os DOIS lados para minúsculas fecha a divergência
+    # sem depender do backend.
     if (
         chave_idempotencia
         and not permitir_prefixo_reservado
-        and chave_idempotencia.startswith(f"{_PREFIXO_CHAVE_ZERAMENTO}:")
+        and chave_idempotencia.lower().startswith(f"{_PREFIXO_CHAVE_ZERAMENTO}:")
     ):
         raise LancamentoInvalido(
             f"A chave de idempotência não pode começar com '{_PREFIXO_CHAVE_ZERAMENTO}:' "
@@ -1491,7 +1540,7 @@ def _proximo_complemento(*, empresa, ano, mes, etapa):
 
 
 def _travar_empresa_para_operacao_de_zeramento(empresa):
-    """`SELECT ... FOR UPDATE` na linha de `Empresa` — DE-078 item 3
+    """`SELECT ... FOR NO KEY UPDATE` na linha de `Empresa` — DE-078 item 3
     (B2(b), BLOQUEADOR, e B10): serializa TODAS as operações de zeramento,
     registro e encerramento de vigência de parâmetro contábil da MESMA
     empresa, mesmo entre PERÍODOS diferentes.
@@ -1515,14 +1564,37 @@ def _travar_empresa_para_operacao_de_zeramento(empresa):
     correr risco de dependência circular de lock entre chamadas
     concorrentes.
 
+    ⚠️ **`no_key=True` (achado R1 da reconferência, DE-078 adendo item 1):
+    corrige uma REGRESSÃO desta mesma correção.** A primeira versão desta
+    função usava `select_for_update()` puro, que emite `FOR UPDATE` — e
+    `FOR UPDATE` CONFLITA com o `FOR KEY SHARE` que toda FK `DEFERRABLE
+    INITIALLY DEFERRED` do Django verifica no COMMIT (inclusive a FK
+    `empresa` de `Competencia`, `Conta`, etc.). A reconferência mediu
+    **16 de 30 rodadas HTTP concorrentes** (`POST /lancamentos/` de um mês
+    × `POST` do zeramento do MESMO mês) terminando em `OperationalError:
+    deadlock detected` — um analista lançando no mês em que o gestor zera
+    virava 500, sem nenhum dano contábil (o `ROLLBACK` do deadlock desfaz
+    tudo), mas exatamente o 500 imprevisível que a DE-078 (item 5) pede
+    para nunca acontecer. `FOR NO KEY UPDATE` continua bloqueando outro
+    `FOR UPDATE`/`FOR NO KEY UPDATE` da MESMA linha — o que basta para
+    serializar zeramento, registro e encerramento de vigência entre si,
+    que é a única garantia que esta trava precisa dar — mas NÃO conflita
+    com `FOR KEY SHARE`, porque não impede a criação de linhas que só
+    REFERENCIAM esta (a FK não muda o valor da chave que ela referencia).
+    Medido em cópia descartável pela reconferência: 0 de 30 rodadas com
+    500 depois da troca.
+
     Mesma tradução de `lock_timeout` (BL-463) que `_travar_competencia_
     para_transicao` já usa, para `EmpresaTravadaPorOutraOperacao` (409) em
-    vez de um `OperationalError` cru.
+    vez de um `OperationalError` cru — e, defesa em profundidade (R1),
+    também de um DEADLOCK real (`_e_deadlock`, SQLSTATE 40P01): mesmo com
+    `no_key=True` fechando o deadlock medido, qualquer outra combinação de
+    locks que ainda produza um deadlock deve terminar em 409, nunca em 500.
     """
     try:
-        return Empresa.objects.select_for_update().get(pk=empresa.pk)
+        return Empresa.objects.select_for_update(no_key=True).get(pk=empresa.pk)
     except OperationalError as exc:
-        if not _e_estouro_de_lock_timeout(exc):
+        if not (_e_estouro_de_lock_timeout(exc) or _e_deadlock(exc)):
             raise
         raise EmpresaTravadaPorOutraOperacao(
             f"A empresa {empresa} está com outra operação de parâmetro contábil ou "
@@ -1552,35 +1624,54 @@ def _recusar_zeramento_fora_de_ordem(*, empresa, data_final):
     completamente ANULADO no saldo — o estorno é a partida invertida
     exata (`estornar_lancamento`). Continuar contando essa chave para
     decidir "existe zeramento posterior" bloquearia PARA SEMPRE o
-    caminho de correção que o próprio plano recomenda (estornar o
-    zeramento fora de ordem e refazer na ordem certa, RC-101/RC-103):
-    o gestor zera abril antes de março por engano, estorna os
-    lançamentos de abril, e março continuaria recusado mesmo depois do
-    estorno, porque a chave de abril nunca desaparece do banco (o
-    estorno é um lançamento NOVO, nunca uma edição). `.filter(
-    estornos__isnull=True)` exclui exatamente essas chaves já
-    neutralizadas — se QUALQUER lançamento do período posterior ainda
-    não foi estornado (por exemplo, uma etapa 1 dividida em várias
-    partes onde só algumas foram estornadas), a recusa continua valendo
-    para as partes que restam, porque cada `LancamentoContabil` tem seu
-    próprio estorno (ou a ausência dele).
+    caminho de correção pelo estorno. `.filter(estornos__isnull=True)`
+    exclui exatamente essas chaves já neutralizadas — se QUALQUER
+    lançamento do período posterior ainda não foi estornado (por
+    exemplo, uma etapa 1 dividida em várias partes onde só algumas foram
+    estornadas), a recusa continua valendo para as partes que restam,
+    porque cada `LancamentoContabil` tem seu próprio estorno (ou a
+    ausência dele).
+
+    ⚠️ **Mensagem sem instrução de data de estorno (achado R2 da
+    reconferência, DE-078 adendo item 2):** a versão anterior desta
+    mensagem orientava "estorne o(s) zeramento(s) posteriores, datando o
+    estorno até o último dia do período estornado" — mas NENHUMA porta do
+    produto aceita informar a data do estorno (`EstornarLancamentoView`
+    recusa o campo `data` no corpo; a tela não chama `estornar_lancamento`
+    de forma alguma), e a reconferência mediu que seguir o único caminho
+    real (estornar pela porta comum, que sempre data "hoje") INFLA Lucros
+    e Prejuízos e distorce o resultado dos períodos envolvidos (R2,
+    PE-69). A ORDEM agora é garantida na ENTRADA por
+    `_recusar_se_periodo_anterior_tem_saldo` (abaixo) — o zeramento fora
+    de ordem que gerava a maioria dos casos deste achado deixa de
+    acontecer pela porta do produto. Esta função ainda cobre o caso
+    residual (complemento de um período depois que um POSTERIOR já foi
+    zerado): a mensagem agora só explica que um lançamento novo aqui é
+    absorvido pelo COMPLEMENTO do último período já zerado, quando esse
+    período for zerado de novo — nunca promete um estorno datado no
+    passado.
     """
-    ja_zerado_depois = LancamentoContabil.objects.filter(
-        empresa=empresa,
-        chave_idempotencia__startswith=_prefixo_chave_zeramento_da_empresa(empresa.pk),
-        data__gt=data_final,
-        estornos__isnull=True,
-    ).exists()
-    if ja_zerado_depois:
+    ultima_data_zerada = (
+        LancamentoContabil.objects.filter(
+            empresa=empresa,
+            chave_idempotencia__startswith=_prefixo_chave_zeramento_da_empresa(empresa.pk),
+            data__gt=data_final,
+            estornos__isnull=True,
+        )
+        .order_by("-data")
+        .values_list("data", flat=True)
+        .first()
+    )
+    if ultima_data_zerada is not None:
         data_str = data_final.strftime("%d/%m/%Y")
+        ultimo_periodo_str = ultima_data_zerada.strftime("%m/%Y")
         raise ZeramentoForaDeOrdem(
-            f"Já existe zeramento gravado para esta empresa com data posterior a "
-            f"{data_str}; zerar (ou complementar) este período agora contaria parte "
-            "do resultado duas vezes. Para corrigir um período anterior, estorne "
-            "o(s) zeramento(s) posteriores antes (RC-101/RC-103), datando o estorno "
-            "até o último dia do período estornado — um estorno datado depois disso "
-            "fica fora da janela que o zeramento daquele mesmo período lê ao ser "
-            "refeito, e o valor pareceria não ter sido revertido."
+            f"Já existe zeramento gravado para esta empresa em {ultimo_periodo_str} "
+            f"(posterior a {data_str}); zerar ou complementar este período agora "
+            "contaria parte do resultado duas vezes. Um lançamento novo neste "
+            f"período mais antigo é absorvido pelo complemento de {ultimo_periodo_str} "
+            "na próxima vez que esse período for zerado — não é preciso, e não é "
+            "possível pelo produto, zerar este período isoladamente."
         )
 
 
@@ -2197,14 +2288,153 @@ def _dividir_em_lancamentos_balanceados(itens_zerados, *, conta_resultado):
     return lancamentos
 
 
+# Quantos meses subtrair de (ano, mes) para achar o período de encerramento
+# ANTERIOR da MESMA periodicidade — mensal: 1 mês; trimestral: 3 meses (um
+# trimestre); anual: 12 meses (um ano). Tabela, mesmo motivo de
+# `_MESES_DE_ENCERRAMENTO_POR_PERIODICIDADE`, acima: acrescentar uma
+# periodicidade não deveria exigir tocar em lógica nenhuma, só declarar o
+# passo aqui.
+_PASSO_DE_MESES_POR_PERIODICIDADE = {
+    PeriodicidadeZeramento.MENSAL: 1,
+    PeriodicidadeZeramento.TRIMESTRAL: 3,
+    PeriodicidadeZeramento.ANUAL: 12,
+}
+
+
+def _data_final_do_periodo_anterior(*, ano, mes, periodicidade):
+    """Último dia do período de encerramento ANTERIOR ao de (`ano`, `mes`)
+    sob `periodicidade` (R2, DE-078 adendo item 2) — mensal: mês anterior;
+    trimestral: trimestre anterior; anual: ano anterior.
+
+    `mes` já é, por construção do chamador (`_validar_periodo_de_
+    zeramento` roda antes), um mês de ENCERRAMENTO válido para
+    `periodicidade`. Cálculo UNIFORME para as três periodicidades: subtrai
+    `_PASSO_DE_MESES_POR_PERIODICIDADE[periodicidade]` meses de (`ano`,
+    `mes`) e devolve o último dia do mês resultante — que é sempre,
+    também por construção, outro mês de encerramento da MESMA
+    periodicidade (o mês anterior de qualquer mês; o trimestre anterior de
+    março/junho/setembro/dezembro; o ano anterior de dezembro).
+    """
+    passo = _PASSO_DE_MESES_POR_PERIODICIDADE[periodicidade]
+    indice_total = (ano * 12 + (mes - 1)) - passo
+    ano_anterior, mes_anterior_zero = divmod(indice_total, 12)
+    mes_anterior = mes_anterior_zero + 1
+    ultimo_dia = calendar.monthrange(ano_anterior, mes_anterior)[1]
+    return date(ano_anterior, mes_anterior, ultimo_dia)
+
+
+def _recusar_se_periodo_anterior_tem_saldo(*, empresa, parametro, ano, mes, data_final):
+    """R2 (MÉDIA, DE-078 adendo item 2): recusa (`ParametroContabilInvalido`,
+    "Zere primeiro MM/AAAA") zerar o período de `data_final` enquanto o
+    período de encerramento ANTERIOR da MESMA periodicidade ainda tiver
+    saldo PRÓPRIO diferente de zero em alguma conta de resultado
+    ANALÍTICA (RECEITA ou DESPESA sem descendentes) no seu último dia.
+
+    ⚠️ **Por que isto substitui a antiga orientação de estornar** (a
+    reconferência da DL-043, achado R2): zerar fora de ordem e depois
+    seguir a única correção que alguma porta do produto de fato permite
+    (`estornar_lancamento` pela porta comum, que SEMPRE data "hoje" —
+    `EstornarLancamentoView` recusa `data` no corpo, e a tela não chama a
+    função) infla Lucros e Prejuízos e distorce o resultado dos períodos
+    envolvidos: a reconferência mediu abril refeito registrando prejuízo
+    de 300,00 quando o resultado real de abril era lucro de 200,00, e um
+    resíduo de 500,00 credor aparecendo em setembro (a data real do
+    estorno), tratado como se fosse resultado de setembro (PE-69). Em vez
+    de corrigir DEPOIS de zerar fora de ordem, esta checagem garante a
+    ORDEM NA ENTRADA: zerar abril fica recusado enquanto março tiver
+    saldo próprio pendente — o zeramento fora de ordem que causava o dano
+    deixa de acontecer pela porta do produto, e `_recusar_zeramento_fora_
+    de_ordem` (acima) fica só com o caso residual: complementar um
+    período depois que um POSTERIOR já foi zerado.
+
+    ⚠️ **Só olha o período IMEDIATAMENTE anterior, nunca todo o
+    histórico:** basta — se ele tiver saldo, é recusado, e zerá-lo
+    primeiro exige (recursivamente, na PRÓXIMA chamada) que o anterior
+    DELE já esteja zerado. A cadeia de checagens força a ordem
+    estritamente crescente sem examinar todo o histórico a cada chamada,
+    e sem custo adicional por mês pulado.
+
+    ⚠️ **Ignorado quando o período anterior termina ANTES do início da
+    vigência atual:** um saldo anterior à PRÓPRIA vigência não é "resíduo
+    não zerado desta regra" — pode ser saldo de abertura da implantação,
+    ou período coberto por outro parâmetro (outra periodicidade, outras
+    contas de destino) que vigorou antes. Sem esta guarda, o PRIMEIRO
+    período de toda vigência nova ficaria bloqueado para sempre pelo saldo
+    de abertura, que ninguém "zera" no sentido desta regra.
+
+    ⚠️ **Analítica (RECEITA/DESPESA sem descendentes, `linha["analitica"]`,
+    DE-022), nunca sintética:** o objetivo é detectar "há lançamento
+    PRÓPRIO ainda não zerado" — no fluxo normal, só uma conta que ACEITA
+    lançamento recebe movimento próprio direto. Sintética legada com
+    saldo próprio (estado só alcançável por carga direta, fora do
+    produto) é um problema PRÓPRIO (B1), já recusado por
+    `_calcular_zeramento` quando ESSE período específico for de fato
+    zerado — esta checagem não precisa reproduzir aquela regra.
+
+    ⚠️ **Ignorado quando o período anterior JÁ TEM zeramento gravado (não
+    estornado), mesmo que reste saldo pendente** (achado do próprio teste
+    R2.7(b) — complemento tardio depois do período seguinte já zerado):
+    um período que já foi zerado e recebeu um lançamento TARDIO depois
+    não é um período "pulado" — é um período aguardando o PRÓPRIO
+    complemento, e `_recusar_zeramento_fora_de_ordem` já proíbe
+    complementá-lo diretamente assim que um período POSTERIOR estiver
+    zerado, forçando a absorção pelo complemento do ÚLTIMO período
+    zerado (ver o docstring de `ZeramentoForaDeOrdem`). Sem esta segunda
+    guarda, o período SEGUINTE ficaria bloqueado por um saldo que a
+    própria cadeia de complemento já sabe resolver — o sintoma medido ao
+    escrever o teste: complementar março (recusado, corretamente) e
+    DEPOIS complementar abril (que deveria absorver o valor) também
+    ficava recusado, porque março, sozinho, ainda tinha saldo.
+
+    ⚠️ **UMA consulta, nunca uma por conta (B5):** mesma técnica de
+    `_calcular_zeramento` — `apurar_balancete` UMA vez para o período
+    anterior; o número de consultas não cresce com o número de contas de
+    resultado.
+    """
+    data_final_anterior = _data_final_do_periodo_anterior(
+        ano=ano, mes=mes, periodicidade=parametro.periodicidade_zeramento
+    )
+    if data_final_anterior < parametro.vigencia_inicio:
+        return
+    prefixo_periodo_anterior = (
+        f"{_prefixo_chave_zeramento_da_empresa(empresa.pk)}"
+        f"{data_final_anterior.year:04d}-{data_final_anterior.month:02d}:"
+    )
+    periodo_anterior_ja_zerado = LancamentoContabil.objects.filter(
+        empresa=empresa,
+        chave_idempotencia__startswith=prefixo_periodo_anterior,
+        estornos__isnull=True,
+    ).exists()
+    if periodo_anterior_ja_zerado:
+        return
+    balancete = apurar_balancete(
+        empresa=empresa, inicio=data_final_anterior, fim=data_final_anterior
+    )
+    for linha in balancete["contas"]:
+        if linha["tipo"] not in (TipoConta.RECEITA, TipoConta.DESPESA):
+            continue
+        if not linha["analitica"]:
+            continue
+        if _saldo_proprio_assinado(linha) != 0:
+            periodo_str = data_final_anterior.strftime("%m/%Y")
+            raise ParametroContabilInvalido(
+                f"Zere primeiro {periodo_str} — a conta {linha['conta']} — "
+                f"{linha['nome']} ainda tem saldo próprio diferente de zero em "
+                f"{data_final_anterior.strftime('%d/%m/%Y')}, o último dia do período "
+                "anterior desta periodicidade. Zerar este período agora, fora de "
+                "ordem, contaria ou perderia parte do resultado."
+            )
+
+
 def _periodo_de_zeramento(*, empresa, ano, mes):
     """Validações comuns à prévia e à execução do zeramento — tudo o que
     NÃO depende de trava/gravação: faixa de mês, parâmetro vigente,
-    correspondência periodicidade × mês de encerramento (critério 7) e
-    período já terminado (HI-25).
+    correspondência periodicidade × mês de encerramento (critério 7),
+    período já terminado (HI-25) e período anterior sem saldo pendente
+    (R2, DE-078 adendo item 2).
 
     Devolve `(parametro, data_final)`. Levanta `ParametroContabilInvalido`
-    (400) para qualquer uma das quatro causas.
+    (400) para qualquer uma das cinco causas.
     """
     if not (1 <= mes <= 12):
         raise ParametroContabilInvalido(f"'mes' inválido: {mes} — deve estar entre 1 e 12.")
@@ -2240,6 +2470,9 @@ def _periodo_de_zeramento(*, empresa, ano, mes):
             "vigência (periodicidade e contas de destino) antes de zerar o resultado."
         )
     _validar_periodo_de_zeramento(periodicidade=parametro.periodicidade_zeramento, mes=mes)
+    _recusar_se_periodo_anterior_tem_saldo(
+        empresa=empresa, parametro=parametro, ano=ano, mes=mes, data_final=data_final
+    )
     return parametro, data_final
 
 

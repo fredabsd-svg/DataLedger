@@ -680,3 +680,237 @@ def test_criterio16_campo_extra_no_corpo_e_400_sem_gravar(client, cenario):
 
     assert resposta.status_code == 400, resposta.content
     assert not ParametroContabilEmpresa.objects.filter(empresa=empresa).exists()
+
+
+# ---------------------------------------------------------------------------
+# R3 (reconferência DL-043, BAIXA): as validações do B7 (Lucros credora,
+# destino ativo, destino folha) e a trava do B10 (concorrência entre
+# `zerar_resultado` e `registrar_parametro_contabil`) tinham código, mas
+# NENHUM teste — os mutantes N14, N15 e N16 sobreviviam à suíte inteira
+# (2672 passed), e N6 também. Estes testes existem para matá-los; ver a
+# tabela mutante → teste no relatório de entrega desta correção.
+# ---------------------------------------------------------------------------
+
+
+def test_n14_lucros_com_natureza_devedora_e_400_via_http_sem_gravar(client, cenario):
+    """B7/N14: a conta de Lucros Acumulados com natureza DEVEDORA (em vez
+    de credora) é recusada pela API — 400, nada gravado. Sem esta
+    checagem, um lucro creditaria uma conta devedora, e ela ficaria com
+    saldo anormal no Balanço (docstring de `registrar_parametro_
+    contabil`, item 4)."""
+    empresa = cenario["empresa"]
+    lucros_devedora = _conta(
+        empresa,
+        "2.7",
+        "Lucros com natureza errada",
+        TipoConta.PATRIMONIO_LIQUIDO,
+        NaturezaConta.DEVEDORA,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "n14-gestor")
+
+    resposta = client.post(
+        _url_parametros(empresa.id),
+        data=_corpo_valido(cenario, conta_lucros_acumulados=lucros_devedora.id),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    assert "credora" in resposta.json()[0].lower()
+    assert not ParametroContabilEmpresa.objects.filter(empresa=empresa).exists()
+
+
+def test_n15_destino_inativo_e_400_via_http_sem_gravar(client, cenario):
+    """B7/N15: uma conta de destino (aqui, resultado do exercício) com
+    `ativo=False` é recusada pela API — 400, nada gravado."""
+    empresa = cenario["empresa"]
+    resultado_inativa = _conta(
+        empresa,
+        "2.8",
+        "Resultado inativo",
+        TipoConta.PATRIMONIO_LIQUIDO,
+        NaturezaConta.CREDORA,
+    )
+    resultado_inativa.ativo = False
+    resultado_inativa.save(update_fields=["ativo"])
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "n15-gestor")
+
+    resposta = client.post(
+        _url_parametros(empresa.id),
+        data=_corpo_valido(cenario, conta_resultado_do_exercicio=resultado_inativa.id),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    assert "ativa" in resposta.json()[0].lower()
+    assert not ParametroContabilEmpresa.objects.filter(empresa=empresa).exists()
+
+
+def test_n16_destino_com_filha_e_400_via_http_sem_gravar(client, cenario):
+    """B7/N16: uma conta de destino ANALÍTICA (`aceita_lancamento=True`,
+    o estado padrão do cadastro) mas que TEM uma conta filha é recusada
+    pela API — 400, nada gravado. Distinto do critério 2b (`sintetica_
+    pl`, que é `aceita_lancamento=False`): aqui a conta aceita lançamento
+    normalmente, e é a checagem de ÁRVORE (`_e_folha`, DE-022 — "analítica
+    é decidido por não ter descendentes", nunca por `aceita_lancamento`)
+    que precisa recusar, não a de `aceita_lancamento`."""
+    empresa = cenario["empresa"]
+    resultado_com_filha = _conta(
+        empresa,
+        "2.9",
+        "Resultado com filha",
+        TipoConta.PATRIMONIO_LIQUIDO,
+        NaturezaConta.CREDORA,
+    )
+    assert resultado_com_filha.aceita_lancamento is True
+    Conta.objects.create(
+        empresa=empresa,
+        codigo="2.9.1",
+        nome="Filha do resultado",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=NaturezaConta.CREDORA,
+        conta_pai=resultado_com_filha,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "n16-gestor")
+
+    resposta = client.post(
+        _url_parametros(empresa.id),
+        data=_corpo_valido(cenario, conta_resultado_do_exercicio=resultado_com_filha.id),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    assert "filha" in resposta.json()[0].lower()
+    assert not ParametroContabilEmpresa.objects.filter(empresa=empresa).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_n6_registrar_vigencia_concorrente_com_zeramento_sempre_recusa():
+    """B10/N6: `zerar_resultado` de março segurando a transação por 0,3s
+    (depois de travar a empresa) enquanto, em paralelo,
+    `registrar_parametro_contabil` tenta uma vigência nova com início em
+    01/03 — as DUAS operações travam a MESMA linha de `Empresa`
+    (`_travar_empresa_para_operacao_de_zeramento`), então elas SEMPRE
+    serializam: a que chega depois só lê o estado já COMMITADO pela
+    primeira. Como a vigência tentada (01/03) cobre a data do zeramento
+    (31/03) que a primeira operação acabou de gravar, o registro SEMPRE
+    recusa (`VigenciaParametroContabilConflitante`) em todas as rodadas —
+    nunca as duas são aceitas (o que deixaria ambíguo qual conjunto de
+    contas valia em março)."""
+    import threading
+    import time
+
+    from django.db import connection
+
+    from apps.contabilidade.services import zerar_resultado
+
+    falhas = []
+    numero_de_rodadas = 3
+
+    for rodada in range(numero_de_rodadas):
+        escritorio = Escritorio.objects.create(
+            nome=f"Escritório N6 {rodada}", cnpj=f"7{rodada:013d}"
+        )
+        empresa = Empresa.objects.create(
+            escritorio=escritorio, razao_social=f"N6 {rodada} Ltda", cnpj=f"6{rodada:013d}"
+        )
+        caixa = _conta(empresa, "1.1", "Caixa", TipoConta.ATIVO, NaturezaConta.DEVEDORA)
+        receita = _conta(empresa, "3.1", "Receita", TipoConta.RECEITA, NaturezaConta.CREDORA)
+        resultado = _conta(
+            empresa, "2.2", "Resultado", TipoConta.PATRIMONIO_LIQUIDO, NaturezaConta.CREDORA
+        )
+        lucros = _conta(
+            empresa, "2.3", "Lucros", TipoConta.PATRIMONIO_LIQUIDO, NaturezaConta.CREDORA
+        )
+        prejuizos = _conta(
+            empresa, "2.4", "Prejuízos", TipoConta.PATRIMONIO_LIQUIDO, NaturezaConta.DEVEDORA
+        )
+        gestor = _usuario_com_papel(Papel.GESTOR, escritorio, f"n6-gestor-{rodada}")
+        registrar_parametro_contabil(
+            empresa=empresa,
+            periodicidade_zeramento=PeriodicidadeZeramento.MENSAL,
+            conta_resultado_do_exercicio=resultado,
+            conta_lucros_acumulados=lucros,
+            conta_prejuizos_acumulados=prejuizos,
+            vigencia_inicio=date(2020, 1, 1),
+            usuario=gestor,
+        )
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2026, 3, 31),
+            historico="N6 receita de março",
+            itens=[
+                {"conta": caixa, "tipo": TipoPartida.DEBITO, "valor": Decimal("10.00")},
+                {"conta": receita, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
+            ],
+            criado_por=gestor,
+        )
+
+        resultados = {}
+
+        def _zerar_segurando(empresa=empresa, gestor=gestor, resultados=resultados):
+            # Alarga a janela em que a trava de EMPRESA fica presa —
+            # mesma técnica de `test_r1_variante_...` — para dar tempo à
+            # outra thread de tentar `registrar_parametro_contabil` ENQUANTO
+            # o zeramento ainda não commitou.
+            import apps.contabilidade.services as contabilidade_services
+
+            original = contabilidade_services._travar_empresa_para_operacao_de_zeramento
+
+            def _travar_e_segurar(empresa_arg):
+                travada = original(empresa_arg)
+                time.sleep(0.3)
+                return travada
+
+            contabilidade_services._travar_empresa_para_operacao_de_zeramento = _travar_e_segurar
+            try:
+                resultados["zeramento"] = zerar_resultado(
+                    empresa=empresa, ano=2026, mes=3, usuario=gestor
+                )
+            except Exception as exc:  # noqa: BLE001 — reportado, nunca silenciado
+                resultados["zeramento_erro"] = exc
+            finally:
+                contabilidade_services._travar_empresa_para_operacao_de_zeramento = original
+                connection.close()
+
+        def _registrar_concorrente(
+            empresa=empresa,
+            gestor=gestor,
+            resultados=resultados,
+            resultado=resultado,
+            lucros=lucros,
+            prejuizos=prejuizos,
+        ):
+            time.sleep(0.05)  # dá tempo do zeramento travar a empresa primeiro
+            try:
+                registrar_parametro_contabil(
+                    empresa=empresa,
+                    periodicidade_zeramento=PeriodicidadeZeramento.MENSAL,
+                    conta_resultado_do_exercicio=resultado,
+                    conta_lucros_acumulados=lucros,
+                    conta_prejuizos_acumulados=prejuizos,
+                    vigencia_inicio=date(2026, 3, 1),
+                    usuario=gestor,
+                )
+                resultados["registro"] = "aceito"
+            except VigenciaParametroContabilConflitante as exc:
+                resultados["registro_recusado"] = exc
+            except Exception as exc:  # noqa: BLE001 — reportado, nunca silenciado
+                resultados["registro_erro"] = exc
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=_zerar_segurando)
+        t2 = threading.Thread(target=_registrar_concorrente)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+        if "zeramento_erro" in resultados:
+            falhas.append((rodada, "zeramento falhou", resultados["zeramento_erro"]))
+        if "registro" in resultados:
+            falhas.append((rodada, "registro concorrente FOI ACEITO — corrida ganha", None))
+        if "registro_erro" in resultados:
+            falhas.append((rodada, "registro com erro inesperado", resultados["registro_erro"]))
+
+    assert falhas == [], f"{len(falhas)} de {numero_de_rodadas} rodadas fora do esperado: {falhas}"

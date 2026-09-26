@@ -512,7 +512,14 @@ def test_repeticao_pela_tela_e_idempotente(client, cenario):
     assert LancamentoContabil.objects.filter(empresa=empresa).count() == quantidade_apos_primeira
 
 
-def test_analista_le_previa_mas_nao_confirma(client, cenario):
+def test_analista_recebe_403_na_previa_e_na_confirmacao(client, cenario):
+    """R6 (reconferência DL-043, BAIXA): renomeado — o nome antigo
+    ('le_previa_mas_nao_confirma') dizia que o ANALISTA CONSEGUE ler a
+    prévia (GET, 200) e só é barrado na confirmação (POST); o próprio
+    corpo do teste, abaixo, sempre exigiu 403 nos DOIS, porque a prévia
+    exige `PodeFecharCompetencia` (ADMINISTRADOR/GESTOR), igual à
+    confirmação — nunca `_pode_ler`. O nome enganava o próximo leitor
+    sobre quem lê a prévia; o comportamento em si já estava correto."""
     empresa = cenario["empresa"]
     usuario = _autenticar(client, cenario["escritorio"], Papel.ADMINISTRADOR, "z1-setup-analista")
     _registrar_parametro(empresa, cenario)
@@ -557,6 +564,55 @@ def test_resultado_mostra_link_para_os_lancamentos_gerados(client, cenario):
     etapa1, etapa2 = lancamentos[-2], lancamentos[-1]
     assert reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, etapa1.id]) in corpo
     assert reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, etapa2.id]) in corpo
+
+
+def test_r5_etapa1_dividida_lista_todos_os_lancamentos_na_tela(client, cenario):
+    """R5 (BAIXA, reconferência): quando a etapa 1 é DIVIDIDA (RC-79, mais
+    de 199 contas de resultado com saldo), a tela mostrava só o PRIMEIRO
+    lançamento (`resultado.lancamento_etapa1`, singular) — o contador não
+    via, pela tela, o lançamento das partes 2 em diante. Corrigido
+    listando `resultado.lancamentos_etapa1` (a lista COMPLETA) no
+    template. Com 205 contas, a etapa 1 vira 2 lançamentos — os DOIS
+    números têm que aparecer no HTML da confirmação."""
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "r5-gestor")
+    _registrar_parametro(empresa, cenario)
+    for indice in range(205):
+        conta = _conta(
+            empresa,
+            codigo=f"4.9.{indice:04d}",
+            nome=f"Receita R5 {indice}",
+            tipo=TipoConta.RECEITA,
+            natureza=C,
+        )
+        criar_lancamento(
+            empresa=empresa,
+            data=date(2026, 3, 31),
+            historico="R5 movimento",
+            itens=[
+                {"conta": cenario["caixa"], "tipo": TipoPartida.DEBITO, "valor": Decimal("1.00")},
+                {"conta": conta, "tipo": TipoPartida.CREDITO, "valor": Decimal("1.00")},
+            ],
+            criado_por=usuario,
+        )
+
+    resposta = client.post(
+        _url_zerar(empresa.id), data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"}
+    )
+
+    assert resposta.status_code == 200, resposta.content
+    corpo = resposta.content.decode()
+    lancamentos_de_zeramento = list(
+        LancamentoContabil.objects.filter(
+            empresa=empresa, chave_idempotencia__contains=":etapa1:"
+        ).order_by("id")
+    )
+    assert len(lancamentos_de_zeramento) == 2, lancamentos_de_zeramento
+    for lancamento in lancamentos_de_zeramento:
+        assert (
+            reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, lancamento.id])
+            in corpo
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -674,14 +730,43 @@ def test_trava_por_empresa_no_parametro_vira_mensagem_na_tela(client, cenario, m
 
 
 def test_previa_fora_de_ordem_mostra_a_recusa_sem_botao_de_gravar(client, cenario):
-    """Com o mês 04 já zerado, a prévia do mês 03 recusa (DE-078 item 2) —
-    mensagem do serviço na tela, nunca 500, e sem o botão de gravar."""
+    """Com o mês 04 já zerado (fora de ordem, contra março ainda
+    pendente), a prévia do mês 03 recusa (DE-078 item 2) — mensagem do
+    serviço na tela, nunca 500, e sem o botão de gravar.
+
+    ⚠️ **Estado do mês 04 SIMULADO, não gravado pela tela (achado R2 da
+    reconferência):** depois da R2 (DE-078 adendo item 2), a PRÓPRIA
+    tentativa de zerar um período fora de ordem passa a ser recusada NA
+    ENTRADA — `client.post` para o mês 04 aqui daria "Zere primeiro
+    03/2026", nunca sucesso, porque março ainda está pendente. Este teste
+    continua útil para o caso RESIDUAL que `_recusar_zeramento_fora_de_
+    ordem` ainda cobre: um zeramento de abril JÁ GRAVADO (por exemplo,
+    estado legado de antes desta correção) continua recusando a prévia de
+    março, sem 500 e sem botão de gravar — daí simular o lançamento do
+    mês 04 diretamente pelo serviço (`criar_lancamento` com a chave
+    reservada, o mesmo mecanismo interno que `zerar_resultado` usa), em
+    vez de tentar gravá-lo pela tela."""
     empresa = cenario["empresa"]
     usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "b2-previa-ordem")
     _registrar_parametro(empresa, cenario)
     _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="300.00")
     _lancar_lucro(empresa, cenario, date(2026, 4, 15), usuario, valor="200.00")
-    client.post(_url_zerar(empresa.id), data={"ano": 2026, "mes": 4, "confirmar_zeramento": "1"})
+    criar_lancamento(
+        empresa=empresa,
+        data=date(2026, 4, 30),
+        historico="Simulação de zeramento legado (pré-R2) — etapa 1",
+        itens=[
+            {"conta": cenario["receita"], "tipo": TipoPartida.DEBITO, "valor": Decimal("500.00")},
+            {
+                "conta": cenario["resultado"],
+                "tipo": TipoPartida.CREDITO,
+                "valor": Decimal("500.00"),
+            },
+        ],
+        criado_por=usuario,
+        chave_idempotencia=f"zeramento:{empresa.pk}:2026-04:etapa1:0",
+        permitir_prefixo_reservado=True,
+    )
 
     resposta = client.get(_url_zerar(empresa.id, 2026, 3))
 

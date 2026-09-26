@@ -165,9 +165,16 @@ própria, mas `select_for_update()` sobre a própria linha de `Empresa` bastou.
 - **B7 (BAIXA, contas de destino inadequadas):** `registrar_parametro_contabil`
   passou a recusar conta de resultado do exercício ou de lucros/prejuízos
   acumulados que seja sintética (tem filhas) ou inativa, e recusa conta de
-  lucros acumulados com natureza devedora. Coberto pelos testes de
-  `test_dl043_parametro_contabil.py` (critérios de contas de destino) e pela
-  suíte nova onde essas contas aparecem nos cenários de referência.
+  lucros acumulados com natureza devedora. ⚠️ **Correção da reconferência
+  (achado R3):** a frase acima, ao ser escrita, afirmava cobertura que não
+  existia — os mutantes N14 (Lucros credora), N15 (destino ativo) e N16
+  (destino folha) sobreviviam à suíte inteira (2672 passed), sem nenhum
+  teste dedicado. Fechado com três testes novos em
+  `test_dl043_parametro_contabil.py` (`test_n14_lucros_com_natureza_
+  devedora_e_400_via_http_sem_gravar`, `test_n15_destino_inativo_e_400_
+  via_http_sem_gravar`, `test_n16_destino_com_filha_e_400_via_http_sem_
+  gravar`), cada um matando o mutante correspondente (confirmado ao vivo:
+  reaplicar cada mutação faz o teste falhar; revertida, volta a passar).
 - **B8 (BAIXA, trilha sem IP):** `zerar_resultado` passou a aceitar
   `request=None` opcional e a registrar `endereco_ip` na trilha quando
   presente; a view passa a chamar com `request=request`. Testado:
@@ -179,9 +186,14 @@ própria, mas `select_for_update()` sobre a própria linha de `Empresa` bastou.
   `zerar_resultado`):** resolvido como efeito colateral da mesma trava por
   empresa do B2 — `registrar_parametro_contabil` e
   `encerrar_vigencia_de_parametro_contabil` agora travam a empresa antes de
-  ler ou escrever o estado de vigência. Sem teste de concorrência real
-  dedicado (a auditoria não tinha reproduzido B10; o teste de concorrência do
-  B2 já exercita a mesma trava).
+  ler ou escrever o estado de vigência. ⚠️ **Correção da reconferência
+  (achado R3):** a auditoria reproduziu B10 por conta própria (três rodadas
+  com threads reais, terminando em `VigenciaParametroContabilConflitante`
+  nas três) e mediu que o mutante N6 (tirar a trava) sobrevivia — este
+  parágrafo, na versão anterior, dizia "sem teste dedicado" como se fosse
+  aceitável; passou a ser um teste dedicado:
+  `test_n6_registrar_vigencia_concorrente_com_zeramento_sempre_recusa`
+  (`test_dl043_parametro_contabil.py`, três rodadas reais, mata N6).
 
 ### Mutante → teste que mata
 
@@ -267,6 +279,115 @@ trilha sem IP (achado B8 na porta web). Ajuste de integração em
 a API mapeia para 400/409, como mensagem, sem gravar. Seis testes novos em
 `test_dl043_fatia3_telas.py`; reprovam com o `views_web.py` anterior (medido:
 6 falhas) e passam com o ajuste.
+
+## Correção da reconferência
+
+A [reconferência](../auditorias/2026-09-26-dl-043-reconferencia.md) reprovou
+a correção da rodada 1 por uma REGRESSÃO (R1, ALTA) e apontou que a
+orientação de recuperação por estorno (R2, MÉDIA) prometia uma data que
+nenhuma porta do produto aceita. Decisões: **DE-078, adendo**
+(`docs/projeto/decisoes.md`). Pelo AGENTS.md §3.1, esta foi a última
+correção: sem terceira rodada de auditoria — o fechamento é verificado
+pelos testes que a própria reconferência propôs e pela morte dos mutantes
+N6, N14, N15 e N16.
+
+- **R1 (ALTA, regressão):** a trava de empresa
+  (`_travar_empresa_para_operacao_de_zeramento`) usava `select_for_update()`
+  puro (`FOR UPDATE`), que conflita com o `FOR KEY SHARE` que toda FK
+  `DEFERRABLE INITIALLY DEFERRED` do Django verifica no COMMIT — a
+  reconferência mediu 16 de 30 rodadas HTTP concorrentes (`POST
+  /lancamentos/` × `POST` do zeramento do MESMO mês) terminando em deadlock
+  real (SQLSTATE 40P01) e HTTP 500. Corrigido trocando para `select_for_
+  update(no_key=True)` (`FOR NO KEY UPDATE`), que continua serializando
+  zeramento/vigência entre si mas não conflita com `FOR KEY SHARE`. Defesa
+  em profundidade: nova `_e_deadlock` (SQLSTATE 40P01) traduzida para o
+  mesmo 409 que `_e_estouro_de_lock_timeout` (55P03) já traduz, nos três
+  pontos de trava (competência, transição de competência, empresa).
+  Testado: `test_r1_lancamento_concorrente_com_zeramento_do_mesmo_mes_nunca_da_500`
+  (30 rodadas HTTP reais; confirmado que **2 de 30** rodadas dão 500 com
+  `no_key=False`, o mesmo mecanismo que a reconferência mediu) e
+  `test_r1_variante_criar_lancamento_segurando_a_transacao_nunca_bloqueia_o_zeramento`
+  (janela alargada em 0,3s com `Event` — confirmado **5 de 5** rodadas
+  fora do esperado com `no_key=False`, batendo com a medição "5 de 5" da
+  própria reconferência).
+- **R2 (MÉDIA):** a mensagem de `ZeramentoForaDeOrdem` orientava estornar
+  "datando o estorno até o último dia do período" — nenhuma porta aceita
+  informar a data de um estorno (`EstornarLancamentoView` recusa o campo
+  `data`; a tela não chama `estornar_lancamento`), e seguir a única porta
+  real (estorno pela API, que sempre data "hoje") infla Lucros e
+  Prejuízos e distorce o resultado dos períodos envolvidos. Corrigido
+  garantindo a ordem NA ENTRADA: nova `_recusar_se_periodo_anterior_tem_
+  saldo` recusa (`ParametroContabilInvalido`, "Zere primeiro MM/AAAA")
+  zerar um período enquanto o período de encerramento IMEDIATAMENTE
+  ANTERIOR da mesma periodicidade tiver saldo próprio ≠ 0 em alguma conta
+  de resultado ANALÍTICA no seu último dia — ignorada quando esse período
+  anterior termina antes do início da vigência atual (primeiro período de
+  uma vigência nova não é bloqueado por saldo de implantação), e também
+  quando o período anterior JÁ TEM zeramento gravado (não estornado) —
+  nesse caso o caminho certo é complementar o ÚLTIMO período zerado, não
+  bloquear o seguinte. Uma única `apurar_balancete` para o período
+  anterior (B5: nº de consultas continua constante). A mensagem de
+  `ZeramentoForaDeOrdem` deixou de pedir data de estorno: agora explica
+  que um lançamento novo num período anterior ao último zerado é
+  absorvido pelo COMPLEMENTO do último período zerado. O filtro
+  `estornos__isnull=True` (da correção anterior) foi mantido. Testado, só
+  por portas HTTP (R2.7): `test_r2a_zerar_fora_de_ordem_e_recusado_na_
+  entrada_depois_funciona_na_ordem`, `test_r2b_lancamento_tardio_em_
+  periodo_ja_zerado_e_absorvido_pelo_complemento_do_ultimo`,
+  `test_r2c_mes_sem_movimento_no_meio_nao_trava_o_seguinte`,
+  `test_r2d_primeiro_periodo_da_vigencia_nao_e_bloqueado_por_saldo_
+  anterior_a_ela`. O teste antigo que estorna com `data=` explícita no
+  serviço (`test_integracao_zeramento_fora_de_ordem_recupera_com_estorno_
+  e_refazer` e os dois relacionados) continuou válido como teste de
+  SERVIÇO para um estado LEGADO (uma empresa poderia ter esse estado
+  gravado de antes desta correção) — mas passou a simular esse estado
+  com `criar_lancamento`/`permitir_prefixo_reservado=True` em vez de
+  chamar `zerar_resultado` fora de ordem, porque a R2 agora RECUSA essa
+  chamada na entrada; não é mais a única prova, como o achado pedia.
+- **R3 (BAIXA):** as validações do B7 (Lucros credora, destino ativo,
+  destino folha) e a trava do B10 tinham código sem teste — mutantes N14,
+  N15, N16 e N6 sobreviviam à suíte inteira. Fechado com quatro testes
+  novos em `test_dl043_parametro_contabil.py`: `test_n14_lucros_com_
+  natureza_devedora_e_400_via_http_sem_gravar`, `test_n15_destino_
+  inativo_e_400_via_http_sem_gravar`, `test_n16_destino_com_filha_e_400_
+  via_http_sem_gravar` e `test_n6_registrar_vigencia_concorrente_com_
+  zeramento_sempre_recusa` (três rodadas reais com threads). A frase deste
+  documento que afirmava cobertura inexistente ("Coberto pelos testes de
+  test_dl043_parametro_contabil.py") foi corrigida nas seções B7 e B10
+  acima.
+- **R4 (BAIXA):** a recusa do prefixo `zeramento:` (`criar_lancamento`)
+  usava `str.startswith` puro, sensível a maiúsculas — em SQLite (nunca em
+  produção — DE-014/BL-50) as buscas que localizam zeramento gravado usam
+  `LIKE`, insensível a caixa ali, reabrindo o ataque do B4 em SQLite com
+  uma chave `ZERAMENTO:…`. Corrigido normalizando os dois lados com
+  `.lower()`. Testado:
+  `test_r4_prefixo_reservado_recusa_sem_diferenciar_maiuscula`
+  (parametrizado com `ZERAMENTO:`, `Zeramento:` e `zErAmEnTo:`).
+- **R5 (BAIXA, `especialista-frontend`, autorização pontual):**
+  `templates/contabilidade/zerar_resultado.html` mostrava só o primeiro
+  lançamento da etapa 1 quando ela é dividida (RC-79). Corrigido listando
+  `resultado.lancamentos_etapa1` (a lista completa) em vez de `resultado.
+  lancamento_etapa1` (singular, mantido só para compatibilidade).
+  Testado: `test_r5_etapa1_dividida_lista_todos_os_lancamentos_na_tela`
+  (205 contas, confere os DOIS números de lançamento no HTML).
+- **R6 (BAIXA):** o comentário de bloco em `views_web.py` (perto da linha
+  3803) dizia que a prévia do zeramento exigia só `_pode_ler`, mas o
+  comportamento sempre foi `_pode_fechar_competencia` — alinhado. O teste
+  `test_analista_le_previa_mas_nao_confirma` foi renomeado para
+  `test_analista_recebe_403_na_previa_e_na_confirmacao`, refletindo o que
+  o próprio corpo do teste sempre verificou.
+
+### Mutantes da reconferência → teste que mata
+
+| Mutante | Teste que mata |
+| --- | --- |
+| N6 (sem trava de empresa em `registrar_parametro_contabil`) | `test_n6_registrar_vigencia_concorrente_com_zeramento_sempre_recusa` |
+| N14 (sem exigir Lucros credora) | `test_n14_lucros_com_natureza_devedora_e_400_via_http_sem_gravar` |
+| N15 (sem exigir destino ativo) | `test_n15_destino_inativo_e_400_via_http_sem_gravar` |
+| N16 (sem exigir destino folha) | `test_n16_destino_com_filha_e_400_via_http_sem_gravar` |
+
+Todos os quatro confirmados ao vivo: reaplicar a mutação correspondente faz
+o teste falhar; revertida, volta a passar (mesma disciplina da rodada 1).
 
 ## P1 — lucros e prejuízos acumulados no zeramento mensal
 

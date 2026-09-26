@@ -20,6 +20,7 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
+from django.test import Client
 from django.urls import reverse
 
 from apps.auditoria.models import RegistroAuditoria
@@ -37,6 +38,7 @@ from apps.contabilidade.models import (
 )
 from apps.contabilidade.services import (
     CompetenciaEncerrada,
+    EmpresaTravadaPorOutraOperacao,
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     ZeramentoForaDeOrdem,
@@ -314,36 +316,37 @@ def test_b1_sintetica_legada_com_saldo_proprio_recusa_sem_gravar(cenario):
 
 
 def test_b2_zerar_fora_de_ordem_e_recusado_sem_gravar(cenario):
-    """100,00 em março e 50,00 em abril; zera abril PRIMEIRO. Zerar março
-    DEPOIS é recusado (`ZeramentoForaDeOrdem`, 409), banco inalterado.
+    """100,00 em março e 50,00 em abril; zerar abril PRIMEIRO é recusado.
 
-    Conta à mão para o Lucros esperado: `zerar_resultado` lê o saldo
-    ACUMULADO até a data final — o zeramento de abril, rodado ANTES do de
-    março, já lê o saldo acumulado até 30/04, que inclui os 100,00 de
-    março (ainda não zerados) MAIS os 50,00 de abril = 150,00, e zera tudo
-    de uma vez (nenhum dinheiro perdido — é assim que o desenho evita
-    contar em dobro mesmo fora de ordem, quando o período POSTERIOR
-    "alcança" o residual do anterior). Por isso a tentativa de zerar março
-    DEPOIS encontraria o mesmo movimento já zerado (recusada), e o Lucros
-    final é 150,00 — não 50,00.
+    ⚠️ **Reescrito pela reconferência (achado R2):** antes da R2, este
+    teste zerava abril PRIMEIRO com sucesso (a leitura do saldo
+    ACUMULADO até a data final "alcançava" o resíduo de março, 100 + 50 =
+    150) e só a tentativa de zerar março DEPOIS era recusada
+    (`ZeramentoForaDeOrdem`). A R2 (DE-078 adendo item 2) garante a ordem
+    NA ENTRADA: agora é a PRÓPRIA tentativa de zerar abril que é
+    recusada — `ParametroContabilInvalido`, "Zere primeiro 03/2026" —,
+    porque março ainda tem saldo próprio pendente. O cenário "abril zera
+    sozinho, capturando o resíduo de março" deixou de ser alcançável pela
+    porta do produto (nem pela API, nem pelo serviço direto): é
+    exatamente o que a R2 se propôs a fechar. `_recusar_zeramento_fora_
+    de_ordem`/`ZeramentoForaDeOrdem` continuam existindo para o caso
+    residual — complementar um período ANTERIOR depois que um POSTERIOR
+    já foi zerado NA ORDEM certa (coberto por `test_r2b_...` e pelos
+    testes de complemento tardio abaixo) —, não mais para este.
     """
     empresa = cenario["empresa"]
     _lancar_receita(cenario, date(2026, 3, 31), "100.00")
     _lancar_receita(cenario, date(2026, 4, 30), "50.00")
-    resultado_abril = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=cenario["gestor"])
-    total_lucros_apos_abril = sum(
-        item.valor
-        for item in resultado_abril["lancamento_etapa2"].itens.filter(conta=cenario["lucros"])
-    )
-    assert total_lucros_apos_abril == Decimal("150.00")
 
     total_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
-    with pytest.raises(ZeramentoForaDeOrdem):
-        zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=cenario["gestor"])
+    with pytest.raises(ParametroContabilInvalido, match="Zere primeiro 03/2026"):
+        zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=cenario["gestor"])
     assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_antes
 
-    # Nenhum lançamento novo — o total continua 150,00, nunca 200,00 (que
-    # seria a duplicidade que a recusa existe para impedir).
+    # Na ORDEM certa, os dois períodos zeram normalmente, sem perder nem
+    # duplicar valor.
+    zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=cenario["gestor"])
+    zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=cenario["gestor"])
     assert _total_lucros(empresa, cenario["lucros"]) == Decimal("150.00")
 
 
@@ -454,6 +457,7 @@ def test_b2_concorrencia_entre_meses_diferentes_nunca_conta_em_dobro():
         )
 
         erros = {}
+        meses = {"marco": 3, "abril": 4}
         barreira = threading.Barrier(2)
 
         def _chamar(mes, nome, empresa=empresa, gestor=gestor, erros=erros, barreira=barreira):
@@ -472,16 +476,36 @@ def test_b2_concorrencia_entre_meses_diferentes_nunca_conta_em_dobro():
         t1.join()
         t2.join()
 
-        # Só `ZeramentoForaDeOrdem` é um resultado ACEITÁVEL de erro — é a
-        # recusa correta de quem perde a corrida contra um período
-        # posterior que já absorveu o resíduo (ver a nota acima). Qualquer
-        # OUTRA exceção é falha real.
+        # Dois resultados ACEITÁVEIS de erro, os dois pela MESMA razão —
+        # perder a corrida contra a ordem cronológica —, só que detectada
+        # em pontos diferentes (achado R2 da reconferência):
+        # `ParametroContabilInvalido` ("Zere primeiro...") quando a trava de
+        # EMPRESA serializou as duas chamadas e a de ABRIL rodou primeiro,
+        # vendo março ainda pendente (R2, checagem NA ENTRADA); ou
+        # `ZeramentoForaDeOrdem` no caso residual em que março, mesmo tendo
+        # rodado depois de abril ter sido bloqueado, ainda assim colide com
+        # algo já gravado. Qualquer OUTRA exceção é falha real.
         erros_inesperados = {
-            nome: exc for nome, exc in erros.items() if not isinstance(exc, ZeramentoForaDeOrdem)
+            nome: exc
+            for nome, exc in erros.items()
+            if not isinstance(exc, (ZeramentoForaDeOrdem, ParametroContabilInvalido))
         }
         if erros_inesperados:
             falhas.append((rodada, "erro inesperado", erros_inesperados))
             continue
+
+        # Quem perdeu a corrida com `ParametroContabilInvalido` (bloqueado
+        # NA ENTRADA pela R2, nada gravado) só precisa tentar de novo depois
+        # que o vencedor terminou — é exatamente o que a mensagem "Zere
+        # primeiro..." orienta o usuário a fazer, e a corrida em si já
+        # acabou (as duas threads já deram `join`). Uma segunda tentativa,
+        # síncrona, sem concorrência nenhuma.
+        for nome, exc in list(erros.items()):
+            if isinstance(exc, ParametroContabilInvalido):
+                try:
+                    zerar_resultado(empresa=empresa, ano=2026, mes=meses[nome], usuario=gestor)
+                except Exception as exc_retry:  # noqa: BLE001 — reportado, nunca silenciado
+                    falhas.append((rodada, "segunda tentativa falhou", nome, exc_retry))
 
         total_lucros = _total_lucros(empresa, contas["lucros"])
         if total_lucros != Decimal("150.00"):
@@ -665,8 +689,6 @@ def test_b3_5d_lock_timeout_real_na_empresa_e_409_sem_500():
     assert "erro" in resultado, (
         "esperava EmpresaTravadaPorOutraOperacao, nenhuma exceção foi levantada"
     )
-    from apps.contabilidade.services import EmpresaTravadaPorOutraOperacao
-
     assert isinstance(resultado["erro"], EmpresaTravadaPorOutraOperacao)
     assert not LancamentoContabil.objects.filter(
         empresa=empresa, chave_idempotencia__contains=":etapa1:"
@@ -715,6 +737,44 @@ def test_b4_chave_reservada_e_400_e_nao_bloqueia_o_gestor(client, cenario):
     )
     assert resposta_zeramento.status_code == 200, resposta_zeramento.content
     assert resposta_zeramento.json()["criado_etapa1"] is True
+
+
+@pytest.mark.parametrize("prefixo", ["ZERAMENTO:", "Zeramento:", "zErAmEnTo:"])
+def test_r4_prefixo_reservado_recusa_sem_diferenciar_maiuscula(client, cenario, prefixo):
+    """R4 (BAIXA, reconferência): a recusa do prefixo reservado usava
+    `str.startswith` puro (sensível a maiúsculas/minúsculas) — em SQLite
+    (nunca em produção, mas usado em desenvolvimento e nas verificações de
+    migração — DE-014/BL-50) as BUSCAS que localizam zeramento gravado
+    (`_recusar_zeramento_fora_de_ordem`, `registrar_parametro_contabil`)
+    usam `LIKE`, insensível a caixa por padrão ali — uma chave
+    `ZERAMENTO:…` passava pela recusa (sensível) e DEPOIS era encontrada
+    por aquelas buscas (insensíveis), reabrindo o ataque do B4 em SQLite.
+    Corrigido normalizando os dois lados para minúsculas
+    (`chave.lower().startswith(...)`). Este teste roda no PostgreSQL da
+    suíte (onde a recusa já bastava) — o que ele prova é que a recusa
+    passou a ser insensível a caixa em QUALQUER backend, fechando a
+    divergência não pelo lado da leitura, mas pelo lado da escrita, que é
+    onde a correção mora."""
+    empresa = cenario["empresa"]
+    _usuario_com_papel(Papel.ANALISTA, cenario["escritorio"], "analista-r4")
+    assert client.login(username="analista-r4", password="senha-forte-123")
+
+    total_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    resposta = client.post(
+        reverse("contabilidade:lancamentos", args=[empresa.pk]),
+        data={
+            "data": "2026-03-31",
+            "historico": "Lançamento forjado com prefixo maiúsculo",
+            "itens": [
+                {"conta": cenario["caixa"].pk, "tipo": "debito", "valor": "1.00"},
+                {"conta": cenario["receita"].pk, "tipo": "credito", "valor": "1.00"},
+            ],
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=f"{prefixo}{empresa.pk}:2026-03:etapa1:0",
+    )
+    assert resposta.status_code == 400, resposta.content
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_antes
 
 
 # ---------------------------------------------------------------------------
@@ -1073,17 +1133,67 @@ def _saldo_proprio_liquido(empresa, conta):
     return creditos - debitos
 
 
+def _simular_zeramento_legado_de_abril(cenario, *, valor):
+    """Constrói, por FORA de `zerar_resultado`, o MESMO par de lançamentos
+    que a versão ANTERIOR à R2 (reconferência, DE-078 adendo item 2) teria
+    gravado ao zerar abril fora de ordem (contra março ainda pendente).
+
+    ⚠️ **Por que simular em vez de chamar `zerar_resultado`:** a R2 agora
+    RECUSA essa chamada na entrada (`test_r2a_...`) — o cenário "abril zera
+    sozinho, capturando o resíduo de março" deixou de ser alcançável pela
+    porta do produto. Mas um banco de PRODUÇÃO pode já ter esse estado
+    gravado de ANTES desta correção — os testes abaixo garantem que o
+    caminho de recuperação (estornar e refazer) continua funcionando para
+    um estado LEGADO assim, mesmo que a porta que o criava tenha sido
+    fechada para estados NOVOS. Usa `criar_lancamento` com
+    `permitir_prefixo_reservado=True` (o mesmo mecanismo interno que
+    `zerar_resultado` usa) e a MESMA chave determinística que ele geraria,
+    para que `_recusar_zeramento_fora_de_ordem`/`_proximo_complemento`
+    tratem este estado exatamente como tratariam um zeramento genuíno."""
+    empresa = cenario["empresa"]
+    gestor = cenario["gestor"]
+    valor = Decimal(valor)
+    lancamento_etapa1 = criar_lancamento(
+        empresa=empresa,
+        data=date(2026, 4, 30),
+        historico="Simulação de zeramento legado (pré-R2) — etapa 1",
+        itens=[
+            {"conta": cenario["receita"], "tipo": TipoPartida.DEBITO, "valor": valor},
+            {"conta": cenario["resultado"], "tipo": TipoPartida.CREDITO, "valor": valor},
+        ],
+        criado_por=gestor,
+        chave_idempotencia=f"zeramento:{empresa.pk}:2026-04:etapa1:0",
+        permitir_prefixo_reservado=True,
+    )
+    lancamento_etapa2 = criar_lancamento(
+        empresa=empresa,
+        data=date(2026, 4, 30),
+        historico="Simulação de zeramento legado (pré-R2) — etapa 2",
+        itens=[
+            {"conta": cenario["resultado"], "tipo": TipoPartida.DEBITO, "valor": valor},
+            {"conta": cenario["lucros"], "tipo": TipoPartida.CREDITO, "valor": valor},
+        ],
+        criado_por=gestor,
+        chave_idempotencia=f"zeramento:{empresa.pk}:2026-04:etapa2:0",
+        permitir_prefixo_reservado=True,
+    )
+    return {"lancamentos_etapa1": [lancamento_etapa1], "lancamento_etapa2": lancamento_etapa2}
+
+
 def test_integracao_zeramento_fora_de_ordem_recupera_com_estorno_e_refazer(cenario):
-    """Cenário do achado de integração: o gestor zera ABRIL antes de MARÇO
-    por engano (isso, por si só, é aceito — só zerar um período ANTERIOR a
-    um zeramento já gravado é recusado). Para corrigir, ele segue o próprio
-    caminho que o plano recomenda: estorna os lançamentos do zeramento de
-    abril e depois zera março. **Antes desta correção**, o zeramento de
-    abril continuava contando mesmo estornado, e março ficava bloqueado
-    para sempre. Depois, março tem que funcionar, e abril refeito tem que
-    valer exatamente 200,00 — nem os 500,00 do cálculo errado original
-    (que já incluía o resíduo de março, agora absorvido por março), nem
-    zero (perdendo o valor de abril).
+    """Cenário do achado de integração (achado que antecedeu a R2): um
+    zeramento de ABRIL fora de ordem (contra março ainda pendente) JÁ
+    GRAVADO — estado que a R2 impede de ser CRIADO pela porta do produto
+    a partir de agora (`test_r2a_...`), mas que pode preexistir de antes
+    desta correção. Para corrigir, o gestor segue o caminho que o plano
+    recomenda: estorna os lançamentos do zeramento de abril e depois zera
+    março. **Antes da correção do achado de integração** (a que precedeu
+    esta reconferência), o zeramento de abril continuava contando mesmo
+    estornado, e março ficava bloqueado para sempre. Depois, março tem
+    que funcionar, e abril refeito tem que valer exatamente 200,00 — nem
+    os 500,00 do cálculo errado original (que já incluía o resíduo de
+    março, agora absorvido por março), nem zero (perdendo o valor de
+    abril).
 
     O estorno é datado no ÚLTIMO DIA do próprio período que ele reverte
     (30/04), não em "hoje": o zeramento lê saldo ACUMULADO ATÉ a data
@@ -1101,10 +1211,11 @@ def test_integracao_zeramento_fora_de_ordem_recupera_com_estorno_e_refazer(cenar
     _lancar_receita(cenario, date(2026, 3, 31), "300.00")
     _lancar_receita(cenario, date(2026, 4, 30), "200.00")
 
-    # 1) Zera abril ANTES de março — aceito; o resíduo de março (ainda não
-    # zerado) entra no cálculo, mesmo comportamento do B2 já coberto em
-    # outro teste deste arquivo.
-    resultado_abril_1 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    # 1) Estado LEGADO: abril já zerado fora de ordem (simulado — ver o
+    # docstring de `_simular_zeramento_legado_de_abril`), capturando o
+    # resíduo de março (300) mais o próprio de abril (200) = 500,00,
+    # exatamente como o cálculo ACUMULADO já fazia antes da R2.
+    resultado_abril_1 = _simular_zeramento_legado_de_abril(cenario, valor="500.00")
     assert len(resultado_abril_1["lancamentos_etapa1"]) == 1
     assert resultado_abril_1["lancamento_etapa2"] is not None
 
@@ -1152,7 +1263,8 @@ def test_integracao_novo_zeramento_de_abril_e_idempotente(cenario):
     abril (sem nenhum movimento novo) é um no-op: nenhum lançamento novo,
     nenhuma mudança de saldo — mesma garantia de idempotência que qualquer
     outra chamada de `zerar_resultado` sem movimento novo no período
-    (docstring da função)."""
+    (docstring da função). Estado inicial simulado — ver o docstring de
+    `_simular_zeramento_legado_de_abril` e do teste anterior."""
     empresa = cenario["empresa"]
     gestor = cenario["gestor"]
     receita = cenario["receita"]
@@ -1160,7 +1272,7 @@ def test_integracao_novo_zeramento_de_abril_e_idempotente(cenario):
 
     _lancar_receita(cenario, date(2026, 3, 31), "300.00")
     _lancar_receita(cenario, date(2026, 4, 30), "200.00")
-    resultado_abril_1 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    resultado_abril_1 = _simular_zeramento_legado_de_abril(cenario, valor="500.00")
     data_do_estorno = date(2026, 4, 30)
     for lancamento in resultado_abril_1["lancamentos_etapa1"]:
         estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno)
@@ -1185,16 +1297,468 @@ def test_integracao_novo_zeramento_de_abril_e_idempotente(cenario):
 
 def test_integracao_zeramento_posterior_nao_estornado_continua_bloqueando(cenario):
     """O oposto do teste principal: SEM estornar nada, zerar um período
-    anterior a um zeramento já gravado continua recusado — a correção do
-    achado de integração não pode afrouxar o B2."""
+    anterior a um zeramento já gravado (aqui, um estado LEGADO simulado —
+    ver `_simular_zeramento_legado_de_abril`) continua recusado — a
+    correção do achado de integração não pode afrouxar o B2."""
     empresa = cenario["empresa"]
-    gestor = cenario["gestor"]
 
     _lancar_receita(cenario, date(2026, 3, 31), "300.00")
     _lancar_receita(cenario, date(2026, 4, 30), "200.00")
-    zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    _simular_zeramento_legado_de_abril(cenario, valor="500.00")
 
     total_lancamentos_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
     with pytest.raises(ZeramentoForaDeOrdem):
-        zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
+        zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=cenario["gestor"])
     assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_lancamentos_antes
+
+
+# ---------------------------------------------------------------------------
+# Caso 15 — R1 (ALTA, reconferência): a trava de empresa em `FOR UPDATE`
+# entrava em deadlock com o `FOR KEY SHARE` que `criar_lancamento` dispara no
+# COMMIT (FK `DEFERRABLE INITIALLY DEFERRED`) — corrigido com `no_key=True`.
+# ---------------------------------------------------------------------------
+
+
+def _cenario_r1(rodada):
+    """Empresa isolada por rodada, com vigência MENSAL começando em
+    01/04/2026 — o período ANTERIOR (março) fica ANTES da vigência, então
+    `_recusar_se_periodo_anterior_tem_saldo` (R2) não se aplica, e o teste
+    isola só o deadlock do R1, sem interferência da checagem de ordem."""
+    escritorio = Escritorio.objects.create(nome=f"Escritório R1 {rodada}", cnpj=f"9{rodada:013d}")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social=f"R1 {rodada} Ltda", cnpj=f"8{rodada:013d}"
+    )
+    contas = _plano_de_contas(empresa)
+    gestor = _usuario_com_papel(Papel.GESTOR, escritorio, f"r1-gestor-{rodada}")
+    _usuario_com_papel(Papel.ANALISTA, escritorio, f"r1-analista-{rodada}")
+    registrar_parametro_contabil(
+        empresa=empresa,
+        periodicidade_zeramento=PeriodicidadeZeramento.MENSAL,
+        conta_resultado_do_exercicio=contas["resultado"],
+        conta_lucros_acumulados=contas["lucros"],
+        conta_prejuizos_acumulados=contas["prejuizos"],
+        vigencia_inicio=date(2026, 4, 1),
+        usuario=gestor,
+    )
+    # Receita já lançada em abril ANTES da corrida — o zeramento sempre tem
+    # algo a zerar, com ou sem o lançamento concorrente vencendo a corrida.
+    _lancar(
+        empresa,
+        data=date(2026, 4, 10),
+        debito=contas["caixa"],
+        credito=contas["receita"],
+        valor="50.00",
+        usuario=gestor,
+    )
+    return escritorio, empresa, contas, gestor
+
+
+def _saldo_proprio_liquido_r1(empresa, conta):
+    itens = ItemLancamento.objects.filter(lancamento__empresa=empresa, conta=conta)
+    zero = Decimal("0")
+    debitos = sum((item.valor for item in itens if item.tipo == TipoPartida.DEBITO), zero)
+    creditos = sum((item.valor for item in itens if item.tipo == TipoPartida.CREDITO), zero)
+    if conta.natureza == NaturezaConta.DEVEDORA:
+        return debitos - creditos
+    return creditos - debitos
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r1_lancamento_concorrente_com_zeramento_do_mesmo_mes_nunca_da_500():
+    """R1.7: 30 rodadas HTTP reais (`Client()` próprio por thread,
+    `threading.Barrier`) — ANALISTA faz `POST /lancamentos/` em abril
+    enquanto GESTOR faz `POST` do zeramento de abril, ao mesmo tempo. Antes
+    da correção, a reconferência mediu 16 de 30 rodadas com HTTP 500
+    (deadlock real, SQLSTATE 40P01, entre o `FOR UPDATE` da trava de
+    empresa e o `FOR KEY SHARE` que a FK `empresa` de `Competencia`
+    verifica no COMMIT de `criar_lancamento`). Esperado: nenhum 500;
+    lançamento sempre 201; zeramento sempre 200 ou 409; e — como o
+    lançamento concorrente pode ou não ser capturado pelo cálculo do
+    zeramento, dependendo de quem commita primeiro — a soma do saldo
+    próprio restante em receita com o total creditado em Lucros fecha
+    sempre em 60,00 (50,00 pré-existentes + 10,00 do lançamento
+    concorrente), nunca perdendo nem duplicando valor."""
+    falhas = []
+    numero_de_rodadas = 30
+
+    for rodada in range(numero_de_rodadas):
+        _escritorio, empresa, contas, _gestor = _cenario_r1(rodada)
+
+        barreira = threading.Barrier(2)
+        resultados = {}
+
+        def _lancar_pela_api(
+            empresa=empresa, contas=contas, rodada=rodada, resultados=resultados, barreira=barreira
+        ):
+            # `raise_request_exception=False`: uma exceção não tratada na
+            # view vira uma `Response` de verdade com `status_code == 500`,
+            # em vez de propagar CRUA e matar a thread — é como um servidor
+            # de produção real se comporta (sem `DEBUG`), e é o que permite
+            # medir "quantas rodadas deram 500" pelo `status_code`, do
+            # mesmo jeito que a reconferência mediu.
+            cliente = Client(raise_request_exception=False)
+            cliente.login(username=f"r1-analista-{rodada}", password="senha-forte-123")
+            try:
+                barreira.wait(timeout=5)
+                resultados["lancamento"] = cliente.post(
+                    reverse("contabilidade:lancamentos", args=[empresa.id]),
+                    data={
+                        "data": "2026-04-20",
+                        "historico": "R1 lançamento concorrente",
+                        "itens": [
+                            {"conta": contas["caixa"].id, "tipo": "debito", "valor": "10.00"},
+                            {"conta": contas["receita"].id, "tipo": "credito", "valor": "10.00"},
+                        ],
+                    },
+                    content_type="application/json",
+                )
+            finally:
+                connection.close()
+
+        def _zerar_pela_api(
+            empresa=empresa, rodada=rodada, resultados=resultados, barreira=barreira
+        ):
+            cliente = Client(raise_request_exception=False)
+            cliente.login(username=f"r1-gestor-{rodada}", password="senha-forte-123")
+            try:
+                barreira.wait(timeout=5)
+                resultados["zeramento"] = cliente.post(
+                    reverse("contabilidade:zeramento", args=[empresa.id, 2026, 4])
+                )
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=_lancar_pela_api)
+        t2 = threading.Thread(target=_zerar_pela_api)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+        resposta_lancamento = resultados.get("lancamento")
+        resposta_zeramento = resultados.get("zeramento")
+        if resposta_lancamento is None or resposta_zeramento is None:
+            falhas.append((rodada, "thread não terminou a tempo", resultados))
+            continue
+        if resposta_lancamento.status_code >= 500:
+            falhas.append((rodada, "500 no lançamento", resposta_lancamento.status_code))
+        if resposta_zeramento.status_code >= 500:
+            falhas.append((rodada, "500 no zeramento", resposta_zeramento.status_code))
+        if resposta_lancamento.status_code != 201:
+            falhas.append((rodada, "lançamento não deu 201", resposta_lancamento.status_code))
+        if resposta_zeramento.status_code not in (200, 409):
+            falhas.append((rodada, "zeramento fora de 200/409", resposta_zeramento.status_code))
+
+        saldo_receita_restante = _saldo_proprio_liquido_r1(empresa, contas["receita"])
+        saldo_lucros = _saldo_proprio_liquido_r1(empresa, contas["lucros"])
+        total = saldo_receita_restante + saldo_lucros
+        if total != Decimal("60.00"):
+            falhas.append((rodada, "valor perdido ou duplicado", total))
+
+    assert falhas == [], f"{len(falhas)} de {numero_de_rodadas} rodadas fora do esperado: {falhas}"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r1_variante_criar_lancamento_segurando_a_transacao_nunca_bloqueia_o_zeramento():
+    """R1.7, variante: uma thread SEGURA a transação de `criar_lancamento`
+    aberta por 0,3s ANTES do commit — sincronizado por `Event` (não
+    `Barrier`) para GARANTIR que T1 já adquiriu o `FOR SHARE` da
+    competência (a PRIMEIRA metade da cadeia de deadlock do R1) antes de
+    T2 tentar o `FOR UPDATE` dela — enquanto a outra thread chama
+    `zerar_resultado` do MESMO mês, ao mesmo tempo.
+
+    ⚠️ **Por que a asserção é "T2 sempre SUCEDE", não só "sem
+    `OperationalError`":** um `OperationalError` cru NUNCA escapa desta
+    função de qualquer forma — `_e_deadlock` (defesa em profundidade,
+    também da correção do R1) já traduz 40P01 para
+    `CompetenciaTravadaPorOutraOperacao`/`EmpresaTravadaPorOutraOperacao`
+    em TODOS os pontos de trava, com ou sem `no_key=True`. Medido ao
+    escrever este teste: com o código QUEBRADO (`no_key=False`), as 5
+    rodadas terminam em `CompetenciaTravadaPorOutraOperacao` — a
+    tradução do MESMO deadlock que o R1 descreve, só que mascarado (a
+    exceção de domínio existe, então "zero `OperationalError`" sozinho
+    NÃO discrimina entre "sem deadlock" e "deadlock, mas traduzido"). Com
+    o código CORRIGIDO, a janela de 0,3s é curta demais para formar o
+    ciclo (o commit de `criar_lancamento`, sob `FOR NO KEY UPDATE`, nunca
+    espera pela empresa), então T2 só espera a competência liberar e
+    SEMPRE termina com sucesso — é essa diferença, "sempre sucede" contra
+    "às vezes recusado por trava", que prova a correção."""
+    falhas = []
+    numero_de_rodadas = 5
+
+    for rodada in range(numero_de_rodadas):
+        _escritorio, empresa, contas, gestor = _cenario_r1(rodada)
+
+        # `Event`, não `Barrier` (mesmo padrão de
+        # `test_bl470_lock_timeout_real_no_lancamento_gera_
+        # competenciaocupada_legivel`, DL-016): a ORDEM importa para forçar
+        # a interleaving exata do deadlock — T1 precisa ter ADQUIRIDO o
+        # `FOR SHARE` da competência ANTES de T2 tentar o `FOR UPDATE`
+        # dela; um `Barrier` só garante que as duas COMEÇAM juntas, não
+        # que T1 chega lá primeiro.
+        segurando_a_competencia = threading.Event()
+        erros = {}
+
+        def _criar_e_segurar(
+            empresa=empresa,
+            contas=contas,
+            gestor=gestor,
+            erros=erros,
+            segurando_a_competencia=segurando_a_competencia,
+        ):
+            try:
+                # `criar_lancamento` DE VERDADE (nunca ORM cru): é ELE quem
+                # adquire o `FOR SHARE` da competência
+                # (`_travar_competencia_em_modo_compartilhado`), a PRIMEIRA
+                # metade da cadeia de deadlock que o R1 descreve. A função
+                # tem seu PRÓPRIO `@transaction.atomic`, que aninha (vira
+                # savepoint) dentro deste `with` — o COMMIT de verdade (e o
+                # `FOR KEY SHARE` da FK) só acontece quando ESTE bloco
+                # externo termina, depois do `time.sleep`, então o `FOR
+                # SHARE` interno continua preso por toda a espera.
+                with transaction.atomic():
+                    criar_lancamento(
+                        empresa=empresa,
+                        data=date(2026, 4, 20),
+                        historico="R1 variante — segura antes do commit",
+                        itens=[
+                            {
+                                "conta": contas["caixa"],
+                                "tipo": TipoPartida.DEBITO,
+                                "valor": Decimal("10.00"),
+                            },
+                            {
+                                "conta": contas["receita"],
+                                "tipo": TipoPartida.CREDITO,
+                                "valor": Decimal("10.00"),
+                            },
+                        ],
+                        criado_por=gestor,
+                    )
+                    # Neste ponto, o `FOR SHARE` da competência já foi
+                    # concedido (a consulta acima já retornou) — só agora é
+                    # seguro deixar T2 tentar o `FOR UPDATE` dela.
+                    segurando_a_competencia.set()
+                    time.sleep(0.3)  # a transação (e o FOR SHARE) continuam abertos
+            except Exception as exc:  # noqa: BLE001 — reportado, nunca silenciado
+                erros["lancamento"] = exc  # noqa: B023 — `erros` é vinculado por padrão acima
+            finally:
+                connection.close()
+
+        def _zerar(
+            empresa=empresa,
+            gestor=gestor,
+            erros=erros,
+            segurando_a_competencia=segurando_a_competencia,
+        ):
+            try:
+                assert segurando_a_competencia.wait(timeout=5)
+                zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+            except Exception as exc:  # noqa: BLE001 — reportado, nunca silenciado
+                erros["zeramento"] = exc  # noqa: B023 — `erros` é vinculado por padrão acima
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=_criar_e_segurar)
+        t2 = threading.Thread(target=_zerar)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+        if erros:
+            falhas.append((rodada, {chave: repr(exc) for chave, exc in erros.items()}))
+
+    assert falhas == [], f"{len(falhas)} de {numero_de_rodadas} rodadas fora do esperado: {falhas}"
+
+
+# ---------------------------------------------------------------------------
+# Caso 16 — R2 (MÉDIA, reconferência): a ordem é garantida na ENTRADA — o
+# período anterior com saldo próprio pendente recusa o zeramento do período
+# seguinte, sem depender de estorno datado no passado. Testes SÓ pelas
+# portas HTTP (R2.7), como o achado pediu.
+# ---------------------------------------------------------------------------
+
+
+def _url_zerar(empresa_id, ano, mes):
+    return reverse("contabilidade:zeramento", args=[empresa_id, ano, mes])
+
+
+def test_r2a_zerar_fora_de_ordem_e_recusado_na_entrada_depois_funciona_na_ordem(client, cenario):
+    """R2.7(a): receita em março e abril; zerar abril ANTES de março é
+    recusado NA ENTRADA ("Zere primeiro 03/2026"), banco inalterado —
+    nunca chega a gravar nem a pedir estorno depois. Zerar março e depois
+    abril, na ordem, funciona normalmente, e o resultado de cada período
+    é o esperado."""
+    empresa = cenario["empresa"]
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r2a")
+    _lancar_receita(cenario, date(2026, 3, 31), "300.00")
+    _lancar_receita(cenario, date(2026, 4, 30), "200.00")
+
+    total_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    resposta_fora_de_ordem = client.post(
+        _url_zerar(empresa.id, 2026, 4), data={}, content_type="application/json"
+    )
+    assert resposta_fora_de_ordem.status_code == 400, resposta_fora_de_ordem.content
+    assert "Zere primeiro 03/2026" in resposta_fora_de_ordem.json()[0]
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_antes
+
+    resposta_marco = client.post(
+        _url_zerar(empresa.id, 2026, 3), data={}, content_type="application/json"
+    )
+    assert resposta_marco.status_code == 200, resposta_marco.content
+    assert resposta_marco.json()["destino_etapa2"] == "lucros_acumulados"
+
+    resposta_abril = client.post(
+        _url_zerar(empresa.id, 2026, 4), data={}, content_type="application/json"
+    )
+    assert resposta_abril.status_code == 200, resposta_abril.content
+    assert resposta_abril.json()["destino_etapa2"] == "lucros_acumulados"
+
+    assert _total_lucros(empresa, cenario["lucros"]) == Decimal("500.00")
+    assert _saldo_proprio_liquido(empresa, cenario["receita"]) == Decimal("0.00")
+
+
+def test_r2b_lancamento_tardio_em_periodo_ja_zerado_e_absorvido_pelo_complemento_do_ultimo(
+    client, cenario
+):
+    """R2.7(b): março e abril já foram zerados NA ORDEM. Um lançamento
+    tardio chega em março (competência ainda aberta) — complementar
+    março diretamente é recusado (`ZeramentoForaDeOrdem`, mensagem NOVA,
+    sem instrução de estorno), mas complementar ABRIL (o último período
+    zerado) absorve o valor. Maio, depois, zera normalmente."""
+    empresa = cenario["empresa"]
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r2b")
+    _lancar_receita(cenario, date(2026, 3, 10), "300.00")
+    _lancar_receita(cenario, date(2026, 4, 10), "200.00")
+    assert (
+        client.post(
+            _url_zerar(empresa.id, 2026, 3), data={}, content_type="application/json"
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            _url_zerar(empresa.id, 2026, 4), data={}, content_type="application/json"
+        ).status_code
+        == 200
+    )
+    assert _total_lucros(empresa, cenario["lucros"]) == Decimal("500.00")
+
+    # Lançamento tardio em março (a competência de março continua ABERTA —
+    # `zerar_resultado` nunca a encerra).
+    _lancar_receita(cenario, date(2026, 3, 20), "50.00")
+
+    total_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    resposta_complemento_marco = client.post(
+        _url_zerar(empresa.id, 2026, 3), data={}, content_type="application/json"
+    )
+    assert resposta_complemento_marco.status_code == 409, resposta_complemento_marco.content
+    mensagem = resposta_complemento_marco.json()["detail"]
+    assert "absorvido pelo complemento de 04/2026" in mensagem
+    assert "estorne" not in mensagem.lower()
+    assert "datando" not in mensagem.lower()
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_antes
+
+    resposta_complemento_abril = client.post(
+        _url_zerar(empresa.id, 2026, 4), data={}, content_type="application/json"
+    )
+    assert resposta_complemento_abril.status_code == 200, resposta_complemento_abril.content
+    assert resposta_complemento_abril.json()["criado_etapa1"] is True
+    assert _total_lucros(empresa, cenario["lucros"]) == Decimal("550.00")
+    assert _saldo_proprio_liquido(empresa, cenario["receita"]) == Decimal("0.00")
+
+    _lancar_receita(cenario, date(2026, 5, 15), "100.00")
+    resposta_maio = client.post(
+        _url_zerar(empresa.id, 2026, 5), data={}, content_type="application/json"
+    )
+    assert resposta_maio.status_code == 200, resposta_maio.content
+    assert _total_lucros(empresa, cenario["lucros"]) == Decimal("650.00")
+
+
+def test_r2c_mes_sem_movimento_no_meio_nao_trava_o_seguinte(client, cenario):
+    """R2.7(c): março é zerado normalmente; abril NÃO TEM nenhum
+    lançamento; maio tem receita. Zerar maio diretamente (pulando abril,
+    que nunca precisou de zeramento próprio porque não teve movimento) é
+    ACEITO — abril vazio não trava o mês seguinte."""
+    empresa = cenario["empresa"]
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r2c")
+    _lancar_receita(cenario, date(2026, 3, 31), "300.00")
+    assert (
+        client.post(
+            _url_zerar(empresa.id, 2026, 3), data={}, content_type="application/json"
+        ).status_code
+        == 200
+    )
+
+    _lancar_receita(cenario, date(2026, 5, 31), "200.00")
+    resposta_maio = client.post(
+        _url_zerar(empresa.id, 2026, 5), data={}, content_type="application/json"
+    )
+    assert resposta_maio.status_code == 200, resposta_maio.content
+    assert _total_lucros(empresa, cenario["lucros"]) == Decimal("500.00")
+
+
+def test_r2d_primeiro_periodo_da_vigencia_nao_e_bloqueado_por_saldo_anterior_a_ela(client):
+    """R2.7(d): a empresa tem receita lançada em janeiro/fevereiro de 2026,
+    ANTES de existir qualquer parâmetro contábil. Uma vigência MENSAL só
+    começa em 01/03/2026. Zerar março (o PRIMEIRO período desta vigência)
+    não pode ser bloqueado pelo saldo de janeiro/fevereiro — esse saldo é
+    anterior à própria vigência (implantação, ou período coberto por
+    outro regime), não um "resíduo desta regra" que ficou para trás."""
+    escritorio = Escritorio.objects.create(nome="Escritório R2D", cnpj="31111111000100")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="R2D Ltda", cnpj="31111111000200"
+    )
+    contas = _plano_de_contas(empresa)
+    gestor = _usuario_com_papel(Papel.GESTOR, escritorio, "gestor-r2d")
+    _lancar(
+        empresa,
+        data=date(2026, 1, 15),
+        debito=contas["caixa"],
+        credito=contas["receita"],
+        valor="900.00",
+        usuario=gestor,
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 2, 15),
+        debito=contas["caixa"],
+        credito=contas["receita"],
+        valor="100.00",
+        usuario=gestor,
+    )
+    registrar_parametro_contabil(
+        empresa=empresa,
+        periodicidade_zeramento=PeriodicidadeZeramento.MENSAL,
+        conta_resultado_do_exercicio=contas["resultado"],
+        conta_lucros_acumulados=contas["lucros"],
+        conta_prejuizos_acumulados=contas["prejuizos"],
+        vigencia_inicio=date(2026, 3, 1),
+        usuario=gestor,
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 3, 31),
+        debito=contas["caixa"],
+        credito=contas["receita"],
+        valor="50.00",
+        usuario=gestor,
+    )
+
+    assert client.login(username="gestor-r2d", password="senha-forte-123")
+    resposta = client.post(
+        _url_zerar(empresa.id, 2026, 3), data={}, content_type="application/json"
+    )
+
+    assert resposta.status_code == 200, resposta.content
+    # A RECUSA (o que este teste verifica) não dispara — mas o CÁLCULO em
+    # si continua o mesmo de sempre (saldo PRÓPRIO acumulado até a data
+    # final, RC-104, nunca escopado por vigência): os 900 + 100 de
+    # janeiro/fevereiro, nunca zerados antes por não existir parâmetro
+    # algum naquela época, somam-se aos 50 de março. R2 só decide SE o
+    # zeramento é permitido de entrada, não recorta o QUE ele captura.
+    assert _total_lucros(empresa, contas["lucros"]) == Decimal("1050.00")
+    assert (
+        LancamentoContabil.objects.filter(empresa=empresa).count() == 5
+    )  # 3 lançados + 2 do zeramento
