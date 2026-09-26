@@ -212,6 +212,7 @@ Cada um precisa de validação antes de virar comportamento definitivo.
 | HI-21 | **Recebem documentos fiscais os mesmos papéis que escrituram** (administrador, gestor, analista, financeiro); **consultam** os mesmos que leem a contabilidade (todos menos cliente). | Reuso da matriz já confirmada para a contabilidade; não há matriz fiscal definida (PE-08). | Fred confirma, ou define quem no escritório importa notas. |
 | HI-22 | **Limites de um envio:** até 50 MB enviados, **2.000 arquivos** (revisto em 2026-09-25, DE-076; era 10.000), 1 MB por XML e 200 MB descompactados; um envio por vez por escritório. | A auditoria mediu 37 s para 5.850 arquivos e 61 s para 10.000, acima dos 30 s do servidor (A4). Limite existe também para o ZIP hostil não derrubar o servidor. | Primeiro uso real com o lote do escritório; se três envios para o acervo forem incômodos, processamento em segundo plano, não limite maior. |
 | HI-23 | **Nova empresa com CPF sugere o modo livro-caixa**; o usuário pode trocar. | O escritório faz livro-caixa e carnê-leão para os clientes pessoa física (RC-113); no manual de referência o carnê-leão só existe em modo livro-caixa. | Fred confirma se há pessoa física com contabilidade completa na carteira. |
+| HI-24 | **O zeramento do resultado é disparado pelo usuário na tela do fechamento**, com prévia, e não automaticamente ao encerrar a competência. | Evita lançamento automático que o contador não viu; mantém o fechamento como ato separado (RC-101/RC-102). | Fred confirma se prefere o zeramento automático no encerramento. |
 
 ## Pendências
 

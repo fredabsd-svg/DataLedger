@@ -3,11 +3,14 @@
 {% block titulo %}Empresas{% endblock %}
 
 {% block content %}
-    <h1>Empresas</h1>
-
-    {% if pode_cadastrar %}
-        <p><a href="{% url 'empresas:criar' %}">Nova empresa</a></p>
-    {% endif %}
+    <div class="cabecalho-pagina">
+        <h1>Empresas</h1>
+        {% if pode_cadastrar %}
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Nova empresa</a>
+            </div>
+        {% endif %}
+    </div>
 
     <table class="tabela-dados">
         <caption class="visualmente-oculto">Empresas cadastradas no escritório ativo</caption>
@@ -84,6 +87,23 @@
                             <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a>
                             ·
                             <a href="{% url 'contabilidade_web:lancamento_novo' empresa.id %}">Lançar</a>
+                            {% if secao_de_troca %}
+                                {% comment %}
+                                DL-040: "Trocar de empresa" do menu global
+                                (templates/base.html) chega aqui com
+                                `?secao=<rota atual>` — este link devolve à
+                                MESMA seção, agora nesta empresa, via
+                                `empresas:trocar-secao`
+                                (apps.empresas.views.trocar_empresa_na_secao,
+                                que confirma no SERVIDOR que a empresa
+                                pertence ao escritório ativo antes de
+                                redirecionar).
+                                {% endcomment %}
+                                ·
+                                <a href="{% url 'empresas:trocar-secao' %}?empresa_id={{ empresa.id }}&secao={{ secao_de_troca }}">
+                                    Continuar aqui
+                                </a>
+                            {% endif %}
                         {% endif %}
                     </td>
                 </tr>

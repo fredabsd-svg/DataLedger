@@ -26,13 +26,22 @@ from apps.empresas.validators import mensagem_de_vigencia_de_regime_fora_da_faix
 # condicional — ver apps/empresas/models.py) porque a unicidade do CNPJ de
 # `Empresa` deixou de poder ser incondicional: duas empresas CPF têm
 # `cnpj == ""` e isso NUNCA pode contar como duplicata. `empresa_cpf_unico`
-# é a entrada nova, simétrica, para CPF (R3/PE-21: mesma política GLOBAL do
-# CNPJ). `empresas_estabelecimento_cnpj_key` não muda — `Estabelecimento`
-# continua exclusivamente CNPJ (R7).
+# foi a entrada nova, simétrica, para CPF.
+#
+# DL-041 (RC-115/DE-077, decisão do Fred na PE-68): as TRÊS constraints
+# passaram a ser POR ESCRITÓRIO — `empresa_cnpj_unico`/`empresa_cpf_unico`
+# viraram `..._por_escritorio` (a unicidade GLOBAL revelava, a um
+# escritório, que um CNPJ/CPF já era cliente de OUTRO), e
+# `empresas_estabelecimento_cnpj_key` (índice implícito do antigo
+# `unique=True` de `Estabelecimento.cnpj`) foi SUBSTITUÍDA por
+# `estabelecimento_cnpj_unico_por_escritorio` — `Estabelecimento` ganhou
+# uma coluna `escritorio` (desnormalizada de `empresa.escritorio`, ver o
+# comentário completo em `apps/empresas/models.py`) especificamente para
+# isso. Os NOMES trocaram; os TIPOS (campo, rótulo) continuam os mesmos.
 _CONSTRAINTS_INSCRICAO_UNICA = {
-    "empresa_cnpj_unico": (Empresa, "cnpj", "CNPJ"),
-    "empresas_estabelecimento_cnpj_key": (Estabelecimento, "cnpj", "CNPJ"),
-    "empresa_cpf_unico": (Empresa, "cpf", "CPF"),
+    "empresa_cnpj_unico_por_escritorio": (Empresa, "cnpj", "CNPJ"),
+    "estabelecimento_cnpj_unico_por_escritorio": (Estabelecimento, "cnpj", "CNPJ"),
+    "empresa_cpf_unico_por_escritorio": (Empresa, "cpf", "CPF"),
 }
 
 
@@ -103,8 +112,16 @@ def mensagem_cnpj_duplicado(model, rotulo="CNPJ"):
     modelo, para não hardcodear "empresa"/"estabelecimento" em dois
     lugares). `rotulo` é "CNPJ" por padrão (compatibilidade com os dois
     chamadores existentes, que só tratam CNPJ) — DL-038 passa "CPF" para
-    o caso novo."""
-    return f"{model._meta.verbose_name} com este {rotulo} já existe."
+    o caso novo.
+
+    DL-041 (RC-115/DE-077, critério 4 do plano): "neste escritório" no
+    fim — a mensagem NUNCA pode dar a entender que a duplicidade é
+    GLOBAL, porque não é mais: o mesmo CNPJ/CPF pode existir, legitimamente,
+    em outro escritório (o caso normal de cliente que troca de contador).
+    Sem essa frase, "empresa com este CNPJ já existe" seria ambíguo — o
+    contador não saberia se é um cadastro seu duplicado ou uma coincidência
+    seguida de rejeição misteriosa."""
+    return f"{model._meta.verbose_name} com este {rotulo} já existe neste escritório."
 
 
 class CNPJDuplicado(ValidationError):
@@ -195,8 +212,9 @@ def erro_de_cnpj_duplicado_como_400():
     traduzir só o tipo estreito para o formato de erro certo.
 
     Só a violação das constraints de ``_CONSTRAINTS_INSCRICAO_UNICA``
-    (``empresa_cnpj_unico``, ``empresa_cpf_unico``,
-    ``empresas_estabelecimento_cnpj_key``) é traduzida
+    (``empresa_cnpj_unico_por_escritorio``, ``empresa_cpf_unico_por_
+    escritorio``, ``estabelecimento_cnpj_unico_por_escritorio`` — DL-041,
+    RC-115) é traduzida
     (``mensagem_se_cnpj_duplicado`` devolve ``(None, None)`` para qualquer
     outra causa, e este gerenciador deixa o ``IntegrityError`` original
     subir sem tradução nesse caso) — não repetir o erro da DL-007, que
@@ -621,4 +639,72 @@ def recusar_transicao_para_cpf_com_estabelecimento(empresa, *, tipo_anterior, ti
             "Não é possível mudar esta empresa para CPF: ela já tem estabelecimento "
             "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
             "tipo de inscrição."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Achado U-B4 da auditoria DL-041 rodada 1 (preexistente à DL-041, gravidade
+# baixa, decisão do arquiteto-senior): dentro do MESMO escritório, nada
+# impedia o CNPJ X ser, ao mesmo tempo, o CNPJ de uma `Empresa` E de um
+# `Estabelecimento` de OUTRA empresa — a recepção fiscal identifica por
+# dicionário (`apps.fiscal.services._mapa_de_inscricoes_do_escritorio`) e
+# escolhe UM dos dois (o `Empresa` vence, por `setdefault`), sem aviso: a
+# nota daquele CNPJ pode ir para a empresa errada, silenciosamente. O caso
+# LEGÍTIMO — a matriz de uma empresa usar o MESMO CNPJ da própria empresa —
+# não é afetado: só a colisão com uma empresa ou estabelecimento de OUTRA
+# empresa é recusada.
+#
+# LIMITE DECLARADO (decisão do arquiteto-senior): sem restrição de banco
+# nesta etapa — é uma invariante CRUZADA entre `Empresa` e
+# `Estabelecimento`, e as duas colunas de CNPJ vivem em tabelas
+# DIFERENTES; uma `CheckConstraint`/`UniqueConstraint` de `Meta` não
+# alcança isso (mesma classe de limite do achado B2/DL-039, que resolveu
+# com GATILHO — aqui a decisão foi NÃO abrir mais um gatilho para uma
+# invariante de gravidade baixa, preexistente, sem caminho de corrida
+# multi-tabela conhecido). A defesa fica só nas camadas 2 (serviço) e 3
+# (serializer/form `clean()`) da DE-008: admin, API e `Model.clean()`.
+class InscricaoCruzadaEntreEmpresaEEstabelecimento(ValidationError):
+    """CNPJ que colide entre `Empresa` e `Estabelecimento` de empresas
+    DIFERENTES do MESMO escritório. Subclasse de `ValidationError`, mesmo
+    contrato de `EstabelecimentoParaEmpresaCPF`."""
+
+
+def recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+    escritorio_id, cnpj, *, empresa_do_estabelecimento
+):
+    """Levanta se `cnpj` (de um `Estabelecimento` sendo criado/editado)
+    já é o CNPJ de uma `Empresa` DIFERENTE de `empresa_do_estabelecimento`,
+    no MESMO escritório (`escritorio_id`, nunca o objeto — evita resolver
+    uma FK que pode ser inválida em contexto de modelo, mesmo cuidado do
+    resto do arquivo). `empresa_do_estabelecimento` nunca é excluída por
+    acaso: é o caso LEGÍTIMO (matriz com o CNPJ da própria empresa).
+    """
+    colide = (
+        Empresa.objects.filter(escritorio_id=escritorio_id, cnpj=cnpj)
+        .exclude(pk=empresa_do_estabelecimento.pk)
+        .exists()
+    )
+    if colide:
+        raise InscricaoCruzadaEntreEmpresaEEstabelecimento(
+            "Este CNPJ já é de outra empresa deste escritório — não pode ser usado "
+            "como CNPJ de estabelecimento (matriz/filial) de uma empresa diferente."
+        )
+
+
+def recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+    escritorio_id, cnpj, *, empresa
+):
+    """Simétrica: levanta se `cnpj` (de uma `Empresa` sendo criada/
+    editada) já é o CNPJ de um `Estabelecimento` de uma empresa DIFERENTE
+    de `empresa`, no MESMO escritório (`escritorio_id`, pelo mesmo motivo
+    da função irmã, acima). Estabelecimentos da PRÓPRIA `empresa` são
+    excluídos — de novo, o caso legítimo da matriz.
+    """
+    qs = Estabelecimento.objects.filter(escritorio_id=escritorio_id, cnpj=cnpj)
+    if empresa.pk is not None:
+        qs = qs.exclude(empresa_id=empresa.pk)
+    if qs.exists():
+        raise InscricaoCruzadaEntreEmpresaEEstabelecimento(
+            "Este CNPJ já é de um estabelecimento (matriz/filial) de outra empresa "
+            "deste escritório."
         )

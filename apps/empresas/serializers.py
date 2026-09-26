@@ -1,6 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from rest_framework.validators import UniqueValidator
 
 from apps.empresas.fields import CNPJSerializerField, CPFSerializerField
 from apps.empresas.models import (
@@ -13,6 +12,7 @@ from apps.empresas.models import (
 from apps.empresas.services import (
     erros_de_consistencia_de_inscricao,
     modo_escrituracao_sugerido,
+    recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
     recusar_transicao_para_cpf_com_estabelecimento,
     recusar_transicao_para_livro_caixa_com_movimento,
 )
@@ -20,10 +20,61 @@ from apps.empresas.services import mensagem_cnpj_duplicado as _mensagem_cnpj_dup
 
 # CNPJSerializerField é declarado explicitamente nos dois serializers abaixo
 # (não é o CharField automático do ModelSerializer), então precisa repor à
-# mão o UniqueValidator que o ModelSerializer geraria sozinho para um campo
-# unique=True. A mensagem vem de apps.empresas.services.mensagem_cnpj_duplicado
-# — a mesma usada por views.py para o caso de corrida (R4 da reauditoria da
-# etapa DL-011), para as duas rotas darem exatamente o mesmo texto.
+# mão o validador de unicidade que o ModelSerializer geraria sozinho para um
+# campo unique=True. A mensagem vem de apps.empresas.services.
+# mensagem_cnpj_duplicado — a mesma usada por views.py para o caso de corrida
+# (R4 da reauditoria da etapa DL-011), para as duas rotas darem exatamente o
+# mesmo texto.
+
+
+class ValidadorDeUnicidadePorEscritorio:
+    """Substitui `rest_framework.validators.UniqueValidator` nos campos
+    `cnpj`/`cpf` deste módulo — achado da DL-041 (RC-115/DE-077, decisão do
+    Fred na PE-68).
+
+    O `UniqueValidator` do DRF recebe um `queryset` FIXO, decidido na hora
+    em que o MÓDULO é importado (`queryset=Empresa.objects.all()` — sem
+    filtro de escritório nenhum, porque o escritório só existe POR
+    REQUISIÇÃO, resolvido pelo middleware em `request.escritorio`, e não
+    dá para escrever isso num `queryset=` de classe). Antes desta etapa,
+    isso fazia a API recusar `POST` para um CNPJ/CPF que já era cliente de
+    OUTRO escritório — exatamente o vazamento que a RC-115 existe para
+    fechar (a unicidade no BANCO já é por escritório desde esta etapa,
+    ver `apps/empresas/models.py`; sem trocar este validador, o serializer
+    continuaria recusando ANTES de a gravação sequer chegar ao banco, com
+    a mesma mensagem de vazamento).
+
+    `requires_context = True` (protocolo do DRF) entrega `serializer_
+    field` a `__call__`, de onde se chega ao serializer e ao seu
+    `context["request"]` — a MESMA requisição cujo `request.escritorio`
+    a view usa para escopar a gravação (`EmpresaSerializer.create()`,
+    `EstabelecimentoListCreateView.perform_create`). Implementado sem
+    herdar de `UniqueValidator` de propósito: aquele guarda `queryset`
+    filtrado num atributo de INSTÂNCIA compartilhada entre requisições —
+    tentar reaproveitar `filter_queryset`/`exclude_current_instance` por
+    herança exigiria mutar `self` a cada chamada, o que não é seguro sob
+    um servidor multi-thread (duas requisições concorrentes pisando no
+    mesmo atributo). Esta classe faz tudo dentro do escopo LOCAL de
+    `__call__`, sem estado compartilhado nenhum.
+    """
+
+    requires_context = True
+
+    def __init__(self, queryset, message):
+        self.queryset = queryset
+        self.message = message
+
+    def __call__(self, value, serializer_field):
+        field_name = serializer_field.source_attrs[-1]
+        serializer = serializer_field.parent
+        instance = getattr(serializer, "instance", None)
+        escritorio = serializer.context["request"].escritorio
+
+        queryset = self.queryset.filter(escritorio=escritorio, **{field_name: value})
+        if instance is not None:
+            queryset = queryset.exclude(pk=instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError(self.message, code="unique")
 
 
 class HistoricoRegimeTributarioSerializer(serializers.ModelSerializer):
@@ -37,12 +88,14 @@ class EstabelecimentoSerializer(serializers.ModelSerializer):
     # Declarado explicitamente (não o CharField automático do
     # ModelSerializer): CNPJSerializerField normaliza e valida dentro do
     # laço por-campo do DRF, o que preserva a agregação de erros com os
-    # demais campos (R7 da reauditoria da etapa DL-011). UniqueValidator
-    # precisa ser reposto à mão pelo mesmo motivo — campo explícito não
-    # herda os validadores que o ModelSerializer geraria sozinho.
+    # demais campos (R7 da reauditoria da etapa DL-011). O validador de
+    # unicidade precisa ser reposto à mão pelo mesmo motivo — campo
+    # explícito não herda os validadores que o ModelSerializer geraria
+    # sozinho. `ValidadorDeUnicidadePorEscritorio` (DL-041/RC-115), não
+    # `UniqueValidator` — ver a docstring da classe.
     cnpj = CNPJSerializerField(
         validators=[
-            UniqueValidator(
+            ValidadorDeUnicidadePorEscritorio(
                 queryset=Estabelecimento.objects.all(),
                 message=_mensagem_cnpj_duplicado(Estabelecimento),
             )
@@ -73,14 +126,16 @@ class EmpresaSerializer(serializers.ModelSerializer):
     # `validate`, porque é regra ENTRE campos, e o DRF só garante que os
     # dois já passaram pela normalização individual antes de `validate`
     # rodar). `allow_blank=True` é o que faz o DRF pular `to_internal_
-    # value` (e os `validators`, inclusive o `UniqueValidator` abaixo) para
-    # entrada vazia — ver a docstring de `CPFSerializerField`.
+    # value` (e os `validators`, inclusive o validador de unicidade
+    # abaixo) para entrada vazia — ver a docstring de `CPFSerializerField`.
+    # `ValidadorDeUnicidadePorEscritorio` (DL-041/RC-115), não
+    # `UniqueValidator` — ver a docstring da classe, no topo do módulo.
     cnpj = CNPJSerializerField(
         required=False,
         allow_blank=True,
         default="",
         validators=[
-            UniqueValidator(
+            ValidadorDeUnicidadePorEscritorio(
                 queryset=Empresa.objects.all(), message=_mensagem_cnpj_duplicado(Empresa)
             )
         ],
@@ -90,7 +145,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
         allow_blank=True,
         default="",
         validators=[
-            UniqueValidator(
+            ValidadorDeUnicidadePorEscritorio(
                 queryset=Empresa.objects.all(),
                 message=_mensagem_cnpj_duplicado(Empresa, "CPF"),
             )
@@ -152,6 +207,31 @@ class EmpresaSerializer(serializers.ModelSerializer):
         erros = erros_de_consistencia_de_inscricao(tipo, cnpj, cpf)
         if erros:
             raise serializers.ValidationError(erros)
+
+        # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+        # arquiteto-senior): o CNPJ desta empresa não pode ser o MESMO de
+        # um estabelecimento de OUTRA empresa do mesmo escritório. Na
+        # criação, `self.instance` ainda não existe — usa `request.
+        # escritorio` (o único escritório em que a empresa pode nascer,
+        # isolamento de tenant) e uma `Empresa()` sem `pk` (a função exclui
+        # só quando há `pk`, então nada é excluído: correto, empresa nova
+        # não tem estabelecimento próprio ainda). Na edição, usa o
+        # escritório e a instância JÁ GRAVADOS (`escritorio` nunca muda,
+        # DL-023). Só roda quando há CNPJ — empresa CPF não tem esse risco.
+        if cnpj:
+            escritorio_id = (
+                self.instance.escritorio_id
+                if self.instance is not None
+                else self.context["request"].escritorio.id
+            )
+            try:
+                recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+                    escritorio_id,
+                    cnpj,
+                    empresa=self.instance if self.instance is not None else Empresa(),
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"cnpj": exc.messages}) from exc
 
         # HI-23 (achado B5 da auditoria): só se aplica na CRIAÇÃO
         # (`self.instance is None`) e só quando o cliente OMITIU

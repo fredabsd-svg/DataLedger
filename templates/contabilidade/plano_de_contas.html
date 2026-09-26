@@ -10,12 +10,33 @@
 {% endblock %}
 
 {% block content %}
-    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
+    {% comment %}
+    DL-042 (2ª passada): padronizado para `.botao--secundario` — mesmo tom
+    que TODA outra tela de contabilidade usa para "Voltar" (conta_form.html,
+    lancamento_detalhe.html, competencia_fechar/reabrir/entregar.html);
+    esta era a única exceção com link não estilizado, achado no diagnóstico
+    de padronização de botões.
+    {% endcomment %}
+    <p><a class="botao botao--secundario" href="{% url 'empresas:lista' %}">‹ Voltar para empresas</a></p>
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="plano_de_contas" %}
-    <h1>Plano de contas — {{ empresa.razao_social }}</h1>
 
+    {% comment %}
+    DL-042 (2ª passada): "Nova conta" promovida para `.cabecalho-pagina__
+    acoes` com `.botao--primario` — mesmo padrão de toda outra tela ATIVA
+    com ação primária clara (empresas/lista.html "Nova empresa",
+    fiscal/documentos_lista.html "Enviar documentos"), achado no
+    diagnóstico de padronização: esta tela tinha o único link de criação
+    de uma lista que continuava como `<p><a>` sem estilo nenhum.
+    {% endcomment %}
     {% if pode_escriturar %}
-        <p><a href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a></p>
+        <div class="cabecalho-pagina">
+            <h1>Plano de contas — {{ empresa.razao_social }}</h1>
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a>
+            </div>
+        </div>
+    {% else %}
+        <h1>Plano de contas — {{ empresa.razao_social }}</h1>
     {% endif %}
 
     {% if linhas %}

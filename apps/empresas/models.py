@@ -139,14 +139,16 @@ class Empresa(models.Model):
         choices=TipoInscricao.choices,
         default=TipoInscricao.CNPJ,
     )
-    # `unique=True` REMOVIDO nesta etapa (DL-038): a unicidade de CNPJ
-    # continua GLOBAL (R3/PE-21, política inalterada), mas agora é
-    # CONDICIONAL — vazio (empresa CPF) não pode contar como "duplicata" de
-    # outro vazio. Django não expressa unicidade condicional com
-    # `unique=True` de campo; a unicidade real está na UniqueConstraint
-    # "empresa_cnpj_unico" (Meta, abaixo), que substitui o índice implícito
-    # `empresas_empresa_cnpj_key` que existia antes (ver apps.empresas.
-    # services._CONSTRAINTS_INSCRICAO_UNICA e apps.core.restricoes).
+    # `unique=True` REMOVIDO na DL-038: a unicidade de CNPJ é CONDICIONAL
+    # — vazio (empresa CPF) não pode contar como "duplicata" de outro
+    # vazio. Django não expressa unicidade condicional com `unique=True`
+    # de campo; a unicidade real está na UniqueConstraint "empresa_cnpj_
+    # unico_por_escritorio" (Meta, abaixo), que substitui o índice
+    # implícito `empresas_empresa_cnpj_key` que existia antes (ver
+    # apps.empresas.services._CONSTRAINTS_INSCRICAO_UNICA e apps.core.
+    # restricoes). DL-041 (RC-115/DE-077): a unicidade deixou de ser
+    # GLOBAL e passou a ser POR ESCRITÓRIO — ver o comentário completo
+    # junto da constraint, no Meta.
     #
     # `default=""` (permite gravar vazio para empresa CPF), mas SEM
     # `blank=True`: a obrigatoriedade em FORMULÁRIO (EmpresaForm,
@@ -167,9 +169,10 @@ class Empresa(models.Model):
     cnpj = CNPJModelField("CNPJ", max_length=14, default="", validators=[validar_cnpj])
     # DL-038 (R2): CPF de 11 dígitos, sem máscara, com zero à esquerda
     # preservado (é `CharField`, nunca convertido para número). Unicidade
-    # GLOBAL condicional, mesmo padrão do cnpj acima — ver
-    # "empresa_cpf_unico" no Meta. DV validado por `validar_cpf`
-    # (`apps.empresas.validators` — fonte NÃO oficial, declarada lá).
+    # condicional POR ESCRITÓRIO (DL-041/RC-115), mesmo padrão do cnpj
+    # acima — ver "empresa_cpf_unico_por_escritorio" no Meta. DV validado
+    # por `validar_cpf` (`apps.empresas.validators` — fonte NÃO oficial,
+    # declarada lá).
     cpf = CPFModelField("CPF", max_length=11, blank=True, default="", validators=[validar_cpf])
     # DL-038 (R4): como a empresa é escriturada. Ver ModoEscrituracao acima
     # para a política de valor padrão (sempre CONTABILIDADE, mesmo para
@@ -275,22 +278,29 @@ class Empresa(models.Model):
                 ),
                 name="empresa_inscricao_consistente_com_tipo",
             ),
-            # DL-038 (R3/PE-21): substitui o índice implícito
+            # DL-041 (RC-115/DE-077): substitui o índice implícito
             # `empresas_empresa_cnpj_key` (unique=True de campo, removido
-            # do `cnpj` acima) — unicidade GLOBAL, mas só sobre valor NÃO
-            # vazio: duas empresas CPF (cnpj="") nunca colidem entre si por
-            # este motivo. Mesma política de sempre (global, não por
-            # escritório) — PE-21 continua aberta, para os dois tipos.
+            # do `cnpj` acima) — unicidade só sobre valor NÃO vazio (duas
+            # empresas CPF, `cnpj=""`, nunca colidem entre si por este
+            # motivo) e agora POR ESCRITÓRIO, não mais global. ANTES desta
+            # etapa (DL-038, achado R3/PE-21) a unicidade era global — o
+            # Fred decidiu (PE-68/PE-21, RC-115) que isso vazava a carteira
+            # de um escritório para outro (e, com CPF, dado pessoal —
+            # LGPD): um escritório descobria, ao tentar cadastrar, que um
+            # CNPJ/CPF já era cliente de OUTRO escritório. `fields` inclui
+            # `escritorio`: a MESMA empresa (mesmo CNPJ) pode existir em
+            # dois escritórios diferentes — o caso normal de cliente que
+            # troca de contador (consequência aceita, DE-077).
             models.UniqueConstraint(
-                fields=["cnpj"],
+                fields=["escritorio", "cnpj"],
                 condition=~models.Q(cnpj=""),
-                name="empresa_cnpj_unico",
+                name="empresa_cnpj_unico_por_escritorio",
             ),
-            # DL-038 (R3/PE-21): simétrica à de cima, para CPF.
+            # DL-041: simétrica à de cima, para CPF.
             models.UniqueConstraint(
-                fields=["cpf"],
+                fields=["escritorio", "cpf"],
                 condition=~models.Q(cpf=""),
-                name="empresa_cpf_unico",
+                name="empresa_cpf_unico_por_escritorio",
             ),
             # Achado B8 da auditoria rodada 1: `modo_escrituracao` não tinha
             # NENHUMA restrição de domínio no banco — `Empresa.objects.
@@ -396,8 +406,9 @@ class Empresa(models.Model):
         # então `validate_unique()` (que `ModelForm.is_valid()` também
         # chama) já cobria a duplicidade, com a mensagem amigável do
         # `UniqueValidator`. Ao trocar para `UniqueConstraint` condicional
-        # ("empresa_cnpj_unico"/"empresa_cpf_unico" — a unicidade
-        # condicional NÃO é expressável com `unique=True` de campo),
+        # ("empresa_cnpj_unico_por_escritorio"/"empresa_cpf_unico_por_
+        # escritorio" — a unicidade condicional NÃO é expressável com
+        # `unique=True` de campo),
         # `validate_constraints()` virou o único caminho que a detecta
         # dentro do ciclo de vida do `ModelForm`, e ele produz uma
         # mensagem GENÉRICA do próprio Django ("Restrição "X" foi
@@ -520,6 +531,22 @@ class Empresa(models.Model):
                     self, tipo_anterior=tipo_gravado, tipo_novo=self.tipo_inscricao
                 )
 
+        # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+        # arquiteto-senior, limite declarado em apps/empresas/services.py):
+        # o CNPJ desta empresa não pode ser o MESMO de um estabelecimento
+        # de OUTRA empresa do mesmo escritório — fora do bloco `if self.pk`
+        # acima, de propósito: esta checagem vale tanto para empresa NOVA
+        # quanto para EDIÇÃO (não é uma checagem de TRANSIÇÃO, é sobre o
+        # estado atual do cadastro).
+        if self.escritorio_id is not None and self.cnpj:
+            from apps.empresas.services import (
+                recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
+            )
+
+            recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+                self.escritorio_id, self.cnpj, empresa=self
+            )
+
 
 class RegimeTributario(models.TextChoices):
     SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
@@ -612,9 +639,38 @@ class Estabelecimento(models.Model):
     """Unidade (matriz ou filial) de uma empresa, com CNPJ e endereço próprios."""
 
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name="estabelecimentos")
+    # DL-041 (RC-115/DE-077): DESNORMALIZADO a partir de `empresa.
+    # escritorio` — nunca gravável por formulário/API/admin (`editable=
+    # False`, excluído de `Meta.fields = "__all__"` e de qualquer
+    # ModelForm/serializer automaticamente), sempre DERIVADO em `save()`,
+    # abaixo. Existe para a unicidade de CNPJ do estabelecimento poder ser
+    # POR ESCRITÓRIO (critério 2 do plano DL-041) sem uma sub-consulta:
+    # `Estabelecimento` não tinha coluna de escritório nenhuma antes desta
+    # etapa, e a alternativa (JOIN com `empresas_empresa` dentro da
+    # `UniqueConstraint`) não é uma operação que o PostgreSQL/Django
+    # oferece — `UniqueConstraint` só enxerga colunas da PRÓPRIA tabela.
+    # Escolhida em vez de gatilho VALIDADOR (como o de B2/DL-039) porque
+    # aqui não há duas pontas de uma invariante bidirecional para travar
+    # contra corrida — a empresa NÃO MUDA de escritório (DL-023, guarda em
+    # `Empresa.clean()`), então a coluna, uma vez preenchida certo, nunca
+    # fica desatualizada por uma mudança legítima. O risco que sobra é só
+    # "alguém grava o valor errado direto" — coberto por DUAS camadas:
+    # `save()` (abaixo, Python, os dois bancos) e, só em PostgreSQL, um
+    # gatilho que SEMPRE recalcula a partir de `empresa_id` antes de
+    # gravar (migração 0012) — cobre `bulk_create`/`QuerySet.update()`/SQL
+    # direto, que `save()` não alcança. Em SQLite (desenvolvimento,
+    # DE-014) só a camada Python existe — limite ACEITO e declarado na
+    # migração, mesmo padrão do gatilho de B2 (DL-039).
+    escritorio = models.ForeignKey(
+        Escritorio, verbose_name="escritório", on_delete=models.PROTECT, editable=False
+    )
     tipo = models.CharField("tipo", max_length=10, choices=TipoEstabelecimento.choices)
     nome = models.CharField("nome/apelido", max_length=200)
-    cnpj = CNPJModelField("CNPJ", max_length=14, unique=True, validators=[validar_cnpj])
+    # `unique=True` REMOVIDO nesta etapa (DL-041): a unicidade deixou de
+    # ser GLOBAL — ver a `UniqueConstraint` "estabelecimento_cnpj_unico_
+    # por_escritorio" no Meta, abaixo, e o comentário do campo
+    # `escritorio` acima sobre por que existe uma coluna nova para isso.
+    cnpj = CNPJModelField("CNPJ", max_length=14, validators=[validar_cnpj])
     logradouro = models.CharField("logradouro", max_length=200, blank=True)
     numero = models.CharField("número", max_length=20, blank=True)
     complemento = models.CharField("complemento", max_length=100, blank=True)
@@ -645,6 +701,16 @@ class Estabelecimento(models.Model):
                 condition=_CNPJ_E_CANONICO & _CNPJ_TEM_FORMATO_VALIDO,
                 name="estabelecimento_cnpj_canonico",
             ),
+            # DL-041 (RC-115/DE-077, critério 2 do plano): substitui o
+            # `unique=True` global removido de `cnpj` acima. `escritorio`
+            # é a coluna desnormalizada documentada no campo, no início da
+            # classe — em PostgreSQL, um gatilho (migração 0012) garante
+            # que ela SEMPRE reflete `empresa.escritorio`, mesmo por
+            # caminhos que não chamam `save()`.
+            models.UniqueConstraint(
+                fields=["escritorio", "cnpj"],
+                name="estabelecimento_cnpj_unico_por_escritorio",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -656,6 +722,21 @@ class Estabelecimento(models.Model):
         # "estabelecimento_cnpj_canonico" acima é quem garante isso também
         # nesses caminhos.
         self.cnpj = normalizar_cnpj(self.cnpj)
+        # DL-041: `escritorio` é SEMPRE derivado de `empresa.escritorio`
+        # aqui — nunca aceito de fora (o campo é `editable=False`, ver o
+        # comentário completo no início da classe). Consulta direta pelo
+        # `pk` (não `self.empresa`, que levantaria `DoesNotExist` cru para
+        # um `empresa_id` inválido — mesmo cuidado do resto do arquivo,
+        # ver `Empresa.clean()`/BL-264): um `empresa_id` inválido aqui
+        # grava `escritorio_id=None`, e é a FK (`NOT NULL` + restrição de
+        # chave estrangeira) quem recusa a gravação com `IntegrityError`
+        # — nunca um `DoesNotExist` não tratado.
+        if self.empresa_id is not None:
+            self.escritorio_id = (
+                Empresa.objects.filter(pk=self.empresa_id)
+                .values_list("escritorio_id", flat=True)
+                .first()
+            )
         super().save(*args, **kwargs)
 
     def clean(self):
@@ -668,10 +749,23 @@ class Estabelecimento(models.Model):
         # perform_create` (apps/empresas/views.py). Mesmo limite já
         # documentado no restante do arquivo: não cobre ORM direto
         # (`objects.create()`) nem `bulk_create()`/`QuerySet.update()`.
-        from apps.empresas.services import recusar_estabelecimento_para_empresa_cpf
+        from apps.empresas.services import (
+            recusar_cnpj_de_estabelecimento_igual_a_outra_empresa,
+            recusar_estabelecimento_para_empresa_cpf,
+        )
 
         if self.empresa_id is not None:
             recusar_estabelecimento_para_empresa_cpf(self.empresa)
+
+            # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+            # arquiteto-senior): o CNPJ deste estabelecimento não pode ser
+            # o MESMO de OUTRA empresa do mesmo escritório — a matriz com
+            # o CNPJ da PRÓPRIA empresa (`empresa_do_estabelecimento=self.
+            # empresa`) continua permitida, de propósito.
+            if self.cnpj:
+                recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+                    self.empresa.escritorio_id, self.cnpj, empresa_do_estabelecimento=self.empresa
+                )
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()}) — {self.empresa}"

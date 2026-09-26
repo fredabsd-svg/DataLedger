@@ -1885,3 +1885,14 @@ BL-526 a BL-529, BL-533 e BL-534 **fechados**, sem mutação sobrevivente.
 | BL-536 | Admin devolve 500 quando o gatilho recusa **na janela de corrida** entre a validação do formset e a gravação (sem gravar, sem trilha, sem texto do banco) | `desenvolvedor-pleno` | — | aberta | Recusa capturada no fluxo do admin e reapresentada ao usuário, sem 500 |
 | BL-537 | `lock_timeout` (1210 ms, BL-463) não é traduzido pela API quando a transação concorrente é longa: resposta 500 | `desenvolvedor-pleno` | BL-463 | aberta | `OperationalError` de espera vira mensagem legível nas portas de escrita, sem mascarar outros erros |
 | BL-538 | Nenhuma varredura amarra os nomes `CONSTRAINT` declarados em gatilhos de migração às chaves de `MENSAGENS_DE_RESTRICAO_DE_GATILHO` | `desenvolvedor-pleno` | — | aberta | Guarda derivada das migrações (nível 3, §3.1) |
+
+## Reconferência da DL-041 — APROVADA COM RESSALVAS (2026-09-26)
+
+Relatório integral em [2026-09-26-dl-041-reconferencia.md](../auditorias/2026-09-26-dl-041-reconferencia.md).
+U-A1, U-B1, U-B2 e U-B3 **fechados**; U-B4 fechado na API e no admin. **A DL-041 está
+encerrada**; ressalvas baixas abaixo.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-539 | **V-B1** — a tela `empresas:criar` não aplica a recusa de CNPJ de empresa igual ao de estabelecimento de outra empresa do mesmo escritório (U-B4) | `desenvolvedor-pleno` | — | aberta | POST da tela com esse CNPJ → 200 com erro no campo, sem gravar; teste de tela que reprova se a recusa sumir |
+| BL-540 | **V-B2** — a defesa final de `save_related` no admin não muda o resultado na janela de corrida e não tem teste | `desenvolvedor-pleno` | BL-536 | aberta | Recusa tratada no fluxo do admin com mensagem, ou o gerenciador retirado com o limite declarado |

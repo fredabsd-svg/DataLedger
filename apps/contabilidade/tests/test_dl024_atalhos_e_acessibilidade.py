@@ -683,9 +683,21 @@ def test_mutacao_accesskey_sem_aspas_em_tag_multilinha_e_detectada(client, cenar
 
 def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
     """Repete a classe de defeito da BL-283(c): uma tela que deixa de
-    incluir `_navegacao_empresa.html` perde os cinco atalhos em silêncio.
-    Simula a ausência removendo o `<nav class="navegacao-empresa">` do
-    HTML já renderizado, em vez de editar o template em disco.
+    incluir `_navegacao_empresa.html` perde os ATALHOS DE TECLADO em
+    silêncio. Simula a ausência removendo o `<nav class="navegacao-
+    empresa">` do HTML já renderizado, em vez de editar o template em
+    disco.
+
+    DL-040 (segunda rodada, pedido do Fred): o dropdown "Contabilidade" do
+    menu principal (`templates/base.html`) passou a listar TODAS as telas
+    ativas da empresa, incluindo a ATUAL — marcada com `aria-current`,
+    mesma convenção de `_navegacao_empresa.html`. Isso é REDUNDÂNCIA
+    deliberada (o rótulo da tela atual, "Balancete" neste teste, continua
+    achável mesmo sem a parcial — só sem `accesskey`), não uma
+    duplicação acidental: os SEIS atalhos de TECLADO (accesskey +
+    aria-keyshortcuts) continuam vivendo SÓ na parcial — é isso que este
+    teste prova, ajustado para não confundir "rótulo continua visível
+    nalgum lugar" com "atalho de teclado continua funcionando".
     """
     url = _urls_de_contabilidade(cenario)["balancete"]
     html = client.get(url).content.decode()
@@ -697,8 +709,22 @@ def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
     mutado = html[:inicio] + html[fim:]
 
     ausentes = atalhos_ausentes(mutado)
-    assert set(ausentes) == {rotulo for _tecla, rotulo in ATALHOS_CONTABILIDADE}, (
+    # "Balancete" é a tela ATUAL neste cenário: o dropdown "Contabilidade"
+    # do menu principal também a marca como item-atual (fora da parcial
+    # removida), então ela continua "achável" — SEM accesskey, que é o
+    # que importa para este detector (`_link_de_atalho_presente` exige o
+    # par accesskey/aria-keyshortcuts; o item do menu principal não tem
+    # nenhum dos dois). As outras cinco (que não são a tela atual)
+    # aparecem no menu como LINKS comuns, também sem accesskey — por isso
+    # ficam corretamente marcadas como ausentes quando a parcial some.
+    esperado = {rotulo for _tecla, rotulo in ATALHOS_CONTABILIDADE if rotulo != "Balancete"}
+    assert set(ausentes) == esperado, (
         "a mutação (remover a parcial) não foi detectada por completo: " + repr(ausentes)
+    )
+    assert "Balancete" not in ausentes, (
+        "controle: 'Balancete' (tela atual) precisa continuar achável pelo dropdown "
+        "'Contabilidade' do menu principal mesmo sem a parcial — se isto passar a "
+        "falhar, o dropdown parou de marcar a tela atual, e isso é regressão real"
     )
 
 
@@ -874,6 +900,14 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "tenancy:ativar": (
         "sempre redireciona (302) para tenancy:painel, em GET e em POST "
         "(apps.tenancy.views.ativar_escritorio) — nunca renderiza template próprio"
+    ),
+    "empresas:trocar-secao": (
+        "DL-040 — seletor de empresa do menu global: sempre redireciona (302) "
+        "para a seção equivalente na empresa escolhida, ou 404 quando a "
+        "empresa não pertence ao escritório ativo (empresas/sem_escritorio.html "
+        "quando não há escritório ativo) — nunca renderiza template próprio "
+        "(apps.empresas.views.trocar_empresa_na_secao); "
+        "apps/empresas/tests/test_dl040_trocar_empresa_na_secao.py"
     ),
     "tenancy:emitir-convite": (
         "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405"

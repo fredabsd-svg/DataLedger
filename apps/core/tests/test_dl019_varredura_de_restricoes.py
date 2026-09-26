@@ -110,7 +110,13 @@ INDICES_UNICOS_IMPLICITOS_CONHECIDOS = {
     # EXPLÍCITA "empresa_cnpj_unico" (Meta.constraints), que já aparece na
     # varredura PRINCIPAL — não pertence mais a este conjunto de índices
     # IMPLÍCITOS.
-    "empresas_estabelecimento_cnpj_key",
+    #
+    # DL-041 (RC-115/DE-077): "empresas_estabelecimento_cnpj_key" SAIU
+    # daqui pelo MESMO motivo — `Estabelecimento.cnpj` deixou de ser
+    # `unique=True` de campo (a unicidade passou a ser por escritório) e
+    # virou a UniqueConstraint EXPLÍCITA
+    # "estabelecimento_cnpj_unico_por_escritorio" (Meta.constraints), que
+    # já aparece na varredura PRINCIPAL.
 }
 
 

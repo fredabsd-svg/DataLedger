@@ -4,7 +4,15 @@
 
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
-    <h1>Recepção de documentos fiscais</h1>
+    <h1 id="enviar">Recepção de documentos fiscais</h1>
+
+    {% comment %}
+    DL-040 (v2): `id="enviar"` no h1 e `id="envios-anteriores"` no h2 de
+    baixo — âncoras que o dropdown "Fiscal" do menu principal
+    (templates/base.html) usa para "Enviar notas" e "Envios anteriores"
+    apontarem para a PARTE certa desta mesma tela, em vez de duas entradas
+    de menu para o mesmo topo de página.
+    {% endcomment %}
 
     {% comment %}
     Arquétipo C (caixa de entrada e conferência, direção de arte §2.C): o
@@ -28,7 +36,7 @@
         <button type="submit">Enviar</button>
     </form>
 
-    <h2>Envios recentes</h2>
+    <h2 id="envios-anteriores">Envios recentes</h2>
     {% if pagina.object_list %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Envios de documentos fiscais deste escritório</caption>

@@ -19,11 +19,11 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.urls import reverse
-from rest_framework.validators import UniqueValidator
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.contabilidade.models import Conta, TipoConta
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+from apps.empresas.serializers import ValidadorDeUnicidadePorEscritorio
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -189,12 +189,15 @@ def test_criar_empresa_com_corrida_no_cpf_neutralizando_o_unique_validator_da_40
 ):
     # Mesma reprodução determinística de
     # test_criar_empresa_via_api_com_corrida_neutralizando_o_unique_validator_da_400
-    # (test_api.py, R4 da DL-011), agora para o campo cpf: neutraliza o
-    # UniqueValidator para forçar o caminho que só a corrida real
-    # percorreria — o INSERT esbarra no IntegrityError da constraint do
-    # banco, e `erro_de_cnpj_duplicado_como_400` tem que traduzir isso
+    # (test_api.py, R4 da DL-011), agora para o campo cpf: neutraliza
+    # `ValidadorDeUnicidadePorEscritorio` (DL-041/RC-115 — sucessor do
+    # `UniqueValidator` original) para forçar o caminho que só a corrida
+    # real percorreria — o INSERT esbarra no IntegrityError da constraint
+    # do banco, e `erro_de_cnpj_duplicado_como_400` tem que traduzir isso
     # para 400, nunca deixar subir como 500.
-    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    monkeypatch.setattr(
+        ValidadorDeUnicidadePorEscritorio, "__call__", lambda self, value, serializer_field: None
+    )
 
     Empresa.objects.create(
         escritorio=Escritorio.objects.get(cnpj="11111111000111"),
@@ -243,6 +246,11 @@ def test_cpf_duplicado_recusado_diretamente_no_banco_nunca_500(escritorio):
             cnpj="",
         )
 
+    # DL-041 (RC-115/DE-077): a constraint foi renomeada para
+    # "empresa_cpf_unico_por_escritorio" (a unicidade deixou de ser
+    # global) — a asserção abaixo continua batendo porque é substring, não
+    # igualdade; o teste continua válido porque as duas empresas aqui são
+    # do MESMO escritório, cenário em que a duplicidade continua recusada.
     assert "empresa_cpf_unico" in str(excinfo.value)
 
 

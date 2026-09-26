@@ -149,6 +149,20 @@ def test_migracao_0010_aplica_e_reverte_sem_alterar_dado_existente(escritorio):
             cnpj="11122233000183",
         )
         empresa_id = empresa_antes.pk
+        # Achado da DL-041: as FKs do Django são DEFERRABLE INITIALLY
+        # DEFERRED — o INSERT acima deixa um gatilho de checagem de FK
+        # PENDENTE em `empresas_empresa` até o fim da transação (o
+        # `pytest.mark.django_db` desta suíte). Migrações posteriores à
+        # 0010 (a partir da 0012, DL-041) acrescentam `AddConstraint` em
+        # `empresas_empresa` — e o PostgreSQL recusa `CREATE UNIQUE INDEX`
+        # numa tabela com gatilho pendente (`ObjectInUse: cannot CREATE
+        # INDEX ... because it has pending trigger events`). Forçar a
+        # checagem AGORA (em vez de esperar o fim da transação) resolve —
+        # sem isso, o `MigrationExecutor(...).migrate(alvo_atual)` do
+        # `finally` quebraria por um motivo que nada tem a ver com o que
+        # este teste verifica.
+        with db_connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
     finally:
         MigrationExecutor(db_connection).migrate(alvo_atual)
 

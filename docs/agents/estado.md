@@ -57,7 +57,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-007](../planos/DL-007-correcao-bloqueadores-contabilidade.md) | Correção dos bloqueadores da auditoria inicial | Integrada (PR #11) |
 | [DL-008](../planos/DL-008-politica-monetaria-e-validacao-de-escala.md) | Política monetária e módulo de arredondamento | Integrada (PR #11) |
 | [DL-009](../planos/DL-009-fundacao-de-interface.md) | Fundação de interface, estados de erro, acessibilidade | Integrada (PR #11) |
-| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção e conferência de documentos fiscais | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-010](../planos/DL-010-recepcao-de-documentos-fiscais.md) | Recepção e conferência de documentos fiscais | Integrada (fatia 1, NFS-e nacional, PR #47) — fatias 2 (NF-e) e 3 ainda não planejadas em detalhe |
 | [DL-011](../planos/DL-011-cnpj-alfanumerico.md) | CNPJ alfanumérico (NT 2025.001 / IN RFB 2.229) | Integrada (PR #12) |
 | [DL-012](../planos/DL-012-readme-identidade-visual.md) | README e identidade visual | Integrada (PR #13) |
 | [DL-013](../planos/DL-013-logo-oficial.md) | Logo oficial (conceito do Fred em vetor) | Integrada (PR #17) |
@@ -85,10 +85,12 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-035](../planos/DL-035-as-guardas-da-demonstracao.md) | Guardas da demonstração (BL-514 a BL-519) | Integrada (PR #43 e #44) |
 | [DL-036](../planos/DL-036-entrada-e-cadastro.md) | Página inicial pública e cadastro de novo escritório | Integrada (PR #45) |
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
-| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Em desenvolvimento |
-| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Planejada |
+| [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Integrada (PR #47) |
+| [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
+| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -97,56 +99,46 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — três frentes em paralelo, e a integração.**
+**AGORA — PR #48 (DL-040, DL-041, DL-042) aguardando o merge do Fred; DL-043
+em correção final; DL-044 (visual das telas de trabalho) em desenho.**
 
-- **DL-039** (ressalvas da recepção e da pessoa física): **encerrada**, aprovada
-  com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-039-reconferencia.md)
-  (BL-536 a BL-538). Falta integrar à `main`.
-- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): em desenvolvimento com o
-  `desenvolvedor-pleno` na árvore principal.
-- **DL-040** (navegação e arquitetura de informação): em desenvolvimento com o
-  `especialista-frontend` numa worktree isolada; integração depois de o Fred ver
-  as capturas.
+- **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
+- **PR #48** (DL-040 navegação, DL-041 unicidade por escritório, DL-042
+  redesenho global): as quatro checagens verdes e sem conflito em 26/09. Os
+  agentes deste ambiente não têm ferramenta de merge com escrita; **o merge é
+  do Fred**. DL-041 encerrada com ressalvas baixas na
+  [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md) (BL-539,
+  BL-540); conteúdo nos commits `92b4503` e `6b76ddc` (mensagens de
+  "preservação" por causa do gancho do ambiente).
+- **DL-043** (parâmetros contábeis e zeramento, nível 1): servidor, telas e
+  correções na branch local `dl043-correcao` (worktree fora do repositório).
+  Rodada 1 **reprovada**; reconferência **reprovada** por uma regressão
+  (deadlock da trava por empresa, R1) e pelo caminho de recuperação que o
+  produto não oferecia (R2). Decisões no adendo da DE-078; correção final em
+  andamento, **sem terceira rodada** (AGENTS.md §3.1) — fechamento pelos testes
+  que a reconferência propôs. Pendências novas para o Fred: HI-26/PE-38
+  (compensação de lucros e prejuízos acumulados) e PE-69 (desfazer zeramento).
+  Os relatórios entram no repositório com o PR da DL-043.
+- **DL-044** (telas de trabalho com aspecto de produto profissional, nível 2):
+  o Fred reprovou o visual das telas internas da DL-042 ("aspecto de vazio",
+  "botão parece link", "arcaico", "tudo junto num lugar só") e aprovou a
+  página pública. Referência visual escolhida por ele em 26/09: **Conta Azul**,
+  como modelo de padrão, sem copiar marca. Em desenho na branch local
+  `dl044-telas-de-trabalho`; o Fred vê as capturas antes de espalhar para
+  todas as telas. Integra depois da DL-043.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
-  `DATABASE_URL`); uma worktree dentro de `.claude/worktrees/` faz o teste da
-  margem do AGENTS.md contar em dobro — artefato da sessão, não defeito.
-
-Situação das duas etapas que a antecedem, na branch `claude/vigilant-bardeen-jo12l4`
-(ainda não integradas à `main`):
-
-- **DL-010 fatia 1** (recepção de NFS-e nacional) e **DL-038** (cliente pessoa
-  física): auditoria independente **reprovou** na
-  [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md) e
-  **aprovou com ressalvas** na
-  [reconferência](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md) em
-  `88e7ac5`. Correções decididas em DE-076 (um envio por vez por escritório,
-  2.000 arquivos por envio). Verificação do arquiteto nessa revisão: suíte
-  completa 2582 aprovados, 45 pulados, 1 falha preexistente de ambiente.
-- Ressalvas no backlog, BL-526 a BL-535. A **PE-68** foi respondida pelo Fred em
-  26/09 (por escritório, RC-115) e virou a DL-041.
-- Falta: PR para a `main` e CI verde (Python 3.14) no commit mais recente.
+  `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
   andamento neste ambiente efêmero; **não** são entrega.
 
-Fila depois dela, em ordem recomendada e sujeita ao Fred:
+Fila depois da DL-043, em ordem recomendada e sujeita ao Fred:
 
-0. **DL-040 — navegação e arquitetura de informação** (Fred, 26/09): mapa de
-   telas e menu principal, em desenvolvimento pelo `especialista-frontend` numa
-   worktree isolada; integração só depois de o Fred ver as capturas.
-0. **DL-041 — unicidade de CNPJ e CPF por escritório** (Fred, 26/09, RC-115):
-   [plano](../planos/DL-041-unicidade-por-escritorio.md), logo depois da correção
-   da DL-039.
-1. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
-   por lançamento em duas etapas (RC-104), periodicidade alternativa por empresa
-   (RC-105). Só o **plano** existe, na branch não integrada
-   `claude/dl-016-f3-encerramento-competencia`; revisar antes de reaproveitar.
-   Depende de onde guardar **parâmetro contábil por empresa** (BL-474).
-2. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
-   camada de saldos (limite declarado no próprio código). Depende do mesmo
-   BL-474.
-3. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
+1. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
+   camada de saldos (limite declarado no próprio código). Usa os parâmetros
+   contábeis da DL-043.
+2. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
    regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e

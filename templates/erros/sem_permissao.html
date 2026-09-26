@@ -2,8 +2,17 @@
 
 {% block titulo %}Sem permissão{% endblock %}
 
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li aria-current="page">Sem permissão</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">‹ Voltar para empresas</a>
+    </nav>
+{% endblock %}
+
 {% block content %}
     <h1>Sem permissão</h1>
     <p>{{ mensagem|default:"Seu papel não permite realizar esta ação." }}</p>
-    <p><a href="{% url 'empresas:lista' %}">Voltar para empresas</a></p>
 {% endblock %}

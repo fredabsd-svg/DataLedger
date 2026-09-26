@@ -981,6 +981,38 @@ _PADRAO_NUMERO_PURO = re.compile(r"^-?\d*\.?\d+$")
 
 _PADRAO_BLOCO_SVG = re.compile(r"<svg\b.*?</svg>", re.IGNORECASE | re.DOTALL)
 
+# DL-042 (especialista-frontend): ícones SVG embutidos (barra lateral
+# recolhível, templates/base.html) definem o GLIFO dentro de `<symbol>`, num
+# sistema de coordenadas LOCAL fixo (`viewBox="0 0 24 24"`) — os números em
+# `x`/`y`/`width`/`height`/`cx`/`cy`/`r`/`stroke-width` ALI são geometria do
+# desenho (onde a linha do ícone passa dentro do quadrado 24×24), nunca um
+# TAMANHO renderizado que possa vazar do sistema de tokens: o tamanho REAL
+# na tela vem de CSS tokenizado (`.icone-menu`, `--tamanho-icone-menu`,
+# static/css/base.css) aplicado ao `<svg>` que usa o ícone (`<use
+# href="#icone-x">`), nunca ao `<symbol>` em si — o `<symbol>` nem chega a
+# ser desenhado sozinho (é um "molde", só existe para o `<use>` referenciar,
+# como confirma o `display: none` do `<svg>` que os agrupa). Sem esta
+# exceção, TODO ícone vetorial embutido — não só os desta etapa — seria
+# proibido por construção, mesmo sem duplicar nenhum valor de DESIGN: um
+# `viewBox="0 0 24 24"` não é um `width: 24px` fora do token, é a definição
+# da forma.
+#
+# A exceção é ESTREITA e continua provando a mesma coisa que o BL-305 media:
+# 1. Só isenta o que está DENTRO de `<symbol>...</symbol>` — um `<rect
+#    width="10">` solto, fora de um `<symbol>`, continua reprovando (ver
+#    `test_controle_positivo_atributo_de_apresentacao_reproducao_literal_do_achado`,
+#    que usa exatamente essa forma, sem `<symbol>`, e continua vermelho).
+# 2. Só isenta o sinal de MEDIDA sem unidade (`ATRIBUTOS_SVG_DE_COMPRIMENTO`
+#    dentro do bloco `<svg>`) — o sinal de COR (a varredura de cima, que
+#    cobre QUALQUER tag do documento, símbolo incluso) continua ativo: um
+#    ícone que declarasse `fill="#ff0000"` dentro do `<symbol>` ainda seria
+#    acusado (ver o controle abaixo,
+#    `test_controle_positivo_cor_dentro_de_symbol_continua_acusada`) — é
+#    exatamente essa combinação que preserva a PROPRIEDADE que o BL-305
+#    protege (nenhuma cor de design bypassa os tokens), estreitando só o
+#    falso positivo de geometria de glifo que a regra antiga não previa.
+_PADRAO_BLOCO_SYMBOL = re.compile(r"<symbol\b.*?</symbol>", re.IGNORECASE | re.DOTALL)
+
 
 def _cores_e_medidas_em_atributos_de_template(texto):
     """Cor OU medida literal escrita direto num ATRIBUTO de apresentação de
@@ -1006,8 +1038,14 @@ def _cores_e_medidas_em_atributos_de_template(texto):
 
     # Medida SEM unidade, só dentro de <svg> e só nos atributos de
     # apresentação de comprimento do SVG — ver o comentário acima.
+    # DL-042: conteúdo dentro de <symbol> (a DEFINIÇÃO do glifo do ícone,
+    # nunca um elemento renderizado por si só) é removido ANTES desta
+    # varredura — ver o comentário de `_PADRAO_BLOCO_SYMBOL`, acima, para o
+    # raciocínio completo e os dois controles que provam que a exceção é
+    # estreita (não isenta cor, não isenta geometria FORA de <symbol>).
     for bloco in _PADRAO_BLOCO_SVG.finditer(limpo):
-        for tag in PADRAO_TAG_ABERTURA.finditer(bloco.group(0)):
+        bloco_sem_simbolos = _PADRAO_BLOCO_SYMBOL.sub("", bloco.group(0))
+        for tag in PADRAO_TAG_ABERTURA.finditer(bloco_sem_simbolos):
             for nome, valor in atributos_da_tag(tag.group(0)):
                 if not valor:
                     continue
@@ -2494,6 +2532,41 @@ def test_controle_negativo_atributo_de_apresentacao_classe_do_sistema_nao_e_acus
     disparar o detector."""
     html = '<td class="valor-monetario linha-total__veredito">{{ x_ptbr }}</td>'
     assert _cores_e_medidas_em_atributos_de_template(html) == []
+
+
+def test_controle_negativo_geometria_de_symbol_nao_e_acusada():
+    """DL-042: geometria (sem unidade) DENTRO de `<symbol>` — a definição do
+    glifo de um ícone embutido, nunca um elemento renderizado por conta
+    própria — não é acusada como medida solta. O tamanho REAL do ícone na
+    tela vem de CSS tokenizado (`.icone-menu`), aplicado ao `<svg>` que usa
+    o ícone via `<use>`, nunca ao `<symbol>`."""
+    html = (
+        '<svg style="display: none">'
+        '<symbol id="icone-exemplo" viewBox="0 0 24 24">'
+        '<rect x="4" y="9" width="7" height="11" stroke-width="1.5"></rect>'
+        '<circle cx="12" cy="8.5" r="3.25"></circle>'
+        "</symbol>"
+        "</svg>"
+    )
+    assert _cores_e_medidas_em_atributos_de_template(html) == []
+
+
+def test_controle_positivo_cor_dentro_de_symbol_continua_acusada():
+    """DL-042: a exceção de geometria (acima) NÃO isenta cor — um ícone que
+    declarasse uma cor de DESIGN literal dentro do `<symbol>` (em vez de
+    `currentColor`, que herda do texto ao lado, tokenizado por definição)
+    continua reprovando. Prova que a exceção é estreita, não um buraco
+    genérico em "qualquer coisa dentro de symbol"."""
+    html = '<svg><symbol id="icone-mau"><rect fill="#ff0000" width="10"></rect></symbol></svg>'
+    achados = _cores_e_medidas_em_atributos_de_template(html)
+    assert any(a.startswith("fill=") for a in achados), (
+        f"cor de design dentro de <symbol> deveria continuar acusada: {achados}"
+    )
+    # A geometria (width) desta MESMA tag, ao lado da cor sabotada, continua
+    # isenta — controle de que as duas checagens são independentes.
+    assert not any(a.startswith("width=") for a in achados), (
+        f"geometria dentro de <symbol> não deveria ser acusada: {achados}"
+    )
 
 
 def test_controle_negativo_atributo_de_apresentacao_ignora_prosa_dentro_de_comentario():

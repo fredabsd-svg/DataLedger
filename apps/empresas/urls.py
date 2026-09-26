@@ -8,6 +8,7 @@ from apps.empresas.views import (
     HistoricoRegimeTributarioListCreateView,
     criar_empresa,
     lista_empresas,
+    trocar_empresa_na_secao,
 )
 
 app_name = "empresas"
@@ -15,6 +16,9 @@ app_name = "empresas"
 urlpatterns = [
     path("", lista_empresas, name="lista"),
     path("nova/", criar_empresa, name="criar"),
+    # DL-040: seletor de empresa do menu global (templates/base.html) —
+    # formulário GET sem JavaScript, ver o docstring da view.
+    path("trocar-secao/", trocar_empresa_na_secao, name="trocar-secao"),
     path("api/empresas/", EmpresaListCreateView.as_view(), name="api-lista"),
     path("api/empresas/<int:pk>/", EmpresaDetailView.as_view(), name="api-detalhe"),
     path(

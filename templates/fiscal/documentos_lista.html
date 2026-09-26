@@ -4,7 +4,12 @@
 
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
-    <h1>Documentos fiscais</h1>
+    <div class="cabecalho-pagina">
+        <h1>Documentos fiscais</h1>
+        <div class="cabecalho-pagina__acoes">
+            <a class="botao botao--secundario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
+        </div>
+    </div>
 
     {% comment %}
     Arquétipo A (tabela de consulta, direção de arte §2.A): filtro não come
@@ -46,6 +51,16 @@
             </select>
         </div>
         <button type="submit">Consultar</button>
+        {% if algum_filtro_ativo %}
+            {% comment %}
+            DL-042 (2ª passada): primeiro uso real de `.botao--fantasma` —
+            ação de menor ênfase ao lado do "Consultar" primário, só
+            quando existe filtro para limpar (nunca aparece na entrada
+            padrão da tela). `action` explícito para a URL SEM
+            querystring nenhuma (mesmo cuidado do formulário acima).
+            {% endcomment %}
+            <a class="botao botao--fantasma" href="{% url 'fiscal_web:documentos_lista' %}">Limpar filtros</a>
+        {% endif %}
         <p class="texto-apoio" id="id_competencia_ajuda">
             Informe ano (AAAA) e mês (1 a 12) juntos, ou deixe os dois em branco para não filtrar por competência.
         </p>

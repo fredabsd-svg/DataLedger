@@ -176,4 +176,11 @@ def test_gerenciador_traduz_apenas_a_unique_de_cnpj(empresa):
             ]
         )
 
-    assert excinfo.value.message_dict == {"cnpj": ["empresa com este CNPJ já existe."]}
+    # DL-041 (RC-115/DE-077): a mensagem passou a citar "neste escritório"
+    # — a unicidade deixou de ser global (as duas empresas deste teste
+    # continuam no MESMO escritório, então a duplicidade continua
+    # recusada; o texto é que mudou, para nunca sugerir uma unicidade que
+    # não existe mais).
+    assert excinfo.value.message_dict == {
+        "cnpj": ["empresa com este CNPJ já existe neste escritório."]
+    }

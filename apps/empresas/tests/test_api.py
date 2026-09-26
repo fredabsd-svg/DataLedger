@@ -19,9 +19,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connection
 from django.test import Client
 from django.urls import reverse
-from rest_framework.validators import UniqueValidator
 
 from apps.empresas.models import Empresa, Estabelecimento, TipoEstabelecimento
+from apps.empresas.serializers import ValidadorDeUnicidadePorEscritorio
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -217,15 +217,19 @@ def test_criar_empresa_via_api_com_cnpj_invalido_e_sem_razao_social_agrega_os_do
 def test_criar_empresa_via_api_com_corrida_neutralizando_o_unique_validator_da_400(
     client, gestor, monkeypatch
 ):
-    # R4 (reauditoria, rodada 2), reprodução determinística: o
-    # UniqueValidator normalmente pega duplicidade ANTES do INSERT, com um
-    # SELECT. A corrida real (duas requisições comitando entre esse SELECT
-    # e o INSERT) é rara de reproduzir de forma confiável; neutralizar o
-    # UniqueValidator força exatamente o caminho que só aconteceria sob
-    # corrida — o INSERT tenta ir para a frente e é o IntegrityError da
-    # constraint do banco quem pega a duplicidade. Sem o try/except em
-    # EmpresaListCreateView.perform_create, isso devolveria 500.
-    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    # R4 (reauditoria, rodada 2), reprodução determinística: o validador
+    # de unicidade (`ValidadorDeUnicidadePorEscritorio` desde a DL-041/
+    # RC-115 — antes, `UniqueValidator`) normalmente pega duplicidade
+    # ANTES do INSERT, com um SELECT. A corrida real (duas requisições
+    # comitando entre esse SELECT e o INSERT) é rara de reproduzir de
+    # forma confiável; neutralizar o validador força exatamente o caminho
+    # que só aconteceria sob corrida — o INSERT tenta ir para a frente e é
+    # o IntegrityError da constraint do banco quem pega a duplicidade. Sem
+    # o try/except em EmpresaListCreateView.perform_create, isso devolveria
+    # 500.
+    monkeypatch.setattr(
+        ValidadorDeUnicidadePorEscritorio, "__call__", lambda self, value, serializer_field: None
+    )
 
     Empresa.objects.create(
         escritorio=Escritorio.objects.get(cnpj="11111111000111"),
@@ -319,7 +323,9 @@ def test_atualizar_empresa_via_api_com_corrida_neutralizando_o_unique_validator_
     empresa_para_alterar = Empresa.objects.create(
         escritorio=escritorio, razao_social="Empresa a Alterar Ltda", cnpj="11122233000183"
     )
-    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    monkeypatch.setattr(
+        ValidadorDeUnicidadePorEscritorio, "__call__", lambda self, value, serializer_field: None
+    )
     client.login(username="gestor", password="senha-forte-123")
 
     resposta = client.patch(
@@ -400,7 +406,9 @@ def test_criar_estabelecimento_via_api_com_corrida_neutralizando_o_unique_valida
         nome="Matriz",
         cnpj="AB123CDE000155",
     )
-    monkeypatch.setattr(UniqueValidator, "__call__", lambda self, value, serializer_field: None)
+    monkeypatch.setattr(
+        ValidadorDeUnicidadePorEscritorio, "__call__", lambda self, value, serializer_field: None
+    )
     client.login(username="gestor", password="senha-forte-123")
 
     resposta = client.post(

@@ -3,9 +3,25 @@
 {% block titulo %}Emissão recusada — Balancete{% endblock %}
 {% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
+{% comment %}
+DL-040 (v2): trilha PADRÃO vazia de propósito, sobrescrevendo o default de
+`base.html` (que nomearia a empresa) — mesmo motivo do `rotulo_generico=True`
+logo abaixo: esta resposta 409 não inclui dados da empresa em NENHUM lugar
+do documento (medido por `test_dl024_veredito_no_html_renderizado.
+test_pagina_real_balancete_nao_fecha_com_totais_forcados`).
+{% endcomment %}
+{% block trilha %}{% endblock %}
+
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" rotulo_generico=True %}
     <h1>Emissão do Balancete recusada</h1>
     <p>O Balancete não foi emitido. Corrija a divergência indicada e tente novamente.</p>
-    <p><a href="{% url 'contabilidade_web:balancete' empresa.id %}">Voltar ao Balancete</a></p>
+    {% comment %}
+    DL-042 (2ª passada): padronizado para `.botao--secundario`, mesmo tom
+    de toda outra tela de "Voltar" da contabilidade — a trilha desta tela
+    é deliberadamente vazia (ver o comment acima), então este é o único
+    caminho de saída visível; o tom secundário continua certo (não é a
+    ação PRIMÁRIA da tela — a tela não tem uma, é um veto).
+    {% endcomment %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:balancete' empresa.id %}">‹ Voltar ao Balancete</a></p>
 {% endblock %}

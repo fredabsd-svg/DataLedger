@@ -3,21 +3,81 @@
 {% block titulo %}Painel{% endblock %}
 
 {% block content %}
+    {% comment %}
+    DL-040: padrão de cabeçalho de página (`.cabecalho-pagina`,
+    static/css/base.css) — título único (h1) e a área de ações à direita,
+    numa faixa só. Aqui a ação primária muda com o estado (empresas / criar
+    escritório), mas a MOLDURA do cabeçalho é a mesma de qualquer outra
+    tela que a adotar (templates/empresas/lista.html,
+    templates/fiscal/documentos_lista.html).
+    {% endcomment %}
     {% if escritorio_ativo %}
-        <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
-        <p><a href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a></p>
+        <div class="cabecalho-pagina">
+            <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a>
+            </div>
+        </div>
     {% elif escritorios %}
         <h1>Selecione um escritório</h1>
         <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
     {% else %}
-        <h1>Nenhum escritório ativo</h1>
+        <div class="cabecalho-pagina">
+            <h1>Nenhum escritório ativo</h1>
+            {% comment %} DL-018 — primeira superfície para o usuário sem
+            vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
+            O link só aparece aqui quando o usuário ainda não tem vínculo —
+            a própria view `bootstrap_primeiro_acesso` redireciona para o
+            painel se o usuário já tiver. {% endcomment %}
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
+            </div>
+        </div>
         <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
-        {% comment %} DL-018 — primeira superfície para o usuário sem
-        vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
-        O link só aparece aqui quando o usuário ainda não tem vínculo —
-        a própria view `bootstrap_primeiro_acesso` redireciona para o
-        painel se o usuário já tiver. {% endcomment %}
-        <p><a href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a></p>
+    {% endif %}
+
+    {% comment %}
+    DL-042 (2ª passada): "Início" como fila do que precisa de atenção, no
+    lugar de um painel vazio (anti-padrão "dashboard de KPI" da skill
+    saas-design-excellence). `fila_de_atencao` vem de
+    `apps.tenancy.views._fila_de_atencao`, já filtrada pelo escritório
+    ATIVO e pelas MESMAS funções de permissão das telas de contabilidade/
+    fiscal — `None` quando o papel não lê nenhum dos dois domínios (a
+    seção inteira não aparece: não é um estado vazio, é "não é dele"),
+    lista vazia `[]` quando o papel lê mas não há pendência nenhuma (o
+    estado "tudo em dia", com a ação comum "Ver empresas").
+    {% endcomment %}
+    {% if fila_de_atencao is not None %}
+        <section aria-labelledby="titulo-fila-de-atencao">
+            <h2 id="titulo-fila-de-atencao">O que precisa de atenção</h2>
+            {% if fila_de_atencao %}
+                <div class="fila-de-atencao">
+                    {% for categoria in fila_de_atencao %}
+                        <section class="fila-categoria{% if categoria.informativo %} fila-categoria--informativo{% endif %}" aria-labelledby="fila-titulo-{{ categoria.chave }}">
+                            <div class="fila-categoria__cabecalho">
+                                <h3 id="fila-titulo-{{ categoria.chave }}">{{ categoria.titulo }}</h3>
+                                <span class="fila-categoria__contagem">{{ categoria.total }}</span>
+                            </div>
+                            <p class="texto-apoio">{{ categoria.descricao }}</p>
+                            <ul class="fila-categoria__itens">
+                                {% for item in categoria.itens %}
+                                    <li>{% if item.url %}<a href="{{ item.url }}">{{ item.titulo }}</a>{% else %}{{ item.titulo }}{% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                            {% if categoria.total > categoria.itens|length or categoria.url_ver_todos %}
+                                <p class="texto-apoio">
+                                    {% if categoria.total > categoria.itens|length %}Mostrando {{ categoria.itens|length }} de {{ categoria.total }}.{% endif %}
+                                    {% if categoria.url_ver_todos %}<a href="{{ categoria.url_ver_todos }}">Ver todas</a>{% endif %}
+                                </p>
+                            {% endif %}
+                        </section>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p><strong>Tudo em dia.</strong> Nenhuma pendência encontrada nas empresas deste escritório.</p>
+                <p><a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a></p>
+            {% endif %}
+        </section>
     {% endif %}
 
     {% if escritorios|length > 1 %}
