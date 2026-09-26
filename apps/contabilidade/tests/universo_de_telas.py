@@ -52,6 +52,14 @@ from django.utils import timezone
 NOMES_DE_TELA_DE_CONTABILIDADE = {
     "plano_de_contas": "contabilidade_web:plano_de_contas",
     "conta_nova": "contabilidade_web:conta_nova",
+    # DL-045, correção da rodada 1 de auditoria (A7): formulário de UM
+    # campo (Linha da DRE) de uma conta EXISTENTE — MESMA permissão de
+    # "conta_nova" (`_pode_escriturar`), renderiza 200 para QUALQUER
+    # conta do cenário padrão (a tela nunca julga tipo/compatibilidade no
+    # GET — só o POST passa por `Conta.clean()`, via `classificar_conta_
+    # na_dre`). Reaproveita `cenario["caixa"]`, a mesma conta que "razao"
+    # já usa abaixo.
+    "conta_classificacao_dre": "contabilidade_web:conta_classificacao_dre",
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
@@ -155,6 +163,7 @@ def _urls_de_contabilidade(cenario):
     args_por_tela = {
         "plano_de_contas": ([empresa_id], ""),
         "conta_nova": ([empresa_id], ""),
+        "conta_classificacao_dre": ([empresa_id, cenario["caixa"].id], ""),
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),

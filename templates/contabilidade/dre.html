@@ -116,31 +116,52 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
             {% comment %}
             Mesmo padrão do Balanço (BL-508): cada lista traz, junto das
             contas, a AÇÃO que RESOLVE aquela pendência específica
-            (`lista.acao`). DL-045 fatia 3 — NOTA (instrução do
-            arquiteto-senior, 26/09/2026): sem tela de EDIÇÃO de conta
-            ainda (a reclassificação de conta existente espera um serviço
-            próprio, do desenvolvedor-pleno), o link de correção é só o
-            genérico "Ir ao plano de contas" no fim deste bloco — mesmo
-            desenho do veto do Balanço, sem link por conta.
+            (`lista.acao`). DL-045, correção da rodada 1 de auditoria
+            (A7): cada linha BASEADA EM CONTA (`lista.tipo_linha ==
+            "conta"`) ganha um link DIRETO para "classificar esta conta"
+            (`conta_classificacao_dre`) quando a conta foi localizada
+            (`linha.conta_id`) — critério 2 do plano: "link para
+            classificar a conta". "estornos_de_zeramento_na_coluna" é a
+            ÚNICA lista baseada em LANÇAMENTO (`lista.tipo_linha ==
+            "lancamento"`) — nunca aparece aqui (é sempre informativa,
+            nunca bloqueia), mas o `{% if %}` cobre os dois ramos por
+            uniformidade com o bloco de aviso, mais abaixo, que reusa a
+            MESMA marcação.
             {% endcomment %}
             {% for coluna in listas_pendentes_por_coluna %}
                 <p><strong>{{ coluna.titulo }}</strong></p>
                 {% for lista in coluna.listas %}
                     <p>{{ lista.titulo }}:</p>
                     <ul>
-                        {% for linha in lista.linhas %}
-                            <li>
-                                Conta {{ linha.conta }} — {{ linha.nome }}
-                                {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
-                            </li>
-                        {% endfor %}
+                        {% if lista.tipo_linha == "lancamento" %}
+                            {% for linha in lista.linhas %}
+                                <li>
+                                    Lançamento {{ linha.lancamento }}, em {{ linha.data|date:"d/m/Y" }} —
+                                    {{ linha.historico }}
+                                    (estorno do zeramento "{{ linha.estorno_de_chave }}")
+                                </li>
+                            {% endfor %}
+                        {% else %}
+                            {% for linha in lista.linhas %}
+                                <li>
+                                    Conta {{ linha.conta }} — {{ linha.nome }}
+                                    {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                                    {% if linha.conta_id %}
+                                        —
+                                        <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
+                                            classificar esta conta
+                                        </a>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        {% endif %}
                     </ul>
                     <p class="texto-apoio">{{ lista.acao }}</p>
                 {% endfor %}
             {% endfor %}
             <p>
                 <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
-                para corrigir a classificação das contas listadas acima.
+                para ver a classificação de todas as contas.
             </p>
         </div>
     {% else %}
@@ -189,8 +210,8 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                 </tr>
                 <tr>
                     <th scope="col">Linha</th>
-                    <th scope="col">Mês</th>
-                    <th scope="col">Acumulado do exercício</th>
+                    <th scope="col" class="cabecalho-numerico">Mês</th>
+                    <th scope="col" class="cabecalho-numerico">Acumulado do exercício</th>
                 </tr>
             </thead>
             <tbody>
@@ -205,98 +226,98 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                 {% endcomment %}
                 <tr>
                     <td>{{ linhas.receita_bruta.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.deducoes_da_receita.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.receita_liquida.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.custo.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.lucro_bruto.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.despesas_com_vendas.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.despesas_gerais_e_administrativas.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.outras_receitas.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.outras_despesas.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.outras_despesas_operacionais.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.resultado_equivalencia_patrimonial.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.resultado_antes_das_receitas_e_despesas_financeiras.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.receitas_financeiras.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.despesas_financeiras.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.resultado_financeiro.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.resultado_antes_dos_tributos_sobre_o_lucro.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.provisao_irpj_csll.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.acumulado %}</td>
                 </tr>
                 <tr>
                     <td>{{ linhas.participacoes.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.acumulado %}</td>
                 </tr>
                 <tr class="linha-total">
                     <td>{{ linhas.lucro_liquido.titulo }}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.mes %}</td>
-                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.acumulado %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.mes %}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.acumulado %}</td>
                 </tr>
             </tbody>
         </table>
@@ -317,12 +338,28 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                 {% for lista in coluna.listas %}
                     <p>{{ lista.titulo }}:</p>
                     <ul>
-                        {% for linha in lista.linhas %}
-                            <li>
-                                Conta {{ linha.conta }} — {{ linha.nome }}
-                                {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
-                            </li>
-                        {% endfor %}
+                        {% if lista.tipo_linha == "lancamento" %}
+                            {% for linha in lista.linhas %}
+                                <li>
+                                    Lançamento {{ linha.lancamento }}, em {{ linha.data|date:"d/m/Y" }} —
+                                    {{ linha.historico }}
+                                    (estorno do zeramento "{{ linha.estorno_de_chave }}")
+                                </li>
+                            {% endfor %}
+                        {% else %}
+                            {% for linha in lista.linhas %}
+                                <li>
+                                    Conta {{ linha.conta }} — {{ linha.nome }}
+                                    {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                                    {% if linha.conta_id %}
+                                        —
+                                        <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
+                                            classificar esta conta
+                                        </a>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        {% endif %}
                     </ul>
                     <p class="texto-apoio">{{ lista.acao }}</p>
                 {% endfor %}

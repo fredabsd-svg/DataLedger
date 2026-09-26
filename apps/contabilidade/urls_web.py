@@ -7,6 +7,7 @@ from apps.contabilidade.views_web import (
     competencia_fechar,
     competencia_reabrir,
     conferencia,
+    conta_classificacao_dre,
     conta_nova,
     diario,
     dre,
@@ -43,15 +44,17 @@ urlpatterns = [
         conta_nova,
         name="conta_nova",
     ),
-    # DL-045 fatia 3 — NOTA: a edição de conta EXISTENTE (para reclassificar
-    # a Linha da DRE de uma conta já cadastrada) fica de fora desta etapa,
-    # por instrução do arquiteto-senior (26/09/2026): o desenvolvedor-pleno
-    # ainda vai criar um serviço PRÓPRIO com guardas e trilha de auditoria
-    # para essa reclassificação — construir a tela agora, sem o serviço,
-    # duplicaria a regra de negócio (que hoje vive só em `Conta.clean()`,
-    # chamado por `form.save()`) e teria que ser reescrita quando o serviço
-    # chegar. Por ora, "Linha da DRE" só entra pelo formulário de CRIAÇÃO
-    # (`conta_nova`, abaixo) — nenhuma rota de edição de conta existe ainda.
+    # DL-045, correção da rodada 1 de auditoria (A7): classificar (ou
+    # reclassificar, ou remover) a Linha da DRE de uma conta EXISTENTE —
+    # a porta de TELA que faltava; a API já tinha `ContaClassificacaoDreView`
+    # (PATCH) desde a correção do servidor. "plano-de-contas/<conta_id>/
+    # classificacao-dre/" — mesmo prefixo de `conta_nova`, mesmo padrão de
+    # caminho curto da API (`contas/<conta_id>/classificacao-dre/`).
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dre/",
+        conta_classificacao_dre,
+        name="conta_classificacao_dre",
+    ),
     path(
         "empresas/<int:empresa_id>/lancamento/novo/",
         lancamento_novo,

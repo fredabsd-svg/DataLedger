@@ -30,6 +30,7 @@ from decimal import Decimal
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -118,14 +119,20 @@ from apps.contabilidade.services import (
     # DL-045 fatia 3: a mesma dupla apurar/avaliar que o Balanço já usa
     # (`apurar_balanco_patrimonial`/dentro dela; `avaliar_emissao_do_
     # balanco`, ver `balanco`/`_montar_grupos_do_balanco` mais abaixo),
-    # agora para a DRE — `apurar_dre` NÃO paga o snapshot REPEATABLE READ
-    # que `apurar_balanco_patrimonial` paga (achado reportado ao
-    # arquiteto-senior; ver o comentário em `dre`, mais abaixo, para o
-    # que isso significa nesta etapa).
+    # agora para a DRE. `apurar_dre` passou a pagar o mesmo snapshot
+    # REPEATABLE READ que `apurar_balanco_patrimonial` paga (A5, rodada 1
+    # de auditoria da DL-045) — nada para esta tela fazer a respeito.
     apurar_dre,
     apurar_razao,
     avaliar_emissao_da_dre,
     avaliar_emissao_do_balancete,
+    # DL-045, correção da rodada 1 de auditoria (A7): a porta de serviço
+    # que classifica (ou reclassifica, ou remove a classificação de) a
+    # linha da DRE de uma conta EXISTENTE — mesma função que a API chama
+    # (`ContaClassificacaoDreView`), nunca uma segunda cópia da regra
+    # (todas as guardas moram em `Conta.clean()`). Ver `conta_
+    # classificacao_dre`, mais abaixo.
+    classificar_conta_na_dre,
     criar_lancamento,
     data_maxima_lancamento,
     encerrar_competencia,
@@ -144,6 +151,12 @@ from apps.contabilidade.services import (
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
     marcar_competencia_como_entregue,
+    # DL-045, correção da rodada 1 de auditoria (A7): extrai as mensagens
+    # de um `django.core.exceptions.ValidationError` como lista PLANA de
+    # `str` — usada por `conta_classificacao_dre` para traduzir a recusa
+    # de `classificar_conta_na_dre` em `form.add_error(None, ...)`, MESMA
+    # função que a API usa para o corpo 400 do DRF.
+    mensagens_da_validacao_django,
     movimento_fora_do_periodo,
     pre_visualizar_zeramento,
     reabrir_competencia,
@@ -935,17 +948,109 @@ def conta_nova(request, empresa_id):
     return render(request, "contabilidade/conta_form.html", {"empresa": empresa, "form": form})
 
 
-# DL-045 fatia 3 — NOTA (instrução do arquiteto-senior, 26/09/2026): a
-# edição de conta EXISTENTE (para reclassificar a Linha da DRE de uma
-# conta já cadastrada, ex.: a partir do veto de emissão da DRE) fica de
-# fora desta etapa — o desenvolvedor-pleno vai criar um serviço PRÓPRIO
-# com guardas e trilha de auditoria para essa reclassificação, e uma tela
-# construída agora, sem esse serviço, reimplementaria a regra que hoje só
-# existe em `Conta.clean()` e teria que ser refeita quando o serviço
-# chegar. "Linha da DRE" entra só pelo formulário de CRIAÇÃO (`conta_
-# nova`, acima) nesta etapa; o veto da DRE (`dre`, mais abaixo) linka só
-# para o Plano de contas — mesmo desenho do veto do Balanço — até a tela
-# de edição existir.
+class ClassificacaoDreForm(forms.Form):
+    """Formulário de UM campo só — a Linha da DRE de uma conta EXISTENTE
+    (DL-045, correção da rodada 1 de auditoria, achado A7). Não é um
+    `ModelForm`: a gravação nunca é `form.save()` direto — passa por
+    `classificar_conta_na_dre` (services.py), a MESMA porta que a API usa
+    (`ContaClassificacaoDreView`), que chama `Conta.full_clean()` e
+    carrega TODAS as guardas (compatibilidade de tipo, transição com
+    movimento, A6). Este formulário nunca duplica nenhuma delas — só
+    coleta o valor e devolve `None` para "sem classificação" (nunca
+    `""`, achado A4 — `ChoiceField` com `required=False` e a opção vazia
+    já cai em `cleaned_data["classificacao_dre"] == ""`; a normalização
+    para `None` acontece na VIEW, no mesmo ponto em que `classificar_
+    conta_na_dre`/`Conta.clean()` já a esperam).
+    """
+
+    classificacao_dre = forms.ChoiceField(
+        label="Linha da DRE",
+        choices=[("", "Sem classificação")] + list(ClassificacaoDre.choices),
+        required=False,
+        help_text=(
+            "Só se aplica a conta de Receita ou Despesa (Lei 6.404/76, art. 187) — o "
+            "servidor recusa uma linha incompatível com o tipo desta conta. Reclassificar "
+            "uma conta que já tem lançamento gravado também é recusado."
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def conta_classificacao_dre(request, empresa_id, conta_id):
+    """Classifica (ou reclassifica, ou remove a classificação de) a Linha
+    da DRE de uma conta EXISTENTE — DL-045, correção da rodada 1 de
+    auditoria (A7): a porta operacional que faltava na TELA (a API já
+    tinha `ContaClassificacaoDreView`, PATCH). Chamada pelo veto de
+    emissão da DRE (`dre`, mais abaixo — cada conta pendente ganha um
+    link direto para cá) e pelo Plano de contas (botão "Linha da DRE" em
+    cada conta de resultado).
+
+    Autorização: `_pode_escriturar` — MESMO papel que a API usa
+    (`PodeEscriturar`), nunca uma permissão nova (RC-118 não criou papel
+    próprio para a classificação da DRE). Isolamento: `empresa=empresa`
+    no filtro — conta de outra empresa dá 404, nunca confirma a
+    existência do registro.
+
+    A GRAVAÇÃO passa inteira por `classificar_conta_na_dre` (services.py)
+    — a MESMA função que a API chama —, nunca reimplementada aqui: esta
+    view só traduz `django.core.exceptions.ValidationError` (qualquer
+    guarda de `Conta.clean()`: compatibilidade de tipo, transição com
+    movimento, A6) para `form.add_error(None, ...)` e RE-renderiza o
+    formulário com 400, preservando o que a pessoa tinha escolhido —
+    nunca um 500, nunca perde a seleção.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite classificar a linha da DRE nesta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DRE)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_classificacao_dre.html",
+                {"empresa": empresa, "conta": conta, "form": ClassificacaoDreForm(request.POST)},
+                status=400,
+            )
+
+        form = ClassificacaoDreForm(request.POST)
+        if form.is_valid():
+            # Achado A4: "" (opção "Sem classificação") normalizado para
+            # `None` AQUI — o mesmo ponto que `classificar_conta_na_dre`/
+            # `ContaClassificacaoDreView.patch` já usam (`or None`) —
+            # nunca grava string vazia.
+            classificacao = form.cleaned_data["classificacao_dre"] or None
+            try:
+                classificar_conta_na_dre(
+                    conta=conta, classificacao=classificacao, usuario=request.user, request=request
+                )
+            except DjangoValidationError as exc:
+                for mensagem in mensagens_da_validacao_django(exc):
+                    form.add_error(None, mensagem)
+            else:
+                messages.success(request, f"Linha da DRE de “{conta}” atualizada com sucesso.")
+                return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+    else:
+        form = ClassificacaoDreForm(initial={"classificacao_dre": conta.classificacao_dre or ""})
+
+    return render(
+        request,
+        "contabilidade/conta_classificacao_dre.html",
+        {"empresa": empresa, "conta": conta, "form": form},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1659,6 +1764,19 @@ _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
+)
+
+# DL-045, correção da rodada 1 de auditoria (A7): formulário de UM campo
+# só — a Linha da DRE de uma conta existente (`conta_classificacao_dre`,
+# mais abaixo). Contrato PRÓPRIO (não reaproveita `_CONTRATO_DO_
+# FORMULARIO_DE_CONTA`): são telas diferentes, com campos diferentes —
+# esta nunca emite "codigo"/"nome"/"tipo"/etc.
+_CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DRE = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "classificacao_dre"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na classificação da linha da DRE",
 )
 
 
@@ -2915,6 +3033,13 @@ _ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
     "classificacao_patrimonial_ancestral": "Classificação do ancestral",
     "classificacao_dre": "Linha da DRE cadastrada",
     "classificacao_dre_ancestral": "Linha da DRE do ancestral",
+    # DL-045, correção da rodada 1 de auditoria (A2): campo extra de
+    # `contas_com_tipo_divergente_da_linha` (services.py) — a linha
+    # EFETIVA (própria válida, ou herdada do ancestral) contra a qual o
+    # `TipoConta` da conta foi julgado, diferente de "classificacao_dre"
+    # (a PRÓPRIA, que pode nem existir quando a linha efetiva veio de um
+    # ancestral).
+    "classificacao_dre_efetiva": "Linha da DRE efetiva (própria ou herdada)",
     "natureza": "Natureza cadastrada",
 }
 
@@ -2929,6 +3054,7 @@ _ENUM_DO_CAMPO_DE_PENDENCIA = {
     "classificacao_patrimonial_ancestral": ClassificacaoPatrimonial,
     "classificacao_dre": ClassificacaoDre,
     "classificacao_dre_ancestral": ClassificacaoDre,
+    "classificacao_dre_efetiva": ClassificacaoDre,
     "natureza": NaturezaConta,
 }
 
@@ -3519,26 +3645,21 @@ _TITULO_DA_COLUNA_DRE = {
 }
 
 # DL-045 fatia 3: título humano e ação que RESOLVE cada lista de
-# pendência da DRE conhecida hoje (`_apurar_coluna_dre`, services.py) —
-# mesmo padrão de `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO`/
-# `ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA` (BL-508), um DICT PRÓPRIO da
-# DRE (nomes de lista diferentes, nunca misturados com os do Balanço). Só
-# a PRIMEIRA chave BLOQUEIA a emissão hoje (`_LISTAS_DA_DRE_QUE_IMPEDEM_A_
-# EMISSAO`, services.py); as outras só avisam — a mesma AÇÃO serve às duas
-# situações (a lista já vem separada pronta do servidor, DE-070).
+# pendência da DRE (`_apurar_coluna_dre`, services.py) — mesmo padrão de
+# `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO`/`ACAO_QUE_RESOLVE_A_
+# PENDENCIA_POR_LISTA` (BL-508), um DICT PRÓPRIO da DRE (nomes de lista
+# diferentes, nunca misturados com os do Balanço).
 #
-# ⚠️ Aviso do arquiteto-senior (26/09/2026, auditoria em andamento contra
-# o servidor, worktree irmã wt-dl045): o CONTRATO destas listas vai
-# crescer — uma nova ("contas_com_tipo_divergente_da_linha", que passa a
-# VETAR) e "aninhada com linha diferente" também passa a vetar — antes de
-# esta fatia integrar. Nenhum nome NOVO é adicionado aqui adivinhando a
-# forma exata (arriscaria texto errado quando o servidor corrigido
-# chegar); `_lista_de_pendencia_dre_para_contexto`/`_colunas_de_pendencia_
-# dre` (abaixo) já tratam QUALQUER nome de lista genericamente — o
-# `.get(nome, nome)` cai num título cru + "ação não cadastrada" para
-# qualquer chave ainda sem entrada aqui, nunca quebra a tela. Acrescentar
-# as entradas certas destes dois dicts é o ÚNICO ajuste esperado quando o
-# servidor corrigido for integrado nesta worktree.
+# DL-045, correção da rodada 1 de auditoria (A1/A2, DE-085): o servidor
+# passou a vetar (`_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO`, services.py)
+# "aninhada com linha diferente" (o valor sai na linha ERRADA da DRE —
+# antes só avisava) e "desconhecida" (sempre vetou, mas o texto aqui já
+# estava certo), e ACRESCENTOU duas listas novas: "tipo divergente da
+# linha" (veta — inclusive conta patrimonial sob linha de resultado) e
+# "aninhada com a MESMA linha" (só avisa — o cadastro é redundante, mas a
+# DRE sai correta, o ancestral já consolida a subárvore). A separação
+# pendentes/informativas continua vindo PRONTA do servidor (DE-070) — esta
+# tela nunca decide sozinha o que bloqueia.
 NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE = {
     "contas_sem_classificacao_dre_com_movimento": (
         "Conta de resultado (receita ou despesa), sem contas subordinadas, com movimento "
@@ -3548,9 +3669,19 @@ NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE = {
         "Conta que agrupa outras contas (não é folha), sem linha da DRE própria nem de um "
         "ancestral, com movimento lançado diretamente nela"
     ),
-    "contas_com_classificacao_dre_aninhada": (
-        "Conta com linha da DRE própria e com um ancestral também classificado — a mesma "
-        "conta seria somada duas vezes"
+    "contas_com_classificacao_dre_aninhada_linha_diferente": (
+        "Conta com linha da DRE própria DIFERENTE da de um ancestral também classificado — o "
+        "valor sai na linha ERRADA da demonstração"
+    ),
+    "contas_com_classificacao_dre_aninhada_mesma_linha": (
+        "Conta com linha da DRE própria IGUAL à de um ancestral também classificado — "
+        "redundante no cadastro, mas a demonstração sai correta"
+    ),
+    "contas_com_tipo_divergente_da_linha": (
+        "Conta com movimento no período cujo tipo (Ativo, Passivo, Patrimônio Líquido, "
+        "Receita ou Despesa) não é aceito pela linha da DRE efetiva — própria ou herdada de "
+        "um ancestral (inclusive conta patrimonial classificada, direta ou indiretamente, "
+        "numa linha de resultado)"
     ),
     "contas_com_classificacao_dre_desconhecida": (
         "Conta com uma linha da DRE gravada que não existe no cadastro atual (dado fora do "
@@ -3559,63 +3690,129 @@ NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE = {
 }
 ACAO_QUE_RESOLVE_A_PENDENCIA_DRE_POR_LISTA = {
     "contas_sem_classificacao_dre_com_movimento": (
-        "Classificar a conta (ou um ancestral dela) com uma linha da DRE, no plano de contas."
+        "Classificar a conta (ou um ancestral dela) com uma linha da DRE."
     ),
     "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
-        "Classificar esta conta (ou um ancestral dela) com uma linha da DRE no plano de "
-        "contas, ou lançar os valores numa conta-folha já classificada, em vez de lançar "
-        "diretamente nesta conta-síntese."
+        "Classificar esta conta (ou um ancestral dela) com uma linha da DRE, ou lançar os "
+        "valores numa conta-folha já classificada, em vez de lançar diretamente nesta "
+        "conta-síntese."
     ),
-    "contas_com_classificacao_dre_aninhada": (
-        "Remover a linha da DRE de uma das duas contas no plano de contas — deixar só o "
-        "ancestral OU só a conta-folha classificados, nunca os dois ao mesmo tempo na mesma "
-        "hierarquia."
+    "contas_com_classificacao_dre_aninhada_linha_diferente": (
+        "Corrigir a linha da DRE de uma das duas contas — deixar só o ancestral OU só a "
+        "conta-folha classificados com a linha CERTA, nunca dois valores divergentes na "
+        "mesma hierarquia."
+    ),
+    "contas_com_classificacao_dre_aninhada_mesma_linha": (
+        "Aviso, não bloqueio: remover a linha da DRE de uma das duas contas, se preferir um "
+        "cadastro mais enxuto — a demonstração já sai correta do jeito que está."
+    ),
+    "contas_com_tipo_divergente_da_linha": (
+        "Corrigir o tipo da conta, ou a linha da DRE dela (ou de um ancestral), para os dois "
+        "ficarem compatíveis (Lei 6.404/76, art. 187)."
     ),
     "contas_com_classificacao_dre_desconhecida": (
-        "Corrigir a linha da DRE da conta no plano de contas, escolhendo uma das opções válidas."
+        "Corrigir a linha da DRE da conta, escolhendo uma das opções válidas."
     ),
 }
 
+# DL-045, correção da rodada 1 de auditoria (A3/A4, DE-085 item 4): título
+# e ação da lista informativa "estornos_de_zeramento_na_coluna" —
+# DIFERENTE das listas acima: não é uma chave `contas_*` (é sobre
+# LANÇAMENTOS de estorno, nunca bloqueia), então tem forma de item
+# própria (`{"lancamento", "data", "historico", "estorno_de_chave"}`,
+# nunca `{"conta", "nome", ...}`) e uma tradução separada, fora dos dois
+# dicts acima — ver `_lista_de_estornos_de_zeramento_para_contexto`.
+_TITULO_DA_LISTA_DE_ESTORNOS_DE_ZERAMENTO = (
+    "Lançamentos de estorno de zeramento no período — a DRE nunca os conta (nem ao "
+    "lançamento de zeramento original), mas o zeramento do MÊS em que o estorno aconteceu já "
+    "tinha visto o estorno como lançamento normal na hora em que rodou"
+)
+_ACAO_QUE_RESOLVE_A_LISTA_DE_ESTORNOS_DE_ZERAMENTO = (
+    "Nenhuma correção necessária — confira se a diferença entre esta coluna da DRE e o valor "
+    "que o zeramento deste mês transferiu é só o efeito do(s) estorno(s) listado(s) abaixo."
+)
 
-# DL-045 fatia 3 — NOTA (instrução do arquiteto-senior, 26/09/2026): esta
-# lista de pendência linkava, por linha, direto para "editar conta"
-# (`conta_id`) — removido junto com a tela de edição (ver a nota grande
-# perto de `ContaCriarForm`, acima): sem a tela, o link apontaria para
-# lugar nenhum. `_lista_de_pendencia_dre_para_contexto` volta a reaprovei-
-# tar `_linhas_de_pendencia` (a mesma função do Balanço) SEM enriquecer —
-# nenhuma consulta extra por conta pendente. O caminho de correção
-# continua sendo o link genérico "Ir ao plano de contas", no template —
-# mesmo desenho do veto do Balanço.
-def _lista_de_pendencia_dre_para_contexto(nome, itens):
+
+def _lista_de_pendencia_dre_para_contexto(nome, itens, contas_id_por_codigo):
+    """Lista de pendência baseada em CONTA (todas as listas de `_apurar_
+    coluna_dre` exceto "estornos_de_zeramento_na_coluna", tratada à
+    parte). `linha.conta_id`, quando localizada, faz o template linkar
+    direto para "classificar esta conta" (`conta_classificacao_dre`,
+    mais abaixo) — critério 2 do plano: "link para classificar a conta".
+    """
+    linhas = _linhas_de_pendencia(itens)
+    for linha in linhas:
+        linha["conta_id"] = contas_id_por_codigo.get(linha["conta"])
     return {
         "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE.get(nome, nome),
-        "linhas": _linhas_de_pendencia(itens),
+        "tipo_linha": "conta",
+        "linhas": linhas,
         "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_DRE_POR_LISTA.get(
             nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
         ),
     }
 
 
-def _colunas_de_pendencia_dre(dict_por_coluna):
+def _lista_de_estornos_de_zeramento_para_contexto(itens):
+    """Lista informativa "estornos_de_zeramento_na_coluna" — itens são
+    LANÇAMENTOS (`{"lancamento", "data", "historico", "estorno_de_chave"}`),
+    nunca contas; `tipo_linha="lancamento"` avisa o template para usar o
+    OUTRO ramo de renderização (nunca "Conta None — None", o que
+    aconteceria se estes itens passassem pelo humanizador genérico de
+    conta, `_linhas_de_pendencia`, que só conhece "conta"/"nome").
+    """
+    return {
+        "titulo": _TITULO_DA_LISTA_DE_ESTORNOS_DE_ZERAMENTO,
+        "tipo_linha": "lancamento",
+        "linhas": itens,
+        "acao": _ACAO_QUE_RESOLVE_A_LISTA_DE_ESTORNOS_DE_ZERAMENTO,
+    }
+
+
+def _contas_id_por_codigo_das_pendencias_dre(empresa, emissao):
+    """Mapa código -> id de TODAS as contas citadas em QUALQUER pendência
+    BASEADA EM CONTA da DRE (nas duas colunas, bloqueante ou só aviso) —
+    UMA consulta batelada (`codigo__in`), nunca uma por linha de
+    pendência, para o template linkar direto para "classificar esta
+    conta". A lista "estornos_de_zeramento_na_coluna" nunca contribui
+    código nenhum aqui (seus itens não têm campo "conta"). Vazio, sem
+    consulta nenhuma, quando não há pendência baseada em conta (o caso
+    comum, dia a dia).
+    """
+    codigos = set()
+    for dict_por_coluna in (emissao["listas_pendentes"], emissao["listas_informativas"]):
+        for listas in dict_por_coluna.values():
+            for nome, itens in listas.items():
+                if nome == "estornos_de_zeramento_na_coluna":
+                    continue
+                codigos.update(item["conta"] for item in itens)
+    if not codigos:
+        return {}
+    return dict(
+        Conta.objects.filter(empresa=empresa, codigo__in=codigos).values_list("codigo", "id")
+    )
+
+
+def _colunas_de_pendencia_dre(dict_por_coluna, contas_id_por_codigo):
     """`{"coluna_mes": {nome_lista: itens}, "coluna_acumulado": {...}}` ->
     lista pronta para o template percorrer, UMA entrada por coluna que
     tem algo a reportar (a mesma forma agrupada por coluna que `avaliar_
     emissao_da_dre` já devolve, DL-045 — "as duas colunas vetam", decisão
     do arquiteto de 26/09/2026) — nunca achatada, para o veto continuar
     dizendo EM QUAL coluna cada pendência apareceu. Trata QUALQUER nome de
-    lista genericamente (título vem de `.get(nome, nome)`, nunca um `if`
-    por nome específico): o servidor pode acrescentar lista nova (ex.:
-    "contas_com_tipo_divergente_da_linha", anunciada pelo arquiteto em
-    26/09/2026 para a próxima rodada) sem esta função precisar mudar —
-    só o dict `NOMES_HUMANOS_...`/`ACAO_QUE_RESOLVE_...` ganha uma
-    entrada nova quando o nome for conhecido; até lá, cai no fallback
-    (nome cru + "ação não cadastrada"), nunca quebra.
+    lista BASEADA EM CONTA genericamente (`.get(nome, nome)` no título,
+    nunca um `if` por nome específico) — só "estornos_de_zeramento_na_
+    coluna" desvia para o construtor próprio, por ter forma de item
+    diferente (ver o comentário da constante, acima).
     """
     return [
         {
             "titulo": _TITULO_DA_COLUNA_DRE.get(nome_coluna, nome_coluna),
             "listas": [
-                _lista_de_pendencia_dre_para_contexto(nome, itens) for nome, itens in listas.items()
+                _lista_de_estornos_de_zeramento_para_contexto(itens)
+                if nome == "estornos_de_zeramento_na_coluna"
+                else _lista_de_pendencia_dre_para_contexto(nome, itens, contas_id_por_codigo)
+                for nome, itens in listas.items()
             ],
         }
         for nome_coluna, listas in dict_por_coluna.items()
@@ -3636,23 +3833,14 @@ def dre(request, empresa_id):
     pede ano/mês, como o painel de fechamento já pede — nunca uma segunda
     gramática de data inventada aqui.
 
-    ⚠️ Achado reportado ao arquiteto-senior, não corrigido nesta etapa
-    (fora do escopo de arquivo desta tarefa — `services.py` pertence ao
-    `desenvolvedor-pleno`): `apurar_dre` NÃO paga o snapshot `REPEATABLE
-    READ` que `apurar_balanco_patrimonial` paga (DE-067) — o plano desta
-    etapa (fatia 2) registra "leitura consistente sob snapshot, como o
-    Balanço (DE-067)", mas a função mede DIFERENTE na fonte: nenhuma
-    `transaction.atomic()`/`SET TRANSACTION ISOLATION LEVEL REPEATABLE
-    READ` ao redor das DUAS agregações (mês, acumulado) de `apurar_dre`.
-    Nesta tela, isso significa que um lançamento gravado ENTRE a
-    apuração da coluna do mês e a do acumulado (raro, mas possível sob
-    concorrência) poderia, em teoria, deixar as duas colunas
-    inconsistentes entre si num mesmo documento — o mesmo risco que a
-    DE-067 fechou para o Balanço. Não há decisão de arquiteto pedindo
-    ESTA tela para pagar o snapshot que o serviço não paga (contornar
-    isso aqui duplicaria a responsabilidade do serviço, e ainda ficaria
-    incompleto: só cobriria a porta da TELA, não a da API, que também
-    chama `apurar_dre` direto).
+    O achado que eu tinha reportado (`apurar_dre` sem o snapshot
+    `REPEATABLE READ` que `apurar_balanco_patrimonial` paga, DE-067) foi
+    corrigido na rodada 1 de auditoria do servidor (A5,
+    docs/auditorias/2026-09-26-dl-045-rodada-1.md) — `apurar_dre` agora
+    abre a MESMA transação de nível superior com `SET TRANSACTION
+    ISOLATION LEVEL REPEATABLE READ`, degradando sem quebrar quando
+    chamada de dentro de um `transaction.atomic()` já aberto (mesmo
+    padrão do Balanço). Nada para esta tela fazer a respeito.
     """
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -3727,11 +3915,13 @@ def dre(request, empresa_id):
         }
     )
 
+    contas_id_por_codigo = _contas_id_por_codigo_das_pendencias_dre(empresa, emissao)
+
     # `emissao["listas_informativas"]` aparece nos DOIS desfechos (emitida
     # ou recusada por outro motivo) — mesma regra do Balanço (DE-070):
     # fica FORA do if/else que decide "monta a demonstração ou não".
     contexto["listas_apenas_aviso_por_coluna"] = _colunas_de_pendencia_dre(
-        emissao["listas_informativas"]
+        emissao["listas_informativas"], contas_id_por_codigo
     )
 
     if not emissao["pode_emitir"]:
@@ -3757,7 +3947,7 @@ def dre(request, empresa_id):
                     for nome_coluna, residuo in emissao["residuo_pendente"].items()
                 ],
                 "listas_pendentes_por_coluna": _colunas_de_pendencia_dre(
-                    emissao["listas_pendentes"]
+                    emissao["listas_pendentes"], contas_id_por_codigo
                 ),
             }
         )

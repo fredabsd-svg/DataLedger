@@ -75,6 +75,7 @@ mesma regra de servidor de antes, só reposicionada.
                         {% endcomment %}
                         <th scope="col">Linha da DRE</th>
                         <th scope="col">Situação</th>
+                        {% if pode_escriturar %}<th scope="col">Ações</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -88,6 +89,26 @@ mesma regra de servidor de antes, só reposicionada.
                             <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
                             <td>{{ linha.conta.get_classificacao_dre_display|default:"—" }}</td>
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
+                            {% if pode_escriturar %}
+                                <td>
+                                    {% comment %}
+                                    DL-045, correção da rodada 1 de
+                                    auditoria (A7): só conta de RESULTADO
+                                    (Receita ou Despesa) tem linha da DRE
+                                    — nenhuma linha aceita conta
+                                    patrimonial (Lei 6.404/76, art. 187),
+                                    então o botão nem aparece para essas,
+                                    em vez de convidar a um clique que o
+                                    servidor sempre recusaria.
+                                    {% endcomment %}
+                                    {% if linha.conta.tipo == "receita" or linha.conta.tipo == "despesa" %}
+                                        <a class="botao botao--secundario botao--pequeno"
+                                           href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta.id %}">
+                                            Linha da DRE
+                                        </a>
+                                    {% endif %}
+                                </td>
+                            {% endif %}
                         </tr>
                     {% endfor %}
                 </tbody>
