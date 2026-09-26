@@ -574,3 +574,118 @@ def test_link_zerar_resultado_aparece_no_painel_de_fechamento(client, cenario):
     corpo = resposta.content.decode()
     assert ">Zerar resultado<" in corpo
     assert _url_parametros(empresa.id) in corpo
+
+
+# ---------------------------------------------------------------------------
+# Integração da correção da rodada 1 (DE-078) com as telas: as recusas novas
+# do serviço chegam à tela como mensagem, nunca como 500 (achado B3), e o
+# zeramento feito pela tela grava o IP na trilha (achado B8).
+# ---------------------------------------------------------------------------
+
+
+def test_zeramento_pela_tela_grava_ip_na_trilha(client, cenario):
+    from apps.auditoria.models import RegistroAuditoria
+
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "b8-ip-tela")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="500.00")
+
+    resposta = client.post(
+        _url_zerar(empresa.id),
+        data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"},
+        REMOTE_ADDR="203.0.113.7",
+    )
+
+    assert resposta.status_code == 200
+    registro = RegistroAuditoria.objects.filter(acao="zeramento.resultado").order_by("-id").first()
+    assert registro is not None
+    assert registro.endereco_ip == "203.0.113.7"
+
+
+@pytest.mark.parametrize(
+    "excecao",
+    [
+        "ZeramentoForaDeOrdem",
+        "EmpresaTravadaPorOutraOperacao",
+        "ChaveIdempotenciaConflitante",
+        "LancamentoInvalido",
+    ],
+)
+def test_recusas_novas_do_zeramento_viram_mensagem_na_tela_sem_gravar(
+    client, cenario, monkeypatch, excecao
+):
+    from apps.contabilidade import services, views_web
+
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, f"b3-tela-{excecao}")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="500.00")
+    antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+
+    classe = getattr(services, excecao)
+
+    def _recusa(**kwargs):
+        raise classe("Recusa sintética de teste.")
+
+    monkeypatch.setattr(views_web, "zerar_resultado", _recusa)
+
+    resposta = client.post(
+        _url_zerar(empresa.id),
+        data={"ano": 2026, "mes": 3, "confirmar_zeramento": "1"},
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert "Recusa sintética de teste." in resposta.content.decode()
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == antes
+
+
+@pytest.mark.parametrize("rota", ["registrar", "encerrar"])
+def test_trava_por_empresa_no_parametro_vira_mensagem_na_tela(client, cenario, monkeypatch, rota):
+    from apps.contabilidade import services, views_web
+
+    empresa, contas = cenario["empresa"], cenario
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, f"b3-param-{rota}")
+    _registrar_parametro(empresa, cenario)
+
+    def _recusa(**kwargs):
+        raise services.EmpresaTravadaPorOutraOperacao("Empresa ocupada (teste).")
+
+    if rota == "registrar":
+        monkeypatch.setattr(views_web, "registrar_parametro_contabil", _recusa)
+        resposta = client.post(
+            _url_parametros(empresa.id),
+            data={
+                "periodicidade_zeramento": PeriodicidadeZeramento.MENSAL,
+                "conta_resultado_do_exercicio": contas["resultado"].id,
+                "conta_lucros_acumulados": contas["lucros"].id,
+                "conta_prejuizos_acumulados": contas["prejuizos"].id,
+                "vigencia_inicio": "2026-09-01",
+            },
+        )
+    else:
+        monkeypatch.setattr(views_web, "encerrar_vigencia_de_parametro_contabil", _recusa)
+        resposta = client.post(_url_encerrar_vigencia(empresa.id), follow=True)
+
+    assert resposta.status_code in (200, 400)
+    assert "Empresa ocupada (teste)." in resposta.content.decode()
+    assert ParametroContabilEmpresa.objects.filter(empresa=empresa).count() == 1
+
+
+def test_previa_fora_de_ordem_mostra_a_recusa_sem_botao_de_gravar(client, cenario):
+    """Com o mês 04 já zerado, a prévia do mês 03 recusa (DE-078 item 2) —
+    mensagem do serviço na tela, nunca 500, e sem o botão de gravar."""
+    empresa = cenario["empresa"]
+    usuario = _autenticar(client, cenario["escritorio"], Papel.GESTOR, "b2-previa-ordem")
+    _registrar_parametro(empresa, cenario)
+    _lancar_lucro(empresa, cenario, date(2026, 3, 15), usuario, valor="300.00")
+    _lancar_lucro(empresa, cenario, date(2026, 4, 15), usuario, valor="200.00")
+    client.post(_url_zerar(empresa.id), data={"ano": 2026, "mes": 4, "confirmar_zeramento": "1"})
+
+    resposta = client.get(_url_zerar(empresa.id, 2026, 3))
+
+    assert resposta.status_code == 200
+    corpo = resposta.content.decode()
+    assert 'role="alert"' in corpo
+    assert "confirmar_zeramento" not in corpo

@@ -206,3 +206,33 @@ da rodada 1 fala em "0 falhas" para esse caso; não decidi se essa recusa
 legítima deveria contar como "falha" para efeito de aceite — reporto a
 diferença de leitura, e o teste só marca falha para exceções que não sejam
 `ZeramentoForaDeOrdem`.
+
+**Decisão do `arquiteto-senior` (2026-09-26):** a leitura do desenvolvedor está
+certa. "0 falhas" no critério de concorrência significa **nenhuma exceção
+inesperada e nenhum valor contado em dobro**. A recusa `ZeramentoForaDeOrdem`
+de quem perde a corrida é a regra cronológica da DE-078 (item 2) funcionando:
+o mês recusado é zerado depois, na ordem, pelo próprio usuário (se o mês
+posterior já foi zerado, o caminho é estornar esse zeramento e refazer na
+ordem, RC-103). Não é falha de aceite.
+
+## Integração com as telas (fatia 3)
+
+Ao juntar a correção com as telas, três portas da tela ainda não conheciam as
+recusas novas do serviço — um estouro de trava, uma chave ocupada ou uma recusa
+de lançamento virariam 500 na tela, e o zeramento feito pela tela gravava a
+trilha sem IP (achado B8 na porta web). Ajuste de integração em
+`views_web.py`: a tela passa `request` ao serviço e trata as mesmas recusas que
+a API mapeia para 400/409, como mensagem, sem gravar. Seis testes novos em
+`test_dl043_fatia3_telas.py`; reprovam com o `views_web.py` anterior (medido:
+6 falhas) e passam com o ajuste.
+
+## P1 — lucros e prejuízos acumulados no zeramento mensal
+
+A auditoria perguntou (P1) o que acontece quando a empresa alterna lucro e
+prejuízo entre meses: com o destino pelo sinal (RC-104), as duas contas do PL
+crescem. A pesquisa não conseguiu ler a central de soluções do sistema de
+referência (403, limite já documentado em
+[fontes-de-referencia.md](../projeto/fontes-de-referencia.md)); os títulos
+indexados dos artigos sugerem que lá a compensação é lançamento separado, ligado
+à demonstração anual. Registrado como **HI-26** e ampliação da **PE-38**; a
+DL-043 entrega o que o RC-104 confirmou e **não** compensa automaticamente.

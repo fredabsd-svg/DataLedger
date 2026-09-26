@@ -3963,7 +3963,9 @@ def parametros_contabeis(request, empresa_id):
                 # que a pessoa digitou continua nos campos (critério do
                 # arquétipo B — "o formulário não some quando dá erro").
                 form.add_error(None, str(exc))
-            except VigenciaParametroContabilConflitante as exc:
+            except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
+                # `CompetenciaOperacaoRecusada`: estouro da trava por empresa
+                # (DE-078 item 3, `EmpresaTravadaPorOutraOperacao`).
                 # 409 de estado (concorrência, sobreposição, retroatividade
                 # sobre zeramento já gravado) — mesma tela, mesmo tratamento
                 # visual; a DIFERENÇA entre 400 e 409 não muda nada para
@@ -4035,7 +4037,7 @@ def parametro_contabil_encerrar(request, empresa_id):
         encerrar_vigencia_de_parametro_contabil(
             empresa=empresa, usuario=request.user, request=request
         )
-    except VigenciaParametroContabilConflitante as exc:
+    except (VigenciaParametroContabilConflitante, CompetenciaOperacaoRecusada) as exc:
         messages.error(request, str(exc))
     else:
         messages.success(request, "Vigência de parâmetro contábil encerrada hoje.")
@@ -4143,11 +4145,21 @@ def zeramento_do_periodo(request, empresa_id):
             return redirect(f"{url_previa}?ano={ano}&mes={mes}")
 
         try:
-            resultado = zerar_resultado(empresa=empresa, ano=ano, mes=mes, usuario=request.user)
-        except ParametroContabilInvalido as exc:
-            messages.error(request, str(exc))
-            return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
-        except CompetenciaEncerrada as exc:
+            resultado = zerar_resultado(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except (
+            ParametroContabilInvalido,
+            LancamentoInvalido,
+            ChaveIdempotenciaConflitante,
+            CompetenciaEncerrada,
+            CompetenciaOperacaoRecusada,
+        ) as exc:
+            # Mesmas recusas que a API mapeia para 400/409 (DE-078 itens 2,
+            # 3, 5 e 6): na tela, todas viram mensagem de erro e voltam ao
+            # fechamento sem gravar — nunca o 500 cru do achado B3.
+            # `ZeramentoForaDeOrdem` é subclasse de `CompetenciaEncerrada` e
+            # `EmpresaTravadaPorOutraOperacao` de `CompetenciaOperacaoRecusada`.
             messages.error(request, str(exc))
             return redirect("contabilidade_web:fechamento", empresa_id=empresa.id)
 
@@ -4168,6 +4180,17 @@ def zeramento_do_periodo(request, empresa_id):
             "ano": ano,
             "mes": mes,
             "erro_parametro": str(exc),
+        }
+        return render(request, "contabilidade/zerar_resultado.html", contexto)
+    except CompetenciaEncerrada as exc:
+        # `ZeramentoForaDeOrdem` (DE-078 item 2): a prévia também recusa
+        # quando já existe zeramento posterior. Mesmo estado de tela da
+        # competência encerrada — mensagem do serviço, sem botão de gravar.
+        contexto = {
+            "empresa": empresa,
+            "ano": ano,
+            "mes": mes,
+            "erro_competencia_encerrada": str(exc),
         }
         return render(request, "contabilidade/zerar_resultado.html", contexto)
 
