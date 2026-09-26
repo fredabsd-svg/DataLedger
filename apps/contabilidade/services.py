@@ -13,8 +13,12 @@ from django.utils import timezone
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE,
     NATUREZA_NATURAL_DO_TIPO,
+    NATUREZA_NATURAL_DO_TIPO_DRE,
+    TIPO_DA_CLASSIFICACAO_DRE,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    ClassificacaoDre,
     ClassificacaoPatrimonial,
     Competencia,
     Conta,
@@ -4500,6 +4504,455 @@ def apurar_balanco_patrimonial(*, empresa, data_base):
         "saldos": saldos,
         "emissao": avaliar_emissao_do_balanco(saldos),
         "identificacao": identificacao_da_demonstracao(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# DL-045 — Demonstração do Resultado do Exercício (DRE), fatias 1 e 2.
+# RC-118/RC-119/RC-120, HI-28, HI-29 (revista após a PE-70).
+# ---------------------------------------------------------------------------
+
+
+def _agregar_movimento_dre_por_conta(*, empresa, inicio, fim):
+    """Débitos/créditos PRÓPRIOS de cada conta em `[inicio, fim]`,
+    EXCLUINDO lançamentos de zeramento (DL-043) — é o problema que o plano
+    da DL-045 nomeia: o zeramento é gravado no ÚLTIMO DIA do próprio
+    período (RC-104), então uma DRE que não excluísse esses lançamentos
+    somaria a contrapartida do zeramento e sairia zerada.
+
+    ⚠️ **Prefixo `zeramento:`, sem diferenciar maiúsculas/minúsculas**
+    (achado R4 da reconferência da DL-043): `istartswith`, não
+    `startswith`, pela MESMA razão que `criar_lancamento` normaliza para
+    minúsculas antes de recusar a chave — o SQLite (usado em
+    desenvolvimento) resolve `LIKE` sem diferenciar caixa, então uma
+    exclusão sensível a caixa deixaria passar uma chave gravada em
+    maiúsculas nesse backend (nunca em produção, que é sempre PostgreSQL
+    — DE-014/BL-50 —, mas a mesma defesa em profundidade do R4 se aplica
+    aqui por consistência).
+
+    UMA única consulta agregada por conta (mesmo padrão de
+    `apurar_balancete`): nenhuma consulta por conta, número constante em
+    relação ao tamanho do plano de contas (critério 2 da fatia 2).
+    """
+    zero = Decimal("0")
+    prefixo_zeramento = f"{_PREFIXO_CHAVE_ZERAMENTO}:"
+    return {
+        linha["conta"]: linha
+        for linha in (
+            ItemLancamento.objects.filter(
+                conta__empresa=empresa,
+                lancamento__empresa=empresa,
+                lancamento__data__gte=inicio,
+                lancamento__data__lte=fim,
+            )
+            .exclude(lancamento__chave_idempotencia__istartswith=prefixo_zeramento)
+            .values("conta")
+            .annotate(
+                debito=Sum(
+                    "valor",
+                    filter=Q(tipo=TipoPartida.DEBITO),
+                    default=zero,
+                    output_field=_CAMPO_SOMA_MONETARIA,
+                ),
+                credito=Sum(
+                    "valor",
+                    filter=Q(tipo=TipoPartida.CREDITO),
+                    default=zero,
+                    output_field=_CAMPO_SOMA_MONETARIA,
+                ),
+            )
+        )
+    }
+
+
+def _consolidar_movimento_por_conta(*, contas, filhos_de, agregados_por_conta):
+    """Débito/crédito da conta PRÓPRIA mais o de TODA a subárvore — regra
+    única de saldo (DE-020), mesmo padrão de `bruto_de` em
+    `apurar_balancete`, sem sinal (a natureza é aplicada pelo chamador,
+    uma única vez, sobre a linha topo-classificada)."""
+    zero = Decimal("0")
+    linha_vazia = {"debito": zero, "credito": zero}
+    consolidados = {}
+
+    def consolidado_de(conta_id):
+        if conta_id in consolidados:
+            return consolidados[conta_id]
+        agregado = agregados_por_conta.get(conta_id, linha_vazia)
+        resultado = {"debito": agregado["debito"], "credito": agregado["credito"]}
+        for filho_id in filhos_de.get(conta_id, []):
+            filho = consolidado_de(filho_id)
+            resultado["debito"] += filho["debito"]
+            resultado["credito"] += filho["credito"]
+        consolidados[conta_id] = resultado
+        return resultado
+
+    for conta in contas:
+        consolidado_de(conta.id)
+    return consolidados
+
+
+# HI-29 (revista após a PE-70, 2026-09-26): a ORDEM dos subtotais e QUAIS
+# linhas entram em cada bloco moram ISOLADAS aqui — trocar a apresentação
+# (ex.: se o Fred decidir manter o resultado financeiro dentro do bloco
+# operacional, como a LETRA do art. 187, III, em vez de destacado como a
+# NBC TG 26 item 82/NBC TG 1000 item 5.7/ITG 1000 (2022) apresentam) é
+# mudar só estas duas tuplas, nunca o cálculo em `apurar_dre`.
+_LINHAS_ANTES_DO_RESULTADO_FINANCEIRO = (
+    ClassificacaoDre.DESPESAS_COM_VENDAS,
+    ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS,
+    ClassificacaoDre.OUTRAS_RECEITAS,
+    ClassificacaoDre.OUTRAS_DESPESAS,
+    ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS,
+    ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL,
+)
+_LINHAS_DO_RESULTADO_FINANCEIRO = (
+    ClassificacaoDre.RECEITAS_FINANCEIRAS,
+    ClassificacaoDre.DESPESAS_FINANCEIRAS,
+)
+
+
+def _somar_linhas_com_sinal(linhas_de_classificacao, totais_por_classificacao):
+    """Soma um grupo de linhas da DRE aplicando o sinal pelo lado NATURAL
+    de cada LINHA (`NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`, nunca um `if`
+    manual por linha, e nunca `TIPO_DA_CLASSIFICACAO_DRE` — que decide
+    compatibilidade com `Conta.tipo`, uma pergunta DIFERENTE da do sinal
+    natural: "deduções da receita" é tipo RECEITA mas lado natural
+    DEVEDOR, ver o docstring do dict em models.py): CREDORA soma, DEVEDORA
+    subtrai. Cada linha já chega aqui como uma MAGNITUDE positiva no seu
+    lado natural (ver `_apurar_coluna_dre`), então "somar" e "subtrair"
+    aqui é o mesmo que "aumenta o resultado" e "diminui o resultado".
+    """
+    total = Decimal("0")
+    for classificacao in linhas_de_classificacao:
+        natureza_natural = NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE[classificacao]
+        valor = totais_por_classificacao[classificacao]
+        total += valor if natureza_natural == NaturezaConta.CREDORA else -valor
+    return total
+
+
+def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id):
+    """Uma COLUNA da DRE (mês ou acumulado do exercício): os totais por
+    linha do art. 187, os subtotais (HI-29) e as listas de pendência —
+    mesmo desenho de `apurar_saldos`/DL-033 (confirmado pela tarefa desta
+    etapa): declarar o que falta, nunca inferir; resíduo como identidade
+    aritmética, não só uma lista de casos pensados.
+
+    UMA consulta agregada (`_agregar_movimento_dre_por_conta`) por
+    coluna — o número de consultas não cresce com o número de contas
+    (critério 2). `apurar_dre`, abaixo, chama esta função DUAS vezes (mês
+    e acumulado), reaproveitando a MESMA hierarquia já carregada.
+    """
+    zero = Decimal("0")
+
+    # Topo classificado (mesmo algoritmo de `classificacao_ancestral_de`
+    # em `apurar_balancete`, DL-033): classificação do ancestral mais
+    # próximo, estritamente ACIMA — nunca a própria.
+    classificacoes_dre_ancestrais_por_id = {}
+
+    def classificacao_dre_ancestral_de(conta_id):
+        if conta_id in classificacoes_dre_ancestrais_por_id:
+            return classificacoes_dre_ancestrais_por_id[conta_id]
+        conta = contas_por_id[conta_id]
+        if conta.conta_pai_id is None:
+            resultado = None
+        else:
+            pai = contas_por_id[conta.conta_pai_id]
+            resultado = pai.classificacao_dre or classificacao_dre_ancestral_de(conta.conta_pai_id)
+        classificacoes_dre_ancestrais_por_id[conta_id] = resultado
+        return resultado
+
+    agregados_proprios = _agregar_movimento_dre_por_conta(empresa=empresa, inicio=inicio, fim=fim)
+    consolidados = _consolidar_movimento_por_conta(
+        contas=contas, filhos_de=filhos_de, agregados_por_conta=agregados_proprios
+    )
+    linha_vazia = {"debito": zero, "credito": zero}
+
+    totais_por_classificacao = {classificacao: zero for classificacao in ClassificacaoDre.values}
+    # Mesma defesa em profundidade do achado A1/BL-476 (DL-032) e do
+    # BL-499 (DL-033): valor gravado fora de `ClassificacaoDre` (só por
+    # ORM/SQL direto) NUNCA estoura `KeyError` — aparece, nomeado, aqui.
+    contas_com_classificacao_dre_desconhecida = []
+    # Duas contas da MESMA árvore declarando a MESMA linha (uma tem
+    # classificação própria E um ancestral também classificado) — o
+    # ancestral já consolida esta conta no próprio `consolidado_de`
+    # (regra única de saldo); somar esta linha de novo contaria o mesmo
+    # lançamento duas vezes. Vazia no caso são.
+    contas_com_classificacao_dre_aninhada = []
+    # Conta de RECEITA/DESPESA, ANALÍTICA (sem descendentes — DE-022),
+    # COM MOVIMENTO PRÓPRIO nesta coluna, cuja própria classificação E a
+    # de TODOS os ancestrais estão vazias — a régua é o MOVIMENTO NESTA
+    # COLUNA (mês ou acumulado), não uma propriedade fixa da conta (mesma
+    # lição do BL-498/DL-033): esta é a lista que a fatia 3 usa para
+    # RECUSAR a emissão (critério 6 do plano).
+    contas_sem_classificacao_dre_com_movimento = []
+    # Nó NÃO-FOLHA (tem descendente) sem classificação própria nem
+    # ancestral, mas com movimento PRÓPRIO nesta coluna — o oposto exato
+    # da lista acima (BL-487/DL-033: desdobramento de conta já em uso é
+    # ROTINA normal, DE-022, não erro; sem esta lista o movimento próprio
+    # desse nó ficaria invisível para "o que falta classificar").
+    contas_nao_folha_sem_classificacao_dre_com_movimento_proprio = []
+
+    for conta in contas:
+        propria = conta.classificacao_dre
+        ancestral = classificacao_dre_ancestral_de(conta.id)
+        consolidado = consolidados.get(conta.id, linha_vazia)
+
+        if propria:
+            if propria not in totais_por_classificacao:
+                contas_com_classificacao_dre_desconhecida.append(
+                    {"conta": conta.codigo, "nome": conta.nome, "classificacao_dre": propria}
+                )
+            elif ancestral:
+                contas_com_classificacao_dre_aninhada.append(
+                    {
+                        "conta": conta.codigo,
+                        "nome": conta.nome,
+                        "classificacao_dre": propria,
+                        "classificacao_dre_ancestral": ancestral,
+                    }
+                )
+            else:
+                # Lado NATURAL da LINHA (não do `TipoConta` esperado) —
+                # ver o docstring de `NATUREZA_NATURAL_DA_CLASSIFICACAO_
+                # DRE`: "deduções da receita" é tipo RECEITA mas lado
+                # natural DEVEDOR, a exceção que motivou este dict
+                # separado.
+                natureza_natural = NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE.get(propria)
+                if natureza_natural is not None:
+                    totais_por_classificacao[propria] += _saldo_por_natureza(
+                        consolidado["debito"], consolidado["credito"], natureza_natural
+                    )
+            continue
+
+        # Sem classificação própria: só interessa às listas de pendência
+        # se for RECEITA/DESPESA (patrimonial nunca precisa de linha da
+        # DRE) e não tiver ancestral classificado (senão já está coberta
+        # pelo consolidado do ancestral).
+        if ancestral is not None or conta.tipo not in (TipoConta.RECEITA, TipoConta.DESPESA):
+            continue
+
+        proprio = agregados_proprios.get(conta.id, linha_vazia)
+        tem_movimento_proprio = proprio["debito"] != zero or proprio["credito"] != zero
+        if not tem_movimento_proprio:
+            continue
+        if filhos_de.get(conta.id):
+            contas_nao_folha_sem_classificacao_dre_com_movimento_proprio.append(
+                {"conta": conta.codigo, "nome": conta.nome, "tipo": conta.tipo}
+            )
+        else:
+            contas_sem_classificacao_dre_com_movimento.append(
+                {"conta": conta.codigo, "nome": conta.nome, "tipo": conta.tipo}
+            )
+
+    # Resíduo por tipo (mesma identidade aritmética do Balanço, DE-068/
+    # BL-496, adaptada aos dois tipos que participam da DRE): soma das
+    # RAÍZES de cada tipo, pelo lado NATURAL do tipo (nunca a natureza
+    # cadastrada de cada conta isolada — protege contra irmãs
+    # topo-classificadas com natureza divergente, a aritmética do
+    # BL-486), menos a soma das linhas classificadas daquele tipo. Zero
+    # no caso são; diferente de zero sempre que alguma topologia (folha
+    # esquecida, aninhamento, irmãs de natureza mista) descasar os dois
+    # totais — nomeado o tamanho e o sinal, nunca corrigido.
+    totais_por_tipo_bruto = {TipoConta.RECEITA: zero, TipoConta.DESPESA: zero}
+    for conta in contas:
+        if conta.conta_pai_id is None and conta.tipo in totais_por_tipo_bruto:
+            consolidado = consolidados.get(conta.id, linha_vazia)
+            natureza_natural = NATUREZA_NATURAL_DO_TIPO_DRE[conta.tipo]
+            totais_por_tipo_bruto[conta.tipo] += _saldo_por_natureza(
+                consolidado["debito"], consolidado["credito"], natureza_natural
+            )
+    residuo_por_tipo = {}
+    for tipo in (TipoConta.RECEITA, TipoConta.DESPESA):
+        natureza_do_tipo = NATUREZA_NATURAL_DO_TIPO_DRE[tipo]
+        # Converte cada linha classificada de VOLTA para o lado natural do
+        # TIPO (não da linha) antes de somar — necessário porque
+        # "deduções da receita" guarda sua magnitude no lado DEVEDOR
+        # (`NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`), enquanto o total por
+        # TIPO (`totais_por_tipo_bruto`, acima) está no lado CREDOR
+        # (`NATUREZA_NATURAL_DO_TIPO_DRE[RECEITA]`) — sem esta conversão,
+        # a identidade do resíduo compararia duas convenções de sinal
+        # diferentes e nunca fecharia em zero, mesmo num plano de contas
+        # coerente.
+        soma_classificado = sum(
+            (
+                valor
+                if NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE[classificacao] == natureza_do_tipo
+                else -valor
+                for classificacao, valor in totais_por_classificacao.items()
+                if TIPO_DA_CLASSIFICACAO_DRE.get(classificacao) == tipo
+            ),
+            zero,
+        )
+        residuo_por_tipo[tipo] = totais_por_tipo_bruto[tipo] - soma_classificado
+
+    receita_liquida = (
+        totais_por_classificacao[ClassificacaoDre.RECEITA_BRUTA]
+        - totais_por_classificacao[ClassificacaoDre.DEDUCOES_DA_RECEITA]
+    )
+    lucro_bruto = receita_liquida - totais_por_classificacao[ClassificacaoDre.CUSTO]
+    resultado_antes_do_financeiro = lucro_bruto + _somar_linhas_com_sinal(
+        _LINHAS_ANTES_DO_RESULTADO_FINANCEIRO, totais_por_classificacao
+    )
+    resultado_financeiro = _somar_linhas_com_sinal(
+        _LINHAS_DO_RESULTADO_FINANCEIRO, totais_por_classificacao
+    )
+    resultado_antes_dos_tributos = resultado_antes_do_financeiro + resultado_financeiro
+    lucro_liquido = (
+        resultado_antes_dos_tributos
+        - totais_por_classificacao[ClassificacaoDre.PROVISAO_IRPJ_CSLL]
+        - totais_por_classificacao[ClassificacaoDre.PARTICIPACOES]
+    )
+
+    total_debitos = sum((linha["debito"] for linha in agregados_proprios.values()), zero)
+    total_creditos = sum((linha["credito"] for linha in agregados_proprios.values()), zero)
+
+    return {
+        "linhas": dict(totais_por_classificacao),
+        "subtotais": {
+            "receita_liquida": receita_liquida,
+            "lucro_bruto": lucro_bruto,
+            "resultado_antes_das_receitas_e_despesas_financeiras": resultado_antes_do_financeiro,
+            "resultado_financeiro": resultado_financeiro,
+            "resultado_antes_dos_tributos_sobre_o_lucro": resultado_antes_dos_tributos,
+            "lucro_liquido": lucro_liquido,
+        },
+        "residuo_por_tipo": residuo_por_tipo,
+        "contas_sem_classificacao_dre_com_movimento": contas_sem_classificacao_dre_com_movimento,
+        "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
+            contas_nao_folha_sem_classificacao_dre_com_movimento_proprio
+        ),
+        "contas_com_classificacao_dre_aninhada": contas_com_classificacao_dre_aninhada,
+        "contas_com_classificacao_dre_desconhecida": contas_com_classificacao_dre_desconhecida,
+        "total_debitos": total_debitos,
+        "total_creditos": total_creditos,
+    }
+
+
+def apurar_dre(*, empresa, ano, mes):
+    """Demonstração do Resultado do Exercício (DL-045, RC-118/RC-119) —
+    duas colunas, MÊS e ACUMULADO DO EXERCÍCIO (do início do exercício
+    até o fim do mês, HI-28: exercício = ano civil), pelo MOVIMENTO do
+    período, EXCLUINDO lançamentos de zeramento (o problema que o plano
+    desta etapa nomeia — ver `_agregar_movimento_dre_por_conta`).
+
+    ⚠️ **NÃO usa `apurar_saldos`, de propósito** — o próprio docstring
+    dela avisa (RC-104, penúltima ressalva): "esta camada NÃO serve para
+    apurar a DRE". `apurar_balancete` também não serve pronta (ela conta
+    TODOS os lançamentos, inclusive o de zeramento) — daí a agregação
+    PRÓPRIA desta função, que reusa só a construção de HIERARQUIA
+    (`_construir_hierarquia`) do motor do Balancete, nunca o cálculo de
+    saldo em si.
+
+    Confia que `ano`/`mes` já chegam como `int` válidos (1 <= mes <= 12)
+    — validação de FORMATO é responsabilidade da view (`_validar_ano_
+    mes`, já usada por `ZerarResultadoView`), mesmo padrão de
+    `apurar_balancete`/`apurar_saldos` confiando em `datetime.date` já
+    pronto.
+
+    Devolve `{"empresa_id", "ano", "mes", "data_inicio_mes",
+    "data_fim_mes", "data_inicio_exercicio", "data_fim_exercicio",
+    "coluna_mes": <coluna>, "coluna_acumulado": <coluna>}`, onde cada
+    `<coluna>` é o dict de `_apurar_coluna_dre` (linhas, subtotais,
+    resíduo, pendências).
+
+    Número de consultas CONSTANTE em relação ao número de contas
+    (critério 2): UMA consulta de hierarquia (`Conta.objects.filter`) +
+    DUAS agregações (uma por coluna) — nenhuma consulta por conta.
+
+    Não verifica autorização nem papel — mesmo limite que `apurar_saldos`
+    e `apurar_balancete` já declaram; quem chama (a view) verifica
+    permissão antes de chamar esta função.
+    """
+    ultimo_dia_do_mes = calendar.monthrange(ano, mes)[1]
+    data_inicio_mes = date(ano, mes, 1)
+    data_fim_mes = date(ano, mes, ultimo_dia_do_mes)
+    # HI-28: exercício social = ano civil.
+    data_inicio_exercicio = date(ano, 1, 1)
+    data_fim_exercicio = data_fim_mes
+
+    contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
+    contas_por_id, filhos_de, _nivel_de = _construir_hierarquia(contas)
+
+    coluna_mes = _apurar_coluna_dre(
+        empresa=empresa,
+        inicio=data_inicio_mes,
+        fim=data_fim_mes,
+        contas=contas,
+        filhos_de=filhos_de,
+        contas_por_id=contas_por_id,
+    )
+    coluna_acumulado = _apurar_coluna_dre(
+        empresa=empresa,
+        inicio=data_inicio_exercicio,
+        fim=data_fim_exercicio,
+        contas=contas,
+        filhos_de=filhos_de,
+        contas_por_id=contas_por_id,
+    )
+
+    return {
+        "empresa_id": empresa.id,
+        "ano": ano,
+        "mes": mes,
+        "data_inicio_mes": data_inicio_mes,
+        "data_fim_mes": data_fim_mes,
+        "data_inicio_exercicio": data_inicio_exercicio,
+        "data_fim_exercicio": data_fim_exercicio,
+        "coluna_mes": coluna_mes,
+        "coluna_acumulado": coluna_acumulado,
+    }
+
+
+# Mesmo padrão de `_LISTAS_QUE_IMPEDEM_A_EMISSAO` (DL-034/BL-502): uma
+# tupla EXPLÍCITA, nunca um `if` por lista escrito à mão — decide o que
+# BLOQUEIA a leitura/emissão da DRE (critério 6 do plano: pendência de
+# classificação recusa, listando as contas). Escopada à coluna do MÊS: é
+# o período que o usuário pediu; a coluna do acumulado pode ter pendência
+# de um mês ANTERIOR já fechado que ninguém vai corrigir mais (ver
+# `avaliar_emissao_da_dre`).
+_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO = ("contas_sem_classificacao_dre_com_movimento",)
+_LISTAS_DA_DRE_QUE_SO_AVISAM = (
+    "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio",
+    "contas_com_classificacao_dre_aninhada",
+    "contas_com_classificacao_dre_desconhecida",
+)
+
+
+def avaliar_emissao_da_dre(dre):
+    """Decide, no SERVIDOR, se a DRE pode ser devolvida/emitida — mesmo
+    padrão de `avaliar_emissao_do_balanco` (DL-034, critério 1): a
+    condição de veto é a CONJUNÇÃO do resíduo zero (nos dois tipos, na
+    coluna do MÊS) com a lista de pendência de classificação vazia
+    (também na coluna do MÊS — critério 6 do plano: "conta de resultado
+    analítica com movimento no período sem classificação").
+
+    ⚠️ **Só a coluna do MÊS decide o veto.** A coluna do ACUMULADO soma
+    meses já fechados; se um mês anterior ficou com pendência que
+    ninguém mais vai resolver retroativamente (o cadastro mudou depois),
+    vetar o mês ATUAL por causa de um mês passado tornaria a DRE
+    inemitível para sempre. A pendência do acumulado, se houver, ainda
+    aparece na resposta (nunca escondida) — só não veta.
+
+    Retorna `{"pode_emitir": bool, "residuo_pendente": {...}, "listas_
+    pendentes": {...}, "listas_informativas": {...}}` — mesmo contrato de
+    `avaliar_emissao_do_balanco`.
+    """
+    zero = Decimal("0")
+    coluna = dre["coluna_mes"]
+    residuo_pendente = {
+        tipo: valor for tipo, valor in coluna["residuo_por_tipo"].items() if valor != zero
+    }
+    listas_pendentes = {
+        nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO if coluna[nome]
+    }
+    listas_informativas = {
+        nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_SO_AVISAM if coluna[nome]
+    }
+    return {
+        "pode_emitir": not residuo_pendente and not listas_pendentes,
+        "residuo_pendente": residuo_pendente,
+        "listas_pendentes": listas_pendentes,
+        "listas_informativas": listas_informativas,
     }
 
 

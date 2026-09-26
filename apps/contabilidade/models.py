@@ -355,6 +355,156 @@ GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL = {
 }
 
 
+class ClassificacaoDre(models.TextChoices):
+    """Linha da Demonstração do Resultado do Exercício — DL-045, fatia 1
+    (RC-118). Fonte: Lei 6.404/76, art. 187 e art. 175, e NBC TG 26 (R5)
+    item 82, NBC TG 1000 (R1) item 5.7 e ITG 1000 (2022) — lidas na fonte
+    primária (Planalto, Câmara, PDFs do CFC) em 2026-09-26, PE-70
+    respondida (ver `docs/projeto/requisitos.md`). Mesmo molde do
+    `ClassificacaoPatrimonial` (circulante × não circulante, DL-033):
+    campo FIXO da conta, `null=True`, nunca inferido do código ou do nome
+    — é o contador quem classifica, a camada de apuração só DECLARA o
+    que falta (mesmo padrão que `contas_sem_classificacao_patrimonial`
+    já usa).
+
+    ⚠️ **Confirmação do precedente da DL-033, pedida pela tarefa desta
+    etapa:** `ClassificacaoPatrimonial` NÃO tem restrição de banco (só
+    migração `AddField`, sem `CheckConstraint` nem gatilho) — a única
+    guarda de "classificação compatível com o tipo da conta" mora em
+    `Conta.clean()` (roda em `full_clean()`, nunca em `.save()` puro nem
+    em `.update()` em massa). `ClassificacaoDre` segue o MESMO desenho,
+    de propósito: nenhuma restrição de banco nova, só a guarda de
+    `clean()` abaixo — consistente com o resto do campo irmão.
+
+    ⚠️ **HI-29 (revista depois da PE-70): resultado financeiro
+    DESTACADO, não dentro do "resultado operacional".** A letra do art.
+    187, III embutiria o financeiro no operacional, mas a NBC TG 26 item
+    82 e a NBC TG 1000 item 5.7 destacam receitas/despesas financeiras
+    como um subtotal próprio, e a ITG 1000 (2022) traz o mesmo modelo —
+    é a estrutura que este enum e a apuração (`services.py`) seguem. O
+    Fred ainda confirma a apresentação (registrado no plano); a ordem
+    exata dos subtotais mora isolada em `_LINHAS_ANTES_DO_FINANCEIRO`/
+    `_LINHAS_DO_RESULTADO_FINANCEIRO` (services.py), para trocar fácil
+    se ele decidir diferente.
+
+    ⚠️ **Mapeamento linha → `TipoConta` esperado é uma INFERÊNCIA minha,
+    não texto literal do plano** (reportado ao arquiteto, não decidido
+    sozinho): o plano lista as treze linhas mas não diz qual `TipoConta`
+    cada uma espera — diferente da DL-033, onde a própria Lei (art. 178,
+    §1º/§2º) nomeia Ativo/Passivo linha a linha. Seguindo o padrão RC-61
+    (retificadora dentro do MESMO tipo/grupo — ex.: "(-) Depreciação
+    acumulada" dentro do Ativo, natureza oposta) mapeei "deduções da
+    receita" como tipo RECEITA (retificadora da receita bruta) e todas
+    as linhas de custo/despesa/provisão/participações como tipo DESPESA
+    — ver `TIPO_DA_CLASSIFICACAO_DRE`, abaixo. **As atribuições mais
+    discutíveis são "deduções da receita" (RECEITA), "resultado de
+    equivalência patrimonial" (RECEITA — pode ser negativo, natureza
+    retificadora, mas o valor típico é ganho) e "participações"
+    (DESPESA)** — se o Fred indicar outra convenção, é só trocar o valor
+    no dict, nada mais depende da escolha em si.
+    """
+
+    RECEITA_BRUTA = "receita_bruta", "Receita bruta de vendas e serviços"
+    DEDUCOES_DA_RECEITA = (
+        "deducoes_da_receita",
+        "Deduções da receita (impostos, devoluções e abatimentos)",
+    )
+    CUSTO = "custo", "Custo (CMV/CPV/CSP)"
+    DESPESAS_COM_VENDAS = "despesas_com_vendas", "Despesas com vendas"
+    DESPESAS_GERAIS_E_ADMINISTRATIVAS = (
+        "despesas_gerais_e_administrativas",
+        "Despesas gerais e administrativas",
+    )
+    OUTRAS_RECEITAS = "outras_receitas", "Outras receitas"
+    OUTRAS_DESPESAS = "outras_despesas", "Outras despesas"
+    OUTRAS_DESPESAS_OPERACIONAIS = (
+        "outras_despesas_operacionais",
+        "Outras despesas operacionais",
+    )
+    RESULTADO_EQUIVALENCIA_PATRIMONIAL = (
+        "resultado_equivalencia_patrimonial",
+        "Resultado de equivalência patrimonial",
+    )
+    RECEITAS_FINANCEIRAS = "receitas_financeiras", "Receitas financeiras"
+    DESPESAS_FINANCEIRAS = "despesas_financeiras", "Despesas financeiras"
+    PROVISAO_IRPJ_CSLL = "provisao_irpj_csll", "Provisão para IRPJ e CSLL"
+    PARTICIPACOES = "participacoes", "Participações"
+
+
+# Fonte ÚNICA (mesmo padrão de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL`, DE-056)
+# de qual `TipoConta` cada `ClassificacaoDre` espera — usada pela guarda de
+# `Conta.clean()` abaixo e pela apuração da DRE (services.py) para o cálculo
+# do resíduo por tipo. Ver a ressalva sobre inferência no docstring de
+# `ClassificacaoDre`, acima.
+TIPO_DA_CLASSIFICACAO_DRE = {
+    ClassificacaoDre.RECEITA_BRUTA: TipoConta.RECEITA,
+    ClassificacaoDre.DEDUCOES_DA_RECEITA: TipoConta.RECEITA,
+    ClassificacaoDre.CUSTO: TipoConta.DESPESA,
+    ClassificacaoDre.DESPESAS_COM_VENDAS: TipoConta.DESPESA,
+    ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS: TipoConta.DESPESA,
+    ClassificacaoDre.OUTRAS_RECEITAS: TipoConta.RECEITA,
+    ClassificacaoDre.OUTRAS_DESPESAS: TipoConta.DESPESA,
+    ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS: TipoConta.DESPESA,
+    ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL: TipoConta.RECEITA,
+    ClassificacaoDre.RECEITAS_FINANCEIRAS: TipoConta.RECEITA,
+    ClassificacaoDre.DESPESAS_FINANCEIRAS: TipoConta.DESPESA,
+    ClassificacaoDre.PROVISAO_IRPJ_CSLL: TipoConta.DESPESA,
+    ClassificacaoDre.PARTICIPACOES: TipoConta.DESPESA,
+}
+
+
+# Natureza NATURAL de cada `TipoConta` que participa da DRE — mesma ideia de
+# `NATUREZA_NATURAL_DO_TIPO` (acima, escopado a Ativo/Passivo para o
+# Balanço), mas um dict PRÓPRIO, nunca o mesmo: estender o dict do Balanço
+# misturaria o invariante de duas features diferentes (e o teste derivado
+# que confere `NATUREZA_NATURAL_DO_TIPO.keys() ==
+# TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()` quebraria por um motivo alheio
+# à DL-033). Usada pela apuração da DRE para o resíduo por tipo (receita,
+# despesa), no mesmo espírito do resíduo do Balanço (DE-068/BL-496): soma
+# CADA nó topo classificado normalizando o sinal por esta natureza, nunca
+# pela natureza CADASTRADA de cada conta isolada — protege contra duas
+# contas irmãs topo-classificadas na MESMA linha com naturezas cadastradas
+# diferentes (a mesma aritmética do BL-486, adaptada à DRE).
+NATUREZA_NATURAL_DO_TIPO_DRE = {
+    TipoConta.RECEITA: NaturezaConta.CREDORA,
+    TipoConta.DESPESA: NaturezaConta.DEVEDORA,
+}
+
+
+# Natureza NATURAL de cada LINHA da DRE — PER-LINHA, não derivada de
+# `TIPO_DA_CLASSIFICACAO_DRE`/`NATUREZA_NATURAL_DO_TIPO_DRE` (achado
+# encontrado escrevendo o teste do critério 2d desta etapa): "deduções da
+# receita" precisa ser tipo RECEITA para a guarda de `Conta.clean()`
+# aceitar (retificadora DENTRO do grupo receita, RC-61 — nunca uma despesa
+# separada), mas o lado NATURAL dela, para efeito de MAGNITUDE exibida na
+# DRE, é DEVEDOR (ela é alimentada por débitos — impostos sobre vendas,
+# devoluções — que REDUZEM a receita bruta). Usar `NATUREZA_NATURAL_DO_
+# TIPO_DRE[RECEITA]` (CREDORA) para ela daria uma magnitude NEGATIVA para
+# o caso comum (conta majoritariamente debitada), invertendo o sinal que
+# `receita_liquida = receita_bruta − deduções` espera. Todas as outras
+# doze linhas coincidem com o lado natural do `TipoConta` esperado — só
+# "deduções da receita" é a exceção, e por isso este dict existe SEPARADO
+# de `NATUREZA_NATURAL_DO_TIPO_DRE` (que continua servindo à apuração do
+# RESÍDUO por `TipoConta`, uma pergunta diferente — "qual o lado natural
+# de TODAS as contas de RECEITA/DESPESA da empresa", não de uma linha
+# específica).
+NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE = {
+    ClassificacaoDre.RECEITA_BRUTA: NaturezaConta.CREDORA,
+    ClassificacaoDre.DEDUCOES_DA_RECEITA: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.CUSTO: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.DESPESAS_COM_VENDAS: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.OUTRAS_RECEITAS: NaturezaConta.CREDORA,
+    ClassificacaoDre.OUTRAS_DESPESAS: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL: NaturezaConta.CREDORA,
+    ClassificacaoDre.RECEITAS_FINANCEIRAS: NaturezaConta.CREDORA,
+    ClassificacaoDre.DESPESAS_FINANCEIRAS: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.PROVISAO_IRPJ_CSLL: NaturezaConta.DEVEDORA,
+    ClassificacaoDre.PARTICIPACOES: NaturezaConta.DEVEDORA,
+}
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -380,6 +530,17 @@ class Conta(models.Model):
         "classificação (circulante/não circulante)",
         max_length=60,
         choices=ClassificacaoPatrimonial.choices,
+        null=True,
+        blank=True,
+    )
+    # DL-045/RC-118: linha da DRE (art. 187) — PROPRIEDADE da conta, mesmo
+    # desenho de `classificacao_patrimonial` (`null=True`/`blank=True`,
+    # nunca inferido do código ou do nome; ver o docstring de
+    # `ClassificacaoDre`, acima).
+    classificacao_dre = models.CharField(
+        "classificação (DRE)",
+        max_length=60,
+        choices=ClassificacaoDre.choices,
         null=True,
         blank=True,
     )
@@ -533,6 +694,23 @@ class Conta(models.Model):
                     "(Lei 6.404/76, art. 178)."
                 )
 
+        # DL-045/RC-118: a linha da DRE só existe para RECEITA e DESPESA
+        # (Lei 6.404/76, art. 187) — conta PATRIMONIAL (Ativo, Passivo,
+        # Patrimônio Líquido) com `classificacao_dre` é recusada. MESMO
+        # padrão da guarda de `classificacao_patrimonial` acima: `.get(...)`
+        # com `None` para um valor gravado fora de `ClassificacaoDre` (só
+        # por ORM/SQL direto) não estourar `KeyError`.
+        if self.classificacao_dre:
+            tipo_esperado_dre = TIPO_DA_CLASSIFICACAO_DRE.get(self.classificacao_dre)
+            if tipo_esperado_dre is not None and self.tipo != tipo_esperado_dre:
+                rotulo_classificacao_dre = ClassificacaoDre(self.classificacao_dre).label
+                rotulo_tipo_esperado_dre = TipoConta(tipo_esperado_dre).label
+                raise ValidationError(
+                    f'A linha da DRE "{rotulo_classificacao_dre}" não é compatível com o '
+                    f"tipo desta conta: só se aplica a contas de tipo "
+                    f"{rotulo_tipo_esperado_dre} (Lei 6.404/76, art. 187)."
+                )
+
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
         # sem esta checagem, atribuir como pai uma conta descendente da
         # própria conta (inclusive a própria conta, o caso degenerado de
@@ -631,6 +809,7 @@ class Conta(models.Model):
                     "conta_pai_id",
                     "empresa__escritorio_id",
                     "classificacao_patrimonial",
+                    "classificacao_dre",
                 )
                 .first()
             )
@@ -784,6 +963,20 @@ class Conta(models.Model):
                     classificacao_gravada is not None
                     and classificacao_gravada != self.classificacao_patrimonial
                 )
+                # DL-045/RC-118: MESMA guarda de TRANSIÇÃO, agora para a
+                # linha da DRE — a primeira classificação (gravado `None`)
+                # é sempre livre, mesmo com movimento (é o caminho para
+                # classificar o plano de contas já em uso); TROCAR ou
+                # APAGAR uma classificação já declarada é recusado com
+                # movimento, porque reescreveria uma DRE de um período já
+                # apurado (mesmo dano da classificação patrimonial acima,
+                # só que para a demonstração de resultado em vez do
+                # Balanço).
+                classificacao_dre_gravada = original["classificacao_dre"]
+                mudou_classificacao_dre = (
+                    classificacao_dre_gravada is not None
+                    and classificacao_dre_gravada != self.classificacao_dre
+                )
                 # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
                 # só roda quando natureza, tipo OU classificação de fato
                 # mudaram (short-circuit: a consulta recursiva de
@@ -798,10 +991,12 @@ class Conta(models.Model):
                 # forma que trocar a natureza/tipo do grupo reescreveria o
                 # Balancete (é a MESMA classe de dano, era só uma questão
                 # de tempo até precisar da mesma defesa). Computa o
-                # movimento no MÁXIMO uma vez para as duas guardas.
+                # movimento no MÁXIMO uma vez para as três guardas
+                # (natureza/tipo, classificação patrimonial, classificação
+                # DRE).
                 mudou_algo = mudou_natureza or mudou_tipo
                 tem_movimento_para_guarda = None
-                if mudou_algo or mudou_classificacao:
+                if mudou_algo or mudou_classificacao or mudou_classificacao_dre:
                     tem_movimento_para_guarda = self._tem_movimento_proprio_ou_de_descendente()
                 if mudou_algo and tem_movimento_para_guarda:
                     campo = (
@@ -833,6 +1028,20 @@ class Conta(models.Model):
                         "Não é possível mudar a classificação (circulante/não "
                         "circulante) desta conta: ela ou uma conta descendente já "
                         "tem lançamento gravado — o Balanço já apurado com esta "
+                        "conta mudaria retroativamente. Cadastre uma conta nova "
+                        "com a classificação correta e lance a RECLASSIFICAÇÃO "
+                        "(a transferência do saldo), em vez de editar esta conta."
+                    )
+
+                # DL-045/RC-118: mesma mensagem-molde, agora para a DRE —
+                # editar a classificação de uma conta já movimentada
+                # reescreveria, em silêncio, uma DRE de período já apurado
+                # e entregue.
+                if mudou_classificacao_dre and tem_movimento_para_guarda:
+                    raise ValidationError(
+                        "Não é possível mudar a classificação (linha da DRE) desta "
+                        "conta: ela ou uma conta descendente já tem lançamento "
+                        "gravado — a Demonstração do Resultado já apurada com esta "
                         "conta mudaria retroativamente. Cadastre uma conta nova "
                         "com a classificação correta e lance a RECLASSIFICAÇÃO "
                         "(a transferência do saldo), em vez de editar esta conta."

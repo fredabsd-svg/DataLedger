@@ -5,6 +5,7 @@ from apps.contabilidade.views import (
     ConferenciaLotesDesbalanceadosView,
     ContaListCreateView,
     DiarioView,
+    DreView,
     EncerrarCompetenciaView,
     EncerrarVigenciaParametroContabilView,
     EntregarCompetenciaView,
@@ -79,5 +80,13 @@ urlpatterns = [
         "empresas/<int:empresa_id>/zeramento/<int:ano>/<int:mes>/",
         ZerarResultadoView.as_view(),
         name="zeramento",
+    ),
+    # DL-045 fatia 2: Demonstração do Resultado do Exercício — `ano`/`mes`
+    # identificam o RECURSO (o período cuja competência final é ano/mes),
+    # mesmo padrão de `zeramento/<int:ano>/<int:mes>/`, acima.
+    path(
+        "empresas/<int:empresa_id>/dre/<int:ano>/<int:mes>/",
+        DreView.as_view(),
+        name="dre",
     ),
 ]

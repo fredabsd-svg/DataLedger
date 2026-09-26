@@ -31,7 +31,9 @@ from apps.contabilidade.services import (
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     apurar_balancete,
+    apurar_dre,
     apurar_razao,
+    avaliar_emissao_da_dre,
     criar_lancamento,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
@@ -172,7 +174,20 @@ CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
 # cabeçalho era ignorado, aqui ele seria ignorado em rotas que não o
 # implementam.
 CONTRATO_POST_CONTA = ContratoDeRequisicao(
-    campos={"codigo", "nome", "tipo", "natureza", "conta_pai", "aceita_lancamento", "ativo"},
+    # DL-045/RC-118: `classificacao_dre` somada aqui — sem isto, a
+    # "política dos cinco dicionários" (BL-196) recusaria com "dado não
+    # contratado" ANTES de o campo novo do serializer sequer ser
+    # examinado, mesmo já declarado em `ContaSerializer.Meta.fields`.
+    campos={
+        "codigo",
+        "nome",
+        "tipo",
+        "natureza",
+        "conta_pai",
+        "aceita_lancamento",
+        "ativo",
+        "classificacao_dre",
+    },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
 )
@@ -1573,6 +1588,97 @@ class BalanceteView(EmpresaEscopadaContabilMixin, APIView):
                 ),
             }
         )
+
+
+def _linhas_dre_como_moeda(linhas):
+    """`{ClassificacaoDre: Decimal}` -> `{str: str}`, com `_como_moeda` em
+    cada valor — a chave já é `str` (o `TextChoices` é uma `str`), mas
+    `str()` explícito documenta a conversão e não depende do valor já ser
+    o literal certo por acidente."""
+    return {str(classificacao): _como_moeda(valor) for classificacao, valor in linhas.items()}
+
+
+def _subtotais_dre_como_moeda(subtotais):
+    return {nome: _como_moeda(valor) for nome, valor in subtotais.items()}
+
+
+def _residuo_dre_como_moeda(residuo_por_tipo):
+    return {str(tipo): _como_moeda(valor) for tipo, valor in residuo_por_tipo.items()}
+
+
+def _coluna_dre_para_json(coluna):
+    return {
+        "linhas": _linhas_dre_como_moeda(coluna["linhas"]),
+        "subtotais": _subtotais_dre_como_moeda(coluna["subtotais"]),
+        "residuo_por_tipo": _residuo_dre_como_moeda(coluna["residuo_por_tipo"]),
+        "total_debitos": _como_moeda(coluna["total_debitos"]),
+        "total_creditos": _como_moeda(coluna["total_creditos"]),
+        "contas_sem_classificacao_dre_com_movimento": (
+            coluna["contas_sem_classificacao_dre_com_movimento"]
+        ),
+        "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
+            coluna["contas_nao_folha_sem_classificacao_dre_com_movimento_proprio"]
+        ),
+        "contas_com_classificacao_dre_aninhada": coluna["contas_com_classificacao_dre_aninhada"],
+        "contas_com_classificacao_dre_desconhecida": (
+            coluna["contas_com_classificacao_dre_desconhecida"]
+        ),
+    }
+
+
+class DreView(EmpresaEscopadaContabilMixin, APIView):
+    """Demonstração do Resultado do Exercício (DL-045, fatia 2 — RC-118/
+    RC-119/RC-120): duas colunas (mês e acumulado do exercício, HI-28),
+    pelo MOVIMENTO do período, excluindo lançamentos de zeramento
+    (DL-043).
+
+    Autorização: a MESMA das outras saídas contábeis com período (Diário,
+    Razão, Balancete) — `PodeLerContabilidade`, nunca `PodeFecharCompeten
+    cia` (a DRE é leitura, não uma ação de fechamento).
+
+    409 (`pode_emitir=False`) quando há conta de resultado analítica com
+    movimento no MÊS pedido sem classificação (critério 6 do plano) —
+    mesmo padrão de veto do Balanço (`avaliar_emissao_do_balanco`/
+    `apurar_balanco_patrimonial`, DL-034), adaptado: aqui não há
+    template/emissão formal ainda (fatia 3), então o 409 é da PRÓPRIA
+    leitura — o corpo da resposta sempre traz os dois números (mês e
+    acumulado), mesmo quando `pode_emitir` é falso, para o cliente decidir
+    o que mostrar (nunca esconder o dado por trás só do código de status).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            dre = apurar_dre(empresa=empresa, ano=ano, mes=mes)
+        except HierarquiaInconsistente as exc:
+            # Mesmo padrão do Balancete/Razão: ciclo ou conta_pai de outra
+            # empresa na hierarquia — resposta controlada, nunca 500 mudo.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        emissao = avaliar_emissao_da_dre(dre)
+        corpo = {
+            "empresa_id": dre["empresa_id"],
+            "ano": dre["ano"],
+            "mes": dre["mes"],
+            "data_inicio_mes": dre["data_inicio_mes"].isoformat(),
+            "data_fim_mes": dre["data_fim_mes"].isoformat(),
+            "data_inicio_exercicio": dre["data_inicio_exercicio"].isoformat(),
+            "data_fim_exercicio": dre["data_fim_exercicio"].isoformat(),
+            "coluna_mes": _coluna_dre_para_json(dre["coluna_mes"]),
+            "coluna_acumulado": _coluna_dre_para_json(dre["coluna_acumulado"]),
+            "pode_emitir": emissao["pode_emitir"],
+            "residuo_pendente": {
+                str(tipo): _como_moeda(valor) for tipo, valor in emissao["residuo_pendente"].items()
+            },
+            "listas_pendentes": emissao["listas_pendentes"],
+            "listas_informativas": emissao["listas_informativas"],
+        }
+        status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
+        return Response(corpo, status=status_code)
 
 
 class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):

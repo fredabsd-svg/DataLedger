@@ -95,6 +95,149 @@ os lançamentos de zeramento.
 9. Suíte completa, lint, formatação, `check`, `makemigrations --check`,
    migração em banco vazio e em SQLite.
 
+## Implementação das fatias 1 e 2
+
+Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
+(a tela é a fatia 3, do `especialista-frontend`).
+
+### Fatia 1 — classificação (RC-118)
+
+- `ClassificacaoDre` (`models.py`, `models.TextChoices`), no MESMO molde de
+  `ClassificacaoPatrimonial` (DL-033): campo `Conta.classificacao_dre`,
+  `null=True`/`blank=True`, nunca inferido do código ou do nome. Treze
+  linhas (as doze do plano original + "resultado de equivalência
+  patrimonial", da revisão da HI-29): receita bruta, deduções da receita,
+  custo, despesas com vendas, despesas gerais e administrativas, outras
+  receitas, outras despesas, outras despesas operacionais, resultado de
+  equivalência patrimonial, receitas financeiras, despesas financeiras,
+  provisão IRPJ/CSLL, participações.
+- **Precedente da DL-033 confirmado** (pedido explícito da tarefa):
+  `ClassificacaoPatrimonial` NÃO tem restrição de banco — só migração
+  `AddField`, sem `CheckConstraint` nem gatilho; a única guarda de
+  compatibilidade com `tipo` mora em `Conta.clean()`. `ClassificacaoDre`
+  segue o MESMO desenho: migração simples (`0010_dl045_conta_
+  classificacao_dre.py`), guarda só em `clean()`.
+- **Mapeamento linha → `TipoConta` esperado é inferência do desenvolvedor,
+  reportada, não decidida como regra contábil nova** (o plano lista as
+  linhas, mas não diz o `TipoConta` de cada uma — diferente da DL-033,
+  onde o art. 178 nomeia Ativo/Passivo linha a linha): `TIPO_DA_
+  CLASSIFICACAO_DRE` segue RC-61 (retificadora dentro do MESMO tipo/grupo)
+  — "deduções da receita" e "resultado de equivalência patrimonial" são
+  tipo RECEITA; as demais linhas de custo/despesa/provisão/participações
+  são tipo DESPESA. As atribuições mais discutíveis: "deduções da
+  receita" e "participações" — documentado no docstring de
+  `ClassificacaoDre` para o Fred confirmar.
+- **Achado durante a implementação, corrigido:** o sinal NATURAL de cada
+  linha da DRE não é o mesmo que o sinal natural do `TipoConta` esperado
+  — "deduções da receita" é tipo RECEITA (para a guarda de `clean()`
+  aceitar, RC-61), mas o lado NATURAL dela, para efeito de MAGNITUDE
+  exibida, é DEVEDOR (ela é alimentada por débitos que reduzem a receita).
+  Corrigido com um dict PRÓPRIO, `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`
+  (por LINHA, não por `TipoConta`) — ver o docstring dele em `models.py`
+  e o teste `test_criterio2d_deducoes_com_devolucao_retificadora_por_
+  heranca`, que expôs o defeito antes de chegar à entrega.
+- **Herança pela hierarquia**, confirmada e testada no mesmo desenho da
+  DL-033: classificar o nó TOPO consolida toda a subárvore (regra única
+  de saldo, DE-020); classificação ANINHADA (pai e filho ambos
+  classificados) é declarada, nunca somada duas vezes.
+- Guarda de TRANSIÇÃO (mesmo molde do BL-83/DL-023 e da DL-033/HI-18):
+  reclassificar uma conta que já tem movimento é recusado — reescreveria
+  uma DRE de período já apurado. A PRIMEIRA classificação (gravada `None`)
+  é sempre livre, mesmo com movimento.
+- **API do plano de contas**: `classificacao_dre` acrescentado a
+  `ContaSerializer.Meta.fields` e a `CONTRATO_POST_CONTA` (a "política dos
+  cinco dicionários", BL-196 — sem isto, o campo seria recusado como "dado
+  não contratado" mesmo já declarado no serializer). Validação de
+  compatibilidade com `tipo` repetida no serializer (`validate()`,
+  cross-field) porque o DRF não chama `Model.full_clean()` (BL-40/DE-008).
+  Mesma autorização de hoje: nenhuma `permission_class` nova em
+  `ContaListCreateView`.
+
+### Fatia 2 — apuração (RC-119/RC-120, HI-28, HI-29)
+
+- `apurar_dre(*, empresa, ano, mes)` (`services.py`) — agregação PRÓPRIA
+  (`_agregar_movimento_dre_por_conta`), NUNCA `apurar_saldos` (a própria
+  docstring dela avisa: "não serve para a DRE") nem `apurar_balancete` sem
+  adaptação (ele conta o zeramento). Reusa só a construção de HIERARQUIA
+  (`_construir_hierarquia`) do motor do Balancete.
+- **Exclusão do zeramento**: `.exclude(lancamento__chave_idempotencia__
+  istartswith="zeramento:")` — case-insensitive, mesma correção do achado
+  R4 da reconferência da DL-043 (SQLite resolve `LIKE` sem diferenciar
+  caixa).
+- **Duas colunas** (RC-119): mês (`[01/mês, fim do mês]`) e acumulado do
+  exercício (`[01/01, fim do mês]`, HI-28 — ano civil). Uma consulta de
+  hierarquia + uma agregação por coluna — número de consultas CONSTANTE
+  em relação ao número de contas (testado com 10 → 60 contas).
+- **Subtotais (HI-29 revista após a PE-70)**: receita líquida → lucro
+  bruto → resultado antes das receitas e despesas financeiras →
+  resultado financeiro (destacado) → resultado antes dos tributos sobre o
+  lucro → (− provisão IRPJ/CSLL) → (− participações) → lucro/prejuízo
+  líquido. A ORDEM mora isolada em duas tuplas,
+  `_LINHAS_ANTES_DO_RESULTADO_FINANCEIRO` e `_LINHAS_DO_RESULTADO_
+  FINANCEIRO` (`services.py`) — trocar a apresentação (ex.: financeiro de
+  volta para dentro do operacional, como a LETRA do art. 187, III) é
+  mudar só estas duas tuplas.
+- **Resíduo por tipo** (`residuo_por_tipo`, RECEITA e DESPESA): mesma
+  identidade aritmética do resíduo do Balanço (DE-068/BL-496), adaptada —
+  soma das raízes de cada tipo pelo lado natural do TIPO, menos a soma
+  das linhas classificadas daquele tipo (convertidas de volta ao lado do
+  tipo antes de somar, por causa da exceção de "deduções da receita"
+  citada acima). Zero no caso são; protege contra irmãs topo-classificadas
+  com natureza divergente (a aritmética do BL-486) e qualquer topologia
+  não pensada.
+- **Pendências** (critério 6): `contas_sem_classificacao_dre_com_
+  movimento` (folha de RECEITA/DESPESA, com movimento na coluna, sem
+  classificação própria nem ancestral — a régua é o MOVIMENTO NA COLUNA,
+  não uma propriedade fixa da conta, mesma lição do BL-498/DL-033) veta a
+  leitura via `avaliar_emissao_da_dre`; `contas_nao_folha_sem_
+  classificacao_dre_com_movimento_proprio` (BL-487), `contas_com_
+  classificacao_dre_aninhada` e `contas_com_classificacao_dre_
+  desconhecida` são informativas (nunca vetam) — mesma partição em duas
+  tuplas de `avaliar_emissao_do_balanco` (DL-034/BL-502).
+- **Só a coluna do MÊS decide o veto** — decisão do desenvolvedor,
+  registrada aqui para o arquiteto confirmar: a coluna do acumulado soma
+  meses já fechados, e vetar o mês atual por uma pendência de um mês
+  passado (que ninguém vai mais corrigir retroativamente) tornaria a DRE
+  inemitível para sempre. A pendência do acumulado, se houver, aparece na
+  resposta, só não veta.
+- **Endpoint de leitura** (`DreView`, GET
+  `empresas/<empresa_id>/dre/<ano>/<mes>/`, rota `contabilidade:dre`):
+  `PodeLerContabilidade`, a MESMA autorização das outras saídas contábeis
+  com período (Diário, Razão, Balancete) — nunca `PodeFecharCompetencia`.
+  200 quando `pode_emitir`; 409 (com as pendências) quando não; 409
+  também para `HierarquiaInconsistente` (mesmo padrão do Balancete/Razão).
+  Isolamento herdado de `EmpresaEscopadaContabilMixin` (404 entre
+  escritórios) — inclusive a recusa automática para empresa em modo
+  livro-caixa (`get_empresa()` já chama `recusar_se_livro_caixa` para
+  TODA view que usa esta mixin; nenhum código novo precisou disso).
+- Conciliação (critério 4) testada e batendo: lucro líquido da DRE do mês
+  = valor que a etapa 2 do zeramento (DL-043) do MESMO período transfere,
+  nos dois sentidos (lucro → Lucros Acumulados; prejuízo → (-) Prejuízos
+  Acumulados, com o sinal certo).
+
+### Testes e mutação
+
+28 testes novos em `apps/contabilidade/tests/test_dl045_dre.py`. Mutação
+aplicada e revertida nos três pontos críticos pedidos:
+
+| Ponto crítico | Mutação aplicada | Teste que mata |
+| --- | --- | --- |
+| Filtro de zeramento | Remover `.exclude(...istartswith="zeramento:")` | `test_criterio3_dre_de_mes_zerado_e_igual_a_antes_do_zeramento` |
+| Sinal da retificadora | Usar `conta.natureza` (cadastrada) em vez de `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE` (fixo por linha) | `test_sinal_da_linha_usa_a_natureza_natural_da_linha_nunca_a_da_conta` |
+| Coluna acumulada | `data_inicio_exercicio = data_inicio_mes` (acumulado vira igual ao mês) | `test_criterio5_acumulado_e_a_soma_dos_meses` |
+
+Um teste novo (`test_sinal_da_linha_usa_a_natureza_natural_da_linha_
+nunca_a_da_conta`) foi escrito depois de o mutante "sinal da retificadora"
+sobreviver ao primeiro conjunto de testes de referência — todos os cenários
+de referência, por coincidência, classificavam a linha numa conta cuja
+natureza CADASTRADA já coincidia com a natureza NATURAL da linha, então a
+mutação era equivalente para eles. O teste novo classifica "deduções da
+receita" numa conta com natureza CADASTRADA atípica (CREDORA, quando o
+natural é DEVEDORA) para separar as duas perguntas.
+
+Migração `contabilidade/0010_dl045_conta_classificacao_dre.py` — só
+`AddField`, sem dado de migração (toda conta nasce sem classificação).
+
 ## Hipóteses e pendências
 
 - **HI-28:** exercício social = ano civil. Reversível; o estatuto pode fixar

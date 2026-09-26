@@ -21,18 +21,18 @@ Regras deste arquivo, aprendidas com defeito:
 
 ## Resumo
 
-Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; atualizado em 26/09/2026 com as DL-010 F1, DL-038, DL-041 e DL-043.
+Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; atualizado em 26/09/2026 com as DL-010 F1, DL-038, DL-041, DL-043 e DL-045 (fatias 1 e 2).
 
 | Área | O que existe hoje |
 | --- | --- |
 | Plataforma | Escritórios isolados entre si, usuários, papéis, entrada pública, cadastro de novo escritório, primeiro acesso e convite |
 | Cadastro | Empresas e estabelecimentos, CNPJ alfanumérico, histórico de regime tributário, NIRE |
-| Contabilidade | Plano de contas hierárquico com circulante/não circulante; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043, a integrar pelo PR) |
+| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043, a integrar pelo PR); **apuração da DRE pelo movimento do período**, mês e acumulado do exercício, só servidor/API (DL-045 fatias 1 e 2, a integrar pelo PR — sem tela ainda) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | **DRE**; compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | **Tela da DRE** (DL-045 fatia 3); compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
 **Verificação local em 25/09/2026** (PostgreSQL 16, Python 3.13.12, commit do
 merge do PR #46): `ruff check`, `ruff format --check`, `manage.py check`,
@@ -93,6 +93,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Integrada (PR #48) |
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
+| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -102,7 +103,8 @@ merge do PR #38, sem commit individual por etapa.
 ## Próximo passo
 
 **AGORA — DL-043 pronta para PR; DL-044 (visual das telas de trabalho) em
-desenho.**
+desenho; DL-045 fatias 1 e 2 (DRE — servidor/API) implementadas em worktree
+próprio, aguardando revisão do arquiteto e PR.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48 (merge do Fred em
   26/09).
@@ -124,6 +126,16 @@ desenho.**
   como modelo de padrão, sem copiar marca. Em desenho na branch local
   `dl044-telas-de-trabalho`; o Fred vê as capturas antes de espalhar para
   todas as telas. Integra depois da DL-043.
+- **DL-045** (DRE, CON-12 do plano mestre — fatias 1 e 2, servidor/API): na
+  branch local `dl045-dre`, worktree próprio, aguardando PR. Classificação de
+  conta pelas linhas do art. 187 (Lei 6.404/76), com resultado financeiro
+  destacado e equivalência patrimonial em linha própria (NBC TG 26, NBC TG
+  1000, modelos ITG 1000 — RC-118, HI-29 revista após a PE-70); apuração pelo
+  movimento do período, excluindo o zeramento (RC-119/120), coluna do mês e
+  acumulado do exercício (HI-28). Sem tela — fatia 3 fica para depois, sobre a
+  DL-044. Pendências dele: confirmar a inferência de linha↔tipo (em especial
+  "deduções da receita" e "participações") e a decisão de que só a pendência
+  do MÊS veta a emissão, não a do acumulado.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
@@ -131,9 +143,7 @@ desenho.**
 
 Fila depois da DL-043, em ordem recomendada e sujeita ao Fred:
 
-1. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
-   camada de saldos (limite declarado no próprio código). Usa os parâmetros
-   contábeis da DL-043.
+1. **DL-045 fatia 3** — a tela da DRE, sobre a DL-044.
 2. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
    regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
 3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51

@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.contabilidade.models import (
+    TIPO_DA_CLASSIFICACAO_DRE,
+    ClassificacaoDre,
+    Conta,
+    ItemLancamento,
+    LancamentoContabil,
+    TipoConta,
+)
 from apps.core.identificadores import IdentificadorInvalido, para_id
 
 
@@ -48,7 +55,51 @@ class ContaSerializer(serializers.ModelSerializer):
             "conta_pai",
             "aceita_lancamento",
             "ativo",
+            # DL-045/RC-118: linha da DRE — exposta e aceita pela MESMA
+            # porta e a MESMA autorização de hoje (nenhuma permission_class
+            # nova; `ContaListCreateView` já exige `PodeEscriturar` no
+            # POST e `PodeLerContabilidade` no GET, ver views.py). Ao
+            # contrário de `classificacao_patrimonial` (DL-033, que nunca
+            # ganhou porta de API — só admin), este campo é a primeira vez
+            # que uma classificação de conta é aceita por aqui; ver
+            # `validate` abaixo para a checagem de compatibilidade com
+            # `tipo` (o `Conta.clean()` não roda neste caminho — DRF não
+            # chama `full_clean()`, achado BL-40/DE-008).
+            "classificacao_dre",
         ]
+
+    def validate(self, attrs):
+        """Compatibilidade `classificacao_dre` × `tipo` (Lei 6.404/76, art.
+        187) — mesma regra de `Conta.clean()`, repetida aqui porque o DRF
+        NUNCA chama `full_clean()` (achado BL-40/DE-008, o mesmo motivo de
+        `validate_conta_pai`). Cross-field: mora em `validate()`, não em
+        `validate_classificacao_dre`, porque depende de `tipo`, outro
+        campo do mesmo payload.
+        """
+        classificacao = attrs.get("classificacao_dre")
+        if self.instance is not None and "classificacao_dre" not in attrs:
+            classificacao = self.instance.classificacao_dre
+        if not classificacao:
+            return attrs
+
+        tipo = attrs.get("tipo")
+        if tipo is None and self.instance is not None:
+            tipo = self.instance.tipo
+
+        tipo_esperado = TIPO_DA_CLASSIFICACAO_DRE.get(classificacao)
+        if tipo_esperado is not None and tipo != tipo_esperado:
+            rotulo_classificacao = ClassificacaoDre(classificacao).label
+            rotulo_tipo_esperado = TipoConta(tipo_esperado).label
+            raise serializers.ValidationError(
+                {
+                    "classificacao_dre": (
+                        f'A linha da DRE "{rotulo_classificacao}" não é compatível com o '
+                        f"tipo desta conta: só se aplica a contas de tipo "
+                        f"{rotulo_tipo_esperado} (Lei 6.404/76, art. 187)."
+                    )
+                }
+            )
+        return attrs
 
     def validate_conta_pai(self, value):
         """`conta_pai` deve pertencer à mesma empresa do escopo da requisição.
