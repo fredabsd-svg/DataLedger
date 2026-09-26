@@ -415,3 +415,30 @@ e revertido — `git diff` confere vazio depois de cada reversão.
 
 Os mutantes de tela (T01 a T04, N22) e os de apresentação (R5, R6, R8 a R10)
 são do `especialista-frontend` — fora do escopo desta seção.
+
+## Verificação do fechamento (sem nova rodada de auditoria)
+
+AGENTS.md §3.1 não prevê terceira rodada. A correção da reconferência
+(servidor `ea7610e` + tela `56370ea`, integradas em `fd0ac93`) foi conferida
+pelo `auxiliar-verificacao`, de forma independente, em 2026-09-26:
+
+- Os 14 casos de teste propostos pela reconferência existem e passam (o caso
+  14, conciliação com o Balancete, é
+  `test_a10_totais_da_dre_conciliam_com_o_balancete_sem_zeramento`). Os casos
+  1 a 4 mudaram de sentido pela DE-086 e os testes refletem isso.
+- R1 reproduzido do zero: conta ATIVO sob receita bruta com movimento veta a
+  DRE (409); reparentada para raiz ATIVO, a DRE de março e o Balanço de 31/03
+  voltam a emitir.
+- Mutantes aplicados em cópia descartável, todos mortos: M27, M27b, N03, N05,
+  N06, N12/T08, T05, T06, T01, T02, T03, T04, N22 e a guarda de
+  reparentamento do A6(b) religada.
+- R3: os três corpos malformados devolvem 400, nada gravado. R5: PDF gerado no
+  Chromium sem "Mês anterior"/"Mês seguinte", com o critério de apuração.
+- Suíte completa no `fd0ac93`: 2941 passed, 45 skipped, 1 falha de ambiente
+  conhecida (`test_versao_minima_python.py`, Python 3.13 local, 3.14 na CI).
+
+**Ressalva registrada:** hoje o único caminho para mover uma conta de grupo
+(reparentar) é o admin do Django — não há tela de edição de conta no produto.
+O R1 deixa de exigir SQL, mas exige usuário com acesso ao admin. Tela de editar
+conta vai para o backlog (BL-541).
+
