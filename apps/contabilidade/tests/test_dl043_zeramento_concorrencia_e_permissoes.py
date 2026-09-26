@@ -37,6 +37,7 @@ from apps.contabilidade.models import (
 from apps.contabilidade.services import (
     CompetenciaEncerrada,
     ParametroContabilInvalido,
+    apurar_balancete,
     criar_lancamento,
     encerrar_competencia,
     registrar_parametro_contabil,
@@ -161,6 +162,42 @@ def _lancar_receita_e_despesa(cenario, *, data, receita_valor, despesa_valor):
         itens=itens,
         criado_por=cenario["gestor"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Critério 3 do plano: depois do zeramento, receita e despesa ficam com
+# saldo ZERO na data final do período, e o resultado aparece em Lucros ou
+# Prejuízos Acumulados pelo sinal — não só "os itens do lançamento batem"
+# (já provado pelos casos de referência), mas o SALDO da conta lido de
+# volta pelo motor de saldos (`apurar_balancete`) também bate.
+# ---------------------------------------------------------------------------
+
+
+def test_apos_zeramento_receita_e_despesa_ficam_com_saldo_zero_e_pl_recebe_o_lucro(cenario):
+    _lancar_receita_e_despesa(
+        cenario,
+        data=date(2026, 1, 31),
+        receita_valor=Decimal("1200.00"),
+        despesa_valor=Decimal("500.00"),
+    )
+    zerar_resultado(empresa=cenario["empresa"], ano=2026, mes=1, usuario=cenario["gestor"])
+
+    balancete = apurar_balancete(
+        empresa=cenario["empresa"], inicio=date(2026, 1, 31), fim=date(2026, 1, 31)
+    )
+    saldos_por_codigo = {linha["conta"]: linha["saldo_final"] for linha in balancete["contas"]}
+
+    # As duas contas analíticas de resultado voltam a zero na data final.
+    assert saldos_por_codigo[cenario["receita"].codigo] == Decimal("0")
+    assert saldos_por_codigo[cenario["despesa"].codigo] == Decimal("0")
+    # "Resultado do exercício" também volta a zero — o saldo inteiro foi
+    # transferido na etapa 2.
+    assert saldos_por_codigo[cenario["resultado"].codigo] == Decimal("0")
+    # Lucro de 1.200,00 - 500,00 = 700,00 aparece em Lucros Acumulados
+    # (conta CREDORA), pelo SINAL certo (RC-104); Prejuízos Acumulados
+    # permanece zerada.
+    assert saldos_por_codigo[cenario["lucros"].codigo] == Decimal("700.00")
+    assert saldos_por_codigo[cenario["prejuizos"].codigo] == Decimal("0")
 
 
 # ---------------------------------------------------------------------------
