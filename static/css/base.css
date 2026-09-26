@@ -854,74 +854,23 @@ kbd.tecla {
     display: none;
 }
 
-.navegacao-empresa {
-    margin-bottom: var(--esp-4);
-}
-
-.navegacao-empresa ul {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--esp-5);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    font-size: var(--tipo-sm);
-}
-
-.navegacao-empresa a {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--esp-atalho);
-    color: var(--acento);
-    text-decoration: underline;
-}
-
-.navegacao-empresa a:hover {
-    color: var(--acento-escuro);
-}
-
-/* Rótulo da página ATUAL de uma navegação (nunca link para si mesma) —
-   generalizada pela DL-040 de `.navegacao-empresa .item-atual` para
-   `.item-atual` puro, porque o mesmo padrão passou a valer também dentro
-   de `.menu-dropdown ul` (o submenu "Contabilidade" do menu principal,
-   templates/base.html). */
-.item-atual {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--esp-atalho);
-    color: var(--tinta);
-    font-weight: 700;
-}
-
-.sessao-usuario {
-    display: flex;
-    align-items: center;
-    gap: var(--esp-4);
-    font-size: var(--tipo-xs);
-    color: var(--tinta-suave);
-}
-
-.form-sair {
-    margin: 0;
-}
-
-.form-sair button {
-    background: transparent;
-    color: var(--tinta);
-    border: var(--traco-fina) solid var(--borda-input);
-}
-
-.form-sair button:hover {
-    background: transparent;
-    border-color: var(--tinta);
-    color: var(--tinta);
-}
-
 /* Navegação contextual da empresa (Plano de contas/Diário/Balancete/
    Conferência/Novo lançamento — templates/contabilidade/
    _navegacao_empresa.html): mesmo tratamento visual da navegação
    principal do cabeçalho, mas vive no início do conteúdo porque depende
-   de uma empresa (a moldura comum não sabe de qual). */
+   de uma empresa (a moldura comum não sabe de qual).
+
+   BL (achado do especialista-frontend, DL-042 2ª passada): este bloco —
+   e `.cabecalho__contexto`/`.contexto-item`/`.contexto-rotulo`/`.item-
+   atual`/`.sessao-usuario`/`.form-sair`, que ficavam logo abaixo dele —
+   estava DUPLICADO na íntegra desde o commit 8674653 (a reescrita da
+   moldura para barra lateral): a mesma dúzia de regras, byte a byte,
+   aparecia duas vezes neste arquivo — uma cópia sem este comentário,
+   colada por engano ao mover blocos de CSS de lugar. Inofensivo em
+   efeito (a segunda cópia só reafirmava os MESMOS valores), mas exatamente
+   a classe de defeito que o AGENTS.md pede para evitar: regra escrita em
+   dois lugares diverge assim que uma das cópias for editada sem a outra.
+   Corrigido nesta etapa — uma cópia só, a partir daqui. */
 .navegacao-empresa {
     margin-bottom: var(--esp-4);
 }
@@ -957,34 +906,6 @@ kbd.tecla {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
-    color: var(--tinta);
-    font-weight: 700;
-}
-
-.cabecalho__contexto {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--esp-5);
-    padding: var(--esp-2) var(--esp-5);
-}
-
-.contexto-item {
-    display: flex;
-    flex-direction: column;
-    gap: var(--esp-minima);
-    font-size: var(--tipo-sm);
-}
-
-.contexto-rotulo {
-    font-size: var(--tipo-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--rastreio-maximo);
-    color: var(--tinta-media);
-}
-
-.contexto-item strong,
-.contexto-operacao strong {
     color: var(--tinta);
     font-weight: 700;
 }
@@ -1069,6 +990,26 @@ kbd.tecla {
     background: var(--erro);
     color: var(--acento-texto);
     border-color: var(--erro);
+}
+
+/* DL-042 (2ª passada): quarto tom — "fantasma" — para a ação de MENOR
+   ênfase, ao lado de uma ação primária que já domina a atenção da tela
+   (ex.: "Limpar filtros" ao lado de "Consultar" num formulário de
+   filtro). Sem borda nem fundo: só o texto, mais discreto que
+   `.botao--secundario` (que tem contorno) — a diferença de peso entre os
+   quatro tons é a "calma" que a skill pede (ênfase é orçamento, gasto só
+   onde há decisão). Criada só quando um uso real existe — nunca token
+   novo sem tela que precise dele (direção de arte §1): o primeiro uso é
+   "Limpar filtros" em fiscal/documentos_lista.html. */
+.botao--fantasma {
+    background: transparent;
+    color: var(--tinta-suave);
+    border-color: transparent;
+}
+
+.botao--fantasma:hover {
+    color: var(--tinta);
+    background: var(--papel-alt);
 }
 
 /* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
@@ -2444,19 +2385,50 @@ button:disabled {
         display: none;
     }
 
-    /* Faixa de contexto compacta: Empresa/Período numa única linha densa
-       — pedido explícito da DL-040 ("faixa de contexto compacta: empresa
-       e período numa linha"), preservado nesta etapa. "Usuário" mora no
-       menu "Conta" (dentro da barra); "Escritório ativo" continua
-       (identificação impressa obrigatória em cinco telas — ver o
-       comentário completo em templates/base.html), só menor. */
+    /* Faixa de contexto compacta — pedido explícito da DL-040 ("faixa de
+       contexto compacta: empresa e período numa linha"), preservado
+       nesta etapa. "Usuário" mora no menu "Conta" (dentro da barra);
+       "Escritório ativo" continua (identificação impressa obrigatória em
+       cinco telas — ver o comentário completo em templates/base.html),
+       nunca escondido — só menor.
+
+       DL-042 (2ª passada): cada `.contexto-item` era `flex-direction:
+       column` (rótulo numa linha, valor na linha de baixo) mesmo aqui —
+       com Escritório/Empresa/Período/Emitido em (telas com timbre), 4
+       itens de 2 linhas cada empilhavam ATÉ 133px só de faixa de
+       contexto, medido no Balancete a 390×844, e empurravam o `<h1>` da
+       tela para ≈270px do topo (pior que os ≈230px que a DL-040 tinha
+       medido). Virar `row` (rótulo e valor lado a lado, "Empresa:
+       Comércio X Ltda") corta a altura de cada item PELA METADE sem
+       remover NENHUMA informação — Escritório/Empresa/Período continuam
+       todos visíveis, só mais compactos. Resultado desta mudança SOZINHA,
+       medido no mesmo Balancete/largura: `<h1>` a 229,4px — já dentro da
+       meta de ≤230px, mas com margem quase nula; a compactação da trilha
+       logo abaixo soma mais folga, para 217,4px final. */
     .cabecalho__contexto {
-        gap: var(--esp-2) var(--esp-4);
+        gap: var(--esp-1) var(--esp-4);
         padding: var(--esp-2) var(--esp-3);
     }
 
     .contexto-item {
+        flex-direction: row;
+        align-items: baseline;
+        gap: var(--esp-1);
         font-size: var(--tipo-2xs);
+    }
+
+    .contexto-rotulo::after {
+        content: ":";
+    }
+
+    /* Margem de segurança sobre a meta de ≤230px (medido a 229,4px só com
+       a faixa de contexto compacta, acima): a trilha, quando quebra em
+       duas linhas (comum com nome de empresa longo), soma altura própria
+       — reduzida aqui de --esp-4/--esp-3 para --esp-2 nas duas telas
+       estreitas, sem remover nenhum item da trilha. */
+    .trilha {
+        margin-bottom: var(--esp-2);
+        padding-bottom: var(--esp-2);
     }
 
     /* DL-040 v2: `_navegacao_empresa.html` (os seis atalhos Alt+ da
