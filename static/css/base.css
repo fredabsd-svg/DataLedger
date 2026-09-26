@@ -367,6 +367,19 @@
        a coluna não "pular" de largura entre uma linha com "0,00" e outra
        com "1.234.567,89" — já vem do mínimo. */
     --largura-minima-coluna-valor: 8rem;
+    /* DL-045, reconferência (R9): largura MÍNIMA de `.cabecalho-numerico`
+       só dentro da tabela da DRE (`.tabela-dre`), só em telas estreitas
+       (`@media (max-width: 48rem)`, mais abaixo) — a DRE é a PRIMEIRA
+       tabela do produto com DUAS colunas `.cabecalho-numerico` lado a
+       lado (Mês, Acumulado do exercício); com o mínimo padrão (acima),
+       as duas somadas empurravam a tabela 6px além da viewport em
+       390px (medido: `scrollWidth` 396). Token PRÓPRIO, mais estreito,
+       nunca o padrão reduzido globalmente (encolheria também a coluna
+       "Valor" do lançamento/zeramento sem necessidade, que têm só UMA
+       coluna numérica e nunca mediram esse problema). Ainda maior que
+       zero: continua evitando a coluna "pular" de largura entre "0,00"
+       e um valor grande, só com uma folga menor. */
+    --largura-minima-coluna-valor-estreita: 4.5rem;
     /* DL-045 fatia 3: largura MÍNIMA do rótulo "Março de 2026" na
        navegação de competência da DRE (`.navegacao-competencia__atual`) —
        evita que os dois links "anterior"/"seguinte" pulem de posição
@@ -3404,6 +3417,16 @@ button:disabled {
     .menu-movel-gatilho,
     .navegacao-empresa,
     .formulario-periodo,
+    /* DL-045, reconferência (R5): a navegação de competência da DRE
+       ("‹ Mês anterior / Março de 2026 / Mês seguinte ›",
+       templates/contabilidade/dre.html) é controle de NAVEGAÇÃO, MESMA
+       classe de `.formulario-periodo` acima — nunca conteúdo do
+       documento (classe 2, NBC TG 26 item 51). Os dois links são `<a
+       class="botao">`, não `<button>` — o seletor `button`, mais abaixo
+       nesta mesma lista, nunca os alcançava; medido pelo auditor no PDF
+       exportado da DRE (os dois botões e o mês saíam impressos entre o
+       timbre e o bloco do item 51). */
+    .navegacao-competencia,
     .mensagens,
     .trilha,
     kbd.tecla,
@@ -3772,5 +3795,20 @@ button:disabled {
     .campo-criterio-de-apuracao__opcao {
         white-space: normal;
         max-width: 100%;
+    }
+
+    /* DL-045, reconferência (R9): overflow medido na tabela da DRE em
+       390px (`scrollWidth` 396, 6px além da viewport) — a DRE é a
+       PRIMEIRA tabela do produto com DUAS colunas `.cabecalho-numerico`
+       na MESMA linha (Mês, Acumulado do exercício); cada uma pedindo o
+       mínimo PADRÃO (`--largura-minima-coluna-valor`, 8rem) soma 16rem
+       só de colunas numéricas, e não sobra espaço para a coluna "Linha"
+       sem estourar a viewport. Escopado a `.tabela-dre` (ver o token
+       `--largura-minima-coluna-valor-estreita`, no topo do arquivo) —
+       nunca o seletor genérico `.cabecalho-numerico`, que continua com
+       o mínimo padrão nas telas de UMA coluna numérica só (lançamento,
+       zeramento), sem motivo para encolher. */
+    .tabela-dre th.cabecalho-numerico {
+        min-width: var(--largura-minima-coluna-valor-estreita);
     }
 }
