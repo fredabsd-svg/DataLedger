@@ -2,42 +2,43 @@
 
 {% block titulo %}Painel{% endblock %}
 
-{% block content %}
-    {% comment %}
-    DL-040/DL-044 (2ª iteração): padrão de cabeçalho de página
-    (`.cabecalho-pagina`, static/css/base.css) — título único (h1),
-    subtítulo de CONTEXTO (`.cabecalho-pagina__titulo`) e a área de ações
-    à direita, numa faixa só. Achado do Fred: "Escritório ativo: ..." como
-    TÍTULO repetia a faixa de contexto do topo (`{% block contexto_extra
-    %}`, base.html) — agora o título é sempre "Início", e o escritório é
-    SUBTÍTULO, não repetição.
-    {% endcomment %}
+{% comment %}
+DL-044 (4ª iteração — referência Conta Azul, achado do arquiteto-senior:
+"faixa branca do topo com o título à esquerda [...] elimine o cartão de
+título separado quando ele só repete o título"): título e ação principal
+migram para a faixa do topo (`{% block titulo_pagina %}`/`{% block
+acoes_pagina %}`, templates/base.html) — sem `.cabecalho-pagina` local
+aqui embaixo, que ficaria repetindo o título. O escritório NÃO vira mais
+subtítulo (2ª iteração): a pílula "Escritório ativo" já mora na MESMA
+faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
+2ª iteração já tinha corrigido uma vez, só que contra um alvo novo.
+{% endcomment %}
+{% block titulo_pagina %}
+    {% if escritorio_ativo or not escritorios %}
+        <h1>Início</h1>
+    {% endif %}
+{% endblock %}
+{% block acoes_pagina %}
     {% if escritorio_ativo %}
-        <div class="cabecalho-pagina">
-            <div class="cabecalho-pagina__titulo">
-                <h1>Início</h1>
-                <p class="texto-apoio cabecalho-pagina__subtitulo">{{ escritorio_ativo.nome }}</p>
-            </div>
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a>
-            </div>
-        </div>
-    {% elif escritorios %}
-        <h1>Selecione um escritório</h1>
-        <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
-    {% else %}
-        <div class="cabecalho-pagina">
-            <h1>Nenhum escritório ativo</h1>
-            {% comment %} DL-018 — primeira superfície para o usuário sem
-            vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
-            O link só aparece aqui quando o usuário ainda não tem vínculo —
-            a própria view `bootstrap_primeiro_acesso` redireciona para o
-            painel se o usuário já tiver. {% endcomment %}
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
-            </div>
-        </div>
-        <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
+        <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a>
+    {% elif not escritorios %}
+        {% comment %} DL-018 — primeira superfície para o usuário sem
+        vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2). O
+        link só aparece aqui quando o usuário ainda não tem vínculo — a
+        própria view `bootstrap_primeiro_acesso` redireciona para o painel
+        se o usuário já tiver. {% endcomment %}
+        <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% if not escritorio_ativo %}
+        {% if escritorios %}
+            <h1>Selecione um escritório</h1>
+            <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
+        {% else %}
+            <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
+        {% endif %}
     {% endif %}
 
     {% comment %}
@@ -148,7 +149,7 @@
                                 </td>
                                 <td>
                                     {% if linha.url_abrir %}
-                                        <a href="{{ linha.url_abrir }}">Abrir</a>
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_abrir }}">Abrir</a>
                                     {% else %}
                                         <span class="texto-apoio">Livro-caixa</span>
                                     {% endif %}

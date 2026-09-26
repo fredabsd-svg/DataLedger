@@ -25,7 +25,6 @@
 {% endblock %}
 
 {% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" %}
     <h1>Marcar competência {{ mes|stringformat:"02d" }}/{{ ano }} como entregue</h1>
 
     {% if ja_entregue_em %}

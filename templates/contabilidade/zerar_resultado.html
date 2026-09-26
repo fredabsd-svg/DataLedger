@@ -24,13 +24,15 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" %}
-    {% comment %}DL-044: mesma moldura padrão de cabeçalho de página do resto do produto.{% endcomment %}
-    <div class="cabecalho-pagina">
-        <h1>Zerar resultado do período — {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
-    </div>
+{% comment %}
+DL-044 (4ª iteração): título migra para a faixa do topo (`{% block
+titulo_pagina %}`, templates/base.html) — as pílulas "Empresa"/
+"Competência" (`contexto_extra`, acima) já identificam o resto, na MESMA
+faixa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Zerar resultado do período — {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
 
+{% block content %}
     {% if erro_parametro %}
         {% comment %}
         Estados "sem parâmetro contábil vigente" e "competência fora da

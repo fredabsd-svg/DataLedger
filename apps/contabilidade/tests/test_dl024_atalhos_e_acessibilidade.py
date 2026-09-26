@@ -28,10 +28,11 @@ guarda, é enfeite:
    (`_navegacao_empresa.html`: Plano de contas/Diário/Balancete/
    Conferência/Novo lançamento) precisam somar sete teclas distintas, não
    seis com uma repetida.
-4. Os cinco atalhos da contabilidade (Plano de contas, Diário, Balancete,
-   Conferência, Novo lançamento) existem em TODA tela que inclui a parcial —
-   hoje as oito de `templates/contabilidade/` (BL-283(c) fechou as duas que
-   faltavam: `conta_form.html` e `lancamento_detalhe.html`).
+4. Os sete atalhos da contabilidade (Plano de contas, Diário, Balancete,
+   Balanço, Conferência, Fechamento, Novo lançamento) existem em TODA tela
+   de `templates/contabilidade/` — desde a DL-044 (4ª iteração), pelo
+   submenu lateral (`templates/base.html`), sempre renderizado, não mais
+   por uma parcial que cada template precisava incluir.
 
 As guardas 1 a 4 rodam contra a RENDERIZAÇÃO REAL de cada tela (cliente de
 teste do Django, não parsing estático de template) — é a página que o
@@ -220,13 +221,20 @@ PADRAO_TAG_COM_ACCESSKEY = re.compile(
     re.IGNORECASE,
 )
 
-# As seis páginas fixas de templates/contabilidade/_navegacao_empresa.html,
-# na ordem em que a parcial as lista. "Fechamento" entrou com a DL-031
-# (fatia 2 da DL-016).
+# As sete páginas com atalho fixo — origem histórica:
+# templates/contabilidade/_navegacao_empresa.html (extinta na DL-044, 4ª
+# iteração; os mesmos sete atalhos migraram para
+# templates/base.html, `.menu-dropdown__paineis` do módulo Contabilidade).
+# "Fechamento" entrou com a DL-031 (fatia 2 da DL-016). "Balanço" entrou
+# aqui na DL-044 (4ª iteração) — a lista tinha ficado com seis desde a
+# DL-034, quando a parcial ganhou o sétimo item ("Balanço entrou como
+# sétimo item", docstring histórico da parcial) sem esta lista ser
+# atualizada; gap PRÉ-EXISTENTE, fechado agora (reforço, não redução).
 ATALHOS_CONTABILIDADE = [
     ("c", "Plano de contas"),
     ("i", "Diário"),
     ("l", "Balancete"),
+    ("b", "Balanço"),
     ("k", "Conferência"),
     ("z", "Fechamento"),
     ("n", "Novo lançamento"),
@@ -318,13 +326,15 @@ def _item_atual_presente(html, rotulo):
 
 
 def atalhos_ausentes(html):
-    """Os cinco atalhos da contabilidade — como link com `accesskey`
+    """Os sete atalhos da contabilidade — como link com `accesskey`
     coerente, OU como o rótulo da página atual (`item-atual`, que não é
     link porque a página não linka para si mesma) — precisam estar
-    presentes em toda tela que inclui a parcial. Some da lista uma tela
-    inteira que esqueceu de incluir `_navegacao_empresa.html` (a mesma
-    classe de defeito da BL-283(c): `conta_form.html` e
-    `lancamento_detalhe.html` ficaram de fora até a rodada 2)."""
+    presentes em toda tela de contabilidade, via o submenu lateral
+    (`templates/base.html`; até a DL-044 3ª iteração viviam numa parcial
+    por-tela, `_navegacao_empresa.html`, extinta na 4ª — a mesma classe de
+    defeito da BL-283(c), `conta_form.html`/`lancamento_detalhe.html` fora
+    de lista até a rodada 2, não pode mais acontecer: o mecanismo é
+    global, não opt-in por template)."""
     return [
         rotulo
         for tecla, rotulo in ATALHOS_CONTABILIDADE
@@ -337,10 +347,10 @@ def assert_moldura_acessivel(html):
     """As QUATRO guardas gerais, válidas em QUALQUER tela do produto que
     estenda `base.html` — não só as de `templates/contabilidade/`. BL-334:
     extraída de `assert_pagina_acessivel` para poder ser aplicada às telas
-    de fora da contabilidade, que não incluem `_navegacao_empresa.html` e
-    portanto NÃO têm os cinco atalhos que `atalhos_ausentes` cobra (essa
-    quinta checagem reprovaria, incorretamente, toda tela que nunca teve
-    esses links)."""
+    de fora da contabilidade, que NÃO têm `empresa_atual` resolvido (sem
+    empresa na URL, o submenu "Contabilidade" mostra "Escolha uma empresa",
+    sem os sete atalhos que `atalhos_ausentes` cobra — essa quinta checagem
+    reprovaria, incorretamente, toda tela sem empresa no contexto)."""
     assert not teclas_sem_aria_hidden(html), "kbd.tecla sem aria-hidden='true': " + repr(
         teclas_sem_aria_hidden(html)
     )
@@ -357,8 +367,8 @@ def assert_moldura_acessivel(html):
 
 def assert_pagina_acessivel(html):
     """As quatro guardas gerais (`assert_moldura_acessivel`) MAIS a quinta,
-    específica das telas que incluem `_navegacao_empresa.html`: os cinco
-    atalhos da contabilidade precisam estar presentes."""
+    específica das telas de contabilidade (com `empresa_atual` resolvido):
+    os sete atalhos precisam estar presentes."""
     assert_moldura_acessivel(html)
     assert not atalhos_ausentes(html), "atalhos da contabilidade ausentes: " + repr(
         atalhos_ausentes(html)
@@ -489,7 +499,7 @@ def cenario_fiscal(client):
 def test_tela_de_contabilidade_e_acessivel_nos_atalhos(client, cenario, nome_tela):
     """As quatro guardas, contra a renderização real de cada uma das telas
     de `templates/contabilidade/` que rendem 200 sob o `cenario` PADRÃO —
-    não sobra tela sem a parcial (critério: os seis atalhos aparecem), e
+    não sobra tela sem o submenu lateral (critério: os sete atalhos aparecem), e
     nenhuma delas introduz `kbd.tecla` sem `aria-hidden` nem `accesskey`
     incoerente ou repetido. `competencia_reabrir`/`competencia_entregar`
     (DL-031) exigem competência ENCERRADA como pré-condição de estado e por
@@ -542,8 +552,10 @@ def test_mutacao_colisao_de_accesskey_e_detectada(client, cenario):
 def test_mutacao_kbd_com_segunda_classe_e_detectada(client, cenario):
     """M4/BL-295 (rodada 4 da auditoria DL-026): repete a sabotagem do
     auditor — `class="tecla" aria-hidden="true"` vira `class="tecla
-    destaque"` (perde o `aria-hidden` junto), nos cinco `kbd` da parcial de
-    navegação. Medido pelo auditor na árvore de acessibilidade do
+    destaque"` (perde o `aria-hidden` junto), num `kbd` do submenu lateral
+    de navegação (`_navegacao_empresa.html`, onde este `kbd` vivia até a
+    DL-044 3ª iteração, foi extinta na 4ª). Medido pelo auditor na árvore
+    de acessibilidade do
     Chromium: o link passava a se chamar 'Plano de contas Alt+C' em vez de
     'Plano de contas' — o achado A2 da rodada 1 de volta. Antes desta
     correção (PADRAO_TECLA casando por igualdade do valor inteiro), a
@@ -691,50 +703,53 @@ def test_mutacao_accesskey_sem_aspas_em_tag_multilinha_e_detectada(client, cenar
     )
 
 
-def test_mutacao_removendo_a_parcial_de_uma_tela_e_detectada(client, cenario):
-    """Repete a classe de defeito da BL-283(c): uma tela que deixa de
-    incluir `_navegacao_empresa.html` perde os ATALHOS DE TECLADO em
-    silêncio. Simula a ausência removendo o `<nav class="navegacao-
-    empresa">` do HTML já renderizado, em vez de editar o template em
-    disco.
+def test_mutacao_removendo_o_painel_do_menu_lateral_e_detectada(client, cenario):
+    """Repete a classe de defeito da BL-283(c) — uma tela que perde os
+    ATALHOS DE TECLADO em silêncio — adaptada para o NOVO lugar deles.
 
-    DL-040 (segunda rodada, pedido do Fred): o dropdown "Contabilidade" do
-    menu principal (`templates/base.html`) passou a listar TODAS as telas
-    ativas da empresa, incluindo a ATUAL — marcada com `aria-current`,
-    mesma convenção de `_navegacao_empresa.html`. Isso é REDUNDÂNCIA
-    deliberada (o rótulo da tela atual, "Balancete" neste teste, continua
-    achável mesmo sem a parcial — só sem `accesskey`), não uma
-    duplicação acidental: os SEIS atalhos de TECLADO (accesskey +
-    aria-keyshortcuts) continuam vivendo SÓ na parcial — é isso que este
-    teste prova, ajustado para não confundir "rótulo continua visível
-    nalgum lugar" com "atalho de teclado continua funcionando".
-    """
+    DL-044 (4ª iteração, achado do arquiteto-senior — "a queixa central do
+    Fred: 'tudo junto num lugar só'"): a linha de abas
+    (`_navegacao_empresa.html`, extinta) repetia EXATAMENTE os itens do
+    submenu lateral "Contabilidade" — removida; os sete atalhos de
+    `_navegacao_empresa.html` (todos os sete, agora guardados por
+    `ATALHOS_CONTABILIDADE`, abaixo — "Balanço" tinha ficado de fora dessa
+    lista desde a DL-034, gap PRÉ-EXISTENTE fechado nesta mesma etapa)
+    migraram para os próprios itens do submenu (`templates/base.html`,
+    `.menu-dropdown__paineis` do módulo Contabilidade). Este teste é a
+    MESMA mutação de antes (provar que o detector depende de marcação
+    real, não de uma lista que sempre "passa"), simulada agora no NOVO
+    local: remove o painel do dropdown inteiro do HTML já renderizado
+    (nunca edita o template em disco) e prova que os sete atalhos
+    guardados desaparecem — inclusive o da tela ATUAL, que ANTES
+    continuava "achável" pelo item redundante do menu (a redundância que
+    motivou a remoção); agora, sem duplicidade, ela some junto com os
+    outros seis quando o painel é removido — o comportamento CORRETO
+    depois da simplificação, não uma regressão."""
     url = _urls_de_contabilidade(cenario)["balancete"]
     html = client.get(url).content.decode()
-    assert not atalhos_ausentes(html), "controle: a página real deveria ter os cinco atalhos"
+    assert not atalhos_ausentes(html), (
+        "controle: a página real deveria ter os sete atalhos guardados"
+    )
 
-    inicio = html.find('<nav class="navegacao-empresa"')
-    assert inicio != -1, "a página de controle precisa conter a parcial para o teste fazer sentido"
-    fim = html.find("</nav>", inicio) + len("</nav>")
+    inicio = html.find('<div class="menu-dropdown__paineis">')
+    assert inicio != -1, "a página de controle precisa conter o painel para o teste fazer sentido"
+    # BL-283(c)/DL-044: contar `</div>` para achar o fim do painel seria
+    # frágil (o painel tem `<div class="menu-grupo">` internos, cada um
+    # com o próprio `</div>`) — em vez de casar por contagem de tags,
+    # corta até `<p class="menu-dropdown__acao-secundaria">`
+    # ("Trocar de empresa"), que é FILHA do painel e vem depois de TODOS
+    # os grupos com atalho (templates/base.html) — fronteira sem
+    # ambiguidade, e o HTML mutado continua bem formado (a ação
+    # secundária e o fechamento do painel permanecem).
+    fim = html.find('<p class="menu-dropdown__acao-secundaria">', inicio)
+    assert fim != -1, "controle: a ação secundária ('Trocar de empresa') precisa existir"
     mutado = html[:inicio] + html[fim:]
 
     ausentes = atalhos_ausentes(mutado)
-    # "Balancete" é a tela ATUAL neste cenário: o dropdown "Contabilidade"
-    # do menu principal também a marca como item-atual (fora da parcial
-    # removida), então ela continua "achável" — SEM accesskey, que é o
-    # que importa para este detector (`_link_de_atalho_presente` exige o
-    # par accesskey/aria-keyshortcuts; o item do menu principal não tem
-    # nenhum dos dois). As outras cinco (que não são a tela atual)
-    # aparecem no menu como LINKS comuns, também sem accesskey — por isso
-    # ficam corretamente marcadas como ausentes quando a parcial some.
-    esperado = {rotulo for _tecla, rotulo in ATALHOS_CONTABILIDADE if rotulo != "Balancete"}
+    esperado = {rotulo for _tecla, rotulo in ATALHOS_CONTABILIDADE}
     assert set(ausentes) == esperado, (
-        "a mutação (remover a parcial) não foi detectada por completo: " + repr(ausentes)
-    )
-    assert "Balancete" not in ausentes, (
-        "controle: 'Balancete' (tela atual) precisa continuar achável pelo dropdown "
-        "'Contabilidade' do menu principal mesmo sem a parcial — se isto passar a "
-        "falhar, o dropdown parou de marcar a tela atual, e isso é regressão real"
+        "a mutação (remover o painel do menu lateral) não foi detectada por completo: "
+        + repr(ausentes)
     )
 
 

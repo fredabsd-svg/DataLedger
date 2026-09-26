@@ -4093,3 +4093,177 @@ Inter) — decisão registrada em
 [docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
 §"Decisão sobre a fonte": manter IBM Plex Sans, o Fred nunca citou fonte
 como problema em nenhuma das três rodadas.
+
+**Adenda (4ª iteração, mesmo dia) — acabamento da referência Conta Azul.**
+Revisão do arquiteto-senior sobre as capturas do commit `cde2126` pediu
+ajuste fino, sem mudar a decisão de fundo:
+
+1. **Fundo cinza-azulado cobrindo a altura toda.** `.barra-lateral ~
+   .area-principal` ganhou `min-height: var(--altura-viewport)` — sem
+   isso, `.app-shell` usa `align-items: flex-start` (de propósito, ver
+   §8.1a) e o fundo só cobria a altura do CONTEÚDO, deixando `--papel`
+   (bege) aparecer embaixo em página curta (Relatórios, Novo lançamento).
+2. **Resquícios de bege na casca do app.** Token novo, `--app-superficie-
+   alt` (cinza-frio, `#EEF1F6`), substitui `--papel-alt` (bege) em
+   `.tabela-dados th`, no hover de linha, no selo D/C, na linha de total e
+   na coluna não-somável do Balancete — todos DENTRO de `.tabela-dados`,
+   que só existe no app logado (conferido por busca em `templates/
+   registration/`/`templates/erros/`). A pílula de contexto do topo
+   (`.cabecalho__contexto .contexto-item`) trocou de `--papel-alt` para
+   `--papel-elevado` (branco) com borda — "pílula branca com borda", não
+   uma segunda superfície bege — e o rótulo perdeu a caixa-alta/rastreio
+   amplo (`text-transform: none`), escopado à MESMA pílula.
+3. **Faixa branca do topo com título + pílulas + ação.** Dois blocos
+   novos em `templates/base.html`, dentro de `.cabecalho`:
+   `{% block titulo_pagina %}` (esquerda) e `{% block acoes_pagina %}`
+   (direita, ao lado das pílulas) — os dois VAZIOS por padrão (tela não
+   migrada continua exatamente como antes). Migradas nesta rodada: Início,
+   Novo lançamento, Relatórios, Zerar resultado — cada uma removeu o
+   próprio `.cabecalho-pagina` local (que ficaria repetindo o título) e
+   moveu só o `<h1>`/ação para os blocos novos. Em Novo lançamento e
+   Relatórios, o título deixou de repetir a razão social/nome do
+   escritório, que a pílula ao lado já mostra. Balancete NÃO foi migrado
+   — decisão deliberada: BL-284 já mediu uma regressão de densidade
+   quando um `.cabecalho-pagina` entrou ACIMA da tabela nessa tela
+   especificamente, e o instrumento de medição (`scripts/juiz.py`) não
+   rodou nesta etapa para provar a migração seguro ali.
+4. **Trilha e links da casca sem sublinhado — só no hover.**
+   `.trilha ol a` (`text-decoration: none`, `underline` só em `:hover`) —
+   mesma régua que já valia para o menu lateral e as abas (extintas nesta
+   mesma iteração, item seguinte).
+5. **Ícone em toda ação rápida do Início; "Abrir" como botão.** Achado
+   PRÓPRIO: dois `icone` do `_acoes_rapidas_do_painel`
+   (`apps/tenancy/views.py`) referenciavam símbolos que NUNCA existiram no
+   sprite (`#icone-envio`, `#icone-empresa` — o certo é `#icone-fiscal`/
+   `#icone-empresas`) — o `<svg><use>` renderizava vazio, com o espaço do
+   ícone reservado mas sem desenho, exatamente o "espaço vazio à
+   esquerda" relatado. "Abrir" (tabela "Empresas da carteira") virou
+   `.botao--secundario.botao--pequeno` — novo modificador de TAMANHO,
+   combinável com qualquer tom.
+6. **Ícone por relatório no hub.** Cinco símbolos novos no sprite
+   (`templates/base.html`) — Diário (página com linhas), Razão (conta em
+   T), Balancete (balança), Balanço (colunas), Conferência (documento com
+   check) — em vez dos cinco cartões repetirem o ícone genérico
+   "contabilidade".
+7. **"Razão — pelo Plano de contas" virou só "Razão"** no submenu lateral
+   — a explicação (por que o link leva ao Plano de contas) mudou de lugar
+   para `title` (dica ao passar o mouse) e para a descrição do cartão do
+   hub de relatórios, que já a tinha.
+
+Ver DE-081, a seguir, para a remoção da linha de abas (`_navegacao_empresa.html`)
+e a migração dos sete atalhos para o submenu lateral — mudança grande o
+bastante (arquitetura de navegação + três guardas de teste adaptadas) para
+decisão própria.
+
+## DE-081 — Fim da linha de abas da empresa: os sete atalhos migram para o submenu lateral
+
+**Data:** 2026-09-26
+
+**Contexto:** revisão do arquiteto-senior sobre as capturas do commit
+`cde2126`: "a queixa central do Fred ('tudo junto num lugar só') continua:
+a linha de abas (Plano de contas · Diário · Balancete…) repete EXATAMENTE
+os itens do submenu lateral." De fato, desde a DL-040 (2ª passada) o
+dropdown "Contabilidade" da barra lateral já listava TODAS as telas ativas
+da empresa (decisão registrada e justificada à época — ver §8.1 da direção
+de arte) — a MESMA informação que `_navegacao_empresa.html` também
+mostrava, como faixa de abas, em toda tela. Redundância deliberada
+originalmente (resolvia "descoberta do módulo fora de uma empresa"), mas
+seu CUSTO (duas navegações mostrando a mesma coisa, ao mesmo tempo, na
+mesma tela) passou a pesar mais que o benefício, na leitura do Fred.
+
+**Decisão:** `templates/contabilidade/_navegacao_empresa.html` foi
+REMOVIDA (arquivo apagado) e o `{% include %}` dela, tirado das 17 telas
+que a usavam. Os sete atalhos de teclado que ela carregava
+(`accesskey`/`aria-keyshortcuts`/`kbd.tecla` visível-só-no-DOM) migraram
+para os sete itens correspondentes do submenu "Contabilidade"
+(`templates/base.html`), que já existiam como link simples: Plano de
+contas (C), Diário (I), Balancete (L), Balanço (B), Conferência (K),
+Fechamento (Z), Novo lançamento (N).
+
+**Por que a PROPRIEDADE que as guardas protegiam continua protegida —
+guarda por guarda** (`apps/contabilidade/tests/test_dl024_atalhos_e_
+acessibilidade.py` e `test_bl296_navegacao_cobre_todas_as_telas.py`):
+
+1. **`teclas_sem_aria_hidden` (guarda 1 — todo `kbd.tecla` tem `aria-
+   hidden`).** Regex sobre QUALQUER `<kbd class="tecla">` da página
+   renderizada, onde quer que esteja — indiferente a mudar de lugar.
+   Continua rodando sobre HTML real, agora com os `kbd` no submenu em vez
+   da parcial. Sem alteração de código, só de onde o `kbd` mora no HTML.
+2. **`accesskeys_incoerentes`/`accesskeys_malformados` (guarda 2 —
+   `accesskey` tem `aria-keyshortcuts` coerente).** Mesma regra: varre
+   TODO elemento com `accesskey` na página renderizada. Sem alteração de
+   código.
+3. **`accesskeys_duplicados` (guarda 3 — nenhum `accesskey` repete na
+   MESMA página).** Mesma regra, mesma varredura total da página. Como os
+   sete atalhos AGORA vivem no MESMO lugar que antes só tinha o rótulo
+   sem atalho (o item do dropdown), e a parcial (que tinha os mesmos sete)
+   sumiu, o TOTAL de accesskeys na página é o mesmo de antes (7 da
+   contabilidade + 2 da moldura, p/m) — sem colisão nova, sem colisão
+   removida. Sem alteração de código.
+4. **`atalhos_ausentes`/`ATALHOS_CONTABILIDADE` (guarda 4 — os sete
+   atalhos existem em toda tela de contabilidade).** ADAPTADA, não
+   reduzida: a lista `ATALHOS_CONTABILIDADE` GANHOU um item nesta
+   correção ("Balanço", "b") — ela estava com seis desde a DL-034 (quando
+   a parcial ganhou o sétimo item sem a lista acompanhar), gap
+   PRÉ-EXISTENTE fechado agora, não uma redução. A função `atalhos_
+   ausentes` não mudou de código — ela já procurava o par `accesskey`/
+   `aria-keyshortcuts` OU o rótulo em `item-atual` em QUALQUER lugar do
+   HTML renderizado, nunca dependeu de estarem dentro da parcial
+   especificamente. `test_tela_de_contabilidade_e_acessivel_nos_atalhos`
+   (parametrizada por 13 telas, incluindo `relatorios` desde a 3ª
+   iteração) continua chamando a MESMA `assert_pagina_acessivel` contra a
+   renderização real de cada uma — 46 passed depois da migração, mesmo
+   número de telas cobertas.
+5. **Teste de mutação (antes `test_mutacao_removendo_a_parcial_de_uma_
+   tela_e_detectada`, agora `test_mutacao_removendo_o_painel_do_menu_
+   lateral_e_detectada`).** ADAPTADO: como o alvo físico da mutação
+   (`<nav class="navegacao-empresa">`) deixou de existir, o teste passou
+   a remover o `<div class="menu-dropdown__paineis">` do submenu
+   Contabilidade do HTML JÁ RENDERIZADO (nunca edita o template em disco
+   — mesma técnica de antes) e prova que os SETE atalhos desaparecem.
+   Efeito colateral BOM da simplificação: antes, a tela ATUAL (ex.:
+   "Balancete") continuava "achável" mesmo sem a parcial, porque o
+   dropdown a marcava como item-atual em um lugar REDUNDANTE — o teste
+   precisava de um caso especial só para isso. Sem a redundância, ela some
+   junto com as outras seis quando o painel é removido: o teste ficou
+   MAIS SIMPLES, não mais fraco (a asserção final é `set(ausentes) ==
+   {as sete}`, sem exclusão nenhuma).
+6. **BL-296 (`test_toda_tela_de_contabilidade_inclui_a_navegacao_da_
+   empresa`, agora `test_toda_tela_de_contabilidade_identifica_a_empresa_
+   no_contexto`).** ADAPTADA — a PROPRIEDADE original ("uma tela nova sem
+   cobertura de acessibilidade não passa em silêncio") não podia mais ser
+   verificada do jeito antigo: o mecanismo deixou de ser OPT-IN por
+   template (incluir a parcial) e passou a ser GLOBAL (o submenu vive em
+   `base.html`, renderizado sempre) — estruturalmente, uma tela que
+   estenda `base.html` (toda tela do produto estende) NÃO PODE mais
+   "esquecer" o mecanismo, porque ele não depende de nada que o template
+   da tela escreva. O risco residual que SOBROU — uma tela nova sem
+   identificação de EMPRESA na faixa de contexto do topo, o que também
+   comprometeria a garantia "o usuário sempre sabe em que empresa está
+   operando" (AGENTS.md §11) — é o que a guarda adaptada varre agora:
+   MESMA técnica (glob da pasta `templates/contabilidade/*.html`, nunca
+   lista escrita à mão), MESMO formato de exceção nomeada e comentada
+   (`TELAS_SEM_EMPRESA_NO_CONTEXTO`, hoje só `balancete_emissao_
+   recusada`, motivo já documentado no próprio template — resposta 409
+   que não pode incluir NENHUM dado da empresa). Teste de controle
+   inverso novo (`test_excecao_declarada_bate_com_a_pasta_real`) garante
+   que a exceção não protege uma tela fantasma.
+
+**Consequência aceita:** `templates/base.html` cresceu (sete `accesskey`/
+`aria-keyshortcuts`/`kbd` a mais, um por item do submenu) — mesmo volume
+de marcação que existia na parcial, só que MOVIDO, não duplicado (a
+parcial foi apagada, não deixada como código morto). Comentários em três
+arquivos (`templates/base.html`, `templates/fiscal/_navegacao.html`,
+`apps/core/context_processors.py`) ainda mencionam `_navegacao_empresa.html`
+em prosa histórica ("mesma convenção de...") — não corrigidos nesta etapa
+por não descreverem mecanismo ATUAL (descrevem uma convenção de estilo já
+seguida, não uma dependência de arquivo), registrado aqui para não
+esconder.
+
+**Alternativas descartadas:** manter a parcial só para os sete atalhos,
+sem as abas visíveis (esconder visualmente, manter no DOM) — descartada
+por reintroduzir a MESMA técnica de "marcação morta escondida por CSS"
+que a 3ª iteração já tinha evitado para os atalhos de teclado
+individuais (ver a nota sobre `kbd.tecla`/clip em DE-080) — aqui seria
+pior, um bloco de navegação inteiro invisível, não um único `<kbd>`
+decorativo.

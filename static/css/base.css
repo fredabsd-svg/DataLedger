@@ -178,6 +178,17 @@
        (base.html) — nunca ao `body`/`:root` inteiro, que a landing e o
        documento impresso também consomem. */
     --app-fundo: #E3E9F2;
+    /* DL-044 (4ª iteração — achado do arquiteto-senior: "resquícios do
+       bege" no cabeçalho de tabela, coluna "LINHA N" e pílulas do topo):
+       cinza-frio de SUPERFÍCIE, mais claro que `--app-fundo` (que é o
+       CANVAS por trás dos cartões) — para o cabeçalho de tabela e
+       qualquer `<th scope="row">` dentro da casca do app, que antes
+       usavam `--papel-alt` (bege, a mesma família de `--papel`). `.tabela-
+       dados` só existe dentro do app logado (conferido por busca em
+       templates/registration/ e templates/erros/) — sem precisar do
+       escopo por combinador de irmão que `--app-fundo`/`--app-acento`
+       usam. */
+    --app-superficie-alt: #EEF1F6;
 
     /* --- Semânticas: sempre acompanhadas de TEXTO, nunca só cor --- */
     --erro: #7A2618;           /* 9,34:1 sobre --papel; 8,32:1 sobre --erro-fundo */
@@ -604,6 +615,17 @@ summary:focus,
    explícita do Fred ("a landing [...] pode manter a identidade atual"). */
 .barra-lateral ~ .area-principal {
     background: var(--app-fundo);
+    /* DL-044 (4ª iteração — achado do arquiteto-senior: "o cinza-azulado
+       termina onde o conteúdo termina e aparece o bege embaixo"):
+       `.app-shell` usa `align-items: flex-start` (de propósito — ver o
+       comentário grande na regra dela, sobre o acúmulo de altura em
+       ≤48rem) — isso significa que os FILHOS não esticam para a altura
+       do contêiner sozinhos; só `min-height` garante que `.area-
+       principal` (e o fundo pintado nela) cubra ao menos a viewport
+       inteira em página curta (Relatórios, Novo lançamento). Conteúdo
+       mais alto que a viewport (Balancete) continua empurrando a altura
+       normalmente — `min-height`, nunca `height`. */
+    min-height: var(--altura-viewport);
 }
 
 /* Link de PROSA dentro do app logado usa o azul do app, não o editorial —
@@ -623,12 +645,37 @@ summary:focus,
     background: var(--papel-elevado);
 }
 
+/* DL-044 (4ª iteração — referência Conta Azul): faixa única do topo —
+   título da página (quando a tela preenche `{% block titulo_pagina %}`)
+   à esquerda, pílulas de contexto + ação principal à direita. Quando
+   `titulo_pagina` está vazio (tela ainda não migrada), esta faixa só tem
+   o lado direito — comportamento idêntico ao de antes desta iteração. */
+.cabecalho__faixa {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--esp-3);
+    padding: var(--esp-3) var(--esp-5);
+}
+
+.cabecalho__faixa h1 {
+    margin: 0;
+    font-size: var(--tipo-lg);
+}
+
+.cabecalho__lado-direito {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--esp-3);
+}
+
 .cabecalho__contexto {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--esp-3);
-    padding: var(--esp-3) var(--esp-5);
 }
 
 /* DL-044 (3ª iteração — retorno do Fred, referência Conta Azul: "usuário/
@@ -647,7 +694,20 @@ summary:focus,
     padding: var(--esp-1) var(--esp-3);
     border: var(--traco-fina) solid var(--borda-hairline);
     border-radius: var(--raio-pilula);
-    background: var(--papel-alt);
+    /* DL-044 (4ª iteração — achado do arquiteto-senior: "pílulas do topo
+       ainda em bege/creme"): branco (`--papel-elevado`), não
+       `--papel-alt` — a referência usa pílula BRANCA com borda, não uma
+       segunda superfície de destaque. */
+    background: var(--papel-elevado);
+}
+
+/* DL-044 (4ª iteração): "rótulo das pílulas sem caixa-alta gritada" —
+   escopado à MESMA pílula acima; `.contexto-rotulo` sozinho continua
+   maiúsculo/espaçado em qualquer outro uso (timbre de impressão,
+   `.menu-grupo__rotulo` etc.), que não foi objeto deste achado. */
+.cabecalho__contexto .contexto-item .contexto-rotulo {
+    text-transform: none;
+    letter-spacing: normal;
 }
 
 .contexto-item {
@@ -1505,6 +1565,18 @@ kbd.tecla {
     box-shadow: none;
 }
 
+/* DL-044 (4ª iteração — achado do arquiteto-senior: "'Abrir' na tabela da
+   carteira como botão pequeno de contorno, não link"): modificador de
+   TAMANHO, combinável com qualquer tom (`--secundario`, aqui, é o tom;
+   `--pequeno` é só a escala) — mesmo padrão de "Ações" por linha de
+   tabela que a referência usa. Nunca a ÚNICA ação primária de uma tela
+   (que continua no tamanho padrão, no rodapé/cabeçalho). */
+.botao--pequeno {
+    padding: var(--esp-1) var(--esp-3);
+    font-size: var(--tipo-xs);
+    gap: var(--esp-1);
+}
+
 /* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
    padronizada — logo no topo de `<main>` (`{% block trilha %}`,
    templates/base.html), antes de qualquer mensagem ou conteúdo da tela.
@@ -1539,13 +1611,21 @@ kbd.tecla {
     color: var(--tinta-media);
 }
 
+/* DL-044 (4ª iteração — achado do arquiteto-senior: "trilha e links da
+   casca sem sublinhado (só no hover)"): a trilha é NAVEGAÇÃO (chrome),
+   não prosa — mesma régua que já valia para o menu lateral e as abas
+   (direção de arte: "link solto dentro da casca... só sublinha no
+   hover; em texto corrido mantém sublinhado"). Link de CONTEÚDO (ex.:
+   "ver lançamento nº X" na prévia do zeramento) não é afetado — esta
+   regra é só `.trilha`. */
 .trilha ol a {
     color: var(--tinta-suave);
-    text-decoration: underline;
+    text-decoration: none;
 }
 
 .trilha ol a:hover {
     color: var(--tinta);
+    text-decoration: underline;
 }
 
 .trilha ol [aria-current="page"] {
@@ -2189,7 +2269,7 @@ button:disabled {
 .tabela-dados th {
     position: sticky;
     top: 0;
-    background: var(--papel-alt);
+    background: var(--app-superficie-alt);
     border-bottom: var(--traco-media) solid var(--borda-forte);
     font-family: var(--fonte-trabalho);
     font-size: var(--tipo-2xs);
@@ -2264,7 +2344,9 @@ button:disabled {
 }
 
 .tabela-dados tbody tr:hover {
-    background: var(--papel-alt);
+    /* DL-044 (4ª iteração): cool, não bege — mesmo token do cabeçalho
+       (`--app-superficie-alt`), consistência dentro da MESMA tabela. */
+    background: var(--app-superficie-alt);
 }
 
 /* Valor monetário: alinhamento à direita e algarismos de largura fixa
@@ -2325,7 +2407,9 @@ button:disabled {
     padding: 0 var(--esp-2);
     border: var(--traco-fina) solid var(--borda-hairline);
     border-radius: var(--raio);
-    background: var(--papel-alt);
+    /* DL-044 (4ª iteração): cool, não bege — mesmo token do cabeçalho de
+       tabela (o selo D/C mora dentro de `.tabela-dados`, mesma casca). */
+    background: var(--app-superficie-alt);
     font-family: var(--fonte-trabalho);
     font-size: var(--tipo-xs);
     font-weight: 700;
@@ -2356,7 +2440,9 @@ button:disabled {
 .linha-total td {
     font-weight: 700;
     border-top: var(--traco-media) solid var(--borda-forte);
-    background: var(--papel-alt);
+    /* DL-044 (4ª iteração): cool, não bege — mesma família do cabeçalho
+       de tabela. */
+    background: var(--app-superficie-alt);
 }
 
 /* M2/BL-278 (auditoria DL-026, rodada 1): "fecha ou não fecha" no
@@ -2735,7 +2821,9 @@ button:disabled {
    texto. Cor auxiliar (--tinta-media, 5,14:1): o olho vai primeiro no
    movimento consolidado e no saldo, não nesta coluna de detalhe. */
 .coluna-nao-somavel {
-    background: var(--papel-alt);
+    /* DL-044 (4ª iteração): cool, não bege — mesma família do cabeçalho
+       de tabela. */
+    background: var(--app-superficie-alt);
     color: var(--tinta-media);
 }
 

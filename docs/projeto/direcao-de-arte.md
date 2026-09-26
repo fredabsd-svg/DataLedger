@@ -402,10 +402,23 @@ próximo módulo seguir sem reabrir a discussão.
   com um cartão por relatório (ícone, descrição de uma linha, "Abrir") —
   o Fred apontou especificamente o "botão para abrir relatório" como
   "esquisito"; o cartão substitui esse ponto de entrada visual sem tirar
-  nenhum dos dois já existentes (dropdown, abas de `_navegacao_empresa.
-  html`). Reavaliar a REMOÇÃO de algum dos três (não feita nesta etapa,
-  por risco de regressão nos testes de navegação/atalho já estabelecidos)
-  fica registrada como possível fatia futura.
+  nenhum dos dois já existentes na época (dropdown, abas de
+  `_navegacao_empresa.html`).
+- **Remoção (DL-044, 4ª iteração, DE-081).** A redundância que o item
+  acima (DL-040, segunda passada) tinha reintroduzido DE PROPÓSITO —
+  "a mesma tela aparece tanto no dropdown quanto em
+  `_navegacao_empresa.html`" — passou a pesar mais que o benefício: "a
+  queixa central do Fred ('tudo junto num lugar só') continua: a linha de
+  abas repete EXATAMENTE os itens do submenu lateral" (arquiteto-senior).
+  `_navegacao_empresa.html` foi REMOVIDA (arquivo apagado, não só
+  escondida); os sete atalhos de teclado migraram para os sete itens
+  correspondentes do dropdown, que já existiam como link simples. Ver
+  DE-081 para a explicação guarda-por-guarda de como cada uma das cinco
+  guardas de acessibilidade (`test_dl024_atalhos_e_acessibilidade.py`) e
+  a varredura de diretório (`test_bl296_...py`, adaptada, não
+  enfraquecida) continuam protegendo a MESMA propriedade depois da
+  mudança. O parágrafo acima (DL-040) descreve a redundância como ela
+  EXISTIU entre a DL-040 e a DL-044 — histórico, não mais o estado atual.
 
 ### 8.1a Menu em telas estreitas (≤48rem)
 
@@ -454,11 +467,13 @@ própria acima do cabeçalho de contexto, que a barra superior não tinha
   `<details>` fechado) porque a impressão depende dele em telas sem
   timbre (ver 8.5 e o teste
   `test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada`).
-- `_navegacao_empresa.html` (os seis atalhos com `Alt+`) fica oculta
-  nesta largura — com o dropdown/gaveta agora completo (8.1), ela vira
-  redundante justamente na largura onde espaço é mais caro; os atalhos
-  de teclado continuam documentados e funcionando (não dependem de
-  estarem visíveis), só o texto/link visual some.
+- **Histórico, superado na DL-044 4ª iteração (DE-081):** esta régua
+  dizia que `_navegacao_empresa.html` ficava oculta em telas estreitas
+  por ser redundante com o dropdown/gaveta ali. A parcial foi REMOVIDA
+  (não só escondida) na 4ª iteração — a redundância que a motivava não
+  existe mais em largura NENHUMA, não só nesta. Os sete atalhos de
+  teclado vivem hoje só no dropdown (8.1), que já era exibido em
+  qualquer largura.
 
 ### 8.1b Largura do conteúdo em telas grandes
 
@@ -497,19 +512,23 @@ pelo §4.8.
   `aria-current="page"` — nunca um link para a página atual (mesma regra
   do item de menu ativo).
 
-### 8.2a Navegação entre relatórios de uma empresa (abas, DL-044)
+### 8.2a Navegação entre relatórios de uma empresa — extinta na DL-044 (4ª iteração, DE-081)
 
-`_navegacao_empresa.html` (Plano de contas/Diário/Balancete/Conferência/
-Fechamento/Parâmetros contábeis/Novo lançamento, toda tela de
-`templates/contabilidade/`) é uma faixa de **abas** — traço de cor sob o
-item ATUAL, sem sublinhado nos demais — nunca mais uma linha de `<a>`
-sublinhados soltos (achado do Fred: "a navegação entre relatórios é uma
-linha de links sublinhados"). A MARCAÇÃO é a mesma de antes da DL-044
-(`accesskey`, `aria-keyshortcuts`, `kbd.tecla`, `aria-current="page"` —
-nada disso mudou, só a CSS); ver DE-079. Vale só para esta navegação
-CONTEXTUAL (de relatório dentro de uma empresa) — a trilha (§8.2) e o
-menu lateral (§8.1) continuam com o próprio tratamento visual, não viram
-aba.
+**Histórico, não mais o estado atual.** Entre a fase A e a 3ª iteração da
+DL-044, `_navegacao_empresa.html` (Plano de contas/Diário/Balancete/
+Conferência/Fechamento/Parâmetros contábeis/Novo lançamento, toda tela de
+`templates/contabilidade/`) era uma faixa de **abas** — traço de cor sob
+o item ATUAL, sem sublinhado nos demais (achado do Fred na 1ª rodada: "a
+navegação entre relatórios é uma linha de links sublinhados"). Na 4ª
+iteração, o arquiteto-senior mediu que essa faixa de abas repetia
+EXATAMENTE os itens que o submenu lateral (§8.1) já listava — "tudo junto
+num lugar só", a MESMA queixa do Fred, ainda não resolvida pela virada
+para aba. A parcial foi REMOVIDA (arquivo apagado); os sete atalhos de
+teclado migraram para os itens do submenu lateral — ver DE-081 para a
+explicação guarda-por-guarda de como a acessibilidade continua protegida.
+Navegação contextual dentro de uma empresa passou a ter UM lugar só: o
+submenu "Contabilidade" da barra lateral (§8.1). A trilha (§8.2) continua
+com o próprio tratamento visual.
 
 ### 8.3 Cabeçalho de página
 
@@ -530,6 +549,24 @@ também `.cabecalho-pagina__titulo` (coluna com `<h1>` + subtítulo de
 CONTEXTO, `.cabecalho-pagina__subtitulo`) para o Início parar de repetir
 "Escritório ativo: ..." como TÍTULO (já aparece na faixa de identificação
 do topo) — o título vira sempre "Início", e o escritório é subtítulo.
+
+**Revisão (DL-044, 4ª iteração).** A moldura acima (`.cabecalho-pagina`,
+DENTRO de `{% block content %}`) continua existindo — é o padrão para
+tela ainda não migrada. Para a tela MIGRADA, o título e a ação principal
+saem de `{% block content %}` e entram em dois blocos novos, DENTRO da
+faixa de identificação do topo (`templates/base.html`, `.cabecalho`):
+`{% block titulo_pagina %}` (esquerda) e `{% block acoes_pagina %}`
+(direita, ao lado das pílulas de contexto) — a referência Conta Azul
+("faixa branca do topo com o título à esquerda e as pílulas + ação à
+direita") pedia os DOIS elementos na MESMA faixa, não um embaixo do
+outro. Os dois blocos são VAZIOS por padrão — uma tela sem título
+migrado não ganha coluna de título ali, só a faixa de pílulas de sempre.
+Migradas nesta rodada: Início, Novo lançamento, Relatórios, Zerar
+resultado — cada uma removeu o `.cabecalho-pagina` local, que ficaria
+repetindo o título duas vezes (achado do arquiteto-senior, com exemplo:
+"em Novo lançamento o título 'Novo lançamento — Empresa' repete a
+pílula da empresa"). Balancete NÃO migrou — ver DE-080/adenda 4ª
+iteração para o motivo (risco de densidade, BL-284).
 
 ### 8.3a Início: indicadores, ações rápidas, módulos e carteira (DL-044, DE-080)
 

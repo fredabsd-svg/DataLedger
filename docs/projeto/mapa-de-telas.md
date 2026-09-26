@@ -35,6 +35,17 @@ relatórios em cartões — **+1** rota web nomeada, **+1** tela **Ativa**.
 Segundo caminho ADITIVO para Diário/Razão/Balancete/Balanço/Conferência —
 nenhuma rota existente foi removida nem alterada.
 
+⚠️ **DL-044 (4ª iteração, DE-081) removeu `templates/contabilidade/
+_navegacao_empresa.html`** — nenhuma rota mudou (a coluna "Como se chega"
+da tabela abaixo é sobre NAVEGAÇÃO, não rota), mas as seis células que
+diziam `` `_navegacao_empresa.html` (item fixo) `` ficaram desatualizadas:
+o caminho passou a ser só o submenu lateral "Contabilidade" (§8.1 da
+direção de arte) — que já existia como caminho de descoberta desde a
+DL-040 (segunda passada), só não estava listado nestas seis células
+específicas porque a faixa de abas também servia. Não reescrito célula
+por célula nesta rodada — registrado aqui para não afirmar um caminho
+que não existe mais sem também apontar o que passou a valer.
+
 | | Quantidade |
 | --- | --- |
 | Rotas web nomeadas (fora de `api/` e `admin/`) | **30** |

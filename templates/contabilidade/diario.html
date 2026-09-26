@@ -42,8 +42,6 @@ comentário completo em balancete.html e em templates/base.html.
             <p>{{ linha }}</p>
         {% endfor %}
     </div>
-
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="diario" %}
     <h1>Diário — {{ empresa.razao_social }}</h1>
 
     {% comment %}

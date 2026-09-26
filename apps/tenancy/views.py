@@ -596,7 +596,7 @@ def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
                 "chave": "receber-nfse",
                 "rotulo": "Receber NFS-e",
                 "url": url_recepcao,
-                "icone": "envio",
+                "icone": "fiscal",
             }
         )
     if papel in (Papel.ADMINISTRADOR, Papel.GESTOR):
@@ -605,7 +605,7 @@ def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
                 "chave": "cadastrar-empresa",
                 "rotulo": "Cadastrar empresa",
                 "url": reverse("empresas:criar"),
-                "icone": "empresa",
+                "icone": "empresas",
             }
         )
     return acoes

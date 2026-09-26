@@ -25,7 +25,6 @@
 {% endblock %}
 
 {% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" %}
     <h1>Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
 
     {% if quantidade_lotes_desbalanceados %}

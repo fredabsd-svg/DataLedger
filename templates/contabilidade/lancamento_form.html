@@ -9,19 +9,17 @@
     </span>
 {% endblock %}
 
-{% block content %}
-    {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="lancamento_novo" %}
-    {% comment %}
-    DL-044 (Fred: "aspecto de vazio"): moldura padrão de cabeçalho de
-    página — mesmo `.cabecalho-pagina` de tenancy/painel.html/empresas/
-    lista.html — mesmo sem ação própria no canto direito (o lançamento se
-    grava pelo botão dentro do formulário, não daqui), a linha divisória
-    já separa o título do conteúdo, em vez do <h1> flutuar solto.
-    {% endcomment %}
-    <div class="cabecalho-pagina">
-        <h1>Novo lançamento — {{ empresa.razao_social }}</h1>
-    </div>
+{% comment %}
+DL-044 (4ª iteração — achado do arquiteto-senior, exemplo citado por ele:
+"em Novo lançamento o título 'Novo lançamento — Empresa' repete a pílula
+da empresa: deixe só 'Novo lançamento'"): título migra para a faixa do
+topo (`{% block titulo_pagina %}`, templates/base.html), SEM o nome da
+empresa — a pílula "Empresa" (`contexto_extra`, acima) já mostra a razão
+social, na MESMA faixa, ao lado.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Novo lançamento</h1>{% endblock %}
 
+{% block content %}
     {% if not contas %}
         <p>
             Esta empresa ainda não tem nenhuma conta que aceite lançamento e esteja ativa.

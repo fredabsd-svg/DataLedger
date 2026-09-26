@@ -1,7 +1,7 @@
-# DL-044 — telas de trabalho, antes e depois (3ª iteração)
+# DL-044 — telas de trabalho, antes e depois (4ª iteração)
 
 Capturas para o Fred aprovar a DL-044 antes de espalhar a mudança para o
-resto do produto (fase B). Três rodadas de retorno, cada uma incorporada
+resto do produto (fase B). Quatro rodadas de retorno, cada uma incorporada
 antes da próxima captura — o "depois" abaixo é sempre o estado MAIS
 recente, não uma pilha de versões:
 
@@ -16,17 +16,32 @@ recente, não uma pilha de versões:
    botão (um primário por tela), formulário do lançamento como cartão
    único, coluna numérica alinhada à direita inclusive o cabeçalho, D/C
    como selo.
-3. **3ª rodada, esta captura**: Fred nomeou uma referência concreta —
-   *"Gosto do visual do Conta Azul [...] não é para fazer igual, apenas um
-   modelo"* — azul de aplicativo PRÓPRIO (não o hex do Conta Azul) em vez
-   da barra escura da 2ª rodada, fundo cinza-azulado com cartões brancos,
-   hub de relatórios em cartões (`contabilidade_web:relatorios`, tela
-   NOVA), tiles de módulo no Início, chip/pílula na identificação do
-   topo, dica de atalho de teclado ("Alt+C") fora da tela (nunca do
-   produto — `accesskey`/`aria-keyshortcuts` continuam intactos). Decisão
-   completa: [decisoes.md, DE-080](../../../projeto/decisoes.md). A
-   landing pública **continua aprovada** e não muda em nenhuma das três
-   rodadas.
+3. **3ª rodada**: Fred nomeou uma referência concreta — *"Gosto do visual
+   do Conta Azul [...] não é para fazer igual, apenas um modelo"* — azul
+   de aplicativo PRÓPRIO (não o hex do Conta Azul) em vez da barra escura
+   da 2ª rodada, fundo cinza-azulado com cartões brancos, hub de
+   relatórios em cartões (`contabilidade_web:relatorios`, tela NOVA),
+   tiles de módulo no Início, chip/pílula na identificação do topo, dica
+   de atalho de teclado ("Alt+C") fora da tela (nunca do produto —
+   `accesskey`/`aria-keyshortcuts` continuam intactos). Decisão completa:
+   [decisoes.md, DE-080](../../../projeto/decisoes.md).
+4. **4ª rodada, esta captura**: revisão do arquiteto-senior sobre as
+   capturas da 3ª rodada (commit `cde2126`) — *"a queixa central do Fred
+   ('tudo junto num lugar só') continua: a linha de abas repete
+   EXATAMENTE os itens do submenu lateral"*, fundo que não cobria a
+   altura toda, resquícios de bege (cabeçalho de tabela, coluna "LINHA
+   N", pílulas do topo), título separado do resto da faixa de
+   identificação, trilha sublinhada, ícones faltando em duas ações
+   rápidas (bug: `#icone-envio`/`#icone-empresa` nunca existiram no
+   sprite), ícone repetido nos cinco cartões do hub, "Razão — pelo Plano
+   de contas" em duas linhas no menu. Linha de abas REMOVIDA (arquivo
+   `_navegacao_empresa.html` apagado — DE-081, com a explicação
+   guarda-por-guarda de como a acessibilidade continua protegida);
+   demais achados corrigidos em CSS/template, sem mudar regra nenhuma.
+   Decisão completa: [decisoes.md, adenda da DE-080 e DE-081](../../../projeto/decisoes.md).
+
+A landing pública **continua aprovada** e não muda em nenhuma das quatro
+rodadas.
 
 Dados 100% sintéticos: `scripts/semear_base_de_medicao.py` (73 contas, 60
 lançamentos em 03/2026) mais um pequeno movimento sintético em 02/2026 e um
@@ -45,6 +60,20 @@ sai da captura da DL-043
 
 **Relatórios (hub em cartões) é tela NOVA** — não existia antes desta
 etapa, então não tem par "antes"; a captura "depois" é a ÚNICA.
+
+**O que a 4ª rodada mudou, por tela (achados listados na introdução,
+aplicados onde cada um se via):** todas as cinco telas perderam a linha
+de abas e ganharam fundo cinza-azulado cobrindo a altura toda e
+cabeçalho de tabela/selo/pílula em cinza-frio (não mais bege). Início
+ganhou ícone nas três ações rápidas (dois estavam quebrados — símbolo
+inexistente no sprite) e "Abrir" como botão de contorno na tabela da
+carteira. Novo lançamento e Relatórios tiveram o título movido para a
+faixa branca do topo, ao lado das pílulas, sem repetir a razão social.
+Relatórios ganhou um ícone próprio por cartão (os cinco eram iguais).
+Zerar resultado (prévia) teve o título movido para a mesma faixa. O menu
+lateral (visível em todas, à esquerda) perdeu "— pelo Plano de contas"
+do item "Razão" e ganhou os sete atalhos de teclado que a linha de abas
+extinta carregava.
 
 ## Início (painel)
 
