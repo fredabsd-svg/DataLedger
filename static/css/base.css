@@ -195,6 +195,11 @@
        isso dois tokens próprios em vez de reaproveitar os dois acima. */
     --largura-rotulo-definicao: 14rem;
     --largura-valor-definicao: 16rem;
+    /* DL-042 (2ª passada): largura MÍNIMA de cada cartão na grade da fila
+       de atenção (tenancy/painel.html, `.fila-de-atencao`) — abaixo disso
+       o cartão quebra para a linha seguinte (`repeat(auto-fit,
+       minmax(...))`), sem media query. */
+    --largura-minima-cartao-fila: 20rem;
     /* DL-040: largura mínima e máxima do painel de submenu do menu
        principal (`.menu-dropdown ul`/`.menu-dropdown__paineis`) — tokens
        próprios, no mesmo padrão dos dois acima, porque não são largura de
@@ -1313,6 +1318,78 @@ kbd.tecla {
     border-color: var(--erro);
     border-left-width: var(--traco-destaque);
     background: var(--erro-fundo);
+}
+
+/* DL-042 (2ª passada): "Início" como fila do que precisa de atenção
+   (tenancy/painel.html) — anti-padrão "dashboard de KPI" da skill
+   evitado: cada categoria é uma LISTA de itens acionáveis, nunca só um
+   número colorido. Grade de até duas colunas em telas largas (a régua de
+   densidade §4.8 não se aplica aqui — não é tabela de dados contábeis, é
+   painel de período, arquétipo D). */
+.fila-de-atencao {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(var(--largura-minima-cartao-fila), 1fr));
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-5);
+}
+
+.fila-categoria {
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    padding: var(--esp-4);
+    background: var(--papel-elevado);
+}
+
+/* Informativo (empresas CPF em livro-caixa): não é uma pendência a
+   RESOLVER, só um lembrete — fundo levemente distinto, sem o peso visual
+   de "algo está errado" que as outras categorias legitimamente têm. */
+.fila-categoria--informativo {
+    background: var(--papel-alt);
+}
+
+.fila-categoria__cabecalho {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--esp-3);
+}
+
+.fila-categoria__cabecalho h3 {
+    margin: 0;
+    font-size: var(--tipo-md);
+}
+
+/* Contagem: TEXTO tabulado (é um número), nunca só uma bolha colorida —
+   o rótulo "pendente(s)"/"item(ns)" no HTML já diz o que o número conta. */
+.fila-categoria__contagem {
+    font-family: var(--fonte-numerica);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--acento);
+    flex: none;
+}
+
+.fila-categoria--informativo .fila-categoria__contagem {
+    color: var(--tinta-media);
+}
+
+.fila-categoria__itens {
+    margin: var(--esp-3) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-1);
+    font-size: var(--tipo-sm);
+}
+
+.fila-categoria__itens a {
+    color: var(--acento);
+    text-decoration: underline;
+}
+
+.fila-categoria__itens a:hover {
+    color: var(--acento-escuro);
 }
 
 /* DL-031: estado da competência no painel de fechamento
