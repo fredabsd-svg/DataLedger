@@ -245,7 +245,10 @@ def _empresas_sem_plano_de_contas(escritorio):
     return {
         "chave": "empresas-sem-plano-de-contas",
         "titulo": "Empresas sem plano de contas",
-        "descricao": "Em contabilidade por partidas dobradas, sem nenhuma conta cadastrada — não há como lançar ainda.",
+        "descricao": (
+            "Em contabilidade por partidas dobradas, sem nenhuma conta cadastrada — "
+            "não há como lançar ainda."
+        ),
         "total": total,
         "itens": [
             {
@@ -265,9 +268,7 @@ def _competencias_abertas_de_meses_anteriores(escritorio):
     aponta mês sem movimento nenhum."""
     hoje = timezone.localdate()
     qs = (
-        Competencia.objects.filter(
-            empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA
-        )
+        Competencia.objects.filter(empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA)
         .filter(Q(ano__lt=hoje.year) | (Q(ano=hoje.year) & Q(mes__lt=hoje.month)))
         .select_related("empresa")
         .order_by("ano", "mes")
@@ -282,7 +283,9 @@ def _competencias_abertas_de_meses_anteriores(escritorio):
         "total": total,
         "itens": [
             {
-                "titulo": f"{competencia.empresa.razao_social} — {competencia.mes:02d}/{competencia.ano}",
+                "titulo": (
+                    f"{competencia.empresa.razao_social} — {competencia.mes:02d}/{competencia.ano}"
+                ),
                 "url": reverse("contabilidade_web:fechamento", args=[competencia.empresa_id]),
             }
             for competencia in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
@@ -348,7 +351,9 @@ def _empresas_cpf_em_livro_caixa(escritorio):
     não se aplica a elas — mesmo aviso que o dropdown de Contabilidade
     (templates/base.html) já mostra tela a tela, reunido aqui."""
     qs = (
-        Empresa.objects.filter(escritorio=escritorio, modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA)
+        Empresa.objects.filter(
+            escritorio=escritorio, modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA
+        )
         .exclude(cpf="")
         .order_by("razao_social")
     )
@@ -358,10 +363,15 @@ def _empresas_cpf_em_livro_caixa(escritorio):
     return {
         "chave": "empresas-cpf-livro-caixa",
         "titulo": "Empresas CPF em livro-caixa",
-        "descricao": "Informativo — a contabilidade por partidas dobradas não se aplica a estas empresas.",
+        "descricao": (
+            "Informativo — a contabilidade por partidas dobradas não se aplica a estas empresas."
+        ),
         "total": total,
         "informativo": True,
-        "itens": [{"titulo": empresa.razao_social, "url": None} for empresa in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]],
+        "itens": [
+            {"titulo": empresa.razao_social, "url": None}
+            for empresa in qs[:LIMITE_ITENS_POR_CATEGORIA_DA_FILA]
+        ],
         "url_ver_todos": reverse("empresas:lista"),
     }
 

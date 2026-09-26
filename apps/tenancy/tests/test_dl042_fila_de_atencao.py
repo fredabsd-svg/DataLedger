@@ -19,7 +19,6 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from django.utils import timezone
 
 from apps.contabilidade.models import Conta, NaturezaConta, TipoConta, TipoPartida
 from apps.contabilidade.services import criar_lancamento
@@ -145,7 +144,9 @@ def test_papel_cliente_nao_ve_a_fila_de_atencao(client):
     assert "Empresa Pendente Para Cliente Ltda" not in html
 
 
-@pytest.mark.parametrize("papel", [Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO])
+@pytest.mark.parametrize(
+    "papel", [Papel.ADMINISTRADOR, Papel.GESTOR, Papel.ANALISTA, Papel.FINANCEIRO]
+)
 def test_papeis_que_leem_contabilidade_veem_a_fila(client, papel):
     escritorio = Escritorio.objects.create(nome=f"Escritório {papel}", cnpj="11222333000181")
     _empresa_sem_plano_de_contas(escritorio, "22444666000177", "Empresa Visível Para O Papel Ltda")
