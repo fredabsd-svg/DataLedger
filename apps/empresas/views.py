@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 # BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
@@ -19,6 +20,7 @@ from rest_framework.views import APIView
 from apps.auditoria.services import registrar
 from apps.core.datas import DataInvalida, para_data
 from apps.core.escolhas import EscolhaInvalida, para_escolha
+from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.core.requisicao import (
     ContratoDeRequisicao,
     DadoNaoContratado,
@@ -704,6 +706,20 @@ def lista_empresas(request):
         else:
             empresa.rotulo_inscricao = "CNPJ"
             empresa.inscricao_formatada = empresa.cnpj_formatado
+    # DL-040: "Trocar de empresa" do menu global chega aqui com `?secao=` —
+    # o nome da seção da contabilidade que a pessoa estava vendo antes de
+    # trocar. Só um valor RECONHECIDO (chave de SECOES_DE_TROCA_DE_EMPRESA,
+    # definida mais abaixo neste módulo) é aceito; qualquer outra coisa cai
+    # em string vazia, e o template simplesmente não oferece o link extra —
+    # nunca um erro por um parâmetro de conveniência mal formado. Esta
+    # tela já lista razão social de TODAS as empresas do escritório
+    # (propósito da tela; nenhum isolamento entre empresas a proteger
+    # aqui), então oferecer o atalho de volta para a MESMA seção, por
+    # empresa, não expõe nada que a tela já não expusesse.
+    secao_de_troca = request.GET.get("secao", "")
+    if secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA:
+        secao_de_troca = ""
+
     contexto = {
         "empresas": empresas,
         # Booleano calculado com o enum e passado pronto ao template: a
@@ -712,6 +728,7 @@ def lista_empresas(request):
         # A autorização real de qualquer forma é sempre re-checada no
         # servidor em criar_empresa; isto só decide o que a tela mostra.
         "pode_cadastrar": request.papel in (Papel.ADMINISTRADOR, Papel.GESTOR),
+        "secao_de_troca": secao_de_troca,
     }
     return render(request, "empresas/lista.html", contexto)
 
@@ -780,3 +797,68 @@ def criar_empresa(request):
         form = EmpresaForm()
 
     return render(request, "empresas/form.html", {"form": form})
+
+
+# ---------------------------------------------------------------------------
+# DL-040 — seletor de empresa do menu global: troca de empresa mantendo a
+# MESMA seção da contabilidade (ex.: olhando o Balancete da empresa A, ir
+# para o Balancete da empresa B sem passar pela lista de empresas).
+# ---------------------------------------------------------------------------
+
+# Nome de rota (`contabilidade_web:<nome>`) por CÓDIGO de seção — só as
+# seções que dependem de UM ÚNICO argumento (`empresa_id`). "Razão" (exige
+# também `conta_id`) e as telas de ação do fechamento (exigem `ano`/`mes`)
+# não têm uma seção "equivalente" genérica na empresa de destino sem mais
+# contexto do que este formulário simples carrega — ficam de fora do mapa,
+# e a view cai no padrão (`plano_de_contas`) para elas, nunca em erro 400,
+# porque o pedido nunca é "esta seção exata", é "continue vendo esta
+# empresa, na contabilidade" (ver o comentário da view abaixo).
+SECOES_DE_TROCA_DE_EMPRESA = {
+    "plano_de_contas": "contabilidade_web:plano_de_contas",
+    "diario": "contabilidade_web:diario",
+    "balancete": "contabilidade_web:balancete",
+    "balanco": "contabilidade_web:balanco",
+    "conferencia": "contabilidade_web:conferencia",
+    "fechamento": "contabilidade_web:fechamento",
+    "lancamento_novo": "contabilidade_web:lancamento_novo",
+}
+
+_SECAO_PADRAO_DE_TROCA_DE_EMPRESA = "plano_de_contas"
+
+
+@login_required
+@require_safe
+def trocar_empresa_na_secao(request):
+    """DL-040: seletor de empresa do menu global (formulário GET, sem
+    JavaScript) — troca a EMPRESA mantendo a MESMA seção da contabilidade.
+
+    Isolamento (mesma regra de `_empresa_do_escritorio_ativo`, em
+    `apps.contabilidade.views_web`): a empresa pedida nunca é aceita só pelo
+    ID recebido — precisa pertencer ao ESCRITÓRIO ATIVO da requisição, ou a
+    resposta é 404 (nunca 403: não confirma nem a existência da empresa
+    para quem não tem acesso a ela).
+
+    `secao` fora de `SECOES_DE_TROCA_DE_EMPRESA` (Razão, que exige
+    `conta_id`, ou as telas de ação do fechamento, que exigem `ano`/`mes`)
+    não é erro: cai no padrão (Plano de contas) — o pedido de quem usa o
+    seletor é "continue vendo esta empresa", não "esta URL exata resolvida
+    na outra empresa", e a alternativa (400/mensagem de erro) puniria a
+    pessoa por usar o seletor numa tela que ele não cobre ainda.
+    """
+    if request.escritorio is None:
+        return render(request, "empresas/sem_escritorio.html")
+
+    try:
+        empresa_id = para_id(request.GET.get("empresa_id"))
+    except IdentificadorInvalido as exc:
+        raise Http404("Empresa inválida.") from exc
+
+    # Nunca confiar apenas no ID recebido: exige que a empresa pertença ao
+    # escritório ATIVO da requisição (mesmo isolamento de
+    # `apps.contabilidade.views_web._empresa_do_escritorio_ativo`).
+    empresa = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+
+    secao = request.GET.get("secao", "")
+    rota_padrao = SECOES_DE_TROCA_DE_EMPRESA[_SECAO_PADRAO_DE_TROCA_DE_EMPRESA]
+    nome_da_rota = SECOES_DE_TROCA_DE_EMPRESA.get(secao, rota_padrao)
+    return redirect(nome_da_rota, empresa.id)

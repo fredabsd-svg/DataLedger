@@ -13,9 +13,19 @@
     </span>
 {% endblock %}
 
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Fechamento — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Reabrir {{ mes|stringformat:"02d" }}/{{ ano }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:fechamento' empresa.id %}">‹ Voltar para o painel de fechamento</a>
+    </nav>
+{% endblock %}
+
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" %}
-    <p><a href="{% url 'contabilidade_web:fechamento' empresa.id %}">Voltar para o painel de fechamento</a></p>
     <h1>Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
 
     <div class="painel-etapa">
@@ -40,7 +50,15 @@
                 <textarea id="id_motivo" name="motivo" required rows="3">{{ motivo }}</textarea>
                 <p class="texto-apoio">Obrigatório — fica na trilha de auditoria desta competência.</p>
             </div>
-            <button type="submit">Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+            {% comment %}
+            DL-040: ação sensível — reabrir uma competência já encerrada
+            recebe o tom "perigoso" (mesmo padrão de botão perigoso usado
+            em `competencia_entregar.html`), reforço visual do que o texto
+            acima já diz ("fica registrado na trilha de auditoria"). O
+            `<button>` nativo já é acessível por teclado; a classe só muda
+            a aparência, nunca o comportamento.
+            {% endcomment %}
+            <button type="submit" class="botao botao--perigoso">Reabrir competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
         </form>
     </div>
 {% endblock %}

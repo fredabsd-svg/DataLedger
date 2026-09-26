@@ -3,21 +3,37 @@
 {% block titulo %}Painel{% endblock %}
 
 {% block content %}
+    {% comment %}
+    DL-040: padrão de cabeçalho de página (`.cabecalho-pagina`,
+    static/css/base.css) — título único (h1) e a área de ações à direita,
+    numa faixa só. Aqui a ação primária muda com o estado (empresas / criar
+    escritório), mas a MOLDURA do cabeçalho é a mesma de qualquer outra
+    tela que a adotar (templates/empresas/lista.html,
+    templates/fiscal/documentos_lista.html).
+    {% endcomment %}
     {% if escritorio_ativo %}
-        <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
-        <p><a href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a></p>
+        <div class="cabecalho-pagina">
+            <h1>Escritório ativo: {{ escritorio_ativo.nome }}</h1>
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'empresas:lista' %}">Ver empresas deste escritório</a>
+            </div>
+        </div>
     {% elif escritorios %}
         <h1>Selecione um escritório</h1>
         <p>Você está vinculado a mais de um escritório. Escolha abaixo qual usar.</p>
     {% else %}
-        <h1>Nenhum escritório ativo</h1>
+        <div class="cabecalho-pagina">
+            <h1>Nenhum escritório ativo</h1>
+            {% comment %} DL-018 — primeira superfície para o usuário sem
+            vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
+            O link só aparece aqui quando o usuário ainda não tem vínculo —
+            a própria view `bootstrap_primeiro_acesso` redireciona para o
+            painel se o usuário já tiver. {% endcomment %}
+            <div class="cabecalho-pagina__acoes">
+                <a class="botao botao--primario" href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a>
+            </div>
+        </div>
         <p>Seu usuário não tem vínculo ativo com nenhum escritório de contabilidade.</p>
-        {% comment %} DL-018 — primeira superfície para o usuário sem
-        vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2).
-        O link só aparece aqui quando o usuário ainda não tem vínculo —
-        a própria view `bootstrap_primeiro_acesso` redireciona para o
-        painel se o usuário já tiver. {% endcomment %}
-        <p><a href="{% url 'tenancy:bootstrap-primeiro-acesso' %}">Criar o primeiro escritório</a></p>
     {% endif %}
 
     {% if escritorios|length > 1 %}

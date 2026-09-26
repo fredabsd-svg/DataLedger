@@ -92,6 +92,10 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                # DL-040: booleanos de permissão do menu global (quais
+                # módulos convidar no menu principal) — ver
+                # apps/core/context_processors.py.
+                "apps.core.context_processors.navegacao_do_menu",
             ],
         },
     },

@@ -2,9 +2,19 @@
 
 {% block titulo %}Documento {{ documento.numero|default:documento.identificador }}{% endblock %}
 
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'fiscal_web:documentos_lista' %}">Documentos fiscais</a></li>
+            <li aria-current="page">{{ documento.numero|default:documento.identificador }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'fiscal_web:documentos_lista' %}">‹ Voltar para Documentos</a>
+    </nav>
+{% endblock %}
+
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
-    <p><a href="{% url 'fiscal_web:documentos_lista' %}">Voltar para Documentos</a></p>
     <h1>
         NFS-e nacional
         {% if documento.numero %}nº {{ documento.numero }}{% endif %}

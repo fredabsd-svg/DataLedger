@@ -123,53 +123,307 @@
                     atalho sem contaminar o nome acessível — medido pelo
                     NOME ACESSÍVEL CALCULADO, não pela aparência.
                     {% endcomment %}
+                    {% comment %}
+                    DL-040: menu estruturado por MÓDULO, com submenu em
+                    dropdown nativo (`<details>`/`<summary>` — sem
+                    JavaScript nenhum: R6 da direção de arte, "JavaScript é
+                    enfeite", continua valendo aqui) e indicação do módulo
+                    ativo por `aria-current="page"` no próprio `<summary>`
+                    quando alguma tela do módulo está aberta (nunca só cor —
+                    o texto do rótulo já diz qual módulo é; `aria-current`
+                    é o canal que o leitor de tela e o teste de guarda
+                    conferem).
+
+                    "Início" e "Cadastros" NUNCA mudam de conteúdo com a
+                    empresa/permissão — ficam de fora do `{% if %}` de
+                    papel. "Contabilidade" e "Fiscal" só aparecem no menu
+                    quando o PAPEL ativo pode ler aquele módulo
+                    (`pode_ler_contabilidade_no_menu`/`pode_consultar_
+                    fiscal_no_menu`, do context processor `apps.core.
+                    context_processors.navegacao_do_menu` — MESMAS funções
+                    de permissão que a view já usa para recusar no
+                    servidor; o menu só deixa de CONVIDAR quem o servidor já
+                    recusaria, nunca decide autorização por conta própria).
+
+                    Nenhum item novo desta lista tem `accesskey`: as letras
+                    seguras já estão ocupadas (p/m aqui, e as sete da
+                    navegação contextual da empresa,
+                    `_navegacao_empresa.html`) — um atalho novo colidindo
+                    reprovaria `accesskeys_duplicados`
+                    (test_dl024_atalhos_e_acessibilidade.py), e "atalho que
+                    só existe numa tela não é atalho, é decoração" (nota do
+                    arquiteto-senior citada naquela parcial).
+                    {% endcomment %}
+                    {% comment %}
+                    DL-040 (segunda rodada): `<details class="menu-movel-gatilho">`
+                    é um IRMÃO da navegação (não um envoltório dela) — só em
+                    telas ≤48rem (768px, static/css/base.css) vira um botão
+                    "Menu" visível, e é o atributo `[open]` DELE que a regra
+                    `.menu-movel-gatilho[open] ~ .navegacao-principal` (CSS,
+                    combinador de irmão geral) usa para mostrar a navegação.
+
+                    Por que IRMÃO, não envoltório: um `<details>` FECHADO não
+                    apenas aplica `display: none` ao conteúdo — o navegador
+                    tira esse conteúdo da árvore de composição inteira,
+                    independente de qualquer CSS de autor (`!important`
+                    incluído). Medido nesta etapa: `getComputedStyle` dizia
+                    "block" e a navegação continuava INVISÍVEL, com o
+                    `<details>` fechado por padrão (que é o estado certo
+                    para começar em telas estreitas). Um envoltório exigiria
+                    o atributo `open` sempre presente para funcionar no
+                    desktop — e aí não haveria como começar FECHADO no
+                    celular sem JavaScript. Como irmão, a navegação nunca
+                    está dentro de um `<details>`: sempre no DOM normal,
+                    meramente escondida por `display: none` (CSS comum,
+                    reversível) fora do breakpoint — o mesmo comportamento
+                    de antes desta mudança, sem nenhuma dependência da
+                    semântica de abertura do `<details>`.
+                    {% endcomment %}
+                    <details class="menu-movel-gatilho">
+                        <summary class="menu-movel__gatilho">Menu</summary>
+                    </details>
                     <nav class="navegacao-principal" aria-label="Navegação principal">
                         <ul>
                             <li>
-                                <a href="{% url 'tenancy:painel' %}" accesskey="p" aria-keyshortcuts="Alt+P">
-                                    Painel <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M">
-                                    Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
+                                <a href="{% url 'tenancy:painel' %}" accesskey="p" aria-keyshortcuts="Alt+P"
+                                   {% if request.resolver_match.view_name == "tenancy:painel" %}aria-current="page"{% endif %}>
+                                    Início <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
                                 </a>
                             </li>
                             {% comment %}
-                            DL-010 (fatia 1): ponto de entrada do módulo
-                            Fiscal na navegação principal — mesmo padrão de
-                            "Painel"/"Empresas" acima, sem `accesskey`
-                            próprio de propósito: as letras seguras já estão
-                            ocupadas por esta navegação e pela navegação da
-                            contabilidade (`_navegacao_empresa.html`), e
-                            escolher mais uma letra sem colidir com o
-                            navegador exigiria o mesmo levantamento
-                            cuidadoso que o comentário daquela parcial
-                            documenta — fora do escopo desta etapa. O link
-                            continua acessível por Tab normalmente.
+                            DL-040 (segunda rodada, pedido do Fred): cada
+                            dropdown de módulo lista TODAS as suas telas
+                            ATIVAS, agrupadas por rótulo (Movimento/
+                            Cadastros/Relatórios/Rotinas na Contabilidade;
+                            Recepção/Consulta no Fiscal) — não só um ou
+                            dois atalhos. A tela ATUAL aparece MARCADA
+                            (texto + `aria-current`, nunca um link para si
+                            mesma — mesma convenção de `_navegacao_
+                            empresa.html`), nunca omitida.
 
+                            Este dropdown NÃO substitui `_navegacao_
+                            empresa.html` (a navegação contextual dentro
+                            de cada tela de contabilidade, com os atalhos
+                            Alt+) — os dois convivem: este é alcançável de
+                            QUALQUER tela do produto; aquele só existe
+                            dentro das telas de contabilidade. Nenhum item
+                            AQUI tem `accesskey` — as letras seguras já
+                            estão ocupadas (ver o comentário acima).
+
+                            Inline aqui, não numa parcial própria: uma
+                            parcial `_itens_de_menu.html` direto em
+                            `templates/` (sem subpasta) foi tentada nesta
+                            etapa e reprovou
+                            `test_modulo_novo_declara_o_seu_momento_da_
+                            verdade` — a varredura de interface trata todo
+                            `.html` solto na raiz de `templates/`, exceto
+                            `base.html` por NOME, como um módulo de tela
+                            única que precisaria de linha própria na
+                            tabela do §3 da direção de arte (ela não
+                            distingue parcial, prefixo `_`, de tela).
+                            Mover para uma subpasta criaria uma pasta nova
+                            que o MESMO teste exigiria declarar em
+                            `PASTAS_QUE_NAO_SAO_MODULO` — decisão de
+                            nomenclatura que cabe ao arquiteto-senior, não
+                            a esta etapa. Manter tudo em `base.html`, que
+                            já é a exceção nomeada, evita as duas
+                            discussões.
+                            {% endcomment %}
+                            <li class="menu-modulo">
+                                <details class="menu-dropdown">
+                                    <summary {% if request.resolver_match.namespace == "empresas" %}aria-current="page"{% endif %}>
+                                        Cadastros
+                                    </summary>
+                                    <ul>
+                                        <li>
+                                            <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M"
+                                               {% if request.resolver_match.view_name == "empresas:lista" %}aria-current="page"{% endif %}>
+                                                Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
+                                            </a>
+                                        </li>
+                                        {% if pode_cadastrar_empresa_no_menu %}
+                                            <li>
+                                                {% if request.resolver_match.view_name == "empresas:criar" %}
+                                                    <span class="item-atual" aria-current="page">Nova empresa</span>
+                                                {% else %}
+                                                    <a href="{% url 'empresas:criar' %}">Nova empresa</a>
+                                                {% endif %}
+                                            </li>
+                                        {% endif %}
+                                    </ul>
+                                </details>
+                            </li>
+
+                            {% if pode_ler_contabilidade_no_menu %}
+                                <li class="menu-modulo">
+                                    <details class="menu-dropdown">
+                                        <summary {% if request.resolver_match.namespace == "contabilidade_web" %}aria-current="page"{% endif %}>
+                                            Contabilidade
+                                        </summary>
+                                        <div class="menu-dropdown__paineis">
+                                            {% if empresa_atual %}
+                                                {% if empresa_atual.modo_escrituracao == "livro_caixa" %}
+                                                    <p class="texto-apoio">
+                                                        {{ empresa_atual.razao_social }} está em livro-caixa — a
+                                                        contabilidade por partidas dobradas não se aplica.
+                                                    </p>
+                                                {% else %}
+                                                    {% with pagina_atual=request.resolver_match.url_name %}
+                                                        <div class="menu-grupo">
+                                                            <p class="menu-grupo__rotulo" id="grupo-movimento">Movimento</p>
+                                                            <ul aria-labelledby="grupo-movimento">
+                                                                <li>
+                                                                    {% if pagina_atual == "lancamento_novo" %}
+                                                                        <span class="item-atual" aria-current="page">Novo lançamento</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:lancamento_novo' empresa_atual.id %}">Novo lançamento</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="menu-grupo">
+                                                            <p class="menu-grupo__rotulo" id="grupo-cadastros-contabilidade">Cadastros</p>
+                                                            <ul aria-labelledby="grupo-cadastros-contabilidade">
+                                                                <li>
+                                                                    {% if pagina_atual == "plano_de_contas" %}
+                                                                        <span class="item-atual" aria-current="page">Plano de contas</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}">Plano de contas</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="menu-grupo">
+                                                            <p class="menu-grupo__rotulo" id="grupo-relatorios">Relatórios</p>
+                                                            <ul aria-labelledby="grupo-relatorios">
+                                                                <li>
+                                                                    {% if pagina_atual == "diario" %}
+                                                                        <span class="item-atual" aria-current="page">Diário</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:diario' empresa_atual.id %}">Diário</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                                <li>
+                                                                    {% comment %}
+                                                                    Razão exige uma CONTA (`conta_id`), não só a
+                                                                    empresa — não existe "o Razão" genérico. Quando a
+                                                                    tela atual É um Razão, marca como atual; fora
+                                                                    disso, o link leva ao Plano de contas, com o
+                                                                    texto dizendo o porquê.
+                                                                    {% endcomment %}
+                                                                    {% if pagina_atual == "razao" %}
+                                                                        <span class="item-atual" aria-current="page">Razão</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}">
+                                                                            Razão <span class="texto-apoio">— pelo Plano de contas</span>
+                                                                        </a>
+                                                                    {% endif %}
+                                                                </li>
+                                                                <li>
+                                                                    {% if pagina_atual == "balancete" %}
+                                                                        <span class="item-atual" aria-current="page">Balancete</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:balancete' empresa_atual.id %}">Balancete</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                                <li>
+                                                                    {% if pagina_atual == "balanco" %}
+                                                                        <span class="item-atual" aria-current="page">Balanço</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:balanco' empresa_atual.id %}">Balanço</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="menu-grupo">
+                                                            <p class="menu-grupo__rotulo" id="grupo-rotinas">Rotinas</p>
+                                                            <ul aria-labelledby="grupo-rotinas">
+                                                                <li>
+                                                                    {% if pagina_atual == "conferencia" %}
+                                                                        <span class="item-atual" aria-current="page">Conferência</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:conferencia' empresa_atual.id %}">Conferência</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                                <li>
+                                                                    {% if pagina_atual == "fechamento" %}
+                                                                        <span class="item-atual" aria-current="page">Fechamento</span>
+                                                                    {% else %}
+                                                                        <a href="{% url 'contabilidade_web:fechamento' empresa_atual.id %}">Fechamento</a>
+                                                                    {% endif %}
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                    {% endwith %}
+                                                {% endif %}
+                                                <p class="menu-dropdown__acao-secundaria">
+                                                    <a href="{% url 'empresas:lista' %}?secao={{ request.resolver_match.url_name }}">Trocar de empresa</a>
+                                                </p>
+                                            {% else %}
+                                                <p class="texto-apoio">Escolha uma empresa para ver a contabilidade.</p>
+                                                <p><a href="{% url 'empresas:lista' %}">Ir para Empresas</a></p>
+                                            {% endif %}
+                                        </div>
+                                    </details>
+                                </li>
+                            {% endif %}
+
+                            {% comment %}
                             `{% url ... as url_fiscal %}` (em vez de
                             interpolar direto): esta MOLDURA é incluída por
                             TODA tela autenticada do produto, inclusive as
                             que rodam sob um urlconf de teste ESPELHO
                             (`apps.contabilidade.tests.test_dl017_telas` e
-                            outros quatro arquivos, cada um com o próprio
+                            outros arquivos, cada um com o próprio
                             `urlpatterns` local, via `@pytest.mark.urls`) —
-                            nenhum deles inclui `apps.fiscal.urls_web`, por
+                            nem todos incluem `apps.fiscal.urls_web`, por
                             não ser o objeto daqueles testes. Com `{% url %}`
                             direto, `NoReverseMatch` quebraria TODA
                             renderização de página nesses espelhos; com
                             `as url_fiscal`, a tag não levanta exceção
                             quando a rota não resolve — a variável
                             simplesmente não é definida, e o `{% if %}`
-                            abaixo omite o link. Nada específico do Fiscal
-                            muda para quem não tem a rota; o link só aparece
-                            onde ela existe de fato.
+                            abaixo omite o módulo inteiro. Nada específico do
+                            Fiscal muda para quem não tem a rota; o link só
+                            aparece onde ela existe de fato.
                             {% endcomment %}
                             {% url 'fiscal_web:recepcao' as url_fiscal %}
-                            {% if url_fiscal %}
-                                <li>
-                                    <a href="{{ url_fiscal }}">Fiscal</a>
+                            {% if url_fiscal and pode_consultar_fiscal_no_menu %}
+                                <li class="menu-modulo">
+                                    <details class="menu-dropdown">
+                                        <summary {% if request.resolver_match.namespace == "fiscal_web" %}aria-current="page"{% endif %}>
+                                            Fiscal
+                                        </summary>
+                                        <div class="menu-dropdown__paineis">
+                                            {% with pagina_atual=request.resolver_match.url_name %}
+                                                <div class="menu-grupo">
+                                                    <p class="menu-grupo__rotulo" id="grupo-recepcao">Recepção</p>
+                                                    <ul aria-labelledby="grupo-recepcao">
+                                                        <li>
+                                                            {% if pagina_atual == "recepcao" %}
+                                                                <span class="item-atual" aria-current="page">Enviar notas</span>
+                                                            {% else %}
+                                                                <a href="{{ url_fiscal }}#enviar">Enviar notas</a>
+                                                            {% endif %}
+                                                        </li>
+                                                        <li><a href="{{ url_fiscal }}#envios-anteriores">Envios anteriores</a></li>
+                                                    </ul>
+                                                </div>
+                                                <div class="menu-grupo">
+                                                    <p class="menu-grupo__rotulo" id="grupo-consulta-fiscal">Consulta</p>
+                                                    <ul aria-labelledby="grupo-consulta-fiscal">
+                                                        <li>
+                                                            {% if pagina_atual == "documentos_lista" %}
+                                                                <span class="item-atual" aria-current="page">Documentos</span>
+                                                            {% else %}
+                                                                <a href="{% url 'fiscal_web:documentos_lista' %}">Documentos</a>
+                                                            {% endif %}
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                            {% endwith %}
+                                        </div>
+                                    </details>
                                 </li>
                             {% endif %}
                         </ul>
@@ -178,10 +432,35 @@
             </div>
 
             {% if request.user.is_authenticated %}
-                <form method="post" action="{% url 'logout' %}" class="form-sair">
-                    {% csrf_token %}
-                    <button type="submit">Sair</button>
-                </form>
+                {% comment %}
+                DL-040 (v2), pedido do Fred: agrupar Usuário e Sair num
+                item "Conta ▾", liberando o cabeçalho para o que é do
+                documento. "Escritório ativo" NÃO entra aqui — continua em
+                `.cabecalho__contexto` (abaixo): em cinco telas de
+                contabilidade sem timbre (Plano de contas, Conferência,
+                Novo lançamento, Nova conta, detalhe do lançamento — ver
+                BL-338/RC-97, comentário completo mais abaixo), ele é a
+                ÚNICA identificação do emitente que sai no PAPEL. Mover
+                para dentro deste menu — que vive em `.cabecalho__topo`,
+                inteiramente oculto na impressão — apagaria essa
+                identificação nas cinco telas, o mesmo defeito que o
+                BL-331/BL-338 já corrigiram uma vez. "Usuário" é seguro de
+                mover: já era incondicionalmente oculto na impressão (é
+                trilha de auditoria, não identificação do documento).
+                {% endcomment %}
+                <details class="menu-dropdown menu-conta">
+                    <summary>Conta</summary>
+                    <div class="menu-dropdown__paineis">
+                        <p class="texto-apoio">
+                            <span class="contexto-rotulo">Usuário</span><br>
+                            <strong>{{ request.user.get_username }}</strong>
+                        </p>
+                        <form method="post" action="{% url 'logout' %}" class="form-sair">
+                            {% csrf_token %}
+                            <button type="submit" class="botao botao--secundario">Sair</button>
+                        </form>
+                    </div>
+                </details>
             {% endif %}
         </div>
 
@@ -206,51 +485,48 @@
             `apps/auditoria/`, nunca apagada por esta mudança — não
             identificação do documento que sai para o cliente.
 
-            ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia): a
-            primeira redação desta correção escondia "Usuário" E
-            "Escritório ativo" incondicionalmente, em TODA tela autenticada
-            — inclusive Plano de contas, Conferência, Novo lançamento, Nova
-            conta e o detalhe do lançamento, que NÃO têm `.timbre-impressao`
-            (só Balancete/Diário/Razão têm, desde o BL-282). Nessas cinco
-            telas, "Escritório ativo" é a ÚNICA identificação do EMITENTE
-            que existe no papel — escondê-la sem repor nada no lugar é
-            EXATAMENTE o defeito que o comentário do BL-282, em
-            static/css/base.css, já nomeava para a marca do fornecedor:
-            "esconder... SEM pôr nada no lugar deixaria o documento
-            impresso sem identificação nenhuma — pior que o defeito
-            original". Mesma classe do achado A1 (BL-331): guarda derivada
+            ⚠️ CORREÇÃO DE REGRESSÃO (arquiteto-senior, mesmo dia, e
+            revalidada na DL-040 v2): a primeira redação desta correção
+            escondia "Usuário" E "Escritório ativo" incondicionalmente, em
+            TODA tela autenticada — inclusive Plano de contas, Conferência,
+            Novo lançamento, Nova conta e o detalhe do lançamento, que NÃO
+            têm `.timbre-impressao` (só Balancete/Diário/Razão têm, desde o
+            BL-282). Nessas cinco telas, "Escritório ativo" é a ÚNICA
+            identificação do EMITENTE que existe no papel — escondê-la sem
+            repor nada no lugar é EXATAMENTE o defeito que o comentário do
+            BL-282, em static/css/base.css, já nomeava para a marca do
+            fornecedor. Mesma classe do achado A1 (BL-331): guarda derivada
             só do lado de esconder, não do lado de "e alguma identificação
-            continua saindo".
+            continua saindo". **É por isso que "Escritório ativo" NÃO foi
+            para o menu "Conta" na segunda rodada da DL-040** (ver o
+            comentário completo em `.menu-conta`, acima): mover um item que
+            está DENTRO de `.cabecalho__topo` (inteiramente oculto na
+            impressão) apagaria essa identificação de novo, nessas cinco
+            telas.
 
-            A propriedade correta, então, tem DUAS regras DIFERENTES:
+            "Usuário" SAIU desta faixa na DL-040 v2 — foi para dentro do
+            menu "Conta" (acima). Era SEMPRE oculto na impressão
+            (`contexto-item--somente-tela`, incondicional) porque é trilha
+            de auditoria (`apps/auditoria/`), não identificação do
+            documento — e um item que já era 100% oculto na impressão pode
+            morar dentro de um contêiner também 100% oculto na impressão
+            sem perder nem ganhar nada.
 
-            1. "Usuário" é SEMPRE oculto na impressão — incondicional,
-               continua com `contexto-item--somente-tela` direto. Quem
-               operou a tela é trilha de auditoria (`apps/auditoria/`), não
-               identificação do documento — isso não muda com timbre ou
-               sem timbre.
-            2. "Escritório ativo" só é oculto ONDE HÁ TIMBRE para
-               substituí-lo. A classe extra vem de
-               `classe_escritorio_ativo_na_impressao`: um bloco com PADRÃO
-               VAZIO (escritório VISÍVEL na impressão — o lado SEGURO, para
-               uma tela nova que ninguém lembrar de classificar nascer
-               COM identificação, não sem) — e
-               `contabilidade/balancete.html`/`diario.html`/`razao.html`
-               (as três telas que têm `.timbre-impressao`) sobrescrevem
-               esse bloco para acrescentar `contexto-item--somente-tela`,
-               porque nelas o timbre já identifica o escritório e a
-               repetição na faixa de tela é que é o achado B2 original
-               (duplicidade).
+            "Escritório ativo" continua com DUAS regras: visível na TELA
+            sempre (é o único dos dois que ficou nesta faixa) e oculto na
+            IMPRESSÃO só onde há timbre. A classe vem de
+            `classe_escritorio_ativo_na_impressao`: um bloco com PADRÃO
+            VAZIO (escritório VISÍVEL na impressão — o lado SEGURO) — e
+            `contabilidade/balancete.html`/`diario.html`/`razao.html` (as
+            três telas com `.timbre-impressao`) sobrescrevem esse bloco
+            para acrescentar `contexto-item--somente-tela`, porque nelas o
+            timbre já identifica o escritório.
 
             `{% block contexto_extra %}` (abaixo) — Empresa e Período —
             nunca leva classe nenhuma: identificação OBRIGATÓRIA do
             documento (RC-93), sempre visível, timbre ou não.
             {% endcomment %}
             <div class="cabecalho__contexto">
-                <span class="contexto-item contexto-item--somente-tela">
-                    <span class="contexto-rotulo">Usuário</span>
-                    <strong>{{ request.user.get_username }}</strong>
-                </span>
                 {% if request.escritorio %}
                     <span class="contexto-item{% block classe_escritorio_ativo_na_impressao %}{% endblock %}">
                         <span class="contexto-rotulo">Escritório ativo</span>
@@ -263,6 +539,41 @@
     </header>
 
     <main id="conteudo" class="conteudo-principal">
+        {% comment %}
+        DL-040 (v2): trilha PADRÃO, para TODA tela autenticada abaixo de
+        "Início" — não só as secundárias (pedido do Fred na segunda
+        rodada). Construída em Python (`apps.core.context_processors.
+        navegacao_do_menu` → `trilha_padrao`, uma lista de `(rótulo,
+        url_ou_None)`) para não espalhar a lógica "namespace → módulo →
+        empresa → rótulo da tela" por dezenas de templates — o template
+        só percorre e marca o último item sem `url` como
+        `aria-current="page"` (a tela nunca linka para si mesma, mesma
+        convenção de `_navegacao_empresa.html`).
+
+        Telas SECUNDÁRIAS (detalhe, confirmação, relatório de uma ação)
+        continuam sobrescrevendo `{% block trilha %}` com a própria
+        versão, que soma o link/botão "Voltar" — a trilha padrão daqui
+        não tem "Voltar" porque tela ATIVA não precisa dele (ela É o
+        destino, não um passo intermediário).
+
+        Vazia (`trilha_padrao == []`) em `tenancy:painel` (o próprio
+        "Início" não ganha trilha) e em qualquer rota fora do produto
+        (admin, por exemplo) — nesses casos nada é renderizado aqui.
+        {% endcomment %}
+        {% block trilha %}
+            {% if trilha_padrao %}
+                <nav class="trilha" aria-label="Trilha de navegação">
+                    <ol>
+                        <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+                        {% for rotulo, url in trilha_padrao %}
+                            <li{% if not url %} aria-current="page"{% endif %}>
+                                {% if url %}<a href="{{ url }}">{{ rotulo }}</a>{% else %}{{ rotulo }}{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ol>
+                </nav>
+            {% endif %}
+        {% endblock %}
         {% if messages %}
             {% comment %}
             Sem aria-live no contêiner: a região já está presente no HTML
