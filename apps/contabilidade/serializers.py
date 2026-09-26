@@ -172,6 +172,33 @@ class ContaSerializer(serializers.ModelSerializer):
         return value
 
 
+class ClassificacaoDrePatchSerializer(serializers.Serializer):
+    """R3 (auditoria DL-045, reconferência): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDreView` (views.py) ANTES de chegar ao serviço —
+    sem isto, um corpo malformado vazava como 500, mudo, em dois pontos
+    diferentes: `request.data.get("classificacao_dre")`, na view, quebra
+    com `AttributeError` quando o corpo TODO é uma lista (`["x"]`, não
+    tem `.get`); e `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(valor)`, em
+    `Conta.clean()` (models.py), quebra com `TypeError: unhashable type`
+    quando `valor` é um `dict` ou uma `list` (`{"classificacao_dre": {"a":
+    1}}` ou `{"classificacao_dre": ["receita_bruta"]}`).
+
+    `ChoiceField` sozinho já cobre os dois casos: um corpo que não é
+    `Mapping` (`Serializer.to_internal_value`) recusa com 400 antes de
+    examinar qualquer campo; um valor não-`str` que não bate com nenhuma
+    chave de `ClassificacaoDre.choices` (`choice_strings_to_values`, que
+    compara por `str(data)`) recusa com `invalid_choice`, nunca estoura
+    `TypeError`/`KeyError` cru. `allow_null`/`allow_blank` continuam
+    aceitando "sem classificação" (`None`/`""`, achado A4) — só o TIPO do
+    valor é a preocupação nova aqui; a compatibilidade com `Conta.tipo`
+    continua sendo decidida só por `Conta.clean()`, via
+    `classificar_conta_na_dre` (nunca duplicada aqui)."""
+
+    classificacao_dre = serializers.ChoiceField(
+        choices=ClassificacaoDre.choices, allow_null=True, allow_blank=True, required=False
+    )
+
+
 class ItemLancamentoSerializer(serializers.ModelSerializer):
     conta_codigo = serializers.CharField(source="conta.codigo", read_only=True)
 

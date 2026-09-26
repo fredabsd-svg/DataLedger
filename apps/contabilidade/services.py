@@ -5136,7 +5136,9 @@ def avaliar_emissao_da_dre(dre):
     deixa um número impresso errado. O argumento anterior ("vetar o mês
     atual por causa de um mês já fechado tornaria a DRE inemitível para
     sempre") não se sustenta: a PRIMEIRA classificação de uma conta é
-    livre mesmo com movimento (guarda de transição em `Conta.clean()`) —
+    livre mesmo com movimento — DE-086 (reconferência) foi além:
+    qualquer classificação (primeira, troca ou remoção) é livre com
+    movimento, sempre com trilha (`classificar_conta_na_dre`, abaixo) —
     corrigir a pendência é sempre possível, sem reabrir nada.
 
     Cada pendência (resíduo ou lista) fica marcada com a coluna de onde
@@ -5201,16 +5203,18 @@ def classificar_conta_na_dre(*, conta, classificacao, usuario, request=None):
     aqui: `full_clean()`, abaixo, já recusa qualquer valor fora dos
     `choices` do campo (o `ChoiceField` do Django).
 
-    GUARDAS: todas moram em `Conta.clean()` (chamado por `full_clean()`,
-    o único caminho que aplica TODAS de uma vez) — compatibilidade com
-    `tipo`; primeira classificação livre mesmo com movimento;
-    reclassificar/apagar com movimento recusado; primeira classificação
-    que "engoliria" descendente já classificado com movimento recusada
-    (A6). Esta função não duplica nenhuma regra — só grava, chamando
-    `full_clean()`. Deixa propagar `django.core.exceptions.
-    ValidationError` quando alguma guarda recusa — quem chama (a view)
-    traduz para o protocolo dela (ver `mensagens_da_validacao_django`,
-    abaixo).
+    GUARDAS: a única que resta é a de `Conta.clean()` que confere
+    compatibilidade `classificacao_dre` × `tipo` (Lei 6.404/76, art.
+    187). DE-086 (reconferência da DL-045) removeu a guarda de
+    TRANSIÇÃO e as duas do A6 (rodada 1): a linha da DRE é propriedade
+    de APRESENTAÇÃO — não altera nenhum saldo —, então qualquer
+    classificação (primeira, troca, remoção, inclusive sobre uma
+    classificação gravada fora de `ClassificacaoDre.values` — R2 da
+    reconferência) é livre mesmo com movimento. A consequência é
+    aceita e DECLARADA (DE-086): a DRE de um período passado reflete a
+    classificação VIGENTE no momento da emissão, nunca a de quando o
+    lançamento foi feito — é a trilha (abaixo) que mostra quando e por
+    quem a classificação mudou.
 
     PERMISSÃO: verificada pela VIEW (`PodeEscriturar` — o MESMO papel
     que grava lançamento e cria conta; RC-118 nunca criou uma permissão
@@ -5218,15 +5222,34 @@ def classificar_conta_na_dre(*, conta, classificacao, usuario, request=None):
     verifica papel, mesmo limite que `zerar_resultado`/`encerrar_
     competencia` já declaram.
 
-    TRILHA: um `registrar()`, na MESMA transação, com o valor de ANTES e
-    de DEPOIS — mesmo padrão do PUT/PATCH administrativo (DL-024).
-    `request` é opcional (só para o `registrar()` capturar o IP quando
-    existir uma requisição HTTP por trás; chamada direta, sem `request`,
-    continua funcionando).
+    CORRIDA (R4 da reconferência): sem trava, duas classificações
+    concorrentes da MESMA conta liam o valor gravado sob READ COMMITTED
+    — a segunda gravação podia registrar na trilha um "antes" que já
+    não era o valor real no banco (a primeira já tinha comitado outra
+    coisa nesse meio-tempo), porque cada uma lia o valor ANTES de
+    qualquer uma escrever. `select_for_update()` AQUI, antes de tocar
+    em `conta`, trava a LINHA na própria transação: a segunda chamada
+    (de outra conexão) BLOQUEIA neste ponto até a primeira comitar, e
+    só então lê o valor JÁ ATUALIZADO — as duas gravações serializam, e
+    o "antes" de uma é sempre o "depois" da outra, nunca um valor que
+    ficou obsoleto no meio do caminho.
 
-    Devolve a `Conta` já salva (mesma instância, atualizada).
+    TRILHA: um `registrar()`, na MESMA transação, com o valor
+    REALMENTE gravado antes da mudança (lido sob a trava acima, nunca
+    o que `conta` trazia ao entrar nesta função) e o valor de DEPOIS —
+    mesmo padrão do PUT/PATCH administrativo (DL-024). `request` é
+    opcional (só para o `registrar()` capturar o IP quando existir uma
+    requisição HTTP por trás; chamada direta, sem `request`, continua
+    funcionando).
+
+    Devolve a `Conta` já salva (mesma instância recebida, atualizada).
     """
-    valor_antes = conta.classificacao_dre
+    valor_antes = (
+        Conta.objects.select_for_update()
+        .filter(pk=conta.pk)
+        .values_list("classificacao_dre", flat=True)
+        .get()
+    )
     conta.classificacao_dre = classificacao or None
     conta.full_clean()
     conta.save(update_fields=["classificacao_dre"])

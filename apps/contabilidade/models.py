@@ -581,13 +581,18 @@ class Conta(models.Model):
             # vazia, diferente de `NULL`) é um estado torto que só existia
             # pela API — o `ChoiceField` gerado por padrão para um campo com
             # `blank=True` aceitava `""` e gravava. O CÓDIGO já normaliza
-            # `""` para `None` na entrada (serializer) e trata os dois como
-            # "sem classificação" na guarda de transição (`clean()`, abaixo)
+            # `""` para `None` na entrada (serializer) e em `clean()`, abaixo
             # — esta constraint é a defesa de BANCO (DE-008, camada 1) para
             # quem grava por fora dos dois (ORM direto, migração de dado,
-            # importação): sem ela, `""` continuaria alcançável e o defeito
-            # original (conta travada para sempre, DRE inemitível) voltaria
-            # por um caminho que nem passa por `clean()`.
+            # importação): sem ela, `""` continuaria alcançável e distinto
+            # de `None` para quem lê direto do banco (ex.: a lista `contas_
+            # com_classificacao_dre_desconhecida` da apuração da DRE, que
+            # trataria `""` como linha desconhecida). DE-086 (reconferência):
+            # a classificação da DRE deixou de ser imutável com movimento —
+            # esta constraint continua por higiene de dado, não porque um
+            # estado torto travaria a conta para sempre (isso não existe
+            # mais: qualquer classificação, inclusive corrigir um `""`
+            # legado, é sempre livre agora).
             models.CheckConstraint(
                 condition=~models.Q(classificacao_dre=""),
                 name="ck_conta_classificacao_dre_nao_vazia",
@@ -667,85 +672,20 @@ class Conta(models.Model):
             (existe,) = cursor.fetchone()
         return existe
 
-    def _subarvore_tem_conta_classificada_dre_com_movimento(self):
-        """A6 (auditoria DL-045, rodada 1): existe, na subárvore de `self`
-        (excluindo a própria `self`), alguma conta com `classificacao_dre`
-        PRÓPRIA gravada (não vazia) cuja PRÓPRIA subárvore (ela mais os
-        descendentes dela) tem movimento?
-
-        DUAS consultas no caso comum: uma recursiva que lista a subárvore
-        de `self` já filtrando quem tem classificação própria gravada, e
-        UMA verificação de movimento por candidato — na prática, 0 ou 1
-        candidato (o achado do auditor sempre tinha exatamente uma
-        descendente já classificada). Reusa
-        `_tem_movimento_proprio_ou_de_descendente` sobre uma instância
-        "leve" (só com `pk`), porque aquele método só lê `self.pk`.
-        """
-        if not self.pk:
-            return False
-        tabela_conta = Conta._meta.db_table
-        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                WITH RECURSIVE arvore(id) AS (
-                    SELECT id FROM {tabela_conta} WHERE {coluna_conta_pai} = %s
-                    UNION
-                    SELECT c.id FROM {tabela_conta} c
-                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
-                )
-                SELECT id FROM {tabela_conta}
-                WHERE id IN (SELECT id FROM arvore)
-                AND classificacao_dre IS NOT NULL AND classificacao_dre <> ''
-                """,
-                [self.pk],
-            )
-            candidatos = [linha[0] for linha in cursor.fetchall()]
-        return any(
-            Conta(pk=candidato_id)._tem_movimento_proprio_ou_de_descendente()
-            for candidato_id in candidatos
-        )
-
-    def _classificacao_dre_ancestral_via(self, conta_pai_id):
-        """A6 (auditoria DL-045, rodada 1): a `classificacao_dre` do
-        ancestral mais próximo, subindo a partir de `conta_pai_id` (não a
-        de `self`) — usado para comparar a linha EFETIVA herdada ANTES e
-        DEPOIS de um reparentamento, sem depender da hierarquia já
-        carregada em memória (`clean()` só tem `self`, uma instância
-        isolada). Limite de profundidade e deduplicação por `visitado`,
-        mesmo padrão do guard de ciclo acima — defesa contra um ciclo
-        PRÉ-EXISTENTE alheio a esta gravação."""
-        visitado = set()
-        atual_id = conta_pai_id
-        profundidade = 0
-        while atual_id is not None and atual_id not in visitado and profundidade <= 1000:
-            visitado.add(atual_id)
-            linha = (
-                Conta.objects.filter(pk=atual_id)
-                .values_list("classificacao_dre", "conta_pai_id")
-                .first()
-            )
-            if linha is None:
-                return None
-            classificacao, proximo_pai_id = linha
-            if classificacao:
-                return classificacao
-            atual_id = proximo_pai_id
-            profundidade += 1
-        return None
-
     def clean(self):
         # A4 (auditoria DL-045, rodada 1): `""` (string vazia) normalizado
         # para `None` AQUI, antes de qualquer guarda ler o campo — a mesma
         # normalização que o serializer já faz na entrada da API
         # (`validate_classificacao_dre`), repetida porque `clean()` também
         # roda por caminhos que não passam pelo serializer (admin, ORM
-        # direto seguido de `full_clean()`). Sem isto, `""` gravado por
-        # QUALQUER caminho tratava a conta como "já classificada" (a guarda
-        # de transição usava `is not None`, e `"" is not None` é `True`) —
-        # a conta ficava travada para sempre: a primeira classificação real
-        # seria recusada como "reclassificação com movimento", e a única
-        # correção possível era SQL direto.
+        # direto seguido de `full_clean()`). Continua sendo necessária
+        # depois da DE-086 (reconferência, que removeu a guarda de
+        # transição que originalmente motivou isto): sem a normalização,
+        # `""` gravado por qualquer caminho apareceria como linha
+        # DESCONHECIDA em `contas_com_classificacao_dre_desconhecida`
+        # (services.py, `_apurar_coluna_dre`) em vez de "sem
+        # classificação" — vetando a emissão da DRE por um valor que
+        # nunca foi uma escolha de ninguém.
         if self.classificacao_dre == "":
             self.classificacao_dre = None
 
@@ -929,7 +869,6 @@ class Conta(models.Model):
                     "conta_pai_id",
                     "empresa__escritorio_id",
                     "classificacao_patrimonial",
-                    "classificacao_dre",
                 )
                 .first()
             )
@@ -1083,54 +1022,40 @@ class Conta(models.Model):
                     classificacao_gravada is not None
                     and classificacao_gravada != self.classificacao_patrimonial
                 )
-                # DL-045/RC-118: MESMA guarda de TRANSIÇÃO, agora para a
-                # linha da DRE — a primeira classificação (gravado `None`)
-                # é sempre livre, mesmo com movimento (é o caminho para
-                # classificar o plano de contas já em uso); TROCAR ou
-                # APAGAR uma classificação já declarada é recusado com
-                # movimento, porque reescreveria uma DRE de um período já
-                # apurado (mesmo dano da classificação patrimonial acima,
-                # só que para a demonstração de resultado em vez do
-                # Balanço).
-                # A4 (auditoria DL-045, rodada 1): `bool(...)` — não `is not
-                # None` — porque um registro LEGADO (gravado antes desta
-                # correção, ou por acesso direto ao ORM que ainda não passou
-                # pela `CheckConstraint`) pode ter `""` gravado; tratar `""`
-                # como "já classificada" repetiria o defeito original (a
-                # primeira classificação REAL, depois do `""`, seria
-                # recusada como reclassificação). `self.classificacao_dre`
-                # já foi normalizado para `None` no topo deste método, mas
-                # o valor GRAVADO (lido do banco, `original[...]`) pode
-                # ainda ser `""` num registro legado — por isso a
-                # veracidade é conferida nos DOIS lados da comparação.
-                classificacao_dre_gravada = original["classificacao_dre"] or None
-                mudou_classificacao_dre = (
-                    bool(classificacao_dre_gravada)
-                    and classificacao_dre_gravada != self.classificacao_dre
-                )
-                primeira_classificacao_dre = not classificacao_dre_gravada and bool(
-                    self.classificacao_dre
-                )
                 # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
-                # só roda quando natureza, tipo OU classificação de fato
-                # mudaram (short-circuit: a consulta recursiva de
+                # só roda quando natureza, tipo OU classificação patrimonial
+                # de fato mudaram (short-circuit: a consulta recursiva de
                 # `_tem_movimento_proprio_ou_de_descendente` custa mais que
                 # `itens_lancamento.exists()`, e não há razão para pagá-la
                 # numa gravação que não toca nenhum dos três campos).
                 # Movimento de QUALQUER descendente conta, não só o
                 # próprio — é a correção do requisito, não só do código
                 # (ver o docstring do método) — e vale igualmente para a
-                # classificação: reclassificar um GRUPO com movimento
-                # herdado de descendente reescreveria o Balanço da mesma
-                # forma que trocar a natureza/tipo do grupo reescreveria o
-                # Balancete (é a MESMA classe de dano, era só uma questão
-                # de tempo até precisar da mesma defesa). Computa o
-                # movimento no MÁXIMO uma vez para as três guardas
-                # (natureza/tipo, classificação patrimonial, classificação
-                # DRE).
+                # classificação patrimonial: reclassificar um GRUPO com
+                # movimento herdado de descendente reescreveria o Balanço
+                # da mesma forma que trocar a natureza/tipo do grupo
+                # reescreveria o Balancete (é a MESMA classe de dano, era
+                # só uma questão de tempo até precisar da mesma defesa).
+                # Computa o movimento no MÁXIMO uma vez para as duas
+                # guardas (natureza/tipo, classificação patrimonial). A
+                # linha da DRE (`classificacao_dre`) NÃO entra mais aqui —
+                # DE-086 (reconferência da DL-045) reabriu o critério de
+                # imutabilidade: a classificação da DRE é propriedade de
+                # apresentação (não altera nenhum saldo), o manual do
+                # sistema de referência trata o "Grupo DRE" como campo
+                # simples do cadastro, sem restrição por movimento, e a
+                # guarda de transição criada na rodada 1 (mais as duas
+                # guardas do A6, abaixo) fechavam a ÚNICA saída de um
+                # veto que a própria correção do A2 criou (R1, achado
+                # ALTO da reconferência: conta patrimonial pendurada sob
+                # linha de resultado ficava sem correção possível, e o
+                # Balanço — DL-034 — inemitível sem SQL direto). Mudar a
+                # linha da DRE com movimento é sempre livre agora, sempre
+                # com trilha (`classificar_conta_na_dre`, em services.py,
+                # grava antes/depois, usuário, data, IP).
                 mudou_algo = mudou_natureza or mudou_tipo
                 tem_movimento_para_guarda = None
-                if mudou_algo or mudou_classificacao or mudou_classificacao_dre:
+                if mudou_algo or mudou_classificacao:
                     tem_movimento_para_guarda = self._tem_movimento_proprio_ou_de_descendente()
                 if mudou_algo and tem_movimento_para_guarda:
                     campo = (
@@ -1167,59 +1092,17 @@ class Conta(models.Model):
                         "(a transferência do saldo), em vez de editar esta conta."
                     )
 
-                # DL-045/RC-118: mesma mensagem-molde, agora para a DRE —
-                # editar a classificação de uma conta já movimentada
-                # reescreveria, em silêncio, uma DRE de período já apurado
-                # e entregue.
-                #
-                # A7 (auditoria DL-045, rodada 1): a mensagem fala em
-                # "movimento do exercício", nunca em "saldo" — o auditor
-                # mediu que o SALDO de uma conta de resultado é ZERO depois
-                # do zeramento (é o próprio propósito dele), então "lance a
-                # transferência do saldo" orienta quem lê a lançar um valor
-                # que já não existe. O que precisa ser transferido é o
-                # MOVIMENTO do exercício (a soma de débitos/créditos que a
-                # DRE apurou), não um saldo contábil.
-                if mudou_classificacao_dre and tem_movimento_para_guarda:
-                    raise ValidationError(
-                        "Não é possível mudar a classificação (linha da DRE) desta "
-                        "conta: ela ou uma conta descendente já tem lançamento "
-                        "gravado — a Demonstração do Resultado já apurada com esta "
-                        "conta mudaria retroativamente. Cadastre uma conta nova "
-                        "com a classificação correta e lance a RECLASSIFICAÇÃO "
-                        "(a transferência do MOVIMENTO DO EXERCÍCIO, nunca do "
-                        "saldo — que já é zero depois do zeramento), em vez de "
-                        "editar esta conta."
-                    )
-
-                # A6 (auditoria DL-045, rodada 1): a PRIMEIRA classificação
-                # é livre quanto ao movimento PRÓPRIO desta conta (ver o
-                # comentário acima da guarda de troca/apagar), mas não pode
-                # "engolir" uma conta DESCENDENTE que já tinha classificação
-                # PRÓPRIA e já tem movimento — classificar o grupo agora
-                # tornaria a descendente uma classificação ANINHADA (o
-                # ancestral consolidaria a subárvore inteira, inclusive a
-                # descendente, cuja linha própria passaria a ser ignorada
-                # na consolidação — regra única de saldo, DE-020), mudando
-                # retroativamente qual linha da DRE já apurada recebeu
-                # aquele movimento. Medido pelo auditor: classificar um
-                # grupo sem classificação, cuja filha já classificada tinha
-                # 400,00 de movimento, mudava a DRE de março de "custo
-                # 400,00 / despesas com vendas 0" para "custo 0 / despesas
-                # com vendas 400,00", sem nenhuma recusa.
-                if (
-                    primeira_classificacao_dre
-                    and self._subarvore_tem_conta_classificada_dre_com_movimento()
-                ):
-                    raise ValidationError(
-                        "Não é possível classificar esta conta (linha da DRE): existe "
-                        "conta descendente já classificada, com movimento do exercício "
-                        "gravado. Classificar este grupo agora faria o valor dela ser "
-                        "consolidado pela linha do grupo, mudando retroativamente a "
-                        "linha da DRE que já recebeu aquele movimento. Classifique este "
-                        "grupo com a MESMA linha que a descendente já usa, ou reveja a "
-                        "classificação da descendente antes."
-                    )
+                # DE-086 (reconferência da DL-045): NÃO HÁ guarda de
+                # transição para `classificacao_dre` aqui — a linha da DRE
+                # pode mudar livremente com movimento (ver o comentário
+                # acima de `mudou_algo`). As guardas do A6 (rodada 1 desta
+                # mesma auditoria: primeira classificação do PAI "engolindo"
+                # descendente já classificada; reparentamento que mudava a
+                # linha herdada) também saíram — eram as duas travas que
+                # fechavam a saída do veto do A2 (R1, achado ALTO). A ÚNICA
+                # guarda de reparentamento que sobrevive é a de NATUREZA
+                # (BL-261, abaixo), que já existia antes da DL-045 e nunca
+                # foi sobre a linha da DRE.
 
         # BL-261 (terceiro caminho da BL-83, achado novo 1 da auditoria DL-023
         # rodada 3): o guard acima protege natureza e tipo da própria conta e
@@ -1253,31 +1136,16 @@ class Conta(models.Model):
                     "nova."
                 )
 
-            # A6 (auditoria DL-045, rodada 1): reparentamento que muda a
-            # linha EFETIVA (herdada) da DRE — só relevante quando ESTA
-            # conta não tem classificação PRÓPRIA (própria sempre vence a
-            # herdada, então reparentar não mudaria a linha efetiva DELA;
-            # mudaria para descendentes sem classificação própria, que a
-            # guarda de cada um deles trata quando rodar — mas travar aqui
-            # evita depender disso). Compara a linha ancestral ANTES
-            # (subindo a partir do `conta_pai_id` GRAVADO) com a linha
-            # ancestral DEPOIS (subindo a partir do novo `conta_pai_id`) —
-            # mesmo dano do achado (b) do auditor: mover conta com 250,00
-            # de movimento de "custo" para "despesas com vendas" (mesma
-            # natureza devedora, então a guarda de natureza acima não
-            # dispara) mudava a DRE sem nenhum lançamento novo.
-            if not self.classificacao_dre:
-                linha_antes = self._classificacao_dre_ancestral_via(original["conta_pai_id"])
-                linha_depois = self._classificacao_dre_ancestral_via(self.conta_pai_id)
-                if linha_antes != linha_depois:
-                    raise ValidationError(
-                        "Não é possível reparentar esta conta: ela ou uma conta "
-                        "descendente já tem movimento do exercício gravado, e a linha "
-                        "da DRE herdada mudaria sem nenhum lançamento novo — a "
-                        "Demonstração do Resultado já apurada com esta conta mudaria "
-                        "retroativamente. Estorne o movimento (ou mova as contas "
-                        "filhas) antes de reparentar, ou cadastre uma conta nova."
-                    )
+            # DE-086 (reconferência da DL-045): a guarda que travava aqui o
+            # reparentamento quando a linha da DRE EFETIVA (herdada)
+            # mudava (A6, rodada 1) SAIU — era ela quem fechava a ÚNICA
+            # saída da pendência criada pela correção do A2 (R1, achado
+            # ALTO: conta patrimonial pendurada sob linha de resultado não
+            # tinha como ser corrigida, e o Balanço — DL-034 — ficava
+            # inemitível sem SQL direto). O reparentamento desta conta
+            # volta a obedecer só à regra de NATUREZA acima (BL-261): a
+            # linha da DRE é propriedade de apresentação, não uma trava de
+            # hierarquia.
 
 
 class LancamentoContabil(models.Model):

@@ -320,11 +320,11 @@ Implementada em cima do commit `31b5f2c` (docs da rodada 1 + DE-085), branch
 | A3 (estorno de zeramento) | `_agregar_movimento_dre_por_conta` exclui também `lancamento__estorno_de__chave_idempotencia__istartswith="zeramento:"`; nova lista informativa `estornos_de_zeramento_na_coluna` (nunca veta) declara o estorno na coluna em que ele foi datado. | `test_a3_estorno_de_zeramento_nao_dobra_o_acumulado` | — |
 | A4 (`""` trava a conta) | Serializer normaliza `""` -> `None` (`validate_classificacao_dre`); `Conta.clean()` normaliza no topo do método e usa veracidade (`bool(...)`), não `is not None`, na guarda de transição; `CheckConstraint` nova (`ck_conta_classificacao_dre_nao_vazia`) + migração 0011 com `RunPython` normalizando dado legado. | `test_a4_post_com_string_vazia_grava_none_e_libera_a_primeira_classificacao`, `test_a4_check_constraint_recusa_string_vazia_por_sql_direto` | — |
 | A5 (sem snapshot) | `apurar_dre` ganhou o MESMO wrapper de `apurar_balanco_patrimonial`: `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` como primeira instrução, quando fora de outro `atomic()`; degrada (pula o comando) quando já dentro de um. | `test_a5_sem_o_wrapper_a_escrita_concorrente_produz_lucro_fantasma`, `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` | — |
-| A6 (guarda contornável) | Novo guard: primeira classificação de um nó recusada se a subárvore já tiver conta classificada com movimento (`_subarvore_tem_conta_classificada_dre_com_movimento`); reparentamento recusado se a linha EFETIVA herdada mudar (`_classificacao_dre_ancestral_via`, antes/depois). | `test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_recusada` (+ contraprova sem movimento), `test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_recusado` (+ contraprova sem mudança de linha) | — |
-| A7 (sem porta operacional) | Serviço novo `classificar_conta_na_dre(*, conta, classificacao, usuario, request=None)` (guardas em `Conta.clean()`, trilha via `registrar()`); `PATCH /empresas/<id>/contas/<id>/classificacao-dre/` (`ContaClassificacaoDreView`, `PodeEscriturar`); admin ganhou `classificacao_dre` em `list_display`/`list_filter`; mensagem da guarda de transição da DRE fala em "movimento do exercício", não "saldo". | `test_a7_servico_classifica_conta_existente_e_grava_trilha`, `test_a7_servico_propaga_a_guarda_de_tipo_incompativel`, `test_a7_patch_classifica_conta_existente_via_api`, `test_a7_patch_recusa_para_papel_que_nao_escritura`, `test_a7_patch_traduz_a_guarda_de_movimento_para_400`, `test_a7_patch_isolamento_conta_de_outro_escritorio_e_404` | M23-análogo (validação de tipo do serviço) |
+| A6 (guarda contornável) | Novo guard: primeira classificação de um nó recusada se a subárvore já tiver conta classificada com movimento (`_subarvore_tem_conta_classificada_dre_com_movimento`); reparentamento recusado se a linha EFETIVA herdada mudar (`_classificacao_dre_ancestral_via`, antes/depois). **DE-086 (reconferência) removeu as DUAS guardas** — eram elas que fechavam a única saída do veto do A2 (R1, achado ALTO); os dois métodos privados citados também saíram. Os testes abaixo MUDARAM DE SENTIDO (agora provam que a operação é LIVRE) e foram renomeados. | `test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_livre` (+ contraprova sem movimento), `test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_livre` (+ contraprova sem mudança de linha) | — |
+| A7 (sem porta operacional) | Serviço novo `classificar_conta_na_dre(*, conta, classificacao, usuario, request=None)` (guardas em `Conta.clean()`, trilha via `registrar()`); `PATCH /empresas/<id>/contas/<id>/classificacao-dre/` (`ContaClassificacaoDreView`, `PodeEscriturar`); admin ganhou `classificacao_dre` em `list_display`/`list_filter`; mensagem da guarda de transição da DRE fala em "movimento do exercício", não "saldo". **DE-086: o serviço ganhou `select_for_update()` (R4) e a guarda de transição saiu — reclassificar com movimento é livre.** | `test_a7_servico_classifica_conta_existente_e_grava_trilha`, `test_a7_servico_propaga_a_guarda_de_tipo_incompativel`, `test_a7_patch_classifica_conta_existente_via_api`, `test_a7_patch_recusa_para_papel_que_nao_escritura`, `test_a7_patch_reclassifica_conta_com_movimento_e_grava_trilha` (renomeado — MUDOU DE SENTIDO), `test_a7_patch_isolamento_conta_de_outro_escritorio_e_404` | M23-análogo (validação de tipo do serviço) |
 | A8 (mutantes) | 13 casos de teste propostos, implementados. | ver tabela de mutantes abaixo | M04, M05, M06, M08, M12, M13, M14, M21, M25, M28, M30 (M27: ver nota) |
 | A9 (documentação) | `models.py` (`_LINHAS_ANTES_DO_FINANCEIRO` -> nome real); este plano (contagem "50 contas", partição igual ao Balanço); `docs/agents/estado.md` (pendência revogada removida, rodada 1 e DE-085 citadas). | busca pelos termos corrigidos | — |
-| A10 (`total_debitos`/`total_creditos`) | Passaram a somar SÓ contas de tipo RECEITA/DESPESA (própria, sem zeramento) — nunca a contrapartida patrimonial. | `test_caso6_isolamento_dos_totais_entre_empresas` | M27 (ver nota) |
+| A10 (`total_debitos`/`total_creditos`) | Passaram a somar SÓ contas de tipo RECEITA/DESPESA (própria, sem zeramento) — nunca a contrapartida patrimonial. | `test_caso6_isolamento_dos_totais_entre_empresas` | M27 sobreviveu aqui; morto na reconferência (ver nota) |
 
 ### Tabela de mutantes (achado A8)
 
@@ -339,7 +339,7 @@ Implementada em cima do commit `31b5f2c` (docs da rodada 1 + DE-085), branch
 | M14 | `RESULTADO_EQUIVALENCIA_PATRIMONIAL` removida de qualquer tupla de subtotal | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
 | M21 | `DEDUCOES_DA_RECEITA` aceita `(RECEITA, DESPESA)` | `test_m21_deducoes_da_receita_recusa_conta_de_tipo_despesa` |
 | M25 | Remover `_validar_ano_mes(ano, mes)` de `DreView.get` | `test_caso4_datas_invalidas_devolvem_400` (mutante produz 500, não 400) |
-| M27 | Remover `conta__empresa=empresa`/`lancamento__empresa=empresa` de `_agregar_movimento_dre_por_conta` | **Não observável** (ver nota) |
+| M27 | Remover `conta__empresa=empresa`/`lancamento__empresa=empresa` de `_agregar_movimento_dre_por_conta` | Sobreviveu à suíte desta correção; **não é equivalente** (ver nota) — morto na reconferência por `test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa` |
 | M28 | Remover o `try/except HierarquiaInconsistente` de `DreView.get` | `test_caso5_ciclo_na_hierarquia_devolve_409_nunca_500` (mutante produz 500) |
 | M30 | `conta.tipo not in (RECEITA, DESPESA)` -> `conta.tipo != RECEITA` | `test_caso3_conta_despesa_sem_classificacao_com_movimento_aparece_na_lista` |
 
@@ -352,20 +352,66 @@ de código nesta correção: a implementação já seguia RC-121, RC-122, RC-123
 RC-125; RC-124 (operações descontinuadas) e RC-126 (período livre) ficam
 fora desta etapa.
 
-**Nota sobre M27:** a correção do A10 (acima) reescreveu `total_debitos`/
-`total_creditos` para somar iterando `for conta in contas` (a lista JÁ
-filtrada por `empresa`), em vez de `agregados_proprios.values()` direto (o
-desenho antigo, que o auditor usou para matar o mutante). TODO consumidor de
-`agregados_proprios` nesta função (`_consolidar_movimento_por_conta`, as
-listas de pendência, os dois totais) hoje lê por `conta.id` a partir de
-`contas` — nenhum é alcançável por uma linha cujo `conta_id` não pertença à
-empresa consultada, mesmo que a consulta de agregação em si perca o filtro.
-Removido os dois filtros de `_agregar_movimento_dre_por_conta` (mutação
-aplicada e revertida ao vivo) e a suíte inteira continuou verde — o mutante
-é **equivalente** depois de A10, um efeito colateral bem-vindo da correção,
-não um teste faltando. Mantive os dois filtros no código (defesa em
-profundidade, nunca removê-los) e o teste de isolamento do critério (item 6
-da lista proposta, `test_caso6_isolamento_dos_totais_entre_empresas`)
-continua valendo — ele prova o RESULTADO da isolação, não depende de qual
-mutante especificamente a mataria.
+**A alegação de que M27 é equivalente, feita nesta correção, é FALSA — a
+reconferência mediu o dano real e a retira.** O argumento acima ("todo
+consumidor de `agregados_proprios` lê por `conta.id` a partir de `contas`,
+já filtrada por empresa") só vale para dado ÍNTEGRO: pressupõe que todo
+`ItemLancamento` tenha `conta.empresa == lancamento.empresa`, um invariante
+que `criar_lancamento` garante, **nunca o banco** (sem `CheckConstraint` nem
+`trigger`). A sonda da reconferência forjou por ORM um item de crédito de
+7,00 numa conta da empresa B, dentro de um lançamento da empresa A: com os
+dois filtros no código, a DRE de B dava `receita_bruta 0`/`total_creditos
+0` (correto); sem eles (M27 e, sozinho, M27b — só `lancamento__empresa`),
+os dois números davam 7,00 — o item forjado vazava para a DRE de uma empresa
+que nunca o lançou. O projeto trata dado corrompido como cenário de teste
+de isolamento de propósito (é o mesmo padrão do achado 10 da DL-015,
+`test_dl015_saidas_com_periodo.py::test_item_de_lancamento_de_outra_empresa_nao_aparece_no_razao_nem_no_balancete`)
+— "equivalente" presumia um invariante que o produto não impõe no banco.
+Teste novo, na reconferência:
+`test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa`.
 
+## Correção da reconferência
+
+A [reconferência](../auditorias/2026-09-26-dl-045-reconferencia.md)
+**reprovou** com o achado R1 (ALTO — a guarda de reparentamento do A6
+fechava a única saída da pendência criada pela correção do A2, deixando a
+DRE inemitível até o fim do exercício e o Balanço, DL-034, sem prazo) mais
+seis achados médios (R2 a R7) e cinco baixos (R8 a R12). Decisões em
+[DE-086](../projeto/decisoes.md#de-086). Correção do **servidor** com o
+`desenvolvedor-pleno`, em cima do commit `eb87471` (docs da reconferência +
+DE-086), branch `dl045-tela`; a correção da **tela** (R5, R6, R8 a R10, R7
+na tela) é do `especialista-frontend`, em paralelo, noutra worktree. Sem
+nova rodada de auditoria (AGENTS.md §3.1 não prevê terceira rodada; decisão
+do arquiteto, como na DL-043): o fechamento é por verificação independente
+dos 14 casos propostos e dos mutantes sobreviventes.
+
+Achado → mudança → teste:
+
+| Achado | Mudança | Teste |
+| --- | --- | --- |
+| **R1** (ALTA — guarda de reparentamento fecha o veto do A2) | DE-086 item 1: removidas a guarda de TRANSIÇÃO de `classificacao_dre` e as DUAS guardas do A6 em `Conta.clean()` (models.py) — a linha da DRE pode mudar com movimento; o reparentamento volta a obedecer só à regra de NATUREZA (BL-261). Os dois métodos privados que só serviam às guardas removidas (`_subarvore_tem_conta_classificada_dre_com_movimento`, `_classificacao_dre_ancestral_via`) saíram também. | `test_r1_reparentamento_de_conta_ativo_libera_a_dre_e_o_balanco`: reparenta a conta ATIVO `3.1.99` para uma raiz ATIVO; a DRE de março e o Balanço de 31/03 emitem depois. |
+| **R2** (classificação desconhecida sem correção possível) | Consequência direta da remoção acima: sem guarda de transição, qualquer valor gravado (inclusive fora de `ClassificacaoDre.values`) pode ser substituído por uma classificação válida, mesmo com movimento. | `test_r2_classificacao_desconhecida_com_movimento_e_corrigida_pela_api`: conta com `classificacao_dre="linha_antiga_renomeada"` (gravada por ORM) e movimento — o PATCH aceita a correção, e a DRE volta a emitir. |
+| **R3** (PATCH devolve 500 com corpo malformado) | `ClassificacaoDrePatchSerializer` novo (serializers.py), com `ChoiceField(allow_null=True, allow_blank=True)`; `ContaClassificacaoDreView.patch` (views.py) valida o corpo com ele ANTES de chamar o serviço, em vez de `request.data.get(...)` direto. | `test_r3_patch_com_corpo_malformado_devolve_400_nunca_500` (parametrizado): `{"classificacao_dre": {"a": 1}}`, `{"classificacao_dre": ["receita_bruta"]}` e o corpo `["x"]` devolvem 400, nada gravado. |
+| **R4** (corrida na classificação) | `classificar_conta_na_dre` (services.py) faz `Conta.objects.select_for_update().filter(pk=conta.pk).values_list("classificacao_dre", flat=True).get()` DENTRO da transação, ANTES de mudar `conta` — trava a linha e lê o valor REALMENTE gravado (não o que a instância recebida trazia) para a trilha. | `test_r4_corrida_na_classificacao_serializa_e_a_trilha_fica_coerente` (`transaction=True`, barreira em `Conta.full_clean` monkeypatchado): as duas gravações serializam, e o "antes" da segunda é o "depois" da primeira. |
+| **R7** (17 mutantes sobreviventes) | Ver a tabela de mutantes abaixo. | `test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa`, `test_r7_n05_estornos_de_zeramento_isolados_entre_empresas`, `test_r7_n06_estorno_de_zeramento_de_fevereiro_nao_aparece_em_marco`, `test_r7_n03_classificacao_desconhecida_veta_pela_lista_certa`, `test_r7_n12_t08_patch_isolamento_conta_de_outra_empresa_do_mesmo_escritorio_e_404`, `test_r7_t05_patch_recusa_para_paralegal`, `test_r7_n13_migracao_0011_normaliza_dado_legado_com_string_vazia`, `test_a10_totais_da_dre_conciliam_com_o_balancete_sem_zeramento` (promessa da DE-085 item 9, cumprida agora). |
+| **R11** (documentação defasada) | `docs/agents/estado.md` (linhas "sem tela"/"Tela da DRE… não existe" removidas — a tela existe nesta branch); este plano (esta seção); `test_a4_check_constraint_recusa_string_vazia_por_sql_direto` deixou de usar `transaction.savepoint()`/`savepoint_commit()`/`savepoint_rollback()` (depreciados no Django 6.1) — usa `transaction.atomic()` aninhado, que cria e desfaz o mesmo savepoint por baixo dos panos. | Busca pelos termos corrigidos; suíte sem o aviso novo (`RemovedInDjango70Warning`). |
+
+### Mutantes verificados na reconferência (achado R7)
+
+Cada mutante foi aplicado sozinho, o teste-alvo confirmado como reprovado,
+e revertido — `git diff` confere vazio depois de cada reversão.
+
+| # | Mutação | Teste que mata |
+| --- | --- | --- |
+| M27 | Remover `conta__empresa=empresa` **e** `lancamento__empresa=empresa` de `_agregar_movimento_dre_por_conta` | `test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa` |
+| M27b | Remover só `lancamento__empresa=empresa` (mantém `conta__empresa`) | `test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa` |
+| N03 | Mover `contas_com_classificacao_dre_desconhecida` para `_LISTAS_DA_DRE_QUE_SO_AVISAM` | `test_r7_n03_classificacao_desconhecida_veta_pela_lista_certa` |
+| N05 | Remover `empresa=empresa` de `_estornos_de_zeramento_na_coluna` | `test_r7_n05_estornos_de_zeramento_isolados_entre_empresas` |
+| N06 | Remover `data__gte`/`data__lte` de `_estornos_de_zeramento_na_coluna` | `test_r7_n06_estorno_de_zeramento_de_fevereiro_nao_aparece_em_marco` |
+| N12/T08 | Remover `empresa=empresa` de `get_object_or_404(Conta, pk=conta_id, empresa=empresa)` em `ContaClassificacaoDreView.patch` | `test_r7_n12_t08_patch_isolamento_conta_de_outra_empresa_do_mesmo_escritorio_e_404` |
+| T05 | Trocar `PodeEscriturar` por `PodeLerContabilidade` em `ContaClassificacaoDreView.permission_classes` | `test_r7_t05_patch_recusa_para_paralegal` |
+| Guarda de reparentamento religada | Reintroduz a guarda do A6(b) removida pela DE-086 (comparação da linha ancestral antes/depois do reparentamento) | `test_r1_reparentamento_de_conta_ativo_libera_a_dre_e_o_balanco`, `test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_livre` |
+| N13 | Migração 0011: `RunPython` virando `pass` | `test_r7_n13_migracao_0011_normaliza_dado_legado_com_string_vazia` |
+
+Os mutantes de tela (T01 a T04, N22) e os de apresentação (R5, R6, R8 a R10)
+são do `especialista-frontend` — fora do escopo desta seção.

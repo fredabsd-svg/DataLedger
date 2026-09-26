@@ -20,6 +20,7 @@ from django.urls import reverse
 from apps.contabilidade import services as contabilidade_services
 from apps.contabilidade.models import (
     ClassificacaoDre,
+    ClassificacaoPatrimonial,
     Conta,
     NaturezaConta,
     TipoConta,
@@ -27,7 +28,9 @@ from apps.contabilidade.models import (
 )
 from apps.contabilidade.services import (
     PeriodicidadeZeramento,
+    apurar_balanco_patrimonial,
     apurar_dre,
+    avaliar_emissao_da_dre,
     classificar_conta_na_dre,
     criar_lancamento,
     estornar_lancamento,
@@ -288,10 +291,20 @@ def test_criterio1c_classificacao_dre_compativel_e_aceita(cenario):
     conta_despesa.full_clean()  # não levanta
 
 
-def test_criterio1d_reclassificar_conta_com_movimento_e_recusado(cenario):
-    """Mudar `classificacao_dre` de uma conta que já tem movimento é
-    recusado — mesma guarda de TRANSIÇÃO da `classificacao_patrimonial`
-    (DL-033/HI-18): reescreveria uma DRE de período já apurado."""
+def test_criterio1d_reclassificar_conta_com_movimento_e_livre(cenario):
+    """DE-086 (reconferência da DL-045): este teste MUDA DE SENTIDO — a
+    rodada 1 desta auditoria criou uma guarda de TRANSIÇÃO (espelhando
+    `classificacao_patrimonial`, DL-033/HI-18) que recusava mudar
+    `classificacao_dre` de conta com movimento. A reconferência (achado
+    R1, ALTO) mediu que essa guarda fechava a ÚNICA saída de uma
+    pendência que a própria correção do A2 criou (conta patrimonial sob
+    linha de resultado ficava sem correção possível, e o Balanço —
+    DL-034 — inemitível sem SQL direto). O arquiteto reabriu o critério
+    (AGENTS.md §3.1: terceira rodada de auditoria significa critério
+    errado) e decidiu que a linha da DRE é propriedade de APRESENTAÇÃO
+    — não altera nenhum saldo — e por isso pode mudar livremente com
+    movimento, sempre com trilha (ver `test_a7_servico_reclassifica_
+    conta_com_movimento_e_grava_trilha`, abaixo)."""
     empresa = cenario["empresa"]
     _lancar(
         empresa,
@@ -303,8 +316,10 @@ def test_criterio1d_reclassificar_conta_com_movimento_e_recusado(cenario):
     )
     conta = Conta.objects.get(pk=cenario["receita_bruta"].pk)
     conta.classificacao_dre = ClassificacaoDre.OUTRAS_RECEITAS
-    with pytest.raises(ValidationError, match="Não é possível mudar a classificação"):
-        conta.full_clean()
+    conta.full_clean()  # não levanta (DE-086)
+    conta.save(update_fields=["classificacao_dre"])
+    conta.refresh_from_db()
+    assert conta.classificacao_dre == ClassificacaoDre.OUTRAS_RECEITAS
 
 
 def test_criterio1e_primeira_classificacao_com_movimento_e_livre(cenario):
@@ -2255,41 +2270,43 @@ def test_a4_post_com_string_vazia_grava_none_e_libera_a_primeira_classificacao(c
 def test_a4_check_constraint_recusa_string_vazia_por_sql_direto():
     """A4, defesa de BANCO: a `CheckConstraint` recusa `""` gravado
     IGNORANDO o ORM por completo (INSERT via cursor), o caminho que nem
-    `clean()` nem `save()` alcançam. `savepoint`/`savepoint_rollback`
-    explícitos (mesmo padrão de `test_dl016_f6_check_empresa_not_null.py`)
-    porque o PostgreSQL aborta a transação inteira depois de um
-    `IntegrityError` — sem o savepoint, o rollback do PRÓPRIO teste (que o
-    `pytest.mark.django_db` faz no final) seria a única saída, mas
-    qualquer consulta ORM ENTRE o erro e o fim do teste quebraria."""
+    `clean()` nem `save()` alcançam. O PostgreSQL aborta a transação
+    inteira depois de um `IntegrityError` — sem isolar este INSERT numa
+    transação PRÓPRIA, o rollback do PRÓPRIO teste (que o `pytest.mark.
+    django_db` faz no final) seria a única saída, mas qualquer consulta
+    ORM ENTRE o erro e o fim do teste quebraria.
+
+    R11 (auditoria DL-045, reconferência): este teste usava `transaction.
+    savepoint()`/`savepoint_commit()`/`savepoint_rollback()` explícitos
+    (mesmo padrão de `test_dl016_f6_check_empresa_not_null.py`), e o
+    Django 6.1 já marca essas três funções como depreciadas
+    (`RemovedInDjango70Warning`). `transaction.atomic()`, usado como
+    CONTEXT MANAGER aninhado dentro da transação que o `pytest.mark.
+    django_db` já abre para o teste, cria e desfaz o MESMO savepoint por
+    baixo dos panos — sem chamar a API depreciada."""
     from django.db import IntegrityError
     from django.db import transaction as transacao
 
     escritorio, empresa = _nova_empresa("DL-045 Constraint A4", sufixo=92)
     with pytest.raises(IntegrityError):
         with transacao.atomic():
-            sid = transacao.savepoint()
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO contabilidade_conta "
-                        "(empresa_id, codigo, nome, tipo, natureza, classificacao_dre, "
-                        "aceita_lancamento, ativo, criado_em) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)",
-                        [
-                            empresa.id,
-                            "3.92",
-                            "Via SQL direto",
-                            "receita",
-                            "credora",
-                            "",
-                            True,
-                            True,
-                        ],
-                    )
-                transacao.savepoint_commit(sid)
-            except IntegrityError:
-                transacao.savepoint_rollback(sid)
-                raise
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO contabilidade_conta "
+                    "(empresa_id, codigo, nome, tipo, natureza, classificacao_dre, "
+                    "aceita_lancamento, ativo, criado_em) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)",
+                    [
+                        empresa.id,
+                        "3.92",
+                        "Via SQL direto",
+                        "receita",
+                        "credora",
+                        "",
+                        True,
+                        True,
+                    ],
+                )
     assert not Conta.objects.filter(empresa=empresa, codigo="3.92").exists()
 
 
@@ -2503,19 +2520,29 @@ def test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# A6 — a guarda de transição não pode ser contornada por (a) classificar
-# o PAI de uma descendente já classificada com movimento, nem por (b)
-# reparentar uma conta para outra linha da DRE.
+# A6 — DE-086 (reconferência da DL-045) REMOVEU as duas guardas desta
+# seção: a rodada 1 desta auditoria as criou para impedir que (a)
+# classificar o PAI de uma descendente já classificada, ou (b) reparentar
+# uma conta, mudasse a linha efetiva da DRE de conta com movimento. A
+# reconferência (achado R1, ALTO) mediu que a guarda (b) fechava a ÚNICA
+# saída de uma pendência que a correção do A2 (rodada 1) criou — conta
+# patrimonial pendurada sob linha de resultado ficava sem correção
+# possível, e o Balanço (DL-034) inemitível sem SQL direto (ver os testes
+# de R1, mais abaixo). O arquiteto reabriu o critério de imutabilidade
+# (AGENTS.md §3.1): a linha da DRE é propriedade de APRESENTAÇÃO — os dois
+# cenários (a) e (b) agora são LIVRES; o reparentamento continua sujeito
+# só à regra de NATUREZA (BL-261, que já existia antes da DL-045).
 # ---------------------------------------------------------------------------
 
 
-def test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_recusada(cenario):
-    """A6, cenário (a): grupo SEM classificação, filha JÁ classificada
-    (DESPESAS_COM_VENDAS) com movimento. Classificar o PAI agora (CUSTO,
-    por exemplo) "engoliria" a filha na consolidação do pai — a DRE de um
-    período já apurado mudaria retroativamente. Medido pelo auditor: "custo
-    400,00 / despesas com vendas 0" virava "custo 0 / despesas com vendas
-    400,00", sem recusa nenhuma."""
+def test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_livre(cenario):
+    """DE-086: este teste MUDA DE SENTIDO. Grupo SEM classificação, filha
+    JÁ classificada (DESPESAS_COM_VENDAS) com movimento — classificar o
+    PAI agora (CUSTO) É ACEITO: a linha da DRE não é mais uma trava de
+    cadastro, e a decisão registrada aceita que o valor consolidado do
+    grupo passe a refletir a classificação vigente no momento da
+    emissão (a trilha, gravada por `classificar_conta_na_dre`, mostra a
+    mudança)."""
     empresa = cenario["empresa"]
     g = cenario["gestor"]
     grupo_sem_classificacao = Conta.objects.create(
@@ -2544,14 +2571,13 @@ def test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_recusad
     )
 
     grupo_sem_classificacao.classificacao_dre = ClassificacaoDre.CUSTO
-    with pytest.raises(ValidationError, match="descendente já classificada"):
-        grupo_sem_classificacao.full_clean()
+    grupo_sem_classificacao.full_clean()  # não levanta (DE-086)
 
 
 def test_a6a_primeira_classificacao_do_pai_e_livre_quando_a_filha_nao_tem_movimento(cenario):
-    """Contraprova do A6a: a mesma classificação do pai é ACEITA quando a
-    filha classificada NÃO tem movimento — a guarda protege o que já foi
-    apurado, não o cadastro em si."""
+    """Continua livre quando a filha classificada NÃO tem movimento —
+    caso mais simples, sem nenhuma guarda envolvida mesmo antes da
+    DE-086."""
     empresa = cenario["empresa"]
     grupo_sem_classificacao = Conta.objects.create(
         empresa=empresa,
@@ -2574,12 +2600,13 @@ def test_a6a_primeira_classificacao_do_pai_e_livre_quando_a_filha_nao_tem_movime
     grupo_sem_classificacao.full_clean()  # não levanta
 
 
-def test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_recusado(cenario):
-    """A6, cenário (b): conta SEM classificação própria (herda do pai),
-    com movimento, reparentada para um grupo de OUTRA linha da DRE, MESMA
-    natureza (a guarda de natureza, sozinha, não dispara) — recusado.
-    Medido pelo auditor: conta com 250,00 sob "custo" mudava para
-    "despesas com vendas" sem nenhum lançamento novo."""
+def test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_livre(cenario):
+    """DE-086: este teste MUDA DE SENTIDO. Conta SEM classificação
+    própria (herda do pai), com movimento, reparentada para um grupo de
+    OUTRA linha da DRE, MESMA natureza (a guarda de natureza, BL-261,
+    não dispara porque a natureza não muda) — É ACEITO: a linha da DRE
+    herdada pode mudar sem lançamento novo, porque é propriedade de
+    apresentação, não uma trava de hierarquia."""
     empresa = cenario["empresa"]
     g = cenario["gestor"]
     grupo_custo = cenario["custo"]
@@ -2602,8 +2629,12 @@ def test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_recusado(ce
     )
 
     filha_sem_classificacao_propria.conta_pai = grupo_despesas_vendas
-    with pytest.raises(ValidationError, match="linha da DRE herdada mudaria"):
-        filha_sem_classificacao_propria.full_clean()
+    filha_sem_classificacao_propria.full_clean()  # não levanta (DE-086)
+    filha_sem_classificacao_propria.save(update_fields=["conta_pai"])
+
+    dre = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    assert dre["coluna_mes"]["linhas"][ClassificacaoDre.DESPESAS_COM_VENDAS] == Decimal("250.00")
+    assert dre["coluna_mes"]["linhas"][ClassificacaoDre.CUSTO] == Decimal("0.00")
 
 
 def test_a6b_reparentamento_e_livre_quando_a_linha_efetiva_nao_muda(cenario):
@@ -2754,9 +2785,47 @@ def test_a7_patch_recusa_para_papel_que_nao_escritura(client, cenario):
     assert resposta.status_code == 403
 
 
-def test_a7_patch_traduz_a_guarda_de_movimento_para_400(client, cenario):
-    """Reclassificar (não a primeira vez) uma conta com movimento é
-    recusado pela MESMA guarda de `Conta.clean()`, traduzida para 400."""
+def test_r7_t05_patch_recusa_para_paralegal(client, cenario):
+    """R7/T05 (auditoria DL-045, reconferência): mata o mutante T05, que
+    troca `PodeEscriturar` por `PodeLerContabilidade` na view — o teste
+    de papel recusado acima só exercitava CLIENTE (que também não LÊ a
+    contabilidade, então não distingue as duas permissões). PARALEGAL
+    LÊ a contabilidade (`PodeLerContabilidade` aceitaria) mas não
+    ESCRITURA — só este papel prova que a view usa a permissão certa.
+    Nada é gravado."""
+    empresa = cenario["empresa"]
+    conta = cenario["custo"]
+    valor_antes = conta.classificacao_dre
+    _autenticar(client, cenario["escritorio"], Papel.PARALEGAL, "paralegal-a7-patch")
+
+    resposta = client.patch(
+        _url_classificacao_dre(empresa.id, conta.id),
+        # DESPESAS_COM_VENDAS: mesmo TipoConta de "custo" (DESPESA) — o
+        # valor precisa ser válido em si, para o teste isolar SÓ a
+        # autorização (com um valor incompatível de tipo, uma view com a
+        # permissão TROCADA por engano ainda devolveria 400, mascarando o
+        # mutante).
+        data={"classificacao_dre": ClassificacaoDre.DESPESAS_COM_VENDAS},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 403
+    conta.refresh_from_db()
+    assert conta.classificacao_dre == valor_antes
+
+
+def test_a7_patch_reclassifica_conta_com_movimento_e_grava_trilha(client, cenario):
+    """DE-086 (reconferência da DL-045): este teste MUDA DE SENTIDO — a
+    reclassificação de uma conta JÁ classificada, com movimento, era
+    recusada com 400 pela guarda de transição da rodada 1 (nome antigo
+    deste teste: `test_a7_patch_traduz_a_guarda_de_movimento_para_400`).
+    A reconferência (achado R1, ALTO) mediu que essa guarda fechava a
+    ÚNICA saída de uma pendência criada pela própria correção do A2, e o
+    arquiteto reabriu o critério de imutabilidade (AGENTS.md §3.1): a
+    linha da DRE é propriedade de APRESENTAÇÃO. O PATCH agora ACEITA a
+    troca, sempre com trilha (antes/depois)."""
+    from apps.auditoria.models import RegistroAuditoria
+
     empresa = cenario["empresa"]
     g = cenario["gestor"]
     conta = cenario["custo"]  # já classificada (CUSTO), no plano do cenário
@@ -2768,7 +2837,7 @@ def test_a7_patch_traduz_a_guarda_de_movimento_para_400(client, cenario):
         valor="10.00",
         usuario=g,
     )
-    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-a7-patch-400")
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-a7-patch-livre")
 
     resposta = client.patch(
         _url_classificacao_dre(empresa.id, conta.id),
@@ -2776,8 +2845,15 @@ def test_a7_patch_traduz_a_guarda_de_movimento_para_400(client, cenario):
         content_type="application/json",
     )
 
-    assert resposta.status_code == 400, resposta.content
-    assert "movimento do exercício" in " ".join(resposta.json()["classificacao_dre"]).lower()
+    assert resposta.status_code == 200, resposta.content
+    assert resposta.json()["classificacao_dre"] == ClassificacaoDre.DESPESAS_COM_VENDAS
+    conta.refresh_from_db()
+    assert conta.classificacao_dre == ClassificacaoDre.DESPESAS_COM_VENDAS
+    registro = RegistroAuditoria.objects.filter(
+        acao="conta.classificacao_dre_alterada", objeto_id=str(conta.pk)
+    ).latest("id")
+    assert registro.detalhes["classificacao_dre_antes"] == ClassificacaoDre.CUSTO
+    assert registro.detalhes["classificacao_dre_depois"] == ClassificacaoDre.DESPESAS_COM_VENDAS
 
 
 def test_a7_patch_isolamento_conta_de_outro_escritorio_e_404(client, cenario):
@@ -2792,6 +2868,42 @@ def test_a7_patch_isolamento_conta_de_outro_escritorio_e_404(client, cenario):
         content_type="application/json",
     )
     assert resposta.status_code == 404
+
+
+def test_r7_n12_t08_patch_isolamento_conta_de_outra_empresa_do_mesmo_escritorio_e_404(
+    client, cenario
+):
+    """R7/N12/T08 (auditoria DL-045, reconferência): mata os mutantes N12
+    (`get_object_or_404(Conta, pk=conta_id)` sem `empresa=empresa`) e T08.
+    O teste de isolamento acima só usa `pk=999999` (conta INEXISTENTE),
+    que dá 404 mesmo sem o filtro por empresa — não prova isolamento
+    nenhum. Aqui a conta EXISTE, de verdade, numa OUTRA empresa do MESMO
+    escritório (a fronteira mais estreita — entre escritórios diferentes
+    já tem teste acima) — só o filtro `empresa=empresa` impede o
+    vazamento."""
+    empresa_b = Empresa.objects.create(
+        escritorio=cenario["escritorio"],
+        razao_social="Outra Empresa do Mesmo Escritório Ltda",
+        cnpj=f"2{950:013d}",
+    )
+    conta_de_b = Conta.objects.create(
+        empresa=empresa_b,
+        codigo="3.1",
+        nome="Receita de B",
+        tipo=TipoConta.RECEITA,
+        natureza=NaturezaConta.CREDORA,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r7-n12")
+
+    resposta = client.patch(
+        _url_classificacao_dre(cenario["empresa"].id, conta_de_b.id),
+        data={"classificacao_dre": ClassificacaoDre.OUTRAS_RECEITAS},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 404
+    conta_de_b.refresh_from_db()
+    assert conta_de_b.classificacao_dre is None
 
 
 # ---------------------------------------------------------------------------
@@ -2840,3 +2952,521 @@ def test_particao_das_listas_contas_da_dre_e_igual_ao_inventario_real(cenario):
     so_avisam = set(contabilidade_services._LISTAS_DA_DRE_QUE_SO_AVISAM)
     assert impedem | so_avisam == chaves_contas_na_coluna, "sentido 1 — união == inventário real"
     assert impedem & so_avisam == set(), "sentido 2 — interseção vazia"
+
+
+# ---------------------------------------------------------------------------
+# R1 a R4 — achados da RECONFERÊNCIA da DL-045
+# (docs/auditorias/2026-09-26-dl-045-reconferencia.md), resolvidos pela
+# DE-086. R1 e R2 são CONSEQUÊNCIA da mudança de critério (item 1: a
+# classificação da DRE deixa de ser imutável com movimento) — os testes
+# abaixo provam que a consequência realmente se sustenta (a DRE e o
+# Balanço voltam a emitir; a classificação desconhecida é corrigível). R3
+# e R4 têm código próprio (serializers.py/views.py e services.py).
+# ---------------------------------------------------------------------------
+
+
+def test_r1_reparentamento_de_conta_ativo_libera_a_dre_e_o_balanco(client, cenario):
+    """R1 (ALTA, reconferência): a guarda de reparentamento do A6(b)
+    (rodada 1) fechava a ÚNICA saída da pendência que a correção do A2
+    criou — uma conta ATIVO pendurada sob "receita bruta" (evento
+    puramente patrimonial) veta a DRE
+    (`contas_com_tipo_divergente_da_linha`) e, pela mesma razão, o
+    BALANÇO (DL-034, `contas_com_tipo_divergente_da_raiz`); reparentar
+    para uma raiz ATIVO (mesma natureza — BL-261 não impede) era
+    recusado porque a linha da DRE herdada mudava, deixando as duas
+    demonstrações inemitíveis (a DRE até o fim do exercício; o Balanço
+    sem prazo — regressão da DL-034). DE-086 removeu essa guarda: o
+    reparentamento passa, e as duas demonstrações voltam a emitir."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    raiz_ativo = _conta(empresa, "1.9", "Outro Ativo", TipoConta.ATIVO, NaturezaConta.DEVEDORA)
+    conta_ativo_sob_receita = _conta(
+        empresa,
+        "3.1.99",
+        "Transferência patrimonial",
+        TipoConta.ATIVO,
+        NaturezaConta.DEVEDORA,
+        conta_pai=cenario["receita_bruta"],
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 3, 10),
+        debito=conta_ativo_sob_receita,
+        credito=cenario["caixa"],
+        valor="300.00",
+        usuario=g,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r1")
+
+    # ANTES: a DRE de março veta pelo tipo divergente (A2 continua
+    # vetando — isso não muda com a DE-086).
+    resposta_antes = client.get(_url_dre(empresa.id, 2026, 3))
+    assert resposta_antes.status_code == 409, resposta_antes.content
+    pendentes_antes = resposta_antes.json()["listas_pendentes"]["coluna_mes"][
+        "contas_com_tipo_divergente_da_linha"
+    ]
+    assert any(item["conta"] == "3.1.99" for item in pendentes_antes)
+
+    # A CORREÇÃO: reparentar para uma raiz ATIVO é aceita (R1).
+    conta_ativo_sob_receita.conta_pai = raiz_ativo
+    conta_ativo_sob_receita.full_clean()  # não levanta (DE-086)
+    conta_ativo_sob_receita.save(update_fields=["conta_pai"])
+
+    # DEPOIS: a DRE de março volta a emitir.
+    resposta_depois = client.get(_url_dre(empresa.id, 2026, 3))
+    assert resposta_depois.status_code == 200, resposta_depois.content
+    assert resposta_depois.json()["pode_emitir"] is True
+
+    # E o Balanço de 31/03 também emite (regressão da DL-034 fechada) —
+    # classifica os dois ATIVOS envolvidos (primeira classificação,
+    # sempre livre mesmo com movimento — DL-033/HI-18) para isolar
+    # exatamente a pendência que o R1 endereça.
+    cenario["caixa"].classificacao_patrimonial = ClassificacaoPatrimonial.ATIVO_CIRCULANTE
+    cenario["caixa"].full_clean()
+    cenario["caixa"].save(update_fields=["classificacao_patrimonial"])
+    raiz_ativo.classificacao_patrimonial = ClassificacaoPatrimonial.ATIVO_CIRCULANTE
+    raiz_ativo.full_clean()
+    raiz_ativo.save(update_fields=["classificacao_patrimonial"])
+
+    balanco = apurar_balanco_patrimonial(empresa=empresa, data_base=date(2026, 3, 31))
+    assert balanco["emissao"]["pode_emitir"] is True, balanco["emissao"]
+
+
+def test_r2_classificacao_desconhecida_com_movimento_e_corrigida_pela_api(client, cenario):
+    """R2 (MÉDIA, reconferência): conta com movimento cuja
+    `classificacao_dre` foi gravada por ORM como um valor FORA de
+    `ClassificacaoDre.values` (só alcançável por fora do produto — dado
+    legado, ou uma linha renomeada/fundida no futuro) vetava a DRE
+    (`contas_com_classificacao_dre_desconhecida`) e, antes da DE-086,
+    não tinha correção possível: a guarda de transição tratava qualquer
+    valor GRAVADO truthy como "já classificada", e como o valor gravado
+    nunca bate com nenhuma linha válida, toda tentativa de corrigir era
+    recusada como reclassificação. DE-086 removeu essa guarda: a
+    classificação válida agora é aceita pela API (e pelo serviço, que a
+    API usa), mesmo com movimento."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    conta = Conta.objects.create(
+        empresa=empresa,
+        codigo="4.9",
+        nome="Despesa com linha antiga renomeada",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    Conta.objects.filter(pk=conta.pk).update(classificacao_dre="linha_antiga_renomeada")
+    _lancar(
+        empresa,
+        data=date(2026, 3, 5),
+        debito=conta,
+        credito=cenario["caixa"],
+        valor="40.00",
+        usuario=g,
+    )
+    conta.refresh_from_db()
+
+    dre_antes = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    assert avaliar_emissao_da_dre(dre_antes)["pode_emitir"] is False
+    desconhecidas_antes = dre_antes["coluna_mes"]["contas_com_classificacao_dre_desconhecida"]
+    assert any(item["conta"] == "4.9" for item in desconhecidas_antes)
+
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-r2")
+    resposta = client.patch(
+        _url_classificacao_dre(empresa.id, conta.id),
+        data={"classificacao_dre": ClassificacaoDre.OUTRAS_DESPESAS},
+        content_type="application/json",
+    )
+    assert resposta.status_code == 200, resposta.content
+    conta.refresh_from_db()
+    assert conta.classificacao_dre == ClassificacaoDre.OUTRAS_DESPESAS
+
+    dre_depois = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    assert avaliar_emissao_da_dre(dre_depois)["pode_emitir"] is True
+
+
+def test_r7_n03_classificacao_desconhecida_veta_pela_lista_certa(client, cenario):
+    """R7/N03 (reconferência): mata o mutante que move `contas_com_
+    classificacao_dre_desconhecida` para a partição "só avisa" — a
+    conta com valor gravado fora de `ClassificacaoDre.values`, com
+    movimento, tem que aparecer nessa lista dentro de `listas_
+    pendentes` (409), nunca em `listas_informativas`."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    conta = Conta.objects.create(
+        empresa=empresa,
+        codigo="4.91",
+        nome="Despesa com linha desconhecida",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    Conta.objects.filter(pk=conta.pk).update(classificacao_dre="linha_que_nao_existe")
+    _lancar(
+        empresa,
+        data=date(2026, 3, 5),
+        debito=conta,
+        credito=cenario["caixa"],
+        valor="40.00",
+        usuario=g,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-n03")
+
+    resposta = client.get(_url_dre(empresa.id, 2026, 3))
+
+    assert resposta.status_code == 409, resposta.content
+    corpo = resposta.json()
+    pendentes_do_mes = corpo["listas_pendentes"].get("coluna_mes", {})
+    pendentes = pendentes_do_mes.get("contas_com_classificacao_dre_desconhecida", [])
+    assert any(item["conta"] == "4.91" for item in pendentes), corpo["listas_pendentes"]
+    informativas_do_mes = corpo.get("listas_informativas", {}).get("coluna_mes", {})
+    assert "contas_com_classificacao_dre_desconhecida" not in informativas_do_mes
+    informativas_do_mes = corpo.get("listas_informativas", {}).get("coluna_mes", {})
+    assert "contas_com_classificacao_dre_desconhecida" not in informativas_do_mes
+
+
+@pytest.mark.parametrize(
+    ("corpo", "nome_do_caso"),
+    [
+        ({"classificacao_dre": {"a": 1}}, "valor-dict"),
+        ({"classificacao_dre": ["receita_bruta"]}, "valor-lista"),
+        (["x"], "corpo-lista"),
+    ],
+)
+def test_r3_patch_com_corpo_malformado_devolve_400_nunca_500(client, cenario, corpo, nome_do_caso):
+    """R3 (MÉDIA, reconferência): antes desta correção, os três corpos
+    abaixo devolviam 500 mudo — `request.data.get(...)` estourava
+    `AttributeError` quando o corpo TODO é uma lista
+    (`ContaClassificacaoDreView.patch`, views.py), e `Conta.clean()`
+    estourava `TypeError: unhashable type` quando o VALOR de
+    `classificacao_dre` é um dict ou uma lista
+    (`TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(valor)`, models.py).
+    `ClassificacaoDrePatchSerializer` (serializers.py) recusa os três
+    com 400, antes de qualquer gravação."""
+    empresa = cenario["empresa"]
+    conta = cenario["custo"]
+    valor_antes = conta.classificacao_dre
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, f"gestor-r3-{nome_do_caso}")
+
+    resposta = client.patch(
+        _url_classificacao_dre(empresa.id, conta.id),
+        data=corpo,
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, resposta.content
+    conta.refresh_from_db()
+    assert conta.classificacao_dre == valor_antes
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r4_corrida_na_classificacao_serializa_e_a_trilha_fica_coerente(monkeypatch):
+    """R4 (MÉDIA, reconferência): sem `select_for_update()`, duas
+    classificações concorrentes da MESMA conta liam o valor gravado sob
+    READ COMMITTED — a segunda gravação podia registrar, na trilha, um
+    "antes" que já não era o valor real no banco (a primeira já tinha
+    comitado outra coisa nesse meio-tempo). A correção trava a LINHA
+    antes de qualquer leitura: a segunda chamada BLOQUEIA até a primeira
+    comitar, e só então lê o valor JÁ ATUALIZADO — as duas gravações
+    serializam, e o "antes" de uma é sempre o "depois" da outra.
+
+    A barreira força a INTERCALAÇÃO determinística: a primeira thread a
+    chegar em `full_clean()` (já com a trava do serviço adquirida) para
+    e espera; a segunda thread só CONSEGUE chamar `full_clean()` depois
+    de adquirir a MESMA trava — o que só acontece depois que a primeira
+    comitar. Sem a trava (revertendo o R4), as duas leriam o mesmo valor
+    concorrentemente, e a segunda thread chegaria a `full_clean()` SEM
+    esperar a primeira — a asserção de coerência da trilha, no fim,
+    reprovaria."""
+    from apps.auditoria.models import RegistroAuditoria
+
+    escritorio, empresa = _nova_empresa("DL-045 Corrida R4", sufixo=96)
+    conta = Conta.objects.create(
+        empresa=empresa,
+        codigo="4.9",
+        nome="Despesa concorrida",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    caixa = Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    gestor = _usuario_com_papel(Papel.GESTOR, escritorio, "gestor-corrida-r4")
+    _lancar(
+        empresa, data=date(2026, 3, 10), debito=conta, credito=caixa, valor="100.00", usuario=gestor
+    )
+
+    primeira_travou = threading.Event()
+    pode_comitar_a_primeira = threading.Event()
+    original_full_clean = Conta.full_clean
+
+    def full_clean_com_barreira(self, *args, **kwargs):
+        resultado = original_full_clean(self, *args, **kwargs)
+        if not primeira_travou.is_set():
+            primeira_travou.set()
+            assert pode_comitar_a_primeira.wait(timeout=5), (
+                "a segunda thread não chegou a tempo — sem a trava do R4, ela "
+                "nem precisaria esperar."
+            )
+        return resultado
+
+    monkeypatch.setattr(Conta, "full_clean", full_clean_com_barreira)
+
+    def classificar(valor):
+        conta_local = Conta.objects.get(pk=conta.pk)
+        classificar_conta_na_dre(conta=conta_local, classificacao=valor, usuario=gestor)
+        connection.close()
+
+    t1 = threading.Thread(target=classificar, args=(ClassificacaoDre.CUSTO,))
+    t2 = threading.Thread(target=classificar, args=(ClassificacaoDre.DESPESAS_COM_VENDAS,))
+    t1.start()
+    assert primeira_travou.wait(timeout=5), "a primeira thread não chegou à barreira a tempo"
+    t2.start()
+    pode_comitar_a_primeira.set()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    assert not t1.is_alive()
+    assert not t2.is_alive()
+
+    conta.refresh_from_db()
+    assert conta.classificacao_dre in (ClassificacaoDre.CUSTO, ClassificacaoDre.DESPESAS_COM_VENDAS)
+
+    registros = list(
+        RegistroAuditoria.objects.filter(
+            acao="conta.classificacao_dre_alterada", objeto_id=str(conta.pk)
+        ).order_by("id")
+    )
+    assert len(registros) == 2
+    assert registros[0].detalhes["classificacao_dre_antes"] is None
+    assert (
+        registros[1].detalhes["classificacao_dre_antes"]
+        == registros[0].detalhes["classificacao_dre_depois"]
+    )
+    assert registros[1].detalhes["classificacao_dre_depois"] == conta.classificacao_dre
+
+
+# ---------------------------------------------------------------------------
+# R7 — casos de teste propostos pela reconferência que faltavam:
+# isolamento entre empresas (M27/M27b, N05, N12/T08 — os dois últimos
+# ficaram na seção do A7, acima), datas da lista de estornos (N06) e
+# conciliação com o Balancete sem zeramento (A10, promessa da DE-085
+# item 9 que a reconferência mediu como não cumprida).
+# ---------------------------------------------------------------------------
+
+
+def test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa(cenario):
+    """R7/M27/M27b (reconferência): mata os dois mutantes que tiram um
+    dos dois filtros de empresa de `_agregar_movimento_dre_por_conta`
+    (`conta__empresa=empresa` e `lancamento__empresa=empresa`). Um item
+    de LANÇAMENTO da empresa A, mas de uma CONTA da empresa B — dado
+    corrompido só alcançável por ORM direto (nunca por
+    `criar_lancamento`, que sempre grava conta e lançamento da MESMA
+    empresa; é o mesmo cenário do achado 10 da DL-015) — não pode
+    aparecer na DRE de B."""
+    from apps.contabilidade.models import ItemLancamento
+
+    empresa_a = cenario["empresa"]
+    g = cenario["gestor"]
+    _escritorio_b, empresa_b = _nova_empresa("DL-045 M27 Empresa B", sufixo=98)
+    receita_bruta_b = _conta(
+        empresa_b,
+        "3.1",
+        "Receita Bruta B",
+        TipoConta.RECEITA,
+        NaturezaConta.CREDORA,
+        ClassificacaoDre.RECEITA_BRUTA,
+    )
+
+    lancamento_a = _lancar(
+        empresa_a,
+        data=date(2026, 3, 10),
+        debito=cenario["caixa"],
+        credito=cenario["receita_bruta"],
+        valor="100.00",
+        usuario=g,
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento_a,
+        conta=receita_bruta_b,
+        tipo=TipoPartida.CREDITO,
+        valor=Decimal("7.00"),
+    )
+
+    dre_b = apurar_dre(empresa=empresa_b, ano=2026, mes=3)
+    assert dre_b["coluna_mes"]["linhas"][ClassificacaoDre.RECEITA_BRUTA] == Decimal("0.00")
+    assert dre_b["coluna_mes"]["total_creditos"] == Decimal("0.00")
+
+
+def test_r7_n05_estornos_de_zeramento_isolados_entre_empresas(cenario):
+    """R7/N05 (reconferência): mata o mutante que remove `empresa=
+    empresa` de `_estornos_de_zeramento_na_coluna` — sem o filtro, o
+    estorno do zeramento de UMA empresa apareceria na lista informativa
+    da DRE de OUTRA. Zeramento de janeiro e o estorno dele, em
+    fevereiro, na empresa B; a DRE de fevereiro da empresa A (que nunca
+    zerou nada) não pode listar esse estorno."""
+    empresa_a = cenario["empresa"]
+    escritorio_b, empresa_b = _nova_empresa("DL-045 N05 Empresa B", sufixo=97)
+    contas_b = _plano_de_contas_dre(empresa_b)
+    gestor_b = _usuario_com_papel(Papel.GESTOR, escritorio_b, "gestor-n05-b")
+    registrar_parametro_contabil(
+        empresa=empresa_b,
+        periodicidade_zeramento=PeriodicidadeZeramento.MENSAL,
+        conta_resultado_do_exercicio=contas_b["resultado"],
+        conta_lucros_acumulados=contas_b["lucros"],
+        conta_prejuizos_acumulados=contas_b["prejuizos"],
+        vigencia_inicio=date(2020, 1, 1),
+        usuario=gestor_b,
+    )
+    _lancar(
+        empresa_b,
+        data=date(2026, 1, 15),
+        debito=contas_b["caixa"],
+        credito=contas_b["receita_bruta"],
+        valor="900.00",
+        usuario=gestor_b,
+    )
+    zeramento_b = zerar_resultado(empresa=empresa_b, ano=2026, mes=1, usuario=gestor_b)
+    for lancamento_zeramento in filter(
+        None,
+        [zeramento_b.get("lancamento_etapa2")] + list(zeramento_b.get("lancamentos_etapa1") or []),
+    ):
+        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10))
+
+    dre_a_fevereiro = apurar_dre(empresa=empresa_a, ano=2026, mes=2)
+    assert dre_a_fevereiro["coluna_mes"]["estornos_de_zeramento_na_coluna"] == []
+
+
+def test_r7_n06_estorno_de_zeramento_de_fevereiro_nao_aparece_em_marco(cenario):
+    """R7/N06 (reconferência): mata o mutante que remove `data__gte`
+    (ou `data__lte`) de `_estornos_de_zeramento_na_coluna` — um estorno
+    datado em fevereiro não pode aparecer na coluna do MÊS de março."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    _lancar(
+        empresa,
+        data=date(2026, 1, 15),
+        debito=cenario["caixa"],
+        credito=cenario["receita_bruta"],
+        valor="1000.00",
+        usuario=g,
+    )
+    zeramento_janeiro = zerar_resultado(empresa=empresa, ano=2026, mes=1, usuario=g)
+    for lancamento_zeramento in filter(
+        None,
+        [zeramento_janeiro.get("lancamento_etapa2")]
+        + list(zeramento_janeiro.get("lancamentos_etapa1") or []),
+    ):
+        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10))
+
+    # O A3/test_a3 já confere que fevereiro LISTA o estorno; aqui, o
+    # ponto é o MÊS ERRADO não listar.
+    dre_marco = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    assert dre_marco["coluna_mes"]["estornos_de_zeramento_na_coluna"] == []
+
+
+def test_a10_totais_da_dre_conciliam_com_o_balancete_sem_zeramento(cenario):
+    """A10 (auditoria DL-045, rodada 1) — a promessa da DE-085, item 9,
+    que a reconferência (R7) mediu como NÃO CUMPRIDA: `total_debitos`/
+    `total_creditos` da coluna do mês têm que ser exatamente a soma dos
+    débitos/créditos PRÓPRIOS das contas de RECEITA/DESPESA no
+    Balancete do MESMO período, ANTES do zeramento — o zeramento lança
+    CONTRA essas contas para zerá-las, então incluí-lo dobraria a
+    conta. Apura o Balancete ANTES de chamar `zerar_resultado`, de
+    propósito: é a forma mais direta de comparar com "sem zeramento"."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    _lancar(
+        empresa,
+        data=date(2026, 3, 1),
+        debito=cenario["caixa"],
+        credito=cenario["receita_bruta"],
+        valor="1000.00",
+        usuario=g,
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 3, 31),
+        debito=cenario["despesas_vendas"],
+        credito=cenario["caixa"],
+        valor="400.00",
+        usuario=g,
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 3, 15),
+        debito=cenario["deducoes"],
+        credito=cenario["caixa"],
+        valor="50.00",
+        usuario=g,
+    )
+
+    balancete_antes_do_zeramento = contabilidade_services.apurar_balancete(
+        empresa=empresa, inicio=date(2026, 3, 1), fim=date(2026, 3, 31)
+    )
+    zero = Decimal("0")
+    soma_debitos_resultado = sum(
+        (
+            linha["debitos_proprios"]
+            for linha in balancete_antes_do_zeramento["contas"]
+            if linha["tipo"] in (TipoConta.RECEITA, TipoConta.DESPESA)
+        ),
+        zero,
+    )
+    soma_creditos_resultado = sum(
+        (
+            linha["creditos_proprios"]
+            for linha in balancete_antes_do_zeramento["contas"]
+            if linha["tipo"] in (TipoConta.RECEITA, TipoConta.DESPESA)
+        ),
+        zero,
+    )
+
+    zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=g)
+
+    dre_marco = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    assert dre_marco["coluna_mes"]["total_debitos"] == soma_debitos_resultado
+    assert dre_marco["coluna_mes"]["total_creditos"] == soma_creditos_resultado
+    # As duas somas não podem ser zero — senão a identidade seria trivial.
+    assert soma_debitos_resultado > zero
+    assert soma_creditos_resultado > zero
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r7_n13_migracao_0011_normaliza_dado_legado_com_string_vazia():
+    """R7/N13 (reconferência): mata o mutante que troca o `RunPython`
+    da migração 0011 por `pass` — sem ele, uma linha LEGADA com
+    `classificacao_dre=""` (gravada antes desta migração, ou por acesso
+    direto ao ORM) ficaria `""` para sempre, e a `CheckConstraint` da
+    MESMA migração recusaria a própria migração seguinte enquanto essa
+    linha existisse (a normalização tem que rodar ANTES da constraint,
+    na MESMA migração — por isso o `RunPython` vem primeiro em
+    `operations`)."""
+    from django.db import connection as db_connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    escritorio = Escritorio.objects.create(nome="Escritório N13", cnpj="50505050000150")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa N13 Ltda", cnpj="50505050000151"
+    )
+
+    alvo_anterior = [("contabilidade", "0010_dl045_conta_classificacao_dre")]
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("contabilidade")
+    try:
+        MigrationExecutor(db_connection).migrate(alvo_anterior)
+        apps_antigos = MigrationExecutor(db_connection).loader.project_state(alvo_anterior).apps
+        ContaAntes = apps_antigos.get_model("contabilidade", "Conta")
+        conta_legada = ContaAntes.objects.create(
+            empresa_id=empresa.id,
+            codigo="9.99",
+            nome="Legado com string vazia",
+            tipo="receita",
+            natureza="credora",
+            classificacao_dre="",
+        )
+        conta_id = conta_legada.pk
+    finally:
+        MigrationExecutor(db_connection).migrate(alvo_atual)
+
+    conta = Conta.objects.get(pk=conta_id)
+    assert conta.classificacao_dre is None

@@ -27,12 +27,12 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; at
 | --- | --- |
 | Plataforma | Escritórios isolados entre si, usuários, papéis, entrada pública, cadastro de novo escritório, primeiro acesso e convite |
 | Cadastro | Empresas e estabelecimentos, CNPJ alfanumérico, histórico de regime tributário, NIRE |
-| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043, a integrar pelo PR); **apuração da DRE pelo movimento do período**, mês e acumulado do exercício, só servidor/API (DL-045 fatias 1 e 2, a integrar pelo PR — sem tela ainda) |
+| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187, propriedade de apresentação — pode mudar com movimento, DE-086)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043, a integrar pelo PR); **apuração e tela da DRE** (mês e acumulado do exercício), servidor e formulário de classificação (DL-045 fatias 1 a 3, a integrar pelo PR) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | **Tela da DRE** (DL-045 fatia 3); compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
 **Verificação local em 25/09/2026** (PostgreSQL 16, Python 3.13.12, commit do
 merge do PR #46): `ruff check`, `ruff format --check`, `manage.py check`,
@@ -131,8 +131,22 @@ logo depois; DL-045 (DRE) em andamento.**
   ([relatório](../auditorias/2026-09-26-dl-045-rodada-1.md)) **reprovou** o
   servidor com quatro achados altos; corrigido conforme a DE-085 e juntado à
   tela. Dúvidas contábeis D1 a D6 decididas por delegação do Fred e
-  conferidas nos manuais (RC-121 a RC-126). Próximo: ajustes da tela e
-  reconferência única.
+  conferidas nos manuais (RC-121 a RC-126). A
+  [reconferência](../auditorias/2026-09-26-dl-045-reconferencia.md)
+  **reprovou de novo** (R1, ALTO: a guarda de reparentamento do A6 fechava a
+  única saída de uma pendência criada pela correção do A2, deixando a DRE e o
+  Balanço — DL-034 — inemitíveis sem SQL direto; mais seis achados médios e
+  cinco baixos). A [DE-086](../projeto/decisoes.md#de-086) reabriu o critério
+  de imutabilidade (AGENTS.md §3.1 — terceira rodada é critério errado): a
+  linha da DRE é propriedade de apresentação, pode mudar com movimento,
+  sempre com trilha. Correção do **servidor** (R1 a R4, R7, R11) feita pelo
+  `desenvolvedor-pleno`, com os 14 casos de teste propostos e os mutantes
+  sobreviventes (M27/M27b, N03, N05, N06, N12/T08, T05, e o mutante "guarda
+  de reparentamento religada") verificados manualmente — todos mortos.
+  Correção da **tela** (R5, R6, R8 a R10, R7 na tela) é do
+  `especialista-frontend`, em paralelo. **Sem nova rodada de auditoria**
+  (como na DL-043): o fechamento é por verificação independente dos dois
+  lados, e o Fred decide no PR.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em

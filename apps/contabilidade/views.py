@@ -20,7 +20,11 @@ from apps.contabilidade.models import (
     TipoPartida,
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
-from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
+from apps.contabilidade.serializers import (
+    ClassificacaoDrePatchSerializer,
+    ContaSerializer,
+    LancamentoContabilSerializer,
+)
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
     CompetenciaEncerrada,
@@ -1747,10 +1751,22 @@ class ContaClassificacaoDreView(EmpresaEscopadaContabilMixin, APIView):
 
     Corpo: `{"classificacao_dre": "<valor de ClassificacaoDre, ou null/""
     para remover>"}` — um campo só (`CONTRATO_PATCH_CLASSIFICACAO_DRE`).
-    Todas as guardas (compatibilidade de tipo; transição; A6) moram em
-    `Conta.clean()`, chamado por `classificar_conta_na_dre` via `full_
-    clean()` — esta view só traduz `django.core.exceptions.
-    ValidationError` para 400 do DRF, nunca duplica a regra.
+    A ÚNICA guarda que resta em `Conta.clean()` é a de compatibilidade
+    de TIPO (Lei 6.404/76, art. 187) — DE-086 (reconferência) removeu a
+    guarda de transição e as duas do A6 (rodada 1): a linha da DRE pode
+    mudar livremente com movimento, sempre com trilha (ver
+    `classificar_conta_na_dre`, services.py). Esta view não duplica
+    nenhuma regra de negócio — só traduz `django.core.exceptions.
+    ValidationError` para 400 do DRF.
+
+    R3 (auditoria DL-045, reconferência): o CORPO é validado por
+    `ClassificacaoDrePatchSerializer` (serializers.py) ANTES do serviço
+    — um corpo que não é dicionário, ou um valor de `classificacao_dre`
+    que não é `str`/`None`/`""` (dict, lista), devolve 400 aqui, nunca
+    500. Antes desta validação, `request.data.get(...)` estourava
+    `AttributeError` para corpo-lista, e `Conta.clean()` estourava
+    `TypeError: unhashable type` para valor dict/lista — os dois casos
+    vazavam como 500 mudo, sem nada gravado.
 
     200 com a conta serializada (`ContaSerializer`) quando aceito. 404
     quando a conta não existe NESTA empresa (isolamento — `Conta.objects
@@ -1764,7 +1780,13 @@ class ContaClassificacaoDreView(EmpresaEscopadaContabilMixin, APIView):
         conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
         _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DRE)
 
-        classificacao = request.data.get("classificacao_dre") or None
+        # R3: valida o TIPO do corpo e do valor ANTES de qualquer coisa
+        # que possa gravar ou estourar 500 — ver o docstring da classe e
+        # de `ClassificacaoDrePatchSerializer`.
+        entrada = ClassificacaoDrePatchSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        classificacao = entrada.validated_data.get("classificacao_dre") or None
+
         try:
             classificar_conta_na_dre(
                 conta=conta,
