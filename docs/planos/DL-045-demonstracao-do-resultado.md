@@ -120,13 +120,35 @@ Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
 - **Mapeamento linha → `TipoConta` esperado é inferência do desenvolvedor,
   reportada, não decidida como regra contábil nova** (o plano lista as
   linhas, mas não diz o `TipoConta` de cada uma — diferente da DL-033,
-  onde o art. 178 nomeia Ativo/Passivo linha a linha): `TIPO_DA_
-  CLASSIFICACAO_DRE` segue RC-61 (retificadora dentro do MESMO tipo/grupo)
-  — "deduções da receita" e "resultado de equivalência patrimonial" são
-  tipo RECEITA; as demais linhas de custo/despesa/provisão/participações
-  são tipo DESPESA. As atribuições mais discutíveis: "deduções da
-  receita" e "participações" — documentado no docstring de
-  `ClassificacaoDre` para o Fred confirmar.
+  onde o art. 178 nomeia Ativo/Passivo linha a linha): `TIPOS_ACEITOS_
+  DA_CLASSIFICACAO_DRE` segue RC-61 (retificadora dentro do MESMO
+  tipo/grupo) — "deduções da receita" é tipo RECEITA; as demais linhas de
+  custo/despesa/provisão/participações são tipo DESPESA.
+- **Decisão do arquiteto, 26/09/2026, revisando o mapeamento inicial:**
+  aceito como estava, com UMA correção — **"resultado de equivalência
+  patrimonial" pode ser GANHO ou PERDA**, então aceita conta de tipo
+  RECEITA **ou** DESPESA (a perda de equivalência costuma ficar
+  classificada no grupo de despesas). `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`
+  passou a mapear cada linha a uma TUPLA de tipos aceitos (a maioria com
+  um só elemento; só a MEP com dois). O sinal exibido não mudou: continua
+  vindo de `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE` (por LINHA, fixo, lado
+  CREDOR para a MEP) — uma conta de DESPESA classificada em MEP soma
+  NEGATIVO ao resultado automaticamente, sem `if` especial em lugar
+  nenhum. **Achado corrigido durante o ajuste**: o cálculo do resíduo por
+  tipo (`residuo_por_tipo`) somava a contribuição de CADA linha
+  classificada usando um `TipoConta` FIXO por linha (o "esperado" antigo)
+  — com a MEP aceitando dois tipos, isso jogava a contribuição de uma
+  conta de DESPESA classificada em MEP para o resíduo de RECEITA, e a
+  identidade nunca fechava em zero mesmo num plano coerente. Corrigido
+  atribuindo a contribuição ao `TipoConta` REAL da conta topo-classificada
+  (`soma_classificada_por_tipo`, em `_apurar_coluna_dre`), não a um tipo
+  fixo da linha — testado com mutação (ver tabela abaixo) e com o caso de
+  referência `test_criterio1j_ganho_e_perda_de_mep_no_mesmo_periodo_
+  liquido_correto` (ganho numa conta RECEITA + perda numa conta DESPESA,
+  mesma linha, líquido e resíduo corretos nos dois tipos). "Deduções da
+  receita" e "participações" seguem como estavam — atribuições ainda
+  discutíveis, documentadas no docstring de `ClassificacaoDre` para o
+  Fred confirmar.
 - **Achado durante a implementação, corrigido:** o sinal NATURAL de cada
   linha da DRE não é o mesmo que o sinal natural do `TipoConta` esperado
   — "deduções da receita" é tipo RECEITA (para a guarda de `clean()`
@@ -194,21 +216,31 @@ Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
   classificacao_dre_aninhada` e `contas_com_classificacao_dre_
   desconhecida` são informativas (nunca vetam) — mesma partição em duas
   tuplas de `avaliar_emissao_do_balanco` (DL-034/BL-502).
-- **Só a coluna do MÊS decide o veto** — decisão do desenvolvedor,
-  registrada aqui para o arquiteto confirmar: a coluna do acumulado soma
-  meses já fechados, e vetar o mês atual por uma pendência de um mês
-  passado (que ninguém vai mais corrigir retroativamente) tornaria a DRE
-  inemitível para sempre. A pendência do acumulado, se houver, aparece na
-  resposta, só não veta.
+- **AS DUAS COLUNAS VETAM** — decisão do arquiteto, 26/09/2026, revendo a
+  primeira versão (que só olhava o mês): a DRE formal imprime a coluna do
+  ACUMULADO, e uma pendência só nela também deixa um número impresso
+  errado. O argumento anterior ("vetar o mês atual por uma pendência de
+  um mês já fechado tornaria a DRE inemitível para sempre") não se
+  sustenta — a PRIMEIRA classificação de uma conta é livre mesmo com
+  movimento (guarda de transição), então corrigir a pendência é sempre
+  possível, sem reabrir nada. `avaliar_emissao_da_dre` passou a percorrer
+  as DUAS colunas; `residuo_pendente`/`listas_pendentes`/`listas_
+  informativas` agora são agrupados por coluna (`"coluna_mes"`/`"coluna_
+  acumulado"`, só a que tem algo a reportar aparece), para o cliente
+  saber DE ONDE vem cada pendência. Teste novo:
+  `test_criterio6b_pendencia_so_no_acumulado_tambem_veta_e_indica_a_coluna`
+  (conta usada em janeiro sem classificação, DRE de março: sem pendência
+  no mês, mas o acumulado de jan-mar a inclui — 409, pendência só sob
+  `"coluna_acumulado"`).
 - **Endpoint de leitura** (`DreView`, GET
   `empresas/<empresa_id>/dre/<ano>/<mes>/`, rota `contabilidade:dre`):
   `PodeLerContabilidade`, a MESMA autorização das outras saídas contábeis
   com período (Diário, Razão, Balancete) — nunca `PodeFecharCompetencia`.
-  200 quando `pode_emitir`; 409 (com as pendências) quando não; 409
-  também para `HierarquiaInconsistente` (mesmo padrão do Balancete/Razão).
-  Isolamento herdado de `EmpresaEscopadaContabilMixin` (404 entre
-  escritórios) — inclusive a recusa automática para empresa em modo
-  livro-caixa (`get_empresa()` já chama `recusar_se_livro_caixa` para
+  200 quando `pode_emitir`; 409 (com as pendências, agrupadas por coluna)
+  quando não; 409 também para `HierarquiaInconsistente` (mesmo padrão do
+  Balancete/Razão). Isolamento herdado de `EmpresaEscopadaContabilMixin`
+  (404 entre escritórios) — inclusive a recusa automática para empresa em
+  modo livro-caixa (`get_empresa()` já chama `recusar_se_livro_caixa` para
   TODA view que usa esta mixin; nenhum código novo precisou disso).
 - Conciliação (critério 4) testada e batendo: lucro líquido da DRE do mês
   = valor que a etapa 2 do zeramento (DL-043) do MESMO período transfere,
@@ -217,14 +249,18 @@ Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
 
 ### Testes e mutação
 
-28 testes novos em `apps/contabilidade/tests/test_dl045_dre.py`. Mutação
-aplicada e revertida nos três pontos críticos pedidos:
+32 testes em `apps/contabilidade/tests/test_dl045_dre.py` (28 da entrega
+inicial + 4 do ajuste de 26/09/2026: `test_criterio1h`/`test_criterio1i`/
+`test_criterio1j` para a MEP RECEITA-ou-DESPESA, `test_criterio6b` para o
+veto pelas duas colunas). Mutação aplicada e revertida nos três pontos
+críticos pedidos, mais um ponto novo do ajuste:
 
 | Ponto crítico | Mutação aplicada | Teste que mata |
 | --- | --- | --- |
 | Filtro de zeramento | Remover `.exclude(...istartswith="zeramento:")` | `test_criterio3_dre_de_mes_zerado_e_igual_a_antes_do_zeramento` |
 | Sinal da retificadora | Usar `conta.natureza` (cadastrada) em vez de `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE` (fixo por linha) | `test_sinal_da_linha_usa_a_natureza_natural_da_linha_nunca_a_da_conta` |
 | Coluna acumulada | `data_inicio_exercicio = data_inicio_mes` (acumulado vira igual ao mês) | `test_criterio5_acumulado_e_a_soma_dos_meses` |
+| Atribuição do resíduo por tipo (MEP) | Atribuir a contribuição de CADA linha a um `TipoConta` FIXO (o antigo "esperado"), em vez do `conta.tipo` REAL da conta topo-classificada | `test_criterio1j_ganho_e_perda_de_mep_no_mesmo_periodo_liquido_correto` |
 
 Um teste novo (`test_sinal_da_linha_usa_a_natureza_natural_da_linha_
 nunca_a_da_conta`) foi escrito depois de o mutante "sinal da retificadora"
@@ -236,7 +272,9 @@ receita" numa conta com natureza CADASTRADA atípica (CREDORA, quando o
 natural é DEVEDORA) para separar as duas perguntas.
 
 Migração `contabilidade/0010_dl045_conta_classificacao_dre.py` — só
-`AddField`, sem dado de migração (toda conta nasce sem classificação).
+`AddField`, sem dado de migração (toda conta nasce sem classificação); sem
+migração nova no ajuste de 26/09/2026 (só lógica de validação/apuração,
+nenhum campo de modelo mudou).
 
 ## Hipóteses e pendências
 

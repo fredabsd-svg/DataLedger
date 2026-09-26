@@ -396,12 +396,18 @@ class ClassificacaoDre(models.TextChoices):
     acumulada" dentro do Ativo, natureza oposta) mapeei "deduções da
     receita" como tipo RECEITA (retificadora da receita bruta) e todas
     as linhas de custo/despesa/provisão/participações como tipo DESPESA
-    — ver `TIPO_DA_CLASSIFICACAO_DRE`, abaixo. **As atribuições mais
-    discutíveis são "deduções da receita" (RECEITA), "resultado de
-    equivalência patrimonial" (RECEITA — pode ser negativo, natureza
-    retificadora, mas o valor típico é ganho) e "participações"
-    (DESPESA)** — se o Fred indicar outra convenção, é só trocar o valor
-    no dict, nada mais depende da escolha em si.
+    — ver `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`, abaixo. **Decisão do
+    arquiteto, 26/09/2026, revisando a inferência inicial**: mapeamento
+    aceito como estava, com UMA correção — "resultado de equivalência
+    patrimonial" pode ser GANHO ou PERDA, então aceita conta de tipo
+    RECEITA **ou** DESPESA (a perda de equivalência costuma ficar
+    classificada no grupo de despesas). O sinal exibido não muda com
+    isso: continua seguindo a natureza NATURAL da LINHA (credora, ver
+    `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`), então uma conta de DESPESA
+    classificada nesta linha soma NEGATIVO ao resultado de equivalência.
+    "Deduções da receita" (RECEITA) e "participações" (DESPESA) seguem
+    como estavam — se o Fred indicar outra convenção para elas, é só
+    trocar o valor no dict, nada mais depende da escolha em si.
     """
 
     RECEITA_BRUTA = "receita_bruta", "Receita bruta de vendas e serviços"
@@ -432,24 +438,34 @@ class ClassificacaoDre(models.TextChoices):
 
 
 # Fonte ÚNICA (mesmo padrão de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL`, DE-056)
-# de qual `TipoConta` cada `ClassificacaoDre` espera — usada pela guarda de
-# `Conta.clean()` abaixo e pela apuração da DRE (services.py) para o cálculo
-# do resíduo por tipo. Ver a ressalva sobre inferência no docstring de
-# `ClassificacaoDre`, acima.
-TIPO_DA_CLASSIFICACAO_DRE = {
-    ClassificacaoDre.RECEITA_BRUTA: TipoConta.RECEITA,
-    ClassificacaoDre.DEDUCOES_DA_RECEITA: TipoConta.RECEITA,
-    ClassificacaoDre.CUSTO: TipoConta.DESPESA,
-    ClassificacaoDre.DESPESAS_COM_VENDAS: TipoConta.DESPESA,
-    ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS: TipoConta.DESPESA,
-    ClassificacaoDre.OUTRAS_RECEITAS: TipoConta.RECEITA,
-    ClassificacaoDre.OUTRAS_DESPESAS: TipoConta.DESPESA,
-    ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS: TipoConta.DESPESA,
-    ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL: TipoConta.RECEITA,
-    ClassificacaoDre.RECEITAS_FINANCEIRAS: TipoConta.RECEITA,
-    ClassificacaoDre.DESPESAS_FINANCEIRAS: TipoConta.DESPESA,
-    ClassificacaoDre.PROVISAO_IRPJ_CSLL: TipoConta.DESPESA,
-    ClassificacaoDre.PARTICIPACOES: TipoConta.DESPESA,
+# de quais `TipoConta` cada `ClassificacaoDre` aceita — usada pela guarda de
+# `Conta.clean()` abaixo, pelo serializer e pela apuração da DRE
+# (services.py) para o cálculo do resíduo por tipo. Ver a ressalva sobre
+# inferência no docstring de `ClassificacaoDre`, acima.
+#
+# Um TUPLE, não um valor único: TODA linha aceita hoje exatamente UM
+# `TipoConta`, EXCETO "resultado de equivalência patrimonial" — decisão do
+# arquiteto de 26/09/2026 — que aceita RECEITA (ganho) OU DESPESA (perda),
+# porque a perda de equivalência costuma ser classificada no grupo de
+# despesas. O sinal exibido continua vindo de
+# `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE` (por LINHA, fixo), nunca do
+# `TipoConta` da conta — por isso aceitar dois tipos aqui não muda o sinal:
+# uma conta de DESPESA classificada em MEP soma NEGATIVO ao resultado de
+# equivalência, automaticamente (não é um `if` especial em lugar nenhum).
+TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE = {
+    ClassificacaoDre.RECEITA_BRUTA: (TipoConta.RECEITA,),
+    ClassificacaoDre.DEDUCOES_DA_RECEITA: (TipoConta.RECEITA,),
+    ClassificacaoDre.CUSTO: (TipoConta.DESPESA,),
+    ClassificacaoDre.DESPESAS_COM_VENDAS: (TipoConta.DESPESA,),
+    ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS: (TipoConta.DESPESA,),
+    ClassificacaoDre.OUTRAS_RECEITAS: (TipoConta.RECEITA,),
+    ClassificacaoDre.OUTRAS_DESPESAS: (TipoConta.DESPESA,),
+    ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS: (TipoConta.DESPESA,),
+    ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL: (TipoConta.RECEITA, TipoConta.DESPESA),
+    ClassificacaoDre.RECEITAS_FINANCEIRAS: (TipoConta.RECEITA,),
+    ClassificacaoDre.DESPESAS_FINANCEIRAS: (TipoConta.DESPESA,),
+    ClassificacaoDre.PROVISAO_IRPJ_CSLL: (TipoConta.DESPESA,),
+    ClassificacaoDre.PARTICIPACOES: (TipoConta.DESPESA,),
 }
 
 
@@ -472,7 +488,7 @@ NATUREZA_NATURAL_DO_TIPO_DRE = {
 
 
 # Natureza NATURAL de cada LINHA da DRE — PER-LINHA, não derivada de
-# `TIPO_DA_CLASSIFICACAO_DRE`/`NATUREZA_NATURAL_DO_TIPO_DRE` (achado
+# `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`/`NATUREZA_NATURAL_DO_TIPO_DRE` (achado
 # encontrado escrevendo o teste do critério 2d desta etapa): "deduções da
 # receita" precisa ser tipo RECEITA para a guarda de `Conta.clean()`
 # aceitar (retificadora DENTRO do grupo receita, RC-61 — nunca uma despesa
@@ -699,16 +715,21 @@ class Conta(models.Model):
         # Patrimônio Líquido) com `classificacao_dre` é recusada. MESMO
         # padrão da guarda de `classificacao_patrimonial` acima: `.get(...)`
         # com `None` para um valor gravado fora de `ClassificacaoDre` (só
-        # por ORM/SQL direto) não estourar `KeyError`.
+        # por ORM/SQL direto) não estourar `KeyError`. A maioria das linhas
+        # aceita um ÚNICO `TipoConta`; "resultado de equivalência
+        # patrimonial" aceita RECEITA ou DESPESA (decisão do arquiteto,
+        # 26/09/2026 — ver `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`).
         if self.classificacao_dre:
-            tipo_esperado_dre = TIPO_DA_CLASSIFICACAO_DRE.get(self.classificacao_dre)
-            if tipo_esperado_dre is not None and self.tipo != tipo_esperado_dre:
+            tipos_aceitos_dre = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(self.classificacao_dre)
+            if tipos_aceitos_dre is not None and self.tipo not in tipos_aceitos_dre:
                 rotulo_classificacao_dre = ClassificacaoDre(self.classificacao_dre).label
-                rotulo_tipo_esperado_dre = TipoConta(tipo_esperado_dre).label
+                rotulos_tipos_aceitos_dre = " ou ".join(
+                    TipoConta(tipo).label for tipo in tipos_aceitos_dre
+                )
                 raise ValidationError(
                     f'A linha da DRE "{rotulo_classificacao_dre}" não é compatível com o '
                     f"tipo desta conta: só se aplica a contas de tipo "
-                    f"{rotulo_tipo_esperado_dre} (Lei 6.404/76, art. 187)."
+                    f"{rotulos_tipos_aceitos_dre} (Lei 6.404/76, art. 187)."
                 )
 
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):

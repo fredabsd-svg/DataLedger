@@ -16,7 +16,6 @@ from apps.contabilidade.models import (
     NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE,
     NATUREZA_NATURAL_DO_TIPO,
     NATUREZA_NATURAL_DO_TIPO_DRE,
-    TIPO_DA_CLASSIFICACAO_DRE,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     ClassificacaoDre,
     ClassificacaoPatrimonial,
@@ -4614,8 +4613,8 @@ _LINHAS_DO_RESULTADO_FINANCEIRO = (
 def _somar_linhas_com_sinal(linhas_de_classificacao, totais_por_classificacao):
     """Soma um grupo de linhas da DRE aplicando o sinal pelo lado NATURAL
     de cada LINHA (`NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`, nunca um `if`
-    manual por linha, e nunca `TIPO_DA_CLASSIFICACAO_DRE` — que decide
-    compatibilidade com `Conta.tipo`, uma pergunta DIFERENTE da do sinal
+    manual por linha, e nunca `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE` — que
+    decide compatibilidade com `Conta.tipo`, uma pergunta DIFERENTE da do sinal
     natural: "deduções da receita" é tipo RECEITA mas lado natural
     DEVEDOR, ver o docstring do dict em models.py): CREDORA soma, DEVEDORA
     subtrai. Cada linha já chega aqui como uma MAGNITUDE positiva no seu
@@ -4692,6 +4691,18 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
     # desse nó ficaria invisível para "o que falta classificar").
     contas_nao_folha_sem_classificacao_dre_com_movimento_proprio = []
 
+    # Soma classificada, mas atribuída ao `TipoConta` REAL da conta
+    # topo-classificada (não ao tipo "esperado" da linha) — necessário
+    # desde que "resultado de equivalência patrimonial" passou a aceitar
+    # RECEITA (ganho) OU DESPESA (perda) na mesma linha (decisão do
+    # arquiteto, 26/09/2026): duas contas MEP, uma de cada tipo, TÊM que
+    # cair no resíduo de tipos DIFERENTES, senão a identidade do resíduo
+    # (abaixo) nunca fecha em zero mesmo num plano coerente. Para as
+    # outras doze linhas, `Conta.tipo` já É o único tipo aceito (guarda
+    # de `clean()`/serializer), então o resultado é idêntico ao de
+    # filtrar por `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`.
+    soma_classificada_por_tipo = {TipoConta.RECEITA: zero, TipoConta.DESPESA: zero}
+
     for conta in contas:
         propria = conta.classificacao_dre
         ancestral = classificacao_dre_ancestral_de(conta.id)
@@ -4719,9 +4730,15 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
                 # separado.
                 natureza_natural = NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE.get(propria)
                 if natureza_natural is not None:
-                    totais_por_classificacao[propria] += _saldo_por_natureza(
+                    valor = _saldo_por_natureza(
                         consolidado["debito"], consolidado["credito"], natureza_natural
                     )
+                    totais_por_classificacao[propria] += valor
+                    if conta.tipo in soma_classificada_por_tipo:
+                        natureza_do_tipo = NATUREZA_NATURAL_DO_TIPO_DRE[conta.tipo]
+                        soma_classificada_por_tipo[conta.tipo] += (
+                            valor if natureza_natural == natureza_do_tipo else -valor
+                        )
             continue
 
         # Sem classificação própria: só interessa às listas de pendência
@@ -4761,29 +4778,17 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
             totais_por_tipo_bruto[conta.tipo] += _saldo_por_natureza(
                 consolidado["debito"], consolidado["credito"], natureza_natural
             )
-    residuo_por_tipo = {}
-    for tipo in (TipoConta.RECEITA, TipoConta.DESPESA):
-        natureza_do_tipo = NATUREZA_NATURAL_DO_TIPO_DRE[tipo]
-        # Converte cada linha classificada de VOLTA para o lado natural do
-        # TIPO (não da linha) antes de somar — necessário porque
-        # "deduções da receita" guarda sua magnitude no lado DEVEDOR
-        # (`NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`), enquanto o total por
-        # TIPO (`totais_por_tipo_bruto`, acima) está no lado CREDOR
-        # (`NATUREZA_NATURAL_DO_TIPO_DRE[RECEITA]`) — sem esta conversão,
-        # a identidade do resíduo compararia duas convenções de sinal
-        # diferentes e nunca fecharia em zero, mesmo num plano de contas
-        # coerente.
-        soma_classificado = sum(
-            (
-                valor
-                if NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE[classificacao] == natureza_do_tipo
-                else -valor
-                for classificacao, valor in totais_por_classificacao.items()
-                if TIPO_DA_CLASSIFICACAO_DRE.get(classificacao) == tipo
-            ),
-            zero,
-        )
-        residuo_por_tipo[tipo] = totais_por_tipo_bruto[tipo] - soma_classificado
+    # `soma_classificada_por_tipo` já converteu cada linha para o lado
+    # natural do TIPO REAL da conta contribuinte (não um tipo "esperado"
+    # fixo por linha — ver o comentário onde o dict é populado, acima):
+    # necessário desde que "resultado de equivalência patrimonial" aceita
+    # RECEITA ou DESPESA na mesma linha. Sem essa conversão por conta, a
+    # identidade do resíduo compararia duas convenções de sinal diferentes
+    # e nunca fecharia em zero, mesmo num plano de contas coerente.
+    residuo_por_tipo = {
+        tipo: totais_por_tipo_bruto[tipo] - soma_classificada_por_tipo[tipo]
+        for tipo in (TipoConta.RECEITA, TipoConta.DESPESA)
+    }
 
     receita_liquida = (
         totais_por_classificacao[ClassificacaoDre.RECEITA_BRUTA]
@@ -4921,38 +4926,61 @@ _LISTAS_DA_DRE_QUE_SO_AVISAM = (
 def avaliar_emissao_da_dre(dre):
     """Decide, no SERVIDOR, se a DRE pode ser devolvida/emitida — mesmo
     padrão de `avaliar_emissao_do_balanco` (DL-034, critério 1): a
-    condição de veto é a CONJUNÇÃO do resíduo zero (nos dois tipos, na
-    coluna do MÊS) com a lista de pendência de classificação vazia
-    (também na coluna do MÊS — critério 6 do plano: "conta de resultado
-    analítica com movimento no período sem classificação").
+    condição de veto é a CONJUNÇÃO do resíduo zero (nos dois tipos) com a
+    lista de pendência de classificação vazia (critério 6 do plano:
+    "conta de resultado analítica com movimento no período sem
+    classificação") — verificada nas DUAS colunas.
 
-    ⚠️ **Só a coluna do MÊS decide o veto.** A coluna do ACUMULADO soma
-    meses já fechados; se um mês anterior ficou com pendência que
-    ninguém mais vai resolver retroativamente (o cadastro mudou depois),
-    vetar o mês ATUAL por causa de um mês passado tornaria a DRE
-    inemitível para sempre. A pendência do acumulado, se houver, ainda
-    aparece na resposta (nunca escondida) — só não veta.
+    **AS DUAS COLUNAS VETAM** (decisão do arquiteto, 26/09/2026, revendo
+    a primeira versão desta função — que só olhava o mês): a DRE formal
+    imprime a coluna do ACUMULADO, então uma pendência só nela também
+    deixa um número impresso errado. O argumento anterior ("vetar o mês
+    atual por causa de um mês já fechado tornaria a DRE inemitível para
+    sempre") não se sustenta: a PRIMEIRA classificação de uma conta é
+    livre mesmo com movimento (guarda de transição em `Conta.clean()`) —
+    corrigir a pendência é sempre possível, sem reabrir nada.
 
-    Retorna `{"pode_emitir": bool, "residuo_pendente": {...}, "listas_
-    pendentes": {...}, "listas_informativas": {...}}` — mesmo contrato de
-    `avaliar_emissao_do_balanco`.
+    Cada pendência (resíduo ou lista) fica marcada com a coluna de onde
+    veio (`"coluna_mes"`/`"coluna_acumulado"`) — uma pendência só no
+    acumulado (ex.: conta usada em janeiro, sem classificação, na DRE de
+    março) aparece só sob `"coluna_acumulado"`, mas AINDA assim veta
+    (`pode_emitir=False`).
+
+    Retorna `{"pode_emitir": bool, "residuo_pendente": {"coluna_mes":
+    {...}, "coluna_acumulado": {...}}, "listas_pendentes": {"coluna_mes":
+    {...}, "coluna_acumulado": {...}}, "listas_informativas": {...}}` —
+    cada um dos três dicts só tem a chave da coluna que TEM algo a
+    reportar (dict vazio quando nenhuma coluna tem).
     """
     zero = Decimal("0")
-    coluna = dre["coluna_mes"]
-    residuo_pendente = {
-        tipo: valor for tipo, valor in coluna["residuo_por_tipo"].items() if valor != zero
-    }
-    listas_pendentes = {
-        nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO if coluna[nome]
-    }
-    listas_informativas = {
-        nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_SO_AVISAM if coluna[nome]
-    }
+    residuo_pendente_por_coluna = {}
+    listas_pendentes_por_coluna = {}
+    listas_informativas_por_coluna = {}
+    pode_emitir = True
+
+    for nome_coluna in ("coluna_mes", "coluna_acumulado"):
+        coluna = dre[nome_coluna]
+        residuo = {
+            tipo: valor for tipo, valor in coluna["residuo_por_tipo"].items() if valor != zero
+        }
+        pendentes = {
+            nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO if coluna[nome]
+        }
+        informativas = {nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_SO_AVISAM if coluna[nome]}
+        if residuo:
+            residuo_pendente_por_coluna[nome_coluna] = residuo
+        if pendentes:
+            listas_pendentes_por_coluna[nome_coluna] = pendentes
+        if informativas:
+            listas_informativas_por_coluna[nome_coluna] = informativas
+        if residuo or pendentes:
+            pode_emitir = False
+
     return {
-        "pode_emitir": not residuo_pendente and not listas_pendentes,
-        "residuo_pendente": residuo_pendente,
-        "listas_pendentes": listas_pendentes,
-        "listas_informativas": listas_informativas,
+        "pode_emitir": pode_emitir,
+        "residuo_pendente": residuo_pendente_por_coluna,
+        "listas_pendentes": listas_pendentes_por_coluna,
+        "listas_informativas": listas_informativas_por_coluna,
     }
 
 

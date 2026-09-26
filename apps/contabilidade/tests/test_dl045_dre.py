@@ -405,6 +405,86 @@ def test_criterio1g_classificacao_aninhada_e_declarada_nunca_somada_em_dobro(cen
     assert filha_classificada.codigo in aninhadas
 
 
+def test_criterio1h_equivalencia_patrimonial_aceita_conta_de_despesa(cenario):
+    """Decisão do arquiteto, 26/09/2026: "resultado de equivalência
+    patrimonial" pode ser ganho OU perda — aceita conta de tipo DESPESA
+    (a perda de equivalência costuma ficar no grupo de despesas), ao
+    lado da conta de tipo RECEITA que já existia (`cenario["equivalencia"]`)."""
+    conta_despesa_mep = Conta.objects.create(
+        empresa=cenario["empresa"],
+        codigo="4.9",
+        nome="Perda de Equivalência Patrimonial",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    conta_despesa_mep.classificacao_dre = ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL
+    conta_despesa_mep.full_clean()  # não levanta
+
+
+def test_criterio1i_equivalencia_patrimonial_recusa_conta_patrimonial(cenario):
+    """A flexibilidade RECEITA/DESPESA da MEP não abre a linha para conta
+    PATRIMONIAL — continua só RECEITA ou DESPESA (Lei 6.404/76, art. 187)."""
+    caixa = cenario["caixa"]
+    caixa.classificacao_dre = ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL
+    with pytest.raises(ValidationError, match="não é compatível com o"):
+        caixa.full_clean()
+
+
+def test_criterio1j_ganho_e_perda_de_mep_no_mesmo_periodo_liquido_correto(cenario):
+    """Uma conta RECEITA (ganho) e uma conta DESPESA (perda), as DUAS
+    classificadas em "resultado de equivalência patrimonial" — o total da
+    linha é o LÍQUIDO (ganho − perda), pelo lado natural CREDOR da linha
+    (`NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`), e o resíduo por tipo fecha
+    em zero nos dois tipos (RECEITA e DESPESA) — prova de que cada conta
+    contribui para o resíduo do seu PRÓPRIO tipo, não de um tipo fixo da
+    linha (o achado que motivou `soma_classificada_por_tipo`)."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    ganho_mep = cenario["equivalencia"]  # tipo RECEITA, já no plano
+    perda_mep = Conta.objects.create(
+        empresa=empresa,
+        codigo="4.9",
+        nome="Perda de Equivalência Patrimonial",
+        tipo=TipoConta.DESPESA,
+        natureza=NaturezaConta.DEVEDORA,
+        classificacao_dre=ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL,
+    )
+    # Ganho de MEP: crédito na conta de ganho (natureza CREDORA, tipo
+    # RECEITA) contra o Caixa.
+    _lancar(
+        empresa,
+        data=date(2026, 3, 5),
+        debito=cenario["caixa"],
+        credito=ganho_mep,
+        valor="900.00",
+        usuario=g,
+    )
+    # Perda de MEP: débito na conta de perda (natureza DEVEDORA, tipo
+    # DESPESA) contra o Caixa.
+    _lancar(
+        empresa,
+        data=date(2026, 3, 6),
+        debito=perda_mep,
+        credito=cenario["caixa"],
+        valor="350.00",
+        usuario=g,
+    )
+
+    dre = apurar_dre(empresa=empresa, ano=2026, mes=3)
+    coluna = dre["coluna_mes"]
+
+    # Líquido: 900,00 (ganho) − 350,00 (perda) = 550,00, no lado CREDOR
+    # (natural da linha).
+    assert coluna["linhas"][ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL] == Decimal(
+        "550.00"
+    )
+    # Resíduo fecha em zero nos DOIS tipos — cada conta contribuiu para o
+    # resíduo do seu PRÓPRIO tipo (RECEITA para o ganho, DESPESA para a
+    # perda), não os dois empilhados no tipo "esperado" da linha.
+    assert coluna["residuo_por_tipo"][TipoConta.RECEITA] == Decimal("0.00")
+    assert coluna["residuo_por_tipo"][TipoConta.DESPESA] == Decimal("0.00")
+
+
 # ---------------------------------------------------------------------------
 # Critério 2 — casos de referência calculados à MÃO.
 # ---------------------------------------------------------------------------
@@ -977,8 +1057,57 @@ def test_criterio6_pendencia_de_classificacao_recusa_a_dre_via_api(client, cenar
     assert resposta.status_code == 409, resposta.content
     corpo = resposta.json()
     assert corpo["pode_emitir"] is False
-    pendentes = corpo["listas_pendentes"]["contas_sem_classificacao_dre_com_movimento"]
+    pendentes = corpo["listas_pendentes"]["coluna_mes"][
+        "contas_sem_classificacao_dre_com_movimento"
+    ]
     assert any(item["conta"] == "3.7" for item in pendentes)
+
+
+def test_criterio6b_pendencia_so_no_acumulado_tambem_veta_e_indica_a_coluna(client, cenario):
+    """Decisão do arquiteto, 26/09/2026: as DUAS colunas vetam, cada uma
+    marcada com o nome de onde vem. Conta usada em janeiro (sem
+    classificação) não aparece no MÊS de março (sem movimento em março),
+    mas aparece no ACUMULADO do exercício até março (que inclui janeiro)
+    — e isso já é suficiente para vetar a DRE de março inteira."""
+    empresa = cenario["empresa"]
+    g = cenario["gestor"]
+    conta_sem_classificacao = Conta.objects.create(
+        empresa=empresa,
+        codigo="3.8",
+        nome="Receita de janeiro esquecida",
+        tipo=TipoConta.RECEITA,
+        natureza=NaturezaConta.CREDORA,
+    )
+    _lancar(
+        empresa,
+        data=date(2026, 1, 15),
+        debito=cenario["caixa"],
+        credito=conta_sem_classificacao,
+        valor="300.00",
+        usuario=g,
+    )
+    # Março tem movimento normal, classificado — sem pendência PRÓPRIA do
+    # mês de março.
+    _lancar(
+        empresa,
+        data=date(2026, 3, 10),
+        debito=cenario["caixa"],
+        credito=cenario["receita_bruta"],
+        valor="500.00",
+        usuario=g,
+    )
+    _autenticar(client, cenario["escritorio"], Papel.GESTOR, "gestor-criterio6b")
+
+    resposta = client.get(_url_dre(empresa.id, 2026, 3))
+
+    assert resposta.status_code == 409, resposta.content
+    corpo = resposta.json()
+    assert corpo["pode_emitir"] is False
+    assert "coluna_mes" not in corpo["listas_pendentes"], corpo["listas_pendentes"]
+    pendentes_acumulado = corpo["listas_pendentes"]["coluna_acumulado"][
+        "contas_sem_classificacao_dre_com_movimento"
+    ]
+    assert any(item["conta"] == "3.8" for item in pendentes_acumulado)
 
 
 def test_dre_sem_pendencia_e_200(client, cenario):

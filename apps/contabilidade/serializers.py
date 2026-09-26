@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.contabilidade.models import (
-    TIPO_DA_CLASSIFICACAO_DRE,
+    TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
     ClassificacaoDre,
     Conta,
     ItemLancamento,
@@ -86,16 +86,16 @@ class ContaSerializer(serializers.ModelSerializer):
         if tipo is None and self.instance is not None:
             tipo = self.instance.tipo
 
-        tipo_esperado = TIPO_DA_CLASSIFICACAO_DRE.get(classificacao)
-        if tipo_esperado is not None and tipo != tipo_esperado:
+        tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(classificacao)
+        if tipos_aceitos is not None and tipo not in tipos_aceitos:
             rotulo_classificacao = ClassificacaoDre(classificacao).label
-            rotulo_tipo_esperado = TipoConta(tipo_esperado).label
+            rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
             raise serializers.ValidationError(
                 {
                     "classificacao_dre": (
                         f'A linha da DRE "{rotulo_classificacao}" não é compatível com o '
                         f"tipo desta conta: só se aplica a contas de tipo "
-                        f"{rotulo_tipo_esperado} (Lei 6.404/76, art. 187)."
+                        f"{rotulos_tipos_aceitos} (Lei 6.404/76, art. 187)."
                     )
                 }
             )

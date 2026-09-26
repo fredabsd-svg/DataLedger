@@ -1606,6 +1606,17 @@ def _residuo_dre_como_moeda(residuo_por_tipo):
     return {str(tipo): _como_moeda(valor) for tipo, valor in residuo_por_tipo.items()}
 
 
+def _residuo_pendente_dre_para_json(residuo_pendente_por_coluna):
+    """`{"coluna_mes": {TipoConta: Decimal}, "coluna_acumulado": {...}}`
+    -> mesma forma, com chave e valor como `str` (DL-045, decisão do
+    arquiteto de 26/09/2026: as duas colunas vetam, cada pendência
+    marcada com a coluna de onde vem)."""
+    return {
+        nome_coluna: {str(tipo): _como_moeda(valor) for tipo, valor in residuo.items()}
+        for nome_coluna, residuo in residuo_pendente_por_coluna.items()
+    }
+
+
 def _coluna_dre_para_json(coluna):
     return {
         "linhas": _linhas_dre_como_moeda(coluna["linhas"]),
@@ -1637,13 +1648,18 @@ class DreView(EmpresaEscopadaContabilMixin, APIView):
     cia` (a DRE é leitura, não uma ação de fechamento).
 
     409 (`pode_emitir=False`) quando há conta de resultado analítica com
-    movimento no MÊS pedido sem classificação (critério 6 do plano) —
-    mesmo padrão de veto do Balanço (`avaliar_emissao_do_balanco`/
-    `apurar_balanco_patrimonial`, DL-034), adaptado: aqui não há
-    template/emissão formal ainda (fatia 3), então o 409 é da PRÓPRIA
-    leitura — o corpo da resposta sempre traz os dois números (mês e
-    acumulado), mesmo quando `pode_emitir` é falso, para o cliente decidir
-    o que mostrar (nunca esconder o dado por trás só do código de status).
+    movimento SEM classificação (critério 6 do plano) — em QUALQUER das
+    duas colunas (mês ou acumulado; decisão do arquiteto, 26/09/2026: a
+    DRE formal imprime o acumulado, então uma pendência só nele também
+    deixa um número impresso errado). Mesmo padrão de veto do Balanço
+    (`avaliar_emissao_do_balanco`/`apurar_balanco_patrimonial`, DL-034),
+    adaptado: aqui não há template/emissão formal ainda (fatia 3), então
+    o 409 é da PRÓPRIA leitura — o corpo da resposta sempre traz os dois
+    números (mês e acumulado), mesmo quando `pode_emitir` é falso, para o
+    cliente decidir o que mostrar (nunca esconder o dado por trás só do
+    código de status). `residuo_pendente`/`listas_pendentes`/`listas_
+    informativas` vêm agrupados por coluna (`"coluna_mes"`/`"coluna_
+    acumulado"`) — só a coluna que TEM algo a reportar aparece.
     """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
@@ -1671,9 +1687,7 @@ class DreView(EmpresaEscopadaContabilMixin, APIView):
             "coluna_mes": _coluna_dre_para_json(dre["coluna_mes"]),
             "coluna_acumulado": _coluna_dre_para_json(dre["coluna_acumulado"]),
             "pode_emitir": emissao["pode_emitir"],
-            "residuo_pendente": {
-                str(tipo): _como_moeda(valor) for tipo, valor in emissao["residuo_pendente"].items()
-            },
+            "residuo_pendente": _residuo_pendente_dre_para_json(emissao["residuo_pendente"]),
             "listas_pendentes": emissao["listas_pendentes"],
             "listas_informativas": emissao["listas_informativas"],
         }
