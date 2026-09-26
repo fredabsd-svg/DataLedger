@@ -474,6 +474,12 @@ def cenario_fiscal(client):
         "lancamento_detalhe",
         "fechamento",
         "competencia_fechar",
+        # DL-043 fatia 3 (BL-474): "parametros_contabeis" (tabela vazia +
+        # formulário, sob o cenário padrão sem vigência nenhuma) e
+        # "zerar_resultado" (estado "sem parâmetro contábil vigente" — um
+        # 200 de verdade, ver o comentário em universo_de_telas.py).
+        "parametros_contabeis",
+        "zerar_resultado",
     ],
 )
 def test_tela_de_contabilidade_e_acessivel_nos_atalhos(client, cenario, nome_tela):
@@ -911,6 +917,15 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "tenancy:emitir-convite": (
         "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405"
+    ),
+    # DL-043 fatia 3 (BL-474): rota de AÇÃO, mesmo desenho de
+    # "tenancy:emitir-convite" acima — só POST, sem tela de confirmação
+    # própria porque encerrar vigência é reversível (registrar uma
+    # vigência nova sempre é possível depois). Coberta pelos testes
+    # próprios de test_dl043_fatia3_telas.py.
+    "contabilidade_web:parametro_contabil_encerrar": (
+        "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405; "
+        "test_dl043_fatia3_telas.py"
     ),
     "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
     "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",

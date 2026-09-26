@@ -70,12 +70,19 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_treze_rotas_web_e_as_treze_da_api():
-    # DL-043: três rotas novas na API (parâmetro contábil: listar/criar e
-    # encerrar vigência; zeramento do resultado) — nenhuma na tela (fatia 3,
-    # fora do escopo desta etapa). 10 -> 13 só do lado da API.
+def test_a_derivacao_encontrou_as_dezesseis_rotas_web_e_as_treze_da_api():
+    # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
+    # contábil: listar/criar e encerrar vigência; zeramento do resultado).
+    # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
+    #
+    # DL-043 fatia 3 (esta etapa, especialista-frontend): as MESMAS três
+    # operações ganham tela — "parametros_contabeis" (listar/criar),
+    # "parametro_contabil_encerrar" (encerrar vigência) e "zerar_resultado"
+    # (prévia GET + execução POST). 13 -> 16 do lado da tela. Nenhuma rota
+    # nova na API (já existiam desde a fatia 2) — só a CONTRAPARTIDA de
+    # tela que faltava.
     assert len(ROTAS_API) == 13, ROTAS_API
-    assert len(ROTAS_WEB) == 13, ROTAS_WEB
+    assert len(ROTAS_WEB) == 16, ROTAS_WEB
 
 
 @pytest.fixture

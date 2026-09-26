@@ -12,8 +12,11 @@ from apps.contabilidade.views_web import (
     fechamento,
     lancamento_detalhe,
     lancamento_novo,
+    parametro_contabil_encerrar,
+    parametros_contabeis,
     plano_de_contas,
     razao,
+    zeramento_do_periodo,
 )
 
 # DL-017, fase B: prefixo esperado ao costurar esta rota em config/urls.py
@@ -80,5 +83,26 @@ urlpatterns = [
         "empresas/<int:empresa_id>/fechamento/entregar/",
         competencia_entregar,
         name="competencia_entregar",
+    ),
+    # DL-043 fatia 3: parâmetro contábil (fatia 1) — vigência de
+    # periodicidade/contas de destino do zeramento — e zeramento do
+    # resultado (fatia 2). "empresas/<id>/parametros-contabeis/", não
+    # "contabilidade/parametros/", pelo mesmo padrão curto do resto desta
+    # urlconf; "zerar-resultado" mora sob "fechamento/" porque é ação da
+    # MESMA tela de competência, disparada por ela (ver fechamento.html).
+    path(
+        "empresas/<int:empresa_id>/parametros-contabeis/",
+        parametros_contabeis,
+        name="parametros_contabeis",
+    ),
+    path(
+        "empresas/<int:empresa_id>/parametros-contabeis/encerrar/",
+        parametro_contabil_encerrar,
+        name="parametro_contabil_encerrar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/fechamento/zerar-resultado/",
+        zeramento_do_periodo,
+        name="zerar_resultado",
     ),
 ]

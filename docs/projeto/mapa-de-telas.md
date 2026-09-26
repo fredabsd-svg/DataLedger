@@ -17,6 +17,18 @@ sozinho escondia a duplicidade de experiência atrás de uma URL só.
 
 ## Totais
 
+⚠️ **Medido em 26/09/2026, ANTES da DL-043 fatia 3** — a tabela completa,
+abaixo, já traz as três linhas novas (`parametros_contabeis`,
+`parametro_contabil_encerrar`, `zerar_resultado`), mas os totais desta
+seção não foram recontados por inteiro nesta rodada (a etapa autorizou
+acrescentar a seção própria do especialista-frontend, não reauditar o mapa
+inteiro). Some à mão, se precisar do total exato agora: **+3** rotas web
+nomeadas, **+2** telas distintas (`parametro_contabil_encerrar` é só
+405/ação, como `tenancy:emitir-convite` — não conta como tela), as duas
+novas são **Ativa** (`parametros_contabeis`) e **Secundária**
+(`zerar_resultado`, assistente com etapas). Nenhuma rota de API nova (as
+três já existiam desde a fatia 2 do servidor).
+
 | | Quantidade |
 | --- | --- |
 | Rotas web nomeadas (fora de `api/` e `admin/`) | **30** |
@@ -81,6 +93,9 @@ links que a DL-040 acrescentou estão marcados).
 | `contabilidade_web:competencia_fechar` | Fechar competência | `contabilidade/competencia_fechar.html` | E | Secundária (confirmação) | ADMINISTRADOR, GESTOR | `fechamento.html` |
 | `contabilidade_web:competencia_reabrir` | Reabrir competência | `contabilidade/competencia_reabrir.html` | E | Secundária (confirmação, ação sensível) | ADMINISTRADOR, GESTOR | `fechamento.html` |
 | `contabilidade_web:competencia_entregar` | Marcar como entregue | `contabilidade/competencia_entregar.html` | E | Secundária (confirmação, **sem volta pelo produto** — RC-101) | ADMINISTRADOR, GESTOR | `fechamento.html` |
+| `contabilidade_web:parametros_contabeis` | Parâmetros contábeis | `contabilidade/parametros_contabeis.html` | A + B combinados | Ativa | Lê: mesmos papéis do Plano de contas; escreve (registrar vigência): ADMINISTRADOR, GESTOR | Menu "Contabilidade → Cadastros" (DL-043), `fechamento.html` (nota de rodapé); inclui `_navegacao_empresa.html` sem `pagina_atual` (mesmo caso da Razão/Nova conta: as sete telas fixas aparecem como link) |
+| `contabilidade_web:parametro_contabil_encerrar` | Encerrar vigência de parâmetro contábil | — (405 em GET, nunca renderiza) | — | Secundária (ação, sem tela) | ADMINISTRADOR, GESTOR | Botão na tabela de `parametros_contabeis.html` |
+| `contabilidade_web:zerar_resultado` | Zerar resultado do período | `contabilidade/zerar_resultado.html` | E | Secundária (assistente com etapas — prévia GET + confirmação POST) | ADMINISTRADOR, GESTOR | `fechamento.html` (link "Zerar resultado" por competência aberta) |
 
 ### Fiscal (`fiscal_web`, prefixo `fiscal/` — escopo do escritório, não de uma empresa só)
 
