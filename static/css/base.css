@@ -253,34 +253,34 @@
     --recuo-nivel-9: 10.75rem;
     --recuo-nivel-10: 12rem;
 
-    /* DL-034: escala da entrada pública; não altera a densidade das telas internas. */
+    /* Escala da entrada pública (landing/login/cadastro) — não altera a
+       densidade das telas internas do produto. DL-034 e DL-037 tinham
+       introduzido uma identidade visual PRÓPRIA aqui (painel escuro,
+       gradiente, sombras) que a DL-042 (2ª passada) aposentou: a entrada
+       pública passa a usar as MESMAS cores "papel e tinta" do produto
+       (--papel/--tinta/--acento/--borda-hairline/--raio, já declaradas
+       acima), para quem entra pela landing reconhecer a mesma marca ao
+       logar. Só a ESCALA (tipografia maior, mais respiro) continua
+       própria — é uma página de leitura de 30 segundos, não uma tela de
+       trabalho de 8 horas. Os tokens de cor/sombra/curva só usados pelo
+       visual antigo (public-titulo, public-marca, public-sombra,
+       public-grid, public-linha-grid, public-curva, public-autenticacao,
+       public-arredondado, public-anel, public-branco-transparente,
+       public-borda-escura, public-camada-escura, public-grade-escura,
+       public-sombra-painel) foram removidos daqui — nenhum arquivo do
+       repositório os referenciava mais depois da reescrita de
+       static/css/public.css (conferido por grep antes de remover). */
     --public-fonte-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-    --public-titulo: 4.5rem;
     --public-subtitulo: 2.75rem;
-    --public-titulo-mobile: 2.75rem;
     --public-secao: 6rem;
     --public-respiro: 4rem;
     --public-largura-texto: 36rem;
-    --public-marca: 2.5rem;
     --public-linha: 1.08;
-    --public-sombra: 0 24px 70px rgba(20, 42, 80, 0.12);
-    --public-grid: 2rem;
-    --public-linha-grid: rgba(29, 58, 110, 0.06);
-    --public-curva: 0.5rem;
-    /* DL-037: entrada pública em escala de leitura, sem alterar o produto interno. */
     --public-largura: 82rem;
     --public-heroi: 4.25rem;
     --public-heroi-mobile: 3rem;
-    --public-autenticacao: 38rem;
     --public-corpo: 1.125rem;
     --public-campo: 3.5rem;
-    --public-arredondado: 0.75rem;
-    --public-anel: 12rem;
-    --public-branco-transparente: rgba(255, 255, 255, 0.76);
-    --public-borda-escura: rgba(255, 255, 255, 0.18);
-    --public-camada-escura: rgba(255, 255, 255, 0.07);
-    --public-grade-escura: rgba(255, 255, 255, 0.045);
-    --public-sombra-painel: 0 28px 70px rgba(20, 42, 80, 0.2);
 }
 
 * {

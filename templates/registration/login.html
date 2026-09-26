@@ -1,20 +1,18 @@
 {% extends "registration/public_base.html" %}
 {% block titulo %}Entrar{% endblock %}
 {% block public_content %}
+{% comment %}
+DL-042 (2ª passada): cartão único, sem o painel escuro decorativo da DL-034/
+037 — login é tela de TAREFA, não de venda. Preserva o contrato de
+apps/accounts/tests/test_signup.py::test_login_mostra_caminho_para_novo_
+escritorio: precisa existir um link para {% url 'cadastro' %} E o texto
+literal "Criar ambiente para meu escritório" na página.
+{% endcomment %}
 <section class="auth-stage" aria-labelledby="login-title">
-    <div class="auth-layout public-container">
-        <div class="auth-story">
-            <p class="public-eyebrow">Bem-vindo de volta</p>
-            <h1 id="login-title">Seu trabalho,<br>em outro <em>nível.</em></h1>
-            <p>Entre no ambiente do seu escritório e continue de onde parou. Dados, contexto e decisões em um só lugar.</p>
-            <div class="auth-story-detail" aria-label="Princípios do DataLedger">
-                <span class="story-orbit" aria-hidden="true"><span>IA</span><span>Dados</span><span>Você</span></span>
-                <p>Inteligência para interpretar.<br><strong>Rigor para executar.</strong></p>
-            </div>
-        </div>
+    <div class="auth-shell public-container">
         <div class="auth-card">
             <p class="public-eyebrow">Acesso ao ambiente</p>
-            <h2>Entre na sua conta.</h2>
+            <h1 id="login-title">Entrar</h1>
             <p class="auth-intro">Use seu e-mail ou nome de usuário e senha.</p>
             {% if form.non_field_errors %}<div id="erro-login" class="mensagem mensagem-error" role="alert">{% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}</div>{% endif %}
             <form method="post" class="public-form" novalidate>

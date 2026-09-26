@@ -1,115 +1,156 @@
-/* A entrada pública tem ritmo próprio; o produto interno preserva sua densidade. */
-.public-page { font-family: var(--public-fonte-ui); font-size: var(--tipo-md); background: var(--papel); }
+/* Entrada pública (landing/login/cadastro) — DL-034/037 tinha um ritmo
+   visual PRÓPRIO (painel escuro, gradiente, tipografia sans separada);
+   revisão da DL-042 (2ª passada, pedido do arquiteto-senior): a entrada
+   pública passa a usar a MESMA paleta "papel e tinta" do produto (DE-053) —
+   fundo claro, uma cor de acento só, tipografia editorial nos títulos —
+   porque quem chega pela landing e entra no produto precisa reconhecer a
+   MESMA marca, não duas identidades diferentes coladas uma na outra. O que
+   continua PRÓPRIO da entrada pública: escala tipográfica maior (é uma
+   página de leitura de 30 segundos, não uma tela de trabalho de 8 horas) e
+   layout de uma coluna de leitura, não a densidade do produto interno. */
+.public-page { font-family: var(--public-fonte-ui); font-size: var(--tipo-md); background: var(--papel); color: var(--tinta); }
 .public-container { width: 100%; max-width: var(--public-largura); margin-inline: auto; padding-inline: var(--esp-6); }
-.public-header { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-5); min-height: var(--public-campo); padding-block: var(--esp-4); }
-.public-brand { display: inline-flex; align-items: center; gap: var(--esp-3); font-size: var(--tipo-lg); font-weight: 750; letter-spacing: var(--rastreio-cerrado); color: var(--acento-escuro); text-decoration: none; white-space: nowrap; }
-.brand-symbol { display: grid; place-items: center; width: var(--public-marca); height: var(--public-marca); border-radius: var(--public-curva); background: var(--acento-escuro); color: var(--papel-elevado); font: 700 var(--tipo-lg)/var(--lh-tight) var(--fonte-editorial); }
+
+.public-header { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-5); min-height: var(--public-campo); padding-block: var(--esp-4); border-bottom: var(--traco-fina) solid var(--borda-hairline); }
+.public-brand { display: inline-flex; align-items: center; gap: var(--esp-2); font-family: var(--fonte-editorial); font-size: var(--tipo-lg); font-weight: 700; letter-spacing: var(--rastreio-leve); color: var(--tinta); text-decoration: none; white-space: nowrap; }
+.public-brand:hover { color: var(--acento); }
 .brand-period { color: var(--acento); }
 .public-nav { display: flex; align-items: center; gap: var(--esp-6); font-size: var(--tipo-base); font-weight: 650; }
-.public-nav a { text-decoration: none; }
-.public-nav > a:not(.public-button):hover, .public-text-link:hover, .auth-switch a:hover { text-decoration: underline; text-underline-offset: var(--esp-2); }
-.public-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--esp-5); min-height: var(--public-campo); padding: var(--esp-3) var(--esp-6); border: var(--traco-fina) solid var(--acento); border-radius: var(--public-curva); background: var(--acento); color: var(--acento-texto); font: 700 var(--tipo-md)/var(--lh-normal) var(--public-fonte-ui); text-decoration: none; cursor: pointer; transition: background-color 160ms ease, transform 160ms ease; }
-.public-button:hover { background: var(--acento-escuro); color: var(--acento-texto); transform: translateY(calc(-1 * var(--traco-media))); }
+/* `.public-nav a:not(.public-button)` (não `.public-nav a`): sem o
+   `:not()`, esta regra e `.public-button` (mesma especificidade de UMA
+   classe) empatavam, e a ORDEM do arquivo decidia — `.public-button`
+   vinha ANTES no CSS, então `.public-nav a` (depois) vencia e pintava o
+   botão "Criar ambiente" do cabeçalho com `--tinta-suave` sobre o fundo
+   `--acento`, ~1,9:1 de contraste. Medido nesta etapa por
+   `getComputedStyle` real, não só pela leitura da regra. */
+.public-nav a:not(.public-button) { text-decoration: none; color: var(--tinta-suave); }
+.public-nav a:not(.public-button):hover, .public-text-link:hover, .auth-switch a:hover { color: var(--tinta); text-decoration: underline; text-underline-offset: var(--esp-2); }
+
+/* Botão da entrada pública: MESMO padrão de tom do produto
+   (.botao--primario/.botao--secundario, static/css/base.css §DL-040) —
+   .public-button é só o ajuste de TAMANHO (alvo maior, alturas de campo de
+   formulário de marketing) que a densidade do app não usa; a cor e o
+   estado de hover são os MESMOS tokens, para não nascer uma terceira
+   variante de botão no produto (direção de arte §8.4, "três tons, nunca
+   mais"). */
+.public-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--esp-4); min-height: var(--public-campo); padding: var(--esp-3) var(--esp-6); border: var(--traco-fina) solid var(--acento); border-radius: var(--raio); background: var(--acento); color: var(--acento-texto); font: 700 var(--tipo-md)/var(--lh-normal) var(--public-fonte-ui); text-decoration: none; cursor: pointer; }
+.public-button:hover { background: var(--acento-escuro); border-color: var(--acento-escuro); color: var(--acento-texto); }
 .public-button--small { min-height: 0; padding: var(--esp-3) var(--esp-5); font-size: var(--tipo-base); }
 .public-button span { font-size: var(--tipo-lg); line-height: 1; }
-.public-button--light { background: var(--papel); color: var(--acento-escuro); border-color: var(--papel); }
-.public-button--light:hover { background: var(--acento-suave); color: var(--acento-escuro); border-color: var(--acento-suave); }
+/* Ação SECUNDÁRIA da entrada pública — mesmo papel que .botao--secundario
+   já tem no produto: contorno, sem preenchimento. Nunca uma segunda cor de
+   acento (direção de arte §1). */
+.public-button--secundario { background: transparent; color: var(--tinta); border-color: var(--borda-input); }
+.public-button--secundario:hover { background: transparent; border-color: var(--tinta); color: var(--tinta); }
+
 .public-eyebrow { display: flex; align-items: center; gap: var(--esp-3); margin: 0 0 var(--esp-5); font-size: var(--tipo-xs); font-weight: 750; letter-spacing: var(--rastreio-maximo); text-transform: uppercase; color: var(--acento); }
 .eyebrow-line { width: var(--esp-6); height: var(--traco-media); background: currentColor; }
-.public-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-5); padding-block: var(--esp-6); color: var(--tinta-media); font-size: var(--tipo-sm); }
+.public-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-5); padding-block: var(--esp-6); color: var(--tinta-media); font-size: var(--tipo-sm); border-top: var(--traco-fina) solid var(--borda-hairline); }
 .public-footer p { margin: 0; }
-.footer-brand { font-size: var(--tipo-md); font-weight: 750; text-decoration: none; }
+.footer-brand { font-family: var(--fonte-editorial); font-size: var(--tipo-md); font-weight: 700; color: var(--tinta); text-decoration: none; }
 
-/* O primeiro quadro apresenta a relação entre modelo, regras e decisão humana. */
-.hero-stage, .auth-stage { color: var(--papel); background: var(--acento-escuro); background-image: radial-gradient(circle at 80% 20%, var(--public-camada-escura), transparent 45%), linear-gradient(var(--public-grade-escura) var(--traco-fina), transparent var(--traco-fina)), linear-gradient(90deg, var(--public-grade-escura) var(--traco-fina), transparent var(--traco-fina)); background-size: auto, var(--public-grid) var(--public-grid), var(--public-grid) var(--public-grid); }
-.public-hero { display: grid; grid-template-columns: 1.14fr 0.86fr; gap: var(--public-respiro); align-items: center; padding-block: var(--public-secao); }
-.hero-stage .public-eyebrow, .auth-story .public-eyebrow { color: var(--acento-suave); }
-.public-page .hero-copy h1, .public-page .auth-story h1 { margin: 0 0 var(--esp-6); font: 600 var(--public-heroi)/var(--public-linha) var(--public-fonte-ui); letter-spacing: var(--rastreio-cerrado); color: var(--papel); }
-.public-page h1 em { font-family: var(--fonte-editorial); font-weight: 400; color: var(--papel); }
-.hero-description, .auth-story > p:not(.public-eyebrow) { max-width: var(--public-largura-texto); margin: 0 0 var(--esp-7); color: var(--public-branco-transparente); font-size: var(--public-corpo); line-height: 1.65; }
-.hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-6); }
-.public-text-link { color: var(--papel); font-size: var(--tipo-md); font-weight: 700; text-decoration: none; }
-.hero-note { margin: var(--esp-5) 0 0; color: var(--public-branco-transparente); font-size: var(--tipo-sm); }
+/* ==========================================================================
+   Herói: proposta em 5 segundos (fluxos-saas.md §9) — título orientado a
+   resultado, UMA ação primária, e o PRODUTO DE VERDADE (captura real da
+   tela de Balancete, nunca ilustração abstrata nem foto de banco de
+   imagens — static/img/produto-balancete.png, gerada com dados sintéticos
+   pela própria etapa, nunca dado de cliente real).
+   ========================================================================== */
+.hero-stage { background: var(--papel-alt); border-bottom: var(--traco-fina) solid var(--borda-hairline); }
+.public-hero { display: grid; grid-template-columns: 1fr 1.1fr; gap: var(--public-respiro); align-items: center; padding-block: var(--public-secao); }
+.public-page .hero-copy h1, .public-page .auth-card h1 { margin: 0 0 var(--esp-5); font-family: var(--fonte-editorial); font-weight: 700; letter-spacing: var(--rastreio-cerrado); color: var(--tinta); font-size: var(--public-heroi); line-height: var(--public-linha); }
+.public-page h1 em { font-style: italic; color: var(--acento); }
+.hero-description { max-width: var(--public-largura-texto); margin: 0 0 var(--esp-6); color: var(--tinta-suave); font-size: var(--public-corpo); line-height: 1.6; }
+.hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-5); }
+.public-text-link { color: var(--tinta); font-size: var(--tipo-md); font-weight: 700; text-decoration: underline; text-underline-offset: var(--esp-1); }
+.hero-note { margin: var(--esp-5) 0 0; color: var(--tinta-media); font-size: var(--tipo-sm); }
+
 .hero-product { min-width: 0; }
-.product-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-3); margin-bottom: var(--esp-4); color: var(--public-branco-transparente); font-size: var(--tipo-sm); }
-.demo-label { padding: var(--esp-2) var(--esp-3); border: var(--traco-fina) solid var(--public-borda-escura); border-radius: var(--public-curva); font-size: var(--tipo-xs); text-transform: uppercase; letter-spacing: var(--rastreio-leve); }
-.intelligence-map { padding: var(--esp-6); border: var(--traco-fina) solid var(--public-borda-escura); border-radius: var(--public-arredondado); background: var(--public-camada-escura); box-shadow: var(--public-sombra-painel); }
-.map-node { padding: var(--esp-5); border: var(--traco-fina) solid var(--public-borda-escura); border-radius: var(--public-curva); background: var(--acento-escuro); }
-.map-node--core { background: var(--papel); color: var(--acento-escuro); }
-.map-index { display: block; margin-bottom: var(--esp-3); color: var(--public-branco-transparente); font-size: var(--tipo-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--rastreio-leve); }
-.map-node--core .map-index { color: var(--tinta-suave); }
-.map-node strong { display: block; font: 500 var(--tipo-xl)/var(--lh-tight) var(--fonte-editorial); }
-.map-node p { margin: var(--esp-2) 0 0; font-size: var(--tipo-sm); color: var(--public-branco-transparente); }
-.map-node--core p { color: var(--tinta-suave); }
-.map-node small { display: inline-block; margin-top: var(--esp-3); font-size: var(--tipo-xs); color: var(--public-branco-transparente); }
-.map-node--core small { color: var(--acento); }
-.map-connector { height: var(--esp-5); text-align: center; color: var(--public-branco-transparente); line-height: var(--esp-5); }
-.product-caption { max-width: var(--public-largura-texto); margin: var(--esp-4) 0 0; color: var(--public-branco-transparente); font-size: var(--tipo-xs); line-height: 1.5; }
+.hero-product figure { margin: 0; border: var(--traco-fina) solid var(--borda-hairline); border-radius: var(--raio); overflow: hidden; background: var(--papel-elevado); }
+.hero-product img { display: block; width: 100%; height: auto; }
+.hero-product figcaption { padding: var(--esp-3) var(--esp-4); border-top: var(--traco-fina) solid var(--borda-hairline); color: var(--tinta-media); font-size: var(--tipo-xs); }
+
+/* Selo de status — "Disponível"/"Planejado" — TEXTO sempre, cor de reforço
+   (direção de arte §4.3): reaproveita os tokens semânticos já existentes
+   (--sucesso para o que existe hoje, --tinta-media/--papel-alt — neutro,
+   nunca --aviso/--erro — para o que está no plano: "planejado" não é um
+   problema, é uma informação de roteiro). */
+.status-badge { display: inline-flex; align-items: center; gap: var(--esp-1); padding: var(--esp-1) var(--esp-3); border-radius: var(--raio); font-size: var(--tipo-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--rastreio-amplo); }
+.status-badge--disponivel { color: var(--sucesso); background: var(--sucesso-fundo); }
+.status-badge--planejado { color: var(--tinta-media); background: var(--papel-alt); border: var(--traco-fina) solid var(--borda-hairline); }
+
 .public-pillars { display: grid; grid-template-columns: repeat(3, 1fr); padding-block: var(--esp-6); border-bottom: var(--traco-fina) solid var(--borda-hairline); }
 .public-pillars p { display: flex; align-items: center; justify-content: center; gap: var(--esp-4); margin: 0; font-size: var(--tipo-sm); font-weight: 650; }
 .public-pillars p + p { border-left: var(--traco-fina) solid var(--borda-hairline); }
 .public-pillars .numerico { color: var(--acento); font-size: var(--tipo-xs); }
+
 .platform-section { padding-block: var(--public-secao); }
 .section-heading { display: grid; grid-template-columns: 1.1fr 0.9fr; column-gap: var(--public-respiro); align-items: end; }
 .section-heading .public-eyebrow { grid-column: 1 / -1; }
-.public-page .section-heading h2, .public-page .start-section h2 { margin: 0; font: 500 var(--public-subtitulo)/var(--lh-tight) var(--public-fonte-ui); letter-spacing: var(--rastreio-cerrado); color: var(--acento-escuro); }
+.public-page .section-heading h2, .public-page .start-section h2 { margin: 0; font-family: var(--fonte-editorial); font-weight: 700; letter-spacing: var(--rastreio-cerrado); color: var(--tinta); font-size: var(--public-subtitulo); line-height: var(--lh-tight); }
 .section-heading > p:last-child { max-width: var(--largura-formulario); margin: 0; color: var(--tinta-suave); font-size: var(--tipo-md); line-height: 1.65; }
+
 .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--esp-7); margin-top: var(--public-respiro); }
-.feature-grid article { padding-top: var(--esp-6); border-top: var(--traco-media) solid var(--acento); }
-.feature-number { color: var(--acento); font-size: var(--tipo-sm); font-weight: 700; }
-.feature-grid h3 { margin: var(--esp-5) 0 var(--esp-4); color: var(--acento-escuro); font: 500 var(--tipo-lg)/var(--lh-normal) var(--public-fonte-ui); }
-.feature-grid p { margin: 0; color: var(--tinta-suave); font-size: var(--tipo-md); line-height: 1.65; }
-.feature-tag { display: inline-block; margin-top: var(--esp-5); color: var(--acento); font-size: var(--tipo-xs); font-weight: 700; text-transform: uppercase; letter-spacing: var(--rastreio-leve); }
+.feature-grid article { padding-top: var(--esp-5); border-top: var(--traco-media) solid var(--acento); }
+.feature-grid h3 { margin: var(--esp-3) 0 var(--esp-3); color: var(--tinta); font-family: var(--fonte-editorial); font-weight: 700; font-size: var(--tipo-lg); line-height: var(--lh-normal); }
+.feature-grid p { margin: 0 0 var(--esp-4); color: var(--tinta-suave); font-size: var(--tipo-base); line-height: 1.6; }
 .module-section { padding-top: 0; }
-.start-section { padding-block: var(--public-respiro); background: var(--papel-alt); }
+
+.start-section { padding-block: var(--public-respiro); background: var(--papel-alt); border-top: var(--traco-fina) solid var(--borda-hairline); }
 .start-inner { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: var(--public-respiro); }
 .start-section h2 { margin-bottom: var(--esp-6) !important; }
-.start-section .public-button--light { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); }
-.start-section .public-button--light:hover { background: var(--acento-escuro); }
 .start-steps { display: grid; gap: var(--esp-5); margin: 0; padding: 0; list-style: none; }
 .start-steps li { display: flex; gap: var(--esp-5); }
 .start-steps li > span { padding-top: var(--esp-1); color: var(--acento); font-size: var(--tipo-sm); font-weight: 700; }
 .start-steps h3 { margin: 0 0 var(--esp-2); font-size: var(--tipo-md); }
 .start-steps p { margin: 0; color: var(--tinta-suave); font-size: var(--tipo-sm); }
 
-/* Autenticação: conteúdo forte à esquerda e formulário claro à direita. */
-.auth-layout { display: grid; grid-template-columns: 1fr 1fr; gap: var(--public-respiro); align-items: center; min-height: var(--public-autenticacao); padding-block: var(--public-respiro); }
-.public-page .auth-story h1 { font-size: var(--public-heroi); }
-.auth-story-detail { display: flex; align-items: center; gap: var(--esp-7); padding-top: var(--esp-7); border-top: var(--traco-fina) solid var(--public-borda-escura); }
-.auth-story-detail p { margin: 0; color: var(--public-branco-transparente); font-size: var(--tipo-md); line-height: 1.7; }
-.auth-story-detail strong { color: var(--papel); }
-.story-orbit { display: flex; align-items: center; justify-content: center; gap: var(--esp-2); width: var(--public-anel); height: var(--public-anel); flex-shrink: 0; border: var(--traco-fina) solid var(--public-borda-escura); border-radius: 50%; }
-.story-orbit span { display: grid; place-items: center; width: var(--esp-7); height: var(--esp-7); border: var(--traco-fina) solid var(--public-borda-escura); border-radius: 50%; color: var(--papel); font-size: var(--tipo-xs); }
-.story-orbit span:nth-child(2) { background: var(--papel); color: var(--acento-escuro); }
-.auth-card { padding: var(--esp-7); border-radius: var(--public-arredondado); background: var(--papel-elevado); color: var(--tinta); box-shadow: var(--public-sombra-painel); }
+/* Perguntas frequentes: <details>/<summary> nativos — mesma técnica
+   (sem JavaScript) que os menus do produto já usam. */
+.faq-section { padding-block: var(--public-secao); border-top: var(--traco-fina) solid var(--borda-hairline); }
+.faq-list { max-width: var(--public-largura-texto); margin-top: var(--esp-6); display: grid; gap: var(--esp-3); }
+.faq-item { border: var(--traco-fina) solid var(--borda-hairline); border-radius: var(--raio); padding: var(--esp-4) var(--esp-5); background: var(--papel-elevado); }
+.faq-item summary { cursor: pointer; font-weight: 700; color: var(--tinta); list-style: none; }
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: "+"; float: right; color: var(--tinta-media); }
+.faq-item[open] summary::after { content: "−"; }
+.faq-item p { margin: var(--esp-3) 0 0; color: var(--tinta-suave); line-height: 1.6; }
+
+/* ==========================================================================
+   Autenticação (login/cadastro): cartão único, centralizado, sobre o fundo
+   "papel" do produto — nunca um painel escuro decorativo ao lado (a DL-034/
+   037 tinha isso; a revisão da DL-042 simplifica porque login/cadastro são
+   telas de TAREFA, não de venda: quem chega aqui já decidiu, o trabalho da
+   tela é deixar entrar/criar o ambiente sem atrito).
+   ========================================================================== */
+.auth-stage { padding-block: var(--public-respiro); }
+.auth-shell { max-width: var(--largura-formulario); margin-inline: auto; }
+.auth-card { padding: var(--esp-7); border: var(--traco-fina) solid var(--borda-hairline); border-radius: var(--raio); background: var(--papel-elevado); }
 .auth-card .public-eyebrow { margin-bottom: var(--esp-4); }
-.auth-card h2 { margin: 0 0 var(--esp-3); color: var(--acento-escuro); font: 650 var(--public-subtitulo)/var(--lh-tight) var(--public-fonte-ui); letter-spacing: var(--rastreio-cerrado); }
-.auth-intro { margin: 0 0 var(--esp-7); color: var(--tinta-suave); font-size: var(--tipo-md); line-height: 1.55; }
+.public-page .auth-card h1 { font-size: var(--public-subtitulo); margin-bottom: var(--esp-3); }
+.auth-intro { margin: 0 0 var(--esp-6); color: var(--tinta-suave); font-size: var(--tipo-md); line-height: 1.55; }
 .public-form { display: grid; gap: var(--esp-5); }
 .public-form .campo { margin: 0; }
-.public-form label { display: block; margin-bottom: var(--esp-2); font-size: var(--tipo-base); font-weight: 700; }
-.public-form input:not([type="hidden"]) { display: block; width: 100%; min-width: 0; min-height: var(--public-campo); padding: var(--esp-3) var(--esp-4); border: var(--traco-fina) solid var(--borda-input); border-radius: var(--public-curva); background: var(--papel-elevado); color: var(--tinta); font: var(--tipo-md)/var(--lh-normal) var(--public-fonte-ui); }
+.public-form label { display: block; margin-bottom: var(--esp-2); font-size: var(--tipo-base); font-weight: 700; color: var(--tinta); }
+.public-form input:not([type="hidden"]) { display: block; width: 100%; min-width: 0; min-height: var(--public-campo); padding: var(--esp-3) var(--esp-4); border: var(--traco-fina) solid var(--borda-input); border-radius: var(--raio); background: var(--papel-elevado); color: var(--tinta); font: var(--tipo-md)/var(--lh-normal) var(--public-fonte-ui); }
 .public-form input[aria-invalid="true"] { border-color: var(--erro); }
 .public-form .public-button { width: 100%; justify-content: space-between; margin-top: var(--esp-2); }
 .field-help { margin-top: var(--esp-2); color: var(--tinta-suave); font-size: var(--tipo-xs); line-height: 1.5; }
 .field-help ul, .field-error ul { margin: var(--esp-2) 0 0; padding-left: var(--esp-5); }
 .field-error { margin-top: var(--esp-2); color: var(--erro); font-size: var(--tipo-sm); }
-.auth-switch { display: grid; gap: var(--esp-2); margin-top: var(--esp-7); padding: var(--esp-5); border-radius: var(--public-curva); background: var(--acento-suave); font-size: var(--tipo-md); }
+.auth-switch { display: grid; gap: var(--esp-2); margin-top: var(--esp-6); padding: var(--esp-5); border-radius: var(--raio); background: var(--papel-alt); font-size: var(--tipo-md); }
 .auth-switch span { color: var(--tinta-suave); }
-.auth-switch a { color: var(--acento-escuro); font-weight: 750; text-decoration: none; }
+.auth-switch a { color: var(--acento); font-weight: 750; text-decoration: none; }
+.auth-switch a:hover { color: var(--acento-escuro); text-decoration: underline; }
 .auth-switch a span { color: inherit; }
-.auth-layout--signup { align-items: start; }
-.auth-layout--signup .auth-story { padding-top: var(--esp-7); }
-.signup-explainer { margin-top: var(--esp-7); padding-top: var(--esp-6); border-top: var(--traco-fina) solid var(--public-borda-escura); }
-.signup-explainer h2 { margin: 0 0 var(--esp-4); color: var(--papel); font-size: var(--tipo-lg); }
-.signup-explainer ol { display: grid; gap: var(--esp-3); padding-left: var(--esp-5); color: var(--papel); font-size: var(--tipo-md); }
-.signup-explainer p { margin-top: var(--esp-5); color: var(--public-branco-transparente); font-size: var(--tipo-sm); line-height: 1.5; }
+
+.signup-explainer { margin: 0 0 var(--esp-6); padding: var(--esp-5); border-radius: var(--raio); background: var(--papel-alt); border: var(--traco-fina) solid var(--borda-hairline); }
+.signup-explainer h2 { margin: 0 0 var(--esp-3); font-size: var(--tipo-base); color: var(--tinta); }
+.signup-explainer ol { display: grid; gap: var(--esp-2); margin: 0; padding-left: var(--esp-5); color: var(--tinta-suave); font-size: var(--tipo-sm); }
 
 @media (max-width: 1000px) {
-    .public-page .hero-copy h1, .public-page .auth-story h1 { font-size: var(--public-heroi-mobile); }
-    .public-hero, .auth-layout { gap: var(--esp-7); }
-    .auth-card { padding: var(--esp-6); }
-    .story-orbit { display: none; }
+    .public-hero { gap: var(--esp-7); }
+    .public-page .hero-copy h1 { font-size: var(--public-heroi-mobile); }
 }
 @media (max-width: 760px) {
     .public-container { padding-inline: var(--esp-5); }
@@ -117,13 +158,11 @@
     .public-nav { justify-content: space-between; width: 100%; gap: var(--esp-3); }
     .public-nav .nav-detail { display: none; }
     .public-nav .public-button { padding: var(--esp-3) var(--esp-4); }
-    .public-hero, .auth-layout, .section-heading, .start-inner { grid-template-columns: 1fr; }
+    .public-hero, .section-heading, .start-inner { grid-template-columns: 1fr; }
     .public-hero { padding-block: var(--public-respiro); }
-    .public-page .hero-copy h1, .public-page .auth-story h1 { font-size: var(--public-heroi-mobile); }
-    .hero-description, .auth-story > p:not(.public-eyebrow) { font-size: var(--tipo-md); }
-    .hero-actions { align-items: stretch; gap: var(--esp-5); }
-    .hero-actions .public-button { width: 100%; }
-    .hero-product { max-width: var(--public-largura-texto); }
+    .public-page .auth-card h1 { font-size: var(--tipo-xl); }
+    .hero-actions { align-items: stretch; gap: var(--esp-4); }
+    .hero-actions .public-button, .hero-actions .public-text-link { width: 100%; text-align: center; }
     .public-pillars { grid-template-columns: 1fr; gap: var(--esp-4); }
     .public-pillars p { justify-content: start; }
     .public-pillars p + p { border: 0; }
@@ -133,15 +172,8 @@
     .start-inner { gap: var(--esp-7); }
     .public-footer { flex-wrap: wrap; gap: var(--esp-3); }
     .public-footer p { flex-basis: 100%; }
-    .auth-layout { min-height: 0; padding-block: var(--esp-7); }
-    .auth-layout .auth-card { order: -1; }
-    .auth-story-detail { display: none; }
-    .auth-layout--signup .auth-story { padding-top: 0; }
     .auth-card { padding: var(--esp-5); }
-    .auth-card h2 { font-size: var(--tipo-xl); }
-    .intelligence-map { padding: var(--esp-4); }
 }
 @media (prefers-reduced-motion: reduce) {
     .public-button { transition: none; }
-    .public-button:hover { transform: none; }
 }

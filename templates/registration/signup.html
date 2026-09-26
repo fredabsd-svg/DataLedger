@@ -1,18 +1,26 @@
 {% extends "registration/public_base.html" %}
 {% block titulo %}Criar ambiente{% endblock %}
 {% block public_content %}
+{% comment %}
+DL-042 (2ª passada): mesmo cartão único do login. O formulário continua
+percorrendo `form.visible_fields` sem hardcodar nome de campo — o contrato
+com apps.accounts.forms.CadastroForm (nome, email, nome_escritorio, cnpj,
+password1, password2) não muda, só a moldura ao redor.
+{% endcomment %}
 <section class="auth-stage" aria-labelledby="signup-title">
-    <div class="auth-layout auth-layout--signup public-container">
-        <div class="auth-story">
-            <p class="public-eyebrow">Primeiro acesso · seu escritório</p>
-            <h1 id="signup-title">Comece com<br>uma base <em>forte.</em></h1>
-            <p>Crie seu acesso e o ambiente do escritório nesta instalação. Depois, organize as empresas que você atende.</p>
-            <div class="signup-explainer"><h2>O que acontece agora?</h2><ol><li>Você cria sua conta de administrador.</li><li>O escritório ganha um ambiente próprio.</li><li>As empresas clientes são cadastradas dentro do sistema.</li></ol><p>Já faz parte de uma equipe? Peça acesso ao administrador do seu escritório.</p></div>
-        </div>
+    <div class="auth-shell public-container">
         <div class="auth-card">
-            <p class="public-eyebrow">Configuração inicial</p>
-            <h2>Crie seu ambiente.</h2>
+            <p class="public-eyebrow">Primeiro acesso</p>
+            <h1 id="signup-title">Configurar meu ambiente</h1>
             <p class="auth-intro">Seus dados e os do escritório. Todos os campos são obrigatórios.</p>
+            <div class="signup-explainer">
+                <h2>O que acontece ao enviar</h2>
+                <ol>
+                    <li>Sua conta de administrador é criada.</li>
+                    <li>O escritório ganha um ambiente isolado, só seu.</li>
+                    <li>Você cadastra as empresas (CNPJ ou CPF) e começa a lançar.</li>
+                </ol>
+            </div>
             {% if form.errors %}<div class="mensagem mensagem-error" role="alert"><p><strong>Confira os dados informados.</strong> Corrija os campos indicados para continuar.</p>{% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}</div>{% endif %}
             <form method="post" class="public-form" novalidate>{% csrf_token %}
                 {% for field in form.visible_fields %}<div class="campo">{{ field.label_tag }}{{ field }}{% if field.help_text %}<div id="{{ field.auto_id }}_helptext" class="field-help">{{ field.help_text|safe }}</div>{% endif %}{% if field.errors %}<div id="{{ field.auto_id }}_error" class="field-error">{{ field.errors }}</div>{% endif %}</div>{% endfor %}

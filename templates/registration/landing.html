@@ -1,44 +1,183 @@
 {% extends "registration/public_base.html" %}
-{% block titulo %}Inteligência aplicada à gestão contábil{% endblock %}
+{% block titulo %}Sistema contábil para escritórios brasileiros{% endblock %}
 {% block public_content %}
+{% comment %}
+DL-042 (2ª passada, pedido do arquiteto-senior): reescrita completa desta
+tela pela referência fluxos-saas.md §9 da skill saas-design-excellence —
+proposta clara em 5 segundos, UMA ação primária, produto de verdade (nunca
+ilustração abstrata), e honestidade sobre o que está DISPONÍVEL hoje contra
+o que está PLANEJADO. Medido em código nesta etapa (mapa-de-telas.md,
+26/09/2026), não copiado de documento anterior: Contabilidade completa
+(plano de contas, partidas dobradas, Diário/Razão/Balancete/Balanço,
+fechamento de competência) e Recepção/consulta de NFS-e nacional estão
+DISPONÍVEIS; Folha, Honorários, Paralegal, Lalur/ECF, escrituração/apuração
+fiscal completa, assistente de IA e integração MCP estão PLANEJADOS — nunca
+apresentados como prontos. Nenhum número, depoimento ou selo inventado
+(pedido explícito do Fred): a única prova é a captura real da tela.
+{% endcomment %}
 <section class="hero-stage" aria-labelledby="hero-title">
     <div class="public-hero public-container">
         <div class="hero-copy">
-            <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> DataLedger / Uma nova forma de operar</p>
-            <h1 id="hero-title">O próximo capítulo da contabilidade começa com <em>inteligência.</em></h1>
-            <p class="hero-description">Um sistema brasileiro de gestão contábil concebido para trabalhar com modelos de IA. O contexto certo para analisar, regras confiáveis para executar e você no comando de cada decisão.</p>
-            <div class="hero-actions"><a class="public-button public-button--light" href="{% url 'cadastro' %}">Criar ambiente do escritório <span aria-hidden="true">↗</span></a><a class="public-text-link" href="{% url 'login' %}">Já tenho acesso <span aria-hidden="true">→</span></a></div>
-            <p class="hero-note">Primeiro acesso nesta instalação? Cadastre o responsável e seu escritório.</p>
-        </div>
-        <div class="hero-product" aria-label="Concepção do DataLedger">
-            <div class="product-heading"><span>Como o DataLedger foi pensado</span><span class="demo-label">Visão de arquitetura</span></div>
-            <div class="intelligence-map">
-                <div class="map-node map-node--model"><span class="map-index">01 / Inteligência</span><strong>Modelos de IA</strong><p>Consultam, explicam e propõem com contexto.</p><small>Integração planejada</small></div>
-                <div class="map-connector" aria-hidden="true"><span>↓</span></div>
-                <div class="map-node map-node--core"><span class="map-index">02 / Núcleo confiável</span><strong>DataLedger</strong><p>Valida permissões, calcula e registra.</p><small>Contabilidade disponível</small></div>
-                <div class="map-connector" aria-hidden="true"><span>↓</span></div>
-                <div class="map-node map-node--human"><span class="map-index">03 / Decisão</span><strong>Você no controle</strong><p>Ações críticas dependem da sua aprovação.</p></div>
+            <p class="public-eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> DataLedger, para escritórios de contabilidade</p>
+            <h1 id="hero-title">Contabilidade completa, num sistema pensado para trabalhar <em>com IA.</em></h1>
+            <p class="hero-description">Plano de contas, lançamento por partidas dobradas, Diário, Razão, Balancete, Balanço e fechamento de competência — hoje. Recepção de NFS-e nacional — hoje. Cada escritório isolado do outro, sempre.</p>
+            <div class="hero-actions">
+                <a class="public-button" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">→</span></a>
+                <a class="public-text-link" href="{% url 'login' %}">Entrar</a>
             </div>
-            <p class="product-caption">Assistente de IA, provedores e MCP estão planejados; ainda não estão disponíveis nesta versão.</p>
+            <p class="hero-note">Sem cartão de crédito. Leva menos de dois minutos para criar o escritório e a primeira empresa.</p>
+        </div>
+        <div class="hero-product">
+            <figure>
+                <img src="/static/img/produto-balancete.png" width="1280" height="720" alt="Captura de tela do Balancete de verificação no DataLedger, com a barra de navegação lateral, a faixa de conferência de débito e crédito, e a tabela de contas com saldos em reais.">
+                <figcaption>O Balancete real do produto — dados de exemplo, nenhum dado de cliente.</figcaption>
+            </figure>
         </div>
     </div>
 </section>
-<section class="public-pillars public-container" aria-label="Fundamentos do sistema"><p><span class="numerico">01</span> Contexto para a IA</p><p><span class="numerico">02</span> Cálculo determinístico</p><p><span class="numerico">03</span> Decisão rastreável</p></section>
-<section class="platform-section public-container" id="plataforma" aria-labelledby="platform-title">
-    <div class="section-heading"><p class="public-eyebrow">A inteligência faz parte da concepção</p><h2 id="platform-title">Uma base confiável.<br>Múltiplas formas de operar.</h2><p>Interface no navegador, assistente interno e conexão com modelos externos compõem a visão do projeto. Cada acesso deve respeitar empresa, período e autorização.</p></div>
+
+<section class="public-pillars public-container" aria-label="Princípios do produto">
+    <p><span class="numerico">01</span> Cálculo determinístico e auditável</p>
+    <p><span class="numerico">02</span> Isolamento entre escritórios</p>
+    <p><span class="numerico">03</span> Você decide cada ação sensível</p>
+</section>
+
+<section class="platform-section public-container" aria-labelledby="disponivel-title">
+    <div class="section-heading">
+        <p class="public-eyebrow">O que já funciona hoje</p>
+        <h2 id="disponivel-title">Não é uma promessa. É o que o sistema faz agora.</h2>
+        <p>Quatro capacidades disponíveis nesta versão, sem letra miúda — o que ainda não existe está marcado como planejado, na seção de módulos, abaixo.</p>
+    </div>
     <div class="feature-grid">
-        <article><span class="feature-number numerico">01 /</span><h3>Assistência com contexto.</h3><p>Conversa em português para consultar pendências, explicar variações e propor classificações, com os registros de origem à vista.</p><span class="feature-tag">Assistente de IA · Planejado</span></article>
-        <article><span class="feature-number numerico">02 /</span><h3>Liberdade de modelos.</h3><p>Previsão de provedores configuráveis e ferramentas MCP para clientes autorizados, com limites de uso e controle dos dados compartilhados.</p><span class="feature-tag">Provedores e MCP · Planejados</span></article>
-        <article><span class="feature-number numerico">03 /</span><h3>Controle em cada operação.</h3><p>A IA consulta, explica e propõe. Os serviços validam e calculam; ações críticas exigem aprovação vinculada à operação e aos dados exatos.</p><span class="feature-tag">Princípio de arquitetura</span></article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Contabilidade completa</h3>
+            <p>Plano de contas hierárquico, lançamento por partidas dobradas (imutável depois de gravado, com estorno), Diário, Razão, Balancete e Balanço Patrimonial. Fechamento de competência: encerrar, reabrir e marcar como entregue.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Recepção de NFS-e nacional</h3>
+            <p>Envie um XML solto ou um ZIP com vários. O sistema classifica cada arquivo — recebido, duplicado ou recusado, com o motivo — e mantém a consulta de todos os documentos e eventos de cancelamento recebidos.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Empresas PJ e PF</h3>
+            <p>Cadastro por CNPJ (inclusive alfanumérico, NT 2025.001) ou CPF para o cliente pessoa física em livro-caixa, com histórico de regime tributário e NIRE.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Isolamento por escritório</h3>
+            <p>Cada escritório só enxerga os próprios dados — nunca os de outro, em nenhuma tela, relatório, exportação ou tarefa em segundo plano. Papéis por pessoa e trilha de auditoria imutável, inclusive no admin.</p>
+        </article>
     </div>
 </section>
-<section class="platform-section public-container module-section" aria-labelledby="modules-title">
-    <div class="section-heading"><p class="public-eyebrow">Evolução por módulos</p><h2 id="modules-title">Fiscal. Folha.<br>Contabilidade.</h2><p>Uma visão integrada, construída sobre entregas verificáveis. Veja o que está disponível nesta versão e o que está no plano de desenvolvimento.</p></div>
+
+<section class="platform-section public-container module-section" id="plataforma" aria-labelledby="modules-title">
+    <div class="section-heading">
+        <p class="public-eyebrow">Evolução por módulos</p>
+        <h2 id="modules-title">Contabilidade. Fiscal.<br>E o que vem a seguir.</h2>
+        <p>Cada módulo entra em produção quando está pronto para o uso real do escritório — nunca antes, nunca com o rótulo "em breve" escondendo o que ainda não existe.</p>
+    </div>
     <div class="feature-grid">
-        <article><span class="feature-tag">Disponível · Núcleo contábil</span><h3>Contabilidade</h3><p>Plano de contas, lançamentos, Diário, Razão, Balancete e Balanço Patrimonial. Com organização multiempresa e trilha de auditoria.</p></article>
-        <article><span class="feature-tag">Planejado</span><h3>Fiscal</h3><p>Recepção de documentos, escrituração, apuração e integração com a contabilidade, em etapas de implementação.</p></article>
-        <article><span class="feature-tag">Planejado</span><h3>Folha de Pagamento</h3><p>Vínculos, eventos, cálculos, obrigações e integração contábil, com regras e memórias de cálculo próprias.</p></article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Contabilidade</h3>
+            <p>Núcleo do produto hoje: lançamentos, relatórios e fechamento de competência, com organização multiempresa.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Disponível</span>
+            <h3>Fiscal — recepção</h3>
+            <p>Recepção e consulta de NFS-e nacional já disponíveis. Escrituração e apuração fiscal completas estão planejadas.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Folha de pagamento</h3>
+            <p>Vínculos, eventos, cálculos e obrigações, com integração contábil — ainda não iniciado.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Honorários</h3>
+            <p>Faturamento recorrente vinculado ao contrato do cliente — ainda não iniciado.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Processos / Paralegal</h3>
+            <p>Acompanhamento de etapas e prazos societários — ainda não iniciado.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Lalur / ECF</h3>
+            <p>Conciliação entre resultado contábil e base fiscal — ainda não iniciado.</p>
+        </article>
     </div>
 </section>
-<section class="start-section" aria-labelledby="start-title"><div class="public-container start-inner"><div><p class="public-eyebrow">Primeiro acesso à instalação</p><h2 id="start-title">Seu espaço de trabalho começa aqui.</h2><a class="public-button public-button--light" href="{% url 'cadastro' %}">Criar ambiente do escritório <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="numerico">01</span><div><h3>Cadastre o responsável</h3><p>Defina o acesso de quem vai administrar o escritório.</p></div></li><li><span class="numerico">02</span><div><h3>Configure o escritório</h3><p>Informe nome e CNPJ para criar o ambiente de trabalho nesta instalação.</p></div></li><li><span class="numerico">03</span><div><h3>Acesse os módulos disponíveis</h3><p>Cadastre as empresas atendidas e organize a operação. A configuração de IA virá em uma etapa futura.</p></div></li></ol></div></section>
+
+<section class="platform-section public-container" aria-labelledby="ia-title">
+    <div class="section-heading">
+        <p class="public-eyebrow">Concebido para trabalhar com IA</p>
+        <h2 id="ia-title">A IA consulta e propõe.<br>Quem decide é você.</h2>
+        <p>O DataLedger é desenhado desde a base para que um modelo de linguagem consulte pendências, explique variações e proponha classificações com os registros de origem à vista — mas o cálculo é sempre determinístico, e nenhuma ação sensível acontece sem você.</p>
+    </div>
+    <div class="feature-grid">
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Assistente de IA</h3>
+            <p>Conversa em português para consultar o que está pendente, explicar um saldo ou sugerir uma classificação — sempre mostrando de onde veio a informação.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--planejado">Planejado</span>
+            <h3>Provedores e MCP</h3>
+            <p>Conexão configurável com modelos externos, com limite de uso e controle explícito do que é compartilhado.</p>
+        </article>
+        <article>
+            <span class="status-badge status-badge--disponivel">Princípio já aplicado hoje</span>
+            <h3>Cálculo nunca delegado</h3>
+            <p>Todo valor fiscal, contábil ou trabalhista é calculado por regra determinística e auditável — a IA nunca substitui essa camada, planejada ou não.</p>
+        </article>
+    </div>
+</section>
+
+<section class="start-section" aria-labelledby="start-title">
+    <div class="public-container start-inner">
+        <div>
+            <p class="public-eyebrow">Comece agora</p>
+            <h2 id="start-title">Seu ambiente fica pronto em três passos.</h2>
+            <a class="public-button" href="{% url 'cadastro' %}">Configurar meu ambiente <span aria-hidden="true">→</span></a>
+        </div>
+        <ol class="start-steps">
+            <li><span class="numerico">01</span><div><h3>Crie seu acesso</h3><p>Nome, e-mail e senha — só isso, para o responsável do escritório.</p></div></li>
+            <li><span class="numerico">02</span><div><h3>Configure o escritório</h3><p>Nome e CNPJ para criar o ambiente isolado desta instalação.</p></div></li>
+            <li><span class="numerico">03</span><div><h3>Cadastre as empresas</h3><p>Uma por CNPJ ou CPF, e comece a lançar. Fiscal e os demais módulos seguem o roteiro acima.</p></div></li>
+        </ol>
+    </div>
+</section>
+
+<section class="faq-section public-container" aria-labelledby="faq-title">
+    <div class="section-heading">
+        <p class="public-eyebrow">Perguntas frequentes</p>
+        <h2 id="faq-title">Antes de começar</h2>
+    </div>
+    <div class="faq-list">
+        <details class="faq-item">
+            <summary>Preciso de cartão de crédito para começar?</summary>
+            <p>Não. Criar o escritório e a primeira empresa não pede pagamento nenhum nesta versão.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Meus dados ficam isolados dos de outros escritórios?</summary>
+            <p>Sim — é uma garantia estrutural do produto, não uma configuração opcional. Nenhuma consulta, relatório, exportação ou tarefa em segundo plano mistura dados de dois escritórios.</p>
+        </details>
+        <details class="faq-item">
+            <summary>O assistente de IA já está disponível?</summary>
+            <p>Ainda não. O produto foi desenhado para recebê-lo (contexto, permissões e trilha de auditoria já existem para isso), mas o assistente em si e a conexão MCP estão no roteiro, não em produção.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Atende empresa (CNPJ) e também pessoa física (CPF)?</summary>
+            <p>Sim. O cadastro aceita CNPJ — inclusive o formato alfanumérico da Receita — ou CPF para o cliente pessoa física em regime de livro-caixa.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Posso ter mais de uma pessoa no mesmo escritório?</summary>
+            <p>Sim — o sistema já tem papéis (administrador, gestor, analista, financeiro, paralegal, cliente) que definem o que cada pessoa lê e altera. A tela de convite dentro do produto ainda está no roteiro; até lá, quem administra o escritório organiza o segundo acesso.</p>
+        </details>
+    </div>
+</section>
 {% endblock %}
