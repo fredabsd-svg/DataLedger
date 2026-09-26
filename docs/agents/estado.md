@@ -121,10 +121,9 @@ logo depois; DL-045 (DRE) em andamento.**
   tabelas com superfície, ações de linha como botão, Início com indicadores e
   carteira, hub de relatórios. Capturas em
   [dl044/comparacao.md](../assets/telas/dl044/comparacao.md). Identificação do
-  emitente e densidade do Balancete medidas antes e depois. **Pendente de
-  autorização do Fred:** apagar `templates/fiscal/_navegacao.html`, que ficou
-  sem uso (a exclusão foi bloqueada pelo controle do ambiente e não foi
-  contornada). Integra por PR depois do merge do PR #49.
+  emitente e densidade do Balancete medidas antes e depois. A parcial sem
+  uso das antigas abas do Fiscal foi apagada com autorização do Fred (26/09).
+  Integra por PR depois do merge do PR #49.
 - **DL-045** (DRE, nível 1): plano, RC-118 a RC-120, HI-28, HI-29 e PE-70
   (respondida por fonte primária). Classificação e apuração no servidor prontas
   na branch local `dl045-dre`; em ajuste e depois auditoria independente. A

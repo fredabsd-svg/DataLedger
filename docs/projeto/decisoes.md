@@ -4673,3 +4673,13 @@ A remoção das abas do Fiscal é a única mudança ESTRUTURAL desta rodada
 (menos marcação por tela), e mesmo essa não toca em nenhuma rota, view
 ou permissão — só a moldura de navegação, que o submenu lateral já
 cobria por inteiro.
+
+### DE-084, adendo — a parcial órfã do Fiscal foi apagada (2026-09-26)
+
+O Fred autorizou a exclusão ("Você decide", em resposta ao pedido de
+autorização). `templates/fiscal/_navegacao.html` foi apagado pelo
+`arquiteto-senior` com `git rm`. Nenhuma tela nem teste o referenciava; os
+comentários dos templates do Fiscal que citam o nome do arquivo descrevem a
+história da remoção e continuam valendo. A pendência desta decisão e da DE-083
+está fechada.
+

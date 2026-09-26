@@ -422,8 +422,8 @@ EDITAR (não apagar) o arquivo.** A decisão original deste lote (abaixo
 do parágrafo anterior, na primeira entrega) tinha sido NÃO remover — o
 arquiteto-senior reverteu essa decisão no retorno e autorizou remover os
 `{% include %}` das quatro telas, preservando o arquivo
-`templates/fiscal/_navegacao.html` em si (que fica ÓRFÃO — pendência
-registrada em DE-083, resolvida quando a exclusão for autorizada). As
+`templates/fiscal/_navegacao.html` em si (que ficou órfão até o Fred
+autorizar a exclusão; apagado em 26/09, adendo da DE-084). As
 capturas "depois" de Recepção fiscal e Documentos fiscais, abaixo, já
 não mostram mais a linha de abas — ver "Ajustes após a revisão do lote
 1/2", mais abaixo, para o resto dos achados desta rodada de retorno.
@@ -546,9 +546,9 @@ DE-083](../../../projeto/decisoes.md):
    filtro, não por ausência total).
 5. **Abas do Fiscal, mesma redundância da Contabilidade** — removidas
    das quatro telas (`{% include %}` apagado dos templates); o arquivo
-   `_navegacao.html` em si fica ÓRFÃO — a exclusão foi negada pelo
-   classificador de permissão da sessão, pendência registrada em
-   DE-083 até o Fred autorizar.
+   `_navegacao.html` ficou órfão porque a exclusão foi negada pelo
+   classificador de permissão da sessão; o Fred autorizou e ele foi
+   apagado em 26/09 (adendo da DE-084).
 6. **Legenda do Plano de contas minúscula e colada** — migrou para
    `.cartao-tabela__cabecalho`, dentro do MESMO cartão da tabela (não
    um parágrafo solto acima dela).

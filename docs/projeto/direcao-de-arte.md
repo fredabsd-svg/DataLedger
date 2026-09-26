@@ -543,13 +543,10 @@ isso, "sem tempo desta etapa para escolher a letra certa" — nunca foi
 resolvido, só ficou sem atalho), então a correção foi mais simples —
 só remover os quatro `{% include %}`.
 
-**Diferença do caso da Contabilidade: o arquivo NÃO foi apagado.** A
-DE-081 apagou `_navegacao_empresa.html` do repositório; aqui, a
-exclusão foi negada pelo mecanismo de permissão da sessão que fez a
-correção — `templates/fiscal/_navegacao.html` continua no repositório,
-ÓRFÃO (nenhuma tela o inclui), com um aviso no topo do próprio arquivo.
-Pendência registrada em DE-084, a fechar quando a exclusão for
-autorizada.
+**O arquivo também foi apagado**, como na Contabilidade (DE-081). A
+exclusão tinha sido negada pelo mecanismo de permissão da sessão que fez a
+correção; o arquivo ficou órfão até o Fred autorizar, em 2026-09-26, e foi
+então apagado pelo `arquiteto-senior` (adendo da DE-084).
 
 ### 8.3 Cabeçalho de página
 
