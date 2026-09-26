@@ -20,17 +20,20 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    {% comment %}
-    B3/BL-283 (auditoria DL-026, rodada 1): esta tela ficava de fora da
-    navegação contextual (o comentário da parcial já dizia "toda tela de
-    contabilidade" e listava só seis) — quem entrava aqui perdia os cinco
-    atalhos até voltar. Sem `pagina_atual`: "Nova conta" não é uma das
-    cinco páginas fixas do subnível, então os cinco aparecem como link
-    (mesmo caso do Razão).
-    {% endcomment %}
-    <h1>Nova conta — {{ empresa.razao_social }}</h1>
+{% comment %}
+B3/BL-283 (auditoria DL-026, rodada 1): esta tela ficava de fora da
+navegação contextual (o comentário da parcial já dizia "toda tela de
+contabilidade" e listava só seis) — quem entrava aqui perdia os cinco
+atalhos até voltar. Sem `pagina_atual`: "Nova conta" não é uma das
+cinco páginas fixas do subnível, então os cinco aparecem como link
+(mesmo caso do Razão).
 
+DL-044 (Fase B): título migra para a faixa branca do topo, sem a razão
+social — a pílula "Empresa" já mostra, mesmo padrão das demais telas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Nova conta</h1>{% endblock %}
+
+{% block content %}
     {% comment %}
     R6-5/BL-199 (mesma razão do `lancamento_form.html`, ver o comentário
     de lá): `action` explícito e sem querystring, para que um `<form>` sem

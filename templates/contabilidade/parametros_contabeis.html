@@ -9,18 +9,21 @@
     </span>
 {% endblock %}
 
-{% block content %}
-    {% comment %}
-    DL-043 fatia 3 (BL-474): arquétipos A (tabela) e B (formulário)
-    combinados na mesma tela — mesmo molde de fechamento.html (tabela de
-    competências + formulário de "fechar um mês ainda sem lançamento" logo
-    abaixo, na mesma página), em vez de duas telas separadas como
-    plano_de_contas.html/conta_form.html: o volume de dado aqui (algumas
-    vigências por empresa, ao longo de anos) nunca justifica uma segunda
-    navegação.
-    {% endcomment %}
-    <h1>Parâmetros contábeis — {{ empresa.razao_social }}</h1>
+{% comment %}
+DL-043 fatia 3 (BL-474): arquétipos A (tabela) e B (formulário)
+combinados na mesma tela — mesmo molde de fechamento.html (tabela de
+competências + formulário de "fechar um mês ainda sem lançamento" logo
+abaixo, na mesma página), em vez de duas telas separadas como
+plano_de_contas.html/conta_form.html: o volume de dado aqui (algumas
+vigências por empresa, ao longo de anos) nunca justifica uma segunda
+navegação.
 
+DL-044 (Fase B): título migra para a faixa branca do topo, sem a razão
+social — a pílula "Empresa" já mostra.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Parâmetros contábeis</h1>{% endblock %}
+
+{% block content %}
     <p class="texto-apoio">
         Periodicidade do zeramento do resultado e as três contas de destino
         (resultado do exercício, lucros acumulados e (-) prejuízos acumulados),

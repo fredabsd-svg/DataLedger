@@ -43,6 +43,17 @@ comentário completo em balancete.html e em templates/base.html.
     {% endif %}
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo (`{% block
+titulo_pagina %}`, templates/base.html) — mesmo padrão de
+Balancete/Diário/Balanço. Aqui o `<h1>` NÃO repete a pílula "Empresa"
+(`contexto_extra`, acima) — é o código/nome da CONTA, dado que não
+aparece em nenhuma pílula —, então nada foi simplificado além de mudar
+de lugar. `.cabecalho` continua impresso, mesmo raciocínio de
+balancete.html/diario.html.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Razão — {{ conta.codigo }} {{ conta.nome }}</h1>{% endblock %}
+
 {% block content %}
     {% comment %}
     BL-282: mesmo timbre de impressão do Balancete e do Diário — ver o
@@ -63,7 +74,6 @@ comentário completo em balancete.html e em templates/base.html.
     melhor tecla... garanta que ela funciona de dentro do balancete e do
     razão" — Alt+N (e os outros quatro) agora existem aqui também.
     {% endcomment %}
-    <h1>Razão — {{ conta.codigo }} {{ conta.nome }}</h1>
     {% if consolidado %}
         <p><em>Esta conta consolida os valores das contas subordinadas a ela.</em></p>
     {% endif %}

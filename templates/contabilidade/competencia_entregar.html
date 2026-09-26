@@ -24,9 +24,14 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    <h1>Marcar competência {{ mes|stringformat:"02d" }}/{{ ano }} como entregue</h1>
+{% comment %}
+DL-044 (Fase B): mesmo raciocínio de competencia_fechar.html — título
+migra para a faixa branca do topo, mês/ano PERMANECE (reforço de risco;
+esta é a ação SEM VOLTA da fatia, RC-101 — a que mais precisa do reforço).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Marcar competência {{ mes|stringformat:"02d" }}/{{ ano }} como entregue</h1>{% endblock %}
 
+{% block content %}
     {% if ja_entregue_em %}
         <p class="mensagem mensagem-info" role="status">
             Esta competência já foi entregue ao cliente em

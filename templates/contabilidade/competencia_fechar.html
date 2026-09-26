@@ -24,9 +24,18 @@
     </nav>
 {% endblock %}
 
-{% block content %}
-    <h1>Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo. Diferente das
+telas ATIVAS migradas nesta etapa, aqui o mês/ano PERMANECE no título,
+mesmo repetindo a pílula "Competência" — ação sensível (arquétipo E,
+"o que vai acontecer" antes de confirmar): reforçar QUAL competência via
+dois canais (título + pílula) reduz o risco de clique na competência
+errada, e cerimônia proporcional ao risco (direção de arte) pesa mais,
+aqui, do que evitar uma repetição.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
 
+{% block content %}
     {% if quantidade_lotes_desbalanceados %}
         {% comment %}
         Critério 2: a conferência (RC-58) aparece ANTES do botão — havendo

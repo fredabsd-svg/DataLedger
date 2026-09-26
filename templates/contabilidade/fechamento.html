@@ -9,9 +9,14 @@
     </span>
 {% endblock %}
 
-{% block content %}
-    <h1>Fechamento de competência — {{ empresa.razao_social }}</h1>
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo, sem a razão
+social — a pílula "Empresa" já mostra, mesmo padrão das demais telas de
+contabilidade migradas nesta etapa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Fechamento de competência</h1>{% endblock %}
 
+{% block content %}
     <p class="texto-apoio">
         A coluna "Zerar resultado" usa a periodicidade e as contas de destino
         cadastradas em

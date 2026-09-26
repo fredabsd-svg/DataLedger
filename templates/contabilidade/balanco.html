@@ -34,6 +34,17 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
     {% endif %}
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo (`{% block
+titulo_pagina %}`, templates/base.html) — mesmo padrão de Balancete/
+Diário/Razão. `.cabecalho` continua impresso (só `.barra-lateral`/
+`.formulario-periodo`/`.trilha`/`button` somem do papel — ver `@media
+print` em base.css), então o título continua saindo no documento; o
+bloco `.identificacao-do-documento` (item 51, NBC TG 26 — RC-95), mais
+abaixo neste arquivo, não muda de lugar nem de conteúdo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Balanço Patrimonial</h1>{% endblock %}
+
 {% block content %}
     {% comment %}
     BL-282: mesmo timbre de impressão do Balancete — identifica o
@@ -45,8 +56,6 @@ mais abaixo, para repetir sozinho a cada folha nova (ver o comentário lá).
             <p>{{ linha }}</p>
         {% endfor %}
     </div>
-
-    <h1>Balanço Patrimonial</h1>
 
     <form method="get" class="formulario-periodo">
         <div class="campo">

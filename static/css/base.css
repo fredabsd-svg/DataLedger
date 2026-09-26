@@ -631,12 +631,39 @@ summary:focus,
 /* Link de PROSA dentro do app logado usa o azul do app, não o editorial —
    mesmo raciocínio de escopo do comentário acima. `.barra-lateral a`
    (dentro da própria barra) já tem sua própria cor por `--bl-texto`/
-   `--bl-texto-suave` e não é afetada por esta regra, mais específica. */
-.barra-lateral ~ .area-principal a {
+   `--bl-texto-suave` e não é afetada por esta regra, mais específica.
+
+   DL-044 (Fase B — achado próprio, ao migrar "Nova conta" para
+   `{% block acoes_pagina %}` em plano_de_contas.html): `.botao--primario`
+   (0-1-0, `color: var(--app-acento-texto)`, branco) SEMPRE perdia para
+   esta regra (0-2-1, classe+classe+tipo) quando o botão é um `<a>` dentro
+   de `.area-principal` — MESMA classe de defeito já corrigida duas vezes
+   nesta etapa para `.valor-monetario`/`.cabecalho-numerico` (especificidade
+   de duas partes batendo utilitário de uma parte), só que aqui o efeito é
+   pior: texto branco sobre `--app-acento` virava `--app-acento` sobre
+   `--app-acento` — o BOTÃO INTEIRO ficava sem rótulo legível, sólido azul.
+   Medido: `empresas/lista.html` ("Nova empresa"), `tenancy/painel.html`
+   ("Criar o primeiro escritório") e `contabilidade/plano_de_contas.html`
+   ("Nova conta", desta etapa) tinham o mesmo defeito — PRÉ-EXISTENTE nos
+   dois primeiros, não introduzido por esta etapa, só nunca antes medido
+   com `getComputedStyle` (a captura de tela mostrava um retângulo azul
+   sólido, fácil de não notar como "texto ausente" numa inspeção visual
+   rápida).
+
+   A correção não empilha mais uma exceção por variante de `.botao` (isso
+   reabriria a disputa de especificidade a cada tom novo, e ainda
+   precisaria replicar o :hover de `.botao--perigoso`/`.botao--fantasma`,
+   que MUDAM de cor no hover — uma regra sempre-ativa mais específica
+   travaria essa mudança). `:not(.botao)` EXCLUI da correspondência
+   qualquer link com essa classe, então NENHUM tom de botão é tocado por
+   esta regra em nenhum estado — cada `.botao--*`/`.botao--*:hover`
+   continua sendo a ÚNICA fonte de cor para si mesmo, exatamente como já
+   era fora de `.area-principal` (landing, que nunca usa `.botao`). */
+.barra-lateral ~ .area-principal a:not(.botao) {
     color: var(--app-acento);
 }
 
-.barra-lateral ~ .area-principal a:hover {
+.barra-lateral ~ .area-principal a:not(.botao):hover {
     color: var(--app-acento-escuro);
 }
 
