@@ -1545,11 +1545,31 @@ def _recusar_zeramento_fora_de_ordem(*, empresa, data_final):
     desatualizada (outra requisição pode gravar um zeramento posterior
     entre a prévia e o POST); a da execução, sob a trava de empresa,
     nunca.
+
+    ⚠️ **Ignora zeramento já ESTORNADO (achado da integração, depois da
+    rodada 1):** um lançamento de zeramento com `estornos.exists()`
+    verdadeiro (alguém aponta `estorno_de` para ele) teve o efeito
+    completamente ANULADO no saldo — o estorno é a partida invertida
+    exata (`estornar_lancamento`). Continuar contando essa chave para
+    decidir "existe zeramento posterior" bloquearia PARA SEMPRE o
+    caminho de correção que o próprio plano recomenda (estornar o
+    zeramento fora de ordem e refazer na ordem certa, RC-101/RC-103):
+    o gestor zera abril antes de março por engano, estorna os
+    lançamentos de abril, e março continuaria recusado mesmo depois do
+    estorno, porque a chave de abril nunca desaparece do banco (o
+    estorno é um lançamento NOVO, nunca uma edição). `.filter(
+    estornos__isnull=True)` exclui exatamente essas chaves já
+    neutralizadas — se QUALQUER lançamento do período posterior ainda
+    não foi estornado (por exemplo, uma etapa 1 dividida em várias
+    partes onde só algumas foram estornadas), a recusa continua valendo
+    para as partes que restam, porque cada `LancamentoContabil` tem seu
+    próprio estorno (ou a ausência dele).
     """
     ja_zerado_depois = LancamentoContabil.objects.filter(
         empresa=empresa,
         chave_idempotencia__startswith=_prefixo_chave_zeramento_da_empresa(empresa.pk),
         data__gt=data_final,
+        estornos__isnull=True,
     ).exists()
     if ja_zerado_depois:
         data_str = data_final.strftime("%d/%m/%Y")
@@ -1557,7 +1577,10 @@ def _recusar_zeramento_fora_de_ordem(*, empresa, data_final):
             f"Já existe zeramento gravado para esta empresa com data posterior a "
             f"{data_str}; zerar (ou complementar) este período agora contaria parte "
             "do resultado duas vezes. Para corrigir um período anterior, estorne "
-            "o(s) zeramento(s) posteriores antes (RC-101/RC-103)."
+            "o(s) zeramento(s) posteriores antes (RC-101/RC-103), datando o estorno "
+            "até o último dia do período estornado — um estorno datado depois disso "
+            "fica fora da janela que o zeramento daquele mesmo período lê ao ser "
+            "refeito, e o valor pareceria não ter sido revertido."
         )
 
 

@@ -44,6 +44,7 @@ from apps.contabilidade.services import (
     criar_lancamento,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
+    estornar_lancamento,
     pre_visualizar_zeramento,
     registrar_parametro_contabil,
     zerar_resultado,
@@ -1043,3 +1044,157 @@ def test_b5_numero_de_consultas_e_constante_com_o_numero_de_contas(cenario):
         "o número de consultas cresceu com o número de contas — voltou o "
         f"cálculo quadrático do B5 ({numero_de_consultas_10} -> {numero_de_consultas_50})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Caso 14 — achado de INTEGRAÇÃO (depois da rodada 1, antes da reconferência):
+# `_recusar_zeramento_fora_de_ordem` contava zeramento já ESTORNADO como se
+# ainda estivesse de pé, bloqueando PARA SEMPRE o próprio caminho de
+# correção que o plano recomenda (RC-101/RC-103: estornar o zeramento fora
+# de ordem e refazer na ordem certa).
+# ---------------------------------------------------------------------------
+
+
+def _saldo_proprio_liquido(empresa, conta):
+    """Saldo PRÓPRIO real de `conta`, somando TODOS os itens já lançados
+    nela — inclusive os de um ESTORNO, que não tem chave de idempotência
+    com prefixo `zeramento:` (`estornar_lancamento` chama `criar_lancamento`
+    sem `chave_idempotencia`). Por isso este teste não reaproveita
+    `_total_lucros` (que filtra por chave `:etapa2:` e perderia o efeito de
+    qualquer estorno) — soma bruta de débitos e créditos, com o sinal da
+    natureza aplicado uma única vez no fim, mesmo espírito da regra única
+    de saldo (DE-020)."""
+    itens = ItemLancamento.objects.filter(lancamento__empresa=empresa, conta=conta)
+    zero = Decimal("0")
+    debitos = sum((item.valor for item in itens if item.tipo == TipoPartida.DEBITO), zero)
+    creditos = sum((item.valor for item in itens if item.tipo == TipoPartida.CREDITO), zero)
+    if conta.natureza == NaturezaConta.DEVEDORA:
+        return debitos - creditos
+    return creditos - debitos
+
+
+def test_integracao_zeramento_fora_de_ordem_recupera_com_estorno_e_refazer(cenario):
+    """Cenário do achado de integração: o gestor zera ABRIL antes de MARÇO
+    por engano (isso, por si só, é aceito — só zerar um período ANTERIOR a
+    um zeramento já gravado é recusado). Para corrigir, ele segue o próprio
+    caminho que o plano recomenda: estorna os lançamentos do zeramento de
+    abril e depois zera março. **Antes desta correção**, o zeramento de
+    abril continuava contando mesmo estornado, e março ficava bloqueado
+    para sempre. Depois, março tem que funcionar, e abril refeito tem que
+    valer exatamente 200,00 — nem os 500,00 do cálculo errado original
+    (que já incluía o resíduo de março, agora absorvido por março), nem
+    zero (perdendo o valor de abril).
+
+    O estorno é datado no ÚLTIMO DIA do próprio período que ele reverte
+    (30/04), não em "hoje": o zeramento lê saldo ACUMULADO ATÉ a data
+    final do período (RC-104), então um estorno datado depois de 30/04
+    ficaria FORA da janela que o próprio zeramento de abril usa ao ser
+    recalculado, e a correção pareceria (erradamente) incompleta — exigência
+    da regra "saldo acumulado até data final" já existente, não uma regra
+    nova inventada neste teste. Reportado ao arquiteto junto com a correção."""
+    empresa = cenario["empresa"]
+    gestor = cenario["gestor"]
+    receita = cenario["receita"]
+    lucros = cenario["lucros"]
+    prejuizos = cenario["prejuizos"]
+
+    _lancar_receita(cenario, date(2026, 3, 31), "300.00")
+    _lancar_receita(cenario, date(2026, 4, 30), "200.00")
+
+    # 1) Zera abril ANTES de março — aceito; o resíduo de março (ainda não
+    # zerado) entra no cálculo, mesmo comportamento do B2 já coberto em
+    # outro teste deste arquivo.
+    resultado_abril_1 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    assert len(resultado_abril_1["lancamentos_etapa1"]) == 1
+    assert resultado_abril_1["lancamento_etapa2"] is not None
+
+    # 2) Zerar março agora é recusado (existe zeramento de abril, não
+    # estornado, com data posterior) — a recusa correta continua valendo.
+    with pytest.raises(ZeramentoForaDeOrdem):
+        zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
+
+    # 3) Estorna os lançamentos do zeramento de abril, na MESMA data do
+    # período que revertem (ver o docstring acima).
+    data_do_estorno = date(2026, 4, 30)
+    for lancamento in resultado_abril_1["lancamentos_etapa1"]:
+        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno)
+    estornar_lancamento(
+        resultado_abril_1["lancamento_etapa2"], criado_por=gestor, data=data_do_estorno
+    )
+
+    # 4) Agora março TEM que funcionar — este é o defeito corrigido.
+    resultado_marco = zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
+    assert len(resultado_marco["lancamentos_etapa1"]) == 1
+    assert resultado_marco["lancamento_etapa2"] is not None
+    assert resultado_marco["destino_etapa2"] == "lucros_acumulados"
+
+    # 5) Refazer abril devolve exatamente o valor de abril (200,00).
+    resultado_abril_2 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    assert len(resultado_abril_2["lancamentos_etapa1"]) == 1
+    item_receita = next(
+        item
+        for item in resultado_abril_2["lancamentos_etapa1"][0].itens.all()
+        if item.conta_id == receita.pk
+    )
+    assert item_receita.valor == Decimal("200.00")
+    assert resultado_abril_2["lancamento_etapa2"] is not None
+
+    # 6) Saldo final: receita zerada, lucros = soma dos dois resultados
+    # (300 + 200 = 500,00), prejuízos intocada — nada duplicado, nada
+    # perdido, apesar do zeramento errado e do estorno no meio.
+    assert _saldo_proprio_liquido(empresa, receita) == Decimal("0.00")
+    assert _saldo_proprio_liquido(empresa, lucros) == Decimal("500.00")
+    assert _saldo_proprio_liquido(empresa, prejuizos) == Decimal("0.00")
+
+
+def test_integracao_novo_zeramento_de_abril_e_idempotente(cenario):
+    """Depois da recuperação do teste anterior, repetir o zeramento de
+    abril (sem nenhum movimento novo) é um no-op: nenhum lançamento novo,
+    nenhuma mudança de saldo — mesma garantia de idempotência que qualquer
+    outra chamada de `zerar_resultado` sem movimento novo no período
+    (docstring da função)."""
+    empresa = cenario["empresa"]
+    gestor = cenario["gestor"]
+    receita = cenario["receita"]
+    lucros = cenario["lucros"]
+
+    _lancar_receita(cenario, date(2026, 3, 31), "300.00")
+    _lancar_receita(cenario, date(2026, 4, 30), "200.00")
+    resultado_abril_1 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+    data_do_estorno = date(2026, 4, 30)
+    for lancamento in resultado_abril_1["lancamentos_etapa1"]:
+        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno)
+    estornar_lancamento(
+        resultado_abril_1["lancamento_etapa2"], criado_por=gestor, data=data_do_estorno
+    )
+    zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
+    zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+
+    total_lancamentos_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    saldo_receita_antes = _saldo_proprio_liquido(empresa, receita)
+    saldo_lucros_antes = _saldo_proprio_liquido(empresa, lucros)
+
+    resultado_abril_3 = zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+
+    assert resultado_abril_3["lancamentos_etapa1"] == []
+    assert resultado_abril_3["lancamento_etapa2"] is None
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_lancamentos_antes
+    assert _saldo_proprio_liquido(empresa, receita) == saldo_receita_antes
+    assert _saldo_proprio_liquido(empresa, lucros) == saldo_lucros_antes
+
+
+def test_integracao_zeramento_posterior_nao_estornado_continua_bloqueando(cenario):
+    """O oposto do teste principal: SEM estornar nada, zerar um período
+    anterior a um zeramento já gravado continua recusado — a correção do
+    achado de integração não pode afrouxar o B2."""
+    empresa = cenario["empresa"]
+    gestor = cenario["gestor"]
+
+    _lancar_receita(cenario, date(2026, 3, 31), "300.00")
+    _lancar_receita(cenario, date(2026, 4, 30), "200.00")
+    zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)
+
+    total_lancamentos_antes = LancamentoContabil.objects.filter(empresa=empresa).count()
+    with pytest.raises(ZeramentoForaDeOrdem):
+        zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
+    assert LancamentoContabil.objects.filter(empresa=empresa).count() == total_lancamentos_antes

@@ -215,6 +215,48 @@ o mês recusado é zerado depois, na ordem, pelo próprio usuário (se o mês
 posterior já foi zerado, o caminho é estornar esse zeramento e refazer na
 ordem, RC-103). Não é falha de aceite.
 
+### Achado de integração: estorno do zeramento fora de ordem ficava sem efeito
+
+Encontrado na integração da correção com as telas, antes da reconferência:
+`_recusar_zeramento_fora_de_ordem` contava QUALQUER lançamento com chave
+`zeramento:` e data posterior, inclusive um que já tivesse sido ESTORNADO
+(`estornos.exists()` verdadeiro) — o caminho de correção que a própria
+mensagem da recusa recomenda (estornar o zeramento fora de ordem e refazer
+na ordem certa, RC-101/RC-103) não funcionava: depois de estornar o
+zeramento de um mês posterior, o mês anterior continuava recusado para
+sempre, porque a chave do zeramento estornado nunca desaparece do banco (o
+estorno é um lançamento NOVO, nunca uma edição).
+
+Corrigido acrescentando `estornos__isnull=True` ao filtro — um zeramento com
+QUALQUER estorno já lançado deixa de contar como "zeramento posterior"; se
+a etapa 1 foi dividida em várias partes (RC-79) e só algumas partes foram
+estornadas, a recusa continua valendo para as que restam, porque cada
+`LancamentoContabil` tem seu próprio estorno (ou a ausência dele).
+
+O cálculo de complemento (`_calcular_zeramento`) não precisou de mudança: já
+lê o saldo PRÓPRIO via `apurar_balancete`, que soma TODOS os lançamentos
+(inclusive estornos) — o estorno já neutraliza o efeito no saldo por
+construção, sem nenhuma lista própria de "o que já foi zerado" para manter
+sincronizada. **Ressalva encontrada e não decidida aqui:** como o cálculo lê
+saldo acumulado ATÉ a data final do PRÓPRIO período, o estorno só neutraliza
+corretamente o zeramento errado se for datado até esse mesmo último dia — um
+estorno datado depois (por exemplo, "hoje", se a correção acontece semanas
+depois do erro) ficaria fora da janela que o zeramento daquele período lê ao
+ser refeito, e a correção pareceria incompleta. A mensagem da recusa passou a
+avisar disso; se a prática real do escritório é sempre corrigir "hoje", pode
+valer a pena um aviso mais forte (ou uma validação) no próprio
+`estornar_lancamento` — não decidido aqui, é pergunta de produto para o Fred,
+não algo que o código deva presumir.
+
+Testes novos em `test_dl043_correcao_rodada1.py`: `test_integracao_
+zeramento_fora_de_ordem_recupera_com_estorno_e_refazer` (zera abril, estorna,
+zera março com sucesso, refaz abril com o valor exato — 200,00 — sem
+duplicar os 500,00 do cálculo errado nem perder valor), `test_integracao_
+novo_zeramento_de_abril_e_idempotente` (repetir o zeramento refeito não gera
+lançamento nem muda saldo) e `test_integracao_zeramento_posterior_nao_
+estornado_continua_bloqueando` (sem estornar nada, a recusa do B2 continua
+valendo — a correção não afrouxa o bloqueio original).
+
 ## Integração com as telas (fatia 3)
 
 Ao juntar a correção com as telas, três portas da tela ainda não conheciam as
