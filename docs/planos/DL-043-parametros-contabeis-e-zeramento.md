@@ -97,3 +97,112 @@ sobreviventes); baixas B7, B8, B10. Decisões da correção em **DE-078** e
 prejuízo inflam as duas contas do PL) em consulta ao manual do sistema de
 referência antes de ir ao Fred. Correção única em andamento, depois uma
 reconferência.
+
+## Correção da rodada 1
+
+Feita na worktree `wt-dl043c`, branch `dl043-correcao`, a partir de `70dbdc5`
+(que já trazia o relatório da rodada 1 e a DE-078). Sem migração nova — a
+DE-078 previu isso como possível se a trava por empresa exigisse tabela
+própria, mas `select_for_update()` sobre a própria linha de `Empresa` bastou.
+
+- **B1 (BLOQUEADOR, hierarquia dobra o resultado):** `_calcular_zeramento`
+  passou a ler `debitos_proprios_totais`/`creditos_proprios_totais` de
+  `apurar_balancete` (saldo PRÓPRIO, não o `saldo_final` consolidado que soma
+  filhas — regra única de saldo da DE-020) para cada conta de
+  receita/despesa, sintética ou não. Sintética com saldo próprio diferente de
+  zero (só possível em dado legado, fora do fluxo normal de lançamento)
+  recusa com `ParametroContabilInvalido` em vez de ignorar ou dobrar o valor.
+  Testado: `test_b1_hierarquia_zera_pelo_saldo_proprio_sem_dobrar`,
+  `test_b1_sintetica_legada_com_saldo_proprio_recusa_sem_gravar`.
+- **B2 (BLOQUEADOR, ordem cronológica e concorrência):** nova
+  `_recusar_zeramento_fora_de_ordem` recusa zerar/complementar um período se
+  já existe zeramento gravado com data posterior (`ZeramentoForaDeOrdem`,
+  subclasse de `CompetenciaEncerrada`). Nova trava por empresa
+  (`_travar_empresa_para_operacao_de_zeramento`, `select_for_update()` na
+  própria linha de `Empresa`) serializa todo `zerar_resultado`,
+  `registrar_parametro_contabil` e `encerrar_vigencia_de_parametro_contabil`
+  da mesma empresa, fechando a lacuna que a trava só de competência deixava
+  entre meses diferentes. Testado:
+  `test_b2_zerar_fora_de_ordem_e_recusado_sem_gravar`,
+  `test_b2_complemento_tardio_depois_de_periodo_posterior_e_recusado`,
+  `test_b2_concorrencia_entre_meses_diferentes_nunca_conta_em_dobro` (15
+  rodadas reais em PostgreSQL, `threading.Barrier`).
+- **HI-25 (período não terminado):** `_periodo_de_zeramento` recusa com
+  `ParametroContabilInvalido` quando a data final do período é posterior a
+  hoje. Testado: dentro de `test_b3_5b_mes_futuro_e_400_sem_gravar`.
+- **B3 (ALTA, quatro 500 previsíveis):**
+  - RC-79 (mais de 200 contas): nova `_dividir_em_lancamentos_balanceados`
+    parte a etapa 1 em vários lançamentos balanceados, cada um com sua
+    própria contrapartida recalculada; `zerar_resultado` grava todos numa só
+    transação. Testado:
+    `test_b3_5a_duzentas_contas_de_resultado_divide_a_etapa1_sem_500`.
+  - Mês futuro: coberto pela HI-25 acima, agora 400 em vez de 500 por violar
+    RC-77 depois. Testado: `test_b3_5b_mes_futuro_e_400_sem_gravar`.
+  - Chave já ocupada: com `_proximo_complemento` corrigido (pega o maior
+    número já usado e soma 1, em vez de contar linhas), colisão deixou de ser
+    alcançável pelo fluxo normal; o teste força o caminho defensivo com
+    `monkeypatch` para provar que a view devolve 409, não 500. Testado:
+    `test_b3_5c_chave_ja_ocupada_e_409_sem_gravar`.
+  - `lock_timeout` (SQLSTATE 55P03) na trava de empresa: convertido para
+    `EmpresaTravadaPorOutraOperacao` (subclasse de
+    `CompetenciaOperacaoRecusada`), views devolvem 409. Testado:
+    `test_b3_5d_lock_timeout_real_na_empresa_e_409_sem_500`.
+- **B4 (MÉDIA, chave `zeramento:` forjável):** `criar_lancamento` recusa
+  qualquer chave de idempotência iniciada por `zeramento:` vinda de fora, com
+  `LancamentoInvalido`; novo parâmetro interno
+  `permitir_prefixo_reservado=True` usado só por `zerar_resultado`, nunca
+  exposto em view/API. Testado:
+  `test_b4_chave_reservada_e_400_e_nao_bloqueia_o_gestor` (recusa a um
+  ANALISTA que tenta forjar, depois confirma que o zeramento do GESTOR
+  continua funcionando).
+- **B5 (MÉDIA, custo quadrático):** resolvido como efeito colateral da
+  correção do B1 — `apurar_balancete` passou a ser chamado UMA vez por
+  zeramento (não uma vez por conta). Testado:
+  `test_b5_numero_de_consultas_e_constante_com_o_numero_de_contas` (compara o
+  número de consultas com poucas e com muitas contas de resultado, via
+  `CaptureQueriesContext`).
+- **B6 (MÉDIA, mutantes sobreviventes):** ver tabela mutante → teste abaixo.
+- **B7 (BAIXA, contas de destino inadequadas):** `registrar_parametro_contabil`
+  passou a recusar conta de resultado do exercício ou de lucros/prejuízos
+  acumulados que seja sintética (tem filhas) ou inativa, e recusa conta de
+  lucros acumulados com natureza devedora. Coberto pelos testes de
+  `test_dl043_parametro_contabil.py` (critérios de contas de destino) e pela
+  suíte nova onde essas contas aparecem nos cenários de referência.
+- **B8 (BAIXA, trilha sem IP):** `zerar_resultado` passou a aceitar
+  `request=None` opcional e a registrar `endereco_ip` na trilha quando
+  presente; a view passa a chamar com `request=request`. Testado:
+  `test_b8_trilha_do_zeramento_tem_ip_usuario_e_escritorio`.
+- **B9 (BAIXA, sem admin do parâmetro):** nenhuma mudança de código — a
+  DE-078 confirmou que a ausência de admin é aceitável neste momento (mesmo
+  padrão já usado para outros modelos operacionais do módulo).
+- **B10 (BAIXA, corrida entre `registrar_parametro_contabil` e
+  `zerar_resultado`):** resolvido como efeito colateral da mesma trava por
+  empresa do B2 — `registrar_parametro_contabil` e
+  `encerrar_vigencia_de_parametro_contabil` agora travam a empresa antes de
+  ler ou escrever o estado de vigência. Sem teste de concorrência real
+  dedicado (a auditoria não tinha reproduzido B10; o teste de concorrência do
+  B2 já exercita a mesma trava).
+
+### Mutante → teste que mata
+
+| Mutante | Teste que mata |
+| --- | --- |
+| M4 (remover checagem de competência ABERTA) | `test_m4_competencia_encerrada_sem_movimento_recusa_sem_trilha_nem_gravacao` |
+| M12 (ignorar `vigencia_fim`) | `test_m12_zerar_apos_vigencia_fim_sem_sucessora_e_recusado` |
+| M14 (incluir sintéticas no universo sem tratamento) | `test_b1_sintetica_legada_com_saldo_proprio_recusa_sem_gravar` (confirmado reaplicando a mutação equivalente na correção: sem a recusa, o teste falha; com ela, passa) |
+| M16 (remover `registrar()` do zeramento) | `test_b8_trilha_do_zeramento_tem_ip_usuario_e_escritorio` |
+| M17 (remover `registrar()` do parâmetro) | `test_m17_trilha_do_parametro_contabil_e_gravada` |
+| M20 (encerrar vigência com início futuro) | `test_m20_encerrar_vigencia_com_inicio_futuro_e_409_sem_gravar` |
+| M22 (anual aceitando mês diferente de dezembro) | `test_m22_anual_recusa_cada_mes_diferente_de_dezembro` (parametrizado 1–11) e `test_m22_anual_aceita_dezembro` |
+| M24 (`_conta_da_empresa_ou_400` sem filtro de empresa) | `test_m24_conta_de_outra_empresa_tem_a_mesma_mensagem_que_conta_inexistente` |
+
+### Ponto levado à arquitetura, não decidido aqui
+
+Na concorrência entre meses diferentes (teste do B2), um dos dois lados pode
+legitimamente receber `ZeramentoForaDeOrdem` quando perde a corrida contra o
+outro mês (aconteceu em 7 das 15 rodadas medidas) — é a recusa correta, não
+uma falha; o total continua exato (150,00) nas 15 rodadas. A DE-078/relatório
+da rodada 1 fala em "0 falhas" para esse caso; não decidi se essa recusa
+legítima deveria contar como "falha" para efeito de aceite — reporto a
+diferença de leitura, e o teste só marca falha para exceções que não sejam
+`ZeramentoForaDeOrdem`.

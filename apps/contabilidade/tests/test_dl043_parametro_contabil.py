@@ -512,6 +512,13 @@ def test_criterio10_vigencia_retroativa_cobrindo_zeramento_gravado_e_recusada(ce
             {"conta": capital, "tipo": TipoPartida.CREDITO, "valor": Decimal("10.00")},
         ],
         chave_idempotencia=f"zeramento:{empresa.pk}:2026-03:etapa1:0",
+        # DE-078 item 6 (B4, correção da rodada 1 de auditoria): o prefixo
+        # "zeramento:" passou a ser RESERVADO em `criar_lancamento` — só
+        # `zerar_resultado` pode usá-lo (`permitir_prefixo_reservado`).
+        # Este teste SIMULA um zeramento já gravado (para testar a
+        # retroatividade do parâmetro, não a segurança da chave), então
+        # precisa do mesmo escape que o próprio sistema usaria.
+        permitir_prefixo_reservado=True,
     )
 
     with pytest.raises(VigenciaParametroContabilConflitante):
