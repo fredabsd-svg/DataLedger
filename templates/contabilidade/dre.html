@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block titulo %}Demonstração do Resultado do Exercício — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+BL-332 (RC-97): mesmo formato "nome do relatório — razão social do
+cliente" que Balancete/Diário/Razão/Balanço já usam.
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+DL-045 fatia 3: mesmo padrão do Balanço — timbre de impressão do
+ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
+(empresa cliente), exigido pelo item 51 em CADA página (RC-95), dentro do
+`<thead>` da tabela, mais abaixo.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if data_referencia %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Demonstração do Resultado do Exercício</h1>{% endblock %}
+
+{% block content %}
+    {% comment %}
+    BL-282: mesmo timbre de impressão do Balanço/Balancete — identifica o
+    ESCRITÓRIO emitente (RC-97/NBC ITG 2000 item 12), só na folha 1.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
+    DL-045 fatia 3: navegação de competência "‹ Março de 2026 ›" — mês/ano,
+    NUNCA um período livre (a DRE é sempre um MÊS, mais o acumulado do
+    exercício desde janeiro, HI-28): os dois links vizinhos deslocam a
+    competência em ±1 mês (`_competencia_adjacente`), sem JavaScript (R6) —
+    cada um é um link comum para a MESMA rota com querystring diferente.
+    {% endcomment %}
+    <nav class="navegacao-competencia" aria-label="Navegação de competência">
+        <a class="botao botao--secundario"
+           href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+            ‹ Mês anterior
+        </a>
+        <strong class="navegacao-competencia__atual">
+            {% if data_referencia %}{{ data_referencia|date:"F \d\e Y"|capfirst }}{% endif %}
+        </strong>
+        <a class="botao botao--secundario"
+           href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+            Mês seguinte ›
+        </a>
+    </nav>
+
+    {% if not data_referencia %}
+        {% comment %}
+        Mesmo padrão do Balanço para competência inválida: saída navegável
+        equivalente à do estado vazio, sem exigir que a pessoa lembre a
+        sintaxe esperada de "ano"/"mes".
+        {% endcomment %}
+        <p>
+            A competência informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:dre' empresa.id %}">Voltar à competência padrão (mês corrente)</a>
+            para ver a DRE.
+        </p>
+    {% elif not empresa_tem_plano_de_contas %}
+        {% comment %}
+        Estado VAZIO (mesmo critério do Balanço/Balancete, B4/BL-283):
+        empresa sem NENHUMA conta cadastrada — nada para classificar, nada
+        para recusar ainda.
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
+    {% elif not pode_emitir %}
+        {% comment %}
+        Critério 6 do plano DL-045 — "o que eu vou entregar fecha, e eu sei
+        o que ele NÃO diz": quem decidiu que NÃO pode emitir foi o
+        SERVIDOR (`avaliar_emissao_da_dre`); esta tela só OBEDECE e
+        EXPLICA — nunca monta a demonstração enquanto houver qualquer
+        pendência, em QUALQUER coluna ("as duas colunas vetam", decisão do
+        arquiteto de 26/09/2026).
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">A DRE NÃO pode ser emitida nesta competência</strong>
+        </div>
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> há conta de resultado com movimento sem linha da DRE — corrija o que
+            está listado abaixo e consulte a competência de novo.
+            {% for coluna in residuo_pendente_por_coluna %}
+                <p>{{ coluna.titulo }}: o total classificado não bate com o total apurado pela escrituração:</p>
+                <ul>
+                    {% for item in coluna.itens %}
+                        <li>
+                            {{ item.tipo_label }} — diferença de
+                            <span class="valor-monetario">{{ item.diferenca_ptbr }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+            {% comment %}
+            Mesmo padrão do Balanço (BL-508): cada lista traz, junto das
+            contas, a AÇÃO que RESOLVE aquela pendência específica
+            (`lista.acao`). DL-045 fatia 3 — NOTA (instrução do
+            arquiteto-senior, 26/09/2026): sem tela de EDIÇÃO de conta
+            ainda (a reclassificação de conta existente espera um serviço
+            próprio, do desenvolvedor-pleno), o link de correção é só o
+            genérico "Ir ao plano de contas" no fim deste bloco — mesmo
+            desenho do veto do Balanço, sem link por conta.
+            {% endcomment %}
+            {% for coluna in listas_pendentes_por_coluna %}
+                <p><strong>{{ coluna.titulo }}</strong></p>
+                {% for lista in coluna.listas %}
+                    <p>{{ lista.titulo }}:</p>
+                    <ul>
+                        {% for linha in lista.linhas %}
+                            <li>
+                                Conta {{ linha.conta }} — {{ linha.nome }}
+                                {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                    <p class="texto-apoio">{{ lista.acao }}</p>
+                {% endfor %}
+            {% endfor %}
+            <p>
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
+                para corrigir a classificação das contas listadas acima.
+            </p>
+        </div>
+    {% else %}
+        {% comment %}
+        Controle POSITIVO: base completa (resíduo zero nos dois tipos, sem
+        pendência de classificação bloqueante nas duas colunas) exige a
+        emissão de verdade, não só a ausência de recusa. `pode_emitir`
+        chegou `True` do servidor, então a demonstração é montada.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
+            <strong class="faixa-fechamento__veredito">DRE pronta para emissão</strong>
+        </div>
+
+        {% comment %}
+        Critério 7 do plano DL-045 (o mais medido desta etapa): o bloco de
+        identificação do item 51 — nome da entidade, individual/grupo,
+        período coberto, moeda, nível de arredondamento (NBC TG 26, item
+        51, alíneas a/b/c/d/e) — vive DENTRO do `<thead>`, ao lado do
+        cabeçalho de coluna, mesmo mecanismo já provado pelo Balanço
+        (`display: table-header-group`, BL-282): repete em TODA página
+        impressa. Medido no navegador real pelo job "Medir identificação
+        do emitente" (scripts/medir_identificacao_do_emitente.py).
+        {% endcomment %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Demonstração do Resultado do Exercício de {{ empresa.razao_social }} —
+                {{ data_referencia|date:"F \d\e Y" }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="3">
+                        <div class="identificacao-do-documento">
+                            <p><strong>{{ empresa.razao_social }}</strong> — {{ rotulo_inscricao }} {{ inscricao_formatada }}</p>
+                            <p>
+                                Demonstração do Resultado do Exercício
+                                ({{ identificacao.entidade_individual_ou_grupo|capfirst }}) —
+                                mês de {{ data_referencia|date:"F \d\e Y" }}
+                                e acumulado do exercício de 01/01/{{ ano }} a {{ data_fim_mes|date:"d/m/Y" }}
+                            </p>
+                            <p>
+                                Valores em {{ identificacao.moeda_de_apresentacao }} —
+                                {{ identificacao.nivel_de_arredondamento|capfirst }}
+                            </p>
+                        </div>
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Linha</th>
+                    <th scope="col">Mês</th>
+                    <th scope="col">Acumulado do exercício</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% comment %}
+                Treze linhas do art. 187 e seis subtotais (HI-29 —
+                resultado financeiro DESTACADO), na ORDEM FIXA da lei,
+                intercalados — cada linha vem de `linhas.<chave>`
+                (`_montar_linhas_da_dre`, views_web.py), nomeada
+                individualmente (mesmo desenho de `_montar_grupos_do_
+                balanco`): a estrutura é legal fixa, nunca um dado que
+                varia por empresa, então não é um laço genérico.
+                {% endcomment %}
+                <tr>
+                    <td>{{ linhas.receita_bruta.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_bruta.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.deducoes_da_receita.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.deducoes_da_receita.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.receita_liquida.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receita_liquida.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.custo.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.custo.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.lucro_bruto.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_bruto.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.despesas_com_vendas.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_com_vendas.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.despesas_gerais_e_administrativas.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_gerais_e_administrativas.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.outras_receitas.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_receitas.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.outras_despesas.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.outras_despesas_operacionais.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.outras_despesas_operacionais.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.resultado_equivalencia_patrimonial.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_equivalencia_patrimonial.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.resultado_antes_das_receitas_e_despesas_financeiras.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_das_receitas_e_despesas_financeiras.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.receitas_financeiras.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.receitas_financeiras.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.despesas_financeiras.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.despesas_financeiras.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.resultado_financeiro.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_financeiro.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.resultado_antes_dos_tributos_sobre_o_lucro.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.resultado_antes_dos_tributos_sobre_o_lucro.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.provisao_irpj_csll.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.provisao_irpj_csll.acumulado %}</td>
+                </tr>
+                <tr>
+                    <td>{{ linhas.participacoes.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.participacoes.acumulado %}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>{{ linhas.lucro_liquido.titulo }}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.mes %}</td>
+                    <td>{% include "contabilidade/_valor_dre.html" with valor=linhas.lucro_liquido.acumulado %}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% comment %}
+    Mesmo padrão do Balanço (DE-070): as listas que só AVISAM (nunca
+    bloqueiam) aparecem nos DOIS desfechos — DRE emitida com aviso, ou DRE
+    recusada por outro motivo com este aviso também presente — fora do
+    `{% if/elif/else %}` acima, e SÓ na tela (`mensagem--somente-tela`):
+    conferência de bancada, nunca conteúdo do documento.
+    {% endcomment %}
+    {% if listas_apenas_aviso_por_coluna %}
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+            <strong>Aviso:</strong> não impede a emissão da DRE.
+            {% for coluna in listas_apenas_aviso_por_coluna %}
+                <p><strong>{{ coluna.titulo }}</strong></p>
+                {% for lista in coluna.listas %}
+                    <p>{{ lista.titulo }}:</p>
+                    <ul>
+                        {% for linha in lista.linhas %}
+                            <li>
+                                Conta {{ linha.conta }} — {{ linha.nome }}
+                                {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                    <p class="texto-apoio">{{ lista.acao }}</p>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

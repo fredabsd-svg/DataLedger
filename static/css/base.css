@@ -367,6 +367,13 @@
        a coluna não "pular" de largura entre uma linha com "0,00" e outra
        com "1.234.567,89" — já vem do mínimo. */
     --largura-minima-coluna-valor: 8rem;
+    /* DL-045 fatia 3: largura MÍNIMA do rótulo "Março de 2026" na
+       navegação de competência da DRE (`.navegacao-competencia__atual`) —
+       evita que os dois links "anterior"/"seguinte" pulem de posição
+       entre um mês curto ("Maio de 2026") e um mês longo ("Setembro de
+       2026"); token próprio porque não é largura de coluna de valor
+       monetário nem de cartão. */
+    --largura-minima-competencia: 10rem;
     /* DL-040: largura mínima e máxima do painel de submenu do menu
        principal (`.menu-dropdown ul`/`.menu-dropdown__paineis`) — tokens
        próprios, no mesmo padrão dos dois acima, porque não são largura de
@@ -2959,6 +2966,33 @@ button:disabled {
 .ajuda-formato-data {
     flex-basis: 100%;
     margin-top: 0;
+}
+
+/* DL-045 fatia 3: navegação de competência da DRE — "‹ Março de 2026 ›",
+   mês/ano com um link "anterior" e um "seguinte" ladeando o rótulo do mês
+   corrente. MESMA linguagem de cartão do `.formulario-periodo` acima
+   (fundo branco elevado, sombra rasa, borda hairline) — é o mesmo tipo de
+   controle (filtro de período no topo da tela), só que sem campo de
+   formulário nenhum, dois links e um rótulo. */
+.navegacao-competencia {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-3);
+    padding: var(--esp-2) var(--esp-3);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    background: var(--papel-elevado);
+    box-shadow: var(--sombra-cartao);
+}
+
+.navegacao-competencia__atual {
+    font-family: var(--fonte-trabalho);
+    font-size: var(--tipo-md);
+    min-width: var(--largura-minima-competencia);
+    text-align: center;
 }
 
 /* Formulário de lançamento: os campos de conta/tipo/valor moram dentro de

@@ -62,6 +62,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # tolerada: a tela RESPONDE corretamente "não, e eis o porquê", nunca
     # 500.
     "balanco": "contabilidade_web:balanco",
+    # DL-045 fatia 3: MESMA classe do Balanço logo acima — sob o cenário
+    # PADRÃO deste módulo (sem `classificacao_dre` em nenhuma conta), a
+    # DRE também renderiza 200 no estado "não pode ser emitida" (ver
+    # `views_web.py::dre`/`avaliar_emissao_da_dre` em services.py): a
+    # tela RESPONDE corretamente "não, e eis o porquê", nunca 500 — não é
+    # uma exceção tolerada, é a mesma garantia do Balanço.
+    "dre": "contabilidade_web:dre",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -155,6 +162,10 @@ def _urls_de_contabilidade(cenario):
         # (mesma convenção de conveniência do período do Balancete/Diário/
         # Razão), nunca um padrão do motor de cálculo.
         "balanco": ([empresa_id], ""),
+        # DL-045 fatia 3: sem querystring — a tela usa o MÊS corrente como
+        # competência padrão (mesma convenção de conveniência de
+        # "balanco", acima, e do painel de fechamento).
+        "dre": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),

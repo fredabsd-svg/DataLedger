@@ -70,7 +70,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_dezessete_rotas_web_e_as_quatorze_da_api():
+def test_a_derivacao_encontrou_as_dezoito_rotas_web_e_as_quatorze_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -89,8 +89,18 @@ def test_a_derivacao_encontrou_as_dezessete_rotas_web_e_as_quatorze_da_api():
     #
     # DL-045 fatia 2 (servidor): uma rota nova na API — leitura da DRE
     # (`DreView`, GET). 13 -> 14 do lado da API.
+    #
+    # DL-045 fatia 3 (especialista-frontend): UMA rota nova na tela — "dre"
+    # (a contrapartida de tela da `DreView`, leitura já existente desde a
+    # fatia 2 — nenhuma rota nova na API por causa dela). 17 -> 18 do lado
+    # da tela. NOTA: a edição de conta existente (para reclassificar a
+    # Linha da DRE) NÃO ganhou rota nesta etapa — instrução do
+    # arquiteto-senior (26/09/2026): espera um serviço próprio, com
+    # guardas e trilha de auditoria, que o desenvolvedor-pleno ainda vai
+    # construir; "Linha da DRE" entra só pelo formulário de CRIAÇÃO
+    # (`conta_nova`, já contado antes desta etapa).
     assert len(ROTAS_API) == 14, ROTAS_API
-    assert len(ROTAS_WEB) == 17, ROTAS_WEB
+    assert len(ROTAS_WEB) == 18, ROTAS_WEB
 
 
 @pytest.fixture

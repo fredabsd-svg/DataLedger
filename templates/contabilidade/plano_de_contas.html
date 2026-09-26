@@ -65,6 +65,15 @@ mesma regra de servidor de antes, só reposicionada.
                         <th scope="col">Tipo</th>
                         <th scope="col">Natureza</th>
                         <th scope="col">Aceita lançamento</th>
+                        {% comment %}
+                        DL-045 fatia 3: coluna nova — a linha da DRE
+                        cadastrada em cada conta de resultado (`Conta.
+                        classificacao_dre`), a única classificação que o
+                        plano de contas exibia só pela API até esta
+                        etapa. "—" para conta sem linha (patrimonial, ou
+                        de resultado ainda não classificada).
+                        {% endcomment %}
+                        <th scope="col">Linha da DRE</th>
                         <th scope="col">Situação</th>
                     </tr>
                 </thead>
@@ -77,6 +86,7 @@ mesma regra de servidor de antes, só reposicionada.
                             <td>{{ linha.conta.get_tipo_display }}</td>
                             <td>{{ linha.conta.get_natureza_display }}</td>
                             <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
+                            <td>{{ linha.conta.get_classificacao_dre_display|default:"—" }}</td>
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
                         </tr>
                     {% endfor %}

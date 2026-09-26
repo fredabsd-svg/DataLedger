@@ -9,6 +9,7 @@ from apps.contabilidade.views_web import (
     conferencia,
     conta_nova,
     diario,
+    dre,
     fechamento,
     lancamento_detalhe,
     lancamento_novo,
@@ -42,6 +43,15 @@ urlpatterns = [
         conta_nova,
         name="conta_nova",
     ),
+    # DL-045 fatia 3 — NOTA: a edição de conta EXISTENTE (para reclassificar
+    # a Linha da DRE de uma conta já cadastrada) fica de fora desta etapa,
+    # por instrução do arquiteto-senior (26/09/2026): o desenvolvedor-pleno
+    # ainda vai criar um serviço PRÓPRIO com guardas e trilha de auditoria
+    # para essa reclassificação — construir a tela agora, sem o serviço,
+    # duplicaria a regra de negócio (que hoje vive só em `Conta.clean()`,
+    # chamado por `form.save()`) e teria que ser reescrita quando o serviço
+    # chegar. Por ora, "Linha da DRE" só entra pelo formulário de CRIAÇÃO
+    # (`conta_nova`, abaixo) — nenhuma rota de edição de conta existe ainda.
     path(
         "empresas/<int:empresa_id>/lancamento/novo/",
         lancamento_novo,
@@ -63,6 +73,13 @@ urlpatterns = [
     # "balancete"/"diario"/"razao" já usados nesta urlconf; o nome completo
     # do documento aparece no <h1>/<title> da tela, não na URL.
     path("empresas/<int:empresa_id>/balanco/", balanco, name="balanco"),
+    # DL-045 fatia 3: mesmo padrão curto de "balanco"/"balancete" acima —
+    # o nome completo ("Demonstração do Resultado do Exercício") aparece
+    # no <h1>/<title>, não na URL. 'ano'/'mes' viajam por querystring
+    # (GET), mesmo padrão de "fechamento/" (ver `_competencia_pedida`) —
+    # NUNCA no caminho da URL, porque a navegação "‹ anterior/seguinte ›"
+    # muda a competência sem trocar de rota.
+    path("empresas/<int:empresa_id>/dre/", dre, name="dre"),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/
     # Balanço/Conferência) em cartões — SEGUNDO caminho para as mesmas

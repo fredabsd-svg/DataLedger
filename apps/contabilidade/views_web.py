@@ -24,7 +24,7 @@ Formatação é apresentação: todo valor monetário permanece `Decimal` até o
 import hashlib
 import re
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django import forms
@@ -50,6 +50,12 @@ from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    # DL-045, fatia 3: linha da DRE (art. 187) — mesmo desenho de
+    # `ClassificacaoPatrimonial`, logo abaixo. Usada pela tela da DRE
+    # (`dre`/`_montar_linhas_da_dre`, mais abaixo) e pelo formulário de
+    # conta (`ContaCriarForm`, campo "Linha da DRE" e a humanização das
+    # pendências de classificação nas listas do veto).
+    ClassificacaoDre,
     # DL-034: os cinco nomes abaixo (ClassificacaoPatrimonial, GrupoDaLei,
     # GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL, TIPO_DA_CLASSIFICACAO_
     # PATRIMONIAL, TipoConta) servem só a tela do Balanço — ver
@@ -109,12 +115,28 @@ from apps.contabilidade.services import (
     VigenciaParametroContabilConflitante,
     apurar_balancete,
     apurar_balanco_patrimonial,
+    # DL-045 fatia 3: a mesma dupla apurar/avaliar que o Balanço já usa
+    # (`apurar_balanco_patrimonial`/dentro dela; `avaliar_emissao_do_
+    # balanco`, ver `balanco`/`_montar_grupos_do_balanco` mais abaixo),
+    # agora para a DRE — `apurar_dre` NÃO paga o snapshot REPEATABLE READ
+    # que `apurar_balanco_patrimonial` paga (achado reportado ao
+    # arquiteto-senior; ver o comentário em `dre`, mais abaixo, para o
+    # que isso significa nesta etapa).
+    apurar_dre,
     apurar_razao,
+    avaliar_emissao_da_dre,
     avaliar_emissao_do_balancete,
     criar_lancamento,
     data_maxima_lancamento,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
+    # DL-045 fatia 3: função PURA (sem consulta) que devolve o bloco de
+    # identificação NBC TG 26 item 51 — mesma que `apurar_balanco_
+    # patrimonial` já embute no próprio retorno (`resultado["identificacao"]`
+    # em `balanco`). `apurar_dre` NÃO a embute (ver o comentário acima), então
+    # a tela da DRE chama esta função DIRETO — chamada segura e sem estado,
+    # nunca uma segunda cópia do dict que ela devolve.
+    identificacao_da_demonstracao,
     listar_diario,
     localizar_contas_que_aceitam_lancamento_e_tem_subordinadas,
     localizar_contas_sinteticas_com_movimento,
@@ -686,9 +708,38 @@ def plano_de_contas(request, empresa_id):
 
 
 class ContaCriarForm(forms.ModelForm):
+    """Formulário de CRIAÇÃO de conta (`conta_nova`, abaixo) — a validação
+    de servidor mora em `Conta.clean()`, chamada por `full_clean()` dentro
+    de `is_valid()`.
+
+    DL-045 fatia 3: `classificacao_dre` é o único campo NOVO desde a
+    DL-020 — antes desta etapa, só a API expunha `classificacao_dre`/
+    `classificacao_patrimonial` (`ContaSerializer`); esta é a primeira
+    vez que uma das duas aparece em template. `classificacao_patrimonial`
+    continua de fora do formulário (fora do escopo desta etapa — DL-045 é
+    só sobre a DRE); nada aqui impede que ela entre depois pelo mesmo
+    caminho.
+
+    ⚠️ Este formulário serve SÓ à criação nesta etapa — não existe tela de
+    EDIÇÃO de conta ainda (instrução do arquiteto-senior, 26/09/2026: a
+    reclassificação de uma conta já existente espera um serviço próprio
+    com guardas e trilha de auditoria, que o desenvolvedor-pleno ainda vai
+    construir). Quando essa tela existir, é provável que reaproveite esta
+    MESMA classe com `instance=conta` — mas isso ainda não está decidido
+    nem implementado aqui.
+    """
+
     class Meta:
         model = Conta
-        fields = ["codigo", "nome", "tipo", "natureza", "conta_pai", "aceita_lancamento"]
+        fields = [
+            "codigo",
+            "nome",
+            "tipo",
+            "natureza",
+            "conta_pai",
+            "aceita_lancamento",
+            "classificacao_dre",
+        ]
 
     def __init__(self, *args, empresa, **kwargs):
         super().__init__(*args, **kwargs)
@@ -704,6 +755,23 @@ class ContaCriarForm(forms.ModelForm):
         # inglês. Aqui o rótulo também documenta o que a ausência de
         # conta-pai SIGNIFICA (conta raiz), não só "nenhuma".
         self.fields["conta_pai"].empty_label = "Nenhuma (conta raiz do plano)"
+        # DL-045 fatia 3: rótulo "Linha da DRE" (o nome que o plano desta
+        # etapa usa, e mais claro na tela que "classificação (DRE)", o
+        # `verbose_name` do campo em models.py — pensado para a coluna de
+        # uma tabela, não para o rótulo de um `<select>` isolado). A
+        # COMPATIBILIDADE com o tipo da conta (só Receita/Despesa aceitam
+        # linha da DRE — Lei 6.404/76, art. 187) é validada inteira no
+        # servidor (`Conta.clean()`); o texto de ajuda só AVISA disso, nunca
+        # decide sozinho o que aparece: sem JavaScript (R6), nenhum campo
+        # deste formulário muda de acordo com outro — a opção fica sempre
+        # visível, e quem escolhe uma linha incompatível recebe a mensagem
+        # do servidor de volta em `form.non_field_errors()`.
+        self.fields["classificacao_dre"].label = "Linha da DRE"
+        self.fields["classificacao_dre"].help_text = (
+            "Só se aplica a conta de Receita ou Despesa (Lei 6.404/76, art. 187) — o "
+            "servidor recusa uma linha incompatível com o tipo desta conta. Reclassificar "
+            "uma conta que já tem lançamento gravado também é recusado."
+        )
 
 
 def _codigos_das_contas_mae(codigo):
@@ -865,6 +933,19 @@ def conta_nova(request, empresa_id):
         form = ContaCriarForm(empresa=empresa)
 
     return render(request, "contabilidade/conta_form.html", {"empresa": empresa, "form": form})
+
+
+# DL-045 fatia 3 — NOTA (instrução do arquiteto-senior, 26/09/2026): a
+# edição de conta EXISTENTE (para reclassificar a Linha da DRE de uma
+# conta já cadastrada, ex.: a partir do veto de emissão da DRE) fica de
+# fora desta etapa — o desenvolvedor-pleno vai criar um serviço PRÓPRIO
+# com guardas e trilha de auditoria para essa reclassificação, e uma tela
+# construída agora, sem esse serviço, reimplementaria a regra que hoje só
+# existe em `Conta.clean()` e teria que ser refeita quando o serviço
+# chegar. "Linha da DRE" entra só pelo formulário de CRIAÇÃO (`conta_
+# nova`, acima) nesta etapa; o veto da DRE (`dre`, mais abaixo) linka só
+# para o Plano de contas — mesmo desenho do veto do Balanço — até a tela
+# de edição existir.
 
 
 # ---------------------------------------------------------------------------
@@ -1556,6 +1637,10 @@ def _contrato_do_formulario_de_lancamento(post):
 # caixa de marcação (só vem quando marcada) e `confirmar_conta_sem_conta_
 # mae` é o botão de confirmação do RC-80/BL-208 — os dois são legítimos e
 # precisam estar declarados.
+# DL-045 fatia 3: "classificacao_dre" entrou no conjunto — o formulário de
+# `conta_nova` (único que usa este contrato nesta etapa — ver o docstring
+# de `ContaCriarForm` sobre a tela de edição, ainda inexistente) passou a
+# emitir esse campo a mais.
 _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
     campos=frozenset(
         {
@@ -1566,6 +1651,7 @@ _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
             "natureza",
             "conta_pai",
             "aceita_lancamento",
+            "classificacao_dre",
             "confirmar_conta_sem_conta_mae",
         }
     ),
@@ -2812,15 +2898,27 @@ def _data_base_do_formulario(request):
 # campos extras que as SETE listas de `_LISTAS_DE_PENDENCIA_DO_BALANCO`
 # (services.py) anexam — ver o comentário de `_linhas_de_pendencia` sobre
 # o que acontece quando um campo NOVO aparecer sem entrar aqui.
+# DL-045 fatia 3: as duas chaves "classificacao_dre"/"classificacao_dre_
+# ancestral" foram ACRESCENTADAS aos dois dicts abaixo (nunca um par
+# próprio da DRE) — `_linhas_de_pendencia`, a função que os lê, é
+# genérica na FORMA (ver o docstring dela) e é reaproveitada INTEIRA
+# pelas pendências da DRE (`_lista_de_pendencia_dre_para_contexto`, mais
+# abaixo); só o "tipo" já bastava (`contas_sem_classificacao_dre_com_
+# movimento`), mas `contas_com_classificacao_dre_aninhada`/`...
+# desconhecida` (services.py) anexam a classificação DRE própria e a do
+# ancestral, que precisam do MESMO tratamento que `classificacao_
+# patrimonial`/`...ancestral` já recebem para o Balanço.
 _ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
     "tipo": "Tipo cadastrado",
     "tipo_da_raiz": "Tipo da raiz da hierarquia",
     "classificacao_patrimonial": "Classificação cadastrada",
     "classificacao_patrimonial_ancestral": "Classificação do ancestral",
+    "classificacao_dre": "Linha da DRE cadastrada",
+    "classificacao_dre_ancestral": "Linha da DRE do ancestral",
     "natureza": "Natureza cadastrada",
 }
 
-# Os TRÊS `TextChoices`/enum do modelo que guardam o VALOR desses campos —
+# Os `TextChoices`/enum do modelo que guardam o VALOR desses campos —
 # `EnumClasse(valor).label` é o mesmo rótulo que o CADASTRO já mostra
 # (formulário de conta, DL-018/DL-020); nunca uma segunda tradução escrita
 # à mão aqui (duas cópias do mesmo rótulo divergem — AGENTS.md §8).
@@ -2829,6 +2927,8 @@ _ENUM_DO_CAMPO_DE_PENDENCIA = {
     "tipo_da_raiz": TipoConta,
     "classificacao_patrimonial": ClassificacaoPatrimonial,
     "classificacao_patrimonial_ancestral": ClassificacaoPatrimonial,
+    "classificacao_dre": ClassificacaoDre,
+    "classificacao_dre_ancestral": ClassificacaoDre,
     "natureza": NaturezaConta,
 }
 
@@ -3281,6 +3381,393 @@ def balanco(request, empresa_id):
 
 
 # ---------------------------------------------------------------------------
+# DRE (DL-045 fatia 3)
+# ---------------------------------------------------------------------------
+
+
+def _competencia_adjacente(ano, mes, delta_meses):
+    """Competência (ano, mês) deslocada por `delta_meses` — usada pela
+    navegação "‹ anterior / seguinte ›" da DRE (mesma aritmética que
+    qualquer calendário civil usa: o mês sempre fica entre 1 e 12, o ano
+    rola sozinho nas duas pontas). Sem limite de faixa aqui de propósito:
+    quem valida `_ANO_MINIMO_COMPETENCIA`/`_ANO_MAXIMO_COMPETENCIA` é
+    `_ano_mes_de_competencia_valido`, chamada quando o link é SEGUIDO
+    (querystring nova), nunca aqui — um link "seguinte" nunca falha
+    silenciosamente ao ser MONTADO, mesmo perto da borda da faixa.
+    """
+    indice = (ano * 12) + (mes - 1) + delta_meses
+    return indice // 12, indice % 12 + 1
+
+
+def _competencia_dre_do_formulario(request):
+    """Lê 'ano'/'mes' da querystring da DRE — DIFERENTE do Balanço
+    (`_data_base_do_formulario`, uma FOTOGRAFIA de uma única data): a DRE
+    é apurada por COMPETÊNCIA (ano + mês), a mesma gramática que o painel
+    de fechamento já pede (`_competencia_pedida`, reaproveitada aqui, não
+    reimplementada).
+
+    Ausência dos DOIS parâmetros (primeira visita) usa o mês corrente
+    como padrão de conveniência — mesma convenção de `_data_base_do_
+    formulario`. Presença malformada, ou de só um dos dois, nunca cai no
+    padrão em silêncio: `_competencia_pedida` recusa com mensagem.
+    """
+    if not request.GET.get("ano") and not request.GET.get("mes"):
+        hoje = timezone.localdate()
+        return hoje.year, hoje.month, None
+    return _competencia_pedida(request.GET)
+
+
+def _valor_dre(valor):
+    """Formata um valor MONETÁRIO da DRE (uma linha do art. 187 ou um dos
+    seis subtotais, HI-29) em pt-BR — negativo entre PARÊNTESES, nunca só
+    o sinal "-" (RC-90: sinal nunca é o único canal de um valor negativo;
+    ver `_saldo_grupo.html`, que aplica a mesma regra ao Balanço por um
+    caminho diferente, o indicador D/C).
+
+    Decisão de apresentação desta etapa (plano DL-045: "negativos entre
+    parênteses ou com sinal — siga o que o Balanço já faz"): o Balanço
+    NUNCA mostra um valor negativo no documento — ele mostra o indicador
+    D/C (`_indicador_natureza`/`_saldo_grupo.html`), porque toda linha e
+    todo subtotal dele têm uma NATUREZA esperada e o Balanço testa
+    inversão CONTRA ela. A DRE é outra pergunta: uma LINHA (magnitude no
+    lado natural da própria linha, `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE`
+    em models.py) pode legitimamente vir negativa quando a conta está
+    classificada nela mas o saldo caiu do lado oposto — um alerta de
+    conferência; e um SUBTOTAL pode vir negativo porque o período deu
+    PREJUÍZO naquele nível — o resultado normal de um mês ruim, não uma
+    anomalia. As duas leituras cabem na MESMA apresentação: "este valor
+    foi para o lado que REDUZ o total seguinte", que é exatamente o que
+    o parêntese comunica num documento contábil brasileiro — sem inventar
+    uma segunda convenção (D/C) que não faz sentido para um SUBTOTAL, que
+    não é uma conta e não tem "natureza cadastrada" nenhuma.
+    """
+    return {"ptbr": _valor_ptbr(abs(valor)), "negativo": valor < 0}
+
+
+def _linha_dre_para_contexto(classificacao, linhas_mes, linhas_acumulado):
+    return {
+        "titulo": ClassificacaoDre(classificacao).label,
+        "mes": _valor_dre(linhas_mes[classificacao]),
+        "acumulado": _valor_dre(linhas_acumulado[classificacao]),
+    }
+
+
+def _subtotal_dre_para_contexto(titulo, subtotais_mes, subtotais_acumulado, chave):
+    return {
+        "titulo": titulo,
+        "mes": _valor_dre(subtotais_mes[chave]),
+        "acumulado": _valor_dre(subtotais_acumulado[chave]),
+    }
+
+
+def _montar_linhas_da_dre(dre_apurada):
+    """Monta as TREZE linhas e os SEIS subtotais IMPRESSOS da DRE (art.
+    187, HI-29), na ORDEM FIXA da lei, cada um sob um NOME próprio —
+    mesmo desenho de `_montar_grupos_do_balanco`: a ordem e os subtotais
+    intercalados são estrutura LEGAL fixa (nunca varia por empresa), não
+    um dado para percorrer num laço genérico. `⚠️` Só é chamada quando
+    `emissao["pode_emitir"]` é `True` — quem chama (`dre`, abaixo) nunca
+    monta esta estrutura para uma apuração com pendência.
+    """
+    linhas_mes = dre_apurada["coluna_mes"]["linhas"]
+    linhas_acumulado = dre_apurada["coluna_acumulado"]["linhas"]
+    subtotais_mes = dre_apurada["coluna_mes"]["subtotais"]
+    subtotais_acumulado = dre_apurada["coluna_acumulado"]["subtotais"]
+
+    def _linha(classificacao):
+        return _linha_dre_para_contexto(classificacao, linhas_mes, linhas_acumulado)
+
+    def _subtotal(chave, titulo):
+        return _subtotal_dre_para_contexto(titulo, subtotais_mes, subtotais_acumulado, chave)
+
+    return {
+        "receita_bruta": _linha(ClassificacaoDre.RECEITA_BRUTA),
+        "deducoes_da_receita": _linha(ClassificacaoDre.DEDUCOES_DA_RECEITA),
+        "receita_liquida": _subtotal("receita_liquida", "Receita líquida"),
+        "custo": _linha(ClassificacaoDre.CUSTO),
+        "lucro_bruto": _subtotal("lucro_bruto", "Lucro bruto"),
+        "despesas_com_vendas": _linha(ClassificacaoDre.DESPESAS_COM_VENDAS),
+        "despesas_gerais_e_administrativas": _linha(
+            ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS
+        ),
+        "outras_receitas": _linha(ClassificacaoDre.OUTRAS_RECEITAS),
+        "outras_despesas": _linha(ClassificacaoDre.OUTRAS_DESPESAS),
+        "outras_despesas_operacionais": _linha(ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS),
+        "resultado_equivalencia_patrimonial": _linha(
+            ClassificacaoDre.RESULTADO_EQUIVALENCIA_PATRIMONIAL
+        ),
+        "resultado_antes_das_receitas_e_despesas_financeiras": _subtotal(
+            "resultado_antes_das_receitas_e_despesas_financeiras",
+            "Resultado antes do resultado financeiro",
+        ),
+        "receitas_financeiras": _linha(ClassificacaoDre.RECEITAS_FINANCEIRAS),
+        "despesas_financeiras": _linha(ClassificacaoDre.DESPESAS_FINANCEIRAS),
+        "resultado_financeiro": _subtotal("resultado_financeiro", "Resultado financeiro"),
+        "resultado_antes_dos_tributos_sobre_o_lucro": _subtotal(
+            "resultado_antes_dos_tributos_sobre_o_lucro",
+            "Resultado antes dos tributos sobre o lucro",
+        ),
+        "provisao_irpj_csll": _linha(ClassificacaoDre.PROVISAO_IRPJ_CSLL),
+        "participacoes": _linha(ClassificacaoDre.PARTICIPACOES),
+        "lucro_liquido": _subtotal("lucro_liquido", "Lucro líquido do período"),
+    }
+
+
+_TITULO_DA_COLUNA_DRE = {
+    "coluna_mes": "Mês",
+    "coluna_acumulado": "Acumulado do exercício",
+}
+
+# DL-045 fatia 3: título humano e ação que RESOLVE cada lista de
+# pendência da DRE conhecida hoje (`_apurar_coluna_dre`, services.py) —
+# mesmo padrão de `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO`/
+# `ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA` (BL-508), um DICT PRÓPRIO da
+# DRE (nomes de lista diferentes, nunca misturados com os do Balanço). Só
+# a PRIMEIRA chave BLOQUEIA a emissão hoje (`_LISTAS_DA_DRE_QUE_IMPEDEM_A_
+# EMISSAO`, services.py); as outras só avisam — a mesma AÇÃO serve às duas
+# situações (a lista já vem separada pronta do servidor, DE-070).
+#
+# ⚠️ Aviso do arquiteto-senior (26/09/2026, auditoria em andamento contra
+# o servidor, worktree irmã wt-dl045): o CONTRATO destas listas vai
+# crescer — uma nova ("contas_com_tipo_divergente_da_linha", que passa a
+# VETAR) e "aninhada com linha diferente" também passa a vetar — antes de
+# esta fatia integrar. Nenhum nome NOVO é adicionado aqui adivinhando a
+# forma exata (arriscaria texto errado quando o servidor corrigido
+# chegar); `_lista_de_pendencia_dre_para_contexto`/`_colunas_de_pendencia_
+# dre` (abaixo) já tratam QUALQUER nome de lista genericamente — o
+# `.get(nome, nome)` cai num título cru + "ação não cadastrada" para
+# qualquer chave ainda sem entrada aqui, nunca quebra a tela. Acrescentar
+# as entradas certas destes dois dicts é o ÚNICO ajuste esperado quando o
+# servidor corrigido for integrado nesta worktree.
+NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE = {
+    "contas_sem_classificacao_dre_com_movimento": (
+        "Conta de resultado (receita ou despesa), sem contas subordinadas, com movimento "
+        "no período e sem linha da DRE — nem própria, nem herdada de um ancestral"
+    ),
+    "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
+        "Conta que agrupa outras contas (não é folha), sem linha da DRE própria nem de um "
+        "ancestral, com movimento lançado diretamente nela"
+    ),
+    "contas_com_classificacao_dre_aninhada": (
+        "Conta com linha da DRE própria e com um ancestral também classificado — a mesma "
+        "conta seria somada duas vezes"
+    ),
+    "contas_com_classificacao_dre_desconhecida": (
+        "Conta com uma linha da DRE gravada que não existe no cadastro atual (dado fora do "
+        "padrão vigente)"
+    ),
+}
+ACAO_QUE_RESOLVE_A_PENDENCIA_DRE_POR_LISTA = {
+    "contas_sem_classificacao_dre_com_movimento": (
+        "Classificar a conta (ou um ancestral dela) com uma linha da DRE, no plano de contas."
+    ),
+    "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
+        "Classificar esta conta (ou um ancestral dela) com uma linha da DRE no plano de "
+        "contas, ou lançar os valores numa conta-folha já classificada, em vez de lançar "
+        "diretamente nesta conta-síntese."
+    ),
+    "contas_com_classificacao_dre_aninhada": (
+        "Remover a linha da DRE de uma das duas contas no plano de contas — deixar só o "
+        "ancestral OU só a conta-folha classificados, nunca os dois ao mesmo tempo na mesma "
+        "hierarquia."
+    ),
+    "contas_com_classificacao_dre_desconhecida": (
+        "Corrigir a linha da DRE da conta no plano de contas, escolhendo uma das opções válidas."
+    ),
+}
+
+
+# DL-045 fatia 3 — NOTA (instrução do arquiteto-senior, 26/09/2026): esta
+# lista de pendência linkava, por linha, direto para "editar conta"
+# (`conta_id`) — removido junto com a tela de edição (ver a nota grande
+# perto de `ContaCriarForm`, acima): sem a tela, o link apontaria para
+# lugar nenhum. `_lista_de_pendencia_dre_para_contexto` volta a reaprovei-
+# tar `_linhas_de_pendencia` (a mesma função do Balanço) SEM enriquecer —
+# nenhuma consulta extra por conta pendente. O caminho de correção
+# continua sendo o link genérico "Ir ao plano de contas", no template —
+# mesmo desenho do veto do Balanço.
+def _lista_de_pendencia_dre_para_contexto(nome, itens):
+    return {
+        "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE.get(nome, nome),
+        "linhas": _linhas_de_pendencia(itens),
+        "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_DRE_POR_LISTA.get(
+            nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+        ),
+    }
+
+
+def _colunas_de_pendencia_dre(dict_por_coluna):
+    """`{"coluna_mes": {nome_lista: itens}, "coluna_acumulado": {...}}` ->
+    lista pronta para o template percorrer, UMA entrada por coluna que
+    tem algo a reportar (a mesma forma agrupada por coluna que `avaliar_
+    emissao_da_dre` já devolve, DL-045 — "as duas colunas vetam", decisão
+    do arquiteto de 26/09/2026) — nunca achatada, para o veto continuar
+    dizendo EM QUAL coluna cada pendência apareceu. Trata QUALQUER nome de
+    lista genericamente (título vem de `.get(nome, nome)`, nunca um `if`
+    por nome específico): o servidor pode acrescentar lista nova (ex.:
+    "contas_com_tipo_divergente_da_linha", anunciada pelo arquiteto em
+    26/09/2026 para a próxima rodada) sem esta função precisar mudar —
+    só o dict `NOMES_HUMANOS_...`/`ACAO_QUE_RESOLVE_...` ganha uma
+    entrada nova quando o nome for conhecido; até lá, cai no fallback
+    (nome cru + "ação não cadastrada"), nunca quebra.
+    """
+    return [
+        {
+            "titulo": _TITULO_DA_COLUNA_DRE.get(nome_coluna, nome_coluna),
+            "listas": [
+                _lista_de_pendencia_dre_para_contexto(nome, itens) for nome, itens in listas.items()
+            ],
+        }
+        for nome_coluna, listas in dict_por_coluna.items()
+    ]
+
+
+@login_required
+@require_safe
+def dre(request, empresa_id):
+    """Demonstração do Resultado do Exercício (DL-045 fatia 3 — tela e
+    documento). Mesmo desenho do Balanço (`balanco`, acima): mesma
+    autorização de leitura (`_pode_ler`), mesma recusa de livro-caixa,
+    mesmo veto de emissão com lista de pendências nomeadas (critério 6 do
+    plano), mesmo bloco de identificação NBC TG 26 item 51 repetido em
+    toda página impressa (critério 7). A diferença estrutural é o
+    PERÍODO: o Balanço é uma fotografia de uma DATA; a DRE é apurada por
+    COMPETÊNCIA (mês e acumulado do exercício, HI-28), então o seletor
+    pede ano/mês, como o painel de fechamento já pede — nunca uma segunda
+    gramática de data inventada aqui.
+
+    ⚠️ Achado reportado ao arquiteto-senior, não corrigido nesta etapa
+    (fora do escopo de arquivo desta tarefa — `services.py` pertence ao
+    `desenvolvedor-pleno`): `apurar_dre` NÃO paga o snapshot `REPEATABLE
+    READ` que `apurar_balanco_patrimonial` paga (DE-067) — o plano desta
+    etapa (fatia 2) registra "leitura consistente sob snapshot, como o
+    Balanço (DE-067)", mas a função mede DIFERENTE na fonte: nenhuma
+    `transaction.atomic()`/`SET TRANSACTION ISOLATION LEVEL REPEATABLE
+    READ` ao redor das DUAS agregações (mês, acumulado) de `apurar_dre`.
+    Nesta tela, isso significa que um lançamento gravado ENTRE a
+    apuração da coluna do mês e a do acumulado (raro, mas possível sob
+    concorrência) poderia, em teoria, deixar as duas colunas
+    inconsistentes entre si num mesmo documento — o mesmo risco que a
+    DE-067 fechou para o Balanço. Não há decisão de arquiteto pedindo
+    ESTA tela para pagar o snapshot que o serviço não paga (contornar
+    isso aqui duplicaria a responsabilidade do serviço, e ainda ficaria
+    incompleto: só cobriria a porta da TELA, não a da API, que também
+    chama `apurar_dre` direto).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    ano, mes, erro_competencia = _competencia_dre_do_formulario(request)
+    contexto = {"empresa": empresa}
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return render(request, "contabilidade/dre.html", contexto, status=400)
+
+    ano_anterior, mes_anterior = _competencia_adjacente(ano, mes, -1)
+    ano_seguinte, mes_seguinte = _competencia_adjacente(ano, mes, 1)
+    contexto.update(
+        {
+            "ano": ano,
+            "mes": mes,
+            "data_referencia": date(ano, mes, 1),
+            "ano_anterior": ano_anterior,
+            "mes_anterior": mes_anterior,
+            "ano_seguinte": ano_seguinte,
+            "mes_seguinte": mes_seguinte,
+        }
+    )
+
+    # Estado VAZIO (mesmo critério do Balancete/Balanço, B4/BL-283):
+    # empresa sem NENHUMA conta cadastrada. `apurar_dre` não devolve a
+    # lista de contas (ela apura só os TOTAIS agregados — ver o docstring
+    # dela), então esta consulta própria decide "vazio" ANTES de apurar
+    # nada; nada para classificar, nada para recusar ainda.
+    empresa_tem_plano_de_contas = Conta.objects.filter(empresa=empresa).exists()
+    contexto["empresa_tem_plano_de_contas"] = empresa_tem_plano_de_contas
+    if not empresa_tem_plano_de_contas:
+        return render(request, "contabilidade/dre.html", contexto)
+
+    try:
+        dre_apurada = apurar_dre(empresa=empresa, ano=ano, mes=mes)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/dre.html", contexto, status=409)
+
+    emissao = avaliar_emissao_da_dre(dre_apurada)
+
+    # DL-045 fatia 3, critério 7: rótulo/inscrição e o bloco de
+    # identificação NBC TG 26 item 51 — MESMAS funções que o Balanço já
+    # usa (`rotulo_e_inscricao_da_empresa`/`identificacao_da_
+    # demonstracao`), nenhuma segunda cópia. `identificacao_da_
+    # demonstracao()` é pura (sem consulta): `apurar_balanco_patrimonial`
+    # a embute no próprio retorno; `apurar_dre` não (ver o achado no
+    # docstring desta view), então esta tela chama a função direto.
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+    contexto.update(
+        {
+            "identificacao": identificacao_da_demonstracao(),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # NBC TG 26 item 51(c) — "o período coberto": a DRE cobre DOIS
+            # períodos ao mesmo tempo (mês e acumulado do exercício), então
+            # o bloco de identificação (dentro do `<thead>`, ver dre.html)
+            # precisa das DUAS datas-fim, não só do mês pedido.
+            "data_fim_mes": dre_apurada["data_fim_mes"],
+            "data_inicio_exercicio": dre_apurada["data_inicio_exercicio"],
+        }
+    )
+
+    # `emissao["listas_informativas"]` aparece nos DOIS desfechos (emitida
+    # ou recusada por outro motivo) — mesma regra do Balanço (DE-070):
+    # fica FORA do if/else que decide "monta a demonstração ou não".
+    contexto["listas_apenas_aviso_por_coluna"] = _colunas_de_pendencia_dre(
+        emissao["listas_informativas"]
+    )
+
+    if not emissao["pode_emitir"]:
+        # Critério 6 do plano: havendo QUALQUER pendência que VETE (em
+        # QUALQUER coluna — "as duas colunas vetam"), a tela NÃO monta a
+        # DRE — só o que falta, nomeado, por coluna. 200, não um código
+        # de erro: a tela respondeu corretamente à pergunta "pode
+        # emitir?" — mesma leitura do veto do Balanço.
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "residuo_pendente_por_coluna": [
+                    {
+                        "titulo": _TITULO_DA_COLUNA_DRE.get(nome_coluna, nome_coluna),
+                        "itens": [
+                            {
+                                "tipo_label": TipoConta(tipo).label,
+                                "diferenca_ptbr": _valor_ptbr(abs(valor)),
+                            }
+                            for tipo, valor in residuo.items()
+                        ],
+                    }
+                    for nome_coluna, residuo in emissao["residuo_pendente"].items()
+                ],
+                "listas_pendentes_por_coluna": _colunas_de_pendencia_dre(
+                    emissao["listas_pendentes"]
+                ),
+            }
+        )
+        return render(request, "contabilidade/dre.html", contexto)
+
+    contexto.update({"pode_emitir": True, "linhas": _montar_linhas_da_dre(dre_apurada)})
+    return render(request, "contabilidade/dre.html", contexto)
+
+
+# ---------------------------------------------------------------------------
 # Conferência
 # ---------------------------------------------------------------------------
 
@@ -3577,6 +4064,16 @@ def relatorios(request, empresa_id):
             "titulo": "Balanço",
             "descricao": "Demonstração patrimonial pronta para emissão.",
             "url": reverse("contabilidade_web:balanco", args=[empresa.id]),
+        },
+        # DL-045 fatia 3: sexto cartão — mesmo padrão dos outros cinco
+        # (permissão/recusa de livro-caixa já checadas acima, ícone
+        # PRÓPRIO no sprite de templates/base.html).
+        {
+            "chave": "dre",
+            "icone": "dre",
+            "titulo": "DRE",
+            "descricao": "Resultado do período, por mês e acumulado do exercício.",
+            "url": reverse("contabilidade_web:dre", args=[empresa.id]),
         },
         {
             "chave": "conferencia",
