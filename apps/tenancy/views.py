@@ -1,7 +1,12 @@
+from datetime import timedelta
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.utils import timezone
 
 # BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
 # declaram os métodos HTTP que aceitam. É esta declaração — fato do objeto,
@@ -16,12 +21,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
+from apps.contabilidade.models import Competencia, Conta, EstadoCompetencia
+from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.core.requisicao import (
     ContratoDeRequisicao,
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
+from apps.empresas.models import Empresa, ModoEscrituracao
+from apps.fiscal.models import LoteDeRecepcao
+from apps.fiscal.permissoes import papel_pode_consultar_documentos
+from apps.fiscal.services import documentos_do_escritorio
 from apps.tenancy.models import (
     ConviteEscritorio,
     Escritorio,
