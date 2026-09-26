@@ -4724,3 +4724,47 @@ reservadas à DL-044, integrada em outra branch.
 
 **Reversão:** mudanças locais ao serviço, ao serializer e às guardas do modelo
 da DRE; sem migração prevista, salvo a restrição opcional de A4.
+
+## DE-086 — DRE: decisões sobre a reconferência da DL-045
+
+Data: 2026-09-26. Responsável: `arquiteto-senior`, sobre a
+[reconferência](../auditorias/2026-09-26-dl-045-reconferencia.md), que
+reprovou por R1 (alto): a guarda de reparentamento criada na correção do A6
+fechou a única saída do veto do A2 e deixou o Balanço e a DRE inemitíveis sem
+SQL.
+
+1. **O critério de imutabilidade é reaberto (AGENTS.md §3.1 — terceira rodada
+   significa critério errado).** A linha da DRE é **propriedade de
+   apresentação**: não altera nenhum saldo. O manual do sistema de referência
+   trata o "Grupo DRE" como campo simples do cadastro da conta, sem restrição
+   por movimento (Domínio Contabilidade, cadastro de contas, guia de
+   demonstrativos, e "Relação de Contas Associadas à DRE"). Por isso:
+   - a classificação da DRE **pode ser alterada com movimento**, sempre com
+     trilha de auditoria (antes e depois, usuário, data, IP);
+   - saem as guardas de transição e as do A6 (a) e (b) — o reparentamento volta
+     a obedecer só à regra de natureza que existia antes (BL-261);
+   - consequência aceita e declarada: a DRE de um período passado reflete a
+     classificação vigente no momento da emissão; a trilha mostra quando e por
+     quem a classificação mudou.
+   Isso resolve R1 e R2 na raiz. A pergunta F3 do auditor é respondida por esta
+   decisão; o Fred pode revertê-la.
+2. **R3:** o PATCH valida corpo e tipo do valor antes do serviço; entrada
+   malformada é 400. A guarda de tipo só consulta o mapa com valor texto.
+3. **R4:** o serviço de classificação trava a conta (`select_for_update`) e
+   registra na trilha o valor realmente gravado antes da mudança.
+4. **R5, R6, R8, R9, R10:** correções de tela — navegação fora do papel
+   impresso; recusa mostra o valor gravado; texto do veto genérico e link só
+   para quem escritura e para conta de resultado; tabela sem transbordo em
+   390 px; sem link para fora da faixa de datas.
+5. **R12 e F2:** o documento imprime o **critério de apuração**: movimento do
+   período, sem os lançamentos de zeramento nem os estornos deles; exercício =
+   ano civil (HI-28).
+6. **F1:** rótulos pela ITG 1000 (anexo 3) e pelo art. 187, VII: "Resultado
+   bruto" e "Lucro (prejuízo) líquido do período"; negativo entre parênteses.
+7. **R7 e R11:** os 14 casos de teste propostos viram teste (inclusive
+   isolamento com item forjado, PARALEGAL recusado, e a leitura linha a linha
+   da tabela com mês diferente do acumulado); documentação alinhada; a
+   alegação de mutante equivalente do M27 é retirada.
+8. **Fechamento sem nova rodada de auditoria**, como na DL-043: verificação
+   independente dos casos propostos e dos mutantes sobreviventes, e o Fred
+   decide no PR se aceita.
