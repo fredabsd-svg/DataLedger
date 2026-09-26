@@ -285,47 +285,75 @@ continuam corretos e não foram simplificados.
    (a skill adverte: ênfase visual é orçamento, gasto só onde ajuda a
    decisão — aqui o ícone existe só para o modo recolhido funcionar).
 
-**Médio**
+**Médio — todos fechados na 2ª passada (pedido do Fred: "landing page e
+telas de navegação, botões, módulos, TUDO")**
 
-2. **Faltava o tom "fantasma" (ghost) de botão.** O plano cita "botões
-   (primário, secundário, perigoso, fantasma)"; o produto tem só os três
-   primeiros (`.botao--primario/secundario/perigoso`, DL-040). Não
-   introduzido nesta etapa — nenhuma tela hoje precisa de uma ação de
-   baixíssima ênfase que os três tons existentes não cubram, e criar um
-   quarto tom sem um uso real violaria "consistência é o produto" (a
-   skill: mesmo componente em toda parte). Registrado como pendência, não
-   como decisão de não fazer para sempre.
-3. **"Início" continua sendo só o seletor de escritório**, não a "fila do
-   que precisa de atenção" que o plano pede (empresas sem plano de contas,
-   competências abertas de meses passados, envios fiscais recusados,
-   notas canceladas). Não implementado nesta etapa — exigiria consultas
-   novas em `apps/tenancy/views.py` cruzando `contabilidade` e `fiscal`
-   (permitido, é camada de apresentação, mas arriscar regressão de
-   isolamento entre escritórios numa entrega já grande pesou contra
-   arriscar sem tempo de testar o isolamento com o rigor que o AGENTS.md
-   exige). Ver "Pendências" no relatório de entrega.
-4. **Distância do `<h1>` até o topo, a 390×844, piorou em relação à
-   DL-040**: 270px nesta etapa contra 230px antes (medido no Balancete,
-   mesmo método da DL-040 — `getBoundingClientRect`). Ainda muito melhor
-   que os ~470px de antes da DL-040, mas é uma regressão pontual, não uma
-   meta batida — a barra lateral, mesmo recolhida por padrão no celular
-   (vira gaveta fechada), ainda soma a faixa "marca + Menu" acima do
-   cabeçalho de contexto. Registrado, não escondido.
+2. ~~Faltava o tom "fantasma" (ghost) de botão.~~ **Resolvido.**
+   `.botao--fantasma` criado só quando o primeiro uso real apareceu:
+   "Limpar filtros" em `fiscal/documentos_lista.html`, ao lado do
+   "Consultar" primário, visível só quando `algum_filtro_ativo` é
+   verdadeiro. Nenhum outro lugar do produto precisou do quarto tom nesta
+   rodada.
+3. ~~"Início" continua sendo só o seletor de escritório.~~ **Resolvido.**
+   `apps.tenancy.views._fila_de_atencao` (cinco categorias: empresas sem
+   plano de contas, competências de meses anteriores ainda abertas,
+   envios fiscais com recusa recente, notas canceladas recebidas,
+   empresas CPF em livro-caixa), sempre filtrada por `request.escritorio`
+   e gated pelas mesmas `papel_pode_ler_contabilidade`/
+   `papel_pode_consultar_documentos` que as telas já usam — nunca uma
+   lista de papéis própria. Testado
+   (`apps/tenancy/tests/test_dl042_fila_de_atencao.py`): isolamento entre
+   escritórios, CLIENTE não vê a seção, número de consultas medido em 14
+   com pendência simultânea nas cinco categorias (teto do teste: 20).
+4. ~~Distância do `<h1>` a 390×844 piorou (270px).~~ **Resolvido, medido
+   em 217px** (meta era ≤230px). Duas mudanças: `.contexto-item` virou
+   `flex-direction: row` só ≤48rem (rótulo e valor lado a lado — "Empresa:
+   Comércio X Ltda" numa linha, em vez de duas), cortando a faixa de
+   contexto pela metade SEM esconder Escritório/Empresa/Período/Emitido
+   em (todos continuam visíveis); e a trilha ganhou `margin`/`padding`
+   menores nessa mesma largura. Medido no Balancete, mesmo método
+   (`getBoundingClientRect`).
+5. **Botões e cabeçalho de página padronizados** em toda tela do mapa:
+   `plano_de_contas.html` tinha o único link de criação de uma lista
+   (`Nova conta`) sem `.cabecalho-pagina`/`.botao--primario` — corrigido,
+   mesmo padrão de `empresas/lista.html`/`fiscal/documentos_lista.html`.
+   Dois links "Voltar" sem estilo (`plano_de_contas.html`,
+   `balancete_emissao_recusada.html`) padronizados para `.botao--
+   secundario`, mesmo tom que toda outra tela de contabilidade já usa
+   para "Voltar". Verificado e mantido de propósito: `competencia_fechar.
+   html` usa o botão PRIMÁRIO (padrão), não perigoso — "fechar" é a
+   rotina esperada; "reabrir"/"entregar" são as ações sensíveis
+   (`.botao--perigoso`) — diferença de risco real, não inconsistência.
+
+**Alto — achado só nesta rodada, ao ler o CSS por inteiro**
+
+6. **~120 linhas de CSS duplicadas byte a byte** em `static/css/base.css`
+   desde o commit da reescrita da moldura (`.cabecalho__contexto`,
+   `.contexto-item`, `.contexto-rotulo`, `.navegacao-empresa`, `.item-
+   atual`, `.sessao-usuario`, `.form-sair` — cada regra escrita duas
+   vezes). Inofensivo em efeito (a segunda cópia reafirmava os MESMOS
+   valores — nenhuma das duas tinha sido editada sem a outra, ainda), mas
+   exatamente a classe de defeito que o AGENTS.md nomeia: duas cópias do
+   mesmo fato divergem assim que uma for editada sem a outra. Corrigido:
+   uma cópia só.
 
 **Polimento**
 
-5. Landing/login/cadastro usam uma escala tipográfica própria
-   (`--public-*`, DL-034/037), separada da escala do app autenticado — já
-   existia antes desta etapa, é uma escolha deliberada registrada em
-   `base.css` (marketing não usa a densidade do produto interno), não um
-   achado novo.
-6. O painel de submenu recolhido (barra a ~56px, grupo aberto) é um
+7. Landing/login/cadastro tinham uma escala tipográfica e paleta ESCURA
+   próprias (DL-034/037), diferentes da identidade "papel e tinta" do
+   produto autenticado. **Resolvido nesta rodada** (não estava nas
+   pendências da 1ª passada por engano — ver a nota no início desta
+   seção): reescritas com os mesmos tokens de cor do produto; a escala
+   TIPOGRÁFICA maior continua própria (`--public-*`), decisão deliberada
+   registrada em `base.css` — é uma página de leitura de 30 segundos, não
+   a densidade de uma tela de trabalho.
+8. O painel de submenu recolhido (barra a ~56px, grupo aberto) é um
    flyout `position: absolute` que pode colidir com a borda direita da
    tela em monitores muito estreitos entre 48rem e ~60rem — não medido
    nesta etapa (o portão de qualidade pede 360/768/1280/ultralargo; esta
    faixa intermediária específica ficou de fora).
 
-### Dois ou três ajustes de alto impacto, já aplicados
+### Ajustes de alto impacto aplicados nas duas rodadas
 
 - Ícones SVG inline (achado 1).
 - `align-content: flex-start` em `.app-shell` — sem isso, a barra lateral
@@ -336,6 +364,10 @@ continuam corretos e não foram simplificados.
   pôs na barra: vazava a razão social em telas de recusa de permissão
   (403) porque `empresa_atual` resolve pela URL, antes da autorização real
   — medido pelos próprios testes automatizados, não por inspeção manual.
+- Correção de `_PADRAO_MARCA` em `scripts/medir_identificacao_do_
+  emitente.py` (fora do escopo normal de arquivos desta etapa, corrigido
+  por ser guarda quebrada pela própria mudança de estrutura — só a
+  suíte COMPLETA, `pytest` sem restringir a `apps/`, revelou isso).
 
 ## Revisão DL-042: barra lateral, não superior
 
