@@ -995,10 +995,15 @@ def conta_classificacao_dre(request, empresa_id, conta_id):
     A GRAVAÇÃO passa inteira por `classificar_conta_na_dre` (services.py)
     — a MESMA função que a API chama —, nunca reimplementada aqui: esta
     view só traduz `django.core.exceptions.ValidationError` (qualquer
-    guarda de `Conta.clean()`: compatibilidade de tipo, transição com
-    movimento, A6) para `form.add_error(None, ...)` e RE-renderiza o
-    formulário com 400, preservando o que a pessoa tinha escolhido —
-    nunca um 500, nunca perde a seleção.
+    guarda de `Conta.clean()`) para `form.add_error(None, ...)` e
+    RE-renderiza o formulário com **200** — mesma convenção de `conta_
+    nova` (achado `IntegrityError`) e do veto do Balanço/DRE: uma recusa
+    de REGRA DE NEGÓCIO é a tela respondendo corretamente "não, e eis o
+    porquê", nunca um erro de protocolo. Nunca um 500. `conta.refresh_
+    from_db()` (R6, reconferência) restaura o valor REALMENTE gravado
+    antes de renderizar — `classificar_conta_na_dre` muta a instância
+    ANTES de `full_clean()` recusar, e sem o refresh o formulário
+    mostraria o valor RECUSADO como se fosse o atual.
     """
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -1038,6 +1043,17 @@ def conta_classificacao_dre(request, empresa_id, conta_id):
                     conta=conta, classificacao=classificacao, usuario=request.user, request=request
                 )
             except DjangoValidationError as exc:
+                # R6 (reconferência DL-045): `classificar_conta_na_dre`
+                # (services.py) muta `conta.classificacao_dre` no objeto
+                # ANTES de `full_clean()` recusar — a exceção sobe, a
+                # TRANSAÇÃO nunca comita nada, mas o objeto Python em
+                # memória continua com o valor RECUSADO. Sem este
+                # `refresh_from_db()`, esta view re-renderizava com a
+                # MESMA instância e o template mostrava "Linha atual: <o
+                # valor recusado>" — a tela afirmando um estado que o
+                # banco nunca teve. `refresh_from_db()` restaura o valor
+                # REALMENTE gravado antes de render.
+                conta.refresh_from_db()
                 for mensagem in mensagens_da_validacao_django(exc):
                     form.add_error(None, mensagem)
             else:
@@ -3515,11 +3531,21 @@ def _competencia_adjacente(ano, mes, delta_meses):
     """Competência (ano, mês) deslocada por `delta_meses` — usada pela
     navegação "‹ anterior / seguinte ›" da DRE (mesma aritmética que
     qualquer calendário civil usa: o mês sempre fica entre 1 e 12, o ano
-    rola sozinho nas duas pontas). Sem limite de faixa aqui de propósito:
-    quem valida `_ANO_MINIMO_COMPETENCIA`/`_ANO_MAXIMO_COMPETENCIA` é
-    `_ano_mes_de_competencia_valido`, chamada quando o link é SEGUIDO
-    (querystring nova), nunca aqui — um link "seguinte" nunca falha
-    silenciosamente ao ser MONTADO, mesmo perto da borda da faixa.
+    rola sozinho nas duas pontas). Sem limite de faixa aqui: função
+    PURA, só aritmética — quem decide se o resultado é uma competência
+    VÁLIDA (dentro de `_ANO_MINIMO_COMPETENCIA`/`_ANO_MAXIMO_COMPETENCIA`)
+    é `_ano_mes_de_competencia_valido`, chamada por quem MONTA a tela
+    (`dre`, mais abaixo) para decidir se o link correspondente aparece.
+
+    ⚠️ R10 (reconferência DL-045): a versão anterior desta função
+    argumentava que "um link 'seguinte' nunca falha silenciosamente ao
+    ser MONTADO, mesmo perto da borda da faixa" — e por isso a tela
+    SEMPRE montava os dois links, sem checar a faixa. O auditor mediu o
+    efeito: em `ano=2999&mes=12`, o link "seguinte" apontava para
+    `3000/1`, e o clique devolvia 400. "Nunca falha ao ser MONTADO" era
+    verdade, mas irrelevante — o link levava a um beco sem saída mesmo
+    assim. Agora `dre()` decide, com `_ano_mes_de_competencia_valido`,
+    se cada link aparece; esta função continua só a aritmética.
     """
     indice = (ano * 12) + (mes - 1) + delta_meses
     return indice // 12, indice % 12 + 1
@@ -3594,6 +3620,22 @@ def _montar_linhas_da_dre(dre_apurada):
     um dado para percorrer num laço genérico. `⚠️` Só é chamada quando
     `emissao["pode_emitir"]` é `True` — quem chama (`dre`, abaixo) nunca
     monta esta estrutura para uma apuração com pendência.
+
+    DL-045, reconferência (F1/DE-086): os rótulos de DUAS das seis chaves
+    — "receita_liquida" continua "Receita líquida", mas "lucro_bruto" e
+    "lucro_liquido" trocam de RÓTULO impresso, nunca de CHAVE (o serviço,
+    services.py, continua chamando os dois campos de `"lucro_bruto"`/
+    `"lucro_liquido"` — fora do meu escopo de arquivo mexer nisso, e não
+    precisa: é só o TÍTULO exibido que muda):
+    - "Lucro bruto" -> **"Resultado bruto"** (ITG 1000, anexo 3 — o nome
+      que a norma usa para a linha logo depois do custo, neutro quanto ao
+      sinal: o valor pode legitimamente sair negativo).
+    - "Lucro líquido do período" -> **"Lucro (prejuízo) líquido do
+      período"** (art. 187, VII, Lei 6.404/76: "demonstração do
+      resultado do exercício discriminará... o lucro ou prejuízo líquido
+      do exercício"). O sinal continua saindo só pelo PARÊNTESE
+      (`_valor_dre`, RC-90) — o rótulo NOMEIA as duas possibilidades,
+      nunca decide qual delas é o caso.
     """
     linhas_mes = dre_apurada["coluna_mes"]["linhas"]
     linhas_acumulado = dre_apurada["coluna_acumulado"]["linhas"]
@@ -3611,7 +3653,7 @@ def _montar_linhas_da_dre(dre_apurada):
         "deducoes_da_receita": _linha(ClassificacaoDre.DEDUCOES_DA_RECEITA),
         "receita_liquida": _subtotal("receita_liquida", "Receita líquida"),
         "custo": _linha(ClassificacaoDre.CUSTO),
-        "lucro_bruto": _subtotal("lucro_bruto", "Lucro bruto"),
+        "lucro_bruto": _subtotal("lucro_bruto", "Resultado bruto"),
         "despesas_com_vendas": _linha(ClassificacaoDre.DESPESAS_COM_VENDAS),
         "despesas_gerais_e_administrativas": _linha(
             ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS
@@ -3635,7 +3677,7 @@ def _montar_linhas_da_dre(dre_apurada):
         ),
         "provisao_irpj_csll": _linha(ClassificacaoDre.PROVISAO_IRPJ_CSLL),
         "participacoes": _linha(ClassificacaoDre.PARTICIPACOES),
-        "lucro_liquido": _subtotal("lucro_liquido", "Lucro líquido do período"),
+        "lucro_liquido": _subtotal("lucro_liquido", "Lucro (prejuízo) líquido do período"),
     }
 
 
@@ -3739,10 +3781,27 @@ def _lista_de_pendencia_dre_para_contexto(nome, itens, contas_id_por_codigo):
     parte). `linha.conta_id`, quando localizada, faz o template linkar
     direto para "classificar esta conta" (`conta_classificacao_dre`,
     mais abaixo) — critério 2 do plano: "link para classificar a conta".
+
+    R8 (reconferência DL-045): `linha["tipo"]` (o valor CRU, ex.
+    "ativo") também é copiado do item aqui, ao lado de `conta_id` —
+    `_linhas_de_pendencia` (compartilhada com o Balanço) só HUMANIZA
+    "tipo" dentro da string `detalhe` ("Tipo cadastrado: Ativo"), nunca
+    o deixa como chave própria do dict; sem este passo, `linha.tipo` no
+    template (dre.html) sempre resolveria vazio e o veto ofereceria o
+    link "classificar esta conta" até para conta PATRIMONIAL sob linha
+    de resultado — exatamente o link que R8 pede para SUMIR nesse caso,
+    trocado por "mover a conta para o grupo patrimonial correto no
+    plano de contas". Só `contas_com_tipo_divergente_da_linha` carrega
+    "tipo" no item cru (services.py); as demais listas desta coluna
+    (aninhada, desconhecida) devolvem `None` aqui — contas
+    estruturalmente já classificadas, portanto sempre de resultado, o
+    que o template trata como "mostra o link" (ausência de tipo
+    patrimonial).
     """
     linhas = _linhas_de_pendencia(itens)
-    for linha in linhas:
+    for linha, item in zip(linhas, itens, strict=True):
         linha["conta_id"] = contas_id_por_codigo.get(linha["conta"])
+        linha["tipo"] = item.get("tipo")
     return {
         "titulo": NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DA_DRE.get(nome, nome),
         "tipo_linha": "conta",
@@ -3854,8 +3913,15 @@ def dre(request, empresa_id):
     if recusa_livro_caixa is not None:
         return recusa_livro_caixa
 
+    # R8 (reconferência DL-045): "classificar esta conta" (link do veto,
+    # dre.html) só aparece para quem PODE ESCRITURAR — antes, qualquer
+    # papel de leitura via o link e recebia 403 ao segui-lo (medido pelo
+    # auditor com o papel PARALEGAL). Calculado aqui, presente em TODOS
+    # os `render()` desta view (empty state, erro, veto, sucesso) — o
+    # template nunca precisa adivinhar ausência de chave como "não pode".
+    contexto = {"empresa": empresa, "pode_escriturar": _pode_escriturar(request)}
+
     ano, mes, erro_competencia = _competencia_dre_do_formulario(request)
-    contexto = {"empresa": empresa}
     if erro_competencia:
         messages.error(request, erro_competencia)
         return render(request, "contabilidade/dre.html", contexto, status=400)
@@ -3867,9 +3933,19 @@ def dre(request, empresa_id):
             "ano": ano,
             "mes": mes,
             "data_referencia": date(ano, mes, 1),
-            "ano_anterior": ano_anterior,
+            # R10 (reconferência DL-045): o link só aparece quando a
+            # competência adjacente é VÁLIDA (dentro de `_ANO_MINIMO_
+            # COMPETENCIA`/`_ANO_MAXIMO_COMPETENCIA`) — omitido perto das
+            # duas bordas da faixa, em vez de sempre montado e levando a
+            # um 400 ao ser seguido (o que a versão anterior fazia; ver o
+            # docstring de `_competencia_adjacente`).
+            "ano_anterior": ano_anterior
+            if _ano_mes_de_competencia_valido(ano_anterior, mes_anterior)
+            else None,
             "mes_anterior": mes_anterior,
-            "ano_seguinte": ano_seguinte,
+            "ano_seguinte": ano_seguinte
+            if _ano_mes_de_competencia_valido(ano_seguinte, mes_seguinte)
+            else None,
             "mes_seguinte": mes_seguinte,
         }
     )

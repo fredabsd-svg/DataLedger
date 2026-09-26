@@ -24,9 +24,12 @@ no passado (hoje é 2026-09-26).
 """
 
 import itertools
+import re
 from decimal import Decimal
+from html.parser import HTMLParser
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -379,7 +382,7 @@ def test_veto_nomeia_a_conta_pendente_e_nao_monta_a_demonstracao(client, cenario
         in conteudo
     )
     # A demonstração NÃO existe nesta resposta enquanto houver pendência.
-    assert "Lucro líquido do período" not in conteudo
+    assert "Lucro (prejuízo) líquido do período" not in conteudo
     assert "<table" not in conteudo
 
 
@@ -444,7 +447,7 @@ def test_todas_as_linhas_e_subtotais_do_art_187_com_os_valores_certos(client, ce
         "Deduções da receita",
         "Receita líquida",
         "Custo",
-        "Lucro bruto",
+        "Resultado bruto",  # F1 (reconferência DL-045): rótulo do art. 187, VII
         "Despesas com vendas",
         "Despesas gerais e administrativas",
         "Outras receitas",
@@ -457,7 +460,7 @@ def test_todas_as_linhas_e_subtotais_do_art_187_com_os_valores_certos(client, ce
         "Resultado antes dos tributos sobre o lucro",
         "Provisão para IRPJ e CSLL",
         "Participações",
-        "Lucro líquido do período",
+        "Lucro (prejuízo) líquido do período",  # F1: ITG 1000 anexo 3 / art. 187, VII
     ):
         assert titulo in conteudo, titulo
 
@@ -733,29 +736,42 @@ def test_conta_classificacao_dre_post_sem_classificacao_grava_none(client, cenar
     assert conta_sem_movimento.classificacao_dre is None
 
 
-def test_conta_classificacao_dre_guarda_de_transicao_recusa_com_movimento(
+def test_conta_classificacao_dre_recusa_tipo_incompativel_mostra_valor_realmente_gravado(
     client, cenario_dre_completo
 ):
-    """A guarda de TRANSIÇÃO de `Conta.clean()` — recusar reclassificar
-    uma conta que já tem lançamento gravado — aparece na TELA como
-    `form.non_field_errors()`, nunca 500 nem gravação silenciosa. A
-    conta "Receita bruta" do cenário completo TEM movimento (a fixture
-    lança 10.000,00 nela)."""
+    """R6 (reconferência DL-045): a guarda usada aqui é a de TIPO
+    incompatível (`TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`, models.py) — a
+    ÚNICA guarda de `Conta.clean()` que sobrevive à DE-086 (a guarda de
+    TRANSIÇÃO por movimento foi revista pelo arquiteto na mesma
+    reconferência: reclassificar conta com movimento deixou de ser
+    recusado, então este teste não usa mais aquele cenário). "Caixa" é
+    ATIVO — nenhuma linha de resultado aceita conta patrimonial (Lei
+    6.404/76, art. 187).
+
+    A recusa aparece na TELA como `form.non_field_errors()`, nunca 500
+    nem gravação silenciosa — e o achado R6 propriamente: `classificar_
+    conta_na_dre` (services.py) muta `conta.classificacao_dre` no objeto
+    Python ANTES de `full_clean()` recusar; sem `conta.refresh_from_db()`
+    na view, "Linha atual" mostraria o valor RECUSADO ("Receita bruta de
+    vendas e serviços") como se tivesse sido gravado. Este teste prova
+    que a tela mostra o valor REALMENTE gravado ("Sem classificação")."""
     _autenticar(client, cenario_dre_completo["escritorio"])
     empresa = cenario_dre_completo["empresa"]
-    receita_bruta = Conta.objects.get(empresa=empresa, codigo="3.1")
-    assert receita_bruta.classificacao_dre == ClassificacaoDre.RECEITA_BRUTA
+    caixa = Conta.objects.get(empresa=empresa, codigo="1")
+    assert caixa.classificacao_dre is None
 
-    url = reverse("contabilidade_web:conta_classificacao_dre", args=[empresa.id, receita_bruta.id])
-    resposta = client.post(url, data={"classificacao_dre": ClassificacaoDre.OUTRAS_RECEITAS})
+    url = reverse("contabilidade_web:conta_classificacao_dre", args=[empresa.id, caixa.id])
+    resposta = client.post(url, data={"classificacao_dre": ClassificacaoDre.RECEITA_BRUTA})
     assert resposta.status_code == 200  # re-renderiza o formulário, não redireciona
     conteudo = resposta.content.decode()
-    assert "já tem lançamento gravado" in conteudo
-    # A SELEÇÃO que a pessoa tentou continua preenchida (formulário
-    # preservado) — não some com o erro.
-    assert 'value="outras_receitas" selected' in conteudo
-    receita_bruta.refresh_from_db()
-    assert receita_bruta.classificacao_dre == ClassificacaoDre.RECEITA_BRUTA  # nada mudou
+    assert "não é compatível com o tipo desta conta" in conteudo
+
+    # R6: "Linha atual" mostra o valor REALMENTE gravado (None -> "Sem
+    # classificação"), nunca o valor recusado como se fosse o atual.
+    assert "Linha atual: <strong>Sem classificação</strong>" in conteudo
+    assert "Linha atual: <strong>Receita bruta de vendas e serviços</strong>" not in conteudo
+    caixa.refresh_from_db()
+    assert caixa.classificacao_dre is None  # nada mudou no banco
 
 
 def test_conta_classificacao_dre_dado_nao_contratado_recusa_400(client, cenario_dre_completo):
@@ -819,6 +835,11 @@ def cenario_dre_tipo_divergente():
 
 
 def test_veto_lista_conta_com_tipo_divergente_da_linha(client, cenario_dre_tipo_divergente):
+    """R8 (reconferência DL-045): a conta pendente é PATRIMONIAL (Ativo)
+    sob uma linha de RESULTADO — nenhuma linha da DRE aceita conta
+    patrimonial (Lei 6.404/76, art. 187), então o link "classificar esta
+    conta" (que levaria a uma recusa garantida) NÃO aparece; a orientação
+    é mover a conta para o grupo patrimonial correto no plano de contas."""
     _autenticar(client, cenario_dre_tipo_divergente["escritorio"])
     empresa = cenario_dre_tipo_divergente["empresa"]
     conta_torta = cenario_dre_tipo_divergente["conta_torta"]
@@ -829,11 +850,30 @@ def test_veto_lista_conta_com_tipo_divergente_da_linha(client, cenario_dre_tipo_
     assert "NÃO pode ser emitida" in conteudo
     assert conta_torta.nome in conteudo
     assert conta_torta.codigo in conteudo
-    # Link direto para classificar/corrigir esta conta específica.
+    # SEM link: a conta é patrimonial, nenhuma linha da DRE a aceitaria.
     assert (
         reverse("contabilidade_web:conta_classificacao_dre", args=[empresa.id, conta_torta.id])
-        in conteudo
+        not in conteudo
     )
+    assert "mover a conta para o grupo patrimonial correto no plano de contas" in conteudo
+
+
+def test_veto_lista_conta_com_tipo_divergente_mostra_link_para_paralegal_como_texto_sem_link(
+    client, cenario_dre_tipo_divergente
+):
+    """Controle negativo do teste acima: mesmo papel com permissão de
+    escrita (GESTOR), a MESMA pendência nunca aparece com link, porque o
+    critério que a esconde é o TIPO da conta (patrimonial), não a
+    permissão — R8 tem DOIS filtros independentes (`pode_escriturar` E
+    `linha.tipo`), este teste isola o segundo."""
+    _autenticar(client, cenario_dre_tipo_divergente["escritorio"], username="gestor-r8-tipo")
+    empresa = cenario_dre_tipo_divergente["empresa"]
+    url = reverse("contabilidade_web:dre", args=[empresa.id])
+    conteudo = client.get(
+        f"{url}?ano={cenario_dre_tipo_divergente['ano']}&mes={cenario_dre_tipo_divergente['mes']}"
+    ).content.decode()
+    assert "classificar esta conta" not in conteudo
+    assert "mover a conta para o grupo patrimonial correto no plano de contas" in conteudo
 
 
 @pytest.fixture
@@ -1044,3 +1084,452 @@ def test_aviso_lista_de_estornos_de_zeramento_na_coluna(client):
     # do PL (1.200,00), não com o dobro por causa do estorno reprocessado
     # — mesma conferência do teste do serviço (test_dl045_dre.py).
     assert "1.200,00" in conteudo
+
+
+# ---------------------------------------------------------------------------
+# R5 (reconferência DL-045): a navegação de competência ("‹ Mês anterior /
+# Março de 2026 / Mês seguinte ›") é controle de TELA, nunca conteúdo do
+# documento — precisa ficar FORA do papel. A ocultação em si é CSS
+# (`@media print`, static/css/base.css) — nenhum HTML servido carrega CSS
+# aplicado (o teste de tela nunca prova o que o navegador faz com a
+# folha de estilo, ver o docstring de test_bl282_timbre_de_impressao.py).
+# Este teste cobre o que É verificável SEM navegador: a REGRA existe, no
+# ARQUIVO certo, para o seletor certo, com o efeito certo — uma varredura
+# estrutural do CSS-fonte, no molde do detector de
+# test_dl024_varredura_de_interface.py. A ocultação de FATO (medida no
+# navegador real) foi verificada à parte, na bancada, com Playwright
+# contra o servidor de desenvolvimento — ver o retorno desta rodada.
+# ---------------------------------------------------------------------------
+
+
+def _bloco_de_nivel_superior(texto, abertura):
+    """Extrai o CORPO de um bloco `abertura { ... }` de nível superior
+    (ex.: `"@media print {"`), por CONTAGEM DE CHAVES — não um `re`
+    não-guloso (`.*?\\}`), que pararia na PRIMEIRA `}` interna (a regra
+    de dentro do `@media`), nunca na que fecha o bloco inteiro."""
+    inicio = texto.index(abertura)
+    posicao_da_chave = texto.index("{", inicio)
+    profundidade = 0
+    for indice in range(posicao_da_chave, len(texto)):
+        if texto[indice] == "{":
+            profundidade += 1
+        elif texto[indice] == "}":
+            profundidade -= 1
+            if profundidade == 0:
+                return texto[posicao_da_chave + 1 : indice]
+    raise AssertionError(f"bloco {abertura!r} nunca fechou — chaves desbalanceadas")
+
+
+def test_r5_navegacao_de_competencia_esta_oculta_no_media_print():
+    css = (settings.BASE_DIR / "static" / "css" / "base.css").read_text(encoding="utf-8")
+    bloco_impressao = _bloco_de_nivel_superior(css, "@media print {")
+
+    # A regra é extraída DENTRO do bloco de impressão (nunca em outro
+    # `@media`, nem em comentário) — mesma extração regra-por-regra que
+    # test_dl024 já usa para o detector de medida/cor.
+    padrao_regra = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
+    regra_da_navegacao = None
+    for seletores, corpo in padrao_regra.findall(bloco_impressao):
+        if ".navegacao-competencia" in seletores:
+            regra_da_navegacao = (seletores, corpo)
+            break
+
+    assert regra_da_navegacao is not None, (
+        "`.navegacao-competencia` não apareceu em nenhuma regra do @media print "
+        "de static/css/base.css"
+    )
+    _, corpo = regra_da_navegacao
+    assert "display: none" in corpo, (
+        f"`.navegacao-competencia` está no @media print, mas a regra não esconde "
+        f"o elemento: {corpo!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# R10 (reconferência DL-045): o link de navegação ("‹ Mês anterior"/"Mês
+# seguinte ›") só aparece quando a competência ADJACENTE está dentro da
+# faixa válida (`_ANO_MINIMO_COMPETENCIA`=1970, `_ANO_MAXIMO_COMPETENCIA`=
+# 2999) — antes, o link era sempre montado e podia levar a um 400 (a
+# versão anterior nunca testava a borda antes de gerar o `href`).
+# ---------------------------------------------------------------------------
+
+
+def test_r10_sem_link_de_mes_anterior_na_borda_inferior_da_faixa_de_competencia(client):
+    escritorio = Escritorio.objects.create(nome="Escritório DL-045t R10a", cnpj=_cnpj_sintetico())
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa R10a DL-045t Ltda", cnpj=_cnpj_sintetico()
+    )
+    _conta(empresa, codigo="1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D)
+    _autenticar(client, escritorio, username="gestor-r10a")
+    url = reverse("contabilidade_web:dre", args=[empresa.id])
+    # Janeiro/1970: o mês ANTERIOR (dezembro/1969) está fora da faixa —
+    # sem link. O mês seguinte (fevereiro/1970) está dentro — com link.
+    conteudo = client.get(f"{url}?ano=1970&mes=1").content.decode()
+    assert "ano=1969" not in conteudo
+    assert "Mês anterior" not in conteudo
+    assert "ano=1970&amp;mes=2" in conteudo or "ano=1970&mes=2" in conteudo
+
+
+def test_r10_sem_link_de_mes_seguinte_na_borda_superior_da_faixa_de_competencia(client):
+    escritorio = Escritorio.objects.create(nome="Escritório DL-045t R10b", cnpj=_cnpj_sintetico())
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa R10b DL-045t Ltda", cnpj=_cnpj_sintetico()
+    )
+    _conta(empresa, codigo="1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D)
+    _autenticar(client, escritorio, username="gestor-r10b")
+    url = reverse("contabilidade_web:dre", args=[empresa.id])
+    # Dezembro/2999: o mês SEGUINTE (janeiro/3000) está fora da faixa —
+    # sem link. O mês anterior (novembro/2999) está dentro — com link.
+    conteudo = client.get(f"{url}?ano=2999&mes=12").content.decode()
+    assert "ano=3000" not in conteudo
+    assert "Mês seguinte" not in conteudo
+    assert "ano=2999&amp;mes=11" in conteudo or "ano=2999&mes=11" in conteudo
+
+
+# ---------------------------------------------------------------------------
+# T06 (reconferência DL-045): PARALEGAL lê a contabilidade
+# (`PAPEIS_QUE_LEEM_CONTABILIDADE`, apps/contabilidade/permissoes.py), mas
+# NUNCA escreve — `conta_classificacao_dre` usa `_pode_escriturar`
+# (`PodeEscriturar`, a MESMA restrição da API), não `_pode_ler`. Mutante
+# que trocasse a checagem por `_pode_ler` deixaria PARALEGAL gravar.
+# ---------------------------------------------------------------------------
+
+
+def test_t06_paralegal_recebe_403_no_get_e_no_post_da_classificacao_sem_gravar_nada(
+    client, cenario_dre_completo
+):
+    _autenticar(
+        client, cenario_dre_completo["escritorio"], papel=Papel.PARALEGAL, username="paralegal-t06"
+    )
+    empresa = cenario_dre_completo["empresa"]
+    receita_bruta = Conta.objects.get(empresa=empresa, codigo="3.1")
+    valor_original = receita_bruta.classificacao_dre
+    url = reverse("contabilidade_web:conta_classificacao_dre", args=[empresa.id, receita_bruta.id])
+
+    resposta_get = client.get(url)
+    assert resposta_get.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta_get.templates]
+    assert receita_bruta.nome not in resposta_get.content.decode()
+
+    resposta_post = client.post(url, data={"classificacao_dre": ClassificacaoDre.OUTRAS_RECEITAS})
+    assert resposta_post.status_code == 403
+    assert "erros/sem_permissao.html" in [t.name for t in resposta_post.templates]
+
+    receita_bruta.refresh_from_db()
+    assert receita_bruta.classificacao_dre == valor_original  # nada gravado
+
+
+# ---------------------------------------------------------------------------
+# R7 (tela), reconferência DL-045 — "caso 13": fixture com MÊS DIFERENTE do
+# ACUMULADO em TODA linha (`cenario_dre_completo`, acima, lança tudo num
+# único mês, então mês e acumulado batem por construção — um mutante que
+# trocasse a coluna "mês" pela "acumulado" (T02) nunca seria pego lá). Este
+# cenário lança em JANEIRO e MARÇO/2026 e consulta a competência de MARÇO,
+# para as duas colunas terem valor PRÓPRIO em toda linha e subtotal — e o
+# resultado financeiro sai NEGATIVO nas duas colunas (T03: parênteses).
+#
+# A tabela é lida LINHA A LINHA por `_LeitorDeLinhasDaDre` (título, mês,
+# acumulado) — nunca por contagem de substring solta no corpo, que não
+# distingue "o valor certo está na CÉLULA certa" de "o valor aparece em
+# algum lugar do documento" (T01: linha trocada; T04: resultado financeiro
+# mostrando o lucro bruto). O bloco de identificação do item 51 (mês de
+# março, acumulado de 01/01 a 31/03) mata N22 (fim do acumulado impresso
+# como início do mês, em vez de fim do mês).
+# ---------------------------------------------------------------------------
+
+
+class _LeitorDeLinhasDaDre(HTMLParser):
+    """Lê, de `<table class="tabela-dre">` (templates/contabilidade/
+    dre.html), cada `<tr>` do `<tbody>` como uma tupla (título, mês,
+    acumulado) — texto de CADA célula, espaço/quebra de linha colapsados.
+    Um parser de HTML, não uma expressão regular sobre o texto bruto ou
+    uma contagem de substring: o R7-tela da reconferência pede
+    explicitamente a tabela lida LINHA A LINHA, porque só assim um
+    mutante que troca o CONTEÚDO de uma célula por outra linha (T01), ou
+    a coluna mês pela acumulado (T02), ou omite o parêntese do negativo
+    (T03), ou usa a fórmula errada num subtotal (T04) tem como ser pego —
+    uma busca de substring no corpo inteiro não nota célula errada
+    quando o valor (por coincidência ou não) aparece em ALGUM lugar do
+    documento.
+
+    Molde de `_LeitorDeFormularios`
+    (test_dl019_frontend_recusa_do_formulario_de_lancamento.py): mesma
+    biblioteca padrão (`html.parser.HTMLParser`), nenhuma dependência
+    nova.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.linhas = []
+        self._dentro_da_tabela = 0
+        self._dentro_do_tbody = False
+        self._linha_atual = None
+        self._celula_atual = None
+
+    def handle_starttag(self, tag, atributos):
+        atributos = dict(atributos)
+        if tag == "table":
+            if "tabela-dre" in (atributos.get("class") or "").split():
+                self._dentro_da_tabela += 1
+            return
+        if not self._dentro_da_tabela:
+            return
+        if tag == "tbody":
+            self._dentro_do_tbody = True
+        elif tag == "tr" and self._dentro_do_tbody:
+            self._linha_atual = []
+        elif tag == "td" and self._linha_atual is not None:
+            self._celula_atual = []
+
+    def handle_data(self, data):
+        if self._celula_atual is not None:
+            self._celula_atual.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "table" and self._dentro_da_tabela:
+            self._dentro_da_tabela -= 1
+            if not self._dentro_da_tabela:
+                self._dentro_do_tbody = False
+            return
+        if not self._dentro_da_tabela:
+            return
+        if tag == "tbody":
+            self._dentro_do_tbody = False
+        elif tag == "td" and self._celula_atual is not None:
+            texto = " ".join("".join(self._celula_atual).split())
+            self._linha_atual.append(texto)
+            self._celula_atual = None
+        elif tag == "tr" and self._linha_atual is not None:
+            if len(self._linha_atual) == 3:
+                self.linhas.append(tuple(self._linha_atual))
+            self._linha_atual = None
+
+
+def _linhas_da_dre_por_titulo(html):
+    leitor = _LeitorDeLinhasDaDre()
+    leitor.feed(html)
+    assert leitor.linhas, 'nenhuma linha lida de <table class="tabela-dre"> — a tabela existe?'
+    por_titulo = {}
+    for titulo, mes, acumulado in leitor.linhas:
+        assert titulo not in por_titulo, f"título repetido na tabela: {titulo!r}"
+        por_titulo[titulo] = (mes, acumulado)
+    return por_titulo
+
+
+@pytest.fixture
+def cenario_dre_mes_diferente_do_acumulado():
+    """Lançamentos em JANEIRO e MARÇO/2026, na MESMA conta em cada linha —
+    a coluna "mês" (consulta em mes=3) vê só o lançamento de março; a
+    coluna "acumulado" vê janeiro + março. Todo valor de linha e subtotal
+    tem mês != acumulado, e o resultado financeiro sai NEGATIVO nas duas
+    colunas (mês: -350,00; acumulado: -270,00) — números conferidos à mão
+    e por script (nenhum arredondamento binário: tudo `Decimal`).
+    """
+    escritorio = Escritorio.objects.create(nome="Escritório DL-045t Caso13", cnpj=_cnpj_sintetico())
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa DRE Caso 13 DL-045t Ltda",
+        cnpj=_cnpj_sintetico(),
+    )
+    caixa = _conta(empresa, codigo="1", nome="Caixa", tipo=TipoConta.ATIVO, natureza=D)
+    receita_bruta = _conta(
+        empresa,
+        codigo="3.1",
+        nome="Receita Bruta",
+        tipo=TipoConta.RECEITA,
+        natureza=C,
+        classificacao_dre=ClassificacaoDre.RECEITA_BRUTA,
+    )
+    deducoes = _conta(
+        empresa,
+        codigo="3.2",
+        nome="Deduções da Receita",
+        tipo=TipoConta.RECEITA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.DEDUCOES_DA_RECEITA,
+    )
+    custo = _conta(
+        empresa,
+        codigo="4.1",
+        nome="Custo dos Serviços",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.CUSTO,
+    )
+    despesas_vendas = _conta(
+        empresa,
+        codigo="4.2",
+        nome="Despesas com Vendas",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.DESPESAS_COM_VENDAS,
+    )
+    despesas_adm = _conta(
+        empresa,
+        codigo="4.3",
+        nome="Despesas Gerais e Administrativas",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.DESPESAS_GERAIS_E_ADMINISTRATIVAS,
+    )
+    outras_receitas = _conta(
+        empresa,
+        codigo="3.3",
+        nome="Outras Receitas",
+        tipo=TipoConta.RECEITA,
+        natureza=C,
+        classificacao_dre=ClassificacaoDre.OUTRAS_RECEITAS,
+    )
+    outras_despesas = _conta(
+        empresa,
+        codigo="4.4",
+        nome="Outras Despesas",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.OUTRAS_DESPESAS,
+    )
+    outras_despesas_operacionais = _conta(
+        empresa,
+        codigo="4.5",
+        nome="Outras Despesas Operacionais",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.OUTRAS_DESPESAS_OPERACIONAIS,
+    )
+    receitas_financeiras = _conta(
+        empresa,
+        codigo="3.4",
+        nome="Receitas Financeiras",
+        tipo=TipoConta.RECEITA,
+        natureza=C,
+        classificacao_dre=ClassificacaoDre.RECEITAS_FINANCEIRAS,
+    )
+    despesas_financeiras = _conta(
+        empresa,
+        codigo="4.6",
+        nome="Despesas Financeiras",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.DESPESAS_FINANCEIRAS,
+    )
+    provisao = _conta(
+        empresa,
+        codigo="4.7",
+        nome="Provisão para IRPJ e CSLL",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.PROVISAO_IRPJ_CSLL,
+    )
+    participacoes = _conta(
+        empresa,
+        codigo="4.8",
+        nome="Participações",
+        tipo=TipoConta.DESPESA,
+        natureza=D,
+        classificacao_dre=ClassificacaoDre.PARTICIPACOES,
+    )
+
+    janeiro = timezone.datetime(2026, 1, 16).date()
+    marco = timezone.datetime(2026, 3, 16).date()
+    # (histórico, débito, crédito, valor de janeiro, valor de março) — MESMA
+    # direção débito/crédito de `cenario_dre_completo`, só o valor muda por
+    # mês (nenhuma conta nova, nenhum lançamento redundante).
+    lancamentos = (
+        ("Receita bruta de serviços", caixa, receita_bruta, "4000.00", "6000.00"),
+        ("ISS sobre serviços (dedução)", deducoes, caixa, "300.00", "700.00"),
+        ("Custo dos serviços prestados", custo, caixa, "1000.00", "2000.00"),
+        ("Comissão de vendas", despesas_vendas, caixa, "200.00", "300.00"),
+        ("Despesas administrativas", despesas_adm, caixa, "300.00", "500.00"),
+        ("Receita de aluguel eventual", caixa, outras_receitas, "80.00", "120.00"),
+        ("Baixa de bem obsoleto", outras_despesas, caixa, "40.00", "60.00"),
+        ("Multa administrativa", outras_despesas_operacionais, caixa, "20.00", "30.00"),
+        (
+            "Rendimento de aplicação financeira",
+            caixa,
+            receitas_financeiras,
+            "130.00",
+            "50.00",
+        ),
+        ("Juros de empréstimo", despesas_financeiras, caixa, "50.00", "400.00"),
+        ("Provisão de IRPJ/CSLL do período", provisao, caixa, "110.00", "310.00"),
+        ("Participação de administradores", participacoes, caixa, "30.00", "90.00"),
+    )
+    for historico, debito, credito, valor_janeiro, valor_marco in lancamentos:
+        _lancar(empresa, janeiro, historico, debito, credito, valor_janeiro)
+        _lancar(empresa, marco, historico, debito, credito, valor_marco)
+
+    return {
+        "escritorio": escritorio,
+        "empresa": empresa,
+        "ano": 2026,
+        "mes": 3,
+    }
+
+
+# `{titulo: (mes_esperado, acumulado_esperado)}` — os NÚMEROS batem com a
+# fixture acima (débito/crédito de janeiro + março), conferidos por script
+# em Decimal antes de entrarem aqui (nenhum arredondamento binário). Cada
+# valor tem o parêntese de negativo já incluído no texto esperado — mesma
+# apresentação de `_valor_dre.html` (RC-90).
+_VALORES_ESPERADOS_CASO_13 = {
+    "Receita bruta de vendas e serviços": ("6.000,00", "10.000,00"),
+    "Deduções da receita (impostos, devoluções e abatimentos)": ("700,00", "1.000,00"),
+    "Receita líquida": ("5.300,00", "9.000,00"),
+    "Custo (CMV/CPV/CSP)": ("2.000,00", "3.000,00"),
+    "Resultado bruto": ("3.300,00", "6.000,00"),
+    "Despesas com vendas": ("300,00", "500,00"),
+    "Despesas gerais e administrativas": ("500,00", "800,00"),
+    "Outras receitas": ("120,00", "200,00"),
+    "Outras despesas": ("60,00", "100,00"),
+    "Outras despesas operacionais": ("30,00", "50,00"),
+    # Nenhuma conta desta fixture está classificada nesta linha — sempre
+    # 0,00 nas duas colunas (a linha existe e é IMPRESSA mesmo vazia,
+    # HI-29 — as treze linhas do art. 187 são estrutura fixa).
+    "Resultado de equivalência patrimonial": ("0,00", "0,00"),
+    "Resultado antes do resultado financeiro": ("2.530,00", "4.750,00"),
+    "Receitas financeiras": ("50,00", "180,00"),
+    "Despesas financeiras": ("400,00", "450,00"),
+    "Resultado financeiro": ("(350,00)", "(270,00)"),
+    "Resultado antes dos tributos sobre o lucro": ("2.180,00", "4.480,00"),
+    "Provisão para IRPJ e CSLL": ("310,00", "420,00"),
+    "Participações": ("90,00", "120,00"),
+    "Lucro (prejuízo) líquido do período": ("1.780,00", "3.940,00"),
+}
+
+
+def test_r7_tela_caso_13_mes_diferente_do_acumulado_linha_a_linha(
+    client, cenario_dre_mes_diferente_do_acumulado
+):
+    _autenticar(client, cenario_dre_mes_diferente_do_acumulado["escritorio"])
+    empresa = cenario_dre_mes_diferente_do_acumulado["empresa"]
+    url = reverse("contabilidade_web:dre", args=[empresa.id])
+    resposta = client.get(f"{url}?ano=2026&mes=3")
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "NÃO pode ser emitida" not in conteudo
+
+    linhas = _linhas_da_dre_por_titulo(conteudo)
+    assert set(linhas) == set(_VALORES_ESPERADOS_CASO_13), set(_VALORES_ESPERADOS_CASO_13) ^ set(
+        linhas
+    )
+    for titulo, (mes_esperado, acumulado_esperado) in _VALORES_ESPERADOS_CASO_13.items():
+        mes_lido, acumulado_lido = linhas[titulo]
+        # T02 (mês mostra o acumulado): comparar as DUAS colunas separadas
+        # já mata — mês e acumulado nunca coincidem nesta fixture.
+        assert mes_lido == mes_esperado, (titulo, "mês", mes_lido, mes_esperado)
+        assert acumulado_lido == acumulado_esperado, (
+            titulo,
+            "acumulado",
+            acumulado_lido,
+            acumulado_esperado,
+        )
+    # T01 (linha trocada)/T04 (resultado financeiro mostra o lucro bruto):
+    # cobertos pela comparação título-a-título acima — uma troca de linha
+    # faria ALGUM título ler o par (mês, acumulado) de outro título.
+    # T03 (negativo sem parêntese): conferido pelo formato literal
+    # "(350,00)"/"(270,00)" em `_VALORES_ESPERADOS_CASO_13`, acima.
+
+    # N22: o bloco de identificação (item 51) imprime o FIM do acumulado
+    # como 31/03/2026 (fim do MÊS pedido), nunca o início do mês (01/03).
+    assert "01/01/2026 a 31/03/2026" in conteudo
+    assert "01/01/2026 a 01/03/2026" not in conteudo

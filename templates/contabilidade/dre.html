@@ -50,19 +50,28 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
     exercício desde janeiro, HI-28): os dois links vizinhos deslocam a
     competência em ±1 mês (`_competencia_adjacente`), sem JavaScript (R6) —
     cada um é um link comum para a MESMA rota com querystring diferente.
+
+    R10 (reconferência DL-045): cada link só aparece quando `dre()`
+    (views_web.py) confirma que a competência adjacente é VÁLIDA — perto
+    das duas bordas da faixa (1970/2999), o link para FORA dela some, em
+    vez de continuar ali e devolver 400 ao ser seguido.
     {% endcomment %}
     <nav class="navegacao-competencia" aria-label="Navegação de competência">
-        <a class="botao botao--secundario"
-           href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
-            ‹ Mês anterior
-        </a>
+        {% if ano_anterior %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+                ‹ Mês anterior
+            </a>
+        {% endif %}
         <strong class="navegacao-competencia__atual">
             {% if data_referencia %}{{ data_referencia|date:"F \d\e Y"|capfirst }}{% endif %}
         </strong>
-        <a class="botao botao--secundario"
-           href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
-            Mês seguinte ›
-        </a>
+        {% if ano_seguinte %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dre' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+                Mês seguinte ›
+            </a>
+        {% endif %}
     </nav>
 
     {% if not data_referencia %}
@@ -100,8 +109,17 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
             <strong class="faixa-fechamento__veredito">A DRE NÃO pode ser emitida nesta competência</strong>
         </div>
         <div class="mensagem mensagem-error" role="alert">
-            <strong>Erro:</strong> há conta de resultado com movimento sem linha da DRE — corrija o que
-            está listado abaixo e consulte a competência de novo.
+            {% comment %}
+            R8 (reconferência DL-045): texto GENÉRICO — antes, esta
+            mensagem sempre dizia "há conta de resultado com movimento
+            sem linha da DRE", mesmo quando o veto vinha de tipo
+            divergente, aninhada, desconhecida ou resíduo. O auditor
+            mediu: a frase virava desinformação para qualquer pendência
+            que não fosse essa. Cada pendência já nomeia a SI MESMA
+            (`lista.titulo`) e a AÇÃO que resolve (`lista.acao`) abaixo —
+            este parágrafo só precisa dizer que HÁ pendência.
+            {% endcomment %}
+            <strong>Erro:</strong> há pendência que impede a emissão — veja abaixo.
             {% for coluna in residuo_pendente_por_coluna %}
                 <p>{{ coluna.titulo }}: o total classificado não bate com o total apurado pela escrituração:</p>
                 <ul>
@@ -127,6 +145,19 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
             nunca bloqueia), mas o `{% if %}` cobre os dois ramos por
             uniformidade com o bloco de aviso, mais abaixo, que reusa a
             MESMA marcação.
+
+            R8 (reconferência DL-045): o link SÓ aparece para quem PODE
+            ESCRITURAR (`pode_escriturar`, contexto de `dre`) — antes, o
+            PARALEGAL via o link e recebia 403 ao segui-lo, um convite
+            inútil. E só para conta de RESULTADO (`linha.tipo` ausente,
+            ou "receita"/"despesa"): nenhuma linha da DRE aceita conta
+            PATRIMONIAL (Lei 6.404/76, art. 187) — o link levaria a uma
+            recusa garantida. Para essa, a orientação MUDA: mover a
+            conta para o grupo patrimonial correto é a correção real (a
+            guarda de reparentamento que bloqueava essa saída para conta
+            com movimento foi revista pelo arquiteto — DE-086, reconfe-
+            rência da DL-045); o Plano de contas ainda não tem uma tela
+            de "mover conta" própria, por isso o texto orienta sem link.
             {% endcomment %}
             {% for coluna in listas_pendentes_por_coluna %}
                 <p><strong>{{ coluna.titulo }}</strong></p>
@@ -146,11 +177,15 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                                 <li>
                                     Conta {{ linha.conta }} — {{ linha.nome }}
                                     {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
-                                    {% if linha.conta_id %}
-                                        —
-                                        <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
-                                            classificar esta conta
-                                        </a>
+                                    {% if pode_escriturar and linha.conta_id %}
+                                        {% if linha.tipo == "ativo" or linha.tipo == "passivo" or linha.tipo == "patrimonio_liquido" %}
+                                            — mover a conta para o grupo patrimonial correto no plano de contas
+                                        {% else %}
+                                            —
+                                            <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
+                                                classificar esta conta
+                                            </a>
+                                        {% endif %}
                                     {% endif %}
                                 </li>
                             {% endfor %}
@@ -185,7 +220,7 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
         impressa. Medido no navegador real pelo job "Medir identificação
         do emitente" (scripts/medir_identificacao_do_emitente.py).
         {% endcomment %}
-        <table class="tabela-dados">
+        <table class="tabela-dados tabela-dre">
             <caption class="visualmente-oculto">
                 Demonstração do Resultado do Exercício de {{ empresa.razao_social }} —
                 {{ data_referencia|date:"F \d\e Y" }}
@@ -204,6 +239,28 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                             <p>
                                 Valores em {{ identificacao.moeda_de_apresentacao }} —
                                 {{ identificacao.nivel_de_arredondamento|capfirst }}
+                            </p>
+                            {% comment %}
+                            DL-045, reconferência (R12/F2, DE-086 item 5):
+                            o critério de apuração sai IMPRESSO, dentro do
+                            MESMO bloco que repete em toda página — mesmo
+                            padrão do Balancete (`criterio_de_apuracao_
+                            texto`, balancete.html), mas aqui o critério é
+                            FIXO (a DRE não oferece escolha de critério
+                            nenhuma, diferente do Balancete). Explica, no
+                            papel, a divergência que o F2 apontou: no mês
+                            de um estorno de zeramento, a coluna do MÊS
+                            não bate com o valor que o zeramento daquele
+                            mês transferiu — sem esta frase, quem lê só o
+                            papel não tem como saber por quê (a lista
+                            "estornos_de_zeramento_na_coluna" que explica
+                            é só de TELA, `mensagem--somente-tela`, mais
+                            abaixo).
+                            {% endcomment %}
+                            <p>
+                                Critério de apuração: movimento do período, sem os lançamentos de
+                                zeramento do resultado nem os estornos deles; acumulado desde 01/01
+                                (exercício = ano civil).
                             </p>
                         </div>
                     </th>
@@ -351,11 +408,15 @@ ESCRITÓRIO (BL-282/BL-338), e o bloco de identificação da ENTIDADE
                                 <li>
                                     Conta {{ linha.conta }} — {{ linha.nome }}
                                     {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
-                                    {% if linha.conta_id %}
-                                        —
-                                        <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
-                                            classificar esta conta
-                                        </a>
+                                    {% if pode_escriturar and linha.conta_id %}
+                                        {% if linha.tipo == "ativo" or linha.tipo == "passivo" or linha.tipo == "patrimonio_liquido" %}
+                                            — mover a conta para o grupo patrimonial correto no plano de contas
+                                        {% else %}
+                                            —
+                                            <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta_id %}">
+                                                classificar esta conta
+                                            </a>
+                                        {% endif %}
                                     {% endif %}
                                 </li>
                             {% endfor %}
