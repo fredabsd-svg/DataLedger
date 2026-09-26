@@ -526,6 +526,84 @@ def test_isolamento_entre_empresas_do_mesmo_escritorio(cenario):
     assert not Competencia.objects.filter(empresa=outra_empresa).exists()
 
 
+def test_conta_de_receita_de_outra_empresa_nunca_entra_no_calculo_do_zeramento(cenario):
+    """Achado de mutação dirigida (verificação independente, DL-043): o
+    teste acima prova que zerar A não ESCREVE nada para B, mas não prova
+    que o CÁLCULO de A nunca lê o saldo de uma conta de receita/despesa de
+    B — uma mutação que removesse o filtro `empresa=empresa` de
+    `_contas_analiticas_de_resultado` (services.py) passava por TODA a
+    suíte sem nenhum teste vermelho, porque `apurar_balancete` filtra por
+    empresa de novo, internamente, e uma conta de OUTRA empresa some do
+    cálculo sem gerar diferença — a segunda camada mascarava a ausência da
+    primeira. Este teste torna a garantia de isolamento EXPLÍCITA no nível
+    dos ITENS gravados (não só na ausência de gravação para B), para que
+    uma futura mudança que reintroduza o problema por outro caminho (ex.:
+    um cálculo que não passe por `apurar_balancete`) tenha uma chance real
+    de ser pega aqui.
+    """
+    outra_empresa = Empresa.objects.create(
+        escritorio=cenario["escritorio"], razao_social="Outra Empresa B Ltda", cnpj="11444777000484"
+    )
+    # Códigos DELIBERADAMENTE diferentes dos de `cenario` ("3.1"/"1.1"):
+    # `_saldo_assinado_ate` casa a linha do balancete pelo CÓDIGO da conta
+    # (mesma convenção de `apurar_saldos`, não pelo `pk`/identidade do
+    # objeto) — um código IGUAL ao de A mascararia a mutação que este
+    # teste existe para pegar (a leitura acertaria por coincidência de
+    # texto, não porque o isolamento está certo).
+    receita_de_b = Conta.objects.create(
+        empresa=outra_empresa,
+        codigo="9.1",
+        nome="Receita da Empresa B",
+        tipo=TipoConta.RECEITA,
+        natureza=NaturezaConta.CREDORA,
+    )
+    caixa_de_b = Conta.objects.create(
+        empresa=outra_empresa,
+        codigo="9.9",
+        nome="Caixa da Empresa B",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    criar_lancamento(
+        empresa=outra_empresa,
+        data=date(2026, 3, 31),
+        historico="Receita da empresa B, mesmo período da empresa A",
+        itens=[
+            {"conta": caixa_de_b, "tipo": TipoPartida.DEBITO, "valor": Decimal("999.00")},
+            {"conta": receita_de_b, "tipo": TipoPartida.CREDITO, "valor": Decimal("999.00")},
+        ],
+        criado_por=cenario["gestor"],
+    )
+
+    _lancar_receita_e_despesa(
+        cenario, data=date(2026, 3, 31), receita_valor=Decimal("900.00"), despesa_valor=None
+    )
+    resultado = zerar_resultado(
+        empresa=cenario["empresa"], ano=2026, mes=3, usuario=cenario["gestor"]
+    )
+
+    # Nenhum item do lançamento de A referencia uma conta de B.
+    for item in resultado["lancamento_etapa1"].itens.all():
+        assert item.conta.empresa_id == cenario["empresa"].pk
+
+    # O lucro apurado é EXATAMENTE o de A (900,00) — os 999,00 de B nunca
+    # entraram na conta, nem para somar nem para aparecer disfarçados em
+    # outro item.
+    itens_lucros = resultado["lancamento_etapa2"].itens.filter(conta=cenario["lucros"])
+    assert sum(item.valor for item in itens_lucros) == Decimal("900.00")
+
+    # E a receita de B continua intacta — ninguém zerou a conta dela.
+    balancete_de_b = apurar_balancete(
+        empresa=outra_empresa, inicio=date(2026, 3, 31), fim=date(2026, 3, 31)
+    )
+    saldo_receita_b = next(
+        linha["saldo_final"]
+        for linha in balancete_de_b["contas"]
+        if linha["conta"] == receita_de_b.codigo
+    )
+    assert saldo_receita_b == Decimal("999.00")
+
+
 # ---------------------------------------------------------------------------
 # Empresa em modo livro-caixa (DL-038) — recusada, sem gravar nada.
 # ---------------------------------------------------------------------------

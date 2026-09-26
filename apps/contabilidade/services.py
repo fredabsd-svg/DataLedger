@@ -1653,6 +1653,22 @@ def _contas_analiticas_de_resultado(empresa):
     cadastro desativado) — só entram no lançamento as que tiverem saldo
     diferente de zero (`_item_de_zeramento` devolve `None` para saldo
     zero).
+
+    ⚠️ **`empresa=empresa` no filtro é a PRIMEIRA de DUAS camadas de
+    isolamento entre empresas neste caminho — verificado por mutação
+    dirigida (DL-043).** Removê-la sozinha NÃO produz vazamento de saldo
+    de outra empresa: `_saldo_assinado_ate` lê o saldo de cada conta via
+    `apurar_balancete(empresa=empresa, ...)`, que filtra `Conta.objects.
+    filter(empresa=empresa)` de novo, internamente — uma conta de OUTRA
+    empresa nunca aparece nas linhas daquele balancete, então
+    `_saldo_assinado_ate` devolve zero para ela e nenhum item chega a ser
+    gerado (mutação medida: 56/56 testes continuam verdes com o filtro
+    removido). Isso NÃO torna este filtro dispensável — é defesa em
+    profundidade contra qualquer mudança futura em `_saldo_assinado_ate`
+    (ou num caminho que não passe por `apurar_balancete`) que deixe de
+    filtrar por empresa; manter as duas camadas custa uma cláusula de
+    `filter()`, e uma auditoria futura não deveria precisar redescobrir a
+    dependência entre as duas.
     """
     return list(
         Conta.objects.filter(
