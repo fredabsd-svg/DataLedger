@@ -3,6 +3,15 @@
 {% block titulo %}Emissão recusada — Balancete{% endblock %}
 {% block titulo_sufixo_do_fornecedor %}{% endblock %}
 
+{% comment %}
+DL-040 (v2): trilha PADRÃO vazia de propósito, sobrescrevendo o default de
+`base.html` (que nomearia a empresa) — mesmo motivo do `rotulo_generico=True`
+logo abaixo: esta resposta 409 não inclui dados da empresa em NENHUM lugar
+do documento (medido por `test_dl024_veredito_no_html_renderizado.
+test_pagina_real_balancete_nao_fecha_com_totais_forcados`).
+{% endcomment %}
+{% block trilha %}{% endblock %}
+
 {% block content %}
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="balancete" rotulo_generico=True %}
     <h1>Emissão do Balancete recusada</h1>

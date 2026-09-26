@@ -178,24 +178,43 @@ Início (painel — "/" autenticado)
 ├── Cadastros
 │   └── Empresas (lista, nova)
 ├── Contabilidade  — só aparece a quem lê contabilidade (papel ≠ CLIENTE)
-│   ├── [dropdown do menu] Plano de contas da empresa atual · Trocar de empresa
-│   └── [dentro da tela, por empresa — _navegacao_empresa.html]
-│       Plano de contas · Diário · Balancete · Balanço · Conferência ·
-│       Fechamento · Novo lançamento
-│       (Razão e o detalhe de um lançamento são alcançados por DRILL-DOWN
-│       a partir dessas telas, nunca por um item fixo de navegação)
+│   └── [dropdown do menu, revisado na 2ª passada — lista TODAS as telas
+│        ativas do módulo, agrupadas; sem empresa em contexto, mostra
+│        "Escolha uma empresa" em vez de item quebrado]
+│       Movimento     → Novo lançamento
+│       Cadastros     → Plano de contas
+│       Relatórios    → Diário · Balancete · Balanço
+│       Rotinas       → Conferência · Fechamento
+│                        Trocar de empresa (rodapé do dropdown)
+│       (Razão e o detalhe de um lançamento continuam por DRILL-DOWN a
+│       partir dessas telas, nunca por item fixo — exigem uma conta ou um
+│       lançamento escolhidos, não são destino direto)
 └── Fiscal  — só aparece a quem consulta documentos fiscais
-    └── Recepção · Documentos
+    └── Recepção (Enviar notas · Envios anteriores) · Consulta (Documentos)
+
+Conta (canto direito, não é módulo de navegação — ação de sessão)
+└── Usuário (identificação) · Sair
+    (Escritório ativo permanece na faixa de contexto, fora deste menu —
+    ver direção de arte §8.4a)
 ```
 
+**Redundância deliberada (2ª passada).** O dropdown de Contabilidade
+agora repete os mesmos destinos de `_navegacao_empresa.html` (a barra
+de sete atalhos dentro da tela de uma empresa). Isso reabre, de
+propósito, a duplicação que a primeira passada desta etapa evitava —
+ver a justificativa completa e as garantias que a mantêm segura (mesma
+fonte de permissão/URL, atalhos `Alt+` só num lugar, teste de mutação
+atualizado) na direção de arte, §8.1.
 **Relatórios:** não entra como módulo próprio nesta etapa — os relatórios
 existentes (Balancete, Diário, Razão, Balanço) já são o CONTEÚDO dos itens
 de Contabilidade acima; um item "Relatórios" que apenas linkasse para as
 mesmas quatro telas seria repetir o mesmo destino sob dois rótulos, e é
 exatamente a duplicação que a DL-026 já pede para evitar.
-**Configurações/Conta:** não existe tela própria hoje (preferências de
-usuário, tema, notificação); "Sair" continua onde está, fora do menu de
-módulos (ação de sessão, não módulo de navegação).
+**Configurações/Conta:** não existe tela própria de configurações hoje
+(preferências de usuário, tema, notificação); o menu "Conta" agrupa
+usuário e "Sair" (ação de sessão, não módulo de navegação) — não lista
+"Convites" nem "Configurações" porque nenhuma tela existe para eles
+(`tenancy:emitir-convite` não tem template — ver achado 1 acima).
 
 ## Decisão: barra superior, não lateral
 
@@ -203,24 +222,32 @@ módulos (ação de sessão, não módulo de navegação).
 arquiteto-senior, confirmada nesta etapa).
 
 **Como foi decidido.** Sem alterar nenhuma regra de layout de
-`.tabela-dados`/`.conteudo-principal`, a barra superior nova (cabeçalho +
-faixa de contexto + trilha, quando presente) soma, no Balancete vazio
-medido a 1440×900, **≈124px** de altura antes da primeira linha de
-conteúdo (cabeçalho ~48px + faixa de contexto ~48px + respiro), medido por
-captura real do produto (`/tmp/.../dl040/depois_balancete_1440x900.png`,
-nesta etapa). Uma barra lateral fixa, pela própria régua do brief da
-DL-026 ("uma lateral fixa tira ~220px" de LARGURA), reduziria a largura
-útil das tabelas em ~220px — e a régua de densidade da direção de arte
-(§4.8) já registra que o Diário/Balancete disputam espaço linha a linha; a
-DL-040 não tem base de medição própria com contas suficientes para
-reproduzir o piso de 14/10 linhas da tabela §4.8 (a base de
-`scripts/semear_base_de_medicao.py` não foi semeada nesta etapa —
-ver "Não testado", no relatório de entrega), então a comparação de
-densidade EXATA fica **não medida por número**, mas o raciocínio da régua
-(largura importa mais que altura para tabela larga) já decide a favor da
-barra superior sem precisar do número exato. **Não** foi medida uma
-variante lateral de verdade nesta etapa — a decisão é por aplicação da
-régua já existente, não por um segundo protótipo.
+`.tabela-dados`/`.conteudo-principal`, a barra superior nova soma altura
+no topo, não largura nas laterais. Medido por script Playwright contra o
+produto real (`getBoundingClientRect`, não estimativa), no Balancete a
+1440×900: o cabeçalho (marca + menu + faixa de contexto) termina a
+**99,3px** do topo na versão desta etapa — era **106,4px** na versão
+anterior à DL-040 (`92b4503`), ou seja, o cabeçalho em si ficou mais
+compacto (menu "Conta" agrupado, 8.4a) apesar de ganhar o menu de módulo
+completo. A trilha nova (8.2) soma altura própria ABAIXO do cabeçalho —
+com ela e com `_navegacao_empresa.html` (mantida em telas largas, 8.1a),
+o `<h1>` do Balancete fica a **204,6px** do topo (era 165,3px antes,
+sem trilha). O aumento é esperado e aceito: é o preço de responder
+"onde estou" em toda tela, não uma regressão de densidade — a LARGURA
+útil da tabela é o que a régua de densidade (§4.8) protege, e essa não
+mudou por causa da trilha (ao contrário, cresceu — ver 8.1b da direção
+de arte, `--largura-conteudo` 1200px → 1440px). Uma barra lateral fixa,
+pela própria régua do brief da DL-026 ("uma lateral fixa tira ~220px" de
+LARGURA), reduziria a largura útil das tabelas em ~220px — o oposto do
+que a DL-040 entregou. A DL-040 não tem base de medição própria com
+contas suficientes para reproduzir o piso de 14/10 linhas da tabela §4.8
+(a base de `scripts/semear_base_de_medicao.py` não foi semeada nesta
+etapa — ver "Não testado", no relatório de entrega), então a comparação
+de densidade EXATA fica **não medida por número de linhas**, mas o
+raciocínio da régua (largura importa mais que altura para tabela larga)
+já decide a favor da barra superior sem precisar do número exato. **Não**
+foi medida uma variante lateral de verdade nesta etapa — a decisão é por
+aplicação da régua já existente, não por um segundo protótipo.
 
 ## Fora do escopo desta entrega
 
