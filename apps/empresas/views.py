@@ -24,7 +24,12 @@ from apps.core.requisicao import (
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
-from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
+from apps.core.restricoes import (
+    RestricaoViolada,
+    mensagens_de,
+    mensagens_de_gatilho,
+    restricao_como_400,
+)
 from apps.empresas.forms import EmpresaForm
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.models import (
@@ -128,6 +133,13 @@ _CAMPO_DA_RESTRICAO_DE_EMPRESA = {
     "empresa_cnpj_canonico": "cnpj",
     "empresa_cpf_formato_valido": "cpf",
     "empresa_inscricao_consistente_com_tipo": "tipo_inscricao",
+    # Achado D1 da auditoria DL-039 rodada 1 (BL-533): gatilho de banco
+    # (não é `Meta.constraint` — ver `apps.core.restricoes.MENSAGENS_DE_
+    # RESTRICAO_DE_GATILHO`), disparado quando a checagem em Python
+    # (`recusar_transicao_para_cpf_com_estabelecimento`, chamada em
+    # `EmpresaSerializer.validate`) perde a corrida contra um
+    # `Estabelecimento` inserido depois da checagem e antes do UPDATE.
+    "empresa_transicao_cpf_com_estabelecimento": "tipo_inscricao",
 }
 
 
@@ -345,11 +357,17 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
                 restricao_como_400(
-                    mensagens_de(
-                        "empresa_cnpj_canonico",
-                        "empresa_cpf_formato_valido",
-                        "empresa_inscricao_consistente_com_tipo",
-                    )
+                    {
+                        **mensagens_de(
+                            "empresa_cnpj_canonico",
+                            "empresa_cpf_formato_valido",
+                            "empresa_inscricao_consistente_com_tipo",
+                        ),
+                        # D1/BL-533: janela de corrida entre a checagem em
+                        # Python e o UPDATE — ver o comentário em
+                        # `_CAMPO_DA_RESTRICAO_DE_EMPRESA`.
+                        **mensagens_de_gatilho("empresa_transicao_cpf_com_estabelecimento"),
+                    }
                 ),
             ):
                 serializer.save()
@@ -437,7 +455,18 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
                 transaction.atomic(),
                 erro_de_cnpj_duplicado_como_400(),
                 restricao_como_400(
-                    mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico")
+                    {
+                        **mensagens_de("uma_matriz_por_empresa", "estabelecimento_cnpj_canonico"),
+                        # D1/BL-533: janela de corrida entre a checagem de
+                        # `recusar_estabelecimento_para_empresa_cpf` (linha
+                        # acima) e o INSERT — se a empresa virar CPF nesse
+                        # meio-tempo, o gatilho de banco (não é
+                        # `Meta.constraint`; ver o comentário em
+                        # `apps.core.restricoes.MENSAGENS_DE_RESTRICAO_DE_
+                        # GATILHO`) recusa, e este `with` traduz para 400
+                        # em vez de 500.
+                        **mensagens_de_gatilho("estabelecimento_empresa_nao_e_cpf"),
+                    }
                 ),
             ):
                 estabelecimento = serializer.save(empresa=empresa)
@@ -451,7 +480,12 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
         except RestricaoViolada as exc:
             # O campo em que o erro aparece depende de QUAL constraint caiu —
             # `exc.nome`, nunca o texto da mensagem (ver `RestricaoViolada`).
-            campo = "cnpj" if exc.nome == "estabelecimento_cnpj_canonico" else "tipo"
+            if exc.nome == "estabelecimento_cnpj_canonico":
+                campo = "cnpj"
+            elif exc.nome == "estabelecimento_empresa_nao_e_cpf":
+                campo = "empresa"
+            else:
+                campo = "tipo"
             raise DRFValidationError({campo: [str(exc)]}) from exc
 
 

@@ -106,6 +106,50 @@ MENSAGENS_DE_RESTRICAO = {
     ),
 }
 
+# Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
+# PostgreSQL da migração 0010/0011 (apps/empresas/migrations/
+# 0011_bl533_bl534_gatilho_com_nome_e_trava.py) agora informam `CONSTRAINT`
+# no `RAISE EXCEPTION`, então `IntegrityError` chega ao Django com
+# `diag.constraint_name` preenchido — traduzível pelo MESMO
+# `restricao_como_400` que já traduz `Meta.constraints`.
+#
+# Registro SEPARADO de `MENSAGENS_DE_RESTRICAO`, DE PROPÓSITO: aquele é
+# varrido por `apps/core/tests/test_dl019_varredura_de_restricoes.py`
+# contra `Meta.constraints` REAIS de modelo Django (`modelo._meta.
+# constraints`) — um gatilho SQL não é metadado do ORM, não tem
+# `Meta.constraints` nenhuma, e misturar os dois registros quebraria
+# aquela varredura (`test_cada_nome_de_mensagens_de_restricao_e_uma_
+# constraint_que_existe`) sem ganho nenhum: ela existe para pegar nome
+# ERRADO/desatualizado num registro que promete corresponder ao ORM, e um
+# gatilho nunca vai aparecer lá porque genuinamente não é uma
+# `Meta.constraint`. As MESMAS mensagens (texto idêntico) das funções de
+# serviço equivalentes — `apps.empresas.services.
+# recusar_estabelecimento_para_empresa_cpf`/`recusar_transicao_para_cpf_
+# com_estabelecimento` — para a API/admin nunca contarem duas histórias
+# diferentes do mesmo motivo (DE-026), mesmo quando é o BANCO, não o
+# Python, quem recusou (a janela de corrida entre a checagem em Python e
+# o INSERT/UPDATE).
+MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
+    "estabelecimento_empresa_nao_e_cpf": (
+        "Não é possível cadastrar estabelecimento (matriz/filial) para uma "
+        "empresa do tipo CPF: NIRE e estabelecimento são exclusivos de pessoa "
+        "jurídica (CNPJ)."
+    ),
+    "empresa_transicao_cpf_com_estabelecimento": (
+        "Não é possível mudar esta empresa para CPF: ela já tem estabelecimento "
+        "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
+        "tipo de inscrição."
+    ),
+}
+
+
+def mensagens_de_gatilho(*nomes):
+    """Mesmo papel de `mensagens_de()`, para `MENSAGENS_DE_RESTRICAO_DE_
+    GATILHO` — ver o comentário do registro acima sobre por que os dois
+    ficam separados."""
+    return {nome: MENSAGENS_DE_RESTRICAO_DE_GATILHO[nome] for nome in nomes}
+
+
 # Restrições cuja tradução NÃO passa por `restricao_como_400`, com o ponto
 # exato que as traduz. Existir aqui não é dispensa: é declaração verificável
 # de onde a tradução mora, e a varredura confere que o objeto apontado existe

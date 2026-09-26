@@ -45,15 +45,62 @@ defesa de banco válida em toda porta, inclusive a que restar.
 
 from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.db import transaction
 
+from apps.core.restricoes import (
+    MENSAGENS_DE_RESTRICAO_DE_GATILHO,
+    RestricaoViolada,
+    restricao_como_400,
+)
 from apps.empresas.forms import ajustar_obrigatoriedade_de_cnpj_cpf
-from apps.empresas.models import Empresa, Estabelecimento
+from apps.empresas.models import Empresa, Estabelecimento, TipoInscricao
 from apps.empresas.services import erros_de_consistencia_de_inscricao, mensagem_cnpj_duplicado
+
+
+class EstabelecimentoInlineFormSet(forms.BaseInlineFormSet):
+    """Achado D1 da auditoria DL-039 rodada 1 (BL-533): o gatilho de banco
+    (migração 0011) só enxerga a empresa depois que ela JÁ TEM `pk` — na
+    CRIAÇÃO pelo admin, o formulário principal (`EmpresaAdminForm`) e este
+    inline nascem no MESMO POST, e o campo `empresa` de cada linha do
+    inline é preenchido só em `save_new()`, DEPOIS da validação (o campo é
+    excluído do formulário do inline — quem o define é o formset, não o
+    usuário). Ou seja: `Estabelecimento.clean()` (apps/empresas/models.py)
+    nunca examina `empresa_id` a tempo aqui, esteja a empresa sendo criada
+    OU editada — o caminho que fechava isso na API (checagem antes do
+    INSERT) não tem equivalente nesta camada. Sem esta checagem, criar uma
+    empresa CPF com um estabelecimento no inline dava **500**
+    (`IntegrityError` do gatilho, sem qualquer tradução possível, porque
+    nenhum formulário chega a reportar erro de campo).
+
+    A checagem lê `self.instance.tipo_inscricao` — o formulário PRINCIPAL
+    já populou essa instância (via `form.save(commit=False)`, chamado por
+    `ModelAdmin.save_form`) ANTES de os formsets serem construídos e
+    validados (`ModelAdmin._changeform_view`) — funciona sem `pk`/
+    `empresa_id` existir, tanto no `add` quanto no `change`.
+    """
+
+    def clean(self):
+        super().clean()
+        if getattr(self.instance, "tipo_inscricao", None) != TipoInscricao.CPF:
+            return
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data"):
+                continue
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            if form.cleaned_data and form.has_changed():
+                raise forms.ValidationError(
+                    "Não é possível cadastrar estabelecimento (matriz/filial) para "
+                    "uma empresa do tipo CPF: NIRE e estabelecimento são exclusivos "
+                    "de pessoa jurídica (CNPJ)."
+                )
 
 
 class EstabelecimentoInline(admin.TabularInline):
     model = Estabelecimento
     extra = 0
+    formset = EstabelecimentoInlineFormSet
 
 
 class EmpresaAdminForm(forms.ModelForm):
@@ -176,3 +223,56 @@ class EmpresaAdmin(admin.ModelAdmin):
             # faz sentido — é a primeira atribuição, não uma transferência.
             return []
         return ["escritorio"]
+
+    def save_model(self, request, obj, form, change):
+        # Achado D1 da auditoria DL-039 rodada 1 (BL-533): defesa em
+        # profundidade para a JANELA DE CORRIDA entre a validação do
+        # formulário (`EmpresaAdminForm.clean()`, camada 2 da DE-008) e
+        # este `save()` — outra requisição concorrente (API, outro admin)
+        # pode ter gravado um estabelecimento para esta empresa NESSE
+        # meio-tempo. Sem isto, o gatilho de banco (camada 1) ainda
+        # recusa a gravação (nada fica inconsistente), mas a
+        # `IntegrityError` sobe CRUA, com texto interno do banco, e o
+        # admin devolve 500. Aqui ela é traduzida para a MESMA mensagem
+        # de negócio da API (`apps.core.restricoes.MENSAGENS_DE_
+        # RESTRICAO_DE_GATILHO`) antes de subir.
+        #
+        # LIMITE DECLARADO: `ModelAdmin._changeform_view` não tem um
+        # ponto de extensão para, a partir daqui, voltar a renderizar o
+        # MESMO formulário com erro de campo (isso já aconteceu — a
+        # decisão de "sucesso" já foi tomada antes deste método rodar).
+        # Diferente do caminho comum (`EstabelecimentoInlineFormSet.
+        # clean()`, acima, que RESOLVE o caso mais provável — empresa CPF
+        # com estabelecimento no MESMO POST — com 200 de verdade, ANTES
+        # de chegar aqui), esta janela de corrida específica é rara
+        # (exige uma escrita concorrente de OUTRO processo, entre a
+        # validação e o save desta MESMA requisição) e o resultado, hoje,
+        # é uma página de erro do Django com a mensagem TRADUZIDA (nunca
+        # o texto cru do banco) — não um 200 com o formulário de volta.
+        # Fechar isso por completo exigiria sobrepor `_changeform_view`
+        # inteiro (método privado do Django, alto custo de manutenção
+        # para um achado de gravidade média); registrado para o
+        # arquiteto-senior decidir se vale o custo.
+        try:
+            with transaction.atomic(), restricao_como_400(MENSAGENS_DE_RESTRICAO_DE_GATILHO):
+                super().save_model(request, obj, form, change)
+        except RestricaoViolada as exc:
+            # `transaction.atomic()` acima já é um SAVEPOINT (estamos
+            # dentro do `atomic()` que envolve `_changeform_view` inteiro)
+            # — sai limpo da `IntegrityError`. Este `set_rollback(True)`
+            # marca a transação EXTERNA também: nada deste POST pode ficar
+            # gravado pela metade (ex.: a empresa salva por este método,
+            # mas o estabelecimento do inline recusado por `save_related`
+            # depois).
+            transaction.set_rollback(True)
+            raise ValidationError(str(exc)) from exc
+
+    def save_related(self, request, form, formsets, change):
+        # Mesma defesa do `save_model` acima, para o INSERT/UPDATE de
+        # `Estabelecimento` que os formsets deste admin gravam.
+        try:
+            with transaction.atomic(), restricao_como_400(MENSAGENS_DE_RESTRICAO_DE_GATILHO):
+                super().save_related(request, form, formsets, change)
+        except RestricaoViolada as exc:
+            transaction.set_rollback(True)
+            raise ValidationError(str(exc)) from exc
