@@ -1873,3 +1873,15 @@ vão para a única correção da etapa, seguida de uma reconferência.
 | BL-533 | **D1 (média)** — quando o gatilho da 0010 dispara, admin e API respondem 500; no admin, criar empresa CPF com estabelecimento no inline é caminho comum | `desenvolvedor-pleno` | — | em desenvolvimento (DL-039) | `RAISE` com `CONSTRAINT` nomeada, traduzida para 400 na API e erro de formulário no admin; inline recusado quando o tipo é CPF, mesmo sem `empresa_id` |
 | BL-534 | **D2 (média)** — os dois gatilhos não fecham a corrida entre si: INSERT de estabelecimento e UPDATE para CPF simultâneos gravam empresa CPF com estabelecimento | `desenvolvedor-pleno` | — | em desenvolvimento (DL-039) | Leitura da empresa com `FOR SHARE` no gatilho; teste com duas conexões nas duas ordens; comentário da migração corrigido |
 | BL-535 | **D3 (baixa)** — em SQLite a invariante do estabelecimento fica só na aplicação | — | — | aceita (limite de desenvolvimento) | Produção nunca em SQLite (já exigido com `DEBUG=False`) |
+
+## Reconferência da DL-039 — APROVADA COM RESSALVAS (2026-09-26)
+
+Relatório integral em [2026-09-26-dl-039-reconferencia.md](../auditorias/2026-09-26-dl-039-reconferencia.md).
+BL-526 a BL-529, BL-533 e BL-534 **fechados**, sem mutação sobrevivente.
+**A DL-039 está encerrada**; as ressalvas, todas baixas, ficam aqui.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-536 | Admin devolve 500 quando o gatilho recusa **na janela de corrida** entre a validação do formset e a gravação (sem gravar, sem trilha, sem texto do banco) | `desenvolvedor-pleno` | — | aberta | Recusa capturada no fluxo do admin e reapresentada ao usuário, sem 500 |
+| BL-537 | `lock_timeout` (1210 ms, BL-463) não é traduzido pela API quando a transação concorrente é longa: resposta 500 | `desenvolvedor-pleno` | BL-463 | aberta | `OperationalError` de espera vira mensagem legível nas portas de escrita, sem mascarar outros erros |
+| BL-538 | Nenhuma varredura amarra os nomes `CONSTRAINT` declarados em gatilhos de migração às chaves de `MENSAGENS_DE_RESTRICAO_DE_GATILHO` | `desenvolvedor-pleno` | — | aberta | Guarda derivada das migrações (nível 3, §3.1) |

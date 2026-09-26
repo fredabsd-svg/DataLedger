@@ -37,3 +37,8 @@ RESSALVAS**. BL-526 a BL-528 fechados, sem mutação sobrevivente. Ressalvas mé
 BL-533 (gatilho vira 500 no admin e na API) e BL-534 (corrida entre os dois
 gatilhos) na correção única da etapa, seguida de uma reconferência; BL-535 aceita
 como limite de desenvolvimento.
+
+[Reconferência](../auditorias/2026-09-26-dl-039-reconferencia.md) em `0680273`:
+**APROVADA COM RESSALVAS**, todas baixas (BL-536 a BL-538). BL-533 e BL-534
+fechados; corrida real sem sobra de empresa CPF com estabelecimento nas duas
+ordens. **Etapa encerrada**; falta só a integração à `main` por PR.

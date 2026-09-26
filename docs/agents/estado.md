@@ -97,10 +97,19 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-039: ressalvas da recepção de NFS-e e do cliente pessoa física.**
-[Plano](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md). A BL-526 (erro
-de sistema do banco aparecendo como nota recusada) precisa estar corrigida antes
-do primeiro uso real da recepção.
+**AGORA — três frentes em paralelo, e a integração.**
+
+- **DL-039** (ressalvas da recepção e da pessoa física): **encerrada**, aprovada
+  com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-039-reconferencia.md)
+  (BL-536 a BL-538). Falta integrar à `main`.
+- **DL-041** (CNPJ e CPF únicos por escritório, RC-115): em desenvolvimento com o
+  `desenvolvedor-pleno` na árvore principal.
+- **DL-040** (navegação e arquitetura de informação): em desenvolvimento com o
+  `especialista-frontend` numa worktree isolada; integração depois de o Fred ver
+  as capturas.
+- Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
+  `DATABASE_URL`); uma worktree dentro de `.claude/worktrees/` faz o teste da
+  margem do AGENTS.md contar em dobro — artefato da sessão, não defeito.
 
 Situação das duas etapas que a antecedem, na branch `claude/vigilant-bardeen-jo12l4`
 (ainda não integradas à `main`):
