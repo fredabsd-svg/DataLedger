@@ -220,6 +220,8 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-037** — redesenho visual da entrada pública: hierarquia de leitura e caminho explícito para o novo escritório
 - **DL-038** — cliente pessoa física no cadastro de empresas: inscrição por CPF e modo de escrituração (contabilidade ou livro-caixa)
 - **DL-039** — ressalvas da recepção de NFS-e e do cliente pessoa física: erro de sistema nunca aparece como nota recusada, isolamento com um caminho só
+- **DL-040** — navegação e arquitetura de informação: mapa de telas, menu principal por módulo, trilha de navegação e padrão de página
+- **DL-041** — CNPJ e CPF únicos por escritório: nenhum escritório descobre, pelo cadastro, a carteira de outro
 
 Ainda não existem:
 

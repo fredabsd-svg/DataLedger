@@ -87,6 +87,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
 | [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Em desenvolvimento |
+| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Planejada |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -111,14 +113,20 @@ Situação das duas etapas que a antecedem, na branch `claude/vigilant-bardeen-j
   `88e7ac5`. Correções decididas em DE-076 (um envio por vez por escritório,
   2.000 arquivos por envio). Verificação do arquiteto nessa revisão: suíte
   completa 2582 aprovados, 45 pulados, 1 falha preexistente de ambiente.
-- Ressalvas no backlog, BL-526 a BL-532; **PE-68** (unicidade de CPF e CNPJ por
-  escritório) aguarda o Fred.
+- Ressalvas no backlog, BL-526 a BL-535. A **PE-68** foi respondida pelo Fred em
+  26/09 (por escritório, RC-115) e virou a DL-041.
 - Falta: PR para a `main` e CI verde (Python 3.14) no commit mais recente.
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
   andamento neste ambiente efêmero; **não** são entrega.
 
 Fila depois dela, em ordem recomendada e sujeita ao Fred:
 
+0. **DL-040 — navegação e arquitetura de informação** (Fred, 26/09): mapa de
+   telas e menu principal, em desenvolvimento pelo `especialista-frontend` numa
+   worktree isolada; integração só depois de o Fred ver as capturas.
+0. **DL-041 — unicidade de CNPJ e CPF por escritório** (Fred, 26/09, RC-115):
+   [plano](../planos/DL-041-unicidade-por-escritorio.md), logo depois da correção
+   da DL-039.
 1. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
    por lançamento em duas etapas (RC-104), periodicidade alternativa por empresa
    (RC-105). Só o **plano** existe, na branch não integrada
@@ -140,9 +148,6 @@ regras ainda a levantar em fonte oficial.
 
 Decisões que estão com o Fred e afetam a fila:
 
-- **PE-68:** unicidade de CPF e CNPJ por escritório (recomendação) ou no
-  sistema inteiro, como hoje — a auditoria mediu que o modelo atual revela a um
-  escritório que um CPF é cliente de outro.
 - O Balanço pode ser emitido sem o zeramento? Três caminhos apresentados em
   21/09; recomendação: mostrar o resultado do período dentro do PL.
 - Quem vê a contabilidade de quais empresas (PE-36).

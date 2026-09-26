@@ -3877,3 +3877,25 @@ sendo o passo seguinte se o escritório precisar de envios maiores.
 transação alheia no mesmo índice); gravação por arquivo fora da transação do
 envio (perde a atomicidade do relatório e da trilha); aumentar o tempo-limite do
 servidor (mascara, e proxies à frente têm os seus).
+
+## DE-077 — Unicidade de CNPJ e CPF por escritório
+
+**Data:** 2026-09-26
+
+**Decisão:** do Fred, na PE-68 (RC-115). A unicidade de inscrição passa a ser
+**por escritório** para empresa (CNPJ e CPF) e estabelecimento. Plano:
+[DL-041](../planos/DL-041-unicidade-por-escritorio.md).
+
+**Motivo.** A unicidade global fazia o cadastro responder "já existe" para uma
+inscrição de cliente de outro escritório — o que revela a um escritório a
+carteira de um concorrente, e, desde a DL-038, dado pessoal (CPF). A auditoria
+mediu o vazamento (B6 da [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md)).
+Decidido antes de haver dado real, quando a migração é barata.
+
+**Consequência aceita:** a mesma empresa pode estar cadastrada em dois
+escritórios — o caso normal de cliente que troca de contador. Nada é
+compartilhado entre os dois cadastros. A recepção fiscal já identifica a empresa
+só dentro do escritório (DE-074), e continua correta.
+
+**Alternativa descartada:** manter a unicidade global e trocar a mensagem por uma
+genérica — a recusa continuaria revelando a existência, só que sem texto.
