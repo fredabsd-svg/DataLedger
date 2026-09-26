@@ -84,3 +84,16 @@ com prévia dos valores antes de gravar e mensagem do que foi gerado.
 - A destinação do lucro (dividendos, reservas) fica fora: é outra etapa, com
   fonte normativa (Lei 6.404/76) levantada antes.
 - Validação profissional dos casos de referência é do Fred.
+
+## Rodada 1 da auditoria
+
+[Relatório integral](../auditorias/2026-09-26-dl-043-rodada-1.md) em `c021436`:
+**REPROVADA**. Bloqueadores B1 (conta com filhas conta o resultado em dobro) e B2
+(zeramento fora de ordem, complemento tardio ou meses concorrentes contam em
+dobro); alta B3 (erros previsíveis viram 500; 200 contas não zeram); médias B4
+(chave de zeramento forjável), B5 (cálculo quadrático), B6 (mutantes
+sobreviventes); baixas B7, B8, B10. Decisões da correção em **DE-078** e
+**HI-25**; B9 (sem admin) decidido na DE-078. P1 (meses alternados de lucro e
+prejuízo inflam as duas contas do PL) em consulta ao manual do sistema de
+referência antes de ir ao Fred. Correção única em andamento, depois uma
+reconferência.

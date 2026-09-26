@@ -3899,3 +3899,39 @@ só dentro do escritório (DE-074), e continua correta.
 
 **Alternativa descartada:** manter a unicidade global e trocar a mensagem por uma
 genérica — a recusa continuaria revelando a existência, só que sem texto.
+
+## DE-078 — Correção do zeramento: saldo próprio, ordem cronológica e trava por empresa
+
+**Data:** 2026-09-26
+
+**Contexto:** a [rodada 1 da DL-043](../auditorias/2026-09-26-dl-043-rodada-1.md)
+reprovou o zeramento com dois bloqueadores em que o resultado é contado em dobro:
+consolidação de contas com filhas (B1) e zeramentos fora de ordem ou concorrentes
+entre meses (B2).
+
+**Decisão do arquiteto:**
+
+1. O zeramento usa o **saldo próprio** de cada conta de receita e despesa (o que
+   foi lançado nela mesma), nunca o saldo consolidado com as filhas. Conta de
+   resultado que não aceita lançamento mas tem saldo próprio (estado legado)
+   **recusa** o zeramento, apontando a conta. As três contas de destino têm de
+   ser **folhas**, **ativas**; lucros acumulados **credora**.
+2. Zeramento é **cronológico**: um período não pode ser zerado, nem
+   complementado, se já existir zeramento da mesma empresa com data posterior.
+   A correção de período anterior segue o RC-101/RC-103 (estornar o zeramento
+   posterior, ou deixar o resíduo para o próximo período aberto).
+3. **Trava por empresa** (bloqueio de linha ou consultivo) antes de calcular, no
+   zeramento e no registro e encerramento de vigência.
+4. **Período ainda não terminado não é zerado** (data final posterior a hoje) —
+   HI-25.
+5. A etapa 1 é **dividida** em vários lançamentos balanceados quando passa do
+   teto de partidas (RC-79), com chave determinística por parte; nenhum erro
+   previsível vira 500.
+6. O prefixo de chave `zeramento:` é **reservado**: chave de cliente com esse
+   prefixo é recusada. Identificação estruturada da origem do lançamento fica
+   para a CON-02 do plano mestre.
+7. Sem admin do parâmetro contábil (B9): o `ModelForm` do admin contornaria a
+   trava e as validações do serviço, o mesmo motivo do BL-211.
+
+**Reversão:** mudanças locais ao serviço e à API do zeramento; sem migração nova
+prevista, salvo se a trava por empresa exigir.
