@@ -89,6 +89,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
 | [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Planejada |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -139,11 +140,10 @@ Fila depois dela, em ordem recomendada e sujeita ao Fred:
 0. **DL-041 — unicidade de CNPJ e CPF por escritório** (Fred, 26/09, RC-115):
    [plano](../planos/DL-041-unicidade-por-escritorio.md), logo depois da correção
    da DL-039.
-1. **Encerramento do exercício (DL-016 F3)** — zeramento das contas de resultado
-   por lançamento em duas etapas (RC-104), periodicidade alternativa por empresa
-   (RC-105). Só o **plano** existe, na branch não integrada
-   `claude/dl-016-f3-encerramento-competencia`; revisar antes de reaproveitar.
-   Depende de onde guardar **parâmetro contábil por empresa** (BL-474).
+1. **DL-043 — parâmetros contábeis por empresa e zeramento do resultado**
+   (RC-104, RC-105, BL-474): [plano](../planos/DL-043-parametros-contabeis-e-zeramento.md),
+   próxima etapa depois do merge da DL-042. O plano antigo `DL-016-F3` da
+   branch não integrada tratava do fechamento mensal, que já existe; está superado.
 2. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
    camada de saldos (limite declarado no próprio código). Depende do mesmo
    BL-474.
