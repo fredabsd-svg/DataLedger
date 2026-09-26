@@ -73,7 +73,7 @@
     arquiteto-senior: automatizar collectstatic na integração contínua e no
     deploy, e então voltar a usar a tag "static".
     {% endcomment %}
-    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/base.css?v={{ versao_css_base }}">
     {% block estilos_extras %}{% endblock %}
 </head>
 <body class="{% block classe_body %}{% endblock %}">
