@@ -99,57 +99,37 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — três frentes em paralelo, e a integração.**
+**AGORA — integrar DL-040, DL-041 e DL-042 por PR; DL-043 em auditoria.**
 
 - **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
+- **DL-040** (navegação) e **DL-042** (redesenho global com a skill
+  `saas-design-excellence`, ordem do Fred de 26/09): prontas na branch
+  `claude/vigilant-bardeen-jo12l4`. Moldura em "L invertido" com barra lateral
+  recolhível só com CSS, ícones próprios, página pública, entrada e cadastro
+  refeitos, Início como fila de atenção, botões padronizados. Capturas em
+  [dl042/comparacao.md](../assets/telas/dl042/comparacao.md). Nível 2: sem
+  auditoria completa (§3.1). O Fred mandou abrir o PR e mesclar sem esperar
+  por ele (26/09).
 - **DL-041** (CNPJ e CPF únicos por escritório, RC-115): **encerrada**, aprovada
   com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md)
   (BL-539, BL-540). Conteúdo nos commits `92b4503` e `6b76ddc`, cujas mensagens
-  dizem "preservação" por causa do gancho do ambiente. Falta integrar por PR.
-- **DL-040** (navegação): integrada à branch de trabalho em `454648f`, como base
-  da DL-042.
-- **DL-042** (redesenho global com a skill `saas-design-excellence`, ordem do
-  Fred de 26/09): em desenvolvimento com o `especialista-frontend`; o Fred aprova
-  as capturas antes do PR.
+  dizem "preservação" por causa do gancho do ambiente. Vai no mesmo PR.
+- **DL-043** (parâmetros contábeis e zeramento): servidor pronto na branch local
+  `dl043-servidor` (worktree fora do repositório), em auditoria independente;
+  integra depois deste PR, com a fatia 3 (telas).
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
-  `DATABASE_URL`); uma worktree dentro de `.claude/worktrees/` faz o teste da
-  margem do AGENTS.md contar em dobro — artefato da sessão, não defeito.
-
-Situação das duas etapas que a antecedem, na branch `claude/vigilant-bardeen-jo12l4`
-(ainda não integradas à `main`):
-
-- **DL-010 fatia 1** (recepção de NFS-e nacional) e **DL-038** (cliente pessoa
-  física): auditoria independente **reprovou** na
-  [rodada 1](../auditorias/2026-09-25-dl-010-f1-dl-038-rodada-1.md) e
-  **aprovou com ressalvas** na
-  [reconferência](../auditorias/2026-09-25-dl-010-f1-dl-038-reconferencia.md) em
-  `88e7ac5`. Correções decididas em DE-076 (um envio por vez por escritório,
-  2.000 arquivos por envio). Verificação do arquiteto nessa revisão: suíte
-  completa 2582 aprovados, 45 pulados, 1 falha preexistente de ambiente.
-- Ressalvas no backlog, BL-526 a BL-535. A **PE-68** foi respondida pelo Fred em
-  26/09 (por escritório, RC-115) e virou a DL-041.
-- Falta: PR para a `main` e CI verde (Python 3.14) no commit mais recente.
+  `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
   andamento neste ambiente efêmero; **não** são entrega.
 
-Fila depois dela, em ordem recomendada e sujeita ao Fred:
+Fila depois da DL-043, em ordem recomendada e sujeita ao Fred:
 
-0. **DL-040 — navegação e arquitetura de informação** (Fred, 26/09): mapa de
-   telas e menu principal, em desenvolvimento pelo `especialista-frontend` numa
-   worktree isolada; integração só depois de o Fred ver as capturas.
-0. **DL-041 — unicidade de CNPJ e CPF por escritório** (Fred, 26/09, RC-115):
-   [plano](../planos/DL-041-unicidade-por-escritorio.md), logo depois da correção
-   da DL-039.
-1. **DL-043 — parâmetros contábeis por empresa e zeramento do resultado**
-   (RC-104, RC-105, BL-474): [plano](../planos/DL-043-parametros-contabeis-e-zeramento.md),
-   próxima etapa depois do merge da DL-042. O plano antigo `DL-016-F3` da
-   branch não integrada tratava do fechamento mensal, que já existe; está superado.
-2. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
-   camada de saldos (limite declarado no próprio código). Depende do mesmo
-   BL-474.
-3. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
+1. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
+   camada de saldos (limite declarado no próprio código). Usa os parâmetros
+   contábeis da DL-043.
+2. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
    regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e

@@ -1,10 +1,17 @@
 {% extends "base.html" %}
-{% block estilos_extras %}<meta name="description" content="DataLedger: sistema de Fiscal, Folha e Contabilidade concebido para trabalhar com modelos de inteligência artificial. Configure seu ambiente ou entre no sistema."><link rel="stylesheet" href="/static/css/public.css">{% endblock %}
+{% comment %}
+DL-042 (2ª passada): descrição honesta — "Contabilidade" é o que existe
+completo hoje; "Fiscal" hoje é só recepção/consulta de NFS-e, não o módulo
+inteiro (mapa-de-telas.md); "concebido para trabalhar com IA" descreve a
+CONCEPÇÃO do produto, não uma funcionalidade disponível (o assistente em si
+é planejado — landing.html marca isso explicitamente).
+{% endcomment %}
+{% block estilos_extras %}<meta name="description" content="DataLedger: sistema de contabilidade completo para escritórios brasileiros, com recepção de NFS-e e concebido para trabalhar com modelos de inteligência artificial. Configure seu ambiente ou entre no sistema."><link rel="stylesheet" href="/static/css/public.css">{% endblock %}
 {% block classe_body %}public-page{% endblock %}
 {% block moldura %}
 <a class="pular-para-conteudo" href="#conteudo">Pular para o conteúdo</a>
 <header class="public-header public-container">
-    <a class="public-brand" href="{% url 'tenancy:painel' %}" aria-label="DataLedger, início"><span class="brand-symbol" aria-hidden="true">D</span><span>DataLedger<span class="brand-period">.</span></span></a>
+    <a class="public-brand" href="{% url 'tenancy:painel' %}" aria-label="DataLedger, início">DataLedger<span class="brand-period">.</span></a>
     <nav class="public-nav" aria-label="Navegação principal">
         <a class="nav-detail" href="{% url 'tenancy:painel' %}#plataforma">A plataforma</a>
         <a href="{% url 'login' %}">Já tenho acesso</a>

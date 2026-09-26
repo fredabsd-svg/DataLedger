@@ -232,12 +232,26 @@ _CAMINHO_BASE_HTML = RAIZ / "templates" / "base.html"
 # sem o traço do sufixo).
 _PADRAO_TITULO_PADRAO = re.compile(r"<title>\{% block titulo %\}([^{<]+)\{% endblock %\}")
 
-# `<a href="{% url 'tenancy:painel' %}">DataLedger<span
-# class="marca__ponto">.</span></a>` dentro de `<div class="marca">` —
-# grupo 1 captura o texto entre o fechamento da tag `<a ...>` e o `<span
-# class="marca__ponto">` que seria o ponto final da marca.
+# DL-042 (2ª passada, especialista-frontend): a marca deixou de viver
+# dentro de `<div class="marca">` — a DL-042 moveu o link para dentro da
+# barra lateral, e a CLASSE "marca" passou para o próprio `<a>`
+# (`<a class="marca" href="...">`), com o texto às vezes envolto num
+# `<span class="rotulo-menu">` (técnica de recolhimento da barra a
+# ícones, que precisa poder afastar o RÓTULO da tela sem tocar no
+# ÍCONE). Duas ocorrências reais hoje em templates/base.html: a marca de
+# dentro da barra (com o `<span class="rotulo-menu">` por volta do texto)
+# e a marca do cabeçalho móvel, `<a class="marca marca--movel">` (sem o
+# span — visível só ≤48rem). O padrão casa as DUAS formas: a classe
+# "marca" no `<a>` (nunca mais um `<div>` ancestral — por isso
+# `[^"]*` depois de "marca", para aceitar `marca marca--movel` sem
+# exigir robô à parte para essa variante), com um `<span class="rotulo-
+# menu">` OPCIONAL entre a tag e o texto. Atualizado junto do template,
+# nunca um literal fixo — mesma regra que o docstring de
+# `_derivar_marca_do_fornecedor` já cobra de quem mexer aqui.
 _PADRAO_MARCA = re.compile(
-    r'<div class="marca">.*?<a[^>]*>([^<]+)<span class="marca__ponto">', re.DOTALL
+    r'<a class="marca[^"]*"[^>]*>\s*(?:<span class="rotulo-menu">)?'
+    r'([^<]+)<span class="marca__ponto">',
+    re.DOTALL,
 )
 
 

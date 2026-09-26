@@ -1321,13 +1321,21 @@ def test_derivar_marca_do_fornecedor_recusa_quando_titulo_e_marca_divergem(tmp_p
     # nomeando as duas.
     template_fake = tmp_path / "templates"
     template_fake.mkdir()
+    # DL-042 (2ª passada): estrutura atualizada para `<a class="marca">`
+    # (a classe migrou do `<div>` ancestral para o próprio link, dentro da
+    # barra lateral) — mesma migração que `_PADRAO_MARCA` passou a
+    # reconhecer. Sem isso, esta fixture deixaria de casar com o padrão
+    # NOVO por um motivo ERRADO (a marca "não reconhecida", não a
+    # divergência que este teste existe para provar) e cairia no OUTRO
+    # `_recusar` (o de "não reconheço a estrutura"), que também sai com
+    # código 2 — o assert abaixo continuaria passando por acidente, sem
+    # testar o que diz testar (a mesma classe de falso-guarda da lição
+    # BL-271, registrada no docstring do módulo).
     (template_fake / "base.html").write_text(
         "<title>{% block titulo %}Nome1{% endblock %}{% block titulo_sufixo_do_fornecedor %}"
         " — Nome1{% endblock %}</title>\n"
-        '<div class="marca">\n'
-        "    <a href=\"{% url 'tenancy:painel' %}\">Nome2"
-        '<span class="marca__ponto">.</span></a>\n'
-        "</div>\n",
+        '<a class="marca" href="{% url \'tenancy:painel\' %}">Nome2'
+        '<span class="marca__ponto">.</span></a>\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(instrumento, "_CAMINHO_BASE_HTML", template_fake / "base.html")

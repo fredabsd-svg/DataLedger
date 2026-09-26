@@ -195,6 +195,11 @@
        isso dois tokens próprios em vez de reaproveitar os dois acima. */
     --largura-rotulo-definicao: 14rem;
     --largura-valor-definicao: 16rem;
+    /* DL-042 (2ª passada): largura MÍNIMA de cada cartão na grade da fila
+       de atenção (tenancy/painel.html, `.fila-de-atencao`) — abaixo disso
+       o cartão quebra para a linha seguinte (`repeat(auto-fit,
+       minmax(...))`), sem media query. */
+    --largura-minima-cartao-fila: 20rem;
     /* DL-040: largura mínima e máxima do painel de submenu do menu
        principal (`.menu-dropdown ul`/`.menu-dropdown__paineis`) — tokens
        próprios, no mesmo padrão dos dois acima, porque não são largura de
@@ -203,6 +208,24 @@
        aproxime da borda da tela. */
     --largura-menu-dropdown: 12rem;
     --largura-menu-dropdown-maxima: 18rem;
+    /* DL-042: largura da barra lateral — expandida e recolhida (só
+       ícones). Dentro da faixa 220–260px que shell-navegacao.md §2
+       recomenda; 15rem = 240px. Recolhida, 3.5rem (56px) cabe o ícone de
+       18px (--tamanho-icone-menu) com respiro nos dois lados. */
+    --largura-barra-lateral: 15rem;
+    --largura-barra-lateral-recolhida: 3.5rem;
+    /* Ícone de navegação: 16–18px (shell-navegacao.md §2) — 1.125rem =
+       18px. `--alinhamento-icone-menu` corrige a linha de base do texto
+       ao lado (SVG não tem métrica de fonte própria). */
+    --tamanho-icone-menu: 1.125rem;
+    --alinhamento-icone-menu: -0.2em;
+    /* Alvo de clique do alternador (recolher/expandir): 1.75rem = 28px,
+       acima do piso de 24×24px do portão de qualidade da skill. */
+    --tamanho-alvo-alternador: 1.75rem;
+    /* Altura total da viewport — usada pela barra lateral (`sticky`/
+       `fixed`) e pelo contêiner `.app-shell`, nunca por conteúdo de
+       página (que continua sem altura mínima própria). */
+    --altura-viewport: 100vh;
 
     /* --- Técnica de acessibilidade consagrada (WebAIM): afastar da tela
        ou reduzir a 1px sem tirar o elemento do fluxo do leitor de tela.
@@ -235,34 +258,34 @@
     --recuo-nivel-9: 10.75rem;
     --recuo-nivel-10: 12rem;
 
-    /* DL-034: escala da entrada pública; não altera a densidade das telas internas. */
+    /* Escala da entrada pública (landing/login/cadastro) — não altera a
+       densidade das telas internas do produto. DL-034 e DL-037 tinham
+       introduzido uma identidade visual PRÓPRIA aqui (painel escuro,
+       gradiente, sombras) que a DL-042 (2ª passada) aposentou: a entrada
+       pública passa a usar as MESMAS cores "papel e tinta" do produto
+       (--papel/--tinta/--acento/--borda-hairline/--raio, já declaradas
+       acima), para quem entra pela landing reconhecer a mesma marca ao
+       logar. Só a ESCALA (tipografia maior, mais respiro) continua
+       própria — é uma página de leitura de 30 segundos, não uma tela de
+       trabalho de 8 horas. Os tokens de cor/sombra/curva só usados pelo
+       visual antigo (public-titulo, public-marca, public-sombra,
+       public-grid, public-linha-grid, public-curva, public-autenticacao,
+       public-arredondado, public-anel, public-branco-transparente,
+       public-borda-escura, public-camada-escura, public-grade-escura,
+       public-sombra-painel) foram removidos daqui — nenhum arquivo do
+       repositório os referenciava mais depois da reescrita de
+       static/css/public.css (conferido por grep antes de remover). */
     --public-fonte-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-    --public-titulo: 4.5rem;
     --public-subtitulo: 2.75rem;
-    --public-titulo-mobile: 2.75rem;
     --public-secao: 6rem;
     --public-respiro: 4rem;
     --public-largura-texto: 36rem;
-    --public-marca: 2.5rem;
     --public-linha: 1.08;
-    --public-sombra: 0 24px 70px rgba(20, 42, 80, 0.12);
-    --public-grid: 2rem;
-    --public-linha-grid: rgba(29, 58, 110, 0.06);
-    --public-curva: 0.5rem;
-    /* DL-037: entrada pública em escala de leitura, sem alterar o produto interno. */
     --public-largura: 82rem;
     --public-heroi: 4.25rem;
     --public-heroi-mobile: 3rem;
-    --public-autenticacao: 38rem;
     --public-corpo: 1.125rem;
     --public-campo: 3.5rem;
-    --public-arredondado: 0.75rem;
-    --public-anel: 12rem;
-    --public-branco-transparente: rgba(255, 255, 255, 0.76);
-    --public-borda-escura: rgba(255, 255, 255, 0.18);
-    --public-camada-escura: rgba(255, 255, 255, 0.07);
-    --public-grade-escura: rgba(255, 255, 255, 0.045);
-    --public-sombra-painel: 0 28px 70px rgba(20, 42, 80, 0.2);
 }
 
 * {
@@ -349,33 +372,150 @@ summary:focus,
 }
 
 /* ==========================================================================
-   Moldura: marca, escritório, empresa, competência, navegação. O usuário
-   precisa saber, sempre, em qual empresa e período está operando — por
-   isso o bloco de contexto é sua própria faixa, visualmente separada da
-   faixa utilitária (marca/usuário/sair), nunca disputando atenção com ela.
+   DL-042: moldura em "L invertido" — barra LATERAL (`.barra-lateral`) mais
+   cabeçalho de página, substituindo a barra SUPERIOR da DL-040. O
+   raciocínio completo da troca mora em docs/projeto/direcao-de-arte.md §8 e
+   em docs/projeto/mapa-de-telas.md (nunca duplicado aqui — AGENTS.md, lição
+   de 2026-09-13). `.app-shell` é o contêiner flex de duas colunas: a barra
+   (largura fixa) e `.area-principal` (o resto, com o cabeçalho de página e
+   o conteúdo). Acima de tudo: o usuário precisa saber, sempre, em qual
+   empresa e período está operando — por isso `.cabecalho__contexto` é a
+   ÚNICA faixa que sobrevive à impressão nas telas sem timbre (ver o
+   comentário grande em templates/base.html sobre por que ela mora em
+   `.area-principal`, nunca dentro da barra).
    ========================================================================== */
+.app-shell {
+    display: flex;
+    align-items: flex-start;
+    /* `align-content: flex-start` (não o `stretch` padrão): só tem efeito
+       quando `flex-wrap: wrap` cria VÁRIAS linhas (só acontece ≤48rem,
+       ver o `@media` no fim deste arquivo) — sem isto, o `min-height`
+       abaixo (quase a viewport inteira) sobrava como espaço extra
+       DISTRIBUÍDO entre as duas linhas (marca+"Menu" / conteúdo),
+       esticando a PRIMEIRA e empurrando a segunda para ~230px do topo.
+       Medido nesta etapa, por captura real em 390×844 (`empresas/lista.html`):
+       `.area-principal` começava em top:268px com uma única linha de
+       conteúdo antes dela — o mesmo defeito, em espírito, que a DL-040 já
+       tinha corrigido uma vez para a faixa de contexto (8.1a). Em telas
+       largas (uma linha só), esta propriedade não muda nada. */
+    align-content: flex-start;
+    min-height: var(--altura-viewport);
+}
+
+.area-principal {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .cabecalho {
     border-bottom: var(--traco-fina) solid var(--borda-forte);
     background: var(--papel);
 }
 
-.cabecalho__topo {
+.cabecalho__contexto {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--esp-4);
+    gap: var(--esp-5);
     padding: var(--esp-2) var(--esp-5);
-    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.contexto-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-minima);
+    font-size: var(--tipo-sm);
+}
+
+.contexto-rotulo {
+    font-size: var(--tipo-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--rastreio-maximo);
+    color: var(--tinta-media);
+}
+
+.contexto-item strong,
+.contexto-operacao strong {
+    color: var(--tinta);
+    font-weight: 700;
+}
+
+/* Ícones (sprite embutido em templates/base.html, dentro de `.app-shell`):
+   um só conjunto, 16–18px (shell-navegacao.md §2), traço uniforme via
+   `currentColor` — herda a cor de texto de quem os usa (rótulo do menu,
+   inclusive o estado ativo), nunca uma cor própria. `aria-hidden` já vem
+   do `<use>` no template; aqui só o tamanho e o alinhamento com o texto. */
+.sprite-de-icones {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.icone-menu {
+    width: var(--tamanho-icone-menu);
+    height: var(--tamanho-icone-menu);
+    flex: none;
+    vertical-align: var(--alinhamento-icone-menu);
+}
+
+.icone-recolher {
+    transition: transform 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .icone-recolher {
+        transition: none;
+    }
+}
+
+/* ==========================================================================
+   Barra lateral: seletor/indicador de empresa no topo, navegação primária
+   por módulo, "Conta"/Sair no rodapé (shell-navegacao.md §2). Largura
+   expandida dentro da faixa 220–260px que a referência recomenda.
+   ========================================================================== */
+.barra-lateral {
+    flex: none;
+    width: var(--largura-barra-lateral);
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-4);
+    padding: var(--esp-4) var(--esp-3);
+    border-right: var(--traco-fina) solid var(--borda-forte);
+    background: var(--papel-alt);
+    /* A barra é MOLDURA, não conteúdo — ao contrário de `.conteudo-
+       principal`, ela não precisa da régua de densidade §4.8 (que é sobre
+       TABELA), mas precisa continuar alcançável por teclado quando o
+       conteúdo da página é mais alto que a viewport. */
+    position: sticky;
+    top: 0;
+    max-height: var(--altura-viewport);
+    overflow-y: auto;
+    /* `.app-shell` usa `align-items: flex-start` (não o `stretch` padrão) por
+       causa da linha móvel de marca/gatilho, que não deve esticar. A barra
+       precisa do próprio `align-self: stretch` para preencher a altura da
+       linha flex (>= 100vh, por causa do `min-height` de `.app-shell`) mesmo
+       em página curta — do contrário a caixa da barra para na altura do
+       próprio conteúdo de navegação e o resto da coluna esquerda fica sem o
+       fundo `--papel-alt`. `max-height` + `overflow-y: auto` continuam
+       cobrindo a rolagem em página alta. */
+    align-self: stretch;
+}
+
+.barra-lateral__topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--esp-2);
 }
 
 .marca {
     display: flex;
     align-items: center;
-    gap: var(--esp-5);
 }
 
-.marca a {
+.marca a,
+a.marca {
     font-family: var(--fonte-editorial);
     font-size: var(--tipo-md);
     font-weight: 700;
@@ -384,7 +524,8 @@ summary:focus,
     text-decoration: none;
 }
 
-.marca a:hover {
+.marca a:hover,
+a.marca:hover {
     color: var(--acento);
 }
 
@@ -392,59 +533,101 @@ summary:focus,
     color: var(--acento);
 }
 
+/* Botão nativo (`<label>` associado ao checkbox oculto — técnica sem
+   JavaScript, ver `.barra-lateral__interruptor` mais abaixo). Alvo de
+   clique ≥24×24px (portão de qualidade da skill, item 3). */
+.barra-lateral__alternador {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--tamanho-alvo-alternador);
+    height: var(--tamanho-alvo-alternador);
+    border-radius: var(--raio);
+    cursor: pointer;
+    color: var(--tinta-suave);
+}
+
+.barra-lateral__alternador:hover {
+    color: var(--tinta);
+    background: var(--papel-elevado);
+}
+
+.navegacao-principal {
+    flex: 1 1 auto;
+}
+
 .navegacao-principal ul {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--esp-5);
+    flex-direction: column;
+    gap: var(--esp-1);
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
 .navegacao-principal a {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--esp-atalho);
+    display: flex;
+    align-items: center;
+    gap: var(--esp-2);
     font-size: var(--tipo-sm);
     letter-spacing: var(--rastreio-leve);
     color: var(--tinta-suave);
     text-decoration: none;
-    padding: var(--esp-1) 0;
-    border-bottom: var(--traco-media) solid transparent;
+    padding: var(--esp-2);
+    border-radius: var(--raio);
+    border-left: var(--traco-media) solid transparent;
 }
 
 .navegacao-principal a:hover {
     color: var(--tinta);
+    background: var(--papel-elevado);
     text-decoration: none;
 }
 
+/* Estado ativo: fundo sutil + texto em peso maior, NUNCA só a borda de
+   cor (shell-navegacao.md §2, "estado ativo claro, sem gritar") — o
+   `.rotulo-menu` em negrito já diz "isto é a tela atual" sem depender de
+   quem distingue a cor de acento. */
 .navegacao-principal a[aria-current="page"] {
     color: var(--tinta);
     font-weight: 700;
-    border-bottom-color: var(--acento);
+    background: var(--acento-suave);
+    border-left-color: var(--acento);
 }
 
-/* DL-040: menu estruturado por módulo, com submenu em dropdown NATIVO
-   (<details>/<summary> — sem JavaScript nenhum: R6 da direção de arte,
-   "JavaScript é enfeite", continua valendo aqui). `.menu-modulo` (o <li>)
-   é o ANCORADOR de posicionamento — `.menu-dropdown ul` (o painel) é
-   `position: absolute` relativo a ele, nunca ao `<body>`, para abrir
-   sempre embaixo do próprio rótulo do módulo. */
+.navegacao-principal kbd.tecla {
+    margin-left: auto;
+}
+
+/* DL-040/DL-042: menu estruturado por módulo, com submenu em dropdown
+   NATIVO (<details>/<summary> — sem JavaScript nenhum: R6 da direção de
+   arte, "JavaScript é enfeite", continua valendo aqui). Na barra lateral o
+   painel abre EMBUTIDO (position: static — empurra a lista para baixo,
+   como um acordeão), nunca flutuante: um painel `position: absolute` só
+   faz sentido ancorado a um item HORIZONTAL (a barra superior da DL-040);
+   na coluna vertical da barra lateral, embutido é o que a referência
+   chama de "grupos recolhíveis" (shell-navegacao.md §2). */
 .menu-modulo {
-    position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .menu-dropdown > summary {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--esp-1);
+    display: flex;
+    align-items: center;
+    gap: var(--esp-2);
     font-size: var(--tipo-sm);
     letter-spacing: var(--rastreio-leve);
     color: var(--tinta-suave);
     cursor: pointer;
     list-style: none;
-    padding: var(--esp-1) 0;
-    border-bottom: var(--traco-media) solid transparent;
+    padding: var(--esp-2);
+    border-radius: var(--raio);
+    border-left: var(--traco-media) solid transparent;
+}
+
+.menu-dropdown > summary .rotulo-menu {
+    flex: 1 1 auto;
 }
 
 /* O `<summary>` já desenha um marcador de disclosure por padrão no
@@ -459,6 +642,7 @@ summary:focus,
 
 .menu-dropdown > summary::after {
     content: "▾";
+    margin-left: var(--esp-1);
     color: var(--tinta-media);
     font-size: var(--tipo-2xs);
 }
@@ -469,55 +653,24 @@ summary:focus,
 
 .menu-dropdown > summary:hover {
     color: var(--tinta);
+    background: var(--papel-elevado);
 }
 
 .menu-dropdown > summary[aria-current="page"] {
     color: var(--tinta);
     font-weight: 700;
-    border-bottom-color: var(--acento);
+    background: var(--acento-suave);
+    border-left-color: var(--acento);
 }
 
-/* `.menu-dropdown__paineis` (DL-040 v2) é o mesmo painel que `.menu-
-   dropdown > ul`, só que um `<div>` — os dropdowns com GRUPOS
-   (Contabilidade, Fiscal, Conta) não são uma lista única, são vários
-   `<div class="menu-grupo">` (cada um com o próprio `<ul>`) dentro do
-   painel; o dropdown "Cadastros", sem grupo, continua sendo um `<ul>`
-   direto. Mesma posição/moldura para os dois, por isso o seletor
-   combinado.
-
-   `>` (filho DIRETO), não descendente qualquer: sem ele, esta regra
-   também capturava `.menu-grupo ul` (a lista DENTRO de cada grupo) e
-   posicionava CADA UMA delas em `position: absolute` sobrepostas no
-   mesmo canto — os itens de "Movimento"/"Relatórios"/"Rotinas" saíam do
-   fluxo normal e empilhavam por cima uns dos outros, escondidos ou
-   vazando por baixo do próprio painel. Medido nesta etapa, por captura
-   real do dropdown "Contabilidade" aberto. */
 .menu-dropdown > ul,
 .menu-dropdown .menu-dropdown__paineis {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    z-index: 3;
-    min-width: var(--largura-menu-dropdown);
-    max-width: var(--largura-menu-dropdown-maxima);
     display: flex;
     flex-direction: column;
     gap: var(--esp-3);
     margin: var(--esp-1) 0 0;
-    padding: var(--esp-3);
+    padding: var(--esp-2) var(--esp-2) var(--esp-2) var(--esp-5);
     list-style: none;
-    background: var(--papel-elevado);
-    border: var(--traco-fina) solid var(--borda-hairline);
-    border-radius: var(--raio);
-}
-
-/* O painel do "Conta" abre no canto DIREITO do menu — é o último item da
-   barra, colado na borda da tela; abrir para a esquerda (em vez de
-   `left: 0`, que empurraria o painel para FORA da viewport) é o que evita
-   o overflow horizontal medido nesta etapa. */
-.menu-conta > .menu-dropdown__paineis {
-    left: auto;
-    right: 0;
 }
 
 .menu-dropdown > ul {
@@ -574,6 +727,23 @@ summary:focus,
     font-size: var(--tipo-sm);
 }
 
+.barra-lateral__rodape {
+    margin-top: auto;
+    padding-top: var(--esp-3);
+    border-top: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.barra-lateral__rodape .menu-dropdown > summary {
+    justify-content: flex-start;
+}
+
+/* O painel do "Conta" abre para CIMA — é o último item, no rodapé da
+   barra, e um painel `top: 100%` sairia por baixo da viewport. */
+.barra-lateral__rodape .menu-dropdown > .menu-dropdown__paineis,
+.barra-lateral__rodape .menu-dropdown__paineis {
+    margin: 0 0 var(--esp-1);
+}
+
 /* Atalho de teclado à mostra na navegação (enxerto da variante B do
    gauntlet, DE-053/RC-90). Texto miúdo, sem caixa nem borda — a direção
    escolhida é "cor quase ausente", e um "keycap" desenhado seria poluição
@@ -602,11 +772,114 @@ kbd.tecla {
     letter-spacing: var(--rastreio-leve);
 }
 
+/* DL-042: recolher a barra lateral para ~4rem (ícones) — só CSS ("checkbox
+   hack"): `#barra-lateral-recolhida` (o input, oculto por
+   `.visualmente-oculto`) é IRMÃO de `.app-shell` em templates/base.html;
+   `:checked` soma o combinador de irmão geral (`~`) com um seletor
+   DESCENDENTE (`.app-shell .barra-lateral`) — os dois combinados são CSS
+   válido (Selectors Level 4, sem exigir JavaScript). `.rotulo-menu` (o
+   texto de cada item) recebe a MESMA técnica de `.visualmente-oculto`
+   (afastar da tela, nunca `display: none`): o nome acessível do link
+   continua vindo do texto, não do ícone, também no modo recolhido —
+   diferente de VISUALMENTE remover o texto, que não muda o que um leitor
+   de tela anuncia. */
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral {
+    width: var(--largura-barra-lateral-recolhida);
+    overflow: visible;
+}
+
+/* Foco do teclado: o CHECKBOX (`.visualmente-oculto`, oculto por clip, não
+   por `display: none`) continua no fluxo normal do documento — sem esta
+   regra, o anel de foco padrão (`input:focus`, topo deste arquivo)
+   apareceria em torno de uma caixa de 1×1px no topo da página, longe do
+   controle que a pessoa vê e opera (o `<label>`). `outline: none` aqui é
+   uma exceção NOMEADA e compensada na mesma regra — nunca "remover o
+   foco", e sim "mover o indicador visual para onde o controle está
+   desenhado", como manda o critério 4 da direção de arte ("o estilo muda
+   de fato ao focar" continua valendo, só que no elemento visível). */
+.barra-lateral__interruptor:focus {
+    outline: none;
+}
+
+.barra-lateral__interruptor:focus ~ .app-shell .barra-lateral__alternador {
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco);
+}
+
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .rotulo-menu,
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .menu-dropdown > summary::after,
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral kbd.tecla {
+    position: absolute;
+    width: var(--tamanho-oculto);
+    height: var(--tamanho-oculto);
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .menu-dropdown > ul,
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .menu-dropdown .menu-dropdown__paineis {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    z-index: 3;
+    width: max-content;
+    min-width: var(--largura-menu-dropdown);
+    max-width: var(--largura-menu-dropdown-maxima);
+    margin: 0 0 0 var(--esp-1);
+    padding: var(--esp-3);
+    background: var(--papel-elevado);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+}
+
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .menu-dropdown > ul .rotulo-menu,
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral .menu-dropdown__paineis .rotulo-menu {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+}
+
+.barra-lateral__interruptor:checked ~ .app-shell .barra-lateral__rodape .menu-dropdown__paineis {
+    left: auto;
+    right: 100%;
+    top: auto;
+    bottom: 0;
+    margin: 0 var(--esp-1) 0 0;
+}
+
+.barra-lateral__interruptor:checked ~ .app-shell .icone-recolher {
+    transform: rotate(180deg);
+}
+
+/* Marca/gatilho móveis: existem no DOM sempre (irmãos de `.barra-lateral`,
+   nunca dentro dela), mas só aparecem ≤48rem — ver o `@media` no fim deste
+   arquivo. Acima do breakpoint não fazem sentido nenhum (a marca já mora
+   dentro da barra, sempre visível). */
+.marca--movel,
+.menu-movel-gatilho {
+    display: none;
+}
+
 /* Navegação contextual da empresa (Plano de contas/Diário/Balancete/
    Conferência/Novo lançamento — templates/contabilidade/
    _navegacao_empresa.html): mesmo tratamento visual da navegação
    principal do cabeçalho, mas vive no início do conteúdo porque depende
-   de uma empresa (a moldura comum não sabe de qual). */
+   de uma empresa (a moldura comum não sabe de qual).
+
+   BL (achado do especialista-frontend, DL-042 2ª passada): este bloco —
+   e `.cabecalho__contexto`/`.contexto-item`/`.contexto-rotulo`/`.item-
+   atual`/`.sessao-usuario`/`.form-sair`, que ficavam logo abaixo dele —
+   estava DUPLICADO na íntegra desde o commit 8674653 (a reescrita da
+   moldura para barra lateral): a mesma dúzia de regras, byte a byte,
+   aparecia duas vezes neste arquivo — uma cópia sem este comentário,
+   colada por engano ao mover blocos de CSS de lugar. Inofensivo em
+   efeito (a segunda cópia só reafirmava os MESMOS valores), mas exatamente
+   a classe de defeito que o AGENTS.md pede para evitar: regra escrita em
+   dois lugares diverge assim que uma das cópias for editada sem a outra.
+   Corrigido nesta etapa — uma cópia só, a partir daqui. */
 .navegacao-empresa {
     margin-bottom: var(--esp-4);
 }
@@ -642,34 +915,6 @@ kbd.tecla {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
-    color: var(--tinta);
-    font-weight: 700;
-}
-
-.cabecalho__contexto {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--esp-5);
-    padding: var(--esp-2) var(--esp-5);
-}
-
-.contexto-item {
-    display: flex;
-    flex-direction: column;
-    gap: var(--esp-minima);
-    font-size: var(--tipo-sm);
-}
-
-.contexto-rotulo {
-    font-size: var(--tipo-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--rastreio-maximo);
-    color: var(--tinta-media);
-}
-
-.contexto-item strong,
-.contexto-operacao strong {
     color: var(--tinta);
     font-weight: 700;
 }
@@ -754,6 +999,26 @@ kbd.tecla {
     background: var(--erro);
     color: var(--acento-texto);
     border-color: var(--erro);
+}
+
+/* DL-042 (2ª passada): quarto tom — "fantasma" — para a ação de MENOR
+   ênfase, ao lado de uma ação primária que já domina a atenção da tela
+   (ex.: "Limpar filtros" ao lado de "Consultar" num formulário de
+   filtro). Sem borda nem fundo: só o texto, mais discreto que
+   `.botao--secundario` (que tem contorno) — a diferença de peso entre os
+   quatro tons é a "calma" que a skill pede (ênfase é orçamento, gasto só
+   onde há decisão). Criada só quando um uso real existe — nunca token
+   novo sem tela que precise dele (direção de arte §1): o primeiro uso é
+   "Limpar filtros" em fiscal/documentos_lista.html. */
+.botao--fantasma {
+    background: transparent;
+    color: var(--tinta-suave);
+    border-color: transparent;
+}
+
+.botao--fantasma:hover {
+    color: var(--tinta);
+    background: var(--papel-alt);
 }
 
 /* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
@@ -1003,6 +1268,78 @@ kbd.tecla {
     border-color: var(--erro);
     border-left-width: var(--traco-destaque);
     background: var(--erro-fundo);
+}
+
+/* DL-042 (2ª passada): "Início" como fila do que precisa de atenção
+   (tenancy/painel.html) — anti-padrão "dashboard de KPI" da skill
+   evitado: cada categoria é uma LISTA de itens acionáveis, nunca só um
+   número colorido. Grade de até duas colunas em telas largas (a régua de
+   densidade §4.8 não se aplica aqui — não é tabela de dados contábeis, é
+   painel de período, arquétipo D). */
+.fila-de-atencao {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(var(--largura-minima-cartao-fila), 1fr));
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-5);
+}
+
+.fila-categoria {
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+    padding: var(--esp-4);
+    background: var(--papel-elevado);
+}
+
+/* Informativo (empresas CPF em livro-caixa): não é uma pendência a
+   RESOLVER, só um lembrete — fundo levemente distinto, sem o peso visual
+   de "algo está errado" que as outras categorias legitimamente têm. */
+.fila-categoria--informativo {
+    background: var(--papel-alt);
+}
+
+.fila-categoria__cabecalho {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--esp-3);
+}
+
+.fila-categoria__cabecalho h3 {
+    margin: 0;
+    font-size: var(--tipo-md);
+}
+
+/* Contagem: TEXTO tabulado (é um número), nunca só uma bolha colorida —
+   o rótulo "pendente(s)"/"item(ns)" no HTML já diz o que o número conta. */
+.fila-categoria__contagem {
+    font-family: var(--fonte-numerica);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--acento);
+    flex: none;
+}
+
+.fila-categoria--informativo .fila-categoria__contagem {
+    color: var(--tinta-media);
+}
+
+.fila-categoria__itens {
+    margin: var(--esp-3) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-1);
+    font-size: var(--tipo-sm);
+}
+
+.fila-categoria__itens a {
+    color: var(--acento);
+    text-decoration: underline;
+}
+
+.fila-categoria__itens a:hover {
+    color: var(--acento-escuro);
 }
 
 /* DL-031: estado da competência no painel de fechamento
@@ -1754,32 +2091,39 @@ button:disabled {
    BL-282 (M6, rodada 1): até esta correção a impressão saía limpa e
    legível E com "DataLedger." no topo — a marca de quem VENDE o software,
    não a do escritório que EMITE o relatório para o cliente dele. Duas
-   mudanças resolvem isto JUNTAS, nunca uma sem a outra: `.cabecalho__topo`
-   (que carrega `.marca`, "DataLedger.") entra na lista de elementos
-   ocultos abaixo — a mesma lista que já escondia navegação e botões —, e
-   `.timbre-impressao` (abaixo, ver o comentário completo em
+   mudanças resolvem isto JUNTAS, nunca uma sem a outra: a barra lateral
+   inteira (que carrega `.marca`, "DataLedger.") entra na lista de
+   elementos ocultos abaixo — a mesma lista que já escondia navegação e
+   botões —, e `.timbre-impressao` (abaixo, ver o comentário completo em
    templates/contabilidade/balancete.html) aparece no lugar dela com a
    identificação do ESCRITÓRIO. Esconder a marca do fornecedor SEM pôr
    nada no lugar deixaria o documento impresso sem identificação nenhuma —
-   pior que o defeito original. */
+   pior que o defeito original.
+
+   DL-042: `.cabecalho__topo` (barra SUPERIOR da DL-040) virou
+   `.barra-lateral` — mesma exclusão, container diferente. `.marca--movel`
+   e `.menu-movel-gatilho` (os dois só existem em telas ≤48rem, ver o
+   `@media` no fim deste arquivo) entram na MESMA lista por serem a MESMA
+   classe de elemento: moldura/navegação, nunca conteúdo do documento. */
 @media print {
-    /* Fora do papel: a faixa utilitária inteira (marca "DataLedger.",
+    /* Fora do papel: a barra lateral inteira (marca "DataLedger.",
        navegação, atalho de teclado — accesskey não existe em papel — e o
-       botão Sair), a navegação da empresa, os botões de ação (Consultar
+       menu "Conta"/Sair), o gatilho móvel e a marca móvel (telas
+       estreitas), a navegação da empresa, os botões de ação (Consultar
        período, Adicionar linha...) e o formulário de filtro inteiro (as
        datas do filtro já aparecem em texto, em .cabecalho__contexto, que
        continua impresso — ver a nota logo abaixo sobre o que, DENTRO dele,
-       some também). `.cabecalho__topo` substitui `.marca` nesta lista
-       (BL-282): esconder só o link e deixar o contêiner vazio no fluxo não
-       tinha vantagem nenhuma sobre esconder o contêiner inteiro. */
+       some também). */
     /* DL-040: a trilha de navegação/"Voltar" das telas secundárias
        (`.trilha`) é controle de NAVEGAÇÃO, nunca conteúdo do documento —
        mesma classe do resto desta lista (menu, navegação da empresa,
        filtro, mensagens). `.menu-dropdown` (o submenu do menu principal)
        não precisa de regra própria aqui: já está DENTRO de
-       `.cabecalho__topo`, que a linha abaixo já oculta por completo. */
+       `.barra-lateral`, que a linha abaixo já oculta por completo. */
     .pular-para-conteudo,
-    .cabecalho__topo,
+    .barra-lateral,
+    .marca--movel,
+    .menu-movel-gatilho,
     .navegacao-empresa,
     .formulario-periodo,
     .mensagens,
@@ -1889,7 +2233,6 @@ button:disabled {
        é texto ("Fecha"/"Não fecha") — só a cor de fundo e a borda colorida
        somem, junto com o resto das faixas de destaque. */
     .cabecalho,
-    .cabecalho__topo,
     .cabecalho__contexto,
     .mensagem,
     .linha-total td,
@@ -1954,44 +2297,55 @@ button:disabled {
    exatamente como já era. ========================================== */
 
 /* Acima do breakpoint (regra FORA do `@media`, antes dele DE PROPÓSITO):
-   o gatilho "Menu" nunca aparece, e `.navegacao-principal` é um `<nav>`
-   COMUM (nunca dentro de um `<details>`) — não precisa de regra nenhuma
-   para "forçar" visibilidade. A ORDEM importa: esta regra e a irmã dela,
+   o gatilho "Menu" nunca aparece, e `.barra-lateral` é um `<aside>` COMUM
+   (nunca dentro de um `<details>`) — não precisa de regra nenhuma para
+   "forçar" visibilidade. A ORDEM importa: esta regra e a irmã dela,
    dentro do `@media` logo abaixo (`.menu-movel__gatilho { display:
    inline-flex }`), têm a MESMA especificidade (uma classe só) — em
    telas estreitas, a query bate e a regra de DENTRO do `@media`, por vir
    DEPOIS no arquivo, vence o empate; em telas largas, a query não bate e
    só esta regra vale. Colocada DEPOIS do `@media` (como estava antes),
    as duas trocam de posição relativa e esta regra passa a vencer SEMPRE,
-   inclusive em tela estreita — medido nesta etapa: o botão "Menu"
-   simplesmente não aparecia a 390px, com `display: none` computado. */
+   inclusive em tela estreita — medido na DL-040, herdado aqui: o botão
+   "Menu" simplesmente não aparecia a 390px, com `display: none`
+   computado. */
 .menu-movel__gatilho {
     display: none;
 }
 
 @media (max-width: 48rem) {
-    /* Âncora de posicionamento do painel recolhido (`.menu-movel-gatilho[open]
-       ~ .navegacao-principal`, `position: absolute`, mais abaixo) — vive no
-       PAI comum dos dois irmãos (`.marca`), não no `<details>` nem na
-       `<nav>` isoladamente. */
-    .marca {
+    /* DL-042: a barra lateral virou GAVETA — mesma técnica "irmão, nunca
+       envoltório" da DL-040 (ver o comentário grande em templates/
+       base.html), agora aplicada a `.barra-lateral` em vez de
+       `.navegacao-principal`. `<details class="menu-movel-gatilho">` é
+       IRMÃO de `.barra-lateral` dentro de `.app-shell`; conteúdo dentro
+       de um `<details>` fechado é retirado da árvore de composição pelo
+       próprio navegador (nenhum CSS de autor, nem `!important`, reverte
+       isso) — por isso a barra nunca fica DENTRO do `<details>`, só sua
+       VISIBILIDADE depende do atributo `[open]`, via o combinador `~`
+       abaixo (CSS comum, reversível). Começa FECHADA (sem `open` no
+       HTML) — a régua nativa do `<details>` cobre isso sem JavaScript
+       nenhum (R6 da direção de arte). */
+    .app-shell {
+        flex-wrap: wrap;
         position: relative;
     }
 
-    /* Menu recolhido: `<details class="menu-movel-gatilho">` (templates/
-       base.html) é IRMÃO de `<nav class="navegacao-principal">`, nunca seu
-       envoltório — ver o comentário completo em base.html sobre por que
-       (resumo: conteúdo dentro de um `<details>` fechado não é só
-       escondido por CSS, é retirado da árvore de composição pelo próprio
-       navegador, e NENHUM CSS de autor, nem `!important`, reverte isso;
-       medido nesta etapa). Por ser irmão, a navegação nunca depende do
-       estado do `<details>` para EXISTIR — só para sua VISIBILIDADE, via
-       o combinador `~` abaixo, CSS comum e reversível.
+    .marca--movel,
+    .menu-movel-gatilho {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+    }
 
-       Começa FECHADO (sem o atributo `open` no HTML) — a régua nativa do
-       `<details>` cobre isso sem JavaScript nenhum (R6 da direção de
-       arte). Acima do breakpoint, a navegação é um `<nav>` comum, sempre
-       visível — nenhuma regra especial precisa "forçar" nada. */
+    .marca--movel {
+        padding: var(--esp-2) 0 var(--esp-2) var(--esp-3);
+    }
+
+    .menu-movel-gatilho {
+        margin: var(--esp-2) var(--esp-3) var(--esp-2) auto;
+    }
+
     .menu-movel__gatilho {
         display: inline-flex;
         align-items: center;
@@ -2009,74 +2363,94 @@ button:disabled {
         display: none;
     }
 
-    .navegacao-principal {
+    /* Barra de marca+gatilho ocupa a largura inteira (uma linha só,
+       acima do conteúdo); `.area-principal` também força quebra própria
+       — as duas juntas, com `flex-wrap` no pai, empilham em três faixas:
+       marca+menu, depois a barra lateral (só quando aberta) OU o
+       conteúdo, nunca lado a lado como no desktop. */
+    .barra-lateral {
+        display: none;
+        flex: 0 0 100%;
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        width: auto;
+        max-height: var(--altura-viewport);
+        border-right: none;
+    }
+
+    .menu-movel-gatilho[open] ~ .barra-lateral {
+        display: flex;
+    }
+
+    .area-principal {
+        flex: 1 1 100%;
+    }
+
+    /* Recolher para ícones não faz sentido na gaveta móvel (ela já
+       ocupa a tela inteira quando aberta) — o alternador some aqui para
+       não oferecer um controle sem efeito visível. */
+    .barra-lateral__alternador {
         display: none;
     }
 
-    .menu-movel-gatilho[open] ~ .navegacao-principal {
-        display: block;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        z-index: 4;
-        background: var(--papel-elevado);
-        border: var(--traco-fina) solid var(--borda-hairline);
-        padding: var(--esp-3);
-    }
+    /* Faixa de contexto compacta — pedido explícito da DL-040 ("faixa de
+       contexto compacta: empresa e período numa linha"), preservado
+       nesta etapa. "Usuário" mora no menu "Conta" (dentro da barra);
+       "Escritório ativo" continua (identificação impressa obrigatória em
+       cinco telas — ver o comentário completo em templates/base.html),
+       nunca escondido — só menor.
 
-    .menu-movel-gatilho[open] ~ .navegacao-principal ul {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--esp-3);
-    }
-
-    /* A marca ("DataLedger.") e o gatilho "Menu" numa linha só — era o
-       pedido explícito: "menu recolhido num único botão 'Menu' na mesma
-       linha da marca". `.cabecalho__topo` já é `flex` com `space-
-       between` (regra de sempre); só o `flex-wrap` unificado abaixo
-       garante que MARCA + MENU + CONTA cabem numa linha só a 390px. */
-    .cabecalho__topo {
-        flex-wrap: nowrap;
-        gap: var(--esp-2);
-        padding: var(--esp-2) var(--esp-3);
-    }
-
-    .marca {
-        gap: var(--esp-2);
-    }
-
-    /* Faixa de contexto compacta: Empresa/Período numa única linha densa
-       — era o segundo pedido explícito ("faixa de contexto compacta:
-       empresa e período numa linha"). "Usuário" já saiu daqui (foi para
-       o menu "Conta" — ver templates/base.html); "Escritório ativo"
-       continua (identificação impressa obrigatória em cinco telas — ver
-       o comentário completo em templates/base.html), só menor. */
+       DL-042 (2ª passada): cada `.contexto-item` era `flex-direction:
+       column` (rótulo numa linha, valor na linha de baixo) mesmo aqui —
+       com Escritório/Empresa/Período/Emitido em (telas com timbre), 4
+       itens de 2 linhas cada empilhavam ATÉ 133px só de faixa de
+       contexto, medido no Balancete a 390×844, e empurravam o `<h1>` da
+       tela para ≈270px do topo (pior que os ≈230px que a DL-040 tinha
+       medido). Virar `row` (rótulo e valor lado a lado, "Empresa:
+       Comércio X Ltda") corta a altura de cada item PELA METADE sem
+       remover NENHUMA informação — Escritório/Empresa/Período continuam
+       todos visíveis, só mais compactos. Resultado desta mudança SOZINHA,
+       medido no mesmo Balancete/largura: `<h1>` a 229,4px — já dentro da
+       meta de ≤230px, mas com margem quase nula; a compactação da trilha
+       logo abaixo soma mais folga, para 217,4px final. */
     .cabecalho__contexto {
-        gap: var(--esp-2) var(--esp-4);
+        gap: var(--esp-1) var(--esp-4);
         padding: var(--esp-2) var(--esp-3);
     }
 
     .contexto-item {
+        flex-direction: row;
+        align-items: baseline;
+        gap: var(--esp-1);
         font-size: var(--tipo-2xs);
     }
 
-    /* Painel "Conta" (Usuário + Sair) também abre alinhado à direita, e
-       aqui — tela estreita — a largura mínima do menu-dropdown padrão
-       (--largura-menu-dropdown) já basta; sem override extra. */
+    .contexto-rotulo::after {
+        content: ":";
+    }
 
-    /* DL-040 v2: `_navegacao_empresa.html` (os sete atalhos Alt+ da
+    /* Margem de segurança sobre a meta de ≤230px (medido a 229,4px só com
+       a faixa de contexto compacta, acima): a trilha, quando quebra em
+       duas linhas (comum com nome de empresa longo), soma altura própria
+       — reduzida aqui de --esp-4/--esp-3 para --esp-2 nas duas telas
+       estreitas, sem remover nenhum item da trilha. */
+    .trilha {
+        margin-bottom: var(--esp-2);
+        padding-bottom: var(--esp-2);
+    }
+
+    /* DL-040 v2: `_navegacao_empresa.html` (os seis atalhos Alt+ da
        contabilidade) some em telas ≤48rem — não é a mesma decisão de
        REMOVER a parcial (ela continua existindo, com os atalhos, em
        telas ≥48rem, e `test_bl296_navegacao_cobre_todas_as_telas.py`
        continua provando que ela está incluída em toda tela). O que
-       muda é só a VISIBILIDADE nesta largura: o dropdown "Contabilidade"
-       do menu principal (agora atrás do botão "Menu", ver acima) já
-       oferece a MESMA navegação agrupada, e um `accesskey` não tem
-       equivalente físico em teclado de toque — a fileira de sete links
-       era o maior consumidor de altura vertical medido no celular
-       (título só visível a ~470px do topo), sem ganho nenhum para quem
-       não tem tecla Alt. */
+       muda é só a VISIBILIDADE nesta largura: a gaveta da barra lateral
+       (agora atrás do botão "Menu", ver acima) já oferece a MESMA
+       navegação agrupada, e um `accesskey` não tem equivalente físico em
+       teclado de toque — a fileira de seis links era o maior consumidor
+       de altura vertical medido no celular (título só visível a ~470px
+       do topo, DL-040), sem ganho nenhum para quem não tem tecla Alt. */
     .navegacao-empresa {
         display: none;
     }

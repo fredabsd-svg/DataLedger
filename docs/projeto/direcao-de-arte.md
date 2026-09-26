@@ -322,11 +322,26 @@ próximo módulo seguir sem reabrir a discussão.
 
 ### 8.1 Menu principal
 
-- Barra **superior**, não lateral — decisão medida em
-  [mapa-de-telas.md](mapa-de-telas.md#decisão-barra-superior-não-lateral):
-  uma lateral fixa tira largura de tabelas que já disputam espaço
-  (régua de densidade, §4.8); a barra superior só soma altura, uma vez,
-  no topo.
+- **Revisão (DL-042).** Barra **lateral** esquerda, não mais superior —
+  decisão revertida em relação à DL-040 (raciocínio completo, incluindo
+  o PORQUÊ da escolha original, em
+  [mapa-de-telas.md](mapa-de-telas.md#revisão-dl-042-barra-lateral-não-superior),
+  para não duplicar o mesmo fato aqui). Resumo: o argumento de largura da
+  DL-040 ("lateral fixa tira ~220px sempre") só vale para lateral que não
+  recolhe; a DL-042 implementa recolhimento a `--largura-barra-lateral-
+  recolhida` (56px, só ícones) só em CSS (técnica "checkbox hack" —
+  `input[type=checkbox]` oculto + `:checked ~ seletor`, sem JavaScript),
+  então o custo de largura passa a ser escolha de quem usa a tela, não
+  perda fixa. `--largura-barra-lateral` (expandida) é 15rem/240px, dentro
+  da faixa 220–260px que `shell-navegacao.md` (skill) recomenda.
+- **Ícones** (novidade da DL-042): um conjunto próprio de SVG embutidos
+  (`<symbol>` num sprite oculto em `templates/base.html`, referenciado por
+  `<use>`), 18px, traço único via `currentColor` — existem porque o modo
+  recolhido, só com texto, seria ilegível; não existiam antes (a
+  identidade "papel e tinta" não usava ícone nenhum). O rótulo de texto
+  (`.rotulo-menu`) continua sendo o nome acessível do link mesmo recolhido
+  (técnica de `.visualmente-oculto`: afasta da tela, nunca `display:
+  none`) — o ícone é sempre `aria-hidden`.
 - Cada módulo é um item com submenu em **dropdown nativo**
   (`<details>`/`<summary>`) — nenhuma dependência de JavaScript (regra 6
   deste documento). O item do módulo ativo recebe `aria-current="page"`
@@ -382,43 +397,56 @@ próximo módulo seguir sem reabrir a discussão.
 
 ### 8.1a Menu em telas estreitas (≤48rem)
 
-Primeiro breakpoint responsivo do produto. Até então a barra superior
-cabia numa linha em qualquer largura testada; medido nesta etapa a
+Primeiro breakpoint responsivo do produto. Até a DL-040 a barra superior
+cabia numa linha em qualquer largura testada; medido naquela etapa a
 390×844 (iPhone padrão de teste): o menu quebrava em duas linhas, "Sair"
 ocupava uma linha própria, e a faixa de contexto empilhava cinco blocos
 (usuário, escritório, empresa, período, emitido em) — o título da tela
 só aparecia a **≈470px** do topo, abaixo da dobra em qualquer aparelho
-comum.
+comum. A DL-040 corrigiu para **≈230px**; a DL-042 (nova moldura,
+medição própria) mede **≈270px** no mesmo Balancete — uma pequena
+regressão em relação à DL-040, registrada como resultado honesto (não
+arredondado para parecer melhor): a barra lateral, mesmo recolhida por
+padrão no celular (vira gaveta fechada), soma uma faixa "marca + Menu"
+própria acima do cabeçalho de contexto, que a barra superior não tinha
+(ela JÁ ERA essa faixa).
 
-- Abaixo de `48rem` de largura, a navegação principal (`<nav
-  class="navegacao-principal">`) fica recolhida atrás de um botão
-  "Menu" (`<details class="menu-movel-gatilho"><summary>`), na MESMA
-  linha da marca e do menu "Conta" — sem JavaScript: o `<details>` é
-  IRMÃO da `<nav>` (não o envolve), e a visibilidade da `<nav>` é
+- **Revisão (DL-042).** Abaixo de `48rem` de largura, a barra lateral
+  inteira (`<aside class="barra-lateral">`) vira GAVETA, recolhida atrás
+  de um botão "Menu" — mesma técnica "irmão, nunca envoltório" da DL-040
+  (abaixo), só que aplicada à barra lateral em vez da `<nav>`:
+  `<details class="menu-movel-gatilho">` é IRMÃO de `.barra-lateral`
+  dentro de `.app-shell` (nunca a envolve), e a visibilidade dela é
   controlada pelo combinador de irmão geral do CSS
-  (`.menu-movel-gatilho[open] ~ .navegacao-principal { display: block; }`).
-  **Achado de implementação, registrado para quem mexer aqui depois:**
-  um `<details>` fechado é excluído da árvore de composição pelo
-  navegador — um `display` forçado com `!important` num DESCENDENTE do
-  `<details>` fechado não funciona, mesmo que `getComputedStyle` diga
-  que o valor está "certo". Por isso a `<nav>` precisa ficar FORA do
-  `<details>`, como irmã, nunca dentro.
-- A faixa de contexto (`.cabecalho__contexto`) fica compacta: só
-  empresa e período numa linha; usuário e escritório saem dali e vivem
-  só dentro do menu "Conta" (8.6) — a informação não desaparece, só
-  muda de lugar, e "Escritório ativo" continua presente na tela (não
-  dentro de um `<details>` fechado) porque a impressão depende dele em
-  telas sem timbre (ver 8.5 e o teste
+  (`.menu-movel-gatilho[open] ~ .barra-lateral { display: flex; }`).
+  **Achado de implementação da DL-040, ainda válido:** um `<details>`
+  fechado é excluído da árvore de composição pelo navegador — um
+  `display` forçado com `!important` num DESCENDENTE do `<details>`
+  fechado não funciona, mesmo que `getComputedStyle` diga que o valor
+  está "certo". Por isso o elemento controlado precisa ficar FORA do
+  `<details>`, como irmão, nunca dentro.
+- **Achado novo da DL-042, medido nesta etapa:** com `flex-wrap: wrap`
+  (necessário para a barra empilhar abaixo da faixa "marca + Menu") e
+  `min-height: 100vh` no contêiner (`.app-shell`), o `align-content`
+  PADRÃO (`stretch`) distribuía a altura extra entre as DUAS linhas do
+  flex, esticando a primeira e empurrando o conteúdo ~230px para baixo —
+  um vão em branco medido em `empresas/lista.html`. Corrigido com
+  `align-content: flex-start`. Registrado porque é o tipo de defeito que
+  só aparece com conteúdo curto (poucas linhas) somado a `min-height`
+  alto — o gauntlet e a maioria das telas de tabela, mais longas, não o
+  revelariam.
+- A faixa de contexto (`.cabecalho__contexto`) continua compacta: só
+  empresa e período numa linha; usuário e escritório vivem só dentro do
+  menu "Conta" (8.4a) — a informação não desaparece, só muda de lugar, e
+  "Escritório ativo" continua presente na tela (não dentro de um
+  `<details>` fechado) porque a impressão depende dele em telas sem
+  timbre (ver 8.5 e o teste
   `test_cabecalho_mostra_escritorio_ativo_em_toda_pagina_autenticada`).
-- `_navegacao_empresa.html` (os sete atalhos com `Alt+`) fica oculta
-  nesta largura — com o dropdown agora completo (8.1), ela vira
+- `_navegacao_empresa.html` (os seis atalhos com `Alt+`) fica oculta
+  nesta largura — com o dropdown/gaveta agora completo (8.1), ela vira
   redundante justamente na largura onde espaço é mais caro; os atalhos
   de teclado continuam documentados e funcionando (não dependem de
   estarem visíveis), só o texto/link visual some.
-- Resultado medido no Balancete, 390×844, com as três mudanças acima:
-  título a **≈230px** do topo (era ≈470px) — melhora de ~51%, mas não
-  cravou a meta informal de <200px pedida na revisão; registrado como
-  resultado honesto, não arredondado para a meta.
 
 ### 8.1b Largura do conteúdo em telas grandes
 
@@ -479,12 +507,16 @@ entregue). O TOM é reforço; o texto do botão já nomeia a consequência
 arquétipo E (§2) aplicada ao próprio rótulo do botão, não só ao texto ao
 redor dele.
 
-### 8.4a Menu "Conta" (DL-040, segunda passada)
+### 8.4a Menu "Conta" (DL-040, segunda passada; reposicionado na DL-042)
 
-Usuário, e o botão "Sair" ficam agrupados num dropdown "Conta" no canto
-direito da barra superior (mesmo padrão `<details>`/`<summary>` do menu
-de módulo, sem JavaScript), liberando a faixa de contexto para
-informação do DOCUMENTO/tela em vez de informação da SESSÃO. **Uma
+Usuário, e o botão "Sair" ficam agrupados num dropdown "Conta" (mesmo
+padrão `<details>`/`<summary>` do menu de módulo, sem JavaScript),
+liberando a faixa de contexto para informação do DOCUMENTO/tela em vez de
+informação da SESSÃO. **Revisão (DL-042):** o menu "Conta" migrou do
+canto superior direito (DL-040) para o RODAPÉ da barra lateral —
+`.barra-lateral__rodape`, mesmo padrão "configurações/perfil no rodapé"
+que `shell-navegacao.md` (skill) recomenda para a navegação lateral;
+conteúdo e regras idênticos, só a posição mudou. **Uma
 exceção deliberada:** "Escritório ativo" **não** entrou no menu Conta —
 continua na faixa de contexto (`.cabecalho__contexto`), porque cinco
 telas sem timbre próprio dependem dele para identificação no papel
@@ -503,7 +535,23 @@ não existem.
 Menu, trilha e qualquer seletor de navegação somem no papel — a mesma
 lista de `display: none` de `@media print` que já escondia o menu antigo
 ganhou as classes novas (`.trilha`), sem precisar de uma segunda regra:
-`.menu-dropdown` nasceu DENTRO de `.cabecalho__topo`, que já era oculto
-inteiro. Medido nesta etapa, por captura de tela em modo impressão do
-produto real: o documento impresso não ganhou nem perdeu identificação
-nenhuma — ver o relatório de entrega da DL-040.
+`.menu-dropdown` nasce DENTRO de `.barra-lateral` (DL-042) ou, antes
+dela, de `.cabecalho__topo` (DL-040) — em qualquer um dos dois, o
+container já era oculto inteiro. Medido na DL-040, por captura de tela em
+modo impressão do produto real: o documento impresso não ganhou nem
+perdeu identificação nenhuma.
+
+**DL-042, verificado por navegador real (Chromium, `page.emulate_media
+("print")`, contra o produto rodando de verdade, não simulação de CSS em
+Python):** no Balancete (tela COM timbre), `.barra-lateral` fica oculta,
+`.cabecalho__contexto` continua visível, `.timbre-impressao` aparece; no
+Plano de contas (tela SEM timbre), `.barra-lateral` também some e
+`.cabecalho__contexto` — com "Escritório ativo" — continua sendo a única
+identificação do emitente, visível. **Não medido nesta etapa:** a
+PAGINAÇÃO do PDF (quantas folhas, se o cabeçalho da tabela repete em
+cada uma) — `scripts/medir_identificacao_do_emitente.py` exige
+`pdfinfo`/`pdftotext` (poppler-utils), indisponíveis neste ambiente (sem
+rede para `apt install`); a suíte `pytest` de timbre/impressão
+(`apps/contabilidade/tests/test_bl282_timbre_de_impressao.py`) continua
+verde. Rodar aquele script antes de integrar, num ambiente com
+poppler-utils — ver "Bloqueado" no relatório de entrega da DL-042.

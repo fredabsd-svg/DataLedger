@@ -249,6 +249,194 @@ já decide a favor da barra superior sem precisar do número exato. **Não**
 foi medida uma variante lateral de verdade nesta etapa — a decisão é por
 aplicação da régua já existente, não por um segundo protótipo.
 
+## Diagnóstico DL-042 (modo revisão da skill saas-design-excellence)
+
+Feito por leitura de `templates/**`, `static/css/base.css` e das telas
+renderizadas (capturas em `docs/assets/telas/dl042/`), contra o "portão de
+qualidade" e os anti-padrões da skill. Usuário: contador em rotina de
+produção, especialista, várias horas por dia — a densidade e o vocabulário
+técnico já assumidos pelo produto (competência, lançamento, balancete)
+continuam corretos e não foram simplificados.
+
+### O que já funcionava bem (preservado, não redesenhado)
+
+- Números tabulados, alinhados à direita, com D/C e parênteses de valor
+  invertido em TEXTO, nunca só cor — exatamente o que o portão de
+  qualidade cobra e o "SaaS genérico" costuma errar.
+- Cabeçalho de tabela fixo, densidade medida (§4.8 da direção de arte),
+  trilha, estados vazio/erro/sem permissão já tratados nas etapas
+  anteriores (DL-009/DL-017/DL-026).
+- Uma cor de acento só, foco visível e com contraste calculado, formatos
+  pt-BR corretos.
+- Nenhum dos anti-padrões "cartão para tudo", "dashboard de KPI vazio" ou
+  "modal para edição complexa" — o produto já evitava isso antes desta
+  etapa.
+
+### Achados, por severidade
+
+**Alto**
+
+1. **Nenhum ícone existia no produto** — a barra superior da DL-040 era só
+   texto. Isso é coerente com a identidade "papel e tinta" (tipografia é a
+   estrutura), mas inviabiliza uma barra lateral RECOLHÍVEL — sem ícone,
+   recolher para ~56px deixa a navegação ilegível. Corrigido nesta etapa
+   com um conjunto próprio de ícones SVG (sprite de `<symbol>`,
+   `templates/base.html`), mínimo e no mesmo traço, sem virar "decoração"
+   (a skill adverte: ênfase visual é orçamento, gasto só onde ajuda a
+   decisão — aqui o ícone existe só para o modo recolhido funcionar).
+
+**Médio — todos fechados na 2ª passada (pedido do Fred: "landing page e
+telas de navegação, botões, módulos, TUDO")**
+
+2. ~~Faltava o tom "fantasma" (ghost) de botão.~~ **Resolvido.**
+   `.botao--fantasma` criado só quando o primeiro uso real apareceu:
+   "Limpar filtros" em `fiscal/documentos_lista.html`, ao lado do
+   "Consultar" primário, visível só quando `algum_filtro_ativo` é
+   verdadeiro. Nenhum outro lugar do produto precisou do quarto tom nesta
+   rodada.
+3. ~~"Início" continua sendo só o seletor de escritório.~~ **Resolvido.**
+   `apps.tenancy.views._fila_de_atencao` (cinco categorias: empresas sem
+   plano de contas, competências de meses anteriores ainda abertas,
+   envios fiscais com recusa recente, notas canceladas recebidas,
+   empresas CPF em livro-caixa), sempre filtrada por `request.escritorio`
+   e gated pelas mesmas `papel_pode_ler_contabilidade`/
+   `papel_pode_consultar_documentos` que as telas já usam — nunca uma
+   lista de papéis própria. Testado
+   (`apps/tenancy/tests/test_dl042_fila_de_atencao.py`): isolamento entre
+   escritórios, CLIENTE não vê a seção, número de consultas medido em 14
+   com pendência simultânea nas cinco categorias (teto do teste: 20).
+4. ~~Distância do `<h1>` a 390×844 piorou (270px).~~ **Resolvido, medido
+   em 217px** (meta era ≤230px). Duas mudanças: `.contexto-item` virou
+   `flex-direction: row` só ≤48rem (rótulo e valor lado a lado — "Empresa:
+   Comércio X Ltda" numa linha, em vez de duas), cortando a faixa de
+   contexto pela metade SEM esconder Escritório/Empresa/Período/Emitido
+   em (todos continuam visíveis); e a trilha ganhou `margin`/`padding`
+   menores nessa mesma largura. Medido no Balancete, mesmo método
+   (`getBoundingClientRect`).
+5. **Botões e cabeçalho de página padronizados** em toda tela do mapa:
+   `plano_de_contas.html` tinha o único link de criação de uma lista
+   (`Nova conta`) sem `.cabecalho-pagina`/`.botao--primario` — corrigido,
+   mesmo padrão de `empresas/lista.html`/`fiscal/documentos_lista.html`.
+   Dois links "Voltar" sem estilo (`plano_de_contas.html`,
+   `balancete_emissao_recusada.html`) padronizados para `.botao--
+   secundario`, mesmo tom que toda outra tela de contabilidade já usa
+   para "Voltar". Verificado e mantido de propósito: `competencia_fechar.
+   html` usa o botão PRIMÁRIO (padrão), não perigoso — "fechar" é a
+   rotina esperada; "reabrir"/"entregar" são as ações sensíveis
+   (`.botao--perigoso`) — diferença de risco real, não inconsistência.
+
+**Alto — achado só nesta rodada, ao ler o CSS por inteiro**
+
+6. **~120 linhas de CSS duplicadas byte a byte** em `static/css/base.css`
+   desde o commit da reescrita da moldura (`.cabecalho__contexto`,
+   `.contexto-item`, `.contexto-rotulo`, `.navegacao-empresa`, `.item-
+   atual`, `.sessao-usuario`, `.form-sair` — cada regra escrita duas
+   vezes). Inofensivo em efeito (a segunda cópia reafirmava os MESMOS
+   valores — nenhuma das duas tinha sido editada sem a outra, ainda), mas
+   exatamente a classe de defeito que o AGENTS.md nomeia: duas cópias do
+   mesmo fato divergem assim que uma for editada sem a outra. Corrigido:
+   uma cópia só.
+
+**Polimento**
+
+7. Landing/login/cadastro tinham uma escala tipográfica e paleta ESCURA
+   próprias (DL-034/037), diferentes da identidade "papel e tinta" do
+   produto autenticado. **Resolvido nesta rodada** (não estava nas
+   pendências da 1ª passada por engano — ver a nota no início desta
+   seção): reescritas com os mesmos tokens de cor do produto; a escala
+   TIPOGRÁFICA maior continua própria (`--public-*`), decisão deliberada
+   registrada em `base.css` — é uma página de leitura de 30 segundos, não
+   a densidade de uma tela de trabalho.
+8. O painel de submenu recolhido (barra a ~56px, grupo aberto) é um
+   flyout `position: absolute` que pode colidir com a borda direita da
+   tela em monitores muito estreitos entre 48rem e ~60rem — não medido
+   nesta etapa (o portão de qualidade pede 360/768/1280/ultralargo; esta
+   faixa intermediária específica ficou de fora).
+
+**Revisão final do arquiteto (mesma rodada — dois ajustes antes do PR)**
+
+9. ~~A barra lateral não ocupava a altura inteira da janela em página
+   curta.~~ **Resolvido.** `.app-shell` usa `align-items: flex-start` (não
+   o `stretch` padrão, por causa da linha móvel de marca/gatilho, que não
+   deve esticar) — sem `align-self` próprio, `.barra-lateral` só media a
+   altura do próprio conteúdo de navegação (~290px no Painel), deixando o
+   resto da coluna esquerda sem o fundo `--papel-alt`. Adicionado
+   `align-self: stretch` em `.barra-lateral` (`static/css/base.css`):
+   medido com `getBoundingClientRect` no Painel (página curta) e no
+   Balancete (página longa, `docScrollH` 3049px) em `scrollY` 0/800/1600 —
+   a caixa da barra permanece `top:0, height:900` (viewport 1440×900) em
+   todas as posições, sem quebrar a gaveta móvel (≤48rem, que já usa
+   `position: fixed` e não depende de `align-self`) nem o print (a barra
+   segue na lista oculta de `@media print`).
+10. ~~A landing tinha uma frase e uma pergunta de FAQ com posicionamento
+    comercial de SaaS.~~ **Resolvido.** O Fred já tinha rejeitado esse
+    posicionamento na DL-036. Removidos: "Sem cartão de crédito. Leva
+    menos de dois minutos para criar o escritório e a primeira empresa."
+    do herói (também violava a regra de não afirmar sem medir — "menos de
+    dois minutos" nunca foi cronometrado) e a pergunta "Preciso de cartão
+    de crédito para começar?" do FAQ, com a resposta. O restante da
+    landing foi conferido contra o mesmo critério (venda, plano pago,
+    preço, teste grátis) — nada mais encontrado.
+
+### Ajustes de alto impacto aplicados nas duas rodadas
+
+- Ícones SVG inline (achado 1).
+- `align-content: flex-start` em `.app-shell` — sem isso, a barra lateral
+  recolhida em CSS "esticava" a primeira linha da moldura móvel e
+  empurrava o conteúdo ~230px para baixo (medido em 390×844,
+  `empresas/lista.html`; ver o comentário em `static/css/base.css`).
+- Remoção do indicador "empresa atual" que uma primeira versão desta etapa
+  pôs na barra: vazava a razão social em telas de recusa de permissão
+  (403) porque `empresa_atual` resolve pela URL, antes da autorização real
+  — medido pelos próprios testes automatizados, não por inspeção manual.
+- Correção de `_PADRAO_MARCA` em `scripts/medir_identificacao_do_
+  emitente.py` (fora do escopo normal de arquivos desta etapa, corrigido
+  por ser guarda quebrada pela própria mudança de estrutura — só a
+  suíte COMPLETA, `pytest` sem restringir a `apps/`, revelou isso).
+
+## Revisão DL-042: barra lateral, não superior
+
+**A decisão da seção anterior foi REVERTIDA nesta etapa**, por ordem direta
+do Fred ("melhore o layout do sistema como um todo... use a skill
+saas-design-excellence") e decisão do arquiteto-senior sobre qual direção a
+skill recomenda para o "L invertido" (`references/shell-navegacao.md` da
+skill): **barra lateral esquerda, recolhível para ícones**, não mais a
+barra superior da DL-040.
+
+**O que muda no raciocínio acima.** O argumento da DL-040 ("uma lateral
+FIXA tira ~220px de largura, sempre") continua correto para uma lateral que
+não recolhe — mas deixa de valer sozinho como decisão final quando a
+lateral RECOLHE: a DL-042 implementa o recolhimento a
+`--largura-barra-lateral-recolhida` (3,5rem = 56px, só ícones, técnica CSS
+"checkbox hack", sem JavaScript — ver `templates/base.html` e
+`static/css/base.css`), então o custo de largura na tela de tabela passa a
+ser **escolha de quem usa a tela**, não uma perda fixa de 220px sempre. A
+largura EXPANDIDA (`--largura-barra-lateral`, 15rem = 240px) só se aplica
+quando a pessoa opta por deixá-la aberta.
+
+**O que NÃO foi medido nesta etapa, e por quê isso importa.** A régua de
+densidade do §4.8 da direção de arte (linhas visíveis em 1280×800, base de
+73 contas/60 lançamentos) exige o instrumento de
+`scripts/semear_base_de_medicao.py` mais o juiz do gauntlet — nenhum dos
+dois foi executado nesta etapa contra a NOVA moldura. Isso significa que a
+comparação "quantas linhas cabem com a barra lateral aberta, a 1280px" é
+**hipótese, não medição**: em largura de conteúdo fixa
+(`--largura-conteudo: 90rem`, que não mudou), reservar 240px para a barra
+reduz a largura disponível da tabela em relação à barra superior da
+DL-040, na MESMA proporção que a DL-040 já tinha calculado para uma
+lateral fixa. Quem for fechar a densidade do próximo módulo (Fiscal) sobre
+1280px precisa medir com a barra RECOLHIDA (56px) para reproduzir o piso
+já publicado, e registrar a diferença se medir com ela aberta — não
+assumir que os números do §4.8 continuam valendo sem checar o estado da
+barra.
+
+**O que continua igual.** O cabeçalho de página (título + trilha + contexto
++ ação primária, §8.3), o menu "Conta" no rodapé (em vez do canto superior
+direito), os mesmos `accesskey`/`aria-current`/permissões de módulo, e a
+identificação obrigatória do emitente na impressão (`.cabecalho__contexto`
+sai da barra — que é moldura, oculta na impressão — e passa a viver em
+`.area-principal`, junto do `<h1>` da tela).
+
 ## Fora do escopo desta entrega
 
 - Não foi criada tela nova de emissão de convite (`tenancy:emitir-convite`
