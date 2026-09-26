@@ -1,7 +1,9 @@
 from django import forms
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.empresas.services import modo_escrituracao_sugerido
+from apps.empresas.validators import validar_caepf
 
 
 def ajustar_obrigatoriedade_de_cnpj_cpf(form):
@@ -100,6 +102,22 @@ class EmpresaForm(forms.ModelForm):
        opcional que uma linha de `clean()` já decide. Uma tela só, com a
        sugestão em `clean()`, é o desenho mais simples que ainda cumpre a
        HI-23 sem depender de script nenhum.
+
+    5. **DL-046 (RC-129/HI-31)**: CAEPF, campo OPCIONAL, só para empresa
+       CPF. `clean()` reproduz as DUAS checagens de `EmpresaSerializer.
+       validate` (apps/empresas/serializers.py) — MESMA regra, MESMA
+       mensagem, DE-026: (a) preenchido com `tipo_inscricao` != CPF, (b)
+       incoerente estruturalmente com o CPF desta empresa (9 primeiros
+       dígitos diferentes). O FORMATO isolado (14 dígitos) já vem do
+       `validators=[validar_caepf]` do campo do MODELO (roda em
+       `clean_fields()`, antes de `clean()`), herdado automaticamente
+       pelo `ModelForm` — nenhuma duplicação aqui. Sem as duas checagens
+       de `clean()`, um CNPJ com CAEPF preenchido passaria por
+       `form.is_valid()` e só estouraria na gravação (a CheckConstraint
+       "empresa_caepf_so_para_cpf_com_formato_valido" do banco, sem
+       `violation_error_message` — mensagem genérica do Django, e
+       `criar_empresa` não captura `IntegrityError`/`RestricaoViolada`
+       nesta rota, então seria 500, não 400 com mensagem).
     """
 
     class Meta:
@@ -110,6 +128,7 @@ class EmpresaForm(forms.ModelForm):
             "tipo_inscricao",
             "cnpj",
             "cpf",
+            "caepf",
             "modo_escrituracao",
         ]
         help_texts = {
@@ -119,6 +138,7 @@ class EmpresaForm(forms.ModelForm):
             ),
             "cnpj": "Aceita com ou sem máscara.",
             "cpf": "Aceita com ou sem máscara.",
+            "caepf": "14 dígitos; só para pessoa física. Opcional, sem máscara.",
             "modo_escrituracao": (
                 "Se não escolher, o sistema aplica a sugestão: livro-caixa para "
                 "CPF, contabilidade para CNPJ. Você pode trocar quando quiser."
@@ -202,6 +222,25 @@ class EmpresaForm(forms.ModelForm):
             self.add_error("cnpj", "CNPJ não pode ser informado quando o tipo de inscrição é CPF.")
         elif tipo == TipoInscricao.CNPJ and cpf:
             self.add_error("cpf", "CPF não pode ser informado quando o tipo de inscrição é CNPJ.")
+
+        # DL-046 (RC-129/HI-31, ponto 5 da docstring da classe): as DUAS
+        # checagens de CAEPF, MESMA regra e MESMA mensagem de
+        # `EmpresaSerializer.validate` (apps/empresas/serializers.py),
+        # DE-026. O FORMATO isolado (14 dígitos) já foi validado por
+        # `clean_fields()` (o `validators=[validar_caepf]` do campo do
+        # modelo, herdado pelo `ModelForm`) — um CAEPF malformado nunca
+        # chega aqui truthy (mesmo raciocínio de `cnpj`/`cpf`, acima:
+        # valor que estourou em `to_python`/validadores de campo nunca
+        # entra em `cleaned_data`).
+        caepf = cleaned.get("caepf") or ""
+        if caepf and tipo != TipoInscricao.CPF:
+            self.add_error("caepf", "CAEPF só é aceito para empresa com tipo de inscrição CPF.")
+        elif caepf and cpf:
+            try:
+                validar_caepf(caepf, cpf=cpf)
+            except DjangoValidationError as exc:
+                for mensagem in exc.messages:
+                    self.add_error("caepf", mensagem)
 
         # HI-23 — sugestão sem JavaScript (ver o ponto 4 da docstring da
         # classe). Só entra em jogo quando o contador NÃO marcou nenhuma
