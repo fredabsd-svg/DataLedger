@@ -249,6 +249,49 @@ já decide a favor da barra superior sem precisar do número exato. **Não**
 foi medida uma variante lateral de verdade nesta etapa — a decisão é por
 aplicação da régua já existente, não por um segundo protótipo.
 
+## Revisão DL-042: barra lateral, não superior
+
+**A decisão da seção anterior foi REVERTIDA nesta etapa**, por ordem direta
+do Fred ("melhore o layout do sistema como um todo... use a skill
+saas-design-excellence") e decisão do arquiteto-senior sobre qual direção a
+skill recomenda para o "L invertido" (`references/shell-navegacao.md` da
+skill): **barra lateral esquerda, recolhível para ícones**, não mais a
+barra superior da DL-040.
+
+**O que muda no raciocínio acima.** O argumento da DL-040 ("uma lateral
+FIXA tira ~220px de largura, sempre") continua correto para uma lateral que
+não recolhe — mas deixa de valer sozinho como decisão final quando a
+lateral RECOLHE: a DL-042 implementa o recolhimento a
+`--largura-barra-lateral-recolhida` (3,5rem = 56px, só ícones, técnica CSS
+"checkbox hack", sem JavaScript — ver `templates/base.html` e
+`static/css/base.css`), então o custo de largura na tela de tabela passa a
+ser **escolha de quem usa a tela**, não uma perda fixa de 220px sempre. A
+largura EXPANDIDA (`--largura-barra-lateral`, 15rem = 240px) só se aplica
+quando a pessoa opta por deixá-la aberta.
+
+**O que NÃO foi medido nesta etapa, e por quê isso importa.** A régua de
+densidade do §4.8 da direção de arte (linhas visíveis em 1280×800, base de
+73 contas/60 lançamentos) exige o instrumento de
+`scripts/semear_base_de_medicao.py` mais o juiz do gauntlet — nenhum dos
+dois foi executado nesta etapa contra a NOVA moldura. Isso significa que a
+comparação "quantas linhas cabem com a barra lateral aberta, a 1280px" é
+**hipótese, não medição**: em largura de conteúdo fixa
+(`--largura-conteudo: 90rem`, que não mudou), reservar 240px para a barra
+reduz a largura disponível da tabela em relação à barra superior da
+DL-040, na MESMA proporção que a DL-040 já tinha calculado para uma
+lateral fixa. Quem for fechar a densidade do próximo módulo (Fiscal) sobre
+1280px precisa medir com a barra RECOLHIDA (56px) para reproduzir o piso
+já publicado, e registrar a diferença se medir com ela aberta — não
+assumir que os números do §4.8 continuam valendo sem checar o estado da
+barra.
+
+**O que continua igual.** O cabeçalho de página (título + trilha + contexto
++ ação primária, §8.3), o menu "Conta" no rodapé (em vez do canto superior
+direito), os mesmos `accesskey`/`aria-current`/permissões de módulo, e a
+identificação obrigatória do emitente na impressão (`.cabecalho__contexto`
+sai da barra — que é moldura, oculta na impressão — e passa a viver em
+`.area-principal`, junto do `<h1>` da tela).
+
 ## Fora do escopo desta entrega
 
 - Não foi criada tela nova de emissão de convite (`tenancy:emitir-convite`
