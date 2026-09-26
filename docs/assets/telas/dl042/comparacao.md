@@ -5,17 +5,25 @@ Capturas para o Fred aprovar a DL-042 antes da integração. Dados sintéticos
 `scripts/semear_base_de_medicao.py`, e documentos fiscais sintéticos de
 `apps/fiscal/tests/xml_sinteticos.py` — nenhum dado real), Chromium,
 26/09/2026. **Antes** é a versão da DL-040 já integrada (commit `41b28f2`,
-ponto de partida desta etapa); **depois** é a proposta da DL-042, ainda não
-integrada.
+ponto de partida desta etapa) — não recapturado na 2ª passada, por pedido do
+arquiteto-senior ("antes continua o de 41b28f2"). **Depois** é a proposta da
+DL-042 completa (2ª passada), recapturada depois de:
 
-A mudança principal está na MOLDURA: a barra SUPERIOR da DL-040 vira barra
-LATERAL esquerda, recolhível para ícones (raciocínio completo em
-[direção de arte §8](../../../projeto/direcao-de-arte.md) e
-[mapa de telas, "Revisão DL-042"](../../../projeto/mapa-de-telas.md)) — por
-isso toda tela autenticada muda, mesmo as que não tiveram alteração de
-conteúdo próprio. Landing, login e cadastro (`registration/public_base.html`)
-não têm captura de "antes" comparável porque não mudaram nesta etapa — ver a
-seção própria ao fim.
+1. Moldura em "L invertido": barra SUPERIOR da DL-040 vira barra LATERAL
+   esquerda, recolhível para ícones (raciocínio completo em
+   [direção de arte §8](../../../projeto/direcao-de-arte.md) e
+   [mapa de telas, "Revisão DL-042"](../../../projeto/mapa-de-telas.md)).
+2. Landing, login e cadastro redesenhados pela referência `fluxos-saas.md`
+   da skill — ver a seção própria ao fim (não são mais pixel-idênticas ao
+   "antes": a 1ª passada desta etapa tinha deixado essas três telas de
+   fora por engano, corrigido nesta rodada).
+3. "Início" como fila do que precisa de atenção (painel) — visível na
+   captura do Painel, abaixo.
+4. Botões e cabeçalho de página padronizados em toda tela do mapa (achados
+   e correções no diagnóstico, mapa-de-telas.md).
+5. Distância do título a 390×844 recuperada para ≤230px sem esconder
+   empresa/período (visível nas capturas de celular do Balancete/Diário/
+   Plano de contas).
 
 ## Painel (Início)
 
@@ -199,20 +207,61 @@ Celular (390 × 844):
 | --- | --- |
 | ![Antes](antes_fiscal_documento_detalhe_390x844.png) | ![Depois](depois_fiscal_documento_detalhe_390x844.png) |
 
-## Landing, login e cadastro
+## Landing
 
-Não mudaram nesta etapa (`registration/public_base.html` sobrescreve
-`{% block moldura %}` inteiro, sem depender da barra lateral) — capturadas
-para o registro ficar completo, mas antes/depois são **pixel-idênticas**
-(confirmado pelo tamanho de arquivo byte a byte igual):
+Reescrita completa pela referência `fluxos-saas.md`: proposta em 5 segundos
+(o que o DataLedger faz HOJE), uma ação primária ("Configurar meu
+ambiente") mais a secundária ("Entrar"), captura REAL do Balancete no
+herói (nunca ilustração abstrata), seção "O que já funciona hoje", grade
+de módulos com selo Disponível/Planejado, seção "Concebido para IA" com
+assistente/MCP marcados Planejados, e FAQ nativa. Paleta "papel e tinta" —
+igual à do produto autenticado — no lugar do painel escuro decorativo da
+DL-034/037.
 
-| Tela | Computador | Celular |
-| --- | --- | --- |
-| Landing | ![Depois](depois_landing_1440x900.png) | ![Depois](depois_landing_390x844.png) |
-| Login | ![Depois](depois_login_1440x900.png) | ![Depois](depois_login_390x844.png) |
-| Cadastro | ![Depois](depois_cadastro_1440x900.png) | ![Depois](depois_cadastro_390x844.png) |
+Computador (1440 × 900):
 
-Avaliação registrada no diagnóstico (mapa-de-telas.md, "Diagnóstico DL-042"):
-já atendem os princípios de `fluxos-saas.md` (uma ação primária, sem
-overclaiming — Fiscal/Folha/IA rotulados "planejado"), então não foram
-redesenhadas — o risco de regressão numa tela já testada superava o ganho.
+| Antes (DL-040/041, não redesenhada) | Depois (DL-042) |
+| --- | --- |
+| ![Antes](antes_landing_1440x900.png) | ![Depois](depois_landing_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_landing_390x844.png) | ![Depois](depois_landing_390x844.png) |
+
+## Login
+
+Cartão único centralizado sobre o fundo "papel" do produto, no lugar do
+painel escuro decorativo — preserva o link para cadastro e o texto "Criar
+ambiente para meu escritório" (contrato de
+`apps/accounts/tests/test_signup.py`).
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_login_1440x900.png) | ![Depois](depois_login_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_login_390x844.png) | ![Depois](depois_login_390x844.png) |
+
+## Cadastro
+
+Mesmo cartão único; o formulário continua percorrendo
+`form.visible_fields` sem hardcodar campo — nenhuma mudança de contrato.
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_cadastro_1440x900.png) | ![Depois](depois_cadastro_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_cadastro_390x844.png) | ![Depois](depois_cadastro_390x844.png) |
