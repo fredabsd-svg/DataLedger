@@ -159,14 +159,26 @@ class EmpresaAdminForm(forms.ModelForm):
         for campo, mensagem in erros_de_consistencia_de_inscricao(tipo, cnpj, cpf).items():
             self.add_error(campo, mensagem)
 
-        if cnpj:
-            duplicada = Empresa.objects.filter(cnpj=cnpj)
+        # DL-041 (RC-115/DE-077): a duplicidade só é examinada DENTRO do
+        # MESMO escritório — a unicidade deixou de ser global. `escritorio`
+        # não aparece em `cleaned_data` na EDIÇÃO (fica em
+        # `readonly_fields`, ver `EmpresaAdmin.get_readonly_fields` —
+        # campo somente-leitura é EXCLUÍDO do `ModelForm`, nunca chega a
+        # `cleaned_data`); nesse caso, o valor certo é o JÁ GRAVADO em
+        # `self.instance` (que nunca muda, DL-023). Na CRIAÇÃO, o campo é
+        # editável e vem de `cleaned_data` normalmente.
+        escritorio = cleaned_data.get("escritorio")
+        if escritorio is None and self.instance.pk:
+            escritorio = self.instance.escritorio
+
+        if cnpj and escritorio is not None:
+            duplicada = Empresa.objects.filter(cnpj=cnpj, escritorio=escritorio)
             if self.instance.pk:
                 duplicada = duplicada.exclude(pk=self.instance.pk)
             if duplicada.exists():
                 self.add_error("cnpj", mensagem_cnpj_duplicado(Empresa))
-        if cpf:
-            duplicada = Empresa.objects.filter(cpf=cpf)
+        if cpf and escritorio is not None:
+            duplicada = Empresa.objects.filter(cpf=cpf, escritorio=escritorio)
             if self.instance.pk:
                 duplicada = duplicada.exclude(pk=self.instance.pk)
             if duplicada.exists():

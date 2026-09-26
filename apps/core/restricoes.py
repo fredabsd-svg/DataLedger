@@ -164,10 +164,22 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # `UniqueConstraint` condicional, porque a unicidade do CNPJ de
     # `Empresa` deixou de poder ser incondicional (empresa CPF tem
     # `cnpj == ""`, e dois vazios nunca podem colidir). Mesmo ponto de
-    # tradução de sempre. `empresa_cpf_unico` é a entrada NOVA, simétrica.
-    "empresa_cnpj_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
-    "empresa_cpf_unico": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
-    "empresas_estabelecimento_cnpj_key": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    # tradução de sempre. `empresa_cpf_unico` foi a entrada nova, simétrica.
+    #
+    # DL-041 (RC-115/DE-077, decisão do Fred na PE-68): as TRÊS renomeadas
+    # para "..._por_escritorio" — a unicidade deixou de ser GLOBAL (um
+    # escritório não pode mais descobrir, pelo cadastro, que um CNPJ/CPF
+    # já é cliente de outro). `estabelecimento_cnpj_unico_por_escritorio`
+    # substitui o índice implícito `empresas_estabelecimento_cnpj_key`
+    # (Estabelecimento.cnpj deixou de ser `unique=True` de campo — ganhou
+    # a coluna `escritorio`, desnormalizada de `empresa.escritorio`, ver
+    # `apps/empresas/models.py`). Mesmo ponto de tradução dos três, sem
+    # mudança nenhuma na FUNÇÃO — só o NOME da constraint mudou.
+    "empresa_cnpj_unico_por_escritorio": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "empresa_cpf_unico_por_escritorio": "apps.empresas.services.erro_de_cnpj_duplicado_como_400",
+    "estabelecimento_cnpj_unico_por_escritorio": (
+        "apps.empresas.services.erro_de_cnpj_duplicado_como_400"
+    ),
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
     # DL-018 — token do convite é gerado com `get_random_string(32)` (~190

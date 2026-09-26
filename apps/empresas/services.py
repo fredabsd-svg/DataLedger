@@ -26,13 +26,22 @@ from apps.empresas.validators import mensagem_de_vigencia_de_regime_fora_da_faix
 # condicional — ver apps/empresas/models.py) porque a unicidade do CNPJ de
 # `Empresa` deixou de poder ser incondicional: duas empresas CPF têm
 # `cnpj == ""` e isso NUNCA pode contar como duplicata. `empresa_cpf_unico`
-# é a entrada nova, simétrica, para CPF (R3/PE-21: mesma política GLOBAL do
-# CNPJ). `empresas_estabelecimento_cnpj_key` não muda — `Estabelecimento`
-# continua exclusivamente CNPJ (R7).
+# foi a entrada nova, simétrica, para CPF.
+#
+# DL-041 (RC-115/DE-077, decisão do Fred na PE-68): as TRÊS constraints
+# passaram a ser POR ESCRITÓRIO — `empresa_cnpj_unico`/`empresa_cpf_unico`
+# viraram `..._por_escritorio` (a unicidade GLOBAL revelava, a um
+# escritório, que um CNPJ/CPF já era cliente de OUTRO), e
+# `empresas_estabelecimento_cnpj_key` (índice implícito do antigo
+# `unique=True` de `Estabelecimento.cnpj`) foi SUBSTITUÍDA por
+# `estabelecimento_cnpj_unico_por_escritorio` — `Estabelecimento` ganhou
+# uma coluna `escritorio` (desnormalizada de `empresa.escritorio`, ver o
+# comentário completo em `apps/empresas/models.py`) especificamente para
+# isso. Os NOMES trocaram; os TIPOS (campo, rótulo) continuam os mesmos.
 _CONSTRAINTS_INSCRICAO_UNICA = {
-    "empresa_cnpj_unico": (Empresa, "cnpj", "CNPJ"),
-    "empresas_estabelecimento_cnpj_key": (Estabelecimento, "cnpj", "CNPJ"),
-    "empresa_cpf_unico": (Empresa, "cpf", "CPF"),
+    "empresa_cnpj_unico_por_escritorio": (Empresa, "cnpj", "CNPJ"),
+    "estabelecimento_cnpj_unico_por_escritorio": (Estabelecimento, "cnpj", "CNPJ"),
+    "empresa_cpf_unico_por_escritorio": (Empresa, "cpf", "CPF"),
 }
 
 
@@ -103,8 +112,16 @@ def mensagem_cnpj_duplicado(model, rotulo="CNPJ"):
     modelo, para não hardcodear "empresa"/"estabelecimento" em dois
     lugares). `rotulo` é "CNPJ" por padrão (compatibilidade com os dois
     chamadores existentes, que só tratam CNPJ) — DL-038 passa "CPF" para
-    o caso novo."""
-    return f"{model._meta.verbose_name} com este {rotulo} já existe."
+    o caso novo.
+
+    DL-041 (RC-115/DE-077, critério 4 do plano): "neste escritório" no
+    fim — a mensagem NUNCA pode dar a entender que a duplicidade é
+    GLOBAL, porque não é mais: o mesmo CNPJ/CPF pode existir, legitimamente,
+    em outro escritório (o caso normal de cliente que troca de contador).
+    Sem essa frase, "empresa com este CNPJ já existe" seria ambíguo — o
+    contador não saberia se é um cadastro seu duplicado ou uma coincidência
+    seguida de rejeição misteriosa."""
+    return f"{model._meta.verbose_name} com este {rotulo} já existe neste escritório."
 
 
 class CNPJDuplicado(ValidationError):
@@ -195,8 +212,9 @@ def erro_de_cnpj_duplicado_como_400():
     traduzir só o tipo estreito para o formato de erro certo.
 
     Só a violação das constraints de ``_CONSTRAINTS_INSCRICAO_UNICA``
-    (``empresa_cnpj_unico``, ``empresa_cpf_unico``,
-    ``empresas_estabelecimento_cnpj_key``) é traduzida
+    (``empresa_cnpj_unico_por_escritorio``, ``empresa_cpf_unico_por_
+    escritorio``, ``estabelecimento_cnpj_unico_por_escritorio`` — DL-041,
+    RC-115) é traduzida
     (``mensagem_se_cnpj_duplicado`` devolve ``(None, None)`` para qualquer
     outra causa, e este gerenciador deixa o ``IntegrityError`` original
     subir sem tradução nesse caso) — não repetir o erro da DL-007, que
