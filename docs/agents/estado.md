@@ -21,16 +21,18 @@ Regras deste arquivo, aprendidas com defeito:
 
 ## Resumo
 
-Medido em 25/09/2026 no código e no Git, não copiado de documento anterior.
+Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; atualizado em 26/09/2026 com as DL-010 F1, DL-038, DL-041 e DL-043.
 
 | Área | O que existe hoje |
 | --- | --- |
 | Plataforma | Escritórios isolados entre si, usuários, papéis, entrada pública, cadastro de novo escritório, primeiro acesso e convite |
 | Cadastro | Empresas e estabelecimentos, CNPJ alfanumérico, histórico de regime tributário, NIRE |
-| Contabilidade | Plano de contas hierárquico com circulante/não circulante; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote |
+| Contabilidade | Plano de contas hierárquico com circulante/não circulante; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043, a integrar pelo PR) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
-| **Não existe** | **DRE**; **encerramento do exercício (zeramento)**; recepção de documentos fiscais; módulos Fiscal, Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
+| Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
+| **Não existe** | **DRE**; compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
 **Verificação local em 25/09/2026** (PostgreSQL 16, Python 3.13.12, commit do
 merge do PR #46): `ruff check`, `ruff format --check`, `manage.py check`,
@@ -87,10 +89,10 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
 | [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Integrada (PR #47) |
 | [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
-| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Integrada (PR #48) |
+| [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Integrada (PR #48) |
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -99,26 +101,22 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — PR #48 (DL-040, DL-041, DL-042) aguardando o merge do Fred; DL-043
-em correção final; DL-044 (visual das telas de trabalho) em desenho.**
+**AGORA — DL-043 pronta para PR; DL-044 (visual das telas de trabalho) em
+desenho.**
 
-- **DL-010 F1, DL-038 e DL-039**: integradas à `main` pelo PR #47.
-- **PR #48** (DL-040 navegação, DL-041 unicidade por escritório, DL-042
-  redesenho global): as quatro checagens verdes e sem conflito em 26/09. Os
-  agentes deste ambiente não têm ferramenta de merge com escrita; **o merge é
-  do Fred**. DL-041 encerrada com ressalvas baixas na
-  [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md) (BL-539,
-  BL-540); conteúdo nos commits `92b4503` e `6b76ddc` (mensagens de
-  "preservação" por causa do gancho do ambiente).
-- **DL-043** (parâmetros contábeis e zeramento, nível 1): servidor, telas e
-  correções na branch local `dl043-correcao` (worktree fora do repositório).
-  Rodada 1 **reprovada**; reconferência **reprovada** por uma regressão
-  (deadlock da trava por empresa, R1) e pelo caminho de recuperação que o
-  produto não oferecia (R2). Decisões no adendo da DE-078; correção final em
-  andamento, **sem terceira rodada** (AGENTS.md §3.1) — fechamento pelos testes
-  que a reconferência propôs. Pendências novas para o Fred: HI-26/PE-38
+- **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48 (merge do Fred em
+  26/09).
+- **DL-043** (parâmetros contábeis e zeramento, nível 1): na branch
+  `claude/vigilant-bardeen-jo12l4`, aguardando PR. Rodada 1
+  ([relatório](../auditorias/2026-09-26-dl-043-rodada-1.md)) e
+  [reconferência](../auditorias/2026-09-26-dl-043-reconferencia.md) **reprovadas**;
+  a última correção (R1–R6, decisões no adendo da DE-078) foi fechada **sem
+  terceira rodada** (AGENTS.md §3.1): os seis testes que a reconferência propôs
+  existem e passam, e os mutantes N6, N14, N15, N16, R1, R2 e R4 morrem —
+  conferido por verificação independente (seção "Verificação do fechamento" do
+  [plano](../planos/DL-043-parametros-contabeis-e-zeramento.md)). O Fred decide no
+  PR se aceita esse fechamento. Pendências dele: HI-24, HI-25, HI-26/PE-38
   (compensação de lucros e prejuízos acumulados) e PE-69 (desfazer zeramento).
-  Os relatórios entram no repositório com o PR da DL-043.
 - **DL-044** (telas de trabalho com aspecto de produto profissional, nível 2):
   o Fred reprovou o visual das telas internas da DL-042 ("aspecto de vazio",
   "botão parece link", "arcaico", "tudo junto num lugar só") e aprovou a

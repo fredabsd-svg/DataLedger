@@ -1096,3 +1096,140 @@ class ItemLancamento(models.Model):
         raise LancamentoImutavelError(
             "Itens de lançamento não podem ser excluídos; registre um estorno."
         )
+
+
+class PeriodicidadeZeramento(models.TextChoices):
+    """RC-105 (confirmado pelo Fred em 2026-09-20): a periodicidade do
+    zeramento do resultado é ALTERNATIVA e por empresa — mensal, trimestral
+    OU anual, nunca duas ao mesmo tempo na mesma empresa (a
+    `UniqueConstraint` de vigência aberta em `ParametroContabilEmpresa.Meta`,
+    abaixo, é o que torna isso garantia do BANCO, não promessa de tela).
+
+    Trimestre e ano são CIVIS (RC-104/RC-105, confirmado pelo Fred): a
+    periodicidade trimestral zera em março, junho, setembro e dezembro; a
+    anual, só em dezembro. `apps.contabilidade.services.zerar_resultado` é
+    quem aplica essa correspondência entre periodicidade e mês de
+    encerramento — este enum só nomeia os três valores.
+    """
+
+    MENSAL = "mensal", "Mensal"
+    TRIMESTRAL = "trimestral", "Trimestral"
+    ANUAL = "anual", "Anual"
+
+
+class ParametroContabilEmpresa(models.Model):
+    """Parâmetro contábil de uma empresa, com VIGÊNCIA (DL-043/BL-474).
+
+    O DataLedger não tinha, antes desta etapa, nenhum lugar para guardar
+    parâmetro contábil por empresa (BL-474) — o zeramento é o primeiro a
+    precisar. No MOLDE de `apps.empresas.models.HistoricoRegimeTributario`
+    (DE-039, RC-85/RC-86), e de propósito: o mesmo problema (parâmetro que
+    muda no meio do tempo, e cuja mudança não pode reescrever o que já foi
+    apurado sob o valor antigo) já tinha solução aceita neste projeto —
+    inventar um terceiro jeito seria o erro que a BL-474 avisa para não
+    cometer.
+
+    Guarda dois parâmetros, os dois exigidos pelo zeramento (RC-104/RC-105):
+    a periodicidade e as TRÊS contas de destino. `apps.contabilidade.
+    services.zerar_resultado` lê a vigência aplicável à DATA FINAL do
+    período que está zerando — nunca a vigência "atual" no momento da
+    chamada — para que reprocessar um período antigo continue usando o
+    parâmetro que valia NAQUELE período (mesmo raciocínio de
+    `HistoricoRegimeTributario` para apuração fiscal histórica).
+
+    ⚠️ **As TRÊS contas de destino são validadas pelo SERVIÇO
+    (`apps.contabilidade.services.registrar_parametro_contabil`), não por
+    `clean()` deste modelo.** Decisão deliberada, não descuido: este modelo
+    não tem (e não deve ganhar) um segundo caminho de escrita por
+    admin/`ModelForm` — o mesmo padrão que `HistoricoRegimeTributarioInline`
+    já tinha e foi REMOVIDO do admin de empresas (DL-023/BL-211, ver
+    `apps/empresas/admin.py`), porque um `ModelForm` grava por `full_clean()`
+    e contorna a checagem de concorrência/vigência que só o SERVIÇO faz sob
+    `select_for_update()`. Com uma única porta de escrita, duplicar a
+    validação em `clean()` seria a segunda cópia da regra que o AGENTS.md
+    §8 proíbe, sem nenhum caminho que a alcançasse.
+
+    ⚠️ **Não sobreposição, garantida em DUAS camadas (DL-043, critério 1):**
+    1. `UniqueConstraint` condicional (`vigencia_fim IS NULL`): no máximo UMA
+       vigência ABERTA por empresa — a mesma técnica de
+       `HistoricoRegimeTributario`.
+    2. Um GATILHO, só em PostgreSQL (migração 0009, mesmo padrão
+       condicionado a `connection.vendor` das migrações 0010–0013 de
+       `apps.empresas`/DL-039/DL-041): recusa QUALQUER `INSERT`/`UPDATE`
+       cujo intervalo `[vigencia_inicio, vigencia_fim ou infinito]` se
+       sobreponha ao de outra linha da MESMA empresa — inclusive vigências
+       já FECHADAS, que a constraint 1 não alcança (ela só protege a
+       aberta). É defesa em profundidade: o serviço já fecha a vigência
+       anterior de forma sequencial (nunca produz sobreposição pelo
+       caminho normal), mas o gatilho recusa também `bulk_create`/
+       `QuerySet.update()`/SQL direto. **Limite ACEITO e declarado**
+       (mesmo padrão das migrações 0010–0013): em SQLite (desenvolvimento
+       local, DE-014) só a camada 1 existe — produção nunca roda SQLite
+       (`config/settings.py` recusa com `DEBUG=False`).
+
+    ⚠️ **Medido pelo auxiliar de teste da DL-043, e vale registrar para
+    quem for depurar um `IntegrityError` daqui:** em PostgreSQL, com as
+    DUAS camadas ativas, tentar abrir uma SEGUNDA vigência aberta
+    (`vigencia_fim=None`) para a mesma empresa SEMPRE estoura pelo GATILHO
+    (`parametro_contabil_sem_sobreposicao`), nunca pela `UniqueConstraint`
+    (`um_periodo_de_parametro_contabil_aberto_por_empresa`) — porque o
+    gatilho `BEFORE INSERT` roda ANTES da checagem do índice único (ordem
+    de execução do próprio PostgreSQL), e `daterange(inicio, 'infinity',
+    '[]')` de uma vigência aberta sempre cruza com o de qualquer outra
+    vigência aberta, seja qual for a data de início das duas. A
+    `UniqueConstraint` continua sendo a barreira OBSERVÁVEL nesse cenário
+    apenas em SQLite (sem gatilho) — nunca em produção/neste banco de
+    teste. Ver `test_criterio6_segunda_vigencia_aberta_simultanea_viola_
+    unique_constraint_do_banco`
+    (`apps/contabilidade/tests/test_dl043_parametro_contabil.py`), que
+    aceita os dois nomes de constraint por este motivo, documentado ali.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.CASCADE, related_name="parametros_contabeis"
+    )
+    periodicidade_zeramento = models.CharField(
+        "periodicidade do zeramento", max_length=10, choices=PeriodicidadeZeramento.choices
+    )
+    conta_resultado_do_exercicio = models.ForeignKey(
+        Conta,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="conta de resultado do exercício",
+    )
+    conta_lucros_acumulados = models.ForeignKey(
+        Conta,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="conta de lucros acumulados",
+    )
+    conta_prejuizos_acumulados = models.ForeignKey(
+        Conta,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="conta de (-) prejuízos acumulados",
+    )
+    vigencia_inicio = models.DateField("vigência (início)")
+    vigencia_fim = models.DateField("vigência (fim)", null=True, blank=True)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "parâmetro contábil da empresa"
+        verbose_name_plural = "parâmetros contábeis da empresa"
+        ordering = ["-vigencia_inicio", "-id"]
+        constraints = [
+            # Camada 1 da não sobreposição — ver o docstring da classe.
+            # Mesma técnica de "um_periodo_de_regime_aberto_por_empresa"
+            # (HistoricoRegimeTributario.Meta).
+            models.UniqueConstraint(
+                fields=["empresa"],
+                condition=models.Q(vigencia_fim__isnull=True),
+                name="um_periodo_de_parametro_contabil_aberto_por_empresa",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.empresa} — zeramento {self.get_periodicidade_zeramento_display()} "
+            f"desde {self.vigencia_inicio}"
+        )

@@ -6,11 +6,14 @@ from apps.contabilidade.views import (
     ContaListCreateView,
     DiarioView,
     EncerrarCompetenciaView,
+    EncerrarVigenciaParametroContabilView,
     EntregarCompetenciaView,
     EstornarLancamentoView,
     LancamentoListCreateView,
+    ParametrosContabeisListCreateView,
     RazaoView,
     ReabrirCompetenciaView,
+    ZerarResultadoView,
 )
 
 app_name = "contabilidade"
@@ -57,5 +60,24 @@ urlpatterns = [
         "empresas/<int:empresa_id>/conferencia/lotes-desbalanceados/",
         ConferenciaLotesDesbalanceadosView.as_view(),
         name="conferencia-lotes-desbalanceados",
+    ),
+    # DL-043 fatia 1: parâmetro contábil por empresa, com vigência.
+    path(
+        "empresas/<int:empresa_id>/parametros-contabeis/",
+        ParametrosContabeisListCreateView.as_view(),
+        name="parametros-contabeis",
+    ),
+    path(
+        "empresas/<int:empresa_id>/parametros-contabeis/encerrar/",
+        EncerrarVigenciaParametroContabilView.as_view(),
+        name="parametros-contabeis-encerrar",
+    ),
+    # DL-043 fatia 2: zeramento do resultado — `ano`/`mes` identificam o
+    # RECURSO (o período cuja competência final é ano/mes), mesmo padrão
+    # das rotas de competência acima.
+    path(
+        "empresas/<int:empresa_id>/zeramento/<int:ano>/<int:mes>/",
+        ZerarResultadoView.as_view(),
+        name="zeramento",
     ),
 ]
