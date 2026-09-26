@@ -49,8 +49,10 @@ from apps.empresas.services import (
     CNPJDuplicado,
     EstabelecimentoParaEmpresaCPF,
     ExclusaoDeRegimeInvalida,
+    InscricaoCruzadaEntreEmpresaEEstabelecimento,
     erro_de_cnpj_duplicado_como_400,
     excluir_ultimo_regime_tributario,
+    recusar_cnpj_de_estabelecimento_igual_a_outra_empresa,
     recusar_estabelecimento_para_empresa_cpf,
     registrar_regime_tributario,
 )
@@ -425,6 +427,20 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
             recusar_estabelecimento_para_empresa_cpf(empresa)
         except EstabelecimentoParaEmpresaCPF as exc:
             raise DRFValidationError({"empresa": exc.messages}) from exc
+
+        # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+        # arquiteto-senior): o CNPJ deste estabelecimento não pode ser o
+        # MESMO de OUTRA empresa do mesmo escritório — a matriz com o CNPJ
+        # da PRÓPRIA `empresa` (a que esta rota está escopada por
+        # `get_empresa()`) continua permitida, de propósito.
+        cnpj = serializer.validated_data.get("cnpj")
+        if cnpj:
+            try:
+                recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+                    empresa.escritorio_id, cnpj, empresa_do_estabelecimento=empresa
+                )
+            except InscricaoCruzadaEntreEmpresaEEstabelecimento as exc:
+                raise DRFValidationError({"cnpj": exc.messages}) from exc
 
         # Mesmo tratamento de corrida do achado R4 em EmpresaListCreateView
         # (ver comentário lá): cnpj de Estabelecimento também é unique=True.

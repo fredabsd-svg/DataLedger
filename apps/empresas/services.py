@@ -640,3 +640,71 @@ def recusar_transicao_para_cpf_com_estabelecimento(empresa, *, tipo_anterior, ti
             "(matriz/filial) gravado. Exclua os estabelecimentos antes de trocar o "
             "tipo de inscrição."
         )
+
+
+# ---------------------------------------------------------------------------
+# Achado U-B4 da auditoria DL-041 rodada 1 (preexistente à DL-041, gravidade
+# baixa, decisão do arquiteto-senior): dentro do MESMO escritório, nada
+# impedia o CNPJ X ser, ao mesmo tempo, o CNPJ de uma `Empresa` E de um
+# `Estabelecimento` de OUTRA empresa — a recepção fiscal identifica por
+# dicionário (`apps.fiscal.services._mapa_de_inscricoes_do_escritorio`) e
+# escolhe UM dos dois (o `Empresa` vence, por `setdefault`), sem aviso: a
+# nota daquele CNPJ pode ir para a empresa errada, silenciosamente. O caso
+# LEGÍTIMO — a matriz de uma empresa usar o MESMO CNPJ da própria empresa —
+# não é afetado: só a colisão com uma empresa ou estabelecimento de OUTRA
+# empresa é recusada.
+#
+# LIMITE DECLARADO (decisão do arquiteto-senior): sem restrição de banco
+# nesta etapa — é uma invariante CRUZADA entre `Empresa` e
+# `Estabelecimento`, e as duas colunas de CNPJ vivem em tabelas
+# DIFERENTES; uma `CheckConstraint`/`UniqueConstraint` de `Meta` não
+# alcança isso (mesma classe de limite do achado B2/DL-039, que resolveu
+# com GATILHO — aqui a decisão foi NÃO abrir mais um gatilho para uma
+# invariante de gravidade baixa, preexistente, sem caminho de corrida
+# multi-tabela conhecido). A defesa fica só nas camadas 2 (serviço) e 3
+# (serializer/form `clean()`) da DE-008: admin, API e `Model.clean()`.
+class InscricaoCruzadaEntreEmpresaEEstabelecimento(ValidationError):
+    """CNPJ que colide entre `Empresa` e `Estabelecimento` de empresas
+    DIFERENTES do MESMO escritório. Subclasse de `ValidationError`, mesmo
+    contrato de `EstabelecimentoParaEmpresaCPF`."""
+
+
+def recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+    escritorio_id, cnpj, *, empresa_do_estabelecimento
+):
+    """Levanta se `cnpj` (de um `Estabelecimento` sendo criado/editado)
+    já é o CNPJ de uma `Empresa` DIFERENTE de `empresa_do_estabelecimento`,
+    no MESMO escritório (`escritorio_id`, nunca o objeto — evita resolver
+    uma FK que pode ser inválida em contexto de modelo, mesmo cuidado do
+    resto do arquivo). `empresa_do_estabelecimento` nunca é excluída por
+    acaso: é o caso LEGÍTIMO (matriz com o CNPJ da própria empresa).
+    """
+    colide = (
+        Empresa.objects.filter(escritorio_id=escritorio_id, cnpj=cnpj)
+        .exclude(pk=empresa_do_estabelecimento.pk)
+        .exists()
+    )
+    if colide:
+        raise InscricaoCruzadaEntreEmpresaEEstabelecimento(
+            "Este CNPJ já é de outra empresa deste escritório — não pode ser usado "
+            "como CNPJ de estabelecimento (matriz/filial) de uma empresa diferente."
+        )
+
+
+def recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+    escritorio_id, cnpj, *, empresa
+):
+    """Simétrica: levanta se `cnpj` (de uma `Empresa` sendo criada/
+    editada) já é o CNPJ de um `Estabelecimento` de uma empresa DIFERENTE
+    de `empresa`, no MESMO escritório (`escritorio_id`, pelo mesmo motivo
+    da função irmã, acima). Estabelecimentos da PRÓPRIA `empresa` são
+    excluídos — de novo, o caso legítimo da matriz.
+    """
+    qs = Estabelecimento.objects.filter(escritorio_id=escritorio_id, cnpj=cnpj)
+    if empresa.pk is not None:
+        qs = qs.exclude(empresa_id=empresa.pk)
+    if qs.exists():
+        raise InscricaoCruzadaEntreEmpresaEEstabelecimento(
+            "Este CNPJ já é de um estabelecimento (matriz/filial) de outra empresa "
+            "deste escritório."
+        )

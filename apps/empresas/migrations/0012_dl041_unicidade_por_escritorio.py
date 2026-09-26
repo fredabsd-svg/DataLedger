@@ -47,14 +47,26 @@
 # diferentes tiverem passado a ter o MESMO CNPJ ou CPF — exatamente o
 # cenário que esta etapa existe para PERMITIR. Reverter depois de haver
 # esse dado real não é "desfazer sem custo": é uma segunda migração de
-# dado (mesmo espírito do comentário da 0008/0038). A reversão de
-# `Estabelecimento` (coluna e constraint) não tem esse risco — é dado
-# puramente DERIVADO, sem perda nem ambiguidade nenhuma ao remover.
+# dado (mesmo espírito do comentário da 0008/0038).
+#
+# CORREÇÃO (achado U-B2 da auditoria DL-041 rodada 1 — o comentário aqui
+# afirmava, ERRADAMENTE, que a reversão de `Estabelecimento` "não tem esse
+# risco" por ser dado "puramente derivado"): a coluna em si (o VALOR
+# `escritorio_id`) é derivada, mas a REVERSÃO da `UniqueConstraint`
+# "estabelecimento_cnpj_unico_por_escritorio" para o antigo `unique=True`
+# GLOBAL de `cnpj` tem o MESMO limite da de `Empresa` — medido pelo
+# auditor: com o MESMO CNPJ de estabelecimento em dois escritórios
+# diferentes (que esta etapa passou a permitir), `migrate empresas 0011`
+# falha (`IntegrityError: could not create unique index
+# "empresas_estabelecimento_cnpj_..._uniq"`), atomicamente, sem deixar
+# estado parcial — exatamente o comportamento CORRETO, só que o
+# comentário acima prometia o contrário.
+
+import django.db.models.deletion
+from django.db import migrations, models
 
 import apps.empresas.fields
 import apps.empresas.validators
-import django.db.models.deletion
-from django.db import migrations, models
 
 # Passo 2: backfill de `escritorio_id` a partir de `empresa.escritorio_id`.
 # Sub-consulta correlacionada — SQL padrão (`UPDATE ... SET col = (SELECT
@@ -114,7 +126,6 @@ def _remover_gatilho(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("empresas", "0011_bl533_bl534_gatilho_com_nome_e_trava"),
         ("tenancy", "0003_escritorio_endereco_no_timbre_and_more"),

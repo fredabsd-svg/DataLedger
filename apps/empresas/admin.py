@@ -55,7 +55,15 @@ from apps.core.restricoes import (
 )
 from apps.empresas.forms import ajustar_obrigatoriedade_de_cnpj_cpf
 from apps.empresas.models import Empresa, Estabelecimento, TipoInscricao
-from apps.empresas.services import erros_de_consistencia_de_inscricao, mensagem_cnpj_duplicado
+from apps.empresas.services import (
+    CNPJDuplicado,
+    InscricaoCruzadaEntreEmpresaEEstabelecimento,
+    erro_de_cnpj_duplicado_como_400,
+    erros_de_consistencia_de_inscricao,
+    mensagem_cnpj_duplicado,
+    recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
+    recusar_cnpj_de_estabelecimento_igual_a_outra_empresa,
+)
 
 
 class EstabelecimentoInlineFormSet(forms.BaseInlineFormSet):
@@ -82,19 +90,82 @@ class EstabelecimentoInlineFormSet(forms.BaseInlineFormSet):
 
     def clean(self):
         super().clean()
-        if getattr(self.instance, "tipo_inscricao", None) != TipoInscricao.CPF:
+        if getattr(self.instance, "tipo_inscricao", None) == TipoInscricao.CPF:
+            for form in self.forms:
+                if not hasattr(form, "cleaned_data"):
+                    continue
+                if self.can_delete and self._should_delete_form(form):
+                    continue
+                if form.cleaned_data and form.has_changed():
+                    raise forms.ValidationError(
+                        "Não é possível cadastrar estabelecimento (matriz/filial) para "
+                        "uma empresa do tipo CPF: NIRE e estabelecimento são exclusivos "
+                        "de pessoa jurídica (CNPJ)."
+                    )
+
+        # Achado U-A1 da auditoria DL-041 rodada 1: `escritorio` de
+        # `Estabelecimento` é `editable=False` (ver apps/empresas/
+        # models.py) — EXCLUÍDO do ModelForm do inline, de propósito
+        # (nunca é o usuário quem escolhe; é sempre derivado da empresa).
+        # Por isso `Estabelecimento.clean()`/`full_clean()` NUNCA examina
+        # a `UniqueConstraint` "estabelecimento_cnpj_unico_por_escritorio"
+        # (Meta.constraints): ela envolve um campo que nem chega a existir
+        # no formulário. Sem esta checagem, cadastrar um estabelecimento
+        # com o CNPJ de outro estabelecimento do MESMO escritório batia
+        # direto no gatilho de banco — 500 (regressão do critério 3 do
+        # plano DL-041: duplicata no mesmo escritório tem que dar erro de
+        # FORMULÁRIO, nunca erro de servidor).
+        #
+        # `self.instance.escritorio` — o formulário PRINCIPAL
+        # (`EmpresaAdminForm`) já populou essa instância ANTES de este
+        # formset validar (mesmo raciocínio do bloco de CPF, acima): funciona
+        # tanto no `add` (escritório escolhido NESTE POST) quanto no
+        # `change` (escritório já gravado).
+        escritorio = getattr(self.instance, "escritorio", None)
+        if escritorio is None:
             return
+
+        cnpjs_do_envio = {}
         for form in self.forms:
-            if not hasattr(form, "cleaned_data"):
+            if not hasattr(form, "cleaned_data") or not form.cleaned_data:
                 continue
             if self.can_delete and self._should_delete_form(form):
                 continue
-            if form.cleaned_data and form.has_changed():
-                raise forms.ValidationError(
-                    "Não é possível cadastrar estabelecimento (matriz/filial) para "
-                    "uma empresa do tipo CPF: NIRE e estabelecimento são exclusivos "
-                    "de pessoa jurídica (CNPJ)."
+            cnpj = form.cleaned_data.get("cnpj")
+            if not cnpj:
+                continue
+
+            # Duplicata ENTRE LINHAS do mesmo envio (nenhuma das duas
+            # ainda está gravada — a `UniqueConstraint` do banco só vê uma
+            # de cada vez, uma por INSERT).
+            if cnpj in cnpjs_do_envio:
+                form.add_error("cnpj", mensagem_cnpj_duplicado(Estabelecimento))
+                continue
+            cnpjs_do_envio[cnpj] = form
+
+            # Duplicata contra estabelecimento JÁ GRAVADO no MESMO
+            # escritório (de qualquer empresa desse escritório — a
+            # constraint é `(escritorio, cnpj)`, não `(empresa, cnpj)`).
+            duplicado = Estabelecimento.objects.filter(escritorio=escritorio, cnpj=cnpj)
+            if form.instance.pk:
+                duplicado = duplicado.exclude(pk=form.instance.pk)
+            if duplicado.exists():
+                form.add_error("cnpj", mensagem_cnpj_duplicado(Estabelecimento))
+                continue
+
+            # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+            # arquiteto-senior): o CNPJ deste estabelecimento não pode ser
+            # o MESMO de OUTRA empresa do mesmo escritório — `self.instance`
+            # é a empresa PAI deste inline (matriz), então o caso legítimo
+            # (matriz com o CNPJ da própria empresa) continua permitido:
+            # é exatamente quem `recusar_cnpj_de_estabelecimento_igual_a_
+            # outra_empresa` exclui via `empresa_do_estabelecimento`.
+            try:
+                recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+                    escritorio.pk, cnpj, empresa_do_estabelecimento=self.instance
                 )
+            except InscricaoCruzadaEntreEmpresaEEstabelecimento as exc:
+                form.add_error("cnpj", str(exc))
 
 
 class EstabelecimentoInline(admin.TabularInline):
@@ -177,6 +248,21 @@ class EmpresaAdminForm(forms.ModelForm):
                 duplicada = duplicada.exclude(pk=self.instance.pk)
             if duplicada.exists():
                 self.add_error("cnpj", mensagem_cnpj_duplicado(Empresa))
+            else:
+                # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+                # arquiteto-senior): o CNPJ desta empresa não pode ser o
+                # MESMO de um estabelecimento de OUTRA empresa do mesmo
+                # escritório — só verificado quando não há duplicidade
+                # entre empresas (acima), para não empilhar dois erros no
+                # mesmo campo. `self.instance` é excluído pela própria
+                # função: a matriz com o CNPJ da própria empresa continua
+                # permitida.
+                try:
+                    recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+                        escritorio.pk, cnpj, empresa=self.instance
+                    )
+                except InscricaoCruzadaEntreEmpresaEEstabelecimento as exc:
+                    self.add_error("cnpj", str(exc))
         if cpf and escritorio is not None:
             duplicada = Empresa.objects.filter(cpf=cpf, escritorio=escritorio)
             if self.instance.pk:
@@ -282,9 +368,33 @@ class EmpresaAdmin(admin.ModelAdmin):
     def save_related(self, request, form, formsets, change):
         # Mesma defesa do `save_model` acima, para o INSERT/UPDATE de
         # `Estabelecimento` que os formsets deste admin gravam.
+        #
+        # Achado U-A1 (auditoria DL-041 rodada 1): `EstabelecimentoInline
+        # FormSet.clean()` (acima) já resolve o caso comum — duplicata no
+        # MESMO envio — com erro de formulário de verdade, ANTES de
+        # chegar aqui. `erro_de_cnpj_duplicado_como_400()` entra como
+        # DEFESA FINAL para a mesma janela de corrida do achado D1/BL-533
+        # (DL-039): outra requisição concorrente grava o CNPJ duplicado
+        # ENTRE a validação do formset e este `save()`. Traduz a
+        # `UniqueConstraint` "estabelecimento_cnpj_unico_por_escritorio"
+        # (registrada em `apps.empresas.services._CONSTRAINTS_INSCRICAO_
+        # UNICA`, não em `MENSAGENS_DE_RESTRICAO_DE_GATILHO` — aquela é só
+        # para pseudo-restrições de GATILHO, ver o comentário em
+        # `apps.core.restricoes`) — mesmo limite já declarado para
+        # `save_model`: nunca chega a re-renderizar o MESMO formulário
+        # com o erro (o Django admin não tem esse gancho depois de
+        # `save_model`/`save_related` rodarem), mas nunca mais um 500 com
+        # texto cru do banco.
         try:
-            with transaction.atomic(), restricao_como_400(MENSAGENS_DE_RESTRICAO_DE_GATILHO):
+            with (
+                transaction.atomic(),
+                erro_de_cnpj_duplicado_como_400(),
+                restricao_como_400(MENSAGENS_DE_RESTRICAO_DE_GATILHO),
+            ):
                 super().save_related(request, form, formsets, change)
+        except CNPJDuplicado as exc:
+            transaction.set_rollback(True)
+            raise ValidationError(str(exc)) from exc
         except RestricaoViolada as exc:
             transaction.set_rollback(True)
             raise ValidationError(str(exc)) from exc

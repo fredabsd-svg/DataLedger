@@ -531,6 +531,22 @@ class Empresa(models.Model):
                     self, tipo_anterior=tipo_gravado, tipo_novo=self.tipo_inscricao
                 )
 
+        # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+        # arquiteto-senior, limite declarado em apps/empresas/services.py):
+        # o CNPJ desta empresa não pode ser o MESMO de um estabelecimento
+        # de OUTRA empresa do mesmo escritório — fora do bloco `if self.pk`
+        # acima, de propósito: esta checagem vale tanto para empresa NOVA
+        # quanto para EDIÇÃO (não é uma checagem de TRANSIÇÃO, é sobre o
+        # estado atual do cadastro).
+        if self.escritorio_id is not None and self.cnpj:
+            from apps.empresas.services import (
+                recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
+            )
+
+            recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+                self.escritorio_id, self.cnpj, empresa=self
+            )
+
 
 class RegimeTributario(models.TextChoices):
     SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
@@ -733,10 +749,23 @@ class Estabelecimento(models.Model):
         # perform_create` (apps/empresas/views.py). Mesmo limite já
         # documentado no restante do arquivo: não cobre ORM direto
         # (`objects.create()`) nem `bulk_create()`/`QuerySet.update()`.
-        from apps.empresas.services import recusar_estabelecimento_para_empresa_cpf
+        from apps.empresas.services import (
+            recusar_cnpj_de_estabelecimento_igual_a_outra_empresa,
+            recusar_estabelecimento_para_empresa_cpf,
+        )
 
         if self.empresa_id is not None:
             recusar_estabelecimento_para_empresa_cpf(self.empresa)
+
+            # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+            # arquiteto-senior): o CNPJ deste estabelecimento não pode ser
+            # o MESMO de OUTRA empresa do mesmo escritório — a matriz com
+            # o CNPJ da PRÓPRIA empresa (`empresa_do_estabelecimento=self.
+            # empresa`) continua permitida, de propósito.
+            if self.cnpj:
+                recusar_cnpj_de_estabelecimento_igual_a_outra_empresa(
+                    self.empresa.escritorio_id, self.cnpj, empresa_do_estabelecimento=self.empresa
+                )
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()}) — {self.empresa}"

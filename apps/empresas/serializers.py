@@ -12,6 +12,7 @@ from apps.empresas.models import (
 from apps.empresas.services import (
     erros_de_consistencia_de_inscricao,
     modo_escrituracao_sugerido,
+    recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
     recusar_transicao_para_cpf_com_estabelecimento,
     recusar_transicao_para_livro_caixa_com_movimento,
 )
@@ -206,6 +207,31 @@ class EmpresaSerializer(serializers.ModelSerializer):
         erros = erros_de_consistencia_de_inscricao(tipo, cnpj, cpf)
         if erros:
             raise serializers.ValidationError(erros)
+
+        # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
+        # arquiteto-senior): o CNPJ desta empresa não pode ser o MESMO de
+        # um estabelecimento de OUTRA empresa do mesmo escritório. Na
+        # criação, `self.instance` ainda não existe — usa `request.
+        # escritorio` (o único escritório em que a empresa pode nascer,
+        # isolamento de tenant) e uma `Empresa()` sem `pk` (a função exclui
+        # só quando há `pk`, então nada é excluído: correto, empresa nova
+        # não tem estabelecimento próprio ainda). Na edição, usa o
+        # escritório e a instância JÁ GRAVADOS (`escritorio` nunca muda,
+        # DL-023). Só roda quando há CNPJ — empresa CPF não tem esse risco.
+        if cnpj:
+            escritorio_id = (
+                self.instance.escritorio_id
+                if self.instance is not None
+                else self.context["request"].escritorio.id
+            )
+            try:
+                recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
+                    escritorio_id,
+                    cnpj,
+                    empresa=self.instance if self.instance is not None else Empresa(),
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"cnpj": exc.messages}) from exc
 
         # HI-23 (achado B5 da auditoria): só se aplica na CRIAÇÃO
         # (`self.instance is None`) e só quando o cliente OMITIU
