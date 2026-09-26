@@ -87,7 +87,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-037](../planos/DL-037-entrada-visual.md) | Redesenho visual da entrada pública | Integrada (PR #46) |
 | [DL-038](../planos/DL-038-cliente-pessoa-fisica.md) | Cliente pessoa física no cadastro de empresas: CPF e modo de escrituração | Integrada (PR #47) |
 | [DL-039](../planos/DL-039-ressalvas-recepcao-e-pessoa-fisica.md) | Ressalvas da reconferência da DL-010 F1 e da DL-038 (BL-526 a BL-529) | Integrada (PR #47) |
-| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Em desenvolvimento |
+| [DL-040](../planos/DL-040-navegacao-e-arquitetura-de-informacao.md) | Navegação e arquitetura de informação: mapa de telas, menu principal, trilha e padrão de página | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -104,9 +105,11 @@ merge do PR #38, sem commit individual por etapa.
   com ressalvas baixas na [reconferência](../auditorias/2026-09-26-dl-041-reconferencia.md)
   (BL-539, BL-540). Conteúdo nos commits `92b4503` e `6b76ddc`, cujas mensagens
   dizem "preservação" por causa do gancho do ambiente. Falta integrar por PR.
-- **DL-040** (navegação e arquitetura de informação): em desenvolvimento com o
-  `especialista-frontend` numa worktree isolada; integração depois de o Fred ver
-  as capturas.
+- **DL-040** (navegação): integrada à branch de trabalho em `454648f`, como base
+  da DL-042.
+- **DL-042** (redesenho global com a skill `saas-design-excellence`, ordem do
+  Fred de 26/09): em desenvolvimento com o `especialista-frontend`; o Fred aprova
+  as capturas antes do PR.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`); uma worktree dentro de `.claude/worktrees/` faz o teste da
   margem do AGENTS.md contar em dobro — artefato da sessão, não defeito.
