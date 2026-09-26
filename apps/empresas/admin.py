@@ -46,6 +46,7 @@ defesa de banco válida em toda porta, inclusive a que restar.
 from django import forms
 from django.contrib import admin
 
+from apps.empresas.forms import ajustar_obrigatoriedade_de_cnpj_cpf
 from apps.empresas.models import Empresa, Estabelecimento
 from apps.empresas.services import erros_de_consistencia_de_inscricao, mensagem_cnpj_duplicado
 
@@ -79,11 +80,28 @@ class EmpresaAdminForm(forms.ModelForm):
     as MESMAS funções de `apps.empresas.services` que a API
     (`EmpresaSerializer.validate`) já usa — fonte única da regra e da
     mensagem, sem reimplementar a comparação uma terceira vez.
+
+    Achado N4 da reconferência (BL-529, DL-039): até esta correção, o
+    admin não criava NEM editava empresa CPF — um POST com
+    `tipo_inscricao=CPF` dava 200 com `cnpj: Este campo é obrigatório.` e
+    nada era salvo, porque `Meta.fields = "__all__"` herda `required=True`
+    de `Empresa.cnpj` (o campo do MODELO não tem `blank=True`, de
+    propósito) e nada neste form ajustava isso antes desta correção. O
+    `__init__`, abaixo, chama a MESMA função que `EmpresaForm` (tela,
+    apps/empresas/forms.py) já usa — `ajustar_obrigatoriedade_de_cnpj_cpf`
+    — fonte única também desta metade da regra (a outra metade, o texto de
+    erro quando o campo ERRADO vem preenchido, já vinha de
+    `erros_de_consistencia_de_inscricao`, chamada em `clean()` abaixo,
+    sem mudança).
     """
 
     class Meta:
         model = Empresa
         fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        ajustar_obrigatoriedade_de_cnpj_cpf(self)
 
     def clean(self):
         cleaned_data = super().clean()

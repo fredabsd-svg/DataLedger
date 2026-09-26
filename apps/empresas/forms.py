@@ -4,6 +4,34 @@ from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.empresas.services import modo_escrituracao_sugerido
 
 
+def ajustar_obrigatoriedade_de_cnpj_cpf(form):
+    """Torna `cnpj`/`cpf` obrigatórios um de cada vez, conforme o
+    `tipo_inscricao` do ENVIO atual — lido do dado BRUTO (`form.data`),
+    porque é `_clean_fields()` (que aplica `required` de cada campo) quem
+    roda ANTES de `clean()`, não depois. Compartilhada entre `EmpresaForm`
+    (tela) e `EmpresaAdminForm` (`apps/empresas/admin.py`, achado N4 da
+    reconferência DL-010/DL-038 — BL-529): sem chamar isto no `__init__`
+    de cada uma, `cnpj` herda `required=True` do CAMPO DO MODELO (que não
+    tem `blank=True`, de propósito — ver o comentário em `Empresa.cnpj`) e
+    o Django recusa uma empresa CPF com "Este campo é obrigatório." ANTES
+    de `clean()` chegar a rodar. `erros_de_consistencia_de_inscricao`
+    (`apps.empresas.services`, chamada em `clean()` das duas classes) só
+    ACRESCENTA erro à lista do campo — nunca substitui um que já tenha
+    disparado na validação de campo — por isso as duas etapas (`__init__`
+    e `clean()`) são necessárias, nas duas classes.
+    """
+    tipo_bruto = form.data.get("tipo_inscricao", "") if form.is_bound else ""
+    if tipo_bruto == TipoInscricao.CPF:
+        form.fields["cpf"].required = True
+        form.fields["cnpj"].required = False
+    else:
+        # Ausente, inválido ou CNPJ: cai no mesmo lado que já existia ANTES
+        # da DL-038 (CNPJ obrigatório) — um `tipo_inscricao` inválido é
+        # rejeitado por `ChoiceField.validate()` de qualquer forma.
+        form.fields["cnpj"].required = True
+        form.fields["cpf"].required = False
+
+
 class EmpresaForm(forms.ModelForm):
     """Formulário de cadastro de empresa pela tela (DL-038, etapa 2 — R1,
     R4, R7, HI-23).
@@ -138,25 +166,10 @@ class EmpresaForm(forms.ModelForm):
         self.initial["modo_escrituracao"] = None
 
         # Ponto 3 da docstring da classe: `cnpj`/`cpf` são obrigatórios um
-        # de cada vez, conforme o `tipo_inscricao` DESTE envio — lido do
-        # dado BRUTO (`self.data`), porque `cleaned_data` só existe depois
-        # de `_clean_fields()` rodar, e É a validação de CADA campo
-        # (inclusive `required`) que `_clean_fields()` está prestes a
-        # fazer. Um formulário NOVO, sem POST (`self.is_bound` falso), não
-        # tem `self.data` — `getattr` com padrão vazio cobre os dois casos
-        # sem `if`/`else` de bind.
-        tipo_bruto = self.data.get("tipo_inscricao", "") if self.is_bound else ""
-        if tipo_bruto == TipoInscricao.CPF:
-            self.fields["cpf"].required = True
-            self.fields["cnpj"].required = False
-        else:
-            # Ausente, inválido ou CNPJ: cai no mesmo lado que já existia
-            # ANTES desta etapa (CNPJ obrigatório) — um valor de
-            # `tipo_inscricao` que não seja nenhum dos dois válidos é
-            # rejeitado por `ChoiceField.validate()` de qualquer forma; não
-            # há necessidade de tratar esse caso aqui além de não travar.
-            self.fields["cnpj"].required = True
-            self.fields["cpf"].required = False
+        # de cada vez, conforme o `tipo_inscricao` DESTE envio — função
+        # compartilhada com `EmpresaAdminForm` (apps/empresas/admin.py,
+        # achado N4/BL-529), fonte única desta parte da regra.
+        ajustar_obrigatoriedade_de_cnpj_cpf(self)
 
     def clean(self):
         cleaned = super().clean()

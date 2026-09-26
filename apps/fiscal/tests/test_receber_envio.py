@@ -496,6 +496,43 @@ def test_estabelecimento_de_outro_escritorio_nao_vincula_nota_deste(
     assert not DocumentoFiscal.objects.filter(escritorio=escritorio_a).exists()
 
 
+def test_localizar_empresa_do_escritorio_sem_mapa_externo_continua_isolado(
+    escritorio_a, escritorio_b, usuario_gestor_a
+):
+    # Achado N3 da reconferência (BL-528, DL-039): antes desta correção
+    # havia DOIS caminhos de identificação — um com o dicionário (usado
+    # por `receber_envio`, coberto pelo teste acima) e outro que consultava
+    # o banco direto quando `mapa` não era fornecido, sem NENHUM teste
+    # próprio, e que a mutação F01 (CNPJ) conseguia atravessar sem
+    # reprovar nada. Agora existe um ÚNICO caminho: sem `mapa`, a função
+    # MONTA um internamente (`_mapa_de_inscricoes_do_escritorio`), sempre
+    # filtrado pelo escritório — o mesmo mecanismo que protege o caminho
+    # de produção. Este teste chama `localizar_empresa_do_escritorio`
+    # DIRETO, sem passar `mapa`, provando que o caminho "avulso" (fora do
+    # laço de um envio) é tão isolado quanto o de produção.
+    from apps.fiscal.leitor import ParticipanteLido
+
+    empresa_a = Empresa.objects.create(
+        escritorio=escritorio_a, razao_social="Empresa A N3 Ltda", cnpj="11222333000181"
+    )
+    Empresa.objects.create(
+        escritorio=escritorio_b, razao_social="Empresa B N3 Ltda", cnpj="99988877000161"
+    )
+
+    participante_de_a = ParticipanteLido(
+        tipo_documento="CNPJ", documento="11222333000181", nome="Empresa A"
+    )
+    participante_de_b = ParticipanteLido(
+        tipo_documento="CNPJ", documento="99988877000161", nome="Empresa B"
+    )
+
+    # Achada corretamente dentro do PRÓPRIO escritório.
+    assert services.localizar_empresa_do_escritorio(escritorio_a, participante_de_a) == empresa_a
+    # NUNCA encontrada fora dele — o CNPJ de B não "vaza" para uma busca
+    # feita com o escritório A, mesmo sem `mapa` fornecido pelo chamador.
+    assert services.localizar_empresa_do_escritorio(escritorio_a, participante_de_b) is None
+
+
 def test_mensagem_de_recusa_e_identica_exista_ou_nao_empresa_em_outro_escritorio(
     escritorio_a, escritorio_b, empresa_b, usuario_gestor_a
 ):

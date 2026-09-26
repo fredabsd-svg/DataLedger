@@ -122,6 +122,38 @@ def test_estabelecimento_clean_recusa_para_empresa_cpf(empresa_cpf):
         estabelecimento.clean()
 
 
+def test_empresa_clean_recusa_transicao_para_cpf_com_estabelecimento(empresa_cnpj_com_filial):
+    # Achado N18 da reconferência (BL-529, DL-039): os testes acima
+    # (`test_transicao_para_cpf_com_estabelecimento_e_recusada`) chamam
+    # `recusar_transicao_para_cpf_com_estabelecimento` DIRETO, sem nunca
+    # passar por `Empresa.clean()` — uma mutação que removesse a CHAMADA
+    # dentro de `Empresa.clean()` (deixando a função do serviço intacta)
+    # sobrevivia à suíte inteira. Este teste chama `clean()` no MODELO
+    # diretamente (não `full_clean()`, que também dispara `clean_fields()`
+    # — a obrigatoriedade de `cnpj` é OUTRA checagem, de FORMULÁRIO, fora
+    # do escopo deste teste) — é a segunda camada de defesa (DE-008) que
+    # `Empresa.clean()` promete, testada isoladamente.
+    empresa_cnpj_com_filial.tipo_inscricao = TipoInscricao.CPF
+    empresa_cnpj_com_filial.cnpj = ""
+    empresa_cnpj_com_filial.cpf = "11144477735"
+    with pytest.raises(ValidationError, match="estabelecimento"):
+        empresa_cnpj_com_filial.clean()
+
+
+def test_empresa_clean_permite_transicao_para_cpf_sem_estabelecimento(escritorio):
+    # Controle negativo do teste acima: a MESMA transição, sem
+    # estabelecimento gravado, tem que continuar permitida por `clean()`
+    # — senão o teste positivo poderia estar recusando qualquer transição
+    # para CPF, não especificamente a com filial.
+    empresa = Empresa.objects.create(
+        escritorio=escritorio, razao_social="Empresa Sem Filial N18 Ltda", cnpj="11122233000183"
+    )
+    empresa.tipo_inscricao = TipoInscricao.CPF
+    empresa.cnpj = ""
+    empresa.cpf = "22255588846"
+    empresa.clean()  # não levanta
+
+
 # --- API: criar estabelecimento para empresa CPF -> 400 --------------
 
 

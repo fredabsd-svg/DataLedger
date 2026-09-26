@@ -17,18 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import re
 import zipfile
 import zlib
 
 from django.core.exceptions import ValidationError
-from django.db import Error as DjangoDBError
-from django.db import IntegrityError, OperationalError, connection, transaction
+from django.db import DataError, IntegrityError, OperationalError, connection, transaction
 from django.db.models import Exists, OuterRef
 from django.db.models.functions import Substr
 
 from apps.auditoria.services import registrar
-from apps.empresas.models import Empresa, Estabelecimento, TipoInscricao
+from apps.empresas.models import Empresa, Estabelecimento
 from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
 from apps.fiscal import leitor
 from apps.fiscal.models import (
@@ -41,6 +41,8 @@ from apps.fiscal.models import (
     TipoResultadoArquivo,
     VinculoDocumentoEmpresa,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # HI-22 (docs/projeto/requisitos.md), REVISTA por DE-076 (auditoria rodada
@@ -113,6 +115,16 @@ def _adquirir_lock_de_envio_do_escritorio(escritorio) -> bool:
 
 _TAMANHO_MAXIMO_MOTIVO = 500  # ResultadoDoArquivo.motivo (models.py)
 _TAMANHO_MAXIMO_CAMINHO_NO_ZIP = 500  # ResultadoDoArquivo.caminho_no_zip (models.py)
+
+# Achado N1 (reconferência DL-010/DL-038, BL-526): mensagem NEUTRA para o
+# `DataError` capturado por arquivo — nunca `str(exc)` do driver do banco,
+# que ecoa nome de tabela/coluna (informação interna de esquema, não algo
+# que o contador deveria ver). O detalhe completo vai só para o log
+# (`logger.warning`, abaixo), nunca para `ResultadoDoArquivo.motivo`.
+MENSAGEM_ERRO_DE_DADOS_NO_ARQUIVO = (
+    "Arquivo recusado: os dados deste arquivo não puderam ser gravados. "
+    "Detalhe técnico registrado no log do servidor."
+)
 
 
 def _truncar(texto: str, tamanho: int) -> str:
@@ -218,67 +230,64 @@ def localizar_empresa_do_escritorio(escritorio, participante, *, mapa=None):
     presume que participante é sempre CNPJ.
 
     `mapa` (opcional): dicionário de `_mapa_de_inscricoes_do_escritorio`
-    (achado A4) — quando fornecido, a busca é O(1) em memória, sem
-    consulta ao banco. Sem ele, cada chamada consulta o banco direto
-    (usado por quem processa um único participante avulso, fora do laço
-    de um envio — ex.: teste unitário).
+    (achado A4) — quando fornecido (caminho de `receber_envio`, montado
+    UMA VEZ por envio), a busca é O(1) em memória. Achado N3 (reconferência
+    DL-010/DL-038, BL-528): ANTES desta correção havia um SEGUNDO caminho,
+    de consulta direta ao banco, para quando `mapa` não era fornecido — dois
+    lugares repetindo o mesmo filtro de isolamento por escritório, um deles
+    nunca exercitado por código de produção nenhum (nem testado contra
+    vazamento entre escritórios). Agora existe um ÚNICO caminho: SEM `mapa`,
+    esta função MONTA um (mesmo custo de consultas de sempre para um
+    participante avulso — usado por quem processa fora do laço de um envio,
+    ex.: teste unitário) e reaproveita o MESMO dicionário filtrado por
+    escritório que `receber_envio` usa — nunca uma consulta paralela que
+    pudesse divergir do filtro.
     """
     if participante is None:
         return None
+    if mapa is None:
+        mapa = _mapa_de_inscricoes_do_escritorio(escritorio)
     if participante.tipo_documento == "CNPJ":
-        return _localizar_empresa_por_cnpj(escritorio, participante.documento, mapa=mapa)
+        return _localizar_empresa_por_cnpj(participante.documento, mapa=mapa)
     if participante.tipo_documento == "CPF":
         # DL-038 (R8): CPF casa com `Empresa` de `tipo_inscricao=CPF` do
         # MESMO escritório — mesmo molde de `_localizar_empresa_por_cnpj`.
-        return _localizar_empresa_por_cpf(escritorio, participante.documento, mapa=mapa)
+        return _localizar_empresa_por_cpf(participante.documento, mapa=mapa)
     # NIF (identificação fiscal estrangeira) e "nao_informado" (cNaoNIF)
     # nunca casam: não são inscrição de empresa brasileira cadastrável
     # neste sistema.
     return None
 
 
-def _localizar_empresa_por_cnpj(escritorio, cnpj_bruto, *, mapa=None):
-    """Busca em `Empresa.cnpj` E em `Estabelecimento.cnpj`, SEMPRE filtrando
-    pelo escritório recebido — o CNPJ é único no sistema inteiro (PE-21),
-    então uma busca SEM esse filtro encontraria empresa de OUTRO escritório,
-    que é exatamente o vazamento que o critério 27 (isolamento) proíbe.
+def _localizar_empresa_por_cnpj(cnpj_bruto, *, mapa):
+    """Busca em `Empresa.cnpj` E em `Estabelecimento.cnpj` dentro de `mapa`
+    — SEMPRE um dicionário já filtrado pelo escritório
+    (`_mapa_de_inscricoes_do_escritorio`), nunca uma consulta paralela ao
+    banco (achado N3: caminho único, ver `localizar_empresa_do_escritorio`).
+    O CNPJ é único no sistema inteiro (PE-21): é exatamente por isso que o
+    filtro por escritório, aplicado UMA vez na montagem do dicionário, é
+    quem impede o vazamento que o critério 27 (isolamento) proíbe — nunca
+    algo repetido (e potencialmente esquecido) em cada busca individual.
     """
     try:
         cnpj = normalizar_cnpj(cnpj_bruto)
     except ValidationError:
         return None
-    if mapa is not None:
-        return mapa.get(("CNPJ", cnpj))
-    empresa = Empresa.objects.filter(escritorio=escritorio, cnpj=cnpj).first()
-    if empresa is not None:
-        return empresa
-    estabelecimento = (
-        Estabelecimento.objects.filter(empresa__escritorio=escritorio, cnpj=cnpj)
-        .select_related("empresa")
-        .first()
-    )
-    if estabelecimento is not None:
-        return estabelecimento.empresa
-    return None
+    return mapa.get(("CNPJ", cnpj))
 
 
-def _localizar_empresa_por_cpf(escritorio, cpf_bruto, *, mapa=None):
-    """DL-038 (R8): busca em `Empresa.cpf`, restrita a `tipo_inscricao=CPF`
-    e ao escritório recebido — mesmo molde de `_localizar_empresa_por_cnpj`,
-    pela mesma razão de isolamento (critério 27): sem o filtro por
-    escritório, casaria com um CPF cadastrado em OUTRO escritório, que é
-    exatamente o vazamento que o isolamento proíbe. Diferente do CNPJ, não
-    existe "Estabelecimento" para pessoa física — só a própria `Empresa`.
+def _localizar_empresa_por_cpf(cpf_bruto, *, mapa):
+    """DL-038 (R8): busca em `Empresa.cpf` (tipo_inscricao=CPF) dentro de
+    `mapa` — mesmo molde de `_localizar_empresa_por_cnpj` (achado N3):
+    único caminho, dicionário sempre filtrado pelo escritório na origem.
+    Diferente do CNPJ, não existe "Estabelecimento" para pessoa física —
+    só a própria `Empresa`.
     """
     try:
         cpf = normalizar_cpf(cpf_bruto)
     except ValidationError:
         return None
-    if mapa is not None:
-        return mapa.get(("CPF", cpf))
-    return Empresa.objects.filter(
-        escritorio=escritorio, tipo_inscricao=TipoInscricao.CPF, cpf=cpf
-    ).first()
+    return mapa.get(("CPF", cpf))
 
 
 def _tem_participante_pessoa_fisica(documento_lido: leitor.DocumentoLido) -> bool:
@@ -521,24 +530,39 @@ def _processar_um_arquivo(escritorio, conteudo: bytes, *, mapa=None) -> dict:
             "motivo": _motivo_de_duplicado(existente, sha256, "Evento"),
             "evento": existente,
         }
-    except DjangoDBError as exc:
-        # Achado A1 (auditoria rodada 1): ÚLTIMA linha de defesa DENTRO do
-        # savepoint deste arquivo — qualquer erro de banco que as
-        # checagens do leitor não tenham antecipado (`DataError` de campo
-        # grande demais, tipo incompatível etc.) vira "recusado" deste
-        # ARQUIVO, nunca um 500 que derruba o envio inteiro. Exclui
-        # `OperationalError` de propósito: lock/deadlock (A3, DE-076 item
-        # 1) é problema do ENVIO, não deste arquivo — precisa subir para
-        # `receber_envio` tratar (ou propagar de verdade, se não for
-        # lock/deadlock), nunca virar um "recusado" silencioso por
-        # arquivo que mascararia uma falha real de sistema.
-        if isinstance(exc, OperationalError):
-            raise
+    except DataError as exc:
+        # Achado A1 (rodada 1) restrito pelo achado N1 (reconferência,
+        # BL-526): ÚLTIMA linha de defesa DENTRO do savepoint deste
+        # arquivo, mas SÓ para `DataError` — campo grande demais, tipo
+        # incompatível, precisão numérica excedida etc., que são defeito
+        # do CONTEÚDO do arquivo, não do sistema. Vira "recusado" deste
+        # ARQUIVO, nunca um 500 que derruba o envio inteiro, e a mensagem
+        # é NEUTRA (nunca `str(exc)`, que ecoaria nome de tabela/coluna do
+        # banco) — o detalhe completo vai só para o log.
+        #
+        # `IntegrityError` de restrição conhecida já tem seu próprio
+        # `except` acima (unicidade de documento/evento). Qualquer OUTRO
+        # erro de banco — `ProgrammingError`, `InternalError`,
+        # `InterfaceError`, `NotSupportedError`, `OperationalError` que não
+        # seja de lock/deadlock — indica defeito de SISTEMA (esquema
+        # desatualizado, migração não aplicada, conexão quebrada), não
+        # arquivo ruim. Nenhum desses tipos é `DataError`, então nenhum
+        # deles é pego por este `except` — todos sobem intactos, saem de
+        # `_processar_um_arquivo`, saem de `_receber_envio_com_lock_
+        # adquirido` e desfazem a transação INTEIRA de `receber_envio`
+        # (`@transaction.atomic`): nem o `LoteDeRecepcao`, nem nenhum
+        # `ResultadoDoArquivo`, nem a trilha de auditoria chegam a ser
+        # gravados — um erro de sistema nunca deve parecer um envio
+        # concluído com arquivos recusados.
+        logger.warning(
+            "Erro de dados ao gravar arquivo fiscal (escritório %s): %s",
+            escritorio.pk,
+            exc,
+            exc_info=True,
+        )
         return {
             "resultado": TipoResultadoArquivo.RECUSADO,
-            "motivo": _truncar(
-                f"Arquivo recusado pelo banco de dados: {exc}", _TAMANHO_MAXIMO_MOTIVO
-            ),
+            "motivo": MENSAGEM_ERRO_DE_DADOS_NO_ARQUIVO,
         }
 
     if eh_documento:
