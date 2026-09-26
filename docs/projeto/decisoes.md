@@ -3935,3 +3935,39 @@ entre meses (B2).
 
 **Reversão:** mudanças locais ao serviço e à API do zeramento; sem migração nova
 prevista, salvo se a trava por empresa exigir.
+
+### DE-078, adendo — decisões sobre a reconferência (2026-09-26)
+
+Tomadas pelo `arquiteto-senior` sobre a
+[reconferência](../auditorias/2026-09-26-dl-043-reconferencia.md), que
+reprovou a correção por uma regressão (R1) e apontou que o caminho de
+recuperação sugerido pela mensagem não existia no produto (R2).
+
+1. **R1 — trava por empresa sem conflito com chave estrangeira.** A trava passa
+   a `FOR NO KEY UPDATE` (`select_for_update(no_key=True)`): continua
+   serializando zeramento e vigência entre si, e deixa de disputar com o
+   `FOR KEY SHARE` que todo INSERT com chave para a empresa faz no commit.
+   Deadlock (SQLSTATE 40P01) é traduzido para 409 no mesmo ponto do estouro de
+   `lock_timeout`.
+2. **R2 — a ordem é garantida na ENTRADA, não corrigida depois.** O zeramento
+   de um período é recusado enquanto o período **anterior** da mesma
+   periodicidade, dentro da vigência, tiver saldo próprio em conta de
+   resultado no seu último dia ("zere primeiro MM/AAAA"). Com isso o
+   zeramento fora de ordem deixa de acontecer pela porta do produto, e não é
+   preciso estorno datado no passado — que nenhuma porta aceita e que o
+   RC-103 não prevê. Lançamento tardio num período já zerado, depois de zerado
+   o seguinte, é absorvido pelo **complemento do último período zerado**; a
+   mensagem de `ZeramentoForaDeOrdem` passa a dizer isso e deixa de pedir
+   data de estorno. O estorno de lançamento de zeramento pela porta comum
+   continua permitido e segue o RC-103 (nasce hoje, no mês aberto).
+   Como **desfazer** um zeramento feito com parâmetro errado fica como
+   pendência de produto (PE-69), não como mensagem que promete o que o
+   produto não faz.
+3. **R3, R4, R5, R6** — correções objetivas: testes das validações do B7 e da
+   trava do B10; prefixo reservado recusado sem diferenciar maiúsculas; tela
+   de resultado lista todos os lançamentos da etapa 1 dividida; comentário e
+   nome de teste alinhados à permissão real da prévia.
+4. **Sem terceira rodada (AGENTS.md §3.1).** O fechamento destas correções é
+   verificado pelos testes que a própria reconferência propôs e pela morte
+   dos mutantes N6, N14, N15 e N16, conferidos pelo `arquiteto-senior` — não
+   por nova rodada de auditoria. Isso é dito ao Fred no PR.
