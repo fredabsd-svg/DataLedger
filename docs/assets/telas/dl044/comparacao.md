@@ -327,6 +327,13 @@ o próprio defeito, capturado antes da correção.
 
 #### Plano de contas
 
+⚠️ **"Depois" atualizado após revisão do arquiteto-senior sobre o lote
+1** — achados corrigidos, ver "Ajustes após a revisão do lote 1/2", mais
+abaixo: tabela com superfície branca (não mais transparente sobre o
+fundo cinza-azulado) e a legenda "Peso maior indica..." migrada para o
+cabeçalho do cartão da tabela (`.cartao-tabela__cabecalho`), em vez de
+minúscula e colada acima dela.
+
 Computador (1440 × 900):
 
 | Antes | Depois |
@@ -386,6 +393,12 @@ Celular (390 × 844):
 
 #### Fechamento
 
+⚠️ **"Depois" atualizado após revisão do arquiteto-senior sobre o lote
+1** — "Fechar · Zerar resultado" e "Reabrir · Marcar como entregue"
+(links separados por ponto) viraram dois `.botao--secundario.botao--
+pequeno` lado a lado (`.acoes-de-linha`), e a tabela ganhou superfície
+branca. Ver "Ajustes após a revisão do lote 1/2", mais abaixo.
+
 Computador (1440 × 900):
 
 | Antes | Depois |
@@ -403,13 +416,17 @@ Celular (390 × 844):
 Migradas: Recepção fiscal, Documentos fiscais, Detalhe do documento,
 Relatório do envio, Empresas (lista, nova, sem escritório ativo).
 
-**Decisão explícita: a navegação em abas do Fiscal
-(`Recepção`/`Documentos`, visível nas duas capturas abaixo) NÃO foi
-removida nesta etapa**, ao contrário da mesma redundância já removida da
-Contabilidade — ver DE-083 para as duas razões (fora do pedido explícito
-desta rodada; `git rm` foi recusado pelo classificador de permissão da
-sessão). Só o título migrou para a faixa branca do topo; a navegação
-em abas permanece exatamente como estava.
+⚠️ **Revisão do arquiteto-senior sobre este lote pediu a remoção da
+navegação em abas do Fiscal — feita, com permissão explícita para
+EDITAR (não apagar) o arquivo.** A decisão original deste lote (abaixo
+do parágrafo anterior, na primeira entrega) tinha sido NÃO remover — o
+arquiteto-senior reverteu essa decisão no retorno e autorizou remover os
+`{% include %}` das quatro telas, preservando o arquivo
+`templates/fiscal/_navegacao.html` em si (que fica ÓRFÃO — pendência
+registrada em DE-083, resolvida quando a exclusão for autorizada). As
+capturas "depois" de Recepção fiscal e Documentos fiscais, abaixo, já
+não mostram mais a linha de abas — ver "Ajustes após a revisão do lote
+1/2", mais abaixo, para o resto dos achados desta rodada de retorno.
 
 #### Recepção fiscal
 
@@ -427,19 +444,41 @@ Celular (390 × 844):
 
 #### Documentos fiscais
 
-Computador (1440 × 900):
+Dois estados "depois": vazio (nenhum documento no escritório) e com
+dado (um documento sintético recebido). Filtro em cartão branco com
+rótulos ACIMA dos campos (`.formulario-periodo--rotulo-acima` — os
+outros filtros de período do produto, Diário/Razão/Balancete/Balanço,
+continuam com rótulo ao lado, decisão de densidade da BL-277, não
+tocada), estado vazio desenhado (ícone, frase, botão primário "Enviar
+documentos") no lugar do texto solto anterior.
+
+Computador (1440 × 900), vazio:
 
 | Antes | Depois |
 | --- | --- |
 | ![Antes](antes_fase_b_fiscal_documentos_1440x900.png) | ![Depois](depois_fase_b_fiscal_documentos_1440x900.png) |
 
+Computador (1440 × 900), com dado:
+
+![Documentos fiscais com dado, 1440×900](depois_fase_b_fiscal_documentos_com_dado_1440x900.png)
+
 Celular (390 × 844):
 
-| Antes | Depois |
+| Antes | Depois (vazio) |
 | --- | --- |
 | ![Antes](antes_fase_b_fiscal_documentos_390x844.png) | ![Depois](depois_fase_b_fiscal_documentos_390x844.png) |
 
+Celular (390 × 844), com dado:
+
+![Documentos fiscais com dado, 390×844](depois_fase_b_fiscal_documentos_com_dado_390x844.png)
+
 #### Empresas (lista)
+
+"Balancete · Plano de contas · Lançar" (links separados por ponto)
+virou "Abrir" (botão principal — mesmo destino, Plano de contas, que
+"Abrir" já usa em Início → Empresas da carteira) + menu "Ações ▾"
+(`.menu-acoes`, `<details>`/`<summary>` nativo, sem JavaScript) para as
+demais. Tabela com superfície branca.
 
 Computador (1440 × 900):
 
@@ -473,3 +512,97 @@ Celular (390 × 844):
 | Antes | Depois |
 | --- | --- |
 | ![Antes](antes_fase_b_empresas_nova_390x844.png) | ![Depois](depois_fase_b_empresas_nova_390x844.png) |
+
+### Ajustes após a revisão do lote 1/2
+
+Retorno do arquiteto-senior sobre as capturas de Plano de contas,
+Fechamento, Fiscal documentos e Empresas lista — seis achados,
+decisão completa de cada um em [decisoes.md,
+DE-083](../../../projeto/decisoes.md):
+
+1. **Tabelas sem superfície** — as linhas ficavam transparentes sobre o
+   fundo cinza-azulado ("parece solto, diferente do Início"). `background:
+   var(--papel-elevado)` na própria `.tabela-dados` (produto inteiro,
+   uma regra só) resolve para toda tabela do produto de uma vez —
+   nenhuma tela precisou de ajuste individual.
+2. **Ações de linha como links** ("Balancete · Plano de contas ·
+   Lançar", "Fechar · Zerar resultado") — exatamente o "botão parece
+   link" que o Fred já tinha apontado na fase A. Em Empresas, virou
+   "Abrir" (botão principal) + menu "Ações ▾" (`.menu-acoes`,
+   `<details>`/`<summary>`, sem JavaScript) para o resto; em
+   Fechamento, que tem no máximo DUAS ações por linha, virou dois
+   `.botao--secundario.botao--pequeno` lado a lado — sem menu, que
+   seria mais clique que ajuda para só duas opções.
+3. **Filtros cinza sobre cinza** (Fiscal) — `.formulario-periodo` (a
+   classe compartilhada com Diário/Razão/Balancete/Balanço) ganhou
+   fundo branco + sombra própria, produto inteiro; o Fiscal ganhou
+   TAMBÉM um modificador próprio (`--rotulo-acima`) para os quatro
+   campos heterogêneos (dois selects, dois textos) lerem em grade
+   alinhada — sem tocar no rótulo-ao-lado das outras telas (BL-277,
+   pensado só para duas datas).
+4. **Estado vazio como texto solto** (Fiscal documentos) — virou
+   `.estado-vazio`: cartão branco, ícone, frase, botão primário
+   "Enviar documentos" (ou "Limpar filtros", quando o vazio é por
+   filtro, não por ausência total).
+5. **Abas do Fiscal, mesma redundância da Contabilidade** — removidas
+   das quatro telas (`{% include %}` apagado dos templates); o arquivo
+   `_navegacao.html` em si fica ÓRFÃO — a exclusão foi negada pelo
+   classificador de permissão da sessão, pendência registrada em
+   DE-083 até o Fred autorizar.
+6. **Legenda do Plano de contas minúscula e colada** — migrou para
+   `.cartao-tabela__cabecalho`, dentro do MESMO cartão da tabela (não
+   um parágrafo solto acima dela).
+
+### Lote 3 — Tenancy e telas de erro
+
+Migradas: Primeiro acesso (criar o primeiro escritório), Aceitar
+convite, Sem permissão (erro 403).
+
+#### Primeiro acesso
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_primeiro_acesso_1440x900.png) | ![Depois](depois_fase_b_primeiro_acesso_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_primeiro_acesso_390x844.png) | ![Depois](depois_fase_b_primeiro_acesso_390x844.png) |
+
+#### Aceitar convite
+
+Capturado com um convite sintético válido (não expirado, não
+consumido) — o estado "caminho feliz" desta tela, não o de erro.
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_aceitar_convite_1440x900.png) | ![Depois](depois_fase_b_aceitar_convite_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_aceitar_convite_390x844.png) | ![Depois](depois_fase_b_aceitar_convite_390x844.png) |
+
+#### Sem permissão
+
+Capturado com um usuário de papel CLIENTE tentando abrir "Nova
+empresa" (`empresas:criar`) — cenário real de recusa no servidor, não
+simulado.
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_sem_permissao_1440x900.png) | ![Depois](depois_fase_b_sem_permissao_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_sem_permissao_390x844.png) | ![Depois](depois_fase_b_sem_permissao_390x844.png) |
