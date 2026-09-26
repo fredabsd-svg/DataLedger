@@ -13,6 +13,12 @@
     {% include "contabilidade/_navegacao_empresa.html" with pagina_atual="fechamento" %}
     <h1>Fechamento de competência — {{ empresa.razao_social }}</h1>
 
+    <p class="texto-apoio">
+        A coluna "Zerar resultado" usa a periodicidade e as contas de destino
+        cadastradas em
+        <a href="{% url 'contabilidade_web:parametros_contabeis' empresa.id %}">Parâmetros contábeis</a>.
+    </p>
+
     {% comment %}
     Critério 2 do plano DL-031: a conferência do RC-58 é checada para a base
     INTEIRA da empresa (localizar_lotes_desbalanceados não tem período — o
@@ -96,6 +102,21 @@
                                         <span class="texto-apoio">Bloqueado pela conferência</span>
                                     {% else %}
                                         <a href="{% url 'contabilidade_web:competencia_fechar' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Fechar</a>
+                                        &middot;
+                                        {% comment %}
+                                        DL-043 fatia 3: zeramento é ação da
+                                        competência ainda ABERTA (RC-57 recusa em
+                                        competência encerrada — o zeramento
+                                        acontece ANTES de fechar, não depois). O
+                                        link aparece para todo mês aberto, mesmo
+                                        fora de um mês de encerramento da
+                                        periodicidade vigente ou sem parâmetro
+                                        contábil nenhum — a tela de destino explica
+                                        os dois estados com o texto do próprio
+                                        serviço, em vez desta linha tentar adivinhar
+                                        se um clique valeria a pena.
+                                        {% endcomment %}
+                                        <a href="{% url 'contabilidade_web:zerar_resultado' empresa.id %}?ano={{ competencia.ano }}&amp;mes={{ competencia.mes }}">Zerar resultado</a>
                                     {% endif %}
                                 {% elif competencia.estado == "encerrada" %}
                                     {% if not competencia.entregue_em %}

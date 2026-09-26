@@ -348,6 +348,19 @@
                                                                     <a href="{% url 'contabilidade_web:plano_de_contas' empresa_atual.id %}">Plano de contas</a>
                                                                 {% endif %}
                                                             </li>
+                                                            <li>
+                                                                {% comment %}
+                                                                DL-043 fatia 3: periodicidade e as três contas de
+                                                                destino do zeramento, com vigência — mesmo grupo
+                                                                "Cadastros" que "Plano de contas", pedido do
+                                                                arquiteto-senior ("Contabilidade → Cadastros").
+                                                                {% endcomment %}
+                                                                {% if pagina_atual == "parametros_contabeis" %}
+                                                                    <span class="item-atual" aria-current="page">Parâmetros contábeis</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'contabilidade_web:parametros_contabeis' empresa_atual.id %}">Parâmetros contábeis</a>
+                                                                {% endif %}
+                                                            </li>
                                                         </ul>
                                                     </div>
                                                     <div class="menu-grupo">
