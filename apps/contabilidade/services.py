@@ -1,7 +1,9 @@
+import calendar
 import hashlib
 import json
 import warnings
 from collections import defaultdict
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -21,6 +23,8 @@ from apps.contabilidade.models import (
     ItemLancamento,
     LancamentoContabil,
     NaturezaConta,
+    ParametroContabilEmpresa,
+    PeriodicidadeZeramento,
     TipoConta,
     TipoPartida,
 )
@@ -40,6 +44,7 @@ from apps.contabilidade.validators import (
     mensagem_de_data_de_lancamento_fora_da_faixa,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
+from apps.core.restricoes import RestricaoViolada, mensagens_de_gatilho, restricao_como_400
 
 # DL-038 (etapa 2): só o ENUM de tipo de inscrição — usado por
 # `rotulo_e_inscricao_da_empresa`, abaixo, para decidir CNPJ ou CPF. Não
@@ -1276,6 +1281,788 @@ def marcar_competencia_como_entregue(*, empresa, ano, mes, usuario, request=None
         detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
     )
     return competencia
+
+
+# ---------------------------------------------------------------------------
+# Parâmetro contábil por empresa e zeramento do resultado (DL-043, BL-474)
+#
+# NÍVEL 1 de risco (AGENTS.md §3.1: lançamento, saldo, competência). Duas
+# fatias do plano DL-043:
+#
+# Fatia 1 — `registrar_parametro_contabil`/`encerrar_vigencia_de_
+# parametro_contabil`: parâmetro contábil por empresa COM VIGÊNCIA, no
+# molde de `apps.empresas.models.HistoricoRegimeTributario` (DE-039).
+#
+# Fatia 2 — `zerar_resultado`: zeramento do resultado do período (RC-104,
+# RC-105), em DUAS etapas, idempotente, com trava de concorrência via
+# `_travar_competencia_para_transicao` (já usada por `encerrar_
+# competencia`/`reabrir_competencia`/`marcar_competencia_como_entregue`).
+#
+# Fatia 3 (tela) e a destinação do lucro (dividendos, reservas) ficam FORA
+# do escopo desta seção — ver o plano.
+# ---------------------------------------------------------------------------
+
+
+class ParametroContabilInvalido(Exception):
+    """Dados do parâmetro contábil (periodicidade, contas de destino) ou do
+    pedido de zeramento (ano/mês, periodicidade incompatível, empresa sem
+    parâmetro vigente) violam uma regra de negócio — 400: o cliente pode
+    corrigir o que enviou. Nomeada à parte de `LancamentoInvalido` porque o
+    domínio de origem (parâmetro/período de zeramento, não o corpo de um
+    lançamento) é diferente — mesmo padrão de `CompetenciaOperacaoInvalida`
+    ao lado de `LancamentoInvalido`.
+    """
+
+
+class VigenciaParametroContabilConflitante(Exception):
+    """A vigência (ou o zeramento) pedido colide com o ESTADO já gravado:
+
+    - outra vigência aberta criada por uma requisição concorrente
+      (`UniqueConstraint`, camada 1) ou sobreposição com uma vigência já
+      existente (gatilho da migração 0009, camada 2) — corrida residual em
+      `registrar_parametro_contabil`;
+    - uma vigência retroativa que tentaria cobrir um período que já tem
+      zeramento gravado — decisão de modelagem da DL-043 (a alternativa
+      mais segura das descritas no plano): aceitar tornaria ambíguo, para
+      um período já zerado e já entregue, qual conjunto de contas "valia"
+      naquele período, sem reescrever o lançamento (imutável) nem o Razão
+      já entregue.
+
+    409 nos dois casos: o pedido é bem formado, o que impede é o que já
+    está gravado — mesma distinção que `CompetenciaOperacaoRecusada` já
+    aplica para competência.
+    """
+
+
+# Prefixo determinístico de TODA `chave_idempotencia` gerada por
+# `zerar_resultado` — namespace próprio (nunca colide com a chave livre que
+# o cliente informa em `criar_lancamento` via API, que é texto arbitrário
+# do cliente; "zeramento:" como prefixo fixo do SISTEMA reduz a colisão a
+# "o cliente escolheu, de propósito, uma chave que começa exatamente
+# assim", risco aceito da mesma forma que qualquer namespace por prefixo).
+# Usado em DOIS lugares: (a) `registrar_parametro_contabil` localiza
+# zeramento já gravado por este prefixo, para recusar vigência retroativa
+# que o cobriria; (b) `zerar_resultado` conta quantos lançamentos já
+# existem para (empresa, período, etapa) para escolher o próximo
+# "complemento", determinístico e sem contador em outra tabela.
+_PREFIXO_CHAVE_ZERAMENTO = "zeramento"
+
+
+def _prefixo_chave_zeramento_da_empresa(empresa_id):
+    return f"{_PREFIXO_CHAVE_ZERAMENTO}:{empresa_id}:"
+
+
+def _chave_idempotencia_zeramento(*, empresa_id, ano, mes, etapa, complemento):
+    """Chave determinística por (empresa, período, etapa, complemento) —
+    critério de idempotência do plano DL-043.
+
+    `etapa` é 1 (zera receita/despesa contra "resultado do exercício") ou 2
+    (transfere o saldo do "resultado do exercício" para lucros/prejuízos
+    acumulados). `complemento` é a contagem de lançamentos JÁ GRAVADOS para
+    esta MESMA combinação (empresa, período, etapa) antes desta chamada — 0
+    na primeira vez, 1 na primeira correção por movimento novo no período
+    (competência ainda aberta), e assim por diante. Cada complemento tem
+    CONTEÚDO diferente do anterior (o valor é sempre a DIFERENÇA ainda não
+    zerada, nunca o total acumulado de novo) — reaproveitar a mesma chave
+    para conteúdo diferente é exatamente o que `ChaveIdempotenciaConflitante`
+    existe para recusar, por isso cada complemento precisa de chave própria.
+    """
+    return (
+        f"{_prefixo_chave_zeramento_da_empresa(empresa_id)}{ano:04d}-{mes:02d}:"
+        f"etapa{etapa}:{complemento}"
+    )
+
+
+def _proximo_complemento(*, empresa, ano, mes, etapa):
+    """Quantos lançamentos de `etapa` já existem para (empresa, ano, mes) —
+    o próximo `complemento` a usar em `_chave_idempotencia_zeramento`.
+    """
+    prefixo = f"{_prefixo_chave_zeramento_da_empresa(empresa.pk)}{ano:04d}-{mes:02d}:etapa{etapa}:"
+    return LancamentoContabil.objects.filter(
+        empresa=empresa, chave_idempotencia__startswith=prefixo
+    ).count()
+
+
+@transaction.atomic
+def registrar_parametro_contabil(
+    *,
+    empresa,
+    periodicidade_zeramento,
+    conta_resultado_do_exercicio,
+    conta_lucros_acumulados,
+    conta_prejuizos_acumulados,
+    vigencia_inicio,
+    usuario=None,
+    request=None,
+):
+    """Registra um novo período de parâmetro contábil para a empresa
+    (DL-043 fatia 1, BL-474) — no MOLDE de `apps.empresas.services.
+    registrar_regime_tributario` (DE-039): fecha automaticamente a
+    vigência aberta anterior (se houver), definindo seu fim como o dia
+    anterior ao novo início, e cria a vigência nova, aberta.
+
+    Validações, nesta ordem — todas ANTES de qualquer gravação:
+
+    1. Empresa em modo livro-caixa (DL-038): recusada — parâmetro contábil
+       de partidas dobradas não se aplica a quem não escritura por
+       partidas dobradas.
+    2. `periodicidade_zeramento` é um dos três valores de
+       `PeriodicidadeZeramento`.
+    3. As TRÊS contas de destino: pertencem à MESMA empresa, são
+       ANALÍTICAS (`aceita_lancamento=True`), são do grupo PATRIMÔNIO
+       LÍQUIDO (RC-104), e são três contas DIFERENTES entre si.
+    4. A conta de prejuízos acumulados tem natureza DEVEDORA — é
+       RETIFICADORA dentro do Patrimônio Líquido (RC-61: grupo credor,
+       retificadora de natureza contrária). Sem esta checagem, o
+       zeramento por prejuízo creditaria uma conta devedora e o PL
+       cresceria com prejuízo em vez de encolher.
+    5. Ordem de vigência: a nova só pode começar DEPOIS do início da
+       vigência aberta atual (se houver) — mesma regra de
+       `registrar_regime_tributario`.
+    6. ⚠️ Decisão de modelagem da DL-043 (não confirmada pelo Fred; o plano
+       pedia a alternativa MAIS SEGURA entre as descritas, e esta é a
+       aplicada — ver `VigenciaParametroContabilConflitante`): uma
+       vigência cujo início seja igual ou anterior à data de um zeramento
+       JÁ GRAVADO para esta empresa é RECUSADA.
+
+    Concorrência: `select_for_update()` sobre a vigência aberta (mesmo
+    padrão de `registrar_regime_tributario`); a corrida residual (duas
+    requisições concorrentes quando NENHUMA vigência existe ainda) é
+    coberta pelas DUAS camadas de restrição de banco (`Meta.constraints` e
+    o gatilho da migração 0009), traduzidas para
+    `VigenciaParametroContabilConflitante` (409) — nunca um 500 cru.
+    """
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        raise ParametroContabilInvalido(exc.mensagem) from exc
+
+    if periodicidade_zeramento not in PeriodicidadeZeramento.values:
+        raise ParametroContabilInvalido(
+            f"Periodicidade de zeramento inválida: {periodicidade_zeramento!r}. "
+            f"Valores aceitos: {', '.join(PeriodicidadeZeramento.values)}."
+        )
+
+    contas_por_rotulo = {
+        "conta de resultado do exercício": conta_resultado_do_exercicio,
+        "conta de lucros acumulados": conta_lucros_acumulados,
+        "conta de (-) prejuízos acumulados": conta_prejuizos_acumulados,
+    }
+    ids_vistos = set()
+    for rotulo, conta in contas_por_rotulo.items():
+        if conta.empresa_id != empresa.id:
+            raise ParametroContabilInvalido(
+                f"A {rotulo} deve pertencer à mesma empresa do parâmetro contábil."
+            )
+        if not conta.aceita_lancamento:
+            raise ParametroContabilInvalido(
+                f"A {rotulo} deve ser uma conta analítica (que aceita lançamento direto)."
+            )
+        if conta.tipo != TipoConta.PATRIMONIO_LIQUIDO:
+            raise ParametroContabilInvalido(
+                f"A {rotulo} deve ser do grupo Patrimônio Líquido "
+                f"(recebida: {conta.get_tipo_display()})."
+            )
+        if conta.pk in ids_vistos:
+            raise ParametroContabilInvalido(
+                "As três contas de destino do zeramento devem ser contas diferentes "
+                f"entre si — a {rotulo} repete uma conta já usada por outro destino."
+            )
+        ids_vistos.add(conta.pk)
+
+    # RC-61 — ver item 4 do docstring acima.
+    if conta_prejuizos_acumulados.natureza != NaturezaConta.DEVEDORA:
+        raise ParametroContabilInvalido(
+            "A conta de (-) prejuízos acumulados precisa ter natureza devedora: "
+            "é retificadora dentro do Patrimônio Líquido (RC-61)."
+        )
+
+    aberto = (
+        ParametroContabilEmpresa.objects.select_for_update()
+        .filter(empresa=empresa, vigencia_fim__isnull=True)
+        .first()
+    )
+    if aberto is not None and vigencia_inicio <= aberto.vigencia_inicio:
+        raise ParametroContabilInvalido(
+            "A nova vigência deve começar depois do início da vigência atual "
+            f"({aberto.vigencia_inicio.strftime('%d/%m/%Y')})."
+        )
+
+    # Item 6 do docstring: vigência retroativa cobrindo zeramento já
+    # gravado — localizado pelo PREFIXO determinístico da chave de
+    # idempotência (nunca por histórico em texto livre, que o contador
+    # pode editar... não pode, lançamento é imutável, mas o texto não é
+    # estrutura confiável para uma busca de negócio).
+    ja_zerado = LancamentoContabil.objects.filter(
+        empresa=empresa,
+        chave_idempotencia__startswith=_prefixo_chave_zeramento_da_empresa(empresa.pk),
+        data__gte=vigencia_inicio,
+    ).exists()
+    if ja_zerado:
+        raise VigenciaParametroContabilConflitante(
+            "Já existe zeramento gravado em data igual ou posterior a "
+            f"{vigencia_inicio.strftime('%d/%m/%Y')} para esta empresa; uma vigência "
+            "que começasse aí deixaria ambíguo qual conjunto de contas valia naquele "
+            "período. Registre a vigência nova com início posterior a todo zeramento "
+            "já gravado para esta empresa."
+        )
+
+    if aberto is not None:
+        aberto.vigencia_fim = vigencia_inicio - timedelta(days=1)
+        aberto.save(update_fields=["vigencia_fim"])
+
+    try:
+        with (
+            transaction.atomic(),
+            restricao_como_400(mensagens_de_gatilho("parametro_contabil_sem_sobreposicao")),
+        ):
+            parametro = ParametroContabilEmpresa.objects.create(
+                empresa=empresa,
+                periodicidade_zeramento=periodicidade_zeramento,
+                conta_resultado_do_exercicio=conta_resultado_do_exercicio,
+                conta_lucros_acumulados=conta_lucros_acumulados,
+                conta_prejuizos_acumulados=conta_prejuizos_acumulados,
+                vigencia_inicio=vigencia_inicio,
+            )
+    except RestricaoViolada as exc:
+        raise VigenciaParametroContabilConflitante(str(exc)) from exc
+    except IntegrityError as exc:
+        # Corrida residual sobre a `UniqueConstraint` (camada 1) — ver o
+        # docstring. Mesma técnica de extração de nome de constraint que
+        # `apps.empresas.services._e_violacao_de_periodo_unico` já usa.
+        nome_constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
+        if nome_constraint != "um_periodo_de_parametro_contabil_aberto_por_empresa":
+            raise
+        raise VigenciaParametroContabilConflitante(
+            "Esta empresa já tem uma vigência de parâmetro contábil aberta, criada "
+            "por outra requisição ao mesmo tempo. Recarregue e confira antes de "
+            "tentar de novo."
+        ) from exc
+
+    registrar(
+        acao="parametro_contabil.vigencia_registrada",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=parametro,
+        request=request,
+        detalhes={
+            "empresa_id": empresa.id,
+            "periodicidade_zeramento": periodicidade_zeramento,
+            "vigencia_inicio": vigencia_inicio.isoformat(),
+        },
+    )
+    return parametro
+
+
+@transaction.atomic
+def encerrar_vigencia_de_parametro_contabil(*, empresa, usuario, request=None):
+    """Encerra HOJE a vigência de parâmetro contábil aberta da empresa, sem
+    abrir uma nova (DL-043 fatia 1) — o caminho para a empresa deixar de
+    ter zeramento parametrizado (ex.: migrou para livro-caixa, ou o
+    escritório decidiu suspender o zeramento automático).
+
+    Recusa (`VigenciaParametroContabilConflitante`, 409 — conflito de
+    ESTADO, o pedido não tem corpo para "corrigir") se não houver vigência
+    aberta — não há o que encerrar — ou se a vigência aberta só começar no
+    futuro (encerrar antes do próprio início produziria um intervalo
+    invertido, sem sentido no histórico). `select_for_update()` pelo mesmo
+    motivo de concorrência das demais transições deste módulo.
+    """
+    aberto = (
+        ParametroContabilEmpresa.objects.select_for_update()
+        .filter(empresa=empresa, vigencia_fim__isnull=True)
+        .first()
+    )
+    if aberto is None:
+        raise VigenciaParametroContabilConflitante(
+            "Esta empresa não tem vigência de parâmetro contábil aberta para encerrar."
+        )
+
+    hoje = timezone.localdate()
+    if hoje < aberto.vigencia_inicio:
+        raise VigenciaParametroContabilConflitante(
+            "Não é possível encerrar hoje uma vigência que só começa em "
+            f"{aberto.vigencia_inicio.strftime('%d/%m/%Y')}."
+        )
+
+    aberto.vigencia_fim = hoje
+    aberto.save(update_fields=["vigencia_fim"])
+    registrar(
+        acao="parametro_contabil.vigencia_encerrada",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=aberto,
+        request=request,
+        detalhes={"empresa_id": empresa.id, "vigencia_fim": hoje.isoformat()},
+    )
+    return aberto
+
+
+def _parametro_contabil_vigente_em(*, empresa, data):
+    """A vigência de `ParametroContabilEmpresa` aplicável a `data` — a que
+    tem `vigencia_inicio <= data` e (`vigencia_fim` nulo OU `>= data`).
+
+    Nunca a vigência "atual" no momento da chamada: `zerar_resultado`
+    processa a DATA FINAL de um período, que pode ser reprocessada
+    (complemento) depois de a vigência ter mudado — a leitura tem que
+    continuar usando o parâmetro que valia NAQUELE período, mesmo
+    raciocínio de `HistoricoRegimeTributario` para apuração fiscal
+    histórica (DE-039).
+    """
+    return (
+        ParametroContabilEmpresa.objects.filter(empresa=empresa, vigencia_inicio__lte=data)
+        .filter(Q(vigencia_fim__isnull=True) | Q(vigencia_fim__gte=data))
+        .order_by("-vigencia_inicio")
+        .first()
+    )
+
+
+# Meses de encerramento por periodicidade (RC-104/RC-105, confirmado pelo
+# Fred: trimestre e ano CIVIS): mensal fecha todo mês; trimestral, só em
+# março/junho/setembro/dezembro; anual, só em dezembro. Tabela, não
+# if/elif, pelo mesmo motivo de `_ARREDONDAMENTO` em `apps.core.dinheiro`
+# — acrescentar uma periodicidade não deveria exigir tocar na lógica de
+# validação, só declarar aqui a correspondência.
+_MESES_DE_ENCERRAMENTO_POR_PERIODICIDADE = {
+    PeriodicidadeZeramento.MENSAL: frozenset(range(1, 13)),
+    PeriodicidadeZeramento.TRIMESTRAL: frozenset({3, 6, 9, 12}),
+    PeriodicidadeZeramento.ANUAL: frozenset({12}),
+}
+
+
+def _validar_periodo_de_zeramento(*, periodicidade, mes):
+    """Recusa (`ParametroContabilInvalido`) se `mes` não for um mês de
+    encerramento da `periodicidade` vigente — critério 7 do plano DL-043.
+    """
+    meses_validos = _MESES_DE_ENCERRAMENTO_POR_PERIODICIDADE[periodicidade]
+    if mes not in meses_validos:
+        rotulo = PeriodicidadeZeramento(periodicidade).label.lower()
+        nomes_meses = ", ".join(f"{m:02d}" for m in sorted(meses_validos))
+        raise ParametroContabilInvalido(
+            f"A periodicidade vigente desta empresa é '{rotulo}': o zeramento só "
+            f"pode ser pedido para os meses de encerramento do período ({nomes_meses}); "
+            f"recebido: {mes:02d}."
+        )
+
+
+def _contas_analiticas_de_resultado(empresa):
+    """Contas ANALÍTICAS (`aceita_lancamento=True`) de RECEITA ou DESPESA da
+    empresa — o universo que `zerar_resultado` zera na etapa 1 (RC-104).
+    Inclui contas INATIVAS com saldo residual (mesma decisão de
+    `apurar_saldos`, achado A9/BL-482: não perder dinheiro por causa de um
+    cadastro desativado) — só entram no lançamento as que tiverem saldo
+    diferente de zero (`_item_de_zeramento` devolve `None` para saldo
+    zero).
+    """
+    return list(
+        Conta.objects.filter(
+            empresa=empresa, tipo__in=(TipoConta.RECEITA, TipoConta.DESPESA), aceita_lancamento=True
+        ).order_by("codigo")
+    )
+
+
+def _saldo_assinado_ate(*, empresa, conta, data_final):
+    """Saldo ACUMULADO de `conta` até `data_final` (inclusive), assinado
+    pela natureza CADASTRADA da própria conta.
+
+    Mesma técnica de `apurar_saldos` (que chama `apurar_balancete(inicio=
+    data_base, fim=data_base)` e lê `saldo_final`): com `inicio == fim ==
+    data_final`, `saldo_anterior` acumula TODO o histórico anterior a
+    `data_final`, e o "período" acumula só o próprio dia — então
+    `saldo_final` resultante é o saldo ACUMULADO até `data_final`, nunca
+    só o movimento de um recorte menor.
+
+    ⚠️ **Decisão de cálculo do plano DL-043 (RC-104/RC-105): "saldo no
+    período" significa saldo ACUMULADO até a data final, não movimento
+    desde o início do período corrente.** Com zeramento periódico
+    correto, o saldo acumulado de receita/despesa até a data final de um
+    período É exatamente o que precisa ir a zero — inclui qualquer
+    RESÍDUO de período anterior sem zeramento (empresa que passou a usar
+    o zeramento pelo produto depois de operar sem ele, competência ainda
+    aberta com lançamento posterior ao zeramento anterior). Cada chamada
+    de `zerar_resultado` zera exatamente o que sobra HOJE, seja isso o
+    movimento do período inteiro (primeira chamada) ou só um resíduo
+    deixado por uma correção posterior ao zeramento anterior (chamada de
+    complemento) — é o que torna o cálculo, por construção, tanto correto
+    quanto idempotente, sem precisar somar complementos anteriores à
+    parte.
+
+    Identifica a linha pelo CÓDIGO da conta (`linha["conta"]` em
+    `apurar_balancete` é `conta.codigo`, nunca o `pk` — mesma convenção já
+    usada por `apurar_saldos`), único por empresa (`codigo_unico_por_
+    empresa`).
+    """
+    apuracao = apurar_balancete(empresa=empresa, inicio=data_final, fim=data_final)
+    for linha in apuracao["contas"]:
+        if linha["conta"] == conta.codigo:
+            return linha["saldo_final"]
+    return Decimal("0")
+
+
+def _item_de_zeramento(conta, saldo_assinado):
+    """O item de lançamento (tipo + valor) que zera `saldo_assinado` de
+    `conta` — `None` se já está em zero (nada a fazer, e é isto que torna
+    o cálculo idempotente: chamar de novo sem movimento novo não gera
+    item nenhum).
+
+    `saldo_assinado` é positivo quando o saldo está do MESMO lado da
+    natureza CADASTRADA da conta (convenção de `apurar_balancete`/
+    `apurar_saldos`). Para zerar: se a conta é DEVEDORA e o saldo é
+    positivo (saldo devedor), credita-se o valor; se é CREDORA e positivo
+    (saldo credor), debita-se; e o inverso quando o saldo está do lado
+    CONTRÁRIO ao cadastrado (saldo negativo nesta convenção) — é assim que
+    uma conta retificadora de receita (RC-61: cadastrada DEVEDORA dentro
+    de um grupo de Receita CREDOR) é zerada pelo lado certo sem nenhum
+    `if` especial para "isto é retificadora": a fórmula só olha a
+    natureza CADASTRADA da própria conta e o sinal do saldo, nunca o tipo
+    do grupo em que ela está.
+    """
+    if saldo_assinado == 0:
+        return None
+    do_lado_cadastrado = saldo_assinado > 0
+    if conta.natureza == NaturezaConta.DEVEDORA:
+        tipo = TipoPartida.CREDITO if do_lado_cadastrado else TipoPartida.DEBITO
+    else:
+        tipo = TipoPartida.DEBITO if do_lado_cadastrado else TipoPartida.CREDITO
+    return {"conta": conta, "tipo": tipo, "valor": abs(saldo_assinado)}
+
+
+def _efeito_no_saldo_assinado(conta, tipo, valor):
+    """Quanto `valor`, lançado como `tipo` (débito/crédito) em `conta`,
+    somaria ao saldo assinado (convenção de `_saldo_assinado_ate`) dela —
+    usado só para SIMULAR, sem gravar nada, o efeito do item de zeramento
+    da etapa 1 sobre a conta "resultado do exercício" antes de decidir a
+    etapa 2 (a prévia — GET — precisa desse número sem gravar; a execução
+    — POST — usa a MESMA função, para as duas nunca discordarem).
+    """
+    mesmo_lado = (conta.natureza == NaturezaConta.DEVEDORA and tipo == TipoPartida.DEBITO) or (
+        conta.natureza == NaturezaConta.CREDORA and tipo == TipoPartida.CREDITO
+    )
+    return valor if mesmo_lado else -valor
+
+
+def _calcular_zeramento(*, empresa, parametro, data_final):
+    """Calcula, SEM GRAVAR NADA, os itens que `zerar_resultado` geraria
+    para (empresa, data_final) sob o `parametro` vigente — a MESMA conta,
+    chamada tanto pela prévia (`pre_visualizar_zeramento`, GET, leitura
+    sem trava — best-effort, pode divergir de uma execução concorrente
+    entre a prévia e o POST) quanto pela execução real (`zerar_resultado`,
+    dentro da trava de competência).
+
+    Devolve um dict:
+    - `itens_etapa1`: lista de `{"conta", "tipo", "valor"}` (uma por conta
+      de receita/despesa com saldo diferente de zero acumulado até
+      `data_final` — RC-104).
+    - `item_resultado_etapa1`: o item de CONTRAPARTIDA em "resultado do
+      exercício" que fecha os débitos e créditos de `itens_etapa1` — `None`
+      quando `itens_etapa1` já fecha por si (resultado exatamente zero:
+      receita = despesa) ou quando `itens_etapa1` está vazia.
+    - `etapa2`: `None` (nada a transferir) ou
+      `{"item_resultado", "item_destino", "destino"}`, onde `destino` é
+      `"lucros_acumulados"` ou `"prejuizos_acumulados"` (RC-104: destino
+      pelo SINAL do resultado).
+    """
+    itens_etapa1 = []
+    for conta in _contas_analiticas_de_resultado(empresa):
+        saldo = _saldo_assinado_ate(empresa=empresa, conta=conta, data_final=data_final)
+        item = _item_de_zeramento(conta, saldo)
+        if item is not None:
+            itens_etapa1.append(item)
+
+    zero = Decimal("0")
+    total_debito = sum(
+        (item["valor"] for item in itens_etapa1 if item["tipo"] == TipoPartida.DEBITO), zero
+    )
+    total_credito = sum(
+        (item["valor"] for item in itens_etapa1 if item["tipo"] == TipoPartida.CREDITO), zero
+    )
+    diferenca = total_debito - total_credito
+
+    item_resultado_etapa1 = None
+    if diferenca != 0:
+        # A contrapartida em "resultado do exercício" é sempre do lado que
+        # FALTA para igualar débito e crédito de `itens_etapa1` — nunca
+        # calculada a partir de receita/despesa separadamente (o que
+        # exigiria presumir que toda receita é credora e toda despesa
+        # devedora, presunção que uma retificadora quebra). Quando
+        # `diferenca == 0` (receita = despesa item a item, resultado
+        # exatamente zero), `itens_etapa1` já fecha por construção e
+        # NENHUM item de resultado é necessário nem permitido (um item de
+        # valor zero seria recusado por `criar_lancamento`) — é o caso
+        # "resultado zero" do critério 2 do plano.
+        tipo_resultado = TipoPartida.CREDITO if diferenca > 0 else TipoPartida.DEBITO
+        item_resultado_etapa1 = {
+            "conta": parametro.conta_resultado_do_exercicio,
+            "tipo": tipo_resultado,
+            "valor": abs(diferenca),
+        }
+
+    # Etapa 2: simula o saldo de "resultado do exercício" DEPOIS do item
+    # acima (ainda sem gravar nada) para decidir se há o que transferir, e
+    # para qual das duas contas (RC-104: destino pelo SINAL).
+    saldo_resultado_atual = _saldo_assinado_ate(
+        empresa=empresa, conta=parametro.conta_resultado_do_exercicio, data_final=data_final
+    )
+    saldo_resultado_pos_etapa1 = saldo_resultado_atual
+    if item_resultado_etapa1 is not None:
+        saldo_resultado_pos_etapa1 += _efeito_no_saldo_assinado(
+            parametro.conta_resultado_do_exercicio,
+            item_resultado_etapa1["tipo"],
+            item_resultado_etapa1["valor"],
+        )
+
+    etapa2 = None
+    item_resultado_etapa2 = _item_de_zeramento(
+        parametro.conta_resultado_do_exercicio, saldo_resultado_pos_etapa1
+    )
+    if item_resultado_etapa2 is not None:
+        # Sinal VERDADEIRO (D/C), não o assinado pela natureza cadastrada:
+        # é o que decide lucro (credor) ou prejuízo (devedor) pelo RC-104,
+        # independentemente de "resultado do exercício" ter sido cadastrada
+        # devedora ou credora.
+        credor_verdadeiro = (
+            saldo_resultado_pos_etapa1
+            if parametro.conta_resultado_do_exercicio.natureza == NaturezaConta.CREDORA
+            else -saldo_resultado_pos_etapa1
+        )
+        if credor_verdadeiro > 0:
+            destino_nome = "lucros_acumulados"
+            conta_destino = parametro.conta_lucros_acumulados
+        else:
+            destino_nome = "prejuizos_acumulados"
+            conta_destino = parametro.conta_prejuizos_acumulados
+
+        # O item de destino é sempre o OPOSTO do item que zera "resultado
+        # do exercício" — é o que faz o lançamento de DUAS pernas (RC-104)
+        # bater sem cálculo à parte: mesmo valor, tipo trocado.
+        tipo_destino = (
+            TipoPartida.CREDITO
+            if item_resultado_etapa2["tipo"] == TipoPartida.DEBITO
+            else TipoPartida.DEBITO
+        )
+        etapa2 = {
+            "item_resultado": item_resultado_etapa2,
+            "item_destino": {
+                "conta": conta_destino,
+                "tipo": tipo_destino,
+                "valor": item_resultado_etapa2["valor"],
+            },
+            "destino": destino_nome,
+        }
+
+    return {
+        "itens_etapa1": itens_etapa1,
+        "item_resultado_etapa1": item_resultado_etapa1,
+        "etapa2": etapa2,
+    }
+
+
+def _periodo_de_zeramento(*, empresa, ano, mes):
+    """Validações comuns à prévia e à execução do zeramento — tudo o que
+    NÃO depende de trava/gravação: faixa de mês, parâmetro vigente e
+    correspondência periodicidade × mês de encerramento (critério 7).
+
+    Devolve `(parametro, data_final)`. Levanta `ParametroContabilInvalido`
+    (400) para qualquer uma das três causas.
+    """
+    if not (1 <= mes <= 12):
+        raise ParametroContabilInvalido(f"'mes' inválido: {mes} — deve estar entre 1 e 12.")
+
+    # `calendar.monthrange` devolve (dia da semana do dia 1, número de dias
+    # do mês) — o segundo elemento É o último dia do mês, exatamente a data
+    # final do período que `zerar_resultado` usa para o lançamento (RC-104:
+    # o zeramento é lançado na data final do período).
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    data_final = date(ano, mes, ultimo_dia)
+
+    parametro = _parametro_contabil_vigente_em(empresa=empresa, data=data_final)
+    if parametro is None:
+        data_str = data_final.strftime("%d/%m/%Y")
+        raise ParametroContabilInvalido(
+            f"Esta empresa não tem parâmetro contábil vigente em {data_str}; cadastre a "
+            "vigência (periodicidade e contas de destino) antes de zerar o resultado."
+        )
+    _validar_periodo_de_zeramento(periodicidade=parametro.periodicidade_zeramento, mes=mes)
+    return parametro, data_final
+
+
+def pre_visualizar_zeramento(*, empresa, ano, mes):
+    """Prévia do zeramento (DL-043, GET — "devolve os valores que seriam
+    lançados, sem gravar"): mesmas validações e o MESMO cálculo
+    (`_calcular_zeramento`) de `zerar_resultado`, sem trava de competência
+    e sem gravar nada — leitura best-effort, que pode divergir do que a
+    execução real produzir se, entre a prévia e o POST, outra requisição
+    gravar lançamento no período ou mudar a vigência. `zerar_resultado` é
+    sempre a fonte da verdade; esta função é conveniência de conferência
+    antes de gravar (critério "prévia" do plano).
+
+    Levanta `ParametroContabilInvalido` (400) para empresa em livro-caixa,
+    período/periodicidade incompatíveis ou empresa sem parâmetro vigente —
+    um vocabulário só de exceção, mesmo padrão de `criar_lancamento`
+    traduzindo `EmpresaEmModoLivroCaixa` para o vocabulário do próprio
+    serviço em vez de vazar um tipo de outro módulo.
+    """
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        raise ParametroContabilInvalido(exc.mensagem) from exc
+    parametro, data_final = _periodo_de_zeramento(empresa=empresa, ano=ano, mes=mes)
+    calculo = _calcular_zeramento(empresa=empresa, parametro=parametro, data_final=data_final)
+    return {
+        "parametro": parametro,
+        "data_final": data_final,
+        **calculo,
+    }
+
+
+@transaction.atomic
+def zerar_resultado(*, empresa, ano, mes, usuario):
+    """Zera o resultado do período cuja competência final é (ano, mes),
+    segundo a periodicidade vigente da empresa (DL-043 fatia 2, RC-104/
+    RC-105) — dentro de UMA transação, com a MESMA trava de competência
+    que `encerrar_competencia` já usa.
+
+    Gera, na DATA FINAL do período (último dia de `mes`/`ano`):
+
+    1. Um lançamento que zera o saldo ACUMULADO (`_saldo_assinado_ate` —
+       ver o docstring, é a decisão de cálculo do RC-104/RC-105) de cada
+       conta ANALÍTICA de receita/despesa contra a conta "resultado do
+       exercício" — só se houver ao menos uma conta com saldo diferente
+       de zero (critério 2 do plano: "resultado zero" ainda assim zera
+       receita/despesa quando elas não são zero individualmente, mas se
+       TUDO já está zero não gera lançamento nenhum).
+    2. Um lançamento que transfere o saldo de "resultado do exercício"
+       para "lucros acumulados" (credor) ou "(-) prejuízos acumulados"
+       (devedor), pelo SINAL — só se esse saldo for diferente de zero
+       depois do item 1.
+
+    IDEMPOTÊNCIA e COMPLEMENTO (critério 5): cada etapa usa uma
+    `chave_idempotencia` DETERMINÍSTICA por (empresa, período, etapa,
+    complemento) — ver `_chave_idempotencia_zeramento`. Como
+    `_saldo_assinado_ate` lê o saldo ACUMULADO (não o "ainda não
+    zerado" somado à parte), repetir a chamada sem movimento novo sempre
+    encontra saldo zero em toda conta (o zeramento anterior já levou tudo
+    a zero) e não gera lançamento nenhum; uma chamada depois de movimento
+    novo no período (competência ainda aberta) encontra só a DIFERENÇA
+    ainda não zerada, e gera exatamente o COMPLEMENTO — nunca duplica o
+    que já foi zerado.
+
+    CONCORRÊNCIA (critério 5): a competência final é travada com
+    `_travar_competencia_para_transicao` (o MESMO `SELECT ... FOR UPDATE`
+    que `encerrar_competencia` usa) ANTES de calcular qualquer saldo — dois
+    pedidos simultâneos SERIALIZAM nesta trava; o segundo só lê o estado
+    (e os saldos já zerados pelo primeiro) depois que o primeiro commitar,
+    e encontra saldo zero em tudo — um único zeramento é gravado, nunca
+    dois lançamentos para o mesmo movimento.
+
+    COMPETÊNCIA ENCERRADA (RC-57): recusa (`CompetenciaEncerrada`, 409)
+    ANTES de calcular qualquer saldo — a correção de um período encerrado
+    segue o estorno (RC-103), nunca um novo zeramento por cima.
+
+    PERMISSÃO (RC-102): verificada pela view (`PodeFecharCompetencia`,
+    ADMINISTRADOR/GESTOR), no servidor — esta função não verifica papel;
+    quem a chama sem passar pela view (shell, tarefa em segundo plano)
+    assume a responsabilidade da autorização, mesmo padrão de
+    `encerrar_competencia`.
+
+    TRILHA: um único `registrar()`, na MESMA transação, com o resultado
+    completo da chamada (que lançamentos foram criados/reaproveitados).
+    """
+    try:
+        recusar_se_livro_caixa(empresa)
+    except EmpresaEmModoLivroCaixa as exc:
+        raise ParametroContabilInvalido(exc.mensagem) from exc
+    parametro, data_final = _periodo_de_zeramento(empresa=empresa, ano=ano, mes=mes)
+
+    # A trava mora AQUI, e ANTES de calcular qualquer saldo (ver o
+    # docstring): `_travar_competencia_para_transicao` é o `FOR UPDATE`
+    # que já serializa `encerrar_competencia`/`reabrir_competencia`/
+    # `marcar_competencia_como_entregue` — reusar em vez de inventar uma
+    # segunda trava para o mesmo recurso (a competência de destino).
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+    competencia = _travar_competencia_para_transicao(competencia, ano=ano, mes=mes, empresa=empresa)
+    if competencia.estado != EstadoCompetencia.ABERTA:
+        nome_do_estado = EstadoCompetencia(competencia.estado).label.lower()
+        raise CompetenciaEncerrada(
+            f"A competência {mes:02d}/{ano} de {empresa} está '{nome_do_estado}'; não é "
+            "possível zerar o resultado nela. A correção de período encerrado segue o "
+            "estorno (RC-103), nunca um novo zeramento por cima."
+        )
+
+    calculo = _calcular_zeramento(empresa=empresa, parametro=parametro, data_final=data_final)
+
+    historico_base = (
+        f"Zeramento do resultado ({parametro.get_periodicidade_zeramento_display()}) — "
+        f"encerramento de {mes:02d}/{ano}"
+    )
+
+    lancamento_etapa1 = None
+    if calculo["itens_etapa1"]:
+        itens_etapa1 = list(calculo["itens_etapa1"])
+        if calculo["item_resultado_etapa1"] is not None:
+            itens_etapa1.append(calculo["item_resultado_etapa1"])
+        complemento1 = _proximo_complemento(empresa=empresa, ano=ano, mes=mes, etapa=1)
+        chave1 = _chave_idempotencia_zeramento(
+            empresa_id=empresa.pk, ano=ano, mes=mes, etapa=1, complemento=complemento1
+        )
+        lancamento_etapa1 = criar_lancamento(
+            empresa=empresa,
+            data=data_final,
+            historico=f"{historico_base} — contas de resultado",
+            itens=itens_etapa1,
+            criado_por=usuario,
+            chave_idempotencia=chave1,
+        )
+
+    lancamento_etapa2 = None
+    if calculo["etapa2"] is not None:
+        etapa2 = calculo["etapa2"]
+        rotulo_destino = (
+            "lucros acumulados"
+            if etapa2["destino"] == "lucros_acumulados"
+            else "(-) prejuízos acumulados"
+        )
+        complemento2 = _proximo_complemento(empresa=empresa, ano=ano, mes=mes, etapa=2)
+        chave2 = _chave_idempotencia_zeramento(
+            empresa_id=empresa.pk, ano=ano, mes=mes, etapa=2, complemento=complemento2
+        )
+        lancamento_etapa2 = criar_lancamento(
+            empresa=empresa,
+            data=data_final,
+            historico=f"{historico_base} — transferência para {rotulo_destino}",
+            itens=[etapa2["item_resultado"], etapa2["item_destino"]],
+            criado_por=usuario,
+            chave_idempotencia=chave2,
+        )
+
+    resultado = {
+        "empresa_id": empresa.id,
+        "ano": ano,
+        "mes": mes,
+        "data_final": data_final,
+        "periodicidade_zeramento": parametro.periodicidade_zeramento,
+        "lancamento_etapa1": lancamento_etapa1,
+        "criado_etapa1": bool(lancamento_etapa1) and lancamento_etapa1.criado_agora,
+        "lancamento_etapa2": lancamento_etapa2,
+        "criado_etapa2": bool(lancamento_etapa2) and lancamento_etapa2.criado_agora,
+        "destino_etapa2": calculo["etapa2"]["destino"] if calculo["etapa2"] else None,
+    }
+    registrar(
+        acao="zeramento.resultado",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=competencia,
+        detalhes={
+            "empresa_id": empresa.id,
+            "ano": ano,
+            "mes": mes,
+            "lancamento_etapa1_id": lancamento_etapa1.pk if lancamento_etapa1 else None,
+            "criado_etapa1": resultado["criado_etapa1"],
+            "lancamento_etapa2_id": lancamento_etapa2.pk if lancamento_etapa2 else None,
+            "criado_etapa2": resultado["criado_etapa2"],
+        },
+    )
+    return resultado
 
 
 # ---------------------------------------------------------------------------
