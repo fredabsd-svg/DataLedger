@@ -69,12 +69,20 @@ class ContaAdmin(admin.ModelAdmin):
     # patrimonial"`) deixa restringir a um grupo específico; o segundo
     # (`EmptyFieldListFilter`) é o que permite achar as NÃO classificadas
     # ("Vazio" = `None`), sem precisar de tela nova.
+    # A7 (auditoria DL-045, rodada 1): MESMA correção do BL-494, agora para
+    # `classificacao_dre` (DL-045/RC-118) — o auditor mediu que o admin
+    # editava o campo (não define `fields`, então o `ModelForm` gerado
+    # inclui todos), mas não o MOSTRAVA nem FILTRAVA, ao contrário do que o
+    # BL-494 já tinha decidido para a classificação patrimonial. Sem isto,
+    # achar "quais contas de resultado ainda faltam classificar" pelo
+    # admin exigia abrir conta por conta.
     list_display = [
         "codigo",
         "nome",
         "tipo",
         "natureza",
         "classificacao_patrimonial",
+        "classificacao_dre",
         "empresa",
         "aceita_lancamento",
         "ativo",
@@ -85,6 +93,8 @@ class ContaAdmin(admin.ModelAdmin):
         "ativo",
         "classificacao_patrimonial",
         ("classificacao_patrimonial", admin.EmptyFieldListFilter),
+        "classificacao_dre",
+        ("classificacao_dre", admin.EmptyFieldListFilter),
     ]
     search_fields = ["codigo", "nome"]
 

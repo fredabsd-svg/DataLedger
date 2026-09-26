@@ -2,6 +2,7 @@ import hashlib
 import re
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -34,6 +35,7 @@ from apps.contabilidade.services import (
     apurar_dre,
     apurar_razao,
     avaliar_emissao_da_dre,
+    classificar_conta_na_dre,
     criar_lancamento,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
@@ -45,6 +47,7 @@ from apps.contabilidade.services import (
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
     marcar_competencia_como_entregue,
+    mensagens_da_validacao_django,
     movimento_fora_do_periodo,
     pre_visualizar_zeramento,
     reabrir_competencia,
@@ -246,6 +249,12 @@ CONTRATO_POST_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL = ContratoDeRequisicao(
 CONTRATO_POST_ZERAR_RESULTADO = ContratoDeRequisicao(
     campos=frozenset(),
     contexto="no zeramento do resultado",
+)
+# A7 (auditoria DL-045, rodada 1): PATCH da linha da DRE de uma conta já
+# existente — um campo só, a própria conta vem da URL.
+CONTRATO_PATCH_CLASSIFICACAO_DRE = ContratoDeRequisicao(
+    campos={"classificacao_dre"},
+    contexto="na classificação da linha da DRE",
 )
 
 
@@ -1617,6 +1626,20 @@ def _residuo_pendente_dre_para_json(residuo_pendente_por_coluna):
     }
 
 
+def _estornos_de_zeramento_para_json(estornos):
+    """`data` (objeto `date`) -> `isoformat()`, mesma regra de toda data
+    desta API (A3, auditoria DL-045 rodada 1)."""
+    return [
+        {
+            "lancamento": item["lancamento"],
+            "data": item["data"].isoformat(),
+            "historico": item["historico"],
+            "estorno_de_chave": item["estorno_de_chave"],
+        }
+        for item in estornos
+    ]
+
+
 def _coluna_dre_para_json(coluna):
     return {
         "linhas": _linhas_dre_como_moeda(coluna["linhas"]),
@@ -1630,9 +1653,18 @@ def _coluna_dre_para_json(coluna):
         "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
             coluna["contas_nao_folha_sem_classificacao_dre_com_movimento_proprio"]
         ),
-        "contas_com_classificacao_dre_aninhada": coluna["contas_com_classificacao_dre_aninhada"],
+        "contas_com_classificacao_dre_aninhada_mesma_linha": (
+            coluna["contas_com_classificacao_dre_aninhada_mesma_linha"]
+        ),
+        "contas_com_classificacao_dre_aninhada_linha_diferente": (
+            coluna["contas_com_classificacao_dre_aninhada_linha_diferente"]
+        ),
+        "contas_com_tipo_divergente_da_linha": coluna["contas_com_tipo_divergente_da_linha"],
         "contas_com_classificacao_dre_desconhecida": (
             coluna["contas_com_classificacao_dre_desconhecida"]
+        ),
+        "estornos_de_zeramento_na_coluna": _estornos_de_zeramento_para_json(
+            coluna["estornos_de_zeramento_na_coluna"]
         ),
     }
 
@@ -1660,6 +1692,12 @@ class DreView(EmpresaEscopadaContabilMixin, APIView):
     código de status). `residuo_pendente`/`listas_pendentes`/`listas_
     informativas` vêm agrupados por coluna (`"coluna_mes"`/`"coluna_
     acumulado"`) — só a coluna que TEM algo a reportar aparece.
+
+    A2/A1 (auditoria DL-045, rodada 1): `contas_com_tipo_divergente_da_
+    linha` e `contas_com_classificacao_dre_aninhada_linha_diferente`
+    também vetam agora (ver `_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO` em
+    `services.py`) — nada mudou NESTA view por causa disso; ela só lê o
+    que `avaliar_emissao_da_dre` decide.
     """
 
     permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
@@ -1693,6 +1731,53 @@ class DreView(EmpresaEscopadaContabilMixin, APIView):
         }
         status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
         return Response(corpo, status=status_code)
+
+
+class ContaClassificacaoDreView(EmpresaEscopadaContabilMixin, APIView):
+    """A7 (auditoria DL-045, rodada 1): PATCH da linha da DRE
+    (`classificacao_dre`) de uma conta já existente — a porta operacional
+    que faltava. Antes desta view, só o `admin` do Django conseguia
+    classificar ou corrigir conta (e corrigir um erro de classificação
+    exigia conta nova + transferência do movimento, deixando marca
+    permanente na DRE do mês da correção — ver o achado A7 completo).
+
+    Autorização: `PodeEscriturar` — o MESMO papel que grava lançamento e
+    cria conta (`ContaListCreateView.post`), nunca uma permissão nova
+    para a classificação da DRE (RC-118 não criou papel próprio).
+
+    Corpo: `{"classificacao_dre": "<valor de ClassificacaoDre, ou null/""
+    para remover>"}` — um campo só (`CONTRATO_PATCH_CLASSIFICACAO_DRE`).
+    Todas as guardas (compatibilidade de tipo; transição; A6) moram em
+    `Conta.clean()`, chamado por `classificar_conta_na_dre` via `full_
+    clean()` — esta view só traduz `django.core.exceptions.
+    ValidationError` para 400 do DRF, nunca duplica a regra.
+
+    200 com a conta serializada (`ContaSerializer`) quando aceito. 404
+    quando a conta não existe NESTA empresa (isolamento — `Conta.objects
+    .filter(empresa=empresa)`, nunca uma consulta sem esse filtro).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def patch(self, request, empresa_id, conta_id):
+        empresa = self.get_empresa()
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DRE)
+
+        classificacao = request.data.get("classificacao_dre") or None
+        try:
+            classificar_conta_na_dre(
+                conta=conta,
+                classificacao=classificacao,
+                usuario=request.user,
+                request=request,
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                {"classificacao_dre": mensagens_da_validacao_django(exc)}
+            ) from exc
+
+        return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
 
 
 class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):

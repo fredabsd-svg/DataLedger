@@ -129,13 +129,17 @@ próprio, aguardando revisão do arquiteto e PR.**
 - **DL-045** (DRE, CON-12 do plano mestre — fatias 1 e 2, servidor/API): na
   branch local `dl045-dre`, worktree próprio, aguardando PR. Classificação de
   conta pelas linhas do art. 187 (Lei 6.404/76), com resultado financeiro
-  destacado e equivalência patrimonial em linha própria (NBC TG 26, NBC TG
-  1000, modelos ITG 1000 — RC-118, HI-29 revista após a PE-70); apuração pelo
-  movimento do período, excluindo o zeramento (RC-119/120), coluna do mês e
-  acumulado do exercício (HI-28). Sem tela — fatia 3 fica para depois, sobre a
-  DL-044. Pendências dele: confirmar a inferência de linha↔tipo (em especial
-  "deduções da receita" e "participações") e a decisão de que só a pendência
-  do MÊS veta a emissão, não a do acumulado.
+  destacado e equivalência patrimonial em linha própria, RECEITA ou DESPESA
+  (ganho ou perda — NBC TG 26, NBC TG 1000, modelos ITG 1000 — RC-118, HI-29
+  revista após a PE-70); apuração pelo movimento do período, excluindo o
+  zeramento e os estornos de zeramento (RC-119/120), coluna do mês e
+  acumulado do exercício, AS DUAS vetando a emissão (HI-28). Rodada 1 de
+  auditoria ([relatório](../auditorias/2026-09-26-dl-045-rodada-1.md))
+  **reprovou** o servidor com quatro achados altos; corrigida conforme a
+  DE-085 (em [decisões](../projeto/decisoes.md)), aguardando reconferência.
+  Sem tela — fatia 3 fica
+  para depois, sobre a DL-044. Pendência dele: confirmar a inferência de
+  linha↔tipo (em especial "deduções da receita" e "participações").
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em

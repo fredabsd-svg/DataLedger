@@ -383,7 +383,7 @@ class ClassificacaoDre(models.TextChoices):
     como um subtotal próprio, e a ITG 1000 (2022) traz o mesmo modelo —
     é a estrutura que este enum e a apuração (`services.py`) seguem. O
     Fred ainda confirma a apresentação (registrado no plano); a ordem
-    exata dos subtotais mora isolada em `_LINHAS_ANTES_DO_FINANCEIRO`/
+    exata dos subtotais mora isolada em `_LINHAS_ANTES_DO_RESULTADO_FINANCEIRO`/
     `_LINHAS_DO_RESULTADO_FINANCEIRO` (services.py), para trocar fácil
     se ele decidir diferente.
 
@@ -574,6 +574,21 @@ class Conta(models.Model):
         ordering = ["codigo"]
         constraints = [
             models.UniqueConstraint(fields=["empresa", "codigo"], name="codigo_unico_por_empresa"),
+            # A4 (auditoria DL-045, rodada 1): `classificacao_dre=""` (string
+            # vazia, diferente de `NULL`) é um estado torto que só existia
+            # pela API — o `ChoiceField` gerado por padrão para um campo com
+            # `blank=True` aceitava `""` e gravava. O CÓDIGO já normaliza
+            # `""` para `None` na entrada (serializer) e trata os dois como
+            # "sem classificação" na guarda de transição (`clean()`, abaixo)
+            # — esta constraint é a defesa de BANCO (DE-008, camada 1) para
+            # quem grava por fora dos dois (ORM direto, migração de dado,
+            # importação): sem ela, `""` continuaria alcançável e o defeito
+            # original (conta travada para sempre, DRE inemitível) voltaria
+            # por um caminho que nem passa por `clean()`.
+            models.CheckConstraint(
+                condition=~models.Q(classificacao_dre=""),
+                name="ck_conta_classificacao_dre_nao_vazia",
+            ),
         ]
 
     def __str__(self):
@@ -649,7 +664,88 @@ class Conta(models.Model):
             (existe,) = cursor.fetchone()
         return existe
 
+    def _subarvore_tem_conta_classificada_dre_com_movimento(self):
+        """A6 (auditoria DL-045, rodada 1): existe, na subárvore de `self`
+        (excluindo a própria `self`), alguma conta com `classificacao_dre`
+        PRÓPRIA gravada (não vazia) cuja PRÓPRIA subárvore (ela mais os
+        descendentes dela) tem movimento?
+
+        DUAS consultas no caso comum: uma recursiva que lista a subárvore
+        de `self` já filtrando quem tem classificação própria gravada, e
+        UMA verificação de movimento por candidato — na prática, 0 ou 1
+        candidato (o achado do auditor sempre tinha exatamente uma
+        descendente já classificada). Reusa
+        `_tem_movimento_proprio_ou_de_descendente` sobre uma instância
+        "leve" (só com `pk`), porque aquele método só lê `self.pk`.
+        """
+        if not self.pk:
+            return False
+        tabela_conta = Conta._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE {coluna_conta_pai} = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
+                )
+                SELECT id FROM {tabela_conta}
+                WHERE id IN (SELECT id FROM arvore)
+                AND classificacao_dre IS NOT NULL AND classificacao_dre <> ''
+                """,
+                [self.pk],
+            )
+            candidatos = [linha[0] for linha in cursor.fetchall()]
+        return any(
+            Conta(pk=candidato_id)._tem_movimento_proprio_ou_de_descendente()
+            for candidato_id in candidatos
+        )
+
+    def _classificacao_dre_ancestral_via(self, conta_pai_id):
+        """A6 (auditoria DL-045, rodada 1): a `classificacao_dre` do
+        ancestral mais próximo, subindo a partir de `conta_pai_id` (não a
+        de `self`) — usado para comparar a linha EFETIVA herdada ANTES e
+        DEPOIS de um reparentamento, sem depender da hierarquia já
+        carregada em memória (`clean()` só tem `self`, uma instância
+        isolada). Limite de profundidade e deduplicação por `visitado`,
+        mesmo padrão do guard de ciclo acima — defesa contra um ciclo
+        PRÉ-EXISTENTE alheio a esta gravação."""
+        visitado = set()
+        atual_id = conta_pai_id
+        profundidade = 0
+        while atual_id is not None and atual_id not in visitado and profundidade <= 1000:
+            visitado.add(atual_id)
+            linha = (
+                Conta.objects.filter(pk=atual_id)
+                .values_list("classificacao_dre", "conta_pai_id")
+                .first()
+            )
+            if linha is None:
+                return None
+            classificacao, proximo_pai_id = linha
+            if classificacao:
+                return classificacao
+            atual_id = proximo_pai_id
+            profundidade += 1
+        return None
+
     def clean(self):
+        # A4 (auditoria DL-045, rodada 1): `""` (string vazia) normalizado
+        # para `None` AQUI, antes de qualquer guarda ler o campo — a mesma
+        # normalização que o serializer já faz na entrada da API
+        # (`validate_classificacao_dre`), repetida porque `clean()` também
+        # roda por caminhos que não passam pelo serializer (admin, ORM
+        # direto seguido de `full_clean()`). Sem isto, `""` gravado por
+        # QUALQUER caminho tratava a conta como "já classificada" (a guarda
+        # de transição usava `is not None`, e `"" is not None` é `True`) —
+        # a conta ficava travada para sempre: a primeira classificação real
+        # seria recusada como "reclassificação com movimento", e a única
+        # correção possível era SQL direto.
+        if self.classificacao_dre == "":
+            self.classificacao_dre = None
+
         # Achado B4 da auditoria rodada 1 (DL-038, R5): a recusa de
         # contabilidade por partidas dobradas para empresa em modo
         # livro-caixa só existia no mixin da API e no decorador da tela —
@@ -993,10 +1089,24 @@ class Conta(models.Model):
                 # apurado (mesmo dano da classificação patrimonial acima,
                 # só que para a demonstração de resultado em vez do
                 # Balanço).
-                classificacao_dre_gravada = original["classificacao_dre"]
+                # A4 (auditoria DL-045, rodada 1): `bool(...)` — não `is not
+                # None` — porque um registro LEGADO (gravado antes desta
+                # correção, ou por acesso direto ao ORM que ainda não passou
+                # pela `CheckConstraint`) pode ter `""` gravado; tratar `""`
+                # como "já classificada" repetiria o defeito original (a
+                # primeira classificação REAL, depois do `""`, seria
+                # recusada como reclassificação). `self.classificacao_dre`
+                # já foi normalizado para `None` no topo deste método, mas
+                # o valor GRAVADO (lido do banco, `original[...]`) pode
+                # ainda ser `""` num registro legado — por isso a
+                # veracidade é conferida nos DOIS lados da comparação.
+                classificacao_dre_gravada = original["classificacao_dre"] or None
                 mudou_classificacao_dre = (
-                    classificacao_dre_gravada is not None
+                    bool(classificacao_dre_gravada)
                     and classificacao_dre_gravada != self.classificacao_dre
+                )
+                primeira_classificacao_dre = not classificacao_dre_gravada and bool(
+                    self.classificacao_dre
                 )
                 # BL-245 (achado P1, auditoria DL-023 rodada 1): a checagem
                 # só roda quando natureza, tipo OU classificação de fato
@@ -1058,6 +1168,15 @@ class Conta(models.Model):
                 # editar a classificação de uma conta já movimentada
                 # reescreveria, em silêncio, uma DRE de período já apurado
                 # e entregue.
+                #
+                # A7 (auditoria DL-045, rodada 1): a mensagem fala em
+                # "movimento do exercício", nunca em "saldo" — o auditor
+                # mediu que o SALDO de uma conta de resultado é ZERO depois
+                # do zeramento (é o próprio propósito dele), então "lance a
+                # transferência do saldo" orienta quem lê a lançar um valor
+                # que já não existe. O que precisa ser transferido é o
+                # MOVIMENTO do exercício (a soma de débitos/créditos que a
+                # DRE apurou), não um saldo contábil.
                 if mudou_classificacao_dre and tem_movimento_para_guarda:
                     raise ValidationError(
                         "Não é possível mudar a classificação (linha da DRE) desta "
@@ -1065,7 +1184,38 @@ class Conta(models.Model):
                         "gravado — a Demonstração do Resultado já apurada com esta "
                         "conta mudaria retroativamente. Cadastre uma conta nova "
                         "com a classificação correta e lance a RECLASSIFICAÇÃO "
-                        "(a transferência do saldo), em vez de editar esta conta."
+                        "(a transferência do MOVIMENTO DO EXERCÍCIO, nunca do "
+                        "saldo — que já é zero depois do zeramento), em vez de "
+                        "editar esta conta."
+                    )
+
+                # A6 (auditoria DL-045, rodada 1): a PRIMEIRA classificação
+                # é livre quanto ao movimento PRÓPRIO desta conta (ver o
+                # comentário acima da guarda de troca/apagar), mas não pode
+                # "engolir" uma conta DESCENDENTE que já tinha classificação
+                # PRÓPRIA e já tem movimento — classificar o grupo agora
+                # tornaria a descendente uma classificação ANINHADA (o
+                # ancestral consolidaria a subárvore inteira, inclusive a
+                # descendente, cuja linha própria passaria a ser ignorada
+                # na consolidação — regra única de saldo, DE-020), mudando
+                # retroativamente qual linha da DRE já apurada recebeu
+                # aquele movimento. Medido pelo auditor: classificar um
+                # grupo sem classificação, cuja filha já classificada tinha
+                # 400,00 de movimento, mudava a DRE de março de "custo
+                # 400,00 / despesas com vendas 0" para "custo 0 / despesas
+                # com vendas 400,00", sem nenhuma recusa.
+                if (
+                    primeira_classificacao_dre
+                    and self._subarvore_tem_conta_classificada_dre_com_movimento()
+                ):
+                    raise ValidationError(
+                        "Não é possível classificar esta conta (linha da DRE): existe "
+                        "conta descendente já classificada, com movimento do exercício "
+                        "gravado. Classificar este grupo agora faria o valor dela ser "
+                        "consolidado pela linha do grupo, mudando retroativamente a "
+                        "linha da DRE que já recebeu aquele movimento. Classifique este "
+                        "grupo com a MESMA linha que a descendente já usa, ou reveja a "
+                        "classificação da descendente antes."
                     )
 
         # BL-261 (terceiro caminho da BL-83, achado novo 1 da auditoria DL-023
@@ -1099,6 +1249,32 @@ class Conta(models.Model):
                     "contas filhas) antes de reclassificar, ou cadastre uma conta "
                     "nova."
                 )
+
+            # A6 (auditoria DL-045, rodada 1): reparentamento que muda a
+            # linha EFETIVA (herdada) da DRE — só relevante quando ESTA
+            # conta não tem classificação PRÓPRIA (própria sempre vence a
+            # herdada, então reparentar não mudaria a linha efetiva DELA;
+            # mudaria para descendentes sem classificação própria, que a
+            # guarda de cada um deles trata quando rodar — mas travar aqui
+            # evita depender disso). Compara a linha ancestral ANTES
+            # (subindo a partir do `conta_pai_id` GRAVADO) com a linha
+            # ancestral DEPOIS (subindo a partir do novo `conta_pai_id`) —
+            # mesmo dano do achado (b) do auditor: mover conta com 250,00
+            # de movimento de "custo" para "despesas com vendas" (mesma
+            # natureza devedora, então a guarda de natureza acima não
+            # dispara) mudava a DRE sem nenhum lançamento novo.
+            if not self.classificacao_dre:
+                linha_antes = self._classificacao_dre_ancestral_via(original["conta_pai_id"])
+                linha_depois = self._classificacao_dre_ancestral_via(self.conta_pai_id)
+                if linha_antes != linha_depois:
+                    raise ValidationError(
+                        "Não é possível reparentar esta conta: ela ou uma conta "
+                        "descendente já tem movimento do exercício gravado, e a linha "
+                        "da DRE herdada mudaria sem nenhum lançamento novo — a "
+                        "Demonstração do Resultado já apurada com esta conta mudaria "
+                        "retroativamente. Estorne o movimento (ou mova as contas "
+                        "filhas) antes de reparentar, ou cadastre uma conta nova."
+                    )
 
 
 class LancamentoContabil(models.Model):

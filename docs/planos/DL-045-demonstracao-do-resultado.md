@@ -189,7 +189,7 @@ Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
 - **Duas colunas** (RC-119): mês (`[01/mês, fim do mês]`) e acumulado do
   exercício (`[01/01, fim do mês]`, HI-28 — ano civil). Uma consulta de
   hierarquia + uma agregação por coluna — número de consultas CONSTANTE
-  em relação ao número de contas (testado com 10 → 60 contas).
+  em relação ao número de contas (testado com 10 → 50 contas extras).
 - **Subtotais (HI-29 revista após a PE-70)**: receita líquida → lucro
   bruto → resultado antes das receitas e despesas financeiras →
   resultado financeiro (destacado) → resultado antes dos tributos sobre o
@@ -207,15 +207,20 @@ Worktree `wt-dl045`, branch `dl045-dre`. Servidor + API, sem template/CSS
   citada acima). Zero no caso são; protege contra irmãs topo-classificadas
   com natureza divergente (a aritmética do BL-486) e qualquer topologia
   não pensada.
-- **Pendências** (critério 6): `contas_sem_classificacao_dre_com_
+- **Pendências** (critério 6), REVISTAS na correção da rodada 1 (ver
+  seção própria abaixo — **esta afirmação, na entrega original, estava
+  ERRADA**: `contas_com_classificacao_dre_aninhada` e `contas_com_
+  classificacao_dre_desconhecida` NÃO eram tratadas como no Balanço; a
+  auditoria mediu, achado A1): `contas_sem_classificacao_dre_com_
   movimento` (folha de RECEITA/DESPESA, com movimento na coluna, sem
   classificação própria nem ancestral — a régua é o MOVIMENTO NA COLUNA,
-  não uma propriedade fixa da conta, mesma lição do BL-498/DL-033) veta a
-  leitura via `avaliar_emissao_da_dre`; `contas_nao_folha_sem_
-  classificacao_dre_com_movimento_proprio` (BL-487), `contas_com_
-  classificacao_dre_aninhada` e `contas_com_classificacao_dre_
-  desconhecida` são informativas (nunca vetam) — mesma partição em duas
-  tuplas de `avaliar_emissao_do_balanco` (DL-034/BL-502).
+  não uma propriedade fixa da conta, mesma lição do BL-498/DL-033),
+  `contas_com_classificacao_dre_aninhada_linha_diferente` e
+  `contas_com_classificacao_dre_desconhecida` VETAM; `contas_nao_folha_
+  sem_classificacao_dre_com_movimento_proprio` (BL-487) e `contas_com_
+  classificacao_dre_aninhada_mesma_linha` são informativas (nunca vetam)
+  — agora sim a MESMA partição do Balanço (DL-034/BL-502), com teste que
+  prova a partição (`test_bl502`, molde replicado nesta etapa).
 - **AS DUAS COLUNAS VETAM** — decisão do arquiteto, 26/09/2026, revendo a
   primeira versão (que só olhava o mês): a DRE formal imprime a coluna do
   ACUMULADO, e uma pendência só nela também deixa um número impresso
@@ -295,4 +300,56 @@ servidor: os casos de referência calculados à mão batem, mas há quatro achad
 altos no veto, na hierarquia e no estorno (A1 a A4), a leitura sem snapshot
 (A5) e 12 mutantes sobreviventes. Decisões em DE-085. Correção com o
 `desenvolvedor-pleno`; depois, uma reconferência única, que inclui a fatia 3.
+
+## Correção da rodada 1
+
+Implementada em cima do commit `31b5f2c` (docs da rodada 1 + DE-085), branch
+`dl045-dre`. Achado → mudança → teste → mutante:
+
+| Achado | Mudança | Teste | Mutante(s) morto(s) |
+| --- | --- | --- | --- |
+| A1 (aninhada) | `contas_com_classificacao_dre_aninhada` virou DUAS listas: `..._linha_diferente` (veta) e `..._mesma_linha` (só avisa); `contas_com_classificacao_dre_desconhecida` passou para a tupla de veto. Partição provada contra o inventário real. | `test_a1_aninhada_com_linha_diferente_da_herdada_veta`, `test_particao_das_listas_contas_da_dre_e_igual_ao_inventario_real` | — |
+| A2 (tipo divergente) | Nova lista `contas_com_tipo_divergente_da_linha` (veta): toda conta com movimento próprio cujo `tipo` não é aceito pela linha efetiva (própria ou herdada) — inclui conta patrimonial sob linha de resultado. | `test_a2a_conta_ativo_sob_receita_bruta_veta`, `test_a2b_conta_despesa_sob_receita_bruta_veta` | — |
+| A3 (estorno de zeramento) | `_agregar_movimento_dre_por_conta` exclui também `lancamento__estorno_de__chave_idempotencia__istartswith="zeramento:"`; nova lista informativa `estornos_de_zeramento_na_coluna` (nunca veta) declara o estorno na coluna em que ele foi datado. | `test_a3_estorno_de_zeramento_nao_dobra_o_acumulado` | — |
+| A4 (`""` trava a conta) | Serializer normaliza `""` -> `None` (`validate_classificacao_dre`); `Conta.clean()` normaliza no topo do método e usa veracidade (`bool(...)`), não `is not None`, na guarda de transição; `CheckConstraint` nova (`ck_conta_classificacao_dre_nao_vazia`) + migração 0011 com `RunPython` normalizando dado legado. | `test_a4_post_com_string_vazia_grava_none_e_libera_a_primeira_classificacao`, `test_a4_check_constraint_recusa_string_vazia_por_sql_direto` | — |
+| A5 (sem snapshot) | `apurar_dre` ganhou o MESMO wrapper de `apurar_balanco_patrimonial`: `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` como primeira instrução, quando fora de outro `atomic()`; degrada (pula o comando) quando já dentro de um. | `test_a5_sem_o_wrapper_a_escrita_concorrente_produz_lucro_fantasma`, `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` | — |
+| A6 (guarda contornável) | Novo guard: primeira classificação de um nó recusada se a subárvore já tiver conta classificada com movimento (`_subarvore_tem_conta_classificada_dre_com_movimento`); reparentamento recusado se a linha EFETIVA herdada mudar (`_classificacao_dre_ancestral_via`, antes/depois). | `test_a6a_primeira_classificacao_do_pai_sobre_filha_ja_classificada_e_recusada` (+ contraprova sem movimento), `test_a6b_reparentamento_que_muda_a_linha_efetiva_com_movimento_e_recusado` (+ contraprova sem mudança de linha) | — |
+| A7 (sem porta operacional) | Serviço novo `classificar_conta_na_dre(*, conta, classificacao, usuario, request=None)` (guardas em `Conta.clean()`, trilha via `registrar()`); `PATCH /empresas/<id>/contas/<id>/classificacao-dre/` (`ContaClassificacaoDreView`, `PodeEscriturar`); admin ganhou `classificacao_dre` em `list_display`/`list_filter`; mensagem da guarda de transição da DRE fala em "movimento do exercício", não "saldo". | `test_a7_servico_classifica_conta_existente_e_grava_trilha`, `test_a7_servico_propaga_a_guarda_de_tipo_incompativel`, `test_a7_patch_classifica_conta_existente_via_api`, `test_a7_patch_recusa_para_papel_que_nao_escritura`, `test_a7_patch_traduz_a_guarda_de_movimento_para_400`, `test_a7_patch_isolamento_conta_de_outro_escritorio_e_404` | M23-análogo (validação de tipo do serviço) |
+| A8 (mutantes) | 13 casos de teste propostos, implementados. | ver tabela de mutantes abaixo | M04, M05, M06, M08, M12, M13, M14, M21, M25, M28, M30 (M27: ver nota) |
+| A9 (documentação) | `models.py` (`_LINHAS_ANTES_DO_FINANCEIRO` -> nome real); este plano (contagem "50 contas", partição igual ao Balanço); `docs/agents/estado.md` (pendência revogada removida, rodada 1 e DE-085 citadas). | busca pelos termos corrigidos | — |
+| A10 (`total_debitos`/`total_creditos`) | Passaram a somar SÓ contas de tipo RECEITA/DESPESA (própria, sem zeramento) — nunca a contrapartida patrimonial. | `test_caso6_isolamento_dos_totais_entre_empresas` | M27 (ver nota) |
+
+### Tabela de mutantes (achado A8)
+
+| # | Mutação | Teste que mata |
+| --- | --- | --- |
+| M04 | `data_inicio_exercicio = date(ano - 1, 1, 1)` | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M05 | `lancamento__data__lte` -> `__lt` | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M06 | `lancamento__data__gte` -> `__gt` | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M08 | `if residuo or pendentes` -> `if pendentes` | `test_caso2_raiz_despesa_sem_classificacao_com_movimento_veta_pelo_residuo` |
+| M12 | `NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE[OUTRAS_DESPESAS_OPERACIONAIS]` DEVEDORA -> CREDORA | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M13 | `OUTRAS_RECEITAS` movida para `_LINHAS_DO_RESULTADO_FINANCEIRO` | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M14 | `RESULTADO_EQUIVALENCIA_PATRIMONIAL` removida de qualquer tupla de subtotal | `test_caso1_referencia_completa_bate_com_o_calculo_independente_do_auditor` |
+| M21 | `DEDUCOES_DA_RECEITA` aceita `(RECEITA, DESPESA)` | `test_m21_deducoes_da_receita_recusa_conta_de_tipo_despesa` |
+| M25 | Remover `_validar_ano_mes(ano, mes)` de `DreView.get` | `test_caso4_datas_invalidas_devolvem_400` (mutante produz 500, não 400) |
+| M27 | Remover `conta__empresa=empresa`/`lancamento__empresa=empresa` de `_agregar_movimento_dre_por_conta` | **Não observável** (ver nota) |
+| M28 | Remover o `try/except HierarquiaInconsistente` de `DreView.get` | `test_caso5_ciclo_na_hierarquia_devolve_409_nunca_500` (mutante produz 500) |
+| M30 | `conta.tipo not in (RECEITA, DESPESA)` -> `conta.tipo != RECEITA` | `test_caso3_conta_despesa_sem_classificacao_com_movimento_aparece_na_lista` |
+
+**Nota sobre M27:** a correção do A10 (acima) reescreveu `total_debitos`/
+`total_creditos` para somar iterando `for conta in contas` (a lista JÁ
+filtrada por `empresa`), em vez de `agregados_proprios.values()` direto (o
+desenho antigo, que o auditor usou para matar o mutante). TODO consumidor de
+`agregados_proprios` nesta função (`_consolidar_movimento_por_conta`, as
+listas de pendência, os dois totais) hoje lê por `conta.id` a partir de
+`contas` — nenhum é alcançável por uma linha cujo `conta_id` não pertença à
+empresa consultada, mesmo que a consulta de agregação em si perca o filtro.
+Removido os dois filtros de `_agregar_movimento_dre_por_conta` (mutação
+aplicada e revertida ao vivo) e a suíte inteira continuou verde — o mutante
+é **equivalente** depois de A10, um efeito colateral bem-vindo da correção,
+não um teste faltando. Mantive os dois filtros no código (defesa em
+profundidade, nunca removê-los) e o teste de isolamento do critério (item 6
+da lista proposta, `test_caso6_isolamento_dos_totais_entre_empresas`)
+continua valendo — ele prova o RESULTADO da isolação, não depende de qual
+mutante especificamente a mataria.
 
