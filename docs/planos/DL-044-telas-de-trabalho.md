@@ -26,15 +26,17 @@ acessibilidade continuam valendo e não podem ser afrouxados.
 A página pública (landing) **ficou boa** e não é alvo desta etapa, exceto
 pelo que for componente compartilhado.
 
-## Hipóteses de desenho (HI-27, reversíveis, validadas pelo Fred nas capturas)
+## Hipóteses de desenho (HI-27, confirmadas pelo Fred em 2026-09-26 — RC-117)
 
 - Tipografia de trabalho sem serifa (auto-hospedada, licença junto, DE-011);
   a serifa fica para marca, títulos da landing e documentos imprimíveis.
 - Casca de aplicação com cabeçalho de página (título, contexto, ações à
   direita), conteúdo em superfícies (cartões/painéis) com borda e sombra
   sutil, fundo de trabalho neutro.
-- Navegação entre relatórios da empresa como **abas** (ou segmentado), nunca
-  linha de links sublinhados.
+- Navegação entre relatórios da empresa **sem linha de links sublinhados**.
+  Na primeira iteração virou abas; na quarta, as abas saíram por repetirem o
+  menu (DE-081): a navegação é **uma só**, pela barra lateral, com um hub de
+  relatórios em cartões.
 - Botões com aspecto de botão em todos os tons (preenchido, contorno,
   perigoso, fantasma), com estados de foco, passagem do mouse, pressionado e
   desabilitado; ações de linha de tabela como botões compactos ou menu.

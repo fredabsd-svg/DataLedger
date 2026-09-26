@@ -93,6 +93,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Integrada (PR #48) |
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
+| [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -101,42 +102,43 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-043 pronta para PR; DL-044 (visual das telas de trabalho) em
-desenho.**
+**AGORA — PR #49 (DL-043) aguardando o merge do Fred; DL-044 pronta para PR
+logo depois; DL-045 (DRE) em andamento.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48 (merge do Fred em
   26/09).
-- **DL-043** (parâmetros contábeis e zeramento, nível 1): na branch
-  `claude/vigilant-bardeen-jo12l4`, aguardando PR. Rodada 1
-  ([relatório](../auditorias/2026-09-26-dl-043-rodada-1.md)) e
-  [reconferência](../auditorias/2026-09-26-dl-043-reconferencia.md) **reprovadas**;
-  a última correção (R1–R6, decisões no adendo da DE-078) foi fechada **sem
-  terceira rodada** (AGENTS.md §3.1): os seis testes que a reconferência propôs
-  existem e passam, e os mutantes N6, N14, N15, N16, R1, R2 e R4 morrem —
-  conferido por verificação independente (seção "Verificação do fechamento" do
-  [plano](../planos/DL-043-parametros-contabeis-e-zeramento.md)). O Fred decide no
-  PR se aceita esse fechamento. Pendências dele: HI-24, HI-25, HI-26/PE-38
-  (compensação de lucros e prejuízos acumulados) e PE-69 (desfazer zeramento).
-- **DL-044** (telas de trabalho com aspecto de produto profissional, nível 2):
-  o Fred reprovou o visual das telas internas da DL-042 ("aspecto de vazio",
-  "botão parece link", "arcaico", "tudo junto num lugar só") e aprovou a
-  página pública. Referência visual escolhida por ele em 26/09: **Conta Azul**,
-  como modelo de padrão, sem copiar marca. Em desenho na branch local
-  `dl044-telas-de-trabalho`; o Fred vê as capturas antes de espalhar para
-  todas as telas. Integra depois da DL-043.
+- **DL-043** (parâmetros contábeis e zeramento, nível 1): PR #49, verificações
+  verdes. Rodada 1 ([relatório](../auditorias/2026-09-26-dl-043-rodada-1.md)) e
+  [reconferência](../auditorias/2026-09-26-dl-043-reconferencia.md)
+  **reprovadas**; a última correção foi fechada **sem terceira rodada**
+  (AGENTS.md §3.1), por verificação independente descrita no
+  [plano](../planos/DL-043-parametros-contabeis-e-zeramento.md). Pendências do
+  Fred: HI-24, HI-25, HI-26/PE-38 e PE-69.
+- **DL-044** (telas de trabalho, nível 2): **aprovada pelo Fred** (RC-117) com
+  o Conta Azul como referência de padrão (RC-116). Todas as telas autenticadas
+  migradas: casca azul, barra lateral como navegação única (sem linha de abas
+  na Contabilidade nem no Fiscal), título e ações no topo branco, cartões,
+  tabelas com superfície, ações de linha como botão, Início com indicadores e
+  carteira, hub de relatórios. Capturas em
+  [dl044/comparacao.md](../assets/telas/dl044/comparacao.md). Identificação do
+  emitente e densidade do Balancete medidas antes e depois. **Pendente de
+  autorização do Fred:** apagar `templates/fiscal/_navegacao.html`, que ficou
+  sem uso (a exclusão foi bloqueada pelo controle do ambiente e não foi
+  contornada). Integra por PR depois do merge do PR #49.
+- **DL-045** (DRE, nível 1): plano, RC-118 a RC-120, HI-28, HI-29 e PE-70
+  (respondida por fonte primária). Classificação e apuração no servidor prontas
+  na branch local `dl045-dre`; em ajuste e depois auditoria independente. A
+  tela vem sobre o visual da DL-044.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
   andamento neste ambiente efêmero; **não** são entrega.
 
-Fila depois da DL-043, em ordem recomendada e sujeita ao Fred:
+Fila depois da DL-045, em ordem recomendada e sujeita ao Fred:
 
-1. **DRE** (CON-12 do plano mestre) — pelo movimento do período, não pela
-   camada de saldos (limite declarado no próprio código). Usa os parâmetros
-   contábeis da DL-043.
-2. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
+1. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
    regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+2. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e
