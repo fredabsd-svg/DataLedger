@@ -2,14 +2,17 @@
 
 {% block titulo %}Documentos fiscais{% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título e ação primária migram para a faixa branca do
+topo — mesmo padrão das demais telas ativas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Documentos fiscais</h1>{% endblock %}
+{% block acoes_pagina %}
+    <a class="botao botao--secundario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
+{% endblock %}
+
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="documentos" %}
-    <div class="cabecalho-pagina">
-        <h1>Documentos fiscais</h1>
-        <div class="cabecalho-pagina__acoes">
-            <a class="botao botao--secundario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
-        </div>
-    </div>
 
     {% comment %}
     Arquétipo A (tabela de consulta, direção de arte §2.A): filtro não come

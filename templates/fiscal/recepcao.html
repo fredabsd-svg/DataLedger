@@ -2,9 +2,16 @@
 
 {% block titulo %}Recepção de documentos fiscais{% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo — esta tela é
+do ESCRITÓRIO (várias empresas ao mesmo tempo), sem pílula "Empresa"
+para repetir, então o título continua por extenso. `id="enviar"`
+preservado — é o alvo do link "Enviar notas" do menu lateral.
+{% endcomment %}
+{% block titulo_pagina %}<h1 id="enviar">Recepção de documentos fiscais</h1>{% endblock %}
+
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
-    <h1 id="enviar">Recepção de documentos fiscais</h1>
 
     {% comment %}
     DL-040 (v2): `id="enviar"` no h1 e `id="envios-anteriores"` no h2 de

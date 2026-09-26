@@ -1,12 +1,16 @@
-# DL-044 — telas de trabalho, antes e depois (5ª iteração)
+# DL-044 — telas de trabalho, antes e depois
 
-Capturas para o Fred aprovar a DL-044 antes de espalhar a mudança para o
-resto do produto (fase B). Cinco rodadas de retorno, cada uma incorporada
-antes da próxima captura — o "depois" abaixo é sempre o estado MAIS
-recente, não uma pilha de versões. **Esta rodada (5ª) recapturou só três
-telas** (Início, Novo lançamento, Zerar resultado) — Relatórios e
-Balancete continuam com a captura da 4ª rodada, sem mudança visual desde
-então.
+**Fase A** (aprovada pelo Fred, "Aprovado pode prosseguir", 2026-09-26):
+cinco rodadas de retorno sobre um conjunto pequeno de telas de referência
+(Início, Novo lançamento, Relatórios, Balancete, Zerar resultado), cada
+uma incorporada antes da próxima captura — documentadas na seção "Fase
+A", abaixo, sem alteração desde a aprovação.
+
+**Fase B** (autorizada depois da aprovação — espalhar o mesmo padrão para
+as demais telas autenticadas do produto, em lotes com commit por lote):
+seção própria, mais abaixo, com as capturas de cada lote.
+
+## Fase A
 
 1. **Reprovação original** (fase A): *"o layout da tela de trabalho tá com
    aspecto de vazio e os botões de clicar [...] tá parecendo um botão de
@@ -268,3 +272,204 @@ Registradas por honestidade — nenhuma delas sobrevive nas capturas
    `.tabela-dados th` (especificidade 0-1-1) sempre vencia `.cabecalho-
    numerico` sozinha (0-1-0), em qualquer ordem de arquivo. Corrigido com
    `.tabela-dados th.cabecalho-numerico` (0-2-1).
+
+## Fase B
+
+Mesmo padrão da fase A (`{% block titulo_pagina %}`/`{% block
+acoes_pagina %}`, cartão branco, tabela com neutros frios, um botão
+primário por tela) espalhado para as telas que a fase A não tocou.
+Decisão completa de cada lote: [decisoes.md,
+DE-083](../../../projeto/decisoes.md).
+
+Dados e método de captura: mesmos da fase A (base sintética de
+`scripts/semear_base_de_medicao.py`, Chromium, locale pt-BR, 26/09/2026),
+uma sessão de captura posterior à da fase A.
+
+⚠️ **Achado de instrumentação desta etapa, registrado para quem repetir
+este método:** trocar o arquivo de template no disco e tirar a captura
+SEM reiniciar o processo do `runserver` produz uma captura "antes" IGUAL
+à "depois", em silêncio — o Django deste projeto envolve os
+carregadores de template em `cached.Loader` mesmo com `DEBUG=True`. Toda
+captura "antes" desta seção foi feita reiniciando o processo do
+`runserver` a cada troca de arquivo, com uma checagem por `curl` do HTML
+servido antes de cada captura de tela — ver DE-083 para o detalhe
+completo.
+
+### Lote 1 — Contabilidade
+
+13 telas migradas (Plano de contas, Nova conta, Diário, Razão,
+Balancete, Balanço, Conferência, Fechamento, Fechar/Reabrir/Marcar como
+entregue competência, Detalhe do lançamento, Parâmetros contábeis).
+Capturas abaixo: as cinco que o arquiteto-senior pediu para o retorno
+(Plano de contas, Diário, Balancete, Balanço, Fechamento) — as demais
+oito seguem o MESMO padrão, verificadas na tela renderizada durante a
+migração, sem captura própria nesta entrega.
+
+**Balancete migrou o cabeçalho nesta rodada** (não migrou na fase A —
+risco de densidade registrado, sem instrumento disponível então). Medido
+agora: 7 linhas visíveis antes e depois da migração, mesmo método do
+§4.8 da direção de arte — sem regressão (detalhe em DE-083 e
+direcao-de-arte.md §8.3).
+
+**Diário/Razão/Balancete/Balanço (documentos imprimíveis):** identificação
+do emitente verificada com `scripts/medir_identificacao_do_emitente.py`
+contra um banco descartável, antes e depois da migração — as quatro
+telas com timbre continuam "PASSOU" (RC-97), o Balanço (classe 2, RC-95)
+também.
+
+**Achado à parte, corrigido no mesmo lote:** botão primário como `<a>`
+saía com o texto da MESMA cor do fundo dentro de `.area-principal`
+(mesma classe de bug de especificidade CSS já corrigida duas vezes nesta
+etapa) — pré-existente em `empresas/lista.html` e `tenancy/painel.html`,
+não introduzido por esta etapa. Ver Plano de contas abaixo: o "antes"
+mostra o botão "Nova conta" como um retângulo azul sem rótulo legível —
+o próprio defeito, capturado antes da correção.
+
+#### Plano de contas
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_plano_de_contas_1440x900.png) | ![Depois](depois_fase_b_plano_de_contas_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_plano_de_contas_390x844.png) | ![Depois](depois_fase_b_plano_de_contas_390x844.png) |
+
+#### Diário
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_diario_1440x900.png) | ![Depois](depois_fase_b_diario_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_diario_390x844.png) | ![Depois](depois_fase_b_diario_390x844.png) |
+
+#### Balancete
+
+Computador (1440 × 900):
+
+| Antes (fase A, cabeçalho ainda não migrado) | Depois (Fase B) |
+| --- | --- |
+| ![Antes](antes_fase_b_balancete_1440x900.png) | ![Depois](depois_fase_b_balancete_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_balancete_390x844.png) | ![Depois](depois_fase_b_balancete_390x844.png) |
+
+#### Balanço
+
+Computador (1440 × 900) — capturado no estado "Balanço NÃO pode ser
+emitido nesta data-base" (estado de erro de negócio, pré-existente,
+independente desta migração — a data-base padrão do dia não tem
+classificação circulante/não circulante completa na empresa semeada):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_balanco_1440x900.png) | ![Depois](depois_fase_b_balanco_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_balanco_390x844.png) | ![Depois](depois_fase_b_balanco_390x844.png) |
+
+#### Fechamento
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fechamento_1440x900.png) | ![Depois](depois_fase_b_fechamento_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fechamento_390x844.png) | ![Depois](depois_fase_b_fechamento_390x844.png) |
+
+### Lote 2 — Fiscal e Empresas
+
+Migradas: Recepção fiscal, Documentos fiscais, Detalhe do documento,
+Relatório do envio, Empresas (lista, nova, sem escritório ativo).
+
+**Decisão explícita: a navegação em abas do Fiscal
+(`Recepção`/`Documentos`, visível nas duas capturas abaixo) NÃO foi
+removida nesta etapa**, ao contrário da mesma redundância já removida da
+Contabilidade — ver DE-083 para as duas razões (fora do pedido explícito
+desta rodada; `git rm` foi recusado pelo classificador de permissão da
+sessão). Só o título migrou para a faixa branca do topo; a navegação
+em abas permanece exatamente como estava.
+
+#### Recepção fiscal
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fiscal_recepcao_1440x900.png) | ![Depois](depois_fase_b_fiscal_recepcao_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fiscal_recepcao_390x844.png) | ![Depois](depois_fase_b_fiscal_recepcao_390x844.png) |
+
+#### Documentos fiscais
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fiscal_documentos_1440x900.png) | ![Depois](depois_fase_b_fiscal_documentos_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_fiscal_documentos_390x844.png) | ![Depois](depois_fase_b_fiscal_documentos_390x844.png) |
+
+#### Empresas (lista)
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_empresas_lista_1440x900.png) | ![Depois](depois_fase_b_empresas_lista_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_empresas_lista_390x844.png) | ![Depois](depois_fase_b_empresas_lista_390x844.png) |
+
+**Achado visível na própria captura "antes":** o botão "Nova empresa" já
+saía sem rótulo legível (retângulo azul sólido) — o MESMO bug corrigido
+no lote 1 (a correção é em `static/css/base.css`, produto inteiro, não
+por tela — a captura "antes" deste lote precede a correção na linha do
+tempo de quem só olhar esta seção, mas o commit que introduz a correção
+é do lote 1, `e0bd793`, anterior a este lote).
+
+#### Empresa nova
+
+Computador (1440 × 900):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_empresas_nova_1440x900.png) | ![Depois](depois_fase_b_empresas_nova_1440x900.png) |
+
+Celular (390 × 844):
+
+| Antes | Depois |
+| --- | --- |
+| ![Antes](antes_fase_b_empresas_nova_390x844.png) | ![Depois](depois_fase_b_empresas_nova_390x844.png) |

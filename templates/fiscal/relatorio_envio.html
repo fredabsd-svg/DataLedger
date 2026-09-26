@@ -13,9 +13,13 @@
     </nav>
 {% endblock %}
 
+{% comment %}
+DL-044 (Fase B): título migra para a faixa branca do topo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Relatório do envio — {{ lote.nome_arquivo }}</h1>{% endblock %}
+
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
-    <h1>Relatório do envio — {{ lote.nome_arquivo }}</h1>
     <p class="texto-apoio">
         Enviado por {{ lote.usuario.get_username }} em {{ lote.criado_em|date:"d/m/Y H:i" }}.
     </p>

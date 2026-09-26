@@ -2,16 +2,18 @@
 
 {% block titulo %}Empresas{% endblock %}
 
-{% block content %}
-    <div class="cabecalho-pagina">
-        <h1>Empresas</h1>
-        {% if pode_cadastrar %}
-            <div class="cabecalho-pagina__acoes">
-                <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Nova empresa</a>
-            </div>
-        {% endif %}
-    </div>
+{% comment %}
+DL-044 (Fase B): título e ação primária migram para a faixa branca do
+topo — mesmo padrão das demais telas ativas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Empresas</h1>{% endblock %}
+{% block acoes_pagina %}
+    {% if pode_cadastrar %}
+        <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Nova empresa</a>
+    {% endif %}
+{% endblock %}
 
+{% block content %}
     <table class="tabela-dados">
         <caption class="visualmente-oculto">Empresas cadastradas no escritório ativo</caption>
         <thead>

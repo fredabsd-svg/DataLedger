@@ -4418,3 +4418,107 @@ uma captura como "corrigida" (que já tinha sido aplicada a `.cabecalho-
 numerico`) precisa virar HÁBITO para toda classe de alinhamento nova,
 não só a que já foi pega uma vez — registrado aqui para a próxima
 correção do gênero não repetir a mesma surpresa.
+
+## DE-083 — Fase B da DL-044: o padrão visual espalhado para o resto do produto
+
+Fred aprovou a direção visual da fase A ("Aprovado pode prosseguir",
+2026-09-26) — o arquiteto-senior autorizou a fase B (espalhar o padrão da
+faixa branca do topo para as telas que a fase A não tocou), em lotes com
+commit por lote. Dois lotes fechados nesta etapa.
+
+**Lote 1 — Contabilidade (`e0bd793`).** As 13 telas do módulo migraram
+para `{% block titulo_pagina %}`/`{% block acoes_pagina %}`: Plano de
+contas, Nova conta, Diário, Razão, Balancete, Balanço, Conferência,
+Fechamento, Fechar/Reabrir/Marcar como entregue competência, Detalhe do
+lançamento, Parâmetros contábeis. Critério para simplificar o título
+(tirar a razão social quando ela só repete a pílula "Empresa") aplicado
+consistentemente às telas ATIVAS; telas de CONFIRMAÇÃO sensível mantêm
+mês/ano no título de propósito (reforço de risco, não esquecimento —
+justificado em comentário próprio em cada um dos três templates). Ver
+docs/projeto/direcao-de-arte.md §8.3 para o detalhe completo, inclusive a
+medição de densidade do Balancete (BL-284: 7 linhas antes e depois da
+migração — sem regressão) e a verificação de identificação do emitente
+nos quatro documentos imprimíveis (RC-97/RC-95, `scripts/medir_
+identificacao_do_emitente.py`, `PASSOU` antes e depois).
+
+**Achado corrigido no lote 1: botão primário `<a>` invisível dentro de
+`.area-principal`.** Ver o detalhe técnico completo em direcao-de-
+arte.md §8.3 (revisão Fase B) — resumo: `.botao--primario` como link
+saía com o texto da MESMA cor do fundo (especificidade CSS,
+`:not(.botao)` corrigiu). Pré-existente em `empresas/lista.html` e
+`tenancy/painel.html`, não introduzido por esta etapa.
+
+**Lote 2 — Fiscal e Empresas.** Migradas: Recepção fiscal, Documentos
+fiscais, Detalhe do documento, Relatório do envio, Empresas (lista,
+nova, sem escritório ativo). `templates/empresas/sem_escritorio.html`
+ganhou também `.botao--secundario` no único link da tela ("Ir para o
+painel"), mesma convenção de "nenhum link solto sem estilo" que o resto
+do produto já segue.
+
+**Decisão: NÃO removida a navegação em abas do Fiscal
+(`templates/fiscal/_navegacao.html`) nesta etapa — ao contrário da
+mesma redundância já removida da Contabilidade na 4ª iteração
+(DE-081).** Duas razões, as duas suficientes sozinhas: (1) o pedido do
+arquiteto-senior para a Fase B lista o padrão visual (faixa do topo,
+cartão branco, tabela neutra, um botão primário, filtros em cartão,
+estados desenhados) — não pede remoção de navegação redundante, que foi
+achado ESPECÍFICO de uma rodada anterior sobre Contabilidade, não uma
+regra geral declarada para todo o produto; (2) `git rm` foi RECUSADO
+pelo classificador de permissão desta sessão ("Irreversible Local
+Destruction") ao tentar apagar o arquivo — e apagar o arquivo (não só
+parar de incluí-lo) é a técnica que o AGENTS.md exige para não deixar
+código morto (mesma lição já registrada na DE-081: "a parcial foi
+apagada, não deixada como código morto"). Diante da permissão negada,
+a escolha certa não é contornar (ex.: sobrescrever o arquivo com
+conteúdo vazio, ou remover as quatro `{% include %}` e deixar o
+arquivo original órfão) — é reconhecer que a mudança pedida (apagar)
+está fora do alcance desta sessão, e não estender a mudança MAIOR
+(reorganizar a navegação do Fiscal) sem o mecanismo completo para
+fazê-la do jeito que o produto já demonstrou ser o certo. A navegação
+em abas do Fiscal continua incluída nas quatro telas, exatamente como
+antes desta etapa — achado registrado aqui para quem revisar decidir
+se vale abrir uma tarefa própria (com a permissão de exclusão
+concedida) para repetir o padrão da DE-081 no Fiscal.
+
+**Achado de instrumentação, registrado para quem for medir antes/depois
+de novo:** o Django 6.1 deste projeto envolve os carregadores de
+template em `django.template.loaders.cached.Loader` **mesmo com
+`DEBUG=True`** — confirmado via `django.template.engines['django'].
+engine.loaders`, que devolve `cached.Loader` envolvendo os loaders de
+sistema de arquivos, independentemente do valor de `DEBUG`. Isso quebra
+a técnica "troca o arquivo no disco, tira a captura, devolve o arquivo"
+quando reaproveitando o MESMO processo do `runserver` entre as duas
+capturas (por exemplo, com `git stash`/`git stash pop`, sem reiniciar o
+servidor) — o processo continua servindo a versão JÁ RENDERIZADA da
+memória, e a captura "antes" sai idêntica à "depois" em silêncio, sem
+erro nenhum. Medido nesta etapa: as primeiras capturas "antes" do lote 2
+(Recepção fiscal, Documentos fiscais, Empresas lista, Empresa nova)
+saíram erradas assim — só descobertas porque as duas imagens pareciam
+suspeitosamente idênticas, verificado depois com um marcador de texto
+exclusivo que confirmou o cache. Recapturadas corretamente reiniciando o
+processo do `runserver` (`pkill` + novo processo) a cada troca de
+arquivo, com uma verificação por `curl` do HTML servido ANTES de cada
+captura de tela, a partir de então. **Regra para a próxima vez:** nunca
+confiar em "editei o arquivo, então o servidor já está atualizado" sem
+reiniciar o processo entre uma troca de template e a medição seguinte —
+neste projeto, PARTICULARMENTE, essa suposição é falsa mesmo em
+desenvolvimento.
+
+**Testado (os dois lotes):** suíte completa, duas rodadas — 2827 passed,
+45 skipped, 2 failed (as duas falhas pré-existentes e sem relação, já
+registradas no lote anterior a este: `test_todo_plano_de_etapa_aparece_
+no_readme` e `test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_
+versao_posterior`). Duas outras falhas apareceram numa execução PARCIAL
+(`apps/fiscal/ apps/empresas/ apps/core/` só) —
+`test_corrida_real_de_documento_produz_um_unico_documento` (concorrência
+real) e `test_delete_de_empresa_via_admin_gera_trilha_com_valores_
+anteriores` — e sumiram tanto isoladas quanto na suíte completa: FLAKY
+por ordem/concorrência de execução, não relacionadas a nenhuma mudança
+desta etapa (nenhuma toca em template nem CSS). `ruff check`/`ruff
+format --check` limpos nos dois lotes.
+
+**Consequência aceita:** nenhuma das mudanças desta etapa alterou regra
+de negócio, cálculo ou permissão — título migrado, ação primária
+reposicionada e um bug de cor de botão corrigido, todos apresentação. A
+navegação em abas do Fiscal fica como está, por decisão explícita (acima),
+não por esquecimento.

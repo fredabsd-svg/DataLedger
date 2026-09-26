@@ -568,6 +568,63 @@ repetindo o título duas vezes (achado do arquiteto-senior, com exemplo:
 pílula da empresa"). Balancete NÃO migrou — ver DE-080/adenda 4ª
 iteração para o motivo (risco de densidade, BL-284).
 
+**Revisão (DL-044, Fase B — Fred aprovou a direção visual, "Aprovado
+pode prosseguir"; arquiteto-senior autorizou espalhar o padrão para as
+telas ainda não tocadas).** Migradas: todas as 13 telas de Contabilidade
+(Plano de contas, Nova conta, Diário, Razão, **Balancete** — agora sim,
+ver abaixo —, Balanço, Conferência, Fechamento, Fechar/Reabrir/Marcar
+como entregue competência, Detalhe do lançamento, Parâmetros contábeis),
+Recepção fiscal, Documentos fiscais, Detalhe do documento, Relatório do
+envio, Empresas (lista, nova, sem escritório ativo). Mesmo critério da 4ª
+iteração para decidir se o nome da empresa sai do título: tela ATIVA cujo
+título só repetia a pílula "Empresa" perde a razão social do título
+(Plano de contas, Diário, Conferência, Fechamento, Nova conta, Parâmetros
+contábeis); tela de CONFIRMAÇÃO sensível (arquétipo E — Fechar/Reabrir/
+Entregar competência) MANTÉM o mês/ano no título mesmo repetindo a
+pílula "Competência" — reforço de risco deliberado, registrado em cada
+template, não um esquecimento da regra geral.
+
+**Balancete migrou nesta rodada — BL-284 medido, não regrediu.** O
+instrumento que faltava na 4ª iteração (`§4.8` já pedia "rodar a medição
+antes de fechar etapa que mexa na altura acima da primeira linha") foi
+escrito para esta rodada: 1280×900, período filtrado, mesmo método
+(linha inteiramente visível). Resultado: **7 linhas visíveis ANTES e
+DEPOIS** da migração do cabeçalho (nenhuma regressão), com o topo da
+primeira linha 11,6px mais alto. O número 7 já é menor que o piso
+histórico da tabela do item 8 (10 linhas, "com período filtrado") — mas
+essa diferença é efeito da MOLDURA (sidebar + trilha + faixa de contexto
+da DL-042/DL-044, chrome que não existia quando o piso de 10 foi medido
+originalmente), não desta migração específica, que por si só não perdeu
+nem ganhou linha nenhuma.
+
+**Documentos imprimíveis (Diário, Razão, Balancete, Balanço): migrados
+sem regredir a identificação do emitente.** `.cabecalho` (onde
+`titulo_pagina` agora vive) continua visível em `@media print` — só
+`.barra-lateral`/`.formulario-periodo`/`.trilha`/`button` somem do papel
+—, então o título migrado continua saindo no documento impresso.
+Verificado com `scripts/medir_identificacao_do_emitente.py` contra um
+banco descartável local, ANTES e DEPOIS da migração: as 4 telas com
+timbre continuam "PASSOU" (RC-97), e o Balanço (classe 2, item 51 da NBC
+TG 26, RC-95) também.
+
+**Achado à parte desta rodada, corrigido: `.botao--primario` como `<a>`
+saía com o texto da MESMA cor do fundo quando morava dentro de
+`.area-principal`.** `.barra-lateral ~ .area-principal a { color:
+var(--app-acento) }` (0-2-1, regra de "link de prosa usa o azul do app",
+3ª iteração) sempre vencia `.botao--primario { color:
+var(--app-acento-texto) }` (0-1-0) — mesma classe de defeito de
+especificidade que `.valor-monetario`/`.cabecalho-numerico` já tinham
+sofrido antes, aqui com efeito pior (botão inteiro sem rótulo legível,
+retângulo azul sólido). Medido: **pré-existente** em `empresas/
+lista.html` ("Nova empresa") e `tenancy/painel.html` ("Criar o primeiro
+escritório") — não introduzido por esta etapa, só nunca antes medido com
+`getComputedStyle` (a captura de tela mostrava um botão azul sólido,
+fácil de não notar como texto ausente numa inspeção visual rápida).
+Corrigido com `:not(.botao)` na regra geral de cor de link — a regra
+geral simplesmente PARA de casar com qualquer link `.botao`, então cada
+`.botao--*`/`.botao--*:hover` continua sendo a única fonte de cor para
+si mesmo, sem reabrir a disputa de especificidade a cada tom novo.
+
 ### 8.3a Início: indicadores, ações rápidas, módulos e carteira (DL-044, DE-080)
 
 O Início deixou de ser só a fila de atenção (DL-042): ganhou, nesta
