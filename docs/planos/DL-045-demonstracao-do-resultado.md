@@ -20,13 +20,11 @@ os lançamentos de zeramento.
 
 ## Fontes
 
-- **Norma — Lei 6.404/76, art. 187** (linhas I a VII e § 1º, regime de
-  competência). Texto obtido de três fontes secundárias concordantes; o Planalto
-  estava fora do ar em 2026-09-26. **Conferir na Câmara ou no Senado antes da
-  auditoria** (mesmo caminho do RC-106) — PE-70.
-- NBC TG 26 (item 82), NBC TG 1000 (seção 5) e ITG 1000: **não lidas na fonte
-  primária** nesta pesquisa. Não fundamentam nada deste plano; a estrutura
-  segue o art. 187. PE-70.
+- **Norma — Lei 6.404/76, art. 187 e art. 175**, lidos no Planalto e na Câmara
+  em 2026-09-26, texto idêntico (PE-70).
+- **NBC TG 26 (R5) item 82, NBC TG 1000 (R1) item 5.7 e ITG 1000 (2022)**, lidos
+  nos PDFs do CFC em 2026-09-26: fundamentam a posição do resultado financeiro e
+  a linha de equivalência patrimonial (HI-29).
 - **Rotina — manual do sistema de referência:** DRE por estrutura de grupos
   associada a contas, emissão por período livre, uma única linha "antes do IR".
   Usado como rotina, nunca como norma.
@@ -38,7 +36,8 @@ os lançamentos de zeramento.
   receita bruta; deduções da receita (impostos, devoluções e abatimentos);
   custo (CMV/CPV/CSP); despesas com vendas; despesas gerais e administrativas;
   receitas financeiras; despesas financeiras; outras despesas operacionais;
-  outras receitas; outras despesas; provisão para IRPJ e CSLL; participações.
+  outras receitas; outras despesas; resultado de equivalência patrimonial;
+  provisão para IRPJ e CSLL; participações (HI-29).
 - Só conta de resultado recebe a classificação; conta patrimonial com ela é
   recusada. Herança pela hierarquia no mesmo desenho da DL-033 (o
   desenvolvedor confirma o precedente e registra).
@@ -53,8 +52,10 @@ os lançamentos de zeramento.
   zeramento (prefixo reservado `zeramento:`, DL-043).
 - Duas colunas (RC-119): **mês** e **acumulado do exercício** (do início do
   exercício até o fim do mês). Exercício = ano civil (HI-28).
-- Subtotais do art. 187: receita líquida, lucro bruto, resultado operacional,
-  resultado antes do IRPJ e da CSLL, lucro ou prejuízo líquido.
+- Subtotais: receita líquida, lucro bruto, **resultado antes das receitas e
+  despesas financeiras**, resultado financeiro, resultado antes dos tributos
+  sobre o lucro, lucro ou prejuízo líquido (NBC TG 26 item 82 e NBC TG 1000
+  item 5.7, HI-29).
 - Valores em `Decimal`, conciliáveis: o lucro líquido da DRE do período é igual
   ao resultado que o zeramento do mesmo período transfere (etapa 2), e igual à
   soma das contas de resultado no Balancete sem os lançamentos de zeramento.
@@ -98,10 +99,10 @@ os lançamentos de zeramento.
 
 - **HI-28:** exercício social = ano civil. Reversível; o estatuto pode fixar
   outra data (Lei 6.404, art. 175).
-- **HI-29:** o resultado financeiro fica dentro do resultado operacional, na
-  ordem do art. 187, III. A NBC TG 26 pode apresentá-lo depois do resultado
-  operacional; decidir quando a fonte for lida (PE-70).
-- **PE-70:** conferir o art. 187 na fonte primária e ler NBC TG 26 item 82,
-  NBC TG 1000 seção 5 e ITG 1000 (versão vigente) antes da auditoria.
+- **HI-29 (revista depois da PE-70):** resultado financeiro destacado e
+  equivalência patrimonial em linha própria, como a NBC TG 26, a NBC TG 1000 e
+  os modelos da ITG 1000. A letra do art. 187, III embute o financeiro no
+  operacional; o Fred confirma a apresentação.
+- **PE-70 respondida** por fonte primária em 2026-09-26 (ver requisitos.md).
 - Comparativo com o exercício anterior: fora desta etapa.
 - Validação profissional da estrutura e dos casos de referência é do Fred.
