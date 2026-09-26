@@ -2007,6 +2007,32 @@ kbd.tecla {
     color: var(--tinta-media);
 }
 
+/* DL-044 (5ª iteração — achado do arquiteto-senior: "números dos
+   indicadores do Início com cor semântica quando pedem atenção [...] AA
+   medido"). Cor é REFORÇO, nunca o único canal (direção de arte §4.3):
+   o número muda de cor, mas a borda lateral do cartão TAMBÉM muda (um
+   segundo canal visual, não decorativo) e o texto "Atenção:" (só para
+   leitor de tela, ver o template) garante o terceiro canal, não-visual.
+   `--aviso`/`--erro` já eram tokens semânticos do produto — reaproveitados
+   aqui, nenhuma cor nova. Contraste calculado: `--aviso` × branco =
+   6,92:1; `--erro` × branco = 9,92:1 — os dois acima do mínimo de 4,5:1
+   de texto. */
+.indicador-do-painel--aviso {
+    border-left: var(--traco-destaque) solid var(--aviso);
+}
+
+.indicador-do-painel--aviso .indicador-do-painel__total {
+    color: var(--aviso);
+}
+
+.indicador-do-painel--erro {
+    border-left: var(--traco-destaque) solid var(--erro);
+}
+
+.indicador-do-painel--erro .indicador-do-painel__total {
+    color: var(--erro);
+}
+
 /* DL-044 (2ª iteração): ações rápidas do Início — botões de verdade
    (`.botao`), nunca link solto, alinhados numa linha só que quebra sem
    media query. */
@@ -2362,6 +2388,23 @@ button:disabled {
     font-family: var(--fonte-numerica);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+/* DL-044 (5ª iteração — achado do arquiteto-senior: "os valores da
+   coluna VALOR (R$) continuam encostados no meio da coluna, não à
+   direita — o cabeçalho foi para a direita, as células não"). A
+   promessa do comentário acima ("a mesma classe alinha à direita [...]
+   em qualquer elemento") nunca foi verdadeira DENTRO de `.tabela-dados`:
+   `.tabela-dados td` (duas partes no seletor, especificidade 0-1-1)
+   sempre venceu `.valor-monetario` sozinha (0-1-0), em qualquer ordem de
+   arquivo — o MESMO defeito de especificidade já corrigido em
+   `.cabecalho-numerico` (ver o comentário dela, abaixo), só que nunca
+   medido aqui porque colunas largas (Balancete) escondem o desalinho a
+   olho nu. `.tabela-dados td.valor-monetario` (0-2-1) resolve sem
+   depender de ordem, e SEM tirar `.valor-monetario` sozinha, que continua
+   funcionando fora de tabela (ex.: o total do lançamento). */
+.tabela-dados td.valor-monetario {
+    text-align: right;
 }
 
 /* DL-044 (2ª iteração — achado do Fred: "na prévia do zeramento os
@@ -2730,8 +2773,17 @@ button:disabled {
     text-align: right;
 }
 
+/* DL-044 (5ª iteração — achado do arquiteto-senior: "'Adicionar linha'/
+   'Gravar' alinhadas à direita no rodapé do cartão"): o comentário de
+   `templates/contabilidade/lancamento_form.html` já afirmava que esta
+   classe tinha `justify-content: flex-end` desde a 2ª iteração — MENTIRA
+   não percebida até esta rodada (a mesma família de defeito do AGENTS.md
+   sobre afirmar mecanismo que não existe): a regra nunca tinha sido
+   escrita, só o comentário. Único uso desta classe no produto
+   (lancamento_form.html), então a mudança não afeta outra tela. */
 .acoes-formulario {
     display: flex;
+    justify-content: flex-end;
     gap: var(--esp-3);
     align-items: center;
     flex-wrap: wrap;

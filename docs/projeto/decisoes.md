@@ -4339,3 +4339,82 @@ que a 3ª iteração já tinha evitado para os atalhos de teclado
 individuais (ver a nota sobre `kbd.tecla`/clip em DE-080) — aqui seria
 pior, um bloco de navegação inteiro invisível, não um único `<kbd>`
 decorativo.
+
+## DE-082 — Integração da DL-043 no worktree da DL-044, e três achados da 5ª iteração
+
+**Data:** 2026-09-26
+
+**Contexto:** revisão do arquiteto-senior sobre o commit `124dace`
+("agora está no nível certo; vou mostrar ao Fred"), com duas instruções
+enquanto o Fred olha: integrar a DL-043 (fechada, PR #49,
+`claude/vigilant-bardeen-jo12l4`, commit `9586bc4`) ANTES de qualquer
+correção nova, e corrigir três achados dele.
+
+**Decisão — integração.** `git merge --no-edit claude/vigilant-bardeen-jo12l4`
+em `dl044-telas-de-trabalho`. Um conflito real, em `docs/projeto/
+decisoes.md`: os dois lados tinham uma seção `## DE-078` — a da DL-043
+("Correção do zeramento...", a numeração ORIGINAL e correta) e a
+renumeração da 2ª iteração da DL-044 (que já tinha sido corrigida para
+`DE-079` por saber que `DE-078` estava ocupada por esta MESMA branch —
+ver DE-079). Resolvido preservando as DUAS seções, em ordem numérica
+(DE-078 da DL-043 primeiro, DE-079 da DL-044 depois) — nenhum conteúdo
+perdido de nenhum dos dois lados. `apps/contabilidade/views_web.py` e
+`templates/contabilidade/zerar_resultado.html` resolveram sozinhos (Git
+auto-merge, sem marcador de conflito) — conferido linha por linha depois:
+o laço `{% for lancamento_da_etapa1 in resultado.lancamentos_etapa1 %}`
+(R5 da reconferência da DL-043, lista TODOS os lançamentos da etapa 1
+quando ela é dividida) ficou intacto DENTRO do cartão visual novo da
+4ª iteração da DL-044 (`.painel-etapa`, `{% block titulo_pagina %}`).
+Suíte completa depois do merge: 2827 passed (era 2772 antes do merge +
+correções desta rodada) — nenhum `test_dl043_*` quebrou; as DUAS falhas
+de `test_documentacao_do_estado.py` caíram para UMA (`docs/agents/
+estado.md` já cita DL-044 depois do merge — o README ainda não, e isso
+é responsabilidade do arquiteto-senior, não desta etapa).
+
+**Decisão — os três achados:**
+
+1. **Valores de `.valor-monetario` desalinhados DENTRO de tabela.**
+   Mesma classe de defeito já corrigida uma vez em `.cabecalho-numerico`
+   (DE-080/adenda da 3ª iteração): `.tabela-dados td` (especificidade
+   0-1-1) sempre venceu `.valor-monetario` sozinha (0-1-0), em qualquer
+   ordem de arquivo — `text-align: right` da classe nunca vencia
+   `text-align: left` da regra da tabela. Bug PRÉ-EXISTENTE a esta etapa
+   inteira (não introduzido pela DL-044), só nunca medido: colunas
+   largas (Balancete, com muitos dígitos) preenchem quase toda a largura
+   da célula, escondendo o desalinho a olho nu; a prévia do zeramento,
+   com valores mais curtos e a coluna alargada por `--largura-minima-
+   coluna-valor` (DE-080), expôs o espaço sobrando à esquerda. Corrigido
+   com `.tabela-dados td.valor-monetario` (0-2-1) — a classe solta
+   `.valor-monetario` continua funcionando fora de tabela (ex.: total do
+   lançamento), como o comentário original dela sempre prometeu.
+2. **Indicadores do Início sem cor semântica.** `_indicadores_do_painel`
+   (`apps/tenancy/views.py`) ganhou o campo `nivel` ("aviso"/"erro"/
+   vazio) para "Competências de meses anteriores ainda abertas" (âmbar,
+   quando > 0 — pendência de rotina, corrigível pelo próprio escritório)
+   e "Envios com recusa" (vermelho, quando > 0 — falha de terceiro,
+   documento fora da base). "Empresas ativas" e "Notas canceladas" foram
+   avaliados e ficam SEM cor semântica de propósito — não foram citados
+   no pedido, e cancelamento é informativo, não uma pendência a
+   resolver. Cor nunca é o único canal (direção de arte §4.3): borda
+   lateral do cartão (segundo canal visual) e texto "Atenção:"
+   (`.visualmente-oculto`, terceiro canal, só para leitor de tela)
+   acompanham a cor do número. Contraste calculado: `--aviso` (já
+   existente) × branco = 6,92:1; `--erro` (já existente) × branco =
+   9,92:1 — os dois acima do mínimo de 4,5:1 de texto. Nenhuma cor nova:
+   os dois tokens já existiam para outros usos (mensagem de aviso/erro).
+3. **Ações do rodapé de Novo lançamento não alinhadas à direita.** O
+   comentário do template já AFIRMAVA, desde a 2ª iteração, que
+   `.acoes-formulario` tinha `justify-content: flex-end` — a regra nunca
+   tinha sido escrita, só o comentário (a mesma família de defeito que o
+   AGENTS.md pede para nunca acontecer: afirmar um mecanismo que não
+   existe). Corrigido — `justify-content: flex-end` adicionado de
+   verdade. Único uso desta classe no produto (`lancamento_form.html`),
+   então a correção não afeta outra tela.
+
+**Consequência aceita:** nenhuma das três correções mudou REGRA de
+negócio, cálculo ou permissão — as três são CSS/apresentação. O achado 1
+é um lembrete: a técnica de checar especificidade CSS antes de aceitar
+uma captura como "corrigida" (que já tinha sido aplicada a `.cabecalho-
+numerico`) precisa virar HÁBITO para toda classe de alinhamento nova,
+não só a que já foi pega uma vez — registrado aqui para a próxima
+correção do gênero não repetir a mesma surpresa.

@@ -435,6 +435,7 @@ def _indicadores_do_painel(*, escritorio, papel):
             "titulo": "Empresas ativas",
             "total": Empresa.objects.filter(escritorio=escritorio, ativo=True).count(),
             "url": reverse("empresas:lista"),
+            "nivel": None,
         }
     ]
 
@@ -453,6 +454,13 @@ def _indicadores_do_painel(*, escritorio, papel):
                 "titulo": "Competências de meses anteriores ainda abertas",
                 "total": total_competencias_atrasadas,
                 "url": reverse("tenancy:painel") + "#fila-de-atencao",
+                # DL-044 (5ª iteração — achado do arquiteto-senior: "cor
+                # semântica quando pedem atenção"): "aviso" (âmbar) — é
+                # rotina de fechamento pendente, corrigível pelo próprio
+                # escritório a qualquer momento, não uma falha de
+                # terceiro. Cor é REFORÇO, nunca o único canal — o número
+                # e o título já dizem "ainda abertas".
+                "nivel": "aviso" if total_competencias_atrasadas > 0 else None,
             }
         )
 
@@ -472,6 +480,11 @@ def _indicadores_do_painel(*, escritorio, papel):
                 "titulo": "Envios com recusa (30 dias)",
                 "total": total_lotes_com_recusa,
                 "url": reverse("tenancy:painel") + "#fila-de-atencao",
+                # DL-044 (5ª iteração): "erro" (vermelho) — arquivo
+                # recusado pela recepção fiscal não entrou na base;
+                # ação de correção e reenvio depende de quem gerou o
+                # documento, mais urgente que uma competência em aberto.
+                "nivel": "erro" if total_lotes_com_recusa > 0 else None,
             }
         )
         indicadores.append(
@@ -480,6 +493,11 @@ def _indicadores_do_painel(*, escritorio, papel):
                 "titulo": "Notas canceladas (30 dias)",
                 "total": total_notas_canceladas,
                 "url": reverse("tenancy:painel") + "#fila-de-atencao",
+                # Fora do pedido desta rodada (só "competências atrasadas"
+                # e "envios com recusa" foram citados) — cancelamento é
+                # informativo, não necessariamente uma pendência a
+                # resolver, então fica sem cor semântica de propósito.
+                "nivel": None,
             }
         )
     return indicadores

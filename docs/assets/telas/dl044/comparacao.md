@@ -1,9 +1,12 @@
-# DL-044 — telas de trabalho, antes e depois (4ª iteração)
+# DL-044 — telas de trabalho, antes e depois (5ª iteração)
 
 Capturas para o Fred aprovar a DL-044 antes de espalhar a mudança para o
-resto do produto (fase B). Quatro rodadas de retorno, cada uma incorporada
+resto do produto (fase B). Cinco rodadas de retorno, cada uma incorporada
 antes da próxima captura — o "depois" abaixo é sempre o estado MAIS
-recente, não uma pilha de versões:
+recente, não uma pilha de versões. **Esta rodada (5ª) recapturou só três
+telas** (Início, Novo lançamento, Zerar resultado) — Relatórios e
+Balancete continuam com a captura da 4ª rodada, sem mudança visual desde
+então.
 
 1. **Reprovação original** (fase A): *"o layout da tela de trabalho tá com
    aspecto de vazio e os botões de clicar [...] tá parecendo um botão de
@@ -39,8 +42,20 @@ recente, não uma pilha de versões:
    guarda-por-guarda de como a acessibilidade continua protegida);
    demais achados corrigidos em CSS/template, sem mudar regra nenhuma.
    Decisão completa: [decisoes.md, adenda da DE-080 e DE-081](../../../projeto/decisoes.md).
+5. **5ª rodada, esta captura**: revisão do arquiteto-senior sobre o commit
+   `124dace` — merge da DL-043 (fechada, PR #49) integrado neste worktree
+   ANTES de qualquer captura nova; valores da coluna VALOR (R$) ainda
+   encostados no meio da coluna (cabeçalho tinha ido para a direita, a
+   CÉLULA não — mesmo defeito de especificidade CSS já corrigido uma vez
+   em `.cabecalho-numerico`, agora achado em `.valor-monetario` dentro de
+   `.tabela-dados`, um bug PRÉ-EXISTENTE a esta etapa, só nunca medido
+   porque colunas largas escondem o desalinho a olho nu); indicadores do
+   Início sem cor semântica; ações do rodapé de Novo lançamento não
+   alinhadas à direita (o comentário já AFIRMAVA que estavam — não
+   estavam). Os três corrigidos — ver
+   [decisoes.md, DE-082](../../../projeto/decisoes.md).
 
-A landing pública **continua aprovada** e não muda em nenhuma das quatro
+A landing pública **continua aprovada** e não muda em nenhuma das cinco
 rodadas.
 
 Dados 100% sintéticos: `scripts/semear_base_de_medicao.py` (73 contas, 60

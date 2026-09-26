@@ -53,8 +53,21 @@ faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
             <h2 id="titulo-indicadores" class="visualmente-oculto">Indicadores</h2>
             <div class="indicadores-do-painel">
                 {% for indicador in indicadores %}
-                    <a class="indicador-do-painel" href="{{ indicador.url }}">
-                        <span class="indicador-do-painel__total">{{ indicador.total }}</span>
+                    {% comment %}
+                    DL-044 (5ª iteração — achado do arquiteto-senior: "cor
+                    semântica quando pedem atenção [...] AA medido").
+                    `indicador.nivel` ("aviso"/"erro"/vazio) vem de
+                    `apps.tenancy.views._indicadores_do_painel` — cor é
+                    REFORÇO, nunca o único canal: o texto "Atenção:" (só
+                    para leitor de tela, `.visualmente-oculto`) e a borda
+                    lateral colorida do cartão acompanham a cor do
+                    número, nunca sozinha.
+                    {% endcomment %}
+                    <a class="indicador-do-painel{% if indicador.nivel %} indicador-do-painel--{{ indicador.nivel }}{% endif %}" href="{{ indicador.url }}">
+                        <span class="indicador-do-painel__total">
+                            {% if indicador.nivel %}<span class="visualmente-oculto">Atenção: </span>{% endif %}
+                            {{ indicador.total }}
+                        </span>
                         <span class="indicador-do-painel__titulo">{{ indicador.titulo }}</span>
                     </a>
                 {% endfor %}
