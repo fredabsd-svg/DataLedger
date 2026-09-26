@@ -4683,3 +4683,56 @@ comentários dos templates do Fiscal que citam o nome do arquivo descrevem a
 história da remoção e continuam valendo. A pendência desta decisão e da DE-083
 está fechada.
 
+
+## DE-087 — Livro-caixa: decisões sobre a rodada 1 da auditoria da DL-046
+
+Data: 2026-09-26. Responsável: `arquiteto-senior`, sobre a
+[rodada 1](../auditorias/2026-09-26-dl-046-rodada-1.md), que reprovou a fatia 1
+com três achados altos. Numerada 087 porque 085 e 086 pertencem à DL-045, em
+outra branch.
+
+1. **A1 — sair do livro-caixa com movimento é recusado**, espelho da guarda da
+   DL-038 na direção contrária: empresa com conta ou lançamento de caixa não
+   troca para contabilidade (serializer, `Empresa.clean()` e gravação).
+2. **A2 — corrida de idempotência** tratada como na contabilidade: repetição
+   concorrente com o mesmo conteúdo devolve o lançamento existente; conteúdo
+   diferente é conflito; nunca 500.
+3. **A3 — o módulo passa a ser alcançável:** Início, lista de empresas, troca de
+   empresa e trilha de navegação levam às telas do livro-caixa quando a empresa
+   está nesse modo.
+4. **M4 — código do Carnê-Leão Web imutável em conta com lançamento**, como a
+   natureza: o código decide a dedutibilidade e o que vai para a Receita, e o
+   carnê-leão de meses passados já foi apurado e pago. Mudar exige conta nova.
+   Diferente da linha da DRE (DE-086), que é só apresentação. O estorno copia o
+   original e não revalida regras que dependem da conta atual.
+5. **M3 — conta com lançamento não muda de empresa.**
+6. **M5 — CPF segue o leiaute oficial do Carnê-Leão Web** (instruções dos
+   modelos de importação, Receita, 2025): rendimento recebido de PF exige o CPF
+   do titular do pagamento; o CPF do beneficiário pode faltar desde que marcado
+   o **indicador de CPF não informado**; CPF só em recebimento de PF e CNPJ só
+   de PJ. Os demais campos do leiaute (código de ocupação, IRRF) entram na
+   fatia 3, planejados antes dela.
+7. **M6 — o Livro Caixa imprime a inscrição conforme o tipo** (CPF ou CNPJ) e
+   o CAEPF quando houver. O carnê-leão (fatia 2) fica restrito a CPF, como no
+   sistema de referência.
+8. **M8 — o relatório imprime o número de cada lançamento e "Estorno do
+   lançamento nº X".**
+9. **B1 — conta inativa não recebe lançamento novo** (servidor); o estorno de
+   lançamento antigo continua possível.
+10. **B2, B3, B5, B6, B8, M1, M2** — correções objetivas (máscara de CPF/CNPJ
+    normalizada; tipos da API; ações próprias na trilha para estorno e
+    repetição; consultas constantes; trilha de navegação; `conta` não numérica
+    e caractere NUL sem 500).
+11. **B4 e B7** ficam como no precedente da contabilidade (estorno a partir da
+    data do original; imutabilidade por `QuerySet` sem gatilho) — backlog.
+12. **D2 — base legal impressa:** "RIR/2018 (Decreto 9.580/2018), arts. 68 e 69
+    (livro-caixa) e 118 a 125 (recolhimento mensal obrigatório)".
+13. **D3 — pagamentos `P20`** (imposto pago, previdência oficial, pensão)
+    aparecem no relatório em grupo próprio, separados das despesas de custeio,
+    porque são deduções do carnê-leão e não despesas do art. 68.
+14. **D1 — data e mês do estorno para a apuração do carnê-leão** vira PE-72 e
+    precisa de decisão antes da fatia 2 (pesquisar o manual e o Carnê-Leão Web
+    antes de perguntar ao Fred). D4 e D5 continuam como hipóteses (HI-31 e
+    faixa de data por analogia).
+15. **M7** — os 14 casos de teste propostos viram teste; os mutantes
+    sobreviventes precisam morrer.
