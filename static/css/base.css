@@ -183,6 +183,10 @@
        isso dois tokens próprios em vez de reaproveitar os dois acima. */
     --largura-rotulo-definicao: 14rem;
     --largura-valor-definicao: 16rem;
+    /* DL-040: largura mínima do painel de submenu do menu principal
+       (`.menu-dropdown ul`) — token próprio, no mesmo padrão dos dois
+       acima, porque não é largura de CONTEÚDO nem de FORMULÁRIO. */
+    --largura-menu-dropdown: 12rem;
 
     /* --- Técnica de acessibilidade consagrada (WebAIM): afastar da tela
        ou reduzir a 1px sem tirar o elemento do fluxo do leitor de tela.
@@ -404,6 +408,86 @@ summary:focus,
     border-bottom-color: var(--acento);
 }
 
+/* DL-040: menu estruturado por módulo, com submenu em dropdown NATIVO
+   (<details>/<summary> — sem JavaScript nenhum: R6 da direção de arte,
+   "JavaScript é enfeite", continua valendo aqui). `.menu-modulo` (o <li>)
+   é o ANCORADOR de posicionamento — `.menu-dropdown ul` (o painel) é
+   `position: absolute` relativo a ele, nunca ao `<body>`, para abrir
+   sempre embaixo do próprio rótulo do módulo. */
+.menu-modulo {
+    position: relative;
+}
+
+.menu-dropdown > summary {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--esp-1);
+    font-size: var(--tipo-sm);
+    letter-spacing: var(--rastreio-leve);
+    color: var(--tinta-suave);
+    cursor: pointer;
+    list-style: none;
+    padding: var(--esp-1) 0;
+    border-bottom: var(--traco-media) solid transparent;
+}
+
+/* O `<summary>` já desenha um marcador de disclosure por padrão no
+   Chromium/Firefox — o "▾"/"▴" acrescentado abaixo (via `::after`, mesmo
+   texto em qualquer navegador) substitui esse marcador nativo, nunca
+   soma aos dois: um segundo indicador seria ruído, não reforço. Só o
+   Chromium precisa da remoção explícita (Firefox não desenha marcador
+   quando o `<summary>` já tem `display` diferente do padrão). */
+.menu-dropdown > summary::-webkit-details-marker {
+    display: none;
+}
+
+.menu-dropdown > summary::after {
+    content: "▾";
+    color: var(--tinta-media);
+    font-size: var(--tipo-2xs);
+}
+
+.menu-dropdown[open] > summary::after {
+    content: "▴";
+}
+
+.menu-dropdown > summary:hover {
+    color: var(--tinta);
+}
+
+.menu-dropdown > summary[aria-current="page"] {
+    color: var(--tinta);
+    font-weight: 700;
+    border-bottom-color: var(--acento);
+}
+
+.menu-dropdown ul {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 3;
+    min-width: var(--largura-menu-dropdown);
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-2);
+    margin: var(--esp-1) 0 0;
+    padding: var(--esp-3);
+    list-style: none;
+    background: var(--papel-elevado);
+    border: var(--traco-fina) solid var(--borda-hairline);
+    border-radius: var(--raio);
+}
+
+.menu-dropdown ul a {
+    color: var(--acento);
+    text-decoration: underline;
+    white-space: nowrap;
+}
+
+.menu-dropdown ul a:hover {
+    color: var(--acento-escuro);
+}
+
 /* Atalho de teclado à mostra na navegação (enxerto da variante B do
    gauntlet, DE-053/RC-90). Texto miúdo, sem caixa nem borda — a direção
    escolhida é "cor quase ausente", e um "keycap" desenhado seria poluição
@@ -463,7 +547,12 @@ kbd.tecla {
     color: var(--acento-escuro);
 }
 
-.navegacao-empresa .item-atual {
+/* Rótulo da página ATUAL de uma navegação (nunca link para si mesma) —
+   generalizada pela DL-040 de `.navegacao-empresa .item-atual` para
+   `.item-atual` puro, porque o mesmo padrão passou a valer também dentro
+   de `.menu-dropdown ul` (o submenu "Contabilidade" do menu principal,
+   templates/base.html). */
+.item-atual {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
@@ -521,6 +610,136 @@ kbd.tecla {
     background: transparent;
     border-color: var(--tinta);
     color: var(--tinta);
+}
+
+/* DL-040: padrão de botão de ação (primário/secundário/perigoso) — para
+   LINKS que agem como botão ("Voltar", trocar de empresa, confirmar ação
+   sem volta). O `<button>` nativo já tem o visual PRIMÁRIO por padrão
+   (regra `button` mais abaixo); estas classes existem para o `<a>` e para
+   o caso em que um `<button>` precisa do tom secundário/perigoso — nunca
+   redeclaradas onde já existe `.form-sair button` (mesmo visual
+   secundário, tela própria, sem risco de esta classe nova competir com
+   aquela). */
+.botao {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--esp-2);
+    padding: var(--esp-2) var(--esp-4);
+    border-radius: var(--raio);
+    font-family: var(--fonte-editorial);
+    font-size: var(--tipo-base);
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    border: var(--traco-fina) solid transparent;
+}
+
+.botao--primario {
+    background: var(--acento);
+    color: var(--acento-texto);
+    border-color: var(--acento);
+}
+
+.botao--primario:hover {
+    background: var(--acento-escuro);
+    border-color: var(--acento-escuro);
+}
+
+.botao--secundario {
+    background: transparent;
+    color: var(--tinta);
+    border-color: var(--borda-input);
+}
+
+.botao--secundario:hover {
+    border-color: var(--tinta);
+}
+
+/* Ação sensível (fechar/reabrir/entregar competência, estornar): o texto
+   do rótulo já diz o que vai acontecer (direção de arte §4.3, "cor nunca é
+   o único canal") — esta classe é REFORÇO visual, nunca o único sinal. */
+.botao--perigoso {
+    background: var(--erro-fundo);
+    color: var(--erro);
+    border-color: var(--erro);
+}
+
+.botao--perigoso:hover {
+    background: var(--erro);
+    color: var(--acento-texto);
+    border-color: var(--erro);
+}
+
+/* DL-040: trilha de navegação (breadcrumbs) + link "Voltar", em posição
+   padronizada — logo no topo de `<main>` (`{% block trilha %}`,
+   templates/base.html), antes de qualquer mensagem ou conteúdo da tela.
+   `justify-content: space-between` separa a trilha (esquerda) do
+   "Voltar" (direita, quando a tela tiver os dois). */
+.trilha {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-4);
+    padding-bottom: var(--esp-3);
+    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+}
+
+.trilha ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--esp-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--tipo-xs);
+    color: var(--tinta-media);
+}
+
+.trilha ol li + li::before {
+    content: "›";
+    margin-right: var(--esp-1);
+    color: var(--tinta-media);
+}
+
+.trilha ol a {
+    color: var(--tinta-suave);
+    text-decoration: underline;
+}
+
+.trilha ol a:hover {
+    color: var(--tinta);
+}
+
+.trilha ol [aria-current="page"] {
+    color: var(--tinta);
+    font-weight: 700;
+}
+
+/* DL-040: cabeçalho de página — título (h1 único), contexto e a área de
+   ações primária/secundária, num só padrão para reaproveitar em qualquer
+   tela (templates/tenancy/painel.html, templates/empresas/lista.html,
+   templates/fiscal/documentos_lista.html...). */
+.cabecalho-pagina {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-4);
+}
+
+.cabecalho-pagina h1 {
+    margin: 0;
+}
+
+.cabecalho-pagina__acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    align-items: center;
 }
 
 .conteudo-principal {
@@ -1467,11 +1686,18 @@ button:disabled {
        some também). `.cabecalho__topo` substitui `.marca` nesta lista
        (BL-282): esconder só o link e deixar o contêiner vazio no fluxo não
        tinha vantagem nenhuma sobre esconder o contêiner inteiro. */
+    /* DL-040: a trilha de navegação/"Voltar" das telas secundárias
+       (`.trilha`) é controle de NAVEGAÇÃO, nunca conteúdo do documento —
+       mesma classe do resto desta lista (menu, navegação da empresa,
+       filtro, mensagens). `.menu-dropdown` (o submenu do menu principal)
+       não precisa de regra própria aqui: já está DENTRO de
+       `.cabecalho__topo`, que a linha abaixo já oculta por completo. */
     .pular-para-conteudo,
     .cabecalho__topo,
     .navegacao-empresa,
     .formulario-periodo,
     .mensagens,
+    .trilha,
     kbd.tecla,
     button {
         display: none;

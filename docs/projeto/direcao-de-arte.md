@@ -308,3 +308,94 @@ ou do Lalur:
   de ser curiosidade: *a cor que o escritório escolher na tela não é a que sai
   no papel*. Quem desenhar aquela tela precisa saber disto **antes**, e é por
   isso que está aqui e não só no backlog.
+
+## 8. Navegação global, trilha e cabeçalho de página (DL-040)
+
+O produto ganhou um menu ESTRUTURADO por módulo — antes disso, a navegação
+principal (`templates/base.html`) era uma lista plana de dois links
+("Painel", "Empresas"), e cada módulo novo (Fiscal, e os que ainda vão
+nascer) só tinha como se anunciar acrescentando mais um item à mesma
+lista, sem hierarquia. O mapa completo — quantas telas existem, quais são
+ativas/secundárias, e o raciocínio da barra superior — está em
+[mapa-de-telas.md](mapa-de-telas.md); esta seção fixa só o PADRÃO, para o
+próximo módulo seguir sem reabrir a discussão.
+
+### 8.1 Menu principal
+
+- Barra **superior**, não lateral — decisão medida em
+  [mapa-de-telas.md](mapa-de-telas.md#decisão-barra-superior-não-lateral):
+  uma lateral fixa tira largura de tabelas que já disputam espaço
+  (régua de densidade, §4.8); a barra superior só soma altura, uma vez,
+  no topo.
+- Cada módulo é um item com submenu em **dropdown nativo**
+  (`<details>`/`<summary>`) — nenhuma dependência de JavaScript (regra 6
+  deste documento). O item do módulo ativo recebe `aria-current="page"`
+  no próprio `<summary>`; cor nunca é o único sinal (o texto do rótulo já
+  diz qual módulo é).
+- Um módulo só aparece no menu para quem o SERVIDOR já deixaria entrar —
+  a mesma função de permissão do domínio decide as duas coisas (nunca uma
+  lista de papéis própria do menu). O menu deixa de CONVIDAR quem seria
+  recusado; a recusa em si nunca é decidida na tela.
+- **Nenhum dado sensível de OUTRA empresa aparece no menu de uma tela
+  escopada a UMA empresa** — nem numa lista de opções, nem num rótulo.
+  Medido: a primeira versão desta etapa listava as demais empresas do
+  escritório num seletor embutido em toda tela de uma empresa, e isso
+  vazava a razão social de uma empresa na tela de OUTRA (mesmo
+  escritório) — contra a garantia do AGENTS.md de que "dados de empresas
+  diferentes ficam isolados". A troca de empresa existe (`empresas:
+  trocar-secao`), mas o caminho até ela passa pela tela que já lista
+  todas as empresas de propósito (`empresas/lista.html`), nunca por um
+  item de menu que repita nomes de empresa na tela de uma empresa
+  diferente.
+- Um dropdown de módulo **não repete** a navegação que já existe DENTRO
+  da tela (ex.: os sete links de `_navegacao_empresa.html`) — repetir
+  cria dois lugares com o mesmo rótulo mudando de estado (link ↔ "página
+  atual") de forma independente, e um deles pode ficar desatualizado sem
+  que nenhuma guarda note. O item de menu do módulo aponta para um ÚNICO
+  destino estável (ex.: Plano de contas da empresa atual); a navegação
+  interna da tela continua sendo a fonte dos demais atalhos.
+
+### 8.2 Trilha de navegação (breadcrumbs) e "Voltar"
+
+- `<nav aria-label="Trilha de navegação">` com uma lista ordenada
+  (`<ol>`), mais um link/botão "Voltar" — os dois juntos, no topo do
+  conteúdo, antes de qualquer mensagem.
+- Só em telas **secundárias** (detalhe, confirmação, relatório de uma
+  ação) — uma tela ativa (Balancete, Diário, Plano de contas) já tem a
+  navegação contextual da empresa; duplicar a trilha ali seria o mesmo
+  problema do item anterior.
+- O último item da trilha é a própria tela, em texto, com
+  `aria-current="page"` — nunca um link para a página atual (mesma regra
+  do item de menu ativo).
+
+### 8.3 Cabeçalho de página
+
+Título (`<h1>` único), contexto (quando houver — empresa, competência) e
+a área de ações, numa faixa só: `.cabecalho-pagina` (título +
+`.cabecalho-pagina__acoes`, à direita). Padrão aplicado onde uma tela
+ativa tem uma ação primária clara (ex.: "Nova empresa" na lista de
+empresas) — não é obrigatório em toda tela: uma tela de documento
+imprimível (Balancete, Diário, Razão, Balanço) não ganha um botão de ação
+ao lado do título, porque ali o título É parte do papel impresso
+(`titulo_sufixo_do_fornecedor`, `templates/base.html`) e ações de tela
+(botões) já são ocultadas na impressão por regra própria.
+
+### 8.4 Botão de ação — três tons, nunca mais
+
+`.botao--primario` (ação principal — mesmo visual do `<button>` padrão),
+`.botao--secundario` (ação alternativa — "Voltar", trocar contexto) e
+`.botao--perigoso` (ação sensível — reabrir competência, marcar como
+entregue). O TOM é reforço; o texto do botão já nomeia a consequência
+("Reabrir competência 09/2026", nunca só "Confirmar") — mesma regra do
+arquétipo E (§2) aplicada ao próprio rótulo do botão, não só ao texto ao
+redor dele.
+
+### 8.5 Impressão
+
+Menu, trilha e qualquer seletor de navegação somem no papel — a mesma
+lista de `display: none` de `@media print` que já escondia o menu antigo
+ganhou as classes novas (`.trilha`), sem precisar de uma segunda regra:
+`.menu-dropdown` nasceu DENTRO de `.cabecalho__topo`, que já era oculto
+inteiro. Medido nesta etapa, por captura de tela em modo impressão do
+produto real: o documento impresso não ganhou nem perdeu identificação
+nenhuma — ver o relatório de entrega da DL-040.

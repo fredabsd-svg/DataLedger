@@ -123,39 +123,142 @@
                     atalho sem contaminar o nome acessível — medido pelo
                     NOME ACESSÍVEL CALCULADO, não pela aparência.
                     {% endcomment %}
+                    {% comment %}
+                    DL-040: menu estruturado por MÓDULO, com submenu em
+                    dropdown nativo (`<details>`/`<summary>` — sem
+                    JavaScript nenhum: R6 da direção de arte, "JavaScript é
+                    enfeite", continua valendo aqui) e indicação do módulo
+                    ativo por `aria-current="page"` no próprio `<summary>`
+                    quando alguma tela do módulo está aberta (nunca só cor —
+                    o texto do rótulo já diz qual módulo é; `aria-current`
+                    é o canal que o leitor de tela e o teste de guarda
+                    conferem).
+
+                    "Início" e "Cadastros" NUNCA mudam de conteúdo com a
+                    empresa/permissão — ficam de fora do `{% if %}` de
+                    papel. "Contabilidade" e "Fiscal" só aparecem no menu
+                    quando o PAPEL ativo pode ler aquele módulo
+                    (`pode_ler_contabilidade_no_menu`/`pode_consultar_
+                    fiscal_no_menu`, do context processor `apps.core.
+                    context_processors.navegacao_do_menu` — MESMAS funções
+                    de permissão que a view já usa para recusar no
+                    servidor; o menu só deixa de CONVIDAR quem o servidor já
+                    recusaria, nunca decide autorização por conta própria).
+
+                    Nenhum item novo desta lista tem `accesskey`: as letras
+                    seguras já estão ocupadas (p/m aqui, e as sete da
+                    navegação contextual da empresa,
+                    `_navegacao_empresa.html`) — um atalho novo colidindo
+                    reprovaria `accesskeys_duplicados`
+                    (test_dl024_atalhos_e_acessibilidade.py), e "atalho que
+                    só existe numa tela não é atalho, é decoração" (nota do
+                    arquiteto-senior citada naquela parcial).
+                    {% endcomment %}
                     <nav class="navegacao-principal" aria-label="Navegação principal">
                         <ul>
                             <li>
-                                <a href="{% url 'tenancy:painel' %}" accesskey="p" aria-keyshortcuts="Alt+P">
-                                    Painel <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
+                                <a href="{% url 'tenancy:painel' %}" accesskey="p" aria-keyshortcuts="Alt+P"
+                                   {% if request.resolver_match.view_name == "tenancy:painel" %}aria-current="page"{% endif %}>
+                                    Início <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
                                 </a>
                             </li>
-                            <li>
-                                <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M">
-                                    Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
-                                </a>
+                            <li class="menu-modulo">
+                                <details class="menu-dropdown">
+                                    <summary {% if request.resolver_match.namespace == "empresas" %}aria-current="page"{% endif %}>
+                                        Cadastros
+                                    </summary>
+                                    <ul>
+                                        <li>
+                                            <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M"
+                                               {% if request.resolver_match.view_name == "empresas:lista" %}aria-current="page"{% endif %}>
+                                                Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </details>
                             </li>
-                            {% comment %}
-                            DL-010 (fatia 1): ponto de entrada do módulo
-                            Fiscal na navegação principal — mesmo padrão de
-                            "Painel"/"Empresas" acima, sem `accesskey`
-                            próprio de propósito: as letras seguras já estão
-                            ocupadas por esta navegação e pela navegação da
-                            contabilidade (`_navegacao_empresa.html`), e
-                            escolher mais uma letra sem colidir com o
-                            navegador exigiria o mesmo levantamento
-                            cuidadoso que o comentário daquela parcial
-                            documenta — fora do escopo desta etapa. O link
-                            continua acessível por Tab normalmente.
+                            {% if pode_ler_contabilidade_no_menu %}
+                                <li class="menu-modulo">
+                                    <details class="menu-dropdown">
+                                        <summary {% if request.resolver_match.namespace == "contabilidade_web" %}aria-current="page"{% endif %}>
+                                            Contabilidade
+                                        </summary>
+                                        <ul>
+                                            {% comment %}
+                                            DL-040: este dropdown NÃO repete os sete links de
+                                            `_navegacao_empresa.html` (Plano de contas/Diário/
+                                            Balancete/Balanço/Conferência/Fechamento/Novo
+                                            lançamento) — essa navegação já existe, dentro da
+                                            própria página, em toda tela de contabilidade. Repeti-la
+                                            aqui criaria DOIS lugares com o mesmo rótulo mudando de
+                                            estado (link ↔ "página atual") e quebraria a guarda que
+                                            prova que aqueles sete atalhos vivem SÓ naquela parcial
+                                            (`test_mutacao_removendo_a_parcial_de_uma_tela_e_
+                                            detectada`, test_dl024_atalhos_e_acessibilidade.py) — foi
+                                            medido nesta etapa, com a duplicação chegando a esconder
+                                            a ausência da parcial removida.
 
+                                            O que este item de menu garante é o que falta À
+                                            NAVEGAÇÃO CONTEXTUAL: um ponto de entrada acessível de
+                                            QUALQUER tela do produto (a parcial só existe dentro das
+                                            telas de contabilidade) — o Plano de contas da empresa
+                                            atual, ou a lista de empresas quando ainda não há
+                                            nenhuma no contexto (`empresa`, já resolvida pela view a
+                                            partir da URL — a moldura só LÊ, nunca resolve
+                                            `empresa_id` por conta própria).
+                                            {% endcomment %}
+                                            {% if empresa %}
+                                                {% if empresa.modo_escrituracao == "livro_caixa" %}
+                                                    <li>
+                                                        <span class="texto-apoio">
+                                                            {{ empresa.razao_social }} está em livro-caixa — a
+                                                            contabilidade por partidas dobradas não se aplica.
+                                                        </span>
+                                                    </li>
+                                                {% elif request.resolver_match.url_name == "plano_de_contas" %}
+                                                    {% comment %}
+                                                    Mesma convenção de `_navegacao_empresa.html`: a
+                                                    página atual nunca linka para si mesma — vira
+                                                    texto com `aria-current="page"` (medido por
+                                                    `test_dl017_telas.
+                                                    test_balancete_erro_de_periodo_oferece_saida_
+                                                    navegavel`, que reprova qualquer link para a
+                                                    própria URL no estado de sucesso).
+                                                    {% endcomment %}
+                                                    <li><span class="item-atual" aria-current="page">Plano de contas</span></li>
+                                                {% else %}
+                                                    {% comment %}
+                                                    Sem razão social no RÓTULO do link (a identificação
+                                                    "em que empresa estou" já é a de `.cabecalho__contexto`,
+                                                    quando a tela a expõe) — de propósito: pelo menos uma
+                                                    tela de contabilidade (`balancete_emissao_recusada.html`,
+                                                    a recusa 409 de emissão) NÃO inclui dados da empresa em
+                                                    parte nenhuma do documento, e este menu é incluído em
+                                                    TODA tela, inclusive aquela — medido nesta etapa por
+                                                    `test_dl024_veredito_no_html_renderizado.
+                                                    test_pagina_real_balancete_nao_fecha_com_totais_forcados`.
+                                                    {% endcomment %}
+                                                    <li><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas</a></li>
+                                                {% endif %}
+                                                <li>
+                                                    <a href="{% url 'empresas:lista' %}?secao={{ request.resolver_match.url_name }}">Trocar de empresa</a>
+                                                </li>
+                                            {% else %}
+                                                <li><a href="{% url 'empresas:lista' %}">Escolher empresa…</a></li>
+                                            {% endif %}
+                                        </ul>
+                                    </details>
+                                </li>
+                            {% endif %}
+                            {% comment %}
                             `{% url ... as url_fiscal %}` (em vez de
                             interpolar direto): esta MOLDURA é incluída por
                             TODA tela autenticada do produto, inclusive as
                             que rodam sob um urlconf de teste ESPELHO
                             (`apps.contabilidade.tests.test_dl017_telas` e
-                            outros quatro arquivos, cada um com o próprio
+                            outros arquivos, cada um com o próprio
                             `urlpatterns` local, via `@pytest.mark.urls`) —
-                            nenhum deles inclui `apps.fiscal.urls_web`, por
+                            nem todos incluem `apps.fiscal.urls_web`, por
                             não ser o objeto daqueles testes. Com `{% url %}`
                             direto, `NoReverseMatch` quebraria TODA
                             renderização de página nesses espelhos; com
@@ -167,9 +270,17 @@
                             onde ela existe de fato.
                             {% endcomment %}
                             {% url 'fiscal_web:recepcao' as url_fiscal %}
-                            {% if url_fiscal %}
-                                <li>
-                                    <a href="{{ url_fiscal }}">Fiscal</a>
+                            {% if url_fiscal and pode_consultar_fiscal_no_menu %}
+                                <li class="menu-modulo">
+                                    <details class="menu-dropdown">
+                                        <summary {% if request.resolver_match.namespace == "fiscal_web" %}aria-current="page"{% endif %}>
+                                            Fiscal
+                                        </summary>
+                                        <ul>
+                                            <li><a href="{{ url_fiscal }}">Recepção</a></li>
+                                            <li><a href="{% url 'fiscal_web:documentos_lista' %}">Documentos</a></li>
+                                        </ul>
+                                    </details>
                                 </li>
                             {% endif %}
                         </ul>
@@ -263,6 +374,7 @@
     </header>
 
     <main id="conteudo" class="conteudo-principal">
+        {% block trilha %}{% endblock %}
         {% if messages %}
             {% comment %}
             Sem aria-live no contêiner: a região já está presente no HTML

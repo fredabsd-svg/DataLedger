@@ -875,6 +875,14 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
         "sempre redireciona (302) para tenancy:painel, em GET e em POST "
         "(apps.tenancy.views.ativar_escritorio) — nunca renderiza template próprio"
     ),
+    "empresas:trocar-secao": (
+        "DL-040 — seletor de empresa do menu global: sempre redireciona (302) "
+        "para a seção equivalente na empresa escolhida, ou 404 quando a "
+        "empresa não pertence ao escritório ativo (empresas/sem_escritorio.html "
+        "quando não há escritório ativo) — nunca renderiza template próprio "
+        "(apps.empresas.views.trocar_empresa_na_secao); "
+        "apps/empresas/tests/test_dl040_trocar_empresa_na_secao.py"
+    ),
     "tenancy:emitir-convite": (
         "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405"
     ),

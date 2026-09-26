@@ -2,9 +2,19 @@
 
 {% block titulo %}Relatório do envio — {{ lote.nome_arquivo }}{% endblock %}
 
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'fiscal_web:recepcao' %}">Recepção fiscal</a></li>
+            <li aria-current="page">Relatório do envio</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'fiscal_web:recepcao' %}">‹ Voltar para Recepção</a>
+    </nav>
+{% endblock %}
+
 {% block content %}
     {% include "fiscal/_navegacao.html" with pagina_atual="recepcao" %}
-    <p><a href="{% url 'fiscal_web:recepcao' %}">Voltar para Recepção</a></p>
     <h1>Relatório do envio — {{ lote.nome_arquivo }}</h1>
     <p class="texto-apoio">
         Enviado por {{ lote.usuario.get_username }} em {{ lote.criado_em|date:"d/m/Y H:i" }}.
