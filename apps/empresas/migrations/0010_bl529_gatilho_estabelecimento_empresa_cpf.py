@@ -40,7 +40,7 @@
 # chamador precisa aprender um tipo de exceção novo só por causa do
 # gatilho).
 #
-# Migração REVERSÍVEL: o `reverse_sql` remove os dois gatilhos e as duas
+# Migração REVERSÍVEL: a função de ida remove os dois gatilhos e as duas
 # funções, sem tocar em dado nenhum (não há coluna nova, não há
 # reescrita de linha) — `migrate empresas 0009` desfaz por completo.
 #
@@ -54,6 +54,22 @@
 # migração; só deixaria de ser aceitável daqui para frente, que é o
 # comportamento CORRETO (avisar antes de reforçar uma invariante que já
 # foi violada, não silenciar — mesmo espírito do comentário da 0009).
+#
+# ACHADO da revisão da DL-039 (Fred, revisão do commit): `config/
+# settings.py` permite SQLite em desenvolvimento (`DEBUG=True` sem
+# `DATABASE_URL`, BL-50/DE-014) — `CREATE TRIGGER`/`plpgsql` é sintaxe
+# exclusiva do PostgreSQL, e um `RunSQL` incondicional QUEBRAVA `manage.py
+# migrate` inteiro em SQLite (`OperationalError: near "OR": syntax
+# error`). Por isso `RunPython` (não `RunSQL`) — a função de ida e a de
+# volta conferem `schema_editor.connection.vendor` e são NO-OP em
+# qualquer banco que não seja PostgreSQL. DECISÃO REGISTRADA: em SQLite,
+# a invariante "estabelecimento não existe para empresa CPF" fica
+# defendida SÓ pelas camadas de aplicação já existentes (`Estabelecimento
+# .clean()`/`Empresa.clean()`, achados B2/N18, e a checagem do
+# serializer/view da API) — um limite ACEITO de ambiente de
+# desenvolvimento, nunca de produção (SQLite não é banco de produção
+# deste sistema, DE-014; a defesa de banco de verdade É o gatilho, que
+# roda sempre em PostgreSQL).
 
 from django.db import migrations
 
@@ -118,11 +134,25 @@ DROP FUNCTION IF EXISTS empresas_recusar_estabelecimento_para_empresa_cpf();
 """
 
 
+def _criar_gatilhos(apps, schema_editor):
+    # NO-OP fora do PostgreSQL — ver o comentário grande no topo do
+    # arquivo (achado da revisão da DL-039).
+    if schema_editor.connection.vendor != "postgresql":
+        return
+    schema_editor.execute(_CRIAR_GATILHOS_SQL)
+
+
+def _remover_gatilhos(apps, schema_editor):
+    if schema_editor.connection.vendor != "postgresql":
+        return
+    schema_editor.execute(_REMOVER_GATILHOS_SQL)
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("empresas", "0009_empresa_empresa_modo_escrituracao_valido"),
     ]
 
     operations = [
-        migrations.RunSQL(sql=_CRIAR_GATILHOS_SQL, reverse_sql=_REMOVER_GATILHOS_SQL),
+        migrations.RunPython(_criar_gatilhos, _remover_gatilhos),
     ]

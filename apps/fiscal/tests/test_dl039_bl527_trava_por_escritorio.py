@@ -173,3 +173,55 @@ def test_operational_error_de_lock_dentro_de_um_arquivo_vira_envio_invalido_legi
         )
 
     assert not LoteDeRecepcao.objects.filter(escritorio=escritorio_a).exists()
+
+
+# --- Revisão da DL-039 (Fred): a trava não pode quebrar fora do PostgreSQL
+
+
+def test_trava_e_ignorada_fora_do_postgresql_sem_chamar_funcao_pg(
+    monkeypatch, escritorio_a, empresa_a, usuario_gestor_a
+):
+    # `pg_try_advisory_xact_lock` é função do PostgreSQL — não existe em
+    # SQLite, que `config/settings.py` permite em desenvolvimento
+    # (`DEBUG=True` sem `DATABASE_URL`, BL-50/DE-014). Sem esta guarda, um
+    # envio pela tela em SQLite local quebrava ao tentar adquirir o lock.
+    # Este teste roda contra o PostgreSQL real da suíte (não troca de
+    # banco), mas SIMULA `connection.vendor` como se fosse outro banco —
+    # o suficiente para provar que `_adquirir_lock_de_envio_do_escritorio`
+    # nem TENTA chamar a função pg_* quando o vendor não é "postgresql":
+    # se tentasse, o SQL abaixo (que não muda) continuaria funcionando
+    # (o banco real é PostgreSQL) e este teste não provaria nada — por
+    # isso o teste de ponta a ponta em SQLite de verdade
+    # (test_dl039_bl529_gatilho_sqlite.py) é quem fecha a prova completa.
+    chamou_o_cursor = []
+    cursor_original = connection.cursor
+
+    def _cursor_espiao(*args, **kwargs):
+        chamou_o_cursor.append(True)
+        return cursor_original(*args, **kwargs)
+
+    monkeypatch.setattr(services.connection, "vendor", "sqlite")
+    monkeypatch.setattr(services.connection, "cursor", _cursor_espiao)
+
+    obteve = services._adquirir_lock_de_envio_do_escritorio(escritorio_a)
+
+    assert obteve is True
+    assert chamou_o_cursor == []
+
+
+def test_receber_envio_funciona_com_vendor_simulado_de_nao_postgresql(
+    monkeypatch, escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Fim a fim: com o vendor simulado como não-PostgreSQL, `receber_envio`
+    # continua funcionando (a trava vira sempre `True`, nunca recusa por
+    # "conflito de envio").
+    monkeypatch.setattr(services.connection, "vendor", "sqlite")
+
+    lote = services.receber_envio(
+        escritorio=escritorio_a,
+        usuario=usuario_gestor_a,
+        arquivo=xml_nfse(incluir_tomador=False),
+        nome_arquivo="nota.xml",
+    )
+
+    assert lote.total_recebidos == 1

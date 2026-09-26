@@ -103,7 +103,22 @@ def _adquirir_lock_de_envio_do_escritorio(escritorio) -> bool:
     COMMIT ou ROLLBACK, mesmo se o processo morrer no meio; nunca precisa
     de unlock explícito. `receber_envio` é `@transaction.atomic`, então a
     transação já está aberta quando esta função roda.
+
+    Achado da revisão da DL-039 (Fred, revisão de commit): `pg_try_
+    advisory_xact_lock` é função do PostgreSQL — não existe em SQLite, e
+    `config/settings.py` permite SQLite em desenvolvimento (`DEBUG=True`
+    sem `DATABASE_URL`, BL-50/DE-014). Sem esta guarda, um envio pela tela
+    em SQLite local quebrava com erro de banco na hora de adquirir o
+    lock. Em SQLite (`connection.vendor != "postgresql"`) devolve sempre
+    `True` (nunca recusa por "envio em processamento") — SQLite já
+    SERIALIZA toda escrita no nível do arquivo do banco inteiro (só uma
+    conexão escreve por vez), então a invariante "um envio por vez, por
+    escritório" fica, ali, subsumida pela invariante mais grosseira "um
+    escritor por vez, no banco inteiro"; nunca é o mecanismo real de
+    produção (SQLite não é ambiente de produção deste sistema, DE-014).
     """
+    if connection.vendor != "postgresql":
+        return True
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_try_advisory_xact_lock(%s, %s)",
