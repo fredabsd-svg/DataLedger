@@ -68,6 +68,20 @@ class ContaSerializer(serializers.ModelSerializer):
             "classificacao_dre",
         ]
 
+    def validate_classificacao_dre(self, value):
+        """A4 (auditoria DL-045, rodada 1): normaliza `""` para `None` —
+        NUNCA recusa. O `ChoiceField` que o `ModelSerializer` gera por
+        padrão para este campo (`blank=True` no modelo) aceita `""` e
+        gravava do jeito que chegou; a guarda de transição de `Conta.
+        clean()` tratava `""` como "já classificada" (`is not None`), o
+        que travava a conta para sempre — a primeira classificação REAL,
+        depois do `""`, era recusada como reclassificação. `validate_
+        <campo>` roda ANTES de `validate()` (objeto), então `attrs.get(
+        "classificacao_dre")` já chega `None` quando o cliente mandou
+        `""` — a checagem de compatibilidade com `tipo`, abaixo, nem
+        examina o valor branco."""
+        return value or None
+
     def validate(self, attrs):
         """Compatibilidade `classificacao_dre` × `tipo` (Lei 6.404/76, art.
         187) — mesma regra de `Conta.clean()`, repetida aqui porque o DRF

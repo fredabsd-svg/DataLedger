@@ -17,6 +17,7 @@ from apps.contabilidade.models import (
     NATUREZA_NATURAL_DO_TIPO,
     NATUREZA_NATURAL_DO_TIPO_DRE,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
     ClassificacaoDre,
     ClassificacaoPatrimonial,
     Competencia,
@@ -4529,6 +4530,24 @@ def _agregar_movimento_dre_por_conta(*, empresa, inicio, fim):
     — DE-014/BL-50 —, mas a mesma defesa em profundidade do R4 se aplica
     aqui por consistência).
 
+    ⚠️ **A3 (auditoria DL-045, rodada 1): o ESTORNO de um lançamento de
+    zeramento também é excluído.** `estornar_lancamento` cria o reverso
+    via `criar_lancamento(..., estorno_de=lancamento)`, SEM chave — o
+    estorno em si nunca começa com `"zeramento:"` (`chave_idempotencia`
+    é `None`), então o `.exclude()` de cima, sozinho, deixa o ESTORNO
+    entrar na DRE. Medido pelo auditor: receita de 1.000,00 em janeiro,
+    zerada; estorno das duas etapas do zeramento de janeiro em fevereiro
+    (chave `None`, então "entra"); mais 200,00 de receita legítima em
+    fevereiro — o acumulado de fevereiro saía como 2.200,00 (a receita de
+    janeiro contada de novo, pelo estorno), quando a variação real do PL
+    é 1.200,00. Decisão do arquiteto (DE-085, item 4): excluir também
+    (RC-103/PE-69 continua aberta — "desfazer zeramento" ainda não
+    existe como operação própria); a divergência do MÊS em que o estorno
+    aconteceu, entre a DRE e o valor que o zeramento daquele mês
+    transferiu, é DECLARADA numa lista informativa
+    (`estornos_de_zeramento_na_coluna`, ver `_apurar_coluna_dre`), nunca
+    escondida.
+
     UMA única consulta agregada por conta (mesmo padrão de
     `apurar_balancete`): nenhuma consulta por conta, número constante em
     relação ao tamanho do plano de contas (critério 2 da fatia 2).
@@ -4545,6 +4564,7 @@ def _agregar_movimento_dre_por_conta(*, empresa, inicio, fim):
                 lancamento__data__lte=fim,
             )
             .exclude(lancamento__chave_idempotencia__istartswith=prefixo_zeramento)
+            .exclude(lancamento__estorno_de__chave_idempotencia__istartswith=prefixo_zeramento)
             .values("conta")
             .annotate(
                 debito=Sum(
@@ -4562,6 +4582,46 @@ def _agregar_movimento_dre_por_conta(*, empresa, inicio, fim):
             )
         )
     }
+
+
+def _estornos_de_zeramento_na_coluna(*, empresa, inicio, fim):
+    """A3 (auditoria DL-045, rodada 1): lista, para DECLARAR (nunca vetar
+    — decisão do arquiteto, DE-085 item 4), os lançamentos de ESTORNO de
+    zeramento datados dentro de `[inicio, fim]` — os mesmos que
+    `_agregar_movimento_dre_por_conta` acabou de EXCLUIR da apuração.
+
+    Existem para explicar uma divergência que É esperada e não é
+    defeito: no MÊS em que o estorno acontece, a DRE (que ignora o
+    estorno) e o valor que o ZERAMENTO daquele mês transferiu (que via o
+    estorno como qualquer outro lançamento, na hora em que zerou) vão
+    divergir pelo valor reprocessado. Sem esta lista, quem lê a DRE não
+    tem como saber POR QUE a conciliação do critério 4 quebrou naquele
+    mês específico.
+
+    UMA consulta, sem uma por lançamento — o número de itens da lista é
+    tipicamente zero (a PE-69, "desfazer zeramento", ainda não existe
+    como operação própria; estornar um lançamento de zeramento hoje é
+    uma operação AVANÇADA, não a rotina).
+    """
+    prefixo_zeramento = f"{_PREFIXO_CHAVE_ZERAMENTO}:"
+    return [
+        {
+            "lancamento": linha["id"],
+            "data": linha["data"],
+            "historico": linha["historico"],
+            "estorno_de_chave": linha["estorno_de__chave_idempotencia"],
+        }
+        for linha in (
+            LancamentoContabil.objects.filter(
+                empresa=empresa,
+                data__gte=inicio,
+                data__lte=fim,
+                estorno_de__chave_idempotencia__istartswith=prefixo_zeramento,
+            )
+            .order_by("data", "id")
+            .values("id", "data", "historico", "estorno_de__chave_idempotencia")
+        )
+    ]
 
 
 def _consolidar_movimento_por_conta(*, contas, filhos_de, agregados_por_conta):
@@ -4670,13 +4730,37 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
     # Mesma defesa em profundidade do achado A1/BL-476 (DL-032) e do
     # BL-499 (DL-033): valor gravado fora de `ClassificacaoDre` (só por
     # ORM/SQL direto) NUNCA estoura `KeyError` — aparece, nomeado, aqui.
+    # VETA (auditoria DL-045 rodada 1, A1): um valor que não é nenhuma
+    # linha conhecida não tem como ser consolidado em lugar nenhum.
     contas_com_classificacao_dre_desconhecida = []
-    # Duas contas da MESMA árvore declarando a MESMA linha (uma tem
-    # classificação própria E um ancestral também classificado) — o
-    # ancestral já consolida esta conta no próprio `consolidado_de`
-    # (regra única de saldo); somar esta linha de novo contaria o mesmo
-    # lançamento duas vezes. Vazia no caso são.
-    contas_com_classificacao_dre_aninhada = []
+    # A1 (auditoria DL-045, rodada 1) — duas contas da MESMA árvore
+    # declarando classificação PRÓPRIA (uma tem, e um ancestral também
+    # tem): o ancestral já consolida esta conta no próprio
+    # `consolidado_de` (regra única de saldo) — somar esta linha de novo
+    # contaria o mesmo lançamento duas vezes, então o valor da PRÓPRIA
+    # nunca é somado aqui, aninhada ou não. A DECISÃO do arquiteto (DE-
+    # 085, item 2) separa em DUAS listas pela mesma régua do Balanço
+    # (BL-502): quando a linha PRÓPRIA é a MESMA do ancestral, o valor só
+    # está no lugar "errado" no CADASTRO — a DRE sai CORRETA porque as
+    # duas linhas são idênticas, então só AVISA. Quando é DIFERENTE, o
+    # valor sai na linha ERRADA na DRE (medido pelo auditor: filha em
+    # DESPESAS_COM_VENDAS sob grupo em CUSTO, 500,00 aparecia como
+    # "custo", nunca como "despesas com vendas") — VETA.
+    contas_com_classificacao_dre_aninhada_mesma_linha = []
+    contas_com_classificacao_dre_aninhada_linha_diferente = []
+    # A2 (auditoria DL-045, rodada 1) — conta com MOVIMENTO PRÓPRIO nesta
+    # coluna, sob uma linha efetiva (própria válida ou herdada de
+    # ancestral), cujo `TipoConta` não é aceito por aquela linha
+    # (`TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`). Cobre os dois casos que o
+    # auditor mediu: conta PATRIMONIAL (Ativo/Passivo/PL) pendurada sob
+    # uma linha de resultado (nenhuma linha aceita tipo patrimonial, então
+    # QUALQUER linha efetiva reprova), e conta de tipo errado dentro do
+    # tipo certo (DESPESA sob uma linha de RECEITA, e vice-versa). VETA —
+    # sem isto, o valor entrava silenciosamente na linha do ancestral e a
+    # conciliação com o zeramento quebrava (medido: DRE 700,00 contra
+    # zeramento de 1.000,00, para uma transferência puramente patrimonial
+    # de 300,00 escondida sob "receita bruta").
+    contas_com_tipo_divergente_da_linha = []
     # Conta de RECEITA/DESPESA, ANALÍTICA (sem descendentes — DE-022),
     # COM MOVIMENTO PRÓPRIO nesta coluna, cuja própria classificação E a
     # de TODOS os ancestrais estão vazias — a régua é o MOVIMENTO NESTA
@@ -4708,20 +4792,39 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
         ancestral = classificacao_dre_ancestral_de(conta.id)
         consolidado = consolidados.get(conta.id, linha_vazia)
 
+        # A2: régua do MOVIMENTO PRÓPRIO nesta coluna (não consolidado —
+        # mesma lição do BL-498/DL-033), calculada uma vez, usada tanto
+        # pelo tipo divergente quanto pelas pendências de "sem
+        # classificação" mais abaixo.
+        proprio = agregados_proprios.get(conta.id, linha_vazia)
+        tem_movimento_proprio = proprio["debito"] != zero or proprio["credito"] != zero
+
+        linha_efetiva = None
         if propria:
             if propria not in totais_por_classificacao:
                 contas_com_classificacao_dre_desconhecida.append(
                     {"conta": conta.codigo, "nome": conta.nome, "classificacao_dre": propria}
                 )
             elif ancestral:
-                contas_com_classificacao_dre_aninhada.append(
-                    {
-                        "conta": conta.codigo,
-                        "nome": conta.nome,
-                        "classificacao_dre": propria,
-                        "classificacao_dre_ancestral": ancestral,
-                    }
-                )
+                if propria == ancestral:
+                    contas_com_classificacao_dre_aninhada_mesma_linha.append(
+                        {
+                            "conta": conta.codigo,
+                            "nome": conta.nome,
+                            "classificacao_dre": propria,
+                            "classificacao_dre_ancestral": ancestral,
+                        }
+                    )
+                else:
+                    contas_com_classificacao_dre_aninhada_linha_diferente.append(
+                        {
+                            "conta": conta.codigo,
+                            "nome": conta.nome,
+                            "classificacao_dre": propria,
+                            "classificacao_dre_ancestral": ancestral,
+                        }
+                    )
+                linha_efetiva = propria
             else:
                 # Lado NATURAL da LINHA (não do `TipoConta` esperado) —
                 # ver o docstring de `NATUREZA_NATURAL_DA_CLASSIFICACAO_
@@ -4739,17 +4842,36 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
                         soma_classificada_por_tipo[conta.tipo] += (
                             valor if natureza_natural == natureza_do_tipo else -valor
                         )
+                linha_efetiva = propria
+        else:
+            linha_efetiva = ancestral
+
+        # A2: verifica o TIPO desta conta contra a linha EFETIVA (própria
+        # válida, ou herdada) — independente dos ramos acima, porque o
+        # defeito atinge tanto conta SEM classificação própria (herda a
+        # do ancestral) quanto, em teoria, uma própria gravada por fora
+        # das guardas (defesa em profundidade, mesmo espírito do resto
+        # desta função).
+        if linha_efetiva is not None and tem_movimento_proprio:
+            tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(linha_efetiva)
+            if tipos_aceitos is not None and conta.tipo not in tipos_aceitos:
+                contas_com_tipo_divergente_da_linha.append(
+                    {
+                        "conta": conta.codigo,
+                        "nome": conta.nome,
+                        "tipo": conta.tipo,
+                        "classificacao_dre_efetiva": linha_efetiva,
+                    }
+                )
+
+        if propria or ancestral is not None:
             continue
 
-        # Sem classificação própria: só interessa às listas de pendência
-        # se for RECEITA/DESPESA (patrimonial nunca precisa de linha da
-        # DRE) e não tiver ancestral classificado (senão já está coberta
-        # pelo consolidado do ancestral).
-        if ancestral is not None or conta.tipo not in (TipoConta.RECEITA, TipoConta.DESPESA):
+        # Sem linha efetiva nenhuma: só interessa às listas de pendência
+        # de "sem classificação" se for RECEITA/DESPESA (patrimonial
+        # nunca precisa de linha da DRE).
+        if conta.tipo not in (TipoConta.RECEITA, TipoConta.DESPESA):
             continue
-
-        proprio = agregados_proprios.get(conta.id, linha_vazia)
-        tem_movimento_proprio = proprio["debito"] != zero or proprio["credito"] != zero
         if not tem_movimento_proprio:
             continue
         if filhos_de.get(conta.id):
@@ -4808,8 +4930,27 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
         - totais_por_classificacao[ClassificacaoDre.PARTICIPACOES]
     )
 
-    total_debitos = sum((linha["debito"] for linha in agregados_proprios.values()), zero)
-    total_creditos = sum((linha["credito"] for linha in agregados_proprios.values()), zero)
+    # A10 (auditoria DL-045, rodada 1): SÓ as contas de RECEITA/DESPESA
+    # (nunca a contrapartida patrimonial — Caixa, por exemplo), e SÓ o
+    # movimento PRÓPRIO já sem zeramento (`agregados_proprios` já vem
+    # filtrado por `_agregar_movimento_dre_por_conta`). Antes desta
+    # correção, os dois totais somavam TODAS as contas com movimento na
+    # coluna (inclusive a patrimonial) — eram iguais um ao outro só
+    # porque toda partida dobrada tem os dois lados, e não provavam nada
+    # sobre a DRE (o auditor mediu: "não significam o que o nome
+    # sugere"). Agora conciliam com a soma das contas de resultado do
+    # Balancete do mesmo período, sem os lançamentos de zeramento.
+    total_debitos = zero
+    total_creditos = zero
+    for conta in contas:
+        if conta.tipo in (TipoConta.RECEITA, TipoConta.DESPESA):
+            proprio = agregados_proprios.get(conta.id, linha_vazia)
+            total_debitos += proprio["debito"]
+            total_creditos += proprio["credito"]
+
+    estornos_de_zeramento_na_coluna = _estornos_de_zeramento_na_coluna(
+        empresa=empresa, inicio=inicio, fim=fim
+    )
 
     return {
         "linhas": dict(totais_por_classificacao),
@@ -4826,8 +4967,15 @@ def _apurar_coluna_dre(*, empresa, inicio, fim, contas, filhos_de, contas_por_id
         "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
             contas_nao_folha_sem_classificacao_dre_com_movimento_proprio
         ),
-        "contas_com_classificacao_dre_aninhada": contas_com_classificacao_dre_aninhada,
+        "contas_com_classificacao_dre_aninhada_mesma_linha": (
+            contas_com_classificacao_dre_aninhada_mesma_linha
+        ),
+        "contas_com_classificacao_dre_aninhada_linha_diferente": (
+            contas_com_classificacao_dre_aninhada_linha_diferente
+        ),
+        "contas_com_tipo_divergente_da_linha": contas_com_tipo_divergente_da_linha,
         "contas_com_classificacao_dre_desconhecida": contas_com_classificacao_dre_desconhecida,
+        "estornos_de_zeramento_na_coluna": estornos_de_zeramento_na_coluna,
         "total_debitos": total_debitos,
         "total_creditos": total_creditos,
     }
@@ -4862,7 +5010,30 @@ def apurar_dre(*, empresa, ano, mes):
 
     Número de consultas CONSTANTE em relação ao número de contas
     (critério 2): UMA consulta de hierarquia (`Conta.objects.filter`) +
-    DUAS agregações (uma por coluna) — nenhuma consulta por conta.
+    duas por coluna (agregação de movimento + estornos de zeramento,
+    A3) — nenhuma consulta por conta.
+
+    ⚠️ **A5 (auditoria DL-045, rodada 1) — leitura sob SNAPSHOT (DE-067),
+    MESMO desenho de `apurar_balanco_patrimonial`.** O plano desta etapa
+    já prometia isto na fatia 2 e a implementação original esqueceu: o
+    auditor mediu, com uma corrida real de duas conexões (pausa entre a
+    consulta de hierarquia e as de agregação), que uma escrita
+    concorrente — conta nova, sem classificação, com lançamento — entra
+    na leitura de forma PARCIAL (o lucro de uma consulta e o total de
+    débitos/créditos da MESMA resposta deixavam de conciliar). `SET
+    TRANSACTION ISOLATION LEVEL REPEATABLE READ` roda como a PRIMEIRA
+    instrução da transação (exigência do PostgreSQL) — a partir dela,
+    TODAS as consultas desta função enxergam o MESMO snapshot, tirado
+    neste instante. Só leitura: nunca produz erro de serialização (que é
+    exclusivo de conflito ESCRITA-escrita). **Degrada em vez de quebrar
+    a página** quando chamada de dentro de um `transaction.atomic()` já
+    aberto (o cliente de teste do Django, ou `pytest.mark.django_db`
+    padrão) — nesse caso o comando é PULADO (`SET TRANSACTION ISOLATION
+    LEVEL` no meio de uma transação em andamento levantaria erro do
+    PostgreSQL), e a leitura roda sob o isolamento que já houver, sem a
+    garantia extra do snapshot único. Ver o docstring de
+    `apurar_balanco_patrimonial` para a explicação completa — mesmo
+    padrão, replicado aqui, não uma segunda invenção.
 
     Não verifica autorização nem papel — mesmo limite que `apurar_saldos`
     e `apurar_balancete` já declaram; quem chama (a view) verifica
@@ -4875,25 +5046,31 @@ def apurar_dre(*, empresa, ano, mes):
     data_inicio_exercicio = date(ano, 1, 1)
     data_fim_exercicio = data_fim_mes
 
-    contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
-    contas_por_id, filhos_de, _nivel_de = _construir_hierarquia(contas)
+    ja_estava_em_transacao = connection.in_atomic_block
+    with transaction.atomic():
+        if not ja_estava_em_transacao:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 
-    coluna_mes = _apurar_coluna_dre(
-        empresa=empresa,
-        inicio=data_inicio_mes,
-        fim=data_fim_mes,
-        contas=contas,
-        filhos_de=filhos_de,
-        contas_por_id=contas_por_id,
-    )
-    coluna_acumulado = _apurar_coluna_dre(
-        empresa=empresa,
-        inicio=data_inicio_exercicio,
-        fim=data_fim_exercicio,
-        contas=contas,
-        filhos_de=filhos_de,
-        contas_por_id=contas_por_id,
-    )
+        contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
+        contas_por_id, filhos_de, _nivel_de = _construir_hierarquia(contas)
+
+        coluna_mes = _apurar_coluna_dre(
+            empresa=empresa,
+            inicio=data_inicio_mes,
+            fim=data_fim_mes,
+            contas=contas,
+            filhos_de=filhos_de,
+            contas_por_id=contas_por_id,
+        )
+        coluna_acumulado = _apurar_coluna_dre(
+            empresa=empresa,
+            inicio=data_inicio_exercicio,
+            fim=data_fim_exercicio,
+            contas=contas,
+            filhos_de=filhos_de,
+            contas_por_id=contas_por_id,
+        )
 
     return {
         "empresa_id": empresa.id,
@@ -4908,19 +5085,41 @@ def apurar_dre(*, empresa, ano, mes):
     }
 
 
-# Mesmo padrão de `_LISTAS_QUE_IMPEDEM_A_EMISSAO` (DL-034/BL-502): uma
-# tupla EXPLÍCITA, nunca um `if` por lista escrito à mão — decide o que
-# BLOQUEIA a leitura/emissão da DRE (critério 6 do plano: pendência de
-# classificação recusa, listando as contas). Escopada à coluna do MÊS: é
-# o período que o usuário pediu; a coluna do acumulado pode ter pendência
-# de um mês ANTERIOR já fechado que ninguém vai corrigir mais (ver
-# `avaliar_emissao_da_dre`).
-_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO = ("contas_sem_classificacao_dre_com_movimento",)
-_LISTAS_DA_DRE_QUE_SO_AVISAM = (
-    "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio",
-    "contas_com_classificacao_dre_aninhada",
+# Mesmo padrão de `_LISTAS_QUE_IMPEDEM_A_EMISSAO` (DL-034/BL-502): DUAS
+# tuplas EXPLÍCITAS e DISJUNTAS, nunca um `if` por lista escrito à mão —
+# decidem o que BLOQUEIA a leitura/emissão da DRE. A UNIÃO das duas tem
+# de ser exatamente o inventário das chaves `contas_*` que `_apurar_
+# coluna_dre` devolve (prova: `test_particao_das_listas_contas_da_dre`,
+# no molde do `test_bl502` do Balanço) — nenhuma lista nova pode ficar de
+# fora das duas, nem em ambas.
+#
+# A1/A2 (auditoria DL-045, rodada 1, DE-085 itens 2 e 3): a versão
+# anterior tratava aninhada e desconhecida como aviso, sempre — o
+# auditor mediu que uma classificação aninhada com linha DIFERENTE da
+# herdada põe o valor na linha ERRADA (não "no lugar errado do cadastro,
+# valor certo na DRE" — o valor sai errado), e que uma linha desconhecida
+# não tem como ser consolidada em lugar nenhum. As DUAS agora vetam,
+# junto com a nova `contas_com_tipo_divergente_da_linha` (A2: conta com
+# movimento cujo tipo não é aceito pela linha efetiva — inclusive conta
+# patrimonial sob uma linha de resultado). Só a aninhada com a MESMA
+# linha continua avisando: o cadastro está redundante, mas a DRE sai
+# correta (o ancestral já consolida a subárvore inteira).
+_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO = (
+    "contas_sem_classificacao_dre_com_movimento",
+    "contas_com_classificacao_dre_aninhada_linha_diferente",
+    "contas_com_tipo_divergente_da_linha",
     "contas_com_classificacao_dre_desconhecida",
 )
+_LISTAS_DA_DRE_QUE_SO_AVISAM = (
+    "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio",
+    "contas_com_classificacao_dre_aninhada_mesma_linha",
+)
+# A3 (DE-085 item 4): lista informativa que NÃO é uma chave `contas_*` —
+# fora da partição de cima de propósito (é sobre LANÇAMENTOS de estorno,
+# não sobre contas) — nunca veta, só explica uma divergência esperada
+# entre a DRE do mês do estorno e o valor que o zeramento daquele mês
+# transferiu (ver `_estornos_de_zeramento_na_coluna`).
+_LISTAS_DA_DRE_NAO_CONTAS_QUE_SO_AVISAM = ("estornos_de_zeramento_na_coluna",)
 
 
 def avaliar_emissao_da_dre(dre):
@@ -4967,6 +5166,9 @@ def avaliar_emissao_da_dre(dre):
             nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO if coluna[nome]
         }
         informativas = {nome: coluna[nome] for nome in _LISTAS_DA_DRE_QUE_SO_AVISAM if coluna[nome]}
+        informativas.update(
+            {nome: coluna[nome] for nome in _LISTAS_DA_DRE_NAO_CONTAS_QUE_SO_AVISAM if coluna[nome]}
+        )
         if residuo:
             residuo_pendente_por_coluna[nome_coluna] = residuo
         if pendentes:
@@ -4982,6 +5184,78 @@ def avaliar_emissao_da_dre(dre):
         "listas_pendentes": listas_pendentes_por_coluna,
         "listas_informativas": listas_informativas_por_coluna,
     }
+
+
+@transaction.atomic
+def classificar_conta_na_dre(*, conta, classificacao, usuario, request=None):
+    """Classifica (ou reclassifica, ou remove a classificação de) a linha
+    da DRE de uma conta EXISTENTE — a porta operacional que faltava
+    (A7 da auditoria da DL-045, rodada 1): sem ela, só o `admin` do
+    Django conseguia classificar ou corrigir conta, e a única forma de
+    corrigir um erro de classificação (conta nova + transferência do
+    movimento) deixava marca permanente na DRE do mês da correção.
+
+    `classificacao` é um valor de `ClassificacaoDre` (ou `None`/`""`
+    para REMOVER a classificação — normalizado para `None`, mesma regra
+    do achado A4). NÃO valida o valor contra `ClassificacaoDre.values`
+    aqui: `full_clean()`, abaixo, já recusa qualquer valor fora dos
+    `choices` do campo (o `ChoiceField` do Django).
+
+    GUARDAS: todas moram em `Conta.clean()` (chamado por `full_clean()`,
+    o único caminho que aplica TODAS de uma vez) — compatibilidade com
+    `tipo`; primeira classificação livre mesmo com movimento;
+    reclassificar/apagar com movimento recusado; primeira classificação
+    que "engoliria" descendente já classificado com movimento recusada
+    (A6). Esta função não duplica nenhuma regra — só grava, chamando
+    `full_clean()`. Deixa propagar `django.core.exceptions.
+    ValidationError` quando alguma guarda recusa — quem chama (a view)
+    traduz para o protocolo dela (ver `mensagens_da_validacao_django`,
+    abaixo).
+
+    PERMISSÃO: verificada pela VIEW (`PodeEscriturar` — o MESMO papel
+    que grava lançamento e cria conta; RC-118 nunca criou uma permissão
+    nova para a classificação da DRE), no servidor — esta função NÃO
+    verifica papel, mesmo limite que `zerar_resultado`/`encerrar_
+    competencia` já declaram.
+
+    TRILHA: um `registrar()`, na MESMA transação, com o valor de ANTES e
+    de DEPOIS — mesmo padrão do PUT/PATCH administrativo (DL-024).
+    `request` é opcional (só para o `registrar()` capturar o IP quando
+    existir uma requisição HTTP por trás; chamada direta, sem `request`,
+    continua funcionando).
+
+    Devolve a `Conta` já salva (mesma instância, atualizada).
+    """
+    valor_antes = conta.classificacao_dre
+    conta.classificacao_dre = classificacao or None
+    conta.full_clean()
+    conta.save(update_fields=["classificacao_dre"])
+    registrar(
+        acao="conta.classificacao_dre_alterada",
+        usuario=usuario,
+        escritorio=conta.empresa.escritorio,
+        objeto=conta,
+        request=request,
+        detalhes={
+            "classificacao_dre_antes": valor_antes,
+            "classificacao_dre_depois": conta.classificacao_dre,
+        },
+    )
+    return conta
+
+
+def mensagens_da_validacao_django(exc):
+    """Extrai as mensagens de um `django.core.exceptions.ValidationError`
+    como uma lista PLANA de `str`, independente de ter sido levantado com
+    uma string, uma lista ou um dict de campos (`exc.message_dict`) — a
+    forma que `Conta.clean()` sempre usa hoje é uma string única, mas
+    `full_clean()` também roda `clean_fields()` antes, que pode acumular
+    por campo. Usada por quem traduz `classificar_conta_na_dre` para uma
+    resposta HTTP (DRF `ValidationError` aceita uma lista de strings
+    diretamente)."""
+    if hasattr(exc, "message_dict"):
+        return [mensagem for mensagens in exc.message_dict.values() for mensagem in mensagens]
+    return list(exc.messages)
 
 
 def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):

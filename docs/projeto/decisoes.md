@@ -4673,3 +4673,54 @@ A remoção das abas do Fiscal é a única mudança ESTRUTURAL desta rodada
 (menos marcação por tela), e mesmo essa não toca em nenhuma rota, view
 ou permissão — só a moldura de navegação, que o submenu lateral já
 cobria por inteiro.
+
+## DE-085 — DRE: decisões sobre a rodada 1 da auditoria da DL-045
+
+Data: 2026-09-26. Responsável: `arquiteto-senior`, sobre a
+[rodada 1](../auditorias/2026-09-26-dl-045-rodada-1.md), que reprovou o
+servidor da DRE com quatro achados altos. Numerada 085 porque 079 a 084 estão
+reservadas à DL-044, integrada em outra branch.
+
+1. **Decisões anteriores formalizadas (A9):** a linha "resultado de
+   equivalência patrimonial" aceita conta de receita ou de despesa (ganho ou
+   perda), com o sinal da linha; e **as duas colunas vetam** a emissão, porque a
+   demonstração formal imprime o acumulado.
+2. **A1 — classificação aninhada:** veta quando a linha da descendente é
+   **diferente** da herdada; com a mesma linha, só declara. Classificação
+   desconhecida veta. A partição entre listas que vetam e que só avisam ganha
+   teste que prova que cobre todas as listas, como no Balanço.
+3. **A2 — tipo divergente:** conta com movimento cujo tipo não é aceito pela
+   linha herdada (inclusive conta patrimonial dentro de subárvore de resultado)
+   **veta** e é nomeada. Recusar na entrada conta patrimonial com pai de
+   resultado é regra do plano de contas inteiro: vai para o backlog, não para
+   esta etapa.
+4. **A3 — estorno de zeramento:** a DRE **exclui** também os estornos de
+   lançamento de zeramento (`estorno_de` com chave `zeramento:`). A receita
+   pertence ao mês em que aconteceu; o acumulado fica igual à variação do PL.
+   No mês do estorno, a DRE do mês e o valor transferido pelo zeramento
+   daquele mês divergem pelo valor reprocessado — a resposta da API **declara**
+   esses estornos numa lista informativa, para a divergência ser explicável. Não
+   veta. A PE-69 (desfazer zeramento) continua aberta.
+5. **A4:** branco é normalizado para "sem classificação" na entrada, e a guarda
+   trata branco como não classificado.
+6. **A5:** a apuração da DRE lê sob o mesmo snapshot do Balanço (DE-067), com o
+   par de testes de corrida.
+7. **A6:** com movimento, recusa a primeira classificação de um nó cuja
+   subárvore já tenha conta classificada com movimento, e recusa o
+   reparentamento que mude a linha efetiva.
+8. **A7:** a correção da classificação passa a ter porta de produto — serviço
+   de classificação com autorização no servidor, usado pela tela da fatia 3; o
+   admin mostra e filtra o campo. A mensagem da guarda fala em movimento do
+   exercício, não em saldo. Se a linha da DRE deve mesmo ser imutável com
+   movimento é pergunta ao Fred (é propriedade de apresentação).
+9. **A10:** `total_debitos` e `total_creditos` passam a somar só as contas de
+   resultado, sem zeramento, e ganham teste de isolamento e de conciliação com o
+   Balancete.
+10. **A8:** os testes propostos pela auditoria viram teste, e os mutantes
+    sobreviventes (M04, M05, M06, M08, M12, M13, M14, M21, M25, M27, M28, M30)
+    precisam morrer. M21 fixa deduções da receita só em conta de receita,
+    pendente de confirmação do Fred (D3).
+11. **Dúvidas contábeis D1 a D6** vão ao Fred; nenhuma muda o código agora.
+
+**Reversão:** mudanças locais ao serviço, ao serializer e às guardas do modelo
+da DRE; sem migração prevista, salvo a restrição opcional de A4.

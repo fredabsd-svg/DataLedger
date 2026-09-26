@@ -3,6 +3,7 @@ from django.urls import path
 from apps.contabilidade.views import (
     BalanceteView,
     ConferenciaLotesDesbalanceadosView,
+    ContaClassificacaoDreView,
     ContaListCreateView,
     DiarioView,
     DreView,
@@ -88,5 +89,14 @@ urlpatterns = [
         "empresas/<int:empresa_id>/dre/<int:ano>/<int:mes>/",
         DreView.as_view(),
         name="dre",
+    ),
+    # A7 (auditoria DL-045, rodada 1): porta operacional para classificar
+    # (ou reclassificar, ou remover a classificação de) a linha da DRE de
+    # uma conta já existente — `conta_id` identifica o RECURSO, mesmo
+    # padrão de `razao/<int:conta_id>/`.
+    path(
+        "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dre/",
+        ContaClassificacaoDreView.as_view(),
+        name="conta-classificacao-dre",
     ),
 ]

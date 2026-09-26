@@ -404,6 +404,27 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "— não há relato nem teste desse caminho hoje). Sem caminho de "
         "escrita por cliente REALISTA para o valor inválido."
     ),
+    # A4 (auditoria DL-045, rodada 1): `classificacao_dre=""` era um estado
+    # alcançável pela API antes da correção — a `CheckConstraint` fecha o
+    # buraco na origem (defesa de banco), mas os DOIS caminhos de cliente
+    # que gravam `classificacao_dre` já normalizam `""` para `None` ANTES
+    # do INSERT: a API usa `ContaSerializer.validate_classificacao_dre`
+    # (`apps/contabilidade/serializers.py`, roda em `validate_<campo>`,
+    # antes de qualquer escrita); o admin do Django chama `full_clean()`,
+    # cujo `Conta.clean()` (`apps/contabilidade/models.py`) normaliza
+    # `""` para `None` como a PRIMEIRA linha do método, antes de qualquer
+    # outra guarda rodar. Um `INSERT`/`UPDATE` forjado direto no banco
+    # (fora do ORM) é o único caminho que ainda alcança esta constraint —
+    # e é exatamente o que ela existe para recusar.
+    "ck_conta_classificacao_dre_nao_vazia": (
+        "`CheckConstraint` de `Conta.classificacao_dre` (DL-045, A4 da "
+        'auditoria da rodada 1): recusa `""` (string vazia) — só `NULL` '
+        "ou um valor de `ClassificacaoDre`. Os dois caminhos de cliente "
+        '(API e admin) já normalizam `""` para `None` ANTES do INSERT '
+        "(ver `ContaSerializer.validate_classificacao_dre` e o topo de "
+        "`Conta.clean()`); só ORM/SQL direto, fora de qualquer requisição "
+        'de cliente, alcançaria esta constraint com `""`.'
+    ),
 }
 
 

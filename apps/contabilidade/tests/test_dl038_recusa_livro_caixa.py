@@ -70,7 +70,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_dezoito_rotas_web_e_as_quatorze_da_api():
+def test_a_derivacao_encontrou_as_dezoito_rotas_web_e_as_quinze_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -99,8 +99,12 @@ def test_a_derivacao_encontrou_as_dezoito_rotas_web_e_as_quatorze_da_api():
     # guardas e trilha de auditoria, que o desenvolvedor-pleno ainda vai
     # construir; "Linha da DRE" entra só pelo formulário de CRIAÇÃO
     # (`conta_nova`, já contado antes desta etapa).
-    assert len(ROTAS_API) == 14, ROTAS_API
     assert len(ROTAS_WEB) == 18, ROTAS_WEB
+    #
+    # DL-045, correção da rodada 1 de auditoria (A7): `ContaClassificacaoDreView`
+    # (PATCH), a porta para classificar a linha da DRE de conta já existente.
+    # 14 -> 15 do lado da API.
+    assert len(ROTAS_API) == 15, ROTAS_API
 
 
 @pytest.fixture
@@ -168,6 +172,9 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
             resposta = client.get(endereco)
         elif metodo == "POST":
             resposta = client.post(endereco, data=json.dumps({}), content_type="application/json")
+        elif metodo == "PATCH":
+            # DL-045/A7: primeira rota PATCH da API — `ContaClassificacaoDreView`.
+            resposta = client.patch(endereco, data=json.dumps({}), content_type="application/json")
         else:
             continue
 
@@ -178,7 +185,7 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
             metodo,
             corpo,
         )
-        if metodo == "POST":
+        if metodo in ("POST", "PATCH"):
             assert _nada_foi_gravado(empresa), (rota, metodo, "gravou mesmo recusando")
 
 

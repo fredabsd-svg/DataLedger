@@ -126,10 +126,13 @@ logo depois; DL-045 (DRE) em andamento.**
   autorização do Fred:** apagar `templates/fiscal/_navegacao.html`, que ficou
   sem uso (a exclusão foi bloqueada pelo controle do ambiente e não foi
   contornada). Integra por PR depois do merge do PR #49.
-- **DL-045** (DRE, nível 1): plano, RC-118 a RC-120, HI-28, HI-29 e PE-70
-  (respondida por fonte primária). Classificação e apuração no servidor na
-  branch local `dl045-dre`, em auditoria independente (rodada 1). A tela
-  (fatia 3) é feita sobre o visual da DL-044 na branch local `dl045-tela`.
+- **DL-045** (DRE, nível 1): servidor (`dl045-dre`) e tela (`dl045-tela`) em
+  branches locais. Rodada 1 da auditoria
+  ([relatório](../auditorias/2026-09-26-dl-045-rodada-1.md)) **reprovou** o
+  servidor com quatro achados altos; corrigido conforme a DE-085 e juntado à
+  tela. Dúvidas contábeis D1 a D6 decididas por delegação do Fred e
+  conferidas nos manuais (RC-121 a RC-126). Próximo: ajustes da tela e
+  reconferência única.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
