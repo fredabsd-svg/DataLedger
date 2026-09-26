@@ -24,6 +24,22 @@ DL-042 completa (2ª passada), recapturada depois de:
 5. Distância do título a 390×844 recuperada para ≤230px sem esconder
    empresa/período (visível nas capturas de celular do Balancete/Diário/
    Plano de contas).
+6. Revisão final do arquiteto (mesma rodada, dois ajustes): linguagem
+   comercial removida da landing (frase "sem cartão de crédito" e a
+   pergunta correspondente do FAQ — Fred já tinha rejeitado esse
+   posicionamento na DL-036), e a barra lateral corrigida para ocupar a
+   altura inteira da janela em página curta (Painel) e longa (Balancete) —
+   `align-self: stretch` em `.barra-lateral` (`static/css/base.css`),
+   medido com `getBoundingClientRect` em `scrollY` 0/800/1600 no Balancete:
+   a caixa da barra permanece `top:0, height:900` (viewport 1440×900) em
+   todas as posições de rolagem real. Capturas de Painel, Balancete e
+   Landing (1440×900 e 390×844) refeitas nesta rodada; as demais 13 telas
+   não mudaram desde a rodada anterior. Nota sobre a própria captura: o
+   modo `full_page` do Chromium "estica" o viewport para o tamanho do
+   documento antes de tirar a foto, e isso faz um elemento `position:
+   sticky` aparecer preenchido só perto do topo da imagem no Balancete —
+   é um artefato do modo de captura, não do produto; a rolagem real
+   (medida acima) confirma que a barra acompanha a página inteira.
 
 ## Painel (Início)
 
@@ -217,6 +233,14 @@ de módulos com selo Disponível/Planejado, seção "Concebido para IA" com
 assistente/MCP marcados Planejados, e FAQ nativa. Paleta "papel e tinta" —
 igual à do produto autenticado — no lugar do painel escuro decorativo da
 DL-034/037.
+
+Revisão final do arquiteto: removida a frase "Sem cartão de crédito. Leva
+menos de dois minutos para criar o escritório e a primeira empresa." do
+herói (posicionamento comercial de SaaS que o Fred já tinha rejeitado na
+DL-036, e "menos de dois minutos" era afirmação não medida) e a pergunta
+"Preciso de cartão de crédito para começar?" do FAQ, com a resposta. O
+restante da página foi conferido contra o mesmo critério (nada de venda,
+plano pago, preço ou teste grátis) — nada mais encontrado.
 
 Computador (1440 × 900):
 

@@ -353,6 +353,31 @@ telas de navegação, botões, módulos, TUDO")**
    nesta etapa (o portão de qualidade pede 360/768/1280/ultralargo; esta
    faixa intermediária específica ficou de fora).
 
+**Revisão final do arquiteto (mesma rodada — dois ajustes antes do PR)**
+
+9. ~~A barra lateral não ocupava a altura inteira da janela em página
+   curta.~~ **Resolvido.** `.app-shell` usa `align-items: flex-start` (não
+   o `stretch` padrão, por causa da linha móvel de marca/gatilho, que não
+   deve esticar) — sem `align-self` próprio, `.barra-lateral` só media a
+   altura do próprio conteúdo de navegação (~290px no Painel), deixando o
+   resto da coluna esquerda sem o fundo `--papel-alt`. Adicionado
+   `align-self: stretch` em `.barra-lateral` (`static/css/base.css`):
+   medido com `getBoundingClientRect` no Painel (página curta) e no
+   Balancete (página longa, `docScrollH` 3049px) em `scrollY` 0/800/1600 —
+   a caixa da barra permanece `top:0, height:900` (viewport 1440×900) em
+   todas as posições, sem quebrar a gaveta móvel (≤48rem, que já usa
+   `position: fixed` e não depende de `align-self`) nem o print (a barra
+   segue na lista oculta de `@media print`).
+10. ~~A landing tinha uma frase e uma pergunta de FAQ com posicionamento
+    comercial de SaaS.~~ **Resolvido.** O Fred já tinha rejeitado esse
+    posicionamento na DL-036. Removidos: "Sem cartão de crédito. Leva
+    menos de dois minutos para criar o escritório e a primeira empresa."
+    do herói (também violava a regra de não afirmar sem medir — "menos de
+    dois minutos" nunca foi cronometrado) e a pergunta "Preciso de cartão
+    de crédito para começar?" do FAQ, com a resposta. O restante da
+    landing foi conferido contra o mesmo critério (venda, plano pago,
+    preço, teste grátis) — nada mais encontrado.
+
 ### Ajustes de alto impacto aplicados nas duas rodadas
 
 - Ícones SVG inline (achado 1).

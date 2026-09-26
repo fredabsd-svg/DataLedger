@@ -491,6 +491,15 @@ summary:focus,
     top: 0;
     max-height: var(--altura-viewport);
     overflow-y: auto;
+    /* `.app-shell` usa `align-items: flex-start` (não o `stretch` padrão) por
+       causa da linha móvel de marca/gatilho, que não deve esticar. A barra
+       precisa do próprio `align-self: stretch` para preencher a altura da
+       linha flex (>= 100vh, por causa do `min-height` de `.app-shell`) mesmo
+       em página curta — do contrário a caixa da barra para na altura do
+       próprio conteúdo de navegação e o resto da coluna esquerda fica sem o
+       fundo `--papel-alt`. `max-height` + `overflow-y: auto` continuam
+       cobrindo a rolagem em página alta. */
+    align-self: stretch;
 }
 
 .barra-lateral__topo {

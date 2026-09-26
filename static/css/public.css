@@ -63,7 +63,6 @@
 .hero-description { max-width: var(--public-largura-texto); margin: 0 0 var(--esp-6); color: var(--tinta-suave); font-size: var(--public-corpo); line-height: 1.6; }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-5); }
 .public-text-link { color: var(--tinta); font-size: var(--tipo-md); font-weight: 700; text-decoration: underline; text-underline-offset: var(--esp-1); }
-.hero-note { margin: var(--esp-5) 0 0; color: var(--tinta-media); font-size: var(--tipo-sm); }
 
 .hero-product { min-width: 0; }
 .hero-product figure { margin: 0; border: var(--traco-fina) solid var(--borda-hairline); border-radius: var(--raio); overflow: hidden; background: var(--papel-elevado); }
