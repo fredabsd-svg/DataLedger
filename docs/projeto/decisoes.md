@@ -3900,7 +3900,7 @@ só dentro do escritório (DE-074), e continua correta.
 **Alternativa descartada:** manter a unicidade global e trocar a mensagem por uma
 genérica — a recusa continuaria revelando a existência, só que sem texto.
 
-## DE-078 — Tipografia de trabalho sem serifa (IBM Plex Sans) e sistema de superfície/elevação
+## DE-079 — Tipografia de trabalho sem serifa (IBM Plex Sans) e sistema de superfície/elevação
 
 **Data:** 2026-09-26
 
@@ -3976,3 +3976,120 @@ FAMÍLIA tipográfica é o problema, não o peso); usar uma fonte de sistema
 sem hospedar arquivo (perderia a paridade visual entre plataformas que a
 Plex Serif já garante, e criaria DUAS filosofias de fonte no mesmo
 produto).
+
+## DE-080 — Casca do app logado: azul próprio, fundo cinza-azulado, hub de relatórios e Início com indicadores
+
+**Data:** 2026-09-26
+
+**Contexto:** duas rodadas de retorno do Fred sobre as capturas da DE-079,
+a última delas apontando um modelo concreto — "Gosto do visual do Conta
+Azul [...] não é para fazer igual, apenas um modelo; use a skill SaaS
+front-end". Pesquisa registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+§7 (quatro imagens do Conta Azul enviadas pelo Fred, inspecionadas e NÃO
+copiadas ao repositório, mais quatro artigos da Central de Ajuda oficial).
+
+**Decisão:**
+
+1. **Azul de aplicativo próprio, só na casca logada.** Tokens novos
+   `--app-acento` (`#0A58CA`, 6,44:1 sobre branco), `--app-acento-escuro`,
+   `--app-acento-suave` — substituem `--acento`/`--acento-escuro` em
+   `.botao--primario`, `.botao--secundario` (hover) e `button` sem classe,
+   e substituem `--acento-escuro` como fundo da barra lateral (que a 2ª
+   iteração desta mesma etapa tinha feito ESCURA, navy — revista aqui para
+   AZUL VÍVIDO, mais perto do padrão que o Fred apontou). `--acento`
+   original continua reservado a link de prosa, foco padrão fora da barra
+   e a TODA a superfície pública/landing, que mantém a identidade atual
+   por instrução explícita dele. Escopo garantido por combinador de irmão
+   (`.barra-lateral ~ .area-principal`, nunca uma classe condicional nova)
+   para `.area-principal`/link de prosa — que ESTRUTURALMENTE também
+   existem na landing, por ela herdar `.app-shell` de `base.html` — e por
+   simples ausência de uso fora do app para `.botao--*`/`button` (conferido
+   por busca no diretório `templates/`).
+2. **Fundo cinza-azulado atrás de cartões brancos.** Token `--app-fundo`
+   (`#E3E9F2`) em `.barra-lateral ~ .area-principal`; `.cabecalho-pagina`
+   vira cartão branco com sombra (era só uma linha divisória sobre o
+   mesmo fundo da página); `.cabecalho` (faixa de identificação do topo)
+   vira branco também. Landing e documento impresso NÃO mudam (mesmo
+   escopo do item 1; impressão força `--impressao-fundo` em
+   `.area-principal` — regra nova no `@media print`).
+3. **Hub de relatórios em cartões.** Tela nova,
+   `contabilidade_web:relatorios` (`templates/contabilidade/relatorios.html`),
+   com um cartão por relatório (Diário/Razão/Balancete/Balanço/
+   Conferência) — ícone, título, descrição de uma linha, "Abrir". SEGUNDO
+   caminho para as mesmas cinco rotas que a barra lateral já oferece por
+   link de menu — NENHUM link foi removido de lá (a barra lateral já
+   tinha os cinco agrupados em "Relatórios" desde a DL-040/042; reagrupar
+   ou remover esses links foi avaliado e descartado nesta rodada, ver
+   "Alternativas descartadas", abaixo).
+4. **Início deixa de ser só a fila de atenção.** `apps.tenancy.views`
+   ganha três consultas novas de APRESENTAÇÃO, sempre filtradas pelo
+   escritório ATIVO, cada uma com a MESMA permissão por papel que a tela
+   de destino já exige: `_indicadores_do_painel` (faixa de números
+   grandes e clicáveis — empresas ativas, competências atrasadas, envios
+   com recusa, notas canceladas), `_empresas_da_carteira` (tabela CNPJ/
+   CPF, escrituração, última competência fechada, pendências — 3
+   consultas de tamanho CONSTANTE: uma lista + duas agregações
+   `values().annotate()`, nunca uma por empresa) e `_acoes_rapidas_do_
+   painel`/`_modulos_do_painel` (botões e tiles, sem consulta nova,
+   reaproveitam a carteira já calculada). "Empresas da carteira" (e os
+   módulos Contabilidade/Fiscal que dela derivam o destino de "Novo
+   lançamento") ficam atrás de `papel_pode_ler_contabilidade` — achado
+   PRÓPRIO desta etapa, via
+   `apps/tenancy/tests/test_dl042_fila_de_atencao.py::test_papel_cliente_
+   nao_ve_a_fila_de_atencao`: sem esse `if`, um papel CLIENTE (que a fila
+   já esconde corretamente) continuava vendo razão social e pendência de
+   empresa alheia à sua permissão nesta tabela nova — mesma fuga de
+   informação que a fila existia para impedir, por uma porta que esta
+   iteração tinha aberto. Teste de isolamento e de consulta constante
+   (que mede IGUALDADE entre 1 e 10 empresas, não um teto) em
+   `apps/tenancy/tests/test_dl044_painel_carteira_e_indicadores.py`. O
+   teto de `django_assert_max_num_queries` do painel completo
+   (`test_dl042_fila_de_atencao.py`) subiu de 20 para 26 — o número
+   MEDIDO subiu de 14 para 21, tamanho FIXO, nunca por item.
+5. **Atalho de teclado à mostra sai da TELA, nunca do produto.**
+   `kbd.tecla` (o texto "Alt+C" etc., já `aria-hidden`) passa a usar a
+   MESMA técnica de clip de `.visualmente-oculto` — sem `display: none`,
+   sem remover o elemento, sem tocar em `accesskey`/`aria-keyshortcuts`
+   nenhum. Escolha deliberada: os testes de MUTAÇÃO de
+   `test_dl024_atalhos_e_acessibilidade.py` localizam o texto literal
+   `class="tecla" aria-hidden="true"` no HTML renderizado para provar que
+   a defesa reprova quando removida — mexer nesse atributo quebraria o
+   CONTROLE desses testes, não o produto; a técnica de clip preserva a
+   marcação exata e não tocou em nenhuma guarda.
+6. **Chip/pílula na identificação do topo.** `.cabecalho__contexto
+   .contexto-item` (escopado — NÃO a classe genérica, reaproveitada em
+   outros lugares, como o timbre de impressão) ganha moldura arredondada
+   (`--raio-pilula`, novo). Mesmo raio no botão de recolher a barra
+   lateral (era quase quadrado).
+
+**Motivo.** O Fred nomeou uma referência concreta depois de duas rodadas
+de retorno em texto ("vazio", "amador", "tudo junto", "arcaico") não
+convergirem sozinhas para o resultado que ele tinha em mente — mostrar o
+PADRÃO (não a marca) resolveu a ambiguidade. A skill `saas-design-
+excellence` foi invocada antes de aplicar, como instruído.
+
+**Consequência aceita:** 2ª e 3ª rodadas desta MESMA etapa mudaram a cor
+da barra lateral duas vezes (clara → escura → azul vívida) — descrito
+honestamente aqui, não escondido: a 2ª rodada não estava errada por si
+(WCAG AA medido, arquitetura de menu corrigida), só não era o alvo que o
+Fred tinha em mente até ele nomear a referência. Nenhuma REGRA de negócio
+mudou em nenhuma das duas: só apresentação.
+
+**Alternativas descartadas:** reduzir a barra lateral a um trilho de
+ícones com painel de segundo nível mais escuro (imagem "Contas a
+receber" do Conta Azul, com submenu aberto) — o produto já tinha um menu
+em acordeão (`<details>`/`<summary>`, sem JavaScript, com guarda de
+acessibilidade própria) que resolve o MESMO problema; trocar a
+ARQUITETURA de navegação inteira nesta rodada trocaria risco de
+regressão por ganho estético incerto, registrada aqui para o
+arquiteto-senior avaliar como fatia própria. Remover os cinco links de
+relatório da barra lateral (deixando só "Relatórios" → hub) — descartado
+pelo mesmo motivo: risco alto de regressão em testes de navegação/
+atalho já profundamente estabelecidos (accesskey, contagem de teclas por
+página, varredura de "toda tela inclui a parcial"), por um ganho que o
+hub ADITIVO já entrega sem remover nada. Trocar a fonte (Nunito Sans/
+Inter) — decisão registrada em
+[docs/assets/telas/dl044/pesquisa.md](../assets/telas/dl044/pesquisa.md)
+§"Decisão sobre a fonte": manter IBM Plex Sans, o Fred nunca citou fonte
+como problema em nenhuma das três rodadas.

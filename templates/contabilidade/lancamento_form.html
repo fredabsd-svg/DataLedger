@@ -54,15 +54,24 @@
             <input type="hidden" name="chave_idempotencia" value="{{ chave_idempotencia }}">
 
             {% comment %}
-            DL-044 (Fred: "formulários de largura total sem agrupamento"):
-            Data e Histórico do CABEÇALHO do lançamento (nunca linha de
-            partida — essas moram na tabela, abaixo) agrupados num painel
-            próprio, mais estreito que a tabela — nem toda informação
-            deste formulário tem a mesma largura natural (padrão NN/g:
-            "usar fieldset/legend ou agrupamento visual para campos
+            DL-044 (2ª iteração — achado do Fred: "o painel de Data/
+            Histórico ocupa meia largura e deixa um vazio à direita"):
+            UM cartão de largura total (`.formulario-lancamento__cartao`)
+            envolve cabeçalho + partidas + totalizador + rodapé de ações —
+            antes desta correção só o cabeçalho (Data/Histórico) tinha
+            moldura própria, mais estreita que a tabela abaixo, sobrando
+            vazio ao lado. Agora a moldura é UMA só, do tamanho da tabela.
+            {% endcomment %}
+            <div class="painel-etapa formulario-lancamento__cartao">
+            {% comment %}
+            DL-044 (Fase A): Data e Histórico do CABEÇALHO do lançamento
+            (nunca linha de partida — essas moram na tabela, abaixo)
+            agrupados numa grade própria — nem toda informação deste
+            formulário tem a mesma largura natural (padrão NN/g: "usar
+            fieldset/legend ou agrupamento visual para campos
             relacionados", pesquisa.md).
             {% endcomment %}
-            <div class="painel-etapa formulario-lancamento__cabecalho">
+            <div class="formulario-lancamento__cabecalho">
             <div class="campo">
                 {% comment %}
                 DE-031/A5 (rodada 4 da auditoria da DL-017): a correção do
@@ -130,14 +139,14 @@
             </div>
             </div>
 
-            <table class="tabela-dados">
+            <table class="tabela-dados formulario-lancamento__tabela">
                 <caption class="visualmente-oculto">Partidas do lançamento</caption>
                 <thead>
                     <tr>
                         <th scope="col">Linha</th>
                         <th scope="col">Conta</th>
                         <th scope="col">Tipo</th>
-                        <th scope="col">Valor</th>
+                        <th scope="col" class="cabecalho-numerico">Valor</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -379,9 +388,21 @@
                 </tfoot>
             </table>
 
+            {% comment %}
+            DL-044 (2ª iteração — item 3, hierarquia de botão): UM primário
+            só por tela. "Adicionar linha" não é a ação que fecha a
+            tarefa — é secundária (contorno, ícone "+"); "Gravar
+            lançamento" é a única ação primária (cheia), e as duas ficam
+            à direita, no rodapé do cartão (`.acoes-formulario` ganhou
+            `justify-content: flex-end` nesta iteração — único uso desta
+            classe no produto, sem efeito em outra tela).
+            {% endcomment %}
             <div class="acoes-formulario">
                 {% if pode_adicionar_linha %}
-                    <button type="submit" name="acao" value="adicionar_linha">Adicionar linha</button>
+                    <button class="botao botao--secundario" type="submit" name="acao" value="adicionar_linha">
+                        <svg class="icone-menu" aria-hidden="true"><use href="#icone-mais"></use></svg>
+                        Adicionar linha
+                    </button>
                 {% else %}
                     {% comment %}
                     Achado 14 / BL-99: o botão simplesmente desaparecia ao
@@ -397,7 +418,8 @@
                         para avaliar um teto maior.
                     </p>
                 {% endif %}
-                <button type="submit" name="acao" value="gravar">Gravar lançamento</button>
+                <button class="botao botao--primario" type="submit" name="acao" value="gravar">Gravar lançamento</button>
+            </div>
             </div>
         </form>
     {% endif %}

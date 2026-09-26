@@ -109,21 +109,21 @@
                         <tr>
                             <th scope="col">Conta</th>
                             <th scope="col">D/C</th>
-                            <th scope="col">Valor (R$)</th>
+                            <th scope="col" class="cabecalho-numerico">Valor (R$)</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in itens_etapa1 %}
                             <tr>
                                 <td>{{ item.conta.codigo }} — {{ item.conta.nome }}</td>
-                                <td>{{ item.tipo_letra }}</td>
+                                <td><span class="selo">{{ item.tipo_letra }}</span></td>
                                 <td class="valor-monetario">{{ item.valor_ptbr }}</td>
                             </tr>
                         {% endfor %}
                         {% if item_resultado_etapa1 %}
                             <tr>
                                 <td>{{ item_resultado_etapa1.conta.codigo }} — {{ item_resultado_etapa1.conta.nome }} (contrapartida)</td>
-                                <td>{{ item_resultado_etapa1.tipo_letra }}</td>
+                                <td><span class="selo">{{ item_resultado_etapa1.tipo_letra }}</span></td>
                                 <td class="valor-monetario">{{ item_resultado_etapa1.valor_ptbr }}</td>
                             </tr>
                         {% endif %}
@@ -145,18 +145,18 @@
                         <tr>
                             <th scope="col">Conta</th>
                             <th scope="col">D/C</th>
-                            <th scope="col">Valor (R$)</th>
+                            <th scope="col" class="cabecalho-numerico">Valor (R$)</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td>{{ etapa2.item_resultado.conta.codigo }} — {{ etapa2.item_resultado.conta.nome }}</td>
-                            <td>{{ etapa2.item_resultado.tipo_letra }}</td>
+                            <td><span class="selo">{{ etapa2.item_resultado.tipo_letra }}</span></td>
                             <td class="valor-monetario">{{ etapa2.item_resultado.valor_ptbr }}</td>
                         </tr>
                         <tr>
                             <td>{{ etapa2.item_destino.conta.codigo }} — {{ etapa2.item_destino.conta.nome }}</td>
-                            <td>{{ etapa2.item_destino.tipo_letra }}</td>
+                            <td><span class="selo">{{ etapa2.item_destino.tipo_letra }}</span></td>
                             <td class="valor-monetario">{{ etapa2.item_destino.valor_ptbr }}</td>
                         </tr>
                     </tbody>
@@ -176,7 +176,7 @@
                         zeramento.
                     </label>
                 </div>
-                <button type="submit">Gerar lançamentos de zeramento</button>
+                <button class="botao botao--primario" type="submit">Gerar lançamentos de zeramento</button>
             </form>
         </div>
     {% endif %}

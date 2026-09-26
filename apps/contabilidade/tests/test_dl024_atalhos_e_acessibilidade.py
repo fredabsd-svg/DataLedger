@@ -480,6 +480,10 @@ def cenario_fiscal(client):
         # 200 de verdade, ver o comentário em universo_de_telas.py).
         "parametros_contabeis",
         "zerar_resultado",
+        # DL-044 (3ª iteração): hub de relatórios — sempre 200 sob o
+        # cenário padrão (mesma permissão de leitura das cinco telas que
+        # ele lista).
+        "relatorios",
     ],
 )
 def test_tela_de_contabilidade_e_acessivel_nos_atalhos(client, cenario, nome_tela):

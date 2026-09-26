@@ -163,6 +163,14 @@
         <symbol id="icone-recolher" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 5 9 12l6 7" />
         </symbol>
+        {% comment %}
+        DL-044 (2ª iteração): ícone "mais" — botão secundário "Adicionar
+        linha" (lancamento_form.html) e ação rápida "Novo lançamento"
+        (tenancy/painel.html). Mesma grade e traço dos ícones acima.
+        {% endcomment %}
+        <symbol id="icone-mais" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14" />
+        </symbol>
     </svg>
 
     {% if request.user.is_authenticated %}

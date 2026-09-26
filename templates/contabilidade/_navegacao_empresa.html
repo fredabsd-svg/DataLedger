@@ -1,15 +1,21 @@
 {% comment %}
 Navegação contextual da empresa: Plano de contas, Diário, Balancete,
 Balanço, Conferência, Fechamento e Novo lançamento. Parcial ÚNICA incluída
-por TODA tela de contabilidade — as TREZE que existem hoje em
-templates/contabilidade/: balancete.html, balanco.html, diario.html,
-razao.html, plano_de_contas.html, conferencia.html, lancamento_form.html,
-conta_form.html, lancamento_detalhe.html, fechamento.html,
-competencia_fechar.html, competencia_reabrir.html e
-competencia_entregar.html — para que os MESMOS sete atalhos de teclado
-funcionem identicamente em qualquer uma delas — exigência do
-arquiteto-senior ao aprovar o enxerto de atalhos da DL-026/DE-053:
-"atalho que só existe numa tela não é atalho, é decoração".
+por TODA tela de contabilidade — as DEZESSETE que existem hoje em
+templates/contabilidade/: balancete.html, balancete_emissao_recusada.html,
+balanco.html, diario.html, razao.html, plano_de_contas.html,
+conferencia.html, lancamento_form.html, conta_form.html,
+lancamento_detalhe.html, fechamento.html, competencia_fechar.html,
+competencia_reabrir.html, competencia_entregar.html,
+parametros_contabeis.html, zerar_resultado.html (DL-043 fatia 3) e
+relatorios.html (DL-044, 3ª iteração) — para que os MESMOS sete atalhos de
+teclado funcionem identicamente em qualquer uma delas — exigência do
+arquiteto-senior ao aprovar o enxerto de atalhos da DL-026/DE-053: "atalho
+que só existe numa tela não é atalho, é decoração". A varredura que
+garante isso de verdade, sem depender de ninguém atualizar esta lista, é
+apps/contabilidade/tests/test_bl296_navegacao_cobre_todas_as_telas.py (ver
+o comentário dela) — esta contagem em prosa é só documentação para quem
+lê, nunca a fonte de verdade.
 
 DL-031 (fatia 2 da DL-016): "Fechamento" entrou como sexto item, com
 accesskey "z" — arbitrária e DECLARADA como tal (a inicial natural, "f",

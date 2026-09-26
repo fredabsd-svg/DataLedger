@@ -29,6 +29,12 @@ novas são **Ativa** (`parametros_contabeis`) e **Secundária**
 (`zerar_resultado`, assistente com etapas). Nenhuma rota de API nova (as
 três já existiam desde a fatia 2 do servidor).
 
+⚠️ **DL-044 (3ª iteração) acrescentou mais uma linha**, também sem
+recontagem dos totais acima: `contabilidade_web:relatorios`, hub de
+relatórios em cartões — **+1** rota web nomeada, **+1** tela **Ativa**.
+Segundo caminho ADITIVO para Diário/Razão/Balancete/Balanço/Conferência —
+nenhuma rota existente foi removida nem alterada.
+
 | | Quantidade |
 | --- | --- |
 | Rotas web nomeadas (fora de `api/` e `admin/`) | **30** |
@@ -96,6 +102,7 @@ links que a DL-040 acrescentou estão marcados).
 | `contabilidade_web:parametros_contabeis` | Parâmetros contábeis | `contabilidade/parametros_contabeis.html` | A + B combinados | Ativa | Lê: mesmos papéis do Plano de contas; escreve (registrar vigência): ADMINISTRADOR, GESTOR | Menu "Contabilidade → Cadastros" (DL-043), `fechamento.html` (nota de rodapé); inclui `_navegacao_empresa.html` sem `pagina_atual` (mesmo caso da Razão/Nova conta: as sete telas fixas aparecem como link) |
 | `contabilidade_web:parametro_contabil_encerrar` | Encerrar vigência de parâmetro contábil | — (405 em GET, nunca renderiza) | — | Secundária (ação, sem tela) | ADMINISTRADOR, GESTOR | Botão na tabela de `parametros_contabeis.html` |
 | `contabilidade_web:zerar_resultado` | Zerar resultado do período | `contabilidade/zerar_resultado.html` | E | Secundária (assistente com etapas — prévia GET + confirmação POST) | ADMINISTRADOR, GESTOR | `fechamento.html` (link "Zerar resultado" por competência aberta) |
+| `contabilidade_web:relatorios` | Hub de relatórios (DL-044) | `contabilidade/relatorios.html` | A (variante — cartões, não linhas) | Ativa | Lê (mesmos papéis do Plano de contas) | Menu "Contabilidade → Relatórios" (aditivo — não substitui o grupo existente), tiles de módulo do Início |
 
 ### Fiscal (`fiscal_web`, prefixo `fiscal/` — escopo do escritório, não de uma empresa só)
 

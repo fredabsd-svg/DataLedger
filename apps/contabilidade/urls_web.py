@@ -16,6 +16,7 @@ from apps.contabilidade.views_web import (
     parametros_contabeis,
     plano_de_contas,
     razao,
+    relatorios,
     zeramento_do_periodo,
 )
 
@@ -63,6 +64,12 @@ urlpatterns = [
     # do documento aparece no <h1>/<title> da tela, não na URL.
     path("empresas/<int:empresa_id>/balanco/", balanco, name="balanco"),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
+    # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/
+    # Balanço/Conferência) em cartões — SEGUNDO caminho para as mesmas
+    # cinco rotas acima, aditivo (nenhuma delas foi removida da barra
+    # lateral). "relatorios/", plural, mesmo padrão curto do resto desta
+    # urlconf.
+    path("empresas/<int:empresa_id>/relatorios/", relatorios, name="relatorios"),
     # DL-016 fatia 1 no servidor; DL-031 é a PORTA (fatia 2 — painel e as
     # três ações de fechamento). 'ano'/'mes' viajam por querystring (GET,
     # para montar cada tela de ação) ou por campo oculto do formulário

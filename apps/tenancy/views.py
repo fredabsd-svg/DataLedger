@@ -3,9 +3,9 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, Max, OuterRef, Q
 from django.shortcuts import redirect, render
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 # BL-217/A1 (auditoria DL-020 rodada 1): as views de FUNÇÃO deste módulo
@@ -29,13 +29,17 @@ from apps.core.requisicao import (
     DadoNaoContratado,
     recusar_dado_nao_contratado,
 )
-from apps.empresas.models import Empresa, ModoEscrituracao
+from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.fiscal.models import LoteDeRecepcao
-from apps.fiscal.permissoes import papel_pode_consultar_documentos
+from apps.fiscal.permissoes import (
+    papel_pode_consultar_documentos,
+    papel_pode_receber_documentos,
+)
 from apps.fiscal.services import documentos_do_escritorio
 from apps.tenancy.models import (
     ConviteEscritorio,
     Escritorio,
+    Papel,
     VinculoUsuarioEscritorio,
 )
 from apps.tenancy.services.primeiro_acesso import (
@@ -260,6 +264,16 @@ def _empresas_sem_plano_de_contas(escritorio):
     }
 
 
+def _filtro_competencia_de_mes_anterior(hoje):
+    """`Q` de "ano/mês estritamente anterior a `hoje`" — extraído de
+    `_competencias_abertas_de_meses_anteriores` (DL-044, 2ª iteração) para
+    ser a MESMA regra usada pela fila de atenção (lista completa) e pelo
+    indicador do topo do Início (só a contagem) — nunca duas cópias do
+    mesmo critério "o que é uma competência atrasada" (AGENTS.md, seção
+    de duplicação)."""
+    return Q(ano__lt=hoje.year) | (Q(ano=hoje.year) & Q(mes__lt=hoje.month))
+
+
 def _competencias_abertas_de_meses_anteriores(escritorio):
     """Competências (meses com lançamento) de meses ANTERIORES ao atual,
     ainda no estado 'aberta' — candidatas a fechamento atrasado. Uma
@@ -269,7 +283,7 @@ def _competencias_abertas_de_meses_anteriores(escritorio):
     hoje = timezone.localdate()
     qs = (
         Competencia.objects.filter(empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA)
-        .filter(Q(ano__lt=hoje.year) | (Q(ano=hoje.year) & Q(mes__lt=hoje.month)))
+        .filter(_filtro_competencia_de_mes_anterior(hoje))
         .select_related("empresa")
         .order_by("ano", "mes")
     )
@@ -376,6 +390,303 @@ def _empresas_cpf_em_livro_caixa(escritorio):
     }
 
 
+# ---------------------------------------------------------------------------
+# DL-044 (2ª iteração, Fred via arquiteto-senior): "o Início continua 60%
+# vazio". Autorização explícita do arquiteto-senior para consulta NOVA de
+# APRESENTAÇÃO neste arquivo — faixa de indicadores (contagem grande,
+# clicável) e tabela "Empresas da carteira", sempre filtradas pelo
+# ESCRITÓRIO ATIVO, com a mesma disciplina de isolamento e permissão da
+# fila de atenção acima (nunca uma segunda lista de papéis própria desta
+# view). Nenhuma REGRA nova: os indicadores reaproveitam o MESMO critério
+# já usado pela fila (`_filtro_competencia_de_mes_anterior`, os mesmos
+# filtros de `LoteDeRecepcao`/`documentos_do_escritorio`), só a FORMA de
+# apresentação muda (contagem em vez de lista de itens).
+# ---------------------------------------------------------------------------
+
+
+def _url_opcional(nome_de_rota, *args):
+    """`reverse(nome_de_rota, args=args)`, ou `None` quando a rota não
+    existe no urlconf ATUAL — mesmo cuidado que `templates/base.html` já
+    aplica ao link do módulo Fiscal na barra lateral (`{% url
+    'fiscal_web:recepcao' as url_fiscal %}`, que não lança exceção): esta
+    view roda por trás de `tenancy:painel`, que pode ser exercitada sob um
+    urlconf ESPELHO de outro app (`@pytest.mark.urls`, vários arquivos de
+    teste do produto) sem `apps.fiscal.urls_web` incluído — sem esta
+    função, `reverse` levantaria `NoReverseMatch` e devolveria 500 numa
+    tela que deveria simplesmente omitir o módulo que não existe ali."""
+    try:
+        return reverse(nome_de_rota, args=list(args))
+    except NoReverseMatch:
+        return None
+
+
+def _indicadores_do_painel(*, escritorio, papel):
+    """Faixa de indicadores do topo do Início — números grandes,
+    clicáveis, cada um levando à tela que resolve ou explica o número
+    (nunca um número solto sem ação, o anti-padrão "dashboard de KPI"
+    que a DL-042 já evitava na fila de atenção — aqui o mesmo princípio
+    se aplica ao indicador). "Empresas ativas" não depende de papel
+    (visível a qualquer um que veja o Início); os outros três seguem a
+    MESMA permissão que a fila de atenção já aplica a cada domínio.
+    """
+    indicadores = [
+        {
+            "chave": "empresas-ativas",
+            "titulo": "Empresas ativas",
+            "total": Empresa.objects.filter(escritorio=escritorio, ativo=True).count(),
+            "url": reverse("empresas:lista"),
+        }
+    ]
+
+    if papel_pode_ler_contabilidade(papel):
+        hoje = timezone.localdate()
+        total_competencias_atrasadas = (
+            Competencia.objects.filter(
+                empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA
+            )
+            .filter(_filtro_competencia_de_mes_anterior(hoje))
+            .count()
+        )
+        indicadores.append(
+            {
+                "chave": "competencias-atrasadas",
+                "titulo": "Competências de meses anteriores ainda abertas",
+                "total": total_competencias_atrasadas,
+                "url": reverse("tenancy:painel") + "#fila-de-atencao",
+            }
+        )
+
+    if papel_pode_consultar_documentos(papel):
+        corte = timezone.now() - JANELA_FISCAL_RECENTE
+        total_lotes_com_recusa = LoteDeRecepcao.objects.filter(
+            escritorio=escritorio, total_recusados__gt=0, criado_em__gte=corte
+        ).count()
+        total_notas_canceladas = (
+            documentos_do_escritorio(escritorio, situacao="cancelada")
+            .filter(criado_em__gte=corte)
+            .count()
+        )
+        indicadores.append(
+            {
+                "chave": "envios-com-recusa",
+                "titulo": "Envios com recusa (30 dias)",
+                "total": total_lotes_com_recusa,
+                "url": reverse("tenancy:painel") + "#fila-de-atencao",
+            }
+        )
+        indicadores.append(
+            {
+                "chave": "notas-canceladas",
+                "titulo": "Notas canceladas (30 dias)",
+                "total": total_notas_canceladas,
+                "url": reverse("tenancy:painel") + "#fila-de-atencao",
+            }
+        )
+    return indicadores
+
+
+def _empresas_da_carteira(escritorio):
+    """Tabela "Empresas da carteira" do Início — CNPJ/CPF, modo de
+    escrituração, última competência fechada e pendências (competências
+    atrasadas), com ação "Abrir". Consulta de tamanho CONSTANTE: uma para
+    as empresas, e duas agregações (`values().annotate()`, agrupadas por
+    empresa) para "última competência fechada" e "pendências" — nunca uma
+    consulta POR empresa (o teto de consultas é medido em
+    apps/tenancy/tests/test_dl044_painel_carteira_e_indicadores.py).
+
+    Reaproveita `_mascara_cnpj`/`_mascara_cpf`
+    (`apps.empresas.views`, mesmo padrão já usado nesta base de código
+    para importar um auxiliar de apresentação com nome "privado" de outro
+    módulo — ver `apps.contabilidade.views_web` importando
+    `_saldo_absoluto_com_natureza` de `apps.contabilidade.views`) — nunca
+    uma segunda função de máscara de CNPJ/CPF.
+    """
+    from apps.empresas.views import _mascara_cnpj, _mascara_cpf  # noqa: PLC0415
+
+    empresas = list(Empresa.objects.filter(escritorio=escritorio).order_by("razao_social"))
+    if not empresas:
+        return []
+
+    # "Última competência fechada": ano/mês codificados como `ano*100+mes`
+    # (um inteiro só cresce na ordem certa: 202603 > 202512) para o Max()
+    # do banco escolher a competência mais RECENTE por empresa numa única
+    # consulta agrupada — nunca uma sub-consulta por linha.
+    ultimas = (
+        Competencia.objects.filter(
+            empresa__escritorio=escritorio, estado=EstadoCompetencia.ENCERRADA
+        )
+        .values("empresa_id")
+        .annotate(chave=Max(F("ano") * 100 + F("mes")))
+    )
+    mapa_ultima_fechada = {linha["empresa_id"]: divmod(linha["chave"], 100) for linha in ultimas}
+
+    hoje = timezone.localdate()
+    pendencias = (
+        Competencia.objects.filter(empresa__escritorio=escritorio, estado=EstadoCompetencia.ABERTA)
+        .filter(_filtro_competencia_de_mes_anterior(hoje))
+        .values("empresa_id")
+        .annotate(total=Count("id"))
+    )
+    mapa_pendencias = {linha["empresa_id"]: linha["total"] for linha in pendencias}
+
+    linhas = []
+    for empresa in empresas:
+        em_livro_caixa = empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA
+        if empresa.tipo_inscricao == TipoInscricao.CPF:
+            rotulo_inscricao, inscricao_formatada = "CPF", _mascara_cpf(empresa.cpf)
+        else:
+            rotulo_inscricao, inscricao_formatada = "CNPJ", _mascara_cnpj(empresa.cnpj)
+        ultima = mapa_ultima_fechada.get(empresa.id)
+        linhas.append(
+            {
+                "empresa": empresa,
+                "rotulo_inscricao": rotulo_inscricao,
+                "inscricao_formatada": inscricao_formatada,
+                "em_livro_caixa": em_livro_caixa,
+                "ultima_competencia_fechada": f"{ultima[1]:02d}/{ultima[0]}" if ultima else None,
+                "pendencias": mapa_pendencias.get(empresa.id, 0),
+                "url_abrir": (
+                    None
+                    if em_livro_caixa
+                    else reverse("contabilidade_web:plano_de_contas", args=[empresa.id])
+                ),
+            }
+        )
+    return linhas
+
+
+def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
+    """Ações rápidas do Início — botões (item 3 da 2ª iteração: "botões
+    com ícone onde fizer sentido", nunca link solto para uma ação
+    primária). "Novo lançamento" pede empresa quando precisa: vai direto
+    à empresa quando há exatamente uma candidata elegível (não
+    livro-caixa) na carteira; leva à lista de empresas (que já oferece
+    "Lançar" por linha, DL-017) quando há mais de uma. Reaproveita
+    `empresas_da_carteira` — já calculada por `_empresas_da_carteira` —
+    então esta função não soma nenhuma consulta nova.
+
+    Mesma permissão por ação que a tela de destino já exige no servidor
+    (`papel_pode_ler_contabilidade`, `papel_pode_receber_documentos`, e o
+    mesmo par ADMINISTRADOR/GESTOR que `lista_empresas` usa para
+    `pode_cadastrar`) — o botão só aparece quando a ação seria aceita.
+    """
+    acoes = []
+    if papel_pode_ler_contabilidade(papel):
+        elegiveis = [linha for linha in empresas_da_carteira if not linha["em_livro_caixa"]]
+        if len(elegiveis) == 1:
+            url_lancamento = reverse(
+                "contabilidade_web:lancamento_novo", args=[elegiveis[0]["empresa"].id]
+            )
+        else:
+            url_lancamento = reverse("empresas:lista")
+        acoes.append(
+            {
+                "chave": "novo-lancamento",
+                "rotulo": "Novo lançamento",
+                "url": url_lancamento,
+                "icone": "mais",
+            }
+        )
+    url_recepcao = (
+        _url_opcional("fiscal_web:recepcao") if papel_pode_receber_documentos(papel) else None
+    )
+    if url_recepcao is not None:
+        acoes.append(
+            {
+                "chave": "receber-nfse",
+                "rotulo": "Receber NFS-e",
+                "url": url_recepcao,
+                "icone": "envio",
+            }
+        )
+    if papel in (Papel.ADMINISTRADOR, Papel.GESTOR):
+        acoes.append(
+            {
+                "chave": "cadastrar-empresa",
+                "rotulo": "Cadastrar empresa",
+                "url": reverse("empresas:criar"),
+                "icone": "empresa",
+            }
+        )
+    return acoes
+
+
+def _modulos_do_painel(*, papel, empresas_da_carteira):
+    """Tiles de MÓDULO do Início (DL-044, 3ª iteração — retorno do Fred,
+    referência Conta Azul: "módulos no Início também como tiles com
+    ícone"). Reaproveita `empresas_da_carteira` — mesma lógica de destino
+    de `_acoes_rapidas_do_painel` — nenhuma consulta nova.
+
+    "Planejado" para Folha/Honorários só porque a landing pública já os
+    lista como planejados (templates/registration/landing.html, seção
+    "Evolução por módulos") — nunca um rótulo inventado aqui; a mesma
+    palavra, o mesmo estado, para não afirmar duas coisas diferentes em
+    duas telas do produto."""
+    elegiveis = [linha for linha in empresas_da_carteira if not linha["em_livro_caixa"]]
+    url_contabilidade = (
+        reverse("contabilidade_web:relatorios", args=[elegiveis[0]["empresa"].id])
+        if len(elegiveis) == 1
+        else reverse("empresas:lista")
+    )
+    modulos = []
+    if papel_pode_ler_contabilidade(papel):
+        modulos.append(
+            {
+                "chave": "contabilidade",
+                "icone": "contabilidade",
+                "titulo": "Contabilidade",
+                "descricao": "Lançamentos, relatórios e fechamento de competência.",
+                "url": url_contabilidade,
+                "planejado": False,
+            }
+        )
+    url_fiscal = (
+        _url_opcional("fiscal_web:recepcao") if papel_pode_consultar_documentos(papel) else None
+    )
+    if url_fiscal is not None:
+        modulos.append(
+            {
+                "chave": "fiscal",
+                "icone": "fiscal",
+                "titulo": "Fiscal",
+                "descricao": "Recepção e consulta de NFS-e nacional.",
+                "url": url_fiscal,
+                "planejado": False,
+            }
+        )
+    modulos.append(
+        {
+            "chave": "empresas",
+            "icone": "empresas",
+            "titulo": "Empresas",
+            "descricao": "Cadastro e carteira do escritório.",
+            "url": reverse("empresas:lista"),
+            "planejado": False,
+        }
+    )
+    modulos.append(
+        {
+            "chave": "folha",
+            "icone": "conta",
+            "titulo": "Folha de pagamento",
+            "descricao": "Planejado — ainda não iniciado.",
+            "url": None,
+            "planejado": True,
+        }
+    )
+    modulos.append(
+        {
+            "chave": "honorarios",
+            "icone": "conta",
+            "titulo": "Honorários",
+            "descricao": "Planejado — ainda não iniciado.",
+            "url": None,
+            "planejado": True,
+        }
+    )
+    return modulos
+
+
 def _fila_de_atencao(*, escritorio, papel):
     """`None` quando o papel não lê NEM contabilidade NEM fiscal (a fila
     não é "vazia" para ele, é "não é dele" — o template não desenha a
@@ -412,10 +723,35 @@ def painel(request):
         vinculos__usuario=request.user, vinculos__ativo=True
     ).distinct()
     fila_de_atencao = None
+    indicadores = None
+    empresas_da_carteira = None
+    acoes_rapidas = None
+    modulos = None
     if request.escritorio is not None:
-        fila_de_atencao = _fila_de_atencao(
-            escritorio=request.escritorio, papel=getattr(request, "papel", None)
+        papel = getattr(request, "papel", None)
+        fila_de_atencao = _fila_de_atencao(escritorio=request.escritorio, papel=papel)
+        indicadores = _indicadores_do_painel(escritorio=request.escritorio, papel=papel)
+        # BL-042 (achado desta iteração, apps/tenancy/tests/
+        # test_dl042_fila_de_atencao.py::test_papel_cliente_nao_ve_a_fila_
+        # de_atencao): "Empresas da carteira" mostra pendência e situação
+        # OPERACIONAL de cada empresa — a MESMA classe de informação que a
+        # fila de atenção já restringe a quem lê contabilidade. Sem este
+        # `if`, um papel CLIENTE (fora de PAPEIS_QUE_LEEM_CONTABILIDADE)
+        # via a fila corretamente OCULTA continuava vendo a razão social e
+        # a pendência de outra empresa do escritório nesta tabela nova —
+        # a MESMA fuga de informação que a fila já existia para impedir,
+        # só que por uma porta que esta iteração abriu. `[]`, não `None`,
+        # para as duas funções abaixo (que já filtram por papel sozinhas)
+        # nunca ficarem sem lista para iterar.
+        pode_ver_carteira = papel_pode_ler_contabilidade(papel)
+        empresas_da_carteira_lista = (
+            _empresas_da_carteira(request.escritorio) if pode_ver_carteira else []
         )
+        acoes_rapidas = _acoes_rapidas_do_painel(
+            papel=papel, empresas_da_carteira=empresas_da_carteira_lista
+        )
+        modulos = _modulos_do_painel(papel=papel, empresas_da_carteira=empresas_da_carteira_lista)
+        empresas_da_carteira = empresas_da_carteira_lista if pode_ver_carteira else None
     return render(
         request,
         "tenancy/painel.html",
@@ -423,6 +759,10 @@ def painel(request):
             "escritorios": escritorios,
             "escritorio_ativo": request.escritorio,
             "fila_de_atencao": fila_de_atencao,
+            "indicadores": indicadores,
+            "empresas_da_carteira": empresas_da_carteira,
+            "acoes_rapidas": acoes_rapidas,
+            "modulos": modulos,
         },
     )
 

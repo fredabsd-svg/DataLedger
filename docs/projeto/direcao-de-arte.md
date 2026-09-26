@@ -33,13 +33,13 @@ regra de uso:
 | Família | Papel | Regra |
 | --- | --- | --- |
 | Tinta (texto) | Principal, secundária, auxiliar | Texto auxiliar **também** respeita 4,5:1; "é só uma legenda" não isenta ninguém |
-| Papel (fundo) | Superfície da página, superfície elevada, faixa de destaque | Nunca branco puro na página inteira: a direção é papel, não tela de escritório |
-| Acento | **Uma** tinta, para ação principal e foco | Se aparecer uma segunda cor de acento, a direção foi quebrada |
+| Papel (fundo) | Superfície da página, superfície elevada, faixa de destaque | Nunca branco puro na página inteira: a direção é papel, não tela de escritório. Exceção declarada (DE-080): a ÁREA DE CONTEÚDO da casca do app logado usa `--app-fundo`, cinza-azulado, com cartões em branco puro (`--papel-elevado`) — referência escolhida pelo Fred (Conta Azul); a landing pública e o documento impresso continuam em `--papel` |
+| Acento | **Uma** tinta POR SUPERFÍCIE, para ação principal e foco | Se aparecer uma segunda cor de acento na MESMA superfície, a direção foi quebrada. Exceção declarada (DE-080): a casca do app logado usa `--app-acento` (azul vívido, próprio — nunca o hex de um produto de referência); `--acento` (editorial, navy) continua reservado a link de prosa, foco fora da barra, documento impresso e a landing pública inteira. As duas escalas nunca aparecem juntas na mesma superfície |
 | Semânticas | Sucesso, erro, aviso, informação | Sempre acompanhadas de **texto**; nunca sozinhas |
 | Numérico | Família monoespaçada tabulada | Todo algarismo de valor, sem exceção |
-| Tipografia (DL-044) | Editorial (serifada), trabalho (sem serifa), numérica | Editorial só para marca, landing pública e documento impresso/visível em tela (NBC ITG 2000 item 12); toda CASCA de aplicativo (corpo, botão, campo, cabeçalho de tabela) é trabalho — DE-078 |
+| Tipografia (DL-044) | Editorial (serifada), trabalho (sem serifa), numérica | Editorial só para marca, landing pública e documento impresso/visível em tela (NBC ITG 2000 item 12); toda CASCA de aplicativo (corpo, botão, campo, cabeçalho de tabela) é trabalho — DE-079 |
 | Espaço | Escala de espaçamento | Nada de medida solta: se precisa de um valor que não existe na escala, a escala está errada ou o desenho está |
-| Elevação (DL-044) | Sombra de superfície (repouso) e de botão (interação) | Só em componente de SUPERFÍCIE (botão, cartão, painel, tabela); nunca em texto nem para indicar estado sozinha — DE-078 |
+| Elevação (DL-044) | Sombra de superfície (repouso) e de botão (interação) | Só em componente de SUPERFÍCIE (botão, cartão, painel, tabela); nunca em texto nem para indicar estado sozinha — DE-079 |
 
 **Proibido**: cor, tamanho de fonte, raio ou espaçamento escrito direto em
 template ou em regra CSS de tela. Se o token não existe, crie o token.
@@ -396,6 +396,16 @@ próximo módulo seguir sem reabrir a discussão.
   dropdown de Contabilidade mostra "Escolha uma empresa" apontando para
   `empresas:lista` — nunca um item de tela que exigiria uma empresa
   inexistente.
+- **Adição (DL-044, referência Conta Azul, DE-080).** O grupo
+  "Relatórios" do dropdown (Diário/Razão/Balancete/Balanço) ganhou um
+  TERCEIRO caminho, aditivo: `contabilidade_web:relatorios`, uma tela-hub
+  com um cartão por relatório (ícone, descrição de uma linha, "Abrir") —
+  o Fred apontou especificamente o "botão para abrir relatório" como
+  "esquisito"; o cartão substitui esse ponto de entrada visual sem tirar
+  nenhum dos dois já existentes (dropdown, abas de `_navegacao_empresa.
+  html`). Reavaliar a REMOÇÃO de algum dos três (não feita nesta etapa,
+  por risco de regressão nos testes de navegação/atalho já estabelecidos)
+  fica registrada como possível fatia futura.
 
 ### 8.1a Menu em telas estreitas (≤48rem)
 
@@ -496,7 +506,7 @@ item ATUAL, sem sublinhado nos demais — nunca mais uma linha de `<a>`
 sublinhados soltos (achado do Fred: "a navegação entre relatórios é uma
 linha de links sublinhados"). A MARCAÇÃO é a mesma de antes da DL-044
 (`accesskey`, `aria-keyshortcuts`, `kbd.tecla`, `aria-current="page"` —
-nada disso mudou, só a CSS); ver DE-078. Vale só para esta navegação
+nada disso mudou, só a CSS); ver DE-079. Vale só para esta navegação
 CONTEXTUAL (de relatório dentro de uma empresa) — a trilha (§8.2) e o
 menu lateral (§8.1) continuam com o próprio tratamento visual, não viram
 aba.
@@ -512,6 +522,33 @@ imprimível (Balancete, Diário, Razão, Balanço) não ganha um botão de açã
 ao lado do título, porque ali o título É parte do papel impresso
 (`titulo_sufixo_do_fornecedor`, `templates/base.html`) e ações de tela
 (botões) já são ocultadas na impressão por regra própria.
+
+**Revisão (DL-044, referência Conta Azul, DE-080).** `.cabecalho-pagina`
+virou CARTÃO branco com sombra (`--papel-elevado` + `--sombra-cartao`) —
+antes era só uma linha divisória sobre o mesmo fundo da página. Ganhou
+também `.cabecalho-pagina__titulo` (coluna com `<h1>` + subtítulo de
+CONTEXTO, `.cabecalho-pagina__subtitulo`) para o Início parar de repetir
+"Escritório ativo: ..." como TÍTULO (já aparece na faixa de identificação
+do topo) — o título vira sempre "Início", e o escritório é subtítulo.
+
+### 8.3a Início: indicadores, ações rápidas, módulos e carteira (DL-044, DE-080)
+
+O Início deixou de ser só a fila de atenção (DL-042): ganhou, nesta
+ordem, uma faixa de INDICADORES (números grandes e clicáveis — empresas
+ativas, competências atrasadas, envios com recusa, notas canceladas, cada
+um filtrado pela MESMA permissão de domínio que a fila já aplicava),
+AÇÕES RÁPIDAS (botões — nunca link solto — para Novo lançamento, Receber
+NFS-e, Cadastrar empresa, cada um só quando o papel já teria acesso à
+tela de destino), tiles de MÓDULO (Contabilidade/Fiscal/Empresas
+clicáveis; Folha/Honorários "Planejado", sem link, mesma palavra e mesmo
+estado que a landing pública já usa — nunca "em breve" escondendo o que
+não existe) e a tabela "Empresas da carteira" (CNPJ/CPF, escrituração,
+última competência fechada, pendências, ação "Abrir" — atrás de
+`papel_pode_ler_contabilidade`, a mesma classe de conteúdo operacional
+que a fila já restringe). A fila de atenção continua por último, com
+âncora `#fila-de-atencao` que os indicadores usam como destino. Nenhum
+dos quatro blocos novos introduz consulta proporcional ao número de
+empresas — ver DE-080 para o detalhe de cada consulta.
 
 ### 8.4 Botão de ação — quatro tons, nunca mais
 

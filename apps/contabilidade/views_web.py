@@ -3520,6 +3520,78 @@ def fechamento(request, empresa_id):
 
 
 @login_required
+@require_safe
+def relatorios(request, empresa_id):
+    """Hub de relatórios da empresa (DL-044, 3ª iteração — retorno do
+    Fred: "os botões para abrir os relatórios [...] tá esquisito",
+    referência escolhida por ele, Conta Azul — ver docs/assets/telas/
+    dl044/pesquisa.md §7). Consulta de APRESENTAÇÃO só — nenhuma regra
+    nova, nenhum dado que a barra lateral já não oferecesse por link
+    direto (Diário/Razão via Plano de contas/Balancete/Balanço/
+    Conferência): esta tela é um SEGUNDO caminho para as MESMAS cinco
+    rotas, em cartão em vez de link de menu, aditivo — a barra lateral
+    continua exatamente como estava, nenhum link foi removido de lá.
+
+    Mesma permissão de leitura que as cinco telas de destino já exigem
+    (`_pode_ler`) e a mesma recusa de livro-caixa (`_sem_contabilidade_
+    para_livro_caixa`) — nunca uma cópia frouxa da regra: o hub só lista
+    o que o papel já pode abrir de qualquer forma.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    cartoes = [
+        {
+            "chave": "diario",
+            "icone": "contabilidade",
+            "titulo": "Diário",
+            "descricao": "Todos os lançamentos da empresa, em ordem cronológica.",
+            "url": reverse("contabilidade_web:diario", args=[empresa.id]),
+        },
+        {
+            "chave": "razao",
+            "icone": "contabilidade",
+            "titulo": "Razão",
+            "descricao": "Movimento de uma conta específica — escolha pelo Plano de contas.",
+            "url": reverse("contabilidade_web:plano_de_contas", args=[empresa.id]),
+        },
+        {
+            "chave": "balancete",
+            "icone": "contabilidade",
+            "titulo": "Balancete",
+            "descricao": "Saldo de todas as contas no período, com conferência D/C.",
+            "url": reverse("contabilidade_web:balancete", args=[empresa.id]),
+        },
+        {
+            "chave": "balanco",
+            "icone": "contabilidade",
+            "titulo": "Balanço",
+            "descricao": "Demonstração patrimonial pronta para emissão.",
+            "url": reverse("contabilidade_web:balanco", args=[empresa.id]),
+        },
+        {
+            "chave": "conferencia",
+            "icone": "contabilidade",
+            "titulo": "Conferência",
+            "descricao": "Lotes com débito e crédito que não batem — resolva antes de fechar.",
+            "url": reverse("contabilidade_web:conferencia", args=[empresa.id]),
+        },
+    ]
+    return render(
+        request, "contabilidade/relatorios.html", {"empresa": empresa, "cartoes": cartoes}
+    )
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def competencia_fechar(request, empresa_id):
     """Fecha uma competência (arquétipo E, etapa única) — critérios 2, 3, 5, 8.
