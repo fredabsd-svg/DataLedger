@@ -163,6 +163,21 @@ DECISOES = {
         "Coberto por apps/contabilidade/tests/test_dl015_saidas_com_"
         "periodo.py e test_dl019_faixa_de_data.py.",
     ),
+    "livro_caixa.ContaLivroCaixa": (
+        "defendida",
+        "DL-046 fatia 1: ContaLivroCaixa.clean() recusa empresa fora do modo "
+        "livro-caixa, código do Carnê-Leão Web incoerente com a natureza, e "
+        "troca de natureza numa conta que já tem lançamento gravado — "
+        "testado por requisição em test_dl046_livro_caixa.py.",
+    ),
+    "livro_caixa.LancamentoCaixa": (
+        "defendida",
+        "DL-046 fatia 1: has_add_permission, has_change_permission e "
+        "has_delete_permission devolvem False (mesmo desenho de "
+        "LancamentoContabilAdmin); lançamento também é imutável no modelo "
+        "(LancamentoCaixaImutavelError). Coberto por "
+        "test_dl046_livro_caixa.py.",
+    ),
     "contabilidade.Competencia": (
         "defendida",
         "DL-016 (F1): as três invariantes de `Competencia` (ano 1970..2999, "

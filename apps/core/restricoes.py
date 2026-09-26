@@ -104,6 +104,21 @@ MENSAGENS_DE_RESTRICAO = {
         "CNPJ preenchido e CPF vazio para tipo CNPJ; CPF preenchido e CNPJ vazio "
         "para tipo CPF."
     ),
+    # DL-046 (RC-129): mesma classe de armadilha das duas de cima — o
+    # serializer (`EmpresaSerializer.validate`) já recusa CAEPF fora do
+    # formato ou fora de empresa CPF antes de qualquer INSERT/UPDATE, mas
+    # `bulk_create`/`QuerySet.update()` vazariam `IntegrityError` cru sem
+    # este mapeamento; `apps/empresas/views.py` já a passa para
+    # `restricao_como_400` via `mensagens_de(...)`.
+    "empresa_caepf_so_para_cpf_com_formato_valido": (
+        "CAEPF só é aceito para empresa com tipo de inscrição CPF, e precisa "
+        "ter 14 dígitos numéricos, sem máscara."
+    ),
+    # DL-046 (fatia 1) — mesmo desenho de "codigo_unico_por_empresa"
+    # (contabilidade), agora para o plano de contas do livro-caixa.
+    "conta_livro_caixa_codigo_unico_por_empresa": (
+        "Já existe uma conta do livro-caixa com este código nesta empresa."
+    ),
 }
 
 # Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
@@ -196,6 +211,15 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     ),
     "estorno_de_unico": "apps.contabilidade.services.estornar_lancamento",
     "chave_idempotencia_unica_por_empresa": "apps.contabilidade.services.criar_lancamento",
+    # DL-046 (fatia 1) — mesmo desenho das duas de cima, para o livro-caixa:
+    # `estornar_lancamento_caixa` usa `select_for_update()` + checagem
+    # "ainda não foi estornado" ANTES de gravar (a constraint é a defesa
+    # residual de corrida); `criar_lancamento_caixa` compara a impressão
+    # digital do conteúdo ANTES de tentar o INSERT com a mesma chave.
+    "lancamento_caixa_estorno_de_unico": "apps.livro_caixa.services.estornar_lancamento_caixa",
+    "lancamento_caixa_chave_idempotencia_unica_por_empresa": (
+        "apps.livro_caixa.services.criar_lancamento_caixa"
+    ),
     # DL-018 — token do convite é gerado com `get_random_string(32)` (~190
     # bits de entropia). A colisão é praticamente impossível, mas não
     # impossível; o `save()` do modelo tem um loop defensivo e o
@@ -403,6 +427,32 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "navegador, cairia na constraint do banco como IntegrityError cru "
         "— não há relato nem teste desse caminho hoje). Sem caminho de "
         "escrita por cliente REALISTA para o valor inválido."
+    ),
+    # DL-046 (fatia 1): domínio de `ContaLivroCaixa.natureza` — mesmo
+    # motivo de `empresa_modo_escrituracao_valido` acima (achado B8/
+    # DL-038): `choices=` no campo só vale para form/serializer, nunca
+    # para ORM direto. O serializer (`ContaLivroCaixaSerializer`) e o
+    # `ChoiceField` do formulário do admin já restringem o domínio antes
+    # de qualquer escrita real de cliente.
+    "conta_livro_caixa_natureza_valida": (
+        "`CheckConstraint` de domínio de `ContaLivroCaixa.natureza` "
+        "(DL-046). Os dois caminhos de cliente (API e admin) usam "
+        "`ChoiceField`/`choices=` do próprio campo — valor fora do domínio "
+        "nunca passa de `to_internal_value`/validação de formulário, 400 "
+        "antes de qualquer escrita. Sem caminho de escrita por cliente "
+        "REALISTA para o valor inválido."
+    ),
+    # DL-046 (fatia 1): `MinValueValidator(Decimal("0.01"))` no campo já
+    # recusa valor <= 0 em qualquer `full_clean()` (admin), e
+    # `criar_lancamento_caixa` valida o mesmo antes do INSERT (mesmo
+    # padrão de `criar_lancamento`/`ESCALA_MAXIMA_LANCAMENTO_MANUAL` na
+    # contabilidade) — a `CheckConstraint` é defesa de banco redundante
+    # para ORM/SQL direto.
+    "lancamento_caixa_valor_positivo": (
+        "`CheckConstraint` de `LancamentoCaixa.valor` (DL-046): recusa "
+        "valor <= 0. O caminho de cliente (`criar_lancamento_caixa`) já "
+        "recusa antes do INSERT; só ORM/SQL direto alcançaria esta "
+        "constraint."
     ),
 }
 

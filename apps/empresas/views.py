@@ -278,6 +278,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
                         "empresa_cnpj_canonico",
                         "empresa_cpf_formato_valido",
                         "empresa_inscricao_consistente_com_tipo",
+                        "empresa_caepf_so_para_cpf_com_formato_valido",
                     )
                 ),
             ):
@@ -366,6 +367,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
                             "empresa_cnpj_canonico",
                             "empresa_cpf_formato_valido",
                             "empresa_inscricao_consistente_com_tipo",
+                            "empresa_caepf_so_para_cpf_com_formato_valido",
                         ),
                         # D1/BL-533: janela de corrida entre a checagem em
                         # Python e o UPDATE — ver o comentário em

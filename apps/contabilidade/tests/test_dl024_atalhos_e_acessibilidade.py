@@ -948,6 +948,16 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
     "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",
+    # DL-046 fatia 1: livro-caixa e carnê-leão do cliente pessoa física —
+    # instrução da tarefa é só servidor + API nesta fatia; a tela vem depois
+    # pelo especialista-frontend. Quatro rotas, todas DRF (JSON), mesmo
+    # motivo de exclusão das APIs de contabilidade/empresas acima.
+    "livro_caixa:contas": "API REST (ContaLivroCaixaListCreateView, DRF) — JSON; DL-046 fatia 1",
+    "livro_caixa:lancamentos": (
+        "API REST (LancamentoCaixaListCreateView, DRF) — JSON; DL-046 fatia 1"
+    ),
+    "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
+    "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
     # competência ENCERRADA como pré-condição de estado — sob o `cenario`
     # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o

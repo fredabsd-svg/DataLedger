@@ -107,6 +107,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
     )
+    from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa
     from apps.tenancy.models import ConviteEscritorio, Escritorio, VinculoUsuarioEscritorio
 
     cobertos = signals.modelos_cobertos_pela_trilha()
@@ -150,6 +151,16 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         LoteDeRecepcao,
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
+        # DL-046 fatia 1 (2026-09-26): apps.livro_caixa é um app PRÓPRIO do
+        # projeto, sem entrada em EXCLUSAO_DA_TRILHA_DO_ADMIN — mesmo
+        # mecanismo "por padrão" (R1/DE-056) do bloco de apps.fiscal acima.
+        # Diferente daquele bloco: `ContaLivroCaixaAdmin`/
+        # `LancamentoCaixaAdmin` (apps/livro_caixa/admin.py) ESTÃO
+        # registrados no admin (a criação de conta continua livre pelo
+        # admin, mesmo raciocínio de `ContaAdmin`), então esta cobertura JÁ
+        # é exercitada de fato, não só garantia latente.
+        ContaLivroCaixa,
+        LancamentoCaixa,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

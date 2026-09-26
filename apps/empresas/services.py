@@ -536,6 +536,42 @@ def recusar_se_livro_caixa(empresa):
         raise EmpresaEmModoLivroCaixa()
 
 
+# DL-046 (fatia 1, critério 1 do plano): ESPELHO exato de `recusar_se_
+# livro_caixa`, na direção oposta — o livro-caixa (apps.livro_caixa) só
+# existe para empresa em modo LIVRO_CAIXA; empresa em modo CONTABILIDADE
+# recusa lançamento de caixa, do mesmo jeito que empresa em livro-caixa
+# recusa lançamento contábil (DL-038). PONTO ÚNICO desta recusa, para que
+# nenhuma rota do app novo reimplemente a comparação com seu próprio
+# texto — mesma razão de existir da função acima.
+MENSAGEM_RECUSA_LIVRO_CAIXA_PARA_CONTABILIDADE = (
+    "Esta empresa está em modo de escrituração contabilidade (partidas "
+    "dobradas), não livro-caixa. O livro-caixa não está disponível para ela."
+)
+
+
+class EmpresaNaoEmModoLivroCaixa(Exception):
+    """Levantada por `recusar_se_nao_livro_caixa` quando a empresa está em
+    modo `contabilidade` — mesmo motivo de `EmpresaEmModoLivroCaixa` ser um
+    tipo próprio (não `ValueError`/`ValidationError`): cada consumidor (o
+    mixin de API de `apps.livro_caixa.views`, e uma futura tela) traduz para
+    o protocolo dele sem risco de capturar por engano outra exceção de
+    negócio."""
+
+    def __init__(self, mensagem=MENSAGEM_RECUSA_LIVRO_CAIXA_PARA_CONTABILIDADE):
+        self.mensagem = mensagem
+        super().__init__(mensagem)
+
+
+def recusar_se_nao_livro_caixa(empresa):
+    """Levanta `EmpresaNaoEmModoLivroCaixa` se `empresa.modo_escrituracao`
+    NÃO for `LIVRO_CAIXA` — o espelho exato de `recusar_se_livro_caixa`.
+    Não faz nada (devolve `None`) quando a empresa JÁ está em livro-caixa —
+    quem chama só precisa saber que "não levantou nada" é o caminho livre.
+    """
+    if empresa.modo_escrituracao != ModoEscrituracao.LIVRO_CAIXA:
+        raise EmpresaNaoEmModoLivroCaixa()
+
+
 # ---------------------------------------------------------------------------
 # DL-038 (R6): não é possível mudar uma empresa PARA modo livro-caixa se ela
 # já tem plano de contas ou lançamento contábil gravado — mudaria o

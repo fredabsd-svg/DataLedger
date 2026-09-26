@@ -50,6 +50,11 @@ INSTALLED_APPS = [
     "apps.empresas",
     "apps.auditoria",
     "apps.contabilidade",
+    # DL-046 (fatia 1): livro-caixa e carnê-leão do cliente pessoa física
+    # em modo livro-caixa (RC-113/RC-114/DL-038). Módulo independente da
+    # contabilidade por partidas dobradas — regime de caixa, sem plano de
+    # contas patrimonial nem balanço.
+    "apps.livro_caixa",
     # DL-010 F1 (DE-074 item 1): recepção de documentos fiscais (NFS-e
     # nacional). Precisa entrar ANTES de "apps.documentos" — ver o
     # comentário abaixo sobre por que aquele app fica sempre por último.

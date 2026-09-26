@@ -20,6 +20,14 @@ urlpatterns = [
     path("api/auditoria/", include("apps.auditoria.urls")),
     path("empresas/", include("apps.empresas.urls")),
     path("contabilidade/", include("apps.contabilidade.urls")),
+    # DL-046 fatia 1: livro-caixa e carnê-leão do cliente pessoa física
+    # (RC-113/RC-114) — API própria, servidor + API; a tela vem depois pelo
+    # frontend. Prefixo diferente de "contabilidade/" de propósito: os dois
+    # regimes de escrituração nunca compartilham rota (`recusar_se_livro_
+    # caixa`/`recusar_se_nao_livro_caixa` já impedem no servidor; URLs
+    # diferentes evitam até a AMBIGUIDADE de qual API responde a uma
+    # empresa).
+    path("livro-caixa/", include("apps.livro_caixa.urls")),
     # Telas da contabilidade (DL-017). Prefixo DIFERENTE do da API acima, e
     # não por gosto: os dois conjuntos têm rotas com o mesmo caminho literal
     # sob o mesmo `empresa_id` (`diario/`, `balancete/`). Se dividissem o
