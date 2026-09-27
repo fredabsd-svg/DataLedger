@@ -5,6 +5,7 @@ from apps.livro_caixa.views_web import (
     carne_leao_mensal,
     conta_caixa_nova,
     dependentes_carne_leao,
+    dependentes_carne_leao_retificar,
     lancamento_caixa_estornar,
     lancamento_caixa_novo,
     lancamentos_caixa_lista,
@@ -69,5 +70,10 @@ urlpatterns = [
         "empresas/<int:empresa_id>/carne-leao/dependentes/",
         dependentes_carne_leao,
         name="dependentes_carne_leao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/dependentes/<int:dependente_id>/retificar/",
+        dependentes_carne_leao_retificar,
+        name="dependentes_carne_leao_retificar",
     ),
 ]

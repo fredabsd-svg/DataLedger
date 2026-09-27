@@ -79,6 +79,20 @@ def cenario():
         natureza=NaturezaCaixa.RECEITA,
         codigo_carne_leao="R01.003.001",
     )
+    conta_trabalho = ContaLivroCaixa.objects.create(
+        empresa=empresa_a,
+        codigo="RT",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    conta_imposto_exterior = ContaLivroCaixa.objects.create(
+        empresa=empresa_a,
+        codigo="DEXT",
+        nome="Imposto pago no exterior",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00003",
+    )
     return {
         "escritorio_a": escritorio_a,
         "escritorio_b": escritorio_b,
@@ -86,6 +100,8 @@ def cenario():
         "empresa_b": empresa_b,
         "empresa_contabilidade": empresa_contabilidade,
         "conta_receita": conta_receita,
+        "conta_trabalho": conta_trabalho,
+        "conta_imposto_exterior": conta_imposto_exterior,
     }
 
 
@@ -97,6 +113,31 @@ def _lancar_receita(empresa, conta, valor, dia=None):
         valor=Decimal(valor),
         historico="Aluguel recebido — teste de tela",
         recebido_de="PF",
+    )
+
+
+def _lancar_trabalho(empresa, conta, dia, valor, *, recebido_de="PF", cnpj_pagador=""):
+    """Mesmo padrão de `_lancar_trabalho`/`_lancar_trabalho_pj`
+    (test_dl046_fatia2_carne_leao.py) — o modelo de trabalho não
+    assalariado exige titular OU indicador de beneficiário não informado
+    quando PF; PJ exige CNPJ do pagador."""
+    kwargs = {"cpf_titular_pagamento": CPF_CLIENTE_A, "cpf_beneficiario_nao_informado": True}
+    if recebido_de == "PJ":
+        kwargs = {"cnpj_pagador": cnpj_pagador or "11222333000181"}
+    return criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta,
+        data=dia,
+        valor=Decimal(valor),
+        historico="Honorários — teste de tela",
+        recebido_de=recebido_de,
+        **kwargs,
+    )
+
+
+def _lancar_despesa(empresa, conta, dia, valor, historico="Despesa — teste de tela"):
+    return criar_lancamento_caixa(
+        empresa=empresa, conta=conta, data=dia, valor=Decimal(valor), historico=historico
     )
 
 
@@ -420,3 +461,272 @@ def test_carne_leao_anual_numero_de_consultas_e_constante(client, cenario):
     assert resposta_varios_meses.status_code == 200
 
     assert len(varios_meses.captured_queries) == len(um_mes.captured_queries)
+
+
+# ---------------------------------------------------------------------------
+# Integração de 2026-09-27 (DE-091, motor corrigido) — contrato novo:
+# rendimentos por código/origem, faixa aplicada, critério de escolha
+# pronto do motor, imposto com/sem exterior, ImpostoExteriorSemRendimento
+# Exterior, e retificação de dependentes.
+# ---------------------------------------------------------------------------
+
+
+def test_carne_leao_mensal_mostra_rendimentos_por_codigo_e_origem(client, cenario):
+    """`rendimentos` (item 7/M-2 do contrato) — um item por (código,
+    origem), com o motivo de exclusão quando não entra na base (aqui,
+    trabalho não assalariado recebido de PJ)."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 3, 10), "2000.00")
+    _lancar_trabalho(
+        cenario["empresa_a"],
+        cenario["conta_trabalho"],
+        date(2026, 3, 11),
+        "1000.00",
+        recebido_de="PJ",
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    assert "R01.001.001" in html
+    assert "Pessoa física" in html
+    assert "Pessoa jurídica" in html
+    assert "Não integra a base" in html
+    assert "retenção na fonte" in html
+
+
+def test_carne_leao_mensal_mostra_aviso_fixo_do_aluguel_quando_ha_rendimento_r01_003_001(
+    client, cenario
+):
+    """Item 3 da integração (DE-091) — o aviso fixo do art. 42 do
+    RIR/2018 só aparece quando há rendimento do código R01.003.001
+    (aluguel) no mês; some quando não há."""
+    _autenticar(client, cenario["escritorio_a"])
+    # Só a parte que cabe numa única linha do template (há uma quebra de
+    # linha entre "pelo" e "locador" no HTML renderizado).
+    texto_aviso = "Lance o aluguel sem IPTU, condomínio e taxa de administração pagos pelo"
+
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "2000.00", date(2026, 3, 10))
+    com_aluguel = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    assert texto_aviso in com_aluguel.content.decode()
+
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 4, 10), "2000.00")
+    sem_aluguel = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "4"},
+    )
+    assert texto_aviso not in sem_aluguel.content.decode()
+
+
+def test_carne_leao_mensal_mostra_faixa_aplicada_e_criterio_pronto_do_motor(client, cenario):
+    """`faixa_aplicada` (limites/alíquota/parcela) e `criterio_escolha_
+    forma` — a tela imprime o texto EXATO que o motor devolveu, nunca um
+    texto fixo próprio."""
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_mensal
+
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 3, 10), "3000.00")
+
+    resultado = apurar_carne_leao_mensal(empresa=cenario["empresa_a"], ano=2026, mes=3)
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    html = resposta.content.decode()
+    assert "Faixa aplicada" in html
+    assert resultado["criterio_escolha_forma"] in html
+    # Nunca o texto fixo antigo, isolado numa etapa anterior desta fatia
+    # (achado corrigido nesta integração).
+    assert "MENOR imposto após a" not in html
+
+
+def test_carne_leao_mensal_mostra_comparacao_com_e_sem_exterior(client, cenario):
+    """`imposto_com_exterior`/`imposto_sem_exterior` só aparecem quando há
+    rendimento sujeito de origem exterior no mês."""
+    _autenticar(client, cenario["escritorio_a"])
+
+    sem_exterior = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "4"},
+    )
+    html_sem_exterior = sem_exterior.content.decode()
+    assert "Imposto após a redução, COM o rendimento do exterior" not in html_sem_exterior
+
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "3000.00", date(2026, 4, 10))
+    criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 4, 11),
+        valor=Decimal("2000.00"),
+        historico="Aluguel do exterior",
+        recebido_de="EX",
+    )
+    com_exterior = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "4"},
+    )
+    html = com_exterior.content.decode()
+    assert "Imposto após a redução, COM o rendimento do exterior" in html
+    assert "Imposto após a redução, SEM o rendimento do exterior" in html
+
+
+def test_carne_leao_mensal_imposto_exterior_sem_rendimento_e_erro_nao_500(client, cenario):
+    """HI-38/DE-091 item 3 — imposto pago no exterior lançado sem nenhum
+    rendimento sujeito de origem exterior no MESMO mês: a tela mostra
+    erro claro (409), nunca 500."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_despesa(
+        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "5"},
+    )
+    assert resposta.status_code == 409
+    html = resposta.content.decode()
+    assert "sem nenhum" in html
+    assert "rendimento" in html.lower()
+
+
+def test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_despesa(
+        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    assert resposta.status_code == 409
+    assert "mensagem-error" in resposta.content.decode()
+
+
+def test_carne_leao_anual_usa_totais_do_motor_sem_somar_na_view(client, cenario):
+    """`resultado["totais"]` (motor) aparece, formatado, na linha "Total
+    do ano" — critério novo da integração: nenhuma soma nasce na view.
+    Dois meses com valores DIFERENTES (não múltiplos redondos um do
+    outro), para que um total errado — por exemplo, uma soma feita de
+    novo na view a partir de campos que não são os de `totais` — não
+    coincida por acaso com o valor certo."""
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_anual
+
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "1000.00", date(2026, 3, 10))
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "777.35", date(2026, 6, 15))
+
+    resultado = apurar_carne_leao_anual(empresa=cenario["empresa_a"], ano=2026)
+    totais = resultado["totais"]
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    html = resposta.content.decode()
+    assert "Total do ano" in html
+    for campo, valor in totais.items():
+        valor_ptbr = f"{valor:,.2f}".translate(str.maketrans(",.", ".,"))
+        assert valor_ptbr in html, f"{campo} = {valor_ptbr} não apareceu na tela"
+
+
+# ---------------------------------------------------------------------------
+# Retificação de dependentes (DE-091 item 6/M-6).
+# ---------------------------------------------------------------------------
+
+
+def test_dependentes_retificar_sucesso(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    registro = DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_a"], quantidade=1, competencia_inicio=date(2026, 3, 1)
+    )
+    url = reverse(
+        "livro_caixa_web:dependentes_carne_leao_retificar",
+        args=[cenario["empresa_a"].id, registro.id],
+    )
+    resposta = client.post(url, {"quantidade": "3"})
+    assert resposta.status_code == 302
+    registro.refresh_from_db()
+    assert registro.quantidade == 3
+
+
+def test_dependentes_retificar_quantidade_invalida_e_erro_sem_gravar(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    registro = DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_a"], quantidade=1, competencia_inicio=date(2026, 3, 1)
+    )
+    url = reverse(
+        "livro_caixa_web:dependentes_carne_leao_retificar",
+        args=[cenario["empresa_a"].id, registro.id],
+    )
+    resposta = client.post(url, {"quantidade": "abc"})
+    assert resposta.status_code == 302  # redireciona de volta com mensagem de erro
+    registro.refresh_from_db()
+    assert registro.quantidade == 1
+
+
+def test_dependentes_retificar_sem_permissao_de_escrita(client, cenario):
+    _autenticar(client, cenario["escritorio_a"], papel=Papel.PARALEGAL, username="paralegal-ret")
+    registro = DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_a"], quantidade=1, competencia_inicio=date(2026, 3, 1)
+    )
+    url = reverse(
+        "livro_caixa_web:dependentes_carne_leao_retificar",
+        args=[cenario["empresa_a"].id, registro.id],
+    )
+    resposta = client.post(url, {"quantidade": "5"})
+    assert resposta.status_code == 403
+    registro.refresh_from_db()
+    assert registro.quantidade == 1
+
+
+def test_dependentes_retificar_isolamento_entre_empresas_da_404(client, cenario):
+    """Um `dependente_id` de OUTRA empresa nunca é alcançado."""
+    _autenticar(client, cenario["escritorio_a"])
+    registro_de_b = DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_b"], quantidade=1, competencia_inicio=date(2026, 3, 1)
+    )
+    url = reverse(
+        "livro_caixa_web:dependentes_carne_leao_retificar",
+        args=[cenario["empresa_a"].id, registro_de_b.id],
+    )
+    resposta = client.post(url, {"quantidade": "5"})
+    assert resposta.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Estorno de lançamento de caixa — continua funcionando com a nova regra
+# do servidor (data do estorno = mês do original; corrida com outro mês
+# é recusada, mas esta tela nunca envia data explícita).
+# ---------------------------------------------------------------------------
+
+
+def test_lancamento_caixa_estorno_continua_funcionando(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    lancamento = _lancar_receita(
+        cenario["empresa_a"], cenario["conta_receita"], "100.00", date(2026, 3, 10)
+    )
+    url = reverse(
+        "livro_caixa_web:lancamento_estornar", args=[cenario["empresa_a"].id, lancamento.id]
+    )
+    resposta = client.post(url)
+    assert resposta.status_code == 302
+
+
+def test_lancamento_caixa_estorno_duplicado_e_erro_de_formulario_nao_500(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    lancamento = _lancar_receita(
+        cenario["empresa_a"], cenario["conta_receita"], "100.00", date(2026, 3, 10)
+    )
+    url = reverse(
+        "livro_caixa_web:lancamento_estornar", args=[cenario["empresa_a"].id, lancamento.id]
+    )
+    primeiro = client.post(url)
+    assert primeiro.status_code == 302
+    segundo = client.post(url)
+    assert segundo.status_code == 400
+    assert "mensagem-error" in segundo.content.decode()

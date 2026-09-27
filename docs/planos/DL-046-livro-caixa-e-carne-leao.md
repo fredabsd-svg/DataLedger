@@ -1154,77 +1154,178 @@ tocada — a regra é só apresentar o que o motor devolve.
    para caber na página) — o instrumento, que tinha REPROVADO com o
    defeito, voltou a PASSAR depois da correção.
 
-### Achado material registrado, não corrigido nesta etapa (mensagem do
-### arquiteto-senior, 2026-09-27, DE-091)
+### Integração com o servidor corrigido (2026-09-27, mesmo dia, DE-091)
 
-Durante a integração, o `dev-carne-leao` corrigiu (outro worktree,
-`dl046-f2`, ainda não integrado aqui) o CRITÉRIO de escolha entre
-deduções reais e desconto simplificado: de "menor imposto após a redução
-da Lei 15.270/2025" (o que este worktree calcula, HI-33/RC-133, com os
-cinco exemplos oficiais da Receita batendo) para "maior dedução antes da
-redução" (achado M-1 da auditoria da fatia 2 do servidor, docs/auditorias/
-2026-09-27-dl-046-fatia2-rodada-1.md — os exemplos oficiais da Receita
-comparam DEDUÇÕES, não o imposto final; os dois critérios só divergem no
-empate, porque a redução depende só do bruto — igual nas duas formas — e
-o imposto é monotônico na base).
+O `arquiteto-senior` integrou, neste worktree (`wt-dl046f2t`, branch
+`dl046-f2-tela`), o merge de `dl046-f2` (motor corrigido pela rodada 1 de
+auditoria da fatia 2, DE-091) — commit de merge no HEAD. A integração
+quebrou 6 testes de tela (contrato do motor mudou); esta seção documenta
+a adaptação.
 
-**Eu não escrevi esse critério na tela** (nem no texto explicativo nem em
-lugar nenhum): imprimir um critério que o motor DESTE worktree não aplica
-seria a mesma classe de defeito que a direção de arte proíbe — "o
-documento diz com que critérios foi gerado", e o critério impresso tem
-que ser o REAL. Isolei o texto "Forma aplicada neste mês" — MENOR
-imposto..." numa constante única (`_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO`,
-`views_web.py`) e no contexto correspondente
-(`criterio_escolha_forma_texto`), lida com `resultado.get("criterio_
-escolha_forma", _CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO)`: o motor corrigido
-vai devolver `criterio_escolha_forma` (texto PRONTO) nesse dicionário —
-na integração, a chave aparece e o texto novo troca sozinho, sem editar o
-template (`carne_leao_mensal.html`, comentário lá aponta para este
-mesmo parágrafo).
+**O que mudou no motor, e o que a tela passou a fazer:**
 
-**Aviso do art. 42 (RIR/2018) para aluguel** e os campos adicionais
-(`rendimentos` por código, `imposto_com_exterior`/`sem_exterior`,
-`vencimento` pronto, `alertas`, totais anuais estruturados do motor,
-PATCH de dependentes) — combinados na mesma mensagem — ainda não
-existem no contrato deste worktree; ficam para a integração (mensagem
-do arquiteto-senior registrada, não implementados aqui para não deixar
-código contra um campo inexistente).
+1. **Critério de escolha da forma** — o motor agora decide pela MAIOR
+   DEDUÇÃO antes da redução (empate para o simplificado), e devolve
+   `criterio_escolha_forma` (texto PRONTO, gerado no MESMO ponto em que a
+   escolha acontece, com os dois valores comparados). A constante
+   `_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO` (que isolava o texto do
+   critério ANTIGO, "menor imposto após a redução", enquanto o motor
+   corrigido não chegava a este worktree) foi REMOVIDA — a tela imprime
+   `resultado["criterio_escolha_forma"]` diretamente, sem texto fixo
+   nenhum.
+2. **Rendimentos por código e origem** — `resultado["rendimentos"]`
+   (lista de `{codigo, origem, valor, entra_na_base, motivo_exclusao}`)
+   substituiu as duas categorias agregadas antigas
+   (`rendimento_trabalho_nao_assalariado`, que não existe mais — viraram
+   `rendimento_trabalho_base`/`rendimento_notarial_base`, mais a lista
+   detalhada). A tela agora mostra uma linha por (código, origem), com o
+   motivo de exclusão quando o rendimento não entra na base (ex.:
+   trabalho recebido de PJ, fora do modelo notarial) — fecha o achado
+   próprio da entrega anterior ("o motor não expõe rendimento por
+   código").
+3. **Faixa aplicada e vigência da tabela** — cada memória
+   (`memoria_deducoes_reais`/`memoria_desconto_simplificado`) ganhou
+   `faixa_aplicada` (limite inferior/superior, alíquota, parcela a
+   deduzir) e `vigencia_tabela_inicio`. A tela mostra os quatro dados por
+   forma — fecha o outro achado próprio ("faixa/alíquota/parcela não
+   expostas"). A alíquota (fração, ex. `0.0750`) é multiplicada por 100
+   só para NOTAÇÃO de exibição (`_faixa_aplicada_ptbr`,
+   `apps/livro_caixa/views_web.py`) — conversão de unidade para leitura,
+   não um cálculo tributário novo.
+4. **Imposto com/sem exterior** — `imposto_com_exterior`/`imposto_sem_
+   exterior` (renomeados de um cálculo antes só interno) aparecem na
+   tela SÓ quando há rendimento sujeito de origem exterior no mês
+   (`ha_rendimento_exterior`, calculado a partir da própria lista
+   `rendimentos` que o motor já classificou — nenhuma consulta nova).
+5. **Vencimento pronto** — `resultado["vencimento"]` chega como texto
+   PRONTO ("último dia útil de MM/AAAA"); a função local
+   `_competencia_carne_leao_adjacente` deixou de ser usada para calcular
+   o mês seguinte na tela mensal (continua existindo só para a navegação
+   "‹ Mês anterior / Mês seguinte ›", que é sobre a COMPETÊNCIA exibida,
+   não sobre o vencimento do DARF).
+6. **Alertas** — `resultado["alertas"]` (lista de texto pronto — hoje só
+   o de rendimento líquido negativo) aparece num componente de aviso
+   (`.mensagem.mensagem-warning`) quando não vazio.
+7. **`ImpostoExteriorSemRendimentoExterior`** — nova exceção do motor,
+   levantada quando há imposto pago no exterior lançado sem nenhum
+   rendimento sujeito de origem exterior no MESMO mês (HI-38). As duas
+   telas (mensal e anual) capturam essa exceção ao lado de
+   `TabelaCarneLeaoNaoConfigurada`, mostrando a mensagem do próprio motor
+   como erro (409), nunca 500.
+8. **Totais anuais do motor** — `apurar_carne_leao_anual` passou a
+   devolver `resultado["totais"]` (soma EXATA dos 12 meses, 8 campos:
+   `rendimento_bruto`, `deducoes_aplicadas`, `base`, `imposto_tabela`,
+   `reducao_aplicada`, `compensacao_exterior`, `imposto_devido`,
+   `valor_a_pagar`). `_totais_anuais_carne_leao` (que somava os 12 meses
+   NA VIEW) foi REMOVIDA — `_totais_anuais_ptbr` só FORMATA o que o
+   motor já somou. A tabela anual ganhou colunas correspondentes (dez ao
+   todo: Mês, Rendimento bruto, Dedução aplicada, Forma, Base, Imposto
+   pela tabela, Redução, Compensação exterior, Imposto devido, Valor a
+   pagar) — cada uma espelhando, 1 para 1, um campo de `resultado
+   ["totais"]", para a linha de total nunca precisar de uma soma que o
+   motor não fez.
+9. **Aviso fixo do art. 42 (RIR/2018)** — "Lance o aluguel sem IPTU,
+   condomínio e taxa de administração pagos pelo locador" — mostrado na
+   tela mensal quando há qualquer rendimento com o código de aluguel
+   (`R01.003.001`) na lista `rendimentos`, entrando ou não na base.
+10. **Retificação de dependentes** (DE-091 item 6/M-6) — nova view
+    `dependentes_carne_leao_retificar` (`POST .../carne-leao/dependentes/
+    <id>/retificar/`, rota de AÇÃO, só POST, sem tela própria — mesmo
+    padrão de `contabilidade_web:parametro_contabil_encerrar`), chamando
+    `retificar_dependentes_carne_leao` (o serviço novo do motor).
+    Formulário inline na própria linha da tabela de vigências
+    (`dependentes_carne_leao.html`), com `<input type="number" size="3">`
+    (atributo HTML, não CSS — a largura padrão do navegador para
+    `<input type="number">` estourava 390px).
+11. **Estorno de lançamento de caixa** — o servidor passou a datar o
+    estorno no MÊS do original por padrão, recusando data explícita de
+    outro mês; como a tela NUNCA envia `data` explícita (o serviço já
+    decide o padrão), este comportamento não muda nada visível — dois
+    testes novos confirmam que o fluxo de estorno continua funcionando e
+    que a recusa (estorno duplicado) continua saindo como erro de
+    formulário (400), nunca 500.
 
-### Achado próprio: o motor não expõe "rendimentos por código" nem
-### "faixa/alíquota/parcela do imposto pela tabela"
-
-A tarefa pedia "rendimentos sujeitos (por código)" e "imposto pela
-tabela (faixa e parcela)". `apurar_carne_leao_mensal` só devolve as
-CATEGORIAS agregadas (`rendimento_total_sujeito`, `rendimento_trabalho_
-nao_assalariado`, `rendimento_exterior_sujeito`) e o imposto FINAL pela
-tabela (`imposto_pela_tabela`), sem o detalhamento por código individual
-nem a faixa/alíquota/parcela usada. Reconstruir esse detalhamento na
-view exigiria repetir, fora do motor, a classificação por código
-(RC-132) e a busca de faixa (`_faixa_da_base`) — o "cálculo na view" que
-a tarefa proíbe. A tela mostra as categorias que o motor de fato
-devolve, nomeadas com precisão (nunca "por código" quando é "por
-categoria"). Registrado para o `arquiteto-senior`/`desenvolvedor-pleno`
-decidirem se o motor ganha os dois campos numa etapa futura — a mensagem
-do arquiteto-senior sobre o campo `rendimentos` (lista por código) na
-correção do servidor sugere que sim.
+**Achado de CSS adicional, medido pelo instrumento na integração:** o
+`overflow-x: visible` do item 6 da seção anterior (que resolvia o corte
+de impressão da tabela de SETE colunas) voltou a REPROVAR quando a
+tabela anual ganhou DEZ colunas — a tabela, mesmo sem rolamento, continua
+mais larga que a folha A4, e o `<th colspan="10">` do bloco de
+identificação herdava essa largura inteira, então o texto só quebrava
+linha muito além da borda física do papel (medido de novo: "15.270/2025"
+voltou a cortar). Correção: `max-width: var(--largura-conteudo-agrupado)`
+(token EXISTENTE, 40rem) só no bloco `.identificacao-do-documento`
+DENTRO de `.tabela-com-rolagem-horizontal`, em `@media print` — força o
+TEXTO da identificação a quebrar dentro de uma largura que cabe em A4,
+independente de quantas colunas a tabela tiver; os DADOS da tabela
+continuam podendo ficar mais largos que a folha (limitação aceita de
+tabela larga impressa, sem novo teste de paginação de dados nesta
+etapa). O mesmo estouro apareceu numa SEGUNDA tabela (vigências de
+dependentes, coluna "Ações" nova) e recebeu o MESMO invólucro
+(`.tabela-com-rolagem-horizontal`), reaproveitando a correção de
+impressão já feita — nenhuma regra nova para aquela tabela.
 
 ### Testes
 
-`apps/livro_caixa/tests/test_dl046_telas_carne_leao.py` (21 testes):
-renderização do mês com a memória de cálculo completa (identificação,
-rótulos, valores), forma aplicada marcada com `.selo` no lugar certo
-(nunca nas deduções reais quando o simplificado venceu), mês sem
-movimento (aviso de estado, não de erro), competência/ano inválidos
-(400, formulário/estado reexibido), navegação de competência, anual (12
-meses + totais, ano inválido), isolamento entre escritórios (404) nas
-três telas, recusa para empresa em modo contabilidade (403) nas três,
-papel sem permissão de leitura (403, `Papel.CLIENTE`) nas três,
-formulário de dependentes (sucesso, erro de dia≠1, sem permissão de
-escrita — `Papel.PARALEGAL` lê mas não escreve), e número de consultas
-CONSTANTE (mensal: poucos x muitos lançamentos no mês; anual: um mês x
-nove meses com movimento — não 12, porque `criar_lancamento_caixa`
-recusa data além de "hoje + 30 dias" e o ambiente de teste roda em
-2026-09-27).
+`apps/livro_caixa/tests/test_dl046_telas_carne_leao.py` (34 testes,
+depois da integração com o servidor corrigido — eram 21 antes da
+DE-091): renderização do mês com a memória de cálculo completa
+(identificação, rótulos, valores), forma aplicada marcada com `.selo`
+no lugar certo (nunca nas deduções reais quando o simplificado
+venceu), mês sem movimento (aviso de estado, não de erro),
+competência/ano inválidos (400, formulário/estado reexibido),
+navegação de competência, anual (12 meses + totais, ano inválido),
+isolamento entre escritórios (404) nas três telas, recusa para empresa
+em modo contabilidade (403) nas três, papel sem permissão de leitura
+(403, `Papel.CLIENTE`) nas três, formulário de dependentes (sucesso,
+erro de dia≠1, sem permissão de escrita — `Papel.PARALEGAL` lê mas não
+escreve), e número de consultas CONSTANTE (mensal: poucos x muitos
+lançamentos no mês; anual: um mês x nove meses com movimento — não 12,
+porque `criar_lancamento_caixa` recusa data além de "hoje + 30 dias" e
+o ambiente de teste roda em 2026-09-27).
+
+Treze testes novos, cobrindo a integração com o servidor corrigido
+(DE-091) item a item:
+
+- `test_carne_leao_mensal_mostra_rendimentos_por_codigo_e_origem` —
+  cada linha da lista `rendimentos` do motor (código, origem, valor,
+  se entra na base, motivo da exclusão) aparece na tabela.
+- `test_carne_leao_mensal_mostra_aviso_fixo_do_aluguel_quando_ha_rendimento_r01_003_001`
+  — o aviso do art. 42 do RIR/2018 aparece quando há rendimento do
+  código `R01.003.001` no mês e some quando não há (dois meses
+  comparados na mesma empresa, um com aluguel e outro sem).
+- `test_carne_leao_mensal_mostra_faixa_aplicada_e_criterio_pronto_do_motor`
+  — importa `apurar_carne_leao_mensal` diretamente no teste e compara o
+  texto de `criterio_escolha_forma` DO MOTOR, caractere a caractere,
+  com o texto renderizado na tela (nunca um texto fixo do template);
+  confirma também que o texto antigo ("MENOR imposto após a...") NÃO
+  aparece mais em lugar nenhum do HTML.
+- `test_carne_leao_mensal_mostra_comparacao_com_e_sem_exterior` —
+  `imposto_com_exterior`/`imposto_sem_exterior` e a faixa aplicada
+  aparecem quando há rendimento do exterior sujeito.
+- `test_carne_leao_mensal_imposto_exterior_sem_rendimento_e_erro_nao_500`
+  e `test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500`
+  — `ImpostoExteriorSemRendimentoExterior` vira estado de erro (400),
+  nunca uma página de erro do servidor.
+- `test_carne_leao_anual_usa_totais_do_motor_sem_somar_na_view` —
+  dois meses com valores diferentes (não múltiplos um do outro, para
+  que uma soma errada não coincida por acaso com o valor certo);
+  importa `apurar_carne_leao_anual` diretamente no teste e confirma que
+  TODOS os oito campos de `resultado["totais"]`, formatados em pt-BR,
+  aparecem na tela — nenhum recalculado a partir de outros campos.
+- `test_dependentes_retificar_sucesso`,
+  `test_dependentes_retificar_quantidade_invalida_e_erro_sem_gravar`,
+  `test_dependentes_retificar_sem_permissao_de_escrita`,
+  `test_dependentes_retificar_isolamento_entre_empresas_da_404` — os
+  quatro estados da retificação por PATCH (sucesso, erro de validação
+  sem gravar nada, papel sem permissão de escrita, isolamento entre
+  empresas com 404 em vez de vazar o registro de outra empresa).
+- `test_lancamento_caixa_estorno_continua_funcionando` e
+  `test_lancamento_caixa_estorno_duplicado_e_erro_de_formulario_nao_500`
+  — confirmam que a tela de estorno do livro-caixa (fatia 1, não
+  tocada nesta rodada) continua funcionando com a nova regra do
+  serviço (estorno datado no mês do lançamento original) e que a
+  recusa de um segundo estorno aparece como erro de formulário, nunca
+  como página de erro do servidor.
 
 `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py`: três
 entradas novas em `NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE` +
@@ -1243,32 +1344,67 @@ documento de conferência) fica de fora, de propósito.
 
 ### Verificação
 
+Rodada original (antes da integração com o servidor corrigido):
+
 - `ruff check .` — sem apontamentos.
 - `ruff format --check .` — 305 arquivos já formatados.
 - `python manage.py check` — nenhum problema.
 - `python manage.py migrate` — aplicado com sucesso em PostgreSQL vazio
   (`dl046f2t`), sem migração nova nesta etapa (só telas).
-- `pytest` (suíte completa): **3239 passed, 1 failed (pré-existente,
+- `pytest` (suíte completa): 3239 passed, 1 failed (pré-existente, fora
+  do escopo — `test_versao_minima_python.py`), 46 skipped.
+- Capturas 1440×900 e 390×844 (Chromium local) das três telas. Sem
+  estouro horizontal em nenhuma das seis — o estouro medido inicialmente
+  no demonstrativo anual (846px em vez de 390px) foi corrigido pelo
+  invólucro de rolagem antes da captura final.
+
+Rodada desta integração (2026-09-27, mesmo dia, depois do merge do
+servidor corrigido — DE-091), repetida do zero:
+
+- `ruff check .` — **sem apontamentos** (`All checks passed!`).
+- `ruff format --check .` — **305 arquivos já formatados**.
+- `python manage.py check` — **nenhum problema** (`System check
+  identified no issues`).
+- `python manage.py makemigrations --check --dry-run` — **nenhuma
+  migração pendente** (`No changes detected`) — confirma que nenhuma
+  mudança desta etapa deveria ter mexido em modelo, e nenhuma mexeu.
+- `python manage.py migrate` — aplicado com sucesso contra o banco
+  `dl046f2t` (as seis migrações de `livro_caixa`, incluindo as duas da
+  correção da rodada 1 da fatia 2, já aplicadas; nada pendente).
+- `pytest` (suíte completa, rodada limpa — sem outro processo
+  concorrendo pelo mesmo banco): **3293 passed, 1 failed (pré-existente,
   fora do escopo — `test_versao_minima_python.py`, ambiente Python 3.13
-  em vez do 3.14 esperado pela CI), 46 skipped**.
+  em vez do 3.14 esperado pela CI), 46 skipped, 4 subtests passed**, em
+  202 s. O único vermelho é a mesma falha de versão de Python já
+  registrada antes desta etapa, não uma regressão dela. (Uma execução
+  anterior, disparada em paralelo com o instrumento de identificação
+  contra o MESMO banco de testes, produziu dois erros de fixture do
+  pytest-django — `AssertionError` em `_finalizers` — por disputa de
+  conexão entre os dois processos; refeita sozinha, sem paralelismo,
+  saiu limpa, confirmando que o erro era de bancada, não do produto.)
 - `scripts/test_medir_identificacao_do_emitente.py` com
-  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` e
+  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` (o
+  próprio ambiente do projeto tinha Playwright instalado nesta rodada,
+  apesar do comentário do script sobre a venv não ter) e
   `DL_CHROMIUM_EXECUTAVEL=/opt/pw-browsers/chromium-1194/chrome-linux/
-  chrome`: **136 passed**.
+  chrome`: **136 passed** em 502 s (0:08:22).
 - `scripts/medir_identificacao_do_emitente.py`, contra banco descartável
-  PostgreSQL (`dl046f2t_instrumento`, confirmado por
-  `DL_CONFIRMO_BANCO_DESCARTAVEL`), com `scripts/semear_base_de_
-  medicao.py` rodado antes: **código de saída 0** — as 13 telas
-  derivadas (8 com timbre, 2 de classe 2, 3 do Livro Caixa) saem com a
-  identificação completa, inclusive as duas novas do carnê-leão.
-- Capturas 1440×900 e 390×844 (Chromium local, mesmo binário do
-  instrumento) das três telas: `docs/assets/telas/dl046/carne-leao-
-  mensal-*.png`, `carne-leao-anual-*.png`, `carne-leao-dependentes-
-  *.png`. Sem estouro horizontal em nenhuma das seis — medido (largura
-  do PNG exportado bate com a largura pedida: 1440px e 390px nas seis);
-  o estouro medido inicialmente no demonstrativo anual (846px em vez de
-  390px) foi corrigido pelo invólucro de rolagem (achado do item 6,
-  acima) antes da captura final.
+  PostgreSQL novo (`dl046f2t_instrumento`, criado do zero nesta rodada e
+  confirmado por `DL_CONFIRMO_BANCO_DESCARTAVEL`), com `scripts/semear_
+  base_de_medicao.py` rodado antes: **código de saída 0** — as telas
+  derivadas medidas nesta rodada (`contabilidade_web:balanco`,
+  `contabilidade_web:dre`, `livro_caixa_web:carne_leao_anual`,
+  `livro_caixa_web:carne_leao_mensal`, `livro_caixa_web:relatorio`,
+  entre outras da execução completa) saem **PASSOU**, inclusive as duas
+  do carnê-leão com a tabela anual de 10 colunas — confirma que o ajuste
+  de CSS do item "Achado de CSS adicional" (abaixo) resolveu o corte que
+  a rodada anterior não tinha.
+- Capturas 1440×900 e 390×844 das três telas (`docs/assets/telas/dl046/
+  carne-leao-mensal-*.png`, `carne-leao-anual-*.png`, `carne-leao-
+  dependentes-*.png`), conferidas de novo nesta rodada com `file`: as
+  seis batem exatamente com a largura pedida (1440px ou 390px); as
+  telas não mudaram nesta rodada (só os testes), então as capturas da
+  rodada anterior continuam válidas.
 - Percurso por teclado: não testado com leitor de tela real (limite
   declarado da direção de arte, §7 — nenhuma tela do produto foi testada
   assim até hoje). Inspecionei a marcação: toda célula de valor tem
@@ -1281,21 +1417,27 @@ documento de conferência) fica de fora, de propósito.
 
 ### Não testado / bloqueado
 
+O achado material do critério de escolha da forma (DE-091) e os campos
+novos do contrato (`rendimentos` por código, `faixa_aplicada`/
+`vigencia_tabela_inicio`, `imposto_com_exterior`/`sem_exterior`,
+`vencimento` pronto, `alertas`, totais anuais estruturados, PATCH de
+dependentes, aviso do art. 42 do aluguel, `ImpostoExteriorSemRendimento
+Exterior`) — que ficavam pendentes de integração na rodada anterior —
+**estão resolvidos** nesta etapa (ver "Integração com o servidor
+corrigido", acima) e saem da lista. O que segue genuinamente sem
+verificar:
+
 - Leitor de tela real (NVDA/VoiceOver) — limite declarado da direção de
   arte, não desta etapa.
 - Firefox/Safari — só Chromium testado, mesmo limite declarado.
-- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente.
-- Validação profissional dos textos/rótulos da memória de cálculo — do
-  Fred.
-- O achado material do critério de escolha da forma (DE-091) e os
-  campos novos do contrato mencionados pelo arquiteto-senior
-  (`rendimentos` por código, `imposto_com_exterior`/`sem_exterior`,
-  `vencimento` pronto, `alertas`, totais anuais estruturados, PATCH de
-  dependentes, aviso do art. 42 do aluguel) — ficam para a integração
-  entre `dl046-f2` (servidor) e `dl046-f2-tela` (esta etapa); o ponto de
-  troca no código está isolado e comentado (`criterio_escolha_forma_
-  texto`, `_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO`, `views_web.py`).
-- Auditoria independente desta tela — ainda não solicitada (nível de
-  risco 1: cálculo de imposto e documento entregue ao cliente — a
-  auditoria da versão INTEGRADA, servidor+tela, é do `auditor-qa`,
-  conforme o plano desta fatia).
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
+  (confirmado de novo nesta rodada).
+- Validação profissional dos textos/rótulos da memória de cálculo,
+  inclusive do texto NOVO de `criterio_escolha_forma` e do aviso do
+  art. 42 do aluguel — do Fred.
+- Auditoria independente da versão INTEGRADA (servidor `dl046-f2` +
+  tela `dl046-f2-tela`, depois do merge) — ainda não solicitada (nível
+  de risco 1: cálculo de imposto e documento entregue ao cliente; é do
+  `auditor-qa`, conforme o plano desta fatia). A rodada 1 da auditoria
+  (DE-091) avaliou o SERVIDOR antes deste merge; esta integração ainda
+  não passou por uma rodada própria.

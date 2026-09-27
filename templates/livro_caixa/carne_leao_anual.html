@@ -46,11 +46,14 @@
             para ver o demonstrativo anual.
         </p>
     {% elif erro_configuracao %}
+        {% comment %}
+        Mesmos dois motivos possíveis do demonstrativo mensal —
+        `mensagem_erro_carne_leao` é texto PRONTO do motor, nunca
+        reescrito aqui (ver o comentário equivalente em
+        carne_leao_mensal.html).
+        {% endcomment %}
         <div class="mensagem mensagem-error" role="alert">
-            <strong>Erro:</strong> não há tabela progressiva, redução ou valor por
-            dependente do carnê-leão vigente para algum mês de {{ ano }}.
-            Avise o suporte — é um dado normativo que falta cadastrar, não algo que se
-            corrija nesta tela.
+            <strong>Erro:</strong> {{ mensagem_erro_carne_leao }}
         </div>
     {% else %}
         <nav class="navegacao-competencia" aria-label="Navegação de ano">
@@ -70,10 +73,13 @@
         </nav>
 
         {% comment %}
-        Sete colunas numéricas não cabem em 390px sem estourar a
-        largura da página — invólucro com `overflow-x: auto` rola só a
-        TABELA, nunca a PÁGINA (ver o comentário de
-        `.tabela-com-rolagem-horizontal`, static/css/base.css).
+        Dez colunas numéricas — uma por campo de `resultado["totais"]`
+        (item 7/M-2 do contrato da API), mais Mês e Forma — não cabem em
+        390px sem estourar a largura da página. Invólucro com
+        `overflow-x: auto` rola só a TABELA, nunca a PÁGINA (ver o
+        comentário de `.tabela-com-rolagem-horizontal`,
+        static/css/base.css, e a correção de impressão em `@media
+        print` no mesmo arquivo).
         {% endcomment %}
         <div class="tabela-com-rolagem-horizontal">
         <table class="tabela-dados">
@@ -82,17 +88,20 @@
             </caption>
             <thead>
                 <tr class="linha-identificacao-do-documento">
-                    <th scope="colgroup" colspan="7">
+                    <th scope="colgroup" colspan="10">
                         {% include "livro_caixa/_identificacao_do_documento_carne_leao.html" %}
                     </th>
                 </tr>
                 <tr>
                     <th scope="col">Mês</th>
-                    <th scope="col" class="cabecalho-numerico">Rendimento sujeito</th>
+                    <th scope="col" class="cabecalho-numerico">Rendimento bruto</th>
                     <th scope="col" class="cabecalho-numerico">Dedução aplicada</th>
                     <th scope="col">Forma</th>
-                    <th scope="col" class="cabecalho-numerico">Imposto após redução</th>
+                    <th scope="col" class="cabecalho-numerico">Base</th>
+                    <th scope="col" class="cabecalho-numerico">Imposto pela tabela</th>
+                    <th scope="col" class="cabecalho-numerico">Redução Lei 15.270/2025</th>
                     <th scope="col" class="cabecalho-numerico">Compensação exterior</th>
+                    <th scope="col" class="cabecalho-numerico">Imposto devido</th>
                     <th scope="col" class="cabecalho-numerico">Valor a pagar</th>
                 </tr>
             </thead>
@@ -109,8 +118,11 @@
                         <td>
                             {% if linha.forma_escolhida == "real" %}Deduções reais{% else %}Simplificado{% endif %}
                         </td>
-                        <td class="valor-monetario">{{ linha.imposto_apos_reducao_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.base_de_calculo_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.imposto_pela_tabela_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.reducao_lei_15270_2025_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.compensacao_exterior_aplicada_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.imposto_devido_no_mes_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.valor_a_pagar_ptbr }}</td>
                     </tr>
                 {% endfor %}
@@ -118,20 +130,27 @@
             <tfoot>
                 <tr class="linha-total">
                     <th scope="row">Total do ano</th>
-                    <td class="valor-monetario">{{ totais.rendimento_total_sujeito_ptbr }}</td>
-                    <td class="valor-monetario">{{ totais.deducao_aplicada_ptbr }}</td>
+                    <td class="valor-monetario">{{ totais.rendimento_bruto }}</td>
+                    <td class="valor-monetario">{{ totais.deducoes_aplicadas }}</td>
                     <td></td>
-                    <td class="valor-monetario">{{ totais.imposto_apos_reducao_ptbr }}</td>
-                    <td class="valor-monetario">{{ totais.compensacao_exterior_aplicada_ptbr }}</td>
-                    <td class="valor-monetario">{{ totais.valor_a_pagar_ptbr }}</td>
+                    <td class="valor-monetario">{{ totais.base }}</td>
+                    <td class="valor-monetario">{{ totais.imposto_tabela }}</td>
+                    <td class="valor-monetario">{{ totais.reducao_aplicada }}</td>
+                    <td class="valor-monetario">{{ totais.compensacao_exterior }}</td>
+                    <td class="valor-monetario">{{ totais.imposto_devido }}</td>
+                    <td class="valor-monetario">{{ totais.valor_a_pagar }}</td>
                 </tr>
             </tfoot>
         </table>
         </div>
-        <p class="texto-apoio">
-            "Dedução aplicada" mostra, em cada mês, o valor da forma efetivamente aplicada
-            (deduções reais OU desconto simplificado, conforme a coluna "Forma") — o total
-            soma exatamente esses 12 valores, nunca sempre as deduções reais.
-        </p>
+        {% comment %}
+        `totais` (item 7/M-2 do contrato da API) é a SOMA EXATA dos 12
+        meses, calculada inteiramente pelo motor
+        (`apps.livro_caixa.carne_leao._totais_anuais`) — esta tela só
+        formata cada campo (`_totais_anuais_ptbr`, views_web.py), nunca
+        soma nada. "Dedução aplicada" de cada mês já é a forma
+        EFETIVAMENTE aplicada (reais OU simplificado, conforme a coluna
+        "Forma") — o total bate exatamente com a soma dessa coluna.
+        {% endcomment %}
     {% endif %}
 {% endblock %}

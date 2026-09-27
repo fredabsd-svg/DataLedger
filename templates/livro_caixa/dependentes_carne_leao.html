@@ -45,6 +45,15 @@
     {% endif %}
 
     {% if vigencias %}
+        {% comment %}
+        A coluna "Ações" (retificação inline, quando `pode_escriturar`)
+        soma o suficiente para estourar 390px — mesmo invólucro do
+        demonstrativo anual do carnê-leão (`.tabela-com-rolagem-
+        horizontal`, static/css/base.css): rola só a TABELA, nunca a
+        PÁGINA, e a mesma regra `@media print` já cuidada lá evita
+        cortar conteúdo na impressão.
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
         <table class="tabela-dados">
             <caption class="visualmente-oculto">
                 Vigências de dependentes do carnê-leão de {{ empresa.razao_social }}
@@ -54,6 +63,7 @@
                     <th scope="col" class="cabecalho-numerico">Quantidade</th>
                     <th scope="col">Vigente a partir de</th>
                     <th scope="col">Registrado em</th>
+                    {% if pode_escriturar %}<th scope="col">Ações</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -62,10 +72,47 @@
                         <td class="valor-monetario">{{ vigencia.quantidade }}</td>
                         <td>{{ vigencia.competencia_inicio|date:"m/Y" }}</td>
                         <td>{{ vigencia.criado_em|date:"d/m/Y H:i" }}</td>
+                        {% if pode_escriturar %}
+                            <td>
+                                {% comment %}
+                                DE-091 item 6 (M-6) — retificação (PATCH no
+                                servidor) da QUANTIDADE de um registro já
+                                existente, inline na própria linha (mesmo
+                                padrão de "Encerrar vigência",
+                                contabilidade_web:parametros_contabeis):
+                                nunca cria um segundo registro para a MESMA
+                                competência.
+                                {% endcomment %}
+                                <form method="post"
+                                      action="{% url 'livro_caixa_web:dependentes_carne_leao_retificar' empresa.id vigencia.id %}"
+                                      class="acoes-de-linha">
+                                    {% csrf_token %}
+                                    <label class="visualmente-oculto" for="id_quantidade_{{ vigencia.id }}">
+                                        Nova quantidade de dependentes vigente desde
+                                        {{ vigencia.competencia_inicio|date:"m/Y" }}
+                                    </label>
+                                    {% comment %}
+                                    `size="3"` — ATRIBUTO HTML (não CSS,
+                                    nunca "medida literal fora dos
+                                    tokens", direção de arte §4.1): sem
+                                    ele, a largura padrão do navegador
+                                    para `<input type="number">` (~170px)
+                                    estourava a tela em 390px (medido).
+                                    {% endcomment %}
+                                    <input type="number" min="0" step="1" size="3" name="quantidade"
+                                           id="id_quantidade_{{ vigencia.id }}"
+                                           value="{{ vigencia.quantidade }}">
+                                    <button type="submit" class="botao botao--secundario botao--pequeno">
+                                        Retificar
+                                    </button>
+                                </form>
+                            </td>
+                        {% endif %}
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     {% else %}
         <div class="estado-vazio">
             <p>Esta empresa ainda não tem nenhuma quantidade de dependentes registrada — a

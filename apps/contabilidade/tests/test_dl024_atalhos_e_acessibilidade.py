@@ -991,6 +991,15 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
         "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405; "
         "test_dl043_fatia3_telas.py"
     ),
+    # DL-046, fatia 2 (integração de 2026-09-27, DE-091 item 6/M-6): mesmo
+    # desenho de "contabilidade_web:parametro_contabil_encerrar", acima —
+    # rota de AÇÃO (só POST, formulário inline na própria tabela de
+    # dependentes_carne_leao.html), nunca uma página própria. Coberta por
+    # test_dl046_telas_carne_leao.py.
+    "livro_caixa_web:dependentes_carne_leao_retificar": (
+        "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405; "
+        "test_dl046_telas_carne_leao.py"
+    ),
     "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
     "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",
     # DL-046 fatia 1: livro-caixa e carnê-leão do cliente pessoa física —

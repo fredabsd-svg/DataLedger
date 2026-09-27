@@ -3466,11 +3466,30 @@ button:disabled {
        "ver o demonstrativo" saía "v" sozinho, cortados no meio da
        palavra/número. Desligar o rolamento no papel devolve a tabela ao
        layout automático (`table-layout: auto`, sem `overflow-x`
-       nenhum), que ENCOLHE as colunas para caber na largura impressa —
-       mesmo comportamento que qualquer tabela larga já tem neste
-       projeto sem este invólucro. */
+       nenhum). */
     .tabela-com-rolagem-horizontal {
         overflow-x: visible;
+    }
+
+    /* ⚠️ Segunda parte da MESMA correção — o `overflow-x: visible` acima
+       sozinho NÃO bastou quando a tabela ganhou DEZ colunas (integração
+       de 2026-09-27, contrato revisado do demonstrativo anual): a folha
+       A4 impressa ainda cortava o bloco de identificação, porque a
+       largura NATURAL da tabela (dez colunas de valor) continuava maior
+       que a página, mesmo sem rolamento — `table-layout: auto` encolhe
+       cada COLUNA proporcionalmente, mas o `<th colspan>` da
+       identificação herda a largura TOTAL da tabela inteira, então o
+       texto dentro dele só precisava quebrar linha ao alcançar aquela
+       largura enorme, muito além da borda física do papel. Medido de
+       novo pelo mesmo instrumento: "15.270/2025" voltou a cortar. Este
+       `max-width`, só no bloco de IDENTIFICAÇÃO (nunca na tabela
+       inteira — os DADOS continuam podendo ficar mais largos que a
+       folha, limitação aceita de tabela larga em papel), força o texto a
+       quebrar dentro de uma largura que cabe em A4, INDEPENDENTE de
+       quantas colunas a tabela tiver. Token EXISTENTE (`--largura-
+       conteudo-agrupado`, 40rem) — nenhum valor novo declarado aqui. */
+    .tabela-com-rolagem-horizontal .identificacao-do-documento {
+        max-width: var(--largura-conteudo-agrupado);
     }
 
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
