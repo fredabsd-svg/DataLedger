@@ -27,8 +27,8 @@ imposto pago no exterior (Perguntas e Respostas IRPF 2026, pergunta 267,
 "Atenção") são, os dois, POR LEI, limitados a dezembro do mesmo
 ano-calendário — a apuração de qualquer mês recomeça de janeiro do MESMO
 ano, nunca lê dezembro do ano anterior. O saldo "abaixo de R$ 10,00" (RIR/
-2018, art. 722, §5º, por analogia) não tem, nas fontes consultadas, uma
-regra que o reinicie por ano-calendário — mas esta implementação, ao só
+2018, art. 938, §§ 4º e 5º; Lei 9.430/1996, art. 68) não tem, nas fontes
+consultadas, uma regra que o reinicie por ano-calendário (HI-37) — mas esta implementação, ao só
 olhar o ano pedido, também o reinicia em janeiro; é uma LIMITAÇÃO DECLARADA
 desta fatia (ver o plano DL-046, "Não testado"), não uma regra confirmada.
 
@@ -363,9 +363,10 @@ def _apurar_um_mes(
 
     imposto_devido_no_mes = _q(pipeline_escolhido["imposto_apos_reducao"] - compensacao_exterior)
 
-    # RIR/2018, art. 722, §5º (por analogia — mesma regra geral de "valor
-    # abaixo de R$ 10,00 soma ao período seguinte", confirmada para o
-    # carnê-leão na página "Carnê-leão — pagar" da Receita, RC-131(d)).
+    # RIR/2018, art. 938, §§ 4º e 5º (Lei 9.430/1996, art. 68): DARF de
+    # imposto sobre a renda abaixo de R$ 10,00 é vedado e o valor soma aos
+    # períodos seguintes do mesmo código; repetido para o carnê-leão na
+    # página "Carnê-leão — pagar" da Receita (RC-131(d)). Virada do ano: HI-37.
     total_a_considerar = _q(imposto_devido_no_mes + saldo_pendente_abaixo_de_dez_anterior)
     if total_a_considerar < _LIMITE_DARF:
         valor_a_pagar = _ZERO
