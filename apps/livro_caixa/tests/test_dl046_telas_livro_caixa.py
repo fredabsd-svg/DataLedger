@@ -767,6 +767,39 @@ def test_lancamento_novo_pf_com_indicador_marcado_grava_sem_cpf_do_beneficiario(
     assert lancamento.cpf_beneficiario_servico == ""
 
 
+@pytest.mark.parametrize("tamanho", [256, 300])
+def test_n2_tela_recusa_chave_longa_com_400_e_nada_gravado(client, cenario, tamanho):
+    """N2 pela TELA: antes da correção, chave acima de 255 caracteres
+    virava `DataError` e 500. Agora a tela devolve 400 e não grava."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="RN2",
+        nome="Aluguel",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.003.001",
+    )
+    url = reverse("livro_caixa_web:lancamento_novo", args=[empresa.id])
+    resposta = client.post(
+        url,
+        {
+            "data": "2026-03-10",
+            "conta": str(conta.id),
+            "valor": "500,00",
+            "historico": "Chave longa",
+            "documento_origem": "",
+            "recebido_de": "PF",
+            "cpf_titular_pagamento": "",
+            "cpf_beneficiario_servico": "",
+            "cnpj_pagador": "",
+            "chave_idempotencia": "k" * tamanho,
+        },
+    )
+    assert resposta.status_code == 400
+    assert not LancamentoCaixa.objects.filter(empresa=empresa).exists()
+
+
 def test_lancamento_novo_com_indicador_recusado_preserva_o_controle_marcado(client, cenario):
     """Formulário que recusa (aqui, os dois — beneficiário E indicador —
     marcados ao mesmo tempo) preserva o que a pessoa escolheu, inclusive

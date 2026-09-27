@@ -488,3 +488,78 @@ deste teste mediu os dois lados da corrida aceitos (`{'patch': 200, 'post':
 - `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente.
 - RC-130 (D1/PE-72) é da fatia 2, lida para contexto, sem mudança nesta
   correção (fatia 1).
+
+## Verificação do fechamento (sem nova rodada de auditoria)
+
+AGENTS.md §3.1 não prevê terceira rodada. A correção da reconferência
+(servidor `4afa24f` + telas `7035ace`, integradas em `dcda0db`) foi conferida
+pelo `auxiliar-verificacao`, de forma independente, em 2026-09-27. O
+resultado está abaixo sem omissão.
+
+**Confirmado:**
+
+- 13 dos 15 casos propostos pela reconferência têm teste dedicado e passam.
+- Reprodução direta pela tela, pelo serviço e pela API:
+  - N1: o indicador de beneficiário não informado grava pela tela (302);
+  - M5: as 12 linhas dos modelos oficiais aceitam conforme a DE-088, e as
+    contraprovas (notarial com beneficiário, notarial PJ sem CNPJ, aluguel
+    com CPF) recusam;
+  - N2: chave de 300 caracteres pela tela devolve 400, nada gravado.
+- 12 mutantes aplicados em cópia descartável, todos mortos: N07, N12, N13,
+  N16, N21, N25, N26, N33, N38, "tabela P20 sem identificação", "notarial
+  exigindo beneficiário" e "aluguel exigindo CPF".
+- N6: a corrida entre troca de modo e criação de conta passou três vezes
+  seguidas, com exatamente uma das duas operações aceita.
+- Suíte completa no `dcda0db`: 3046 passed, 45 skipped, 1 falha de ambiente
+  conhecida (`test_versao_minima_python.py`, Python 3.13 local, 3.14 na CI).
+
+**Achados da verificação:**
+
+1. **O instrumento de medição do N3 estava quebrado.** O `7035ace` passou a
+   importar `CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO` de
+   `apps.livro_caixa.validators`; o `4afa24f` removeu essa constante ao
+   trocar a regra de CPF por modelo. O script recusava com `ImportError`
+   antes de abrir o navegador, e os 31 testes ponta a ponta do instrumento
+   falhavam — mas só com `DL_PYTHON_DO_SISTEMA` definido, que a suíte local
+   não define e a CI do job de identificação define. O N3 não estava
+   verificado desde o `4afa24f`.
+2. **N7 sem teste automatizado.** O comportamento estava correto (409, um
+   registro só), mas nenhum teste cobria a repetição da chave mudando só o
+   indicador.
+3. **N2 pela tela sem teste automatizado.** Só o serviço tinha teste; o
+   comportamento da tela estava correto.
+
+**Correção de integração (arquiteto-senior, 2026-09-27):**
+
+- A constante voltou a `validators.py` com nome público, e o dicionário de
+  modelos passou a usá-la. Ao consertar o import, apareceram mais dois
+  defeitos que ele escondia:
+  - o cenário sintético do instrumento lançava rendimento PJ sem CNPJ do
+    pagador, que a DE-088 recusa. Ganhou um CNPJ sintético;
+  - a montagem do cenário não era atômica. Uma falha no meio deixava a
+    empresa gravada sem lançamentos; a execução seguinte a reaproveitava e
+    media um relatório de **uma folha só** — "PASSOU" sem medir o N3.
+    Agora é `transaction.atomic()`.
+- O arnês dos testes ponta a ponta substitui a varredura de telas por uma
+  tela fabricada e estreitava só o piso original. O piso novo do Livro Caixa
+  reprovava todo controle limpo (6 testes). O arnês estreita os dois pisos,
+  e o teste novo `test_ponta_a_ponta_piso_do_livro_caixa_ausente_reprova`
+  prova que o piso do Livro Caixa continua reprovando quando a tela some.
+- Testes novos: `test_n7_mesma_chave_mudando_so_o_indicador_de_beneficiario_e_conflito`
+  e `test_n2_tela_recusa_chave_longa_com_400_e_nada_gravado` (256 e 300).
+  Com o indicador tirado da impressão digital (mutante), o teste do N7
+  falha; a primeira versão dele mudava também o CPF do beneficiário e
+  deixava o mutante vivo — foi corrigida para mudar só o indicador.
+
+**Evidência depois da correção** (PostgreSQL 16, Chromium local):
+
+- `scripts/medir_identificacao_do_emitente.py` em banco limpo: código de
+  saída 0; relatório do Livro Caixa com 7 folhas e
+  `folhas_sem_bloco_de_identificacao: []`. O PDF, conferido folha a folha,
+  tem a folha 7 só com pagamentos P20, e ela traz a identificação do
+  emitente — o cenário que o N3 exige.
+- `scripts/test_medir_identificacao_do_emitente.py` com
+  `DL_PYTHON_DO_SISTEMA` definido, como na CI: 136 passed. Na `main`, os 31
+  ponta a ponta passavam, então a falha era da DL-046 e não do ambiente.
+
+**Não testado:** a CI deste conjunto ainda vai rodar no PR.

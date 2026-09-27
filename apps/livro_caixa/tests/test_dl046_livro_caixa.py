@@ -563,6 +563,40 @@ def test_idempotencia_mesma_chave_conteudo_diferente_e_conflito(cenario):
     assert LancamentoCaixa.objects.filter(empresa=cenario["empresa_a"]).count() == 1
 
 
+def test_n7_mesma_chave_mudando_so_o_indicador_de_beneficiario_e_conflito(cenario):
+    """N7 (reconferência): o indicador "CPF do beneficiário não informado"
+    faz parte da impressão digital da chave. Repetir a chave mudando só
+    ele é outro lançamento, não repetição — recusa, e nada novo é gravado.
+    Sem o indicador na impressão, o segundo corpo (inválido: nem
+    beneficiário nem indicador) era devolvido como repetição do primeiro."""
+    criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_trabalho"],
+        data=date(2026, 1, 15),
+        valor="200.00",
+        historico="Recibo",
+        recebido_de=OrigemRecebimento.PF,
+        cpf_titular_pagamento=CPF_TITULAR,
+        cpf_beneficiario_nao_informado=True,
+        chave_idempotencia="chave-n7",
+    )
+    with pytest.raises(ChaveIdempotenciaConflitanteCaixa):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_trabalho"],
+            data=date(2026, 1, 15),
+            valor="200.00",
+            historico="Recibo",
+            recebido_de=OrigemRecebimento.PF,
+            cpf_titular_pagamento=CPF_TITULAR,
+            cpf_beneficiario_nao_informado=False,
+            chave_idempotencia="chave-n7",
+        )
+    lancamentos = LancamentoCaixa.objects.filter(empresa=cenario["empresa_a"])
+    assert lancamentos.count() == 1
+    assert lancamentos.get().cpf_beneficiario_nao_informado is True
+
+
 def test_idempotencia_e_por_empresa_nao_global(cenario):
     # A mesma chave em EMPRESAS diferentes não conflita nem reaproveita —
     # a unicidade da constraint é (empresa, chave_idempotencia).

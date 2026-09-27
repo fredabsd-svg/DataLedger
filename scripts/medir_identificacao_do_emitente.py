@@ -970,6 +970,14 @@ def _descobrir_telas_com_identificacao_do_documento(cliente, empresa, conta):
 # — mesmo valor, sem inventar um novo CPF numericamente válido à parte.
 CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA = "12345678909"
 
+# CNPJ sintético do pagador dos recebimentos PJ. Desde a DE-088 (regra de
+# CPF/CNPJ por modelo do leiaute), o rendimento de trabalho não assalariado
+# recebido de PJ exige o CNPJ do pagador — sem ele, a montagem do cenário
+# é recusada e o instrumento nem chega ao navegador (verificação do
+# fechamento da DL-046). Mesmo valor sintético de
+# `apps/livro_caixa/tests/test_dl046_livro_caixa.py` (`CNPJ_PAGADOR`).
+CNPJ_PAGADOR_DE_MEDICAO_LIVRO_CAIXA = "11122233000183"
+
 # N3 (reconferência da DL-046): volume MEDIDO (equivalente ao da auditoria
 # de 2026-09-27) para a tabela principal preencher folhas o bastante e a
 # tabela P20 nascer em folha PRÓPRIA — nem todo volume grande faz isso:
@@ -1028,6 +1036,8 @@ def _preparar_empresa_livro_caixa(escritorio):
     from datetime import date, timedelta
     from decimal import Decimal
 
+    from django.db import transaction
+
     from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
     from apps.livro_caixa.models import NaturezaCaixa, OrigemRecebimento
     from apps.livro_caixa.services import (
@@ -1046,83 +1056,89 @@ def _preparar_empresa_livro_caixa(escritorio):
         ).first()
         return empresa_existente, conta_existente
 
-    empresa = Empresa.objects.create(
-        escritorio=escritorio,
-        razao_social="Empresa de Medição — Livro Caixa (DL-046) Fulano de Tal",
-        tipo_inscricao=TipoInscricao.CPF,
-        cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA,
-        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
-        caepf="12345678900017",
-    )
-    conta = criar_conta_livro_caixa(
-        empresa=empresa,
-        codigo="1",
-        nome="Serviços prestados",
-        natureza=NaturezaCaixa.RECEITA,
-        codigo_carne_leao=CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
-    )
-    conta_custeio = criar_conta_livro_caixa(
-        empresa=empresa,
-        codigo="2",
-        nome="Despesas de custeio",
-        natureza=NaturezaCaixa.DESPESA,
-        codigo_carne_leao="P10.001",
-    )
-    conta_p20 = criar_conta_livro_caixa(
-        empresa=empresa,
-        codigo="3",
-        nome="Previdência oficial paga",
-        natureza=NaturezaCaixa.DESPESA,
-        codigo_carne_leao="P20.01.00001",
-    )
+    # Montagem ATÔMICA: sem isso, uma falha no meio (foi o que aconteceu na
+    # verificação do fechamento da DL-046) deixava a empresa gravada SEM
+    # lançamentos, a execução seguinte a reaproveitava pelo retorno acima,
+    # e o relatório medido tinha UMA folha só — "PASSOU" sem medir o N3.
+    with transaction.atomic():
+        empresa = Empresa.objects.create(
+            escritorio=escritorio,
+            razao_social="Empresa de Medição — Livro Caixa (DL-046) Fulano de Tal",
+            tipo_inscricao=TipoInscricao.CPF,
+            cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA,
+            modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+            caepf="12345678900017",
+        )
+        conta = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="1",
+            nome="Serviços prestados",
+            natureza=NaturezaCaixa.RECEITA,
+            codigo_carne_leao=CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
+        )
+        conta_custeio = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="2",
+            nome="Despesas de custeio",
+            natureza=NaturezaCaixa.DESPESA,
+            codigo_carne_leao="P10.001",
+        )
+        conta_p20 = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="3",
+            nome="Previdência oficial paga",
+            natureza=NaturezaCaixa.DESPESA,
+            codigo_carne_leao="P20.01.00001",
+        )
 
-    # `medir_impressao.PERIODO_INICIO`/`PERIODO_FIM` são strings ISO fixas
-    # ("2026-03-01"/"2026-03-31") — MESMO período usado no `?inicio=&fim=`
-    # de toda requisição deste instrumento. Os lançamentos precisam cair
-    # DENTRO dele, ou a apuração do relatório (`apurar_livro_caixa`)
-    # devolve `itens=[]` e a tabela inteira não é renderizada.
-    inicio_do_periodo = date.fromisoformat(medir_impressao.PERIODO_INICIO)
+        # `medir_impressao.PERIODO_INICIO`/`PERIODO_FIM` são strings ISO fixas
+        # ("2026-03-01"/"2026-03-31") — MESMO período usado no `?inicio=&fim=`
+        # de toda requisição deste instrumento. Os lançamentos precisam cair
+        # DENTRO dele, ou a apuração do relatório (`apurar_livro_caixa`)
+        # devolve `itens=[]` e a tabela inteira não é renderizada.
+        inicio_do_periodo = date.fromisoformat(medir_impressao.PERIODO_INICIO)
 
-    for indice in range(1, N_RECEITAS_LIVRO_CAIXA + 1):
-        data = inicio_do_periodo + timedelta(days=(indice % 28))
-        criar_lancamento_caixa(
-            empresa=empresa,
-            conta=conta,
-            data=data,
-            valor=Decimal("100.00") + Decimal(indice),
-            historico=f"Recebimento sintético {indice:03d} — medição DL-046",
-            recebido_de=OrigemRecebimento.PJ,
-        )
-    for indice in range(1, N_DESPESAS_CUSTEIO_LIVRO_CAIXA + 1):
-        data = inicio_do_periodo + timedelta(days=(indice % 28))
-        criar_lancamento_caixa(
-            empresa=empresa,
-            conta=conta_custeio,
-            data=data,
-            valor=Decimal("20.00") + Decimal(indice),
-            historico=f"Despesa de custeio sintética {indice:03d} — medição DL-046",
-        )
-    ultimo_p20 = None
-    for indice in range(1, N_PAGAMENTOS_P20_LIVRO_CAIXA + 1):
-        data = inicio_do_periodo + timedelta(days=(indice % 28))
-        ultimo_p20 = criar_lancamento_caixa(
-            empresa=empresa,
-            conta=conta_p20,
-            data=data,
-            valor=Decimal("50.00") + Decimal(indice),
-            historico=f"Previdência oficial sintética {indice:03d} — medição DL-046",
-        )
-    # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
-    # exercitar o parêntese/referência do estorno naquela tabela (não só
-    # a existência dela). `data=` explícita: o padrão de
-    # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
-    # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
-    # nesta medição — o estorno nunca apareceria no relatório medido.
-    if ultimo_p20 is not None:
-        estornar_lancamento_caixa(
-            ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
-        )
-    return empresa, conta
+        for indice in range(1, N_RECEITAS_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta,
+                data=data,
+                valor=Decimal("100.00") + Decimal(indice),
+                historico=f"Recebimento sintético {indice:03d} — medição DL-046",
+                recebido_de=OrigemRecebimento.PJ,
+                cnpj_pagador=CNPJ_PAGADOR_DE_MEDICAO_LIVRO_CAIXA,
+            )
+        for indice in range(1, N_DESPESAS_CUSTEIO_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_custeio,
+                data=data,
+                valor=Decimal("20.00") + Decimal(indice),
+                historico=f"Despesa de custeio sintética {indice:03d} — medição DL-046",
+            )
+        ultimo_p20 = None
+        for indice in range(1, N_PAGAMENTOS_P20_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            ultimo_p20 = criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_p20,
+                data=data,
+                valor=Decimal("50.00") + Decimal(indice),
+                historico=f"Previdência oficial sintética {indice:03d} — medição DL-046",
+            )
+        # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
+        # exercitar o parêntese/referência do estorno naquela tabela (não só
+        # a existência dela). `data=` explícita: o padrão de
+        # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
+        # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
+        # nesta medição — o estorno nunca apareceria no relatório medido.
+        if ultimo_p20 is not None:
+            estornar_lancamento_caixa(
+                ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
+            )
+        return empresa, conta
 
 
 # ---------------------------------------------------------------------------

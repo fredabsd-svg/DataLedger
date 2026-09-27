@@ -169,8 +169,16 @@ MODELO_NOTARIAL = "notarial"
 MODELO_ALUGUEL_OUTROS = "aluguel_outros"
 MODELO_DESCONHECIDO = "desconhecido"
 
+# Nome público do código do modelo "trabalho não assalariado": o
+# instrumento de medição (`scripts/medir_identificacao_do_emitente.py`)
+# importa esta constante para montar a empresa de livro-caixa. Ela sumiu
+# uma vez numa refatoração e o instrumento quebrou sem que a suíte local
+# percebesse (verificação do fechamento da DL-046) — não a remova sem
+# atualizar o script.
+CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO = "R01.001.001"
+
 _CODIGO_PARA_MODELO_DE_RENDIMENTO = {
-    "R01.001.001": MODELO_TRABALHO_NAO_ASSALARIADO,
+    CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO: MODELO_TRABALHO_NAO_ASSALARIADO,
     "R01.001.002": MODELO_NOTARIAL,
     "R01.003.001": MODELO_ALUGUEL_OUTROS,
     "R01.004.001": MODELO_ALUGUEL_OUTROS,
