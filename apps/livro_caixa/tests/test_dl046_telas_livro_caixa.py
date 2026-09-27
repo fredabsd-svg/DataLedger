@@ -17,6 +17,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -639,6 +641,46 @@ def test_trilha_padrao_do_livro_caixa_mostra_livro_caixa_empresa_e_tela(client, 
     assert "Livro-caixa" in conteudo_entrada
 
 
+def test_trilha_do_relatorio_e_inicio_livro_caixa_empresa_livro_caixa(client, cenario):
+    """N25 e N26 (reconferência da DL-046): a asserção anterior só
+    checava a presença solta das strings "Livro-caixa" e da razão
+    social em QUALQUER lugar da página (inclusive no menu lateral, que
+    JÁ mostra os dois) — um mutante que removesse só o RAMO
+    `livro_caixa_web` da trilha (N25) ou só o rótulo "Livro Caixa" da
+    tela (N26) sobrevivia, porque o menu ainda continha as mesmas
+    strings. Este teste examina a MARCAÇÃO exata de `<nav class="trilha">`
+    (`templates/base.html`), na ORDEM certa: "Início › Livro-caixa ›
+    <empresa> › Livro Caixa", com o último degrau SEM link
+    (`aria-current="page"`, a tela nunca linka para si mesma)."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    resposta = client.get(reverse("livro_caixa_web:relatorio", args=[empresa.id]))
+    conteudo = resposta.content.decode()
+
+    inicio_trilha = conteudo.index('<nav class="trilha"')
+    fim_trilha = conteudo.index("</nav>", inicio_trilha)
+    bloco_trilha = conteudo[inicio_trilha:fim_trilha]
+
+    assert ">Início<" in bloco_trilha
+    url_plano_de_contas = reverse("livro_caixa_web:plano_de_contas", args=[empresa.id])
+    assert f'href="{url_plano_de_contas}">Livro-caixa<' in bloco_trilha
+    assert f'href="{url_plano_de_contas}">{empresa.razao_social}<' in bloco_trilha
+    # Último degrau: "Livro Caixa" (rótulo da TELA, sem hífen — diferente
+    # de "Livro-caixa", o MÓDULO) sem link, marcado `aria-current="page"`
+    # (a tela nunca linka para si mesma). `bloco_trilha` já está recortado
+    # só até `</nav>` — o "Livro Caixa" do menu lateral (fora da trilha)
+    # nunca entra aqui.
+    assert 'aria-current="page"' in bloco_trilha
+    assert "Livro Caixa" in bloco_trilha
+    ultimo_li = bloco_trilha.rindex("<li")
+    assert 'aria-current="page"' in bloco_trilha[ultimo_li:]
+    assert "Livro Caixa" in bloco_trilha[ultimo_li:]
+    assert "<a " not in bloco_trilha[ultimo_li:]
+    # A ORDEM importa: "Livro Caixa" (a tela atual) é o ÚLTIMO degrau,
+    # depois do nome da empresa.
+    assert bloco_trilha.index(empresa.razao_social) < ultimo_li
+
+
 # ---------------------------------------------------------------------------
 # M1 (rodada 1 da auditoria da DL-046) — `conta` não numérica na tela de
 # lançamento novo nunca dá 500; sempre 400, formulário preservado, nada
@@ -673,6 +715,98 @@ def test_lancamento_novo_com_conta_nao_numerica_da_400_e_preserva_o_formulario(
     assert "Escolha uma conta do livro-caixa desta empresa." in conteudo
     assert 'value="Tentativa com conta inválida"' in conteudo
     assert not LancamentoCaixa.objects.filter(empresa=empresa).exists()
+
+
+# ---------------------------------------------------------------------------
+# N1 (reconferência da DL-046, DE-088 itens 1 e 2) — o controle "CPF do
+# beneficiário não informado" no formulário de lançamento.
+# ---------------------------------------------------------------------------
+
+
+def test_lancamento_novo_mostra_o_controle_cpf_beneficiario_nao_informado(client, cenario):
+    _autenticar(client, cenario["escritorio"])
+    url = reverse("livro_caixa_web:lancamento_novo", args=[cenario["empresa"].id])
+    conteudo = client.get(url).content.decode()
+    assert 'name="cpf_beneficiario_nao_informado"' in conteudo
+    assert "CPF do beneficiário não informado" in conteudo
+
+
+def test_lancamento_novo_pf_com_indicador_marcado_grava_sem_cpf_do_beneficiario(client, cenario):
+    """N1: antes desta correção, o mesmo POST (sem o controle na tela)
+    dava 400 — a tela não oferecia nenhum jeito de marcar o indicador que
+    o servidor já aceitava."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="R9",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    url = reverse("livro_caixa_web:lancamento_novo", args=[empresa.id])
+    resposta = client.post(
+        url,
+        {
+            "data": "2026-03-10",
+            "conta": str(conta.id),
+            "valor": "500,00",
+            "historico": "Recibo avulso",
+            "documento_origem": "",
+            "recebido_de": "PF",
+            "cpf_titular_pagamento": "11144477735",
+            "cpf_beneficiario_servico": "",
+            "cpf_beneficiario_nao_informado": "on",
+            "cnpj_pagador": "",
+            "chave_idempotencia": "teste-dl046-n1-1",
+        },
+    )
+    assert resposta.status_code == 302
+    lancamento = LancamentoCaixa.objects.get(empresa=empresa, conta=conta)
+    assert lancamento.cpf_beneficiario_nao_informado is True
+    assert lancamento.cpf_beneficiario_servico == ""
+
+
+def test_lancamento_novo_com_indicador_recusado_preserva_o_controle_marcado(client, cenario):
+    """Formulário que recusa (aqui, os dois — beneficiário E indicador —
+    marcados ao mesmo tempo) preserva o que a pessoa escolheu, inclusive
+    o checkbox — mesma garantia que os campos de texto já tinham."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="R10",
+        nome="Trabalho não assalariado 2",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    url = reverse("livro_caixa_web:lancamento_novo", args=[empresa.id])
+    resposta = client.post(
+        url,
+        {
+            "data": "2026-03-10",
+            "conta": str(conta.id),
+            "valor": "500,00",
+            "historico": "Recibo com os dois marcados",
+            "documento_origem": "",
+            "recebido_de": "PF",
+            "cpf_titular_pagamento": "11144477735",
+            "cpf_beneficiario_servico": "22255588846",
+            "cpf_beneficiario_nao_informado": "on",
+            "cnpj_pagador": "",
+            "chave_idempotencia": "teste-dl046-n1-2",
+        },
+    )
+    assert resposta.status_code == 400
+    conteudo = resposta.content.decode()
+    assert "não é possível marcar" in conteudo.lower()
+    # O checkbox continua marcado no reenvio — mesma garantia que os
+    # campos de texto já tinham. Recorte em torno do PRÓPRIO input (não
+    # uma busca solta por "checked" na página inteira, que teria outros
+    # candidatos — ex.: outros atributos HTML).
+    trecho_do_checkbox = conteudo.split('id="id_cpf_beneficiario_nao_informado"', 1)[1][:200]
+    assert "checked" in trecho_do_checkbox
+    assert not LancamentoCaixa.objects.filter(empresa=empresa, conta=conta).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -824,8 +958,14 @@ def test_plano_de_contas_da_tela_nao_mostra_nada_de_outra_empresa(
     url = reverse("livro_caixa_web:plano_de_contas", args=[empresa_a.id])
     conteudo = client.get(url).content.decode()
     assert "R1" in conteudo  # conta de A (fixture `cenario`)
+    # N8 (reconferência da DL-046): a asserção antiga (`"RB" not in
+    # conteudo`, o CÓDIGO curto da conta de B) dava falso vermelho em
+    # ~2,2% das execuções (medido: 22 de 1000) — o `csrfmiddlewaretoken`
+    # é uma string aleatória de 64 caracteres, e "RB" aparece por acaso
+    # dentro dela com essa frequência. O NOME da conta de B ("Conta
+    # exclusiva de B", 21 caracteres) é um marcador inequívoco: não cabe
+    # dentro do alfabeto/comprimento do token por acaso.
     assert "Conta exclusiva de B" not in conteudo
-    assert "RB" not in conteudo
 
 
 def test_relatorio_da_tela_nao_mostra_nada_de_outra_empresa(
@@ -932,6 +1072,247 @@ def test_relatorio_separa_pagamentos_p20_das_despesas_de_custeio(client, cenario
     assert resposta.context["total_saidas_custeio_ptbr"] == "200,00"
     assert resposta.context["total_saidas_deducao_carne_leao_ptbr"] == "300,00"
     assert resposta.context["total_saidas_ptbr"] == "500,00"
+
+
+# ---------------------------------------------------------------------------
+# N3, N4 e N5 (reconferência da DL-046, DE-088 item 4) — a tabela P20
+# repete a identificação do contribuinte, mostra o estorno com parênteses
+# e referência, e o relatório imprime o total de cada grupo.
+# ---------------------------------------------------------------------------
+
+
+def test_relatorio_tabela_p20_e_secao_da_mesma_tabela_com_identificacao_unica(client, cenario):
+    """N3: a tabela P20 é uma SEGUNDA SEÇÃO (`<tbody>`) da MESMA
+    `<table>` da tabela principal — não uma tabela à parte. Uma primeira
+    versão desta correção pôs a identificação DUPLICADA no `<thead>` de
+    uma segunda `<table>`; o instrumento de medição REPROVOU porque soma
+    os parágrafos de identificação de TODA a página, e duas cópias do
+    MESMO bloco contavam o dobro do que o HTML servido tinha (ver o
+    comentário de `templates/livro_caixa/_identificacao_do_documento.
+    html`). Com UMA tabela só, o `<thead>` (e a identificação dentro
+    dele) é ÚNICO — `.tabela-dados thead { display: table-header-group }`
+    repete ele em CADA folha impressa da tabela inteira, inclusive na
+    folha em que a seção P20 cair, sem duplicar o bloco no HTML."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta_p20 = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D20",
+        nome="Previdência oficial paga",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00004",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_p20,
+        data=timezone.datetime(2026, 3, 12).date(),
+        valor=Decimal("300.00"),
+        historico="Contribuição previdenciária",
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[empresa.id])
+        + "?inicio=2026-03-01&fim=2026-03-31"
+    )
+    corpo = resposta.content.decode()
+    # UMA tabela só: um `<table` de abertura, um `</table>` de fechamento,
+    # um ÚNICO `<thead>`, mas DOIS `<tbody>` (a seção principal e a P20).
+    assert corpo.count('<table class="tabela-dados">') == 1
+    assert corpo.count("<thead>") == 1
+    assert corpo.count("<tbody>") == 2
+    assert corpo.count('class="identificacao-do-documento"') == 1
+    grupo_p20 = corpo.split("Pagamentos que deduzem a base do carnê-leão", 1)[1]
+    assert "Contribuição previdenciária" in grupo_p20
+    # A identificação (nome/inscrição/base legal) fica só no `<thead>`,
+    # ANTES do início da seção P20 — nunca repetida dentro dela.
+    assert empresa.razao_social not in grupo_p20
+
+
+def test_relatorio_tabela_p20_mostra_estorno_com_parenteses_e_referencia(client, cenario):
+    """N4: MESMO tratamento de M8/§2A na tabela P20 — antes desta
+    correção o estorno de um P20 saía como um SEGUNDO pagamento
+    positivo, sem parênteses nem "Estorno do lançamento nº X"."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta_p20 = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D21",
+        nome="INSS pago",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00005",
+    )
+    lancamento_p20 = criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_p20,
+        data=timezone.datetime(2026, 3, 5).date(),
+        valor=Decimal("50.00"),
+        historico="INSS de março",
+    )
+    resposta_estorno = client.post(
+        reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento_p20.id])
+    )
+    assert resposta_estorno.status_code == 302
+
+    hoje_iso = timezone.localdate().isoformat()
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[empresa.id])
+        + f"?inicio=2026-03-01&fim={hoje_iso}"
+    )
+    corpo = resposta.content.decode()
+    grupo_p20 = corpo.split("Pagamentos que deduzem a base do carnê-leão", 1)[1]
+    assert f"Estorno do lançamento nº {lancamento_p20.id}" in grupo_p20
+    assert "(50,00)" in grupo_p20
+    # O efeito líquido é zero — o total do grupo não pode contar o
+    # estorno como um SEGUNDO pagamento positivo.
+    assert resposta.context["total_saidas_deducao_carne_leao_ptbr"] == "0,00"
+
+
+def test_relatorio_imprime_os_dois_totais_de_saida(client, cenario):
+    """N5: "Saídas de custeio" e "Pagamentos que deduzem o carnê-leão
+    (P20)" impressos no cartão de totais — antes desta correção os dois
+    valores já eram calculados na view, mas nunca chegavam ao template."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta_p20 = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D22",
+        nome="Pensão paga",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00006",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_despesa"],
+        data=timezone.datetime(2026, 3, 12).date(),
+        valor=Decimal("120.00"),
+        historico="Aluguel do escritório",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_p20,
+        data=timezone.datetime(2026, 3, 12).date(),
+        valor=Decimal("80.00"),
+        historico="Pensão de março",
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[empresa.id])
+        + "?inicio=2026-03-01&fim=2026-03-31"
+    )
+    corpo = resposta.content.decode()
+    assert "Saídas de custeio" in corpo
+    assert "Pagamentos que deduzem o carnê-leão (P20)" in corpo
+    assert "120,00" in corpo
+    assert "80,00" in corpo
+
+
+def test_relatorio_mensagem_de_vazio_considera_os_dois_grupos(client, cenario):
+    """N5: um período só com pagamento P20 não é "vazio" — a mensagem
+    antiga ("Nenhum lançamento neste período.") aparecia ao lado da
+    tabela P20 preenchida, contradizendo a própria tela."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta_p20 = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D23",
+        nome="IRPF pago",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00007",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_p20,
+        data=timezone.datetime(2026, 3, 12).date(),
+        valor=Decimal("90.00"),
+        historico="IRPF de março",
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[empresa.id])
+        + "?inicio=2026-03-01&fim=2026-03-31"
+    )
+    corpo = resposta.content.decode()
+    assert "Nenhum lançamento neste período." not in corpo
+    assert "Nenhuma entrada nem saída de custeio neste período" in corpo
+
+
+# ---------------------------------------------------------------------------
+# N33 e N38 (reconferência da DL-046, achado B6 da rodada 1) — número de
+# consultas da lista de lançamentos CONSTANTE entre 1 e 40 lançamentos, com
+# a MESMA chave de cache que `apps.core.context_processors._empresa_atual`
+# usa (`_dl038_cache_empresa_do_escritorio_ativo`).
+# ---------------------------------------------------------------------------
+
+
+def test_lista_de_lancamentos_numero_de_consultas_constante_e_empresa_resolvida_uma_vez(
+    client, cenario
+):
+    """N38: `Exists(OuterRef("pk"))` em vez de `.estornos.exists()` por
+    LINHA — sem isso, o número de consultas cresce com o número de
+    lançamentos. N33: a view e o context processor (trilha) precisam
+    reaproveitar a MESMA resolução da empresa — sem a mesma chave de
+    cache, a consulta de `Empresa` aparece REPETIDA nas consultas
+    capturadas desta MESMA requisição."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta = cenario["conta_receita"]
+    url = (
+        reverse("livro_caixa_web:lancamentos", args=[empresa.id])
+        + "?inicio=2026-03-01&fim=2026-03-31"
+    )
+
+    # Aquecimento: a PRIMEIRA requisição autenticada de uma sessão paga
+    # consultas de sessão/permissão que não se repetem nas seguintes —
+    # sem isto, a comparação seria injusta (a primeira medição sempre
+    # "mais cara" só por ser a primeira, mascarando o N+1 de verdade).
+    client.get(url)
+
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta,
+        data=timezone.datetime(2026, 3, 1).date(),
+        valor=Decimal("10.00"),
+        historico="Lançamento único",
+        recebido_de="PJ",
+        chave_idempotencia="teste-n33-n38-unico",
+    )
+    with CaptureQueriesContext(connection) as consultas_um:
+        resposta_um = client.get(url)
+    assert resposta_um.status_code == 200
+
+    for indice in range(40):
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta,
+            data=timezone.datetime(2026, 3, 2).date(),
+            valor=Decimal("1.00"),
+            historico=f"Lançamento em lote {indice}",
+            recebido_de="PJ",
+            chave_idempotencia=f"teste-n33-n38-lote-{indice}",
+        )
+    with CaptureQueriesContext(connection) as consultas_quarenta:
+        resposta_quarenta = client.get(url)
+    assert resposta_quarenta.status_code == 200
+
+    assert len(consultas_quarenta) == len(consultas_um), (
+        "número de consultas cresceu com o número de lançamentos — N+1 na "
+        f"lista: {len(consultas_um)} consulta(s) com 1 lançamento, "
+        f"{len(consultas_quarenta)} com 41."
+    )
+
+    # N33: a empresa é resolvida (SELECT ... FROM "empresas_empresa" ...)
+    # NO MÁXIMO uma vez por requisição — se a view e o context processor
+    # (trilha) usarem chaves de cache DIFERENTES, a mesma empresa é
+    # consultada duas vezes na MESMA requisição.
+    consultas_de_empresa = [
+        q["sql"] for q in consultas_um.captured_queries if 'FROM "empresas_empresa"' in q["sql"]
+    ]
+    assert len(consultas_de_empresa) <= 1, (
+        "a empresa foi consultada mais de uma vez na mesma requisição — "
+        "cache de _empresa_do_escritorio_ativo (views_web.py) e do context "
+        "processor (apps.core.context_processors) usando chaves diferentes: "
+        f"{consultas_de_empresa}"
+    )
 
 
 @pytest.mark.parametrize("secao", ["relatorio", "lancamentos", "lancamento_novo"])

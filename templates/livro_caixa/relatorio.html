@@ -88,12 +88,48 @@ escritório que o emite).
                 <span class="contexto-rotulo">Saídas</span>
                 <strong class="valor-monetario">{{ total_saidas_ptbr }}</strong>
             </span>
+            {% comment %}
+            N5 (reconferência da DL-046, DE-088 item 4): os dois totais do
+            grupo, dentro do MESMO cartão que já mostra "Saídas" — o valor
+            que a apuração do carnê-leão (fatia 2) vai usar é justamente
+            "Pagamentos que deduzem o carnê-leão (P20)", separado das
+            saídas de custeio; antes desta correção só a TABELA separava
+            os dois grupos, sem nenhum total impresso. "Saídas" continua
+            somando os dois (dúvida em aberto para o Fred, D3/N5 na
+            auditoria — não decidida ainda) — estes dois totais MOSTRAM o
+            que já compõe aquele número, nunca um terceiro cálculo.
+            {% endcomment %}
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saídas de custeio</span>
+                <strong class="valor-monetario">{{ total_saidas_custeio_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Pagamentos que deduzem o carnê-leão (P20)</span>
+                <strong class="valor-monetario">{{ total_saidas_deducao_carne_leao_ptbr }}</strong>
+            </span>
             <span class="contexto-item">
                 <span class="contexto-rotulo">Saldo do período</span>
                 <strong class="valor-monetario">{{ saldo_ptbr }}</strong>
             </span>
         </div>
 
+        {% comment %}
+        N3 (reconferência da DL-046): UMA tabela só, com o P20 como uma
+        SEGUNDA SEÇÃO (`<tbody>`) da MESMA tabela — não uma tabela à
+        parte. A primeira tentativa (duas `<table>` separadas, cada uma
+        com sua PRÓPRIA cópia do bloco `.identificacao-do-documento` no
+        `<thead>`) foi abandonada: o instrumento de medição soma os
+        parágrafos de identificação de TODAS as ocorrências do seletor
+        na página inteira (o "documento" impresso é o `<body>` completo,
+        não uma tabela isolada), então duas cópias do MESMO bloco
+        contavam o DOBRO de parágrafos do que o HTML servido tinha —
+        "REPROVADO: número de parágrafos de identificação no navegador
+        (8) diverge do HTML servido (4)" (medido). Com UMA tabela só,
+        `.tabela-dados thead { display: table-header-group }` repete o
+        MESMO `<thead>` (com a MESMA identificação) em CADA folha
+        impressa da tabela inteira — inclusive na folha em que a seção
+        P20 começa, sem duplicar o bloco no HTML.
+        {% endcomment %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Livro Caixa de {{ empresa.razao_social }} no período</caption>
             <thead>
@@ -106,35 +142,13 @@ escritório que o emite).
                     usa) — nunca "CPF" fixo, que saía em branco para uma
                     empresa CNPJ em livro-caixa. O CAEPF (RC-129/HI-31) só
                     aparece quando existir, em linha própria, "sem
-                    máscara" (mesmo padrão do cadastro).
+                    máscara" (mesmo padrão do cadastro). Bloco extraído
+                    para `_identificacao_do_documento.html` — reaproveitado
+                    só aqui agora (ver o comentário acima sobre por que
+                    NÃO duplicar em outro `<thead>`).
                     {% endcomment %}
                     <th scope="colgroup" colspan="6">
-                        <div class="identificacao-do-documento">
-                            <p>
-                                <strong>{{ empresa.razao_social }}</strong> —
-                                {{ rotulo_inscricao }} {{ inscricao_formatada }}
-                            </p>
-                            {% if caepf %}
-                                <p>CAEPF {{ caepf }}</p>
-                            {% endif %}
-                            <p>
-                                Livro Caixa — período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
-                            </p>
-                            {% comment %}
-                            D2 (DE-087 item 12): a base legal cobre as DUAS
-                            obrigações que o livro-caixa sustenta — a
-                            escrituração em si (arts. 68 e 69) e o
-                            recolhimento mensal obrigatório do carnê-leão
-                            (arts. 118 a 125) — porque o livro aceita
-                            qualquer rendimento do art. 68 (aluguel,
-                            trabalho não assalariado etc.), não só o
-                            trabalho não assalariado.
-                            {% endcomment %}
-                            <p>
-                                Base: RIR/2018 (Decreto 9.580/2018), arts. 68 e 69 (livro-caixa) e
-                                118 a 125 (recolhimento mensal obrigatório).
-                            </p>
-                        </div>
+                        {% include "livro_caixa/_identificacao_do_documento.html" %}
                     </th>
                 </tr>
                 <tr>
@@ -189,43 +203,78 @@ escritório que o emite).
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="6">Nenhum lançamento neste período.</td>
+                        {% comment %}
+                        N5 (reconferência da DL-046, DE-088 item 4): a
+                        mensagem de vazio considera os DOIS grupos — um
+                        período com pagamento P20 e nenhuma entrada/saída
+                        de custeio NÃO está vazio, só não tem nada NESTA
+                        SEÇÃO; "Nenhum lançamento neste período" ao lado
+                        da seção P20 preenchida contradizia a própria
+                        tela.
+                        {% endcomment %}
+                        <td colspan="6">
+                            {% if pagamentos_p20_carne_leao %}
+                                Nenhuma entrada nem saída de custeio neste período — ver os
+                                pagamentos que deduzem o carnê-leão (P20) abaixo.
+                            {% else %}
+                                Nenhum lançamento neste período.
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
-        </table>
 
-        {% comment %}
-        D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
-        normativa): pagamentos P20 (imposto pago, previdência oficial,
-        pensão) são DEDUÇÃO do carnê-leão, art. 68 — não despesa de
-        custeio. `apurar_livro_caixa` marca esses itens com
-        `grupo == "saida_deducao_carne_leao"`; a view os separa aqui.
-        {% endcomment %}
-        {% if pagamentos_p20_carne_leao %}
-            <table class="tabela-dados">
-                <caption>Pagamentos que deduzem a base do carnê-leão — não são despesa de custeio</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Nº</th>
-                        <th scope="col">Data</th>
-                        <th scope="col">Conta</th>
-                        <th scope="col">Histórico</th>
-                        <th scope="col" class="cabecalho-numerico">Valor</th>
-                    </tr>
-                </thead>
+            {% comment %}
+            D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
+            normativa): pagamentos P20 (imposto pago, previdência
+            oficial, pensão) são DEDUÇÃO do carnê-leão, art. 68 — não
+            despesa de custeio. `apurar_livro_caixa` marca esses itens
+            com `grupo == "saida_deducao_carne_leao"`; a view os separa
+            aqui. SEGUNDO `<tbody>` da MESMA tabela (ver o comentário no
+            topo do `<table>`) — nunca uma `<table>` à parte.
+
+            N4: MESMO tratamento de estorno da seção principal (coluna
+            Nº, referência "Estorno do lançamento nº X", parênteses no
+            valor invertido) — antes desta correção o estorno de um P20
+            saía como um SEGUNDO pagamento positivo, sem parênteses nem
+            referência.
+            {% endcomment %}
+            {% if pagamentos_p20_carne_leao %}
                 <tbody>
+                    <tr>
+                        <th scope="colgroup" colspan="6">
+                            Pagamentos que deduzem a base do carnê-leão — não são despesa de custeio
+                        </th>
+                    </tr>
                     {% for item in pagamentos_p20_carne_leao %}
                         <tr>
                             <td>{{ item.lancamento_id }}</td>
                             <td>{{ item.data|date:"d/m/Y" }}</td>
-                            <td>{{ item.conta }} — {{ item.conta_nome }}</td>
+                            <td>
+                                {{ item.conta }} — {{ item.conta_nome }}
+                                {% if item.e_estorno %}
+                                    <br><span class="texto-apoio">Estorno do lançamento nº {{ item.estorno_de_id }}</span>
+                                {% endif %}
+                            </td>
                             <td>{{ item.historico|default:"—" }}</td>
-                            <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                            <td>Saída</td>
+                            <td class="valor-monetario">
+                                {% if item.e_estorno %}
+                                    <span class="valor-invertido">({{ item.valor_ptbr }})</span>
+                                {% else %}
+                                    {{ item.valor_ptbr }}
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                 </tbody>
-            </table>
-        {% endif %}
+                <tfoot>
+                    <tr>
+                        <th scope="row" colspan="5">Total dos pagamentos que deduzem o carnê-leão (P20)</th>
+                        <td class="valor-monetario">{{ total_saidas_deducao_carne_leao_ptbr }}</td>
+                    </tr>
+                </tfoot>
+            {% endif %}
+        </table>
     {% endif %}
 {% endblock %}

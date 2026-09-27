@@ -96,13 +96,29 @@
                     {% endfor %}
                 </div>
 
+                {% comment %}
+                N1 (reconferência da DL-046, DE-088 item 1): os textos de
+                ajuda abaixo seguem a regra POR MODELO de rendimento do
+                leiaute oficial do Carnê-Leão Web (Receita, 2025), não
+                mais uma exigência única para toda receita de pessoa
+                física — a distinção exata depende do código do Carnê-
+                Leão Web da CONTA escolhida (trabalho não assalariado,
+                serviços notariais/registro, ou aluguel/outros), que o
+                servidor ainda não expõe por conta nesta tela (a conta é
+                escolhida no MESMO envio; sem isso, o texto é geral,
+                cobrindo os três casos, em vez de um texto por conta que
+                exigiria JavaScript para trocar sozinho).
+                {% endcomment %}
                 <div class="campo">
                     <label for="id_cpf_titular_pagamento">CPF do titular do pagamento</label>
                     <input type="text" inputmode="numeric" id="id_cpf_titular_pagamento"
                            name="cpf_titular_pagamento" value="{{ cpf_titular_pagamento }}"
                            aria-describedby="id_cpf_titular_pagamento_ajuda">
                     <p class="texto-apoio" id="id_cpf_titular_pagamento_ajuda">
-                        Exigido para rendimento do trabalho não assalariado recebido de pessoa física.
+                        Exigido para trabalho não assalariado (R01.001.001) e para serviços
+                        notariais e de registro (R01.001.002) recebidos de pessoa física.
+                        Aluguel e outros rendimentos (R01.003.xxx/R01.004.xxx) não têm campo
+                        de CPF no leiaute oficial — deixe em branco.
                     </p>
                 </div>
 
@@ -112,7 +128,31 @@
                            name="cpf_beneficiario_servico" value="{{ cpf_beneficiario_servico }}"
                            aria-describedby="id_cpf_beneficiario_servico_ajuda">
                     <p class="texto-apoio" id="id_cpf_beneficiario_servico_ajuda">
-                        Exigido para rendimento do trabalho não assalariado recebido de pessoa física.
+                        Só se aplica ao trabalho não assalariado (R01.001.001) recebido de
+                        pessoa física — informe o CPF ou marque "CPF do beneficiário não
+                        informado", abaixo. Serviços notariais/registro e aluguel/outros não
+                        usam este campo (deixe em branco).
+                    </p>
+                </div>
+
+                {% comment %}
+                `.campo--caixa` (mesmo padrão já usado por
+                `templates/contabilidade/zerar_resultado.html` e
+                `competencia_entregar.html`) — não um par novo de classes.
+                {% endcomment %}
+                <div class="campo campo--caixa">
+                    <label>
+                        <input type="checkbox" id="id_cpf_beneficiario_nao_informado"
+                               name="cpf_beneficiario_nao_informado"
+                               {% if cpf_beneficiario_nao_informado %}checked{% endif %}
+                               aria-describedby="id_cpf_beneficiario_nao_informado_ajuda">
+                        CPF do beneficiário não informado
+                    </label>
+                    <p class="texto-apoio" id="id_cpf_beneficiario_nao_informado_ajuda">
+                        Indicador do leiaute oficial do Carnê-Leão Web (campo 10) — marque só
+                        quando o rendimento for trabalho não assalariado (R01.001.001)
+                        recebido de pessoa física e o CPF do beneficiário do serviço não for
+                        conhecido. Não marque junto com o CPF do beneficiário preenchido.
                     </p>
                 </div>
 
@@ -121,7 +161,10 @@
                     <input type="text" inputmode="numeric" id="id_cnpj_pagador"
                            name="cnpj_pagador" value="{{ cnpj_pagador }}"
                            aria-describedby="id_cnpj_pagador_ajuda">
-                    <p class="texto-apoio" id="id_cnpj_pagador_ajuda">Opcional, quando recebido de pessoa jurídica.</p>
+                    <p class="texto-apoio" id="id_cnpj_pagador_ajuda">
+                        Exigido para rendimento recebido de pessoa jurídica (PJ), em qualquer
+                        modelo. Nunca preenchido para pessoa física (PF) ou exterior (EX).
+                    </p>
                 </div>
 
                 <div class="acoes-formulario">
