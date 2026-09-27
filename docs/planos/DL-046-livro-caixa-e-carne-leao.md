@@ -1804,14 +1804,254 @@ aparecem no HTML).
 
 ### Não testado / bloqueado nesta correção
 
-- R-M1, R-M2 (mensagens do motor/serviço), R-M4, R-B3 a R-B6 — do
-  `desenvolvedor-pleno`, outro worktree.
-- N21 — depende de `deducao_aplicada` por mês vir do motor (mesma
-  dependência de R-M4); não corrigido nesta rodada, conforme instrução
-  explícita.
-- Validação profissional dos textos trocados (normas citadas em vez de
-  identificador interno; "integra a base"; "a partir de X") — do Fred.
+**Atualização (mesmo dia, depois do merge do servidor corrigido):** os
+itens abaixo — R-M1, a parte de R-M2 sobre mensagens do motor/serviço,
+R-M4, N21 e R-B3 a R-B6 — estavam bloqueados/pendentes NESTA lista até
+o `arquiteto-senior` integrar o servidor corrigido
+(`dl046-f2`→`dl046-f2-tela`, merge `089f8ee`) e pedir a última parte da
+tela. **Todos os itens que dependiam do servidor estão resolvidos** —
+ver a seção "Correção final da reconferência — R-A1 (paisagem), R-M4,
+N21, R-B4", abaixo. Ficam:
+
 - Firefox/Safari, leitor de tela real — mesmos limites já declarados.
+- Validação profissional dos textos trocados (normas citadas em vez de
+  identificador interno; "integra a base"; "a partir de X"; os novos
+  textos de alerta/R-B4) — do Fred.
 - Fechamento por verificação independente (nível de risco 1, sem
   terceira rodada) — ainda não realizado; é responsabilidade de quem
   coordena/audita a versão integrada final.
+
+## Correção final da reconferência — R-A1 (paisagem), R-M4, N21, R-B4 (2026-09-27, `especialista-frontend`)
+
+O `arquiteto-senior` integrou o servidor corrigido neste worktree (merge
+`089f8ee`, `dl046-f2` → `dl046-f2-tela`) e pediu a última parte da tela:
+R-A1 com MUDANÇA DE RUMO (paisagem, não mais tipografia reduzida), R-M4
+(a HI-38 antiga vira alerta, não erro), N21 (dedução aplicada do motor) e
+R-B4 (memória completa: valor por dependente, vigência, "sem redução
+vigente", "imposto exterior não compensável"). Mesmos arquivos
+permitidos; nenhum arquivo de servidor tocado.
+
+### R-A1 — mudança de rumo: paisagem, não tipografia de 9px
+
+A rodada anterior tinha escolhido tipografia reduzida a 9px, ABAIXO do
+piso de legibilidade que o próprio instrumento usa
+(`TAMANHO_MINIMO_RENDERIZADO_PX = 11`, `scripts/medir_identificacao_
+do_emitente.py`) — e é o valor que o CLIENTE paga. O `arquiteto-senior`
+corrigiu o rumo: a paisagem, descartada na rodada anterior por uma
+suposta limitação de `page.pdf()` sem `prefer_css_page_size`, na
+verdade funciona — medido de novo, no MESMO Chromium do instrumento
+(`/opt/pw-browsers/chromium-1194`), a ORIENTAÇÃO (retrato/paisagem) de
+`@page { size: ... }` já é respeitada por `page.pdf(format="A4")` SEM
+nenhuma opção especial; só o TAMANHO EXATO da folha depende de
+`prefer_css_page_size`. O erro da rodada anterior foi generalizar de
+"tamanho" para "orientação" sem medir os dois separadamente.
+
+**Implementado:**
+
+- `@page carne-leao-anual-paisagem { size: A4 landscape; }`
+  (`static/css/base.css`, junto do `@page` padrão) — página NOMEADA,
+  nunca global.
+- `body.pagina-carne-leao-anual-impressao { page: carne-leao-anual-
+  paisagem; }`, dentro de `@media print` — a propriedade `page`
+  PRECISA estar no `<body>` (ou outro elemento de topo); aplicada num
+  elemento aninhado (testei na própria `<table>`) NÃO propaga a
+  orientação para a folha inteira, medido.
+- `{% block classe_body %}pagina-carne-leao-anual-impressao{% endblock
+  %}`, só em `carne_leao_anual.html` — nenhuma outra tela herda a
+  classe.
+- Os dois tokens novos da rodada anterior (`--tipo-print-tabela-larga`,
+  9px, e `--esp-print-tabela-larga`, 2px) foram REMOVIDOS. A paisagem
+  sozinha não bastava para o ano com os valores mais altos
+  (`5.042.937,01`) — sobrava a última coluna fora da folha —, mas a
+  combinação de MÍNIMO de coluna mais estreito (`--largura-minima-
+  coluna-valor-estreita`, 4,5rem/72px, MESMO token que `.tabela-dre`/
+  `.tabela-lancamentos-caixa` já usam) resolveu sem precisar de
+  nenhuma fonte abaixo de 11px: `.tabela-carne-leao-anual th.
+  cabecalho-numerico { min-width: var(--largura-minima-coluna-valor-
+  estreita); }`. Medido: tabela cai de 1.197px para 978–1.105px,
+  dentro do orçamento de largura útil em paisagem (1.026px com margem
+  12,7mm; 1.122px com margem 0mm) — a fonte da tabela continua a
+  PADRÃO do produto (`--tipo-sm`/13px no corpo, `--tipo-2xs`/11px no
+  cabeçalho), nenhum token novo.
+
+**Achado cross-cutting, fora do escopo desta correção, REGISTRADO aqui
+para quem for verificar ou usar as mesmas ferramentas em outro
+documento:** o Chromium 141.0.7390.37 (binário `/opt/pw-browsers/
+chromium-1194`) exportado via `page.pdf()` do Playwright **não aplica
+a mídia "print" corretamente quando a margem passa de ~1mm** —
+reproduzido de forma isolada e determinística: margem 0mm e 1mm saem
+CORRETAS (barra lateral/menu escondidos, como o CSS manda); margem
+5mm, 10mm, 12mm, 13mm e 12,7mm saem TODAS com a barra lateral
+("DataLedger."/"Menu") visível no PDF exportado, mesmo com
+`emulate_media("print")` já ativo — testado com e sem
+`prefer_css_page_size`, com e sem `print_background`, com `format` e
+com `width`/`height` explícitos, em DOIS documentos (mensal retrato,
+anual paisagem): o comportamento é sempre o mesmo, e é do EXPORTADOR
+de PDF, não do CSS do produto — uma captura de TELA (`page.
+screenshot()`, não `page.pdf()`) sob a MESMA `emulate_media("print")`
+sai perfeitamente correta em qualquer margem, confirmando que a folha
+de estilo está certa.
+
+Isto **não invalida** a verificação de R-A1 desta correção: a checagem
+de "cabe na largura útil" (a pergunta que importa) é feita no DOM, via
+`emulate_media("print")` + `getBoundingClientRect()` — que NUNCA passa
+por `page.pdf()` e por isso não sofre este defeito —, e o CONTEÚDO
+(totais) continua saindo íntegro no `pdftotext` mesmo nos PDFs com a
+barra lateral poluindo o topo (conferido linha a linha: "5.042.937,01"
+sai inteiro nos dois). Mas **é um risco para qualquer evidência
+VISUAL** tirada de um PDF exportado com margem não-zero neste
+ambiente: a imagem do PDF em paisagem pedida para esta entrega
+(`docs/assets/telas/dl046/carne-leao-anual-paisagem-pdf.png`) foi
+gerada com margem **0mm** de propósito, por ser a única que sai limpa
+neste binário. `scripts/medir_impressao.py` (MODOS_DE_IMPRESSAO,
+modo "com-cabecalho") usa margem 10mm — dentro da faixa que reproduz o
+defeito — e é o script cujas funções o instrumento de identificação
+reaproveita para a paginação do Balancete/Diário/Razão; não investiguei
+se os números de paginação já publicados foram afetados (não é desta
+correção, e o arquivo não está nos meus permitidos), só registro o
+achado para o `arquiteto-senior` decidir se vale investigar.
+
+**Verificado** (base sintética de 12 meses com valores ≥ R$ 1.000.000,00,
+mesma técnica da rodada anterior): as quatro combinações (2 empresas ×
+2 margens) saem com **zero** célula fora da largura útil em paisagem,
+fonte medida em 11px (nunca abaixo), e PDF em paisagem confirmado por
+`pdfinfo` (842×596pt, mais largo que alto) nos dois margens. `pdftotext`
+mostra "5.042.937,01", "78.306,88" e "VALOR A / PAGAR" inteiros. O
+demonstrativo MENSAL (sem `@page` nomeada) continua em retrato — sem
+regressão.
+
+**Teste automatizado atualizado**
+(`test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha`,
+`scripts/test_medir_identificacao_do_emitente.py`): viewports de medição
+recalculados para paisagem (1.122px/1.026px), `prefer_css_page_size=True`
+nos dois `page.pdf()` do subprocesso, e uma nova asserção de tamanho de
+fonte (`tamanho_fonte_px >= instrumento.TAMANHO_MINIMO_RENDERIZADO_PX`)
+lida da MESMA constante que o instrumento já declara, nunca um número
+novo escrito à parte.
+
+**`prefer_css_page_size=True` também em `scripts/medir_identificacao_
+do_emitente.py`:** testado empiricamente ANTES de aplicar — rodei o
+instrumento completo (13 telas) com e sem a opção, contra a MESMA base
+sintética, e comparei os dois JSONs de saída: a ÚNICA diferença é o
+nome da pasta temporária (aleatório a cada execução); nenhuma medida,
+veredito ou contagem mudou para NENHUMA tela. Seguro de manter — a
+opção só passa a ter efeito quando o documento declara `@page` PRÓPRIO
+(hoje, só o anual do carnê-leão).
+
+### R-M4 — imposto pago no exterior sem rendimento do exterior vira alerta
+
+O motor não levanta mais `ImpostoExteriorSemRendimentoExterior` (DE-092
+item 1) — o mês apura normalmente, com um alerta. A tela:
+
+- removeu a captura da exceção nas duas views (`carne_leao_mensal`,
+  `carne_leao_anual`) e o import (não sobrou nenhum uso; a classe
+  continua existindo no motor por compatibilidade, mas a tela não a
+  importa mais);
+- o comentário do bloco de erro (`{% if erro_configuracao %}`) foi
+  reescrito — não é mais "dois motivos possíveis", só um
+  (`TabelaCarneLeaoNaoConfigurada`).
+
+**Testes reescritos**
+(`test_carne_leao_mensal_imposto_exterior_sem_rendimento_vira_alerta_
+nao_erro`, `test_carne_leao_anual_imposto_exterior_sem_rendimento_vira_
+alerta_nao_erro`): maio (o mês do pagamento) apura com 200 e o alerta
+visível (`.mensagem-warning`); setembro (mês seguinte, sem NENHUM
+lançamento de imposto exterior) apura com 200 e SEM alerta — prova que
+a recusa antiga não vaza mais para os meses seguintes (o próprio achado
+da reconferência: a recusa bloqueava o resto do ano-calendário inteiro,
+porque a apuração encadeia desde janeiro); o anual mostra os 12 meses,
+sem erro.
+
+### N21 — "Dedução aplicada" do anual vem do motor
+
+`_deducao_aplicada_do_mes_para_tela` (a seleção "simplificado? desconto
+: deduções reais" que a TELA reimplementava) foi REMOVIDA de
+`views_web.py`; `_linha_anual_carne_leao` agora lê `mes_resultado
+["deducao_aplicada"]` direto — o motor devolve o campo pronto, desde a
+correção do servidor (a mesma regra que `_totais_anuais` já usava para
+o total do ano).
+
+**Teste novo** (`test_tela_anual_deducao_da_forma_aplicada`), com o
+cenário exato da reconferência (fev/2026: trabalho PF R$ 6.000,00,
+previdência R$ 100,00 → desconto simplificado R$ 607,20, MAIOR que a
+dedução real de R$ 100,00 → forma simplificado). **Mutante aplicado
+VIVO e confirmado, não só descrito**: troquei `mes_resultado
+["deducao_aplicada"]` por `mes_resultado["deducoes_reais_total"]` em
+`_linha_anual_carne_leao` e rodei o teste — FALHOU, mostrando 100,00 em
+vez de 607,20 na célula de fevereiro (evidência capturada no log desta
+sessão); revertido antes do commit. Os dois valores foram escolhidos de
+propósito bem DIFERENTES (607,20 contra 100,00) para o teste não passar
+por coincidência numérica caso os dois algoritmos dessem o mesmo
+resultado num cenário mais ameno.
+
+### R-B4 — memória completa
+
+Três acréscimos à memória de cálculo mensal (`_contexto_resultado_
+mensal_carne_leao`/`carne_leao_mensal.html`), todos formatação/exibição
+de campos que o motor já devolve (`valor_por_dependente`, `reducao_
+vigente`, `imposto_exterior_nao_compensavel`) — nenhum cálculo novo:
+
+1. **Valor por dependente e vigência**: a linha "Dependentes" mostra
+   `{quantidade} × {valor por dependente}`, com a data de vigência
+   desse valor num `texto-apoio` — antes só o total (quantidade ×
+   valor) aparecia, sem o FATOR.
+2. **"Sem redução vigente"**: quando `reducao_vigente` é falso
+   (legítimo só antes de 2026-01-01, R-B3), a linha da redução diz
+   isso explicitamente, em vez de deixar "0,00" parecer um cálculo que
+   deu zero.
+3. **"Imposto pago no exterior acima do limite (não compensável)"**:
+   nova linha na seção de compensação do exterior, só quando
+   `imposto_exterior_nao_compensavel > 0` — a parte do pagamento que
+   NUNCA compensa neste mês (passa do limite) tinha ficado sem rótulo
+   próprio; agora aparece, com a mesma explicação do alerta de R-M4
+   (pode ser aproveitada na declaração anual).
+
+**Três testes novos**: um para cada acréscimo, com cenários dedicados
+(inclusive um com rendimento do exterior e imposto pago bem acima do
+limite de compensação, para forçar `imposto_exterior_nao_compensavel >
+0` de verdade, não um valor forçado).
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 305 arquivos já formatados.
+- `python manage.py check` / `makemigrations --check --dry-run` — sem
+  apontamento.
+- `pytest apps/livro_caixa/tests/test_dl046_telas_carne_leao.py` —
+  **43 passed**, ZERO `xfail` restante (os dois que sobreviviam da
+  rodada anterior — dia≠1 e duplicidade — viraram XPASS com o servidor
+  corrigido; as marcas foram removidas, não deixadas quebrando a
+  suíte à toa).
+- `pytest` (suíte completa, sem as variáveis de Playwright — a mesma
+  execução que a CI roda por padrão): **3312 passed, 1 failed
+  pré-existente (`test_versao_minima_python.py`), 47 skipped, ZERO
+  xfail**.
+- `pytest scripts/test_medir_identificacao_do_emitente.py`, com
+  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` e
+  `DL_CHROMIUM_EXECUTAVEL=/opt/pw-browsers/chromium-1194/chrome-linux/
+  chrome`: **137 passed**.
+- `scripts/medir_identificacao_do_emitente.py`, contra banco
+  descartável PostgreSQL novo, semeado por `semear_base_de_medicao.py`:
+  **código de saída 0** — as 13 telas derivadas (8 com timbre, 2 de
+  classe 2, 3 do Livro Caixa) saem PASSOU, com `prefer_css_page_size=
+  True` já aplicado (testado idêntico ao resultado sem a opção, exceto
+  o nome da pasta temporária).
+- Capturas 1440×900/390×844 das três telas (mensal/anual/dependentes)
+  recapturadas: larguras conferidas, as seis batem 1440px ou 390px.
+- Nova captura: `docs/assets/telas/dl046/carne-leao-anual-paisagem-
+  pdf.png` — primeira folha do PDF do demonstrativo anual, margem 0mm
+  (a única confirmada limpa neste Chromium — ver o achado acima),
+  confirmado em paisagem por `pdfinfo` e visualmente (sem "DataLedger."
+  nem "Menu", 10 colunas e totais completos).
+
+### Não testado / bloqueado nesta correção
+
+- Firefox/Safari, leitor de tela real — mesmos limites já declarados.
+- Validação profissional dos textos novos (alertas de R-M4, rótulos de
+  R-B4) — do Fred.
+- Investigar se a paginação já publicada de Balancete/Diário/Razão
+  (`scripts/medir_impressao.py`, modo "com-cabecalho", margem 10mm) foi
+  afetada pelo achado do exportador de PDF — fora do escopo desta
+  correção e do meu arquivo permitido; só registrado.
+- Fechamento por verificação independente (nível de risco 1, sem
+  terceira rodada) — ainda não realizado.

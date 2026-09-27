@@ -94,6 +94,13 @@ def cenario():
         natureza=NaturezaCaixa.DESPESA,
         codigo_carne_leao="P20.01.00003",
     )
+    conta_previdencia = ContaLivroCaixa.objects.create(
+        empresa=empresa_a,
+        codigo="DPREV",
+        nome="Previdência oficial paga",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00001",
+    )
     return {
         "escritorio_a": escritorio_a,
         "escritorio_b": escritorio_b,
@@ -103,6 +110,7 @@ def cenario():
         "conta_receita": conta_receita,
         "conta_trabalho": conta_trabalho,
         "conta_imposto_exterior": conta_imposto_exterior,
+        "conta_previdencia": conta_previdencia,
     }
 
 
@@ -580,26 +588,119 @@ def test_carne_leao_mensal_mostra_comparacao_com_e_sem_exterior(client, cenario)
     assert "Imposto após a redução, SEM o rendimento do exterior" in html
 
 
-def test_carne_leao_mensal_imposto_exterior_sem_rendimento_e_erro_nao_500(client, cenario):
-    """HI-38/DE-091 item 3 — imposto pago no exterior lançado sem nenhum
-    rendimento sujeito de origem exterior no MESMO mês: a tela mostra
-    erro claro (409), nunca 500."""
+def test_carne_leao_mensal_mostra_valor_por_dependente_e_vigencia(client, cenario):
+    """R-B4 (reconferência) — a memória mostra o VALOR POR dependente (o
+    fator que multiplica pela quantidade) e a vigência que o produz, não
+    só o total."""
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_mensal
+
+    _autenticar(client, cenario["escritorio_a"])
+    DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_a"], quantidade=2, competencia_inicio=date(2026, 3, 1)
+    )
+
+    resultado = apurar_carne_leao_mensal(empresa=cenario["empresa_a"], ano=2026, mes=3)
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    html = resposta.content.decode()
+    valor_ptbr = f"{resultado['valor_por_dependente']:,.2f}".translate(str.maketrans(",.", ".,"))
+    assert valor_ptbr in html
+    assert resultado["dependente_vigencia_inicio"].strftime("%d/%m/%Y") in html
+
+
+def test_carne_leao_mensal_mostra_sem_reducao_vigente_antes_de_2026(client, cenario):
+    """R-B4 (reconferência) — antes de 2026-01-01, a ausência de vigência
+    de redução é LEGÍTIMA (R-B3); a memória diz isso explicitamente, em
+    vez de deixar "Redução: 0,00" parecer um cálculo que deu zero."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2025, 3, 10), "3000.00")
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2025", "mes": "3"},
+    )
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    assert "Sem redução vigente" in html
+
+
+def test_carne_leao_mensal_mostra_imposto_exterior_nao_compensavel(client, cenario):
+    """R-B4 (reconferência) — a parte do imposto pago no exterior que
+    passa do limite de compensação (nunca compensa neste mês) ganha
+    rótulo próprio na memória, em vez de desaparecer sem explicação."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 4, 10), "3000.00")
+    criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 4, 11),
+        valor=Decimal("2000.00"),
+        historico="Aluguel do exterior",
+        recebido_de="EX",
+    )
+    # Imposto pago bem acima do limite de compensação do mês (a diferença
+    # entre o imposto "com" e "sem" o rendimento do exterior) — garante
+    # que sobra parte NÃO compensável.
+    _lancar_despesa(
+        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 4, 12), "5000.00"
+    )
+
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_mensal
+
+    resultado = apurar_carne_leao_mensal(empresa=cenario["empresa_a"], ano=2026, mes=4)
+    assert resultado["imposto_exterior_nao_compensavel"] > 0
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "4"},
+    )
+    html = resposta.content.decode()
+    assert "não compensável" in html
+    valor_ptbr = f"{resultado['imposto_exterior_nao_compensavel']:,.2f}".translate(
+        str.maketrans(",.", ".,")
+    )
+    assert valor_ptbr in html
+
+
+def test_carne_leao_mensal_imposto_exterior_sem_rendimento_vira_alerta_nao_erro(client, cenario):
+    """R-M4 (correção da reconferência, DE-092 item 1) — imposto pago no
+    exterior lançado sem nenhum rendimento sujeito de origem exterior no
+    MESMO mês NÃO bloqueia mais a apuração: o mês de maio (o pagamento)
+    apura normalmente, com um alerta em linguagem simples; setembro (mês
+    sem NENHUM lançamento de imposto exterior) apura normalmente e SEM
+    alerta — prova que a recusa antiga não vazava para os meses seguintes
+    (o próprio achado da reconferência: a recusa bloqueava o resto do
+    ano-calendário inteiro, porque a apuração encadeia desde janeiro)."""
     _autenticar(client, cenario["escritorio_a"])
     _lancar_despesa(
         cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
     )
 
-    resposta = client.get(
+    maio = client.get(
         reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
         {"ano": "2026", "mes": "5"},
     )
-    assert resposta.status_code == 409
-    html = resposta.content.decode()
-    assert "sem nenhum" in html
-    assert "rendimento" in html.lower()
+    assert maio.status_code == 200
+    html_maio = maio.content.decode()
+    assert "mensagem-warning" in html_maio
+    assert "não foi" in html_maio
+    assert "compensado" in html_maio
+
+    setembro = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "9"},
+    )
+    assert setembro.status_code == 200
+    html_setembro = setembro.content.decode()
+    assert "mensagem mensagem-warning" not in html_setembro
 
 
-def test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500(client, cenario):
+def test_carne_leao_anual_imposto_exterior_sem_rendimento_vira_alerta_nao_erro(client, cenario):
+    """Mesmo cenário do teste mensal, visto do demonstrativo anual — os
+    12 meses aparecem (nenhum bloqueio encadeado), estado de SUCESSO
+    (200), nunca erro."""
     _autenticar(client, cenario["escritorio_a"])
     _lancar_despesa(
         cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
@@ -608,8 +709,24 @@ def test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500(client,
     resposta = client.get(
         reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
     )
-    assert resposta.status_code == 409
-    assert "mensagem-error" in resposta.content.decode()
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    assert "mensagem-error" not in html
+    for mes in (
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro",
+    ):
+        assert mes in html, f"{mes} ausente do demonstrativo anual — apuração ainda bloqueia meses"
 
 
 def test_carne_leao_anual_usa_totais_do_motor_sem_somar_na_view(client, cenario):
@@ -636,6 +753,64 @@ def test_carne_leao_anual_usa_totais_do_motor_sem_somar_na_view(client, cenario)
     for campo, valor in totais.items():
         valor_ptbr = f"{valor:,.2f}".translate(str.maketrans(",.", ".,"))
         assert valor_ptbr in html, f"{campo} = {valor_ptbr} não apareceu na tela"
+
+
+def test_tela_anual_deducao_da_forma_aplicada(client, cenario):
+    """N21 (reconferência) — a coluna "Dedução aplicada" do demonstrativo
+    anual usa `deducao_aplicada` do MOTOR (cada mês), nunca uma seleção
+    própria da tela.
+
+    Cenário da reconferência: fevereiro/2026, trabalho não assalariado
+    (PF) de R$ 6.000,00 e previdência oficial de R$ 100,00. O desconto
+    simplificado deste valor de rendimento é R$ 607,20 (teto mensal) —
+    MAIOR que a única dedução real (R$ 100,00 de previdência) — então a
+    forma escolhida é "simplificado" e `deducao_aplicada` do mês é
+    607,20.
+
+    **Por que este teste MATA o mutante "usar sempre deduções reais"**
+    (o mutante que sobreviveu à suíte antes desta correção, achado
+    R-M5/N21 da reconferência): os dois valores DIVERGEM muito neste
+    cenário — 607,20 (desconto simplificado, o valor CERTO) contra
+    100,00 (deduções reais, o valor que o mutante mostraria). Se a
+    tela voltasse a escolher "sempre deduções reais" (ou não lesse
+    `deducao_aplicada` do motor), a célula mostraria 100,00, e a
+    asserção abaixo falharia — não há como o mutante passar por
+    coincidência numérica, como aconteceria se os dois valores fossem
+    iguais ou próximos.
+
+    Mutante aplicado VIVO e confirmado (bancada, não versionado): trocar
+    `mes_resultado["deducao_aplicada"]` por
+    `mes_resultado["deducoes_reais_total"]` em `_linha_anual_carne_leao`
+    (`views_web.py`) faz este teste FALHAR, mostrando 100,00 em vez de
+    607,20 — revertido antes do commit."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 2, 10), "6000.00")
+    _lancar_despesa(cenario["empresa_a"], cenario["conta_previdencia"], date(2026, 2, 12), "100.00")
+
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_mensal
+
+    resultado_fev = apurar_carne_leao_mensal(empresa=cenario["empresa_a"], ano=2026, mes=2)
+    assert resultado_fev["forma_escolhida"] == "simplificado"
+    assert resultado_fev["deducao_aplicada"] == resultado_fev["desconto_simplificado"]
+    assert resultado_fev["deducao_aplicada"] != resultado_fev["deducoes_reais_total"]
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    html = resposta.content.decode()
+
+    # A célula de fevereiro mostra 607,20 (desconto simplificado, a
+    # dedução REALMENTE aplicada) — nunca 100,00 (deduções reais, o
+    # valor que o mutante mostraria).
+    linha_fevereiro = re.search(r"Fevereiro.*?</tr>", html, re.DOTALL)
+    assert linha_fevereiro is not None, "linha de fevereiro não encontrada na tabela anual"
+    assert "607,20" in linha_fevereiro.group(), (
+        f"célula de fevereiro não mostra 607,20 (desconto simplificado): {linha_fevereiro.group()}"
+    )
+    assert ">100,00<" not in linha_fevereiro.group(), (
+        "célula de fevereiro mostra 100,00 — o mutante 'sempre deduções reais' "
+        "sobreviveria a este teste"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -746,15 +921,17 @@ def test_lancamento_caixa_estorno_duplicado_e_erro_de_formulario_nao_500(client,
 # varredura abaixo, rodando sobre `response.content`, já ignora os
 # comentários de código deste app sem precisar de nenhum filtro extra.
 #
-# Três dos estados de erro têm a mensagem gerada em arquivo de SERVIDOR
-# fora do escopo desta correção (`carne_leao.py`, `models.py`,
-# `restricoes.py` — não editáveis pela `especialista-frontend` nesta
-# tarefa; ficam para o `desenvolvedor-pleno`, conforme o encaminhamento
-# da reconferência). Esses três continuam MARCADOS como `xfail(strict=
-# True)`: falham hoje, de propósito, com o texto exato do achado; e se
-# alguém corrigir a mensagem sem tirar a marca, o teste vira XPASS e
-# quebra a suíte, forçando tirar a marca — não deixa a correção passar
-# despercebida.
+# Dois dos estados de erro tinham a mensagem gerada em arquivo de
+# SERVIDOR (`models.py`, `restricoes.py`) fora do escopo da correção
+# anterior — marcados `xfail(strict=True)` até o `desenvolvedor-pleno`
+# corrigir. O merge do servidor corrigido (integração desta rodada) já
+# traz as duas mensagens limpas: os dois viraram XPASS, e as marcas
+# foram removidas (ficariam quebrando a suíte à toa, sem nada a
+# esconder). O terceiro estado de erro que existia (imposto pago no
+# exterior sem rendimento do exterior, HI-38 antiga) DEIXOU DE SER
+# ERRO — virou alerta, sem interromper a apuração (R-M4/DE-092 item 1);
+# não há mais teste de erro correspondente aqui, só o teste de alerta,
+# na seção de comparação com/sem exterior.
 # ---------------------------------------------------------------------------
 
 _REGEX_IDENTIFICADOR_INTERNO = re.compile(r"\b(RC|HI|DE|PE|BL|DL)-\d+")
@@ -799,58 +976,11 @@ def test_sem_identificador_interno_nos_dependentes(client, cenario):
     _sem_identificador_interno_nem_patch(resposta.content.decode())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R-M2 (reconferência): a mensagem de ImpostoExteriorSemRendimentoExterior "
-        "nasce em apps/livro_caixa/carne_leao.py ('...HI-38, requisitos.md...'), "
-        "fora do escopo de arquivos desta correção (especialista-frontend). "
-        "Encaminhado ao desenvolvedor-pleno. Remover a marca quando a mensagem "
-        "do motor deixar de citar HI-38."
-    ),
-)
-def test_sem_identificador_interno_no_erro_hi38_mensal(client, cenario):
-    _autenticar(client, cenario["escritorio_a"])
-    _lancar_despesa(
-        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
-    )
-    resposta = client.get(
-        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
-        {"ano": "2026", "mes": "5"},
-    )
-    assert resposta.status_code == 409
-    _sem_identificador_interno_nem_patch(resposta.content.decode())
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R-M2 (reconferência): mesma mensagem de HI-38 do motor "
-        "(apps/livro_caixa/carne_leao.py), agora no demonstrativo anual. "
-        "Encaminhado ao desenvolvedor-pleno."
-    ),
-)
-def test_sem_identificador_interno_no_erro_hi38_anual(client, cenario):
-    _autenticar(client, cenario["escritorio_a"])
-    _lancar_despesa(
-        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
-    )
-    resposta = client.get(
-        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
-    )
-    assert resposta.status_code == 409
-    _sem_identificador_interno_nem_patch(resposta.content.decode())
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R-M2 (reconferência): a mensagem de dia diferente de 1 nasce em "
-        "apps/livro_caixa/models.py ('...(HI-35).'), fora do escopo de "
-        "arquivos desta correção. Encaminhado ao desenvolvedor-pleno."
-    ),
-)
 def test_sem_identificador_interno_no_erro_dia_diferente_de_um(client, cenario):
+    """R-M2 (reconferência) — a mensagem de dia diferente de 1 nascia em
+    `apps/livro_caixa/models.py` com "(HI-35)" (fora do escopo desta
+    correção); o `desenvolvedor-pleno` já corrigiu (não é mais xfail —
+    era XPASS, marca removida)."""
     _autenticar(client, cenario["escritorio_a"])
     url = reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario["empresa_a"].id])
     resposta = client.post(url, {"quantidade": "4", "competencia_inicio": "2026-10-15"})
@@ -858,16 +988,12 @@ def test_sem_identificador_interno_no_erro_dia_diferente_de_um(client, cenario):
     _sem_identificador_interno_nem_patch(resposta.content.decode())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R-M2 (reconferência)/B-4: a mensagem de duplicidade de competência "
-        "nasce em apps/livro_caixa/restricoes.py e models.py ('...use a "
-        "retificação (PATCH)...'), fora do escopo de arquivos desta "
-        "correção. Encaminhado ao desenvolvedor-pleno."
-    ),
-)
 def test_sem_identificador_interno_no_erro_de_duplicidade(client, cenario):
+    """R-M2 (reconferência)/B-4 — a mensagem de duplicidade de competência
+    nascia em `apps/livro_caixa/restricoes.py`/`models.py` com "use a
+    retificação (PATCH)" (fora do escopo desta correção); o
+    `desenvolvedor-pleno` já corrigiu (não é mais xfail — era XPASS,
+    marca removida)."""
     _autenticar(client, cenario["escritorio_a"])
     url = reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario["empresa_a"].id])
     primeiro = client.post(url, {"quantidade": "2", "competencia_inicio": "2026-10-01"})

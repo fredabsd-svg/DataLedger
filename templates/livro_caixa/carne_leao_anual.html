@@ -5,6 +5,14 @@
 
 {% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
 
+{% comment %}
+R-A1 (reconferência da fatia 2) — liga a página nomeada em paisagem
+(`@page carne-leao-anual-paisagem`, static/css/base.css) só a ESTE
+documento; nenhuma outra tela herda `{% block classe_body %}` daqui
+(cada uma define a própria, ou fica sem nenhuma, como hoje).
+{% endcomment %}
+{% block classe_body %}pagina-carne-leao-anual-impressao{% endblock %}
+
 {% block contexto_extra %}
     <span class="contexto-item">
         <span class="contexto-rotulo">Empresa</span>

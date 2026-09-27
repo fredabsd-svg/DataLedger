@@ -58,15 +58,19 @@ documento`, dentro da tabela).
         </p>
     {% elif erro_configuracao %}
         {% comment %}
-        Dois motivos possíveis, os dois vindos do MOTOR como texto pronto
-        (`mensagem_erro_carne_leao`, nunca reescrito aqui):
-        `TabelaCarneLeaoNaoConfigurada` (não há tabela/redução/valor por
-        dependente vigente) ou `ImpostoExteriorSemRendimentoExterior`
-        (imposto pago no exterior lançado sem rendimento do exterior no
-        mesmo mês, HI-38/DE-091 item 3). Estado de ERRO, não de "vazio": é
+        `TabelaCarneLeaoNaoConfigurada` — não há tabela progressiva,
+        redução ou valor por dependente vigente para a competência
+        pedida; texto PRONTO do MOTOR (`mensagem_erro_carne_leao`,
+        nunca reescrito aqui). Estado de ERRO, não de "vazio": é
         impedimento para apurar, nunca "o cliente não lançou nada este
-        mês" (esse caso é `sem_movimento_no_mes`, mais abaixo, que mostra
-        a memória com zeros, não este aviso).
+        mês" (esse caso é `sem_movimento_no_mes`, mais abaixo, que
+        mostra a memória com zeros, não este aviso).
+
+        Imposto pago no exterior sem rendimento do exterior no mesmo
+        mês NÃO é mais um dos motivos deste bloco (correção da
+        reconferência, item 3/R-M4, DE-092): o mês passou a ser
+        apurado normalmente, com um alerta (bloco `alertas`, abaixo),
+        nunca um estado de erro.
         {% endcomment %}
         <div class="mensagem mensagem-error" role="alert">
             <strong>Erro:</strong> {{ mensagem_erro_carne_leao }}
@@ -185,7 +189,14 @@ documento`, dentro da tabela).
                     <td class="valor-monetario">{{ pensao_alimenticia_paga_ptbr }}</td>
                 </tr>
                 <tr>
-                    <td>Dependentes ({{ dependentes_quantidade }} × valor vigente)</td>
+                    <td>
+                        Dependentes ({{ dependentes_quantidade }} ×
+                        <span class="valor-monetario">{{ valor_por_dependente_ptbr }}</span>)
+                        <p class="texto-apoio">
+                            Valor por dependente vigente desde
+                            {{ dependente_vigencia_inicio|date:"d/m/Y" }}.
+                        </p>
+                    </td>
                     <td class="valor-monetario">{{ dependentes_valor_ptbr }}</td>
                 </tr>
                 <tr>
@@ -305,11 +316,18 @@ documento`, dentro da tabela).
                 <tr>
                     <td>
                         Redução — Lei nº 15.270/2025
-                        <p class="texto-apoio">
-                            Calculada sobre o rendimento tributável BRUTO do mês
-                            (<span class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</span>) —
-                            ANTES de qualquer dedução —, nunca sobre a base de cálculo acima.
-                        </p>
+                        {% if reducao_vigente %}
+                            <p class="texto-apoio">
+                                Calculada sobre o rendimento tributável BRUTO do mês
+                                (<span class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</span>) —
+                                ANTES de qualquer dedução —, nunca sobre a base de cálculo acima.
+                            </p>
+                        {% else %}
+                            <p class="texto-apoio">
+                                Sem redução vigente para esta competência (legítimo antes de
+                                01/2026 — Lei nº 15.270/2025, art. 8º).
+                            </p>
+                        {% endif %}
                     </td>
                     <td class="valor-monetario">{{ reducao_lei_15270_2025_ptbr }}</td>
                 </tr>
@@ -343,6 +361,18 @@ documento`, dentro da tabela).
                     <td>Compensação aplicada neste mês</td>
                     <td class="valor-monetario">{{ compensacao_exterior_aplicada_ptbr }}</td>
                 </tr>
+                {% if ha_imposto_exterior_nao_compensavel %}
+                    <tr>
+                        <td>
+                            Imposto pago no exterior acima do limite (não compensável)
+                            <p class="texto-apoio">
+                                Não entra no carnê-leão deste mês; pode ser aproveitado na
+                                declaração anual, observado o limite do rendimento de origem.
+                            </p>
+                        </td>
+                        <td class="valor-monetario">{{ imposto_exterior_nao_compensavel_ptbr }}</td>
+                    </tr>
+                {% endif %}
                 <tr>
                     <td>
                         Saldo de crédito do exterior levado ao mês seguinte

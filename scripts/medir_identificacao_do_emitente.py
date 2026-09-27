@@ -1360,6 +1360,7 @@ try:
                     path=str(pasta_saida / f"{nome_arquivo}.pdf"),
                     format="A4",
                     display_header_footer=False,
+                    prefer_css_page_size=True,
                     margin={"top": "0mm", "bottom": "0mm", "left": "0mm", "right": "0mm"},
                 )
                 pagina.emulate_media(media=None)

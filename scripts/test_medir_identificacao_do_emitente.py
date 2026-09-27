@@ -2537,19 +2537,30 @@ with sync_playwright() as p:
 
     for margem in ("0mm", "12.7mm"):
         arquivo_pdf = pasta_saida / f"anual-{margem}.pdf"
+        # `prefer_css_page_size=True` — o documento declara `@page
+        # carne-leao-anual-paisagem { size: A4 landscape }` (static/css/
+        # base.css) e liga essa página nomeada ao <body> deste template
+        # (`page: carne-leao-anual-paisagem`, R-A1); sem esta opção o
+        # TAMANHO exato da folha viria do parâmetro `format`, não do
+        # CSS — a ORIENTAÇÃO (retrato/paisagem) o Chromium já respeita
+        # nos dois casos (medido; ver o comentário junto ao `@page` no
+        # CSS), mas só com `prefer_css_page_size` a folha fica
+        # EXATAMENTE A4 landscape, não uma aproximação.
         pagina.pdf(
             path=str(arquivo_pdf),
             format="A4",
             print_background=True,
+            prefer_css_page_size=True,
             margin={lado: margem for lado in ("top", "bottom", "left", "right")},
         )
         resultado["por_margem"][margem] = str(arquivo_pdf)
 
-    # 794px ~ largura útil A4 com margem 0mm; 698px ~ largura útil A4 com
-    # margem 12,7mm (210mm - 2*12,7mm), a mesma dupla que a reconferência
-    # mediu (docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md).
-    for largura in (794, 698):
-        pagina.set_viewport_size({"width": largura, "height": 1200})
+    # 1.122px ~ largura útil A4 PAISAGEM com margem 0mm (297mm);
+    # 1.026px ~ com margem 12,7mm (297mm - 2×12,7mm) — a mesma dupla de
+    # margens que a reconferência mediu, recalculada para a orientação
+    # PAISAGEM que R-A1 (segunda rodada) passou a usar.
+    for largura in (1122, 1026):
+        pagina.set_viewport_size({"width": largura, "height": 900})
         medida = pagina.evaluate(
             '''(vw) => {
               const t = document.querySelector('table.tabela-dados');
@@ -2557,7 +2568,14 @@ with sync_playwright() as p:
               const fora = [...t.querySelectorAll(seletor)]
                  .filter(c => c.getBoundingClientRect().right > vw + 0.5)
                  .map(c => c.textContent.trim().slice(0, 30));
-              return {tabela_scroll_width: t.scrollWidth, fora: fora};
+              const celulaDado = t.querySelector('tbody td.valor-monetario');
+              const tamanhoFonte = celulaDado
+                 ? parseFloat(getComputedStyle(celulaDado).fontSize) : null;
+              return {
+                tabela_scroll_width: t.scrollWidth,
+                fora: fora,
+                tamanho_fonte_px: tamanhoFonte,
+              };
             }''',
             largura,
         )
@@ -2572,13 +2590,18 @@ print(json.dumps(resultado, ensure_ascii=False))
 @pytestmark_ponta_a_ponta
 @pytest.mark.django_db
 def test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha(tmp_path):
-    """R-A1 — o demonstrativo anual do carnê-leão, impresso, cabe INTEIRO
-    em A4: nenhuma célula (dado ou total) com a borda direita além da
-    largura útil da folha, nas duas margens que a reconferência mediu
-    (0mm e 12,7mm), e o texto exportado (`pdftotext`) contém "Valor a
-    pagar" e os totais do ano por inteiro — nunca um valor cortado no
-    meio, como `"2.57"` no lugar de `"2.574,06"` (o próprio defeito que
-    REPROVOU a etapa anterior)."""
+    """R-A1 — o demonstrativo anual do carnê-leão, impresso em PAISAGEM
+    (segunda rodada da correção — ver o CSS para a primeira, que usava
+    tipografia de 9px e foi revertida por ficar abaixo do piso de
+    legibilidade do próprio instrumento), cabe INTEIRO em A4: nenhuma
+    célula (dado ou total) com a borda direita além da largura útil da
+    folha, nas duas margens que a reconferência mediu (0mm e 12,7mm,
+    recalculadas para paisagem), a fonte das células de dado nunca
+    abaixo de `TAMANHO_MINIMO_RENDERIZADO_PX` (11px, a mesma constante
+    que este instrumento usa em outro lugar), e o texto exportado
+    (`pdftotext`) contém "Valor a pagar" e os totais do ano por
+    inteiro — nunca um valor cortado no meio, como `"2.57"` no lugar de
+    `"2.574,06"` (o próprio defeito que REPROVOU a etapa anterior)."""
     import json as json_mod
 
     import medir_impressao
@@ -2628,6 +2651,11 @@ def test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha(tmp_path):
         assert dados["fora"] == [], (
             f"célula(s) fora da largura útil ({largura}px): {dados['fora']} — "
             f"largura natural da tabela: {dados['tabela_scroll_width']}px"
+        )
+        assert dados["tamanho_fonte_px"] >= instrumento.TAMANHO_MINIMO_RENDERIZADO_PX, (
+            f"fonte das células ({dados['tamanho_fonte_px']}px) abaixo do piso de "
+            f"legibilidade ({instrumento.TAMANHO_MINIMO_RENDERIZADO_PX}px) — largura "
+            f"medida em {largura}px de viewport"
         )
 
     for margem, caminho_pdf in medido["por_margem"].items():

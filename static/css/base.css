@@ -227,17 +227,6 @@
     --fonte-trabalho: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --fonte-numerica: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
 
-    /* R-A1 (reconferência da fatia 2 da DL-046, 2026-09-27): tamanho
-       PRÓPRIO, abaixo de `--tipo-2xs`, só para a tabela larga de
-       impressão do demonstrativo anual do carnê-leão (dez colunas —
-       ver `.tabela-carne-leao-anual`, `@media print`, mais abaixo).
-       Nenhuma outra tela usa este token: é o piso que sobrou depois de
-       medir, no Chromium real, que a tabela não cabia em A4 retrato
-       nem com `--tipo-2xs` (11px) — só em `--tipo-2xs` a impressão
-       ainda cortava "Imposto devido" e "Valor a pagar" (mesmo achado
-       que a reconferência mediu). Nunca some coluna: encolhe a
-       TIPOGRAFIA da tabela inteira, nunca esconde um dado. */
-    --tipo-print-tabela-larga: 0.5625rem;  /* 9px */
     --tipo-2xs: 0.6875rem;  /* 11px — rótulo miúdo, maiúsculas espaçadas */
     --tipo-xs: 0.75rem;     /* 12px — legenda, auxiliar de campo */
     --tipo-sm: 0.8125rem;   /* 13px — corpo denso de tabela */
@@ -252,11 +241,6 @@
 
     /* --- Espaço: escala de 4px. Nada de medida solta fora dela — se falta
        um valor, a escala está errada, não o desenho (direcao-de-arte §1). --- */
-    /* R-A1 (reconferência da fatia 2 da DL-046) — mesmo par do token de
-       tipografia acima (`--tipo-print-tabela-larga`), para o PADDING da
-       mesma tabela: dez colunas numéricas com `--esp-1` (4px por lado)
-       ainda somavam largura demais, medido no Chromium real. */
-    --esp-print-tabela-larga: 0.125rem;  /* 2px */
     --esp-1: 0.25rem;  /* 4px */
     --esp-2: 0.5rem;   /* 8px */
     --esp-3: 0.75rem;  /* 12px */
@@ -3373,6 +3357,33 @@ button:disabled {
     size: A4;
 }
 
+/* R-A1 (reconferência da fatia 2 da DL-046) — página NOMEADA, em
+   PAISAGEM, só para o demonstrativo anual do carnê-leão (dez colunas
+   de dados). Aplicada via a propriedade `page` no `<body>` desse
+   documento (`body.pagina-carne-leao-anual-impressao`, ver
+   `templates/livro_caixa/carne_leao_anual.html`, bloco `classe_body`)
+   — NUNCA global, para nenhuma outra tela (Balancete, DRE, Diário,
+   Razão, o mensal do próprio carnê-leão) perder o retrato que já
+   passa na medição de paginação existente.
+
+   ⚠️ **Correção de uma conclusão ERRADA da rodada anterior desta
+   mesma etapa**: eu tinha descartado a paisagem por acreditar que
+   `page.pdf()` (Playwright/Puppeteer) só respeita `@page { size:
+   ... }` com a opção `preferCSSPageSize`/`prefer_css_page_size`. Isso
+   está CERTO para o TAMANHO exato da folha, mas ERRADO para a
+   ORIENTAÇÃO: medido de novo, no MESMO Chromium do instrumento
+   (`/opt/pw-browsers/chromium-1194`), `page.pdf(format="A4")` — SEM
+   `prefer_css_page_size` nenhum, a chamada exata de `scripts/
+   medir_identificacao_do_emitente.py` e do método da reconferência —
+   já produz um PDF em PAISAGEM quando o documento declara `@page {
+   size: A4 landscape }` (confirmado com `pdfinfo`: 842×596pt, não
+   596×842pt). O Chrome do usuário no diálogo de impressão já fazia
+   isso; o erro anterior foi generalizar demais a partir da opção de
+   TAMANHO para a de ORIENTAÇÃO, sem medir a segunda separadamente. */
+@page carne-leao-anual-paisagem {
+    size: A4 landscape;
+}
+
 /* BL-332 (achado A2 da auditoria DL-026, rodada 5,
    docs/auditorias/2026-09-19-dl-026-rodada-5.md): LIMITE DECLARADO, ao lado
    do `@page` acima de propósito — os dois são sobre a MESMA folha impressa,
@@ -3508,54 +3519,56 @@ button:disabled {
         max-width: var(--largura-conteudo-agrupado);
     }
 
-    /* R-A1 (reconferência da fatia 2, ALTO — REPROVOU a etapa anterior):
-       a correção acima (`max-width` só na identificação) resolvia o
-       corte NO TEXTO de identificação, mas não resolvia o corte NOS
-       DADOS — "Imposto devido" e "Valor a pagar" (as duas últimas das
-       dez colunas) saíam cortados ou de fora do papel inteiro, medido
-       com `scratchpad/rec46f2_pdf.py`: célula "2.57" no lugar de
-       "2.574,06", coluna inteira ausente do `pdftotext`. Dessa vez a
-       tabela de DADOS precisa realmente caber, não só o texto de
-       identificação — o comentário acima ("os DADOS continuam podendo
-       ficar mais largos que a folha") deixou de valer PARA ESTA tabela
-       especificamente.
+    /* R-A1 (reconferência da fatia 2, ALTO — REPROVOU a etapa anterior,
+       corrigida de novo depois de uma primeira tentativa com tipografia
+       reduzida a 9px, abaixo do piso de legibilidade que o próprio
+       instrumento de medição usa — `TAMANHO_MINIMO_RENDERIZADO_PX = 11`
+       em `scripts/medir_identificacao_do_emitente.py`): "Imposto
+       devido" e "Valor a pagar" (as duas últimas das dez colunas)
+       saíam cortados ou de fora do papel inteiro. A correção agora é
+       PAISAGEM (`@page carne-leao-anual-paisagem`, acima, aplicada via
+       `page` no `<body>` deste documento) — ver o comentário junto a
+       essa regra sobre a conclusão errada da rodada anterior, e por
+       que a paisagem funciona de verdade na verificação real.
 
-       Decisão (arquiteto-senior/Fred, DE-092 item 4): a escolha técnica
-       fica com a especialista-frontend, entre paisagem só para o anual
-       ou tipografia de impressão. Paisagem foi DESCARTADA depois de
-       testar: `@page { size: landscape }` só muda o PAPEL do PDF
-       quando o exportador pede `preferCSSPageSide` — as chamadas deste
-       projeto (`scripts/medir_identificacao_do_emitente.py`, o método
-       da reconferência) nunca pedem, então a folha continuaria A4
-       RETRATO de qualquer forma; depender de uma opção que este
-       projeto não controla no chamador é uma correção que PARECE
-       funcionar e não funciona na verificação real.
-
-       Tipografia de impressão, então: medido no Chromium real (mesmo
-       binário do instrumento) que os oito `.cabecalho-numerico` desta
-       tabela, cada um pedindo o mínimo PADRÃO (`--largura-minima-
-       coluna-valor`, 8rem/128px — quase 1024px só de colunas
-       numéricas), são o piso que nunca deixava a tabela encolher; e que
-       reduzir só esse mínimo (mesmo padrão de `.tabela-dre`/`.tabela-
-       lancamentos-caixa`, achado da fatia 1) não bastava sozinho — o
-       número mais largo do ano (`5.042.937,01`, doze caracteres
-       monoespaçados) continuava maior que o mínimo reduzido. As TRÊS
-       mudanças JUNTAS (mínimo fora do caminho, fonte em `--tipo-print-
-       tabela-larga`, e padding em `--esp-print-tabela-larga`) foram
-       medidas coube: **659px** de largura natural contra 794px (margem
-       0mm) e 698px (margem 12,7mm) de largura útil A4 — as duas
-       margens testadas pelo método da reconferência, as duas passam,
-       com folga. Escopado a `.tabela-carne-leao-anual`
-       (`templates/livro_caixa/carne_leao_anual.html`): nenhuma outra
-       tabela do produto perde densidade por causa desta. */
+       A paisagem sozinha (≈1.026px úteis com margem 12,7mm, ≈1.122px
+       com margem 0mm) ainda não bastava para o ano com os valores mais
+       altos (`5.042.937,01`, doze caracteres monoespaçados): os oito
+       `.cabecalho-numerico`, cada um pedindo o mínimo PADRÃO
+       (`--largura-minima-coluna-valor`, 8rem/128px), e o padding
+       PADRÃO de célula (`--esp-2`/`--esp-3`) somados deixavam a
+       tabela em ~1.105px de largura NATURAL, com a última coluna
+       (`Valor a pagar`) ainda fora da folha nas duas margens — medido
+       no Chromium real. Reduzindo o mínimo de coluna para o MESMO
+       token que `.tabela-dre`/`.tabela-lancamentos-caixa` já usam
+       (`--largura-minima-coluna-valor-estreita`, 4,5rem/72px, achado
+       da fatia 1) sozinho não bastou (o conteúdo em si, não mais o
+       mínimo, virou o piso). A combinação que coube — com folga, nas
+       duas margens — usa só TOKENS JÁ EXISTENTES: corpo e cabeçalho
+       em `--tipo-2xs` (11px — o PISO de legibilidade que o próprio
+       instrumento de medição usa, `TAMANHO_MINIMO_RENDERIZADO_PX`,
+       nunca abaixo dele) e padding em `--esp-1` (4px). Nenhum token
+       novo declarado para esta correção. */
     .tabela-carne-leao-anual th,
     .tabela-carne-leao-anual td {
-        font-size: var(--tipo-print-tabela-larga);
-        padding: var(--esp-print-tabela-larga);
+        font-size: var(--tipo-2xs);
+        padding: var(--esp-1);
     }
 
     .tabela-carne-leao-anual th.cabecalho-numerico {
-        min-width: 0;
+        min-width: var(--largura-minima-coluna-valor-estreita);
+    }
+
+    /* Liga a página NOMEADA em paisagem (`@page carne-leao-anual-
+       paisagem`, acima) ao documento do demonstrativo anual — medido
+       (`page: <nome>` num elemento ANINHADO, como a própria tabela,
+       NÃO propaga a orientação para a folha inteira; precisa estar no
+       `<body>`, que é o nível em que o Chromium decide a geometria da
+       página impressa). A classe só existe em `carne_leao_anual.html`
+       (bloco `classe_body`) — nenhuma outra tela do produto muda de
+       orientação por causa desta regra. */
+    body.pagina-carne-leao-anual-impressao {
+        page: carne-leao-anual-paisagem;
     }
 
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
