@@ -2207,3 +2207,47 @@ e está declarado aqui de novo por transparência.
   de tela real; validação profissional dos textos; paginação de
   Balancete/Diário/Razão no modo "com-cabecalho" do exportador).
 - Uma quarta rodada de verificação independente, se pedida.
+
+## Verificação do fechamento da fatia 2 (sem terceira rodada de auditoria)
+
+AGENTS.md §3.1 não prevê terceira rodada. A versão `b2d27eb` (servidor e
+tela, depois da reconferência) foi conferida pelo `auxiliar-verificacao`, de
+forma independente, em 2026-09-27, contra os seis itens mínimos da seção 8
+da [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md):
+
+- **R-A1:** anual em A4 paisagem nas margens 0 e 12,7 mm; nenhuma célula
+  fora da largura útil; fonte mínima de 11px; todos os totais inteiros no
+  `pdftotext`; mensal em retrato sem regressão. Fechado.
+- **R-M1:** sem alerta em mês vazio, com 500,00 e com estorno no mesmo mês.
+  Fechado.
+- **R-M2:** nenhum identificador interno nem "PATCH" nos oito PDFs e nas
+  mensagens de erro. Fechado.
+- **R-M3:** o texto do limite do livro-caixa aparece uma única vez.
+  Fechado.
+- **R-M5:** os mutantes N9 e N21 morrem. Fechado.
+- **R-M4:** pagamento no exterior sem rendimento do exterior gera alerta em
+  maio, e setembro e o anual apuram normalmente. Fechado.
+- Suíte completa (3312 passed, só a falha conhecida de Python 3.13), lint,
+  formatação, `check`, `makemigrations --check`, migração em banco vazio,
+  testes do instrumento (137 passed) e o instrumento (saída 0, 13 telas).
+
+**Achados da verificação, fora dos seis itens**, confirmando o que o
+`arquiteto-senior` viu na captura do PDF:
+
+1. **Defeito:** com 12 meses, o anual impresso saía em duas páginas e a linha
+   "Total do ano" ficava sozinha na segunda; a primeira página não tinha
+   total. O teste de R-A1 passava porque lia o texto do PDF inteiro.
+2. **Decisão de apresentação (`arquiteto-senior`):** mês sem rendimento
+   sujeito mostrava "Dedução aplicada 607,20" com base zero. Passa a mostrar
+   "—" e "Sem movimento"; o motor não muda.
+3. **Defeito:** links saíam azuis no papel, porque uma regra de tela vencia a
+   regra de impressão por especificidade — em todos os documentos, não só no
+   carnê-leão.
+4. **Ambiente:** o `page.pdf()` do Chromium local, com margem acima de ~1 mm,
+   deixa a barra lateral aparecer no PDF. Os valores não mudam; evidência
+   visual de PDF deste ambiente é gerada com margem 0.
+
+Os três primeiros foram corrigidos no commit `76781ec`, pela
+`especialista-frontend`, com teste para cada um (o do total confere o texto
+**por página**) e prova de mutação. Registro da correção na seção
+"Correção final da reconferência" acima.

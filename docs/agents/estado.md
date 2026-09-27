@@ -94,7 +94,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Integrada (PR #49) |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
-| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR da DL-045) |
+| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
 | [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -104,8 +104,7 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-046: fatia 1 (livro-caixa) em PR; fatia 2 (carnê-leão) com a
-correção da rodada 1 pronta, aguardando reconferência do `auditor-qa`.**
+**AGORA — DL-046 fatia 2 (apuração do carnê-leão) em PR.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -123,12 +122,12 @@ correção da rodada 1 pronta, aguardando reconferência do `auditor-qa`.**
   uso das antigas abas do Fiscal foi apagada com autorização do Fred (26/09).
   Integrada pelo PR #50; o PR #51 corrigiu a folha de estilo servida em cache
   depois do merge (versão do arquivo no link).
-- **DL-045** (DRE, nível 1): integrada pelo PR da DL-045, fechada sem
+- **DL-045** (DRE, nível 1): integrada pelo PR #52, fechada sem
   terceira rodada de auditoria (verificação descrita no
   [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
   conta de grupo só pelo admin até existir tela de editar conta (BL-541).
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
-  **em PR**. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
+  integrada pelo PR #53. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
   Federal, leiaute público do Carnê-Leão Web, manual do sistema de
   referência) e respostas do Fred (RC-127 a RC-130). Rodada 1 da auditoria
   ([relatório](../auditorias/2026-09-26-dl-046-rodada-1.md)) e
@@ -137,23 +136,19 @@ correção da rodada 1 pronta, aguardando reconferência do `auditor-qa`.**
   modelo do leiaute oficial. Fechamento **sem terceira rodada**, por
   verificação independente descrita no
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
-  instrumento de medição do N3 quebrado, corrigido e medido de novo. O Fred
-  decide no PR. A fatia 2 (apuração mensal do carnê-leão) foi implementada
-  (worktree `wt-dl046f2`, branch `dl046-f2`): a PE-71 foi respondida em fonte
-  oficial (RC-131, HI-32 a HI-34). A [rodada 1 da
-  auditoria](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md)
-  **reprovou** (dois achados ALTOS sobre o limite do livro-caixa e a base do
-  carnê-leão, oito MÉDIOS e seis BAIXOS) — a conclusão errada vinha da
-  RC-132, corrigida pela [DE-091](../projeto/decisoes.md). A correção (única
-  antes da reconferência, AGENTS.md §3.1) foi implementada pelo
-  `desenvolvedor-pleno`: limite do livro-caixa somando trabalho e notarial de
-  qualquer origem; forma de dedução escolhida pela maior dedução; leitura
-  literal da compensação do imposto pago no exterior; estorno de caixa com
-  data padrão do lançamento original; tabela jan-abr/2025 semeada; PATCH de
-  dependentes; contrato da API com rendimentos por código/origem e totais
-  anuais exatos — detalhes na seção "Correção da rodada 1 da fatia 2" do
-  [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). Aguarda
-  reconferência do `auditor-qa` (nível 1, nunca pula essa etapa).
+  instrumento de medição do N3 quebrado, corrigido e medido de novo. A
+  **fatia 2** (apuração mensal e
+  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) está **em
+  PR**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
+  [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md)
+  reprovaram; as correções seguiram a DE-091 e a DE-092 (a RC-132 estava
+  errada no limite do livro-caixa, conferido nas perguntas 427 a 429 do
+  Perguntas e Respostas IRPF 2026). Fechamento **sem terceira rodada**, por
+  verificação independente descrita no
+  [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). Pendências do Fred:
+  validar a leitura literal da compensação do exterior (HI-38), o aluguel
+  lançado sem as parcelas do art. 42 (HI-39), o resíduo abaixo de R$ 10,00
+  em dezembro (HI-37) e o valor por dependente de 2026 (HI-32).
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
