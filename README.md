@@ -226,6 +226,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-041** — CNPJ e CPF únicos por escritório: nenhum escritório descobre, pelo cadastro, a carteira de outro
 - **DL-044** — telas de trabalho com aspecto de produto profissional: casca azul com barra lateral única, cartões sobre fundo neutro, Início com indicadores e carteira, hub de relatórios e ações de linha como botão, com o Conta Azul como referência de padrão escolhida pelo Fred
 - **DL-045** — Demonstração do Resultado do Exercício (DRE): classificação de conta pelas linhas do art. 187 da Lei 6.404/76, com resultado financeiro destacado e equivalência patrimonial em linha própria (NBC TG 26, NBC TG 1000, modelos da ITG 1000); apuração pelo movimento do período, excluindo o zeramento, em coluna do mês e acumulado do exercício. Plano em [docs/planos/DL-045-demonstracao-do-resultado.md](docs/planos/DL-045-demonstracao-do-resultado.md)
+- **DL-046** — livro-caixa e carnê-leão do cliente pessoa física: lançamentos de caixa com o código do Carnê-Leão Web, apuração mensal com excesso de deduções (RIR/2018, arts. 68-69 e 118-125) e arquivo de importação no leiaute oficial
 
 Ainda não existem:
 

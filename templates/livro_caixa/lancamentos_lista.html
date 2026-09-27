@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block titulo %}Lançamentos de caixa — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Lançamentos de caixa</h1>{% endblock %}
+{% block acoes_pagina %}
+    {% if pode_escriturar %}
+        <a class="botao botao--primario" href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver os lançamentos, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+    </form>
+
+    {% if linhas %}
+        <div class="cartao-tabela">
+            <table class="tabela-dados tabela-lancamentos-caixa">
+                <caption class="visualmente-oculto">Lançamentos de caixa de {{ empresa.razao_social }} no período</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">Lançamento</th>
+                        <th scope="col" class="cabecalho-numerico">Valor</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% comment %}
+                    Medido a 390px: com SEIS colunas (Data/Conta/Histórico/
+                    Valor/Situação/Ação) a tabela estourava a largura, e
+                    `.cartao-tabela { overflow: hidden }` CORTAVA
+                    "Situação"/"Ação" fora da tela em vez de rolar — o
+                    botão "Estornar" ficava invisível, sem aviso nenhum
+                    (o achado que a direção de arte proíbe: nenhuma
+                    dependência de rolagem horizontal escondendo dado).
+                    Reduzido para QUATRO colunas: "Conta" e "Histórico"
+                    (e a situação Estorno/Estornado) dobram dentro de
+                    "Lançamento", empilhados — mesma técnica que o Plano
+                    de contas já usa para "Nome" quebrar em duas linhas
+                    sem estourar. Nenhuma informação foi removida, só
+                    reorganizada.
+                    {% endcomment %}
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.lancamento.data|date:"d/m/Y" }}</td>
+                            <td>
+                                {{ linha.lancamento.conta.codigo }} — {{ linha.lancamento.conta.nome }}
+                                {% if linha.lancamento.historico %}
+                                    <br><span class="texto-apoio">{{ linha.lancamento.historico }}</span>
+                                {% endif %}
+                                {% if linha.e_estorno %}
+                                    <br><span class="texto-apoio">Estorno do lançamento nº {{ linha.lancamento.estorno_de_id }}</span>
+                                {% elif linha.ja_estornado %}
+                                    <br><span class="texto-apoio">Estornado</span>
+                                {% endif %}
+                            </td>
+                            <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
+                            <td class="acoes-de-linha">
+                                {% if pode_escriturar and not linha.e_estorno and not linha.ja_estornado %}
+                                    <a class="botao botao--secundario botao--pequeno"
+                                       href="{% url 'livro_caixa_web:lancamento_estornar' empresa.id linha.lancamento.id %}">
+                                        Estornar
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif inicio and fim %}
+        <p class="mensagem mensagem-info" role="status">
+            <strong>Nenhum lançamento neste período</strong>
+            ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}).
+            {% if pode_escriturar %}
+                <a href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Lance o primeiro</a>.
+            {% endif %}
+        </p>
+    {% endif %}
+{% endblock %}

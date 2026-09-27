@@ -6,6 +6,7 @@ from apps.empresas.fields import CNPJModelField, CPFModelField
 from apps.empresas.validators import (
     normalizar_cnpj,
     normalizar_cpf,
+    validar_caepf,
     validar_cnpj,
     validar_cpf,
     validar_vigencia_de_regime,
@@ -60,6 +61,11 @@ _CNPJ_TEM_FORMATO_VALIDO = models.Q(cnpj__regex=r"^[A-Z0-9]{12}[0-9]{2}$")
 # limitação documentada acima e em `Empresa.save()`): só dígitos, 11
 # posições, exigido apenas quando o tipo É CPF.
 _CPF_TEM_FORMATO_VALIDO = models.Q(cpf__regex=r"^[0-9]{11}$")
+
+# DL-046 (RC-129): formato do CAEPF — 14 dígitos, sem dígito verificador
+# (HI-31; ver `apps.empresas.validators.validar_caepf` para a fonte, SERPRO,
+# e a ressalva de que nenhuma fonte confirmada documenta o algoritmo do DV).
+_CAEPF_TEM_FORMATO_VALIDO = models.Q(caepf__regex=r"^[0-9]{14}$")
 
 
 class TipoInscricao(models.TextChoices):
@@ -174,6 +180,24 @@ class Empresa(models.Model):
     # por `validar_cpf` (`apps.empresas.validators` — fonte NÃO oficial,
     # declarada lá).
     cpf = CPFModelField("CPF", max_length=11, blank=True, default="", validators=[validar_cpf])
+    # DL-046 (RC-129): CAEPF (Cadastro de Atividade Econômica da Pessoa
+    # Física) — OPCIONAL, só para `tipo_inscricao=CPF` (guarda no `clean()`
+    # abaixo + `CheckConstraint` "empresa_caepf_so_para_cpf" no Meta). 14
+    # dígitos, sem máscara — ver `apps.empresas.validators.validar_caepf`
+    # para a fonte (SERPRO) e a ressalva de HI-31 (sem dígito verificador,
+    # nenhuma fonte confirmada documenta o algoritmo). NÃO é `CPFModelField`
+    # (é outro cadastro, com outro formato — 14 dígitos, não 11).
+    caepf = models.CharField(
+        "CAEPF",
+        max_length=14,
+        blank=True,
+        default="",
+        validators=[validar_caepf],
+        help_text=(
+            "Cadastro de Atividade Econômica da Pessoa Física (opcional, "
+            "RC-129) — 14 dígitos, sem máscara. Só para tipo de inscrição CPF."
+        ),
+    )
     # DL-038 (R4): como a empresa é escriturada. Ver ModoEscrituracao acima
     # para a política de valor padrão (sempre CONTABILIDADE, mesmo para
     # CPF — HI-23 é sugestão de TELA, não de modelo).
@@ -325,6 +349,20 @@ class Empresa(models.Model):
                     ]
                 ),
                 name="empresa_modo_escrituracao_valido",
+            ),
+            # DL-046 (RC-129): CAEPF só para empresa de tipo CPF — mesmo
+            # padrão condicional de `empresa_cpf_formato_valido`. Não repete
+            # o FORMATO (14 dígitos) aqui: `_CAEPF_TEM_FORMATO_VALIDO`
+            # decide isso; esta constraint só fecha o domínio "não pode
+            # haver CAEPF em empresa CNPJ", que nenhum campo/choices alcança
+            # por fora do banco (mesmo motivo do achado B8 citado acima).
+            models.CheckConstraint(
+                condition=(
+                    models.Q(tipo_inscricao=TipoInscricao.CPF)
+                    & (models.Q(caepf="") | _CAEPF_TEM_FORMATO_VALIDO)
+                )
+                | (~models.Q(tipo_inscricao=TipoInscricao.CPF) & models.Q(caepf="")),
+                name="empresa_caepf_so_para_cpf_com_formato_valido",
             ),
         ]
 
@@ -500,6 +538,7 @@ class Empresa(models.Model):
             # (não cobre ORM direto nem `QuerySet.update()`) — a defesa que
             # cobre o caminho real de escrita (API) é a do serializer.
             from apps.empresas.services import (
+                recusar_transicao_para_contabilidade_com_movimento_de_caixa,
                 recusar_transicao_para_cpf_com_estabelecimento,
                 recusar_transicao_para_livro_caixa_com_movimento,
             )
@@ -514,6 +553,13 @@ class Empresa(models.Model):
                 # `ValidationError` — propaga direto, sem tradução: é
                 # exatamente o contrato que `full_clean()` espera.
                 recusar_transicao_para_livro_caixa_com_movimento(
+                    self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
+                )
+                # A1 (rodada 1 de auditoria, DE-087 item 1): o ESPELHO da
+                # guarda acima, na direção contrária — sair de livro-caixa
+                # com movimento de caixa gravado. `TransicaoParaContabilidade
+                # Invalida` também é `ValidationError`, mesmo contrato.
+                recusar_transicao_para_contabilidade_com_movimento_de_caixa(
                     self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
                 )
 
@@ -546,6 +592,21 @@ class Empresa(models.Model):
             recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa(
                 self.escritorio_id, self.cnpj, empresa=self
             )
+
+        # DL-046 (RC-129/HI-31): coerência estrutural entre CAEPF e CPF —
+        # os 9 primeiros dígitos do CAEPF são os 9 primeiros do CPF do
+        # titular (fonte SERPRO, ver `apps.empresas.validators.
+        # validar_caepf`). O FORMATO isolado (14 dígitos) já é validado pelo
+        # `validators=[validar_caepf]` do campo (roda em `clean_fields()`,
+        # ANTES deste método); aqui só falta a comparação CRUZADA com
+        # `self.cpf`, que um validador de campo isolado não alcança. Só
+        # roda quando os DOIS estão preenchidos — CAEPF é opcional (RC-129)
+        # e uma empresa CNPJ nunca tem `cpf` preenchido (constraint "empresa
+        # _inscricao_consistente_com_tipo"), então o `caepf` dela já é
+        # obrigatoriamente vazio pela constraint "empresa_caepf_so_para_
+        # cpf_com_formato_valido" — nada a cruzar neste caso.
+        if self.caepf and self.cpf:
+            validar_caepf(self.caepf, cpf=self.cpf)
 
 
 class RegimeTributario(models.TextChoices):

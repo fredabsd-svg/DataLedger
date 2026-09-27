@@ -563,10 +563,19 @@ def _empresas_da_carteira(escritorio):
                 "em_livro_caixa": em_livro_caixa,
                 "ultima_competencia_fechada": f"{ultima[1]:02d}/{ultima[0]}" if ultima else None,
                 "pendencias": mapa_pendencias.get(empresa.id, 0),
-                "url_abrir": (
-                    None
+                # A3 (rodada 1 da auditoria da DL-046): antes desta
+                # correção `url_abrir` era `None` para toda empresa em
+                # livro-caixa — a linha ficava sem NENHUM link, e o Início
+                # não tinha caminho nenhum até o livro-caixa (só chegava
+                # lá digitando a URL). Mesmo destino que "Abrir" já usa na
+                # lista de empresas (`templates/empresas/lista.html`) para
+                # a contabilidade: o Plano de contas é a porta de entrada
+                # nos dois módulos.
+                "url_abrir": reverse(
+                    "livro_caixa_web:plano_de_contas"
                     if em_livro_caixa
-                    else reverse("contabilidade_web:plano_de_contas", args=[empresa.id])
+                    else "contabilidade_web:plano_de_contas",
+                    args=[empresa.id],
                 ),
             }
         )

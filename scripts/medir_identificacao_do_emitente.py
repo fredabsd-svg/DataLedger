@@ -374,6 +374,19 @@ TELAS_MINIMAS_COM_TIMBRE_ESPERADAS = frozenset(
     {"contabilidade_web:balancete", "contabilidade_web:diario", "contabilidade_web:razao"}
 )
 
+# DL-046: piso SEPARADO do de cima (critério 3 da DL-026, especificamente
+# "Balancete, Diário, Razão") — o Livro Caixa também carrega
+# `.timbre-impressao` (`templates/livro_caixa/relatorio.html`), mas NUNCA
+# aparece na varredura contra a empresa PADRÃO da base de medição: aquela
+# empresa está em modo `contabilidade` (o padrão do campo), e a rota do
+# relatório de livro-caixa RECUSA (400) qualquer empresa fora do modo
+# `livro_caixa`, antes mesmo de chegar ao template
+# (`apps.empresas.services.recusar_se_nao_livro_caixa`) — MEDIDO nesta
+# tarefa. Por isso a varredura deste piso precisa de uma empresa PRÓPRIA
+# (`_preparar_empresa_livro_caixa`, abaixo), MESMA lógica que já justifica
+# `_preparar_empresa_classe_2` para o Balanço.
+TELAS_MINIMAS_LIVRO_CAIXA_COM_TIMBRE_ESPERADAS = frozenset({"livro_caixa_web:relatorio"})
+
 
 def _recusar(mensagem):
     """Saída de código `2` — FALHA DE INFRAESTRUTURA (ver a tabela de
@@ -590,6 +603,21 @@ SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS = ".identificacao-do-documento p"
 TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
     {"contabilidade_web:balanco", "contabilidade_web:dre"}
 )
+
+# DL-046: piso SEPARADO, NUNCA somado ao de cima. O Livro Caixa também
+# carrega `.identificacao-do-documento` (razão social/CPF do contribuinte
+# + base legal, `templates/livro_caixa/relatorio.html`), mas é a
+# identificação de um LIVRO (RC-127/HI-30, base Decreto 9.580/2018 arts.
+# 68/69), não de uma DEMONSTRAÇÃO (NBC TG 26 item 51, RC-95) — as TRÊS
+# classes de documento de `docs/projeto/personalizacao-de-relatorio.md`
+# (conferência, demonstração, livro) têm fundamento normativo diferente,
+# mesmo reaproveitando o MESMO marcador CSS para "este documento identifica
+# a entidade a que se refere". Um frozenset por classe, e um bloco de
+# medição por frozenset (abaixo, depois do bloco de classe 2), pela MESMA
+# razão que `_descobrir_telas_com_identificacao_do_documento` já não
+# reaproveita `_descobrir_telas_com_timbre`: misturar as duas obscureceria
+# qual tela pertence a qual critério.
+TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS = frozenset({"livro_caixa_web:relatorio"})
 
 _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
     r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'
@@ -963,6 +991,184 @@ def _descobrir_telas_com_identificacao_do_documento(cliente, empresa, conta):
             "html": medir_impressao._com_css_local(html_da_tela),
         }
     return telas
+
+
+# CPF sintético FIXO — mesma convenção de idempotência de
+# `CNPJ_EMPRESA_DE_MEDICAO_CLASSE_2` (acima): a mesma empresa é REAPROVEITADA
+# entre execuções contra o MESMO banco, nunca recriada. "12345678909" já é
+# usado como CPF sintético em `apps/livro_caixa/tests/test_dl046_livro_caixa.py`
+# — mesmo valor, sem inventar um novo CPF numericamente válido à parte.
+CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA = "12345678909"
+
+# CNPJ sintético do pagador dos recebimentos PJ. Desde a DE-088 (regra de
+# CPF/CNPJ por modelo do leiaute), o rendimento de trabalho não assalariado
+# recebido de PJ exige o CNPJ do pagador — sem ele, a montagem do cenário
+# é recusada e o instrumento nem chega ao navegador (verificação do
+# fechamento da DL-046). Mesmo valor sintético de
+# `apps/livro_caixa/tests/test_dl046_livro_caixa.py` (`CNPJ_PAGADOR`).
+CNPJ_PAGADOR_DE_MEDICAO_LIVRO_CAIXA = "11122233000183"
+
+# N3 (reconferência da DL-046): volume MEDIDO (equivalente ao da auditoria
+# de 2026-09-27) para a tabela principal preencher folhas o bastante e a
+# tabela P20 nascer em folha PRÓPRIA — nem todo volume grande faz isso:
+# pouco demais e a P20 nunca sai da folha da principal; volume demais e as
+# duas folhas cortam em outro ponto qualquer. Recalibrar aqui se o
+# template/CSS mudar (mesma fragilidade documentada em
+# N_PARES_PARA_SEIS_FOLHAS, acima).
+N_RECEITAS_LIVRO_CAIXA = 71
+N_DESPESAS_CUSTEIO_LIVRO_CAIXA = 15
+N_PAGAMENTOS_P20_LIVRO_CAIXA = 31
+
+
+def _preparar_empresa_livro_caixa(escritorio):
+    """Cria (ou REAPROVEITA, se já existir — idempotente) uma empresa
+    PRÓPRIA em modo `livro_caixa`, sob o MESMO escritório da base de
+    medição compartilhada — DL-046 (tarefa do arquiteto-senior de
+    2026-09-26, autorização explícita para este script): "se o Livro
+    Caixa tiver timbre/identificação do documento, garanta que ele entra
+    na medição (piso de telas) sem afrouxar nada".
+
+    ⚠️ **Por que uma empresa PRÓPRIA, nunca a `empresa` da base padrão nem
+    a de `_preparar_empresa_classe_2`.** MESMO raciocínio das duas de cima:
+    a base padrão (`scripts/semear_base_de_medicao.py`) é modo
+    `contabilidade` (o padrão do campo — ver `ModoEscrituracao`, em
+    `apps.empresas.models`) e o livro-caixa RECUSA no servidor qualquer
+    tela sua para empresa fora do modo `livro_caixa`
+    (`apps.empresas.services.recusar_se_nao_livro_caixa`, chamada por
+    `_sem_livro_caixa_para_contabilidade` na view) — contra a base padrão
+    esta tela sempre devolveria 403, nunca a classe procurada, por desenho
+    do produto, não por regressão. Uma empresa PRÓPRIA, sob o MESMO
+    escritório (autorização é por escritório — o `cliente` já autenticado
+    para as duas medições de cima enxerga esta também), evita alterar
+    `semear_base_de_medicao.py`, que é COMPARTILHADO por outras medições
+    já publicadas (direção de arte, §4.8).
+
+    N3 (reconferência da DL-046, achado da auditoria de 2026-09-27): SÓ um
+    lançamento de receita não bastava — a tabela P20 (pagamentos que
+    deduzem o carnê-leão, DE-087 item 13) é uma TABELA SEPARADA
+    (`templates/livro_caixa/relatorio.html`), e com pouco volume ela
+    nunca cai em folha própria na impressão, então a medição nunca
+    exercitava o `<thead>` PRÓPRIO daquela tabela. A auditoria mediu, com
+    uma base maior (71 receitas, 15 despesas P10, 31 pagamentos P20, 2
+    estornos), que a tabela P20 CAI em folha própria e sai sem
+    identificação (REPROVADO, `folhas_sem_bloco_de_identificacao: [6]`).
+    Este preparo usa volume equivalente (`N_RECEITAS_LIVRO_CAIXA`/
+    `N_PAGAMENTOS_P20_LIVRO_CAIXA`, acima) para o piso de tela FALHAR de
+    verdade se a correção do N3 regredir — sem isso, a medição do
+    livro-caixa PASSA mesmo com a tabela P20 sem identificação, do mesmo
+    jeito que passava antes desta correção.
+
+    Devolve `(empresa, conta)` — `conta` é a `ContaLivroCaixa` de RECEITA
+    criada (mesma assinatura de `_preparar_empresa_classe_2`, por
+    uniformidade; a rota do relatório não precisa de `conta_id`, então
+    este valor só seria usado se uma rota nova de livro-caixa passar a
+    exigir)."""
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from django.db import transaction
+
+    from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+    from apps.livro_caixa.models import NaturezaCaixa, OrigemRecebimento
+    from apps.livro_caixa.services import (
+        criar_conta_livro_caixa,
+        criar_lancamento_caixa,
+        estornar_lancamento_caixa,
+    )
+    from apps.livro_caixa.validators import CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO
+
+    empresa_existente = Empresa.objects.filter(
+        cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA, escritorio=escritorio
+    ).first()
+    if empresa_existente is not None:
+        conta_existente = empresa_existente.contas_livro_caixa.filter(
+            natureza=NaturezaCaixa.RECEITA
+        ).first()
+        return empresa_existente, conta_existente
+
+    # Montagem ATÔMICA: sem isso, uma falha no meio (foi o que aconteceu na
+    # verificação do fechamento da DL-046) deixava a empresa gravada SEM
+    # lançamentos, a execução seguinte a reaproveitava pelo retorno acima,
+    # e o relatório medido tinha UMA folha só — "PASSOU" sem medir o N3.
+    with transaction.atomic():
+        empresa = Empresa.objects.create(
+            escritorio=escritorio,
+            razao_social="Empresa de Medição — Livro Caixa (DL-046) Fulano de Tal",
+            tipo_inscricao=TipoInscricao.CPF,
+            cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA,
+            modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+            caepf="12345678900017",
+        )
+        conta = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="1",
+            nome="Serviços prestados",
+            natureza=NaturezaCaixa.RECEITA,
+            codigo_carne_leao=CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
+        )
+        conta_custeio = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="2",
+            nome="Despesas de custeio",
+            natureza=NaturezaCaixa.DESPESA,
+            codigo_carne_leao="P10.001",
+        )
+        conta_p20 = criar_conta_livro_caixa(
+            empresa=empresa,
+            codigo="3",
+            nome="Previdência oficial paga",
+            natureza=NaturezaCaixa.DESPESA,
+            codigo_carne_leao="P20.01.00001",
+        )
+
+        # `medir_impressao.PERIODO_INICIO`/`PERIODO_FIM` são strings ISO fixas
+        # ("2026-03-01"/"2026-03-31") — MESMO período usado no `?inicio=&fim=`
+        # de toda requisição deste instrumento. Os lançamentos precisam cair
+        # DENTRO dele, ou a apuração do relatório (`apurar_livro_caixa`)
+        # devolve `itens=[]` e a tabela inteira não é renderizada.
+        inicio_do_periodo = date.fromisoformat(medir_impressao.PERIODO_INICIO)
+
+        for indice in range(1, N_RECEITAS_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta,
+                data=data,
+                valor=Decimal("100.00") + Decimal(indice),
+                historico=f"Recebimento sintético {indice:03d} — medição DL-046",
+                recebido_de=OrigemRecebimento.PJ,
+                cnpj_pagador=CNPJ_PAGADOR_DE_MEDICAO_LIVRO_CAIXA,
+            )
+        for indice in range(1, N_DESPESAS_CUSTEIO_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_custeio,
+                data=data,
+                valor=Decimal("20.00") + Decimal(indice),
+                historico=f"Despesa de custeio sintética {indice:03d} — medição DL-046",
+            )
+        ultimo_p20 = None
+        for indice in range(1, N_PAGAMENTOS_P20_LIVRO_CAIXA + 1):
+            data = inicio_do_periodo + timedelta(days=(indice % 28))
+            ultimo_p20 = criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_p20,
+                data=data,
+                valor=Decimal("50.00") + Decimal(indice),
+                historico=f"Previdência oficial sintética {indice:03d} — medição DL-046",
+            )
+        # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
+        # exercitar o parêntese/referência do estorno naquela tabela (não só
+        # a existência dela). `data=` explícita: o padrão de
+        # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
+        # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
+        # nesta medição — o estorno nunca apareceria no relatório medido.
+        if ultimo_p20 is not None:
+            estornar_lancamento_caixa(
+                ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
+            )
+        return empresa, conta
 
 
 # ---------------------------------------------------------------------------
@@ -2642,6 +2848,16 @@ def main(argv):
             "semeada — contrato quebrado (o método nunca deveria devolver vazio)."
         )
 
+    # DL-046: preparada AQUI (antes da varredura de timbre, não só depois,
+    # perto da varredura de identificação do documento) porque o Livro
+    # Caixa também tem `.timbre-impressao` — ver
+    # TELAS_MINIMAS_LIVRO_CAIXA_COM_TIMBRE_ESPERADAS. As linhas do timbre
+    # são do ESCRITÓRIO (mesmo `escritorio` de `empresa`, acima) — o
+    # conteúdo esperado não muda entre as duas empresas, só a tela que o
+    # carrega, por isso o resultado entra no MESMO `telas`/piso/medição de
+    # baixo, sem duplicar a passagem pelo navegador.
+    empresa_livro_caixa, conta_livro_caixa = _preparar_empresa_livro_caixa(escritorio)
+
     telas = _descobrir_telas_com_timbre(cliente, empresa, conta)
     if not telas:
         _recusar(
@@ -2651,6 +2867,7 @@ def main(argv):
             "HTML ou na varredura em si, não ausência real. Investigue antes "
             "de confiar em qualquer resultado deste instrumento."
         )
+    telas.update(_descobrir_telas_com_timbre(cliente, empresa_livro_caixa, conta_livro_caixa))
     print(
         f"telas derivadas com timbre ({len(telas)}): {', '.join(sorted(telas))}",
         file=sys.stderr,
@@ -2670,6 +2887,20 @@ def main(argv):
         "escondido por CSS"
         for nome in telas_do_piso_ausentes
     ]
+    # DL-046: piso SEPARADO (ver TELAS_MINIMAS_LIVRO_CAIXA_COM_TIMBRE_
+    # ESPERADAS) somado ao MESMO acumulador — a reprovação de qualquer um
+    # dos dois pisos reprova o job inteiro, MESMA regra de combinação que
+    # o bloco de identificação do documento já aplica, abaixo.
+    telas_livro_caixa_do_piso_ausentes_timbre = sorted(
+        TELAS_MINIMAS_LIVRO_CAIXA_COM_TIMBRE_ESPERADAS - telas.keys()
+    )
+    reprovacoes_do_piso += [
+        f"{nome}: tela de LIVRO CAIXA do piso mínimo (DL-046) NÃO encontrada pela "
+        "varredura de timbre — o timbre pode ter sido removido inteiro do template, "
+        "não só escondido por CSS"
+        for nome in telas_livro_caixa_do_piso_ausentes_timbre
+    ]
+    telas_do_piso_ausentes += telas_livro_caixa_do_piso_ausentes_timbre
 
     nomes_para_medir = sorted(telas if filtro_telas is None else (telas.keys() & filtro_telas))
     if filtro_telas and not nomes_para_medir:
@@ -3391,6 +3622,209 @@ def main(argv):
             file=sys.stderr,
         )
 
+    # ------------------------------------------------------------------
+    # DL-046 (tarefa do arquiteto-senior de 2026-09-26): o Livro Caixa
+    # também carrega `.identificacao-do-documento` — ver o comentário de
+    # `TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS`, acima, sobre
+    # por que este é um piso SEPARADO do de classe 2 (Balanço), embora
+    # reaproveite o MESMO marcador CSS e a MESMA função de varredura.
+    # Bloco DELIBERADAMENTE NÃO fundido ao `if telas_documento: ... else:`
+    # de cima: aquele bloco checa, de forma INCONDICIONAL, a nota de
+    # reconciliação do Balanço (RC-104/BL-503, `.nota-de-reconciliacao`) —
+    # conceito exclusivo de demonstração patrimonial, que o Livro Caixa
+    # (regime de caixa, sem "resultado a transferir ao PL") nunca vai ter.
+    # Fundir os dois faria este piso reprovar por um motivo que não é dele.
+    # `empresa_livro_caixa`/`conta_livro_caixa` já foram preparadas mais
+    # acima (antes da varredura de timbre) — MESMA empresa, REAPROVEITADA
+    # aqui, nunca uma segunda criada à parte.
+    telas_livro_caixa = _descobrir_telas_com_identificacao_do_documento(
+        cliente, empresa_livro_caixa, conta_livro_caixa
+    )
+    telas_livro_caixa_do_piso_ausentes = sorted(
+        TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS - telas_livro_caixa.keys()
+    )
+    for nome in telas_livro_caixa_do_piso_ausentes:
+        reprovacoes_documento.append(
+            f"{nome}: tela de LIVRO CAIXA do piso mínimo (DL-046) NÃO encontrada pela "
+            "varredura — o bloco de identificação do documento pode ter sido removido "
+            "inteiro do template, não só escondido por CSS"
+        )
+        relatorio_documento[nome] = {
+            "url": None,
+            "veredito": "AUSENTE (piso mínimo)",
+            "motivos": ["tela do piso mínimo (DL-046, Livro Caixa) não encontrada pela varredura"],
+        }
+
+    if telas_livro_caixa:
+        print(
+            "telas derivadas com identificação do documento (livro caixa, "
+            f"{len(telas_livro_caixa)}): {', '.join(sorted(telas_livro_caixa))}",
+            file=sys.stderr,
+        )
+        with tempfile.TemporaryDirectory(prefix="dl-medir-livro-caixa-") as pasta_temp_lc:
+            pasta_html_lc = Path(pasta_temp_lc) / "html"
+            pasta_html_lc.mkdir()
+            nomes_livro_caixa = sorted(telas_livro_caixa)
+            for nome in nomes_livro_caixa:
+                (pasta_html_lc / f"{nome.replace(':', '_')}.html").write_text(
+                    telas_livro_caixa[nome]["html"], encoding="utf-8"
+                )
+
+            pasta_saida_lc = (
+                (pasta_informada / "identificacao-do-documento-livro-caixa")
+                if pasta_informada
+                else (Path(pasta_temp_lc) / "pdfs")
+            )
+            pasta_saida_lc.mkdir(parents=True, exist_ok=True)
+
+            resultados_navegador_lc = _medir_no_navegador(
+                pasta_html_lc,
+                pasta_saida_lc,
+                nomes_livro_caixa,
+                seletor_container=SELETOR_IDENTIFICACAO_DO_DOCUMENTO,
+                seletor_filhos=SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS,
+            )
+
+            for nome in nomes_livro_caixa:
+                medida = resultados_navegador_lc.get(nome, {})
+                entrada = {"url": telas_livro_caixa[nome]["url"], "medicao_navegador": medida}
+                relatorio_documento[nome] = entrada
+
+                if "erro" in medida:
+                    _recusar(f"{nome}: erro de navegação/medição — {medida['erro']}")
+
+                motivos = []
+                if not medida.get("encontrado"):
+                    motivos.append(
+                        "container '.identificacao-do-documento' não encontrado no HTML "
+                        "(folha 1 — antes mesmo de checar as demais páginas)"
+                    )
+                elif not medida.get("visivel"):
+                    motivos.append(
+                        "container '.identificacao-do-documento' NÃO visível sob impressão "
+                        "(folha 1)"
+                    )
+
+                caminho_pdf = pasta_saida_lc / f"{nome.replace(':', '_')}.pdf"
+                entrada["pdf"] = str(caminho_pdf)
+
+                if not motivos and caminho_pdf.exists():
+                    html_da_tela = telas_livro_caixa[nome]["html"]
+                    bloco_identificacao = _extrair_conteudo_do_bloco(
+                        html_da_tela, "identificacao-do-documento"
+                    )
+                    texto_esperado = (
+                        bloco_identificacao["texto"] if bloco_identificacao is not None else None
+                    )
+                    if not texto_esperado:
+                        _recusar(
+                            f"{nome}: '.identificacao-do-documento' foi ENCONTRADO pela "
+                            "varredura, mas o instrumento não conseguiu extrair o TEXTO "
+                            "do bloco completo — atualize a extração junto com o template; "
+                            "extração parcial é recusada."
+                        )
+
+                    total_paginas = _total_de_paginas(caminho_pdf)
+                    folhas_sem_bloco = [
+                        pagina
+                        for pagina in range(1, total_paginas + 1)
+                        if texto_esperado not in _texto_da_pagina_sem_espaco(caminho_pdf, pagina)
+                    ]
+                    entrada["total_paginas"] = total_paginas
+                    entrada["folhas_sem_bloco_de_identificacao"] = folhas_sem_bloco
+                    if folhas_sem_bloco:
+                        motivos.append(
+                            "bloco de identificação do documento AUSENTE em "
+                            f"{len(folhas_sem_bloco)} de {total_paginas} página(s): folha(s) "
+                            f"{folhas_sem_bloco} — medido no TEXTO do PDF exportado, não só "
+                            "no HTML servido"
+                        )
+
+                    # SEM checagem de nota de reconciliação — ver o comentário
+                    # no topo deste bloco: é conceito exclusivo do Balanço.
+
+                    linhas_identificacao = bloco_identificacao["paragrafos"]
+                    if not linhas_identificacao:
+                        _recusar(
+                            f"{nome}: o bloco completo de identificação foi encontrado, mas "
+                            "não contém parágrafos que o instrumento possa medir."
+                        )
+                    fonte_das_linhas = medida.get("fonte_das_linhas")
+                    if fonte_das_linhas is None:
+                        _recusar(
+                            f"{nome}: a medição de fonte das linhas veio ausente; não é "
+                            "possível aplicar o oráculo de contraste."
+                        )
+                    if len(fonte_das_linhas) != len(linhas_identificacao):
+                        motivos.append(
+                            "número de parágrafos de identificação no navegador "
+                            f"({len(fonte_das_linhas)}) diverge do HTML servido "
+                            f"({len(linhas_identificacao)})"
+                        )
+
+                    razoes_minimas = [
+                        _razao_minima_wcag_para_linha(
+                            fonte_das_linhas[indice]["tamanho_efetivo_px"],
+                            fonte_das_linhas[indice]["peso"],
+                        )
+                        if indice < len(fonte_das_linhas)
+                        else RAZAO_MINIMA_WCAG_TEXTO_NORMAL
+                        for indice in range(len(linhas_identificacao))
+                    ]
+                    localizacoes = _localizar_linhas_do_timbre_no_documento(
+                        caminho_pdf, linhas_identificacao, razoes_minimas
+                    )
+                    filhos = medida.get("filhos", [])
+                    linhas_medidas = []
+                    for indice, linha in enumerate(linhas_identificacao):
+                        localizacao = localizacoes[indice]
+                        contraste_maximo = localizacao["contraste_maximo_medido"]
+                        razao_minima = razoes_minimas[indice]
+                        linha_medida = {
+                            "texto": linha,
+                            "folha": localizacao["folha"],
+                            "pixels_com_contraste": localizacao["pixels_com_contraste"],
+                            "contraste_maximo_medido": round(contraste_maximo, 3),
+                            "razao_minima_exigida": razao_minima,
+                        }
+                        linhas_medidas.append(linha_medida)
+
+                        if localizacao["bbox"] is None:
+                            filho = filhos[indice] if indice < len(filhos) else None
+                            if filho and _tinta_invisivel(filho.get("cor_efetiva")):
+                                motivos.append(
+                                    "linha da identificação do documento com CONTRASTE "
+                                    f"insuficiente contra o papel (tinta transparente): {linha!r}"
+                                )
+                            continue
+                        if contraste_maximo < razao_minima:
+                            motivos.append(
+                                "linha da identificação do documento com CONTRASTE "
+                                f"insuficiente contra o papel: {linha!r} — "
+                                f"{contraste_maximo:.2f}:1 medido, mínimo exigido "
+                                f"{razao_minima:.1f}:1"
+                            )
+                        elif localizacao["pixels_com_contraste"] < PISO_PIXELS_ESCUROS_POR_LINHA:
+                            motivos.append(
+                                "linha da identificação do documento com POUCOS PIXELS "
+                                f"de tinta contrastante: {linha!r} — "
+                                f"{localizacao['pixels_com_contraste']} pixel(s), piso "
+                                f"{PISO_PIXELS_ESCUROS_POR_LINHA}"
+                            )
+                    entrada["linhas_identificacao_do_documento"] = linhas_medidas
+
+                entrada["veredito"] = "PASSOU" if not motivos else "REPROVADO"
+                entrada["motivos"] = motivos
+                if motivos:
+                    reprovacoes_documento.append(f"{nome}: {'; '.join(motivos)}")
+    else:
+        print(
+            "AVISO: nenhuma tela de Livro Caixa (identificação do documento, DL-046) "
+            "encontrada pela varredura — ver os nomes do piso mínimo abaixo, se algum "
+            "estiver ausente.",
+            file=sys.stderr,
+        )
+
     print(json.dumps(relatorio_documento, ensure_ascii=False, indent=2))
     for nome, entrada in relatorio_documento.items():
         print(f"{nome}: {entrada['veredito']} — {entrada.get('url')}")
@@ -3407,6 +3841,8 @@ def main(argv):
             total_telas_consideradas_timbre
             + len(telas_documento_do_piso_ausentes)
             + len(telas_documento)
+            + len(telas_livro_caixa_do_piso_ausentes)
+            + len(telas_livro_caixa)
         )
         detalhe = "\n".join(f"  - {linha}" for linha in reprovacoes_totais)
         _reprovar_por_conteudo(

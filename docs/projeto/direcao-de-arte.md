@@ -118,6 +118,7 @@ sem mudar a identidade visual:
 | Módulo | A pergunta que a tela responde antes de gravar |
 | --- | --- |
 | **Contábil** | Débito é igual a crédito? |
+| **Livro-caixa** | A conta tem o código do Carnê-Leão Web coerente com a natureza (receita/despesa), e a documentação de quem pagou/recebeu está completa quando o código exige (RC-113/RC-114/HI-30)? |
 | **Fiscal** | O documento é elegível, não é duplicado, e a apuração confere com a memória de cálculo? |
 | **Folha** | Proventos menos descontos dá o líquido, e as bases de encargo batem? |
 | **Honorários** | O que está sendo faturado corresponde ao contrato vigente, e não é cobrança repetida? |

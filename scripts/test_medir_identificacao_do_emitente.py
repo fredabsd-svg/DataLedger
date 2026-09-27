@@ -1646,6 +1646,7 @@ def _rodar_instrumento_sabotado(
     html_sabotada,
     url,
     sabotagem_documento_css=None,
+    neutralizar_piso_livro_caixa=True,
 ):
     """Roda `instrumento.main([])` de VERDADE contra UMA tela fabricada a
     partir de HTML genuinamente renderizado — ver o comentário da seção,
@@ -1669,6 +1670,17 @@ def _rodar_instrumento_sabotado(
         },
     )
     monkeypatch.setattr(instrumento, "TELAS_MINIMAS_COM_TIMBRE_ESPERADAS", frozenset({nome_tela}))
+    # DL-046: o piso de timbre do Livro Caixa é SEPARADO do piso acima e
+    # precisa do mesmo estreitamento — a varredura substituída devolve só
+    # a tela fabricada, então o relatório de livro-caixa nunca aparece
+    # nela e todo controle limpo reprovaria por "tela do piso ausente"
+    # (verificação do fechamento da DL-046). Quem quer medir ESSE piso
+    # passa `neutralizar_piso_livro_caixa=False`
+    # (`test_ponta_a_ponta_piso_do_livro_caixa_ausente_reprova`).
+    if neutralizar_piso_livro_caixa:
+        monkeypatch.setattr(
+            instrumento, "TELAS_MINIMAS_LIVRO_CAIXA_COM_TIMBRE_ESPERADAS", frozenset()
+        )
 
     if sabotagem_documento_css:
         descobrir_documentos = instrumento._descobrir_telas_com_identificacao_do_documento
@@ -1712,6 +1724,24 @@ def test_ponta_a_ponta_controle_limpo_passa_com_codigo_zero(monkeypatch, capsys)
     assert '"total_paginas": 6' in saida
     assert '"folhas_sem_bloco_do_item_51": []' in saida
     assert '"folhas_sem_nota_de_reconciliacao": []' in saida
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_ponta_a_ponta_piso_do_livro_caixa_ausente_reprova(monkeypatch, capsys):
+    """DL-046: o relatório de Livro Caixa é piso próprio da varredura de
+    timbre. Se ela não o encontra (aqui, porque a varredura devolve só o
+    balancete), o instrumento reprova por CONTEÚDO e nomeia a tela."""
+    usuario, _escritorio, empresa = _criar_cenario_sintetico()
+    cliente = _client_autenticado(usuario)
+    url, html = _html_real_do_balancete(cliente, empresa)
+
+    codigo, _saida, err = _rodar_instrumento_sabotado(
+        monkeypatch, capsys, cliente, empresa, html, url, neutralizar_piso_livro_caixa=False
+    )
+
+    assert codigo == 1, f"piso do Livro Caixa ausente não reprovou — stderr:\n{err}"
+    assert "livro_caixa_web:relatorio: tela de LIVRO CAIXA do piso mínimo" in err
 
 
 @pytestmark_ponta_a_ponta

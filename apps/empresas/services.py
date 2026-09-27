@@ -536,6 +536,42 @@ def recusar_se_livro_caixa(empresa):
         raise EmpresaEmModoLivroCaixa()
 
 
+# DL-046 (fatia 1, critério 1 do plano): ESPELHO exato de `recusar_se_
+# livro_caixa`, na direção oposta — o livro-caixa (apps.livro_caixa) só
+# existe para empresa em modo LIVRO_CAIXA; empresa em modo CONTABILIDADE
+# recusa lançamento de caixa, do mesmo jeito que empresa em livro-caixa
+# recusa lançamento contábil (DL-038). PONTO ÚNICO desta recusa, para que
+# nenhuma rota do app novo reimplemente a comparação com seu próprio
+# texto — mesma razão de existir da função acima.
+MENSAGEM_RECUSA_LIVRO_CAIXA_PARA_CONTABILIDADE = (
+    "Esta empresa está em modo de escrituração contabilidade (partidas "
+    "dobradas), não livro-caixa. O livro-caixa não está disponível para ela."
+)
+
+
+class EmpresaNaoEmModoLivroCaixa(Exception):
+    """Levantada por `recusar_se_nao_livro_caixa` quando a empresa está em
+    modo `contabilidade` — mesmo motivo de `EmpresaEmModoLivroCaixa` ser um
+    tipo próprio (não `ValueError`/`ValidationError`): cada consumidor (o
+    mixin de API de `apps.livro_caixa.views`, e uma futura tela) traduz para
+    o protocolo dele sem risco de capturar por engano outra exceção de
+    negócio."""
+
+    def __init__(self, mensagem=MENSAGEM_RECUSA_LIVRO_CAIXA_PARA_CONTABILIDADE):
+        self.mensagem = mensagem
+        super().__init__(mensagem)
+
+
+def recusar_se_nao_livro_caixa(empresa):
+    """Levanta `EmpresaNaoEmModoLivroCaixa` se `empresa.modo_escrituracao`
+    NÃO for `LIVRO_CAIXA` — o espelho exato de `recusar_se_livro_caixa`.
+    Não faz nada (devolve `None`) quando a empresa JÁ está em livro-caixa —
+    quem chama só precisa saber que "não levantou nada" é o caminho livre.
+    """
+    if empresa.modo_escrituracao != ModoEscrituracao.LIVRO_CAIXA:
+        raise EmpresaNaoEmModoLivroCaixa()
+
+
 # ---------------------------------------------------------------------------
 # DL-038 (R6): não é possível mudar uma empresa PARA modo livro-caixa se ela
 # já tem plano de contas ou lançamento contábil gravado — mudaria o
@@ -576,6 +612,57 @@ def recusar_transicao_para_livro_caixa_com_movimento(empresa, *, modo_anterior, 
             "Não é possível mudar esta empresa para livro-caixa: ela já tem plano de "
             "contas ou lançamento contábil gravado. Empresas com escrituração "
             "existente permanecem em modo contabilidade."
+        )
+
+
+class TransicaoParaContabilidadeInvalida(ValidationError):
+    """Achado A1 da rodada 1 de auditoria da DL-046 (DE-087, item 1):
+    empresa com CONTA ou LANÇAMENTO de caixa gravado não pode passar para
+    modo contabilidade — o ESPELHO exato de `TransicaoParaLivroCaixaInvalida`
+    (R6/DL-038), na direção contrária. Sem esta guarda, `PATCH
+    modo_escrituracao=contabilidade` era aceito com movimento de caixa
+    gravado, e o livro-caixa inteiro (contas, lançamentos, estornos) ficava
+    inacessível de toda tela, API e relatório — e, depois do primeiro
+    lançamento CONTÁBIL feito em seguida, a guarda R6 já existente impedia
+    voltar para livro-caixa, deixando os dados de caixa órfãos para sempre.
+
+    Subclasse de `ValidationError` pelo MESMO motivo do espelho: `Empresa.
+    clean()` precisa poder deixá-la propagar sem tradução, e `EmpresaSerializer.
+    validate` já sabe traduzir qualquer `ValidationError` do Django."""
+
+
+def recusar_transicao_para_contabilidade_com_movimento_de_caixa(
+    empresa, *, modo_anterior, modo_novo
+):
+    """Levanta `TransicaoParaContabilidadeInvalida` se esta TRANSIÇÃO
+    (`modo_anterior` -> `modo_novo`) SAIR de `LIVRO_CAIXA` e a empresa já
+    tiver `ContaLivroCaixa` ou `LancamentoCaixa` gravado.
+
+    Só examina a TRANSIÇÃO, nunca o estado por si só — mesmo contrato do
+    espelho `recusar_transicao_para_livro_caixa_com_movimento`, acima:
+    uma empresa que JÁ está em `CONTABILIDADE` (nenhuma mudança) ou que
+    está migrando PARA `LIVRO_CAIXA` não aciona esta regra (essa direção já
+    tem a guarda R6).
+
+    Import LOCAL de `apps.livro_caixa.models` (dentro da função, não no
+    topo do módulo): evita ciclo de import — `apps.livro_caixa.models`
+    importa `apps.empresas.services` (para `recusar_se_nao_livro_caixa`),
+    então este módulo não pode importar `apps.livro_caixa` no nível do
+    módulo sem criar um ciclo.
+    """
+    if modo_anterior != ModoEscrituracao.LIVRO_CAIXA or modo_novo == ModoEscrituracao.LIVRO_CAIXA:
+        return
+
+    from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa
+
+    tem_movimento = ContaLivroCaixa.objects.filter(empresa=empresa).exists() or (
+        LancamentoCaixa.objects.filter(empresa=empresa).exists()
+    )
+    if tem_movimento:
+        raise TransicaoParaContabilidadeInvalida(
+            "Não é possível mudar esta empresa para contabilidade: ela já tem "
+            "conta ou lançamento de caixa gravado no livro-caixa. Empresas com "
+            "escrituração de caixa existente permanecem em modo livro-caixa."
         )
 
 

@@ -385,3 +385,73 @@ def validar_vigencia_de_regime(valor):
     mensagem = mensagem_de_vigencia_de_regime_fora_da_faixa(valor)
     if mensagem is not None:
         raise ValidationError(mensagem)
+
+
+# ---------------------------------------------------------------------------
+# DL-046 (RC-129) — CAEPF (Cadastro de Atividade Econômica da Pessoa
+# Física), campo opcional no cadastro de cliente pessoa física.
+#
+# FONTE (consultada em 2026-09-26): documentação oficial do Cadastro
+# Compartilhado da Receita Federal (SERPRO),
+# https://bcadastros.serpro.gov.br/documentacao/cadastro_caepf/ — o número
+# completo (`nroAepfCompleto`) tem **14 posições**: os **9 primeiros dígitos
+# do CPF** do titular, seguidos de um **número resumido de 5 posições**
+# (`nroAepfResumido`) que identifica a inscrição dentro daquele CPF. Exemplo
+# do próprio documento: CPF começando em "000000025" produz CAEPF
+# "00000002500171" (prefixo "000000025" + resumido "00171").
+#
+# ⚠️ **A fonte NÃO documenta o algoritmo de cálculo de um dígito
+# verificador** para o CAEPF (só a composição estrutural do número) — outras
+# fontes não oficiais mencionam "3 dígitos sequenciais + 2 DV" dentro do
+# resumido de 5 posições, mas nenhuma delas publica a fórmula do DV, e a
+# fonte oficial (SERPRO) não confirma essa divisão interna. Por isso este
+# validador confere SÓ o que a fonte oficial garante — 14 dígitos numéricos
+# e os 9 primeiros iguais aos 9 primeiros dígitos do CPF informado — e NUNCA
+# tenta recalcular um dígito verificador que nenhuma fonte confirmada
+# documenta (instrução da tarefa: "se não achar fonte, só valide dígitos e
+# registre HI" — ver HI-31 em docs/projeto/requisitos.md).
+_REGEX_CAEPF = re.compile(r"^[0-9]{14}$")
+
+
+def normalizar_caepf(valor):
+    """Remove espaço/máscara do CAEPF — texto de 14 dígitos, sem máscara.
+
+    Mesmo molde de `normalizar_cpf`/`normalizar_cnpj`: aceita dígitos com ou
+    sem separador (o cadastro compartilhado costuma exibir o número
+    resumido como `NNN.NNNNN`, mas a fonte oficial não fixa uma máscara
+    única) — remove qualquer caractere que não seja dígito antes de validar
+    o tamanho, então "000.000.025.001.71" e "00000002500171" normalizam
+    para o mesmo valor.
+    """
+    if not isinstance(valor, str):
+        raise ValidationError("CAEPF deve ser um texto.")
+    valor = valor.strip()
+    if valor == "":
+        return valor
+    apenas_digitos = re.sub(r"[^0-9]", "", valor)
+    return apenas_digitos
+
+
+def validar_caepf(valor, *, cpf=None):
+    """Valida o FORMATO do CAEPF (14 dígitos) e, quando `cpf` for informado,
+    a COERÊNCIA estrutural com ele (os 9 primeiros dígitos do CAEPF são os
+    9 primeiros dígitos do CPF do titular — fonte SERPRO, ver o comentário
+    acima). NÃO valida dígito verificador: nenhuma fonte confirmada
+    documenta o algoritmo (HI-31).
+
+    `cpf` é opcional aqui (a validação cruzada com o CPF da própria empresa
+    é responsabilidade de quem chama — `Empresa.clean()`/`EmpresaSerializer`
+    — que tem os dois valores disponíveis); passado ele, a coerência é
+    conferida nesta mesma função para não duplicar a comparação.
+    """
+    caepf = normalizar_caepf(valor)
+    if not _REGEX_CAEPF.fullmatch(caepf):
+        raise ValidationError("CAEPF deve ter 14 dígitos numéricos.")
+    if cpf:
+        cpf_normalizado = normalizar_cpf(cpf)
+        if caepf[:9] != cpf_normalizado[:9]:
+            raise ValidationError(
+                "CAEPF não corresponde ao CPF desta empresa: os 9 primeiros "
+                "dígitos do CAEPF devem ser os 9 primeiros dígitos do CPF do "
+                "titular (Cadastro Compartilhado da Receita Federal)."
+            )

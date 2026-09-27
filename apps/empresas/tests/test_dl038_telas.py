@@ -357,6 +357,13 @@ def test_lista_mostra_rotulo_inscricao_e_modo_de_cada_empresa(client, escritorio
 
 
 def test_lista_empresa_livro_caixa_nao_oferece_link_de_contabilidade(client, escritorio):
+    """A3 (rodada 1 da auditoria da DL-046): esta linha nunca oferece um
+    link de CONTABILIDADE (R5/DE-075 — o regime não se aplica a empresa em
+    livro-caixa), mas — diferente do comportamento reprovado na
+    auditoria — TEM ação: "Abrir" leva ao Plano de contas do livro-caixa
+    desta empresa. Antes desta correção a célula só mostrava um aviso em
+    texto, sem link nenhum (a lista de empresas era um beco sem saída até
+    o livro-caixa)."""
     empresa_livro_caixa = Empresa.objects.create(
         escritorio=escritorio,
         razao_social="Fulano Livro-Caixa",
@@ -369,7 +376,7 @@ def test_lista_empresa_livro_caixa_nao_oferece_link_de_contabilidade(client, esc
 
     conteudo = client.get(reverse("empresas:lista")).content.decode()
 
-    assert "a contabilidade por partidas dobradas não se aplica" in conteudo
+    assert reverse("livro_caixa_web:plano_de_contas", args=[empresa_livro_caixa.id]) in conteudo
     assert reverse("contabilidade_web:balancete", args=[empresa_livro_caixa.id]) not in conteudo
 
 
