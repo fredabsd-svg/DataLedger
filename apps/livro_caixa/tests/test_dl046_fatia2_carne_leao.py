@@ -1751,6 +1751,25 @@ def test_aud_snapshot_usa_repeatable_read(cenario):
         fonte="Vigência de teste, própria deste caso (ver docstring).",
         valor_por_dependente=Decimal("189.59"),
     )
+    # R-B3 (reconferência): a partir de 2026-01-01 a redução é OBRIGATÓRIA
+    # (sua ausência vira erro) — este teste precisa da própria vigência de
+    # redução também, pelo mesmo motivo das duas de cima. Data
+    # PROPOSITALMENTE anterior a 2026-01-01 (a real, semeada pela migração
+    # 0004): a apuração sempre recalcula de janeiro do ano pedido, então
+    # esta vigência precisa cobrir janeiro/2026 mesmo que a real tenha sido
+    # apagada por outro teste `transaction=True` — e, se a real ESTIVER
+    # presente (2026-01-01, posterior a esta), ela vence naturalmente (é a
+    # de maior início não posterior à referência), sem colisão de
+    # `UniqueConstraint` nos dois cenários.
+    VigenciaReducaoCarneLeao.objects.create(
+        vigencia_inicio=date(2025, 12, 1),
+        fonte="Vigência de teste, própria deste caso (ver docstring).",
+        limite_faixa_plena=Decimal("5000.00"),
+        reducao_maxima=Decimal("312.89"),
+        constante_formula=Decimal("978.62"),
+        coeficiente=Decimal("0.133145"),
+        limite_superior=Decimal("7350.00"),
+    )
     empresa = cenario["empresa_a"]
     _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "1000.00")
     with CaptureQueriesContext(connection) as capturado:
