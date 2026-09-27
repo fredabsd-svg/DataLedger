@@ -136,9 +136,10 @@ merge do PR #38, sem commit individual por etapa.
   modelo do leiaute oficial. Fechamento **sem terceira rodada**, por
   verificação independente descrita no
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
-  instrumento de medição do N3 quebrado, corrigido e medido de novo. A
-  fatia 2 (apuração mensal do carnê-leão) depende da PE-71, em pesquisa na
-  fonte oficial. O Fred decide no PR.
+  instrumento de medição do N3 quebrado, corrigido e medido de novo. O Fred
+  decide no PR. A fatia 2 (apuração mensal do carnê-leão) está
+  **desbloqueada**: a PE-71 foi respondida em fonte oficial (RC-131, HI-32 a
+  HI-34), e é a próxima etapa depois deste PR.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
