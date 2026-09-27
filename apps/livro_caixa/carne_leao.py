@@ -20,6 +20,23 @@ ausência LEGÍTIMA (item 5); a quantidade de dependentes ganha retificação
 passa a morar na vigência da tabela, com fonte (item 8, B-1); e as correções
 pontuais B-2 a B-5 (ver `docs/projeto/requisitos.md`/`decisoes.md`).
 
+⚠️ **Correção da RECONFERÊNCIA da fatia 2, em 2026-09-27** (DE-092, sobre
+`docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md`): a HI-38
+(imposto pago no exterior sem rendimento do exterior no mês) deixou de
+BLOQUEAR a apuração — bloqueava o resto do ano-calendário inteiro, porque a
+apuração de qualquer mês encadeia desde janeiro, e a Perguntas e Respostas
+IRPF 2026 prevê justamente esse caso como compensável no mês do próprio
+pagamento (R-M4/item 1); o alerta de rendimento líquido negativo passou a
+disparar só quando o RENDIMENTO SUJEITO do mês é negativo, não mais quando a
+dedução supera o rendimento — a versão anterior disparava em quase todo mês
+comum (R-M1/item 2); mensagens ao usuário (motor e serviço) pararam de citar
+identificador interno do projeto ou jargão técnico (R-M2/item 3); a ausência
+de vigência de redução virou erro a partir de 2026-01-01 — só é ausência
+legítima ANTES disso (R-B3); a memória do mês ganhou `deducao_aplicada`,
+`valor_por_dependente`, `reducao_vigente` e `imposto_exterior_nao_
+compensavel` (R-B4/B5); e `retificar_dependentes_carne_leao` trava a linha
+da empresa (R-B6).
+
 ⚠️ **RC-133 foi CORRIGIDA em 2026-09-27** (ordem do arquiteto-senior): a
 redução da Lei 15.270/2025 usa o RENDIMENTO BRUTO (antes de qualquer
 dedução), NUNCA a base de cálculo — a versão original deste módulo usava a
@@ -150,34 +167,26 @@ class DependentesCarneLeaoInvalido(Exception):
 
 
 class ImpostoExteriorSemRendimentoExterior(Exception):
-    """HI-38/DE-091 item 3 — recusa a apuração de um mês em que há imposto
-    pago no exterior (`P20.01.00003`) lançado SEM nenhum rendimento sujeito
-    de fonte no exterior (`recebido_de='EX'`) no MESMO mês.
+    """⚠️ **Não é mais levantada pela apuração.** A rodada 1 desta correção
+    recusava o mês inteiro quando havia imposto pago no exterior
+    (`P20.01.00003`) sem nenhum rendimento sujeito de fonte no exterior no
+    mesmo mês (HI-38). A reconferência mediu o efeito colateral (R-M4): a
+    recusa bloqueava TODO o resto do ano-calendário (a apuração de qualquer
+    mês encadeia desde janeiro), quando a Perguntas e Respostas IRPF 2026
+    prevê justamente esse caso (imposto pago em mês posterior ao
+    rendimento) como compensável no mês do próprio pagamento.
 
-    ⚠️ **Decisão do arquiteto-senior, 2026-09-27: a recusa acontece na
-    APURAÇÃO, não na gravação do lançamento** (`apps.livro_caixa.services.
-    criar_lancamento_caixa`), com justificativa:
+    A decisão revista (DE-092, item 1) é: o mês é apurado normalmente, a
+    compensação desse pagamento específico é zero, e a memória do mês traz
+    um alerta em linguagem simples avisando que o valor pode ser aproveitado
+    na declaração anual — sem interromper o encadeamento dos meses
+    seguintes. Ver `_apurar_um_mes`.
 
-    1. O rendimento do exterior e o pagamento do imposto podem ser lançados
-       em qualquer ORDEM, em datas diferentes do MESMO mês — recusar na
-       gravação do pagamento penalizaria quem lança o pagamento antes do
-       rendimento (ambos do mesmo mês), mesmo que a combinação fique válida
-       segundos depois, quando o segundo lançamento chegar.
-    2. Validar na gravação exigiria uma consulta a TODOS os lançamentos do
-       mês a cada novo lançamento de `P20.01.00003` — custo e acoplamento
-       que a fatia 1 (`criar_lancamento_caixa`) não paga hoje para nenhum
-       outro código.
-    3. A apuração (`_apurar_um_mes`) já é o único ponto que vê o mês inteiro
-       de uma vez (RC-130: sempre recalculada dos lançamentos de origem) —
-       é o lugar natural para uma regra que depende de DOIS lançamentos
-       possivelmente distintos.
-
-    Reversível: se o Fred confirmar que o escritório lança primeiro o
-    imposto e só depois o rendimento (ou vice-versa) na rotina real, e isso
-    causar recusas incômodas na TELA em vez de úteis, mover a checagem para
-    a gravação fica mais simples DEPOIS de ter os dois lançamentos de
-    exemplo reais — não antes.
-    """
+    Esta classe continua **definida**, mas nunca mais levantada por este
+    módulo, porque a tela do carnê-leão (`views_web.py`, outro worktree)
+    ainda a importa e a captura como um estado de erro — removê-la
+    quebraria esse import. Reportado ao `arquiteto-senior` para decidir se
+    a tela deve parar de importá-la numa etapa futura."""
 
 
 # ---------------------------------------------------------------------------
@@ -474,14 +483,6 @@ def _apurar_um_mes(
     saldo_credito_exterior_anterior,
     saldo_pendente_abaixo_de_dez_anterior,
 ):
-    if agregados["imposto_pago_exterior"] > 0 and agregados["rendimento_exterior_sujeito"] <= 0:
-        raise ImpostoExteriorSemRendimentoExterior(
-            f"Há imposto pago no exterior lançado em {mes:02d}/{ano} sem nenhum "
-            "rendimento sujeito de fonte no exterior no mesmo mês — a apuração "
-            "recusa este mês (HI-38, requisitos.md). Lance o rendimento do "
-            "exterior correspondente, no mesmo mês, antes de apurar."
-        )
-
     rendimento_total = agregados["rendimento_total_sujeito"]
 
     # Livro-caixa (art. 68/69, RIR/2018) — DE-091 item 1 (A-1/A-2): o LIMITE
@@ -546,8 +547,12 @@ def _apurar_um_mes(
 
     # DE-091 item 2 (M-1): escolhe pela MAIOR DEDUÇÃO, ANTES da redução —
     # mesmo critério que a própria Receita usa para orientar o contribuinte
-    # (P&R IRPF 2026, pergunta 267: "o desconto simplificado é mais
-    # vantajoso do que as deduções legais [quando] o valor... for maior");
+    # ("Exemplos de Aplicação da Lei 15.270/2025", gov.br/receitafederal,
+    # publicado 22/12/2025, atualizado 04/03/2026, Exemplos 1 e 2: "Como o
+    # desconto simplificado mensal é mais vantajoso do que as deduções
+    # legais, a fonte pagadora deve considerá-lo" — CORREÇÃO da rodada da
+    # reconferência, R-B5: a citação anterior apontava a P&R IRPF 2026,
+    # pergunta 267, que não traz essa frase);
     # decidir pelo IMPOSTO FINAL (como a versão anterior fazia) podia
     # escolher a forma de MENOR dedução em alguns casos de fronteira da
     # redução — a auditoria da rodada 1 mediu isso (achado M-1). Empate:
@@ -597,6 +602,14 @@ def _apurar_um_mes(
     # anual, fora do escopo). O saldo de meses ANTERIORES (já filtrado pelo
     # limite deles, no passado) soma-se inteiro.
     parte_compensavel_do_mes = min(agregados["imposto_pago_exterior"], limite_exterior)
+    # R-B4 (reconferência): a parte do pagamento do mês que NUNCA compensa
+    # (passa do limite) ficava sem rótulo próprio na memória — rotulada
+    # aqui como "não compensável" (perdida para o carnê-leão; só
+    # aproveitável na declaração anual, observado o limite do rendimento
+    # de origem).
+    imposto_exterior_nao_compensavel = _q(
+        agregados["imposto_pago_exterior"] - parte_compensavel_do_mes
+    )
     credito_exterior_disponivel = _q(parte_compensavel_do_mes + saldo_credito_exterior_anterior)
     compensacao_exterior = max(_ZERO, min(credito_exterior_disponivel, imposto_com_exterior))
     saldo_credito_exterior_novo = _q(credito_exterior_disponivel - compensacao_exterior)
@@ -617,18 +630,42 @@ def _apurar_um_mes(
         valor_a_pagar = total_a_considerar
         saldo_pendente_novo = _ZERO
 
-    # DE-091 item 4 (M-4): alerta para mês com rendimento líquido (rendimento
-    # sujeito menos a dedução ESCOLHIDA) negativo — a base de cálculo real
-    # (`_pipeline`) já zera nesse caso, mas o alerta avisa a tela de que a
-    # dedução superou o rendimento do mês.
-    rendimento_liquido_do_mes = _q(rendimento_total - deducao_escolhida_valor)
+    # DE-092 item 2 (R-M1, correção da reconferência): o alerta de defesa
+    # dispara SÓ quando o RENDIMENTO SUJEITO do mês (antes de qualquer
+    # dedução) é negativo — a versão anterior comparava rendimento menos a
+    # dedução ESCOLHIDA, que é negativo em quase todo mês comum (a dedução
+    # normalmente supera o rendimento), disparando em 11 de 12 meses de um
+    # cenário real (achado da reconferência) — alerta falso crônico que o
+    # contador aprende a ignorar. Na prática, com a agregação por ORM,
+    # `rendimento_total_sujeito` nunca fica negativo (nenhuma combinação de
+    # lançamento e estorno, no MESMO mês, produz soma negativa); o alerta é
+    # uma defesa, testada forçando o valor diretamente em `agregados` (sem
+    # passar pelo ORM). Valor negativo no padrão do produto: entre
+    # parênteses, sem sinal de menos (RC-90).
     alertas = []
-    if rendimento_liquido_do_mes < 0:
+    if rendimento_total < 0:
         alertas.append(
-            "O rendimento líquido do mês (rendimento sujeito menos a dedução "
-            f"aplicada) foi negativo ({_fmt_reais(rendimento_liquido_do_mes)}) — a "
-            "base de cálculo foi zerada; o excedente da dedução NÃO é levado a "
-            "outro mês (fora do livro-caixa, que já tem seu próprio excesso)."
+            f"O rendimento sujeito do mês foi negativo: ({_fmt_reais(_q(-rendimento_total))})."
+        )
+
+    # DE-092 item 1 (R-M4, correção da reconferência): imposto pago no
+    # exterior num mês SEM rendimento sujeito de fonte no exterior não
+    # bloqueia mais a apuração (HI-38 antiga recusava o mês inteiro, e a
+    # apuração de qualquer mês encadeia desde janeiro — a recusa acabava
+    # bloqueando o resto do ano-calendário inteiro, quando a Perguntas e
+    # Respostas IRPF 2026 prevê justamente esse caso: pagamento em mês
+    # posterior ao rendimento, compensável no mês do próprio pagamento). A
+    # compensação deste pagamento específico já sai zero (a diferença entre
+    # o imposto "com" e "sem" um rendimento do exterior de R$ 0,00 é
+    # sempre R$ 0,00) — só falta avisar em linguagem simples.
+    if agregados["imposto_pago_exterior"] > 0 and agregados["rendimento_exterior_sujeito"] <= 0:
+        alertas.append(
+            "Imposto pago no exterior de "
+            f"{_fmt_reais(_q(agregados['imposto_pago_exterior']))} não foi "
+            "compensado neste mês porque não há rendimento do exterior no mês; "
+            "pode ser aproveitado na declaração anual, observado o limite do "
+            "rendimento de origem (Perguntas e Respostas IRPF 2026, pergunta "
+            "267)."
         )
 
     return {
@@ -643,6 +680,7 @@ def _apurar_um_mes(
         "pensao_alimenticia_paga": _q(agregados["pensao_paga"]),
         "dependentes_quantidade": quantidade_dependentes,
         "dependentes_valor": dependentes_valor,
+        "valor_por_dependente": valor_por_dependente,
         "receita_atividade_limite_livro_caixa": _q(agregados["receita_atividade_limite"]),
         "despesa_livro_caixa_do_mes": _q(agregados["despesa_p10"]),
         "excesso_livro_caixa_anterior": _q(excesso_livro_caixa_anterior),
@@ -651,18 +689,21 @@ def _apurar_um_mes(
         "deducoes_reais_total": deducoes_reais_total,
         "desconto_simplificado": desconto_simplificado,
         "forma_escolhida": forma_escolhida,
+        "deducao_aplicada": deducao_escolhida_valor,
         "criterio_escolha_forma": criterio_escolha_forma,
         "memoria_deducoes_reais": pipeline_real,
         "memoria_desconto_simplificado": pipeline_simplificado,
         "base_de_calculo": pipeline_escolhido["base"],
         "imposto_pela_tabela": pipeline_escolhido["imposto_tabela"],
         "reducao_lei_15270_2025": pipeline_escolhido["reducao_aplicada"],
+        "reducao_vigente": reducao_cfg is not None,
         "imposto_apos_reducao": pipeline_escolhido["imposto_apos_reducao"],
         "imposto_com_exterior": _q(imposto_com_exterior),
         "imposto_sem_exterior": _q(imposto_sem_exterior),
         "imposto_pago_exterior_do_mes": _q(agregados["imposto_pago_exterior"]),
         "limite_compensacao_exterior": limite_exterior,
         "compensacao_exterior_aplicada": compensacao_exterior,
+        "imposto_exterior_nao_compensavel": imposto_exterior_nao_compensavel,
         "saldo_credito_exterior_novo": saldo_credito_exterior_novo,
         "imposto_devido_no_mes": imposto_devido_no_mes,
         "saldo_pendente_abaixo_de_dez_anterior": _q(saldo_pendente_abaixo_de_dez_anterior),
@@ -719,6 +760,12 @@ def _dependentes_por_mes(empresa, ano, mes_final):
 
 _PRIMEIRO_ANO_COM_TABELA = 2025
 
+# R-B3 (reconferência): a Lei 15.270/2025, art. 8º, produz efeitos "a
+# partir do mês de janeiro do ano-calendário de 2026" — a partir desta
+# data, a redução é OBRIGATÓRIA (sua ausência vira erro de configuração,
+# nunca leitura de "sem redução"). Ver `_apurar_ano_calendario`.
+_INICIO_REDUCAO_OBRIGATORIA = date(2026, 1, 1)
+
 
 def _apurar_ano_calendario(*, empresa, ano, mes_final):
     """Recalcula, do zero, janeiro a `mes_final` do `ano` pedido —
@@ -769,15 +816,29 @@ def _apurar_ano_calendario(*, empresa, ano, mes_final):
     for mes in range(1, mes_final + 1):
         referencia = date(ano, mes, 1)
         vig_tabela = _maior_vigencia_nao_posterior(vigencias_tabela, referencia)
-        # DE-091 item 5 (M-5): vig_reducao PODE ser `None` para qualquer mês
-        # de 2025 — ausência LEGÍTIMA (Lei 15.270/2025, art. 8º: "a partir
-        # do mês de janeiro do ano-calendário de 2026"), nunca erro. Ver
-        # `_reducao_bruta`.
+        # DE-091 item 5 (M-5)/R-B3 (reconferência): vig_reducao só PODE ser
+        # `None` para um mês ANTERIOR a 2026-01-01 — ausência LEGÍTIMA (Lei
+        # 15.270/2025, art. 8º: "a partir do mês de janeiro do ano-
+        # calendário de 2026"). A partir de 2026-01-01 a ausência é ERRO de
+        # configuração normativa (falta semear a migração de dados), nunca
+        # uma leitura válida de "sem redução" — a reconferência mediu que a
+        # versão anterior aceitava `None` para QUALQUER mês, inclusive
+        # 2026 em diante, o que geraria imposto maior em silêncio (a
+        # redução, que reduziria o imposto, simplesmente não seria
+        # aplicada). Ver `_reducao_bruta`.
         vig_reducao = _maior_vigencia_nao_posterior(vigencias_reducao, referencia)
         vig_dependente = _maior_vigencia_nao_posterior(vigencias_dependente, referencia)
         if vig_tabela is None or not list(vig_tabela.faixas.all()):
             raise TabelaCarneLeaoNaoConfigurada(
                 f"Não há tabela progressiva do carnê-leão vigente para {mes:02d}/{ano}."
+            )
+        if vig_reducao is None and referencia >= _INICIO_REDUCAO_OBRIGATORIA:
+            raise TabelaCarneLeaoNaoConfigurada(
+                "Não há redução (Lei 15.270/2025) vigente para "
+                f"{mes:02d}/{ano} — a partir de "
+                f"{_INICIO_REDUCAO_OBRIGATORIA.strftime('%m/%Y')} a redução é "
+                "obrigatória, e sua ausência é falha de configuração, não "
+                "ausência legítima (só antes disso)."
             )
         if vig_dependente is None:
             raise TabelaCarneLeaoNaoConfigurada(
@@ -862,22 +923,23 @@ _CAMPO_ANUAL_PARA_CAMPO_MENSAL = {
 }
 
 
-def _deducao_aplicada_do_mes(mes_resultado):
-    if mes_resultado["forma_escolhida"] == "simplificado":
-        return mes_resultado["desconto_simplificado"]
-    return mes_resultado["deducoes_reais_total"]
-
-
 def _totais_anuais(meses):
     """Soma EXATA dos 12 meses para cada um dos 8 campos do contrato da API
     (DE-091 item 7/M-2) — `Decimal` somado direto (sem novo arredondamento:
     cada parcela mensal já passou por `_q`, e soma de valores já
-    arredondados a 2 casas não introduz erro de escala)."""
+    arredondados a 2 casas não introduz erro de escala).
+
+    ⚠️ **R-B5 (reconferência):** `deducoes_aplicadas` lê `deducao_aplicada`
+    direto do dict de CADA mês (campo que `_apurar_um_mes` já devolve,
+    desde a correção da reconferência) — antes, esta função e a TELA
+    (`views_web.py`) repetiam a MESMA regra ("simplificado? desconto :
+    deduções reais") cada uma na sua camada, e foi essa duplicação que
+    deixou a tela sem cobertura (achado N21)."""
     totais = dict.fromkeys(_CAMPOS_TOTAIS_ANUAIS, _ZERO)
     for mes_resultado in meses:
         for campo_anual in _CAMPOS_TOTAIS_ANUAIS:
             if campo_anual == "deducoes_aplicadas":
-                totais[campo_anual] += _deducao_aplicada_do_mes(mes_resultado)
+                totais[campo_anual] += mes_resultado["deducao_aplicada"]
             else:
                 totais[campo_anual] += mes_resultado[_CAMPO_ANUAL_PARA_CAMPO_MENSAL[campo_anual]]
     return {campo: _q(valor) for campo, valor in totais.items()}
@@ -954,9 +1016,17 @@ def retificar_dependentes_carne_leao(registro, *, quantidade, retificado_por=Non
     `EstornarLancamentoCaixaView`: a view busca o objeto com
     `get_object_or_404(..., empresa=empresa)` ANTES de chamar o serviço — um
     `registro` de OUTRA empresa/escritório já vira 404 na view, antes de
-    chegar aqui)."""
+    chegar aqui).
+
+    ⚠️ **R-B6 (reconferência)**: trava também a linha da EMPRESA
+    (`select_for_update`), a mesma corrida N6 que `registrar_dependentes_
+    carne_leao` já fecha — sem a trava, uma troca concorrente de modo de
+    escrituração (contabilidade ↔ livro-caixa) podia ler o modo ANTIGO
+    entre o `Model.clean()` (que já recusa modo contabilidade) e o
+    `save()` desta função."""
     with transaction.atomic():
         registro = DependentesCarneLeaoCliente.objects.select_for_update().get(pk=registro.pk)
+        Empresa.objects.select_for_update().get(pk=registro.empresa_id)
 
         quantidade_anterior = registro.quantidade
         registro.quantidade = quantidade

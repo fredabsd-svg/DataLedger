@@ -500,7 +500,7 @@ def estornar_lancamento_caixa(
                 f"({lancamento.data.strftime('%m/%Y')}) — a correção de um "
                 "lançamento de outro mês segue por estorno no mês original seguido "
                 "de um novo lançamento no mês correto, nunca por uma data de "
-                "estorno fora do mês (RC-130)."
+                "estorno fora do mês."
             )
 
         return criar_lancamento_caixa(

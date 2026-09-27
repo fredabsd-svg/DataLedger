@@ -1441,3 +1441,137 @@ verificar:
   `auditor-qa`, conforme o plano desta fatia). A rodada 1 da auditoria
   (DE-091) avaliou o SERVIDOR antes deste merge; esta integração ainda
   não passou por uma rodada própria.
+
+## Correção da reconferência da fatia 2 — servidor (2026-09-27, `desenvolvedor-pleno`)
+
+A [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md)
+**reprovou** a versão integrada (um achado ALTO novo na impressão do anual,
+R-A1, que é da `especialista-frontend`; cinco achados MÉDIOS). Não há
+terceira rodada (AGENTS.md §3.1): o fechamento é por verificação
+independente dos itens mínimos, decididos em
+[DE-092](../projeto/decisoes.md#de-092).
+Esta seção cobre só a parte do **servidor** (motor, serviço, modelo e
+restrições); a parte da tela é do `especialista-frontend`, noutro worktree.
+
+### Item a item da DE-092 (parte do servidor)
+
+1. **R-M4/item 1 — HI-38 revista.** Imposto pago no exterior num mês SEM
+   rendimento sujeito de fonte no exterior NÃO bloqueia mais a apuração — a
+   versão da rodada 1 levantava `ImpostoExteriorSemRendimentoExterior` (HI-38),
+   e como a apuração de qualquer mês encadeia desde janeiro (RC-130), a
+   recusa de UM mês bloqueava o RESTO do ano-calendário inteiro (achado da
+   reconferência: maio, setembro e o anual de 2026 recusavam todos). A P&R
+   IRPF 2026 prevê justamente esse caso (pagamento em mês posterior ao
+   rendimento) como compensável no mês do próprio pagamento. `_apurar_um_mes`
+   parou de levantar a exceção; a compensação DAQUELE pagamento já sai zero
+   pela própria fórmula (a diferença entre o imposto "com" e "sem" um
+   rendimento do exterior de R$ 0,00 é sempre R$ 0,00 — a mesma propriedade
+   matemática que a rodada 1 já tinha provado para o `saldo_credito_exterior_
+   novo`), e um alerta em linguagem simples avisa o aproveitamento na
+   declaração anual. `ImpostoExteriorSemRendimentoExterior` continua
+   **definida** (nunca mais levantada) só porque a tela do carnê-leão
+   (`views_web.py`, outro worktree) ainda a importa e a captura — removê-la
+   quebraria esse import; reportado ao arquiteto-senior, que decide se a tela
+   deve parar de importá-la numa etapa futura. Teste:
+   `test_rec_r_m4_hi38_nao_bloqueia_meses_seguintes_nem_o_anual` (maio,
+   setembro e o anual do cenário da reconferência),
+   `test_rec_api_mes_com_imposto_exterior_sem_rendimento_nao_bloqueia`.
+2. **R-M1/item 2 — alerta.** Passou a disparar só quando
+   `rendimento_total_sujeito < 0` (não mais quando a dedução escolhida supera
+   o rendimento, que é o caso comum e disparava em quase todo mês — achado da
+   reconferência: 11 de 12 meses de um cenário real). Negativo formatado
+   entre parênteses, sem sinal de menos (RC-90). A ORM nunca produz
+   `rendimento_total_sujeito` negativo (nenhuma combinação de lançamento e
+   estorno no MESMO mês soma menos que zero); o alerta é defesa, testada
+   forçando o valor em `agregados`, fora do ORM. Testes:
+   `test_rec_r_m1_sem_alerta_em_mes_vazio`,
+   `test_rec_r_m1_sem_alerta_com_rendimento_de_500`,
+   `test_rec_r_m1_sem_alerta_com_estorno_no_mesmo_mes`,
+   `test_rec_r_m1_alerta_so_quando_rendimento_sujeito_negativo`.
+3. **R-M2/item 3 — sem identificador interno nem jargão.** Tiradas as
+   referências `(RC-130)` (recusa do estorno, `services.py`) e `(HI-35)`
+   (dia ≠ 1, `models.py`); a mensagem de duplicidade de competência dos
+   dependentes (`models.py`, `restricoes.py`) trocou "use a retificação
+   (PATCH)" por "use Retificar" (o nome do botão na tela, conforme a
+   reconferência mediu). Teste de varredura:
+   `test_rec_r_m2_sem_identificador_interno_nas_mensagens` (exercita
+   `TabelaCarneLeaoNaoConfigurada`, `DependentesCarneLeaoInvalido`,
+   `ValidationError` do modelo, a mensagem de `restricoes.py`,
+   `LancamentoCaixaInvalido` do estorno em quatro cenários, e os textos de
+   `criterio_escolha_forma`/`alertas` de um mês normal — nenhum casa
+   `\b(RC|HI|DE|PE|BL|DL)-\d+` nem contém "PATCH").
+4. **N9 (R-M5/item 5) — estorno de outro mês.** A recusa em si já existia
+   (M-4 da rodada 1), mas não tinha teste — o mutante N9 sobrevivia à suíte.
+   Teste: `test_rec_n9_estorno_em_outro_mes_recusado` (o caso exato da seção
+   6 da reconferência: receita de 10/01/2026, R$ 6.000,00; estorno com data
+   explícita de março → `LancamentoCaixaInvalido`; sem data explícita →
+   estorno de 10/01, janeiro com rendimento e imposto 0,00).
+5. **R-B5/item 5 (parte do motor) — `deducao_aplicada` por mês.**
+   `_apurar_um_mes` passou a devolver `deducao_aplicada` (a dedução da forma
+   ESCOLHIDA) em cada mês, mensal e anual; `_totais_anuais` passou a ler esse
+   campo em vez de repetir a regra "simplificado? desconto : deduções reais"
+   (a duplicação entre o motor e a tela, cada um com a sua cópia da regra,
+   foi a causa do mutante N21 escapar na tela — a correção da TELA é do
+   `especialista-frontend`, noutro worktree). A citação "P&R IRPF 2026,
+   pergunta 267" para a frase "mais vantajoso" estava ERRADA — a fonte certa
+   é "Exemplos de Aplicação da Lei 15.270/2025" (a P&R não traz essa frase);
+   corrigida no comentário do motor. Testes:
+   `test_rec_r_b5_deducao_aplicada_por_mes`,
+   `test_rec_r_b5_deducao_aplicada_pela_forma_real`.
+6. **R-B3/item 5 — guarda da redução a partir de 2026.** Ausência de
+   vigência de redução vira `TabelaCarneLeaoNaoConfigurada` para qualquer
+   competência a partir de 2026-01-01; a ausência continua LEGÍTIMA (sem
+   erro) só ANTES disso (2025, Lei 15.270/2025, art. 8º). A versão da rodada
+   1 aceitava a ausência para QUALQUER mês (bug: a reconferência mediu
+   imposto MAIOR em silêncio ao apagar a vigência de 2026 e apurar mar/2026
+   sem erro). Testes: `test_rec_r_b3_reducao_ausente_em_2026_levanta`,
+   `test_rec_r_b3_reducao_ausente_em_2025_continua_legitima`.
+7. **R-B4/item 5 (parte do motor) — memória completa.** Cada mês passou a
+   devolver `valor_por_dependente` (além de `dependentes_valor`, já
+   existente), `reducao_vigente` (booleano — `False` só nos meses de 2025,
+   quando a ausência é legítima) e `imposto_exterior_nao_compensavel` (a
+   parte do pagamento do mês que passa do limite e nunca compensa, com
+   rótulo próprio — antes só desaparecia sem nome). Testes:
+   `test_rec_r_b4_memoria_traz_valor_por_dependente_e_vigencia`,
+   `test_rec_r_b4_reducao_vigente_marcada_por_mes`, e o próprio
+   `test_rec_r_m4_hi38_nao_bloqueia_meses_seguintes_nem_o_anual` (item 1)
+   cobre o rótulo do não compensável.
+8. **R-B6/item 5 — trava da empresa na retificação.** `retificar_
+   dependentes_carne_leao` passou a travar a linha da EMPRESA
+   (`select_for_update`) além da linha do registro — a mesma corrida N6 que
+   `registrar_dependentes_carne_leao` já fechava, agora fechada também na
+   retificação. Concorrência REAL não foi testada (mesma limitação
+   declarada do A24 desde a rodada 1) — só a trava em si, exercitada pelos
+   testes de retificação já existentes (nenhum quebrou).
+
+### Efeito colateral esperado e reportado: dois testes de TELA quebram
+
+O item 1 muda o CONTRATO da apuração para um caso que a tela (outro
+worktree, `dl046-f2-tela`) já tinha teste fixando o comportamento ANTIGO
+(409 para o mesmo cenário). Os dois testes ficam vermelhos — **não foram
+alterados**, por instrução explícita (a tela é do `especialista-frontend`):
+
+- `apps/livro_caixa/tests/test_dl046_telas_carne_leao.py::
+  test_carne_leao_mensal_imposto_exterior_sem_rendimento_e_erro_nao_500`
+  (esperava 409, recebe 200 — o cenário não é mais erro).
+- `apps/livro_caixa/tests/test_dl046_telas_carne_leao.py::
+  test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500`
+  (mesmo motivo, no anual).
+
+### Arquivos alterados
+
+`apps/livro_caixa/carne_leao.py`, `apps/livro_caixa/services.py`,
+`apps/livro_caixa/models.py`, `apps/livro_caixa/views.py`,
+`apps/core/restricoes.py`,
+`apps/livro_caixa/tests/test_dl046_fatia2_carne_leao.py`. Nenhuma migração
+(todas as mudanças são de código, sem alteração de esquema).
+
+### Não testado / bloqueado nesta correção
+
+- Concorrência real na retificação de dependentes (R-B6) — mesma limitação
+  declarada do A24.
+- Os dois testes de tela listados acima (fora do meu escopo; a correção é
+  da `especialista-frontend`).
+- `pwsh ./scripts/validate-docs.ps1` — mesmo bloqueio de ambiente.
+- Validação profissional do Fred sobre o texto do novo alerta (item 1) e a
+  leitura conservadora que ele descreve.

@@ -36,7 +36,6 @@ from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.livro_caixa.carne_leao import (
     DependentesCarneLeaoInvalido,
-    ImpostoExteriorSemRendimentoExterior,
     TabelaCarneLeaoNaoConfigurada,
     apurar_carne_leao_anual,
     apurar_carne_leao_mensal,
@@ -522,7 +521,7 @@ class CarneLeaoMensalView(EmpresaEscopadaLivroCaixaMixin, APIView):
         mes = _extrair_mes_da_querystring(request)
         try:
             resultado = apurar_carne_leao_mensal(empresa=empresa, ano=ano, mes=mes)
-        except (TabelaCarneLeaoNaoConfigurada, ImpostoExteriorSemRendimentoExterior) as exc:
+        except TabelaCarneLeaoNaoConfigurada as exc:
             raise DRFValidationError(str(exc)) from exc
         return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
 
@@ -538,7 +537,7 @@ class CarneLeaoAnualView(EmpresaEscopadaLivroCaixaMixin, APIView):
         ano = _extrair_ano_da_querystring(request)
         try:
             resultado = apurar_carne_leao_anual(empresa=empresa, ano=ano)
-        except (TabelaCarneLeaoNaoConfigurada, ImpostoExteriorSemRendimentoExterior) as exc:
+        except TabelaCarneLeaoNaoConfigurada as exc:
             raise DRFValidationError(str(exc)) from exc
         return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
 

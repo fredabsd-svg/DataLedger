@@ -29,6 +29,7 @@ até R$ 5.000,00 — ver `test_bruto_ate_5000_sempre_zera_via_forma_mais_benefic
 """
 
 import json
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -42,7 +43,6 @@ from django.urls import reverse
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.livro_caixa.carne_leao import (
     DependentesCarneLeaoInvalido,
-    ImpostoExteriorSemRendimentoExterior,
     TabelaCarneLeaoNaoConfigurada,
     _agregados_do_mes,
     _apurar_um_mes,
@@ -64,7 +64,11 @@ from apps.livro_caixa.models import (
     VigenciaReducaoCarneLeao,
     VigenciaTabelaProgressivaCarneLeao,
 )
-from apps.livro_caixa.services import criar_lancamento_caixa, estornar_lancamento_caixa
+from apps.livro_caixa.services import (
+    LancamentoCaixaInvalido,
+    criar_lancamento_caixa,
+    estornar_lancamento_caixa,
+)
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -1207,26 +1211,43 @@ def test_aud_a14_saldo_exterior_zera_em_dezembro(faixas, reducao_cfg):
     assert resultado["saldo_credito_exterior_novo"] == Decimal("0.00")
 
 
-def test_aud_hi38_imposto_exterior_sem_rendimento_exterior_e_recusado(cenario):
-    """HI-38: imposto pago no exterior lançado num mês SEM nenhum
-    rendimento sujeito de fonte no exterior → apuração recusa o mês
-    inteiro com mensagem clara (decisão: recusa na APURAÇÃO, não na
-    gravação do lançamento — ver o docstring de
-    `ImpostoExteriorSemRendimentoExterior`)."""
+def test_rec_r_m4_hi38_nao_bloqueia_meses_seguintes_nem_o_anual(cenario):
+    """DE-092 item 1 (R-M4, correção da reconferência): imposto pago no
+    exterior sem rendimento do exterior no mês NÃO bloqueia mais a
+    apuração — nem o próprio mês, nem os meses seguintes, nem o anual.
+    Cenário da reconferência (seção 4, R-M4): P20.01.00003 de R$ 100,00 em
+    maio, sem nenhum rendimento do exterior."""
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 5, 10), "3000.00")
     _lancar_despesa(
         empresa,
         cenario["conta_imposto_exterior"],
         date(2026, 5, 10),
-        "50.00",
+        "100.00",
         "Imposto pago no exterior sem rendimento do exterior",
     )
-    with pytest.raises(ImpostoExteriorSemRendimentoExterior):
-        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=5)
+    resultado_maio = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=5)
+    assert resultado_maio["compensacao_exterior_aplicada"] == Decimal("0.00")
+    assert resultado_maio["imposto_exterior_nao_compensavel"] == Decimal("100.00")
+    assert resultado_maio["saldo_credito_exterior_novo"] == Decimal("0.00")
+    assert resultado_maio["alertas"] == [
+        "Imposto pago no exterior de R$ 100,00 não foi compensado neste mês "
+        "porque não há rendimento do exterior no mês; pode ser aproveitado na "
+        "declaração anual, observado o limite do rendimento de origem "
+        "(Perguntas e Respostas IRPF 2026, pergunta 267)."
+    ]
+
+    # Setembro (mês seguinte, sem nenhum lançamento novo do exterior) apura
+    # normalmente — o bloqueio do resto do ano-calendário (achado da
+    # reconferência) deixou de existir.
+    resultado_setembro = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
+    assert resultado_setembro["alertas"] == []
+    assert resultado_setembro["compensacao_exterior_aplicada"] == Decimal("0.00")
+
+    resultado_anual = apurar_carne_leao_anual(empresa=empresa, ano=2026)
+    assert len(resultado_anual["meses"]) == 12
 
 
-def test_aud_api_recusa_mes_com_imposto_exterior_sem_rendimento(client, cenario):
+def test_rec_api_mes_com_imposto_exterior_sem_rendimento_nao_bloqueia(client, cenario):
     empresa = cenario["empresa_a"]
     _lancar_despesa(
         empresa,
@@ -1239,31 +1260,61 @@ def test_aud_api_recusa_mes_com_imposto_exterior_sem_rendimento(client, cenario)
     client.login(username="admin-hi38", password="senha-forte-123")
     url = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": empresa.id})
     resposta = client.get(url, {"ano": "2026", "mes": "5"})
-    assert resposta.status_code == 400
+    assert resposta.status_code == 200, resposta.content
+    corpo = resposta.json()
+    assert len(corpo["alertas"]) == 1
+    assert "não foi compensado" in corpo["alertas"][0]
 
 
 # ---------------------------------------------------------------------------
-# 10. M-4 — alerta de rendimento líquido negativo.
+# 10. R-M1 — alerta só quando o rendimento sujeito do mês é negativo.
 
 
-def test_aud_m4_alerta_rendimento_liquido_negativo(cenario):
-    """Dedução (real ou simplificada) maior que o rendimento sujeito do
-    mês → alerta explícito na resposta (a base de cálculo já zera, mas o
-    alerta avisa a tela)."""
+def test_rec_r_m1_sem_alerta_em_mes_vazio(cenario):
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "400.00")
-    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 6, 10), "1200.00")
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
-    assert resultado["base_de_calculo"] == Decimal("0.00")
-    assert len(resultado["alertas"]) >= 1
-    assert any("negativo" in alerta for alerta in resultado["alertas"])
-
-
-def test_aud_m4_sem_alerta_quando_rendimento_liquido_nao_e_negativo(cenario):
-    empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "3000.00")
     resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
     assert resultado["alertas"] == []
+
+
+def test_rec_r_m1_sem_alerta_com_rendimento_de_500(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "500.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado["alertas"] == []
+
+
+def test_rec_r_m1_sem_alerta_com_estorno_no_mesmo_mes(cenario):
+    empresa = cenario["empresa_a"]
+    original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "1000.00")
+    estornar_lancamento_caixa(original)
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado["rendimento_total_sujeito"] == Decimal("0.00")
+    assert resultado["alertas"] == []
+
+
+def test_rec_r_m1_alerta_so_quando_rendimento_sujeito_negativo(faixas, reducao_cfg):
+    """A ORM nunca produz `rendimento_total_sujeito` negativo (nenhuma
+    combinação de lançamento e estorno, no MESMO mês, soma menos que zero)
+    — o alerta é uma defesa, testada forçando o valor diretamente em
+    `agregados`, sem passar pelo ORM (mesmo padrão do A14/saldo do
+    exterior)."""
+    agregados = _agregados_do_mes([])
+    agregados["rendimento_total_sujeito"] = Decimal("-500.00")
+    resultado = _apurar_um_mes(
+        ano=2026,
+        mes=6,
+        agregados=agregados,
+        quantidade_dependentes=0,
+        valor_por_dependente=Decimal("189.59"),
+        faixas=faixas,
+        reducao_cfg=reducao_cfg,
+        percentual_desconto_simplificado=Decimal("0.25"),
+        vigencia_tabela_inicio=date(2025, 5, 1),
+        excesso_livro_caixa_anterior=Decimal("0.00"),
+        saldo_credito_exterior_anterior=Decimal("0.00"),
+        saldo_pendente_abaixo_de_dez_anterior=Decimal("0.00"),
+    )
+    assert resultado["alertas"] == ["O rendimento sujeito do mês foi negativo: (R$ 500,00)."]
 
 
 # ---------------------------------------------------------------------------
@@ -1739,3 +1790,201 @@ def test_aud_api_anual_recusa_empresa_de_outro_escritorio(client, cenario):
     url = reverse("livro_caixa:carne-leao-anual", kwargs={"empresa_id": cenario["empresa_b"].id})
     resposta = client.get(url, {"ano": "2026"})
     assert resposta.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 17. N9 (reconferência, R-M5) — estorno com data de outro mês é recusado.
+
+
+def test_rec_n9_estorno_em_outro_mes_recusado(cenario):
+    """`estorno_em_outro_mes_recusado` (reconferência, seção 6): receita de
+    10/01/2026, R$ 6.000,00; `estornar_lancamento_caixa(l, data=
+    date(2026,3,10))` → `LancamentoCaixaInvalido` (data de outro mês). Sem
+    data explícita, o estorno padrão sai datado de 10/01 (mesmo mês do
+    original), e janeiro fica com rendimento e imposto 0,00 — mata o
+    mutante N9 (estorno aceitando data de outro mês)."""
+    empresa = cenario["empresa_a"]
+    original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "6000.00")
+
+    with pytest.raises(LancamentoCaixaInvalido):
+        estornar_lancamento_caixa(original, data=date(2026, 3, 10))
+
+    estorno = estornar_lancamento_caixa(original)
+    assert estorno.data == date(2026, 1, 10)
+
+    resultado_janeiro = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
+    assert resultado_janeiro["rendimento_total_sujeito"] == Decimal("0.00")
+    assert resultado_janeiro["imposto_devido_no_mes"] == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# 18. R-B5/N21 (motor) — `deducao_aplicada` por mês, mensal e anual.
+
+
+def test_rec_r_b5_deducao_aplicada_por_mes(cenario):
+    """R-B5/N21 (reconferência): cada mês devolve `deducao_aplicada` = a
+    dedução da forma ESCOLHIDA — fev/2026: trabalho PF 6.000,00 e
+    previdência 100,00 → simplificado vence (607,20 > 100,00). Mesmo
+    cenário do teste proposto pela reconferência para a tela
+    (`tela_anual_deducao_da_forma_aplicada`), aqui conferido no MOTOR, de
+    onde a tela passa a ler em vez de repetir a regra (a duplicação foi a
+    causa do mutante N21 escapar)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "6000.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 2, 10), "100.00")
+    resultado_mensal = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
+    assert resultado_mensal["forma_escolhida"] == "simplificado"
+    assert resultado_mensal["deducao_aplicada"] == Decimal("607.20")
+
+    resultado_anual = apurar_carne_leao_anual(empresa=empresa, ano=2026)
+    fevereiro = resultado_anual["meses"][1]
+    assert fevereiro["mes"] == 2
+    assert fevereiro["deducao_aplicada"] == Decimal("607.20")
+
+
+def test_rec_r_b5_deducao_aplicada_pela_forma_real(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "6000.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 2, 10), "2000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
+    assert resultado["forma_escolhida"] == "real"
+    assert resultado["deducao_aplicada"] == resultado["deducoes_reais_total"]
+    assert resultado["deducao_aplicada"] == Decimal("2000.00")
+
+
+# ---------------------------------------------------------------------------
+# 19. R-B3 — ausência de redução vira erro a partir de 2026-01-01.
+
+
+def test_rec_r_b3_reducao_ausente_em_2026_levanta(cenario):
+    """`reducao_ausente_em_2026_levanta` (reconferência, seção 6): sem
+    vigência de redução, apurar março/2026 → `TabelaCarneLeaoNaoConfigurada`
+    — a ausência só é legítima ANTES de 2026-01-01 (Lei 15.270/2025, art.
+    8º)."""
+    empresa = cenario["empresa_a"]
+    VigenciaReducaoCarneLeao.objects.all().delete()
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "5000.00")
+    with pytest.raises(TabelaCarneLeaoNaoConfigurada):
+        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+
+
+def test_rec_r_b3_reducao_ausente_em_2025_continua_legitima(cenario):
+    empresa = cenario["empresa_a"]
+    VigenciaReducaoCarneLeao.objects.all().delete()
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 6, 10), "5000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=6)
+    assert resultado["reducao_vigente"] is False
+
+
+# ---------------------------------------------------------------------------
+# 20. R-B4 — memória completa: valor por dependente, vigência da redução e
+# o rótulo próprio da parte não compensável do exterior (já coberto em
+# `test_rec_r_m4_hi38_nao_bloqueia_meses_seguintes_nem_o_anual`).
+
+
+def test_rec_r_b4_memoria_traz_valor_por_dependente_e_vigencia(cenario):
+    empresa = cenario["empresa_a"]
+    registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=2, competencia_inicio=date(2026, 1, 1)
+    )
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    assert resultado["valor_por_dependente"] == Decimal("189.59")
+    assert resultado["dependente_vigencia_inicio"] == date(2015, 4, 1)
+
+
+def test_rec_r_b4_reducao_vigente_marcada_por_mes(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 6, 10), "1000.00")
+    resultado_2025 = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=6)
+    assert resultado_2025["reducao_vigente"] is False
+
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "1000.00")
+    resultado_2026 = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado_2026["reducao_vigente"] is True
+
+
+# ---------------------------------------------------------------------------
+# 21. R-M2 (servidor) — varredura: nenhuma mensagem cita identificador
+# interno do projeto nem jargão técnico.
+
+_PADRAO_IDENTIFICADOR_INTERNO = re.compile(r"\b(RC|HI|DE|PE|BL|DL)-\d+")
+
+
+def test_rec_r_m2_sem_identificador_interno_nas_mensagens(cenario):
+    """R-M2 (reconferência, DE-092 item 3): nenhuma mensagem que chega ao
+    usuário — motor (`carne_leao.py`), serviço (`services.py`) e modelo
+    (`models.py`, `restricoes.py`) — cita identificador interno do projeto
+    (`RC-`/`HI-`/`DE-`/`PE-`/`BL-`/`DL-` seguido de número) nem o jargão
+    "PATCH". Comentários e docstrings (não exercitados aqui) podem manter
+    as referências."""
+    empresa = cenario["empresa_a"]
+    mensagens = []
+
+    # TabelaCarneLeaoNaoConfigurada — ano < 2025.
+    with pytest.raises(TabelaCarneLeaoNaoConfigurada) as excinfo:
+        apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=1)
+    mensagens.append(str(excinfo.value))
+
+    # DependentesCarneLeaoInvalido — modo contabilidade.
+    with pytest.raises(DependentesCarneLeaoInvalido) as excinfo:
+        registrar_dependentes_carne_leao(
+            empresa=cenario["empresa_contabilidade"],
+            quantidade=1,
+            competencia_inicio=date(2026, 1, 1),
+        )
+    mensagens.append(str(excinfo.value))
+
+    # Modelo — competência fora do dia 1.
+    registro_invalido = DependentesCarneLeaoCliente(
+        empresa=empresa, quantidade=1, competencia_inicio=date(2026, 1, 15)
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        registro_invalido.full_clean()
+    mensagens.extend(str(m) for m in excinfo.value.messages)
+
+    # restricoes.py — duplicidade de competência dos dependentes.
+    from apps.core.restricoes import MENSAGENS_DE_RESTRICAO
+
+    mensagens.append(MENSAGENS_DE_RESTRICAO["dependentes_carne_leao_competencia_unica_por_empresa"])
+
+    # services.py — estorno de outro mês, já estornado, data anterior.
+    original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 4, 10), "1000.00")
+    with pytest.raises(LancamentoCaixaInvalido) as excinfo:
+        estornar_lancamento_caixa(original, data=date(2026, 5, 10))
+    mensagens.append(str(excinfo.value))
+    with pytest.raises(LancamentoCaixaInvalido) as excinfo:
+        estornar_lancamento_caixa(original, data=date(2026, 3, 10))
+    mensagens.append(str(excinfo.value))
+    estorno = estornar_lancamento_caixa(original)
+    with pytest.raises(LancamentoCaixaInvalido) as excinfo:
+        estornar_lancamento_caixa(estorno)
+    mensagens.append(str(excinfo.value))
+    with pytest.raises(LancamentoCaixaInvalido) as excinfo:
+        estornar_lancamento_caixa(original)
+    mensagens.append(str(excinfo.value))
+
+    # carne_leao.py — critério de escolha da forma e os dois alertas
+    # (rendimento sujeito negativo forçado; imposto exterior sem
+    # rendimento do exterior).
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 7, 10), "3000.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 7, 10), "500.00")
+    _lancar_despesa(
+        empresa, cenario["conta_imposto_exterior"], date(2026, 7, 10), "20.00", "Imposto exterior"
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=7)
+    mensagens.append(resultado["criterio_escolha_forma"])
+    mensagens.extend(resultado["alertas"])
+
+    # carne_leao.py — redução ausente a partir de 2026 (última checagem:
+    # destrutiva, some com a vigência de redução).
+    VigenciaReducaoCarneLeao.objects.all().delete()
+    with pytest.raises(TabelaCarneLeaoNaoConfigurada) as excinfo:
+        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=8)
+    mensagens.append(str(excinfo.value))
+
+    assert len(mensagens) >= 10, mensagens
+    for mensagem in mensagens:
+        encontrado = _PADRAO_IDENTIFICADOR_INTERNO.search(mensagem)
+        assert encontrado is None, f"identificador interno {encontrado} em: {mensagem!r}"
+        assert "PATCH" not in mensagem, mensagem
