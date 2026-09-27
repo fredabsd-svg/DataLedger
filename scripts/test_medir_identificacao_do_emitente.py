@@ -2402,3 +2402,596 @@ def test_ponta_a_ponta_m2_link_interno_sem_marca_do_fornecedor_continua_passando
     )
 
     assert codigo == 0, f"link interno sem marca não podia reprovar — stderr:\n{err}"
+
+
+# ---------------------------------------------------------------------------
+# R-A1 (reconferência da fatia 2 da DL-046, ALTO — REPROVOU a etapa
+# anterior, docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md):
+# o demonstrativo ANUAL do carnê-leão, impresso, cortava "Imposto devido"
+# e deixava "Valor a pagar" inteiramente FORA da folha A4 — as dez colunas
+# somavam mais de 1.190px de largura natural contra ~700-800px de largura
+# útil. `scripts/medir_identificacao_do_emitente.py` PASSAVA porque mede
+# só o bloco de identificação (timbre/contribuinte), nunca as células de
+# DADOS de uma tabela — daí este teste próprio, específico para R-A1,
+# nunca uma extensão do instrumento genérico (que continua medindo outra
+# coisa, ver a docstring dele).
+#
+# Mesma infraestrutura de dois intérpretes da seção "ponta a ponta" acima
+# (`pytestmark_ponta_a_ponta`, `DL_PYTHON_DO_SISTEMA`/Chromium real,
+# `poppler-utils`), e a MESMA técnica de `medir_impressao._com_css_local`
+# para abrir o HTML renderizado pelo Django (venv do projeto) via
+# `file://`, sem precisar de um servidor Django rodando de verdade — só a
+# medição em si (Playwright, PDF, `pdftotext`) delega ao subprocesso do
+# Python do sistema.
+# ---------------------------------------------------------------------------
+
+
+def _criar_cenario_carne_leao_anual_sintetico():
+    """Escritório + empresa PF (CPF/CAEPF) + contas do carnê-leão +
+    lançamentos em TODOS os 12 meses de 2025 (ano com tabela vigente
+    confirmada pela DE-091/M-5), com valores de rendimento MENSAL acima
+    de R$ 1.000.000,00 (pedido da reconferência: "12 meses de 2025 com
+    valores >= 1.000.000,00") — o cenário que faz o "Imposto devido" e o
+    "Valor a pagar" chegarem a sete dígitos, a faixa que estourava a
+    folha A4 antes desta correção. Dados sintéticos, nenhum real."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.contrib.auth import get_user_model
+
+    from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+    from apps.livro_caixa.models import ContaLivroCaixa, NaturezaCaixa
+    from apps.livro_caixa.services import criar_lancamento_caixa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    usuario_modelo = get_user_model()
+    usuario = usuario_modelo.objects.create_user(
+        username="ra1_anual", password="sintetica-irrelevante-para-o-teste"
+    )
+    escritorio = Escritorio.objects.create(nome="Escritório Sintético R-A1", cnpj="22233344000155")
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.ADMINISTRADOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Contribuinte Sintético de Valor Alto para R-A1",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="52998224725",
+        caepf="11144477735001",
+        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+    )
+    conta_trabalho = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="RT",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    conta_despesa = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D10",
+        nome="Despesa dedutível",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P10.001",
+    )
+    conta_previdencia = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="DP",
+        nome="Previdência oficial",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00001",
+    )
+    for mes in range(1, 13):
+        # Escala cresce mês a mês (não é múltiplo redondo do índice do
+        # mês, de propósito — cada total do ano fica um número PRÓPRIO,
+        # nunca coincide por acaso com uma soma errada) e sempre acima de
+        # R$ 1.000.000,00, como a reconferência pediu.
+        valor_mes = Decimal("1100000.00") + Decimal(mes) * Decimal("87654.32")
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_trabalho,
+            data=date(2025, mes, 10),
+            valor=valor_mes,
+            historico="Honorários — cenário R-A1",
+            recebido_de="PF",
+            cpf_titular_pagamento="52998224725",
+            cpf_beneficiario_nao_informado=True,
+        )
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_previdencia,
+            data=date(2025, mes, 12),
+            valor=Decimal("908.86"),
+            historico="Previdência — cenário R-A1",
+        )
+        if mes % 2:
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_despesa,
+                data=date(2025, mes, 11),
+                valor=Decimal("50000.00"),
+                historico="Despesa dedutível — cenário R-A1",
+            )
+    return usuario, empresa
+
+
+_SCRIPT_MEDIR_TABELA_LARGA_IMPRESSA = r"""
+import json, sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+especificacao = json.loads(sys.argv[1])
+sys.path.insert(0, especificacao["diretorio_sonda"])
+import sonda_visibilidade
+
+caminho_html = Path(especificacao["caminho_html"])
+pasta_saida = Path(especificacao["pasta_saida"])
+pasta_saida.mkdir(parents=True, exist_ok=True)
+
+resultado = {"por_margem": {}, "por_largura": {}}
+with sync_playwright() as p:
+    navegador = sonda_visibilidade.lancar_chromium(p)
+    pagina = navegador.new_page()
+    pagina.goto(caminho_html.as_uri(), wait_until="networkidle")
+    pagina.emulate_media(media="print")
+
+    for margem in ("0mm", "12.7mm"):
+        arquivo_pdf = pasta_saida / f"anual-{margem}.pdf"
+        # `prefer_css_page_size=True` — o documento declara `@page
+        # carne-leao-anual-paisagem { size: A4 landscape }` (static/css/
+        # base.css) e liga essa página nomeada ao <body> deste template
+        # (`page: carne-leao-anual-paisagem`, R-A1); sem esta opção o
+        # TAMANHO exato da folha viria do parâmetro `format`, não do
+        # CSS — a ORIENTAÇÃO (retrato/paisagem) o Chromium já respeita
+        # nos dois casos (medido; ver o comentário junto ao `@page` no
+        # CSS), mas só com `prefer_css_page_size` a folha fica
+        # EXATAMENTE A4 landscape, não uma aproximação.
+        pagina.pdf(
+            path=str(arquivo_pdf),
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+            margin={lado: margem for lado in ("top", "bottom", "left", "right")},
+        )
+        resultado["por_margem"][margem] = str(arquivo_pdf)
+
+    # 1.122px ~ largura útil A4 PAISAGEM com margem 0mm (297mm);
+    # 1.026px ~ com margem 12,7mm (297mm - 2×12,7mm) — a mesma dupla de
+    # margens que a reconferência mediu, recalculada para a orientação
+    # PAISAGEM que R-A1 (segunda rodada) passou a usar.
+    for largura in (1122, 1026):
+        pagina.set_viewport_size({"width": largura, "height": 900})
+        medida = pagina.evaluate(
+            '''(vw) => {
+              const t = document.querySelector('table.tabela-dados');
+              const seletor = 'tbody tr:first-child td, tfoot td, thead tr:last-child th';
+              const fora = [...t.querySelectorAll(seletor)]
+                 .filter(c => c.getBoundingClientRect().right > vw + 0.5)
+                 .map(c => c.textContent.trim().slice(0, 30));
+              const celulaDado = t.querySelector('tbody td.valor-monetario');
+              const tamanhoFonte = celulaDado
+                 ? parseFloat(getComputedStyle(celulaDado).fontSize) : null;
+              return {
+                tabela_scroll_width: t.scrollWidth,
+                fora: fora,
+                tamanho_fonte_px: tamanhoFonte,
+              };
+            }''',
+            largura,
+        )
+        resultado["por_largura"][str(largura)] = medida
+
+    navegador.close()
+
+print(json.dumps(resultado, ensure_ascii=False))
+"""
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha(tmp_path):
+    """R-A1 — o demonstrativo anual do carnê-leão, impresso em PAISAGEM
+    (segunda rodada da correção — ver o CSS para a primeira, que usava
+    tipografia de 9px e foi revertida por ficar abaixo do piso de
+    legibilidade do próprio instrumento), cabe INTEIRO em A4: nenhuma
+    célula (dado ou total) com a borda direita além da largura útil da
+    folha, nas duas margens que a reconferência mediu (0mm e 12,7mm,
+    recalculadas para paisagem), a fonte das células de dado nunca
+    abaixo de `TAMANHO_MINIMO_RENDERIZADO_PX` (11px, a mesma constante
+    que este instrumento usa em outro lugar), e o texto exportado
+    (`pdftotext`) contém "Valor a pagar" e os totais do ano por
+    inteiro — nunca um valor cortado no meio, como `"2.57"` no lugar de
+    `"2.574,06"` (o próprio defeito que REPROVOU a etapa anterior)."""
+    import json as json_mod
+
+    import medir_impressao
+    from django.urls import reverse
+
+    usuario, empresa = _criar_cenario_carne_leao_anual_sintetico()
+    cliente = _client_autenticado(usuario)
+
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_anual
+
+    resultado_do_motor = apurar_carne_leao_anual(empresa=empresa, ano=2025)
+    totais = resultado_do_motor["totais"]
+
+    url = reverse("livro_caixa_web:carne_leao_anual", kwargs={"empresa_id": empresa.id})
+    resposta = cliente.get(url + "?ano=2025")
+    assert resposta.status_code == 200, (
+        f"GET {url} devolveu {resposta.status_code} — cenário sintético incompatível "
+        "com a rota real."
+    )
+    html = medir_impressao._com_css_local(resposta.content.decode())
+
+    caminho_html = tmp_path / "anual.html"
+    caminho_html.write_text(html, encoding="utf-8")
+    pasta_saida = tmp_path / "pdfs"
+
+    especificacao = json_mod.dumps(
+        {
+            "diretorio_sonda": medir_impressao._DIRETORIO_SONDA,
+            "caminho_html": str(caminho_html),
+            "pasta_saida": str(pasta_saida),
+        }
+    )
+    comando = [
+        medir_impressao.PYTHON_DO_SISTEMA,
+        "-c",
+        _SCRIPT_MEDIR_TABELA_LARGA_IMPRESSA,
+        especificacao,
+    ]
+    processo = subprocess.run(comando, capture_output=True, text=True)
+    assert processo.returncode == 0, (
+        "medição de impressão (subprocesso do Python do sistema) falhou:\n"
+        f"saida padrao: {processo.stdout}\nerro: {processo.stderr}"
+    )
+    medido = json_mod.loads(processo.stdout.strip().splitlines()[-1])
+
+    for largura, dados in medido["por_largura"].items():
+        assert dados["fora"] == [], (
+            f"célula(s) fora da largura útil ({largura}px): {dados['fora']} — "
+            f"largura natural da tabela: {dados['tabela_scroll_width']}px"
+        )
+        assert dados["tamanho_fonte_px"] >= instrumento.TAMANHO_MINIMO_RENDERIZADO_PX, (
+            f"fonte das células ({dados['tamanho_fonte_px']}px) abaixo do piso de "
+            f"legibilidade ({instrumento.TAMANHO_MINIMO_RENDERIZADO_PX}px) — largura "
+            f"medida em {largura}px de viewport"
+        )
+
+    for margem, caminho_pdf in medido["por_margem"].items():
+        texto = subprocess.run(
+            ["pdftotext", "-layout", caminho_pdf, "-"], capture_output=True, text=True, check=True
+        ).stdout
+        texto_sem_quebra = " ".join(texto.split())
+        assert "VALOR A" in texto_sem_quebra.upper() and "PAGAR" in texto_sem_quebra.upper(), (
+            f"cabeçalho 'Valor a pagar' ausente do PDF ({margem}):\n{texto}"
+        )
+        for campo in ("imposto_devido", "valor_a_pagar", "rendimento_bruto"):
+            valor_ptbr = f"{totais[campo]:,.2f}".translate(str.maketrans(",.", ".,"))
+            assert valor_ptbr in texto_sem_quebra, (
+                f"total de {campo} ({valor_ptbr}) ausente ou cortado no PDF ({margem}):\n{texto}"
+            )
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_carne_leao_anual_impresso_total_do_ano_nunca_fica_sozinho_na_pagina(tmp_path):
+    """Achado (a) da verificação independente do fechamento de R-A1
+    (2026-09-27): com os 12 meses do cenário sintético (valores mensais
+    >= R$ 1.000.000,00, `_criar_cenario_carne_leao_anual_sintetico`), o
+    demonstrativo saía em DUAS páginas — a segunda só com o cabeçalho de
+    identificação repetido e a linha "TOTAL DO ANO", SOZINHA, sem
+    nenhuma linha de mês visível junto; a primeira página (a que o
+    cliente vê primeiro) terminava em dezembro sem nenhum total.
+
+    Corrigido movendo a linha do total para DENTRO do `<tbody>`, como
+    última linha (era um `<tfoot>` próprio) — ver o comentário em
+    `templates/livro_caixa/carne_leao_anual.html` sobre por que:
+    reduzir o respiro de impressão a zero e relaxar `break-inside`/
+    `break-before` na linha do total NÃO bastavam (medido antes desta
+    correção, fora deste teste — a paginação em dois persistia mesmo
+    quando o conteúdo medido em DOM cabia com folga na altura útil da
+    folha), e desligar a página nomeada em paisagem RESOLVIA a
+    paginação mas sacrificava a orientação que R-A1 exige — não é
+    alternativa aceitável.
+
+    Este teste prova as duas metades do critério da verificação:
+    1. a página que contém "Dezembro" também contém "TOTAL DO ANO";
+    2. nenhuma página contém "TOTAL DO ANO" sem também conter pelo
+       menos o nome de um mês (nunca um total sozinho na folha).
+
+    Só a margem 0mm entra nesta checagem — margem > ~1mm, neste
+    Chromium, deixa de aplicar a emulação de impressão corretamente
+    (achado à parte, documentado em `docs/planos/DL-046-livro-caixa-e-
+    carne-leao.md`, "Correção final da reconferência"): mediria um
+    artefato da FERRAMENTA de verificação, não da paginação do
+    documento em si."""
+    import json as json_mod
+
+    import medir_impressao
+    from django.urls import reverse
+
+    usuario, empresa = _criar_cenario_carne_leao_anual_sintetico()
+    cliente = _client_autenticado(usuario)
+
+    url = reverse("livro_caixa_web:carne_leao_anual", kwargs={"empresa_id": empresa.id})
+    resposta = cliente.get(url + "?ano=2025")
+    assert resposta.status_code == 200
+    html = medir_impressao._com_css_local(resposta.content.decode())
+
+    caminho_html = tmp_path / "anual.html"
+    caminho_html.write_text(html, encoding="utf-8")
+    pasta_saida = tmp_path / "pdfs"
+
+    especificacao = json_mod.dumps(
+        {
+            "diretorio_sonda": medir_impressao._DIRETORIO_SONDA,
+            "caminho_html": str(caminho_html),
+            "pasta_saida": str(pasta_saida),
+        }
+    )
+    comando = [
+        medir_impressao.PYTHON_DO_SISTEMA,
+        "-c",
+        _SCRIPT_MEDIR_TABELA_LARGA_IMPRESSA,
+        especificacao,
+    ]
+    processo = subprocess.run(comando, capture_output=True, text=True)
+    assert processo.returncode == 0, (
+        "medição de impressão (subprocesso do Python do sistema) falhou:\n"
+        f"saida padrao: {processo.stdout}\nerro: {processo.stderr}"
+    )
+    medido = json_mod.loads(processo.stdout.strip().splitlines()[-1])
+    caminho_pdf = medido["por_margem"]["0mm"]
+
+    # BL-501/`_texto_da_pagina_sem_espaco` tira TODO espaço, inclusive
+    # quebra de linha — e o `<th scope="row">Total do ano</th>` quebra em
+    # DUAS linhas na célula estreita ("TOTAL DO" / "ANO"). `pdftotext
+    # -layout` reconstrói por POSIÇÃO geométrica, não por célula de
+    # origem: a segunda linha ("ANO") sai bem mais tarde no texto da
+    # página, depois de todas as colunas numéricas da mesma linha —
+    # nunca colada em "TOTALDO". Por isso o marcador aqui é só
+    # "TOTALDO" ("Total do", sempre uma ÚNICA linha contígua, nunca
+    # dividida) — suficiente para identificar a linha do total sem
+    # depender da posição da palavra "ano" isolada, que também aparece
+    # em "ANO-CALENDÁRIO" no bloco de identificação (repetido em toda
+    # página pelo `<thead>`) e daria falso positivo se fosse o
+    # marcador.
+    marcador_total = "TOTALDO"
+
+    total_de_paginas = instrumento._total_de_paginas(caminho_pdf)
+    pagina_com_dezembro = None
+    paginas_com_total_sozinho = []
+    for pagina in range(1, total_de_paginas + 1):
+        texto = instrumento._texto_da_pagina_sem_espaco(caminho_pdf, pagina)
+        tem_dezembro = "Dezembro" in texto
+        tem_total = marcador_total in texto.upper()
+        if tem_dezembro:
+            pagina_com_dezembro = pagina
+        if tem_total and not tem_dezembro:
+            # Nenhuma linha de mês nesta página — nem "Dezembro" nem
+            # nenhum outro nome de mês por perto do total (o cenário só
+            # produz UMA linha de total, então "TOTALDO" sem "Dezembro"
+            # já basta para flagrar "total sozinho", já que dezembro é
+            # sempre a linha imediatamente anterior ao total).
+            paginas_com_total_sozinho.append(pagina)
+
+    assert pagina_com_dezembro is not None, (
+        f"'Dezembro' não apareceu em nenhuma das {total_de_paginas} página(s) do PDF "
+        f"({caminho_pdf}) — paginação quebrou o próprio conteúdo do documento."
+    )
+    texto_da_pagina_de_dezembro = instrumento._texto_da_pagina_sem_espaco(
+        caminho_pdf, pagina_com_dezembro
+    )
+    assert marcador_total in texto_da_pagina_de_dezembro.upper(), (
+        f"a página {pagina_com_dezembro} (onde está 'Dezembro') não contém "
+        f"'TOTAL DO ANO' — o total ficou numa página diferente da última linha de "
+        f"mês, em {total_de_paginas} página(s) ao todo."
+    )
+    assert paginas_com_total_sozinho == [], (
+        f"'TOTAL DO ANO' aparece sozinho, sem nenhuma linha de mês, na(s) "
+        f"página(s) {paginas_com_total_sozinho} de {total_de_paginas}."
+    )
+
+
+def _criar_cenario_link_de_conteudo_carne_leao():
+    """Escritório + empresa PF + UM mês com rendimento — o suficiente
+    para o demonstrativo ANUAL do carnê-leão ter uma linha de mês, cujo
+    "Mês" é um link (`<a>`) para o demonstrativo mensal daquele mês
+    (`templates/livro_caixa/carne_leao_anual.html`). Dados sintéticos,
+    nenhum real."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.contrib.auth import get_user_model
+
+    from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+    from apps.livro_caixa.models import ContaLivroCaixa, NaturezaCaixa
+    from apps.livro_caixa.services import criar_lancamento_caixa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    usuario_modelo = get_user_model()
+    usuario = usuario_modelo.objects.create_user(
+        username="achado_c_link",
+        email="achado-c-link@sintetico.invalido",
+        password="sintetica-irrelevante-para-o-teste",
+    )
+    escritorio = Escritorio.objects.create(
+        nome="Escritório Sintético Achado C", cnpj="33344455000166"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.ADMINISTRADOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Contribuinte Sintético do Achado C",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="52998224725",
+        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+    )
+    conta_trabalho = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="RT",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_trabalho,
+        data=date(2025, 3, 10),
+        valor=Decimal("6000.00"),
+        historico="Honorários — cenário achado (c)",
+        recebido_de="PF",
+        cpf_titular_pagamento="52998224725",
+        cpf_beneficiario_nao_informado=True,
+    )
+    return usuario, empresa
+
+
+def _criar_cenario_link_de_conteudo_balancete():
+    """Escritório + empresa (contabilidade) + UMA conta analítica — o
+    suficiente para o Balancete ter uma linha com link (`<a>`) para o
+    Razão daquela conta (`templates/contabilidade/balancete.html`,
+    `linha.conta_id`) — não precisa de lançamento nenhum: o Balancete
+    lista o plano de contas inteiro, com saldo zerado quando não há
+    movimento (medido: `aceita_lancamento=True`, sem `conta_pai`, já
+    basta). Dados sintéticos, nenhum real."""
+    from django.contrib.auth import get_user_model
+
+    from apps.contabilidade.models import Conta, NaturezaConta, TipoConta
+    from apps.empresas.models import Empresa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    usuario_modelo = get_user_model()
+    usuario = usuario_modelo.objects.create_user(
+        username="achado_c_link_balancete",
+        email="achado-c-link-balancete@sintetico.invalido",
+        password="sintetica-irrelevante-para-o-teste",
+    )
+    escritorio = Escritorio.objects.create(
+        nome="Escritório Sintético Achado C (Balancete)", cnpj="33344455000247"
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.ADMINISTRADOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa Sintética do Achado C Ltda",
+        cnpj="55566677000188",
+    )
+    Conta.objects.create(
+        empresa=empresa,
+        codigo="1.1.01",
+        nome="Caixa",
+        tipo=TipoConta.ATIVO,
+        natureza=NaturezaConta.DEVEDORA,
+    )
+    return usuario, empresa
+
+
+_SCRIPT_MEDIR_COR_DE_LINK_IMPRESSO = r"""
+import json, sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+especificacao = json.loads(sys.argv[1])
+sys.path.insert(0, especificacao["diretorio_sonda"])
+import sonda_visibilidade
+
+resultado = {}
+with sync_playwright() as p:
+    navegador = sonda_visibilidade.lancar_chromium(p)
+    pagina = navegador.new_page()
+    pagina.emulate_media(media="print")
+
+    for chave, info in especificacao["paginas"].items():
+        pagina.goto(Path(info["caminho_html"]).as_uri(), wait_until="networkidle")
+        cor = pagina.eval_on_selector(info["seletor"], "el => getComputedStyle(el).color")
+        resultado[chave] = cor
+
+    navegador.close()
+
+print(json.dumps(resultado, ensure_ascii=False))
+"""
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_link_de_conteudo_sai_em_tinta_de_impressao_nunca_azul(tmp_path):
+    """Achado (c) da verificação independente do fechamento de R-A1
+    (2026-09-27): `.barra-lateral ~ .area-principal a:not(.botao)`
+    (especificidade 0-3-1, `static/css/base.css`, fora de `@media
+    print` — regra de TELA) vencia, na impressão, a regra `a { color:
+    var(--impressao-tinta) }` (especificidade 0-0-1, dentro de `@media
+    print`) — `.barra-lateral` continua no DOM mesmo escondida no
+    papel (`display: none` não remove do DOM, e o combinador `~` só
+    olha estrutura), então QUALQUER link de conteúdo saía AZUL
+    (`--app-acento`) no PDF exportado, em vez de preto.
+
+    Corrigido com uma regra de EMPATE de especificidade dentro de
+    `@media print` (mesmo seletor da regra de tela — ganha por ORDEM
+    de declaração, nunca por `!important`) — GERAL, para TODO
+    documento impresso: este teste prova em DOIS módulos diferentes
+    (livro-caixa/carnê-leão E contabilidade), nunca só o carnê-leão que
+    motivou o achado."""
+    import json as json_mod
+
+    import medir_impressao
+    from django.urls import reverse
+
+    usuario_cl, empresa_cl = _criar_cenario_link_de_conteudo_carne_leao()
+    cliente_cl = _client_autenticado(usuario_cl)
+    url_cl = reverse("livro_caixa_web:carne_leao_anual", kwargs={"empresa_id": empresa_cl.id})
+    resposta_cl = cliente_cl.get(url_cl + "?ano=2025")
+    assert resposta_cl.status_code == 200
+    html_cl = medir_impressao._com_css_local(resposta_cl.content.decode())
+    caminho_cl = tmp_path / "carne_leao_anual.html"
+    caminho_cl.write_text(html_cl, encoding="utf-8")
+
+    usuario_bal, empresa_bal = _criar_cenario_link_de_conteudo_balancete()
+    cliente_bal = _client_autenticado(usuario_bal)
+    url_bal = reverse("contabilidade_web:balancete", kwargs={"empresa_id": empresa_bal.id})
+    periodo = f"?inicio={medir_impressao.PERIODO_INICIO}&fim={medir_impressao.PERIODO_FIM}"
+    resposta_bal = cliente_bal.get(url_bal + periodo)
+    assert resposta_bal.status_code == 200, (
+        f"GET {url_bal} devolveu {resposta_bal.status_code} — cenário sintético "
+        "incompatível com a rota real."
+    )
+    html_bal = medir_impressao._com_css_local(resposta_bal.content.decode())
+    caminho_bal = tmp_path / "balancete.html"
+    caminho_bal.write_text(html_bal, encoding="utf-8")
+
+    especificacao = json_mod.dumps(
+        {
+            "diretorio_sonda": medir_impressao._DIRETORIO_SONDA,
+            "paginas": {
+                "carne_leao_anual": {
+                    "caminho_html": str(caminho_cl),
+                    "seletor": "tbody td a",
+                },
+                "balancete": {
+                    "caminho_html": str(caminho_bal),
+                    "seletor": "tbody td a",
+                },
+            },
+        }
+    )
+    comando = [
+        medir_impressao.PYTHON_DO_SISTEMA,
+        "-c",
+        _SCRIPT_MEDIR_COR_DE_LINK_IMPRESSO,
+        especificacao,
+    ]
+    processo = subprocess.run(comando, capture_output=True, text=True)
+    assert processo.returncode == 0, (
+        "medição de cor do link sob impressão (subprocesso do Python do sistema) "
+        f"falhou:\nsaida padrao: {processo.stdout}\nerro: {processo.stderr}"
+    )
+    cores = json_mod.loads(processo.stdout.strip().splitlines()[-1])
+
+    for chave, cor in cores.items():
+        assert cor == "rgb(0, 0, 0)", (
+            f"link de conteúdo de '{chave}' sai {cor} sob impressão — deveria ser "
+            f"rgb(0, 0, 0) (--impressao-tinta), nunca azul (--app-acento)."
+        )

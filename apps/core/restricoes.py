@@ -119,6 +119,17 @@ MENSAGENS_DE_RESTRICAO = {
     "conta_livro_caixa_codigo_unico_por_empresa": (
         "Já existe uma conta do livro-caixa com este código nesta empresa."
     ),
+    # DL-046 (fatia 2): esta constraint agora tem `violation_error_message`
+    # PRÓPRIA no modelo (B-4, ver `apps/livro_caixa/models.py`), que cobre o
+    # caminho SEQUENCIAL (`full_clean()`/`validate_unique()`). Este registro
+    # cobre só o caminho RESIDUAL de corrida (`IntegrityError`, dois `POST`
+    # simultâneos para a MESMA competência) — mesmo padrão de
+    # "codigo_unico_por_empresa", acima. Mesma mensagem, para não contar
+    # duas histórias diferentes do mesmo motivo (DE-026).
+    "dependentes_carne_leao_competencia_unica_por_empresa": (
+        "Já existe uma quantidade de dependentes registrada para esta empresa a partir "
+        "deste mês — use Retificar para corrigir o valor, em vez de um novo registro."
+    ),
 }
 
 # Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
@@ -474,6 +485,99 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "valor <= 0. O caminho de cliente (`criar_lancamento_caixa`) já "
         "recusa antes do INSERT; só ORM/SQL direto alcançaria esta "
         "constraint."
+    ),
+    # DL-046 (fatia 2): as SEIS restrições das quatro tabelas normativas do
+    # carnê-leão (`apps.livro_caixa.models`). Nenhuma delas tem caminho de
+    # ESCRITA de cliente — de propósito (ver o comentário de
+    # `VigenciaTabelaProgressivaCarneLeao`, no modelo): estas tabelas só são
+    # gravadas por MIGRAÇÃO DE DADOS, revisada e versionada; este app não
+    # registra `ModelAdmin` para elas nesta fatia, e não há rota de API que
+    # as grave. Quando (e se) ganharem caminho de escrita — por exemplo, um
+    # cadastro de nova vigência pela tela —, saem daqui e entram no mapa
+    # traduzido.
+    "faixa_carne_leao_ordem_unica_por_vigencia": (
+        "`UniqueConstraint(vigencia, ordem)` de `FaixaTabelaProgressivaCarneLeao` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    "faixa_carne_leao_ordem_positiva": (
+        "`CheckConstraint` de `FaixaTabelaProgressivaCarneLeao.ordem` (DL-046, "
+        "fatia 2): recusa ordem < 1. Só gravada por migração de dados; sem "
+        "caminho de escrita por cliente."
+    ),
+    "faixa_carne_leao_aliquota_valida": (
+        "`CheckConstraint` de `FaixaTabelaProgressivaCarneLeao.aliquota` "
+        "(DL-046, fatia 2): domínio [0, 1] (fração). Só gravada por migração "
+        "de dados; sem caminho de escrita por cliente."
+    ),
+    "faixa_carne_leao_limite_inferior_nao_negativo": (
+        "`CheckConstraint` de `FaixaTabelaProgressivaCarneLeao.limite_inferior` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    "reducao_carne_leao_valores_nao_negativos": (
+        "`CheckConstraint` de `VigenciaReducaoCarneLeao` (DL-046, fatia 2): "
+        "`limite_faixa_plena`/`reducao_maxima`/`limite_superior` não negativos. "
+        "Só gravada por migração de dados; sem caminho de escrita por cliente."
+    ),
+    "dependente_carne_leao_valor_nao_negativo": (
+        "`CheckConstraint` de `VigenciaDependenteCarneLeao.valor_por_dependente` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    # DL-046 (fatia 2, DE-089): unicidade de `vigencia_inicio` declarada por
+    # `UniqueConstraint` em `Meta.constraints` (NUNCA `unique=True` de
+    # campo, que geraria um índice único IMPLÍCITO — ver o comentário nos
+    # três modelos, em `apps/livro_caixa/models.py`). Mesma classe das seis
+    # de cima: só gravadas por migração de dados, sem caminho de escrita
+    # por cliente.
+    "vigencia_tabela_carne_leao_inicio_unico": (
+        "`UniqueConstraint(vigencia_inicio)` de `VigenciaTabelaProgressivaCarneLeao` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    "vigencia_reducao_carne_leao_inicio_unico": (
+        "`UniqueConstraint(vigencia_inicio)` de `VigenciaReducaoCarneLeao` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    "vigencia_dependente_carne_leao_inicio_unico": (
+        "`UniqueConstraint(vigencia_inicio)` de `VigenciaDependenteCarneLeao` "
+        "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
+        "escrita por cliente."
+    ),
+    # DL-046 (fatia 2, correção da rodada 1, B-5): toda vigência normativa
+    # começa no dia 1º — só gravada por migração de dados, sem caminho de
+    # escrita por cliente para as três tabelas globais.
+    "vigencia_tabela_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaTabelaProgressivaCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem caminho "
+        "de escrita por cliente."
+    ),
+    "vigencia_tabela_carne_leao_percentual_simplificado_valido": (
+        "`CheckConstraint` de `VigenciaTabelaProgressivaCarneLeao."
+        "percentual_desconto_simplificado` (DL-046, fatia 2, B-1). Só gravada "
+        "por migração de dados; sem caminho de escrita por cliente."
+    ),
+    "vigencia_reducao_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaReducaoCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem "
+        "caminho de escrita por cliente."
+    ),
+    "vigencia_dependente_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaDependenteCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem "
+        "caminho de escrita por cliente."
+    ),
+    # DL-046 (fatia 2, B-5): `DependentesCarneLeaoCliente.competencia_inicio`
+    # JÁ é validada em `clean()` (mensagem própria, citando HI-35) — os dois
+    # caminhos de escrita (API e `registrar_dependentes_carne_leao`/
+    # `retificar_dependentes_carne_leao`) chamam `full_clean()` ANTES de
+    # qualquer INSERT/UPDATE; só ORM/SQL direto alcançaria esta constraint.
+    "dependentes_carne_leao_competencia_dia_1": (
+        "`CheckConstraint` de `DependentesCarneLeaoCliente.competencia_inicio` "
+        "(DL-046, fatia 2, B-5). Já validada em `clean()` antes de qualquer "
+        "escrita real de cliente."
     ),
 }
 

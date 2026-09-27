@@ -107,7 +107,15 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
     )
-    from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa
+    from apps.livro_caixa.models import (
+        ContaLivroCaixa,
+        DependentesCarneLeaoCliente,
+        FaixaTabelaProgressivaCarneLeao,
+        LancamentoCaixa,
+        VigenciaDependenteCarneLeao,
+        VigenciaReducaoCarneLeao,
+        VigenciaTabelaProgressivaCarneLeao,
+    )
     from apps.tenancy.models import ConviteEscritorio, Escritorio, VinculoUsuarioEscritorio
 
     cobertos = signals.modelos_cobertos_pela_trilha()
@@ -161,6 +169,21 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # é exercitada de fato, não só garantia latente.
         ContaLivroCaixa,
         LancamentoCaixa,
+        # DL-046 fatia 2 (2026-09-27): quatro tabelas normativas do
+        # carnê-leão e `DependentesCarneLeaoCliente`, SEM `ModelAdmin`
+        # (DE-090, decisão deliberada — um valor normativo mudar por um
+        # `POST` de admin, sem revisão de código nem fonte no mesmo
+        # commit, é o risco que "gravado por migração de dados" existe
+        # para evitar). Cobertura "por padrão" (R1/DE-056), mesmo
+        # mecanismo do bloco de apps.fiscal, acima — sem admin.py,
+        # nenhuma rota /admin/ alcança estes modelos hoje; a cobertura é
+        # só a garantia de que, se algum dia alguém registrar um deles no
+        # admin, a trilha já os alcança.
+        VigenciaTabelaProgressivaCarneLeao,
+        FaixaTabelaProgressivaCarneLeao,
+        VigenciaReducaoCarneLeao,
+        VigenciaDependenteCarneLeao,
+        DependentesCarneLeaoCliente,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

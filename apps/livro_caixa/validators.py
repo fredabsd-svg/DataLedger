@@ -177,9 +177,16 @@ MODELO_DESCONHECIDO = "desconhecido"
 # atualizar o script.
 CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO = "R01.001.001"
 
+# Nome público do código do modelo NOTARIAL — DE-091 item 1 (correção da
+# rodada 1 da auditoria da fatia 2, A-1): o limite da dedução do
+# livro-caixa (`apps.livro_caixa.carne_leao`) soma a receita da atividade
+# de trabalho não assalariado **e** a notarial (P&R IRPF 2026, pergunta
+# 427: "inclusive os titulares de serviços notariais e de registro").
+CODIGO_RENDIMENTO_NOTARIAL = "R01.001.002"
+
 _CODIGO_PARA_MODELO_DE_RENDIMENTO = {
     CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO: MODELO_TRABALHO_NAO_ASSALARIADO,
-    "R01.001.002": MODELO_NOTARIAL,
+    CODIGO_RENDIMENTO_NOTARIAL: MODELO_NOTARIAL,
     "R01.003.001": MODELO_ALUGUEL_OUTROS,
     "R01.004.001": MODELO_ALUGUEL_OUTROS,
 }
@@ -320,3 +327,50 @@ def erros_de_cpf_cnpj_do_rendimento(
             )
 
     return erros
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 2 — quais rendimentos INTEGRAM A BASE do carnê-leão
+# (RC-132/requisitos.md). Regra confirmada em fonte, não hipótese:
+#
+# - RIR/2018, art. 118, caput: só rendimento recebido de OUTRA PESSOA
+#   FÍSICA ou de FONTE DO EXTERIOR — nunca de pessoa jurídica, EXCETO:
+# - art. 118, I (emolumentos/custas de serventuários da Justiça — modelo
+#   NOTARIAL): a Lei 7.713/1988, art. 8º, §1º, estende o caput "quando não
+#   forem remunerados exclusivamente pelo erário", SEM restringir a fonte
+#   pagadora a pessoa física — por isso o modelo NOTARIAL entra na base
+#   sempre, mesmo recebido de pessoa jurídica.
+# - art. 118, IV: "os rendimentos de aluguéis recebidos DE PESSOAS
+#   FÍSICAS" — texto literal restringe aluguel de PJ para fora da base
+#   (tributado por retenção na fonte pela própria PJ pagadora, mecanismo
+#   fora do escopo desta fatia). Por analogia (sem fonte específica para
+#   "outros rendimentos", que compartilha leiaute com aluguel — DE-088), a
+#   mesma restrição se aplica ao modelo ALUGUEL_OUTROS inteiro; reportado,
+#   não uma segunda confirmação para "outros rendimentos" especificamente.
+# - Pensão alimentícia RECEBIDA (código `R01.002.001`, fora dos quatro
+#   modelos mapeados acima — MODELO_DESCONHECIDO): NUNCA integra a base,
+#   por decisão do STF (ADI 5.422, transitada em julgado em 05/11/2022),
+#   citada no Perguntas e Respostas IRPF 2026, pergunta 266 ("Atenção") —
+#   não incide Imposto de Renda sobre pensão alimentícia recebida em face
+#   do Direito de Família. Esta é a ÚNICA exceção tratada por código
+#   específico, e não pelo MODELO (que a trataria como desconhecido).
+# - Código de rendimento fora dos quatro modelos oficiais conhecidos E
+#   diferente da pensão alimentícia (PE-71, tabela incompleta): opção
+#   CONSERVADORA — integra a base independentemente da fonte pagadora,
+#   para nunca presumir em silêncio uma isenção que a norma não confirma.
+CODIGO_RENDIMENTO_PENSAO_ALIMENTICIA = "R01.002.001"
+
+
+def rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal(codigo, *, recebido_de):
+    """`True` se um rendimento do código `codigo`, recebido de `recebido_de`
+    ("PF"/"PJ"/"EX"), integra a BASE do carnê-leão — ver o comentário do
+    bloco acima para a fonte de cada ramo. Função PURA (sem ORM), para o
+    motor de cálculo (`apps.livro_caixa.carne_leao`) e qualquer teste
+    chamarem a MESMA regra."""
+    if codigo == CODIGO_RENDIMENTO_PENSAO_ALIMENTICIA:
+        return False
+    modelo = modelo_do_codigo_de_rendimento(codigo)
+    if modelo in (MODELO_NOTARIAL, MODELO_DESCONHECIDO):
+        return True
+    # MODELO_TRABALHO_NAO_ASSALARIADO e MODELO_ALUGUEL_OUTROS: só PF/EX.
+    return recebido_de in ("PF", "EX")

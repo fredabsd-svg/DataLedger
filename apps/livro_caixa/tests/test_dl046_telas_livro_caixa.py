@@ -466,12 +466,12 @@ def test_relatorio_mostra_estorno_visivel(client, cenario_com_lancamento):
     url_estornar = reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id])
     client.post(url_estornar)
 
-    # RC-78 (por analogia): a data do estorno é decidida pelo SERVIDOR —
-    # `estornar_lancamento_caixa` usa `timezone.localdate()` (hoje), não a
-    # data do original. O período consultado precisa cobrir as DUAS datas.
+    # M-4 (correção da rodada 1 da auditoria da fatia 2, RC-130): a data do
+    # estorno é, por padrão, a data do lançamento ORIGINAL (não mais
+    # "hoje") — a correção acontece no MÊS ORIGINAL. O período de março
+    # inteiro já cobre as duas datas, que agora coincidem.
     url = reverse("livro_caixa_web:relatorio", args=[empresa.id])
-    hoje_iso = timezone.localdate().isoformat()
-    conteudo = client.get(f"{url}?inicio=2026-03-01&fim={hoje_iso}").content.decode()
+    conteudo = client.get(f"{url}?inicio=2026-03-01&fim=2026-03-31").content.decode()
     assert "Estorno" in conteudo
     # O efeito líquido do estorno é zero (mesma conta, mesmo valor,
     # contribuição invertida no total) — saldo do período volta a 0,00.
@@ -869,13 +869,18 @@ def test_relatorio_de_empresa_cnpj_em_livro_caixa_imprime_cnpj_nao_cpf_vazio(cli
 
 
 def test_relatorio_imprime_caepf_quando_a_empresa_tem(client, cenario):
+    """R-B2 (reconferência) — CAEPF sai com máscara `999.999.999/999-99`,
+    nunca os 14 dígitos crus."""
+    from apps.livro_caixa.views_web import _mascara_caepf
+
     empresa = cenario["empresa"]
     empresa.caepf = f"{empresa.cpf[0:9]}00001"
     empresa.save(update_fields=["caepf"])
     _autenticar(client, cenario["escritorio"])
     url = reverse("livro_caixa_web:relatorio", args=[empresa.id])
     conteudo = client.get(f"{url}?inicio=2026-03-01&fim=2026-03-31").content.decode()
-    assert f"CAEPF {empresa.caepf}" in conteudo
+    assert f"CAEPF {_mascara_caepf(empresa.caepf)}" in conteudo
+    assert empresa.caepf not in conteudo
 
 
 def test_relatorio_sem_caepf_nao_imprime_a_linha(client, cenario_com_lancamento):

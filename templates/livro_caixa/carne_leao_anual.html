@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block titulo %}Carnê-leão (demonstrativo anual) — {{ empresa.razao_social }}{% endblock %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% comment %}
+R-A1 (reconferência da fatia 2) — liga a página nomeada em paisagem
+(`@page carne-leao-anual-paisagem`, static/css/base.css) só a ESTE
+documento; nenhuma outra tela herda `{% block classe_body %}` daqui
+(cada uma define a própria, ou fica sem nenhuma, como hoje).
+{% endcomment %}
+{% block classe_body %}pagina-carne-leao-anual-impressao{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if ano and not erro_configuracao %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Ano-calendário</span>
+            <strong>{{ ano }}</strong>
+        </span>
+    {% endif %}
+    {% if carimbo_de_emissao_texto %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Emitido em</span>
+            <strong>{{ carimbo_de_emissao_texto }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Carnê-leão — demonstrativo anual</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    <p class="texto-apoio mensagem--somente-tela">
+        <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">Ver demonstrativo mensal</a>
+        ·
+        <a href="{% url 'livro_caixa_web:dependentes_carne_leao' empresa.id %}">Dependentes do carnê-leão</a>
+    </p>
+
+    {% if not ano %}
+        <p>
+            O ano informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}">Voltar ao ano padrão (ano corrente)</a>
+            para ver o demonstrativo anual.
+        </p>
+    {% elif erro_configuracao %}
+        {% comment %}
+        Mesmos dois motivos possíveis do demonstrativo mensal —
+        `mensagem_erro_carne_leao` é texto PRONTO do motor, nunca
+        reescrito aqui (ver o comentário equivalente em
+        carne_leao_mensal.html).
+        {% endcomment %}
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> {{ mensagem_erro_carne_leao }}
+        </div>
+    {% else %}
+        <nav class="navegacao-competencia" aria-label="Navegação de ano">
+            {% if ano_anterior %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}?ano={{ ano_anterior }}">
+                    ‹ Ano anterior
+                </a>
+            {% endif %}
+            <strong class="navegacao-competencia__atual">{{ ano }}</strong>
+            {% if ano_seguinte %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}?ano={{ ano_seguinte }}">
+                    Ano seguinte ›
+                </a>
+            {% endif %}
+        </nav>
+
+        {% comment %}
+        Dez colunas numéricas — uma por campo de `resultado["totais"]`
+        (item 7/M-2 do contrato da API), mais Mês e Forma — não cabem em
+        390px sem estourar a largura da página. Invólucro com
+        `overflow-x: auto` rola só a TABELA, nunca a PÁGINA (ver o
+        comentário de `.tabela-com-rolagem-horizontal`,
+        static/css/base.css, e a correção de impressão em `@media
+        print` no mesmo arquivo).
+        {% endcomment %}
+        {% comment %}
+        `tabela-carne-leao-anual` — R-A1 (reconferência da fatia 2, ALTO):
+        classe própria (só desta tabela) que a impressão usa para encolher
+        tipografia/padding e liberar o mínimo de largura das colunas
+        numéricas (`static/css/base.css`, `@media print`) — sem ela, dez
+        colunas com o `--tipo-sm` padrão cortavam "Imposto devido" e
+        "Valor a pagar" fora da folha A4. Nunca esconde coluna nenhuma.
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
+        <table class="tabela-dados tabela-carne-leao-anual">
+            <caption class="visualmente-oculto">
+                Carnê-leão de {{ empresa.razao_social }} — demonstrativo anual de {{ ano }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="10">
+                        {% include "livro_caixa/_identificacao_do_documento_carne_leao.html" %}
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Mês</th>
+                    <th scope="col" class="cabecalho-numerico">Rendimento bruto</th>
+                    <th scope="col" class="cabecalho-numerico">Dedução aplicada</th>
+                    <th scope="col">Forma</th>
+                    <th scope="col" class="cabecalho-numerico">Base</th>
+                    <th scope="col" class="cabecalho-numerico">Imposto pela tabela</th>
+                    <th scope="col" class="cabecalho-numerico">Redução Lei 15.270/2025</th>
+                    <th scope="col" class="cabecalho-numerico">Compensação exterior</th>
+                    <th scope="col" class="cabecalho-numerico">Imposto devido</th>
+                    <th scope="col" class="cabecalho-numerico">Valor a pagar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}?ano={{ ano }}&mes={{ linha.mes }}">
+                                {{ linha.data_referencia|date:"F"|capfirst }}
+                            </a>
+                            {% if linha.sem_rendimento_sujeito %}
+                                {% comment %}
+                                Achado (b) da verificação independente do
+                                fechamento de R-A1 (2026-09-27) —
+                                `sem_rendimento_sujeito` (views_web.py,
+                                `_linha_anual_carne_leao`,
+                                `_mes_sem_rendimento_sujeito`): "—" nas
+                                colunas de dedução/forma deste mês, mais
+                                este aviso, em vez de mostrar um valor de
+                                dedução como se tivesse sido aplicado a um
+                                rendimento que não existiu.
+                                {% endcomment %}
+                                <p class="texto-apoio">Sem movimento</p>
+                            {% endif %}
+                        </td>
+                        <td class="valor-monetario">{{ linha.rendimento_total_sujeito_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.deducao_aplicada_ptbr }}</td>
+                        <td>
+                            {% if linha.sem_rendimento_sujeito %}
+                                —
+                            {% elif linha.forma_escolhida == "real" %}Deduções reais{% else %}Simplificado{% endif %}
+                        </td>
+                        <td class="valor-monetario">{{ linha.base_de_calculo_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.imposto_pela_tabela_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.reducao_lei_15270_2025_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.compensacao_exterior_aplicada_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.imposto_devido_no_mes_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.valor_a_pagar_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+                {% comment %}
+                Verificação independente do fechamento da reconferência
+                (achado (a), 2026-09-27): "Total do ano" morava num
+                `<tfoot>` próprio, e o Chromium (o MESMO motor que o
+                usuário usa para imprimir) paginava a tabela em DUAS
+                folhas com 12 meses de dados de valor alto — a segunda
+                folha só com o cabeçalho de identificação repetido e o
+                total, SOZINHO, sem nenhuma linha de mês visível junto.
+
+                Medido e isolado por eliminação: nem reduzir o respiro de
+                impressão a zero, nem `break-inside`/`break-before`
+                relaxados na linha do total resolviam — a tabela inteira
+                (12 meses + total) mede bem menos que a altura útil da
+                folha em paisagem (confirmado via medição de DOM e
+                captura de tela sob a mesma emulação de impressão). Só
+                mover esta linha para DENTRO do `<tbody>`, como última
+                linha, eliminou a paginação em dois — com a MESMA página
+                nomeada em paisagem (`@page carne-leao-anual-paisagem`)
+                continuando ativa. É comportamento específico deste
+                Chromium ao combinar `page: <nome>` com um `<tfoot>`
+                próprio nesta tabela; nenhuma explicação melhor foi
+                encontrada, e a alternativa que FUNCIONAVA sem esta
+                mudança (desligar a página nomeada) sacrifica a paisagem
+                que R-A1 exige. `.linha-total` continua sendo a MESMA
+                classe visual (borda, negrito, fundo — static/css/
+                base.css) e `<th scope="row">` continua marcando a linha
+                como cabeçalho de linha para leitor de tela; o que se
+                perde é só o agrupamento semântico `<tfoot>` (rowgroup de
+                rodapé), aceitável diante do defeito que corrige.
+                {% endcomment %}
+                <tr class="linha-total">
+                    <th scope="row">Total do ano</th>
+                    <td class="valor-monetario">{{ totais.rendimento_bruto }}</td>
+                    <td class="valor-monetario">{{ totais.deducoes_aplicadas }}</td>
+                    <td></td>
+                    <td class="valor-monetario">{{ totais.base }}</td>
+                    <td class="valor-monetario">{{ totais.imposto_tabela }}</td>
+                    <td class="valor-monetario">{{ totais.reducao_aplicada }}</td>
+                    <td class="valor-monetario">{{ totais.compensacao_exterior }}</td>
+                    <td class="valor-monetario">{{ totais.imposto_devido }}</td>
+                    <td class="valor-monetario">{{ totais.valor_a_pagar }}</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+        {% comment %}
+        `totais` (item 7/M-2 do contrato da API) é a SOMA EXATA dos 12
+        meses, calculada inteiramente pelo motor
+        (`apps.livro_caixa.carne_leao._totais_anuais`) — esta tela só
+        formata cada campo (`_totais_anuais_ptbr`, views_web.py), nunca
+        soma nada. "Dedução aplicada" de cada mês já é a forma
+        EFETIVAMENTE aplicada (reais OU simplificado, conforme a coluna
+        "Forma") — o total bate exatamente com a soma dessa coluna.
+
+        ⚠️ Achado (b), reconferência (2026-09-27): num mês SEM
+        rendimento sujeito, a CÉLULA mostra "—" (`linha.sem_rendimento_
+        sujeito`, acima), mas o TOTAL continua somando o valor
+        verdadeiro que o motor calculou para aquele mês (o teto do
+        desconto simplificado — nunca zero só porque não houve
+        rendimento). Não é inconsistência: "—" é só uma decisão de
+        APRESENTAÇÃO ("não houve nada para aplicar de fato este mês"),
+        nunca uma alteração do número que o motor soma.
+        {% endcomment %}
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+
+{% block titulo %}Carnê-leão — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+RC-97: "nome do relatório — razão social do cliente", mesmo padrão de
+relatorio.html (Livro Caixa) e dre.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+Mesmo raciocínio de relatorio.html (Livro Caixa): a identificação
+PRINCIPAL deste documento é a do CONTRIBUINTE (nome, CPF, CAEPF), não a
+do escritório — por isso "Escritório ativo" pode sair da impressão
+(a identificação de quem emite já sai no bloco `.identificacao-do-
+documento`, dentro da tabela).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if mes %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+        </span>
+    {% endif %}
+    {% if carimbo_de_emissao_texto %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Emitido em</span>
+            <strong>{{ carimbo_de_emissao_texto }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Carnê-leão</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    <p class="texto-apoio mensagem--somente-tela">
+        <a href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}{% if ano %}?ano={{ ano }}{% endif %}">Ver demonstrativo anual</a>
+        ·
+        <a href="{% url 'livro_caixa_web:dependentes_carne_leao' empresa.id %}">Dependentes do carnê-leão</a>
+    </p>
+
+    {% if not mes %}
+        <p>
+            A competência informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">Voltar à competência padrão (mês corrente)</a>
+            para ver o carnê-leão.
+        </p>
+    {% elif erro_configuracao %}
+        {% comment %}
+        `TabelaCarneLeaoNaoConfigurada` — não há tabela progressiva,
+        redução ou valor por dependente vigente para a competência
+        pedida; texto PRONTO do MOTOR (`mensagem_erro_carne_leao`,
+        nunca reescrito aqui). Estado de ERRO, não de "vazio": é
+        impedimento para apurar, nunca "o cliente não lançou nada este
+        mês" (esse caso é `sem_movimento_no_mes`, mais abaixo, que
+        mostra a memória com zeros, não este aviso).
+
+        Imposto pago no exterior sem rendimento do exterior no mesmo
+        mês NÃO é mais um dos motivos deste bloco (correção da
+        reconferência, item 3/R-M4, DE-092): o mês passou a ser
+        apurado normalmente, com um alerta (bloco `alertas`, abaixo),
+        nunca um estado de erro.
+        {% endcomment %}
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> {{ mensagem_erro_carne_leao }}
+        </div>
+    {% else %}
+        {% comment %}
+        Navegação de competência — mesmo padrão de dre.html
+        (`_competencia_adjacente`, cópia local em apps/livro_caixa/
+        views_web.py): os links só aparecem quando a competência
+        adjacente é VÁLIDA (perto das bordas 1970/2999).
+        {% endcomment %}
+        <nav class="navegacao-competencia" aria-label="Navegação de competência">
+            {% if ano_anterior %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+                    ‹ Mês anterior
+                </a>
+            {% endif %}
+            <strong class="navegacao-competencia__atual">{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+            {% if ano_seguinte %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+                    Mês seguinte ›
+                </a>
+            {% endif %}
+        </nav>
+
+        {% if sem_movimento_no_mes %}
+            <p class="mensagem mensagem-info mensagem--somente-tela" role="status">
+                Nenhum rendimento sujeito ao carnê-leão nem dedução real lançada nesta
+                competência — a memória de cálculo abaixo mostra os valores zerados (o
+                desconto simplificado continua disponível, e pode gerar imposto zero).
+            </p>
+        {% endif %}
+
+        {% comment %}
+        `alertas` — texto PRONTO do motor (DE-091 item 4/M-4: mês com
+        rendimento líquido negativo). Lista vazia não renderiza nada.
+        {% endcomment %}
+        {% if alertas %}
+            <div class="mensagem mensagem-warning" role="alert">
+                <strong>Aviso:</strong>
+                <ul>
+                    {% for alerta in alertas %}<li>{{ alerta }}</li>{% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        {% comment %}
+        Aviso fixo do art. 42 do RIR/2018 (aluguel) — pedido da integração,
+        2026-09-27: mostrado quando há QUALQUER lançamento com o código de
+        aluguel (`_ha_rendimento_de_aluguel`, views_web.py), entrando ou
+        não na base — o aviso é sobre o que LANÇAR, então vale mesmo para
+        um aluguel que hoje não é tributável.
+        {% endcomment %}
+        {% if ha_rendimento_de_aluguel %}
+            <p class="mensagem mensagem-info" role="status">
+                Lance o aluguel sem IPTU, condomínio e taxa de administração pagos pelo
+                locador (RIR/2018, art. 42).
+            </p>
+        {% endif %}
+
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Carnê-leão de {{ empresa.razao_social }} — {{ data_referencia|date:"F \d\e Y" }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="2">
+                        {% include "livro_caixa/_identificacao_do_documento_carne_leao.html" %}
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Linha</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Rendimentos sujeitos ao carnê-leão</th></tr>
+                <tr>
+                    <td>Rendimento total sujeito ao carnê-leão no mês</td>
+                    <td class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>— do qual, trabalho não assalariado (integra a base)</td>
+                    <td class="valor-monetario">{{ rendimento_trabalho_base_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>— do qual, notarial e de registro (integra a base)</td>
+                    <td class="valor-monetario">{{ rendimento_notarial_base_ptbr }}</td>
+                </tr>
+                {% for item in rendimentos %}
+                    <tr>
+                        <td>
+                            — {{ item.codigo }} ({{ item.origem_label }})
+                            {% if not item.entra_na_base %}
+                                <p class="texto-apoio">Não integra a base: {{ item.motivo_exclusao }}</p>
+                            {% endif %}
+                        </td>
+                        <td class="valor-monetario">
+                            {{ item.valor_ptbr }}
+                            {% if not item.entra_na_base %}<span class="texto-apoio">(fora da base)</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Deduções reais (art. 68, RIR/2018)</th></tr>
+                <tr>
+                    <td>Previdência oficial paga (P20.01.00001)</td>
+                    <td class="valor-monetario">{{ previdencia_oficial_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Pensão alimentícia paga (P20.01.00002)</td>
+                    <td class="valor-monetario">{{ pensao_alimenticia_paga_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Dependentes ({{ dependentes_quantidade }} ×
+                        <span class="valor-monetario">{{ valor_por_dependente_ptbr }}</span>)
+                        <p class="texto-apoio">
+                            Valor por dependente vigente desde
+                            {{ dependente_vigencia_inicio|date:"d/m/Y" }}.
+                        </p>
+                    </td>
+                    <td class="valor-monetario">{{ dependentes_valor_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Receita da atividade (trabalho não assalariado + notarial, qualquer origem)
+                        <p class="texto-apoio">
+                            Limite da dedução do livro-caixa (RIR/2018, arts. 68 e 69) — inclui
+                            receita de PF, PJ e exterior, mesmo a que não integra a base do
+                            carnê-leão acima.
+                        </p>
+                    </td>
+                    <td class="valor-monetario">{{ receita_atividade_limite_livro_caixa_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Despesas do livro-caixa lançadas no mês (P10)</td>
+                    <td class="valor-monetario">{{ despesa_livro_caixa_do_mes_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Excesso de livro-caixa trazido do mês anterior</td>
+                    <td class="valor-monetario">{{ excesso_livro_caixa_anterior_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Dedução de livro-caixa aplicada</td>
+                    <td class="valor-monetario">{{ deducao_livro_caixa_aplicada_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Excesso de livro-caixa levado ao mês seguinte
+                        {% if not excesso_livro_caixa_existe %}<span class="texto-apoio">(nenhum)</span>{% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ excesso_livro_caixa_novo_ptbr }}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>Total das deduções reais</td>
+                    <td class="valor-monetario">{{ deducoes_reais_total_ptbr }}</td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Desconto simplificado (alternativa às deduções reais)</th></tr>
+                <tr>
+                    <td>Desconto simplificado mensal (percentual do limite da faixa de alíquota zero)</td>
+                    <td class="valor-monetario">{{ desconto_simplificado_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Imposto após redução — pela via das deduções REAIS
+                        <p class="texto-apoio">
+                            Faixa aplicada:
+                            {% if memoria_deducoes_reais.faixa_aplicada.tem_limite_superior %}
+                                de <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_inferior_ptbr }}</span>
+                                a <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_superior_ptbr }}</span>
+                            {% else %}
+                                a partir de <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_inferior_ptbr }}</span>
+                            {% endif %},
+                            alíquota <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.aliquota_ptbr }}</span>,
+                            parcela a deduzir
+                            <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.parcela_a_deduzir_ptbr }}</span>
+                            (tabela vigente desde
+                            {{ memoria_deducoes_reais.vigencia_tabela_inicio|date:"d/m/Y" }}).
+                        </p>
+                    </td>
+                    <td class="valor-monetario">
+                        {{ memoria_deducoes_reais.imposto_apos_reducao_ptbr }}
+                        {% if forma_escolhida == "real" %}<span class="selo">Aplicada</span>{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Imposto após redução — pela via do desconto SIMPLIFICADO
+                        <p class="texto-apoio">
+                            Faixa aplicada:
+                            {% if memoria_desconto_simplificado.faixa_aplicada.tem_limite_superior %}
+                                de <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_inferior_ptbr }}</span>
+                                a <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_superior_ptbr }}</span>
+                            {% else %}
+                                a partir de <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_inferior_ptbr }}</span>
+                            {% endif %},
+                            alíquota <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.aliquota_ptbr }}</span>,
+                            parcela a deduzir
+                            <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.parcela_a_deduzir_ptbr }}</span>.
+                        </p>
+                    </td>
+                    <td class="valor-monetario">
+                        {{ memoria_desconto_simplificado.imposto_apos_reducao_ptbr }}
+                        {% if forma_escolhida == "simplificado" %}<span class="selo">Aplicada</span>{% endif %}
+                    </td>
+                </tr>
+                <tr class="linha-total">
+                    <td>
+                        Forma aplicada neste mês
+                        {% comment %}
+                        `criterio_escolha_forma` — texto PRONTO do motor
+                        (`apps.livro_caixa.carne_leao._apurar_um_mes`,
+                        DE-091 item 7): a tela NUNCA decide nem descreve
+                        este critério por conta própria — só imprime o que
+                        o motor escreveu no MESMO ponto em que escolheu.
+                        {% endcomment %}
+                        <p class="texto-apoio">{{ criterio_escolha_forma }}</p>
+                    </td>
+                    <td>
+                        {% comment %}
+                        Achado (b) da verificação independente do
+                        fechamento de R-A1 (2026-09-27) — `forma_aplicada_
+                        rotulo` (views_web.py,
+                        `_contexto_resultado_mensal_carne_leao`) troca
+                        "Desconto simplificado" por um aviso explícito
+                        quando não há rendimento sujeito no mês, em vez de
+                        sugerir que um valor foi deduzido de um rendimento
+                        que não existiu. Único ponto de decisão — o
+                        `{% if %}` que existia aqui foi PARA DENTRO da
+                        view (`_mes_sem_rendimento_sujeito`).
+                        {% endcomment %}
+                        {{ forma_aplicada_rotulo }}
+                    </td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Apuração do imposto</th></tr>
+                <tr>
+                    <td>Base de cálculo (rendimento sujeito menos a dedução da forma aplicada)</td>
+                    <td class="valor-monetario">{{ base_de_calculo_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Imposto pela tabela progressiva mensal (RIR/2018, art. 122)</td>
+                    <td class="valor-monetario">{{ imposto_pela_tabela_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Redução — Lei nº 15.270/2025
+                        {% if reducao_vigente %}
+                            <p class="texto-apoio">
+                                Calculada sobre o rendimento tributável BRUTO do mês
+                                (<span class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</span>) —
+                                ANTES de qualquer dedução —, nunca sobre a base de cálculo acima.
+                            </p>
+                        {% else %}
+                            <p class="texto-apoio">
+                                Sem redução vigente para esta competência (legítimo antes de
+                                01/2026 — Lei nº 15.270/2025, art. 8º).
+                            </p>
+                        {% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ reducao_lei_15270_2025_ptbr }}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>Imposto após a redução</td>
+                    <td class="valor-monetario">{{ imposto_apos_reducao_ptbr }}</td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Compensação do imposto pago no exterior</th></tr>
+                {% if ha_rendimento_exterior %}
+                    <tr>
+                        <td>Imposto após a redução, COM o rendimento do exterior incluído na base</td>
+                        <td class="valor-monetario">{{ imposto_com_exterior_ptbr }}</td>
+                    </tr>
+                    <tr>
+                        <td>Imposto após a redução, SEM o rendimento do exterior (hipotético, só para o limite)</td>
+                        <td class="valor-monetario">{{ imposto_sem_exterior_ptbr }}</td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <td>Imposto pago no exterior no mês (P20.01.00003)</td>
+                    <td class="valor-monetario">{{ imposto_pago_exterior_do_mes_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Limite de compensação (diferença de imposto com/sem o rendimento do exterior)</td>
+                    <td class="valor-monetario">{{ limite_compensacao_exterior_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Compensação aplicada neste mês</td>
+                    <td class="valor-monetario">{{ compensacao_exterior_aplicada_ptbr }}</td>
+                </tr>
+                {% if ha_imposto_exterior_nao_compensavel %}
+                    <tr>
+                        <td>
+                            Imposto pago no exterior acima do limite (não compensável)
+                            <p class="texto-apoio">
+                                Não entra no carnê-leão deste mês; pode ser aproveitado na
+                                declaração anual, observado o limite do rendimento de origem.
+                            </p>
+                        </td>
+                        <td class="valor-monetario">{{ imposto_exterior_nao_compensavel_ptbr }}</td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <td>
+                        Saldo de crédito do exterior levado ao mês seguinte
+                        {% if not ha_credito_exterior %}<span class="texto-apoio">(nenhum)</span>{% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ saldo_credito_exterior_novo_ptbr }}</td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Resultado do mês</th></tr>
+                <tr>
+                    <td>Imposto devido no mês (após redução e compensação do exterior)</td>
+                    <td class="valor-monetario">{{ imposto_devido_no_mes_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Saldo pendente trazido do mês anterior (abaixo de R$ 10,00)</td>
+                    <td class="valor-monetario">{{ saldo_pendente_abaixo_de_dez_anterior_ptbr }}</td>
+                </tr>
+                <tr class="linha-total">
+                    <td>
+                        Valor a pagar
+                        {% if not ha_valor_a_pagar and ha_saldo_pendente_abaixo_de_dez %}
+                            <p class="texto-apoio">
+                                Abaixo de R$ 10,00 — não gera DARF neste mês; acumulado para o mês
+                                seguinte (RIR/2018, art. 938, §§ 4º e 5º).
+                            </p>
+                        {% elif not ha_valor_a_pagar %}
+                            <p class="texto-apoio">Nenhum valor a pagar nesta competência.</p>
+                        {% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ valor_a_pagar_ptbr }}</td>
+                </tr>
+                {% if ha_valor_a_pagar %}
+                    <tr>
+                        <td>Código do DARF</td>
+                        <td>{{ codigo_darf }}</td>
+                    </tr>
+                    <tr>
+                        <td>
+                            Vencimento
+                            <p class="texto-apoio">
+                                RIR/2018, art. 123 — esta tela não calcula o dia exato nem considera
+                                calendário de feriados.
+                            </p>
+                        </td>
+                        <td>{{ vencimento|capfirst }}</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

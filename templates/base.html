@@ -451,6 +451,37 @@
                                                                     <a href="{% url 'livro_caixa_web:relatorio' empresa_atual.id %}">Livro Caixa</a>
                                                                 {% endif %}
                                                             </li>
+                                                            {% comment %}
+                                                            DL-046, fatia 2: três telas novas do
+                                                            carnê-leão — mesmo grupo "Livro-caixa"
+                                                            (nenhum grupo próprio: o volume desta
+                                                            fatia não justifica um segundo
+                                                            "menu-grupo__rotulo" dentro do MESMO
+                                                            módulo, mesma decisão que "Parâmetros
+                                                            contábeis" tomou dentro de "Cadastros",
+                                                            na contabilidade).
+                                                            {% endcomment %}
+                                                            <li>
+                                                                {% if pagina_atual == "carne_leao_mensal" %}
+                                                                    <span class="item-atual" aria-current="page">Carnê-leão</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa_atual.id %}">Carnê-leão</a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% if pagina_atual == "carne_leao_anual" %}
+                                                                    <span class="item-atual" aria-current="page">Carnê-leão anual</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:carne_leao_anual' empresa_atual.id %}">Carnê-leão anual</a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% if pagina_atual == "dependentes_carne_leao" %}
+                                                                    <span class="item-atual" aria-current="page">Dependentes (carnê-leão)</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:dependentes_carne_leao' empresa_atual.id %}">Dependentes (carnê-leão)</a>
+                                                                {% endif %}
+                                                            </li>
                                                         </ul>
                                                     </div>
                                                 {% endwith %}

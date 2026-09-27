@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block titulo %}Dependentes do carnê-leão — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">Carnê-leão — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Dependentes</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">‹ Voltar para o carnê-leão</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Dependentes do carnê-leão</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Quantidade de dependentes usada na dedução mensal do carnê-leão (RIR/2018, art. 71
+        — só a quantidade, sem cadastro nominal), com vigência a partir de um mês. Uma
+        quantidade nova vale a partir da competência escolhida; competências anteriores
+        continuam usando o registro vigente na época delas.
+    </p>
+
+    {% comment %}
+    Mesmo critério de parametros_contabeis.html: "sem permissão" é ESTADO,
+    não erro — quem só lê o carnê-leão vê a tabela inteira; só o
+    formulário abaixo some, com a explicação aqui no topo. A autorização
+    de verdade continua no SERVIDOR (`registrar_dependentes_carne_leao`).
+    {% endcomment %}
+    {% if not pode_escriturar %}
+        <p class="mensagem mensagem-info" role="status">
+            Seu papel não permite registrar dependentes do carnê-leão desta empresa. Você
+            pode consultar as vigências abaixo normalmente; fale com um administrador,
+            gestor, analista ou financeiro para alterá-las.
+        </p>
+    {% endif %}
+
+    {% if vigencias %}
+        {% comment %}
+        A coluna "Ações" (retificação inline, quando `pode_escriturar`)
+        soma o suficiente para estourar 390px — mesmo invólucro do
+        demonstrativo anual do carnê-leão (`.tabela-com-rolagem-
+        horizontal`, static/css/base.css): rola só a TABELA, nunca a
+        PÁGINA, e a mesma regra `@media print` já cuidada lá evita
+        cortar conteúdo na impressão.
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Vigências de dependentes do carnê-leão de {{ empresa.razao_social }}
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col" class="cabecalho-numerico">Quantidade</th>
+                    <th scope="col">Vigente a partir de</th>
+                    <th scope="col">Registrado em</th>
+                    {% if pode_escriturar %}<th scope="col">Ações</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for vigencia in vigencias %}
+                    <tr>
+                        <td class="valor-monetario">{{ vigencia.quantidade }}</td>
+                        <td>{{ vigencia.competencia_inicio|date:"m/Y" }}</td>
+                        <td>{{ vigencia.criado_em|date:"d/m/Y H:i" }}</td>
+                        {% if pode_escriturar %}
+                            <td>
+                                {% comment %}
+                                DE-091 item 6 (M-6) — retificação (PATCH no
+                                servidor) da QUANTIDADE de um registro já
+                                existente, inline na própria linha (mesmo
+                                padrão de "Encerrar vigência",
+                                contabilidade_web:parametros_contabeis):
+                                nunca cria um segundo registro para a MESMA
+                                competência.
+                                {% endcomment %}
+                                <form method="post"
+                                      action="{% url 'livro_caixa_web:dependentes_carne_leao_retificar' empresa.id vigencia.id %}"
+                                      class="acoes-de-linha">
+                                    {% csrf_token %}
+                                    <label class="visualmente-oculto" for="id_quantidade_{{ vigencia.id }}">
+                                        Nova quantidade de dependentes vigente desde
+                                        {{ vigencia.competencia_inicio|date:"m/Y" }}
+                                    </label>
+                                    {% comment %}
+                                    `size="3"` — ATRIBUTO HTML (não CSS,
+                                    nunca "medida literal fora dos
+                                    tokens", direção de arte §4.1): sem
+                                    ele, a largura padrão do navegador
+                                    para `<input type="number">` (~170px)
+                                    estourava a tela em 390px (medido).
+                                    {% endcomment %}
+                                    <input type="number" min="0" step="1" size="3" name="quantidade"
+                                           id="id_quantidade_{{ vigencia.id }}"
+                                           value="{{ vigencia.quantidade }}">
+                                    <button type="submit" class="botao botao--secundario botao--pequeno">
+                                        Retificar
+                                    </button>
+                                </form>
+                            </td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    {% else %}
+        <div class="estado-vazio">
+            <p>Esta empresa ainda não tem nenhuma quantidade de dependentes registrada — a
+            apuração do carnê-leão considera zero dependentes em todo mês até o primeiro
+            registro.</p>
+        </div>
+    {% endif %}
+
+    {% if form %}
+        <h2>Registrar nova vigência</h2>
+        <form method="post" action="{% url 'livro_caixa_web:dependentes_carne_leao' empresa.id %}"
+              class="formulario" novalidate>
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="mensagem mensagem-error" role="alert">
+                    {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+                </div>
+            {% endif %}
+            {% for campo in form %}
+                <div class="campo">
+                    {{ campo.label_tag }}
+                    {{ campo }}
+                    {% if campo.help_text %}<p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                    {% if campo.errors %}
+                        <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                            {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <div class="acoes-formulario">
+                <button type="submit">Salvar</button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

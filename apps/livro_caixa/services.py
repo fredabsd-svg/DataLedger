@@ -13,7 +13,6 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
@@ -462,6 +461,19 @@ def estornar_lancamento_caixa(
     A data do estorno nunca pode ser anterior à do original (mesmo RC-78
     da contabilidade, aplicado por analogia — reportado, não uma segunda
     confirmação do Fred para o livro-caixa).
+
+    ⚠️ **DE-091 item 4 (M-4, correção da rodada 1 da auditoria da fatia 2):
+    o padrão passou a ser a data do ORIGINAL** (era "hoje", `timezone.
+    localdate()`) — o encadeamento do carnê-leão (excesso de livro-caixa,
+    crédito do exterior, saldo abaixo de R$ 10,00) é recalculado dentro do
+    MESMO mês (RC-130); um estorno datado de "hoje" moveria o efeito para
+    um mês diferente do lançamento corrigido, sem nenhuma necessidade —
+    corrigir um lançamento de um mês passado deve refletir NAQUELE mês, não
+    no mês em que o escritório percebeu o erro. Data EXPLÍCITA (`data`) de
+    um mês DIFERENTE do original é recusada — a correção de um lançamento
+    de outro mês segue por estorno NO MÊS ORIGINAL seguido de um novo
+    lançamento no mês correto, nunca por uma data de estorno fora do mês do
+    lançamento estornado (RC-130).
     """
     with transaction.atomic():
         lancamento = LancamentoCaixa.objects.select_for_update().get(pk=lancamento.pk)
@@ -473,11 +485,22 @@ def estornar_lancamento_caixa(
         if lancamento.estornos.exists():
             raise LancamentoCaixaInvalido("Este lançamento já foi estornado.")
 
-        data_do_estorno = data or timezone.localdate()
+        data_do_estorno = data if data is not None else lancamento.data
         if data_do_estorno < lancamento.data:
             raise LancamentoCaixaInvalido(
                 "A data do estorno não pode ser anterior à data do lançamento original "
                 f"({lancamento.data.strftime('%d/%m/%Y')})."
+            )
+        if (data_do_estorno.year, data_do_estorno.month) != (
+            lancamento.data.year,
+            lancamento.data.month,
+        ):
+            raise LancamentoCaixaInvalido(
+                "A data do estorno deve ficar no MESMO mês do lançamento original "
+                f"({lancamento.data.strftime('%m/%Y')}) — a correção de um "
+                "lançamento de outro mês segue por estorno no mês original seguido "
+                "de um novo lançamento no mês correto, nunca por uma data de "
+                "estorno fora do mês."
             )
 
         return criar_lancamento_caixa(

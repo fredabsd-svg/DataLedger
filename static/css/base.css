@@ -2471,6 +2471,20 @@ button:disabled {
    cima quando tem cor própria, como `th`/`:hover` já têm), sem
    precisar de uma regra por linha. Efeito ZERO em altura/padding —
    mesma garantia do parágrafo acima. */
+/* DL-046, fatia 2: o demonstrativo anual do carnê-leão tem sete colunas
+   numéricas (mínimo de `--largura-minima-coluna-valor` cada) — mais larga
+   que a tela de um celular. Em vez de esconder coluna (informação
+   contábil — a direção de arte proíbe) ou deixar a PÁGINA INTEIRA rolar
+   na horizontal (quebra a regra "sem rolagem horizontal", §4.7), este
+   invólucro rola só a TABELA: todas as colunas continuam alcançáveis, sem
+   estourar a largura da página. Medido: sem o invólucro, a página em
+   390px de largura saía com 846px de conteúdo horizontal (captura
+   `docs/assets/telas/dl046/carne-leao-anual-390x844.png`). Reaproveitável
+   por qualquer tabela larga futura — não é específico do carnê-leão. */
+.tabela-com-rolagem-horizontal {
+    overflow-x: auto;
+}
+
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
@@ -3343,6 +3357,33 @@ button:disabled {
     size: A4;
 }
 
+/* R-A1 (reconferência da fatia 2 da DL-046) — página NOMEADA, em
+   PAISAGEM, só para o demonstrativo anual do carnê-leão (dez colunas
+   de dados). Aplicada via a propriedade `page` no `<body>` desse
+   documento (`body.pagina-carne-leao-anual-impressao`, ver
+   `templates/livro_caixa/carne_leao_anual.html`, bloco `classe_body`)
+   — NUNCA global, para nenhuma outra tela (Balancete, DRE, Diário,
+   Razão, o mensal do próprio carnê-leão) perder o retrato que já
+   passa na medição de paginação existente.
+
+   ⚠️ **Correção de uma conclusão ERRADA da rodada anterior desta
+   mesma etapa**: eu tinha descartado a paisagem por acreditar que
+   `page.pdf()` (Playwright/Puppeteer) só respeita `@page { size:
+   ... }` com a opção `preferCSSPageSize`/`prefer_css_page_size`. Isso
+   está CERTO para o TAMANHO exato da folha, mas ERRADO para a
+   ORIENTAÇÃO: medido de novo, no MESMO Chromium do instrumento
+   (`/opt/pw-browsers/chromium-1194`), `page.pdf(format="A4")` — SEM
+   `prefer_css_page_size` nenhum, a chamada exata de `scripts/
+   medir_identificacao_do_emitente.py` e do método da reconferência —
+   já produz um PDF em PAISAGEM quando o documento declara `@page {
+   size: A4 landscape }` (confirmado com `pdfinfo`: 842×596pt, não
+   596×842pt). O Chrome do usuário no diálogo de impressão já fazia
+   isso; o erro anterior foi generalizar demais a partir da opção de
+   TAMANHO para a de ORIENTAÇÃO, sem medir a segunda separadamente. */
+@page carne-leao-anual-paisagem {
+    size: A4 landscape;
+}
+
 /* BL-332 (achado A2 da auditoria DL-026, rodada 5,
    docs/auditorias/2026-09-19-dl-026-rodada-5.md): LIMITE DECLARADO, ao lado
    do `@page` acima de propósito — os dois são sobre a MESMA folha impressa,
@@ -3438,6 +3479,150 @@ button:disabled {
     kbd.tecla,
     button {
         display: none;
+    }
+
+    /* DL-046, fatia 2 — achado medido por `scripts/medir_identificacao_
+       do_emitente.py`: `overflow-x: auto` (tela, para a tabela larga do
+       demonstrativo anual do carnê-leão) deixa a TABELA crescer além da
+       largura da folha impressa sem limite nenhum (é o próprio efeito
+       que o rolamento existe para permitir) — na impressão não há barra
+       de rolagem, e o conteúdo que passa da borda da página é CORTADO
+       (não movido para a página seguinte), inclusive parte do bloco de
+       identificação do documento (`.identificacao-do-documento`, dentro
+       do `<thead>`) — medido: "15.270/2025" saía "15.270/202" no PDF, e
+       "ver o demonstrativo" saía "v" sozinho, cortados no meio da
+       palavra/número. Desligar o rolamento no papel devolve a tabela ao
+       layout automático (`table-layout: auto`, sem `overflow-x`
+       nenhum). */
+    .tabela-com-rolagem-horizontal {
+        overflow-x: visible;
+    }
+
+    /* ⚠️ Segunda parte da MESMA correção — o `overflow-x: visible` acima
+       sozinho NÃO bastou quando a tabela ganhou DEZ colunas (integração
+       de 2026-09-27, contrato revisado do demonstrativo anual): a folha
+       A4 impressa ainda cortava o bloco de identificação, porque a
+       largura NATURAL da tabela (dez colunas de valor) continuava maior
+       que a página, mesmo sem rolamento — `table-layout: auto` encolhe
+       cada COLUNA proporcionalmente, mas o `<th colspan>` da
+       identificação herda a largura TOTAL da tabela inteira, então o
+       texto dentro dele só precisava quebrar linha ao alcançar aquela
+       largura enorme, muito além da borda física do papel. Medido de
+       novo pelo mesmo instrumento: "15.270/2025" voltou a cortar. Este
+       `max-width`, só no bloco de IDENTIFICAÇÃO (nunca na tabela
+       inteira — os DADOS continuam podendo ficar mais largos que a
+       folha, limitação aceita de tabela larga em papel), força o texto a
+       quebrar dentro de uma largura que cabe em A4, INDEPENDENTE de
+       quantas colunas a tabela tiver. Token EXISTENTE (`--largura-
+       conteudo-agrupado`, 40rem) — nenhum valor novo declarado aqui. */
+    .tabela-com-rolagem-horizontal .identificacao-do-documento {
+        max-width: var(--largura-conteudo-agrupado);
+    }
+
+    /* R-A1 (reconferência da fatia 2, ALTO — REPROVOU a etapa anterior,
+       corrigida de novo depois de uma primeira tentativa com tipografia
+       reduzida a 9px, abaixo do piso de legibilidade que o próprio
+       instrumento de medição usa — `TAMANHO_MINIMO_RENDERIZADO_PX = 11`
+       em `scripts/medir_identificacao_do_emitente.py`): "Imposto
+       devido" e "Valor a pagar" (as duas últimas das dez colunas)
+       saíam cortados ou de fora do papel inteiro. A correção agora é
+       PAISAGEM (`@page carne-leao-anual-paisagem`, acima, aplicada via
+       `page` no `<body>` deste documento) — ver o comentário junto a
+       essa regra sobre a conclusão errada da rodada anterior, e por
+       que a paisagem funciona de verdade na verificação real.
+
+       A paisagem sozinha (≈1.026px úteis com margem 12,7mm, ≈1.122px
+       com margem 0mm) ainda não bastava para o ano com os valores mais
+       altos (`5.042.937,01`, doze caracteres monoespaçados): os oito
+       `.cabecalho-numerico`, cada um pedindo o mínimo PADRÃO
+       (`--largura-minima-coluna-valor`, 8rem/128px), e o padding
+       PADRÃO de célula (`--esp-2`/`--esp-3`) somados deixavam a
+       tabela em ~1.105px de largura NATURAL, com a última coluna
+       (`Valor a pagar`) ainda fora da folha nas duas margens — medido
+       no Chromium real. Reduzindo o mínimo de coluna para o MESMO
+       token que `.tabela-dre`/`.tabela-lancamentos-caixa` já usam
+       (`--largura-minima-coluna-valor-estreita`, 4,5rem/72px, achado
+       da fatia 1) sozinho não bastou (o conteúdo em si, não mais o
+       mínimo, virou o piso). A combinação que coube — com folga, nas
+       duas margens — usa só TOKENS JÁ EXISTENTES: corpo e cabeçalho
+       em `--tipo-2xs` (11px — o PISO de legibilidade que o próprio
+       instrumento de medição usa, `TAMANHO_MINIMO_RENDERIZADO_PX`,
+       nunca abaixo dele) e padding em `--esp-1` (4px). Nenhum token
+       novo declarado para esta correção. */
+    .tabela-carne-leao-anual th,
+    .tabela-carne-leao-anual td {
+        font-size: var(--tipo-2xs);
+        padding: var(--esp-1);
+    }
+
+    .tabela-carne-leao-anual th.cabecalho-numerico {
+        min-width: var(--largura-minima-coluna-valor-estreita);
+    }
+
+    /* Liga a página NOMEADA em paisagem (`@page carne-leao-anual-
+       paisagem`, acima) ao documento do demonstrativo anual — medido
+       (`page: <nome>` num elemento ANINHADO, como a própria tabela,
+       NÃO propaga a orientação para a folha inteira; precisa estar no
+       `<body>`, que é o nível em que o Chromium decide a geometria da
+       página impressa). A classe só existe em `carne_leao_anual.html`
+       (bloco `classe_body`) — nenhuma outra tela do produto muda de
+       orientação por causa desta regra. */
+    body.pagina-carne-leao-anual-impressao {
+        page: carne-leao-anual-paisagem;
+    }
+
+    /* Achado (a) da verificação independente do fechamento de R-A1
+       (2026-09-27): com os 12 meses de 2025 do cenário sintético de
+       valor alto (RENDA >= R$ 1.000.000,00/mês — o mesmo que mede o
+       teste acima), a página ainda saía em DUAS folhas mesmo depois de
+       mover "Total do ano" para dentro do `<tbody>` (ver o comentário
+       em `templates/livro_caixa/carne_leao_anual.html`) — o conteúdo
+       cabia com folga na LARGURA (paisagem já resolvida), mas não na
+       ALTURA: o cabeçalho de identificação (`.identificacao-do-
+       documento`, dentro do `<thead>` que repete a cada folha —
+       `.tabela-dados thead`, acima) mais o `<h1>` da tela mais a faixa
+       de contexto (Empresa/Ano-calendário/Emitido em) mais o timbre do
+       escritório, tudo somado, sobravam da altura útil da folha em
+       paisagem quando a identificação do contribuinte precisa de DUAS
+       linhas (razão social+CPF E CAEPF, como o CAEPF do cenário desta
+       correção tem).
+
+       As regras abaixo SÓ encolhem RESPIRO (padding/margem) e
+       tipografia de PROSA (identificação, timbre) — nunca a tipografia
+       da TABELA DE DADOS, que continua em `--tipo-2xs`/11px (o mesmo
+       piso de legibilidade de sempre, nunca abaixo). Todas escopadas a
+       `body.pagina-carne-leao-anual-impressao`: nenhuma outra tela
+       (Balancete, DRE, Diário, Razão, o mensal do próprio carnê-leão)
+       muda de respiro por causa desta correção — só tokens já
+       existentes, nenhum valor novo declarado. */
+    body.pagina-carne-leao-anual-impressao h1 {
+        margin-bottom: var(--esp-1);
+    }
+
+    body.pagina-carne-leao-anual-impressao .cabecalho__contexto {
+        padding: 0;
+    }
+
+    body.pagina-carne-leao-anual-impressao .cabecalho__contexto .contexto-item {
+        padding: 0 var(--esp-1);
+    }
+
+    body.pagina-carne-leao-anual-impressao .timbre-impressao {
+        margin-bottom: var(--esp-2);
+    }
+
+    body.pagina-carne-leao-anual-impressao .timbre-impressao p:first-child {
+        font-size: var(--tipo-sm);
+    }
+
+    /* `.identificacao-do-documento` é PARTIAL COMPARTILHADO com o
+       demonstrativo MENSAL (`_identificacao_do_documento_carne_leao.
+       html`) — por isso o seletor abaixo, escopado só ao `<body>` do
+       ANUAL, nunca ao partial em si: o mensal (retrato, já cabia sem
+       este achado) continua com a tipografia original, sem risco de
+       regressão. */
+    body.pagina-carne-leao-anual-impressao .identificacao-do-documento p {
+        font-size: var(--tipo-2xs);
     }
 
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
@@ -3587,6 +3772,36 @@ button:disabled {
     a {
         color: var(--impressao-tinta);
         text-decoration: none;
+    }
+
+    /* Achado (c) da verificação independente do fechamento de R-A1
+       (2026-09-27): a regra acima (`a { color: ... }`, especificidade
+       0-0-1) SEMPRE perdia, na impressão, para `.barra-lateral ~
+       .area-principal a:not(.botao)` (especificidade 0-3-1, fora de
+       `@media print` — linha ~688), porque especificidade decide antes
+       de posição no arquivo, e aquela regra NUNCA foi escrita pensando
+       em papel: nasceu para dar cor de link à TELA. `.barra-lateral`
+       continua no DOM mesmo escondida na impressão (`display: none`,
+       acima, nesta mesma folha) — o combinador `~` (irmão geral) não
+       depende de visibilidade, só de estrutura — então a regra de tela
+       CONTINUAVA casando e vencendo no papel, deixando o link AZUL
+       (`--app-acento`) em vez de preto. Medido: qualquer link de
+       conteúdo (ex.: o mês do demonstrativo anual do carnê-leão, "Ver
+       demonstrativo mensal") saía azul no PDF exportado.
+
+       Regra GERAL, para TODO documento impresso do produto — nunca só
+       o carnê-leão: `.area-principal` (o mesmo `<div>` que
+       `templates/base.html` usa para TODO conteúdo de página,
+       qualquer módulo) garante alcance total sem precisar listar tela
+       por tela. Correção por EMPATE de especificidade, não por
+       escalada: o MESMO seletor da regra de tela, dentro de `@media
+       print` — como aparece DEPOIS no arquivo, ganha o empate pela
+       ORDEM de declaração (a mesma regra do CSS que `.botao--primario`
+       × `.barra-lateral ~ .area-principal a` já usa, comentário acima)
+       — sem precisar de `!important` nem de um seletor mais específico
+       que o necessário. */
+    .barra-lateral ~ .area-principal a:not(.botao) {
+        color: var(--impressao-tinta);
     }
 }
 

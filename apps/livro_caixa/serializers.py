@@ -13,7 +13,7 @@ formatar a RESPOSTA (GET e o corpo devolvido depois de um POST bem-sucedido).
 
 from rest_framework import serializers
 
-from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa
+from apps.livro_caixa.models import ContaLivroCaixa, DependentesCarneLeaoCliente, LancamentoCaixa
 
 
 class ContaLivroCaixaSerializer(serializers.ModelSerializer):
@@ -46,4 +46,15 @@ class LancamentoCaixaSerializer(serializers.ModelSerializer):
             "estorno_de",
             "criado_em",
         ]
+        read_only_fields = fields
+
+
+class DependentesCarneLeaoClienteSerializer(serializers.ModelSerializer):
+    """DL-046, fatia 2 — só SAÍDA (mesmo desenho dos dois serializers acima):
+    a gravação passa por `apps.livro_caixa.carne_leao.
+    registrar_dependentes_carne_leao`, nunca por `serializer.save()`."""
+
+    class Meta:
+        model = DependentesCarneLeaoCliente
+        fields = ["id", "quantidade", "competencia_inicio", "criado_em"]
         read_only_fields = fields

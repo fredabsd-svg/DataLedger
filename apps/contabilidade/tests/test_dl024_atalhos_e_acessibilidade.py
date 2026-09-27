@@ -991,6 +991,15 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
         "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405; "
         "test_dl043_fatia3_telas.py"
     ),
+    # DL-046, fatia 2 (integração de 2026-09-27, DE-091 item 6/M-6): mesmo
+    # desenho de "contabilidade_web:parametro_contabil_encerrar", acima —
+    # rota de AÇÃO (só POST, formulário inline na própria tabela de
+    # dependentes_carne_leao.html), nunca uma página própria. Coberta por
+    # test_dl046_telas_carne_leao.py.
+    "livro_caixa_web:dependentes_carne_leao_retificar": (
+        "require_http_methods(['POST']) — sem GET, nunca renderiza página, 405; "
+        "test_dl046_telas_carne_leao.py"
+    ),
     "tenancy:api-escritorios": "API REST (MeusEscritoriosView, DRF) — JSON",
     "tenancy:api-escritorio-ativo": "API REST (EscritorioAtivoView, DRF) — JSON",
     # DL-046 fatia 1: livro-caixa e carnê-leão do cliente pessoa física —
@@ -1003,6 +1012,20 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
     "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
+    # DL-046 fatia 2: apuração do carnê-leão — mesmo motivo das quatro
+    # rotas da fatia 1, acima (só servidor + API nesta fatia; a tela vem
+    # depois pelo especialista-frontend).
+    "livro_caixa:dependentes-carne-leao": (
+        "API REST (DependentesCarneLeaoListCreateView, DRF) — JSON; DL-046 fatia 2"
+    ),
+    # DE-091 item 6 (M-6, correção da rodada 1 da auditoria da fatia 2):
+    # retificação (PATCH) da quantidade de dependentes — mesmo motivo das
+    # rotas acima.
+    "livro_caixa:dependentes-carne-leao-retificar": (
+        "API REST (DependentesCarneLeaoRetificarView, DRF) — JSON; DL-046 fatia 2"
+    ),
+    "livro_caixa:carne-leao-mensal": ("API REST (CarneLeaoMensalView, DRF) — JSON; DL-046 fatia 2"),
+    "livro_caixa:carne-leao-anual": ("API REST (CarneLeaoAnualView, DRF) — JSON; DL-046 fatia 2"),
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
     # competência ENCERRADA como pré-condição de estado — sob o `cenario`
     # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o
@@ -1078,6 +1101,13 @@ NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE = {
     "livro_caixa_web:lancamentos": "test_tela_livro_caixa_lancamentos_e_acessivel",
     "livro_caixa_web:lancamento_estornar": "test_tela_livro_caixa_lancamento_estornar_e_acessivel",
     "livro_caixa_web:relatorio": "test_tela_livro_caixa_relatorio_e_acessivel",
+    # DL-046, fatia 2 (especialista-frontend): as três telas novas do
+    # carnê-leão — mesmo papel das seis de cima.
+    "livro_caixa_web:carne_leao_mensal": "test_tela_livro_caixa_carne_leao_mensal_e_acessivel",
+    "livro_caixa_web:carne_leao_anual": "test_tela_livro_caixa_carne_leao_anual_e_acessivel",
+    "livro_caixa_web:dependentes_carne_leao": (
+        "test_tela_livro_caixa_dependentes_carne_leao_e_acessivel"
+    ),
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
@@ -1390,6 +1420,38 @@ def test_tela_livro_caixa_relatorio_e_acessivel(client, cenario_livro_caixa):
     )
     assert resposta.status_code == 200
     assert "livro_caixa/relatorio.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# DL-046, fatia 2 (especialista-frontend): as três telas do carnê-leão —
+# mesmo cenário e mesma checagem geral (`assert_moldura_acessivel`) das
+# seis de cima; nenhuma delas tem atalho/accesskey próprio.
+
+
+def test_tela_livro_caixa_carne_leao_mensal_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/carne_leao_mensal.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_carne_leao_anual_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/carne_leao_anual.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_dependentes_carne_leao_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/dependentes_carne_leao.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

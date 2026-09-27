@@ -104,7 +104,7 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-046 (livro-caixa, fatia 1) em PR.**
+**AGORA — DL-046 fatia 2 (apuração do carnê-leão) em PR.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -127,7 +127,7 @@ merge do PR #38, sem commit individual por etapa.
   [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
   conta de grupo só pelo admin até existir tela de editar conta (BL-541).
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
-  **em PR**. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
+  integrada pelo PR #53. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
   Federal, leiaute público do Carnê-Leão Web, manual do sistema de
   referência) e respostas do Fred (RC-127 a RC-130). Rodada 1 da auditoria
   ([relatório](../auditorias/2026-09-26-dl-046-rodada-1.md)) e
@@ -136,12 +136,19 @@ merge do PR #38, sem commit individual por etapa.
   modelo do leiaute oficial. Fechamento **sem terceira rodada**, por
   verificação independente descrita no
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
-  instrumento de medição do N3 quebrado, corrigido e medido de novo. O Fred
-  decide no PR. A fatia 2 (apuração mensal do carnê-leão, com a PE-71
-  respondida em fonte oficial — RC-131) está implementada na branch local
-  `dl046-f2-tela`: rodada 1 e reconferência da auditoria reprovaram e foram
-  corrigidas; o fechamento está em verificação independente, sem terceira
-  rodada. Entra por PR próprio depois deste.
+  instrumento de medição do N3 quebrado, corrigido e medido de novo. A
+  **fatia 2** (apuração mensal e
+  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) está **em
+  PR**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
+  [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md)
+  reprovaram; as correções seguiram a DE-091 e a DE-092 (a RC-132 estava
+  errada no limite do livro-caixa, conferido nas perguntas 427 a 429 do
+  Perguntas e Respostas IRPF 2026). Fechamento **sem terceira rodada**, por
+  verificação independente descrita no
+  [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). Pendências do Fred:
+  validar a leitura literal da compensação do exterior (HI-38), o aluguel
+  lançado sem as parcelas do art. 42 (HI-39), o resíduo abaixo de R$ 10,00
+  em dezembro (HI-37) e o valor por dependente de 2026 (HI-32).
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em

@@ -617,7 +617,26 @@ TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
 # razão que `_descobrir_telas_com_identificacao_do_documento` já não
 # reaproveita `_descobrir_telas_com_timbre`: misturar as duas obscureceria
 # qual tela pertence a qual critério.
-TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS = frozenset({"livro_caixa_web:relatorio"})
+#
+# DL-046, fatia 2 (especialista-frontend, 2026-09-27): as duas telas do
+# demonstrativo do carnê-leão (`livro_caixa_web:carne_leao_mensal`/
+# `carne_leao_anual`, `templates/livro_caixa/carne_leao_mensal.html`/
+# `carne_leao_anual.html`) reaproveitam o MESMO marcador CSS do relatório
+# Livro Caixa (`_identificacao_do_documento_carne_leao.html` — nome,
+# CPF/CNPJ, CAEPF quando houver, período e base legal curta), pela mesma
+# razão: são livro/demonstrativo do CONTRIBUINTE pessoa física, mesma
+# classe de documento que o Livro Caixa. Entram neste MESMO piso —
+# NUNCA no de classe 2 (Balanço/DRE, NBC TG 26) nem no de timbre (que é
+# do ESCRITÓRIO, critério diferente). `livro_caixa_web:dependentes_
+# carne_leao` (formulário de cadastro, não documento de conferência) NÃO
+# usa este marcador — de propósito, fica FORA do piso.
+TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS = frozenset(
+    {
+        "livro_caixa_web:relatorio",
+        "livro_caixa_web:carne_leao_mensal",
+        "livro_caixa_web:carne_leao_anual",
+    }
+)
 
 _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
     r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'
@@ -1160,10 +1179,14 @@ def _preparar_empresa_livro_caixa(escritorio):
             )
         # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
         # exercitar o parêntese/referência do estorno naquela tabela (não só
-        # a existência dela). `data=` explícita: o padrão de
-        # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
-        # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
-        # nesta medição — o estorno nunca apareceria no relatório medido.
+        # a existência dela). `data=` explícita, dentro do MESMO MÊS do
+        # original (2026-03-04 + 25 dias = 2026-03-26, ainda março) — desde
+        # a correção M-4 (rodada 1 da auditoria da fatia 2, RC-130), o
+        # padrão de `estornar_lancamento_caixa` passou a ser a data do
+        # ORIGINAL (não mais "hoje"), e um estorno em MÊS diferente do
+        # original é recusado; a data explícita aqui só precisa continuar
+        # no mesmo mês do original para caber no período fixo
+        # `PERIODO_INICIO`/`PERIODO_FIM` usado nesta medição.
         if ultimo_p20 is not None:
             estornar_lancamento_caixa(
                 ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
@@ -1337,6 +1360,7 @@ try:
                     path=str(pasta_saida / f"{nome_arquivo}.pdf"),
                     format="A4",
                     display_header_footer=False,
+                    prefer_css_page_size=True,
                     margin={"top": "0mm", "bottom": "0mm", "left": "0mm", "right": "0mm"},
                 )
                 pagina.emulate_media(media=None)
