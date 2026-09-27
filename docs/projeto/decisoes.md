@@ -4945,3 +4945,67 @@ API nem admin para estes quatro modelos, as seis `CheckConstraint`/
 (`apps/core/restricoes.py`), não no mapa traduzido para 400 — quando (e se)
 ganharem caminho de escrita, migram para lá, como já aconteceu antes com
 outras constraints desta família (BL-220).
+
+## DE-091 — Carnê-leão: decisões sobre a rodada 1 da auditoria da fatia 2
+
+Data: 2026-09-27. Responsável: `arquiteto-senior`, sobre a
+[rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md), que reprovou
+o servidor da apuração do carnê-leão com dois achados altos. As questões
+normativas foram resolvidas na fonte oficial antes de ir ao Fred (instrução
+dele de 2026-09-20); as de interpretação e de escopo ficam como hipótese,
+com a leitura mais conservadora, e vão ao Fred para validação.
+
+1. **A-1 e A-2 — a RC-132 estava errada no limite do livro-caixa.** A base
+   do carnê-leão continua sendo o rendimento recebido de pessoa física e do
+   exterior (mais os emolumentos notariais de qualquer fonte). Mas o
+   **limite** da dedução do livro-caixa é a receita **da atividade** —
+   trabalho não assalariado **e** serviço notarial e de registro — recebida
+   no mês de pessoa física, **pessoa jurídica** ou do exterior. Fontes: P&R
+   IRPF 2026, perguntas 427 ("inclusive os titulares de serviços notariais e
+   de registro"), 428 ("limitado ao valor da receita mensal recebida de
+   pessoa física ou jurídica") e 429; página "Carnê-leão — Deduções" da
+   Receita. Consequência declarada: o excesso levado ao mês seguinte é só o
+   que passa da receita da atividade; a parte da dedução que cabe no limite
+   mas não encontra base de carnê-leão no mês (receita só de PJ) **não** é
+   carregada — ela é aproveitada na declaração anual, fora deste escopo.
+2. **M-1 — escolha da forma:** pela **maior dedução**, antes da redução,
+   como nos exemplos da Receita ("o desconto simplificado é mais vantajoso
+   do que as deduções legais"). Empate de dedução: simplificado (dispensa
+   comprovação). A memória mostra as duas.
+3. **M-3 — imposto pago no exterior (RC-134 revista), leitura literal da P&R
+   267:** compensa no mês até o limite (imposto com o rendimento do exterior
+   menos imposto sem ele); a parte **acima do limite não é compensável** e
+   não passa a mês nenhum; só a parte compensável que exceder o imposto do
+   mês passa aos meses seguintes até dezembro. Imposto pago no exterior em
+   mês diferente do rendimento: fora desta fatia, recusado com mensagem
+   (HI-38). O Fred valida a leitura.
+4. **M-4 — estorno:** correção de lançamento de caixa é no **mês do
+   original** (RC-130). O estorno passa a ter, por padrão, a data do
+   original, e recusa data de outro mês. Devolução real de dinheiro é outro
+   fato, fora desta fatia. A apuração sinaliza mês com rendimento líquido
+   negativo, como defesa.
+5. **M-5 — ano de 2025:** semear a tabela de janeiro a abril de 2025 (P&R
+   IRPF 2026, pergunta 267, com a fonte legal que ela cita) e tratar "sem
+   redução antes de 2026" como ausência legítima de vigência de redução,
+   não como erro. Anos anteriores a 2025: mensagem clara de fora do escopo.
+6. **M-6 — dependentes:** correção por `PATCH` da quantidade, com trilha de
+   antes e depois.
+7. **M-7 — aluguel:** nesta fatia, o rendimento de aluguel é lançado pelo
+   valor que o RIR/2018, art. 42, manda computar (sem as parcelas que ele
+   exclui); a tela avisa. O campo separado "valor da dedução" do leiaute
+   entra na fatia 3 (HI-39). O Fred valida a rotina.
+8. **M-2 e B-6 — resposta da API:** totais anuais em `Decimal` como texto;
+   rendimentos por código e origem, inclusive os excluídos da base, com o
+   motivo; imposto com e sem exterior; e o vencimento como "último dia útil
+   de MM/AAAA". A tela só apresenta.
+9. **B-1:** o percentual do desconto simplificado vai para o dado com
+   vigência, com fonte. O limite de R$ 10,00 fica no código como constante
+   **legal** (Lei 9.430/1996, art. 68), registrada aqui como exceção
+   consciente ao critério 5.
+10. **B-2 a B-5 e M-8:** a frase da HI-36 sai; a documentação é alinhada ao
+    código; a mensagem de duplicidade vai para `restricoes.py`; vigência
+    exige dia 1; todos os casos propostos pela auditoria viram teste,
+    inclusive A6 e A14.
+
+**Reversão:** mudanças locais ao motor, à API e ao serviço de estorno do
+livro-caixa, mais uma migração de dados para 2025.
