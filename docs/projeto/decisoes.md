@@ -5017,3 +5017,43 @@ com a leitura mais conservadora, e vão ao Fred para validação.
 
 **Reversão:** mudanças locais ao motor, à API e ao serviço de estorno do
 livro-caixa, mais uma migração de dados para 2025.
+
+## DE-092 — Carnê-leão: decisões sobre a reconferência da fatia 2
+
+Data: 2026-09-27. Responsável: `arquiteto-senior`, sobre a
+[reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md),
+que reprovou a versão integrada (servidor e tela) por um achado alto novo na
+impressão (R-A1). Não haverá terceira rodada (AGENTS.md §3.1): o fechamento é
+por verificação independente dos seis itens mínimos que a reconferência
+listou, e o Fred decide no PR.
+
+1. **R-M4 — HI-38 revista.** Imposto pago no exterior em mês sem rendimento
+   do exterior **não bloqueia** a apuração. O mês é apurado normalmente, a
+   compensação daquele pagamento é **zero**, e a memória traz um alerta
+   dizendo que o valor não foi compensado no carnê-leão e pode ser
+   aproveitado na declaração anual, observado o limite do rendimento de
+   origem (P&R IRPF 2026, pergunta 267). Os meses seguintes e o anual seguem
+   o encadeamento. Leitura conservadora: nunca reduz imposto sem rastrear o
+   rendimento de origem, e não perde o crédito, que continua na declaração.
+2. **R-M1 — alerta:** só quando o rendimento sujeito do mês for negativo (o
+   caso que motivou o M-4). Valor negativo no padrão do produto, entre
+   parênteses.
+3. **R-M2 — texto ao usuário:** nenhum identificador interno do projeto
+   (RC-, HI-, DE-, PE-, BL-, DL-) nem jargão técnico ("PATCH", "fatia") em
+   tela, documento impresso ou mensagem de erro do carnê-leão; cita-se a
+   norma ou se escreve em linguagem simples. As telas antigas da
+   contabilidade que já fazem isso ficam registradas para limpeza fora desta
+   etapa.
+4. **R-A1 — anual impresso:** todas as colunas e totais dentro da folha A4,
+   sem esconder coluna; a escolha técnica (paisagem só para o anual ou
+   tipografia de impressão) é da `especialista-frontend`, com teste
+   automatizado no navegador.
+5. **R-M3, R-M5, R-B1 a R-B6:** corrigidos junto, porque são locais e
+   baratos: rótulos da memória, testes que matam N9 e N21 (o motor passa a
+   devolver `deducao_aplicada` por mês, e a tela deixa de repetir a regra),
+   faixa "acima de", CAEPF com máscara (inclusive no Livro Caixa), guarda da
+   redução para competência a partir de 2026, memória completa, documentação
+   e trava da empresa na retificação.
+
+**Reversão:** mudanças locais ao motor, ao serviço, às telas e à folha de
+estilo; sem migração prevista.
