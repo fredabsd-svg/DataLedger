@@ -970,6 +970,17 @@ def _descobrir_telas_com_identificacao_do_documento(cliente, empresa, conta):
 # — mesmo valor, sem inventar um novo CPF numericamente válido à parte.
 CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA = "12345678909"
 
+# N3 (reconferência da DL-046): volume MEDIDO (equivalente ao da auditoria
+# de 2026-09-27) para a tabela principal preencher folhas o bastante e a
+# tabela P20 nascer em folha PRÓPRIA — nem todo volume grande faz isso:
+# pouco demais e a P20 nunca sai da folha da principal; volume demais e as
+# duas folhas cortam em outro ponto qualquer. Recalibrar aqui se o
+# template/CSS mudar (mesma fragilidade documentada em
+# N_PARES_PARA_SEIS_FOLHAS, acima).
+N_RECEITAS_LIVRO_CAIXA = 71
+N_DESPESAS_CUSTEIO_LIVRO_CAIXA = 15
+N_PAGAMENTOS_P20_LIVRO_CAIXA = 31
+
 
 def _preparar_empresa_livro_caixa(escritorio):
     """Cria (ou REAPROVEITA, se já existir — idempotente) uma empresa
@@ -994,33 +1005,45 @@ def _preparar_empresa_livro_caixa(escritorio):
     `semear_base_de_medicao.py`, que é COMPARTILHADO por outras medições
     já publicadas (direção de arte, §4.8).
 
-    Só UM lançamento de receita — o suficiente para o relatório ter
-    conteúdo real (a tabela some com o cabeçalho de identificação junto se
-    `itens` vier vazio: `{% if inicio and fim %}` em
-    `templates/livro_caixa/relatorio.html` cerca a TABELA, não o filtro; o
-    bloco `.identificacao-do-documento` só existe dentro dela). Não há piso
-    de "várias folhas" aqui (isso é exclusivo do critério de aceite do
-    Balanço, BL-501/A3) — o piso desta medição é só "a tela existe e o
-    bloco aparece", igual a qualquer outra tela de classe 2 sem o floor
-    de paginação.
+    N3 (reconferência da DL-046, achado da auditoria de 2026-09-27): SÓ um
+    lançamento de receita não bastava — a tabela P20 (pagamentos que
+    deduzem o carnê-leão, DE-087 item 13) é uma TABELA SEPARADA
+    (`templates/livro_caixa/relatorio.html`), e com pouco volume ela
+    nunca cai em folha própria na impressão, então a medição nunca
+    exercitava o `<thead>` PRÓPRIO daquela tabela. A auditoria mediu, com
+    uma base maior (71 receitas, 15 despesas P10, 31 pagamentos P20, 2
+    estornos), que a tabela P20 CAI em folha própria e sai sem
+    identificação (REPROVADO, `folhas_sem_bloco_de_identificacao: [6]`).
+    Este preparo usa volume equivalente (`N_RECEITAS_LIVRO_CAIXA`/
+    `N_PAGAMENTOS_P20_LIVRO_CAIXA`, acima) para o piso de tela FALHAR de
+    verdade se a correção do N3 regredir — sem isso, a medição do
+    livro-caixa PASSA mesmo com a tabela P20 sem identificação, do mesmo
+    jeito que passava antes desta correção.
 
-    Devolve `(empresa, conta)` — `conta` é a `ContaLivroCaixa` criada
-    (mesma assinatura de `_preparar_empresa_classe_2`, por uniformidade;
-    a rota do relatório não precisa de `conta_id`, então este valor só
-    seria usado se uma rota nova de livro-caixa passar a exigir)."""
-    from datetime import date
+    Devolve `(empresa, conta)` — `conta` é a `ContaLivroCaixa` de RECEITA
+    criada (mesma assinatura de `_preparar_empresa_classe_2`, por
+    uniformidade; a rota do relatório não precisa de `conta_id`, então
+    este valor só seria usado se uma rota nova de livro-caixa passar a
+    exigir)."""
+    from datetime import date, timedelta
     from decimal import Decimal
 
     from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
     from apps.livro_caixa.models import NaturezaCaixa, OrigemRecebimento
-    from apps.livro_caixa.services import criar_conta_livro_caixa, criar_lancamento_caixa
+    from apps.livro_caixa.services import (
+        criar_conta_livro_caixa,
+        criar_lancamento_caixa,
+        estornar_lancamento_caixa,
+    )
     from apps.livro_caixa.validators import CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO
 
     empresa_existente = Empresa.objects.filter(
         cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA, escritorio=escritorio
     ).first()
     if empresa_existente is not None:
-        conta_existente = empresa_existente.contas_livro_caixa.first()
+        conta_existente = empresa_existente.contas_livro_caixa.filter(
+            natureza=NaturezaCaixa.RECEITA
+        ).first()
         return empresa_existente, conta_existente
 
     empresa = Empresa.objects.create(
@@ -1029,6 +1052,7 @@ def _preparar_empresa_livro_caixa(escritorio):
         tipo_inscricao=TipoInscricao.CPF,
         cpf=CPF_EMPRESA_DE_MEDICAO_LIVRO_CAIXA,
         modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+        caepf="12345678900017",
     )
     conta = criar_conta_livro_caixa(
         empresa=empresa,
@@ -1037,22 +1061,67 @@ def _preparar_empresa_livro_caixa(escritorio):
         natureza=NaturezaCaixa.RECEITA,
         codigo_carne_leao=CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
     )
+    conta_custeio = criar_conta_livro_caixa(
+        empresa=empresa,
+        codigo="2",
+        nome="Despesas de custeio",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P10.001",
+    )
+    conta_p20 = criar_conta_livro_caixa(
+        empresa=empresa,
+        codigo="3",
+        nome="Previdência oficial paga",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00001",
+    )
+
     # `medir_impressao.PERIODO_INICIO`/`PERIODO_FIM` são strings ISO fixas
     # ("2026-03-01"/"2026-03-31") — MESMO período usado no `?inicio=&fim=`
-    # de toda requisição deste instrumento (`periodo`, em
-    # `_descobrir_telas_com_timbre`/`_descobrir_telas_com_identificacao_
-    # do_documento`); o lançamento precisa cair DENTRO dele, ou a apuração
-    # do relatório (`apurar_livro_caixa`) devolve `itens=[]` e a tabela
-    # inteira — cabeçalho de identificação incluso — não é renderizada.
-    dia_dentro_do_periodo = date.fromisoformat(medir_impressao.PERIODO_INICIO).replace(day=15)
-    criar_lancamento_caixa(
-        empresa=empresa,
-        conta=conta,
-        data=dia_dentro_do_periodo,
-        valor=Decimal("1500.00"),
-        historico="Recebimento sintético — medição DL-046",
-        recebido_de=OrigemRecebimento.PJ,
-    )
+    # de toda requisição deste instrumento. Os lançamentos precisam cair
+    # DENTRO dele, ou a apuração do relatório (`apurar_livro_caixa`)
+    # devolve `itens=[]` e a tabela inteira não é renderizada.
+    inicio_do_periodo = date.fromisoformat(medir_impressao.PERIODO_INICIO)
+
+    for indice in range(1, N_RECEITAS_LIVRO_CAIXA + 1):
+        data = inicio_do_periodo + timedelta(days=(indice % 28))
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta,
+            data=data,
+            valor=Decimal("100.00") + Decimal(indice),
+            historico=f"Recebimento sintético {indice:03d} — medição DL-046",
+            recebido_de=OrigemRecebimento.PJ,
+        )
+    for indice in range(1, N_DESPESAS_CUSTEIO_LIVRO_CAIXA + 1):
+        data = inicio_do_periodo + timedelta(days=(indice % 28))
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_custeio,
+            data=data,
+            valor=Decimal("20.00") + Decimal(indice),
+            historico=f"Despesa de custeio sintética {indice:03d} — medição DL-046",
+        )
+    ultimo_p20 = None
+    for indice in range(1, N_PAGAMENTOS_P20_LIVRO_CAIXA + 1):
+        data = inicio_do_periodo + timedelta(days=(indice % 28))
+        ultimo_p20 = criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_p20,
+            data=data,
+            valor=Decimal("50.00") + Decimal(indice),
+            historico=f"Previdência oficial sintética {indice:03d} — medição DL-046",
+        )
+    # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
+    # exercitar o parêntese/referência do estorno naquela tabela (não só
+    # a existência dela). `data=` explícita: o padrão de
+    # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
+    # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
+    # nesta medição — o estorno nunca apareceria no relatório medido.
+    if ultimo_p20 is not None:
+        estornar_lancamento_caixa(
+            ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
+        )
     return empresa, conta
 
 

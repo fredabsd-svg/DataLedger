@@ -349,6 +349,13 @@ _CONTRATO_DO_FORMULARIO_DE_LANCAMENTO_CAIXA = ContratoDeRequisicao(
             "recebido_de",
             "cpf_titular_pagamento",
             "cpf_beneficiario_servico",
+            # N1 (reconferência da DL-046, DE-088 item 2): o servidor
+            # (`criar_lancamento_caixa`, `LancamentoCaixa.clean()`) já
+            # aceitava este indicador — a tela não o oferecia, e por isso
+            # recusava (400) todo rendimento de trabalho não assalariado
+            # recebido de PF sem CPF do beneficiário, mesmo quando o
+            # leiaute oficial prevê exatamente esse caso (indicador "S").
+            "cpf_beneficiario_nao_informado",
             "cnpj_pagador",
             "chave_idempotencia",
         }
@@ -358,6 +365,16 @@ _CONTRATO_DO_FORMULARIO_DE_LANCAMENTO_CAIXA = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no lançamento de caixa",
 )
+
+
+def _cpf_beneficiario_nao_informado_marcado(dados):
+    """Checkbox HTML: presente no POST (qualquer valor) quando marcada,
+    AUSENTE quando desmarcada — nunca `"false"` (mesma leitura que
+    `ContaCaixaForm`/`ativa` já faz via `forms.BooleanField`, mas este
+    campo não passa por `django.forms` porque o restante do formulário
+    de lançamento é lido campo a campo do `request.POST`, não por um
+    `Form`)."""
+    return bool(dados.get("cpf_beneficiario_nao_informado"))
 
 
 def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotencia):
@@ -373,6 +390,7 @@ def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotenci
         "recebido_de_selecionado": dados.get("recebido_de", ""),
         "cpf_titular_pagamento": dados.get("cpf_titular_pagamento", ""),
         "cpf_beneficiario_servico": dados.get("cpf_beneficiario_servico", ""),
+        "cpf_beneficiario_nao_informado": _cpf_beneficiario_nao_informado_marcado(dados),
         "cnpj_pagador": dados.get("cnpj_pagador", ""),
         "chave_idempotencia": chave_idempotencia,
         "data_minima_iso": DATA_MINIMA_LANCAMENTO_CAIXA.isoformat(),
@@ -462,6 +480,9 @@ def lancamento_caixa_novo(request, empresa_id):
                 recebido_de=request.POST.get("recebido_de") or None,
                 cpf_titular_pagamento=request.POST.get("cpf_titular_pagamento", "").strip(),
                 cpf_beneficiario_servico=request.POST.get("cpf_beneficiario_servico", "").strip(),
+                cpf_beneficiario_nao_informado=_cpf_beneficiario_nao_informado_marcado(
+                    request.POST
+                ),
                 cnpj_pagador=request.POST.get("cnpj_pagador", "").strip(),
                 criado_por=request.user,
                 chave_idempotencia=chave_idempotencia,
@@ -682,8 +703,6 @@ def livro_caixa_relatorio(request, empresa_id):
         # cadastro, apps/empresas/forms.py) — o template só imprime a
         # linha quando `empresa.caepf` não é vazio.
         "caepf": empresa.caepf,
-        "cpf_formatado": _mascara_cpf(empresa.cpf),
-        "cnpj_formatado": _mascara_cnpj(empresa.cnpj),
         "carimbo_de_emissao_texto": carimbo_de_emissao.strftime("%d/%m/%Y às %H:%M:%S"),
         "timbre_linhas": empresa.escritorio.linhas_do_timbre,
     }
@@ -711,19 +730,13 @@ def livro_caixa_relatorio(request, empresa_id):
             # relatório, não).
             "estorno_de_id": item["estorno_de_id"],
             "e_estorno": item["e_estorno"],
-            # D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
-            # normativa): pagamentos P20 (imposto pago, previdência
-            # oficial, pensão) são DEDUÇÃO do carnê-leão, não despesa de
-            # custeio do art. 68 — quando `apurar_livro_caixa` (services.
-            # py) passar a marcar isso por item, este `.get(...)` deixa
-            # de ser sempre `False` sem precisar mudar mais nada aqui ou
-            # no template. Hoje a chave nunca existe no retorno do
-            # serviço, então este bloco é GENÉRICO e INERTE — nenhum item
-            # sai do grupo principal, nenhum teste muda de resultado, até
-            # o desenvolvedor completar o outro lado.
-            # Integração com o servidor corrigido (DE-087 item 13): o
-            # serviço marca cada item com `grupo`; os pagamentos P20 são
-            # `saida_deducao_carne_leao`.
+            # D3/N3-N5 (DE-087 item 13, DE-088 item 4): pagamentos P20
+            # (imposto pago, previdência oficial, pensão) são DEDUÇÃO do
+            # carnê-leão, não despesa de custeio do art. 68.
+            # `apurar_livro_caixa` (services.py) já marca cada item com
+            # `grupo` — pagamentos P20 vêm como `saida_deducao_carne_leao`
+            # — este dicionário só separa o item para o template montar a
+            # tabela própria, sem repetir a regra de classificação aqui.
             "eh_pagamento_p20_carne_leao": item.get("grupo") == "saida_deducao_carne_leao",
         }
         for item in apuracao["itens"]
