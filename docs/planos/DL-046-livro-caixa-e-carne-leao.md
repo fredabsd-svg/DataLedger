@@ -2042,7 +2042,19 @@ limite de compensação, para forçar `imposto_exterior_nao_compensavel >
   pdf.png` — primeira folha do PDF do demonstrativo anual, margem 0mm
   (a única confirmada limpa neste Chromium — ver o achado acima),
   confirmado em paisagem por `pdfinfo` e visualmente (sem "DataLedger."
-  nem "Menu", 10 colunas e totais completos).
+  nem "Menu", 10 colunas visíveis).
+
+  ⚠️ **Correção (verificação independente do fechamento, 2026-09-27,
+  achado (a) abaixo)**: a afirmação acima, "totais completos", estava
+  IMPRECISA — o cenário usado para capturar aquela imagem (`gestor-
+  captura-cl`/"Fulano de Tal", só março com lançamento) não tinha
+  volume suficiente para expor o defeito de paginação que existia
+  então; a imagem em si só mostrava a PRIMEIRA folha de um PDF que,
+  com 12 meses de dados de valor alto, saía em DUAS folhas — com o
+  "TOTAL DO ANO" sozinho na segunda, fora da imagem capturada. Nenhum
+  total estava de fato "completo" nesse sentido — só não fazia parte
+  do que a imagem mostrava. Corrigido e recapturado na correção
+  seguinte (achado (a) abaixo).
 
 ### Não testado / bloqueado nesta correção
 
@@ -2054,4 +2066,144 @@ limite de compensação, para forçar `imposto_exterior_nao_compensavel >
   afetada pelo achado do exportador de PDF — fora do escopo desta
   correção e do meu arquivo permitido; só registrado.
 - Fechamento por verificação independente (nível de risco 1, sem
-  terceira rodada) — ainda não realizado.
+  terceira rodada) — realizado depois desta correção; achou três
+  pontos novos, corrigidos na seção seguinte.
+
+## Correção dos achados da verificação independente do fechamento (a/b/c, 2026-09-27, `especialista-frontend`)
+
+Mesmo worktree/branch/banco desta etapa. A verificação independente do
+commit anterior (`b2d27eb`) confirmou os 6 itens mínimos da correção de
+R-A1/R-M4/N21/R-B4 (seção acima), e trouxe três achados novos.
+
+### (a) DEFEITO — "Total do ano" sozinho na segunda folha
+
+Com 12 meses de dados de valor alto (base >= R$ 1.000.000,00/mês —
+`_criar_cenario_carne_leao_anual_sintetico`, `scripts/test_medir_
+identificacao_do_emitente.py`), o demonstrativo anual saía em DUAS
+folhas: a primeira terminava em dezembro sem nenhum total visível; a
+segunda só tinha o cabeçalho de identificação repetido (`<thead>`,
+`display: table-header-group`) e a linha "TOTAL DO ANO", sozinha.
+
+**Causa raiz nº 1 — bug de paginação do Chromium, não de conteúdo.**
+"Total do ano" morava num `<tfoot>` próprio. Isolado por eliminação
+(bancada, scripts descartáveis, não versionados): reduzir todo o
+respiro de impressão a zero e relaxar `break-inside`/`break-before` na
+linha do total NÃO resolviam a paginação em dois — medido por DOM e
+por captura de tela que o conteúdo cabia com folga na altura útil da
+folha. Só desligar a página NOMEADA em paisagem (`page: auto`, voltando
+ao `@page` padrão) resolvia a paginação sozinho — mas isso sacrifica a
+paisagem que R-A1 exige. A explicação que sobrou, e a única testada com
+sucesso: é um comportamento específico deste Chromium ao combinar
+`page: <nome>` com um `<tfoot>` próprio nesta tabela — mover a linha do
+total para DENTRO do `<tbody>`, como última linha, eliminou a
+paginação em dois com a página nomeada continuando ativa. Ver o
+comentário completo em `templates/livro_caixa/carne_leao_anual.html`.
+
+**Causa raiz nº 2 — altura real, uma vez resolvida a causa nº 1.** A
+mudança acima sozinha resolveu o cenário usado na rodada anterior desta
+etapa (identificação de uma linha só), mas NÃO o cenário oficial da
+reconferência (CAEPF soma uma segunda linha ao bloco de identificação,
+repetido a cada folha pelo `<thead>`) — ainda saía em duas folhas,
+agora por ALTURA de verdade. Reduzido respiro de impressão (padding da
+faixa de contexto, margem do timbre, tipografia da identificação do
+documento para `--tipo-2xs`/11px — o MESMO piso de legibilidade de
+sempre, nunca abaixo), tudo escopado a `body.pagina-carne-leao-anual-
+impressao` — nenhuma outra tela muda de respiro por causa desta
+correção. A fonte da TABELA DE DADOS continua em 11px, sem alteração.
+
+**Teste novo** (mesmo arquivo do teste de R-A1):
+`test_carne_leao_anual_impresso_total_do_ano_nunca_fica_sozinho_na_
+pagina` — `pdftotext -f N -l N` por página: a página que tem
+"Dezembro" tem "TOTAL DO" (marcador escolhido por causa de como
+`pdftotext -layout` reconstrói a célula "Total do ano", que quebra em
+duas linhas — ver o comentário no teste), e nenhuma página tem o total
+sem nenhum mês junto.
+
+### (b) DECISÃO (arquiteto-senior) — mês sem rendimento sujeito
+
+`desconto_simplificado` (motor) é um TETO da tabela — percentual do
+limite da faixa zero, calculado sobre a TABELA, nunca sobre o
+rendimento do mês — por isso é positivo mesmo sem nenhum rendimento
+sujeito, e sempre "vence" a comparação contra R$ 0,00 de deduções
+reais. Sem tratamento, tanto o anual quanto o mensal mostravam esse
+valor como se tivesse sido de fato deduzido de uma renda que não
+existiu (ex.: "Dedução aplicada 607,20" num mês sem nenhum lançamento).
+
+Só apresentação — o motor não mudou. Regra isolada num único ponto,
+`_mes_sem_rendimento_sujeito(mes_resultado)` (`views_web.py`),
+reaproveitado pelas duas telas (nunca reescrito): anual mostra "—" nas
+colunas "Dedução aplicada" e "Forma", com "Sem movimento" ao lado do
+mês; mensal mostra "Sem rendimento sujeito no mês" na linha "Forma
+aplicada neste mês", em vez do nome da forma. O TOTAL do ano continua
+somando o valor verdadeiro que o motor calculou para aquele mês — só a
+CÉLULA muda, nunca a soma (comentário em `carne_leao_anual.html`).
+
+Dois testes novos: `test_carne_leao_anual_mes_sem_rendimento_mostra_
+travessao_e_sem_movimento` e `test_carne_leao_mensal_sem_rendimento_
+mostra_aviso_em_vez_de_deducao_enganosa`. Os dois foram MATADOS por
+mutante (bancada, revertido antes do commit): forçar
+`_mes_sem_rendimento_sujeito` a sempre devolver `False` faz os dois
+falharem, mostrando "607,20"/"Desconto simplificado" em vez do aviso.
+
+### (c) DEFEITO de CSS — link azul no papel
+
+`.barra-lateral ~ .area-principal a:not(.botao)` (especificidade 0-3-1,
+regra de TELA) vencia, na impressão, a regra `a { color: var(
+--impressao-tinta) }` (especificidade 0-0-1, dentro de `@media
+print`). `.barra-lateral` continua no DOM mesmo escondida no papel
+(`display: none` não remove do DOM; o combinador `~` só olha
+estrutura) — então QUALQUER link de conteúdo saía AZUL (`--app-
+acento`) no PDF exportado, em qualquer documento do produto, não só o
+carnê-leão.
+
+Corrigido por EMPATE de especificidade dentro de `@media print`: o
+MESMO seletor da regra de tela, que ganha por ORDEM de declaração (o
+bloco `@media print` vem depois no arquivo) — sem precisar de
+`!important` nem de um seletor mais específico que o necessário (mesma
+técnica que a correção de `.botao--primario` × esta mesma regra já usa,
+comentário logo acima dela). Regra GERAL — `.area-principal` é o
+`<div>` que `templates/base.html` usa para todo conteúdo de página,
+qualquer módulo.
+
+**Teste novo**: `test_link_de_conteudo_sai_em_tinta_de_impressao_nunca_
+azul` (`scripts/test_medir_identificacao_do_emitente.py`) — sob
+`emulate_media("print")`, mede a cor computada (`getComputedStyle`) de
+um link de conteúdo em DOIS documentos de módulos diferentes (o mês do
+demonstrativo anual do carnê-leão, e a conta do Balancete que leva ao
+Razão) — os dois precisam sair `rgb(0, 0, 0)`. Morto por mutante:
+removendo a regra nova, o link do carnê-leão media `rgb(10, 88, 202)`
+(exatamente `--app-acento`).
+
+### Achado cross-cutting confirmado de novo (não desta correção)
+
+A nota do arquiteto-senior ("margem > ~1mm no `page.pdf()` deste
+Chromium vaza a barra lateral no PDF") confirma, de forma
+independente, o achado já registrado na seção anterior (bug do
+EXPORTADOR de PDF, não da folha de estilo — `page.screenshot()` sob a
+mesma emulação de impressão sai correto em qualquer margem). Nenhuma
+mudança nova motivada por ele nesta correção — só a evidência visual
+(imagem do PDF) continua usando margem 0mm, como já vinha sendo feito,
+e está declarado aqui de novo por transparência.
+
+### Verificação (a/b/c)
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 305 arquivos já formatados.
+- `python manage.py check` — sem apontamento.
+- `pytest` (suíte completa): ver hashes/saída no relato de entrega.
+- `pytest scripts/test_medir_identificacao_do_emitente.py`, com
+  `DL_PYTHON_DO_SISTEMA`/`DL_CHROMIUM_EXECUTAVEL`: ver relato de
+  entrega.
+- `scripts/medir_identificacao_do_emitente.py` (instrumento
+  standalone, contra banco descartável): ver relato de entrega — roda
+  DEPOIS da correção (c) para confirmar que nenhuma tela regrediu.
+- Nova captura: `docs/assets/telas/dl046/carne-leao-anual-paisagem-
+  pdf.png` recapturada com o cenário de 12 meses/valor alto — 1 folha
+  só, "Dezembro" e "TOTAL DO ANO" visíveis juntos.
+
+### Não testado / bloqueado nesta correção
+
+- Mesmos itens já declarados na seção anterior (Firefox/Safari/leitor
+  de tela real; validação profissional dos textos; paginação de
+  Balancete/Diário/Razão no modo "com-cabecalho" do exportador).
+- Uma quarta rodada de verificação independente, se pedida.

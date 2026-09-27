@@ -298,7 +298,19 @@ documento`, dentro da tabela).
                         <p class="texto-apoio">{{ criterio_escolha_forma }}</p>
                     </td>
                     <td>
-                        {% if forma_escolhida == "real" %}Deduções reais{% else %}Desconto simplificado{% endif %}
+                        {% comment %}
+                        Achado (b) da verificação independente do
+                        fechamento de R-A1 (2026-09-27) — `forma_aplicada_
+                        rotulo` (views_web.py,
+                        `_contexto_resultado_mensal_carne_leao`) troca
+                        "Desconto simplificado" por um aviso explícito
+                        quando não há rendimento sujeito no mês, em vez de
+                        sugerir que um valor foi deduzido de um rendimento
+                        que não existiu. Único ponto de decisão — o
+                        `{% if %}` que existia aqui foi PARA DENTRO da
+                        view (`_mes_sem_rendimento_sujeito`).
+                        {% endcomment %}
+                        {{ forma_aplicada_rotulo }}
                     </td>
                 </tr>
             </tbody>

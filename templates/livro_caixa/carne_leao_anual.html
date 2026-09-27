@@ -128,11 +128,27 @@ documento; nenhuma outra tela herda `{% block classe_body %}` daqui
                             <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}?ano={{ ano }}&mes={{ linha.mes }}">
                                 {{ linha.data_referencia|date:"F"|capfirst }}
                             </a>
+                            {% if linha.sem_rendimento_sujeito %}
+                                {% comment %}
+                                Achado (b) da verificação independente do
+                                fechamento de R-A1 (2026-09-27) —
+                                `sem_rendimento_sujeito` (views_web.py,
+                                `_linha_anual_carne_leao`,
+                                `_mes_sem_rendimento_sujeito`): "—" nas
+                                colunas de dedução/forma deste mês, mais
+                                este aviso, em vez de mostrar um valor de
+                                dedução como se tivesse sido aplicado a um
+                                rendimento que não existiu.
+                                {% endcomment %}
+                                <p class="texto-apoio">Sem movimento</p>
+                            {% endif %}
                         </td>
                         <td class="valor-monetario">{{ linha.rendimento_total_sujeito_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.deducao_aplicada_ptbr }}</td>
                         <td>
-                            {% if linha.forma_escolhida == "real" %}Deduções reais{% else %}Simplificado{% endif %}
+                            {% if linha.sem_rendimento_sujeito %}
+                                —
+                            {% elif linha.forma_escolhida == "real" %}Deduções reais{% else %}Simplificado{% endif %}
                         </td>
                         <td class="valor-monetario">{{ linha.base_de_calculo_ptbr }}</td>
                         <td class="valor-monetario">{{ linha.imposto_pela_tabela_ptbr }}</td>
@@ -142,8 +158,36 @@ documento; nenhuma outra tela herda `{% block classe_body %}` daqui
                         <td class="valor-monetario">{{ linha.valor_a_pagar_ptbr }}</td>
                     </tr>
                 {% endfor %}
-            </tbody>
-            <tfoot>
+                {% comment %}
+                Verificação independente do fechamento da reconferência
+                (achado (a), 2026-09-27): "Total do ano" morava num
+                `<tfoot>` próprio, e o Chromium (o MESMO motor que o
+                usuário usa para imprimir) paginava a tabela em DUAS
+                folhas com 12 meses de dados de valor alto — a segunda
+                folha só com o cabeçalho de identificação repetido e o
+                total, SOZINHO, sem nenhuma linha de mês visível junto.
+
+                Medido e isolado por eliminação: nem reduzir o respiro de
+                impressão a zero, nem `break-inside`/`break-before`
+                relaxados na linha do total resolviam — a tabela inteira
+                (12 meses + total) mede bem menos que a altura útil da
+                folha em paisagem (confirmado via medição de DOM e
+                captura de tela sob a mesma emulação de impressão). Só
+                mover esta linha para DENTRO do `<tbody>`, como última
+                linha, eliminou a paginação em dois — com a MESMA página
+                nomeada em paisagem (`@page carne-leao-anual-paisagem`)
+                continuando ativa. É comportamento específico deste
+                Chromium ao combinar `page: <nome>` com um `<tfoot>`
+                próprio nesta tabela; nenhuma explicação melhor foi
+                encontrada, e a alternativa que FUNCIONAVA sem esta
+                mudança (desligar a página nomeada) sacrifica a paisagem
+                que R-A1 exige. `.linha-total` continua sendo a MESMA
+                classe visual (borda, negrito, fundo — static/css/
+                base.css) e `<th scope="row">` continua marcando a linha
+                como cabeçalho de linha para leitor de tela; o que se
+                perde é só o agrupamento semântico `<tfoot>` (rowgroup de
+                rodapé), aceitável diante do defeito que corrige.
+                {% endcomment %}
                 <tr class="linha-total">
                     <th scope="row">Total do ano</th>
                     <td class="valor-monetario">{{ totais.rendimento_bruto }}</td>
@@ -156,7 +200,7 @@ documento; nenhuma outra tela herda `{% block classe_body %}` daqui
                     <td class="valor-monetario">{{ totais.imposto_devido }}</td>
                     <td class="valor-monetario">{{ totais.valor_a_pagar }}</td>
                 </tr>
-            </tfoot>
+            </tbody>
         </table>
         </div>
         {% comment %}
@@ -167,6 +211,15 @@ documento; nenhuma outra tela herda `{% block classe_body %}` daqui
         soma nada. "Dedução aplicada" de cada mês já é a forma
         EFETIVAMENTE aplicada (reais OU simplificado, conforme a coluna
         "Forma") — o total bate exatamente com a soma dessa coluna.
+
+        ⚠️ Achado (b), reconferência (2026-09-27): num mês SEM
+        rendimento sujeito, a CÉLULA mostra "—" (`linha.sem_rendimento_
+        sujeito`, acima), mas o TOTAL continua somando o valor
+        verdadeiro que o motor calculou para aquele mês (o teto do
+        desconto simplificado — nunca zero só porque não houve
+        rendimento). Não é inconsistência: "—" é só uma decisão de
+        APRESENTAÇÃO ("não houve nada para aplicar de fato este mês"),
+        nunca uma alteração do número que o motor soma.
         {% endcomment %}
     {% endif %}
 {% endblock %}

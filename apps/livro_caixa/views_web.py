@@ -972,6 +972,30 @@ def _rendimentos_para_contexto(rendimentos):
     ]
 
 
+def _mes_sem_rendimento_sujeito(mes_resultado):
+    """Achado (b) da verificação independente do fechamento de R-A1
+    (2026-09-27, decisão do arquiteto-senior) — PRESENTATION, isolada
+    neste ÚNICO ponto e reaproveitada pelas DUAS telas (mensal e
+    anual), nunca reescrita em cada uma.
+
+    Por quê: `desconto_simplificado` (`apps.livro_caixa.carne_leao.
+    _apurar_um_mes`) é um TETO da tabela — um percentual do limite da
+    faixa zero, calculado sobre a TABELA, nunca sobre o rendimento do
+    mês — por isso é positivo mesmo num mês sem nenhum rendimento
+    sujeito. Como ele é sempre >= deduções reais (0,00 sem movimento
+    nenhum), `forma_escolhida` do motor "vence" para "simplificado"
+    por definição, e `deducao_aplicada` sai um valor positivo (ex.:
+    "607,20") — sem esta distinção, a tela mostraria essa dedução como
+    se tivesse sido de fato aplicada a um rendimento que não existiu.
+
+    Só isola a CONDIÇÃO de apresentação — nunca decide nada do motor:
+    `forma_escolhida`/`deducao_aplicada`/`desconto_simplificado`
+    continuam vindo do motor sem alteração nenhuma; só o que a tela
+    ESCREVE nas células muda, e só quando esta função devolve
+    verdadeiro."""
+    return mes_resultado["rendimento_total_sujeito"] == 0
+
+
 def _contexto_resultado_mensal_carne_leao(resultado):
     """Traduz o dicionário que `apurar_carne_leao_mensal` devolve (motor,
     apps/livro_caixa/carne_leao.py, já com a correção da rodada 1 da
@@ -1010,6 +1034,26 @@ def _contexto_resultado_mensal_carne_leao(resultado):
         "deducoes_reais_total_ptbr": _valor_ptbr(resultado["deducoes_reais_total"]),
         "desconto_simplificado_ptbr": _valor_ptbr(resultado["desconto_simplificado"]),
         "forma_escolhida": resultado["forma_escolhida"],
+        # Achado (b), reconferência (2026-09-27) — a linha "Forma aplicada
+        # neste mês" (carne_leao_mensal.html) usa este rótulo em vez de
+        # `forma_escolhida` cru: sem rendimento sujeito no mês, dizer
+        # "Desconto simplificado" sugeriria que algum valor foi de fato
+        # deduzido de um rendimento que não existiu (ver o docstring de
+        # `_mes_sem_rendimento_sujeito`, acima — a mesma função que o
+        # anual usa). O RESTANTE da memória (as duas linhas "Imposto após
+        # redução — pela via de...", com o selo "Aplicada") continua
+        # mostrando a comparação REAL que o motor fez, sem alteração — é
+        # a memória de cálculo completa (classe 1, NBC TG 26 item 51), e
+        # só a frase-resumo desta ÚLTIMA linha muda.
+        "forma_aplicada_rotulo": (
+            "Sem rendimento sujeito no mês"
+            if _mes_sem_rendimento_sujeito(resultado)
+            else (
+                "Deduções reais"
+                if resultado["forma_escolhida"] == "real"
+                else "Desconto simplificado"
+            )
+        ),
         # Texto PRONTO do motor (item 7 do contrato da API, DE-091) — a
         # tela NUNCA descreve um critério que o motor não aplicou (ver a
         # seção "Achado material" do plano DL-046 sobre a versão anterior
@@ -1168,12 +1212,28 @@ def _linha_anual_carne_leao(mes_resultado):
     cobertura de teste (o mutante "sempre usa deduções reais" sobrevivia
     à suíte do desenvolvedor). O motor agora devolve `deducao_aplicada`
     pronta em CADA mês (mesmo campo que `_totais_anuais` soma para o
-    total do ano); esta função só formata."""
+    total do ano); esta função só formata.
+
+    ⚠️ **Achado (b), reconferência (2026-09-27) — "Dedução aplicada" e
+    "Forma" mostram "—" num mês sem rendimento sujeito.** Mesma razão
+    do mensal (ver `_mes_sem_rendimento_sujeito`, acima, reaproveitada
+    aqui, nunca reescrita): `deducao_aplicada` do motor é positiva
+    mesmo sem rendimento (é o TETO do desconto simplificado, não uma
+    fração do rendimento) — sem esta exceção a linha do mês pareceria
+    ter aplicado uma dedução real a uma renda que não existiu. Só
+    apresentação: `sem_rendimento_sujeito` não muda nenhum dos oito
+    totais nem a soma do ano (`totais`/`_totais_anuais_ptbr`, que
+    continuam somando o valor VERDADEIRO que o motor devolveu — só a
+    CÉLULA deste mês, na tela, mostra "—" em vez do número)."""
+    sem_rendimento_sujeito = _mes_sem_rendimento_sujeito(mes_resultado)
     return {
         "mes": mes_resultado["mes"],
         "data_referencia": date(mes_resultado["ano"], mes_resultado["mes"], 1),
         "rendimento_total_sujeito_ptbr": _valor_ptbr(mes_resultado["rendimento_total_sujeito"]),
-        "deducao_aplicada_ptbr": _valor_ptbr(mes_resultado["deducao_aplicada"]),
+        "sem_rendimento_sujeito": sem_rendimento_sujeito,
+        "deducao_aplicada_ptbr": (
+            "—" if sem_rendimento_sujeito else _valor_ptbr(mes_resultado["deducao_aplicada"])
+        ),
         "forma_escolhida": mes_resultado["forma_escolhida"],
         "base_de_calculo_ptbr": _valor_ptbr(mes_resultado["base_de_calculo"]),
         "imposto_pela_tabela_ptbr": _valor_ptbr(mes_resultado["imposto_pela_tabela"]),

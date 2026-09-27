@@ -813,6 +813,89 @@ def test_tela_anual_deducao_da_forma_aplicada(client, cenario):
     )
 
 
+def test_carne_leao_anual_mes_sem_rendimento_mostra_travessao_e_sem_movimento(client, cenario):
+    """Achado (b) da verificação independente do fechamento de R-A1
+    (2026-09-27, decisão do arquiteto-senior): um mês SEM rendimento
+    sujeito mostra "—" nas colunas "Dedução aplicada" e "Forma", com
+    "Sem movimento" — nunca um valor de dedução (o teto do desconto
+    simplificado, positivo mesmo sem rendimento) como se tivesse sido
+    aplicado a uma renda que não existiu.
+
+    Cenário: só fevereiro/2026 tem lançamento (mesmo cenário de
+    `test_tela_anual_deducao_da_forma_aplicada`, acima) — janeiro
+    (nenhum lançamento em ano nenhum) é o mês SEM rendimento sujeito
+    que este teste examina; fevereiro, com rendimento de verdade,
+    continua mostrando "607,20" e "Simplificado" por extenso (nunca
+    "—"), provando que a exceção não vaza para meses COM movimento."""
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 2, 10), "6000.00")
+    _lancar_despesa(cenario["empresa_a"], cenario["conta_previdencia"], date(2026, 2, 12), "100.00")
+
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    html = resposta.content.decode()
+
+    linha_janeiro = re.search(r"Janeiro.*?</tr>", html, re.DOTALL)
+    assert linha_janeiro is not None, "linha de janeiro não encontrada na tabela anual"
+    bloco_janeiro = linha_janeiro.group()
+    assert "Sem movimento" in bloco_janeiro, (
+        f"janeiro (sem rendimento sujeito) não mostra 'Sem movimento': {bloco_janeiro}"
+    )
+    # As duas colunas afetadas ("Dedução aplicada" e "Forma") mostram
+    # "—" — nunca "Simplificado"/"Deduções reais" nem um valor
+    # monetário do teto do desconto simplificado.
+    assert bloco_janeiro.count("—") >= 2, (
+        f"janeiro deveria mostrar '—' em 'Dedução aplicada' e 'Forma': {bloco_janeiro}"
+    )
+    assert "Simplificado" not in bloco_janeiro
+    assert "Deduções reais" not in bloco_janeiro
+
+    linha_fevereiro = re.search(r"Fevereiro.*?</tr>", html, re.DOTALL)
+    assert linha_fevereiro is not None
+    bloco_fevereiro = linha_fevereiro.group()
+    assert "Sem movimento" not in bloco_fevereiro, (
+        "fevereiro TEM rendimento sujeito — não deveria mostrar 'Sem movimento'"
+    )
+    assert "607,20" in bloco_fevereiro
+    assert "Simplificado" in bloco_fevereiro
+
+
+def test_carne_leao_mensal_sem_rendimento_mostra_aviso_em_vez_de_deducao_enganosa(client, cenario):
+    """Achado (b) da verificação independente do fechamento de R-A1
+    (2026-09-27, decisão do arquiteto-senior) — a linha "Forma aplicada
+    neste mês" (mesma linha que `test_carne_leao_mensal_marca_a_forma_
+    aplicada_com_selo` cobre para o caso COM rendimento) mostra "Sem
+    rendimento sujeito no mês" em vez de "Desconto simplificado" quando
+    não há nenhum rendimento sujeito — o motor continua calculando um
+    desconto simplificado positivo (teto da tabela, não fração do
+    rendimento), mas a tela não apresenta esse número como se tivesse
+    sido de fato deduzido de uma renda que não existiu.
+
+    Mesmo mês de `test_carne_leao_mensal_sem_movimento_mostra_aviso_de_
+    estado` (março/2026, nenhum lançamento) — aquele teste cobre o
+    aviso de ESTADO (`mensagem-info`, só tela); este cobre a linha da
+    MEMÓRIA DE CÁLCULO em si (que sai também impressa)."""
+    _autenticar(client, cenario["escritorio_a"])
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+
+    fim_bloco = html.find("Forma aplicada neste mês")
+    assert fim_bloco != -1
+    bloco = html[fim_bloco : fim_bloco + 600]
+    assert "Sem rendimento sujeito no mês" in bloco, (
+        f"linha 'Forma aplicada neste mês' não mostra o aviso esperado: {bloco}"
+    )
+    assert "Desconto simplificado" not in bloco, (
+        f"linha 'Forma aplicada neste mês' ainda mostra 'Desconto simplificado' "
+        f"como se um valor tivesse sido aplicado a um rendimento que não existiu: {bloco}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Retificação de dependentes (DE-091 item 6/M-6).
 # ---------------------------------------------------------------------------

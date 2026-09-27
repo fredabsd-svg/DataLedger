@@ -3571,6 +3571,60 @@ button:disabled {
         page: carne-leao-anual-paisagem;
     }
 
+    /* Achado (a) da verificação independente do fechamento de R-A1
+       (2026-09-27): com os 12 meses de 2025 do cenário sintético de
+       valor alto (RENDA >= R$ 1.000.000,00/mês — o mesmo que mede o
+       teste acima), a página ainda saía em DUAS folhas mesmo depois de
+       mover "Total do ano" para dentro do `<tbody>` (ver o comentário
+       em `templates/livro_caixa/carne_leao_anual.html`) — o conteúdo
+       cabia com folga na LARGURA (paisagem já resolvida), mas não na
+       ALTURA: o cabeçalho de identificação (`.identificacao-do-
+       documento`, dentro do `<thead>` que repete a cada folha —
+       `.tabela-dados thead`, acima) mais o `<h1>` da tela mais a faixa
+       de contexto (Empresa/Ano-calendário/Emitido em) mais o timbre do
+       escritório, tudo somado, sobravam da altura útil da folha em
+       paisagem quando a identificação do contribuinte precisa de DUAS
+       linhas (razão social+CPF E CAEPF, como o CAEPF do cenário desta
+       correção tem).
+
+       As regras abaixo SÓ encolhem RESPIRO (padding/margem) e
+       tipografia de PROSA (identificação, timbre) — nunca a tipografia
+       da TABELA DE DADOS, que continua em `--tipo-2xs`/11px (o mesmo
+       piso de legibilidade de sempre, nunca abaixo). Todas escopadas a
+       `body.pagina-carne-leao-anual-impressao`: nenhuma outra tela
+       (Balancete, DRE, Diário, Razão, o mensal do próprio carnê-leão)
+       muda de respiro por causa desta correção — só tokens já
+       existentes, nenhum valor novo declarado. */
+    body.pagina-carne-leao-anual-impressao h1 {
+        margin-bottom: var(--esp-1);
+    }
+
+    body.pagina-carne-leao-anual-impressao .cabecalho__contexto {
+        padding: 0;
+    }
+
+    body.pagina-carne-leao-anual-impressao .cabecalho__contexto .contexto-item {
+        padding: 0 var(--esp-1);
+    }
+
+    body.pagina-carne-leao-anual-impressao .timbre-impressao {
+        margin-bottom: var(--esp-2);
+    }
+
+    body.pagina-carne-leao-anual-impressao .timbre-impressao p:first-child {
+        font-size: var(--tipo-sm);
+    }
+
+    /* `.identificacao-do-documento` é PARTIAL COMPARTILHADO com o
+       demonstrativo MENSAL (`_identificacao_do_documento_carne_leao.
+       html`) — por isso o seletor abaixo, escopado só ao `<body>` do
+       ANUAL, nunca ao partial em si: o mensal (retrato, já cabia sem
+       este achado) continua com a tipografia original, sem risco de
+       regressão. */
+    body.pagina-carne-leao-anual-impressao .identificacao-do-documento p {
+        font-size: var(--tipo-2xs);
+    }
+
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,
        docs/auditorias/2026-09-19-dl-026-rodada-5.md): DENTRO de
        `.cabecalho__contexto` (que continua impresso — ver a nota acima),
@@ -3718,6 +3772,36 @@ button:disabled {
     a {
         color: var(--impressao-tinta);
         text-decoration: none;
+    }
+
+    /* Achado (c) da verificação independente do fechamento de R-A1
+       (2026-09-27): a regra acima (`a { color: ... }`, especificidade
+       0-0-1) SEMPRE perdia, na impressão, para `.barra-lateral ~
+       .area-principal a:not(.botao)` (especificidade 0-3-1, fora de
+       `@media print` — linha ~688), porque especificidade decide antes
+       de posição no arquivo, e aquela regra NUNCA foi escrita pensando
+       em papel: nasceu para dar cor de link à TELA. `.barra-lateral`
+       continua no DOM mesmo escondida na impressão (`display: none`,
+       acima, nesta mesma folha) — o combinador `~` (irmão geral) não
+       depende de visibilidade, só de estrutura — então a regra de tela
+       CONTINUAVA casando e vencendo no papel, deixando o link AZUL
+       (`--app-acento`) em vez de preto. Medido: qualquer link de
+       conteúdo (ex.: o mês do demonstrativo anual do carnê-leão, "Ver
+       demonstrativo mensal") saía azul no PDF exportado.
+
+       Regra GERAL, para TODO documento impresso do produto — nunca só
+       o carnê-leão: `.area-principal` (o mesmo `<div>` que
+       `templates/base.html` usa para TODO conteúdo de página,
+       qualquer módulo) garante alcance total sem precisar listar tela
+       por tela. Correção por EMPATE de especificidade, não por
+       escalada: o MESMO seletor da regra de tela, dentro de `@media
+       print` — como aparece DEPOIS no arquivo, ganha o empate pela
+       ORDEM de declaração (a mesma regra do CSS que `.botao--primario`
+       × `.barra-lateral ~ .area-principal a` já usa, comentário acima)
+       — sem precisar de `!important` nem de um seletor mais específico
+       que o necessário. */
+    .barra-lateral ~ .area-principal a:not(.botao) {
+        color: var(--impressao-tinta);
     }
 }
 
