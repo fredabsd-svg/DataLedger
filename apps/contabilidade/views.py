@@ -2,6 +2,7 @@ import hashlib
 import re
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -19,7 +20,11 @@ from apps.contabilidade.models import (
     TipoPartida,
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
-from apps.contabilidade.serializers import ContaSerializer, LancamentoContabilSerializer
+from apps.contabilidade.serializers import (
+    ClassificacaoDrePatchSerializer,
+    ContaSerializer,
+    LancamentoContabilSerializer,
+)
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
     CompetenciaEncerrada,
@@ -31,7 +36,10 @@ from apps.contabilidade.services import (
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     apurar_balancete,
+    apurar_dre,
     apurar_razao,
+    avaliar_emissao_da_dre,
+    classificar_conta_na_dre,
     criar_lancamento,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
@@ -43,6 +51,7 @@ from apps.contabilidade.services import (
     localizar_lancamentos_com_data_fora_da_faixa,
     localizar_lotes_desbalanceados,
     marcar_competencia_como_entregue,
+    mensagens_da_validacao_django,
     movimento_fora_do_periodo,
     pre_visualizar_zeramento,
     reabrir_competencia,
@@ -172,7 +181,20 @@ CAMPOS_PERMITIDOS_ITEM = frozenset({"conta", "tipo", "valor"})
 # cabeçalho era ignorado, aqui ele seria ignorado em rotas que não o
 # implementam.
 CONTRATO_POST_CONTA = ContratoDeRequisicao(
-    campos={"codigo", "nome", "tipo", "natureza", "conta_pai", "aceita_lancamento", "ativo"},
+    # DL-045/RC-118: `classificacao_dre` somada aqui — sem isto, a
+    # "política dos cinco dicionários" (BL-196) recusaria com "dado não
+    # contratado" ANTES de o campo novo do serializer sequer ser
+    # examinado, mesmo já declarado em `ContaSerializer.Meta.fields`.
+    campos={
+        "codigo",
+        "nome",
+        "tipo",
+        "natureza",
+        "conta_pai",
+        "aceita_lancamento",
+        "ativo",
+        "classificacao_dre",
+    },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
 )
@@ -231,6 +253,12 @@ CONTRATO_POST_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL = ContratoDeRequisicao(
 CONTRATO_POST_ZERAR_RESULTADO = ContratoDeRequisicao(
     campos=frozenset(),
     contexto="no zeramento do resultado",
+)
+# A7 (auditoria DL-045, rodada 1): PATCH da linha da DRE de uma conta já
+# existente — um campo só, a própria conta vem da URL.
+CONTRATO_PATCH_CLASSIFICACAO_DRE = ContratoDeRequisicao(
+    campos={"classificacao_dre"},
+    contexto="na classificação da linha da DRE",
 )
 
 
@@ -1573,6 +1601,205 @@ class BalanceteView(EmpresaEscopadaContabilMixin, APIView):
                 ),
             }
         )
+
+
+def _linhas_dre_como_moeda(linhas):
+    """`{ClassificacaoDre: Decimal}` -> `{str: str}`, com `_como_moeda` em
+    cada valor — a chave já é `str` (o `TextChoices` é uma `str`), mas
+    `str()` explícito documenta a conversão e não depende do valor já ser
+    o literal certo por acidente."""
+    return {str(classificacao): _como_moeda(valor) for classificacao, valor in linhas.items()}
+
+
+def _subtotais_dre_como_moeda(subtotais):
+    return {nome: _como_moeda(valor) for nome, valor in subtotais.items()}
+
+
+def _residuo_dre_como_moeda(residuo_por_tipo):
+    return {str(tipo): _como_moeda(valor) for tipo, valor in residuo_por_tipo.items()}
+
+
+def _residuo_pendente_dre_para_json(residuo_pendente_por_coluna):
+    """`{"coluna_mes": {TipoConta: Decimal}, "coluna_acumulado": {...}}`
+    -> mesma forma, com chave e valor como `str` (DL-045, decisão do
+    arquiteto de 26/09/2026: as duas colunas vetam, cada pendência
+    marcada com a coluna de onde vem)."""
+    return {
+        nome_coluna: {str(tipo): _como_moeda(valor) for tipo, valor in residuo.items()}
+        for nome_coluna, residuo in residuo_pendente_por_coluna.items()
+    }
+
+
+def _estornos_de_zeramento_para_json(estornos):
+    """`data` (objeto `date`) -> `isoformat()`, mesma regra de toda data
+    desta API (A3, auditoria DL-045 rodada 1)."""
+    return [
+        {
+            "lancamento": item["lancamento"],
+            "data": item["data"].isoformat(),
+            "historico": item["historico"],
+            "estorno_de_chave": item["estorno_de_chave"],
+        }
+        for item in estornos
+    ]
+
+
+def _coluna_dre_para_json(coluna):
+    return {
+        "linhas": _linhas_dre_como_moeda(coluna["linhas"]),
+        "subtotais": _subtotais_dre_como_moeda(coluna["subtotais"]),
+        "residuo_por_tipo": _residuo_dre_como_moeda(coluna["residuo_por_tipo"]),
+        "total_debitos": _como_moeda(coluna["total_debitos"]),
+        "total_creditos": _como_moeda(coluna["total_creditos"]),
+        "contas_sem_classificacao_dre_com_movimento": (
+            coluna["contas_sem_classificacao_dre_com_movimento"]
+        ),
+        "contas_nao_folha_sem_classificacao_dre_com_movimento_proprio": (
+            coluna["contas_nao_folha_sem_classificacao_dre_com_movimento_proprio"]
+        ),
+        "contas_com_classificacao_dre_aninhada_mesma_linha": (
+            coluna["contas_com_classificacao_dre_aninhada_mesma_linha"]
+        ),
+        "contas_com_classificacao_dre_aninhada_linha_diferente": (
+            coluna["contas_com_classificacao_dre_aninhada_linha_diferente"]
+        ),
+        "contas_com_tipo_divergente_da_linha": coluna["contas_com_tipo_divergente_da_linha"],
+        "contas_com_classificacao_dre_desconhecida": (
+            coluna["contas_com_classificacao_dre_desconhecida"]
+        ),
+        "estornos_de_zeramento_na_coluna": _estornos_de_zeramento_para_json(
+            coluna["estornos_de_zeramento_na_coluna"]
+        ),
+    }
+
+
+class DreView(EmpresaEscopadaContabilMixin, APIView):
+    """Demonstração do Resultado do Exercício (DL-045, fatia 2 — RC-118/
+    RC-119/RC-120): duas colunas (mês e acumulado do exercício, HI-28),
+    pelo MOVIMENTO do período, excluindo lançamentos de zeramento
+    (DL-043).
+
+    Autorização: a MESMA das outras saídas contábeis com período (Diário,
+    Razão, Balancete) — `PodeLerContabilidade`, nunca `PodeFecharCompeten
+    cia` (a DRE é leitura, não uma ação de fechamento).
+
+    409 (`pode_emitir=False`) quando há conta de resultado analítica com
+    movimento SEM classificação (critério 6 do plano) — em QUALQUER das
+    duas colunas (mês ou acumulado; decisão do arquiteto, 26/09/2026: a
+    DRE formal imprime o acumulado, então uma pendência só nele também
+    deixa um número impresso errado). Mesmo padrão de veto do Balanço
+    (`avaliar_emissao_do_balanco`/`apurar_balanco_patrimonial`, DL-034),
+    adaptado: aqui não há template/emissão formal ainda (fatia 3), então
+    o 409 é da PRÓPRIA leitura — o corpo da resposta sempre traz os dois
+    números (mês e acumulado), mesmo quando `pode_emitir` é falso, para o
+    cliente decidir o que mostrar (nunca esconder o dado por trás só do
+    código de status). `residuo_pendente`/`listas_pendentes`/`listas_
+    informativas` vêm agrupados por coluna (`"coluna_mes"`/`"coluna_
+    acumulado"`) — só a coluna que TEM algo a reportar aparece.
+
+    A2/A1 (auditoria DL-045, rodada 1): `contas_com_tipo_divergente_da_
+    linha` e `contas_com_classificacao_dre_aninhada_linha_diferente`
+    também vetam agora (ver `_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO` em
+    `services.py`) — nada mudou NESTA view por causa disso; ela só lê o
+    que `avaliar_emissao_da_dre` decide.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            dre = apurar_dre(empresa=empresa, ano=ano, mes=mes)
+        except HierarquiaInconsistente as exc:
+            # Mesmo padrão do Balancete/Razão: ciclo ou conta_pai de outra
+            # empresa na hierarquia — resposta controlada, nunca 500 mudo.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        emissao = avaliar_emissao_da_dre(dre)
+        corpo = {
+            "empresa_id": dre["empresa_id"],
+            "ano": dre["ano"],
+            "mes": dre["mes"],
+            "data_inicio_mes": dre["data_inicio_mes"].isoformat(),
+            "data_fim_mes": dre["data_fim_mes"].isoformat(),
+            "data_inicio_exercicio": dre["data_inicio_exercicio"].isoformat(),
+            "data_fim_exercicio": dre["data_fim_exercicio"].isoformat(),
+            "coluna_mes": _coluna_dre_para_json(dre["coluna_mes"]),
+            "coluna_acumulado": _coluna_dre_para_json(dre["coluna_acumulado"]),
+            "pode_emitir": emissao["pode_emitir"],
+            "residuo_pendente": _residuo_pendente_dre_para_json(emissao["residuo_pendente"]),
+            "listas_pendentes": emissao["listas_pendentes"],
+            "listas_informativas": emissao["listas_informativas"],
+        }
+        status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
+        return Response(corpo, status=status_code)
+
+
+class ContaClassificacaoDreView(EmpresaEscopadaContabilMixin, APIView):
+    """A7 (auditoria DL-045, rodada 1): PATCH da linha da DRE
+    (`classificacao_dre`) de uma conta já existente — a porta operacional
+    que faltava. Antes desta view, só o `admin` do Django conseguia
+    classificar ou corrigir conta (e corrigir um erro de classificação
+    exigia conta nova + transferência do movimento, deixando marca
+    permanente na DRE do mês da correção — ver o achado A7 completo).
+
+    Autorização: `PodeEscriturar` — o MESMO papel que grava lançamento e
+    cria conta (`ContaListCreateView.post`), nunca uma permissão nova
+    para a classificação da DRE (RC-118 não criou papel próprio).
+
+    Corpo: `{"classificacao_dre": "<valor de ClassificacaoDre, ou null/""
+    para remover>"}` — um campo só (`CONTRATO_PATCH_CLASSIFICACAO_DRE`).
+    A ÚNICA guarda que resta em `Conta.clean()` é a de compatibilidade
+    de TIPO (Lei 6.404/76, art. 187) — DE-086 (reconferência) removeu a
+    guarda de transição e as duas do A6 (rodada 1): a linha da DRE pode
+    mudar livremente com movimento, sempre com trilha (ver
+    `classificar_conta_na_dre`, services.py). Esta view não duplica
+    nenhuma regra de negócio — só traduz `django.core.exceptions.
+    ValidationError` para 400 do DRF.
+
+    R3 (auditoria DL-045, reconferência): o CORPO é validado por
+    `ClassificacaoDrePatchSerializer` (serializers.py) ANTES do serviço
+    — um corpo que não é dicionário, ou um valor de `classificacao_dre`
+    que não é `str`/`None`/`""` (dict, lista), devolve 400 aqui, nunca
+    500. Antes desta validação, `request.data.get(...)` estourava
+    `AttributeError` para corpo-lista, e `Conta.clean()` estourava
+    `TypeError: unhashable type` para valor dict/lista — os dois casos
+    vazavam como 500 mudo, sem nada gravado.
+
+    200 com a conta serializada (`ContaSerializer`) quando aceito. 404
+    quando a conta não existe NESTA empresa (isolamento — `Conta.objects
+    .filter(empresa=empresa)`, nunca uma consulta sem esse filtro).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def patch(self, request, empresa_id, conta_id):
+        empresa = self.get_empresa()
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DRE)
+
+        # R3: valida o TIPO do corpo e do valor ANTES de qualquer coisa
+        # que possa gravar ou estourar 500 — ver o docstring da classe e
+        # de `ClassificacaoDrePatchSerializer`.
+        entrada = ClassificacaoDrePatchSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        classificacao = entrada.validated_data.get("classificacao_dre") or None
+
+        try:
+            classificar_conta_na_dre(
+                conta=conta,
+                classificacao=classificacao,
+                usuario=request.user,
+                request=request,
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                {"classificacao_dre": mensagens_da_validacao_django(exc)}
+            ) from exc
+
+        return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
 
 
 class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):

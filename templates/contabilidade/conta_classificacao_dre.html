@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% comment %}
+DL-045, correção da rodada 1 de auditoria (A7): formulário de UM campo
+só — a Linha da DRE de uma conta EXISTENTE. Molde de `conta_form.html`
+(mesma moldura, mesmo padrão de erro/ajuda por campo), mas tela PRÓPRIA:
+o formulário aqui (`ClassificacaoDreForm`) não tem "codigo"/"nome"/
+"tipo"/etc. — só o select, porque a conta já existe.
+{% endcomment %}
+{% block titulo %}Linha da DRE — {{ conta.codigo }} {{ conta.nome }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Linha da DRE — {{ conta.codigo }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Linha da DRE — {{ conta.codigo }} {{ conta.nome }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Tipo cadastrado: <strong>{{ conta.get_tipo_display }}</strong>.
+        Linha atual: <strong>{{ conta.get_classificacao_dre_display|default:"Sem classificação" }}</strong>.
+    </p>
+
+    {% comment %}
+    R6-5/BL-199 (mesma razão do `conta_form.html`, ver o comentário de
+    lá): `action` explícito e sem querystring.
+    {% endcomment %}
+    <form method="post"
+          action="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id conta.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+        {% comment %}
+        DL-045/A7: cada guarda de `Conta.clean()` (compatibilidade de
+        tipo, transição com movimento, A6) chega aqui como `form.non_
+        field_errors()` — `classificar_conta_na_dre`
+        (`conta_classificacao_dre`, views_web.py) nunca julga nada
+        sozinha, só grava e propaga o que o servidor recusar.
+        {% endcomment %}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.help_text %}<p class="visualmente-oculto" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                {% if campo.errors %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit">Salvar</button>
+    </form>
+{% endblock %}

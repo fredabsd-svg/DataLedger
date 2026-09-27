@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from apps.contabilidade.models import Conta, ItemLancamento, LancamentoContabil
+from apps.contabilidade.models import (
+    TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
+    ClassificacaoDre,
+    Conta,
+    ItemLancamento,
+    LancamentoContabil,
+    TipoConta,
+)
 from apps.core.identificadores import IdentificadorInvalido, para_id
 
 
@@ -48,7 +55,65 @@ class ContaSerializer(serializers.ModelSerializer):
             "conta_pai",
             "aceita_lancamento",
             "ativo",
+            # DL-045/RC-118: linha da DRE — exposta e aceita pela MESMA
+            # porta e a MESMA autorização de hoje (nenhuma permission_class
+            # nova; `ContaListCreateView` já exige `PodeEscriturar` no
+            # POST e `PodeLerContabilidade` no GET, ver views.py). Ao
+            # contrário de `classificacao_patrimonial` (DL-033, que nunca
+            # ganhou porta de API — só admin), este campo é a primeira vez
+            # que uma classificação de conta é aceita por aqui; ver
+            # `validate` abaixo para a checagem de compatibilidade com
+            # `tipo` (o `Conta.clean()` não roda neste caminho — DRF não
+            # chama `full_clean()`, achado BL-40/DE-008).
+            "classificacao_dre",
         ]
+
+    def validate_classificacao_dre(self, value):
+        """A4 (auditoria DL-045, rodada 1): normaliza `""` para `None` —
+        NUNCA recusa. O `ChoiceField` que o `ModelSerializer` gera por
+        padrão para este campo (`blank=True` no modelo) aceita `""` e
+        gravava do jeito que chegou; a guarda de transição de `Conta.
+        clean()` tratava `""` como "já classificada" (`is not None`), o
+        que travava a conta para sempre — a primeira classificação REAL,
+        depois do `""`, era recusada como reclassificação. `validate_
+        <campo>` roda ANTES de `validate()` (objeto), então `attrs.get(
+        "classificacao_dre")` já chega `None` quando o cliente mandou
+        `""` — a checagem de compatibilidade com `tipo`, abaixo, nem
+        examina o valor branco."""
+        return value or None
+
+    def validate(self, attrs):
+        """Compatibilidade `classificacao_dre` × `tipo` (Lei 6.404/76, art.
+        187) — mesma regra de `Conta.clean()`, repetida aqui porque o DRF
+        NUNCA chama `full_clean()` (achado BL-40/DE-008, o mesmo motivo de
+        `validate_conta_pai`). Cross-field: mora em `validate()`, não em
+        `validate_classificacao_dre`, porque depende de `tipo`, outro
+        campo do mesmo payload.
+        """
+        classificacao = attrs.get("classificacao_dre")
+        if self.instance is not None and "classificacao_dre" not in attrs:
+            classificacao = self.instance.classificacao_dre
+        if not classificacao:
+            return attrs
+
+        tipo = attrs.get("tipo")
+        if tipo is None and self.instance is not None:
+            tipo = self.instance.tipo
+
+        tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(classificacao)
+        if tipos_aceitos is not None and tipo not in tipos_aceitos:
+            rotulo_classificacao = ClassificacaoDre(classificacao).label
+            rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
+            raise serializers.ValidationError(
+                {
+                    "classificacao_dre": (
+                        f'A linha da DRE "{rotulo_classificacao}" não é compatível com o '
+                        f"tipo desta conta: só se aplica a contas de tipo "
+                        f"{rotulos_tipos_aceitos} (Lei 6.404/76, art. 187)."
+                    )
+                }
+            )
+        return attrs
 
     def validate_conta_pai(self, value):
         """`conta_pai` deve pertencer à mesma empresa do escopo da requisição.
@@ -105,6 +170,33 @@ class ContaSerializer(serializers.ModelSerializer):
                 visitado.add(ancestral.pk)
                 ancestral = ancestral.conta_pai
         return value
+
+
+class ClassificacaoDrePatchSerializer(serializers.Serializer):
+    """R3 (auditoria DL-045, reconferência): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDreView` (views.py) ANTES de chegar ao serviço —
+    sem isto, um corpo malformado vazava como 500, mudo, em dois pontos
+    diferentes: `request.data.get("classificacao_dre")`, na view, quebra
+    com `AttributeError` quando o corpo TODO é uma lista (`["x"]`, não
+    tem `.get`); e `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(valor)`, em
+    `Conta.clean()` (models.py), quebra com `TypeError: unhashable type`
+    quando `valor` é um `dict` ou uma `list` (`{"classificacao_dre": {"a":
+    1}}` ou `{"classificacao_dre": ["receita_bruta"]}`).
+
+    `ChoiceField` sozinho já cobre os dois casos: um corpo que não é
+    `Mapping` (`Serializer.to_internal_value`) recusa com 400 antes de
+    examinar qualquer campo; um valor não-`str` que não bate com nenhuma
+    chave de `ClassificacaoDre.choices` (`choice_strings_to_values`, que
+    compara por `str(data)`) recusa com `invalid_choice`, nunca estoura
+    `TypeError`/`KeyError` cru. `allow_null`/`allow_blank` continuam
+    aceitando "sem classificação" (`None`/`""`, achado A4) — só o TIPO do
+    valor é a preocupação nova aqui; a compatibilidade com `Conta.tipo`
+    continua sendo decidida só por `Conta.clean()`, via
+    `classificar_conta_na_dre` (nunca duplicada aqui)."""
+
+    classificacao_dre = serializers.ChoiceField(
+        choices=ClassificacaoDre.choices, allow_null=True, allow_blank=True, required=False
+    )
 
 
 class ItemLancamentoSerializer(serializers.ModelSerializer):

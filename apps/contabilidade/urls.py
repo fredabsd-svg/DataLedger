@@ -3,8 +3,10 @@ from django.urls import path
 from apps.contabilidade.views import (
     BalanceteView,
     ConferenciaLotesDesbalanceadosView,
+    ContaClassificacaoDreView,
     ContaListCreateView,
     DiarioView,
+    DreView,
     EncerrarCompetenciaView,
     EncerrarVigenciaParametroContabilView,
     EntregarCompetenciaView,
@@ -79,5 +81,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/zeramento/<int:ano>/<int:mes>/",
         ZerarResultadoView.as_view(),
         name="zeramento",
+    ),
+    # DL-045 fatia 2: Demonstração do Resultado do Exercício — `ano`/`mes`
+    # identificam o RECURSO (o período cuja competência final é ano/mes),
+    # mesmo padrão de `zeramento/<int:ano>/<int:mes>/`, acima.
+    path(
+        "empresas/<int:empresa_id>/dre/<int:ano>/<int:mes>/",
+        DreView.as_view(),
+        name="dre",
+    ),
+    # A7 (auditoria DL-045, rodada 1): porta operacional para classificar
+    # (ou reclassificar, ou remover a classificação de) a linha da DRE de
+    # uma conta já existente — `conta_id` identifica o RECURSO, mesmo
+    # padrão de `razao/<int:conta_id>/`.
+    path(
+        "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dre/",
+        ContaClassificacaoDreView.as_view(),
+        name="conta-classificacao-dre",
     ),
 ]
