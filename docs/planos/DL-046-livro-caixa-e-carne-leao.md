@@ -2261,3 +2261,74 @@ Os três primeiros foram corrigidos no commit `76781ec`, pela
 `especialista-frontend`, com teste para cada um (o do total confere o texto
 **por página**) e prova de mutação. Registro da correção na seção
 "Correção final da reconferência" acima.
+
+## Fatia 3 — objetivo, escopo e critérios (2026-09-27, `arquiteto-senior`)
+
+**Objetivo:** o escritório gera, a partir do livro-caixa, os arquivos que o
+Carnê-Leão Web importa (RC-127: o escritório entrega das duas formas,
+digitando e importando), sem redigitar lançamento. Nível de risco 1: arquivo
+entregue à Receita em nome do cliente.
+
+**Fonte:** Receita Federal, Manual do Carnê-Leão, página "Formato do arquivo
+de Escrituração" (publicada em 10/07/2023, atualizada em 21/10/2025,
+consultada em 2026-09-27), e os modelos oficiais de arquivo
+(`escrituracao-carne-leao.zip`, instruções de 2025). Manual de sistema de
+referência só como rotina.
+
+**O que o leiaute exige e o livro-caixa ainda não tem:**
+
+| Campo do leiaute | Onde entra | Regra |
+| --- | --- | --- |
+| Código da ocupação (3 caracteres) | Cadastro do cliente pessoa física, com possibilidade de outro código na conta de rendimento (HI-34) | Obrigatório na linha de trabalho não assalariado; o notarial usa 117, como no modelo oficial |
+| Indicador e valor de IRRF | Lançamento de rendimento recebido de pessoa jurídica | "S" com valor quando houve retenção; "N" quando não houve |
+| Competência (MM/AAAA), multa e juros | Lançamento de previdência oficial (`P20.01.00001`) | Competência exigida pelo modelo; multa e juros quando houver |
+
+**Escopo:**
+
+1. Os campos da tabela acima, com validação no servidor e trilha, e na tela
+   de lançamento e de cadastro.
+2. Serviço de geração dos **dois arquivos** (rendimentos e pagamentos) para
+   um período dentro de um único ano-calendário: separador `;`, data
+   `DD/MM/AAAA`, valor com vírgula e sem separador de milhar, campos vazios
+   mantendo a posição, uma linha por lançamento, código vindo da conta.
+3. **Fora do arquivo:** lançamento estornado e o próprio estorno (o
+   Carnê-Leão Web não aceita valor negativo, e o estorno fica no mesmo mês do
+   original — RC-130); contas sem código do Carnê-Leão Web.
+4. **Pendências antes de gerar:** o arquivo não sai enquanto houver linha
+   que o leiaute recusaria — ocupação ausente, competência da previdência
+   ausente, histórico acima de 255 caracteres, código fora das tabelas. A
+   tela lista cada pendência com o lançamento, como o veto da DRE e do
+   Balanço. Nada é truncado nem corrigido em silêncio.
+5. **Conferência:** o total do arquivo por código bate com o livro-caixa do
+   período, e a tela mostra essa conferência junto do download.
+6. Autorização no servidor, isolamento por empresa e escritório, só modo
+   livro-caixa, e registro na trilha de cada arquivo gerado (quem, período,
+   quantidade de linhas e totais — nunca o conteúdo).
+
+**Fora desta fatia:** recibos do Receita Saúde (o leiaute tem campos
+próprios e o profissional de saúde os emite no aplicativo da Receita);
+pagamento do próprio carnê-leão (`P20.01.00004`); o campo "valor da
+dedução" do aluguel (HI-39 — o aluguel é lançado já sem as parcelas do art.
+42, e a linha sai com esse campo vazio).
+
+**Critérios de aceite:**
+
+1. Cada linha gerada tem o mesmo número de campos e o mesmo formato da linha
+   correspondente do modelo oficial, para cada modelo (trabalho não
+   assalariado PF com e sem CPF do beneficiário, PJ com e sem IRRF,
+   exterior; notarial PF, PJ e exterior; aluguel e outros; pagamentos gerais
+   e do plano de contas padrão), conferido em teste contra os arquivos de
+   modelo.
+2. Codificação e quebra de linha iguais às dos modelos oficiais (HI-41).
+3. Estorno e estornado fora; período fora do ano-calendário recusado.
+4. Pendências listadas, arquivo recusado, nada truncado.
+5. Totais do arquivo iguais aos do livro-caixa do período, por código.
+6. Isolamento, autorização, modo livro-caixa, trilha — com teste.
+7. Suíte completa, lint, formatação, `check`, `makemigrations --check`,
+   migração em banco vazio.
+
+**Dúvidas que o `desenvolvedor-pleno` resolve na fonte oficial antes de
+codificar** (Perguntas e Respostas IRPF 2026 e Manual do Carnê-Leão): multa
+e juros pagos com a previdência oficial entram na dedução ou não; se o
+Carnê-Leão Web exige o arquivo por mês ou aceita o ano inteiro. O que ficar
+sem resposta vira hipótese registrada.
