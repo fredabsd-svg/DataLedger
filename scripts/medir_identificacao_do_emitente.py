@@ -617,7 +617,26 @@ TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
 # razão que `_descobrir_telas_com_identificacao_do_documento` já não
 # reaproveita `_descobrir_telas_com_timbre`: misturar as duas obscureceria
 # qual tela pertence a qual critério.
-TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS = frozenset({"livro_caixa_web:relatorio"})
+#
+# DL-046, fatia 2 (especialista-frontend, 2026-09-27): as duas telas do
+# demonstrativo do carnê-leão (`livro_caixa_web:carne_leao_mensal`/
+# `carne_leao_anual`, `templates/livro_caixa/carne_leao_mensal.html`/
+# `carne_leao_anual.html`) reaproveitam o MESMO marcador CSS do relatório
+# Livro Caixa (`_identificacao_do_documento_carne_leao.html` — nome,
+# CPF/CNPJ, CAEPF quando houver, período e base legal curta), pela mesma
+# razão: são livro/demonstrativo do CONTRIBUINTE pessoa física, mesma
+# classe de documento que o Livro Caixa. Entram neste MESMO piso —
+# NUNCA no de classe 2 (Balanço/DRE, NBC TG 26) nem no de timbre (que é
+# do ESCRITÓRIO, critério diferente). `livro_caixa_web:dependentes_
+# carne_leao` (formulário de cadastro, não documento de conferência) NÃO
+# usa este marcador — de propósito, fica FORA do piso.
+TELAS_MINIMAS_LIVRO_CAIXA_COM_IDENTIFICACAO_ESPERADAS = frozenset(
+    {
+        "livro_caixa_web:relatorio",
+        "livro_caixa_web:carne_leao_mensal",
+        "livro_caixa_web:carne_leao_anual",
+    }
+)
 
 _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
     r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'

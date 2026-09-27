@@ -1,7 +1,10 @@
 from django.urls import path
 
 from apps.livro_caixa.views_web import (
+    carne_leao_anual,
+    carne_leao_mensal,
     conta_caixa_nova,
+    dependentes_carne_leao,
     lancamento_caixa_estornar,
     lancamento_caixa_novo,
     lancamentos_caixa_lista,
@@ -47,5 +50,24 @@ urlpatterns = [
         "empresas/<int:empresa_id>/livro-caixa/",
         livro_caixa_relatorio,
         name="relatorio",
+    ),
+    # DL-046, fatia 2 — carnê-leão. "carne-leao/" (mensal) antes de
+    # "carne-leao/anual/" e "carne-leao/dependentes/": os dois sufixos
+    # não colidem com nenhum outro padrão aqui (mesma ordem que as outras
+    # rotas deste arquivo já seguem, sem exigir cuidado extra).
+    path(
+        "empresas/<int:empresa_id>/carne-leao/",
+        carne_leao_mensal,
+        name="carne_leao_mensal",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/anual/",
+        carne_leao_anual,
+        name="carne_leao_anual",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/dependentes/",
+        dependentes_carne_leao,
+        name="dependentes_carne_leao",
     ),
 ]

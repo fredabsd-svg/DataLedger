@@ -1086,6 +1086,13 @@ NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE = {
     "livro_caixa_web:lancamentos": "test_tela_livro_caixa_lancamentos_e_acessivel",
     "livro_caixa_web:lancamento_estornar": "test_tela_livro_caixa_lancamento_estornar_e_acessivel",
     "livro_caixa_web:relatorio": "test_tela_livro_caixa_relatorio_e_acessivel",
+    # DL-046, fatia 2 (especialista-frontend): as três telas novas do
+    # carnê-leão — mesmo papel das seis de cima.
+    "livro_caixa_web:carne_leao_mensal": "test_tela_livro_caixa_carne_leao_mensal_e_acessivel",
+    "livro_caixa_web:carne_leao_anual": "test_tela_livro_caixa_carne_leao_anual_e_acessivel",
+    "livro_caixa_web:dependentes_carne_leao": (
+        "test_tela_livro_caixa_dependentes_carne_leao_e_acessivel"
+    ),
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
@@ -1398,6 +1405,38 @@ def test_tela_livro_caixa_relatorio_e_acessivel(client, cenario_livro_caixa):
     )
     assert resposta.status_code == 200
     assert "livro_caixa/relatorio.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# DL-046, fatia 2 (especialista-frontend): as três telas do carnê-leão —
+# mesmo cenário e mesma checagem geral (`assert_moldura_acessivel`) das
+# seis de cima; nenhuma delas tem atalho/accesskey próprio.
+
+
+def test_tela_livro_caixa_carne_leao_mensal_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/carne_leao_mensal.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_carne_leao_anual_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/carne_leao_anual.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_dependentes_carne_leao_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/dependentes_carne_leao.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

@@ -1,0 +1,51 @@
+{% comment %}
+Bloco de identificação do contribuinte (`.identificacao-do-documento`) do
+carnê-leão (DL-046, fatia 2) — MESMO marcador CSS de
+`_identificacao_do_documento.html` (Livro Caixa), reaproveitado de
+propósito: os dois documentos identificam o mesmo contribuinte pessoa
+física, com a mesma exigência de aparecer em toda folha impressa. Vive
+dentro do `<thead>` da tabela de memória de cálculo (mesma técnica de
+`display: table-header-group` que `relatorio.html`/`dre.html` já usam) —
+por isso este partial NUNCA pode ser incluído mais de uma vez na mesma
+página (ver o comentário completo em `_identificacao_do_documento.html`
+sobre por que o instrumento de medição reprova essa duplicação).
+
+Herda do contexto do template que inclui: `empresa`, `rotulo_inscricao`,
+`inscricao_formatada`, `caepf`; `mes`/`data_referencia` (só no
+demonstrativo MENSAL — a `{% if mes %}` abaixo distingue mensal de
+anual); `ano`; `tabela_vigencia_inicio` (só no mensal, onde há uma única
+vigência aplicável à competência pedida).
+{% endcomment %}
+<div class="identificacao-do-documento">
+    <p>
+        <strong>{{ empresa.razao_social }}</strong> —
+        {{ rotulo_inscricao }} {{ inscricao_formatada }}
+    </p>
+    {% if caepf %}
+        <p>CAEPF {{ caepf }}</p>
+    {% endif %}
+    {% if mes %}
+        <p>Carnê-leão — apuração mensal de {{ data_referencia|date:"F \d\e Y"|capfirst }}</p>
+    {% else %}
+        <p>Carnê-leão — demonstrativo anual do ano-calendário de {{ ano }}</p>
+    {% endif %}
+    {% comment %}
+    Base legal curta, como a tarefa desta etapa pede: RIR/2018 (recolhimento
+    mensal obrigatório), Lei 15.270/2025 (redução) e a tabela vigente —
+    citada com a DATA de início de vigência quando a tela conhece UMA
+    vigência aplicável (o demonstrativo mensal, sempre uma competência só);
+    no anual, cada um dos 12 meses pode usar uma vigência diferente, então o
+    texto não fixa uma data única.
+    {% endcomment %}
+    <p>
+        Base: RIR/2018 (Decreto 9.580/2018), arts. 118 a 125 (recolhimento
+        mensal obrigatório do carnê-leão); Lei nº 15.270/2025 (redução mensal
+        do imposto, a partir de 01/2026); tabela progressiva
+        {% if tabela_vigencia_inicio %}
+            vigente desde {{ tabela_vigencia_inicio|date:"d/m/Y" }}.
+        {% else %}
+            vigente em cada mês (pode variar dentro do ano — ver o
+            demonstrativo mensal de cada competência).
+        {% endif %}
+    </p>
+</div>

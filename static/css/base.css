@@ -2471,6 +2471,20 @@ button:disabled {
    cima quando tem cor própria, como `th`/`:hover` já têm), sem
    precisar de uma regra por linha. Efeito ZERO em altura/padding —
    mesma garantia do parágrafo acima. */
+/* DL-046, fatia 2: o demonstrativo anual do carnê-leão tem sete colunas
+   numéricas (mínimo de `--largura-minima-coluna-valor` cada) — mais larga
+   que a tela de um celular. Em vez de esconder coluna (informação
+   contábil — a direção de arte proíbe) ou deixar a PÁGINA INTEIRA rolar
+   na horizontal (quebra a regra "sem rolagem horizontal", §4.7), este
+   invólucro rola só a TABELA: todas as colunas continuam alcançáveis, sem
+   estourar a largura da página. Medido: sem o invólucro, a página em
+   390px de largura saía com 846px de conteúdo horizontal (captura
+   `docs/assets/telas/dl046/carne-leao-anual-390x844.png`). Reaproveitável
+   por qualquer tabela larga futura — não é específico do carnê-leão. */
+.tabela-com-rolagem-horizontal {
+    overflow-x: auto;
+}
+
 .tabela-dados {
     width: 100%;
     border-collapse: collapse;
@@ -3438,6 +3452,25 @@ button:disabled {
     kbd.tecla,
     button {
         display: none;
+    }
+
+    /* DL-046, fatia 2 — achado medido por `scripts/medir_identificacao_
+       do_emitente.py`: `overflow-x: auto` (tela, para a tabela larga do
+       demonstrativo anual do carnê-leão) deixa a TABELA crescer além da
+       largura da folha impressa sem limite nenhum (é o próprio efeito
+       que o rolamento existe para permitir) — na impressão não há barra
+       de rolagem, e o conteúdo que passa da borda da página é CORTADO
+       (não movido para a página seguinte), inclusive parte do bloco de
+       identificação do documento (`.identificacao-do-documento`, dentro
+       do `<thead>`) — medido: "15.270/2025" saía "15.270/202" no PDF, e
+       "ver o demonstrativo" saía "v" sozinho, cortados no meio da
+       palavra/número. Desligar o rolamento no papel devolve a tabela ao
+       layout automático (`table-layout: auto`, sem `overflow-x`
+       nenhum), que ENCOLHE as colunas para caber na largura impressa —
+       mesmo comportamento que qualquer tabela larga já tem neste
+       projeto sem este invólucro. */
+    .tabela-com-rolagem-horizontal {
+        overflow-x: visible;
     }
 
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,

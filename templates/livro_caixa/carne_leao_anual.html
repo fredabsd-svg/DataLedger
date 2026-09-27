@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block titulo %}Carnê-leão (demonstrativo anual) — {{ empresa.razao_social }}{% endblock %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if ano and not erro_configuracao %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Ano-calendário</span>
+            <strong>{{ ano }}</strong>
+        </span>
+    {% endif %}
+    {% if carimbo_de_emissao_texto %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Emitido em</span>
+            <strong>{{ carimbo_de_emissao_texto }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Carnê-leão — demonstrativo anual</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    <p class="texto-apoio mensagem--somente-tela">
+        <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">Ver demonstrativo mensal</a>
+        ·
+        <a href="{% url 'livro_caixa_web:dependentes_carne_leao' empresa.id %}">Dependentes do carnê-leão</a>
+    </p>
+
+    {% if not ano %}
+        <p>
+            O ano informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}">Voltar ao ano padrão (ano corrente)</a>
+            para ver o demonstrativo anual.
+        </p>
+    {% elif erro_configuracao %}
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> não há tabela progressiva, redução ou valor por
+            dependente do carnê-leão vigente para algum mês de {{ ano }}.
+            Avise o suporte — é um dado normativo que falta cadastrar, não algo que se
+            corrija nesta tela.
+        </div>
+    {% else %}
+        <nav class="navegacao-competencia" aria-label="Navegação de ano">
+            {% if ano_anterior %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}?ano={{ ano_anterior }}">
+                    ‹ Ano anterior
+                </a>
+            {% endif %}
+            <strong class="navegacao-competencia__atual">{{ ano }}</strong>
+            {% if ano_seguinte %}
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:carne_leao_anual' empresa.id %}?ano={{ ano_seguinte }}">
+                    Ano seguinte ›
+                </a>
+            {% endif %}
+        </nav>
+
+        {% comment %}
+        Sete colunas numéricas não cabem em 390px sem estourar a
+        largura da página — invólucro com `overflow-x: auto` rola só a
+        TABELA, nunca a PÁGINA (ver o comentário de
+        `.tabela-com-rolagem-horizontal`, static/css/base.css).
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Carnê-leão de {{ empresa.razao_social }} — demonstrativo anual de {{ ano }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="7">
+                        {% include "livro_caixa/_identificacao_do_documento_carne_leao.html" %}
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Mês</th>
+                    <th scope="col" class="cabecalho-numerico">Rendimento sujeito</th>
+                    <th scope="col" class="cabecalho-numerico">Dedução aplicada</th>
+                    <th scope="col">Forma</th>
+                    <th scope="col" class="cabecalho-numerico">Imposto após redução</th>
+                    <th scope="col" class="cabecalho-numerico">Compensação exterior</th>
+                    <th scope="col" class="cabecalho-numerico">Valor a pagar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}?ano={{ ano }}&mes={{ linha.mes }}">
+                                {{ linha.data_referencia|date:"F"|capfirst }}
+                            </a>
+                        </td>
+                        <td class="valor-monetario">{{ linha.rendimento_total_sujeito_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.deducao_aplicada_ptbr }}</td>
+                        <td>
+                            {% if linha.forma_escolhida == "real" %}Deduções reais{% else %}Simplificado{% endif %}
+                        </td>
+                        <td class="valor-monetario">{{ linha.imposto_apos_reducao_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.compensacao_exterior_aplicada_ptbr }}</td>
+                        <td class="valor-monetario">{{ linha.valor_a_pagar_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="linha-total">
+                    <th scope="row">Total do ano</th>
+                    <td class="valor-monetario">{{ totais.rendimento_total_sujeito_ptbr }}</td>
+                    <td class="valor-monetario">{{ totais.deducao_aplicada_ptbr }}</td>
+                    <td></td>
+                    <td class="valor-monetario">{{ totais.imposto_apos_reducao_ptbr }}</td>
+                    <td class="valor-monetario">{{ totais.compensacao_exterior_aplicada_ptbr }}</td>
+                    <td class="valor-monetario">{{ totais.valor_a_pagar_ptbr }}</td>
+                </tr>
+            </tfoot>
+        </table>
+        </div>
+        <p class="texto-apoio">
+            "Dedução aplicada" mostra, em cada mês, o valor da forma efetivamente aplicada
+            (deduções reais OU desconto simplificado, conforme a coluna "Forma") — o total
+            soma exatamente esses 12 valores, nunca sempre as deduções reais.
+        </p>
+    {% endif %}
+{% endblock %}

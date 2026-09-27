@@ -23,7 +23,7 @@ implementação, nunca por contrato.
 
 import re
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django import forms
@@ -46,8 +46,16 @@ from apps.core.requisicao import (
 from apps.core.restricoes import RestricaoViolada
 from apps.empresas.models import Empresa, TipoInscricao
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
+from apps.livro_caixa.carne_leao import (
+    DependentesCarneLeaoInvalido,
+    TabelaCarneLeaoNaoConfigurada,
+    apurar_carne_leao_anual,
+    apurar_carne_leao_mensal,
+    registrar_dependentes_carne_leao,
+)
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
+    DependentesCarneLeaoCliente,
     LancamentoCaixa,
     NaturezaCaixa,
     OrigemRecebimento,
@@ -757,3 +765,547 @@ def livro_caixa_relatorio(request, empresa_id):
         }
     )
     return render(request, "livro_caixa/relatorio.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Carnê-leão (DL-046, fatia 2) — servidor + API prontos
+# (`apps.livro_caixa.carne_leao`, `apps.livro_caixa.views`,
+# `desenvolvedor-pleno`, 2026-09-27); este bloco é só a FRENTE DA TELA,
+# mesma regra do docstring do módulo: NENHUM cálculo tributário mora aqui.
+# Cada função abaixo só FORMATA (pt-BR, `_valor_ptbr`) e RÓTULA o que
+# `apurar_carne_leao_mensal`/`apurar_carne_leao_anual` já devolveram —
+# nunca reimplementa a fórmula, a tabela, a redução ou a escolha entre
+# deduções reais e desconto simplificado (isso é do motor,
+# apps/livro_caixa/carne_leao.py, fora do escopo de arquivos desta etapa).
+# ---------------------------------------------------------------------------
+
+
+def _identificacao_do_contribuinte(empresa):
+    """`(rotulo_inscricao, inscricao_formatada)` — MESMA regra de
+    `livro_caixa_relatorio` (M6, rodada 1 da auditoria da DL-046, DE-087
+    item 7): segue o TIPO DE INSCRIÇÃO cadastrado da empresa, nunca "CPF"
+    fixo. Extraído aqui como função PRÓPRIA (em vez de repetir o mesmo
+    `if`/`else` mais duas vezes, uma por tela desta fatia) — ainda uma
+    cópia local do MESMO cálculo de apresentação que `livro_caixa_
+    relatorio` já faz inline, por decisão de não tocar naquela view
+    funcionando para não arriscar uma regressão nela nesta etapa."""
+    if empresa.tipo_inscricao == TipoInscricao.CPF:
+        return "CPF", _mascara_cpf(empresa.cpf)
+    return "CNPJ", _mascara_cnpj(empresa.cnpj)
+
+
+# Mesma faixa de ano que `apps.contabilidade.views_web` usa para a
+# competência da DRE (`_ANO_MINIMO_COMPETENCIA`/`_ANO_MAXIMO_COMPETENCIA`)
+# — cópia LOCAL (docstring do módulo), não importada de lá.
+_ANO_MINIMO_CARNE_LEAO, _ANO_MAXIMO_CARNE_LEAO = 1970, 2999
+_MES_MINIMO_CARNE_LEAO, _MES_MAXIMO_CARNE_LEAO = 1, 12
+
+# Mesma gramática de dígitos ASCII estritos que a API já usa
+# (`_PADRAO_ANO_MES_SIMPLES`, apps/livro_caixa/views.py) — cópia local,
+# nunca importada da API (o módulo NUNCA chama nem importa a própria API,
+# docstring do topo deste arquivo).
+_PADRAO_ANO_MES_CARNE_LEAO = re.compile(r"^[0-9]{1,4}$")
+
+
+def _competencia_carne_leao_adjacente(ano, mes, delta_meses):
+    """Competência (ano, mês) deslocada por `delta_meses` — mesma
+    aritmética PURA de `_competencia_adjacente` (apps.contabilidade.
+    views_web), cópia local pelo mesmo motivo do docstring do módulo.
+    Também usada para achar o MÊS SEGUINTE de uma competência (o mês de
+    vencimento do DARF, RIR/2018 art. 123) — é só deslocamento de
+    calendário civil, nunca resolução de dia útil nem feriado (a tarefa
+    desta etapa pede explicitamente para NÃO calcular isso)."""
+    indice = (ano * 12) + (mes - 1) + delta_meses
+    return indice // 12, indice % 12 + 1
+
+
+def _ano_mes_carne_leao_valido(ano, mes):
+    return (
+        ano is not None
+        and mes is not None
+        and _ANO_MINIMO_CARNE_LEAO <= ano <= _ANO_MAXIMO_CARNE_LEAO
+        and _MES_MINIMO_CARNE_LEAO <= mes <= _MES_MAXIMO_CARNE_LEAO
+    )
+
+
+def _competencia_carne_leao_do_formulario(request):
+    """Lê 'ano'/'mes' da querystring do demonstrativo MENSAL — mesma
+    gramática e o mesmo padrão de ausência-usa-mês-corrente de
+    `_competencia_dre_do_formulario` (apps.contabilidade.views_web), cópia
+    local. Devolve `(ano, mes, erro_ou_none)` — nunca lança exceção."""
+    bruto_ano = request.GET.get("ano")
+    bruto_mes = request.GET.get("mes")
+    if not bruto_ano and not bruto_mes:
+        hoje = timezone.localdate()
+        return hoje.year, hoje.month, None
+    if not bruto_ano or not _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(bruto_ano):
+        return None, None, "Informe 'ano' (dígitos) na querystring."
+    if not bruto_mes or not _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(bruto_mes):
+        return None, None, "Informe 'mes' (dígitos, 1 a 12) na querystring."
+    ano = int(bruto_ano)
+    mes = int(bruto_mes)
+    if not (_ANO_MINIMO_CARNE_LEAO <= ano <= _ANO_MAXIMO_CARNE_LEAO):
+        return (
+            None,
+            None,
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO_CARNE_LEAO} e "
+            f"{_ANO_MAXIMO_CARNE_LEAO}.",
+        )
+    if not (_MES_MINIMO_CARNE_LEAO <= mes <= _MES_MAXIMO_CARNE_LEAO):
+        return None, None, f"'mes' inválido: {mes} — deve estar entre 1 e 12."
+    return ano, mes, None
+
+
+def _ano_carne_leao_do_formulario(request):
+    """Mesma ideia de `_competencia_carne_leao_do_formulario`, só para
+    'ano' — usada pelo demonstrativo ANUAL."""
+    bruto_ano = request.GET.get("ano")
+    if not bruto_ano:
+        return timezone.localdate().year, None
+    if not _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(bruto_ano):
+        return None, "Informe 'ano' (dígitos) na querystring."
+    ano = int(bruto_ano)
+    if not (_ANO_MINIMO_CARNE_LEAO <= ano <= _ANO_MAXIMO_CARNE_LEAO):
+        return (
+            None,
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO_CARNE_LEAO} e "
+            f"{_ANO_MAXIMO_CARNE_LEAO}.",
+        )
+    return ano, None
+
+
+def _pipeline_carne_leao_ptbr(pipeline):
+    """Formata em pt-BR uma das duas memórias de cálculo que `_apurar_um_
+    mes` (motor) já produz — `memoria_deducoes_reais`/`memoria_desconto_
+    simplificado`, cada uma com `base`/`imposto_tabela`/`reducao_
+    disponivel`/`reducao_aplicada`/`imposto_apos_reducao`. Só formatação,
+    nenhum valor novo."""
+    return {
+        "base_ptbr": _valor_ptbr(pipeline["base"]),
+        "imposto_tabela_ptbr": _valor_ptbr(pipeline["imposto_tabela"]),
+        "reducao_disponivel_ptbr": _valor_ptbr(pipeline["reducao_disponivel"]),
+        "reducao_aplicada_ptbr": _valor_ptbr(pipeline["reducao_aplicada"]),
+        "imposto_apos_reducao_ptbr": _valor_ptbr(pipeline["imposto_apos_reducao"]),
+    }
+
+
+# ⚠️ **Ponto único de troca na integração (aviso do arquiteto-senior,
+# 2026-09-27, DE-091).** O critério de escolha entre deduções reais e
+# desconto simplificado está mudando, em OUTRO worktree (`dl046-f2`), de
+# "menor imposto após a redução" para "maior dedução antes da redução" —
+# o motor corrigido vai devolver `criterio_escolha_forma` (texto PRONTO)
+# no dicionário de `apurar_carne_leao_mensal`. Este texto aqui descreve o
+# critério REALMENTE aplicado pelo motor DESTE worktree (HI-33/RC-133) —
+# nunca o novo, que este worktree não implementa. `.get(...)` faz a
+# integração trocar sozinha, sem editar o template
+# (`carne_leao_mensal.html`, ver o comentário lá).
+_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO = (
+    "A mais benéfica ao contribuinte: a que resulta no MENOR imposto após a "
+    "redução da Lei 15.270/2025 (empate fica com as deduções reais, a regra "
+    "geral do art. 68)."
+)
+
+
+def _contexto_resultado_mensal_carne_leao(resultado):
+    """Traduz o dicionário que `apurar_carne_leao_mensal` devolve (motor,
+    apps/livro_caixa/carne_leao.py) para o contexto pt-BR do template —
+    cada chave `*_ptbr` é só `_valor_ptbr` sobre o valor que o motor já
+    calculou; nenhuma chave nova representa um número que o motor não
+    tenha produzido.
+
+    ⚠️ **Limite declarado desta etapa** (achado próprio, registrado no
+    plano DL-046, seção "Tela da fatia 2"): a tarefa pede "rendimentos
+    sujeitos (por código)" e "imposto pela tabela (faixa e parcela)" — o
+    motor de `apurar_carne_leao_mensal` NÃO devolve nenhum dos dois
+    detalhamentos (só os totais agregados por CATEGORIA: total sujeito,
+    trabalho não assalariado, exterior — e só o imposto final pela
+    tabela, sem a faixa/alíquota/parcela usada). Reconstruir esse
+    detalhamento aqui exigiria repetir, na view, a MESMA classificação por
+    código (RC-132) e a MESMA busca de faixa (`_faixa_da_base`) que o
+    motor já faz — exatamente o "cálculo na view" que a tarefa desta
+    etapa proíbe. A tela mostra as categorias que o motor de fato
+    devolve, nomeadas com precisão (nunca "por código" quando é "por
+    categoria"), e este achado fica registrado para o `arquiteto-senior`/
+    `desenvolvedor-pleno` decidirem se o motor ganha os dois campos numa
+    etapa futura."""
+    vencimento_ano, vencimento_mes = _competencia_carne_leao_adjacente(
+        resultado["ano"], resultado["mes"], 1
+    )
+    return {
+        "ano": resultado["ano"],
+        "mes": resultado["mes"],
+        "data_referencia": date(resultado["ano"], resultado["mes"], 1),
+        "vencimento_data": date(vencimento_ano, vencimento_mes, 1),
+        "rendimento_total_sujeito_ptbr": _valor_ptbr(resultado["rendimento_total_sujeito"]),
+        "rendimento_trabalho_nao_assalariado_ptbr": _valor_ptbr(
+            resultado["rendimento_trabalho_nao_assalariado"]
+        ),
+        "previdencia_oficial_ptbr": _valor_ptbr(resultado["previdencia_oficial"]),
+        "pensao_alimenticia_paga_ptbr": _valor_ptbr(resultado["pensao_alimenticia_paga"]),
+        "dependentes_quantidade": resultado["dependentes_quantidade"],
+        "dependentes_valor_ptbr": _valor_ptbr(resultado["dependentes_valor"]),
+        "despesa_livro_caixa_do_mes_ptbr": _valor_ptbr(resultado["despesa_livro_caixa_do_mes"]),
+        "excesso_livro_caixa_anterior_ptbr": _valor_ptbr(resultado["excesso_livro_caixa_anterior"]),
+        "deducao_livro_caixa_aplicada_ptbr": _valor_ptbr(resultado["deducao_livro_caixa_aplicada"]),
+        "excesso_livro_caixa_novo_ptbr": _valor_ptbr(resultado["excesso_livro_caixa_novo"]),
+        "excesso_livro_caixa_existe": resultado["excesso_livro_caixa_novo"] > 0,
+        "deducoes_reais_total_ptbr": _valor_ptbr(resultado["deducoes_reais_total"]),
+        "desconto_simplificado_ptbr": _valor_ptbr(resultado["desconto_simplificado"]),
+        "forma_escolhida": resultado["forma_escolhida"],
+        "criterio_escolha_forma_texto": resultado.get(
+            "criterio_escolha_forma", _CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO
+        ),
+        "memoria_deducoes_reais": _pipeline_carne_leao_ptbr(resultado["memoria_deducoes_reais"]),
+        "memoria_desconto_simplificado": _pipeline_carne_leao_ptbr(
+            resultado["memoria_desconto_simplificado"]
+        ),
+        "base_de_calculo_ptbr": _valor_ptbr(resultado["base_de_calculo"]),
+        "imposto_pela_tabela_ptbr": _valor_ptbr(resultado["imposto_pela_tabela"]),
+        "reducao_lei_15270_2025_ptbr": _valor_ptbr(resultado["reducao_lei_15270_2025"]),
+        "imposto_apos_reducao_ptbr": _valor_ptbr(resultado["imposto_apos_reducao"]),
+        "imposto_pago_exterior_do_mes_ptbr": _valor_ptbr(resultado["imposto_pago_exterior_do_mes"]),
+        "limite_compensacao_exterior_ptbr": _valor_ptbr(resultado["limite_compensacao_exterior"]),
+        "compensacao_exterior_aplicada_ptbr": _valor_ptbr(
+            resultado["compensacao_exterior_aplicada"]
+        ),
+        "saldo_credito_exterior_novo_ptbr": _valor_ptbr(resultado["saldo_credito_exterior_novo"]),
+        "ha_credito_exterior": resultado["saldo_credito_exterior_novo"] > 0,
+        "imposto_devido_no_mes_ptbr": _valor_ptbr(resultado["imposto_devido_no_mes"]),
+        "saldo_pendente_abaixo_de_dez_anterior_ptbr": _valor_ptbr(
+            resultado["saldo_pendente_abaixo_de_dez_anterior"]
+        ),
+        "valor_a_pagar_ptbr": _valor_ptbr(resultado["valor_a_pagar"]),
+        "ha_valor_a_pagar": resultado["valor_a_pagar"] > 0,
+        "saldo_pendente_abaixo_de_dez_novo_ptbr": _valor_ptbr(
+            resultado["saldo_pendente_abaixo_de_dez_novo"]
+        ),
+        "ha_saldo_pendente_abaixo_de_dez": resultado["saldo_pendente_abaixo_de_dez_novo"] > 0,
+        "codigo_darf": resultado["codigo_darf"],
+        "tabela_vigencia_inicio": resultado["tabela_vigencia_inicio"],
+        "reducao_vigencia_inicio": resultado["reducao_vigencia_inicio"],
+        "dependente_vigencia_inicio": resultado["dependente_vigencia_inicio"],
+        "sem_movimento_no_mes": (
+            resultado["rendimento_total_sujeito"] == 0 and resultado["deducoes_reais_total"] == 0
+        ),
+    }
+
+
+@login_required
+@require_safe
+def carne_leao_mensal(request, empresa_id):
+    """Demonstrativo MENSAL do carnê-leão (DL-046, fatia 2) — arquétipos D
+    (painel de período) e A (documento de conferência) combinados: a
+    navegação de competência "‹ Mês anterior / Mês seguinte ›" é a MESMA
+    ideia de `contabilidade_web:dre` (`_competencia_adjacente`, cópia
+    local), e o quadro abaixo é a memória de cálculo COMPLETA que o motor
+    (`apps.livro_caixa.carne_leao.apurar_carne_leao_mensal`) devolve —
+    esta view NUNCA calcula (ver o docstring de `_contexto_resultado_
+    mensal_carne_leao`, acima).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler o carnê-leão desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return recusa
+
+    rotulo_inscricao, inscricao_formatada = _identificacao_do_contribuinte(empresa)
+    contexto = {
+        "empresa": empresa,
+        "rotulo_inscricao": rotulo_inscricao,
+        "inscricao_formatada": inscricao_formatada,
+        "caepf": empresa.caepf,
+        # Igual a `livro_caixa_relatorio`: carimbo e timbre são
+        # preenchidos SEMPRE, mesmo em estado de erro — o documento
+        # continua identificando o emitente/contribuinte mesmo quando a
+        # competência pedida não pôde ser usada.
+        "carimbo_de_emissao_texto": timezone.localtime().strftime("%d/%m/%Y às %H:%M:%S"),
+        "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+    }
+
+    ano, mes, erro = _competencia_carne_leao_do_formulario(request)
+    if erro:
+        messages.error(request, erro)
+        return render(request, "livro_caixa/carne_leao_mensal.html", contexto, status=400)
+
+    ano_anterior, mes_anterior = _competencia_carne_leao_adjacente(ano, mes, -1)
+    ano_seguinte, mes_seguinte = _competencia_carne_leao_adjacente(ano, mes, 1)
+    contexto.update(
+        {
+            "ano": ano,
+            "mes": mes,
+            "data_referencia": date(ano, mes, 1),
+            "ano_anterior": ano_anterior
+            if _ano_mes_carne_leao_valido(ano_anterior, mes_anterior)
+            else None,
+            "mes_anterior": mes_anterior,
+            "ano_seguinte": ano_seguinte
+            if _ano_mes_carne_leao_valido(ano_seguinte, mes_seguinte)
+            else None,
+            "mes_seguinte": mes_seguinte,
+        }
+    )
+
+    try:
+        resultado = apurar_carne_leao_mensal(empresa=empresa, ano=ano, mes=mes)
+    except TabelaCarneLeaoNaoConfigurada as exc:
+        # 409: não é erro de quem preencheu o formulário — é AUSÊNCIA de
+        # dado normativo vigente para a competência pedida (tabela,
+        # redução ou valor por dependente), sempre um problema de
+        # configuração do servidor (critério 5 do plano: "nenhum número
+        # normativo no código" — a migração de dados que semeia essas
+        # tabelas pode simplesmente não cobrir a competência pedida).
+        messages.error(request, str(exc))
+        contexto["erro_configuracao"] = True
+        return render(request, "livro_caixa/carne_leao_mensal.html", contexto, status=409)
+
+    contexto["erro_configuracao"] = False
+    contexto.update(_contexto_resultado_mensal_carne_leao(resultado))
+    return render(request, "livro_caixa/carne_leao_mensal.html", contexto)
+
+
+def _linha_anual_carne_leao(mes_resultado):
+    """Uma linha da tabela do demonstrativo ANUAL — só formatação/rótulo
+    sobre o dicionário que o motor já devolve para aquele mês (mesmo
+    formato de `_apurar_um_mes`, reaproveitado por `apurar_carne_leao_
+    anual`). "Dedução aplicada" reaproveita `forma_escolhida` (já decidido
+    pelo motor) só para ESCOLHER qual dos dois totais já prontos mostrar
+    (`deducoes_reais_total` ou `desconto_simplificado`) — não decide qual
+    é mais benéfica, o motor já decidiu isso."""
+    deducao_aplicada = (
+        mes_resultado["deducoes_reais_total"]
+        if mes_resultado["forma_escolhida"] == "real"
+        else mes_resultado["desconto_simplificado"]
+    )
+    return {
+        "mes": mes_resultado["mes"],
+        "data_referencia": date(mes_resultado["ano"], mes_resultado["mes"], 1),
+        "rendimento_total_sujeito_ptbr": _valor_ptbr(mes_resultado["rendimento_total_sujeito"]),
+        "deducao_aplicada_ptbr": _valor_ptbr(deducao_aplicada),
+        "forma_escolhida": mes_resultado["forma_escolhida"],
+        "base_de_calculo_ptbr": _valor_ptbr(mes_resultado["base_de_calculo"]),
+        "imposto_apos_reducao_ptbr": _valor_ptbr(mes_resultado["imposto_apos_reducao"]),
+        "compensacao_exterior_aplicada_ptbr": _valor_ptbr(
+            mes_resultado["compensacao_exterior_aplicada"]
+        ),
+        "valor_a_pagar_ptbr": _valor_ptbr(mes_resultado["valor_a_pagar"]),
+    }
+
+
+def _totais_anuais_carne_leao(meses):
+    """Soma de APRESENTAÇÃO das 12 linhas mensais — critério "demonstrativo
+    anual... totais" do plano DL-046 (seção "Fatia 2 — objetivo, escopo e
+    critérios"). `apurar_carne_leao_anual` devolve os 12 meses SEM total
+    (o motor não expõe essa soma) — somar 12 valores MONETÁRIOS que o
+    motor já calculou, sem aplicar NENHUMA regra tributária nova (nenhuma
+    tabela, nenhuma redução, nenhuma escolha de forma), é aritmética de
+    apresentação, não a "regra de cálculo" que a tarefa desta etapa proíbe
+    na view — mesma classe de decisão que `_valor_ptbr`/formatação, só que
+    somando em vez de só formatando. Decisão registrada no plano DL-046
+    ("Tela da fatia 2"), para o caso de o motor ganhar esse total num
+    lugar mais adequado numa etapa futura.
+
+    ⚠️ "Dedução aplicada" soma o MESMO valor por mês que
+    `_linha_anual_carne_leao` mostra na coluna (reais OU simplificado,
+    conforme `forma_escolhida` daquele mês) — nunca sempre "deduções
+    reais". A direção de arte proíbe um total impresso que não bate com a
+    soma literal da coluna (§ "Não arredonde para exibir de forma que o
+    total apresentado deixe de bater com a soma das linhas"); somar sempre
+    `deducoes_reais_total` produziria exatamente essa divergência em
+    qualquer ano com pelo menos um mês no desconto simplificado."""
+
+    def _soma(chave):
+        return sum((mes[chave] for mes in meses), start=Decimal("0.00"))
+
+    def _soma_deducao_aplicada():
+        total = Decimal("0.00")
+        for mes in meses:
+            total += (
+                mes["deducoes_reais_total"]
+                if mes["forma_escolhida"] == "real"
+                else mes["desconto_simplificado"]
+            )
+        return total
+
+    return {
+        "rendimento_total_sujeito_ptbr": _valor_ptbr(_soma("rendimento_total_sujeito")),
+        "deducao_aplicada_ptbr": _valor_ptbr(_soma_deducao_aplicada()),
+        "imposto_apos_reducao_ptbr": _valor_ptbr(_soma("imposto_apos_reducao")),
+        "compensacao_exterior_aplicada_ptbr": _valor_ptbr(_soma("compensacao_exterior_aplicada")),
+        "valor_a_pagar_ptbr": _valor_ptbr(_soma("valor_a_pagar")),
+    }
+
+
+@login_required
+@require_safe
+def carne_leao_anual(request, empresa_id):
+    """Demonstrativo ANUAL do carnê-leão — os 12 meses do ano-calendário
+    (`apps.livro_caixa.carne_leao.apurar_carne_leao_anual`), com totais de
+    apresentação (`_totais_anuais_carne_leao`, acima)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler o carnê-leão desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return recusa
+
+    rotulo_inscricao, inscricao_formatada = _identificacao_do_contribuinte(empresa)
+    contexto = {
+        "empresa": empresa,
+        "rotulo_inscricao": rotulo_inscricao,
+        "inscricao_formatada": inscricao_formatada,
+        "caepf": empresa.caepf,
+        "carimbo_de_emissao_texto": timezone.localtime().strftime("%d/%m/%Y às %H:%M:%S"),
+        "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+    }
+
+    ano, erro = _ano_carne_leao_do_formulario(request)
+    if erro:
+        messages.error(request, erro)
+        return render(request, "livro_caixa/carne_leao_anual.html", contexto, status=400)
+
+    ano_anterior = ano - 1
+    ano_seguinte = ano + 1
+    contexto.update(
+        {
+            "ano": ano,
+            "ano_anterior": ano_anterior
+            if _ANO_MINIMO_CARNE_LEAO <= ano_anterior <= _ANO_MAXIMO_CARNE_LEAO
+            else None,
+            "ano_seguinte": ano_seguinte
+            if _ANO_MINIMO_CARNE_LEAO <= ano_seguinte <= _ANO_MAXIMO_CARNE_LEAO
+            else None,
+        }
+    )
+
+    try:
+        resultado = apurar_carne_leao_anual(empresa=empresa, ano=ano)
+    except TabelaCarneLeaoNaoConfigurada as exc:
+        messages.error(request, str(exc))
+        contexto["erro_configuracao"] = True
+        return render(request, "livro_caixa/carne_leao_anual.html", contexto, status=409)
+
+    contexto["erro_configuracao"] = False
+    contexto["linhas"] = [_linha_anual_carne_leao(mes) for mes in resultado["meses"]]
+    contexto["totais"] = _totais_anuais_carne_leao(resultado["meses"])
+    return render(request, "livro_caixa/carne_leao_anual.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Dependentes do carnê-leão (HI-35) — quantidade por vigência mensal.
+# ---------------------------------------------------------------------------
+
+
+class DependentesCarneLeaoForm(forms.ModelForm):
+    class Meta:
+        model = DependentesCarneLeaoCliente
+        fields = ["quantidade", "competencia_inicio"]
+        widgets = {"competencia_inicio": forms.DateInput(attrs={"type": "date"})}
+        labels = {
+            "quantidade": "Quantidade de dependentes",
+            "competencia_inicio": "Vigente a partir de (mês)",
+        }
+        help_texts = {
+            "competencia_inicio": (
+                "Escolha o dia 1 do mês em que a quantidade passa a valer (HI-35) — "
+                "ex.: 01/10/2026 para vigorar a partir de outubro de 2026."
+            ),
+        }
+
+
+_CONTRATO_DO_FORMULARIO_DE_DEPENDENTES_CARNE_LEAO = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "quantidade", "competencia_inicio"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no registro de dependentes do carnê-leão",
+)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def dependentes_carne_leao(request, empresa_id):
+    """Arquétipos A (tabela de vigências) + B (formulário) combinados na
+    mesma tela — mesmo molde de `contabilidade_web:parametros_contabeis`
+    (poucas vigências por empresa, ao longo dos anos, nunca justifica uma
+    segunda navegação). A gravação passa inteira por `apps.livro_caixa.
+    carne_leao.registrar_dependentes_carne_leao` — autorização real no
+    SERVIDOR (dentro do serviço, `recusar_se_nao_livro_caixa` sob
+    `select_for_update()`); `pode_escriturar`, aqui, só decide o que a
+    TELA oferece."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler os dependentes do carnê-leão desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return recusa
+
+    pode_escriturar = _pode_escriturar(request)
+    form = None
+
+    if request.method == "POST":
+        if not pode_escriturar:
+            return _resposta_sem_permissao(
+                request,
+                "Seu papel não permite registrar dependentes do carnê-leão desta empresa.",
+            )
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_DEPENDENTES_CARNE_LEAO)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
+
+        form = DependentesCarneLeaoForm(request.POST)
+        if form.is_valid():
+            try:
+                registrar_dependentes_carne_leao(
+                    empresa=empresa,
+                    quantidade=form.cleaned_data["quantidade"],
+                    competencia_inicio=form.cleaned_data["competencia_inicio"],
+                    criado_por=request.user,
+                    request=request,
+                )
+            except DependentesCarneLeaoInvalido as exc:
+                # `full_clean()` (dentro do serviço) devolve, entre outros,
+                # o erro de "sempre o dia 1 do mês" (Model.clean()) — texto
+                # único no formulário inteiro (`add_error(None, ...)`),
+                # mesmo padrão de `ParametroContabilInvalido` em
+                # `contabilidade_web.parametros_contabeis`: o serviço não
+                # separa por campo neste erro.
+                form.add_error(None, str(exc))
+            except RestricaoViolada as exc:
+                # Corrida na `UniqueConstraint` "dependentes_carne_leao_
+                # competencia_unica_por_empresa" — mesmo padrão de
+                # `parametro_contabil`/`registrar_regime_tributario`.
+                form.add_error("competencia_inicio", str(exc))
+            else:
+                messages.success(
+                    request, "Quantidade de dependentes do carnê-leão registrada com sucesso."
+                )
+                return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
+    elif pode_escriturar:
+        form = DependentesCarneLeaoForm()
+
+    vigencias = list(
+        DependentesCarneLeaoCliente.objects.filter(empresa=empresa).order_by("-competencia_inicio")
+    )
+    contexto = {
+        "empresa": empresa,
+        "vigencias": vigencias,
+        "pode_escriturar": pode_escriturar,
+        "form": form,
+    }
+    status = 400 if form is not None and form.is_bound and form.errors else 200
+    return render(request, "livro_caixa/dependentes_carne_leao.html", contexto, status=status)

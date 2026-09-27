@@ -923,3 +923,244 @@ Commits: `8996522`, `b6775f8`, `f286361`, `dd4b3ad` (branch `dl046-f2`, worktree
   mantido como está, por ordem do arquiteto-senior; ver requisitos.md.
 - `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
   (mesmo bloqueio já registrado pelas fatias anteriores).
+
+## Tela da fatia 2 (2026-09-27, `especialista-frontend`)
+
+Servidor + API já prontos (seção anterior, `desenvolvedor-pleno`, worktree
+`dl046-f2`); esta etapa é só a FRENTE DA TELA, worktree `dl046-f2-tela`,
+base `5ed0e5e`. Nenhuma linha de `apps/livro_caixa/carne_leao.py`,
+`models.py`, `services.py`, `serializers.py` nem `views.py` (API) foi
+tocada — a regra é só apresentar o que o motor devolve.
+
+### O que foi feito
+
+1. **Três telas novas** (`apps/livro_caixa/views_web.py`,
+   `apps/livro_caixa/urls_web.py`):
+   - `carne_leao_mensal` (`GET /livro-caixa/painel/empresas/<id>/
+     carne-leao/?ano=&mes=`) — arquétipos D (painel de período, navegação
+     "‹ Mês anterior / Mês seguinte ›", mesmo desenho de
+     `contabilidade_web:dre`) e documento de conferência combinados:
+     UMA tabela (`<table class="tabela-dados">`) com a identificação do
+     documento no `<thead>` (repete em toda folha impressa,
+     `display: table-header-group`, mesma técnica do Livro Caixa/DRE/
+     Balanço) e a memória de cálculo completa em seções (`<tbody>` por
+     grupo): rendimentos sujeitos, deduções reais linha a linha,
+     desconto simplificado com a comparação lado a lado das duas
+     memórias (`memoria_deducoes_reais`/`memoria_desconto_simplificado`,
+     já prontas no motor) e um `.selo` "Aplicada" na forma vencedora,
+     apuração do imposto (base, imposto pela tabela, redução da Lei
+     15.270/2025 — com o texto explícito "calculada sobre o rendimento
+     tributável BRUTO... nunca sobre a base de cálculo" citando o
+     valor bruto usado), compensação do exterior, resultado do mês
+     (imposto devido, saldo abaixo de R$ 10,00, valor a pagar, código
+     0190 e "Último dia útil de MM/AAAA" — MM/AAAA é o mês seguinte à
+     competência, por aritmética de calendário civil pura, nunca
+     resolução de dia útil/feriado, conforme a tarefa pediu
+     explicitamente).
+   - `carne_leao_anual` (`GET .../carne-leao/anual/?ano=`) — os 12 meses
+     em tabela (Mês/Rendimento sujeito/Dedução aplicada/Forma/Imposto
+     após redução/Compensação exterior/Valor a pagar) com uma linha de
+     TOTAL calculada por soma de apresentação dos 12 valores que o motor
+     já produziu (nenhuma regra tributária nova — ver a nota sobre "sem
+     cálculo na view", abaixo) — cada linha "Dedução aplicada" mostra o
+     valor da forma EFETIVAMENTE aplicada naquele mês (reais ou
+     simplificado, conforme `forma_escolhida`), e o total soma
+     exatamente esses 12 valores, nunca sempre as deduções reais
+     (senão o total impresso não bateria com a soma da coluna — direção
+     de arte, regra de apresentação contábil).
+   - `dependentes_carne_leao` (`GET/POST .../carne-leao/dependentes/`)
+     — arquétipos A+B combinados (mesmo molde de
+     `contabilidade_web:parametros_contabeis`): tabela das vigências já
+     registradas + formulário (`DependentesCarneLeaoForm`, `ModelForm`
+     sobre `DependentesCarneLeaoCliente`) que chama
+     `registrar_dependentes_carne_leao` (o único serviço de ESCRITA
+     desta fatia) — nunca grava direto pelo formulário.
+2. **Nenhum cálculo tributário na view/template** — as funções
+   `_contexto_resultado_mensal_carne_leao`/`_linha_anual_carne_leao`
+   só formatam (`_valor_ptbr`) e rotulam os campos que o motor já
+   devolve. Duas exceções PRESENTACIONAIS, documentadas em comentário
+   no código, e reportadas como achado (abaixo): o mês de vencimento do
+   DARF (deslocamento de calendário civil, `_competencia_carne_leao_
+   adjacente`, cópia local do mesmo algoritmo PURO de
+   `_competencia_adjacente`, contabilidade) e a soma de apresentação dos
+   totais anuais (12 números já calculados pelo motor, somados só para
+   exibição).
+3. **Formulário de dependentes** com os cinco estados: sucesso (302 +
+   mensagem), erro (400, formulário reexibido com o que foi digitado —
+   `Model.clean()` já recusa dia diferente de 1, HI-35), sem permissão
+   (403 no POST; GET mostra a tabela sem o formulário, sem convidar quem
+   não pode escrever), vazio (nenhuma vigência ainda: `.estado-vazio`) e
+   carregando (não aplicável — view síncrona).
+4. **Menu** (`templates/base.html`): três itens novos no MESMO grupo
+   "Livro-caixa" do submenu lateral (Carnê-leão, Carnê-leão anual,
+   Dependentes (carnê-leão)) — nenhum grupo próprio, mesmo critério que
+   "Parâmetros contábeis" usou dentro de "Cadastros" na contabilidade.
+5. **Documento imprimível** (`_identificacao_do_documento_carne_leao.
+   html`, novo partial): nome/razão social, CPF ou CNPJ conforme o TIPO
+   DE INSCRIÇÃO cadastrado (nunca "CPF" fixo — mesma correção M6/DE-087
+   item 7 que o relatório Livro Caixa já aplica), CAEPF quando houver, e
+   base legal curta (RIR/2018 arts. 118 a 125; Lei nº 15.270/2025;
+   tabela vigente — com a data de vigência no demonstrativo MENSAL, onde
+   há uma vigência só; sem data fixa no ANUAL, onde os 12 meses podem
+   usar vigências diferentes). Reaproveita o MESMO marcador CSS
+   (`.identificacao-do-documento`) do relatório Livro Caixa — as duas
+   telas novas entraram no piso do instrumento (abaixo).
+6. **Achado de CSS corrigido nesta etapa** (medido pelo próprio
+   instrumento, não hipotetizado): a tabela do demonstrativo anual tem
+   sete colunas e não cabe em 390px — o primeiro invólucro
+   (`overflow-x: auto`, classe nova `.tabela-com-rolagem-horizontal`,
+   `static/css/base.css`) resolveu o estouro horizontal em TELA, mas
+   criou um defeito em IMPRESSÃO: sem barra de rolagem no papel, a
+   tabela crescia além da largura da folha e o conteúdo que passava da
+   borda era CORTADO — inclusive parte do bloco de identificação
+   ("15.270/2025" saía "15.270/202", faltando o "5"). Uma regra dentro
+   de `@media print` (`overflow-x: visible`) desliga o rolamento só na
+   impressão, devolvendo `table-layout: auto` normal (colunas encolhem
+   para caber na página) — o instrumento, que tinha REPROVADO com o
+   defeito, voltou a PASSAR depois da correção.
+
+### Achado material registrado, não corrigido nesta etapa (mensagem do
+### arquiteto-senior, 2026-09-27, DE-091)
+
+Durante a integração, o `dev-carne-leao` corrigiu (outro worktree,
+`dl046-f2`, ainda não integrado aqui) o CRITÉRIO de escolha entre
+deduções reais e desconto simplificado: de "menor imposto após a redução
+da Lei 15.270/2025" (o que este worktree calcula, HI-33/RC-133, com os
+cinco exemplos oficiais da Receita batendo) para "maior dedução antes da
+redução" (achado M-1 da auditoria da fatia 2 do servidor, docs/auditorias/
+2026-09-27-dl-046-fatia2-rodada-1.md — os exemplos oficiais da Receita
+comparam DEDUÇÕES, não o imposto final; os dois critérios só divergem no
+empate, porque a redução depende só do bruto — igual nas duas formas — e
+o imposto é monotônico na base).
+
+**Eu não escrevi esse critério na tela** (nem no texto explicativo nem em
+lugar nenhum): imprimir um critério que o motor DESTE worktree não aplica
+seria a mesma classe de defeito que a direção de arte proíbe — "o
+documento diz com que critérios foi gerado", e o critério impresso tem
+que ser o REAL. Isolei o texto "Forma aplicada neste mês" — MENOR
+imposto..." numa constante única (`_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO`,
+`views_web.py`) e no contexto correspondente
+(`criterio_escolha_forma_texto`), lida com `resultado.get("criterio_
+escolha_forma", _CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO)`: o motor corrigido
+vai devolver `criterio_escolha_forma` (texto PRONTO) nesse dicionário —
+na integração, a chave aparece e o texto novo troca sozinho, sem editar o
+template (`carne_leao_mensal.html`, comentário lá aponta para este
+mesmo parágrafo).
+
+**Aviso do art. 42 (RIR/2018) para aluguel** e os campos adicionais
+(`rendimentos` por código, `imposto_com_exterior`/`sem_exterior`,
+`vencimento` pronto, `alertas`, totais anuais estruturados do motor,
+PATCH de dependentes) — combinados na mesma mensagem — ainda não
+existem no contrato deste worktree; ficam para a integração (mensagem
+do arquiteto-senior registrada, não implementados aqui para não deixar
+código contra um campo inexistente).
+
+### Achado próprio: o motor não expõe "rendimentos por código" nem
+### "faixa/alíquota/parcela do imposto pela tabela"
+
+A tarefa pedia "rendimentos sujeitos (por código)" e "imposto pela
+tabela (faixa e parcela)". `apurar_carne_leao_mensal` só devolve as
+CATEGORIAS agregadas (`rendimento_total_sujeito`, `rendimento_trabalho_
+nao_assalariado`, `rendimento_exterior_sujeito`) e o imposto FINAL pela
+tabela (`imposto_pela_tabela`), sem o detalhamento por código individual
+nem a faixa/alíquota/parcela usada. Reconstruir esse detalhamento na
+view exigiria repetir, fora do motor, a classificação por código
+(RC-132) e a busca de faixa (`_faixa_da_base`) — o "cálculo na view" que
+a tarefa proíbe. A tela mostra as categorias que o motor de fato
+devolve, nomeadas com precisão (nunca "por código" quando é "por
+categoria"). Registrado para o `arquiteto-senior`/`desenvolvedor-pleno`
+decidirem se o motor ganha os dois campos numa etapa futura — a mensagem
+do arquiteto-senior sobre o campo `rendimentos` (lista por código) na
+correção do servidor sugere que sim.
+
+### Testes
+
+`apps/livro_caixa/tests/test_dl046_telas_carne_leao.py` (21 testes):
+renderização do mês com a memória de cálculo completa (identificação,
+rótulos, valores), forma aplicada marcada com `.selo` no lugar certo
+(nunca nas deduções reais quando o simplificado venceu), mês sem
+movimento (aviso de estado, não de erro), competência/ano inválidos
+(400, formulário/estado reexibido), navegação de competência, anual (12
+meses + totais, ano inválido), isolamento entre escritórios (404) nas
+três telas, recusa para empresa em modo contabilidade (403) nas três,
+papel sem permissão de leitura (403, `Papel.CLIENTE`) nas três,
+formulário de dependentes (sucesso, erro de dia≠1, sem permissão de
+escrita — `Papel.PARALEGAL` lê mas não escreve), e número de consultas
+CONSTANTE (mensal: poucos x muitos lançamentos no mês; anual: um mês x
+nove meses com movimento — não 12, porque `criar_lancamento_caixa`
+recusa data além de "hoje + 30 dias" e o ambiente de teste roda em
+2026-09-27).
+
+`apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py`: três
+entradas novas em `NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE` +
+três funções de teste (`test_tela_livro_caixa_carne_leao_mensal_e_
+acessivel`, `..._anual_e_acessivel`, `..._dependentes_carne_leao_e_
+acessivel`), mesmo padrão das seis telas de fatia 1 — a guarda
+`test_toda_rota_do_produto_esta_coberta_ou_excluida` exigia a
+classificação das três rotas novas.
+
+`scripts/medir_identificacao_do_emitente.py`/`scripts/test_medir_
+identificacao_do_emitente.py`: `TELAS_MINIMAS_LIVRO_CAIXA_COM_
+IDENTIFICACAO_ESPERADAS` ganhou `livro_caixa_web:carne_leao_mensal` e
+`livro_caixa_web:carne_leao_anual` (mesmo marcador CSS do relatório
+Livro Caixa) — `dependentes_carne_leao` (formulário de cadastro, não
+documento de conferência) fica de fora, de propósito.
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 305 arquivos já formatados.
+- `python manage.py check` — nenhum problema.
+- `python manage.py migrate` — aplicado com sucesso em PostgreSQL vazio
+  (`dl046f2t`), sem migração nova nesta etapa (só telas).
+- `pytest` (suíte completa): **3239 passed, 1 failed (pré-existente,
+  fora do escopo — `test_versao_minima_python.py`, ambiente Python 3.13
+  em vez do 3.14 esperado pela CI), 46 skipped**.
+- `scripts/test_medir_identificacao_do_emitente.py` com
+  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` e
+  `DL_CHROMIUM_EXECUTAVEL=/opt/pw-browsers/chromium-1194/chrome-linux/
+  chrome`: **136 passed**.
+- `scripts/medir_identificacao_do_emitente.py`, contra banco descartável
+  PostgreSQL (`dl046f2t_instrumento`, confirmado por
+  `DL_CONFIRMO_BANCO_DESCARTAVEL`), com `scripts/semear_base_de_
+  medicao.py` rodado antes: **código de saída 0** — as 13 telas
+  derivadas (8 com timbre, 2 de classe 2, 3 do Livro Caixa) saem com a
+  identificação completa, inclusive as duas novas do carnê-leão.
+- Capturas 1440×900 e 390×844 (Chromium local, mesmo binário do
+  instrumento) das três telas: `docs/assets/telas/dl046/carne-leao-
+  mensal-*.png`, `carne-leao-anual-*.png`, `carne-leao-dependentes-
+  *.png`. Sem estouro horizontal em nenhuma das seis — medido (largura
+  do PNG exportado bate com a largura pedida: 1440px e 390px nas seis);
+  o estouro medido inicialmente no demonstrativo anual (846px em vez de
+  390px) foi corrigido pelo invólucro de rolagem (achado do item 6,
+  acima) antes da captura final.
+- Percurso por teclado: não testado com leitor de tela real (limite
+  declarado da direção de arte, §7 — nenhuma tela do produto foi testada
+  assim até hoje). Inspecionei a marcação: toda célula de valor tem
+  `class="valor-monetario"` (guardado por
+  `test_todo_valor_em_celula_usa_a_classe_do_sistema`, que reprovou uma
+  vez durante esta etapa — corrigido), todo `<th>` tem `scope`, o botão
+  "Salvar" do formulário de dependentes é `<button>` nativo (focável e
+  ativável por teclado sem atributo extra), e os links de navegação de
+  competência são `<a class="botao">` (mesmo padrão da DRE).
+
+### Não testado / bloqueado
+
+- Leitor de tela real (NVDA/VoiceOver) — limite declarado da direção de
+  arte, não desta etapa.
+- Firefox/Safari — só Chromium testado, mesmo limite declarado.
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente.
+- Validação profissional dos textos/rótulos da memória de cálculo — do
+  Fred.
+- O achado material do critério de escolha da forma (DE-091) e os
+  campos novos do contrato mencionados pelo arquiteto-senior
+  (`rendimentos` por código, `imposto_com_exterior`/`sem_exterior`,
+  `vencimento` pronto, `alertas`, totais anuais estruturados, PATCH de
+  dependentes, aviso do art. 42 do aluguel) — ficam para a integração
+  entre `dl046-f2` (servidor) e `dl046-f2-tela` (esta etapa); o ponto de
+  troca no código está isolado e comentado (`criterio_escolha_forma_
+  texto`, `_CRITERIO_ESCOLHA_FORMA_TEXTO_PADRAO`, `views_web.py`).
+- Auditoria independente desta tela — ainda não solicitada (nível de
+  risco 1: cálculo de imposto e documento entregue ao cliente — a
+  auditoria da versão INTEGRADA, servidor+tela, é do `auditor-qa`,
+  conforme o plano desta fatia).
