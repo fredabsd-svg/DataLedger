@@ -7,14 +7,23 @@ explicar item por item [...] não podemos deixar lacunas, pois caso outro dev
 comece a codar, ele não se perca"*. Etapa:
 [DL-047](../../planos/DL-047-mapa-de-paridade-funcional.md).
 
-| Módulo | Plano | Prefixo dos itens |
+| Módulo | Plano | Itens |
 | --- | --- | --- |
-| Contabilidade | `contabilidade.md` (em escrita) | CTB |
-| Fiscal | `fiscal.md` (em escrita) | FIS |
-| Folha e Ponto | `folha.md` (em escrita) | FOL |
-| Patrimônio | `patrimonio.md` (em escrita) | PAT |
-| Lalur | `lalur.md` (em escrita) | LAL |
-| Honorários | `honorarios.md` (em escrita) | HON |
+| Contabilidade | [contabilidade.md](contabilidade.md) | 74 (CTB-01 a CTB-74) |
+| Fiscal, com a EFD Contribuições no Lucro Presumido | [fiscal.md](fiscal.md) | 91 (FIS-01 a FIS-97; 18 obsoletos ou fora de escopo) |
+| Folha e Ponto | [folha.md](folha.md) | 80 (FOL-01 a FOL-80) |
+| Honorários | [honorarios.md](honorarios.md) | 59 (HON-01 a HON-47 e HON-80 a HON-91) |
+| Patrimônio | [patrimonio.md](patrimonio.md) | 26 (PAT-01 a PAT-26) |
+| Lalur | [lalur.md](lalur.md) | 26 (LAL-01 a LAL-26) |
+
+Total: **356 itens**, escritos em 2026-09-27. Cada plano termina com glossário
+e com a lista consolidada de perguntas ao Fred.
+
+**Como usar:** escolha o módulo, leia a introdução e o mapa de ondas, pegue o
+primeiro item da onda que ainda não existe, confira as dependências, e abra
+um plano de etapa (`DL-xxx`) citando os IDs. Antes de codar qualquer regra
+marcada **a confirmar**, confirme a fonte oficial e registre em
+[requisitos.md](../requisitos.md).
 
 ## Regras que valem para todos os planos
 

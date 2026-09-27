@@ -105,17 +105,45 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-047 (mapa de paridade e plano detalhado por módulo, só
-documentação) e DL-046 fatia 3 (arquivo para o Carnê-Leão Web, em
-implementação na branch local `dl046-f3`).**
+**AGORA — sessão de 2026-09-27 encerrada. Onde parei, para quem assumir:**
 
-- **DL-047:** a pedido do Fred (2026-09-27), inventário de todas as funções
-  e relatórios do sistema de referência em Contabilidade, Fiscal, Folha,
-  Patrimônio e Lalur, com os manuais só como referência
-  ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). O plano
-  detalhado por módulo, item por item, está sendo escrito em
-  `docs/projeto/paridade/` (também Honorários). Os manuais **não** entram
-  neste repositório, que é público.
+1. **DL-047 — plano de paridade por módulo: concluída** (só documentação;
+   integra pelo PR da DL-047). Seis planos item por item em
+   [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
+   (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26) e
+   Lalur (26). **Próxima decisão é do Fred:** por qual módulo começar. A
+   recomendação no [plano](../planos/DL-047-mapa-de-paridade-funcional.md) é
+   **A — fechar a Contabilidade anual** (CTB-12 a CTB-17: estrutura de
+   demonstração ligada à conta, DLPA, DMPL, DFC; depois CTB-24 a CTB-31:
+   encerramento do exercício, termos, livro Diário, sócios e contador) e,
+   logo depois, **B — Fiscal alimentando a Contabilidade** (FIS-03 a FIS-22).
+   Cada plano de módulo termina com as perguntas ao Fred consolidadas.
+2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: servidor pronto, NÃO
+   integrado.** Está em commits na branch `claude/vigilant-bardeen-jo12l4`,
+   **acima** do merge da DL-047 e **sem PR** (commits `860cfd1`, preservação,
+   e `e850ba9`, entrega do servidor; plano da fatia 3 em `4c5aca8`). O que
+   existe: campos novos (ocupação no cliente e na conta, IRRF de PJ,
+   competência, multa e juros da previdência), serviço
+   `apps/livro_caixa/carne_leao_arquivos.py`, API de pendências e download
+   dos dois arquivos, 60 testes com os 6 arquivos-modelo oficiais; RC-135,
+   RC-136, HI-42, HI-43, DE-093 e DE-094. **Falta, nesta ordem:**
+   (a) ligar a restrição `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido`
+   a `restricao_como_400` em `apps/empresas/views.py` (instrução no próprio
+   registro em `apps/core/restricoes.py`); (b) a tela (pendências,
+   conferência e download; campos novos nos formulários de lançamento e de
+   cliente); (c) auditoria independente e reconferência; (d) PR. A importação
+   real no Carnê-Leão Web (HI-41, HI-42, HI-43) só o escritório pode
+   conferir.
+3. **Manuais do sistema de referência:** o Fred escolheu guardá-los num
+   **repositório privado separado**. Pendente: ele criar o repositório e
+   informar o nome. Enquanto isso, nada deles entra aqui — este repositório
+   é **público** (conferido na API em 2026-09-27); o Fred ainda vai decidir
+   se o DataLedger continua público.
+
+- **DL-047:** inventário e planos por módulo, a pedido do Fred
+  (2026-09-27), com os manuais só como referência
+  ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). Integrada pelo
+  PR da DL-047.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR

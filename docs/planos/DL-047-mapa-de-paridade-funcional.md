@@ -53,6 +53,25 @@ repositório (que é público), consulta com página citada, texto nosso.
    ou apagar lançamento efetivado, recalcular folha paga sem rastro,
    processar várias empresas sem autorizar cada uma no servidor.
 
+## Planos detalhados por módulo
+
+A pedido do Fred (2026-09-27: *"separado por módulos [...] item por item
+[...] não podemos deixar lacunas"*), cada módulo ganhou um plano item por
+item em [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
+(74 itens), Fiscal (91), Folha e Ponto (80), Honorários (59, mapeado nesta
+etapa a partir do manual de 751 páginas), Patrimônio (26) e Lalur (26) — 356
+ao todo. Cada item traz o que é, exemplo com números, página do manual,
+fonte normativa (marcada **a confirmar** quando não conferida), situação no
+código, dependências, dados, regras, telas, critérios de aceite e o que não
+copiar. Foram escritos por auxiliares de implementação, um por arquivo, e
+conferidos por amostra pelo `arquiteto-senior` (contas dos exemplos, número
+de itens, validação da documentação).
+
+**Achado de Honorários que muda o desenho:** a integração contábil e fiscal
+é dupla — a cobrança entra na contabilidade do escritório e também na do
+cliente, que o escritório escritura. Pergunta ao Fred no plano (HON-33,
+HON-37).
+
 ## Ondas por módulo
 
 | Módulo | Onda 1 | Onda 2 | Depois |
@@ -62,6 +81,7 @@ repositório (que é público), consulta com página citada, texto nosso.
 | Folha | Rubricas, tabelas por vigência, sindicato, empregados; cálculo mensal e holerite | Férias, 13º, provisões, rescisão, integração contábil | eSocial como preparação; pró-labore, RPA, ponto |
 | Patrimônio | Bem, conta patrimonial, depreciação fiscal, ficha do bem | Baixa, transferências, integração contábil | Societário, CIAP e créditos |
 | Lalur | — | — | Depois de Patrimônio e com a DRE: Parte A, Parte B, dentro da ECF |
+| Honorários | Serviços, contratos por cliente com vigência e reajuste, cálculo mensal | Cobrança, recebimento e baixa | Integração contábil (dupla), NFS-e do escritório, boletos e remessa, relatórios gerenciais |
 
 ## Recomendação ao Fred
 
@@ -79,6 +99,9 @@ entre eles é dele:
 Recomendação do `arquiteto-senior`: **A primeiro, porque é menor e fecha um
 módulo inteiro; B logo em seguida.** Folha é o maior módulo e o de mais
 norma nova; entra depois, com a mesma disciplina de fonte oficial.
+Honorários é independente dos demais (usa o cadastro de empresas que já
+existe) e pode andar em paralelo quando houver quem o faça. Patrimônio vem
+antes do Lalur, que usa o ganho de capital e a depreciação dele.
 
 ## Critérios de aceite desta etapa
 
