@@ -1009,6 +1009,12 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "livro_caixa:dependentes-carne-leao": (
         "API REST (DependentesCarneLeaoListCreateView, DRF) — JSON; DL-046 fatia 2"
     ),
+    # DE-091 item 6 (M-6, correção da rodada 1 da auditoria da fatia 2):
+    # retificação (PATCH) da quantidade de dependentes — mesmo motivo das
+    # rotas acima.
+    "livro_caixa:dependentes-carne-leao-retificar": (
+        "API REST (DependentesCarneLeaoRetificarView, DRF) — JSON; DL-046 fatia 2"
+    ),
     "livro_caixa:carne-leao-mensal": ("API REST (CarneLeaoMensalView, DRF) — JSON; DL-046 fatia 2"),
     "livro_caixa:carne-leao-anual": ("API REST (CarneLeaoAnualView, DRF) — JSON; DL-046 fatia 2"),
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem

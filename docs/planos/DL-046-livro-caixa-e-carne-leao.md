@@ -697,7 +697,7 @@ As quatro dúvidas listadas na seção anterior, na ordem em que aparecem lá:
    dedução** (inclusive livro-caixa) — nunca a base de cálculo. Registrado
    como **RC-133**.
 2. **Rendimento de pessoa jurídica entra na base do carnê-leão, ou só serve
-   de limite para a dedução do livro-caixa?** **Não entra, exceto
+   de limite para a dedução do livro-caixa?** **Não entra na BASE, exceto
    notarial.** RIR/2018, art. 118, caput, restringe a base a rendimento
    recebido de OUTRA PESSOA FÍSICA ou de fonte do EXTERIOR; o inciso IV é
    explícito para aluguel ("recebidos de pessoas físicas"). A Lei nº
@@ -705,11 +705,21 @@ As quatro dúvidas listadas na seção anterior, na ordem em que aparecem lá:
    serventuários da Justiça SEM restringir a fonte pagadora — só esse
    modelo (notarial) integra a base vindo de PJ. Rendimento de PJ fora
    desse caso é tributado por retenção na fonte pela própria fonte
-   pagadora, fora do escopo desta fatia. Como consequência, PJ também não
-   entra no limite da dedução do livro-caixa (que só se aplica ao
-   rendimento que É base do carnê-leão). Registrado como **RC-132**, junto
-   com a imunidade da pensão alimentícia recebida (STF, ADI 5.422, citada
-   no Perguntas e Respostas IRPF 2026, pergunta 266).
+   pagadora, fora do escopo desta fatia.
+   ⚠️ **A frase seguinte desta resposta estava ERRADA e foi corrigida na
+   rodada 1 da auditoria da fatia 2 (achados A-1/A-2, DE-091 item 1):** a
+   versão original dizia "como consequência, PJ também não entra no
+   limite da dedução do livro-caixa" — **falso**. O LIMITE do livro-caixa
+   (art. 68/69, RIR/2018) é DIFERENTE da BASE do carnê-leão: a Perguntas e
+   Respostas IRPF 2026, pergunta 428, diz que a dedução é "limitada ao
+   valor da receita mensal recebida de pessoa física **ou jurídica**", e a
+   página oficial "Carnê-leão — Deduções" confirma "pessoa física, de
+   pessoa jurídica e do exterior". O limite soma a receita de trabalho não
+   assalariado **e** notarial de QUALQUER origem (PF, PJ, exterior); só a
+   DEDUÇÃO em si (contra a base) fica restrita ao rendimento que integra a
+   base. Registrado como **RC-132** (corrigida), junto com a imunidade da
+   pensão alimentícia recebida (STF, ADI 5.422, citada no Perguntas e
+   Respostas IRPF 2026, pergunta 266).
 3. **Limite da compensação do imposto pago no exterior?** A diferença
    entre o imposto apurado COM a inclusão do rendimento de fontes do
    exterior daquele mês e o imposto apurado SEM essa inclusão (mesma
@@ -800,7 +810,7 @@ o valor do SALÁRIO (R$ 7.607,20), e NÃO o da BASE DE CÁLCULO
 | --- | --- | --- |
 | RC-133 usava a BASE em vez do BRUTO na redução da Lei 15.270/2025 (nas duas chamadas — real e simplificada) | `_reducao_bruta` passa a receber `rendimento_bruto` (não mais `base`); `_pipeline` recebe os dois parâmetros separados; `_limite_compensacao_exterior` passa o bruto certo (com/sem o rendimento do exterior) nas duas chamadas | Os cinco exemplos oficiais da Receita adaptados ao carnê-leão (`test_exemplo_oficial_1` a `_5`), `test_bruto_ate_5000_sempre_zera_via_forma_mais_beneficia`, `test_reducao_limitada_ao_imposto_com_deducoes_reais_altas` |
 | Consequência: o "achado material" (R$ 5.000,00 não zerava) deixa de existir — corrigido o bruto/base, a forma simplificada sempre alcança zero até R$ 5.000,00, como a lei descreve | `test_rendimento_5000_sem_outras_deducoes_nao_zera_o_imposto` REMOVIDO; docstring do módulo e desta seção do plano reescritos | `test_bruto_ate_5000_sempre_zera_via_forma_mais_beneficia` |
-| Dois testes que já existiam tinham valores calculados com a fórmula ERRADA (base) | Recalculados com a fórmula CORRETA (bruto), conferidos via shell antes de gravar no comentário | `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`, `test_apuracao_le_valor_do_banco_nao_de_constante` (este também passou a mirar `memoria_deducoes_reais.reducao_aplicada` em vez do campo do topo, porque a rendição bruto ≤ R$ 5.000,00 SEMPRE escolhe a forma simplificada — a mutação de `reducao_maxima` só é visível na memória da forma perdedora) |
+| Dois testes que já existiam tinham valores calculados com a fórmula ERRADA (base) | Recalculados com a fórmula CORRETA (bruto), conferidos via shell antes de gravar no comentário | `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`, `test_apuracao_le_valor_do_banco_nao_de_constante` (este também passou a mirar `memoria_deducoes_reais.reducao_aplicada` em vez do campo do topo — no cenário daquele teste especificamente, sem outra dedução real, o desconto simplificado era a MAIOR dedução e por isso a forma escolhida; a mutação de `reducao_maxima` só é visível na memória da forma perdedora. ⚠️ **Correção da rodada 1 da auditoria da fatia 2 (B-3): a frase geral "bruto ≤ R$ 5.000,00 SEMPRE escolhe a forma simplificada" que estava aqui era FALSA** — a escolha depende da MAIOR DEDUÇÃO (DE-091 item 2/M-1), e uma dedução real maior que o desconto simplificado vence mesmo com bruto baixo; ver `test_dependentes_reduzem_a_base`, corrigido na mesma rodada, que é exatamente um contraexemplo.) |
 
 ### Mutante M6 (aplicado vivo, confirmado vermelho, revertido)
 
@@ -923,3 +933,128 @@ Commits: `8996522`, `b6775f8`, `f286361`, `dd4b3ad` (branch `dl046-f2`, worktree
   mantido como está, por ordem do arquiteto-senior; ver requisitos.md.
 - `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
   (mesmo bloqueio já registrado pelas fatias anteriores).
+
+## Correção da rodada 1 da fatia 2 (2026-09-27, `desenvolvedor-pleno`)
+
+**REPROVADA** na [auditoria da rodada
+1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) (dois achados
+ALTOS, oito MÉDIOS, seis BAIXOS). Encaminhamento pelo `arquiteto-senior`:
+A-1, A-2, M-1 a M-6 e M-8 ao `desenvolvedor-pleno`; M-2 com o
+`especialista-frontend`; M-3 e M-7 decididos pelo próprio arquiteto (ver
+[DE-091](../projeto/decisoes.md)). Esta é a ÚNICA correção antes da
+reconferência (AGENTS.md §3.1).
+
+### Item a item da DE-091
+
+1. **A-1/A-2 (limite do livro-caixa, ALTO).** O limite do art. 68/69
+   (RIR/2018) passa a somar a receita de trabalho não assalariado **e**
+   notarial, de QUALQUER origem (PF, PJ ou exterior) — `_agregados_do_mes`
+   ganhou `receita_atividade_limite`, calculado FORA do filtro de
+   sujeição da base. A DEDUÇÃO em si continua restrita ao rendimento que
+   integra a base (RC-132, corrigida — ver acima). A parte do excesso
+   carregada ao mês seguinte é só o que passa do LIMITE; a parte dentro
+   do limite sem contrapartida na base (receita de PJ, por exemplo) não é
+   carregada — pertence à declaração anual, fora do escopo. Testes:
+   `test_aud_a1_notarial_livro_caixa`, `test_aud_a2_pj_no_limite_do_livro_caixa`,
+   `test_aud_a6_aluguel_nao_entra_no_limite_do_livro_caixa`.
+2. **M-1 (forma pela maior dedução).** `_apurar_um_mes` passou a escolher
+   entre desconto simplificado e deduções reais pela MAIOR DEDUÇÃO, ANTES
+   da redução — critério da própria Receita (P&R 267: "o desconto
+   simplificado é mais vantajoso... quando o valor for maior"). Empate:
+   simplificado (dispensa comprovação). Os dois testes que fixavam o
+   desempate "real" antigo (`test_excesso_de_dezembro_nao_passa_para_
+   janeiro`, `test_dependentes_reduzem_a_base`) foram corrigidos; a frase
+   "SEMPRE escolhe a forma simplificada" (achado dela mesma, B-3) foi
+   corrigida na tabela de achados da correção da RC-133, acima. Testes:
+   `test_aud_exemplo1_forma_escolhida_via_orm`,
+   `test_aud_exemplo2_forma_escolhida_via_orm`,
+   `test_aud_criterio_escolha_forma_no_empate`.
+3. **M-3/HI-38 (compensação do exterior, leitura literal).** Decisão do
+   arquiteto-senior (DE-091): leitura LITERAL da P&R 267 — só a parte do
+   pagamento do mês que cabe dentro do limite (diferença entre o imposto
+   COM e SEM o rendimento do exterior) entra no crédito disponível; o que
+   passa do limite nunca compensa nem carrega. Achado do desenvolvedor
+   durante a implementação, não previsto no pedido original: sob esta
+   definição, o crédito disponível de um mês NUNCA excede o imposto
+   daquele mês (a diferença "com − sem" nunca é maior que o "com"), então
+   a linha `if mes == 12: saldo = 0` é uma defesa em profundidade contra
+   mudança futura da fórmula, nunca alcançada pela apuração real — testada
+   diretamente via `_apurar_um_mes` com um saldo anterior FORÇADO
+   (`test_aud_a14_saldo_exterior_zera_em_dezembro`). Imposto pago no
+   exterior sem rendimento do exterior no mês (HI-38): recusado na
+   APURAÇÃO (não na gravação do lançamento) — ver o docstring de
+   `ImpostoExteriorSemRendimentoExterior` para a justificativa completa da
+   escolha do ponto de recusa. Testes: `test_aud_exterior_limite`,
+   `test_aud_hi38_imposto_exterior_sem_rendimento_exterior_e_recusado`,
+   `test_aud_api_recusa_mes_com_imposto_exterior_sem_rendimento`.
+4. **M-4 (estorno e alerta).** `estornar_lancamento_caixa` passa a usar a
+   data do ORIGINAL como padrão (era "hoje"); data explícita de outro mês
+   é recusada, citando RC-130. A apuração devolve um alerta explícito
+   para qualquer mês com rendimento líquido negativo. Testes fatia 1
+   ajustados: `test_api_estorno_e_relatorio`,
+   `test_relatorio_mostra_estorno_visivel`; ajuste pontual autorizado em
+   `scripts/medir_identificacao_do_emitente.py` (comentário, sem mudança
+   de data — a data já ficava no mesmo mês do original).
+5. **M-5 (2025 fora do escopo).** Migração `0006` semeia a tabela
+   progressiva de jan-abr/2025 (P&R 267, valores conferidos em
+   `scratchpad/pr_irpf_2026.txt`). Ausência de vigência de REDUÇÃO antes
+   de 2026 passa a ser tratada como ausência LEGÍTIMA (`reducao_cfg=None`
+   em `_reducao_bruta`/`_pipeline`), nunca erro. Ano < 2025: mensagem
+   explícita de fora de escopo (`_PRIMEIRO_ANO_COM_TABELA`). Testes:
+   `test_aud_m5_fevereiro_2025_sem_reducao_tabela_jan_abr`,
+   `test_aud_m5_junho_2025_tabela_rc131_sem_reducao`,
+   `test_aud_m5_ano_anterior_a_2025_e_explicitamente_fora_do_escopo`.
+6. **M-6 (retificação de dependentes).** Nova função
+   `retificar_dependentes_carne_leao` (PATCH), com trilha de auditoria
+   antes/depois — nunca um novo registro concorrente. Rota
+   `dependentes-carne-leao/<id>/` (PATCH), exigindo `PodeEscriturarLivro
+   Caixa`. Testes: `test_aud_m6_retificacao_de_dependentes_com_trilha`,
+   `test_aud_m6_api_patch_dependentes_sucesso`,
+   `test_aud_m6_api_patch_dependentes_outro_escritorio_404`,
+   `test_aud_m6_api_patch_dependentes_papel_sem_escrita_403`.
+7. **M-2/B-6 (contrato da API).** Mensal: `rendimentos` (lista de
+   `{codigo, origem, valor, entra_na_base, motivo_exclusao}`),
+   `imposto_com_exterior`/`imposto_sem_exterior`, `vencimento` (texto),
+   `alertas`, `criterio_escolha_forma` (texto gerado no MESMO ponto da
+   escolha da forma — acréscimo do arquiteto-senior). Cada memória de
+   cálculo (`memoria_deducoes_reais`/`memoria_desconto_simplificado`)
+   ganhou `faixa_aplicada` e `vigencia_tabela_inicio` (segundo acréscimo).
+   Anual: `totais` — soma EXATA dos 12 meses de 8 campos nomeados.
+   Testes: `test_aud_m2_rendimentos_por_codigo_e_origem`,
+   `test_aud_m2_vencimento_ultimo_dia_util_do_mes_seguinte`,
+   `test_aud_m2_imposto_com_e_sem_exterior_no_mensal`,
+   `test_aud_m2_totais_anuais_sao_a_soma_exata_dos_12_meses`,
+   `test_aud_faixa_aplicada_e_vigencia_em_cada_memoria`.
+8. **B-1 (percentual do desconto simplificado no banco).** Novo campo
+   `percentual_desconto_simplificado` em `VigenciaTabelaProgressivaCarneLeao`
+   (migração `0005`, backfill `0,25` com fonte, `preserve_default=False`).
+   `_LIMITE_DARF` (R$ 10,00) permanece constante LEGAL no código — exceção
+   CONSCIENTE ao critério 5, documentada no docstring do módulo e na
+   DE-091 item 9. Teste: `test_aud_b1_percentual_simplificado_muda_so_no_banco`.
+9. **B-2 a B-5 (correções pontuais).** HI-36: retirada a frase "nunca
+   reduz o imposto em relação ao exato" (requisitos.md). DE-089: corrigida
+   a menção a `unique=True` para `UniqueConstraint` (decisoes.md). Nova
+   HI-40: limitação pensão × dependente do mesmo beneficiário (art. 72,
+   §1º, RIR/2018) não modelada nesta fatia (sem cadastro nominal).
+   Mensagem de duplicidade de competência dos dependentes mapeada em
+   `apps/core/restricoes.py` E como `violation_error_message` da
+   constraint (cobre os dois caminhos). Toda vigência normativa (e a
+   competência dos dependentes) ganhou `CheckConstraint` de dia 1
+   (migração `0005`).
+10. **M-8 (lacunas de teste).** Casos da seção 5 do relatório de auditoria
+    implementados (ver a lista de testes acima e os itens 1-9). Mutantes
+    A2, A6, A8 a A15, A17, A19, A21 a A23 reaplicados e confirmados
+    vermelhos (tabela no relatório de entrega desta correção).
+
+### Não testado / bloqueado nesta correção
+
+- Concorrência real no PATCH/POST de dependentes (A24 — mesma limitação
+  já registrada na rodada anterior, `select_for_update` mitiga mas não
+  prova).
+- Comportamento real do Carnê-Leão Web (inacessível) para M-3/M-1 —
+  decisão tomada pelo arquiteto-senior sem essa confirmação (DE-091).
+- M-7 (exclusões do aluguel, RIR/2018 art. 42) — decisão do
+  arquiteto-senior de manter fora do escopo desta correção (DE-091 não a
+  lista); HI-39 continua registrando a limitação.
+- A tela (fora do escopo — outro worktree, `especialista-frontend`).
+- `pwsh ./scripts/validate-docs.ps1` — mesmo bloqueio de ambiente.

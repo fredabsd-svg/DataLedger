@@ -1660,6 +1660,46 @@ def test_aud_b1_percentual_simplificado_muda_so_no_banco(cenario):
 
 @pytest.mark.django_db(transaction=True)
 def test_aud_snapshot_usa_repeatable_read(cenario):
+    """Prova que `_sob_snapshot` executa `SET TRANSACTION ISOLATION LEVEL
+    REPEATABLE READ` como primeira instrução da transação — só observável
+    com `transaction=True` (fora do `atomic()` padrão do pytest-django, que
+    faria a guarda `ja_estava_em_transacao` pular o `cursor.execute`).
+
+    ⚠️ Vigência PRÓPRIA deste teste, nunca a semeada por migração: testes
+    `transaction=True` de QUALQUER app deste projeto são agrupados pelo
+    pytest-django e rodam DEPOIS dos testes atômicos comuns; cada um
+    FLUSHA o banco ao final, sem restaurar dados de migração
+    (`serialized_rollback` não está ligado neste projeto) — um teste
+    `transaction=True` de OUTRO app, rodando antes deste no mesmo grupo,
+    já pode ter apagado a tabela/vigência semeada pela migração 0004. Uma
+    vigência criada aqui, com data que não colide com nenhuma real,
+    deixa este teste imune à ordem de execução da suíte inteira."""
+    vigencia = VigenciaTabelaProgressivaCarneLeao.objects.create(
+        vigencia_inicio=date(2026, 1, 1),
+        fonte="Vigência de teste, própria deste caso (ver docstring).",
+        percentual_desconto_simplificado=Decimal("0.25"),
+    )
+    FaixaTabelaProgressivaCarneLeao.objects.create(
+        vigencia=vigencia,
+        ordem=1,
+        limite_inferior=Decimal("0.00"),
+        limite_superior=Decimal("2428.80"),
+        aliquota=Decimal("0.0000"),
+        parcela_a_deduzir=Decimal("0.00"),
+    )
+    FaixaTabelaProgressivaCarneLeao.objects.create(
+        vigencia=vigencia,
+        ordem=2,
+        limite_inferior=Decimal("2428.81"),
+        limite_superior=None,
+        aliquota=Decimal("0.2750"),
+        parcela_a_deduzir=Decimal("908.73"),
+    )
+    VigenciaDependenteCarneLeao.objects.create(
+        vigencia_inicio=date(2026, 1, 1),
+        fonte="Vigência de teste, própria deste caso (ver docstring).",
+        valor_por_dependente=Decimal("189.59"),
+    )
     empresa = cenario["empresa_a"]
     _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "1000.00")
     with CaptureQueriesContext(connection) as capturado:
