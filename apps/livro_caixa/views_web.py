@@ -195,6 +195,17 @@ def _mascara_cnpj(cnpj):
     return f"{cnpj[0:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:14]}"
 
 
+def _mascara_caepf(caepf):
+    """14 dígitos, sem dígito verificador conhecido (HI-31): os 9
+    primeiros são os do CPF do titular, agrupados como CPF
+    (999.999.999); os 5 últimos são o "resumido" da inscrição
+    (999-99) — mesma leitura de composição da fonte da HI-31, sem
+    inventar o algoritmo do DV que a Receita não documenta."""
+    if not caepf or len(caepf) != 14:
+        return caepf or ""
+    return f"{caepf[0:3]}.{caepf[3:6]}.{caepf[6:9]}/{caepf[9:12]}-{caepf[12:14]}"
+
+
 # DE-029 (mesma gramática de apps.contabilidade.views_web): dígitos sem
 # separador, ou grupo de milhar bem formado (exatamente três dígitos após
 # cada ponto), com centavos opcionais depois da vírgula — texto fora da
@@ -709,10 +720,11 @@ def livro_caixa_relatorio(request, empresa_id):
         "fim": fim,
         "rotulo_inscricao": rotulo_inscricao,
         "inscricao_formatada": inscricao_formatada,
-        # CAEPF (RC-129/HI-31): opcional, "sem máscara" (mesmo padrão do
-        # cadastro, apps/empresas/forms.py) — o template só imprime a
-        # linha quando `empresa.caepf` não é vazio.
-        "caepf": empresa.caepf,
+        # CAEPF (RC-129/HI-31): opcional — o CADASTRO (apps/empresas/
+        # forms.py) continua sem máscara, mas a IMPRESSÃO passou a levar
+        # `_mascara_caepf` (R-B2 da reconferência) — o template só imprime
+        # a linha quando `empresa.caepf` não é vazio.
+        "caepf": _mascara_caepf(empresa.caepf),
         "carimbo_de_emissao_texto": carimbo_de_emissao.strftime("%d/%m/%Y às %H:%M:%S"),
         "timbre_linhas": empresa.escritorio.linhas_do_timbre,
     }
@@ -1073,7 +1085,7 @@ def carne_leao_mensal(request, empresa_id):
         "empresa": empresa,
         "rotulo_inscricao": rotulo_inscricao,
         "inscricao_formatada": inscricao_formatada,
-        "caepf": empresa.caepf,
+        "caepf": _mascara_caepf(empresa.caepf),
         # Igual a `livro_caixa_relatorio`: carimbo e timbre são
         # preenchidos SEMPRE, mesmo em estado de erro — o documento
         # continua identificando o emitente/contribuinte mesmo quando a
@@ -1185,8 +1197,11 @@ def _totais_anuais_ptbr(totais):
 @require_safe
 def carne_leao_anual(request, empresa_id):
     """Demonstrativo ANUAL do carnê-leão — os 12 meses do ano-calendário
-    (`apps.livro_caixa.carne_leao.apurar_carne_leao_anual`), com totais de
-    apresentação (`_totais_anuais_carne_leao`, acima)."""
+    (`apps.livro_caixa.carne_leao.apurar_carne_leao_anual`), com
+    `resultado["totais"]` do próprio motor só FORMATADO para pt-BR
+    (`_totais_anuais_ptbr`, acima) — nenhuma soma nasce aqui (R-B5 da
+    reconferência: esta docstring citava `_totais_anuais_carne_leao`,
+    função removida na integração com o servidor corrigido)."""
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
     empresa = _empresa_do_escritorio_ativo(request, empresa_id)
@@ -1203,7 +1218,7 @@ def carne_leao_anual(request, empresa_id):
         "empresa": empresa,
         "rotulo_inscricao": rotulo_inscricao,
         "inscricao_formatada": inscricao_formatada,
-        "caepf": empresa.caepf,
+        "caepf": _mascara_caepf(empresa.caepf),
         "carimbo_de_emissao_texto": timezone.localtime().strftime("%d/%m/%Y às %H:%M:%S"),
         "timbre_linhas": empresa.escritorio.linhas_do_timbre,
     }
@@ -1262,7 +1277,7 @@ class DependentesCarneLeaoForm(forms.ModelForm):
         }
         help_texts = {
             "competencia_inicio": (
-                "Escolha o dia 1 do mês em que a quantidade passa a valer (HI-35) — "
+                "Escolha o dia 1 do mês em que a quantidade passa a valer — "
                 "ex.: 01/10/2026 para vigorar a partir de outubro de 2026."
             ),
         }

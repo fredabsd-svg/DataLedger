@@ -81,8 +81,16 @@
         static/css/base.css, e a correção de impressão em `@media
         print` no mesmo arquivo).
         {% endcomment %}
+        {% comment %}
+        `tabela-carne-leao-anual` — R-A1 (reconferência da fatia 2, ALTO):
+        classe própria (só desta tabela) que a impressão usa para encolher
+        tipografia/padding e liberar o mínimo de largura das colunas
+        numéricas (`static/css/base.css`, `@media print`) — sem ela, dez
+        colunas com o `--tipo-sm` padrão cortavam "Imposto devido" e
+        "Valor a pagar" fora da folha A4. Nunca esconde coluna nenhuma.
+        {% endcomment %}
         <div class="tabela-com-rolagem-horizontal">
-        <table class="tabela-dados">
+        <table class="tabela-dados tabela-carne-leao-anual">
             <caption class="visualmente-oculto">
                 Carnê-leão de {{ empresa.razao_social }} — demonstrativo anual de {{ ano }}
             </caption>

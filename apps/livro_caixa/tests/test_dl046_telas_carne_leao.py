@@ -14,6 +14,7 @@ sem recalcular nada, e que os cinco estados (vazio, carregando — não
 aplicável a uma view síncrona —, erro, sucesso, sem permissão) existem.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -166,7 +167,10 @@ def test_carne_leao_mensal_renderiza_a_memoria_de_calculo(client, cenario):
     assert "identificacao-do-documento" in html
     assert "Fulano de Tal" in html
     assert "111.444.777-35" in html
-    assert "11144477735001" in html
+    # R-B2 (reconferência) — CAEPF com máscara 999.999.999/999-99, nunca
+    # os 14 dígitos crus.
+    assert "111.444.777/350-01" in html
+    assert "11144477735001" not in html
     assert "RIR/2018" in html
     assert "Lei nº 15.270/2025" in html
 
@@ -730,3 +734,144 @@ def test_lancamento_caixa_estorno_duplicado_e_erro_de_formulario_nao_500(client,
     segundo = client.post(url)
     assert segundo.status_code == 400
     assert "mensagem-error" in segundo.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# R-M2 (reconferência da fatia 2) — nenhum identificador interno do
+# projeto (RC-/HI-/DE-/PE-/BL-/DL-), nem jargão técnico ("PATCH"), no
+# texto VISÍVEL das três telas do carnê-leão nem nos estados de erro.
+#
+# `{% comment %}...{% endcomment %}` do Django NUNCA chega ao HTML
+# servido (o motor de template descarta o bloco inteiro) — por isso a
+# varredura abaixo, rodando sobre `response.content`, já ignora os
+# comentários de código deste app sem precisar de nenhum filtro extra.
+#
+# Três dos estados de erro têm a mensagem gerada em arquivo de SERVIDOR
+# fora do escopo desta correção (`carne_leao.py`, `models.py`,
+# `restricoes.py` — não editáveis pela `especialista-frontend` nesta
+# tarefa; ficam para o `desenvolvedor-pleno`, conforme o encaminhamento
+# da reconferência). Esses três continuam MARCADOS como `xfail(strict=
+# True)`: falham hoje, de propósito, com o texto exato do achado; e se
+# alguém corrigir a mensagem sem tirar a marca, o teste vira XPASS e
+# quebra a suíte, forçando tirar a marca — não deixa a correção passar
+# despercebida.
+# ---------------------------------------------------------------------------
+
+_REGEX_IDENTIFICADOR_INTERNO = re.compile(r"\b(RC|HI|DE|PE|BL|DL)-\d+")
+
+
+def _sem_identificador_interno_nem_patch(html):
+    achado_regex = _REGEX_IDENTIFICADOR_INTERNO.search(html)
+    assert achado_regex is None, f"identificador interno no texto visível: {achado_regex.group()!r}"
+    assert "PATCH" not in html
+
+
+def test_sem_identificador_interno_no_mensal(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "20000.00", date(2026, 3, 10))
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "3"},
+    )
+    assert resposta.status_code == 200
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+def test_sem_identificador_interno_no_anual(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_receita(cenario["empresa_a"], cenario["conta_receita"], "20000.00", date(2026, 3, 10))
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    assert resposta.status_code == 200
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+def test_sem_identificador_interno_nos_dependentes(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    DependentesCarneLeaoCliente.objects.create(
+        empresa=cenario["empresa_a"], quantidade=2, competencia_inicio=date(2026, 3, 1)
+    )
+    resposta = client.get(
+        reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario["empresa_a"].id])
+    )
+    assert resposta.status_code == 200
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "R-M2 (reconferência): a mensagem de ImpostoExteriorSemRendimentoExterior "
+        "nasce em apps/livro_caixa/carne_leao.py ('...HI-38, requisitos.md...'), "
+        "fora do escopo de arquivos desta correção (especialista-frontend). "
+        "Encaminhado ao desenvolvedor-pleno. Remover a marca quando a mensagem "
+        "do motor deixar de citar HI-38."
+    ),
+)
+def test_sem_identificador_interno_no_erro_hi38_mensal(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_despesa(
+        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
+    )
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_mensal", args=[cenario["empresa_a"].id]),
+        {"ano": "2026", "mes": "5"},
+    )
+    assert resposta.status_code == 409
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "R-M2 (reconferência): mesma mensagem de HI-38 do motor "
+        "(apps/livro_caixa/carne_leao.py), agora no demonstrativo anual. "
+        "Encaminhado ao desenvolvedor-pleno."
+    ),
+)
+def test_sem_identificador_interno_no_erro_hi38_anual(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    _lancar_despesa(
+        cenario["empresa_a"], cenario["conta_imposto_exterior"], date(2026, 5, 10), "50.00"
+    )
+    resposta = client.get(
+        reverse("livro_caixa_web:carne_leao_anual", args=[cenario["empresa_a"].id]), {"ano": "2026"}
+    )
+    assert resposta.status_code == 409
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "R-M2 (reconferência): a mensagem de dia diferente de 1 nasce em "
+        "apps/livro_caixa/models.py ('...(HI-35).'), fora do escopo de "
+        "arquivos desta correção. Encaminhado ao desenvolvedor-pleno."
+    ),
+)
+def test_sem_identificador_interno_no_erro_dia_diferente_de_um(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    url = reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario["empresa_a"].id])
+    resposta = client.post(url, {"quantidade": "4", "competencia_inicio": "2026-10-15"})
+    assert resposta.status_code == 400
+    _sem_identificador_interno_nem_patch(resposta.content.decode())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "R-M2 (reconferência)/B-4: a mensagem de duplicidade de competência "
+        "nasce em apps/livro_caixa/restricoes.py e models.py ('...use a "
+        "retificação (PATCH)...'), fora do escopo de arquivos desta "
+        "correção. Encaminhado ao desenvolvedor-pleno."
+    ),
+)
+def test_sem_identificador_interno_no_erro_de_duplicidade(client, cenario):
+    _autenticar(client, cenario["escritorio_a"])
+    url = reverse("livro_caixa_web:dependentes_carne_leao", args=[cenario["empresa_a"].id])
+    primeiro = client.post(url, {"quantidade": "2", "competencia_inicio": "2026-10-01"})
+    assert primeiro.status_code == 302
+    segundo = client.post(url, {"quantidade": "3", "competencia_inicio": "2026-10-01"})
+    assert segundo.status_code == 400
+    _sem_identificador_interno_nem_patch(segundo.content.decode())

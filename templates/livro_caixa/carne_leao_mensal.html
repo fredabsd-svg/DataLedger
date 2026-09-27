@@ -147,15 +147,15 @@ documento`, dentro da tabela).
             <tbody>
                 <tr><th scope="colgroup" colspan="2">Rendimentos sujeitos ao carnê-leão</th></tr>
                 <tr>
-                    <td>Rendimento total sujeito ao carnê-leão no mês (RC-132)</td>
+                    <td>Rendimento total sujeito ao carnê-leão no mês</td>
                     <td class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</td>
                 </tr>
                 <tr>
-                    <td>— do qual, trabalho não assalariado (limite da dedução do livro-caixa)</td>
+                    <td>— do qual, trabalho não assalariado (integra a base)</td>
                     <td class="valor-monetario">{{ rendimento_trabalho_base_ptbr }}</td>
                 </tr>
                 <tr>
-                    <td>— do qual, notarial e de registro (limite da dedução do livro-caixa)</td>
+                    <td>— do qual, notarial e de registro (integra a base)</td>
                     <td class="valor-monetario">{{ rendimento_notarial_base_ptbr }}</td>
                 </tr>
                 {% for item in rendimentos %}
@@ -192,8 +192,9 @@ documento`, dentro da tabela).
                     <td>
                         Receita da atividade (trabalho não assalariado + notarial, qualquer origem)
                         <p class="texto-apoio">
-                            Limite da dedução do livro-caixa (DE-091) — inclui receita de PF, PJ e
-                            exterior, mesmo a que não integra a base do carnê-leão acima.
+                            Limite da dedução do livro-caixa (RIR/2018, arts. 68 e 69) — inclui
+                            receita de PF, PJ e exterior, mesmo a que não integra a base do
+                            carnê-leão acima.
                         </p>
                     </td>
                     <td class="valor-monetario">{{ receita_atividade_limite_livro_caixa_ptbr }}</td>
@@ -234,9 +235,12 @@ documento`, dentro da tabela).
                         Imposto após redução — pela via das deduções REAIS
                         <p class="texto-apoio">
                             Faixa aplicada:
-                            <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_inferior_ptbr }}</span>
-                            a
-                            {% if memoria_deducoes_reais.faixa_aplicada.tem_limite_superior %}<span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_superior_ptbr }}</span>{% else %}sem limite{% endif %},
+                            {% if memoria_deducoes_reais.faixa_aplicada.tem_limite_superior %}
+                                de <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_inferior_ptbr }}</span>
+                                a <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_superior_ptbr }}</span>
+                            {% else %}
+                                a partir de <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.limite_inferior_ptbr }}</span>
+                            {% endif %},
                             alíquota <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.aliquota_ptbr }}</span>,
                             parcela a deduzir
                             <span class="valor-monetario">{{ memoria_deducoes_reais.faixa_aplicada.parcela_a_deduzir_ptbr }}</span>
@@ -254,9 +258,12 @@ documento`, dentro da tabela).
                         Imposto após redução — pela via do desconto SIMPLIFICADO
                         <p class="texto-apoio">
                             Faixa aplicada:
-                            <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_inferior_ptbr }}</span>
-                            a
-                            {% if memoria_desconto_simplificado.faixa_aplicada.tem_limite_superior %}<span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_superior_ptbr }}</span>{% else %}sem limite{% endif %},
+                            {% if memoria_desconto_simplificado.faixa_aplicada.tem_limite_superior %}
+                                de <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_inferior_ptbr }}</span>
+                                a <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_superior_ptbr }}</span>
+                            {% else %}
+                                a partir de <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.limite_inferior_ptbr }}</span>
+                            {% endif %},
                             alíquota <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.aliquota_ptbr }}</span>,
                             parcela a deduzir
                             <span class="valor-monetario">{{ memoria_desconto_simplificado.faixa_aplicada.parcela_a_deduzir_ptbr }}</span>.
@@ -301,7 +308,7 @@ documento`, dentro da tabela).
                         <p class="texto-apoio">
                             Calculada sobre o rendimento tributável BRUTO do mês
                             (<span class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</span>) —
-                            ANTES de qualquer dedução —, nunca sobre a base de cálculo acima (RC-133).
+                            ANTES de qualquer dedução —, nunca sobre a base de cálculo acima.
                         </p>
                     </td>
                     <td class="valor-monetario">{{ reducao_lei_15270_2025_ptbr }}</td>

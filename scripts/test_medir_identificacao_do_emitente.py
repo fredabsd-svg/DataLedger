@@ -2402,3 +2402,244 @@ def test_ponta_a_ponta_m2_link_interno_sem_marca_do_fornecedor_continua_passando
     )
 
     assert codigo == 0, f"link interno sem marca não podia reprovar — stderr:\n{err}"
+
+
+# ---------------------------------------------------------------------------
+# R-A1 (reconferência da fatia 2 da DL-046, ALTO — REPROVOU a etapa
+# anterior, docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md):
+# o demonstrativo ANUAL do carnê-leão, impresso, cortava "Imposto devido"
+# e deixava "Valor a pagar" inteiramente FORA da folha A4 — as dez colunas
+# somavam mais de 1.190px de largura natural contra ~700-800px de largura
+# útil. `scripts/medir_identificacao_do_emitente.py` PASSAVA porque mede
+# só o bloco de identificação (timbre/contribuinte), nunca as células de
+# DADOS de uma tabela — daí este teste próprio, específico para R-A1,
+# nunca uma extensão do instrumento genérico (que continua medindo outra
+# coisa, ver a docstring dele).
+#
+# Mesma infraestrutura de dois intérpretes da seção "ponta a ponta" acima
+# (`pytestmark_ponta_a_ponta`, `DL_PYTHON_DO_SISTEMA`/Chromium real,
+# `poppler-utils`), e a MESMA técnica de `medir_impressao._com_css_local`
+# para abrir o HTML renderizado pelo Django (venv do projeto) via
+# `file://`, sem precisar de um servidor Django rodando de verdade — só a
+# medição em si (Playwright, PDF, `pdftotext`) delega ao subprocesso do
+# Python do sistema.
+# ---------------------------------------------------------------------------
+
+
+def _criar_cenario_carne_leao_anual_sintetico():
+    """Escritório + empresa PF (CPF/CAEPF) + contas do carnê-leão +
+    lançamentos em TODOS os 12 meses de 2025 (ano com tabela vigente
+    confirmada pela DE-091/M-5), com valores de rendimento MENSAL acima
+    de R$ 1.000.000,00 (pedido da reconferência: "12 meses de 2025 com
+    valores >= 1.000.000,00") — o cenário que faz o "Imposto devido" e o
+    "Valor a pagar" chegarem a sete dígitos, a faixa que estourava a
+    folha A4 antes desta correção. Dados sintéticos, nenhum real."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.contrib.auth import get_user_model
+
+    from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+    from apps.livro_caixa.models import ContaLivroCaixa, NaturezaCaixa
+    from apps.livro_caixa.services import criar_lancamento_caixa
+    from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+
+    usuario_modelo = get_user_model()
+    usuario = usuario_modelo.objects.create_user(
+        username="ra1_anual", password="sintetica-irrelevante-para-o-teste"
+    )
+    escritorio = Escritorio.objects.create(nome="Escritório Sintético R-A1", cnpj="22233344000155")
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.ADMINISTRADOR
+    )
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Contribuinte Sintético de Valor Alto para R-A1",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="52998224725",
+        caepf="11144477735001",
+        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+    )
+    conta_trabalho = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="RT",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
+    conta_despesa = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D10",
+        nome="Despesa dedutível",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P10.001",
+    )
+    conta_previdencia = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="DP",
+        nome="Previdência oficial",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00001",
+    )
+    for mes in range(1, 13):
+        # Escala cresce mês a mês (não é múltiplo redondo do índice do
+        # mês, de propósito — cada total do ano fica um número PRÓPRIO,
+        # nunca coincide por acaso com uma soma errada) e sempre acima de
+        # R$ 1.000.000,00, como a reconferência pediu.
+        valor_mes = Decimal("1100000.00") + Decimal(mes) * Decimal("87654.32")
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_trabalho,
+            data=date(2025, mes, 10),
+            valor=valor_mes,
+            historico="Honorários — cenário R-A1",
+            recebido_de="PF",
+            cpf_titular_pagamento="52998224725",
+            cpf_beneficiario_nao_informado=True,
+        )
+        criar_lancamento_caixa(
+            empresa=empresa,
+            conta=conta_previdencia,
+            data=date(2025, mes, 12),
+            valor=Decimal("908.86"),
+            historico="Previdência — cenário R-A1",
+        )
+        if mes % 2:
+            criar_lancamento_caixa(
+                empresa=empresa,
+                conta=conta_despesa,
+                data=date(2025, mes, 11),
+                valor=Decimal("50000.00"),
+                historico="Despesa dedutível — cenário R-A1",
+            )
+    return usuario, empresa
+
+
+_SCRIPT_MEDIR_TABELA_LARGA_IMPRESSA = r"""
+import json, sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+especificacao = json.loads(sys.argv[1])
+sys.path.insert(0, especificacao["diretorio_sonda"])
+import sonda_visibilidade
+
+caminho_html = Path(especificacao["caminho_html"])
+pasta_saida = Path(especificacao["pasta_saida"])
+pasta_saida.mkdir(parents=True, exist_ok=True)
+
+resultado = {"por_margem": {}, "por_largura": {}}
+with sync_playwright() as p:
+    navegador = sonda_visibilidade.lancar_chromium(p)
+    pagina = navegador.new_page()
+    pagina.goto(caminho_html.as_uri(), wait_until="networkidle")
+    pagina.emulate_media(media="print")
+
+    for margem in ("0mm", "12.7mm"):
+        arquivo_pdf = pasta_saida / f"anual-{margem}.pdf"
+        pagina.pdf(
+            path=str(arquivo_pdf),
+            format="A4",
+            print_background=True,
+            margin={lado: margem for lado in ("top", "bottom", "left", "right")},
+        )
+        resultado["por_margem"][margem] = str(arquivo_pdf)
+
+    # 794px ~ largura útil A4 com margem 0mm; 698px ~ largura útil A4 com
+    # margem 12,7mm (210mm - 2*12,7mm), a mesma dupla que a reconferência
+    # mediu (docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md).
+    for largura in (794, 698):
+        pagina.set_viewport_size({"width": largura, "height": 1200})
+        medida = pagina.evaluate(
+            '''(vw) => {
+              const t = document.querySelector('table.tabela-dados');
+              const seletor = 'tbody tr:first-child td, tfoot td, thead tr:last-child th';
+              const fora = [...t.querySelectorAll(seletor)]
+                 .filter(c => c.getBoundingClientRect().right > vw + 0.5)
+                 .map(c => c.textContent.trim().slice(0, 30));
+              return {tabela_scroll_width: t.scrollWidth, fora: fora};
+            }''',
+            largura,
+        )
+        resultado["por_largura"][str(largura)] = medida
+
+    navegador.close()
+
+print(json.dumps(resultado, ensure_ascii=False))
+"""
+
+
+@pytestmark_ponta_a_ponta
+@pytest.mark.django_db
+def test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha(tmp_path):
+    """R-A1 — o demonstrativo anual do carnê-leão, impresso, cabe INTEIRO
+    em A4: nenhuma célula (dado ou total) com a borda direita além da
+    largura útil da folha, nas duas margens que a reconferência mediu
+    (0mm e 12,7mm), e o texto exportado (`pdftotext`) contém "Valor a
+    pagar" e os totais do ano por inteiro — nunca um valor cortado no
+    meio, como `"2.57"` no lugar de `"2.574,06"` (o próprio defeito que
+    REPROVOU a etapa anterior)."""
+    import json as json_mod
+
+    import medir_impressao
+    from django.urls import reverse
+
+    usuario, empresa = _criar_cenario_carne_leao_anual_sintetico()
+    cliente = _client_autenticado(usuario)
+
+    from apps.livro_caixa.carne_leao import apurar_carne_leao_anual
+
+    resultado_do_motor = apurar_carne_leao_anual(empresa=empresa, ano=2025)
+    totais = resultado_do_motor["totais"]
+
+    url = reverse("livro_caixa_web:carne_leao_anual", kwargs={"empresa_id": empresa.id})
+    resposta = cliente.get(url + "?ano=2025")
+    assert resposta.status_code == 200, (
+        f"GET {url} devolveu {resposta.status_code} — cenário sintético incompatível "
+        "com a rota real."
+    )
+    html = medir_impressao._com_css_local(resposta.content.decode())
+
+    caminho_html = tmp_path / "anual.html"
+    caminho_html.write_text(html, encoding="utf-8")
+    pasta_saida = tmp_path / "pdfs"
+
+    especificacao = json_mod.dumps(
+        {
+            "diretorio_sonda": medir_impressao._DIRETORIO_SONDA,
+            "caminho_html": str(caminho_html),
+            "pasta_saida": str(pasta_saida),
+        }
+    )
+    comando = [
+        medir_impressao.PYTHON_DO_SISTEMA,
+        "-c",
+        _SCRIPT_MEDIR_TABELA_LARGA_IMPRESSA,
+        especificacao,
+    ]
+    processo = subprocess.run(comando, capture_output=True, text=True)
+    assert processo.returncode == 0, (
+        "medição de impressão (subprocesso do Python do sistema) falhou:\n"
+        f"saida padrao: {processo.stdout}\nerro: {processo.stderr}"
+    )
+    medido = json_mod.loads(processo.stdout.strip().splitlines()[-1])
+
+    for largura, dados in medido["por_largura"].items():
+        assert dados["fora"] == [], (
+            f"célula(s) fora da largura útil ({largura}px): {dados['fora']} — "
+            f"largura natural da tabela: {dados['tabela_scroll_width']}px"
+        )
+
+    for margem, caminho_pdf in medido["por_margem"].items():
+        texto = subprocess.run(
+            ["pdftotext", "-layout", caminho_pdf, "-"], capture_output=True, text=True, check=True
+        ).stdout
+        texto_sem_quebra = " ".join(texto.split())
+        assert "VALOR A" in texto_sem_quebra.upper() and "PAGAR" in texto_sem_quebra.upper(), (
+            f"cabeçalho 'Valor a pagar' ausente do PDF ({margem}):\n{texto}"
+        )
+        for campo in ("imposto_devido", "valor_a_pagar", "rendimento_bruto"):
+            valor_ptbr = f"{totais[campo]:,.2f}".translate(str.maketrans(",.", ".,"))
+            assert valor_ptbr in texto_sem_quebra, (
+                f"total de {campo} ({valor_ptbr}) ausente ou cortado no PDF ({margem}):\n{texto}"
+            )

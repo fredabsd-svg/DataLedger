@@ -1304,8 +1304,10 @@ Treze testes novos, cobrindo a integração com o servidor corrigido
   aparecem quando há rendimento do exterior sujeito.
 - `test_carne_leao_mensal_imposto_exterior_sem_rendimento_e_erro_nao_500`
   e `test_carne_leao_anual_imposto_exterior_sem_rendimento_e_erro_nao_500`
-  — `ImpostoExteriorSemRendimentoExterior` vira estado de erro (400),
-  nunca uma página de erro do servidor.
+  — `ImpostoExteriorSemRendimentoExterior` vira estado de erro (**409**,
+  corrigido de "400" — R-B5 da reconferência: o texto desta seção dizia
+  400, mas o código sempre devolveu 409, conferido pelos dois testes
+  citados), nunca uma página de erro do servidor.
 - `test_carne_leao_anual_usa_totais_do_motor_sem_somar_na_view` —
   dois meses com valores diferentes (não múltiplos um do outro, para
   que uma soma errada não coincida por acaso com o valor certo);
@@ -1436,8 +1438,240 @@ verificar:
   inclusive do texto NOVO de `criterio_escolha_forma` e do aviso do
   art. 42 do aluguel — do Fred.
 - Auditoria independente da versão INTEGRADA (servidor `dl046-f2` +
-  tela `dl046-f2-tela`, depois do merge) — ainda não solicitada (nível
-  de risco 1: cálculo de imposto e documento entregue ao cliente; é do
-  `auditor-qa`, conforme o plano desta fatia). A rodada 1 da auditoria
-  (DE-091) avaliou o SERVIDOR antes deste merge; esta integração ainda
-  não passou por uma rodada própria.
+  tela `dl046-f2-tela`, depois do merge) — **atualização (mesmo dia)**:
+  esta auditoria aconteceu — é a reconferência de
+  `docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md` — e
+  **REPROVOU**, por um achado ALTO novo (R-A1, corte de impressão no
+  demonstrativo anual) e cinco achados MÉDIOS. Ver a seção "Correção da
+  reconferência da fatia 2 — tela", abaixo, para a resposta item a
+  item. Não há terceira rodada (AGENTS.md §3.1); o fechamento é por
+  verificação independente dos seis itens mínimos que a reconferência
+  listou.
+
+## Correção da reconferência da fatia 2 — tela (2026-09-27, `especialista-frontend`)
+
+A reconferência (`docs/auditorias/2026-09-27-dl-046-fatia2-reconferencia.md`,
+REPROVADA, DE-092) encaminhou seis itens para esta função: **R-A1**
+(ALTO), **R-M2** (parte da tela), **R-M3**, **R-B1**, **R-B2** e **N21**.
+Os itens **R-M1**, **R-M2** (mensagens do motor/serviço), **R-M4** (que
+depende de decisão sobre o alcance da recusa da HI-38) e **R-B3** a
+**R-B6** são do `desenvolvedor-pleno`, em outro worktree (`dl046-f2`),
+integrados depois por quem coordena. Nenhum arquivo de servidor
+(`carne_leao.py`, `models.py`, `services.py`, `views.py` da API,
+`restricoes.py`, migrações) foi tocado nesta correção.
+
+**N21 não foi corrigido nesta rodada** — a reconferência também o
+encaminhou a esta função, mas ele depende de `deducao_aplicada` por mês
+vir do MOTOR (R-B5 do relatório: hoje `_deducao_aplicada_do_mes_para_tela`,
+em `views_web.py`, repete a regra de `_deducao_aplicada_do_mes` do motor —
+é exatamente essa repetição que deixa a coluna "Dedução aplicada" vulnerável
+a divergir se um dos dois lados mudar sozinho) — a integração dessa
+mudança de contrato é do `arquiteto-senior`/`desenvolvedor-pleno`, mesma
+combinação de N21/R-M4 mencionada no pedido desta rodada.
+
+### R-A1 (ALTO) — o demonstrativo anual impresso cortava "Imposto devido" e "Valor a pagar"
+
+**Diagnóstico, medido de novo no Chromium real antes de corrigir:** a
+tabela de dez colunas tinha largura NATURAL de 1.197px (medida com
+`scrollWidth`), contra 794px de largura útil A4 com margem 0mm e 698px
+com margem 12,7mm — o mesmo número que a reconferência publicou. A causa
+raiz tinha DUAS camadas, as duas medidas antes de escrever qualquer CSS:
+
+1. `.tabela-dados th.cabecalho-numerico { min-width: var(--largura-
+   minima-coluna-valor) }` (8rem/128px) — com OITO colunas numéricas
+   nesta tabela, o PISO sozinho já somava quase 1.024px, antes de
+   qualquer conteúdo. Reduzir só esse mínimo (mesmo padrão já usado por
+   `.tabela-dre`/`.tabela-lancamentos-caixa` na tela, achado da fatia 1)
+   ajudou, mas não bastou sozinho.
+2. O NÚMERO mais largo do ano de teste (`5.042.937,01`, doze caracteres
+   monoespaçados, `.valor-monetario { white-space: nowrap }` — nunca
+   quebra linha) continuava maior que qualquer mínimo reduzido, porque
+   `table-layout: auto` nunca encolhe uma coluna abaixo do conteúdo
+   MAIS LARGO que ela precisa mostrar sem cortar.
+
+**Duas opções, a decisão documentada no CSS (`static/css/base.css`,
+comentário junto à regra):**
+
+- **Paisagem só para o anual (`@page` nomeada)** — testada e
+  **descartada**: `page.pdf()` (Playwright/Puppeteer, a chamada que
+  `scripts/medir_identificacao_do_emitente.py` e o método da
+  reconferência usam) só dá prioridade ao `@page { size: ... }` do CSS
+  quando o CHAMADOR passa `preferCSSPageSize: true` — nenhuma das
+  chamadas deste projeto passa essa opção, e não está ao alcance da
+  `especialista-frontend` mudar o instrumento de medição para passá-la.
+  Depender de uma opção de exportação que ninguém neste projeto liga é
+  uma correção que PARECE funcionar (o PDF continuaria saindo A4
+  RETRATO na prática) e não funciona na verificação real — descartada
+  antes de escrever qualquer `@page` nova.
+- **Tipografia de impressão, escopada a esta tabela** (escolhida): dois
+  tokens NOVOS em `:root` (`--tipo-print-tabela-larga`, 9px, e
+  `--esp-print-tabela-larga`, 2px — ambos abaixo do menor token
+  existente, `--tipo-2xs`/`--esp-1`, com o comentário explicando por
+  que o piso existente não bastava) aplicados só à classe
+  `.tabela-carne-leao-anual` (nova, só nesta tabela) dentro de `@media
+  print`, mais `min-width: 0` nos `cabecalho-numerico` dela — as três
+  mudanças JUNTAS, nenhuma sozinha.
+
+**Medido depois da correção**, com uma base sintética de 12 meses de
+2025 e rendimento mensal acima de R$ 1.000.000,00 (duas empresas, uma
+delas escalada para o "Valor a pagar" do ano passar de R$ 5.000.000,00):
+tabela caindo para 650–659px — cabe com folga nos dois cenários de
+margem (698px e 794px), **zero** célula fora da largura útil nos oito
+casos medidos (2 empresas × mensal/anual × 2 margens); `pdftotext`
+(`-layout`) mostra "5.042.937,01", "78.306,88" e "2.574,06" inteiros —
+nenhum valor cortado. O demonstrativo MENSAL (tabela de duas colunas)
+já cabia antes e continua cabendo; não precisou de nenhuma regra nova.
+
+**Teste automatizado** (pedido explícito da reconferência):
+`test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha`, em
+`scripts/test_medir_identificacao_do_emitente.py` (mesma infraestrutura
+de dois intérpretes da seção "ponta a ponta" já existente nesse
+arquivo — `DL_PYTHON_DO_SISTEMA`, `DL_CHROMIUM_EXECUTAVEL`,
+`pytestmark_ponta_a_ponta`, reaproveitando `medir_impressao.
+_com_css_local` para abrir o HTML renderizado pelo Django via `file://`
+sem precisar de servidor rodando). Cria um cenário sintético próprio
+(12 meses de 2025, valores ≥ R$ 1.000.000,00), renderiza o anual pela
+rota real, mede no DOM sob `emulate_media("print")` (nenhuma célula com
+`right` além de 794px/698px) e confirma no `pdftotext` de cada margem
+que os totais do ano (lidos do PRÓPRIO motor, `apurar_carne_leao_anual`,
+nunca hardcoded) aparecem por inteiro. Vive junto dos testes ponta a
+ponta porque usa a MESMA infraestrutura, mas é um teste PRÓPRIO — nunca
+uma extensão do instrumento genérico, que continua medindo só a
+identificação do emitente, não células de dados (limite M3/BL-445,
+documentado na docstring do instrumento).
+
+### R-M2 (parte da tela) — nenhum identificador interno nem "PATCH" no texto visível
+
+Três ocorrências em `templates/livro_caixa/carne_leao_mensal.html`
+removidas do texto VISÍVEL (nenhuma delas tinha uma substituição por
+citação de norma necessária — os parágrafos ao redor já citam a norma
+certa, ou o identificador não acrescentava nada que o texto em
+linguagem simples não dissesse):
+
+- linha do rendimento total sujeito: "(RC-132)" removido;
+- "Limite da dedução do livro-caixa (DE-091)" → "Limite da dedução do
+  livro-caixa (RIR/2018, arts. 68 e 69)" — trocado pela NORMA, não só
+  removido, porque esta frase é a única do parágrafo que fundamenta o
+  número;
+- parágrafo da redução da Lei 15.270/2025: "(RC-133)" removido — o
+  título da seção já cita "Lei nº 15.270/2025".
+
+Em `templates/livro_caixa/dependentes_carne_leao.html`, o parágrafo de
+apresentação perdeu "— HI-35: só a quantidade, sem cadastro nominal
+NESTA FATIA" → "— apenas a quantidade, sem cadastro nominal" (also
+tirou "nesta fatia", jargão de projeto, não de produto).
+
+Em `apps/livro_caixa/views_web.py`, o `help_text` do campo "Vigente a
+partir de (mês)" perdeu "(HI-35)".
+
+**O que ficou de fora, de propósito, e por quê:** quatro mensagens que
+a reconferência também encontrou nascem em arquivo de SERVIDOR fora do
+escopo desta correção — a mensagem de `ImpostoExteriorSemRendimento
+Exterior` ("...HI-38, requisitos.md...", `carne_leao.py`), a de dia
+diferente de 1 ("...(HI-35).", `models.py`) e a de duplicidade de
+competência ("...use a retificação (PATCH)...", `restricoes.py`/
+`models.py`). Cinco testes novos de varredura
+(`test_sem_identificador_interno_*`, `apps/livro_caixa/tests/
+test_dl046_telas_carne_leao.py`) renderizam as três telas em sucesso
+(passam limpo) e os três estados de erro citados (marcados
+`@pytest.mark.xfail(strict=True)`, com o motivo nomeado apontando o
+arquivo de servidor exato) — `strict=True` para que, se alguém corrigir
+a mensagem do lado do servidor sem tirar a marca, o teste vire XPASS e
+quebre a suíte, forçando tirar a marca em vez de deixar a correção
+passar despercebida. Nenhuma mensagem do servidor foi reescrita por
+esta função.
+
+### R-M3 — rótulos duplicados de "limite da dedução do livro-caixa"
+
+As duas linhas "— do qual, trabalho não assalariado (limite da dedução
+do livro-caixa)" e "— do qual, notarial e de registro (limite da
+dedução do livro-caixa)" (que descrevem um valor da BASE do carnê-leão,
+não do limite do livro-caixa) trocaram o parêntese para "(integra a
+base)" — a frase "limite da dedução do livro-caixa" passa a aparecer
+uma ÚNICA vez na memória de cálculo, na linha que realmente é sobre o
+limite ("Receita da atividade").
+
+### R-B1 — faixa "X a sem limite" na última faixa da tabela progressiva
+
+`carne_leao_mensal.html`, memória de deduções reais e de desconto
+simplificado: quando a faixa aplicada não tem limite superior
+(`tem_limite_superior` falso), o texto mudou de "{limite inferior} a
+sem limite" para "a partir de {limite inferior}" — usa só o dado que a
+tela já tinha (`limite_inferior_ptbr`, vindo do motor), sem calcular
+nenhum valor novo (não citei "4.664,68"/"acima de", que exigiria
+subtrair um centavo do limite inferior — um cálculo que esta tela não
+faz). Quando HÁ limite superior, o texto ganhou o prefixo "de" ("de X a
+Y"), por simetria.
+
+### R-B2 — CAEPF sem máscara
+
+Máscara `999.999.999/999-99` (composição documentada pela HI-31: 9
+dígitos do CPF do titular + 5 do "resumido" da inscrição, sem dígito
+verificador conhecido — a Receita não publica o algoritmo, então nenhum
+DV é inventado) aplicada nos DOIS partials de identificação do
+documento (`_identificacao_do_documento_carne_leao.html`, do carnê-leão,
+e `_identificacao_do_documento.html`, do Livro Caixa, fatia 1 — os dois
+recebem `caepf` do MESMO contexto, `views_web.py`). Nova função
+`_mascara_caepf` (`views_web.py`, ao lado de `_mascara_cpf`/
+`_mascara_cnpj`, mesmo padrão), aplicada nos três pontos do módulo que
+montam o contexto de identificação (`livro_caixa_relatorio`,
+`carne_leao_mensal`, `carne_leao_anual`). Testes atualizados para
+esperar o valor MASCARADO (nunca os 14 dígitos crus) em
+`test_dl046_telas_carne_leao.py` e `test_dl046_telas_livro_caixa.py`
+(este último ganhou também uma asserção negativa: os dígitos crus NÃO
+aparecem no HTML).
+
+### R-B5 (item da tela) — docstring e afirmação do plano desatualizadas
+
+- Docstring de `carne_leao_anual` (`views_web.py`) corrigida: citava
+  `_totais_anuais_carne_leao`, função REMOVIDA na integração anterior
+  (a view não soma nada — só formata `resultado["totais"]` do motor).
+- A seção "Testes" deste plano (acima) dizia que
+  `ImpostoExteriorSemRendimentoExterior` virava estado de erro **400**
+  — o código sempre devolveu **409**; corrigido no texto, com nota
+  explicando o engano.
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — todos os arquivos já formatados.
+- `pytest apps/livro_caixa/tests/test_dl046_telas_carne_leao.py
+  apps/livro_caixa/tests/test_dl046_telas_livro_caixa.py
+  apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py`:
+  **150 passed, 4 xfailed** (os quatro documentados acima, mensagens de
+  servidor fora de escopo).
+- `pytest scripts/test_medir_identificacao_do_emitente.py`, com
+  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` e
+  `DL_CHROMIUM_EXECUTAVEL=/opt/pw-browsers/chromium-1194/chrome-linux/
+  chrome`: **137 passed** (136 já existentes + o teste novo
+  `test_carne_leao_anual_impresso_todas_as_colunas_cabem_na_folha`).
+- `python manage.py check`/`makemigrations --check --dry-run` — sem
+  apontamento (nenhum modelo tocado nesta correção).
+- `scripts/medir_identificacao_do_emitente.py` — resultado da rodada
+  anterior preservado (esta correção não mexeu no bloco de
+  identificação em si, só na largura da tabela de dados ao redor dele).
+- `pytest` (suíte completa, sem as variáveis do Playwright — a mesma
+  execução que a CI roda por padrão): **3296 passed, 1 failed
+  (pré-existente — `test_versao_minima_python.py`, Python 3.13 em vez
+  de 3.14), 47 skipped, 4 xfailed, 4 subtests passed**. O único
+  vermelho é a mesma falha de versão já registrada antes desta etapa; o
+  skip a mais, em relação à rodada anterior, é o teste novo de R-A1
+  pulando sem as variáveis de Playwright (a mesma classe dos demais
+  testes "ponta a ponta" já existentes).
+- Capturas 1440×900 e 390×844 das três telas recapturadas nesta rodada
+  (os rótulos mudaram — R-M2/R-M3/R-B1/R-B2): larguras conferidas com
+  `file`, as seis batem exatamente 1440px ou 390px.
+
+### Não testado / bloqueado nesta correção
+
+- R-M1, R-M2 (mensagens do motor/serviço), R-M4, R-B3 a R-B6 — do
+  `desenvolvedor-pleno`, outro worktree.
+- N21 — depende de `deducao_aplicada` por mês vir do motor (mesma
+  dependência de R-M4); não corrigido nesta rodada, conforme instrução
+  explícita.
+- Validação profissional dos textos trocados (normas citadas em vez de
+  identificador interno; "integra a base"; "a partir de X") — do Fred.
+- Firefox/Safari, leitor de tela real — mesmos limites já declarados.
+- Fechamento por verificação independente (nível de risco 1, sem
+  terceira rodada) — ainda não realizado; é responsabilidade de quem
+  coordena/audita a versão integrada final.
