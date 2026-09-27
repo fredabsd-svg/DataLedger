@@ -177,9 +177,16 @@ MODELO_DESCONHECIDO = "desconhecido"
 # atualizar o script.
 CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO = "R01.001.001"
 
+# Nome público do código do modelo NOTARIAL — DE-091 item 1 (correção da
+# rodada 1 da auditoria da fatia 2, A-1): o limite da dedução do
+# livro-caixa (`apps.livro_caixa.carne_leao`) soma a receita da atividade
+# de trabalho não assalariado **e** a notarial (P&R IRPF 2026, pergunta
+# 427: "inclusive os titulares de serviços notariais e de registro").
+CODIGO_RENDIMENTO_NOTARIAL = "R01.001.002"
+
 _CODIGO_PARA_MODELO_DE_RENDIMENTO = {
     CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO: MODELO_TRABALHO_NAO_ASSALARIADO,
-    "R01.001.002": MODELO_NOTARIAL,
+    CODIGO_RENDIMENTO_NOTARIAL: MODELO_NOTARIAL,
     "R01.003.001": MODELO_ALUGUEL_OUTROS,
     "R01.004.001": MODELO_ALUGUEL_OUTROS,
 }

@@ -4884,8 +4884,16 @@ desenho de vigência que `ParametroContabilEmpresa`
 `vigencia_fim`, `UniqueConstraint` condicional na vigência aberta e gatilho de
 banco (só PostgreSQL) que recusa sobreposição de intervalos?
 
-**A decisão: não.** Desenho mais simples — só `vigencia_inicio` (`unique=True`
-GLOBAL, não por empresa), sem `vigencia_fim` e sem gatilho. A vigência
+**A decisão: não.** Desenho mais simples — só `vigencia_inicio`, com uma
+`UniqueConstraint` GLOBAL (não por empresa) — correção pontual de 2026-09-27
+(rodada 1 da auditoria da fatia 2, B-3): o texto original desta decisão dizia
+`unique=True` (restrição de CAMPO), mas o código sempre usou
+`models.UniqueConstraint` em `Meta.constraints` (mesmo padrão do resto do
+projeto, que evita o índice único IMPLÍCITO separado do registro de
+`apps.core.restricoes` — ver `apps/core/tests/test_dl019_varredura_de_
+restricoes.py`); a frase estava errada desde a redação original, sem nunca
+ter havido `unique=True` em nenhum dos quatro modelos. Sem `vigencia_fim` e
+sem gatilho. A vigência
 aplicável a uma data é sempre a de MAIOR `vigencia_inicio` que não seja
 posterior a ela (`_vigencia_aplicavel_ou_none`/`_maior_vigencia_nao_posterior`,
 `apps/livro_caixa/models.py`/`carne_leao.py`).

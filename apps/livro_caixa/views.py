@@ -36,10 +36,12 @@ from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.livro_caixa.carne_leao import (
     DependentesCarneLeaoInvalido,
+    ImpostoExteriorSemRendimentoExterior,
     TabelaCarneLeaoNaoConfigurada,
     apurar_carne_leao_anual,
     apurar_carne_leao_mensal,
     registrar_dependentes_carne_leao,
+    retificar_dependentes_carne_leao,
 )
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
@@ -520,7 +522,7 @@ class CarneLeaoMensalView(EmpresaEscopadaLivroCaixaMixin, APIView):
         mes = _extrair_mes_da_querystring(request)
         try:
             resultado = apurar_carne_leao_mensal(empresa=empresa, ano=ano, mes=mes)
-        except TabelaCarneLeaoNaoConfigurada as exc:
+        except (TabelaCarneLeaoNaoConfigurada, ImpostoExteriorSemRendimentoExterior) as exc:
             raise DRFValidationError(str(exc)) from exc
         return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
 
@@ -536,7 +538,7 @@ class CarneLeaoAnualView(EmpresaEscopadaLivroCaixaMixin, APIView):
         ano = _extrair_ano_da_querystring(request)
         try:
             resultado = apurar_carne_leao_anual(empresa=empresa, ano=ano)
-        except TabelaCarneLeaoNaoConfigurada as exc:
+        except (TabelaCarneLeaoNaoConfigurada, ImpostoExteriorSemRendimentoExterior) as exc:
             raise DRFValidationError(str(exc)) from exc
         return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
 
@@ -601,3 +603,44 @@ class DependentesCarneLeaoListCreateView(
 
         serializer = self.get_serializer(registro)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+CONTRATO_PATCH_DEPENDENTES_CARNE_LEAO = ContratoDeRequisicao(
+    campos={"quantidade"},
+    contexto="na retificação de dependentes do carnê-leão",
+)
+
+
+class DependentesCarneLeaoRetificarView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """DE-091 item 6 (M-6, correção da rodada 1 da auditoria da fatia 2):
+    `PATCH` retifica a QUANTIDADE de um registro já existente — nunca um
+    novo registro (a `UniqueConstraint` de `competencia_inicio` por empresa
+    já recusaria isso), e sempre com trilha de auditoria ANTES/DEPOIS (ver
+    `apps.livro_caixa.carne_leao.retificar_dependentes_carne_leao`)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarLivroCaixa]
+
+    def patch(self, request, empresa_id, dependente_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_DEPENDENTES_CARNE_LEAO)
+        empresa = self.get_empresa()
+        registro = get_object_or_404(DependentesCarneLeaoCliente, pk=dependente_id, empresa=empresa)
+
+        dados = request.data if isinstance(request.data, dict) else {}
+        quantidade_bruta = dados.get("quantidade")
+        if not isinstance(quantidade_bruta, int) or isinstance(quantidade_bruta, bool):
+            raise DRFValidationError("O campo 'quantidade' deve ser um número inteiro (JSON).")
+        if quantidade_bruta < 0:
+            raise DRFValidationError("O campo 'quantidade' não pode ser negativo.")
+
+        try:
+            registro = retificar_dependentes_carne_leao(
+                registro,
+                quantidade=quantidade_bruta,
+                retificado_por=request.user,
+                request=request,
+            )
+        except DependentesCarneLeaoInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+
+        serializer = DependentesCarneLeaoClienteSerializer(registro)
+        return Response(serializer.data, status=status.HTTP_200_OK)

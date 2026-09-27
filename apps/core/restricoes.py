@@ -119,14 +119,17 @@ MENSAGENS_DE_RESTRICAO = {
     "conta_livro_caixa_codigo_unico_por_empresa": (
         "Já existe uma conta do livro-caixa com este código nesta empresa."
     ),
-    # DL-046 (fatia 2): `apps.livro_caixa.carne_leao.
-    # registrar_dependentes_carne_leao` já fecha a vigência anterior por
-    # construção (um registro por competência), então só chega a violar
-    # esta constraint na corrida residual (dois `POST` simultâneos para a
-    # MESMA competência) — mesmo padrão de "codigo_unico_por_empresa",
-    # acima.
+    # DL-046 (fatia 2): esta constraint agora tem `violation_error_message`
+    # PRÓPRIA no modelo (B-4, ver `apps/livro_caixa/models.py`), que cobre o
+    # caminho SEQUENCIAL (`full_clean()`/`validate_unique()`). Este registro
+    # cobre só o caminho RESIDUAL de corrida (`IntegrityError`, dois `POST`
+    # simultâneos para a MESMA competência) — mesmo padrão de
+    # "codigo_unico_por_empresa", acima. Mesma mensagem, para não contar
+    # duas histórias diferentes do mesmo motivo (DE-026).
     "dependentes_carne_leao_competencia_unica_por_empresa": (
-        "Já existe uma quantidade de dependentes registrada para esta empresa a partir deste mês."
+        "Já existe uma quantidade de dependentes registrada para esta empresa a partir "
+        "deste mês — use a retificação (PATCH) para corrigir o valor, em vez de um novo "
+        "registro."
     ),
 }
 
@@ -543,6 +546,39 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`UniqueConstraint(vigencia_inicio)` de `VigenciaDependenteCarneLeao` "
         "(DL-046, fatia 2). Só gravada por migração de dados; sem caminho de "
         "escrita por cliente."
+    ),
+    # DL-046 (fatia 2, correção da rodada 1, B-5): toda vigência normativa
+    # começa no dia 1º — só gravada por migração de dados, sem caminho de
+    # escrita por cliente para as três tabelas globais.
+    "vigencia_tabela_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaTabelaProgressivaCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem caminho "
+        "de escrita por cliente."
+    ),
+    "vigencia_tabela_carne_leao_percentual_simplificado_valido": (
+        "`CheckConstraint` de `VigenciaTabelaProgressivaCarneLeao."
+        "percentual_desconto_simplificado` (DL-046, fatia 2, B-1). Só gravada "
+        "por migração de dados; sem caminho de escrita por cliente."
+    ),
+    "vigencia_reducao_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaReducaoCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem "
+        "caminho de escrita por cliente."
+    ),
+    "vigencia_dependente_carne_leao_inicio_dia_1": (
+        "`CheckConstraint` de `VigenciaDependenteCarneLeao.vigencia_inicio` "
+        "(DL-046, fatia 2, B-5). Só gravada por migração de dados; sem "
+        "caminho de escrita por cliente."
+    ),
+    # DL-046 (fatia 2, B-5): `DependentesCarneLeaoCliente.competencia_inicio`
+    # JÁ é validada em `clean()` (mensagem própria, citando HI-35) — os dois
+    # caminhos de escrita (API e `registrar_dependentes_carne_leao`/
+    # `retificar_dependentes_carne_leao`) chamam `full_clean()` ANTES de
+    # qualquer INSERT/UPDATE; só ORM/SQL direto alcançaria esta constraint.
+    "dependentes_carne_leao_competencia_dia_1": (
+        "`CheckConstraint` de `DependentesCarneLeaoCliente.competencia_inicio` "
+        "(DL-046, fatia 2, B-5). Já validada em `clean()` antes de qualquer "
+        "escrita real de cliente."
     ),
 }
 

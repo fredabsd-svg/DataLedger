@@ -1063,13 +1063,14 @@ def test_api_estorno_e_relatorio(client, cenario):
     assert estorno.status_code == 201, estorno.content
     assert estorno.json()["estorno_de"] == lancamento_id
 
-    # O ESTORNO é datado pelo SERVIDOR como HOJE (RC-78 por analogia — a
-    # view não aceita 'data' no corpo do estorno), não na data do
-    # lançamento original — por isso o período do relatório precisa
-    # alcançar as duas datas para conciliar de fato.
+    # M-4 (correção da rodada 1 da auditoria da fatia 2, RC-130): o ESTORNO
+    # é datado pelo SERVIDOR, por padrão, na data do lançamento ORIGINAL
+    # (não mais "hoje") — a view não aceita 'data' no corpo do estorno, e
+    # o padrão passou a ser o mês original, para a correção acontecer nele
+    # (RC-130). Um período de um único dia já cobre as duas datas, que
+    # agora coincidem.
     relatorio = client.get(
-        _url_relatorio(cenario["empresa_a"].id)
-        + f"?inicio=2026-02-01&fim={(date.today() + timedelta(days=1)).isoformat()}"
+        _url_relatorio(cenario["empresa_a"].id) + "?inicio=2026-02-01&fim=2026-02-01"
     )
     assert relatorio.status_code == 200
     corpo = relatorio.json()
