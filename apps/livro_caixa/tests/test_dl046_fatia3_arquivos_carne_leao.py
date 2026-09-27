@@ -42,7 +42,11 @@ from apps.livro_caixa.carne_leao_arquivos import (
     gerar_arquivos_carne_leao,
 )
 from apps.livro_caixa.models import ContaLivroCaixa, NaturezaCaixa, OrigemRecebimento
-from apps.livro_caixa.services import criar_lancamento_caixa, estornar_lancamento_caixa
+from apps.livro_caixa.services import (
+    LancamentoCaixaInvalido,
+    criar_lancamento_caixa,
+    estornar_lancamento_caixa,
+)
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -1146,6 +1150,10 @@ def test_pendencia_imposto_pago_proprio_fora_do_escopo(cenario):
     assert len(pendencias) == 1
     assert pendencias[0].campo == "conta.codigo_carne_leao"
     assert "P20.01.00004" in pendencias[0].motivo
+    # Mensagem PRÓPRIA de "fora do escopo" — não a genérica de "código fora
+    # das tabelas" (as duas citam o código, mas só esta explica o motivo
+    # real: o Carnê-Leão Web passa a importar esse valor automaticamente).
+    assert "fora do escopo desta funcionalidade" in pendencias[0].motivo
 
 
 def test_pendencia_codigo_de_pagamento_fora_das_tabelas(cenario):
@@ -1415,8 +1423,6 @@ def test_conta_notarial_com_ocupacao_117_e_aceita(cenario):
 
 
 def test_valor_irrf_recusado_fora_de_pj(cenario):
-    from apps.livro_caixa.services import LancamentoCaixaInvalido
-
     with pytest.raises(LancamentoCaixaInvalido, match="pessoa jurídica"):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
@@ -1432,8 +1438,6 @@ def test_valor_irrf_recusado_fora_de_pj(cenario):
 
 
 def test_competencia_multa_juros_recusados_fora_da_previdencia_oficial(cenario):
-    from apps.livro_caixa.services import LancamentoCaixaInvalido
-
     with pytest.raises(LancamentoCaixaInvalido, match="previdência oficial"):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
@@ -1446,8 +1450,6 @@ def test_competencia_multa_juros_recusados_fora_da_previdencia_oficial(cenario):
 
 
 def test_competencia_multa_juros_recusados_em_receita(cenario):
-    from apps.livro_caixa.services import LancamentoCaixaInvalido
-
     with pytest.raises(LancamentoCaixaInvalido, match="RECEITA"):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
@@ -1480,8 +1482,6 @@ def test_estorno_copia_os_quatro_campos_novos(cenario):
 
 
 def test_valor_irrf_negativo_e_recusado(cenario):
-    from apps.livro_caixa.services import LancamentoCaixaInvalido
-
     with pytest.raises(LancamentoCaixaInvalido, match="negativo"):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],

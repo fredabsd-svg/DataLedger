@@ -2506,18 +2506,35 @@ vermelho — commit antes de cada aplicação):**
 | --- | --- | --- |
 | 1 | `_erro_de_historico`: checagem de `;`/CR/LF removida | `test_pendencia_historico_com_ponto_e_virgula` |
 | 2 | `_lancamentos_incluidos`: exclusão de estorno/estornado removida (`if False:` no lugar da condição) | `test_lancamento_estornado_e_o_proprio_estorno_ficam_fora` |
-| 3 | `modelo_do_codigo_de_pagamento`: ramo `MODELO_PAGAMENTO_FORA_DE_ESCOPO` removido (`P20.01.00004` cairia em `MODELO_PAGAMENTO_DESCONHECIDO`, mensagem diferente) | `test_pendencia_imposto_pago_proprio_fora_do_escopo` (a mensagem esperada cita "P20.01.00004", que só a mensagem de FORA DE ESCOPO tem) |
+| 3 | `modelo_do_codigo_de_pagamento`: ramo `MODELO_PAGAMENTO_FORA_DE_ESCOPO` removido (`P20.01.00004` cairia em `MODELO_PAGAMENTO_DESCONHECIDO`) | **Sobreviveu na primeira tentativa** — a mensagem de `MODELO_PAGAMENTO_DESCONHECIDO` também cita o código (`"código de pagamento 'P20.01.00004' fora das tabelas..."`), e o teste só conferia a presença do código, não o texto do MOTIVO. `test_pendencia_imposto_pago_proprio_fora_do_escopo` ganhou uma asserção nova (`"fora do escopo desta funcionalidade" in motivo`, texto que só a mensagem de FORA DE ESCOPO tem) — com ela, o mesmo mutante morre. |
 | 4 | `erro_de_codigo_ocupacao_da_conta`: checagem do código 117 fixo do modelo notarial removida | `test_conta_notarial_com_ocupacao_diferente_de_117_e_recusada` |
 | 5 | `_lancamentos_incluidos`: filtro `empresa=empresa` da consulta principal removido | `test_isolamento_entre_empresas_do_mesmo_escritorio` |
 
 ### Verificação
 
-- `ruff check .` — Verificação real registrada na entrega.
-- `ruff format --check .` — idem.
-- `python manage.py check` — idem.
-- `python manage.py makemigrations --check --dry-run` — idem.
-- `python manage.py migrate` em banco PostgreSQL vazio — idem.
-- `pytest` (suíte completa) — idem.
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 308 arquivos já formatados.
+- `python manage.py check` — nenhum problema.
+- `python manage.py makemigrations --check --dry-run` — nenhuma alteração
+  pendente.
+- `python manage.py migrate` em PostgreSQL vazio (`dl046f3`, recriado do
+  zero) — as duas migrações novas (`empresas.0015`, `livro_caixa.0008`)
+  aplicadas com sucesso, junto com toda a cadeia anterior.
+- `pytest` (suíte completa): **3380 passed, 1 failed (pré-existente, fora
+  do escopo desta etapa — `test_versao_minima_python.py`, ambiente Python
+  3.13 em vez do 3.14 esperado pela CI — falha também na `main`), 49
+  skipped**. `apps/livro_caixa/tests/test_dl046_fatia3_arquivos_carne_leao.py`
+  isolado: 60 passed.
+- Achado corrigido ao rodar a suíte COMPLETA (não isolada): a migração
+  nova de `livro_caixa` dependia, por padrão do `makemigrations`, da
+  migração mais recente de `empresas` (`0015`) — `test_dl038_migracao.py`
+  (reversão de `empresas`) desaplicava a migração inteira, e os testes de
+  corrida da fatia 1 (`test_a2_*`, `test_n6_*`), que rodam depois na
+  MESMA sessão de banco, quebravam com "column does not exist". Corrigido
+  fixando a dependência em `empresas.0001_initial` (mesmo padrão já usado
+  por `livro_caixa.0001_inicial`, fatia 1) — ver a seção "Achados
+  corrigidos", acima. Suíte completa reexecutada depois da correção:
+  limpa, com o único failed já conhecido.
 
 ### Não testado / bloqueado
 
@@ -2530,3 +2547,16 @@ vermelho — commit antes de cada aplicação):**
   precisando dessa confirmação prática.
 - Dígito verificador do CAEPF (HI-31) — sem fonte oficial, não é desta
   fatia.
+- **`apps/empresas/views.py` NÃO foi tocado** (fora dos arquivos
+  permitidos desta etapa): a constraint
+  "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido" está
+  registrada em `apps/core/restricoes.py` (a varredura
+  `test_dl019_varredura_de_restricoes.py` exige isso e só isso), mas
+  NÃO está fiada a `restricao_como_400` nas duas views de `Empresa` —
+  diferente do CAEPF, que já tem essa segunda metade. Até alguém com
+  `views.py` no escopo completar o fio (mesmo padrão exato do CAEPF,
+  comentado no próprio registro), uma corrida residual específica desta
+  constraint (PATCH que omite `tipo_inscricao`, concorrente com uma
+  troca de tipo) vazaria `IntegrityError` cru (500) em vez do texto
+  amigável. Reportado ao `arquiteto-senior` para decidir quem fecha essa
+  ponta.
