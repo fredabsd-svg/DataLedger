@@ -834,12 +834,32 @@ SECOES_DE_TROCA_DE_EMPRESA = {
 
 _SECAO_PADRAO_DE_TROCA_DE_EMPRESA = "plano_de_contas"
 
+# A3 (rodada 1 da auditoria da DL-046): mapa IRMÃO do de cima, para quando
+# a empresa de DESTINO está em modo `livro_caixa` — antes desta correção
+# `trocar_empresa_na_secao` só conhecia rotas `contabilidade_web`, então
+# trocar para uma empresa em livro-caixa sempre mandava para
+# `contabilidade_web:...`, que aquela empresa RECUSA (403) por modo. Duas
+# seções aparecem nos DOIS mapas com o MESMO código ("plano_de_contas",
+# "lancamento_novo") porque as duas telas existem nos dois módulos com o
+# mesmo papel — "relatorio" e "lancamentos" só existem aqui, porque não
+# têm par na contabilidade (o par de "relatorio" lá seria Balancete/
+# Balanço/Diário, que exigem mais contexto do que este formulário simples
+# carrega, mesma explicação já dada para o mapa de cima).
+SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA = {
+    "plano_de_contas": "livro_caixa_web:plano_de_contas",
+    "lancamento_novo": "livro_caixa_web:lancamento_novo",
+    "lancamentos": "livro_caixa_web:lancamentos",
+    "relatorio": "livro_caixa_web:relatorio",
+}
+
+_SECAO_PADRAO_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA = "plano_de_contas"
+
 
 @login_required
 @require_safe
 def trocar_empresa_na_secao(request):
     """DL-040: seletor de empresa do menu global (formulário GET, sem
-    JavaScript) — troca a EMPRESA mantendo a MESMA seção da contabilidade.
+    JavaScript) — troca a EMPRESA mantendo a MESMA seção.
 
     Isolamento (mesma regra de `_empresa_do_escritorio_ativo`, em
     `apps.contabilidade.views_web`): a empresa pedida nunca é aceita só pelo
@@ -847,12 +867,23 @@ def trocar_empresa_na_secao(request):
     resposta é 404 (nunca 403: não confirma nem a existência da empresa
     para quem não tem acesso a ela).
 
-    `secao` fora de `SECOES_DE_TROCA_DE_EMPRESA` (Razão, que exige
-    `conta_id`, ou as telas de ação do fechamento, que exigem `ano`/`mes`)
-    não é erro: cai no padrão (Plano de contas) — o pedido de quem usa o
-    seletor é "continue vendo esta empresa", não "esta URL exata resolvida
-    na outra empresa", e a alternativa (400/mensagem de erro) puniria a
-    pessoa por usar o seletor numa tela que ele não cobre ainda.
+    `secao` fora do mapa em uso (Razão, que exige `conta_id`, ou as telas
+    de ação do fechamento, que exigem `ano`/`mes`) não é erro: cai no
+    padrão (Plano de contas) — o pedido de quem usa o seletor é "continue
+    vendo esta empresa", não "esta URL exata resolvida na outra empresa",
+    e a alternativa (400/mensagem de erro) puniria a pessoa por usar o
+    seletor numa tela que ele não cobre ainda.
+
+    A3 (rodada 1 da auditoria da DL-046): o MAPA usado depende do MODO DE
+    ESCRITURAÇÃO da empresa de DESTINO, nunca da seção de origem — antes
+    desta correção esta função só conhecia `SECOES_DE_TROCA_DE_EMPRESA`
+    (rotas `contabilidade_web`), então trocar para uma empresa em
+    livro-caixa sempre redirecionava para uma rota que aquela empresa
+    RECUSA por modo (403, `_sem_livro_caixa_para_contabilidade`). Uma
+    seção sem par no mapa do destino (ex.: vindo de "balancete" para uma
+    empresa em livro-caixa) cai no padrão DAQUELE mapa (Plano de contas
+    do livro-caixa), pela mesma razão do parágrafo anterior — nunca em
+    erro.
     """
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
@@ -867,7 +898,14 @@ def trocar_empresa_na_secao(request):
     # `apps.contabilidade.views_web._empresa_do_escritorio_ativo`).
     empresa = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
 
+    if empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA:
+        mapa_de_secoes = SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+        secao_padrao = _SECAO_PADRAO_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+    else:
+        mapa_de_secoes = SECOES_DE_TROCA_DE_EMPRESA
+        secao_padrao = _SECAO_PADRAO_DE_TROCA_DE_EMPRESA
+
     secao = request.GET.get("secao", "")
-    rota_padrao = SECOES_DE_TROCA_DE_EMPRESA[_SECAO_PADRAO_DE_TROCA_DE_EMPRESA]
-    nome_da_rota = SECOES_DE_TROCA_DE_EMPRESA.get(secao, rota_padrao)
+    rota_padrao = mapa_de_secoes[secao_padrao]
+    nome_da_rota = mapa_de_secoes.get(secao, rota_padrao)
     return redirect(nome_da_rota, empresa.id)

@@ -71,18 +71,40 @@ topo — mesmo padrão das demais telas ativas.
                     <td>
                         {% if empresa.em_livro_caixa %}
                             {% comment %}
-                            R5/DE-075: a contabilidade por partidas dobradas
-                            não se aplica a empresa em livro-caixa — o
-                            servidor já recusa cada rota (decorador
-                            `_sem_contabilidade_para_livro_caixa`,
-                            apps/contabilidade/views_web.py); aqui a lista só
-                            evita OFERECER um link que levaria a essa recusa,
-                            nunca escondendo a informação de que a empresa
-                            existe nem o motivo.
+                            A3 (rodada 1 da auditoria da DL-046): antes
+                            desta correção esta célula mostrava só um
+                            texto de aviso, SEM NENHUM link — a lista de
+                            empresas era um beco sem saída para quem
+                            precisava abrir o livro-caixa de um cliente.
+                            R5/DE-075 continua valendo (a contabilidade por
+                            partidas dobradas não se aplica a empresa em
+                            livro-caixa, recusada no servidor por
+                            `_sem_livro_caixa_para_contabilidade`), mas
+                            "não se aplica a UM módulo" não significa "sem
+                            ação nenhuma" — o livro-caixa é o módulo desta
+                            empresa, com "Abrir" (Plano de contas) e as
+                            mesmas duas ações rápidas ("Lançar", "Livro
+                            Caixa") que a contabilidade já oferece no seu
+                            próprio menu "Ações", mesmo padrão visual.
                             {% endcomment %}
-                            <span class="texto-apoio">
-                                Livro-caixa — a contabilidade por partidas dobradas não se aplica.
-                            </span>
+                            <div class="acoes-de-linha">
+                                <a class="botao botao--secundario botao--pequeno"
+                                   href="{% url 'livro_caixa_web:plano_de_contas' empresa.id %}">Abrir</a>
+                                <details class="menu-acoes">
+                                    <summary class="botao botao--secundario botao--pequeno">Ações</summary>
+                                    <ul class="menu-acoes__lista">
+                                        <li><a href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Lançar</a></li>
+                                        <li><a href="{% url 'livro_caixa_web:relatorio' empresa.id %}">Livro Caixa</a></li>
+                                        {% if secao_de_troca %}
+                                        <li>
+                                            <a href="{% url 'empresas:trocar-secao' %}?empresa_id={{ empresa.id }}&secao={{ secao_de_troca }}">
+                                                Continuar aqui
+                                            </a>
+                                        </li>
+                                        {% endif %}
+                                    </ul>
+                                </details>
+                            </div>
                         {% else %}
                             {% comment %}
                             DL-044 (Fase B, achado do Fred: "'Balancete ·
