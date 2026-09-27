@@ -813,7 +813,7 @@ e `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`.
 
 ### Verificação da correção
 
-Commit da correção: ver hash no relatório de entrega. `apps/livro_caixa/
+Commits da correção: `f286361` (RC-133) e `dd4b3ad` (guardas). `apps/livro_caixa/
 tests/test_dl046_fatia2_carne_leao.py`: **40 testes, todos passando**
 (35 da entrega original, 4 removidos/substituídos pelos 5 exemplos
 oficiais + os 2 casos adicionais pedidos). `ruff check`/`ruff format
@@ -881,7 +881,7 @@ no banco muda o resultado).
 
 ### Verificação
 
-Commits: ver hash no relatório de entrega (branch `dl046-f2`, worktree
+Commits: `8996522`, `b6775f8`, `f286361`, `dd4b3ad` (branch `dl046-f2`, worktree
 `wt-dl046f2`).
 
 - `ruff check .` — sem apontamentos.
