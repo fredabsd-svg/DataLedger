@@ -691,14 +691,11 @@ Branch `dl046-f2`, base `58f66fb`, worktree `wt-dl046f2`.
 As quatro dúvidas listadas na seção anterior, na ordem em que aparecem lá:
 
 1. **Base da redução da Lei 15.270/2025: rendimento bruto ou base após
-   deduções?** **Base de cálculo após deduções.** A Lei nº 9.250/1995, art.
-   3º-A (redação da Lei 15.270/2025), fala em "rendimentos tributáveis
-   sujeitos à incidência mensal do Imposto sobre a Renda das Pessoas
-   Físicas" — a MESMA expressão que o art. 3º, caput, da mesma lei usa
-   para os rendimentos "de que tratam os arts. 7º, 8º e 12 da Lei nº
-   7.713/1988" aos quais a tabela progressiva se aplica; o art. 8º da Lei
-   7.713/1988 é exatamente o carnê-leão, cuja base (RIR/2018, art. 121) já
-   é apurada APÓS as deduções. Registrado como **RC-133**.
+   deduções?** ⚠️ **Respondida ERRADO na primeira rodada, corrigida por
+   ordem do arquiteto-senior em 2026-09-27** — ver "Correção da RC-133",
+   abaixo. **Resposta correta: RENDIMENTO BRUTO, antes de qualquer
+   dedução** (inclusive livro-caixa) — nunca a base de cálculo. Registrado
+   como **RC-133**.
 2. **Rendimento de pessoa jurídica entra na base do carnê-leão, ou só serve
    de limite para a dedução do livro-caixa?** **Não entra, exceto
    notarial.** RIR/2018, art. 118, caput, restringe a base a rendimento
@@ -729,43 +726,21 @@ As quatro dúvidas listadas na seção anterior, na ordem em que aparecem lá:
    da memória de cálculo — opção CONSERVADORA (nunca truncar, que
    reduziria o imposto devido em relação ao valor exato).
 
-### Achado material — a lei descreve "imposto zero" até R$ 5.000,00, mas a combinação literal das duas fontes confirmadas não zera
+### Achado material da primeira rodada — SUPERADO pela correção da RC-133
 
-Ao escrever o caso de referência do critério de aceite 1 ("rendimento de
-R$ 5.000,00 — imposto zero pela redução"), a combinação das duas fontes
-CONFIRMADAS (a tabela progressiva de RC-131 e a fórmula de redução de
-RC-131/art. 3º-A) produz, para R$ 5.000,00 de rendimento SEM outras
-deduções: imposto pela tabela R$ 466,27 (5000×0,275−908,73), redução
-máxima R$ 312,89, imposto devido **R$ 153,38** — não zero.
-
-As duas fontes foram lidas em texto integral e conferidas separadamente (a
-tabela contra a Lei 15.191/2025, a redução contra a Lei 15.270/2025); o
-coeficiente da redução (0,133145) está internamente coerente com seus
-próprios dois pontos (312,89 em 5.000,00; ~0,00 em 7.350,00 — confirmado:
-978,62 − 0,133145×7350 = 0,00425 ≈ 0). O que NÃO fecha é a combinação das
-DUAS fórmulas, apesar de cada uma isoladamente bater com sua fonte.
-
-**Hipótese sobre a causa, não confirmada:** a Lei 15.270/2025 parece
-calibrada para a FOLHA DE PAGAMENTO (onde a contribuição previdenciária
-obrigatória já reduz a base ANTES da tabela do IRRF incidir) — o
-carnê-leão não tem uma dedução equivalente que reduza a base do mesmo
-jeito antes da tabela. Não fui buscar essa hipótese em nenhuma fonte
-adicional (fora do escopo das quatro dúvidas listadas); registro só como
-pista para quem investigar depois.
-
-**O que foi implementado:** o motor de cálculo usa os números
-LITERALMENTE confirmados das duas fontes, sem ajuste nenhum para forçar
-"zero" em R$ 5.000,00 — inventar um ajuste sem fonte violaria a proibição
-de inventar fórmula. Os testes verificam o valor MATEMATICAMENTE DERIVADO
-(R$ 153,38), com o cálculo escrito no comentário, e o achado fica
-registrado aqui e no docstring do módulo (`apps/livro_caixa/carne_leao.py`)
-para quem for validar profissionalmente (Fred) antes de uso com cliente
-real — mesma ressalva que já valia para toda a fatia 2 (HI-32/HI-33).
-**Decisão a confirmar com o Fred**, não minha para tomar: se a intenção de
-produto for "sempre mostrar zero até R$ 5.000,00" mesmo quando a norma não
-sustenta isso matematicamente, é preciso decidir se o produto replica a
-norma (o que fiz) ou replica a intenção declarada da norma (o que exigiria
-uma regra adicional, sem fonte, fora do que fui autorizado a inventar).
+A primeira versão desta seção registrava aqui um "achado material": a
+combinação da tabela progressiva com a fórmula de redução, usando a BASE
+DE CÁLCULO (após deduções) como referência da redução, não reproduzia a
+"imposto zero até R$ 5.000,00" que a lei descreve — dava R$ 153,38 para
+R$ 5.000,00 de rendimento sem outras deduções. **Esse achado nasceu de uma
+leitura errada da norma** (RC-133 usava a base, deveria usar o rendimento
+BRUTO — ver "Correção da RC-133", abaixo). Corrigida a referência, a
+frase da lei volta a se verificar: qualquer rendimento bruto até
+R$ 5.000,00, sem outras deduções, produz imposto ZERO pela forma
+simplificada (que a apuração escolhe por ser mais benéfica) — ver
+`test_bruto_ate_5000_sempre_zera_via_forma_mais_beneficia`. O texto desta
+seção fica só como registro histórico do erro e da correção; não descreve
+o comportamento atual.
 
 ### O que foi feito
 
@@ -802,9 +777,51 @@ uma regra adicional, sem fonte, fora do que fui autorizado a inventar).
    recusa por modo de escrituração da fatia 1
    (`EmpresaEscopadaLivroCaixaMixin`).
 
+## Correção da RC-133 (2026-09-27, ordem do arquiteto-senior)
+
+A RC-133 original (base de cálculo) estava ERRADA. O arquiteto-senior leu
+fonte adicional — Receita Federal, "Exemplos de Aplicação da Lei
+15.270/2025" (gov.br/receitafederal, cópia em `scratchpad/exemplos15270.html`)
+e IN RFB nº 2.299/2025 (cópia do DOU em `scratchpad/in2299.txt`) — e
+determinou a correção. Fonte e trecho literal na RC-133 reescrita
+(requisitos.md).
+
+**O texto que decide, do Exemplo 5 oficial** (bruto R$ 7.607,20, sem
+dedução real, base de cálculo R$ 7.000,00 — dentro do limite de
+R$ 7.350,00): *"o salário (rendimento tributável sujeito à incidência
+mensal) é superior ao valor de R$ 7.350,00 (...) não é permitida a
+redução (...). Importante observar que se utiliza nessa tabela de redução
+o valor do SALÁRIO (R$ 7.607,20), e NÃO o da BASE DE CÁLCULO
+(R$ 7.000,00)."*
+
+### Achado → mudança → teste
+
+| Achado | Mudança | Teste |
+| --- | --- | --- |
+| RC-133 usava a BASE em vez do BRUTO na redução da Lei 15.270/2025 (nas duas chamadas — real e simplificada) | `_reducao_bruta` passa a receber `rendimento_bruto` (não mais `base`); `_pipeline` recebe os dois parâmetros separados; `_limite_compensacao_exterior` passa o bruto certo (com/sem o rendimento do exterior) nas duas chamadas | Os cinco exemplos oficiais da Receita adaptados ao carnê-leão (`test_exemplo_oficial_1` a `_5`), `test_bruto_ate_5000_sempre_zera_via_forma_mais_beneficia`, `test_reducao_limitada_ao_imposto_com_deducoes_reais_altas` |
+| Consequência: o "achado material" (R$ 5.000,00 não zerava) deixa de existir — corrigido o bruto/base, a forma simplificada sempre alcança zero até R$ 5.000,00, como a lei descreve | `test_rendimento_5000_sem_outras_deducoes_nao_zera_o_imposto` REMOVIDO; docstring do módulo e desta seção do plano reescritos | `test_bruto_ate_5000_sempre_zera_via_forma_mais_beneficia` |
+| Dois testes que já existiam tinham valores calculados com a fórmula ERRADA (base) | Recalculados com a fórmula CORRETA (bruto), conferidos via shell antes de gravar no comentário | `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`, `test_apuracao_le_valor_do_banco_nao_de_constante` (este também passou a mirar `memoria_deducoes_reais.reducao_aplicada` em vez do campo do topo, porque a rendição bruto ≤ R$ 5.000,00 SEMPRE escolhe a forma simplificada — a mutação de `reducao_maxima` só é visível na memória da forma perdedora) |
+
+### Mutante M6 (aplicado vivo, confirmado vermelho, revertido)
+
+`_pipeline` voltou a chamar `_reducao_bruta(base, reducao_cfg)` em vez de
+`_reducao_bruta(rendimento_bruto, reducao_cfg)` — **3 testes** ficaram
+vermelhos: os dois exemplos oficiais que dependem da distinção
+(`test_exemplo_oficial_4_renda_acima_de_5000_com_reducao`,
+`test_exemplo_oficial_5_base_menor_que_7350_mas_bruto_maior_sem_reducao`)
+e `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`.
+
+### Verificação da correção
+
+Commit da correção: ver hash no relatório de entrega. `apps/livro_caixa/
+tests/test_dl046_fatia2_carne_leao.py`: **40 testes, todos passando**
+(35 da entrega original, 4 removidos/substituídos pelos 5 exemplos
+oficiais + os 2 casos adicionais pedidos). `ruff check`/`ruff format
+--check`/`manage.py check`/`makemigrations --check` limpos (sem mudança
+de schema nesta correção — só código e dados de teste).
+
 ### Regras reportadas, não decididas (para o `arquiteto-senior`/Fred)
 
-- **O achado material acima** (R$ 5.000,00 não zera) é a principal.
 - **Pensão alimentícia paga × dependente do MESMO beneficiário**
   (RIR/2018, art. 72, §1º: veda deduzir os dois para o mesmo beneficiário
   no mesmo mês). Como os dependentes desta fatia são só QUANTIDADE (HI-35,
@@ -822,11 +839,12 @@ uma regra adicional, sem fonte, fora do que fui autorizado a inventar).
   integra a base independentemente da fonte pagadora — opção CONSERVADORA
   (nunca presumir isenção sem fonte), até a tabela completa de códigos
   (PE-71) aparecer.
-- **Saldo "abaixo de R$ 10,00" reinicia em janeiro NESTA IMPLEMENTAÇÃO**,
-  sem fonte que confirme esse corte por ano-calendário (diferente do
-  excesso do livro-caixa e do crédito do exterior, que a norma confirma
-  reiniciarem em janeiro) — limitação de escopo, porque a apuração nunca
-  lê dezembro do ano anterior. Ver "Não testado/bloqueado".
+- **Saldo "abaixo de R$ 10,00" reinicia em janeiro NESTA IMPLEMENTAÇÃO** —
+  registrado como **HI-37** (requisitos.md), por ordem do arquiteto-senior:
+  mantido como está (a apuração nunca lê dezembro do ano anterior), sem
+  fonte que confirme esse corte por ano-calendário especificamente para
+  este saldo (diferente do excesso do livro-caixa e do crédito do
+  exterior, que a norma confirma reiniciarem em janeiro).
 - **Desempate entre deduções reais e desconto simplificado**, quando os
   dois produzem o MESMO imposto após redução: fica com as deduções REAIS
   (regra geral, art. 68) — desenho meu, sem instrução explícita sobre o
@@ -834,33 +852,37 @@ uma regra adicional, sem fonte, fora do que fui autorizado a inventar).
 
 ### Testes
 
-`apps/livro_caixa/tests/test_dl046_fatia2_carne_leao.py` (35 testes):
-motor puro (faixa isenta, cada faixa, os quatro pontos notáveis da
-redução — R$ 5.000,00/6.000,00/7.350,00/7.350,01 —, centavos na fronteira
-de faixa), motor ORM (excesso de livro-caixa carregado e não carregado ao
-ano seguinte, dependentes com vigência mensal, desconto simplificado mais
-e menos benéfico, valor abaixo de R$ 10,00 acumulado, compensação do
-imposto pago no exterior, rendimento de PJ excluído da base, pensão
-recebida imune, notarial de PJ incluído), troca de vigência no meio do ano
-(critério 2), RC-130 (estorno no mês original refletindo no encadeamento),
-isolamento/autorização/modo via API, e a prova de que a tabela nunca vem
-de constante (deletar todas as vigências levanta
-`TabelaCarneLeaoNaoConfigurada`; mudar um valor só no banco muda o
-resultado).
+`apps/livro_caixa/tests/test_dl046_fatia2_carne_leao.py` (**40 testes**,
+depois da correção da RC-133): motor puro com os CINCO exemplos oficiais
+da Receita Federal adaptados ao carnê-leão (Exemplos 1 a 5 — RC-133),
+mais o caso "bruto ≤ R$ 5.000,00 sempre zera" e "redução limitada ao
+imposto com deduções reais altas" (pedidos do arquiteto-senior), cada
+faixa da tabela, centavos na fronteira de faixa; motor ORM (excesso de
+livro-caixa carregado e não carregado ao ano seguinte, dependentes com
+vigência mensal, desconto simplificado mais e menos benéfico, valor
+abaixo de R$ 10,00 acumulado, compensação do imposto pago no exterior,
+rendimento de PJ excluído da base, pensão recebida imune, notarial de PJ
+incluído), troca de vigência no meio do ano (critério 2), RC-130 (estorno
+no mês original refletindo no encadeamento), isolamento/autorização/modo
+via API, e a prova de que a tabela nunca vem de constante (deletar todas
+as vigências levanta `TabelaCarneLeaoNaoConfigurada`; mudar um valor só
+no banco muda o resultado).
 
 **Mutantes aplicados (vivos, confirmados vermelhos, revertidos):**
 
 | # | Ponto mutado | Teste que matou |
 | --- | --- | --- |
-| M1 | `_reducao_bruta`: faixa plena da redução desativada | `test_rendimento_5000_sem_outras_deducoes_nao_zera_o_imposto` |
+| M1 | `_reducao_bruta`: faixa plena da redução desativada | `test_reducao_por_faixa_do_rendimento_bruto` |
 | M2 | `_apurar_um_mes`: reset de dezembro do excesso de livro-caixa desativado | `test_excesso_de_dezembro_nao_passa_para_janeiro` |
 | M3 | `rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal`: sempre `True` (RC-132 desativada) | `test_rendimento_de_pessoa_juridica_nao_entra_na_base_do_trabalho_nao_assalariado` |
 | M4 | `_lancamentos_por_mes`: filtro de `empresa` removido da consulta | `test_api_carne_leao_mensal_isolamento_entre_empresas_do_mesmo_escritorio` |
 | M5 | `_agregados_do_mes`: sinal do estorno deixa de inverter | `test_estorno_no_mes_original_reflete_no_encadeamento`, `test_agregados_do_mes_estorno_tem_sinal_invertido` |
+| M6 | `_pipeline`: redução volta a usar a BASE em vez do BRUTO (correção da RC-133 desativada) | `test_exemplo_oficial_4_renda_acima_de_5000_com_reducao`, `test_exemplo_oficial_5_base_menor_que_7350_mas_bruto_maior_sem_reducao`, `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais` |
 
 ### Verificação
 
-Commit `8996522` (branch `dl046-f2`, worktree `wt-dl046f2`).
+Commits: ver hash no relatório de entrega (branch `dl046-f2`, worktree
+`wt-dl046f2`).
 
 - `ruff check .` — sem apontamentos.
 - `ruff format --check .` — sem apontamentos (arquivos novos/alterados
@@ -872,46 +894,32 @@ Commit `8996522` (branch `dl046-f2`, worktree `wt-dl046f2`).
   `0004_fatia2_seed_tabelas_normativas` aplicadas com sucesso em
   PostgreSQL vazio, com reversão e reaplicação confirmadas.
 - `pytest` (suíte completa): ver o relatório de entrega para o número
-  exato — **1 falha pré-existente e esperada**
+  exato — a única falha é a pré-existente e esperada
   (`test_versao_minima_python.py`, ambiente Python 3.13 local em vez do
-  3.14 da CI, já registrada nas fatias anteriores) e **3 falhas NOVAS**,
-  todas de "andaime" (guardas de repositório, AGENTS.md §3.1 nível 3), que
-  exigem editar arquivos FORA da lista autorizada para esta tarefa — ver
-  "Não testado/bloqueado", abaixo.
+  3.14 da CI, já registrada nas fatias anteriores). As duas guardas de
+  repositório que ficaram vermelhas na entrega original (rotas novas em
+  `EXCLUSOES_NOMEADAS_DE_TELA`; modelos novos na cobertura da trilha)
+  foram corrigidas com autorização explícita do arquiteto-senior, nos
+  dois arquivos e exatamente nas entradas descritas — sem pendência.
 
 ### Não testado / bloqueado
 
-- **Três guardas de repositório ficam vermelhas e não posso corrigi-las**
-  (fora da lista de arquivos autorizada para esta tarefa — instrução
-  explícita: "NÃO altere... nem arquivos fora dessa lista sem me
-  perguntar"):
-  1. `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py::
-     test_toda_rota_do_produto_esta_coberta_ou_excluida` — as três rotas
-     novas (`livro_caixa:carne-leao-mensal`, `livro_caixa:carne-leao-anual`,
-     `livro_caixa:dependentes-carne-leao`) precisam de entrada em
-     `EXCLUSOES_NOMEADAS_DE_TELA` (mesmo padrão das quatro rotas da fatia
-     1, já lá): `"API REST (..., DRF) — JSON; DL-046 fatia 2"`.
-  2. `apps/core/tests/test_dl024_trilha_admin.py::
-     test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_exclusao`
-     — os cinco modelos novos (`VigenciaTabelaProgressivaCarneLeao`,
-     `FaixaTabelaProgressivaCarneLeao`, `VigenciaReducaoCarneLeao`,
-     `VigenciaDependenteCarneLeao`, `DependentesCarneLeaoCliente`) entram
-     na cobertura "por padrão" (mesmo mecanismo de `apps.fiscal`/
-     `ContaLivroCaixa`/`LancamentoCaixa`, já explicado no comentário do
-     próprio teste) — só falta acrescentá-los ao conjunto
-     `esperados_cobertos` do teste.
-  3. `apps/core/tests/test_dl019_varredura_de_restricoes.py` tentou
-     reprovar por índice único implícito, mas isso já foi CORRIGIDO nesta
-     etapa (as três `vigencia_inicio` passaram a usar `UniqueConstraint`
-     em `Meta.constraints`, dentro da lista autorizada) — sem pendência.
-  Corrigir os itens 1 e 2 é mecânico (acrescentar entradas ao mesmo padrão
-  já usado para a fatia 1, nos mesmos arquivos) — deixo o texto exato
-  pronto no relatório de entrega para quem tiver permissão aplicar.
+- **As duas guardas de repositório que ficaram vermelhas na entrega
+  original foram corrigidas** com autorização explícita do
+  arquiteto-senior, exatamente nos dois arquivos e entradas indicados —
+  `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py`
+  (`EXCLUSOES_NOMEADAS_DE_TELA`, as três rotas novas) e
+  `apps/core/tests/test_dl024_trilha_admin.py` (import + `esperados_cobertos`,
+  os cinco modelos novos). Sem pendência.
 - **Dígito verificador do CAEPF, faixa de data do lançamento de caixa,
   HI-31** — herdados da fatia 1, sem mudança aqui.
 - **Tela do demonstrativo** — do `especialista-frontend`, fora do meu
   escopo.
-- **Validação profissional dos casos de referência** (Fred) — inclusive,
-  e ESPECIALMENTE, o achado material sobre R$ 5.000,00.
+- **Validação profissional dos casos de referência** (Fred) — a correção
+  da RC-133 bate, número a número, com os cinco exemplos oficiais da
+  Receita Federal (ver "Correção da RC-133"), o que reduz bastante o
+  risco deste item, mas não substitui a validação profissional.
+- HI-37 (saldo abaixo de R$ 10,00 sem atravessar o ano-calendário) —
+  mantido como está, por ordem do arquiteto-senior; ver requisitos.md.
 - `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
   (mesmo bloqueio já registrado pelas fatias anteriores).

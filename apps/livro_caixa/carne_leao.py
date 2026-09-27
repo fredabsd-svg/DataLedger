@@ -1,5 +1,12 @@
 """Apuração mensal e anual do carnê-leão (DL-046, fatia 2 — RC-131/RC-132/
-RC-133/RC-134, HI-32 a HI-36).
+RC-133/RC-134, HI-32 a HI-37).
+
+⚠️ **RC-133 foi CORRIGIDA em 2026-09-27** (ordem do arquiteto-senior): a
+redução da Lei 15.270/2025 usa o RENDIMENTO BRUTO (antes de qualquer
+dedução), NUNCA a base de cálculo — a versão original deste módulo usava a
+base, o que não reproduzia os exemplos oficiais da Receita Federal (ver
+`_reducao_bruta`, abaixo, e docs/planos/DL-046-livro-caixa-e-carne-leao.md,
+"Correção da RC-133").
 
 Motor de cálculo PURO (funções privadas `_pipeline`/`_imposto_pela_tabela`/
 `_reducao_bruta`/`_agregados_do_mes`) separado da camada ORM
@@ -120,28 +127,56 @@ def _imposto_pela_tabela(base, faixas):
     return _q(max(_ZERO, bruto))
 
 
-def _reducao_bruta(base, reducao_cfg):
-    """Lei nº 9.250/1995, art. 3º-A (incluído pela Lei 15.270/2025):
-    redução fixa até `limite_faixa_plena` (imposto zero); decrescente
-    linearmente até `limite_superior`; nenhuma redução depois (§2º)."""
-    if base <= 0:
+def _reducao_bruta(rendimento_bruto, reducao_cfg):
+    """Lei nº 9.250/1995, art. 3º-A (incluído pela Lei 15.270/2025) — Anexo
+    X da IN RFB nº 1.500/2014 (na redação da IN RFB nº 2.299/2025): a
+    redução usa o RENDIMENTO TRIBUTÁVEL BRUTO sujeito ao ajuste mensal
+    (ANTES de qualquer dedução, inclusive livro-caixa), NUNCA a base de
+    cálculo — RC-133 (requisitos.md).
+
+    ⚠️ **Correção de 2026-09-27**, a partir de exemplo oficial da Receita
+    Federal ("Exemplos de Aplicação da Lei 15.270/2025",
+    gov.br/receitafederal — Exemplo 5): "Neste exemplo, o salário
+    (rendimento tributável sujeito à incidência mensal) é superior ao
+    valor de R$ 7.350,00, logo, não é permitida a redução (...). Importante
+    observar que se utiliza nessa tabela de redução o valor do SALÁRIO (R$
+    7.607,20), e NÃO o da BASE DE CÁLCULO (R$ 7.000,00)." A versão anterior
+    desta função usava a base (após deduções) — ERRADO, contrariado pelo
+    próprio exemplo oficial da Receita; a IN RFB nº 2.299/2025 confirma a
+    mesma distinção (Anexo X — "Rendimentos Tributáveis Sujeitos ao
+    Ajuste Mensal" — é conceito DIFERENTE do Anexo II — base de cálculo).
+    Para o carnê-leão (fora do contexto de folha), "rendimento tributável"
+    é o total de rendimentos SUJEITOS ao carnê-leão do mês (RC-132), antes
+    de qualquer dedução — decisão do arquiteto-senior, 2026-09-27.
+
+    Redução fixa até `limite_faixa_plena` (imposto zero); decrescente
+    linearmente até `limite_superior`; nenhuma redução depois (§2º) —
+    todos os TRÊS limites comparados contra o BRUTO, nunca a base.
+    """
+    if rendimento_bruto <= 0:
         return _ZERO
-    if base <= reducao_cfg.limite_faixa_plena:
+    if rendimento_bruto <= reducao_cfg.limite_faixa_plena:
         valor = reducao_cfg.reducao_maxima
-    elif base <= reducao_cfg.limite_superior:
-        valor = reducao_cfg.constante_formula - (reducao_cfg.coeficiente * base)
+    elif rendimento_bruto <= reducao_cfg.limite_superior:
+        valor = reducao_cfg.constante_formula - (reducao_cfg.coeficiente * rendimento_bruto)
     else:
         valor = _ZERO
     return _q(max(_ZERO, valor))
 
 
-def _pipeline(base_bruta, faixas, reducao_cfg):
+def _pipeline(base_bruta, rendimento_bruto, faixas, reducao_cfg):
     """Base → imposto pela tabela → redução (limitada ao imposto, §1º) →
     imposto após redução. `base_bruta` pode ser negativa (rendimento menor
-    que as deduções); a base de cálculo real nunca é negativa."""
+    que as deduções); a base de cálculo real nunca é negativa.
+
+    `rendimento_bruto` (RC-133) é o rendimento ANTES de qualquer dedução —
+    o MESMO valor para as duas formas de dedução (reais ou desconto
+    simplificado) no mesmo mês, porque a redução nunca olha a dedução
+    escolhida. Só `base_bruta` muda entre as duas chamadas que comparam
+    as formas (`_apurar_um_mes`)."""
     base = max(_ZERO, _q(base_bruta))
     imposto_tabela = _imposto_pela_tabela(base, faixas)
-    reducao_disponivel = _reducao_bruta(base, reducao_cfg)
+    reducao_disponivel = _reducao_bruta(rendimento_bruto, reducao_cfg)
     # §1º do art. 3º-A: a redução fica LIMITADA ao imposto apurado pela
     # tabela — nunca produz imposto negativo nem "crédito" de redução.
     reducao_aplicada = min(reducao_disponivel, imposto_tabela)
@@ -163,14 +198,21 @@ def _limite_compensacao_exterior(
     imposto calculado COM a inclusão dos rendimentos de fontes no exterior
     e o imposto calculado SEM a inclusão desses rendimentos" — a MESMA
     forma de dedução (real ou desconto simplificado) já escolhida para o
-    mês, variando só o rendimento (RC-134)."""
+    mês, variando só o rendimento (RC-134). O rendimento BRUTO da redução
+    (RC-133) também varia entre as duas chamadas — excluir o rendimento do
+    exterior muda tanto a base quanto o bruto que a redução compara contra
+    os limiares de R$ 5.000,00/R$ 7.350,00."""
     if rendimento_exterior <= 0:
         return _ZERO
-    imposto_com = _pipeline(rendimento_total - deducao_escolhida, faixas, reducao_cfg)[
-        "imposto_apos_reducao"
-    ]
+    imposto_com = _pipeline(
+        rendimento_total - deducao_escolhida, rendimento_total, faixas, reducao_cfg
+    )["imposto_apos_reducao"]
+    rendimento_sem_exterior = rendimento_total - rendimento_exterior
     imposto_sem = _pipeline(
-        (rendimento_total - rendimento_exterior) - deducao_escolhida, faixas, reducao_cfg
+        rendimento_sem_exterior - deducao_escolhida,
+        rendimento_sem_exterior,
+        faixas,
+        reducao_cfg,
     )["imposto_apos_reducao"]
     return _q(max(_ZERO, imposto_com - imposto_sem))
 
@@ -275,8 +317,15 @@ def _apurar_um_mes(
         )
     desconto_simplificado = _q(faixa_zero.limite_superior * Decimal("0.25"))
 
-    pipeline_real = _pipeline(rendimento_total - deducoes_reais_total, faixas, reducao_cfg)
-    pipeline_simplificado = _pipeline(rendimento_total - desconto_simplificado, faixas, reducao_cfg)
+    # RC-133: a redução usa o rendimento BRUTO (antes de qualquer dedução)
+    # — o MESMO valor (`rendimento_total`) nas duas chamadas abaixo, seja
+    # qual for a forma de dedução. Só a BASE (primeiro argumento) muda.
+    pipeline_real = _pipeline(
+        rendimento_total - deducoes_reais_total, rendimento_total, faixas, reducao_cfg
+    )
+    pipeline_simplificado = _pipeline(
+        rendimento_total - desconto_simplificado, rendimento_total, faixas, reducao_cfg
+    )
 
     # HI-33: aplica a forma mais benéfica — decisão pelo IMPOSTO FINAL (após
     # a redução da Lei 15.270/2025), não só pela base ou pelo imposto da
