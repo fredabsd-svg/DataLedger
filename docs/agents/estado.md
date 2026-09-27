@@ -107,8 +107,8 @@ merge do PR #38, sem commit individual por etapa.
 
 **AGORA — sessão de 2026-09-27 encerrada. Onde parei, para quem assumir:**
 
-1. **DL-047 — plano de paridade por módulo: concluída** (só documentação;
-   integra pelo PR da DL-047). Seis planos item por item em
+1. **DL-047 — plano de paridade por módulo: concluída e integrada pelo PR
+   #55** (só documentação). Seis planos item por item em
    [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
    (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26) e
    Lalur (26). **Próxima decisão é do Fred:** por qual módulo começar. A
@@ -120,7 +120,7 @@ merge do PR #38, sem commit individual por etapa.
    Cada plano de módulo termina com as perguntas ao Fred consolidadas.
 2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: servidor pronto, NÃO
    integrado.** Está em commits na branch `claude/vigilant-bardeen-jo12l4`,
-   **acima** do merge da DL-047 e **sem PR** (commits `860cfd1`, preservação,
+   **acima** do merge do PR #55 e **sem PR aberto** (commits `860cfd1`, preservação,
    e `e850ba9`, entrega do servidor; plano da fatia 3 em `4c5aca8`). O que
    existe: campos novos (ocupação no cliente e na conta, IRRF de PJ,
    competência, multa e juros da previdência), serviço
@@ -143,7 +143,7 @@ merge do PR #38, sem commit individual por etapa.
 - **DL-047:** inventário e planos por módulo, a pedido do Fred
   (2026-09-27), com os manuais só como referência
   ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). Integrada pelo
-  PR da DL-047.
+  PR #55.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
