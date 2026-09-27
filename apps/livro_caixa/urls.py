@@ -5,6 +5,7 @@ from apps.livro_caixa.views import (
     CarneLeaoMensalView,
     ContaLivroCaixaListCreateView,
     DependentesCarneLeaoListCreateView,
+    DependentesCarneLeaoRetificarView,
     EstornarLancamentoCaixaView,
     LancamentoCaixaListCreateView,
     LivroCaixaView,
@@ -38,6 +39,11 @@ urlpatterns = [
         "empresas/<int:empresa_id>/dependentes-carne-leao/",
         DependentesCarneLeaoListCreateView.as_view(),
         name="dependentes-carne-leao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/dependentes-carne-leao/<int:dependente_id>/",
+        DependentesCarneLeaoRetificarView.as_view(),
+        name="dependentes-carne-leao-retificar",
     ),
     path(
         "empresas/<int:empresa_id>/carne-leao/mensal/",

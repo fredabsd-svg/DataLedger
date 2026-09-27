@@ -474,6 +474,17 @@ class VigenciaTabelaProgressivaCarneLeao(models.Model):
     # declará-lo.
     vigencia_inicio = models.DateField("vigência (início)")
     fonte = models.TextField("fonte normativa")
+    # B-1 (auditoria da fatia 2, rodada 1): o percentual do desconto
+    # simplificado (25%) MORA na vigência, com fonte — antes era
+    # `Decimal("0.25")` literal em `carne_leao.py`, violando o critério 5
+    # do plano ("nenhum número normativo no código"). Fonte: Lei nº
+    # 9.250/1995, art. 4º, § 2º (redação da Lei nº 14.663/2023): "25% (vinte
+    # e cinco por cento) do valor máximo da faixa com alíquota zero da
+    # tabela progressiva mensal". Gravado como FRAÇÃO (0.2500), mesmo
+    # padrão de `FaixaTabelaProgressivaCarneLeao.aliquota`.
+    percentual_desconto_simplificado = models.DecimalField(
+        "percentual do desconto simplificado (fração)", max_digits=6, decimal_places=4
+    )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
     class Meta:
@@ -483,6 +494,24 @@ class VigenciaTabelaProgressivaCarneLeao(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["vigencia_inicio"], name="vigencia_tabela_carne_leao_inicio_unico"
+            ),
+            # B-5 (auditoria da fatia 2, rodada 1): toda vigência normativa
+            # do carnê-leão começa no dia 1º de um mês (as leis e a IN
+            # sempre falam em "a partir do mês de..."); um `vigencia_inicio`
+            # no meio do mês só valeria a partir do mês SEGUINTE, na
+            # comparação de `_maior_vigencia_nao_posterior` (que usa o
+            # primeiro dia de cada mês como referência) — deixar isso
+            # gravável seria uma armadilha silenciosa. Só migração de dados
+            # grava este campo; a `CheckConstraint` é defesa de banco, sem
+            # caminho de cliente (ver `apps/core/restricoes.py`).
+            models.CheckConstraint(
+                condition=models.Q(vigencia_inicio__day=1),
+                name="vigencia_tabela_carne_leao_inicio_dia_1",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(percentual_desconto_simplificado__gte=0)
+                & models.Q(percentual_desconto_simplificado__lte=1),
+                name="vigencia_tabela_carne_leao_percentual_simplificado_valido",
             ),
         ]
 
@@ -599,6 +628,11 @@ class VigenciaReducaoCarneLeao(models.Model):
                 & models.Q(limite_superior__gte=0),
                 name="reducao_carne_leao_valores_nao_negativos",
             ),
+            # B-5 — mesmo motivo de `vigencia_tabela_carne_leao_inicio_dia_1`.
+            models.CheckConstraint(
+                condition=models.Q(vigencia_inicio__day=1),
+                name="vigencia_reducao_carne_leao_inicio_dia_1",
+            ),
         ]
 
     def __str__(self):
@@ -632,6 +666,11 @@ class VigenciaDependenteCarneLeao(models.Model):
             models.CheckConstraint(
                 condition=models.Q(valor_por_dependente__gte=0),
                 name="dependente_carne_leao_valor_nao_negativo",
+            ),
+            # B-5 — mesmo motivo de `vigencia_tabela_carne_leao_inicio_dia_1`.
+            models.CheckConstraint(
+                condition=models.Q(vigencia_inicio__day=1),
+                name="vigencia_dependente_carne_leao_inicio_dia_1",
             ),
         ]
 
@@ -669,9 +708,32 @@ class DependentesCarneLeaoCliente(models.Model):
         verbose_name_plural = "quantidades de dependentes do carnê-leão"
         ordering = ["empresa", "-competencia_inicio"]
         constraints = [
+            # B-4 (auditoria da fatia 2, rodada 1): `violation_error_message`
+            # (Django ≥ 4.1) faz `full_clean()`/`validate_unique()` devolver
+            # ESTA mensagem no caminho SEQUENCIAL (o comum) — antes desta
+            # correção, `validate_unique()` já resolvia a duplicidade com a
+            # mensagem PADRÃO do Django ("...com este Empresa e Vigente a
+            # partir de (mês) já existe.") antes de qualquer `INSERT`, e a
+            # mensagem registrada em `apps/core/restricoes.py`
+            # (`MENSAGENS_DE_RESTRICAO`) só se aplicava ao caminho RESIDUAL
+            # de corrida (`IntegrityError`) — os dois continuam cobertos,
+            # cada um na sua camada.
             models.UniqueConstraint(
                 fields=["empresa", "competencia_inicio"],
                 name="dependentes_carne_leao_competencia_unica_por_empresa",
+                violation_error_message=(
+                    "Já existe uma quantidade de dependentes registrada para esta "
+                    "empresa a partir deste mês — use a retificação (PATCH) para "
+                    "corrigir o valor, em vez de um novo registro."
+                ),
+            ),
+            # B-5: mesmo motivo das tabelas normativas, mas aqui já existe
+            # validação de campo em `clean()` (mensagem melhor, citando
+            # HI-35) — esta `CheckConstraint` é defesa de banco para
+            # ORM/SQL direto, redundante com a validação de cima.
+            models.CheckConstraint(
+                condition=models.Q(competencia_inicio__day=1),
+                name="dependentes_carne_leao_competencia_dia_1",
             ),
         ]
 

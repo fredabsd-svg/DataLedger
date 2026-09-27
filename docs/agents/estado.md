@@ -104,7 +104,8 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-046 (livro-caixa, fatia 1) em PR.**
+**AGORA — DL-046: fatia 1 (livro-caixa) em PR; fatia 2 (carnê-leão) com a
+correção da rodada 1 pronta, aguardando reconferência do `auditor-qa`.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -137,9 +138,22 @@ merge do PR #38, sem commit individual por etapa.
   verificação independente descrita no
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
   instrumento de medição do N3 quebrado, corrigido e medido de novo. O Fred
-  decide no PR. A fatia 2 (apuração mensal do carnê-leão) está
-  **desbloqueada**: a PE-71 foi respondida em fonte oficial (RC-131, HI-32 a
-  HI-34), e é a próxima etapa depois deste PR.
+  decide no PR. A fatia 2 (apuração mensal do carnê-leão) foi implementada
+  (worktree `wt-dl046f2`, branch `dl046-f2`): a PE-71 foi respondida em fonte
+  oficial (RC-131, HI-32 a HI-34). A [rodada 1 da
+  auditoria](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md)
+  **reprovou** (dois achados ALTOS sobre o limite do livro-caixa e a base do
+  carnê-leão, oito MÉDIOS e seis BAIXOS) — a conclusão errada vinha da
+  RC-132, corrigida pela [DE-091](../projeto/decisoes.md). A correção (única
+  antes da reconferência, AGENTS.md §3.1) foi implementada pelo
+  `desenvolvedor-pleno`: limite do livro-caixa somando trabalho e notarial de
+  qualquer origem; forma de dedução escolhida pela maior dedução; leitura
+  literal da compensação do imposto pago no exterior; estorno de caixa com
+  data padrão do lançamento original; tabela jan-abr/2025 semeada; PATCH de
+  dependentes; contrato da API com rendimentos por código/origem e totais
+  anuais exatos — detalhes na seção "Correção da rodada 1 da fatia 2" do
+  [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). Aguarda
+  reconferência do `auditor-qa` (nível 1, nunca pula essa etapa).
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em

@@ -1,5 +1,24 @@
 """Apuração mensal e anual do carnê-leão (DL-046, fatia 2 — RC-131/RC-132/
-RC-133/RC-134, HI-32 a HI-37).
+RC-133/RC-134, HI-32 a HI-40).
+
+⚠️ **Correção da RODADA 1 da auditoria da fatia 2, em 2026-09-27** (DE-091):
+esta versão do módulo incorpora as dez decisões da DE-091 — o limite da
+dedução do livro-caixa passa a somar a receita da atividade (trabalho não
+assalariado **e** notarial) recebida de PF, PJ **ou** exterior (item 1); a
+forma de dedução (real/simplificado) passa a ser escolhida pela MAIOR
+DEDUÇÃO, antes da redução, com empate para o simplificado (item 2); a
+compensação do imposto pago no exterior segue leitura LITERAL da Perguntas e
+Respostas 267 — a parte acima do limite do mês nunca compensa nem carrega
+(item 3); o estorno de um lançamento de caixa passa a ter a data do ORIGINAL
+como padrão, recusando data explícita de outro mês (item 4); a tabela
+progressiva de janeiro a abril de 2025 é semeada por migração de dados, e a
+ausência de vigência de REDUÇÃO antes de 2026 passa a ser tratada como
+ausência LEGÍTIMA (item 5); a quantidade de dependentes ganha retificação
+(PATCH) rastreável (item 6); o contrato da API ganha os campos `rendimentos`,
+`imposto_com_exterior`/`imposto_sem_exterior`, `vencimento`, `alertas` e
+`criterio_escolha_forma` (item 7); o percentual do desconto simplificado
+passa a morar na vigência da tabela, com fonte (item 8, B-1); e as correções
+pontuais B-2 a B-5 (ver `docs/projeto/requisitos.md`/`decisoes.md`).
 
 ⚠️ **RC-133 foi CORRIGIDA em 2026-09-27** (ordem do arquiteto-senior): a
 redução da Lei 15.270/2025 usa o RENDIMENTO BRUTO (antes de qualquer
@@ -33,12 +52,16 @@ olhar o ano pedido, também o reinicia em janeiro; é uma LIMITAÇÃO DECLARADA
 desta fatia (ver o plano DL-046, "Não testado"), não uma regra confirmada.
 
 ⚠️ **Nenhum número normativo aparece como literal Python neste arquivo**
-(critério 5 do plano): tabela progressiva, redução da Lei 15.270/2025 e
-valor por dependente vêm SEMPRE de `apps.livro_caixa.models.
-VigenciaTabelaProgressivaCarneLeao`/`VigenciaReducaoCarneLeao`/
-`VigenciaDependenteCarneLeao`, gravadas por migração de dados. A ausência de
-uma vigência aplicável levanta `TabelaCarneLeaoNaoConfigurada` — nunca um
-valor-padrão do código.
+(critério 5 do plano): tabela progressiva, redução da Lei 15.270/2025,
+percentual do desconto simplificado e valor por dependente vêm SEMPRE de
+`apps.livro_caixa.models.VigenciaTabelaProgressivaCarneLeao`/
+`VigenciaReducaoCarneLeao`/`VigenciaDependenteCarneLeao`, gravadas por
+migração de dados. A ausência de uma vigência aplicável levanta
+`TabelaCarneLeaoNaoConfigurada` — nunca um valor-padrão do código. A ÚNICA
+exceção CONSCIENTE é o limite de R$ 10,00 do DARF (`_LIMITE_DARF`, abaixo):
+constante LEGAL (Lei 9.430/1996, art. 68; RIR/2018, art. 938, §§ 4º e 5º),
+não normativa-com-vigência — a lei não fixa esse valor "a partir de uma
+data", como as tabelas de cima; é um piso fixo (DE-091 item 9, B-1).
 
 HI-36 (requisitos.md) — arredondamento: nenhuma das fontes lidas (RIR/2018,
 Lei 9.250/1995, Lei 15.270/2025, Perguntas e Respostas IRPF 2026) fixa a
@@ -46,10 +69,12 @@ política de arredondamento de cada etapa intermediária do carnê-leão (só do
 resultado final, implicitamente, por ser sempre expresso em reais e
 centavos). Escolha CONSERVADORA declarada: `PoliticaArredondamento.
 MEIO_PARA_CIMA` (ROUND_HALF_UP), aplicada a CADA valor monetário que se
-torna uma LINHA da memória de cálculo (nunca truncando, que reduziria o
-imposto devido em relação ao valor exato — o lado de MAIOR risco de
-conformidade tributária) — nunca um cálculo intermediário sem escala
-definida entre etapas.
+torna uma LINHA da memória de cálculo, para nunca deixar um cálculo
+intermediário sem escala definida entre etapas. (Correção de 2026-09-27,
+rodada 1 da auditoria da fatia 2, B-2: a versão anterior deste parágrafo
+afirmava que truncar "reduziria o imposto devido em relação ao valor exato"
+— a auditoria mediu contraexemplos; a frase foi retirada, a escolha por
+MEIO_PARA_CIMA permanece só pela razão declarada acima.)
 """
 
 import calendar
@@ -75,6 +100,8 @@ from apps.livro_caixa.models import (
     VigenciaTabelaProgressivaCarneLeao,
 )
 from apps.livro_caixa.validators import (
+    CODIGO_RENDIMENTO_NOTARIAL,
+    CODIGO_RENDIMENTO_PENSAO_ALIMENTICIA,
     CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
     rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal,
 )
@@ -82,23 +109,75 @@ from apps.livro_caixa.validators import (
 # HI-36 — ver o docstring do módulo.
 _POLITICA = PoliticaArredondamento.MEIO_PARA_CIMA
 _ZERO = Decimal("0.00")
+
+# DE-091 item 9 (B-1): constante LEGAL, não normativa-com-vigência — ver o
+# docstring do módulo, parágrafo "Nenhum número normativo".
 _LIMITE_DARF = Decimal("10.00")
+
+# Códigos que integram o LIMITE do livro-caixa (DE-091 item 1, A-1/A-2):
+# receita da atividade de trabalho não assalariado e notarial, recebida de
+# QUALQUER origem (PF, PJ ou exterior) — ver `_agregados_do_mes`.
+_CODIGOS_ATIVIDADE_LIVRO_CAIXA = (
+    CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
+    CODIGO_RENDIMENTO_NOTARIAL,
+)
 
 
 def _q(valor):
     return quantizar(valor, casas=2, politica=_POLITICA)
 
 
+def _fmt_reais(valor):
+    """`Decimal` → texto no formato brasileiro ("R$ 1.234,56") — usado só
+    para compor `criterio_escolha_forma` (DE-091 item 7, acréscimo do
+    arquiteto-senior), nunca para cálculo."""
+    texto = f"{valor:,.2f}"
+    texto = texto.replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"R$ {texto}"
+
+
 class TabelaCarneLeaoNaoConfigurada(Exception):
     """Levantada quando não há, no BANCO, uma vigência de tabela
     progressiva, redução (Lei 15.270/2025) ou valor por dependente
-    aplicável ao mês pedido. NUNCA cai para um valor padrão do código —
+    aplicável ao mês pedido — ou quando o ano pedido está fora do escopo
+    desta fatia (antes de 2025). NUNCA cai para um valor padrão do código —
     ver o critério 5 do plano DL-046, fatia 2, e o docstring do módulo."""
 
 
 class DependentesCarneLeaoInvalido(Exception):
-    """Erro de domínio ao registrar a quantidade de dependentes de um
-    cliente — mesmo papel de `LancamentoCaixaInvalido` (services.py)."""
+    """Erro de domínio ao registrar/retificar a quantidade de dependentes
+    de um cliente — mesmo papel de `LancamentoCaixaInvalido` (services.py)."""
+
+
+class ImpostoExteriorSemRendimentoExterior(Exception):
+    """HI-38/DE-091 item 3 — recusa a apuração de um mês em que há imposto
+    pago no exterior (`P20.01.00003`) lançado SEM nenhum rendimento sujeito
+    de fonte no exterior (`recebido_de='EX'`) no MESMO mês.
+
+    ⚠️ **Decisão do arquiteto-senior, 2026-09-27: a recusa acontece na
+    APURAÇÃO, não na gravação do lançamento** (`apps.livro_caixa.services.
+    criar_lancamento_caixa`), com justificativa:
+
+    1. O rendimento do exterior e o pagamento do imposto podem ser lançados
+       em qualquer ORDEM, em datas diferentes do MESMO mês — recusar na
+       gravação do pagamento penalizaria quem lança o pagamento antes do
+       rendimento (ambos do mesmo mês), mesmo que a combinação fique válida
+       segundos depois, quando o segundo lançamento chegar.
+    2. Validar na gravação exigiria uma consulta a TODOS os lançamentos do
+       mês a cada novo lançamento de `P20.01.00003` — custo e acoplamento
+       que a fatia 1 (`criar_lancamento_caixa`) não paga hoje para nenhum
+       outro código.
+    3. A apuração (`_apurar_um_mes`) já é o único ponto que vê o mês inteiro
+       de uma vez (RC-130: sempre recalculada dos lançamentos de origem) —
+       é o lugar natural para uma regra que depende de DOIS lançamentos
+       possivelmente distintos.
+
+    Reversível: se o Fred confirmar que o escritório lança primeiro o
+    imposto e só depois o rendimento (ou vice-versa) na rotina real, e isso
+    causar recusas incômodas na TELA em vez de úteis, mover a checagem para
+    a gravação fica mais simples DEPOIS de ter os dois lançamentos de
+    exemplo reais — não antes.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +201,28 @@ def _faixa_da_base(base, faixas):
 
 
 def _imposto_pela_tabela(base, faixas):
+    _, imposto = _faixa_e_imposto_pela_tabela(base, faixas)
+    return imposto
+
+
+def _faixa_e_imposto_pela_tabela(base, faixas):
+    """Mesmo cálculo de `_imposto_pela_tabela`, mas devolve também a FAIXA
+    usada — item 7 do contrato da API (acréscimo do arquiteto-senior,
+    2026-09-27): a tela mostra `faixa_aplicada` dentro de cada memória de
+    cálculo, para o contador conferir contra a tabela oficial sem abrir o
+    banco."""
     faixa = _faixa_da_base(base, faixas)
     bruto = base * faixa.aliquota - faixa.parcela_a_deduzir
-    return _q(max(_ZERO, bruto))
+    return faixa, _q(max(_ZERO, bruto))
+
+
+def _faixa_aplicada_para_api(faixa):
+    return {
+        "limite_inferior": faixa.limite_inferior,
+        "limite_superior": faixa.limite_superior,
+        "aliquota": faixa.aliquota,
+        "parcela_a_deduzir": faixa.parcela_a_deduzir,
+    }
 
 
 def _reducao_bruta(rendimento_bruto, reducao_cfg):
@@ -133,6 +231,12 @@ def _reducao_bruta(rendimento_bruto, reducao_cfg):
     redução usa o RENDIMENTO TRIBUTÁVEL BRUTO sujeito ao ajuste mensal
     (ANTES de qualquer dedução, inclusive livro-caixa), NUNCA a base de
     cálculo — RC-133 (requisitos.md).
+
+    `reducao_cfg=None` (DE-091 item 5, M-5): ausência LEGÍTIMA de vigência
+    de redução para o mês — a Lei 15.270/2025 só produz efeitos "a partir
+    do mês de janeiro do ano-calendário de 2026" (art. 8º); qualquer mês de
+    2025 não tem, e não DEVE ter, uma vigência de redução — devolve
+    `_ZERO`, nunca levanta `TabelaCarneLeaoNaoConfigurada`.
 
     ⚠️ **Correção de 2026-09-27**, a partir de exemplo oficial da Receita
     Federal ("Exemplos de Aplicação da Lei 15.270/2025",
@@ -153,6 +257,8 @@ def _reducao_bruta(rendimento_bruto, reducao_cfg):
     linearmente até `limite_superior`; nenhuma redução depois (§2º) —
     todos os TRÊS limites comparados contra o BRUTO, nunca a base.
     """
+    if reducao_cfg is None:
+        return _ZERO
     if rendimento_bruto <= 0:
         return _ZERO
     if rendimento_bruto <= reducao_cfg.limite_faixa_plena:
@@ -164,7 +270,7 @@ def _reducao_bruta(rendimento_bruto, reducao_cfg):
     return _q(max(_ZERO, valor))
 
 
-def _pipeline(base_bruta, rendimento_bruto, faixas, reducao_cfg):
+def _pipeline(base_bruta, rendimento_bruto, faixas, reducao_cfg, *, vigencia_tabela_inicio=None):
     """Base → imposto pela tabela → redução (limitada ao imposto, §1º) →
     imposto após redução. `base_bruta` pode ser negativa (rendimento menor
     que as deduções); a base de cálculo real nunca é negativa.
@@ -173,9 +279,14 @@ def _pipeline(base_bruta, rendimento_bruto, faixas, reducao_cfg):
     o MESMO valor para as duas formas de dedução (reais ou desconto
     simplificado) no mesmo mês, porque a redução nunca olha a dedução
     escolhida. Só `base_bruta` muda entre as duas chamadas que comparam
-    as formas (`_apurar_um_mes`)."""
+    as formas (`_apurar_um_mes`). `reducao_cfg=None`: ver `_reducao_bruta`.
+
+    `vigencia_tabela_inicio` (item 7 do contrato da API, acréscimo do
+    arquiteto-senior): opcional — só quem já sabe a vigência da tabela
+    (`_apurar_um_mes`) a informa; os testes que chamam `_pipeline`
+    diretamente (motor puro) não precisam dela, e o campo fica `None`."""
     base = max(_ZERO, _q(base_bruta))
-    imposto_tabela = _imposto_pela_tabela(base, faixas)
+    faixa, imposto_tabela = _faixa_e_imposto_pela_tabela(base, faixas)
     reducao_disponivel = _reducao_bruta(rendimento_bruto, reducao_cfg)
     # §1º do art. 3º-A: a redução fica LIMITADA ao imposto apurado pela
     # tabela — nunca produz imposto negativo nem "crédito" de redução.
@@ -187,10 +298,12 @@ def _pipeline(base_bruta, rendimento_bruto, faixas, reducao_cfg):
         "reducao_disponivel": reducao_disponivel,
         "reducao_aplicada": reducao_aplicada,
         "imposto_apos_reducao": imposto_apos_reducao,
+        "faixa_aplicada": _faixa_aplicada_para_api(faixa),
+        "vigencia_tabela_inicio": vigencia_tabela_inicio,
     }
 
 
-def _limite_compensacao_exterior(
+def _imposto_sem_rendimento_exterior(
     rendimento_total, rendimento_exterior, deducao_escolhida, faixas, reducao_cfg
 ):
     """Perguntas e Respostas IRPF 2026, pergunta 267 ("Atenção"): o limite
@@ -201,34 +314,63 @@ def _limite_compensacao_exterior(
     mês, variando só o rendimento (RC-134). O rendimento BRUTO da redução
     (RC-133) também varia entre as duas chamadas — excluir o rendimento do
     exterior muda tanto a base quanto o bruto que a redução compara contra
-    os limiares de R$ 5.000,00/R$ 7.350,00."""
-    if rendimento_exterior <= 0:
-        return _ZERO
-    imposto_com = _pipeline(
-        rendimento_total - deducao_escolhida, rendimento_total, faixas, reducao_cfg
-    )["imposto_apos_reducao"]
+    os limiares de R$ 5.000,00/R$ 7.350,00.
+
+    Devolve só o `imposto_apos_reducao` "sem exterior" — quem chama já tem
+    o "com exterior" (é o `pipeline_escolhido` do mês, calculado uma vez
+    só; ver `_apurar_um_mes`)."""
     rendimento_sem_exterior = rendimento_total - rendimento_exterior
-    imposto_sem = _pipeline(
+    return _pipeline(
         rendimento_sem_exterior - deducao_escolhida,
         rendimento_sem_exterior,
         faixas,
         reducao_cfg,
     )["imposto_apos_reducao"]
-    return _q(max(_ZERO, imposto_com - imposto_sem))
+
+
+def _motivo_exclusao_do_rendimento(codigo):
+    """Texto para o campo `motivo_exclusao` do item `rendimentos` da API
+    (DE-091 item 7/M-2) quando o rendimento NÃO integra a base do
+    carnê-leão — `None` quando integra. Só é chamada para um `(codigo,
+    origem)` que já falhou `rendimento_carne_leao_e_sujeito_ao_
+    recolhimento_mensal` — os dois motivos possíveis, hoje (`apps.
+    livro_caixa.validators`): pensão alimentícia recebida (imune) ou
+    rendimento de pessoa jurídica fora do modelo notarial (retenção na
+    fonte, RIR/2018 art. 118)."""
+    if codigo == CODIGO_RENDIMENTO_PENSAO_ALIMENTICIA:
+        return (
+            "Pensão alimentícia recebida é imune ao Imposto de Renda (STF, ADI "
+            "5.422, transitada em julgado em 05/11/2022; Perguntas e Respostas "
+            "IRPF 2026, pergunta 266)."
+        )
+    return (
+        "Rendimento recebido de pessoa jurídica: sujeito a retenção na fonte "
+        "pelo pagador, fora do carnê-leão (RIR/2018, art. 118)."
+    )
 
 
 def _agregados_do_mes(lancamentos):
     """Soma os lançamentos de UM mês por categoria relevante ao carnê-leão.
     Estorno contribui com sinal INVERTIDO do original, do MESMO lado (mesma
     convenção de `apps.livro_caixa.services.apurar_livro_caixa`, D3) — nunca
-    como um lançamento novo do lado oposto."""
+    como um lançamento novo do lado oposto.
+
+    ⚠️ **DE-091 item 1 (A-1/A-2)**: `receita_atividade_limite` é a receita
+    de trabalho não assalariado e notarial recebida de QUALQUER origem (PF,
+    PJ ou exterior) — o LIMITE do livro-caixa (art. 68/69, RIR/2018), que é
+    DIFERENTE da BASE do carnê-leão (RC-132: só PF/exterior, exceto o
+    notarial, que entra sempre). Por isso este acúmulo fica FORA do filtro
+    de sujeição usado para `rendimento_total_sujeito`."""
     rendimento_total_sujeito = _ZERO
-    rendimento_trabalho_nao_assalariado = _ZERO
+    rendimento_trabalho_base = _ZERO
+    rendimento_notarial_base = _ZERO
     rendimento_exterior_sujeito = _ZERO
+    receita_atividade_limite = _ZERO
     despesa_p10 = _ZERO
     previdencia_oficial = _ZERO
     pensao_paga = _ZERO
     imposto_pago_exterior = _ZERO
+    por_codigo_origem = defaultdict(lambda: _ZERO)
 
     for lancamento in lancamentos:
         sinal = Decimal(-1) if lancamento.estorno_de_id is not None else Decimal(1)
@@ -236,18 +378,27 @@ def _agregados_do_mes(lancamentos):
         codigo = lancamento.conta.codigo_carne_leao
 
         if lancamento.conta.natureza == NaturezaCaixa.RECEITA:
-            # RC-132: só rendimento SUJEITO ao carnê-leão integra a base —
+            origem = lancamento.recebido_de
+            por_codigo_origem[(codigo, origem)] += contribuicao
+
+            if codigo in _CODIGOS_ATIVIDADE_LIVRO_CAIXA:
+                receita_atividade_limite += contribuicao
+
+            # RC-132: só rendimento SUJEITO ao carnê-leão integra a BASE —
             # rendimento de PJ (fora do modelo notarial) é tributado por
             # retenção na fonte, fora do escopo desta fatia; pensão
-            # alimentícia recebida é imune (STF).
+            # alimentícia recebida é imune (STF). O limite do livro-caixa,
+            # acima, já foi somado independentemente desta checagem.
             if not rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal(
-                codigo, recebido_de=lancamento.recebido_de
+                codigo, recebido_de=origem
             ):
                 continue
             rendimento_total_sujeito += contribuicao
             if codigo == CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO:
-                rendimento_trabalho_nao_assalariado += contribuicao
-            if lancamento.recebido_de == "EX":
+                rendimento_trabalho_base += contribuicao
+            elif codigo == CODIGO_RENDIMENTO_NOTARIAL:
+                rendimento_notarial_base += contribuicao
+            if origem == "EX":
                 rendimento_exterior_sujeito += contribuicao
         else:  # DESPESA
             if codigo.startswith("P10"):
@@ -261,13 +412,51 @@ def _agregados_do_mes(lancamentos):
 
     return {
         "rendimento_total_sujeito": rendimento_total_sujeito,
-        "rendimento_trabalho_nao_assalariado": rendimento_trabalho_nao_assalariado,
+        "rendimento_trabalho_base": rendimento_trabalho_base,
+        "rendimento_notarial_base": rendimento_notarial_base,
         "rendimento_exterior_sujeito": rendimento_exterior_sujeito,
+        "receita_atividade_limite": receita_atividade_limite,
         "despesa_p10": despesa_p10,
         "previdencia_oficial": previdencia_oficial,
         "pensao_paga": pensao_paga,
         "imposto_pago_exterior": imposto_pago_exterior,
+        "por_codigo_origem": dict(por_codigo_origem),
     }
+
+
+def _rendimentos_detalhados(por_codigo_origem):
+    """Lista ORDENADA (determinística) de `{codigo, origem, valor,
+    entra_na_base, motivo_exclusao}` — item 7/M-2 do contrato da API,
+    exatamente com estes nomes de campo."""
+    detalhes = []
+    for (codigo, origem), valor in sorted(por_codigo_origem.items()):
+        entra_na_base = rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal(
+            codigo, recebido_de=origem
+        )
+        detalhes.append(
+            {
+                "codigo": codigo,
+                "origem": origem,
+                "valor": _q(valor),
+                "entra_na_base": entra_na_base,
+                "motivo_exclusao": (
+                    None if entra_na_base else _motivo_exclusao_do_rendimento(codigo)
+                ),
+            }
+        )
+    return detalhes
+
+
+def _vencimento_do_mes(ano, mes):
+    """RC-131(d): "DARF código 0190, vencimento no último dia útil do mês
+    SEGUINTE ao do recebimento" — texto descritivo (a apuração não calcula
+    o dia útil exato nesta fatia, só o mês/ano de vencimento; DE-091 item
+    7, acréscimo do arquiteto-senior)."""
+    if mes == 12:
+        mes_seguinte, ano_seguinte = 1, ano + 1
+    else:
+        mes_seguinte, ano_seguinte = mes + 1, ano
+    return f"último dia útil de {mes_seguinte:02d}/{ano_seguinte:04d}"
 
 
 def _apurar_um_mes(
@@ -279,23 +468,42 @@ def _apurar_um_mes(
     valor_por_dependente,
     faixas,
     reducao_cfg,
+    percentual_desconto_simplificado,
+    vigencia_tabela_inicio,
     excesso_livro_caixa_anterior,
     saldo_credito_exterior_anterior,
     saldo_pendente_abaixo_de_dez_anterior,
 ):
-    rendimento_total = agregados["rendimento_total_sujeito"]
-    rendimento_trabalho = agregados["rendimento_trabalho_nao_assalariado"]
+    if agregados["imposto_pago_exterior"] > 0 and agregados["rendimento_exterior_sujeito"] <= 0:
+        raise ImpostoExteriorSemRendimentoExterior(
+            f"Há imposto pago no exterior lançado em {mes:02d}/{ano} sem nenhum "
+            "rendimento sujeito de fonte no exterior no mesmo mês — a apuração "
+            "recusa este mês (HI-38, requisitos.md). Lance o rendimento do "
+            "exterior correspondente, no mesmo mês, antes de apurar."
+        )
 
-    # Livro-caixa (art. 68/69, RIR/2018): limitado à receita do trabalho
-    # não assalariado do MÊS, com o excesso levado aos meses seguintes até
-    # dezembro — nunca ao ano seguinte (§1º, imposto em `_apurar_ano_
-    # calendario`, que zera o carregamento em dezembro).
+    rendimento_total = agregados["rendimento_total_sujeito"]
+
+    # Livro-caixa (art. 68/69, RIR/2018) — DE-091 item 1 (A-1/A-2): o LIMITE
+    # é a receita da ATIVIDADE (trabalho não assalariado + notarial),
+    # recebida de QUALQUER origem (PF, PJ ou exterior); a DEDUÇÃO em si
+    # continua restrita ao rendimento que integra a BASE (trabalho
+    # PF/exterior + notarial de qualquer origem). O excesso levado ao mês
+    # seguinte (até dezembro) é só a parte que passa do LIMITE — a parte
+    # dentro do limite mas sem contrapartida na base (receita de PJ, por
+    # exemplo) fica "usada" sem gerar excesso nem dedução: ela pertence à
+    # declaração anual, fora do escopo desta fatia (DE-091 item 1).
     disponivel_livro_caixa = max(_ZERO, agregados["despesa_p10"] + excesso_livro_caixa_anterior)
-    limite_receita_trabalho = max(_ZERO, rendimento_trabalho)
-    deducao_livro_caixa = min(disponivel_livro_caixa, limite_receita_trabalho)
-    excesso_livro_caixa_novo = _q(disponivel_livro_caixa - deducao_livro_caixa)
+    limite_atividade = max(_ZERO, agregados["receita_atividade_limite"])
+    deducao_contra_limite = min(disponivel_livro_caixa, limite_atividade)
+    excesso_livro_caixa_novo = _q(disponivel_livro_caixa - deducao_contra_limite)
     if mes == 12:
         excesso_livro_caixa_novo = _ZERO
+
+    rendimento_base_relevante = max(
+        _ZERO, agregados["rendimento_trabalho_base"] + agregados["rendimento_notarial_base"]
+    )
+    deducao_livro_caixa = min(deducao_contra_limite, rendimento_base_relevante)
 
     dependentes_valor = _q(Decimal(quantidade_dependentes) * valor_por_dependente)
 
@@ -306,62 +514,96 @@ def _apurar_um_mes(
         + deducao_livro_caixa
     )
 
-    # Q267 (P&R IRPF 2026): desconto simplificado = 25% do limite da FAIXA
-    # DE ALÍQUOTA ZERO da tabela vigente — nunca um número solto (a
-    # primeira faixa, ordenada por `ordem`, é sempre a de alíquota 0%).
+    # Q267 (P&R IRPF 2026): desconto simplificado = percentual (vigência da
+    # tabela, DE-091 item 8/B-1) do limite da FAIXA DE ALÍQUOTA ZERO da
+    # tabela vigente — nunca um número solto (a primeira faixa, ordenada
+    # por `ordem`, é sempre a de alíquota 0%).
     faixa_zero = faixas[0]
     if faixa_zero.aliquota != 0:
         raise TabelaCarneLeaoNaoConfigurada(
             "A primeira faixa da tabela progressiva vigente não tem alíquota "
             "zero — dado normativo incoerente (verifique a migração de dados)."
         )
-    desconto_simplificado = _q(faixa_zero.limite_superior * Decimal("0.25"))
+    desconto_simplificado = _q(faixa_zero.limite_superior * percentual_desconto_simplificado)
 
     # RC-133: a redução usa o rendimento BRUTO (antes de qualquer dedução)
     # — o MESMO valor (`rendimento_total`) nas duas chamadas abaixo, seja
     # qual for a forma de dedução. Só a BASE (primeiro argumento) muda.
     pipeline_real = _pipeline(
-        rendimento_total - deducoes_reais_total, rendimento_total, faixas, reducao_cfg
+        rendimento_total - deducoes_reais_total,
+        rendimento_total,
+        faixas,
+        reducao_cfg,
+        vigencia_tabela_inicio=vigencia_tabela_inicio,
     )
     pipeline_simplificado = _pipeline(
-        rendimento_total - desconto_simplificado, rendimento_total, faixas, reducao_cfg
+        rendimento_total - desconto_simplificado,
+        rendimento_total,
+        faixas,
+        reducao_cfg,
+        vigencia_tabela_inicio=vigencia_tabela_inicio,
     )
 
-    # HI-33: aplica a forma mais benéfica — decisão pelo IMPOSTO FINAL (após
-    # a redução da Lei 15.270/2025), não só pela base ou pelo imposto da
-    # tabela isoladamente. Empate (raríssimo, mas possível na fronteira):
-    # fica com as deduções REAIS, por serem a regra geral (art. 68) e o
-    # desconto simplificado ser a ALTERNATIVA (Q267: "alternativamente...").
-    if pipeline_simplificado["imposto_apos_reducao"] < pipeline_real["imposto_apos_reducao"]:
+    # DE-091 item 2 (M-1): escolhe pela MAIOR DEDUÇÃO, ANTES da redução —
+    # mesmo critério que a própria Receita usa para orientar o contribuinte
+    # (P&R IRPF 2026, pergunta 267: "o desconto simplificado é mais
+    # vantajoso do que as deduções legais [quando] o valor... for maior");
+    # decidir pelo IMPOSTO FINAL (como a versão anterior fazia) podia
+    # escolher a forma de MENOR dedução em alguns casos de fronteira da
+    # redução — a auditoria da rodada 1 mediu isso (achado M-1). Empate:
+    # fica com o SIMPLIFICADO, por dispensar comprovação — texto de
+    # `criterio_escolha_forma` gerado NO MESMO PONTO da escolha (item 7,
+    # acréscimo do arquiteto-senior).
+    if desconto_simplificado == deducoes_reais_total:
         forma_escolhida = "simplificado"
         pipeline_escolhido = pipeline_simplificado
         deducao_escolhida_valor = desconto_simplificado
+        criterio_escolha_forma = (
+            "Deduções iguais: aplicado o desconto simplificado, que dispensa comprovação."
+        )
+    elif desconto_simplificado > deducoes_reais_total:
+        forma_escolhida = "simplificado"
+        pipeline_escolhido = pipeline_simplificado
+        deducao_escolhida_valor = desconto_simplificado
+        criterio_escolha_forma = (
+            "Aplicada a forma com maior dedução: desconto simplificado "
+            f"({_fmt_reais(desconto_simplificado)}) contra deduções reais "
+            f"({_fmt_reais(deducoes_reais_total)})."
+        )
     else:
         forma_escolhida = "real"
         pipeline_escolhido = pipeline_real
         deducao_escolhida_valor = deducoes_reais_total
+        criterio_escolha_forma = (
+            "Aplicada a forma com maior dedução: deduções reais "
+            f"({_fmt_reais(deducoes_reais_total)}) contra desconto simplificado "
+            f"({_fmt_reais(desconto_simplificado)})."
+        )
 
-    limite_exterior = _limite_compensacao_exterior(
+    imposto_com_exterior = pipeline_escolhido["imposto_apos_reducao"]
+    imposto_sem_exterior = _imposto_sem_rendimento_exterior(
         rendimento_total,
         agregados["rendimento_exterior_sujeito"],
         deducao_escolhida_valor,
         faixas,
         reducao_cfg,
     )
-    credito_exterior_disponivel = _q(
-        agregados["imposto_pago_exterior"] + saldo_credito_exterior_anterior
-    )
-    compensacao_exterior = max(
-        _ZERO,
-        min(
-            credito_exterior_disponivel, limite_exterior, pipeline_escolhido["imposto_apos_reducao"]
-        ),
-    )
+    limite_exterior = _q(max(_ZERO, imposto_com_exterior - imposto_sem_exterior))
+
+    # DE-091 item 3 (M-3) — leitura LITERAL da P&R IRPF 2026, pergunta 267:
+    # só a parte do pagamento do MÊS que cabe dentro do limite do mês entra
+    # no crédito disponível; o que passa do limite NUNCA compensa nem
+    # carrega (perdido para o carnê-leão — só aproveitável na declaração
+    # anual, fora do escopo). O saldo de meses ANTERIORES (já filtrado pelo
+    # limite deles, no passado) soma-se inteiro.
+    parte_compensavel_do_mes = min(agregados["imposto_pago_exterior"], limite_exterior)
+    credito_exterior_disponivel = _q(parte_compensavel_do_mes + saldo_credito_exterior_anterior)
+    compensacao_exterior = max(_ZERO, min(credito_exterior_disponivel, imposto_com_exterior))
     saldo_credito_exterior_novo = _q(credito_exterior_disponivel - compensacao_exterior)
     if mes == 12:
         saldo_credito_exterior_novo = _ZERO
 
-    imposto_devido_no_mes = _q(pipeline_escolhido["imposto_apos_reducao"] - compensacao_exterior)
+    imposto_devido_no_mes = _q(imposto_com_exterior - compensacao_exterior)
 
     # RIR/2018, art. 938, §§ 4º e 5º (Lei 9.430/1996, art. 68): DARF de
     # imposto sobre a renda abaixo de R$ 10,00 é vedado e o valor soma aos
@@ -375,15 +617,33 @@ def _apurar_um_mes(
         valor_a_pagar = total_a_considerar
         saldo_pendente_novo = _ZERO
 
+    # DE-091 item 4 (M-4): alerta para mês com rendimento líquido (rendimento
+    # sujeito menos a dedução ESCOLHIDA) negativo — a base de cálculo real
+    # (`_pipeline`) já zera nesse caso, mas o alerta avisa a tela de que a
+    # dedução superou o rendimento do mês.
+    rendimento_liquido_do_mes = _q(rendimento_total - deducao_escolhida_valor)
+    alertas = []
+    if rendimento_liquido_do_mes < 0:
+        alertas.append(
+            "O rendimento líquido do mês (rendimento sujeito menos a dedução "
+            f"aplicada) foi negativo ({_fmt_reais(rendimento_liquido_do_mes)}) — a "
+            "base de cálculo foi zerada; o excedente da dedução NÃO é levado a "
+            "outro mês (fora do livro-caixa, que já tem seu próprio excesso)."
+        )
+
     return {
         "ano": ano,
         "mes": mes,
+        "vencimento": _vencimento_do_mes(ano, mes),
         "rendimento_total_sujeito": _q(rendimento_total),
-        "rendimento_trabalho_nao_assalariado": _q(rendimento_trabalho),
+        "rendimento_trabalho_base": _q(agregados["rendimento_trabalho_base"]),
+        "rendimento_notarial_base": _q(agregados["rendimento_notarial_base"]),
+        "rendimentos": _rendimentos_detalhados(agregados["por_codigo_origem"]),
         "previdencia_oficial": _q(agregados["previdencia_oficial"]),
         "pensao_alimenticia_paga": _q(agregados["pensao_paga"]),
         "dependentes_quantidade": quantidade_dependentes,
         "dependentes_valor": dependentes_valor,
+        "receita_atividade_limite_livro_caixa": _q(agregados["receita_atividade_limite"]),
         "despesa_livro_caixa_do_mes": _q(agregados["despesa_p10"]),
         "excesso_livro_caixa_anterior": _q(excesso_livro_caixa_anterior),
         "deducao_livro_caixa_aplicada": _q(deducao_livro_caixa),
@@ -391,12 +651,15 @@ def _apurar_um_mes(
         "deducoes_reais_total": deducoes_reais_total,
         "desconto_simplificado": desconto_simplificado,
         "forma_escolhida": forma_escolhida,
+        "criterio_escolha_forma": criterio_escolha_forma,
         "memoria_deducoes_reais": pipeline_real,
         "memoria_desconto_simplificado": pipeline_simplificado,
         "base_de_calculo": pipeline_escolhido["base"],
         "imposto_pela_tabela": pipeline_escolhido["imposto_tabela"],
         "reducao_lei_15270_2025": pipeline_escolhido["reducao_aplicada"],
         "imposto_apos_reducao": pipeline_escolhido["imposto_apos_reducao"],
+        "imposto_com_exterior": _q(imposto_com_exterior),
+        "imposto_sem_exterior": _q(imposto_sem_exterior),
         "imposto_pago_exterior_do_mes": _q(agregados["imposto_pago_exterior"]),
         "limite_compensacao_exterior": limite_exterior,
         "compensacao_exterior_aplicada": compensacao_exterior,
@@ -405,6 +668,7 @@ def _apurar_um_mes(
         "saldo_pendente_abaixo_de_dez_anterior": _q(saldo_pendente_abaixo_de_dez_anterior),
         "valor_a_pagar": valor_a_pagar,
         "saldo_pendente_abaixo_de_dez_novo": saldo_pendente_novo,
+        "alertas": alertas,
         "codigo_darf": "0190",
     }
 
@@ -453,6 +717,9 @@ def _dependentes_por_mes(empresa, ano, mes_final):
     return resultado
 
 
+_PRIMEIRO_ANO_COM_TABELA = 2025
+
+
 def _apurar_ano_calendario(*, empresa, ano, mes_final):
     """Recalcula, do zero, janeiro a `mes_final` do `ano` pedido —
     NUNCA lê nem grava resultado (RC-130). Assume que quem CHAMA já
@@ -461,6 +728,14 @@ def _apurar_ano_calendario(*, empresa, ano, mes_final):
     as views deste app aplicam essa verificação via
     `EmpresaEscopadaLivroCaixaMixin`/`PodeLerLivroCaixa`.
     """
+    if ano < _PRIMEIRO_ANO_COM_TABELA:
+        raise TabelaCarneLeaoNaoConfigurada(
+            f"A apuração do carnê-leão está implementada a partir do "
+            f"ano-calendário de {_PRIMEIRO_ANO_COM_TABELA} — {ano} está fora do "
+            "escopo desta funcionalidade (nenhuma tabela progressiva foi "
+            f"semeada para anos anteriores a {_PRIMEIRO_ANO_COM_TABELA})."
+        )
+
     ultimo_dia_do_mes_final = calendar.monthrange(ano, mes_final)[1]
     referencia_final = date(ano, mes_final, ultimo_dia_do_mes_final)
 
@@ -494,15 +769,15 @@ def _apurar_ano_calendario(*, empresa, ano, mes_final):
     for mes in range(1, mes_final + 1):
         referencia = date(ano, mes, 1)
         vig_tabela = _maior_vigencia_nao_posterior(vigencias_tabela, referencia)
+        # DE-091 item 5 (M-5): vig_reducao PODE ser `None` para qualquer mês
+        # de 2025 — ausência LEGÍTIMA (Lei 15.270/2025, art. 8º: "a partir
+        # do mês de janeiro do ano-calendário de 2026"), nunca erro. Ver
+        # `_reducao_bruta`.
         vig_reducao = _maior_vigencia_nao_posterior(vigencias_reducao, referencia)
         vig_dependente = _maior_vigencia_nao_posterior(vigencias_dependente, referencia)
         if vig_tabela is None or not list(vig_tabela.faixas.all()):
             raise TabelaCarneLeaoNaoConfigurada(
                 f"Não há tabela progressiva do carnê-leão vigente para {mes:02d}/{ano}."
-            )
-        if vig_reducao is None:
-            raise TabelaCarneLeaoNaoConfigurada(
-                f"Não há redução do carnê-leão (Lei 15.270/2025) vigente para {mes:02d}/{ano}."
             )
         if vig_dependente is None:
             raise TabelaCarneLeaoNaoConfigurada(
@@ -517,12 +792,16 @@ def _apurar_ano_calendario(*, empresa, ano, mes_final):
             valor_por_dependente=vig_dependente.valor_por_dependente,
             faixas=list(vig_tabela.faixas.all()),
             reducao_cfg=vig_reducao,
+            percentual_desconto_simplificado=vig_tabela.percentual_desconto_simplificado,
+            vigencia_tabela_inicio=vig_tabela.vigencia_inicio,
             excesso_livro_caixa_anterior=excesso_livro_caixa,
             saldo_credito_exterior_anterior=saldo_credito_exterior,
             saldo_pendente_abaixo_de_dez_anterior=saldo_pendente,
         )
         resultado_mes["tabela_vigencia_inicio"] = vig_tabela.vigencia_inicio
-        resultado_mes["reducao_vigencia_inicio"] = vig_reducao.vigencia_inicio
+        resultado_mes["reducao_vigencia_inicio"] = (
+            vig_reducao.vigencia_inicio if vig_reducao is not None else None
+        )
         resultado_mes["dependente_vigencia_inicio"] = vig_dependente.vigencia_inicio
         meses.append(resultado_mes)
 
@@ -555,10 +834,62 @@ def apurar_carne_leao_mensal(*, empresa, ano, mes):
     return resultado["meses"][-1]
 
 
+_CAMPOS_TOTAIS_ANUAIS = (
+    "rendimento_bruto",
+    "deducoes_aplicadas",
+    "base",
+    "imposto_tabela",
+    "reducao_aplicada",
+    "compensacao_exterior",
+    "imposto_devido",
+    "valor_a_pagar",
+)
+
+# Cada nome de `_CAMPOS_TOTAIS_ANUAIS` (contrato da API, item 7/M-2 da
+# DE-091) mapeado para a chave correspondente no dict de UM mês
+# (`_apurar_um_mes`) — nomes DIFERENTES de propósito: o nome anual é da
+# DECLARAÇÃO (rendimento bruto, base, imposto devido); o nome mensal é do
+# MOTOR (rendimento_total_sujeito, base_de_calculo, imposto_devido_no_mes).
+_CAMPO_ANUAL_PARA_CAMPO_MENSAL = {
+    "rendimento_bruto": "rendimento_total_sujeito",
+    "deducoes_aplicadas": None,  # ver abaixo — depende da forma escolhida
+    "base": "base_de_calculo",
+    "imposto_tabela": "imposto_pela_tabela",
+    "reducao_aplicada": "reducao_lei_15270_2025",
+    "compensacao_exterior": "compensacao_exterior_aplicada",
+    "imposto_devido": "imposto_devido_no_mes",
+    "valor_a_pagar": "valor_a_pagar",
+}
+
+
+def _deducao_aplicada_do_mes(mes_resultado):
+    if mes_resultado["forma_escolhida"] == "simplificado":
+        return mes_resultado["desconto_simplificado"]
+    return mes_resultado["deducoes_reais_total"]
+
+
+def _totais_anuais(meses):
+    """Soma EXATA dos 12 meses para cada um dos 8 campos do contrato da API
+    (DE-091 item 7/M-2) — `Decimal` somado direto (sem novo arredondamento:
+    cada parcela mensal já passou por `_q`, e soma de valores já
+    arredondados a 2 casas não introduz erro de escala)."""
+    totais = dict.fromkeys(_CAMPOS_TOTAIS_ANUAIS, _ZERO)
+    for mes_resultado in meses:
+        for campo_anual in _CAMPOS_TOTAIS_ANUAIS:
+            if campo_anual == "deducoes_aplicadas":
+                totais[campo_anual] += _deducao_aplicada_do_mes(mes_resultado)
+            else:
+                totais[campo_anual] += mes_resultado[_CAMPO_ANUAL_PARA_CAMPO_MENSAL[campo_anual]]
+    return {campo: _q(valor) for campo, valor in totais.items()}
+
+
 def apurar_carne_leao_anual(*, empresa, ano):
     """Demonstrativo anual: os 12 meses do ano-calendário, cada um com a
-    mesma estrutura de `apurar_carne_leao_mensal`."""
-    return _sob_snapshot(_apurar_ano_calendario, empresa=empresa, ano=ano, mes_final=12)
+    mesma estrutura de `apurar_carne_leao_mensal`, mais `totais` — a soma
+    EXATA dos 12 meses dos 8 campos do contrato da API (DE-091 item 7/M-2)."""
+    resultado = _sob_snapshot(_apurar_ano_calendario, empresa=empresa, ano=ano, mes_final=12)
+    resultado["totais"] = _totais_anuais(resultado["meses"])
+    return resultado
 
 
 def registrar_dependentes_carne_leao(
@@ -604,6 +935,47 @@ def registrar_dependentes_carne_leao(
                 "empresa_id": empresa.id,
                 "quantidade": quantidade,
                 "competencia_inicio": competencia_inicio.isoformat(),
+            },
+        )
+    return registro
+
+
+def retificar_dependentes_carne_leao(registro, *, quantidade, retificado_por=None, request=None):
+    """DE-091 item 6 (M-6): corrige a QUANTIDADE de um registro já
+    existente de dependentes — nunca um novo registro concorrente com a
+    MESMA `competencia_inicio` (a `UniqueConstraint` já recusaria isso; a
+    correção é sempre sobre o registro existente). Trilha de auditoria com
+    o valor ANTES e DEPOIS — mesmo espírito de RC-130 (nunca edição
+    silenciosa), aplicado por analogia: `DependentesCarneLeaoCliente` não é
+    um lançamento efetivado, mas alimenta diretamente o cálculo do
+    carnê-leão, então a correção precisa do MESMO tipo de rastro.
+
+    `registro` já isolado por empresa por QUEM CHAMA (mesmo padrão de
+    `EstornarLancamentoCaixaView`: a view busca o objeto com
+    `get_object_or_404(..., empresa=empresa)` ANTES de chamar o serviço — um
+    `registro` de OUTRA empresa/escritório já vira 404 na view, antes de
+    chegar aqui)."""
+    with transaction.atomic():
+        registro = DependentesCarneLeaoCliente.objects.select_for_update().get(pk=registro.pk)
+
+        quantidade_anterior = registro.quantidade
+        registro.quantidade = quantidade
+        try:
+            registro.full_clean()
+        except DjangoValidationError as exc:
+            raise DependentesCarneLeaoInvalido("; ".join(exc.messages)) from exc
+        registro.save(update_fields=["quantidade"])
+        registrar(
+            acao="dependentes_carne_leao.retificado",
+            usuario=retificado_por,
+            escritorio=registro.empresa.escritorio,
+            objeto=registro,
+            request=request,
+            detalhes={
+                "empresa_id": registro.empresa_id,
+                "competencia_inicio": registro.competencia_inicio.isoformat(),
+                "quantidade_anterior": quantidade_anterior,
+                "quantidade_nova": quantidade,
             },
         )
     return registro

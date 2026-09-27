@@ -35,19 +35,24 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.livro_caixa.carne_leao import (
     DependentesCarneLeaoInvalido,
+    ImpostoExteriorSemRendimentoExterior,
     TabelaCarneLeaoNaoConfigurada,
     _agregados_do_mes,
+    _apurar_um_mes,
     _imposto_pela_tabela,
     _pipeline,
     _reducao_bruta,
     apurar_carne_leao_anual,
     apurar_carne_leao_mensal,
     registrar_dependentes_carne_leao,
+    retificar_dependentes_carne_leao,
 )
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
@@ -98,45 +103,16 @@ def cenario():
         modo_escrituracao=ModoEscrituracao.CONTABILIDADE,
     )
 
-    # A tabela/redução SEMEADAS pela migração 0004 só cobrem a partir de
-    # 2025-05-01/2026-01-01 (RC-131) — mas `criar_lancamento_caixa` recusa
-    # data futura além de "hoje + 30 dias" (RC-77), e a apuração sempre
-    # recalcula de JANEIRO do ano pedido. Testar um ano-calendário INTEIRO
-    # (inclusive dezembro) exige um ano inteiramente no PASSADO com
-    # vigência cobrindo os 12 meses — por isso esta vigência SINTÉTICA de
-    # teste, com os MESMOS valores confirmados de RC-131 (nunca inventados;
-    # só a DATA de início é fictícia, para o teste caber num ano seguro),
-    # cobrindo desde 2024-01-01. Os testes deste arquivo usam o ano-
-    # calendário de 2024/2025 (passado), nunca "hoje".
-    vigencia_tabela_teste = VigenciaTabelaProgressivaCarneLeao.objects.create(
-        vigencia_inicio=date(2024, 1, 1),
-        fonte="Vigência sintética de TESTE, valores idênticos a RC-131 (só a data é fictícia).",
-    )
-    for ordem, limite_inferior, limite_superior, aliquota, parcela in [
-        (1, Decimal("0.00"), Decimal("2428.80"), Decimal("0.0000"), Decimal("0.00")),
-        (2, Decimal("2428.81"), Decimal("2826.65"), Decimal("0.0750"), Decimal("182.16")),
-        (3, Decimal("2826.66"), Decimal("3751.05"), Decimal("0.1500"), Decimal("394.16")),
-        (4, Decimal("3751.06"), Decimal("4664.68"), Decimal("0.2250"), Decimal("675.49")),
-        (5, Decimal("4664.69"), None, Decimal("0.2750"), Decimal("908.73")),
-    ]:
-        FaixaTabelaProgressivaCarneLeao.objects.create(
-            vigencia=vigencia_tabela_teste,
-            ordem=ordem,
-            limite_inferior=limite_inferior,
-            limite_superior=limite_superior,
-            aliquota=aliquota,
-            parcela_a_deduzir=parcela,
-        )
-    VigenciaReducaoCarneLeao.objects.create(
-        vigencia_inicio=date(2024, 1, 1),
-        fonte="Vigência sintética de TESTE, valores idênticos a RC-131 (só a data é fictícia).",
-        limite_faixa_plena=Decimal("5000.00"),
-        reducao_maxima=Decimal("312.89"),
-        constante_formula=Decimal("978.62"),
-        coeficiente=Decimal("0.133145"),
-        limite_superior=Decimal("7350.00"),
-    )
-
+    # DE-091 item 5 (M-5, correção da rodada 1 da auditoria): ano < 2025
+    # passou a ser explicitamente fora do escopo — este arquivo já não
+    # pode mais testar um ano-calendário fictício de teste com vigência
+    # SINTÉTICA "de propósito no passado" (a versão anterior usava
+    # 2024/2025). Em vez de recriar valores que já existem, os testes
+    # abaixo usam as vigências REAIS semeadas pela migração 0004/0006
+    # (tabela desde 2025-05-01, redução desde 2026-01-01, ambas com os
+    # MESMOS valores que esta fixture antes recriava "sinteticamente") —
+    # cada teste escolhe um mês seguro (não futuro em relação a "hoje",
+    # RC-77) dentro de 2025/2026, documentado caso a caso.
     conta_trabalho = ContaLivroCaixa.objects.create(
         empresa=empresa_a,
         codigo="RT",
@@ -295,6 +271,11 @@ def test_reducao_por_faixa_do_rendimento_bruto(faixas, reducao_cfg):
       (bruto do Exemplo 5 oficial da Receita).
     """
     assert _reducao_bruta(Decimal("4000.00"), reducao_cfg) == Decimal("312.89")
+    # A2 (auditoria, mutante da fronteira de R$ 5.000,00, `<=` → `<`):
+    # exatamente R$ 5.000,00 ainda está na faixa PLENA (redução 312,89) —
+    # se a fronteira virasse `<`, cairia na faixa linear e daria 312,895 →
+    # 312,90 (arredondado), um valor DIFERENTE que provaria o mutante.
+    assert _reducao_bruta(Decimal("5000.00"), reducao_cfg) == Decimal("312.89")
     assert _reducao_bruta(Decimal("6000.00"), reducao_cfg) == Decimal("179.75")
     assert _reducao_bruta(Decimal("7350.00"), reducao_cfg) == Decimal("0.00")
     assert _reducao_bruta(Decimal("7350.01"), reducao_cfg) == Decimal("0.00")
@@ -317,6 +298,15 @@ def test_centavos_nao_se_perdem(faixas):
     # 2826,65 (último centavo da faixa de 7,5%):
     # 2826,65×0,075−182,16 = 211,99875−182,16 = 29,83875 → 29,84
     assert _imposto_pela_tabela(Decimal("2826.65"), faixas) == Decimal("29.84")
+
+
+def test_aud_a17_arredondamento_meio_centavo_e_meio_para_cima(faixas):
+    """A17 (auditoria, mutante do arredondamento ABNT/meio-par): 2.826,70 ×
+    15% − 394,16 = 424,005 − 394,16 = 29,845 → MEIO_PARA_CIMA arredonda
+    para 29,85 (HI-36). Arredondamento "meio para o par" (ABNT NBR 5891)
+    arredondaria para 29,84 (o algarismo anterior, 4, já é par) — valor
+    DIFERENTE, prova de que a política é MEIO_PARA_CIMA, nunca a outra."""
+    assert _imposto_pela_tabela(Decimal("2826.70"), faixas) == Decimal("29.85")
 
 
 # ---------------------------------------------------------------------------
@@ -485,16 +475,16 @@ def test_excesso_de_livro_caixa_carregado_ao_mes_seguinte(cenario):
     empresa = cenario["empresa_a"]
     # Janeiro: R$ 1.000,00 de trabalho não assalariado, R$ 2.500,00 de
     # despesa dedutível — excesso de R$ 1.500,00 sobre a receita do mês.
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 1, 10), "1000.00")
-    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2024, 1, 15), "2500.00")
-    resultado_jan = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=1)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "1000.00")
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2026, 1, 15), "2500.00")
+    resultado_jan = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
     assert resultado_jan["deducao_livro_caixa_aplicada"] == Decimal("1000.00")
     assert resultado_jan["excesso_livro_caixa_novo"] == Decimal("1500.00")
 
     # Fevereiro: mais R$ 1.000,00 de trabalho, sem despesa nova — o excesso
     # de janeiro (R$ 1.500,00) some aplicado contra a receita de fevereiro.
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 2, 10), "1000.00")
-    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=2)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "1000.00")
+    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
     assert resultado_fev["excesso_livro_caixa_anterior"] == Decimal("1500.00")
     # disponível = 0 (sem despesa nova) + 1500 anterior = 1500; limitado à
     # receita do mês (1000) -> dedução = 1000; excesso novo = 500.
@@ -504,42 +494,82 @@ def test_excesso_de_livro_caixa_carregado_ao_mes_seguinte(cenario):
 
 
 def test_excesso_de_dezembro_nao_passa_para_janeiro(cenario):
+    # DE-091 item 5 (M-5, correção da rodada 1): dezembro/2025 usa a tabela
+    # REAL vigente desde 2025-05-01 (RC-131), SEM redução (legítima
+    # ausência, Lei 15.270/2025 só produz efeito a partir de janeiro/2026);
+    # janeiro/2026 já tem a redução REAL (2026-01-01). Datas escolhidas
+    # para ficarem SEMPRE no passado em relação a "hoje" (RC-77).
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 12, 5), "1000.00")
-    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2024, 12, 10), "3000.00")
-    resultado_dez = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=12)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 12, 5), "1000.00")
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2025, 12, 10), "3000.00")
+    resultado_dez = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=12)
     # Disponível = 3000; limitado à receita (1000); dedução = 1000; excesso
     # SERIA 2000, mas dezembro ZERA (art. 69, §1º, RIR/2018) — nunca passa
     # ao ano seguinte.
     assert resultado_dez["deducao_livro_caixa_aplicada"] == Decimal("1000.00")
     assert resultado_dez["excesso_livro_caixa_novo"] == Decimal("0.00")
 
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 1, 5), "1000.00")
-    resultado_jan_2025 = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=1)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 5), "1000.00")
+    resultado_jan_2025 = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
     assert resultado_jan_2025["excesso_livro_caixa_anterior"] == Decimal("0.00")
-    assert resultado_jan_2025["base_de_calculo"] == Decimal("1000.00")
+    # DE-091 item 2 (M-1, correção da rodada 1): sem despesa de livro-caixa
+    # em janeiro/2025, a dedução REAL é R$ 0,00 e o desconto simplificado é
+    # R$ 607,20 — o desconto simplificado é MAIOR, então vence pelo novo
+    # critério (maior dedução, antes da redução), mesmo os DOIS produzindo
+    # imposto ZERO depois da redução (a versão anterior comparava só o
+    # imposto final e, no empate, ficava com "real" — achado M-1 da
+    # auditoria da rodada 1; os dois testes que fixavam esse desempate
+    # foram corrigidos, este é um deles).
+    assert resultado_jan_2025["forma_escolhida"] == "simplificado"
+    assert resultado_jan_2025["base_de_calculo"] == Decimal("392.80")  # 1000,00 − 607,20
+    assert resultado_jan_2025["imposto_apos_reducao"] == Decimal("0.00")
+    assert resultado_jan_2025["criterio_escolha_forma"] == (
+        "Aplicada a forma com maior dedução: desconto simplificado "
+        "(R$ 607,20) contra deduções reais (R$ 0,00)."
+    )
 
 
 def test_dependentes_reduzem_a_base(cenario):
     empresa = cenario["empresa_a"]
+    # DE-091 item 2 (M-1, correção da rodada 1): a forma é escolhida pela
+    # MAIOR DEDUÇÃO — com só 2 dependentes (R$ 379,18) a dedução real seria
+    # MENOR que o desconto simplificado (R$ 607,20) e o simplificado
+    # venceria, mascarando o efeito da dedução de dependentes na BASE. Com
+    # 4 dependentes (R$ 758,36 > R$ 607,20), a dedução real continua sendo
+    # a MAIOR, e o teste continua provando o que se propõe: dependentes
+    # reduzem a base quando a forma real é a escolhida.
     registrar_dependentes_carne_leao(
-        empresa=empresa, quantidade=2, competencia_inicio=date(2024, 1, 1)
+        empresa=empresa, quantidade=4, competencia_inicio=date(2026, 1, 1)
     )
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 3, 10), "3000.00")
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=3)
-    # 2 dependentes × R$ 189,59 = R$ 379,18.
-    assert resultado["dependentes_valor"] == Decimal("379.18")
-    assert resultado["base_de_calculo"] == Decimal("2620.82")  # 3000,00 - 379,18
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    # 4 dependentes × R$ 189,59 = R$ 758,36.
+    assert resultado["dependentes_valor"] == Decimal("758.36")
+    assert resultado["forma_escolhida"] == "real"
+    assert resultado["base_de_calculo"] == Decimal("2241.64")  # 3000,00 - 758,36
 
 
 def test_dependentes_vigencia_mensal_nao_retroage(cenario):
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 2, 10), "3000.00")
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "3000.00")
     registrar_dependentes_carne_leao(
-        empresa=empresa, quantidade=1, competencia_inicio=date(2024, 3, 1)
+        empresa=empresa, quantidade=1, competencia_inicio=date(2026, 3, 1)
     )
-    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=2)
+    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
     assert resultado_fev["dependentes_quantidade"] == 0
+
+
+def test_aud_a11_dependentes_valem_desde_o_proprio_mes_de_vigencia(cenario):
+    """A11 (auditoria, mutante "dependentes entram um mês depois"): uma
+    vigência com `competencia_inicio` no PRÓPRIO mês pedido já vale NAQUELE
+    mês — nunca só a partir do mês seguinte."""
+    empresa = cenario["empresa_a"]
+    registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=2, competencia_inicio=date(2026, 3, 1)
+    )
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "1000.00")
+    resultado_marco = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    assert resultado_marco["dependentes_quantidade"] == 2
 
 
 def test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais(cenario):
@@ -552,8 +582,8 @@ def test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais(cenario)
     #   -> imposto tabela 574,29 -> redução 179,75 (MESMO bruto 6000,00,
     #   não a base 5.392,80) -> imposto após redução 394,54 —
     #   ESTRITAMENTE menor que 561,52: simplificado vence.
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 4, 10), "6000.00")
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=4)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 4, 10), "6000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=4)
     assert resultado["desconto_simplificado"] == Decimal("607.20")
     assert resultado["memoria_deducoes_reais"]["reducao_aplicada"] == Decimal("179.75")
     assert resultado["memoria_deducoes_reais"]["imposto_apos_reducao"] == Decimal("561.52")
@@ -566,9 +596,9 @@ def test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais(cenario)
 
 def test_deducoes_reais_mais_beneficio_quando_maiores_que_o_simplificado(cenario):
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 5, 10), "3000.00")
-    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2024, 5, 12), "2000.00")
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=5)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 5, 10), "3000.00")
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2026, 5, 12), "2000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=5)
     assert resultado["deducoes_reais_total"] == Decimal("2000.00")
     assert resultado["forma_escolhida"] == "real"
     assert resultado["base_de_calculo"] == Decimal("1000.00")  # 3000 - 2000, melhor que 3000-607.20
@@ -578,10 +608,10 @@ def test_valor_abaixo_de_dez_reais_acumula_para_o_mes_seguinte(cenario):
     empresa = cenario["empresa_a"]
     # Rendimento pequeno todo mês: base pequena o bastante para o imposto
     # devido, mês a mês, ficar abaixo de R$ 10,00.
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 1, 10), "2826.70")
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 2, 10), "2826.70")
-    resultado_jan = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=1)
-    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=2)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "2826.70")
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "2826.70")
+    resultado_jan = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
+    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
     assert resultado_jan["imposto_devido_no_mes"] < Decimal("10.00")
     assert resultado_jan["valor_a_pagar"] == Decimal("0.00")
     assert (
@@ -608,7 +638,7 @@ def test_compensacao_do_imposto_pago_no_exterior(cenario):
     lancamento_exterior = criar_lancamento_caixa(
         empresa=empresa,
         conta=cenario["conta_aluguel"],
-        data=date(2024, 6, 10),
+        data=date(2026, 6, 10),
         valor="6000.00",
         historico="Aluguel do exterior",
         recebido_de=OrigemRecebimento.EX,
@@ -617,11 +647,11 @@ def test_compensacao_do_imposto_pago_no_exterior(cenario):
     _lancar_despesa(
         empresa,
         cenario["conta_imposto_exterior"],
-        date(2024, 6, 10),
+        date(2026, 6, 10),
         "50.00",
         "Imposto pago no exterior",
     )
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=6)
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
     assert resultado["limite_compensacao_exterior"] > Decimal("0.00")
     assert resultado["compensacao_exterior_aplicada"] == Decimal("50.00")
     assert resultado["imposto_devido_no_mes"] == (
@@ -634,14 +664,14 @@ def test_rendimento_de_pessoa_juridica_nao_entra_na_base_do_trabalho_nao_assalar
     lancamento = criar_lancamento_caixa(
         empresa=empresa,
         conta=cenario["conta_trabalho"],
-        data=date(2024, 7, 10),
+        data=date(2026, 7, 10),
         valor="5000.00",
         historico="Honorários de pessoa jurídica",
         recebido_de=OrigemRecebimento.PJ,
         cnpj_pagador="11222333000181",
     )
     assert lancamento.recebido_de == "PJ"
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=7)
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=7)
     assert resultado["rendimento_total_sujeito"] == Decimal("0.00")
 
 
@@ -650,12 +680,12 @@ def test_pensao_alimenticia_recebida_e_imune_ao_carne_leao(cenario):
     criar_lancamento_caixa(
         empresa=empresa,
         conta=cenario["conta_pensao_recebida"],
-        data=date(2024, 7, 15),
+        data=date(2026, 7, 15),
         valor="2000.00",
         historico="Pensão alimentícia recebida",
         recebido_de=OrigemRecebimento.PF,
     )
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=7)
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=7)
     assert resultado["rendimento_total_sujeito"] == Decimal("0.00")
 
 
@@ -664,13 +694,13 @@ def test_rendimento_notarial_de_pessoa_juridica_entra_na_base(cenario):
     criar_lancamento_caixa(
         empresa=empresa,
         conta=cenario["conta_notarial"],
-        data=date(2024, 8, 10),
+        data=date(2026, 8, 10),
         valor="4000.00",
         historico="Emolumentos pagos por pessoa jurídica",
         recebido_de=OrigemRecebimento.PJ,
         cnpj_pagador="11222333000181",
     )
-    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=8)
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=8)
     assert resultado["rendimento_total_sujeito"] == Decimal("4000.00")
 
 
@@ -680,7 +710,9 @@ def test_rendimento_notarial_de_pessoa_juridica_entra_na_base(cenario):
 
 def _criar_vigencia_tabela_diferente(vigencia_inicio):
     vigencia = VigenciaTabelaProgressivaCarneLeao.objects.create(
-        vigencia_inicio=vigencia_inicio, fonte="Vigência sintética de teste (critério 2)."
+        vigencia_inicio=vigencia_inicio,
+        fonte="Vigência sintética de teste (critério 2).",
+        percentual_desconto_simplificado=Decimal("0.25"),
     )
     FaixaTabelaProgressivaCarneLeao.objects.create(
         vigencia=vigencia,
@@ -703,18 +735,21 @@ def _criar_vigencia_tabela_diferente(vigencia_inicio):
 
 def test_troca_de_vigencia_nao_altera_apuracao_de_mes_anterior(cenario):
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 3, 10), "5000.00")
-    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=3)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "5000.00")
+    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
 
-    _criar_vigencia_tabela_diferente(date(2024, 6, 1))
+    _criar_vigencia_tabela_diferente(date(2026, 6, 1))
 
-    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=3)
+    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
     assert resultado_depois == resultado_antes
-    assert resultado_depois["tabela_vigencia_inicio"] == date(2024, 1, 1)
+    # Março/2026 usa a tabela REAL vigente desde 2025-05-01 (RC-131,
+    # "mantida em 2026") — não há vigência SINTÉTICA de teste nesta fatia
+    # (DE-091 item 5/M-5): as vigências REAIS já bastam.
+    assert resultado_depois["tabela_vigencia_inicio"] == date(2025, 5, 1)
 
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 6, 10), "5000.00")
-    resultado_junho = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=6)
-    assert resultado_junho["tabela_vigencia_inicio"] == date(2024, 6, 1)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "5000.00")
+    resultado_junho = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado_junho["tabela_vigencia_inicio"] == date(2026, 6, 1)
     # Tabela sintética: 5000,00 × 0,50 − 500,00 = 2000,00 — bem diferente
     # do que a tabela real produziria (466,27) — prova de que a vigência
     # NOVA é a que está sendo usada. Lido na memória de cálculo das
@@ -730,18 +765,18 @@ def test_troca_de_vigencia_nao_altera_apuracao_de_mes_anterior(cenario):
 def test_estorno_no_mes_original_reflete_no_encadeamento(cenario):
     empresa = cenario["empresa_a"]
     despesa = _lancar_despesa(
-        empresa, cenario["conta_despesa_dedutivel"], date(2024, 1, 10), "2000.00"
+        empresa, cenario["conta_despesa_dedutivel"], date(2026, 1, 10), "2000.00"
     )
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 3, 10), "500.00")
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "500.00")
 
-    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=3)
+    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
     assert resultado_antes["excesso_livro_caixa_anterior"] == Decimal("2000.00")
 
     # Correção rastreável: o mês original (janeiro) é REABERTO por
     # ESTORNO — nunca edição silenciosa (RC-130/AGENTS.md §10).
-    estornar_lancamento_caixa(despesa, data=date(2024, 1, 20))
+    estornar_lancamento_caixa(despesa, data=date(2026, 1, 20))
 
-    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=3)
+    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
     assert resultado_depois["excesso_livro_caixa_anterior"] == Decimal("0.00")
     assert resultado_depois != resultado_antes
 
@@ -754,7 +789,7 @@ def test_api_carne_leao_mensal_recusa_empresa_de_outro_escritorio(client, cenari
     _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio_a"], "admin-a")
     client.login(username="admin-a", password="senha-forte-123")
     url = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": cenario["empresa_b"].id})
-    resposta = client.get(url, {"ano": "2024", "mes": "3"})
+    resposta = client.get(url, {"ano": "2026", "mes": "3"})
     assert resposta.status_code == 404
 
 
@@ -764,7 +799,7 @@ def test_api_carne_leao_mensal_recusa_empresa_em_modo_contabilidade(client, cena
     url = reverse(
         "livro_caixa:carne-leao-mensal", kwargs={"empresa_id": cenario["empresa_contabilidade"].id}
     )
-    resposta = client.get(url, {"ano": "2024", "mes": "3"})
+    resposta = client.get(url, {"ano": "2026", "mes": "3"})
     assert resposta.status_code == 400
 
 
@@ -777,7 +812,7 @@ def test_api_carne_leao_mensal_recusa_papel_sem_permissao(client, cenario):
     )
     client.login(username="sem-vinculo", password="senha-forte-123")
     url = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": cenario["empresa_a"].id})
-    resposta = client.get(url, {"ano": "2024", "mes": "3"})
+    resposta = client.get(url, {"ano": "2026", "mes": "3"})
     assert resposta.status_code in (403, 404)
 
 
@@ -798,11 +833,11 @@ def test_api_carne_leao_mensal_isolamento_entre_empresas_do_mesmo_escritorio(cli
         natureza=NaturezaCaixa.RECEITA,
         codigo_carne_leao="R01.001.001",
     )
-    _lancar_trabalho(empresa_c, conta_c, date(2024, 3, 10), "9000.00")
-    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2024, 3, 10), "500.00")
+    _lancar_trabalho(empresa_c, conta_c, date(2026, 3, 10), "9000.00")
+    _lancar_trabalho(cenario["empresa_a"], cenario["conta_trabalho"], date(2026, 3, 10), "500.00")
 
     url = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": cenario["empresa_a"].id})
-    resposta = client.get(url, {"ano": "2024", "mes": "3"})
+    resposta = client.get(url, {"ano": "2026", "mes": "3"})
     assert resposta.status_code == 200
     assert resposta.json()["rendimento_total_sujeito"] == "500.00"
 
@@ -815,7 +850,7 @@ def test_api_dependentes_post_registra_e_isola_por_empresa(client, cenario):
     )
     resposta = client.post(
         url,
-        data=json.dumps({"quantidade": 3, "competencia_inicio": "2024-01-01"}),
+        data=json.dumps({"quantidade": 3, "competencia_inicio": "2026-01-01"}),
         content_type="application/json",
     )
     assert resposta.status_code == 201
@@ -838,7 +873,7 @@ def test_api_dependentes_post_recusa_empresa_em_modo_contabilidade(client, cenar
     )
     resposta = client.post(
         url,
-        data=json.dumps({"quantidade": 1, "competencia_inicio": "2024-01-01"}),
+        data=json.dumps({"quantidade": 1, "competencia_inicio": "2026-01-01"}),
         content_type="application/json",
     )
     assert resposta.status_code == 400
@@ -849,13 +884,13 @@ def test_servico_dependentes_recusa_modo_contabilidade(cenario):
         registrar_dependentes_carne_leao(
             empresa=cenario["empresa_contabilidade"],
             quantidade=1,
-            competencia_inicio=date(2024, 1, 1),
+            competencia_inicio=date(2026, 1, 1),
         )
 
 
 def test_modelo_dependentes_recusa_competencia_fora_do_primeiro_dia(cenario):
     registro = DependentesCarneLeaoCliente(
-        empresa=cenario["empresa_a"], quantidade=1, competencia_inicio=date(2024, 1, 15)
+        empresa=cenario["empresa_a"], quantidade=1, competencia_inicio=date(2026, 1, 15)
     )
     with pytest.raises(ValidationError):
         registro.full_clean()
@@ -872,7 +907,7 @@ def test_apuracao_falha_sem_tabela_vigente_configurada(cenario):
     VigenciaReducaoCarneLeao.objects.all().delete()
     VigenciaDependenteCarneLeao.objects.all().delete()
     with pytest.raises(TabelaCarneLeaoNaoConfigurada):
-        apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=1)
+        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
 
 
 def test_apuracao_le_valor_do_banco_nao_de_constante(cenario):
@@ -892,16 +927,16 @@ def test_apuracao_le_valor_do_banco_nao_de_constante(cenario):
     vencedora.)
     """
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 9, 10), "4800.00")
-    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=9)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 9, 10), "4800.00")
+    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
     assert resultado_antes["memoria_deducoes_reais"]["imposto_tabela"] == Decimal("411.27")
     assert resultado_antes["memoria_deducoes_reais"]["reducao_aplicada"] == Decimal("312.89")
 
-    VigenciaReducaoCarneLeao.objects.filter(vigencia_inicio=date(2024, 1, 1)).update(
+    VigenciaReducaoCarneLeao.objects.filter(vigencia_inicio=date(2026, 1, 1)).update(
         reducao_maxima=Decimal("999.99")
     )
 
-    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=9)
+    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
     assert resultado_depois["memoria_deducoes_reais"]["reducao_aplicada"] == Decimal("411.27")
     assert (
         resultado_depois["memoria_deducoes_reais"]["reducao_aplicada"]
@@ -911,8 +946,8 @@ def test_apuracao_le_valor_do_banco_nao_de_constante(cenario):
 
 def test_apuracao_anual_devolve_os_12_meses(cenario):
     empresa = cenario["empresa_a"]
-    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2024, 1, 10), "1000.00")
-    resultado = apurar_carne_leao_anual(empresa=empresa, ano=2024)
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "1000.00")
+    resultado = apurar_carne_leao_anual(empresa=empresa, ano=2026)
     assert len(resultado["meses"]) == 12
     assert [m["mes"] for m in resultado["meses"]] == list(range(1, 13))
 
@@ -939,3 +974,768 @@ def test_agregados_do_mes_estorno_tem_sinal_invertido():
     estorno = _LancamentoFake(conta, Decimal("500.00"), 1)
     agregados = _agregados_do_mes([original, estorno])
     assert agregados["rendimento_total_sujeito"] == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# 7. Correção da rodada 1 da auditoria da fatia 2 (DE-091) — casos
+# propostos pelo `auditor-qa` (docs/auditorias/2026-09-27-dl-046-fatia2-
+# rodada-1.md, seção 5) e os demais itens da decisão. Datas em 2025/2026
+# (nunca no futuro em relação a "hoje", RC-77); as vigências normativas
+# usadas são as REAIS (migrações 0004/0006), nunca sintéticas.
+
+
+def _lancar_notarial_pf(empresa, conta, data, valor):
+    return criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta,
+        data=data,
+        valor=valor,
+        historico="Emolumentos",
+        recebido_de=OrigemRecebimento.PF,
+        cpf_titular_pagamento="11144477735",
+    )
+
+
+def _lancar_trabalho_pj(empresa, conta, data, valor):
+    return criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta,
+        data=data,
+        valor=valor,
+        historico="Honorários de pessoa jurídica",
+        recebido_de=OrigemRecebimento.PJ,
+        cnpj_pagador="11222333000181",
+    )
+
+
+def test_aud_a1_notarial_livro_caixa(cenario):
+    """A-1 (ALTO, corrigido): o limite do livro-caixa soma a receita
+    NOTARIAL, não só a de trabalho não assalariado (P&R 427: "inclusive os
+    titulares de serviços notariais e de registro"). Caso do relatório:
+    notarial PF 20.000,00 + P10 12.000,00, jul/2026 → imposto 1.291,27
+    (base 8.000,00; 8.000×0,275−908,73=1.291,27, sem redução por bruto >
+    7.350)."""
+    empresa = cenario["empresa_a"]
+    _lancar_notarial_pf(empresa, cenario["conta_notarial"], date(2026, 7, 10), "20000.00")
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2026, 7, 15), "12000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=7)
+    assert resultado["deducao_livro_caixa_aplicada"] == Decimal("12000.00")
+    assert resultado["excesso_livro_caixa_novo"] == Decimal("0.00")
+    assert resultado["imposto_devido_no_mes"] == Decimal("1291.27")
+
+
+def test_aud_a2_pj_no_limite_do_livro_caixa(cenario):
+    """A-2 (ALTO, corrigido): receita de trabalho recebida de PJ NÃO
+    integra a base (RC-132), mas integra o LIMITE do livro-caixa (P&R 428:
+    "limitado ao valor da receita mensal recebida de pessoa física OU
+    JURÍDICA"). Caso do relatório: jan trabalho PJ 10.000 + P10 3.000 (sem
+    excesso, pois o limite de 10.000 cobre a despesa inteira, mas SEM
+    dedução real — a base do PJ não existe); fev trabalho PF 6.000, sem
+    despesa nova → simplificado, imposto 394,54 (mesmo cálculo de
+    `test_desconto_simplificado_mais_beneficio_quando_sem_deducoes_reais`,
+    com redução ativa em 2026)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho_pj(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "10000.00")
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2026, 1, 15), "3000.00")
+    resultado_jan = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
+    # O limite (10.000, PJ incluído) cobre a despesa (3.000) inteira — sem
+    # excesso — mas a BASE (rendimento sujeito) é 0,00 (PJ fora da base),
+    # então a dedução real aplicada também é 0,00 (min contra a base).
+    assert resultado_jan["deducao_livro_caixa_aplicada"] == Decimal("0.00")
+    assert resultado_jan["excesso_livro_caixa_novo"] == Decimal("0.00")
+
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "6000.00")
+    resultado_fev = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
+    assert resultado_fev["imposto_devido_no_mes"] == Decimal("394.54")
+
+
+def test_aud_a6_aluguel_nao_entra_no_limite_do_livro_caixa(cenario):
+    """A6 (mutante que sobreviveu à auditoria): aluguel (`R01.003.001`) NÃO
+    é receita de ATIVIDADE (trabalho/notarial) — não integra o limite do
+    livro-caixa. Aluguel PF 5.000,00 + P10 3.000,00 → dedução 0,00 (limite
+    de atividade é 0,00, já que não há trabalho nem notarial no mês)."""
+    empresa = cenario["empresa_a"]
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_aluguel"],
+        data=date(2026, 7, 10),
+        valor="5000.00",
+        historico="Aluguel recebido",
+        recebido_de=OrigemRecebimento.PF,
+    )
+    _lancar_despesa(empresa, cenario["conta_despesa_dedutivel"], date(2026, 7, 15), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=7)
+    assert resultado["deducao_livro_caixa_aplicada"] == Decimal("0.00")
+    assert resultado["excesso_livro_caixa_novo"] == Decimal("3000.00")
+
+
+# ---------------------------------------------------------------------------
+# 8. M-1 — forma escolhida pela MAIOR DEDUÇÃO, via ORM/API (sem `min()` no
+# teste), com os Exemplos 1 e 2 oficiais da Receita.
+
+
+def test_aud_exemplo1_forma_escolhida_via_orm(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "3036.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 1, 10), "257.73")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
+    assert resultado["forma_escolhida"] == "simplificado"
+    assert resultado["base_de_calculo"] == Decimal("2428.80")
+    assert resultado["imposto_apos_reducao"] == Decimal("0.00")
+    assert resultado["criterio_escolha_forma"] == (
+        "Aplicada a forma com maior dedução: desconto simplificado "
+        "(R$ 607,20) contra deduções reais (R$ 257,73)."
+    )
+
+
+def test_aud_exemplo2_forma_escolhida_via_orm(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 2, 10), "4000.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 2, 10), "373.41")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=2)
+    assert resultado["forma_escolhida"] == "simplificado"
+    assert resultado["base_de_calculo"] == Decimal("3392.80")
+    assert resultado["imposto_pela_tabela"] == Decimal("114.76")
+    assert resultado["imposto_apos_reducao"] == Decimal("0.00")
+
+
+def test_aud_criterio_escolha_forma_no_empate(faixas, reducao_cfg):
+    """Acréscimo do arquiteto-senior ao item 7: o texto de
+    `criterio_escolha_forma` MUDA com a forma escolhida — e no empate exato
+    entre as duas deduções, o texto é o de empate (nunca o de "maior
+    dedução"), com o simplificado vencendo (DE-091 item 2)."""
+    agregados = _agregados_do_mes([])
+    # Sem nenhuma dedução real (deducoes_reais_total == 0,00) e sem nenhum
+    # rendimento (desconto_simplificado também cai a 0,00 só se
+    # `rendimento_total` for 0 e a base ficar negativa não muda o VALOR do
+    # desconto, que é fixo pela faixa) — para um empate REAL, zeramos as
+    # duas deduções: chamando `_apurar_um_mes` com `faixas` cuja faixa
+    # zero tenha `limite_superior` tal que 25% dela seja exatamente 0,00
+    # não é prático; em vez disso, forçamos uma dedução REAL artificial
+    # (previdência) igual ao desconto simplificado (607,20).
+    agregados_com_previdencia = dict(agregados)
+    agregados_com_previdencia["previdencia_oficial"] = Decimal("607.20")
+    resultado = _apurar_um_mes(
+        ano=2026,
+        mes=3,
+        agregados=agregados_com_previdencia,
+        quantidade_dependentes=0,
+        valor_por_dependente=Decimal("189.59"),
+        faixas=faixas,
+        reducao_cfg=reducao_cfg,
+        percentual_desconto_simplificado=Decimal("0.25"),
+        vigencia_tabela_inicio=date(2025, 5, 1),
+        excesso_livro_caixa_anterior=Decimal("0.00"),
+        saldo_credito_exterior_anterior=Decimal("0.00"),
+        saldo_pendente_abaixo_de_dez_anterior=Decimal("0.00"),
+    )
+    assert resultado["deducoes_reais_total"] == Decimal("607.20")
+    assert resultado["desconto_simplificado"] == Decimal("607.20")
+    assert resultado["forma_escolhida"] == "simplificado"
+    assert resultado["criterio_escolha_forma"] == (
+        "Deduções iguais: aplicado o desconto simplificado, que dispensa comprovação."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. M-3/HI-38 — compensação do imposto pago no exterior (leitura literal)
+# e recusa por imposto exterior sem rendimento exterior no mês.
+
+
+def test_aud_exterior_limite(cenario):
+    """`exterior_limite` (seção 5 da auditoria): EX 3.000 + PF 6.000,
+    imposto pago no exterior 1.200,00 → limite 1.004,75 (diferença entre o
+    imposto COM e SEM o rendimento do exterior); devido 394,54; saldo do
+    crédito do exterior NOVO = 0,00 (DE-091 item 3 — instrução explícita do
+    arquiteto-senior: "saldo 0,00 quando o excedente é acima do limite" —
+    a parte que passa do limite, 195,25, nunca compensa nem carrega, é
+    simplesmente perdida para o carnê-leão)."""
+    empresa = cenario["empresa_a"]
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_aluguel"],
+        data=date(2026, 4, 10),
+        valor="3000.00",
+        historico="Aluguel do exterior",
+        recebido_de=OrigemRecebimento.EX,
+    )
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 4, 10), "6000.00")
+    _lancar_despesa(
+        empresa,
+        cenario["conta_imposto_exterior"],
+        date(2026, 4, 10),
+        "1200.00",
+        "Imposto pago no exterior",
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=4)
+    assert resultado["limite_compensacao_exterior"] == Decimal("1004.75")
+    assert resultado["imposto_devido_no_mes"] == Decimal("394.54")
+    assert resultado["compensacao_exterior_aplicada"] == Decimal("1004.75")
+    assert resultado["saldo_credito_exterior_novo"] == Decimal("0.00")
+    assert resultado["imposto_com_exterior"] == Decimal("1399.29")
+    assert resultado["imposto_sem_exterior"] == Decimal("394.54")
+
+
+def test_aud_a14_saldo_exterior_zera_em_dezembro(faixas, reducao_cfg):
+    """A14: o saldo de crédito do exterior de DEZEMBRO nunca passa a
+    janeiro (mesma regra do excesso de livro-caixa, HI-37/art. 69 § 1º
+    aplicado por analogia ao exterior, P&R 267 "Atenção").
+
+    ⚠️ Achado da correção: sob a definição LITERAL do limite (a diferença
+    entre o imposto COM e SEM o rendimento do exterior — P&R 267), o
+    crédito disponível de QUALQUER mês nunca EXCEDE o imposto daquele mês
+    (a diferença nunca é maior que o imposto "com"), então a apuração
+    real NUNCA produz naturalmente um saldo residual para testar a virada
+    do ano — o teste força um `saldo_credito_exterior_anterior` ARTIFICIAL
+    (nunca produzido pela apuração de verdade) para provar que a linha
+    defensiva `if mes == 12: ... = _ZERO` está lá e funciona, caso a
+    fórmula mude no futuro."""
+    resultado = _apurar_um_mes(
+        ano=2026,
+        mes=12,
+        agregados=_agregados_do_mes([]),
+        quantidade_dependentes=0,
+        valor_por_dependente=Decimal("189.59"),
+        faixas=faixas,
+        reducao_cfg=reducao_cfg,
+        percentual_desconto_simplificado=Decimal("0.25"),
+        vigencia_tabela_inicio=date(2025, 5, 1),
+        excesso_livro_caixa_anterior=Decimal("0.00"),
+        saldo_credito_exterior_anterior=Decimal("500.00"),
+        saldo_pendente_abaixo_de_dez_anterior=Decimal("0.00"),
+    )
+    assert resultado["saldo_credito_exterior_novo"] == Decimal("0.00")
+
+
+def test_aud_hi38_imposto_exterior_sem_rendimento_exterior_e_recusado(cenario):
+    """HI-38: imposto pago no exterior lançado num mês SEM nenhum
+    rendimento sujeito de fonte no exterior → apuração recusa o mês
+    inteiro com mensagem clara (decisão: recusa na APURAÇÃO, não na
+    gravação do lançamento — ver o docstring de
+    `ImpostoExteriorSemRendimentoExterior`)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 5, 10), "3000.00")
+    _lancar_despesa(
+        empresa,
+        cenario["conta_imposto_exterior"],
+        date(2026, 5, 10),
+        "50.00",
+        "Imposto pago no exterior sem rendimento do exterior",
+    )
+    with pytest.raises(ImpostoExteriorSemRendimentoExterior):
+        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=5)
+
+
+def test_aud_api_recusa_mes_com_imposto_exterior_sem_rendimento(client, cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_despesa(
+        empresa,
+        cenario["conta_imposto_exterior"],
+        date(2026, 5, 10),
+        "50.00",
+        "Imposto pago no exterior sem rendimento do exterior",
+    )
+    _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio_a"], "admin-hi38")
+    client.login(username="admin-hi38", password="senha-forte-123")
+    url = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": empresa.id})
+    resposta = client.get(url, {"ano": "2026", "mes": "5"})
+    assert resposta.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 10. M-4 — alerta de rendimento líquido negativo.
+
+
+def test_aud_m4_alerta_rendimento_liquido_negativo(cenario):
+    """Dedução (real ou simplificada) maior que o rendimento sujeito do
+    mês → alerta explícito na resposta (a base de cálculo já zera, mas o
+    alerta avisa a tela)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "400.00")
+    _lancar_despesa(empresa, cenario["conta_previdencia"], date(2026, 6, 10), "1200.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado["base_de_calculo"] == Decimal("0.00")
+    assert len(resultado["alertas"]) >= 1
+    assert any("negativo" in alerta for alerta in resultado["alertas"])
+
+
+def test_aud_m4_sem_alerta_quando_rendimento_liquido_nao_e_negativo(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado["alertas"] == []
+
+
+# ---------------------------------------------------------------------------
+# 11. M-5 — jan-abr/2025 (tabela nova) e ano < 2025 fora do escopo.
+
+
+def test_aud_m5_fevereiro_2025_sem_reducao_tabela_jan_abr(cenario):
+    """Fevereiro/2025: tabela NOVA (jan-abr/2025, P&R 267) — faixa zero até
+    2.259,20; SEM redução (legítima ausência, Lei 15.270/2025 só vale a
+    partir de 2026). Trabalho PF 3.000,00, sem outra dedução → simplificado
+    (25% × 2.259,20 = 564,80) vence (564,80 > 0,00 real) — base 2.435,20 →
+    2.435,20 × 7,5% − 169,44 = 13,20 (cálculo à mão, conferido antes de
+    rodar o motor)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 2, 10), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=2)
+    assert resultado["reducao_vigencia_inicio"] is None
+    assert resultado["forma_escolhida"] == "simplificado"
+    assert resultado["desconto_simplificado"] == Decimal("564.80")
+    assert resultado["base_de_calculo"] == Decimal("2435.20")
+    assert resultado["reducao_lei_15270_2025"] == Decimal("0.00")
+    assert resultado["imposto_apos_reducao"] == Decimal("13.20")
+
+
+def test_aud_m5_junho_2025_tabela_rc131_sem_reducao(cenario):
+    """Junho/2025: tabela RC-131 (vigente desde 2025-05-01, "mantida em
+    2026") — SEM redução (mesma ausência legítima, ainda antes de 2026).
+    Trabalho PF 6.000,00, sem outra dedução → simplificado (25% × 2.428,80
+    = 607,20) — base 5.392,80 → 5.392,80 × 27,5% − 908,73 = 574,29 (cálculo
+    à mão; SEM a redução de 179,75 que o mesmo cenário tem em 2026 —
+    prova de que a ausência de redução em 2025 é real, não um placeholder
+    zerado por engano)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 6, 10), "6000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=6)
+    assert resultado["reducao_vigencia_inicio"] is None
+    assert resultado["forma_escolhida"] == "simplificado"
+    assert resultado["reducao_lei_15270_2025"] == Decimal("0.00")
+    assert resultado["imposto_apos_reducao"] == Decimal("574.29")
+
+
+def test_aud_m5_ano_anterior_a_2025_e_explicitamente_fora_do_escopo(cenario):
+    empresa = cenario["empresa_a"]
+    with pytest.raises(TabelaCarneLeaoNaoConfigurada, match="fora do escopo"):
+        apurar_carne_leao_mensal(empresa=empresa, ano=2024, mes=12)
+
+
+# ---------------------------------------------------------------------------
+# 12. M-6 — retificação (PATCH) da quantidade de dependentes, com trilha.
+
+
+def test_aud_m6_retificacao_de_dependentes_com_trilha(cenario):
+    from apps.auditoria.models import RegistroAuditoria
+
+    empresa = cenario["empresa_a"]
+    registro = registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=2, competencia_inicio=date(2026, 1, 1)
+    )
+    usuario = _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio_a"], "admin-retifica")
+    retificado = retificar_dependentes_carne_leao(registro, quantidade=5, retificado_por=usuario)
+    assert retificado.quantidade == 5
+    registro.refresh_from_db()
+    assert registro.quantidade == 5
+
+    trilha = RegistroAuditoria.objects.filter(acao="dependentes_carne_leao.retificado").first()
+    assert trilha is not None
+    assert trilha.detalhes["quantidade_anterior"] == 2
+    assert trilha.detalhes["quantidade_nova"] == 5
+
+
+def test_aud_m6_api_patch_dependentes_sucesso(client, cenario):
+    empresa = cenario["empresa_a"]
+    registro = registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=1, competencia_inicio=date(2026, 1, 1)
+    )
+    _usuario_com_papel(Papel.GESTOR, cenario["escritorio_a"], "gestor-patch")
+    client.login(username="gestor-patch", password="senha-forte-123")
+    url = reverse(
+        "livro_caixa:dependentes-carne-leao-retificar",
+        kwargs={"empresa_id": empresa.id, "dependente_id": registro.id},
+    )
+    resposta = client.patch(
+        url, data=json.dumps({"quantidade": 3}), content_type="application/json"
+    )
+    assert resposta.status_code == 200, resposta.content
+    assert resposta.json()["quantidade"] == 3
+
+
+def test_aud_m6_api_patch_dependentes_outro_escritorio_404(client, cenario):
+    registro_b = registrar_dependentes_carne_leao(
+        empresa=cenario["empresa_b"], quantidade=1, competencia_inicio=date(2026, 1, 1)
+    )
+    _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio_a"], "admin-outro-esc")
+    client.login(username="admin-outro-esc", password="senha-forte-123")
+    url = reverse(
+        "livro_caixa:dependentes-carne-leao-retificar",
+        kwargs={"empresa_id": cenario["empresa_a"].id, "dependente_id": registro_b.id},
+    )
+    resposta = client.patch(
+        url, data=json.dumps({"quantidade": 3}), content_type="application/json"
+    )
+    assert resposta.status_code == 404
+
+
+def test_aud_m6_api_patch_dependentes_papel_sem_escrita_403(client, cenario):
+    empresa = cenario["empresa_a"]
+    registro = registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=1, competencia_inicio=date(2026, 1, 1)
+    )
+    _usuario_com_papel(Papel.PARALEGAL, cenario["escritorio_a"], "paralegal-patch")
+    client.login(username="paralegal-patch", password="senha-forte-123")
+    url = reverse(
+        "livro_caixa:dependentes-carne-leao-retificar",
+        kwargs={"empresa_id": empresa.id, "dependente_id": registro.id},
+    )
+    resposta = client.patch(
+        url, data=json.dumps({"quantidade": 3}), content_type="application/json"
+    )
+    assert resposta.status_code == 403
+
+
+def test_aud_dependentes_isolados_entre_empresas(cenario):
+    """`dependentes_isolados_entre_empresas` (seção 5 da auditoria):
+    dependentes registrados em OUTRA empresa não valem para esta."""
+    registrar_dependentes_carne_leao(
+        empresa=cenario["empresa_b"], quantidade=9, competencia_inicio=date(2026, 1, 1)
+    )
+    empresa_a = cenario["empresa_a"]
+    _lancar_trabalho(empresa_a, cenario["conta_trabalho"], date(2026, 3, 10), "3000.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa_a, ano=2026, mes=3)
+    assert resultado["dependentes_quantidade"] == 0
+
+
+def test_aud_a23_paralegal_nao_pode_criar_dependentes(client, cenario):
+    """A23 (auditoria, mutante "POST de dependentes com permissão de
+    leitura"): PARALEGAL LÊ o livro-caixa (`PAPEIS_QUE_LEEM_LIVRO_CAIXA`)
+    mas não ESCRITURA — o `POST` de dependentes exige `PodeEscriturarLivro
+    Caixa`, nunca `PodeLerLivroCaixa`."""
+    _usuario_com_papel(Papel.PARALEGAL, cenario["escritorio_a"], "paralegal-dep-post")
+    client.login(username="paralegal-dep-post", password="senha-forte-123")
+    url = reverse(
+        "livro_caixa:dependentes-carne-leao", kwargs={"empresa_id": cenario["empresa_a"].id}
+    )
+    resposta = client.post(
+        url,
+        data=json.dumps({"quantidade": 2, "competencia_inicio": "2026-01-01"}),
+        content_type="application/json",
+    )
+    assert resposta.status_code == 403
+
+
+def test_aud_a19_pensao_paga_deduz(cenario):
+    """A19 (auditoria, mutante "pensão paga ignorada"): bruto 8.000,00 com
+    pensão alimentícia PAGA 1.500,00 → base 6.500,00 (real vence: 1.500,00
+    > 607,20 simplificado); bruto > 7.350,00 → sem redução;
+    6.500,00×27,5%−908,73 = 878,77 (cálculo à mão, seção 2 da auditoria)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 5, 10), "8000.00")
+    _lancar_despesa(
+        empresa, cenario["conta_pensao_paga"], date(2026, 5, 10), "1500.00", "Pensão paga"
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=5)
+    assert resultado["forma_escolhida"] == "real"
+    assert resultado["base_de_calculo"] == Decimal("6500.00")
+    assert resultado["imposto_apos_reducao"] == Decimal("878.77")
+
+
+def test_aud_exatamente_dez_reais_paga(cenario):
+    """`exatamente_dez_reais_paga` (seção 5 da auditoria): bruto 7.400,00,
+    previdência 4.837,87 → base 2.562,13 × 7,5% − 182,16 = 9,99975 → 10,00
+    (MEIO_PARA_CIMA) — paga (não acumula, A10: `<` na fronteira de R$
+    10,00, nunca `<=`)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "7400.00")
+    _lancar_despesa(
+        empresa, cenario["conta_previdencia"], date(2026, 6, 10), "4837.87", "Previdência"
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
+    assert resultado["imposto_devido_no_mes"] == Decimal("10.00")
+    assert resultado["valor_a_pagar"] == Decimal("10.00")
+    assert resultado["saldo_pendente_abaixo_de_dez_novo"] == Decimal("0.00")
+
+
+def test_aud_lancamento_no_ultimo_dia_do_mes(cenario):
+    """`lancamento_no_ultimo_dia_do_mes` (seção 5 da auditoria; A13):
+    lançamento de 31/03 precisa ENTRAR na apuração de março — R$ 5.100,00
+    sem outra dedução → simplificado (607,20) → base 4.492,80 → imposto
+    335,39, redução 299,58 → devido 35,81 (cálculo à mão)."""
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 31), "5100.00")
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    assert resultado["imposto_apos_reducao"] == Decimal("35.81")
+
+
+# ---------------------------------------------------------------------------
+# 13. M-2/B-6 — contrato da API: rendimentos por (código, origem),
+# imposto com/sem exterior, vencimento, alertas e totais anuais exatos.
+
+
+def test_aud_m2_rendimentos_por_codigo_e_origem(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 8, 10), "2000.00")
+    _lancar_trabalho_pj(empresa, cenario["conta_trabalho"], date(2026, 8, 11), "1000.00")
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_pensao_recebida"],
+        data=date(2026, 8, 12),
+        valor="500.00",
+        historico="Pensão recebida",
+        recebido_de=OrigemRecebimento.PF,
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=8)
+    rendimentos = {(item["codigo"], item["origem"]): item for item in resultado["rendimentos"]}
+
+    trabalho_pf = rendimentos[("R01.001.001", "PF")]
+    assert trabalho_pf["valor"] == Decimal("2000.00")
+    assert trabalho_pf["entra_na_base"] is True
+    assert trabalho_pf["motivo_exclusao"] is None
+
+    trabalho_pj = rendimentos[("R01.001.001", "PJ")]
+    assert trabalho_pj["valor"] == Decimal("1000.00")
+    assert trabalho_pj["entra_na_base"] is False
+    assert trabalho_pj["motivo_exclusao"] is not None
+
+    pensao = rendimentos[("R01.002.001", "PF")]
+    assert pensao["valor"] == Decimal("500.00")
+    assert pensao["entra_na_base"] is False
+    assert "imune" in pensao["motivo_exclusao"].lower()
+
+
+def test_aud_m2_vencimento_ultimo_dia_util_do_mes_seguinte(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "1000.00")
+    resultado_marco = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    assert resultado_marco["vencimento"] == "último dia útil de 04/2026"
+
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2025, 12, 10), "1000.00")
+    resultado_dezembro = apurar_carne_leao_mensal(empresa=empresa, ano=2025, mes=12)
+    assert resultado_dezembro["vencimento"] == "último dia útil de 01/2026"
+
+
+def test_aud_m2_imposto_com_e_sem_exterior_no_mensal(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 4, 10), "6000.00")
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_aluguel"],
+        data=date(2026, 4, 10),
+        valor="3000.00",
+        historico="Aluguel do exterior",
+        recebido_de=OrigemRecebimento.EX,
+    )
+    resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=4)
+    assert resultado["imposto_com_exterior"] == Decimal("1399.29")
+    assert resultado["imposto_sem_exterior"] == Decimal("394.54")
+
+
+def test_aud_m2_totais_anuais_sao_a_soma_exata_dos_12_meses(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "3000.00")
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "6000.00")
+    resultado = apurar_carne_leao_anual(empresa=empresa, ano=2026)
+
+    def _campo_do_mes(mes_resultado, campo_anual):
+        if campo_anual == "deducoes_aplicadas":
+            if mes_resultado["forma_escolhida"] == "simplificado":
+                return mes_resultado["desconto_simplificado"]
+            return mes_resultado["deducoes_reais_total"]
+        mapa = {
+            "rendimento_bruto": "rendimento_total_sujeito",
+            "base": "base_de_calculo",
+            "imposto_tabela": "imposto_pela_tabela",
+            "reducao_aplicada": "reducao_lei_15270_2025",
+            "compensacao_exterior": "compensacao_exterior_aplicada",
+            "imposto_devido": "imposto_devido_no_mes",
+            "valor_a_pagar": "valor_a_pagar",
+        }
+        return mes_resultado[mapa[campo_anual]]
+
+    for campo_anual in (
+        "rendimento_bruto",
+        "deducoes_aplicadas",
+        "base",
+        "imposto_tabela",
+        "reducao_aplicada",
+        "compensacao_exterior",
+        "imposto_devido",
+        "valor_a_pagar",
+    ):
+        soma_esperada = sum(
+            (_campo_do_mes(mes, campo_anual) for mes in resultado["meses"]), Decimal("0.00")
+        )
+        assert resultado["totais"][campo_anual] == soma_esperada, campo_anual
+
+
+# ---------------------------------------------------------------------------
+# 14. Acréscimo do arquiteto-senior ao item 7 — `faixa_aplicada` e
+# `vigencia_tabela_inicio` em cada memória de cálculo.
+
+
+def test_aud_faixa_aplicada_e_vigencia_em_cada_memoria(cenario):
+    """Cada faixa da tabela real (2025-05-01), testada por um bruto no
+    MEIO dela — a memória de cálculo (deduções reais, sem nenhuma dedução
+    real de propósito, para a base bater com o bruto) devolve a faixa
+    exatamente como está no banco."""
+    casos = [
+        # (bruto, ordem, limite_inferior, limite_superior, aliquota, parcela)
+        (
+            Decimal("2000.00"),
+            1,
+            Decimal("0.00"),
+            Decimal("2428.80"),
+            Decimal("0.0000"),
+            Decimal("0.00"),
+        ),
+        (
+            Decimal("2600.00"),
+            2,
+            Decimal("2428.81"),
+            Decimal("2826.65"),
+            Decimal("0.0750"),
+            Decimal("182.16"),
+        ),
+        (
+            Decimal("3300.00"),
+            3,
+            Decimal("2826.66"),
+            Decimal("3751.05"),
+            Decimal("0.1500"),
+            Decimal("394.16"),
+        ),
+        (
+            Decimal("4200.00"),
+            4,
+            Decimal("3751.06"),
+            Decimal("4664.68"),
+            Decimal("0.2250"),
+            Decimal("675.49"),
+        ),
+        (Decimal("5500.00"), 5, Decimal("4664.69"), None, Decimal("0.2750"), Decimal("908.73")),
+    ]
+    for indice, (bruto, _ordem, limite_inferior, limite_superior, aliquota, parcela) in enumerate(
+        casos
+    ):
+        escritorio = Escritorio.objects.create(
+            nome=f"Escritório faixa {indice}", cnpj=f"{indice + 1:014d}"
+        )
+        empresa = Empresa.objects.create(
+            escritorio=escritorio,
+            razao_social=f"Autônomo faixa {indice}",
+            tipo_inscricao=TipoInscricao.CPF,
+            cpf="12345678909",
+            modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+        )
+        conta = ContaLivroCaixa.objects.create(
+            empresa=empresa,
+            codigo="RT",
+            nome="Trabalho não assalariado",
+            natureza=NaturezaCaixa.RECEITA,
+            codigo_carne_leao="R01.001.001",
+        )
+        _lancar_trabalho(empresa, conta, date(2026, 9, 10), str(bruto))
+        resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
+        memoria = resultado["memoria_deducoes_reais"]
+        assert memoria["vigencia_tabela_inicio"] == date(2025, 5, 1)
+        faixa = memoria["faixa_aplicada"]
+        assert faixa["limite_inferior"] == limite_inferior
+        assert faixa["limite_superior"] == limite_superior
+        assert faixa["aliquota"] == aliquota
+        assert faixa["parcela_a_deduzir"] == parcela
+
+
+# ---------------------------------------------------------------------------
+# 15. B-1 — percentual do desconto simplificado vem do BANCO.
+
+
+def test_aud_b1_percentual_simplificado_muda_so_no_banco(cenario):
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 9, 10), "1000.00")
+    resultado_antes = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
+    assert resultado_antes["desconto_simplificado"] == Decimal("607.20")
+
+    VigenciaTabelaProgressivaCarneLeao.objects.filter(vigencia_inicio=date(2025, 5, 1)).update(
+        percentual_desconto_simplificado=Decimal("0.10")
+    )
+    resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=9)
+    assert resultado_depois["desconto_simplificado"] == Decimal("242.88")  # 2428,80 × 0,10
+    assert resultado_depois["desconto_simplificado"] != resultado_antes["desconto_simplificado"]
+
+
+# ---------------------------------------------------------------------------
+# 16. Snapshot (transaction=True) e API — permissões e isolamento restantes.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aud_snapshot_usa_repeatable_read(cenario):
+    """Prova que `_sob_snapshot` executa `SET TRANSACTION ISOLATION LEVEL
+    REPEATABLE READ` como primeira instrução da transação — só observável
+    com `transaction=True` (fora do `atomic()` padrão do pytest-django, que
+    faria a guarda `ja_estava_em_transacao` pular o `cursor.execute`).
+
+    ⚠️ Vigência PRÓPRIA deste teste, nunca a semeada por migração: testes
+    `transaction=True` de QUALQUER app deste projeto são agrupados pelo
+    pytest-django e rodam DEPOIS dos testes atômicos comuns; cada um
+    FLUSHA o banco ao final, sem restaurar dados de migração
+    (`serialized_rollback` não está ligado neste projeto) — um teste
+    `transaction=True` de OUTRO app, rodando antes deste no mesmo grupo,
+    já pode ter apagado a tabela/vigência semeada pela migração 0004. Uma
+    vigência criada aqui, com data que não colide com nenhuma real,
+    deixa este teste imune à ordem de execução da suíte inteira."""
+    vigencia = VigenciaTabelaProgressivaCarneLeao.objects.create(
+        vigencia_inicio=date(2026, 1, 1),
+        fonte="Vigência de teste, própria deste caso (ver docstring).",
+        percentual_desconto_simplificado=Decimal("0.25"),
+    )
+    FaixaTabelaProgressivaCarneLeao.objects.create(
+        vigencia=vigencia,
+        ordem=1,
+        limite_inferior=Decimal("0.00"),
+        limite_superior=Decimal("2428.80"),
+        aliquota=Decimal("0.0000"),
+        parcela_a_deduzir=Decimal("0.00"),
+    )
+    FaixaTabelaProgressivaCarneLeao.objects.create(
+        vigencia=vigencia,
+        ordem=2,
+        limite_inferior=Decimal("2428.81"),
+        limite_superior=None,
+        aliquota=Decimal("0.2750"),
+        parcela_a_deduzir=Decimal("908.73"),
+    )
+    VigenciaDependenteCarneLeao.objects.create(
+        vigencia_inicio=date(2026, 1, 1),
+        fonte="Vigência de teste, própria deste caso (ver docstring).",
+        valor_por_dependente=Decimal("189.59"),
+    )
+    empresa = cenario["empresa_a"]
+    _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 3, 10), "1000.00")
+    with CaptureQueriesContext(connection) as capturado:
+        apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
+    sqls = [item["sql"] for item in capturado.captured_queries]
+    assert any("REPEATABLE READ" in sql for sql in sqls)
+
+
+def test_aud_api_cliente_recusado_no_mensal_e_no_anual(client, cenario):
+    _usuario_com_papel(Papel.CLIENTE, cenario["escritorio_a"], "cliente-carne")
+    client.login(username="cliente-carne", password="senha-forte-123")
+    empresa = cenario["empresa_a"]
+
+    url_mensal = reverse("livro_caixa:carne-leao-mensal", kwargs={"empresa_id": empresa.id})
+    resposta_mensal = client.get(url_mensal, {"ano": "2026", "mes": "3"})
+    assert resposta_mensal.status_code == 403
+
+    url_anual = reverse("livro_caixa:carne-leao-anual", kwargs={"empresa_id": empresa.id})
+    resposta_anual = client.get(url_anual, {"ano": "2026"})
+    assert resposta_anual.status_code == 403
+
+
+def test_aud_api_anual_recusa_empresa_em_modo_contabilidade(client, cenario):
+    _usuario_com_papel(Papel.GESTOR, cenario["escritorio_a"], "gestor-anual-contab")
+    client.login(username="gestor-anual-contab", password="senha-forte-123")
+    url = reverse(
+        "livro_caixa:carne-leao-anual",
+        kwargs={"empresa_id": cenario["empresa_contabilidade"].id},
+    )
+    resposta = client.get(url, {"ano": "2026"})
+    assert resposta.status_code == 400
+
+
+def test_aud_api_anual_recusa_empresa_de_outro_escritorio(client, cenario):
+    _usuario_com_papel(Papel.ADMINISTRADOR, cenario["escritorio_a"], "admin-anual-outro")
+    client.login(username="admin-anual-outro", password="senha-forte-123")
+    url = reverse("livro_caixa:carne-leao-anual", kwargs={"empresa_id": cenario["empresa_b"].id})
+    resposta = client.get(url, {"ano": "2026"})
+    assert resposta.status_code == 404

@@ -1179,10 +1179,14 @@ def _preparar_empresa_livro_caixa(escritorio):
             )
         # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
         # exercitar o parêntese/referência do estorno naquela tabela (não só
-        # a existência dela). `data=` explícita: o padrão de
-        # `estornar_lancamento_caixa` é "hoje" (`timezone.localdate()`), que
-        # cairia FORA do período fixo `PERIODO_INICIO`/`PERIODO_FIM` usado
-        # nesta medição — o estorno nunca apareceria no relatório medido.
+        # a existência dela). `data=` explícita, dentro do MESMO MÊS do
+        # original (2026-03-04 + 25 dias = 2026-03-26, ainda março) — desde
+        # a correção M-4 (rodada 1 da auditoria da fatia 2, RC-130), o
+        # padrão de `estornar_lancamento_caixa` passou a ser a data do
+        # ORIGINAL (não mais "hoje"), e um estorno em MÊS diferente do
+        # original é recusado; a data explícita aqui só precisa continuar
+        # no mesmo mês do original para caber no período fixo
+        # `PERIODO_INICIO`/`PERIODO_FIM` usado nesta medição.
         if ultimo_p20 is not None:
             estornar_lancamento_caixa(
                 ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
