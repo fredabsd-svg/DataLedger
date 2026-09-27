@@ -860,6 +860,8 @@ resultado).
 
 ### Verificação
 
+Commit `8996522` (branch `dl046-f2`, worktree `wt-dl046f2`).
+
 - `ruff check .` — sem apontamentos.
 - `ruff format --check .` — sem apontamentos (arquivos novos/alterados
   formatados com `ruff format` durante a implementação).
