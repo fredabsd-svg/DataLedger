@@ -2190,16 +2190,26 @@ e está declarado aqui de novo por transparência.
 - `ruff check .` — sem apontamentos.
 - `ruff format --check .` — 305 arquivos já formatados.
 - `python manage.py check` — sem apontamento.
-- `pytest` (suíte completa): ver hashes/saída no relato de entrega.
+- `pytest` (suíte completa, banco `dl046f2t`): **3314 passed, 1 failed
+  pré-existente (`test_versao_minima_python.py`, Python 3.13 vs. 3.14 —
+  já aceita nas rodadas anteriores), 49 skipped, ZERO xfail**.
 - `pytest scripts/test_medir_identificacao_do_emitente.py`, com
-  `DL_PYTHON_DO_SISTEMA`/`DL_CHROMIUM_EXECUTAVEL`: ver relato de
-  entrega.
-- `scripts/medir_identificacao_do_emitente.py` (instrumento
-  standalone, contra banco descartável): ver relato de entrega — roda
-  DEPOIS da correção (c) para confirmar que nenhuma tela regrediu.
+  `DL_PYTHON_DO_SISTEMA=/home/user/DataLedger/.venv/bin/python3` e
+  `DL_CHROMIUM_EXECUTAVEL=/opt/pw-browsers/chromium-1194/chrome-linux/
+  chrome`: **139 passed** (137 da rodada anterior + os 2 testes novos
+  desta correção, achados (a) e (c)).
+- `scripts/medir_identificacao_do_emitente.py` (instrumento standalone,
+  contra banco descartável PostgreSQL novo `rf46_instr`, semeado por
+  `semear_base_de_medicao.py`, DEPOIS da correção (c)): **código de
+  saída 0** — as 13 telas derivadas saem PASSOU, ZERO FALHOU — nenhuma
+  tela regrediu com a correção do link.
 - Nova captura: `docs/assets/telas/dl046/carne-leao-anual-paisagem-
-  pdf.png` recapturada com o cenário de 12 meses/valor alto — 1 folha
-  só, "Dezembro" e "TOTAL DO ANO" visíveis juntos.
+  pdf.png` recapturada com o cenário oficial da reconferência (12
+  meses de 2025, valores >= R$ 1.000.000,00, CAEPF de 2 linhas) — 1
+  folha só (`pdfinfo`: `Pages: 1`), "Dezembro" e "TOTAL DO ANO"
+  visíveis juntos na mesma folha, confirmado por `pdftotext` e
+  visualmente; margem 0mm (a única confirmada limpa neste Chromium —
+  achado cross-cutting registrado na seção anterior).
 
 ### Não testado / bloqueado nesta correção
 
