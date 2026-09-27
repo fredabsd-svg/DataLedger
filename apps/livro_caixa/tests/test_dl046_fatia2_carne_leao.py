@@ -1943,7 +1943,20 @@ def test_rec_r_m2_sem_identificador_interno_nas_mensagens(cenario):
         registro_invalido.full_clean()
     mensagens.extend(str(m) for m in excinfo.value.messages)
 
-    # restricoes.py — duplicidade de competência dos dependentes.
+    # models.py — duplicidade de competência dos dependentes, caminho
+    # SEQUENCIAL (`full_clean()`/`validate_unique()` lê o
+    # `violation_error_message` da `UniqueConstraint`, Django ≥ 4.1).
+    registrar_dependentes_carne_leao(
+        empresa=empresa, quantidade=1, competencia_inicio=date(2026, 6, 1)
+    )
+    with pytest.raises(DependentesCarneLeaoInvalido) as excinfo:
+        registrar_dependentes_carne_leao(
+            empresa=empresa, quantidade=2, competencia_inicio=date(2026, 6, 1)
+        )
+    mensagens.append(str(excinfo.value))
+
+    # restricoes.py — a MESMA duplicidade, caminho RESIDUAL de corrida
+    # (`IntegrityError`).
     from apps.core.restricoes import MENSAGENS_DE_RESTRICAO
 
     mensagens.append(MENSAGENS_DE_RESTRICAO["dependentes_carne_leao_competencia_unica_por_empresa"])
