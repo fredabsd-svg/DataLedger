@@ -94,7 +94,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Integrada (PR #49) |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
-| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR da DL-045) |
+| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
 | [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -122,7 +122,7 @@ merge do PR #38, sem commit individual por etapa.
   uso das antigas abas do Fiscal foi apagada com autorização do Fred (26/09).
   Integrada pelo PR #50; o PR #51 corrigiu a folha de estilo servida em cache
   depois do merge (versão do arquivo no link).
-- **DL-045** (DRE, nível 1): integrada pelo PR da DL-045, fechada sem
+- **DL-045** (DRE, nível 1): integrada pelo PR #52, fechada sem
   terceira rodada de auditoria (verificação descrita no
   [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
   conta de grupo só pelo admin até existir tela de editar conta (BL-541).
