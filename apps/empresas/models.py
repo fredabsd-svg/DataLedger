@@ -538,6 +538,7 @@ class Empresa(models.Model):
             # (não cobre ORM direto nem `QuerySet.update()`) — a defesa que
             # cobre o caminho real de escrita (API) é a do serializer.
             from apps.empresas.services import (
+                recusar_transicao_para_contabilidade_com_movimento_de_caixa,
                 recusar_transicao_para_cpf_com_estabelecimento,
                 recusar_transicao_para_livro_caixa_com_movimento,
             )
@@ -552,6 +553,13 @@ class Empresa(models.Model):
                 # `ValidationError` — propaga direto, sem tradução: é
                 # exatamente o contrato que `full_clean()` espera.
                 recusar_transicao_para_livro_caixa_com_movimento(
+                    self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
+                )
+                # A1 (rodada 1 de auditoria, DE-087 item 1): o ESPELHO da
+                # guarda acima, na direção contrária — sair de livro-caixa
+                # com movimento de caixa gravado. `TransicaoParaContabilidade
+                # Invalida` também é `ValidationError`, mesmo contrato.
+                recusar_transicao_para_contabilidade_com_movimento_de_caixa(
                     self, modo_anterior=modo_gravado, modo_novo=self.modo_escrituracao
                 )
 

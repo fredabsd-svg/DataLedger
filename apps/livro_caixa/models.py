@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, ProhibitNullCharactersValidator
 from django.db import models
 
 from apps.empresas.fields import CNPJModelField, CPFModelField
@@ -10,10 +10,18 @@ from apps.empresas.models import Empresa
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.empresas.validators import validar_cnpj, validar_cpf
 from apps.livro_caixa.validators import (
-    CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO,
     mensagem_de_codigo_carne_leao_invalido,
     validar_data_de_lancamento_caixa_do_modelo,
 )
+
+# M2 (rodada 1 de auditoria da DL-046): `models.CharField` NÃO inclui
+# `ProhibitNullCharactersValidator` por padrão (só `forms.CharField` inclui,
+# na camada de FORMULÁRIO) — por isso um `\x00` num campo de texto livre
+# chegava direto ao INSERT do PostgreSQL, que recusa com `DataError` cru
+# (500). Aplicado nos quatro `CharField` de texto livre dos dois modelos
+# (nunca em `choices=`/CPF/CNPJ, que já têm seus próprios validadores de
+# formato restritos a um alfabeto sem NUL).
+_SEM_CARACTERE_NULO = ProhibitNullCharactersValidator()
 
 
 class LancamentoCaixaImutavelError(Exception):
@@ -64,8 +72,8 @@ class ContaLivroCaixa(models.Model):
     empresa = models.ForeignKey(
         Empresa, on_delete=models.PROTECT, related_name="contas_livro_caixa"
     )
-    codigo = models.CharField("código", max_length=20)
-    nome = models.CharField("nome", max_length=200)
+    codigo = models.CharField("código", max_length=20, validators=[_SEM_CARACTERE_NULO])
+    nome = models.CharField("nome", max_length=200, validators=[_SEM_CARACTERE_NULO])
     natureza = models.CharField("natureza", max_length=10, choices=NaturezaCaixa.choices)
     codigo_carne_leao = models.CharField(
         "código do Carnê-Leão Web",
@@ -126,25 +134,59 @@ class ContaLivroCaixa(models.Model):
             if mensagem is not None:
                 raise ValidationError({"codigo_carne_leao": mensagem})
 
-        # Guarda de TRANSIÇÃO (mesmo molde do BL-83/DL-023 e da DL-033/
-        # DL-045): mudar a NATUREZA de uma conta que já tem lançamento
-        # gravado inverteria o sentido (receita <-> despesa) do histórico
-        # inteiro sem nenhum lançamento novo — o mesmo dano que trocar a
-        # natureza de `Conta` (contabilidade) já protege contra. A
-        # PRIMEIRA gravação (`self.pk` ainda `None`) é sempre livre.
+        # Guardas de TRANSIÇÃO (mesmo molde do BL-83/DL-023 e da DL-033/
+        # DL-045), consolidadas numa consulta só. A PRIMEIRA gravação
+        # (`self.pk` ainda `None`) é sempre livre para as três.
         if self.pk:
-            natureza_gravada = (
+            gravado = (
                 ContaLivroCaixa.objects.filter(pk=self.pk)
-                .values_list("natureza", flat=True)
+                .values("natureza", "codigo_carne_leao", "empresa_id")
                 .first()
             )
-            if natureza_gravada is not None and natureza_gravada != self.natureza:
-                if self._tem_lancamento_gravado():
+            if gravado is not None:
+                tem_lancamento = self._tem_lancamento_gravado()
+
+                # Natureza: mudar a NATUREZA de uma conta que já tem
+                # lançamento gravado inverteria o sentido (receita <->
+                # despesa) do histórico inteiro sem nenhum lançamento novo.
+                if gravado["natureza"] != self.natureza and tem_lancamento:
                     raise ValidationError(
                         "Não é possível mudar a natureza desta conta do livro-caixa: "
                         "ela já tem lançamento gravado — a troca inverteria o sentido "
                         "(receita/despesa) do histórico. Estorne o movimento antes de "
                         "reclassificar, ou cadastre uma conta nova."
+                    )
+
+                # M4 (achado da rodada 1 de auditoria, DE-087 item 4): o
+                # código do Carnê-Leão Web decide a DEDUTIBILIDADE e o que
+                # vai para a Receita (HI-30) — trocá-lo numa conta com
+                # lançamento mudaria a classificação de meses já
+                # escriturados (e possivelmente já apurados no carnê-leão)
+                # sem nenhum lançamento novo e sem trilha. Mesma defesa da
+                # natureza, acima; mesma saída (conta nova).
+                if gravado["codigo_carne_leao"] != self.codigo_carne_leao and tem_lancamento:
+                    raise ValidationError(
+                        {
+                            "codigo_carne_leao": (
+                                "Não é possível mudar o código do Carnê-Leão Web desta "
+                                "conta: ela já tem lançamento gravado, e o código decide "
+                                "a dedutibilidade (HI-30). Cadastre uma conta nova para a "
+                                "nova classificação."
+                            )
+                        }
+                    )
+
+                # M3 (achado da rodada 1 de auditoria): mover uma conta com
+                # lançamento para OUTRA empresa deixaria `LancamentoCaixa.
+                # empresa != LancamentoCaixa.conta.empresa` — o mesmo estado
+                # que `LancamentoCaixa.clean()` já proíbe na ORIGEM, e que
+                # tornava o estorno desse lançamento impossível (o serviço
+                # recusa "conta não pertence a esta empresa"). Mesmo
+                # precedente de `Conta.clean()` (contabilidade).
+                if gravado["empresa_id"] != self.empresa_id and tem_lancamento:
+                    raise ValidationError(
+                        "Não é possível mudar a empresa desta conta do livro-caixa: ela "
+                        "já tem lançamento gravado."
                     )
 
 
@@ -169,9 +211,13 @@ class LancamentoCaixa(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.01"))],
     )
-    historico = models.CharField("histórico", max_length=300)
+    historico = models.CharField("histórico", max_length=300, validators=[_SEM_CARACTERE_NULO])
     documento_origem = models.CharField(
-        "documento de origem", max_length=100, blank=True, default=""
+        "documento de origem",
+        max_length=100,
+        blank=True,
+        default="",
+        validators=[_SEM_CARACTERE_NULO],
     )
     # Só para RECEITA (modelos de arquivo de rendimentos) — vazio/nulo para
     # DESPESA, checado em `clean()`.
@@ -182,12 +228,17 @@ class LancamentoCaixa(models.Model):
         null=True,
         blank=True,
     )
-    # CPF do titular do pagamento e do beneficiário do serviço — exigidos
-    # quando o CÓDIGO de rendimento de trabalho não assalariado exigir
-    # (instrução da tarefa; ver `mensagem_de_cpf_obrigatorio_ausente` em
-    # `apps.livro_caixa.services`, chamada por `clean()` abaixo). CNPJ do
-    # pagador é sempre OPCIONAL (instrução da tarefa), mesmo para
-    # recebido_de=PJ.
+    # CPF do titular do pagamento, CPF do beneficiário do serviço e o
+    # indicador de "CPF não informado" seguem o leiaute oficial dos modelos
+    # de importação do Carnê-Leão Web (Receita, 2025 — M5/DE-087 item 6,
+    # corrigindo a hipótese original desta etapa, que restringia a
+    # exigência ao código de trabalho não assalariado): rendimento recebido
+    # de PF exige o CPF do titular do pagamento; o CPF do beneficiário pode
+    # faltar desde que o indicador esteja marcado; CPF só é aceito quando
+    # `recebido_de=PF`, e CNPJ só quando `recebido_de=PJ` — tudo checado em
+    # `clean()`, porque depende de `self.recebido_de`, outro campo do MESMO
+    # modelo. Código de ocupação e IRRF (também do leiaute oficial) ficam
+    # para a fatia 3 (RC-127), planejados antes dela.
     cpf_titular_pagamento = CPFModelField(
         "CPF do titular do pagamento",
         max_length=11,
@@ -202,6 +253,14 @@ class LancamentoCaixa(models.Model):
         default="",
         validators=[validar_cpf],
     )
+    # M5/DE-087 item 6: "preenchido somente nos casos em que houver a
+    # exigência do CPF do beneficiário e esse não foi informado" (leiaute
+    # oficial, campo 10) — indicador explícito, nunca inferido do campo
+    # `cpf_beneficiario_servico` estar vazio (um campo vazio por OMISSÃO,
+    # sem o indicador marcado, é recusado — ver `LancamentoCaixa.clean()`).
+    cpf_beneficiario_nao_informado = models.BooleanField(
+        "CPF do beneficiário não informado", default=False
+    )
     cnpj_pagador = CNPJModelField(
         "CNPJ do pagador", max_length=14, blank=True, default="", validators=[validar_cnpj]
     )
@@ -211,6 +270,7 @@ class LancamentoCaixa(models.Model):
         max_length=255,
         null=True,
         blank=True,
+        validators=[_SEM_CARACTERE_NULO],
         help_text=(
             "Cabeçalho Idempotency-Key enviado pelo cliente. Repetir o POST "
             "com a mesma chave, na mesma empresa, devolve o lançamento já "
@@ -285,11 +345,27 @@ class LancamentoCaixa(models.Model):
         if not self.conta_id:
             return
 
+        # M4 (DE-087 item 4): o ESTORNO copia o original campo a campo e
+        # NÃO revalida as regras abaixo, que dependem do código do Carnê-
+        # Leão Web da conta ATUAL — a rodada 1 de auditoria mediu que
+        # trocar o código de uma conta com lançamento (antes desta rodada,
+        # livre) quebrava o estorno de um lançamento ANTIGO, que passava a
+        # ser julgado contra uma regra que não valia quando ele foi criado.
+        # A guarda de imutabilidade do código (`ContaLivroCaixa.clean()`)
+        # fecha o caminho de ORIGEM; esta flag é a segunda camada, para o
+        # ESTORNO nunca depender da conta atual, ainda que a guarda de
+        # origem mude no futuro. Setada só por
+        # `apps.livro_caixa.services.estornar_lancamento_caixa`, nunca por
+        # entrada de cliente.
+        if getattr(self, "_estorno_nao_revalida_regras_da_conta", False):
+            return
+
         if self.conta.natureza == NaturezaCaixa.DESPESA:
             if (
                 self.recebido_de
                 or self.cpf_titular_pagamento
                 or self.cpf_beneficiario_servico
+                or self.cpf_beneficiario_nao_informado
                 or self.cnpj_pagador
             ):
                 raise ValidationError(
@@ -305,29 +381,55 @@ class LancamentoCaixa(models.Model):
                 {"recebido_de": "Lançamento de receita exige 'recebido de' (PF, PJ ou EX)."}
             )
 
-        # Instrução da tarefa: "CPF titular do pagamento e CPF beneficiário
-        # quando o código de rendimento de trabalho não assalariado
-        # exigir" — inferência minha (reportada, não decidida): restrinjo
-        # literalmente ao código de trabalho não assalariado (R01.001.001),
-        # o único citado nos modelos de arquivo de referência com os DOIS
-        # campos de CPF preenchidos para "recebido de PF". Para as demais
-        # linhas de receita (aluguel, outros rendimentos, notarial), os
-        # modelos de referência não exigem os dois.
-        exige_cpf_do_trabalho_nao_assalariado = (
-            self.conta.codigo_carne_leao == CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO
-            and self.recebido_de == OrigemRecebimento.PF
-        )
-        if exige_cpf_do_trabalho_nao_assalariado:
-            erros = {}
+        # M5 (DE-087 item 6, corrigindo a hipótese original desta etapa —
+        # ver o achado M5 da rodada 1 de auditoria): regra do LEIAUTE
+        # OFICIAL do Carnê-Leão Web (instruções dos modelos de importação,
+        # Receita, 2025), não mais restrita ao código de trabalho não
+        # assalariado. Coerência: CPF só é aceito quando `recebido_de=PF`;
+        # CNPJ só quando `recebido_de=PJ`.
+        erros = {}
+        if self.recebido_de == OrigemRecebimento.PF:
             if not self.cpf_titular_pagamento:
                 erros["cpf_titular_pagamento"] = (
-                    "Rendimento do trabalho não assalariado recebido de pessoa "
-                    "física exige o CPF do titular do pagamento."
+                    "Rendimento recebido de pessoa física exige o CPF do titular do "
+                    "pagamento (leiaute oficial do Carnê-Leão Web)."
                 )
-            if not self.cpf_beneficiario_servico:
+            if self.cpf_beneficiario_servico and self.cpf_beneficiario_nao_informado:
+                erros["cpf_beneficiario_nao_informado"] = (
+                    "Não é possível marcar 'CPF do beneficiário não informado' quando "
+                    "o CPF do beneficiário foi informado."
+                )
+            elif not self.cpf_beneficiario_servico and not self.cpf_beneficiario_nao_informado:
                 erros["cpf_beneficiario_servico"] = (
-                    "Rendimento do trabalho não assalariado recebido de pessoa "
-                    "física exige o CPF do beneficiário do serviço."
+                    "Informe o CPF do beneficiário do serviço, ou marque 'CPF do "
+                    "beneficiário não informado' (leiaute oficial do Carnê-Leão Web, "
+                    "campo 10 — só se aplica quando houver exigência do CPF do "
+                    "beneficiário e ele não tiver sido informado)."
                 )
-            if erros:
-                raise ValidationError(erros)
+            if self.cnpj_pagador:
+                erros["cnpj_pagador"] = (
+                    "CNPJ só é aceito quando 'recebido de' é pessoa jurídica (PJ)."
+                )
+        else:
+            # PJ ou EX: nenhum dos campos de PF pode estar preenchido.
+            if (
+                self.cpf_titular_pagamento
+                or self.cpf_beneficiario_servico
+                or self.cpf_beneficiario_nao_informado
+            ):
+                mensagem = (
+                    "CPF do titular/beneficiário só é aceito quando 'recebido de' é "
+                    "pessoa física (PF)."
+                )
+                if self.cpf_titular_pagamento:
+                    erros["cpf_titular_pagamento"] = mensagem
+                if self.cpf_beneficiario_servico:
+                    erros["cpf_beneficiario_servico"] = mensagem
+                if self.cpf_beneficiario_nao_informado:
+                    erros["cpf_beneficiario_nao_informado"] = mensagem
+            if self.recebido_de == OrigemRecebimento.EX and self.cnpj_pagador:
+                erros["cnpj_pagador"] = (
+                    "CNPJ só é aceito quando 'recebido de' é pessoa jurídica (PJ)."
+                )
+        if erros:
+            raise ValidationError(erros)

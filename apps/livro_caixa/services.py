@@ -19,12 +19,14 @@ from apps.auditoria.services import registrar
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
 from apps.core.restricoes import mensagens_de, restricao_como_400
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
+from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
     LancamentoCaixa,
     NaturezaCaixa,
 )
 from apps.livro_caixa.validators import (
+    codigo_carne_leao_e_deducao_do_carne_leao,
     mensagem_de_data_de_lancamento_caixa_fora_da_faixa,
 )
 
@@ -120,6 +122,23 @@ def criar_conta_livro_caixa(
     return conta
 
 
+def _normalizado_ou_vazio(valor, normalizador):
+    """Aplica `normalizador` (`normalizar_cpf`/`normalizar_cnpj`) só quando
+    `valor` não é vazio — B2 da rodada 1 de auditoria: sem isto, CPF/CNPJ
+    com máscara era recusado por `full_clean()` com a mensagem de TAMANHO
+    do `CharField` ("no máximo 11 caracteres, ele possui 14"), contradizendo
+    a mensagem do próprio `validar_cpf`/`validar_cnpj` ("com ou sem
+    máscara"). Normaliza ANTES de `full_clean()`, no mesmo ponto em que
+    `Empresa`/`Estabelecimento` já normalizam (`CPFFormField.to_python`,
+    `CPFSerializerField.to_internal_value`) — aqui não há um `Form`/
+    `Serializer` de escrita para o lançamento (a view extrai o corpo à mão,
+    mesmo desenho de `LancamentoListCreateView.post`, contabilidade), então
+    a normalização precisa morar no SERVIÇO."""
+    if not valor:
+        return valor or ""
+    return normalizador(valor)
+
+
 @transaction.atomic
 def criar_lancamento_caixa(
     *,
@@ -132,11 +151,13 @@ def criar_lancamento_caixa(
     recebido_de=None,
     cpf_titular_pagamento="",
     cpf_beneficiario_servico="",
+    cpf_beneficiario_nao_informado=False,
     cnpj_pagador="",
     criado_por=None,
     chave_idempotencia=None,
     estorno_de=None,
     request=None,
+    _pular_validacao_dependente_da_conta=False,
 ):
     """Cria um lançamento de caixa, validando tudo ANTES de gravar.
 
@@ -151,6 +172,20 @@ def criar_lancamento_caixa(
     digital) devolve o lançamento já existente em vez de duplicar
     (`criado_agora=False`, atributo não persistido). Chave repetida com
     conteúdo DIFERENTE levanta `ChaveIdempotenciaConflitanteCaixa`.
+
+    A2 (rodada 1 de auditoria): a checagem de idempotência acima cobre a
+    repetição SEQUENCIAL (uma requisição de cada vez). Sob CORRIDA (duas
+    requisições concorrentes com a mesma chave, nenhuma vendo a linha da
+    outra na pré-checagem), a defesa é a `UniqueConstraint` de banco — o
+    `save()`, mais abaixo, roda num SAVEPOINT próprio, e um `IntegrityError`
+    daquela constraint é tratado exatamente como a pré-checagem: mesmo
+    conteúdo devolve o existente (200), conteúdo diferente levanta o
+    conflito (409). Nunca um 500.
+
+    `_pular_validacao_dependente_da_conta` (uso INTERNO, nunca exposto por
+    view nenhuma): M4 (DE-087 item 4) — setada só por
+    `estornar_lancamento_caixa`, para o ESTORNO copiar o original sem
+    revalidar as regras de CPF/CNPJ contra o código ATUAL da conta.
     """
     try:
         recusar_se_nao_livro_caixa(empresa)
@@ -160,6 +195,17 @@ def criar_lancamento_caixa(
     if conta.empresa_id != empresa.id:
         raise LancamentoCaixaInvalido(
             "A conta do livro-caixa informada não pertence a esta empresa."
+        )
+
+    # B1 (rodada 1 de auditoria): conta INATIVA não recebe lançamento NOVO —
+    # mas o ESTORNO (`estorno_de is not None`) de um lançamento antigo
+    # continua possível, mesmo que a conta tenha sido inativada depois.
+    # Corrigir um lançamento antigo não pode ficar bloqueado por uma
+    # decisão de cadastro tomada depois dele.
+    if estorno_de is None and not conta.ativa:
+        raise LancamentoCaixaInvalido(
+            f"A conta '{conta.codigo}' está inativa; não é possível lançar um "
+            "novo movimento nela. Reative a conta ou use outra."
         )
 
     try:
@@ -199,6 +245,17 @@ def criar_lancamento_caixa(
             "A chave de idempotência não pode conter o caractere nulo (código 0)."
         )
 
+    # B2 (rodada 1 de auditoria): normaliza CPF/CNPJ (com ou sem máscara)
+    # ANTES da impressão digital e de `full_clean()` — nunca depois, para a
+    # impressão digital ser estável entre "111.444.777-35" e "11144477735"
+    # (o MESMO lançamento, só digitado de duas formas).
+    try:
+        cpf_titular_pagamento = _normalizado_ou_vazio(cpf_titular_pagamento, normalizar_cpf)
+        cpf_beneficiario_servico = _normalizado_ou_vazio(cpf_beneficiario_servico, normalizar_cpf)
+        cnpj_pagador = _normalizado_ou_vazio(cnpj_pagador, normalizar_cnpj)
+    except DjangoValidationError as exc:
+        raise LancamentoCaixaInvalido("; ".join(exc.messages)) from exc
+
     if chave_idempotencia:
         impressao = _impressao_digital_caixa(
             empresa_id=empresa.id,
@@ -218,6 +275,22 @@ def criar_lancamento_caixa(
         ).first()
         if existente is not None:
             if existente.chave_idempotencia_fingerprint == impressao:
+                # B5 (rodada 1 de auditoria): a repetição idempotente
+                # também é um FATO que a trilha precisa registrar — antes,
+                # ela devolvia o existente em silêncio, sem rastro nenhum
+                # de que uma segunda requisição chegou.
+                registrar(
+                    acao="lancamento_caixa.criacao_repetida",
+                    usuario=criado_por,
+                    escritorio=empresa.escritorio,
+                    objeto=existente,
+                    request=request,
+                    detalhes={
+                        "chave_idempotencia_hash": hashlib.sha256(
+                            chave_idempotencia.encode("utf-8")
+                        ).hexdigest()[:12]
+                    },
+                )
                 existente.criado_agora = False
                 return existente
             raise ChaveIdempotenciaConflitanteCaixa(
@@ -237,24 +310,79 @@ def criar_lancamento_caixa(
         recebido_de=recebido_de or None,
         cpf_titular_pagamento=cpf_titular_pagamento or "",
         cpf_beneficiario_servico=cpf_beneficiario_servico or "",
+        cpf_beneficiario_nao_informado=bool(cpf_beneficiario_nao_informado),
         cnpj_pagador=cnpj_pagador or "",
         chave_idempotencia=chave_idempotencia or None,
         chave_idempotencia_fingerprint=impressao,
         estorno_de=estorno_de,
         criado_por=criado_por,
     )
+    if _pular_validacao_dependente_da_conta:
+        lancamento._estorno_nao_revalida_regras_da_conta = True
+
+    # A2 (rodada 1 de auditoria): a janela em que `full_clean()` — que
+    # também valida a `UniqueConstraint` da chave de idempotência
+    # (`validate_constraints()`, Django ≥ 4.1) — já vê a linha da OUTRA
+    # requisição concorrente, comprometida entre a pré-checagem acima e
+    # este ponto. Sem excluir o campo aqui, essa corrida virava 400 "já
+    # existe" em vez do 200 que a idempotência promete. A exclusão só
+    # dispensa a checagem DESTE campo em `validate_constraints()` — todas
+    # as outras regras de `full_clean()` (CPF, coerência, modo de
+    # escrituração) continuam rodando.
+    excluir_da_validacao = {"chave_idempotencia"} if chave_idempotencia else set()
     try:
-        lancamento.full_clean()
+        lancamento.full_clean(exclude=excluir_da_validacao)
     except DjangoValidationError as exc:
         raise LancamentoCaixaInvalido("; ".join(exc.messages)) from exc
 
     try:
-        lancamento.save()
+        with transaction.atomic():
+            lancamento.save()
     except IntegrityError:
+        if chave_idempotencia:
+            # A MESMA corrida, agora pega pela constraint de banco (a
+            # pré-checagem e a exclusão de `full_clean()` acima, juntas,
+            # cobrem a maior parte da janela; esta é a defesa final,
+            # residual, para o instante entre `full_clean()` e o `INSERT`
+            # em si). `filter().first()`, nunca `.get()` (mesmo raciocínio
+            # de `criar_lancamento`, contabilidade): se a violação foi de
+            # OUTRA constraint (`valor_positivo`, `estorno_de_unico`), pode
+            # não existir nenhuma linha com esta chave ainda, e `.get()`
+            # levantaria `DoesNotExist` — um 500 disfarçado de 400.
+            existente = LancamentoCaixa.objects.filter(
+                empresa=empresa, chave_idempotencia=chave_idempotencia
+            ).first()
+            if existente is not None:
+                if existente.chave_idempotencia_fingerprint == impressao:
+                    registrar(
+                        acao="lancamento_caixa.criacao_repetida",
+                        usuario=criado_por,
+                        escritorio=empresa.escritorio,
+                        objeto=existente,
+                        request=request,
+                        detalhes={
+                            "chave_idempotencia_hash": hashlib.sha256(
+                                chave_idempotencia.encode("utf-8")
+                            ).hexdigest()[:12],
+                            "corrida": True,
+                        },
+                    )
+                    existente.criado_agora = False
+                    return existente
+                raise ChaveIdempotenciaConflitanteCaixa(
+                    "A mesma Idempotency-Key já foi usada para um lançamento de "
+                    "caixa com conteúdo diferente. Gere uma nova chave para este "
+                    "lançamento."
+                ) from None
+        # Qualquer OUTRA violação de integridade propaga sem conversão, de
+        # propósito — mesma decisão de `criar_lancamento` (contabilidade):
+        # uma `IntegrityError` de origem desconhecida pode ser defeito
+        # nosso, não erro do cliente, e converter tudo em 400 esconderia o
+        # defeito de quem monitora 500.
         raise
 
     registrar(
-        acao="lancamento_caixa.criado",
+        acao="lancamento_caixa.estornado" if estorno_de is not None else "lancamento_caixa.criado",
         usuario=criado_por,
         escritorio=empresa.escritorio,
         objeto=lancamento,
@@ -315,11 +443,23 @@ def estornar_lancamento_caixa(
             recebido_de=lancamento.recebido_de,
             cpf_titular_pagamento=lancamento.cpf_titular_pagamento,
             cpf_beneficiario_servico=lancamento.cpf_beneficiario_servico,
+            cpf_beneficiario_nao_informado=lancamento.cpf_beneficiario_nao_informado,
             cnpj_pagador=lancamento.cnpj_pagador,
             criado_por=criado_por,
             estorno_de=lancamento,
             request=request,
+            # M4 (DE-087 item 4): o estorno COPIA o original — nunca
+            # revalida as regras de CPF/CNPJ contra o código ATUAL da
+            # conta (que pode ter mudado desde então, embora a guarda de
+            # `ContaLivroCaixa.clean()` já impeça isso quando há
+            # lançamento gravado — esta é a segunda camada).
+            _pular_validacao_dependente_da_conta=True,
         )
+
+
+GRUPO_ENTRADA = "entrada"
+GRUPO_SAIDA_CUSTEIO = "saida_custeio"
+GRUPO_SAIDA_DEDUCAO_CARNE_LEAO = "saida_deducao_carne_leao"
 
 
 def apurar_livro_caixa(*, empresa, inicio, fim):
@@ -335,6 +475,18 @@ def apurar_livro_caixa(*, empresa, inicio, fim):
     conversão de sinal, o total do período dobraria a magnitude do
     lançamento estornado, em vez de zerar o seu efeito.
 
+    D3 (rodada 1 de auditoria, DE-087 item 13): pagamentos `P20` (imposto
+    pago, previdência oficial, pensão alimentícia) saem num grupo PRÓPRIO
+    (`GRUPO_SAIDA_DEDUCAO_CARNE_LEAO`), separado das despesas de custeio
+    (`GRUPO_SAIDA_CUSTEIO`, `P10`/`P11`) — no art. 68 do RIR/2018 são
+    DEDUÇÕES do carnê-leão, não despesas do livro-caixa. O SALDO de caixa
+    continua conciliado: as duas saídas ainda reduzem o dinheiro em caixa
+    igualmente (regime de caixa), então `total_saidas` (mantido para
+    compatibilidade com quem já consome esta chave) soma os dois grupos, e
+    `saldo` não muda — só a APRESENTAÇÃO ganha o detalhe do grupo, por
+    item (`grupo`) e por total (`total_saidas_custeio`/
+    `total_saidas_deducao_carne_leao`).
+
     UMA consulta (`select_related` na conta), número de consultas
     CONSTANTE em relação ao número de lançamentos.
     """
@@ -346,7 +498,8 @@ def apurar_livro_caixa(*, empresa, inicio, fim):
 
     zero = Decimal("0.00")
     total_entradas = zero
-    total_saidas = zero
+    total_saidas_custeio = zero
+    total_saidas_deducao_carne_leao = zero
     itens = []
     for lancamento in lancamentos:
         e_estorno = lancamento.estorno_de_id is not None
@@ -354,8 +507,13 @@ def apurar_livro_caixa(*, empresa, inicio, fim):
         contribuicao = sinal * lancamento.valor
         if lancamento.conta.natureza == NaturezaCaixa.RECEITA:
             total_entradas += contribuicao
+            grupo = GRUPO_ENTRADA
+        elif codigo_carne_leao_e_deducao_do_carne_leao(lancamento.conta.codigo_carne_leao):
+            total_saidas_deducao_carne_leao += contribuicao
+            grupo = GRUPO_SAIDA_DEDUCAO_CARNE_LEAO
         else:
-            total_saidas += contribuicao
+            total_saidas_custeio += contribuicao
+            grupo = GRUPO_SAIDA_CUSTEIO
         itens.append(
             {
                 "lancamento_id": lancamento.id,
@@ -363,6 +521,7 @@ def apurar_livro_caixa(*, empresa, inicio, fim):
                 "conta": lancamento.conta.codigo,
                 "conta_nome": lancamento.conta.nome,
                 "natureza": lancamento.conta.natureza,
+                "grupo": grupo,
                 "valor": lancamento.valor,
                 "historico": lancamento.historico,
                 "documento_origem": lancamento.documento_origem,
@@ -371,12 +530,15 @@ def apurar_livro_caixa(*, empresa, inicio, fim):
             }
         )
 
+    total_saidas = total_saidas_custeio + total_saidas_deducao_carne_leao
     return {
         "empresa_id": empresa.id,
         "data_inicio": inicio,
         "data_fim": fim,
         "itens": itens,
         "total_entradas": total_entradas,
+        "total_saidas_custeio": total_saidas_custeio,
+        "total_saidas_deducao_carne_leao": total_saidas_deducao_carne_leao,
         "total_saidas": total_saidas,
         "saldo": total_entradas - total_saidas,
     }

@@ -18,6 +18,7 @@ from django.urls import reverse
 
 from apps.empresas.models import Empresa, TipoInscricao
 from apps.empresas.validators import normalizar_caepf, validar_caepf
+from apps.empresas.views import _campo_da_restricao_de_empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -62,6 +63,29 @@ def test_validar_caepf_recusa_incoerencia_com_cpf():
 
 def test_validar_caepf_aceita_coerencia_com_cpf():
     validar_caepf(CAEPF_COERENTE, cpf=CPF_VALIDO)  # não levanta
+
+
+def test_achado_frontend_campo_da_restricao_de_caepf_e_caepf_nao_cnpj():
+    """Achado do `especialista-frontend` na rodada 1 de auditoria: a
+    constraint "empresa_caepf_so_para_cpf_com_formato_valido" já entrava
+    no `with restricao_como_400(mensagens_de(...))` de `EmpresaListCreateView.
+    perform_create`, mas faltava em `_CAMPO_DA_RESTRICAO_DE_EMPRESA` — sem
+    a entrada, uma corrida que violasse ESSA constraint caía no
+    `.get(..., "cnpj")` (o padrão da função) e reportava o erro no campo
+    errado."""
+    assert _campo_da_restricao_de_empresa("empresa_caepf_so_para_cpf_com_formato_valido") == "caepf"
+
+
+def test_m19_caepf_que_difere_do_cpf_so_no_nono_digito_e_recusado():
+    """M19 (rodada 1 de auditoria): isola a comparação dos NOVE dígitos —
+    um CAEPF que bate com o CPF nos OITO primeiros mas erra só no nono
+    (`CPF_VALIDO[:9] = "123456789"`, CAEPF aqui com "...780") precisa ser
+    recusado; uma comparação enfraquecida para 8 dígitos deixaria passar."""
+    caepf_com_nono_digito_errado = "12345678000001"
+    assert caepf_com_nono_digito_errado[:8] == CPF_VALIDO[:8]
+    assert caepf_com_nono_digito_errado[:9] != CPF_VALIDO[:9]
+    with pytest.raises(ValidationError):
+        validar_caepf(caepf_com_nono_digito_errado, cpf=CPF_VALIDO)
 
 
 # ---------------------------------------------------------------------------

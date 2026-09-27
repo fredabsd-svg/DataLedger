@@ -14,11 +14,26 @@ class ContaLivroCaixaAdmin(admin.ModelAdmin):
     há validação de negócio própria para reimplementar aqui, mesmo raciocínio
     de `ContaAdmin` (contabilidade): a regra mora no modelo, não na tela nem
     no admin.
+
+    M3 (rodada 1 de auditoria): `empresa` é SOMENTE LEITURA na edição —
+    mesmo padrão de `EmpresaAdmin.get_readonly_fields` para `escritorio`
+    (DL-023). `ContaLivroCaixa.clean()` já recusa a troca quando há
+    lançamento gravado (defesa de MODELO, camada 2 da DE-008); esta é a
+    camada 1 — nem oferece o campo editável no formulário do admin, único
+    caminho que a rodada 1 mediu como capaz de produzir o estado
+    inconsistente (`empresa` do lançamento ≠ `empresa` da conta).
     """
 
     list_display = ["codigo", "nome", "natureza", "codigo_carne_leao", "empresa", "ativa"]
     list_filter = ["empresa", "natureza", "ativa"]
     search_fields = ["codigo", "nome"]
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            # `add`: a conta ainda não existe, "trocar" de empresa não faz
+            # sentido — é a primeira atribuição, não uma transferência.
+            return []
+        return ["empresa"]
 
     def _escritorio_da_conta_em_edicao(self, request):
         resolver_match = getattr(request, "resolver_match", None)

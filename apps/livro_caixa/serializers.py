@@ -41,6 +41,7 @@ class LancamentoCaixaSerializer(serializers.ModelSerializer):
             "recebido_de",
             "cpf_titular_pagamento",
             "cpf_beneficiario_servico",
+            "cpf_beneficiario_nao_informado",
             "cnpj_pagador",
             "estorno_de",
             "criado_em",

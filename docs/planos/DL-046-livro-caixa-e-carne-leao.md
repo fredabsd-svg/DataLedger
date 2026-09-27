@@ -270,6 +270,9 @@ Prefixo `livro-caixa/` (`config/urls.py`), paralelo a `contabilidade/`.
 - `GET livro-caixa/empresas/<empresa_id>/livro-caixa/?inicio=AAAA-MM-DD&fim=AAAA-MM-DD`
   — relatório do período:
 
+  — **contrato revisado na rodada 1** (D3/DE-087 item 13: `P20` sai num
+  grupo próprio, separado das despesas de custeio):
+
   ```json
   {
     "empresa": 1,
@@ -282,6 +285,7 @@ Prefixo `livro-caixa/` (`config/urls.py`), paralelo a `contabilidade/`.
         "conta": "R1",
         "conta_nome": "Honorários recebidos",
         "natureza": "receita",
+        "grupo": "entrada",
         "valor": "1500.00",
         "historico": "Honorários de janeiro",
         "documento_origem": "",
@@ -290,11 +294,120 @@ Prefixo `livro-caixa/` (`config/urls.py`), paralelo a `contabilidade/`.
       }
     ],
     "total_entradas": "1500.00",
+    "total_saidas_custeio": "0.00",
+    "total_saidas_deducao_carne_leao": "0.00",
     "total_saidas": "0.00",
     "saldo": "1500.00"
   }
   ```
 
+  `grupo` é um de `"entrada"`, `"saida_custeio"` ou
+  `"saida_deducao_carne_leao"`. `total_saidas` continua a soma dos dois
+  grupos de saída (mantido por compatibilidade); o saldo de caixa não muda.
+
 - Todas as rotas recusam (400, corpo `{"empresa": ["..."]}`) para empresa em
   modo contabilidade. `403` para papel sem autorização; `404` para empresa de
-  outro escritório.
+  outro escritório. A lista de lançamentos é **paginada** (B6, rodada 1):
+  `{"count", "next", "previous", "results": [...]}`.
+
+## Correção da rodada 1 (2026-09-27, `desenvolvedor-pleno`)
+
+Correção do SERVIDOR dos três achados altos e dos médios/baixos aplicáveis
+da [rodada 1 de auditoria](../auditorias/2026-09-26-dl-046-rodada-1.md),
+seguindo as decisões de [DE-087](../projeto/decisoes.md#de-087).
+A tela (A1 continua exigindo trabalho de tela no menu/lista — DE-087 item 3;
+M1, M6 texto de impressão, M8, M24) foi corrigida em paralelo pelo
+`especialista-frontend`, noutra worktree.
+
+### Achado → mudança → teste
+
+| Achado | Mudança | Teste |
+| --- | --- | --- |
+| A1 | `apps.empresas.services.recusar_transicao_para_contabilidade_com_movimento_de_caixa`/`TransicaoParaContabilidadeInvalida` — espelho exato de `recusar_transicao_para_livro_caixa_com_movimento` (R6), chamada nos dois pontos que a R6 já usa (`Empresa.clean()`, `EmpresaSerializer.validate`). | `test_recusar_transicao_para_contabilidade_com_*`, `test_empresa_full_clean_recusa_troca_...`, `test_api_patch_recusa_troca_de_modo_com_lancamento_gravado` + contraprova sem movimento. |
+| A2 | `criar_lancamento_caixa`: `save()` num savepoint próprio; `IntegrityError` da chave de idempotência reconsulta e devolve o existente (200) ou o conflito (409); `full_clean(exclude={"chave_idempotencia"})` fecha a janela em que `validate_constraints()` via a linha da corrida antes do `INSERT`. | `test_a2_corrida_de_idempotencia_mesmo_conteudo_dois_201_ou_200_nunca_500` e a contraprova com conteúdo diferente (`{201,409}`) — threads reais + barreira dentro de `full_clean()`. |
+| M2 | `ProhibitNullCharactersValidator` em `codigo`, `nome`, `historico`, `documento_origem`, `chave_idempotencia`. | `test_api_conta_recusa_nul_em_texto_livre`, `test_api_lancamento_recusa_nul_em_documento_origem`. |
+| M3 | `ContaLivroCaixa.clean()` recusa troca de `empresa` com lançamento gravado; admin com `empresa` somente leitura na edição. | `test_conta_com_lancamento_nao_muda_de_empresa`, `test_admin_nao_oferece_empresa_editavel_para_conta_existente`. |
+| M4 | `ContaLivroCaixa.clean()` recusa troca de `codigo_carne_leao` com lançamento gravado; `criar_lancamento_caixa(_pular_validacao_dependente_da_conta=True)` faz o estorno copiar o original sem revalidar CPF/CNPJ contra a conta atual. | `test_conta_com_lancamento_nao_muda_o_codigo_carne_leao`, `test_estorno_de_lancamento_antigo_continua_possivel_apos_alteracao_permitida_da_conta`. |
+| M5 | Regra de CPF do leiaute oficial, universal para toda RECEITA (não mais restrita a `R01.001.001`): PF exige titular; beneficiário pode faltar com o novo campo `cpf_beneficiario_nao_informado`; CPF só em PF, CNPJ só em PJ. | `test_m17_*`, `test_m18_*`, `test_pf_com_cnpj_pagador_e_recusado`. |
+| B1 | `criar_lancamento_caixa` recusa lançamento NOVO em conta inativa (`estorno_de is None`); estorno de lançamento antigo não é afetado. | `test_b1_conta_inativa_recusa_lancamento_novo`, `test_b1_conta_inativa_permite_estorno_de_lancamento_antigo`. |
+| B2 | `_normalizado_ou_vazio` normaliza CPF/CNPJ (com ou sem máscara) ANTES da impressão digital e de `full_clean()`. | `test_b2_cpf_com_mascara_e_normalizado`, `test_b2_cnpj_com_mascara_e_normalizado`, `test_b2_api_aceita_cpf_com_mascara`. |
+| B3 | `ContaLivroCaixaListCreateView.post` valida `codigo`/`nome` como texto, com `strip`, antes do serviço. | `test_b3_api_recusa_codigo_nao_textual`, `test_b3_api_recusa_codigo_so_de_espacos`, `test_b3_api_grava_codigo_e_nome_sem_espaco_nas_bordas`. |
+| B5 | Ação de trilha `lancamento_caixa.estornado` (era `lancamento_caixa.criado` para os dois); `lancamento_caixa.criacao_repetida` na repetição idempotente (sequencial e sob corrida). | `test_b5_trilha_do_estorno_usa_acao_propria`, `test_b5_trilha_da_repeticao_idempotente_e_registrada`. |
+| B6 | `PaginacaoLancamentoCaixa` (`PageNumberPagination`, `page_size=100`) em `LancamentoCaixaListCreateView`. | `test_b6_api_lancamentos_e_paginada`. |
+| D3 | `apurar_livro_caixa` separa `P20` (`codigo_carne_leao_e_deducao_do_carne_leao`) das despesas de custeio: `total_saidas_custeio`/`total_saidas_deducao_carne_leao` por total, `grupo` por item; `total_saidas`/`saldo` inalterados. | `test_d3_relatorio_separa_p20_das_despesas_de_custeio`, `test_d3_api_relatorio_expoe_os_dois_grupos_de_saida`. |
+| Achado do frontend | `_CAMPO_DA_RESTRICAO_DE_EMPRESA["empresa_caepf_so_para_cpf_com_formato_valido"] = "caepf"`. | `test_achado_frontend_campo_da_restricao_de_caepf_e_caepf_nao_cnpj`. |
+
+### Mutantes mortos (M7)
+
+`M04`, `M06`, `M07`, `M16`, `M17`, `M18`, `M19`, `M27`, `M28` e `M32` —
+aplicados VIVOS (um por vez, no código de produção), confirmados vermelhos,
+e revertidos antes do próximo:
+
+| # | Ponto mutado | Teste que matou |
+| --- | --- | --- |
+| M04 | `LancamentoCaixaListCreateView.get_queryset()` sem filtro de empresa | `test_m04_api_lista_lancamentos_de_a_nao_contem_nada_de_a2` |
+| M06 | `apurar_livro_caixa` sem filtro de empresa | `test_m06_apurar_livro_caixa_de_a_nao_contem_nada_de_a2` |
+| M07 | `EstornarLancamentoCaixaView` busca o lançamento sem filtrar por empresa | `test_m07_api_estorno_de_a_com_id_de_lancamento_de_a2_da_404` |
+| M16 | Formato de rendimento reduzido a `^R01\..*$` | `test_m16_codigo_de_rendimento_mal_formado_e_recusado` (3 casos) |
+| M17 | Exigência do CPF do beneficiário (ou indicador) removida | `test_m17_pf_com_titular_mas_sem_beneficiario_e_sem_indicador_e_recusado` (achado: a primeira tentativa de mutação sobreviveu aos 3 testes M17 originais — nenhum isolava exatamente esta condição; teste novo adicionado) |
+| M18 | Exigência de CPF do titular estendida a PJ/EX | `test_m18_pj_sem_cpf_e_aceito` |
+| M19 | Coerência do CAEPF × CPF comparando só 8 dígitos | `test_m19_caepf_que_difere_do_cpf_so_no_nono_digito_e_recusado` (teste novo — os dois já existentes não isolavam o 9º dígito) |
+| M27 | API aceita `valor` como `int` JSON | `test_m27_api_recusa_valor_como_numero_json_inteiro` |
+| M28 | Guarda de NATUREZA de conta com lançamento removida | `test_m28_conta_de_receita_com_lancamento_nao_muda_para_despesa_mesmo_com_codigo_coerente` (troca natureza E código, os dois coerentes entre si, para a guarda de TRANSIÇÃO ser o que recusa — não a coerência) |
+| M32 | Estorno somado no lado das ENTRADAS, independente da natureza | `test_m32_estorno_de_despesa_reduz_saidas_sem_alterar_entradas` |
+
+`M03` (recusa por modo no serviço de lançamento) continua equivalente —
+`LancamentoCaixa.clean()` já recusa pela mesma via, como a rodada 1 já tinha
+apontado.
+
+### Achado colateral corrigido: migração de `livro_caixa` fragilizava testes de reversão de `empresas`
+
+`makemigrations` gerou `livro_caixa.0001_inicial` dependente de
+`empresas.0014_dl046_caepf` (a migração MAIS RECENTE de `empresas` no
+momento da geração) — mas este app só precisa que o MODELO `Empresa`
+exista (para o `ForeignKey`), não de nenhum campo específico dela.
+Rodar a suíte COMPLETA (não só os testes de `livro_caixa`) expôs o efeito:
+`test_dl076_b8_modo_escrituracao_constraint.py`,
+`test_dl038_migracao.py` e outros que revertem `empresas` para uma
+migração anterior a `0014` — dentro da MESMA sessão de banco
+(`django_db(transaction=True)`) — forçam o Django a desaplicar
+`livro_caixa.0001` primeiro (porque ele dependia de `0014`), e só
+reaplicam os líderes de `empresas`, nunca o de `livro_caixa`: as tabelas
+de `livro_caixa` ficavam apagadas para o RESTO da suíte, e o próximo
+teste deste app (`test_a2_corrida_de_idempotencia_...`) quebrava com
+`UndefinedTable`, só na execução da suíte completa — nunca isolado.
+Corrigido editando a dependência à mão para `empresas.0001_initial` (onde
+`Empresa` nasce), a migração menos recente que ainda satisfaz o que este
+app de fato usa. `makemigrations --check` continua limpo depois da edição.
+
+### Contrato revisado do relatório (para o frontend)
+
+Ver a seção "Contrato da API" acima, já atualizada com `grupo`,
+`total_saidas_custeio`, `total_saidas_deducao_carne_leao` e a paginação de
+`GET .../lancamentos/`. Novo campo em `LancamentoCaixa`:
+`cpf_beneficiario_nao_informado` (booleano, aceito no `POST` e devolvido no
+corpo).
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 299 arquivos já formatados.
+- `python manage.py check` — nenhum problema.
+- `python manage.py makemigrations --check --dry-run` — nenhuma alteração
+  pendente.
+- `pytest` (suíte completa): **2981 passed, 1 failed (pré-existente, fora do
+  escopo — `test_versao_minima_python.py`, ambiente Python 3.13 em vez do
+  3.14 esperado pela CI), 45 skipped**.
+- Migração `livro_caixa.0002_rodada1` aplicada com sucesso em PostgreSQL
+  vazio e em SQLite vazio, com reversão e reaplicação das duas migrações do
+  app confirmadas nos dois bancos.
+
+### Não testado / bloqueado nesta correção
+
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
+  (mesmo bloqueio já registrado pela auditoria).
+- Tela/navegação (A3), impressão (M6, M8), acessibilidade — do
+  `especialista-frontend`, noutra worktree.
+- D1 (data/sinal do estorno para a apuração mensal) virou **PE-72**
+  (requisitos.md) — decisão de produto antes da fatia 2, não desta rodada.
+- Dígito verificador do CAEPF (HI-31) — sem fonte oficial.

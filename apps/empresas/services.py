@@ -615,6 +615,57 @@ def recusar_transicao_para_livro_caixa_com_movimento(empresa, *, modo_anterior, 
         )
 
 
+class TransicaoParaContabilidadeInvalida(ValidationError):
+    """Achado A1 da rodada 1 de auditoria da DL-046 (DE-087, item 1):
+    empresa com CONTA ou LANÇAMENTO de caixa gravado não pode passar para
+    modo contabilidade — o ESPELHO exato de `TransicaoParaLivroCaixaInvalida`
+    (R6/DL-038), na direção contrária. Sem esta guarda, `PATCH
+    modo_escrituracao=contabilidade` era aceito com movimento de caixa
+    gravado, e o livro-caixa inteiro (contas, lançamentos, estornos) ficava
+    inacessível de toda tela, API e relatório — e, depois do primeiro
+    lançamento CONTÁBIL feito em seguida, a guarda R6 já existente impedia
+    voltar para livro-caixa, deixando os dados de caixa órfãos para sempre.
+
+    Subclasse de `ValidationError` pelo MESMO motivo do espelho: `Empresa.
+    clean()` precisa poder deixá-la propagar sem tradução, e `EmpresaSerializer.
+    validate` já sabe traduzir qualquer `ValidationError` do Django."""
+
+
+def recusar_transicao_para_contabilidade_com_movimento_de_caixa(
+    empresa, *, modo_anterior, modo_novo
+):
+    """Levanta `TransicaoParaContabilidadeInvalida` se esta TRANSIÇÃO
+    (`modo_anterior` -> `modo_novo`) SAIR de `LIVRO_CAIXA` e a empresa já
+    tiver `ContaLivroCaixa` ou `LancamentoCaixa` gravado.
+
+    Só examina a TRANSIÇÃO, nunca o estado por si só — mesmo contrato do
+    espelho `recusar_transicao_para_livro_caixa_com_movimento`, acima:
+    uma empresa que JÁ está em `CONTABILIDADE` (nenhuma mudança) ou que
+    está migrando PARA `LIVRO_CAIXA` não aciona esta regra (essa direção já
+    tem a guarda R6).
+
+    Import LOCAL de `apps.livro_caixa.models` (dentro da função, não no
+    topo do módulo): evita ciclo de import — `apps.livro_caixa.models`
+    importa `apps.empresas.services` (para `recusar_se_nao_livro_caixa`),
+    então este módulo não pode importar `apps.livro_caixa` no nível do
+    módulo sem criar um ciclo.
+    """
+    if modo_anterior != ModoEscrituracao.LIVRO_CAIXA or modo_novo == ModoEscrituracao.LIVRO_CAIXA:
+        return
+
+    from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa
+
+    tem_movimento = ContaLivroCaixa.objects.filter(empresa=empresa).exists() or (
+        LancamentoCaixa.objects.filter(empresa=empresa).exists()
+    )
+    if tem_movimento:
+        raise TransicaoParaContabilidadeInvalida(
+            "Não é possível mudar esta empresa para contabilidade: ela já tem "
+            "conta ou lançamento de caixa gravado no livro-caixa. Empresas com "
+            "escrituração de caixa existente permanecem em modo livro-caixa."
+        )
+
+
 # ---------------------------------------------------------------------------
 # DL-038 (R7), achado B2 da auditoria rodada 1: NIRE e ESTABELECIMENTO são
 # conceitos de pessoa JURÍDICA — não fazem sentido para um cliente pessoa

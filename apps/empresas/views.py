@@ -137,6 +137,13 @@ _CAMPO_DA_RESTRICAO_DE_EMPRESA = {
     "empresa_cnpj_canonico": "cnpj",
     "empresa_cpf_formato_valido": "cpf",
     "empresa_inscricao_consistente_com_tipo": "tipo_inscricao",
+    # Achado do especialista-frontend (rodada 1 de auditoria da DL-046): a
+    # constraint do CAEPF (DL-046/RC-129) já entrava no MESMO `with` de
+    # `EmpresaListCreateView.perform_create` (ver `mensagens_de(...)`
+    # abaixo), mas faltava aqui — sem esta entrada, uma corrida que violasse
+    # ESTA constraint específica caía no `.get(..., "cnpj")` (o padrão de
+    # `_campo_da_restricao_de_empresa`) e reportava o erro no campo errado.
+    "empresa_caepf_so_para_cpf_com_formato_valido": "caepf",
     # Achado D1 da auditoria DL-039 rodada 1 (BL-533): gatilho de banco
     # (não é `Meta.constraint` — ver `apps.core.restricoes.MENSAGENS_DE_
     # RESTRICAO_DE_GATILHO`), disparado quando a checagem em Python

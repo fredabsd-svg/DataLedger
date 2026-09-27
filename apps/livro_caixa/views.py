@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -112,6 +113,7 @@ CONTRATO_POST_LANCAMENTO_CAIXA = ContratoDeRequisicao(
         "recebido_de",
         "cpf_titular_pagamento",
         "cpf_beneficiario_servico",
+        "cpf_beneficiario_nao_informado",
         "cnpj_pagador",
     },
     contexto="no lançamento de caixa",
@@ -126,6 +128,18 @@ CONTRATO_POST_ESTORNO_CAIXA = ContratoDeRequisicao(
 )
 
 TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA_CAIXA = 255
+
+
+class PaginacaoLancamentoCaixa(PageNumberPagination):
+    """B6 (rodada 1 de auditoria): a lista de lançamentos não tinha
+    paginação — 14 consultas com 5 lançamentos, 59 com 50, crescendo sem
+    teto. `page_size` generoso o bastante para não incomodar o uso comum
+    (um mês de movimento cabe numa página), com `page_size_query_param`
+    para o cliente pedir menos quando quiser."""
+
+    page_size = 100
+    page_size_query_param = "tamanho_pagina"
+    max_page_size = 500
 
 
 class ContaLivroCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.ListCreateAPIView):
@@ -152,11 +166,32 @@ class ContaLivroCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
         _recusar_dado_nao_contratado(request, CONTRATO_POST_CONTA_CAIXA)
         dados = request.data if isinstance(request.data, dict) else {}
 
+        # B3 (rodada 1 de auditoria): `codigo` e `nome` só são aceitos como
+        # TEXTO — sem esta checagem, `{"codigo": ["X1"]}` gravava o texto
+        # `"['X1']"` (o `str()` do Python sobre a lista, dentro do
+        # `CharField`), e um `codigo`/`nome` só de espaços passava (o
+        # `CharField` do modelo aceita, `blank=False` só recusa STRING
+        # vazia, não string em branco). `strip()` — mesmo padrão de
+        # `historico` (contabilidade) — para "  " não contar como um
+        # código/nome preenchido.
+        codigo = dados.get("codigo")
+        nome = dados.get("nome")
+        if not isinstance(codigo, str):
+            raise DRFValidationError("O campo 'codigo' deve ser texto.")
+        if not isinstance(nome, str):
+            raise DRFValidationError("O campo 'nome' deve ser texto.")
+        codigo = codigo.strip()
+        nome = nome.strip()
+        if not codigo:
+            raise DRFValidationError("O campo 'codigo' não pode ficar em branco.")
+        if not nome:
+            raise DRFValidationError("O campo 'nome' não pode ficar em branco.")
+
         try:
             conta = criar_conta_livro_caixa(
                 empresa=self.get_empresa(),
-                codigo=dados.get("codigo"),
-                nome=dados.get("nome"),
+                codigo=codigo,
+                nome=nome,
                 natureza=dados.get("natureza"),
                 codigo_carne_leao=dados.get("codigo_carne_leao"),
                 ativa=dados.get("ativa", True),
@@ -192,6 +227,7 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
 
     permission_classes = [TemEscritorioAtivo]
     serializer_class = LancamentoCaixaSerializer
+    pagination_class = PaginacaoLancamentoCaixa
 
     def get_permissions(self):
         permissions = [permission() for permission in self.permission_classes]
@@ -266,6 +302,10 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
             if valor_campo is not None and not isinstance(valor_campo, str):
                 raise DRFValidationError(f"O campo '{campo}' deve ser texto.")
 
+        cpf_beneficiario_nao_informado = dados.get("cpf_beneficiario_nao_informado", False)
+        if not isinstance(cpf_beneficiario_nao_informado, bool):
+            raise DRFValidationError("O campo 'cpf_beneficiario_nao_informado' deve ser booleano.")
+
         chave_idempotencia = (request.headers.get("Idempotency-Key") or "").strip() or None
         if chave_idempotencia and len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA_CAIXA:
             raise DRFValidationError(
@@ -284,6 +324,7 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
                 recebido_de=recebido_de,
                 cpf_titular_pagamento=dados.get("cpf_titular_pagamento", "") or "",
                 cpf_beneficiario_servico=dados.get("cpf_beneficiario_servico", "") or "",
+                cpf_beneficiario_nao_informado=cpf_beneficiario_nao_informado,
                 cnpj_pagador=dados.get("cnpj_pagador", "") or "",
                 criado_por=request.user,
                 chave_idempotencia=chave_idempotencia,
@@ -368,6 +409,7 @@ class LivroCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
                         "conta": item["conta"],
                         "conta_nome": item["conta_nome"],
                         "natureza": item["natureza"],
+                        "grupo": item["grupo"],
                         "valor": str(item["valor"]),
                         "historico": item["historico"],
                         "documento_origem": item["documento_origem"],
@@ -377,6 +419,15 @@ class LivroCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
                     for item in apuracao["itens"]
                 ],
                 "total_entradas": str(apuracao["total_entradas"]),
+                # D3 (rodada 1 de auditoria, DE-087 item 13): `P20` (imposto
+                # pago, previdência oficial, pensão alimentícia) em grupo
+                # PRÓPRIO, separado das despesas de custeio — são deduções
+                # do carnê-leão (art. 68, RIR/2018), não despesas do
+                # livro-caixa. `total_saidas` continua a SOMA dos dois
+                # grupos, mantido por compatibilidade; o saldo de caixa não
+                # muda (as duas saídas reduzem o caixa igualmente).
+                "total_saidas_custeio": str(apuracao["total_saidas_custeio"]),
+                "total_saidas_deducao_carne_leao": str(apuracao["total_saidas_deducao_carne_leao"]),
                 "total_saidas": str(apuracao["total_saidas"]),
                 "saldo": str(apuracao["saldo"]),
             },

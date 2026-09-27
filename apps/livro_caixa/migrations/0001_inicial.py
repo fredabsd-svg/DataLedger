@@ -15,7 +15,21 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("empresas", "0014_dl046_caepf"),
+        # Editado à mão (rodada 1 de auditoria): o `makemigrations`
+        # apontaria para a migração MAIS RECENTE de `empresas` no momento
+        # da geração ("0014_dl046_caepf") — mas este app só depende de
+        # `Empresa` existir como MODELO (para o `ForeignKey`), não de
+        # nenhum campo específico dela (`caepf` inclusive). Depender de
+        # "0001_initial" (onde `Empresa` nasce) em vez da migração mais
+        # recente evita que testes que revertem `empresas` para uma
+        # migração ANTERIOR a "0014" (ex.: `test_dl038_migracao.py`,
+        # `test_dl076_b8_modo_escrituracao_constraint.py`) precisem
+        # desaplicar — e não conseguem reaplicar sozinhos, porque só
+        # migram de volta para o líder de `empresas`, nunca para o de
+        # `livro_caixa` — as duas tabelas deste app, quebrando qualquer
+        # teste deste app rodado DEPOIS, na mesma sessão da suíte
+        # completa (medido: `UndefinedTable` em `test_a2_corrida_...`).
+        ("empresas", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

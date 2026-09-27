@@ -94,6 +94,17 @@ def codigo_carne_leao_e_pagamento(codigo):
     return bool(re.fullmatch(_REGEX_CODIGO_PAGAMENTO, codigo or ""))
 
 
+def codigo_carne_leao_e_deducao_do_carne_leao(codigo):
+    """`True` se `codigo` é `P20` (imposto pago, previdência oficial ou
+    pensão alimentícia) — D3/DE-087 item 13: estes pagamentos são
+    DEDUÇÕES do carnê-leão (art. 68, RIR/2018), não despesas de custeio, e
+    por isso `apurar_livro_caixa` os separa num grupo próprio na
+    apresentação do relatório, embora ambos os grupos continuem
+    subtraindo do saldo de CAIXA (regime de caixa: toda saída de dinheiro
+    reduz o saldo, independentemente da classificação tributária)."""
+    return bool(codigo) and codigo.startswith("P20")
+
+
 def mensagem_de_codigo_carne_leao_invalido(codigo, *, natureza):
     """Mensagem de recusa se `codigo` não bater com o FORMATO esperado para
     `natureza` ("receita" espera `R01.xxx.xxx`; "despesa" espera
