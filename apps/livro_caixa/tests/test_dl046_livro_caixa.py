@@ -101,6 +101,19 @@ def cenario():
         natureza=NaturezaCaixa.DESPESA,
         codigo_carne_leao="P10.001",
     )
+    # M5/DE-088 item 1: conta do modelo "trabalho não assalariado"
+    # (R01.001.001) — o único, dos quatro modelos oficiais, que EXIGE CPF
+    # do titular (e beneficiário XOR indicador) para PF e CNPJ para PJ.
+    # `conta_receita` (acima) é do modelo "aluguel e outros" (R01.003.001),
+    # que não tem CPF nem CNPJ no leiaute — os testes que precisam de
+    # exigência de CPF/CNPJ usam esta conta, não a outra.
+    conta_trabalho = ContaLivroCaixa.objects.create(
+        empresa=empresa_a,
+        codigo="RT1",
+        nome="Trabalho não assalariado",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.001",
+    )
     return {
         "escritorio_a": escritorio_a,
         "escritorio_b": escritorio_b,
@@ -109,6 +122,7 @@ def cenario():
         "empresa_contabilidade": empresa_contabilidade,
         "conta_receita": conta_receita,
         "conta_despesa": conta_despesa,
+        "conta_trabalho": conta_trabalho,
     }
 
 
@@ -425,10 +439,13 @@ def test_lancamento_recusa_cpf_com_formato_invalido(cenario):
         )
 
 
-def test_lancamento_aceita_cnpj_pagador_opcional_em_receita_de_pj(cenario):
+def test_lancamento_pj_com_cnpj_no_modelo_trabalho_nao_assalariado(cenario):
+    # M5/DE-088 item 1: no modelo "trabalho não assalariado", PJ EXIGE
+    # CNPJ (não é mais "opcional" como na hipótese original da rodada 1) —
+    # `conta_trabalho`, não `conta_receita` (aluguel, sem CNPJ no leiaute).
     lancamento = criar_lancamento_caixa(
         empresa=cenario["empresa_a"],
-        conta=cenario["conta_receita"],
+        conta=cenario["conta_trabalho"],
         data=date(2026, 1, 15),
         valor="500.00",
         historico="Recebido de PJ com CNPJ",
@@ -436,6 +453,46 @@ def test_lancamento_aceita_cnpj_pagador_opcional_em_receita_de_pj(cenario):
         cnpj_pagador=CNPJ_PAGADOR,
     )
     assert lancamento.cnpj_pagador == CNPJ_PAGADOR
+
+
+def test_lancamento_pj_sem_cnpj_no_modelo_trabalho_nao_assalariado_e_recusado(cenario):
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_trabalho"],
+            data=date(2026, 1, 15),
+            valor="500.00",
+            historico="PJ sem CNPJ no modelo que exige",
+            recebido_de=OrigemRecebimento.PJ,
+        )
+
+
+def test_lancamento_aluguel_pj_sem_cnpj_continua_aceito(cenario):
+    # Contraprova: `conta_receita` (aluguel/outros) NÃO exige CNPJ para PJ
+    # — o leiaute desse modelo nem tem o campo.
+    lancamento = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 1, 15),
+        valor="500.00",
+        historico="Aluguel recebido de PJ, sem CNPJ",
+        recebido_de=OrigemRecebimento.PJ,
+    )
+    assert lancamento.cnpj_pagador == ""
+
+
+def test_lancamento_aluguel_pj_com_cnpj_e_recusado(cenario):
+    # O modelo de aluguel/outros nunca aceita CNPJ, mesmo com PJ.
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_receita"],
+            data=date(2026, 1, 15),
+            valor="500.00",
+            historico="Aluguel recebido de PJ, com CNPJ (incoerente)",
+            recebido_de=OrigemRecebimento.PJ,
+            cnpj_pagador=CNPJ_PAGADOR,
+        )
 
 
 def test_lancamento_e_imutavel(cenario):
@@ -1524,15 +1581,16 @@ def test_m16_codigo_de_rendimento_mal_formado_e_recusado(cenario, codigo_invalid
 
 
 # ---------------------------------------------------------------------------
-# 15. M17/M18 — CPF pelo leiaute oficial (M5/DE-087 item 6)
+# 15. M17/M18 — CPF pelo leiaute oficial, POR MODELO (M5/DE-088 item 1)
 # ---------------------------------------------------------------------------
 
 
 def test_m17_pf_sem_titular_e_sem_beneficiario_e_recusado(cenario):
+    # `conta_trabalho` (modelo trabalho não assalariado): titular obrigatório.
     with pytest.raises(LancamentoCaixaInvalido):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="PF sem nada",
@@ -1541,13 +1599,14 @@ def test_m17_pf_sem_titular_e_sem_beneficiario_e_recusado(cenario):
 
 
 def test_m17_pf_com_titular_mas_sem_beneficiario_e_sem_indicador_e_recusado(cenario):
-    """Isola a exigência do BENEFICIÁRIO (M17): titular presente, mas nem
-    o CPF do beneficiário nem o indicador de "não informado" — a omissão
-    tem que ser recusada, nunca aceita em silêncio."""
+    """Isola a exigência do BENEFICIÁRIO (M17), no modelo trabalho não
+    assalariado: titular presente, mas nem o CPF do beneficiário nem o
+    indicador de "não informado" — a omissão tem que ser recusada, nunca
+    aceita em silêncio."""
     with pytest.raises(LancamentoCaixaInvalido) as excinfo:
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="PF com titular, sem beneficiário e sem indicador",
@@ -1560,7 +1619,7 @@ def test_m17_pf_com_titular_mas_sem_beneficiario_e_sem_indicador_e_recusado(cena
 def test_m17_pf_com_titular_e_indicador_de_beneficiario_nao_informado_e_aceito(cenario):
     lancamento = criar_lancamento_caixa(
         empresa=cenario["empresa_a"],
-        conta=cenario["conta_receita"],
+        conta=cenario["conta_trabalho"],
         data=date(2026, 1, 15),
         valor="100.00",
         historico="PF, beneficiário não informado",
@@ -1576,7 +1635,7 @@ def test_m17_pf_com_beneficiario_e_indicador_marcado_e_incoerente(cenario):
     with pytest.raises(LancamentoCaixaInvalido):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="PF com os dois: contraditório",
@@ -1588,6 +1647,7 @@ def test_m17_pf_com_beneficiario_e_indicador_marcado_e_incoerente(cenario):
 
 
 def test_m18_pj_sem_cpf_e_aceito(cenario):
+    # `conta_receita` (aluguel/outros): nunca exige CPF nem CNPJ.
     lancamento = criar_lancamento_caixa(
         empresa=cenario["empresa_a"],
         conta=cenario["conta_receita"],
@@ -1603,12 +1663,13 @@ def test_m18_pj_com_cpf_titular_e_recusado(cenario):
     with pytest.raises(LancamentoCaixaInvalido):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="PJ com CPF: incoerente",
             recebido_de=OrigemRecebimento.PJ,
             cpf_titular_pagamento=CPF_TITULAR,
+            cnpj_pagador=CNPJ_PAGADOR,
         )
 
 
@@ -1616,7 +1677,7 @@ def test_m18_ex_com_cnpj_e_recusado(cenario):
     with pytest.raises(LancamentoCaixaInvalido):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="EX com CNPJ: incoerente",
@@ -1629,7 +1690,7 @@ def test_pf_com_cnpj_pagador_e_recusado(cenario):
     with pytest.raises(LancamentoCaixaInvalido):
         criar_lancamento_caixa(
             empresa=cenario["empresa_a"],
-            conta=cenario["conta_receita"],
+            conta=cenario["conta_trabalho"],
             data=date(2026, 1, 15),
             valor="100.00",
             historico="PF com CNPJ: incoerente",
@@ -1637,6 +1698,218 @@ def test_pf_com_cnpj_pagador_e_recusado(cenario):
             cpf_titular_pagamento=CPF_TITULAR,
             cpf_beneficiario_nao_informado=True,
             cnpj_pagador=CNPJ_PAGADOR,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 15b. M5 linha a linha — as 12 linhas dos modelos oficiais (reconferência)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def contas_dos_modelos_oficiais(cenario):
+    """Uma conta por MODELO oficial do Carnê-Leão Web — para as 12 linhas
+    da tabela "M5 linha a linha" do relatório de reconferência."""
+    conta_notarial = ContaLivroCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="NOT1",
+        nome="Serviços notariais e de registro",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.001.002",
+    )
+    conta_outros = ContaLivroCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="OUT1",
+        nome="Outros rendimentos",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.004.001",
+    )
+    return {
+        **cenario,
+        "conta_notarial": conta_notarial,
+        "conta_outros": conta_outros,
+    }
+
+
+def _lanca(contas, conta_chave, **kwargs):
+    return criar_lancamento_caixa(
+        empresa=contas["empresa_a"],
+        conta=contas[conta_chave],
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico=kwargs.pop("historico", "Linha oficial"),
+        **kwargs,
+    )
+
+
+# As 12 linhas da tabela "M5 linha a linha" (reconferência), na mesma
+# ordem do relatório. `aceita=True` espera sucesso; `aceita=False` espera
+# `LancamentoCaixaInvalido`.
+_LINHAS_OFICIAIS_M5 = [
+    (
+        "R01.001.001 PF, titular e beneficiário",
+        "conta_trabalho",
+        {
+            "recebido_de": OrigemRecebimento.PF,
+            "cpf_titular_pagamento": CPF_TITULAR,
+            "cpf_beneficiario_servico": CPF_BENEFICIARIO,
+        },
+        True,
+    ),
+    (
+        "R01.001.001 PF, titular, sem beneficiário, indicador S",
+        "conta_trabalho",
+        {
+            "recebido_de": OrigemRecebimento.PF,
+            "cpf_titular_pagamento": CPF_TITULAR,
+            "cpf_beneficiario_nao_informado": True,
+        },
+        True,
+    ),
+    (
+        "R01.001.001 PJ com CNPJ",
+        "conta_trabalho",
+        {"recebido_de": OrigemRecebimento.PJ, "cnpj_pagador": CNPJ_PAGADOR},
+        True,
+    ),
+    ("R01.001.001 EX", "conta_trabalho", {"recebido_de": OrigemRecebimento.EX}, True),
+    ("R01.001.002 EX", "conta_notarial", {"recebido_de": OrigemRecebimento.EX}, True),
+    (
+        'R01.001.002 PF com titular; beneficiário "vazio"; indicador "vazio"',
+        "conta_notarial",
+        {"recebido_de": OrigemRecebimento.PF, "cpf_titular_pagamento": CPF_TITULAR},
+        True,
+    ),
+    (
+        "R01.001.002 PJ",
+        "conta_notarial",
+        {"recebido_de": OrigemRecebimento.PJ, "cnpj_pagador": CNPJ_PAGADOR},
+        True,
+    ),
+    (
+        "R01.003.001 PF (aluguel; leiaute só tem 7 campos, sem CPF)",
+        "conta_receita",
+        {"recebido_de": OrigemRecebimento.PF},
+        True,
+    ),
+    ("R01.003.001 EX", "conta_receita", {"recebido_de": OrigemRecebimento.EX}, True),
+    (
+        "R01.004.001 PF (outros; 7 campos, sem CPF)",
+        "conta_outros",
+        {"recebido_de": OrigemRecebimento.PF},
+        True,
+    ),
+    ("R01.004.001 EX", "conta_outros", {"recebido_de": OrigemRecebimento.EX}, True),
+    (
+        "Receita Saúde R01.001.001 PF com os dois CPFs",
+        "conta_trabalho",
+        {
+            "recebido_de": OrigemRecebimento.PF,
+            "cpf_titular_pagamento": CPF_TITULAR,
+            "cpf_beneficiario_servico": CPF_BENEFICIARIO,
+        },
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "descricao,conta_chave,campos,aceita",
+    _LINHAS_OFICIAIS_M5,
+    ids=[linha[0] for linha in _LINHAS_OFICIAIS_M5],
+)
+def test_m5_linha_a_linha_dos_modelos_oficiais(
+    contas_dos_modelos_oficiais, descricao, conta_chave, campos, aceita
+):
+    if aceita:
+        lancamento = _lanca(contas_dos_modelos_oficiais, conta_chave, **campos)
+        assert lancamento.pk is not None, descricao
+    else:
+        with pytest.raises(LancamentoCaixaInvalido):
+            _lanca(contas_dos_modelos_oficiais, conta_chave, **campos)
+
+
+def test_m5_notarial_pf_com_beneficiario_e_recusado(contas_dos_modelos_oficiais):
+    """Também recusado, como deve: notarial não tem campo de beneficiário
+    nem de indicador — informar qualquer um dos dois é incoerente com o
+    leiaute oficial."""
+    with pytest.raises(LancamentoCaixaInvalido):
+        _lanca(
+            contas_dos_modelos_oficiais,
+            "conta_notarial",
+            recebido_de=OrigemRecebimento.PF,
+            cpf_titular_pagamento=CPF_TITULAR,
+            cpf_beneficiario_servico=CPF_BENEFICIARIO,
+        )
+
+
+def test_m5_notarial_pf_com_indicador_e_recusado(contas_dos_modelos_oficiais):
+    with pytest.raises(LancamentoCaixaInvalido):
+        _lanca(
+            contas_dos_modelos_oficiais,
+            "conta_notarial",
+            recebido_de=OrigemRecebimento.PF,
+            cpf_titular_pagamento=CPF_TITULAR,
+            cpf_beneficiario_nao_informado=True,
+        )
+
+
+def test_m5_notarial_pj_sem_cnpj_e_recusado(contas_dos_modelos_oficiais):
+    with pytest.raises(LancamentoCaixaInvalido):
+        _lanca(contas_dos_modelos_oficiais, "conta_notarial", recebido_de=OrigemRecebimento.PJ)
+
+
+def test_m5_aluguel_pf_com_titular_e_recusado(contas_dos_modelos_oficiais):
+    """O leiaute de aluguel/outros não tem CPF nenhum — informar o titular
+    é incoerente, mesmo com PF."""
+    with pytest.raises(LancamentoCaixaInvalido):
+        _lanca(
+            contas_dos_modelos_oficiais,
+            "conta_receita",
+            recebido_de=OrigemRecebimento.PF,
+            cpf_titular_pagamento=CPF_TITULAR,
+        )
+
+
+def test_m5_codigo_fora_dos_modelos_nao_exige_cpf_nem_cnpj(cenario):
+    """PE-71: código de rendimento fora da tabela oficial conhecida — sem
+    tabela completa, sem exigência de CPF/CNPJ (mas a coerência universal
+    continua valendo: ver o próximo teste)."""
+    conta_desconhecida = ContaLivroCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="DESCONHECIDO",
+        nome="Rendimento fora dos modelos conhecidos",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.099.001",
+    )
+    lancamento = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=conta_desconhecida,
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico="Código fora dos modelos conhecidos",
+        recebido_de=OrigemRecebimento.PF,
+    )
+    assert lancamento.cpf_titular_pagamento == ""
+
+
+def test_m5_codigo_fora_dos_modelos_recusa_indicador(cenario):
+    conta_desconhecida = ContaLivroCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="DESCONHECIDO2",
+        nome="Rendimento fora dos modelos conhecidos 2",
+        natureza=NaturezaCaixa.RECEITA,
+        codigo_carne_leao="R01.099.002",
+    )
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=conta_desconhecida,
+            data=date(2026, 1, 15),
+            valor="100.00",
+            historico="Indicador em código sem modelo previsto",
+            recebido_de=OrigemRecebimento.PF,
+            cpf_beneficiario_nao_informado=True,
         )
 
 
@@ -1795,7 +2068,7 @@ def test_b2_cnpj_com_mascara_e_normalizado(cenario):
     cnpj_mascarado = "11.122.233/0001-83"
     lancamento = criar_lancamento_caixa(
         empresa=cenario["empresa_a"],
-        conta=cenario["conta_receita"],
+        conta=cenario["conta_trabalho"],
         data=date(2026, 1, 15),
         valor="100.00",
         historico="CNPJ com máscara",
@@ -2064,3 +2337,292 @@ def test_d3_api_relatorio_expoe_os_dois_grupos_de_saida(client, cenario):
     assert corpo["total_saidas_deducao_carne_leao"] == "80.00"
     assert corpo["total_saidas_custeio"] == "0.00"
     assert any(item["grupo"] == "saida_deducao_carne_leao" for item in corpo["itens"])
+
+
+# ---------------------------------------------------------------------------
+# 25. N2 — chave de idempotência validada por tamanho e NUL no SERVIÇO
+# (para a tela e a API), com a unicidade tratada fora de full_clean
+# ---------------------------------------------------------------------------
+
+
+def test_n2_servico_recusa_chave_de_256_caracteres(cenario):
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_receita"],
+            data=date(2026, 1, 15),
+            valor="100.00",
+            historico="Chave de 256",
+            recebido_de=OrigemRecebimento.PJ,
+            chave_idempotencia="k" * 256,
+        )
+    assert not LancamentoCaixa.objects.filter(empresa=cenario["empresa_a"]).exists()
+
+
+def test_n2_servico_recusa_chave_de_300_caracteres(cenario):
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_receita"],
+            data=date(2026, 1, 15),
+            valor="100.00",
+            historico="Chave de 300",
+            recebido_de=OrigemRecebimento.PJ,
+            chave_idempotencia="k" * 300,
+        )
+    assert not LancamentoCaixa.objects.filter(empresa=cenario["empresa_a"]).exists()
+
+
+def test_n2_servico_aceita_chave_no_limite_de_255(cenario):
+    lancamento = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico="Chave no limite",
+        recebido_de=OrigemRecebimento.PJ,
+        chave_idempotencia="k" * 255,
+    )
+    assert lancamento.chave_idempotencia == "k" * 255
+
+
+def test_n2_corrida_com_chave_valida_continua_201_200(cenario):
+    # Contraprova exigida pelo achado: o caso normal (chave válida, sob
+    # corrida) continua funcionando depois da correção do tamanho/NUL —
+    # já coberto por `test_a2_corrida_de_idempotencia_...`; aqui confere a
+    # via sequencial simples, sem threads, para a chave de tamanho válido.
+    primeiro = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico="Chave válida",
+        recebido_de=OrigemRecebimento.PJ,
+        chave_idempotencia="k" * 254,
+    )
+    segundo = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico="Chave válida",
+        recebido_de=OrigemRecebimento.PJ,
+        chave_idempotencia="k" * 254,
+    )
+    assert primeiro.pk == segundo.pk
+    assert segundo.criado_agora is False
+
+
+# ---------------------------------------------------------------------------
+# 26. N6 — corrida entre a troca de modo (A1) e a criação de conta de caixa:
+# select_for_update trava a EMPRESA nos dois caminhos
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_n6_corrida_entre_troca_de_modo_e_criacao_de_conta_sempre_recusa_um_dos_dois():
+    escritorio = Escritorio.objects.create(nome="Escritório N6", cnpj="80000000000380")
+    empresa = Empresa.objects.create(
+        escritorio=escritorio,
+        razao_social="Empresa N6 Corrida",
+        tipo_inscricao=TipoInscricao.CPF,
+        cpf="12345678909",
+        modo_escrituracao=ModoEscrituracao.LIVRO_CAIXA,
+    )
+    usuario = get_user_model().objects.create_user(
+        username="gestor-n6-corrida",
+        email="gestor-n6-corrida@escritorio.com.br",
+        password="senha-forte-123",
+    )
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=usuario, escritorio=escritorio, papel=Papel.GESTOR
+    )
+
+    barreira = threading.Barrier(2)
+    resultados = {}
+
+    def _trocar_modo():
+        try:
+            cliente = Client(raise_request_exception=False)
+            cliente.login(username="gestor-n6-corrida", password="senha-forte-123")
+            barreira.wait(timeout=5)
+            resposta = cliente.patch(
+                reverse("empresas:api-detalhe", kwargs={"pk": empresa.id}),
+                data=json.dumps({"modo_escrituracao": "contabilidade"}),
+                content_type="application/json",
+            )
+            resultados["patch"] = resposta.status_code
+        finally:
+            connection.close()
+
+    def _criar_conta():
+        try:
+            cliente = Client(raise_request_exception=False)
+            cliente.login(username="gestor-n6-corrida", password="senha-forte-123")
+            barreira.wait(timeout=5)
+            resposta = cliente.post(
+                reverse("livro_caixa:contas", kwargs={"empresa_id": empresa.id}),
+                data=json.dumps(
+                    {
+                        "codigo": "N6",
+                        "nome": "Conta N6",
+                        "natureza": "receita",
+                        "codigo_carne_leao": "R01.003.001",
+                    }
+                ),
+                content_type="application/json",
+            )
+            resultados["post"] = resposta.status_code
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=_trocar_modo), threading.Thread(target=_criar_conta)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert 500 not in resultados.values(), resultados
+    # Nunca os dois aceitos ao mesmo tempo: ou o PATCH venceu (200) e a
+    # conta foi recusada (400, empresa já em contabilidade), ou a conta
+    # venceu (201) e o PATCH foi recusado (400, tem conta de caixa gravada).
+    aceitos = [codigo for codigo in resultados.values() if codigo in (200, 201)]
+    assert len(aceitos) == 1, resultados
+
+
+# ---------------------------------------------------------------------------
+# 27. N7 (determinístico, sem threads) — a "outra requisição" comete ENTRE
+# a pré-checagem e o full_clean/validate_constraints desta: espera-se 200
+# (repetição idempotente reconhecida), nunca 400 "já existe"
+# ---------------------------------------------------------------------------
+
+
+def test_n07_barreira_entre_pre_checagem_e_full_clean_da_200_nunca_400(cenario):
+    corpo_comum = {
+        "empresa": cenario["empresa_a"],
+        "conta": cenario["conta_receita"],
+        "data": date(2026, 1, 15),
+        "valor": "321.00",
+        "historico": "N07",
+        "recebido_de": OrigemRecebimento.PJ,
+        "chave_idempotencia": "chave-n07",
+    }
+    original_full_clean = LancamentoCaixa.full_clean
+    ja_comprometeu = {"valor": False}
+
+    def full_clean_com_a_outra_ja_comprometida(self, *args, **kwargs):
+        if not ja_comprometeu["valor"]:
+            ja_comprometeu["valor"] = True
+            # Simula a OUTRA requisição, cuja pré-checagem também não viu
+            # nada, mas que termina de gravar e COMETE bem no meio da
+            # janela entre a pré-checagem e o full_clean desta chamada.
+            criar_lancamento_caixa(**corpo_comum)
+        return original_full_clean(self, *args, **kwargs)
+
+    with mock.patch.object(LancamentoCaixa, "full_clean", full_clean_com_a_outra_ja_comprometida):
+        resultado = criar_lancamento_caixa(**corpo_comum)
+
+    assert resultado.criado_agora is False
+    assert (
+        LancamentoCaixa.objects.filter(
+            empresa=cenario["empresa_a"], chave_idempotencia="chave-n07"
+        ).count()
+        == 1
+    )
+
+
+# ---------------------------------------------------------------------------
+# 28. N13 — o estorno copia o indicador "CPF do beneficiário não informado"
+# ---------------------------------------------------------------------------
+
+
+def test_n13_estorno_copia_o_indicador_de_beneficiario_nao_informado(cenario):
+    original = criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_trabalho"],
+        data=date(2026, 1, 15),
+        valor="100.00",
+        historico="Original com indicador",
+        recebido_de=OrigemRecebimento.PF,
+        cpf_titular_pagamento=CPF_TITULAR,
+        cpf_beneficiario_nao_informado=True,
+    )
+    estorno = estornar_lancamento_caixa(original)
+    assert estorno.cpf_beneficiario_nao_informado is True
+    assert estorno.cpf_beneficiario_servico == ""
+
+
+# ---------------------------------------------------------------------------
+# 29. N16 — indicador marcado com recebido_de PJ ou EX é recusado
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("recebido_de", [OrigemRecebimento.PJ, OrigemRecebimento.EX])
+def test_n16_indicador_marcado_fora_de_pf_e_recusado(cenario, recebido_de):
+    with pytest.raises(LancamentoCaixaInvalido):
+        criar_lancamento_caixa(
+            empresa=cenario["empresa_a"],
+            conta=cenario["conta_trabalho"],
+            data=date(2026, 1, 15),
+            valor="100.00",
+            historico="Indicador fora de PF",
+            recebido_de=recebido_de,
+            cpf_beneficiario_nao_informado=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 30. N21 — conta P11 (não dedutível) permanece em saida_custeio, fora da
+# tabela/grupo de deduções do carnê-leão (P20)
+# ---------------------------------------------------------------------------
+
+
+def test_n21_conta_p11_permanece_em_saida_custeio(cenario):
+    conta_p11 = ContaLivroCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        codigo="P11-1",
+        nome="Despesa não dedutível",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P11.002",
+    )
+    criar_lancamento_caixa(
+        empresa=cenario["empresa_a"],
+        conta=conta_p11,
+        data=date(2026, 7, 1),
+        valor="90.00",
+        historico="Despesa P11",
+    )
+    apuracao = apurar_livro_caixa(
+        empresa=cenario["empresa_a"], inicio=date(2026, 7, 1), fim=date(2026, 7, 31)
+    )
+    grupos = {item["conta"]: item["grupo"] for item in apuracao["itens"]}
+    assert grupos["P11-1"] == "saida_custeio"
+    assert apuracao["total_saidas_custeio"] == Decimal("90.00")
+    assert apuracao["total_saidas_deducao_carne_leao"] == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# 31. N12 (opcional) — lançamento legado, gravado por ORM sob a regra
+# antiga (sem passar por full_clean), continua estornável
+# ---------------------------------------------------------------------------
+
+
+def test_n12_lancamento_legado_gravado_por_orm_continua_estornavel(cenario):
+    """Simula um lançamento gravado ANTES desta rodada (regra universal,
+    rodada 1), num modelo que a regra NOVA (por modelo) já não aceitaria
+    do jeito que foi gravado — aluguel de PF com CPF do titular preenchido,
+    que a regra por modelo (M5/DE-088) recusaria na ORIGEM. Grava direto
+    pelo ORM, sem `full_clean()` (mesmo padrão de dado legado), e confirma
+    que o ESTORNO (que copia sem revalidar, M4) continua possível."""
+    legado = LancamentoCaixa.objects.create(
+        empresa=cenario["empresa_a"],
+        conta=cenario["conta_receita"],
+        data=date(2026, 1, 10),
+        valor=Decimal("100.00"),
+        historico="Legado sob a regra antiga",
+        recebido_de=OrigemRecebimento.PF,
+        cpf_titular_pagamento=CPF_TITULAR,
+    )
+    estorno = estornar_lancamento_caixa(legado)
+    assert estorno.pk is not None
+    assert estorno.cpf_titular_pagamento == CPF_TITULAR

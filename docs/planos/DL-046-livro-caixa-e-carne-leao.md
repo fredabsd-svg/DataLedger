@@ -411,3 +411,80 @@ corpo).
 - D1 (data/sinal do estorno para a apuração mensal) virou **PE-72**
   (requisitos.md) — decisão de produto antes da fatia 2, não desta rodada.
 - Dígito verificador do CAEPF (HI-31) — sem fonte oficial.
+
+## Correção da reconferência (2026-09-27, `desenvolvedor-pleno`)
+
+A [reconferência](../auditorias/2026-09-27-dl-046-reconferencia.md) fechou
+A1, A2 e A3, mas reprovou por N1 (tela — do `especialista-frontend`, noutra
+worktree, `wt-dl046f`) e pela regra de CPF que a DE-087 item 6 generalizava
+para toda receita. Correção final do SERVIDOR, sem nova rodada de auditoria
+(DE-088 item 7 — fechamento por verificação independente).
+
+### Achado → mudança → teste
+
+| Achado | Mudança | Teste |
+| --- | --- | --- |
+| M5/DE-088 item 1 | Regra de CPF/CNPJ **por MODELO** de rendimento (`apps.livro_caixa.validators.modelo_do_codigo_de_rendimento`/`erros_de_cpf_cnpj_do_rendimento`), substituindo a regra universal da DE-087 item 6: trabalho não assalariado (titular + beneficiário XOR indicador, PJ exige CNPJ); notarial (titular obrigatório, beneficiário/indicador sempre vazios, PJ exige CNPJ); aluguel/outros (nunca CPF nem CNPJ); código fora dos quatro modelos conhecidos (sem exigência, PE-71) — coerência universal (CPF só PF, CNPJ só PJ, indicador só onde o modelo prevê) continua valendo em qualquer caso. | `test_m5_linha_a_linha_dos_modelos_oficiais` (as 12 linhas), mais 6 testes de coerência por modelo (notarial, aluguel, código desconhecido). |
+| N2 | `criar_lancamento_caixa` separa `full_clean(validate_constraints=False)` (valida TODOS os campos, inclusive tamanho/NUL de `chave_idempotencia`) de `validate_constraints(exclude=...)` (só esta chamada dispensa a `UniqueConstraint` da idempotência). | `test_n2_servico_recusa_chave_de_256_caracteres`, `..._de_300_caracteres`, `..._aceita_chave_no_limite_de_255`, `..._corrida_com_chave_valida_continua_201_200`. |
+| N6 | `select_for_update()` na `Empresa` nos dois caminhos de gravação: `EmpresaDetailView.update()` (troca de modo) e `criar_conta_livro_caixa` (criação de conta) — trava a MESMA linha, com a instância travada e FRESCA usada na checagem de modo (achado do próprio desenvolvedor: travar a linha no banco não bastava enquanto a checagem ainda lia o objeto `empresa` em cache, com o valor ANTIGO). | `test_n6_corrida_entre_troca_de_modo_e_criacao_de_conta_sempre_recusa_um_dos_dois` — threads reais + barreira; sem a correção, media `{'patch': 200, 'post': 201}` (os dois aceitos). |
+| N7 | `_impressao_digital_caixa` passa a incluir `cpf_beneficiario_nao_informado`. | `test_n07_barreira_entre_pre_checagem_e_full_clean_da_200_nunca_400` (também cobre a corrida do próprio N7 indiretamente — ver a seção de mutantes). |
+| N13 | Já copiado desde a rodada 1 (`estornar_lancamento_caixa` passa `cpf_beneficiario_nao_informado=lancamento.cpf_beneficiario_nao_informado`) — faltava o TESTE. | `test_n13_estorno_copia_o_indicador_de_beneficiario_nao_informado`. |
+| N16 | Já coberto pela coerência universal (`recebido_de != "PF"` recusa o indicador) — faltava o TESTE isolando PJ/EX. | `test_n16_indicador_marcado_fora_de_pf_e_recusado` (parametrizado). |
+| N21 | Já coberto (`codigo_carne_leao_e_deducao_do_carne_leao` só reconhece `P20`) — faltava o TESTE isolando P11. | `test_n21_conta_p11_permanece_em_saida_custeio`. |
+| N12 (opcional) | Sem mudança de código (o estorno já não revalida, M4/rodada 1) — teste com dado gravado por ORM sob a regra antiga. | `test_n12_lancamento_legado_gravado_por_orm_continua_estornavel`. |
+| Fora do meu escopo | N1, N3, N4, N5, N8, N9, N25, N26, N33, N38 — telas, impressão e navegação, do `especialista-frontend` (`wt-dl046f`). | — |
+
+### Mutantes mortos (aplicados vivos, confirmados vermelhos, revertidos)
+
+| # | Ponto mutado | Teste que matou |
+| --- | --- | --- |
+| N07 | `validate_constraints(exclude=...)` volta a `validate_constraints()` sem exclusão | `test_n07_barreira_entre_pre_checagem_e_full_clean_da_200_nunca_400` |
+| N12 | `_pular_validacao_dependente_da_conta=True` volta a `False` no estorno | `test_n12_lancamento_legado_gravado_por_orm_continua_estornavel` |
+| N13 | Estorno passa `cpf_beneficiario_nao_informado=False` (fixo) em vez de copiar | `test_n13_estorno_copia_o_indicador_de_beneficiario_nao_informado` |
+| N16 | Recusa do indicador fora de PF (coerência universal) neutralizada | `test_n16_indicador_marcado_fora_de_pf_e_recusado[EX]` |
+| N21 | `codigo_carne_leao_e_deducao_do_carne_leao` passa a reconhecer também `P11` | `test_n21_conta_p11_permanece_em_saida_custeio` |
+| Regra por modelo (notarial exigindo beneficiário) | Notarial passa a EXIGIR `cpf_beneficiario_servico` em vez de proibir | `test_m5_linha_a_linha_dos_modelos_oficiais[R01.001.002 PF...]` e `test_m5_notarial_pf_com_beneficiario_e_recusado` |
+
+`N07` também foi confirmado como um teste DETERMINÍSTICO (sem threads):
+dentro do `mock.patch.object(LancamentoCaixa, "full_clean", ...)`, a
+primeira chamada dispara uma chamada RECURSIVA a `criar_lancamento_caixa`
+com o MESMO conteúdo — simulando a "outra requisição" comprometendo a linha
+bem no meio da janela entre a pré-checagem e o `full_clean()`/
+`validate_constraints()` da chamada externa.
+
+### Achado colateral que corrigi ao escrever o teste de N6
+
+`criar_conta_livro_caixa` travava a LINHA da empresa no banco
+(`select_for_update()`), mas continuava validando o modo de escrituração
+contra o objeto `empresa` recebido como PARÂMETRO — que o Django mantém em
+CACHE com o valor lido pela VIEW, ANTES do lock. Travar a linha no banco não
+adianta se a checagem em Python nunca relê o valor fresco: a primeira versão
+deste teste mediu os dois lados da corrida aceitos (`{'patch': 200, 'post':
+201}`). Corrigido usando a instância FRESCA, lida DEPOIS do
+`select_for_update()`, para construir a `ContaLivroCaixa` que será validada.
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 299 arquivos já formatados.
+- `python manage.py check` — nenhum problema.
+- `python manage.py makemigrations --check --dry-run` — nenhuma alteração
+  pendente (nenhum campo novo nesta correção).
+- `pytest` (suíte completa): **3037 passed, 1 failed (pré-existente, fora do
+  escopo — `test_versao_minima_python.py`, ambiente Python 3.13 em vez do
+  3.14 esperado pela CI), 45 skipped**. Os testes com threads reais (A2, N6,
+  N07) confirmados estáveis em execuções repetidas.
+- Migrações: nenhuma nova nesta correção. Reversão parcial de `empresas`
+  (até `0007`) confirmada, em PostgreSQL e SQLite vazios, sem tocar em
+  `livro_caixa` — mesma prova da rodada 1, repetida contra o HEAD atual.
+
+### Não testado / bloqueado nesta correção
+
+- Tela/navegação (N1), impressão (N3, N4, N5), acessibilidade — do
+  `especialista-frontend`.
+- N8 (teste instável "RB"), N9 (comentários obsoletos), N25/N26 (trilha de
+  navegação), N33/N38 (número de consultas da tela) — todos em arquivos do
+  frontend, fora do meu escopo.
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente.
+- RC-130 (D1/PE-72) é da fatia 2, lida para contexto, sem mudança nesta
+  correção (fatia 1).

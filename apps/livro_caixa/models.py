@@ -10,7 +10,9 @@ from apps.empresas.models import Empresa
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.empresas.validators import validar_cnpj, validar_cpf
 from apps.livro_caixa.validators import (
+    erros_de_cpf_cnpj_do_rendimento,
     mensagem_de_codigo_carne_leao_invalido,
+    modelo_do_codigo_de_rendimento,
     validar_data_de_lancamento_caixa_do_modelo,
 )
 
@@ -381,55 +383,20 @@ class LancamentoCaixa(models.Model):
                 {"recebido_de": "Lançamento de receita exige 'recebido de' (PF, PJ ou EX)."}
             )
 
-        # M5 (DE-087 item 6, corrigindo a hipótese original desta etapa —
-        # ver o achado M5 da rodada 1 de auditoria): regra do LEIAUTE
-        # OFICIAL do Carnê-Leão Web (instruções dos modelos de importação,
-        # Receita, 2025), não mais restrita ao código de trabalho não
-        # assalariado. Coerência: CPF só é aceito quando `recebido_de=PF`;
-        # CNPJ só quando `recebido_de=PJ`.
-        erros = {}
-        if self.recebido_de == OrigemRecebimento.PF:
-            if not self.cpf_titular_pagamento:
-                erros["cpf_titular_pagamento"] = (
-                    "Rendimento recebido de pessoa física exige o CPF do titular do "
-                    "pagamento (leiaute oficial do Carnê-Leão Web)."
-                )
-            if self.cpf_beneficiario_servico and self.cpf_beneficiario_nao_informado:
-                erros["cpf_beneficiario_nao_informado"] = (
-                    "Não é possível marcar 'CPF do beneficiário não informado' quando "
-                    "o CPF do beneficiário foi informado."
-                )
-            elif not self.cpf_beneficiario_servico and not self.cpf_beneficiario_nao_informado:
-                erros["cpf_beneficiario_servico"] = (
-                    "Informe o CPF do beneficiário do serviço, ou marque 'CPF do "
-                    "beneficiário não informado' (leiaute oficial do Carnê-Leão Web, "
-                    "campo 10 — só se aplica quando houver exigência do CPF do "
-                    "beneficiário e ele não tiver sido informado)."
-                )
-            if self.cnpj_pagador:
-                erros["cnpj_pagador"] = (
-                    "CNPJ só é aceito quando 'recebido de' é pessoa jurídica (PJ)."
-                )
-        else:
-            # PJ ou EX: nenhum dos campos de PF pode estar preenchido.
-            if (
-                self.cpf_titular_pagamento
-                or self.cpf_beneficiario_servico
-                or self.cpf_beneficiario_nao_informado
-            ):
-                mensagem = (
-                    "CPF do titular/beneficiário só é aceito quando 'recebido de' é "
-                    "pessoa física (PF)."
-                )
-                if self.cpf_titular_pagamento:
-                    erros["cpf_titular_pagamento"] = mensagem
-                if self.cpf_beneficiario_servico:
-                    erros["cpf_beneficiario_servico"] = mensagem
-                if self.cpf_beneficiario_nao_informado:
-                    erros["cpf_beneficiario_nao_informado"] = mensagem
-            if self.recebido_de == OrigemRecebimento.EX and self.cnpj_pagador:
-                erros["cnpj_pagador"] = (
-                    "CNPJ só é aceito quando 'recebido de' é pessoa jurídica (PJ)."
-                )
+        # M5/DE-088 item 1 (reabertura da DE-087 item 6, reconferência):
+        # regra do LEIAUTE OFICIAL do Carnê-Leão Web, POR MODELO de
+        # rendimento (não mais uma regra universal para toda receita — a
+        # generalização era o próprio defeito apontado na reconferência).
+        # A tabela código → modelo e a regra de cada um moram em
+        # `apps.livro_caixa.validators` (módulo puro, sem ORM).
+        modelo = modelo_do_codigo_de_rendimento(self.conta.codigo_carne_leao)
+        erros = erros_de_cpf_cnpj_do_rendimento(
+            modelo,
+            recebido_de=self.recebido_de,
+            cpf_titular_pagamento=self.cpf_titular_pagamento,
+            cpf_beneficiario_servico=self.cpf_beneficiario_servico,
+            cpf_beneficiario_nao_informado=self.cpf_beneficiario_nao_informado,
+            cnpj_pagador=self.cnpj_pagador,
+        )
         if erros:
             raise ValidationError(erros)

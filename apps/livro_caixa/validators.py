@@ -77,8 +77,6 @@ _REGEX_CODIGO_RENDIMENTO = r"^R01\.\d{3}\.\d{3}$"
 # dígitos separados por ponto depois do prefixo.
 _REGEX_CODIGO_PAGAMENTO = r"^P(10|11|20)(\.\d+)+$"
 
-CODIGO_RENDIMENTO_TRABALHO_NAO_ASSALARIADO = "R01.001.001"
-
 
 def codigo_carne_leao_e_rendimento(codigo):
     """`True` se `codigo` tem o formato de um código de RENDIMENTO
@@ -133,3 +131,184 @@ def mensagem_de_codigo_carne_leao_invalido(codigo, *, natureza):
     else:
         return f"Natureza '{natureza}' desconhecida — não é possível validar o código."
     return None
+
+
+# ---------------------------------------------------------------------------
+# DE-088 item 1 (reabertura da DE-087 item 6, rodada de reconferência): a
+# exigência de CPF/CNPJ não é universal para toda receita — o leiaute
+# oficial do Carnê-Leão Web (instruções dos modelos de importação, Receita,
+# 2025) aplica a regra POR MODELO de rendimento. Tabela levantada a partir
+# dos seis arquivos-modelo oficiais em scratchpad (NUNCA copiados para o
+# repositório — só o formato/composição de campos é reproduzido aqui):
+#
+# - `Modelo de arquivo para rendimentos do Trabalho não Assalariado.csv`
+#   (código `R01.001.001`, também usado por
+#   `Modelo de arquivo para recibos do Receita Saúde.csv`, sempre PF):
+#   PF — CPF do titular do pagamento obrigatório; CPF do beneficiário do
+#   serviço OU o indicador "CPF do beneficiário não informado" (nunca os
+#   dois, nunca nenhum dos dois). PJ — CNPJ obrigatório (+ indicador de
+#   IRRF, fora desta fatia — RC-127/fatia 3). EX — nenhum campo.
+# - `Modelo de arquivo para rendimentos de Serviços Notariais e de
+#   Registro.csv` (`R01.001.002`): PF — CPF do titular obrigatório; CPF do
+#   beneficiário e o indicador ficam VAZIOS (o modelo nem tem a exigência
+#   que o indicador pressupõe — instrução do campo 10: "só nos casos em que
+#   houver a exigência do CPF do beneficiário"). PJ — CNPJ obrigatório.
+#   EX — nenhum campo.
+# - `Modelo de Arquivo para Aluguel e Outros rendimentos.csv`
+#   (`R01.003.001` aluguel, `R01.004.001` outros rendimentos): o leiaute só
+#   tem 7 campos (sem nenhum de CPF/CNPJ) — nunca exige nem aceita CPF do
+#   titular/beneficiário, o indicador, ou CNPJ, em NENHUM `recebido_de`.
+#
+# Código de rendimento fora destes quatro (qualquer outro `R01.xxx.xxx`):
+# sem tabela oficial completa ainda (PE-71) — "sem exigência de CPF/CNPJ",
+# mas a coerência universal abaixo (CPF só em PF, CNPJ só em PJ, indicador
+# só onde o modelo o prevê — que um código desconhecido nunca prevê)
+# continua valendo.
+MODELO_TRABALHO_NAO_ASSALARIADO = "trabalho_nao_assalariado"
+MODELO_NOTARIAL = "notarial"
+MODELO_ALUGUEL_OUTROS = "aluguel_outros"
+MODELO_DESCONHECIDO = "desconhecido"
+
+_CODIGO_PARA_MODELO_DE_RENDIMENTO = {
+    "R01.001.001": MODELO_TRABALHO_NAO_ASSALARIADO,
+    "R01.001.002": MODELO_NOTARIAL,
+    "R01.003.001": MODELO_ALUGUEL_OUTROS,
+    "R01.004.001": MODELO_ALUGUEL_OUTROS,
+}
+
+
+def modelo_do_codigo_de_rendimento(codigo):
+    """Devolve o MODELO oficial (uma das constantes `MODELO_*`) associado a
+    `codigo`, ou `MODELO_DESCONHECIDO` se `codigo` não estiver na tabela
+    (PE-71 — tabela completa de códigos ainda não confirmada)."""
+    return _CODIGO_PARA_MODELO_DE_RENDIMENTO.get(codigo, MODELO_DESCONHECIDO)
+
+
+def erros_de_cpf_cnpj_do_rendimento(
+    modelo,
+    *,
+    recebido_de,
+    cpf_titular_pagamento,
+    cpf_beneficiario_servico,
+    cpf_beneficiario_nao_informado,
+    cnpj_pagador,
+):
+    """Devolve um `dict` `{campo: mensagem}` com os erros de CPF/CNPJ do
+    lançamento de RECEITA, conforme `modelo` (`MODELO_*`) e `recebido_de`
+    ("PF"/"PJ"/"EX") — vazio (`{}`) quando está tudo coerente.
+
+    Função PURA (sem ORM, sem levantar exceção — mesmo padrão de
+    `mensagem_de_codigo_carne_leao_invalido`): quem chama decide o tipo de
+    exceção. Só cuida de CPF/CNPJ/indicador; a obrigatoriedade de
+    `recebido_de` em si é responsabilidade de quem chama.
+    """
+    erros = {}
+
+    # Coerência UNIVERSAL, para TODOS os modelos (inclusive o desconhecido):
+    # CPF (titular, beneficiário ou o indicador) só é aceito quando PF;
+    # CNPJ só quando PJ. Checada ANTES da regra por modelo — um valor fora
+    # do lugar é sempre incoerente, independente do que o modelo exigiria.
+    if recebido_de != "PF":
+        if cpf_titular_pagamento:
+            erros["cpf_titular_pagamento"] = (
+                "CPF do titular só é aceito quando 'recebido de' é pessoa física (PF)."
+            )
+        if cpf_beneficiario_servico:
+            erros["cpf_beneficiario_servico"] = (
+                "CPF do beneficiário só é aceito quando 'recebido de' é pessoa física (PF)."
+            )
+        if cpf_beneficiario_nao_informado:
+            erros["cpf_beneficiario_nao_informado"] = (
+                "O indicador de CPF do beneficiário não informado só é aceito quando "
+                "'recebido de' é pessoa física (PF)."
+            )
+    if recebido_de != "PJ" and cnpj_pagador:
+        erros["cnpj_pagador"] = "CNPJ só é aceito quando 'recebido de' é pessoa jurídica (PJ)."
+    if erros:
+        return erros
+
+    if modelo == MODELO_TRABALHO_NAO_ASSALARIADO:
+        if recebido_de == "PF":
+            if not cpf_titular_pagamento:
+                erros["cpf_titular_pagamento"] = (
+                    "Rendimento de trabalho não assalariado recebido de pessoa física "
+                    "exige o CPF do titular do pagamento (leiaute oficial do "
+                    "Carnê-Leão Web)."
+                )
+            tem_beneficiario = bool(cpf_beneficiario_servico)
+            tem_indicador = bool(cpf_beneficiario_nao_informado)
+            if tem_beneficiario and tem_indicador:
+                erros["cpf_beneficiario_nao_informado"] = (
+                    "Não é possível marcar 'CPF do beneficiário não informado' quando "
+                    "o CPF do beneficiário foi informado."
+                )
+            elif not tem_beneficiario and not tem_indicador:
+                erros["cpf_beneficiario_servico"] = (
+                    "Informe o CPF do beneficiário do serviço, ou marque 'CPF do "
+                    "beneficiário não informado' (leiaute oficial do Carnê-Leão Web, "
+                    "modelo de trabalho não assalariado)."
+                )
+        elif recebido_de == "PJ" and not cnpj_pagador:
+            erros["cnpj_pagador"] = (
+                "Rendimento de trabalho não assalariado recebido de pessoa jurídica "
+                "exige o CNPJ do pagador (leiaute oficial do Carnê-Leão Web)."
+            )
+    elif modelo == MODELO_NOTARIAL:
+        if recebido_de == "PF":
+            if not cpf_titular_pagamento:
+                erros["cpf_titular_pagamento"] = (
+                    "Rendimento de serviços notariais e de registro recebido de "
+                    "pessoa física exige o CPF do titular do pagamento (leiaute "
+                    "oficial do Carnê-Leão Web)."
+                )
+            if cpf_beneficiario_servico:
+                erros["cpf_beneficiario_servico"] = (
+                    "O modelo de serviços notariais e de registro não tem CPF do "
+                    "beneficiário do serviço — deixe em branco."
+                )
+            if cpf_beneficiario_nao_informado:
+                erros["cpf_beneficiario_nao_informado"] = (
+                    "O modelo de serviços notariais e de registro não usa o indicador "
+                    "de CPF do beneficiário não informado — deixe desmarcado."
+                )
+        elif recebido_de == "PJ" and not cnpj_pagador:
+            erros["cnpj_pagador"] = (
+                "Rendimento de serviços notariais e de registro recebido de pessoa "
+                "jurídica exige o CNPJ do pagador (leiaute oficial do Carnê-Leão Web)."
+            )
+    elif modelo == MODELO_ALUGUEL_OUTROS:
+        # O leiaute oficial de aluguel e outros rendimentos não tem CAMPO
+        # nenhum de CPF/CNPJ — nunca exige, e por isso também nunca ACEITA,
+        # em nenhum `recebido_de` (a coerência universal, acima, já cobriu
+        # CNPJ fora de PJ; aqui fechamos o restante).
+        if cpf_titular_pagamento:
+            erros["cpf_titular_pagamento"] = (
+                "O modelo de aluguel e outros rendimentos não tem CPF do titular do "
+                "pagamento — deixe em branco."
+            )
+        if cpf_beneficiario_servico:
+            erros["cpf_beneficiario_servico"] = (
+                "O modelo de aluguel e outros rendimentos não tem CPF do beneficiário "
+                "do serviço — deixe em branco."
+            )
+        if cpf_beneficiario_nao_informado:
+            erros["cpf_beneficiario_nao_informado"] = (
+                "O modelo de aluguel e outros rendimentos não usa o indicador de CPF "
+                "do beneficiário não informado — deixe desmarcado."
+            )
+        if cnpj_pagador:
+            erros["cnpj_pagador"] = (
+                "O modelo de aluguel e outros rendimentos não tem CNPJ do pagador — "
+                "deixe em branco."
+            )
+    else:  # MODELO_DESCONHECIDO
+        # PE-71: sem tabela oficial completa, sem exigência de CPF/CNPJ —
+        # mas o indicador só é aceito "onde o modelo o prevê" (DE-088), e
+        # um código desconhecido nunca prevê.
+        if cpf_beneficiario_nao_informado:
+            erros["cpf_beneficiario_nao_informado"] = (
+                "O indicador de CPF do beneficiário não informado só é aceito nos "
+                "códigos de rendimento cujo leiaute oficial o prevê."
+            )
+
+    return erros

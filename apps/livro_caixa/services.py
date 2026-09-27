@@ -18,6 +18,7 @@ from django.utils import timezone
 from apps.auditoria.services import registrar
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
 from apps.core.restricoes import mensagens_de, restricao_como_400
+from apps.empresas.models import Empresa
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
 from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
 from apps.livro_caixa.models import (
@@ -60,13 +61,23 @@ def _impressao_digital_caixa(
     recebido_de,
     cpf_titular_pagamento,
     cpf_beneficiario_servico,
+    cpf_beneficiario_nao_informado,
     cnpj_pagador,
     estorno_de_id,
 ):
     """Hash estável do conteúdo de um lançamento de caixa, para a
     idempotência — mesmo desenho de `_impressao_digital` (contabilidade):
     `json.dumps(..., sort_keys=True)` para a fronteira entre campos nunca
-    ser forjável pelo conteúdo de um campo de texto livre."""
+    ser forjável pelo conteúdo de um campo de texto livre.
+
+    N7 (reconferência): `cpf_beneficiario_nao_informado` entra na
+    impressão — antes, dois corpos com o MESMO titular mas indicador
+    diferente (`true`/`false`) produziam a MESMA impressão, e a repetição
+    da chave devolvia o segundo corpo (inválido, porque teria beneficiário
+    e indicador incoerentes se fosse gravado de verdade) como se fosse
+    repetição do primeiro — sucesso (200) para um corpo que nunca foi
+    validado.
+    """
     estrutura = {
         "empresa_id": empresa_id,
         "conta_id": conta_id,
@@ -77,6 +88,7 @@ def _impressao_digital_caixa(
         "recebido_de": recebido_de or "",
         "cpf_titular_pagamento": cpf_titular_pagamento or "",
         "cpf_beneficiario_servico": cpf_beneficiario_servico or "",
+        "cpf_beneficiario_nao_informado": bool(cpf_beneficiario_nao_informado),
         "cnpj_pagador": cnpj_pagador or "",
         "estorno_de_id": estorno_de_id,
     }
@@ -96,20 +108,39 @@ def criar_conta_livro_caixa(
     sem tradução — a view é quem sabe traduzir para o protocolo HTTP,
     preservando o campo de cada erro (`message_dict`).
     """
-    conta = ContaLivroCaixa(
-        empresa=empresa,
-        codigo=codigo,
-        nome=nome,
-        natureza=natureza,
-        codigo_carne_leao=codigo_carne_leao,
-        ativa=ativa,
-    )
-    conta.full_clean()
-
     with (
         transaction.atomic(),
         restricao_como_400(mensagens_de("conta_livro_caixa_codigo_unico_por_empresa")),
     ):
+        # N6 (reconferência da DL-046): trava a linha da EMPRESA ANTES de
+        # validar o modo de escrituração (`full_clean()` chama `ContaLivro
+        # Caixa.clean()`, que chama `recusar_se_nao_livro_caixa`). Sem
+        # isto, uma troca de modo concorrente (`PATCH .../empresas/<id>/`)
+        # podia comitar entre esta checagem e o `INSERT` da conta,
+        # deixando uma conta de caixa órfã numa empresa já em
+        # contabilidade — o auditor mediu 10 de 10 pares terminando assim.
+        # `EmpresaDetailView.update()` trava a MESMA linha do lado da
+        # troca de modo (espelho desta trava).
+        #
+        # Achado do próprio desenvolvedor ao testar N6: travar a LINHA no
+        # banco não basta — o objeto `empresa` recebido pela função (lido
+        # pela VIEW antes do lock) continua com o `modo_escrituracao`
+        # ANTIGO em memória. `ContaLivroCaixa.clean()` valida `self.
+        # empresa`, que o Django mantém em CACHE a partir do valor que
+        # atribuímos abaixo — por isso a instância travada e FRESCA
+        # (`empresa_travada`, lida DEPOIS do `select_for_update()`,
+        # dentro da transação) é a que vai para `conta.empresa`, nunca a
+        # `empresa` recebida como parâmetro.
+        empresa_travada = Empresa.objects.select_for_update().get(pk=empresa.pk)
+        conta = ContaLivroCaixa(
+            empresa=empresa_travada,
+            codigo=codigo,
+            nome=nome,
+            natureza=natureza,
+            codigo_carne_leao=codigo_carne_leao,
+            ativa=ativa,
+        )
+        conta.full_clean()
         conta.save()
         registrar(
             acao="conta_livro_caixa.criada",
@@ -267,6 +298,7 @@ def criar_lancamento_caixa(
             recebido_de=recebido_de,
             cpf_titular_pagamento=cpf_titular_pagamento,
             cpf_beneficiario_servico=cpf_beneficiario_servico,
+            cpf_beneficiario_nao_informado=cpf_beneficiario_nao_informado,
             cnpj_pagador=cnpj_pagador,
             estorno_de_id=estorno_de.id if estorno_de is not None else None,
         )
@@ -324,14 +356,29 @@ def criar_lancamento_caixa(
     # também valida a `UniqueConstraint` da chave de idempotência
     # (`validate_constraints()`, Django ≥ 4.1) — já vê a linha da OUTRA
     # requisição concorrente, comprometida entre a pré-checagem acima e
-    # este ponto. Sem excluir o campo aqui, essa corrida virava 400 "já
-    # existe" em vez do 200 que a idempotência promete. A exclusão só
-    # dispensa a checagem DESTE campo em `validate_constraints()` — todas
-    # as outras regras de `full_clean()` (CPF, coerência, modo de
-    # escrituração) continuam rodando.
+    # este ponto. Sem dispensar essa checagem, essa corrida virava 400 "já
+    # existe" em vez do 200 que a idempotência promete.
+    #
+    # N2 (reconferência): a correção original passava `chave_idempotencia`
+    # em `full_clean(exclude=...)`, e `exclude` também dispensa
+    # `clean_fields()` — não só `validate_constraints()` — para aquele
+    # campo. Isso desligava o `MaxLengthValidator` (255) e o
+    # `ProhibitNullCharactersValidator` (M2) do PRÓPRIO campo, e uma chave
+    # de 300 caracteres batia direto no `DataError` do PostgreSQL (500) em
+    # vez de ser recusada aqui. Corrigido separando as duas fases: `full_
+    # clean(validate_constraints=False)` continua validando TODOS os
+    # campos, inclusive `chave_idempotencia` (comprimento e NUL) — só a
+    # checagem de CONSTRAINT (a `UniqueConstraint` da idempotência) fica de
+    # fora, e só quando há chave, tratada separadamente por
+    # `validate_constraints(exclude=...)`.
+    try:
+        lancamento.full_clean(validate_constraints=False)
+    except DjangoValidationError as exc:
+        raise LancamentoCaixaInvalido("; ".join(exc.messages)) from exc
+
     excluir_da_validacao = {"chave_idempotencia"} if chave_idempotencia else set()
     try:
-        lancamento.full_clean(exclude=excluir_da_validacao)
+        lancamento.validate_constraints(exclude=excluir_da_validacao or None)
     except DjangoValidationError as exc:
         raise LancamentoCaixaInvalido("; ".join(exc.messages)) from exc
 

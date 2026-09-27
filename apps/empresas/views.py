@@ -330,6 +330,27 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
         self._recusar_dado_nao_contratado_na_atualizacao(request)
         return super().patch(request, *args, **kwargs)
 
+    def update(self, request, *args, **kwargs):
+        # N6 (reconferência da DL-046): trava a LINHA da empresa durante
+        # toda a validação + gravação, não só durante o `perform_update()`.
+        # Sem isto, a checagem de `EmpresaSerializer.validate()` (que lê
+        # `empresa.contas_livro_caixa`/`lancamentos_caixa` para a guarda A1
+        # espelhada) e o `POST` concorrente de criação de conta de caixa
+        # (`criar_conta_livro_caixa`, também travado agora) liam o estado
+        # ANTES de qualquer gravação — o auditor mediu 10 de 10 pares
+        # terminando com a troca de modo aceita E uma conta de caixa órfã
+        # criada ao mesmo tempo. `select_for_update()` precisa estar DENTRO
+        # de um `transaction.atomic()` que dure até o fim da gravação —
+        # por isso o método inteiro (não só `perform_update`) entra no
+        # `with`, e a trava é pega ANTES de `is_valid()` (que dispara
+        # `validate()`) rodar. `get_object_or_404` com o MESMO `get_
+        # queryset()` do mixin preserva o isolamento por escritório —
+        # nunca trava (nem confirma a existência de) uma empresa de outro
+        # escritório.
+        with transaction.atomic():
+            get_object_or_404(self.get_queryset().select_for_update(), pk=kwargs["pk"])
+            return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         # A1 (reauditoria da etapa DL-011, rodada 3): o R4 tinha sido
         # corrigido só na criação. PUT/PATCH para o CNPJ de outra empresa
