@@ -1003,6 +1003,14 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
     "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
+    # DL-046 fatia 2: apuração do carnê-leão — mesmo motivo das quatro
+    # rotas da fatia 1, acima (só servidor + API nesta fatia; a tela vem
+    # depois pelo especialista-frontend).
+    "livro_caixa:dependentes-carne-leao": (
+        "API REST (DependentesCarneLeaoListCreateView, DRF) — JSON; DL-046 fatia 2"
+    ),
+    "livro_caixa:carne-leao-mensal": ("API REST (CarneLeaoMensalView, DRF) — JSON; DL-046 fatia 2"),
+    "livro_caixa:carne-leao-anual": ("API REST (CarneLeaoAnualView, DRF) — JSON; DL-046 fatia 2"),
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
     # competência ENCERRADA como pré-condição de estado — sob o `cenario`
     # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o
