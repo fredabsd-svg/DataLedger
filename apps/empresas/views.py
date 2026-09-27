@@ -137,6 +137,13 @@ _CAMPO_DA_RESTRICAO_DE_EMPRESA = {
     "empresa_cnpj_canonico": "cnpj",
     "empresa_cpf_formato_valido": "cpf",
     "empresa_inscricao_consistente_com_tipo": "tipo_inscricao",
+    # Achado do especialista-frontend (rodada 1 de auditoria da DL-046): a
+    # constraint do CAEPF (DL-046/RC-129) já entrava no MESMO `with` de
+    # `EmpresaListCreateView.perform_create` (ver `mensagens_de(...)`
+    # abaixo), mas faltava aqui — sem esta entrada, uma corrida que violasse
+    # ESTA constraint específica caía no `.get(..., "cnpj")` (o padrão de
+    # `_campo_da_restricao_de_empresa`) e reportava o erro no campo errado.
+    "empresa_caepf_so_para_cpf_com_formato_valido": "caepf",
     # Achado D1 da auditoria DL-039 rodada 1 (BL-533): gatilho de banco
     # (não é `Meta.constraint` — ver `apps.core.restricoes.MENSAGENS_DE_
     # RESTRICAO_DE_GATILHO`), disparado quando a checagem em Python
@@ -278,6 +285,7 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
                         "empresa_cnpj_canonico",
                         "empresa_cpf_formato_valido",
                         "empresa_inscricao_consistente_com_tipo",
+                        "empresa_caepf_so_para_cpf_com_formato_valido",
                     )
                 ),
             ):
@@ -321,6 +329,27 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
     def patch(self, request, *args, **kwargs):
         self._recusar_dado_nao_contratado_na_atualizacao(request)
         return super().patch(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        # N6 (reconferência da DL-046): trava a LINHA da empresa durante
+        # toda a validação + gravação, não só durante o `perform_update()`.
+        # Sem isto, a checagem de `EmpresaSerializer.validate()` (que lê
+        # `empresa.contas_livro_caixa`/`lancamentos_caixa` para a guarda A1
+        # espelhada) e o `POST` concorrente de criação de conta de caixa
+        # (`criar_conta_livro_caixa`, também travado agora) liam o estado
+        # ANTES de qualquer gravação — o auditor mediu 10 de 10 pares
+        # terminando com a troca de modo aceita E uma conta de caixa órfã
+        # criada ao mesmo tempo. `select_for_update()` precisa estar DENTRO
+        # de um `transaction.atomic()` que dure até o fim da gravação —
+        # por isso o método inteiro (não só `perform_update`) entra no
+        # `with`, e a trava é pega ANTES de `is_valid()` (que dispara
+        # `validate()`) rodar. `get_object_or_404` com o MESMO `get_
+        # queryset()` do mixin preserva o isolamento por escritório —
+        # nunca trava (nem confirma a existência de) uma empresa de outro
+        # escritório.
+        with transaction.atomic():
+            get_object_or_404(self.get_queryset().select_for_update(), pk=kwargs["pk"])
+            return super().update(request, *args, **kwargs)
 
     def perform_update(self, serializer):
         # A1 (reauditoria da etapa DL-011, rodada 3): o R4 tinha sido
@@ -366,6 +395,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
                             "empresa_cnpj_canonico",
                             "empresa_cpf_formato_valido",
                             "empresa_inscricao_consistente_com_tipo",
+                            "empresa_caepf_so_para_cpf_com_formato_valido",
                         ),
                         # D1/BL-533: janela de corrida entre a checagem em
                         # Python e o UPDATE — ver o comentário em
@@ -717,7 +747,12 @@ def lista_empresas(request):
     # aqui), então oferecer o atalho de volta para a MESMA seção, por
     # empresa, não expõe nada que a tela já não expusesse.
     secao_de_troca = request.GET.get("secao", "")
-    if secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA:
+    # A seção pode vir de uma tela da contabilidade ou do livro-caixa
+    # (DL-046, achado A3): o "Continuar aqui" vale para as duas.
+    if (
+        secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA
+        and secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+    ):
         secao_de_troca = ""
 
     contexto = {
@@ -825,12 +860,32 @@ SECOES_DE_TROCA_DE_EMPRESA = {
 
 _SECAO_PADRAO_DE_TROCA_DE_EMPRESA = "plano_de_contas"
 
+# A3 (rodada 1 da auditoria da DL-046): mapa IRMÃO do de cima, para quando
+# a empresa de DESTINO está em modo `livro_caixa` — antes desta correção
+# `trocar_empresa_na_secao` só conhecia rotas `contabilidade_web`, então
+# trocar para uma empresa em livro-caixa sempre mandava para
+# `contabilidade_web:...`, que aquela empresa RECUSA (403) por modo. Duas
+# seções aparecem nos DOIS mapas com o MESMO código ("plano_de_contas",
+# "lancamento_novo") porque as duas telas existem nos dois módulos com o
+# mesmo papel — "relatorio" e "lancamentos" só existem aqui, porque não
+# têm par na contabilidade (o par de "relatorio" lá seria Balancete/
+# Balanço/Diário, que exigem mais contexto do que este formulário simples
+# carrega, mesma explicação já dada para o mapa de cima).
+SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA = {
+    "plano_de_contas": "livro_caixa_web:plano_de_contas",
+    "lancamento_novo": "livro_caixa_web:lancamento_novo",
+    "lancamentos": "livro_caixa_web:lancamentos",
+    "relatorio": "livro_caixa_web:relatorio",
+}
+
+_SECAO_PADRAO_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA = "plano_de_contas"
+
 
 @login_required
 @require_safe
 def trocar_empresa_na_secao(request):
     """DL-040: seletor de empresa do menu global (formulário GET, sem
-    JavaScript) — troca a EMPRESA mantendo a MESMA seção da contabilidade.
+    JavaScript) — troca a EMPRESA mantendo a MESMA seção.
 
     Isolamento (mesma regra de `_empresa_do_escritorio_ativo`, em
     `apps.contabilidade.views_web`): a empresa pedida nunca é aceita só pelo
@@ -838,12 +893,23 @@ def trocar_empresa_na_secao(request):
     resposta é 404 (nunca 403: não confirma nem a existência da empresa
     para quem não tem acesso a ela).
 
-    `secao` fora de `SECOES_DE_TROCA_DE_EMPRESA` (Razão, que exige
-    `conta_id`, ou as telas de ação do fechamento, que exigem `ano`/`mes`)
-    não é erro: cai no padrão (Plano de contas) — o pedido de quem usa o
-    seletor é "continue vendo esta empresa", não "esta URL exata resolvida
-    na outra empresa", e a alternativa (400/mensagem de erro) puniria a
-    pessoa por usar o seletor numa tela que ele não cobre ainda.
+    `secao` fora do mapa em uso (Razão, que exige `conta_id`, ou as telas
+    de ação do fechamento, que exigem `ano`/`mes`) não é erro: cai no
+    padrão (Plano de contas) — o pedido de quem usa o seletor é "continue
+    vendo esta empresa", não "esta URL exata resolvida na outra empresa",
+    e a alternativa (400/mensagem de erro) puniria a pessoa por usar o
+    seletor numa tela que ele não cobre ainda.
+
+    A3 (rodada 1 da auditoria da DL-046): o MAPA usado depende do MODO DE
+    ESCRITURAÇÃO da empresa de DESTINO, nunca da seção de origem — antes
+    desta correção esta função só conhecia `SECOES_DE_TROCA_DE_EMPRESA`
+    (rotas `contabilidade_web`), então trocar para uma empresa em
+    livro-caixa sempre redirecionava para uma rota que aquela empresa
+    RECUSA por modo (403, `_sem_livro_caixa_para_contabilidade`). Uma
+    seção sem par no mapa do destino (ex.: vindo de "balancete" para uma
+    empresa em livro-caixa) cai no padrão DAQUELE mapa (Plano de contas
+    do livro-caixa), pela mesma razão do parágrafo anterior — nunca em
+    erro.
     """
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
@@ -858,7 +924,14 @@ def trocar_empresa_na_secao(request):
     # `apps.contabilidade.views_web._empresa_do_escritorio_ativo`).
     empresa = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
 
+    if empresa.modo_escrituracao == ModoEscrituracao.LIVRO_CAIXA:
+        mapa_de_secoes = SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+        secao_padrao = _SECAO_PADRAO_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+    else:
+        mapa_de_secoes = SECOES_DE_TROCA_DE_EMPRESA
+        secao_padrao = _SECAO_PADRAO_DE_TROCA_DE_EMPRESA
+
     secao = request.GET.get("secao", "")
-    rota_padrao = SECOES_DE_TROCA_DE_EMPRESA[_SECAO_PADRAO_DE_TROCA_DE_EMPRESA]
-    nome_da_rota = SECOES_DE_TROCA_DE_EMPRESA.get(secao, rota_padrao)
+    rota_padrao = mapa_de_secoes[secao_padrao]
+    nome_da_rota = mapa_de_secoes.get(secao, rota_padrao)
     return redirect(nome_da_rota, empresa.id)

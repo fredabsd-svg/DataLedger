@@ -1,0 +1,48 @@
+{% comment %}
+Bloco de identificação do contribuinte (`.identificacao-do-documento`)
+do Livro Caixa — extraído para partial (mesmo padrão de
+`templates/contabilidade/_saldo.html`/`_secao_do_balanco.html`) por
+clareza, não por reaproveitamento entre vários `{% include %}` (hoje só
+`relatorio.html` inclui este partial, uma vez). Herda o contexto do
+template que inclui (`empresa`, `rotulo_inscricao`, `inscricao_
+formatada`, `caepf`, `inicio`, `fim`), sem precisar de `with` explícito.
+
+⚠️ **N3 (reconferência da DL-046) — por que este bloco NUNCA pode
+aparecer DUAS VEZES na mesma página.** A primeira correção do N3 pôs uma
+CÓPIA deste bloco no `<thead>` de uma segunda `<table>` (a de pagamentos
+P20), para a identificação repetir na folha em que aquela tabela caísse
+sozinha. `scripts/medir_identificacao_do_emitente.py` REPROVOU: ele soma
+os parágrafos de identificação de TODAS as ocorrências do seletor na
+página inteira (o "documento" impresso é o `<body>` completo, não uma
+tabela isolada) — duas cópias do MESMO bloco contavam o DOBRO de
+parágrafos do que o HTML servido tinha só uma vez. A correção certa
+(atual) é UMA tabela só, com o P20 como uma SEGUNDA SEÇÃO (`<tbody>`) da
+MESMA tabela — `.tabela-dados thead { display: table-header-group }`
+repete o ÚNICO `<thead>` em toda folha impressa da tabela inteira, sem
+duplicar o bloco no HTML. Se uma etapa futura precisar de outra tabela
+neste relatório, NÃO inclua este partial nela — o parágrafo acima
+explica o motivo.
+{% endcomment %}
+<div class="identificacao-do-documento">
+    <p>
+        <strong>{{ empresa.razao_social }}</strong> —
+        {{ rotulo_inscricao }} {{ inscricao_formatada }}
+    </p>
+    {% if caepf %}
+        <p>CAEPF {{ caepf }}</p>
+    {% endif %}
+    <p>
+        Livro Caixa — período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}
+    </p>
+    {% comment %}
+    D2 (DE-087 item 12): a base legal cobre as DUAS obrigações que o
+    livro-caixa sustenta — a escrituração em si (arts. 68 e 69) e o
+    recolhimento mensal obrigatório do carnê-leão (arts. 118 a 125) —
+    porque o livro aceita qualquer rendimento do art. 68 (aluguel,
+    trabalho não assalariado etc.), não só o trabalho não assalariado.
+    {% endcomment %}
+    <p>
+        Base: RIR/2018 (Decreto 9.580/2018), arts. 68 e 69 (livro-caixa) e
+        118 a 125 (recolhimento mensal obrigatório).
+    </p>
+</div>

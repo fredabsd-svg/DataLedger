@@ -388,20 +388,72 @@
                             </details>
                         </li>
 
+                        {% comment %}
+                        DL-046, fatia 1: "Livro-caixa" ocupa o MESMO slot de
+                        menu que "Contabilidade" — nunca os dois ao mesmo
+                        tempo, porque uma empresa está SEMPRE só num dos
+                        dois regimes (RC-113/RC-114), e mostrar os dois
+                        deixaria um deles sempre inerte. O gate de
+                        visibilidade (`pode_ler_contabilidade_no_menu`)
+                        continua o MESMO dos dois regimes: hoje os papéis
+                        que leem contabilidade e os que leem livro-caixa
+                        são EXATAMENTE o mesmo conjunto (ADMINISTRADOR/
+                        GESTOR/ANALISTA/FINANCEIRO/PARALEGAL — ver
+                        `apps.contabilidade.permissoes`/`apps.livro_caixa.
+                        permissoes`, copiadas por VALOR, de propósito, uma
+                        da outra), então reaproveitar esta variável aqui é
+                        honesto HOJE; se um dia divergirem, o pior efeito é
+                        um CONVITE de menu levemente errado (a autorização
+                        de verdade continua no SERVIDOR, em `apps.livro_
+                        caixa.views_web`, que usa a função certa) — nunca
+                        um furo de autorização. Ícone reaproveitado
+                        (`#icone-contabilidade`): os dois módulos ocupam o
+                        mesmo slot e o mesmo papel funcional (escriturar/
+                        relatar), um ícone próprio ficaria para uma etapa
+                        futura, se o Fred pedir.
+                        {% endcomment %}
                         {% if pode_ler_contabilidade_no_menu %}
                             <li class="menu-modulo">
-                                <details class="menu-dropdown" {% if request.resolver_match.namespace == "contabilidade_web" %}open{% endif %}>
-                                    <summary {% if request.resolver_match.namespace == "contabilidade_web" %}aria-current="page"{% endif %}>
+                                <details class="menu-dropdown" {% if request.resolver_match.namespace == "contabilidade_web" or request.resolver_match.namespace == "livro_caixa_web" %}open{% endif %}>
+                                    <summary {% if request.resolver_match.namespace == "contabilidade_web" or request.resolver_match.namespace == "livro_caixa_web" %}aria-current="page"{% endif %}>
                                         <svg class="icone-menu" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
-                                        <span class="rotulo-menu">Contabilidade</span>
+                                        {% if empresa_atual.modo_escrituracao == "livro_caixa" %}
+                                            <span class="rotulo-menu">Livro-caixa</span>
+                                        {% else %}
+                                            <span class="rotulo-menu">Contabilidade</span>
+                                        {% endif %}
                                     </summary>
                                     <div class="menu-dropdown__paineis">
                                         {% if empresa_atual %}
                                             {% if empresa_atual.modo_escrituracao == "livro_caixa" %}
-                                                <p class="texto-apoio">
-                                                    {{ empresa_atual.razao_social }} está em livro-caixa — a
-                                                    contabilidade por partidas dobradas não se aplica.
-                                                </p>
+                                                {% with pagina_atual=request.resolver_match.url_name %}
+                                                    <div class="menu-grupo">
+                                                        <p class="menu-grupo__rotulo" id="grupo-livro-caixa">Livro-caixa</p>
+                                                        <ul aria-labelledby="grupo-livro-caixa">
+                                                            <li>
+                                                                {% if pagina_atual == "plano_de_contas" %}
+                                                                    <span class="item-atual" aria-current="page">Plano de contas</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:plano_de_contas' empresa_atual.id %}">Plano de contas</a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% if pagina_atual == "lancamentos" %}
+                                                                    <span class="item-atual" aria-current="page">Lançamentos</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:lancamentos' empresa_atual.id %}">Lançamentos</a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% if pagina_atual == "relatorio" %}
+                                                                    <span class="item-atual" aria-current="page">Livro Caixa</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:relatorio' empresa_atual.id %}">Livro Caixa</a>
+                                                                {% endif %}
+                                                            </li>
+                                                        </ul>
+                                                    </div>
+                                                {% endwith %}
                                             {% else %}
                                                 {% with pagina_atual=request.resolver_match.url_name %}
                                                     <div class="menu-grupo">
@@ -544,7 +596,7 @@
                                                 <a href="{% url 'empresas:lista' %}?secao={{ request.resolver_match.url_name }}">Trocar de empresa</a>
                                             </p>
                                         {% else %}
-                                            <p class="texto-apoio">Escolha uma empresa para ver a contabilidade.</p>
+                                            <p class="texto-apoio">Escolha uma empresa para ver a contabilidade ou o livro-caixa.</p>
                                             <p><a href="{% url 'empresas:lista' %}">Ir para Empresas</a></p>
                                         {% endif %}
                                     </div>

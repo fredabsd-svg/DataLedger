@@ -94,7 +94,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Integrada (PR #49) |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
-| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR da DL-045) |
+| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -103,7 +104,7 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-045 (DRE) em PR. Em seguida, DL-046 (livro-caixa) em PR.**
+**AGORA — DL-046 (livro-caixa, fatia 1) em PR.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -121,27 +122,23 @@ merge do PR #38, sem commit individual por etapa.
   uso das antigas abas do Fiscal foi apagada com autorização do Fred (26/09).
   Integrada pelo PR #50; o PR #51 corrigiu a folha de estilo servida em cache
   depois do merge (versão do arquivo no link).
-- **DL-045** (DRE, nível 1): servidor e tela integrados nesta branch, **em
-  PR**. Rodada 1 da auditoria
-  ([relatório](../auditorias/2026-09-26-dl-045-rodada-1.md)) **reprovou** o
-  servidor com quatro achados altos; corrigido conforme a DE-085. Dúvidas
-  contábeis D1 a D6 decididas por delegação do Fred e conferidas nos manuais
-  (RC-121 a RC-126). A
-  [reconferência](../auditorias/2026-09-26-dl-045-reconferencia.md)
-  **reprovou de novo** (R1, alto: a guarda de reparentamento deixava a DRE e o
-  Balanço inemitíveis sem SQL). A [DE-086](../projeto/decisoes.md#de-086)
-  reabriu o critério de imutabilidade (AGENTS.md §3.1): a linha da DRE é
-  propriedade de apresentação, pode mudar com movimento, sempre com trilha.
-  Correção do servidor e da tela feita; **sem terceira rodada de auditoria**,
-  o fechamento foi por verificação independente, descrita no
-  [plano](../planos/DL-045-demonstracao-do-resultado.md). O Fred decide no PR.
-  Ressalva: mover conta de grupo só pelo admin até existir tela de editar
-  conta (BL-541).
+- **DL-045** (DRE, nível 1): integrada pelo PR da DL-045, fechada sem
+  terceira rodada de auditoria (verificação descrita no
+  [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
+  conta de grupo só pelo admin até existir tela de editar conta (BL-541).
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
-  pronta na branch local `dl046-livro-caixa`, com auditoria, reconferência e
-  verificação do fechamento; entra por PR depois da DL-045, com o plano e as
-  decisões (DE-087, DE-088). A fatia 2 (apuração mensal) depende da PE-71,
-  em pesquisa na fonte oficial.
+  **em PR**. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
+  Federal, leiaute público do Carnê-Leão Web, manual do sistema de
+  referência) e respostas do Fred (RC-127 a RC-130). Rodada 1 da auditoria
+  ([relatório](../auditorias/2026-09-26-dl-046-rodada-1.md)) e
+  [reconferência](../auditorias/2026-09-27-dl-046-reconferencia.md)
+  reprovaram; a DE-088 reabriu a regra de CPF/CNPJ, que passou a seguir o
+  modelo do leiaute oficial. Fechamento **sem terceira rodada**, por
+  verificação independente descrita no
+  [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
+  instrumento de medição do N3 quebrado, corrigido e medido de novo. A
+  fatia 2 (apuração mensal do carnê-leão) depende da PE-71, em pesquisa na
+  fonte oficial. O Fred decide no PR.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
@@ -149,9 +146,7 @@ merge do PR #38, sem commit individual por etapa.
 
 Fila depois da DL-045, em ordem recomendada e sujeita ao Fred:
 
-1. **Livro-caixa e carnê-leão** (RC-113) — módulo novo sobre a DL-038, com
-   regras levantadas em fonte oficial da Receita antes de qualquer cálculo.
-2. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
+1. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50, PE-51
    e PE-52 abertas.
 
 **Cliente pessoa física** — o escritório atende (RC-112) e faz carnê-leão e

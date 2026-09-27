@@ -71,6 +71,17 @@ ROTULOS_DE_TELA = {
     ("contabilidade_web", "competencia_fechar"): "Fechar competência",
     ("contabilidade_web", "competencia_reabrir"): "Reabrir competência",
     ("contabilidade_web", "competencia_entregar"): "Marcar como entregue",
+    # B8 (rodada 1 da auditoria da DL-046): antes desta correção
+    # `livro_caixa_web` não tinha NENHUMA entrada aqui — toda tela do
+    # livro-caixa renderizava sem o último degrau da trilha nomeado
+    # (não quebrava, só ficava incompleta: "Livro-caixa › empresa" sem
+    # dizer qual tela).
+    ("livro_caixa_web", "plano_de_contas"): "Plano de contas",
+    ("livro_caixa_web", "conta_nova"): "Nova conta",
+    ("livro_caixa_web", "lancamento_novo"): "Novo lançamento",
+    ("livro_caixa_web", "lancamentos"): "Lançamentos",
+    ("livro_caixa_web", "lancamento_estornar"): "Estornar lançamento",
+    ("livro_caixa_web", "relatorio"): "Livro Caixa",
     ("fiscal_web", "recepcao"): "Recepção",
     ("fiscal_web", "relatorio_envio"): "Relatório do envio",
     ("fiscal_web", "documentos_lista"): "Documentos",
@@ -141,6 +152,29 @@ def _trilha_padrao(resolver_match, empresa_atual):
             trilha.append(("Contabilidade", url_plano_de_contas))
             if empresa_atual:
                 trilha.append((empresa_atual.razao_social, url_plano_de_contas))
+            if rotulo_tela:
+                trilha.append((rotulo_tela, None))
+    elif namespace == "livro_caixa_web":
+        # B8: MESMO desenho de `contabilidade_web`, acima — "Livro-caixa
+        # › <empresa> › <tela>", com o Plano de contas como página de
+        # entrada do módulo (mesmo papel que "Contabilidade" tem para o
+        # ramo de cima). Namespace SEPARADO, nunca reaproveitando o ramo
+        # `contabilidade_web` por cima: os dois módulos têm rótulo de
+        # entrada diferente ("Livro-caixa" vs. "Contabilidade") mesmo
+        # quando o `url_name` da tela é igual (ex.: "plano_de_contas").
+        url_plano_de_contas_caixa = (
+            reverse("livro_caixa_web:plano_de_contas", args=[empresa_atual.id])
+            if empresa_atual
+            else None
+        )
+        if url_name == "plano_de_contas":
+            trilha.append(("Livro-caixa", None))
+            if empresa_atual:
+                trilha.append((empresa_atual.razao_social, None))
+        else:
+            trilha.append(("Livro-caixa", url_plano_de_contas_caixa))
+            if empresa_atual:
+                trilha.append((empresa_atual.razao_social, url_plano_de_contas_caixa))
             if rotulo_tela:
                 trilha.append((rotulo_tela, None))
     elif namespace == "fiscal_web":

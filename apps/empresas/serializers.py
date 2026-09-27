@@ -13,10 +13,12 @@ from apps.empresas.services import (
     erros_de_consistencia_de_inscricao,
     modo_escrituracao_sugerido,
     recusar_cnpj_de_empresa_igual_a_estabelecimento_de_outra_empresa,
+    recusar_transicao_para_contabilidade_com_movimento_de_caixa,
     recusar_transicao_para_cpf_com_estabelecimento,
     recusar_transicao_para_livro_caixa_com_movimento,
 )
 from apps.empresas.services import mensagem_cnpj_duplicado as _mensagem_cnpj_duplicado
+from apps.empresas.validators import validar_caepf
 
 # CNPJSerializerField é declarado explicitamente nos dois serializers abaixo
 # (não é o CharField automático do ModelSerializer), então precisa repor à
@@ -180,6 +182,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
             "tipo_inscricao",
             "cnpj",
             "cpf",
+            "caepf",
             "modo_escrituracao",
             "ativo",
             "regime_atual",
@@ -207,6 +210,22 @@ class EmpresaSerializer(serializers.ModelSerializer):
         erros = erros_de_consistencia_de_inscricao(tipo, cnpj, cpf)
         if erros:
             raise serializers.ValidationError(erros)
+
+        # DL-046 (RC-129/HI-31): CAEPF só para empresa CPF — mesma
+        # invariante da CheckConstraint "empresa_caepf_so_para_cpf_com_
+        # formato_valido" — e coerência estrutural com o CPF quando os dois
+        # estão preenchidos (`Conta.clean()` faz a mesma checagem para o
+        # ORM/admin; aqui é o caminho que a API de fato usa).
+        caepf = attrs.get("caepf", getattr(self.instance, "caepf", ""))
+        if caepf and tipo != TipoInscricao.CPF:
+            raise serializers.ValidationError(
+                {"caepf": "CAEPF só é aceito para empresa com tipo de inscrição CPF."}
+            )
+        if caepf and cpf:
+            try:
+                validar_caepf(caepf, cpf=cpf)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"caepf": exc.messages}) from exc
 
         # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
         # arquiteto-senior): o CNPJ desta empresa não pode ser o MESMO de
@@ -252,6 +271,21 @@ class EmpresaSerializer(serializers.ModelSerializer):
         if self.instance is not None and "modo_escrituracao" in attrs:
             try:
                 recusar_transicao_para_livro_caixa_com_movimento(
+                    self.instance,
+                    modo_anterior=self.instance.modo_escrituracao,
+                    modo_novo=attrs["modo_escrituracao"],
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"modo_escrituracao": exc.messages}) from exc
+
+            # A1 (rodada 1 de auditoria, DE-087 item 1): o ESPELHO da guarda
+            # acima, na direção contrária — este é o caminho que a auditoria
+            # mediu como aceito (`PATCH modo_escrituracao=contabilidade`
+            # respondendo 200 com um lançamento de caixa gravado). A REGRA
+            # mora só em `apps.empresas.services.recusar_transicao_para_
+            # contabilidade_com_movimento_de_caixa`.
+            try:
+                recusar_transicao_para_contabilidade_com_movimento_de_caixa(
                     self.instance,
                     modo_anterior=self.instance.modo_escrituracao,
                     modo_novo=attrs["modo_escrituracao"],

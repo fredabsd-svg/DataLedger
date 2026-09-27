@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block titulo %}Nova conta do livro-caixa — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:plano_de_contas' empresa.id %}">Plano de contas do livro-caixa — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Nova conta</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Nova conta do livro-caixa</h1>{% endblock %}
+
+{% block content %}
+    <form method="post" action="{% url 'livro_caixa_web:conta_nova' empresa.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.help_text %}<p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                {% if campo.errors %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit">Salvar</button>
+    </form>
+{% endblock %}

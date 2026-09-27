@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block titulo %}Livro Caixa — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+RC-97: "nome do relatório — razão social do cliente" no título de um
+DOCUMENTO impresso — mesmo padrão de balancete.html/dre.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+Esta tela TEM timbre de impressão (`.timbre-impressao`, abaixo) — mesmo
+raciocínio de balancete.html/dre.html: "Escritório ativo" pode sair da
+impressão porque a identificação do emitente já sai pelo timbre. A
+identificação PRINCIPAL deste documento, porém, é a do CONTRIBUINTE (nome,
+CPF) — o livro-caixa é livro DO CLIENTE pessoa física, não demonstração da
+contabilidade do escritório (docs/projeto/personalizacao-de-relatorio.md:
+a forma de um livro é quase toda prescrita pelo que ele REGISTRA, não pelo
+escritório que o emite).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
+        </span>
+    {% endif %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Emitido em</span>
+        <strong>{{ carimbo_de_emissao_texto }}</strong>
+    </span>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Livro Caixa</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nenhum dado foi carregado.
+            <a href="{% url 'livro_caixa_web:relatorio' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver o Livro Caixa, ou corrija as datas no filtro abaixo.
+        </p>
+    {% endif %}
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+    </form>
+
+    {% if inicio and fim %}
+        {% comment %}
+        Totais informativos, sem veredito (nunca "fecha/não fecha" — o
+        livro-caixa não tem essa pergunta, é regime de caixa, um valor por
+        lançamento): `.painel-etapa` é o cartão NEUTRO já usado em outras
+        telas (ex.: competencia_reabrir.html), nunca `.faixa-fechamento`
+        (que é verde por padrão, reservada a um VEREDITO de conferência —
+        usá-la aqui sugeriria um "aprovado" que não existe aqui).
+        {% endcomment %}
+        <div class="painel-etapa" role="status">
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Entradas</span>
+                <strong class="valor-monetario">{{ total_entradas_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saídas</span>
+                <strong class="valor-monetario">{{ total_saidas_ptbr }}</strong>
+            </span>
+            {% comment %}
+            N5 (reconferência da DL-046, DE-088 item 4): os dois totais do
+            grupo, dentro do MESMO cartão que já mostra "Saídas" — o valor
+            que a apuração do carnê-leão (fatia 2) vai usar é justamente
+            "Pagamentos que deduzem o carnê-leão (P20)", separado das
+            saídas de custeio; antes desta correção só a TABELA separava
+            os dois grupos, sem nenhum total impresso. "Saídas" continua
+            somando os dois (dúvida em aberto para o Fred, D3/N5 na
+            auditoria — não decidida ainda) — estes dois totais MOSTRAM o
+            que já compõe aquele número, nunca um terceiro cálculo.
+            {% endcomment %}
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saídas de custeio</span>
+                <strong class="valor-monetario">{{ total_saidas_custeio_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Pagamentos que deduzem o carnê-leão (P20)</span>
+                <strong class="valor-monetario">{{ total_saidas_deducao_carne_leao_ptbr }}</strong>
+            </span>
+            <span class="contexto-item">
+                <span class="contexto-rotulo">Saldo do período</span>
+                <strong class="valor-monetario">{{ saldo_ptbr }}</strong>
+            </span>
+        </div>
+
+        {% comment %}
+        N3 (reconferência da DL-046): UMA tabela só, com o P20 como uma
+        SEGUNDA SEÇÃO (`<tbody>`) da MESMA tabela — não uma tabela à
+        parte. A primeira tentativa (duas `<table>` separadas, cada uma
+        com sua PRÓPRIA cópia do bloco `.identificacao-do-documento` no
+        `<thead>`) foi abandonada: o instrumento de medição soma os
+        parágrafos de identificação de TODAS as ocorrências do seletor
+        na página inteira (o "documento" impresso é o `<body>` completo,
+        não uma tabela isolada), então duas cópias do MESMO bloco
+        contavam o DOBRO de parágrafos do que o HTML servido tinha —
+        "REPROVADO: número de parágrafos de identificação no navegador
+        (8) diverge do HTML servido (4)" (medido). Com UMA tabela só,
+        `.tabela-dados thead { display: table-header-group }` repete o
+        MESMO `<thead>` (com a MESMA identificação) em CADA folha
+        impressa da tabela inteira — inclusive na folha em que a seção
+        P20 começa, sem duplicar o bloco no HTML.
+        {% endcomment %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Livro Caixa de {{ empresa.razao_social }} no período</caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    {% comment %}
+                    M6 (rodada 1 da auditoria da DL-046, DE-087 item 7): a
+                    inscrição segue o TIPO da empresa (`rotulo_inscricao`/
+                    `inscricao_formatada`, calculados na view a partir do
+                    mesmo enum que `apps.empresas.views.lista_empresas` já
+                    usa) — nunca "CPF" fixo, que saía em branco para uma
+                    empresa CNPJ em livro-caixa. O CAEPF (RC-129/HI-31) só
+                    aparece quando existir, em linha própria, "sem
+                    máscara" (mesmo padrão do cadastro). Bloco extraído
+                    para `_identificacao_do_documento.html` — reaproveitado
+                    só aqui agora (ver o comentário acima sobre por que
+                    NÃO duplicar em outro `<thead>`).
+                    {% endcomment %}
+                    <th scope="colgroup" colspan="6">
+                        {% include "livro_caixa/_identificacao_do_documento.html" %}
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Nº</th>
+                    <th scope="col">Data</th>
+                    <th scope="col">Conta</th>
+                    <th scope="col">Histórico</th>
+                    <th scope="col">Natureza</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                    <tr>
+                        <td>{{ item.lancamento_id }}</td>
+                        <td>{{ item.data|date:"d/m/Y" }}</td>
+                        <td>
+                            {{ item.conta }} — {{ item.conta_nome }}
+                            {% comment %}
+                            M8 (rodada 1 da auditoria da DL-046): "Estorno"
+                            sozinho não dizia QUAL lançamento foi
+                            estornado — com dois lançamentos do mesmo
+                            valor na mesma conta, o livro não distinguia
+                            qual foi corrigido. MESMO texto que
+                            `lancamentos_lista.html` já usa ("Estorno do
+                            lançamento nº X"), agora também no papel.
+                            {% endcomment %}
+                            {% if item.e_estorno %}
+                                <br><span class="texto-apoio">Estorno do lançamento nº {{ item.estorno_de_id }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ item.historico|default:"—" }}</td>
+                        <td>{% if item.natureza == "receita" %}Entrada{% else %}Saída{% endif %}</td>
+                        {% comment %}
+                        Direção de arte §2A: "valor invertido em relação à
+                        natureza do registro vai entre parênteses" — um
+                        estorno é uma linha de Entrada/Saída que, ao
+                        contrário do resto da coluna, SUBTRAI do total
+                        (`apurar_livro_caixa`, services.py, sinal
+                        invertido). Sem o parêntese, somar a coluna Valor a
+                        olho nunca bateria com Entradas/Saídas/Saldo do
+                        cartão acima — o parêntese é o que torna a soma
+                        literal da coluna consistente com o total.
+                        {% endcomment %}
+                        <td class="valor-monetario">
+                            {% if item.e_estorno %}
+                                <span class="valor-invertido">({{ item.valor_ptbr }})</span>
+                            {% else %}
+                                {{ item.valor_ptbr }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        {% comment %}
+                        N5 (reconferência da DL-046, DE-088 item 4): a
+                        mensagem de vazio considera os DOIS grupos — um
+                        período com pagamento P20 e nenhuma entrada/saída
+                        de custeio NÃO está vazio, só não tem nada NESTA
+                        SEÇÃO; "Nenhum lançamento neste período" ao lado
+                        da seção P20 preenchida contradizia a própria
+                        tela.
+                        {% endcomment %}
+                        <td colspan="6">
+                            {% if pagamentos_p20_carne_leao %}
+                                Nenhuma entrada nem saída de custeio neste período — ver os
+                                pagamentos que deduzem o carnê-leão (P20) abaixo.
+                            {% else %}
+                                Nenhum lançamento neste período.
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+
+            {% comment %}
+            D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
+            normativa): pagamentos P20 (imposto pago, previdência
+            oficial, pensão) são DEDUÇÃO do carnê-leão, art. 68 — não
+            despesa de custeio. `apurar_livro_caixa` marca esses itens
+            com `grupo == "saida_deducao_carne_leao"`; a view os separa
+            aqui. SEGUNDO `<tbody>` da MESMA tabela (ver o comentário no
+            topo do `<table>`) — nunca uma `<table>` à parte.
+
+            N4: MESMO tratamento de estorno da seção principal (coluna
+            Nº, referência "Estorno do lançamento nº X", parênteses no
+            valor invertido) — antes desta correção o estorno de um P20
+            saía como um SEGUNDO pagamento positivo, sem parênteses nem
+            referência.
+            {% endcomment %}
+            {% if pagamentos_p20_carne_leao %}
+                <tbody>
+                    <tr>
+                        <th scope="colgroup" colspan="6">
+                            Pagamentos que deduzem a base do carnê-leão — não são despesa de custeio
+                        </th>
+                    </tr>
+                    {% for item in pagamentos_p20_carne_leao %}
+                        <tr>
+                            <td>{{ item.lancamento_id }}</td>
+                            <td>{{ item.data|date:"d/m/Y" }}</td>
+                            <td>
+                                {{ item.conta }} — {{ item.conta_nome }}
+                                {% if item.e_estorno %}
+                                    <br><span class="texto-apoio">Estorno do lançamento nº {{ item.estorno_de_id }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.historico|default:"—" }}</td>
+                            <td>Saída</td>
+                            <td class="valor-monetario">
+                                {% if item.e_estorno %}
+                                    <span class="valor-invertido">({{ item.valor_ptbr }})</span>
+                                {% else %}
+                                    {{ item.valor_ptbr }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th scope="row" colspan="5">Total dos pagamentos que deduzem o carnê-leão (P20)</th>
+                        <td class="valor-monetario">{{ total_saidas_deducao_carne_leao_ptbr }}</td>
+                    </tr>
+                </tfoot>
+            {% endif %}
+        </table>
+    {% endif %}
+{% endblock %}

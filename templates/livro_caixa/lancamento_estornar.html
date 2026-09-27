@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar lançamento {{ lancamento.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">Lançamentos — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Estornar lançamento nº {{ lancamento.id }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">‹ Voltar para os lançamentos</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+Arquétipo E (direção de arte §2): "cada etapa diz o que vai acontecer e o
+que ainda dá para desfazer" — o mês/ano permanece no título (reforço de
+risco, ação sensível), mesmo padrão de competencia_reabrir.html
+(contabilidade).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar lançamento nº {{ lancamento.id }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            Um NOVO lançamento reverso é criado, na MESMA conta e com o MESMO valor —
+            <strong>{{ lancamento.conta.codigo }} — {{ lancamento.conta.nome }}, {{ valor_ptbr }}</strong>,
+            lançado em {{ lancamento.data|date:"d/m/Y" }}. O lançamento original NUNCA é
+            alterado nem apagado — o estorno é a ÚNICA forma de correção, e os dois ficam
+            visíveis na lista e no relatório Livro Caixa, com a referência entre eles.
+        </p>
+        <p>
+            Histórico original: {{ lancamento.historico|default:"—" }}
+        </p>
+        <form method="post" action="{% url 'livro_caixa_web:lancamento_estornar' empresa.id lancamento.id %}"
+              class="formulario">
+            {% csrf_token %}
+            <button type="submit" class="botao botao--perigoso">
+                Estornar lançamento nº {{ lancamento.id }} ({{ valor_ptbr }})
+            </button>
+        </form>
+    </div>
+{% endblock %}
