@@ -602,3 +602,81 @@ contra o texto da lei.
 **Ainda hipótese:** o valor por dependente de 2026 (R$ 189,59) é o último
 fixado em norma, sem alteração encontrada, mas nenhuma fonte diz "2026"
 literalmente (HI-32).
+
+## Fatia 2 — objetivo, escopo e critérios (2026-09-27, `arquiteto-senior`)
+
+**Objetivo:** o escritório vê, por cliente pessoa física e por mês, quanto de
+carnê-leão é devido, com a memória de cálculo completa, calculado a partir do
+livro-caixa já escriturado. Nível de risco 1: cálculo de tributo.
+
+**Divisão:** servidor e API primeiro (`desenvolvedor-pleno`); tela do
+demonstrativo depois (`especialista-frontend`); auditoria da versão integrada
+(`auditor-qa`). A geração do DARF continua fora: o Carnê-Leão Web gera a
+guia.
+
+**Escopo do servidor:**
+
+1. **Dados normativos com vigência, nunca no código** (RC-131): tabela
+   progressiva mensal, redução mensal da Lei 15.270/2025 e valor por
+   dependente, cada um com data inicial de vigência e fonte citada, gravados
+   por migração de dados. O desconto simplificado mensal sai da tabela
+   vigente (25% do limite da faixa de alíquota zero), não de número solto.
+   Nova vigência não altera a apuração de mês anterior a ela.
+2. **Dependentes por cliente, com vigência mensal** (HI-35): quantidade
+   informada pelo escritório, a partir de um mês.
+3. **Apuração mensal** derivada dos lançamentos de caixa, sem gravar
+   resultado que possa divergir deles (RC-130: corrigir o mês original muda
+   aquele mês e o encadeamento dos seguintes). Por mês:
+   - rendimentos sujeitos ao carnê-leão, por origem e código;
+   - deduções reais: previdência oficial (`P20.01.00001`), pensão
+     alimentícia (`P20.01.00002`), dependentes × valor vigente e livro-caixa
+     (`P10`), este só contra rendimento do trabalho não assalariado e
+     limitado a ele, com o **excesso levado aos meses seguintes até
+     dezembro**, nunca a janeiro;
+   - desconto simplificado mensal, como alternativa; aplica a forma mais
+     benéfica e mostra as duas (HI-33);
+   - imposto pela tabela, menos a parcela a deduzir, menos a redução da Lei
+     15.270/2025 (limitada ao imposto, § 1º);
+   - compensação do imposto pago no exterior (`P20.01.00003`) nos limites da
+     norma;
+   - valor abaixo de R$ 10,00 somado ao mês seguinte; código 0190.
+4. **Demonstrativo anual:** os 12 meses do ano-calendário com os totais.
+5. **API** somente leitura para o demonstrativo, com o mesmo padrão de
+   autorização, isolamento e leitura sob snapshot do Balanço (DE-067); só
+   cliente em modo livro-caixa.
+
+**Dúvidas que o `desenvolvedor-pleno` resolve na fonte oficial antes de
+codificar** (texto integral do Perguntas e Respostas IRPF 2026, RIR/2018 e
+Manual do Carnê-Leão; a regra de consultar antes de perguntar vale para ele
+também). O que continuar sem resposta vira hipótese registrada, nunca
+comportamento silencioso:
+
+- a redução da Lei 15.270/2025 é calculada sobre o **rendimento tributável
+  bruto** do mês ou sobre a **base depois das deduções**;
+- rendimento recebido de **pessoa jurídica** entra na base do carnê-leão, ou
+  só serve de limite para a dedução do livro-caixa;
+- limite da compensação do imposto pago no exterior;
+- arredondamento de cada etapa (usar `apps/core/dinheiro.py`, com a política
+  escolhida declarada e justificada).
+
+**Critérios de aceite:**
+
+1. Casos de referência **calculados à mão** no teste, com o cálculo escrito
+   no comentário: faixa isenta; cada faixa da tabela; rendimento de R$
+   5.000,00 (imposto zero pela redução); R$ 6.000,00 (redução parcial); R$
+   7.350,00 e R$ 7.350,01 (fim da redução); dedução maior que a receita, com
+   o excesso carregado; excesso em dezembro que não passa a janeiro;
+   dependentes; desconto simplificado mais benéfico e menos benéfico; valor
+   abaixo de R$ 10,00 acumulado; centavos.
+2. Troca de vigência da tabela no meio do ano: os meses anteriores não mudam.
+3. Estorno e correção no mês original refletem no mês e no encadeamento
+   (RC-130).
+4. Isolamento entre clientes e escritórios em toda porta; autorização no
+   servidor; recusa para cliente em modo contabilidade.
+5. Nenhum número normativo no código: teste que falha se a tabela vier de
+   constante.
+6. Suíte completa, lint, formatação, `check`, `makemigrations --check`,
+   migração em banco vazio.
+
+**Hipótese nova:** **HI-35** — dependentes são informados pelo escritório
+por quantidade, com vigência mensal, sem cadastro nominal nesta fatia.
