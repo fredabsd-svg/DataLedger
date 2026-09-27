@@ -114,6 +114,34 @@ MENSAGENS_DE_RESTRICAO = {
         "CAEPF só é aceito para empresa com tipo de inscrição CPF, e precisa "
         "ter 14 dígitos numéricos, sem máscara."
     ),
+    # DL-046, fatia 3 (RC-127/HI-34): mesma classe de armadilha do CAEPF,
+    # acima — `EmpresaSerializer.validate` já recusa código de ocupação
+    # fora de empresa CPF ANTES de qualquer INSERT/UPDATE no caminho
+    # SEQUENCIAL comum (e o campo do serializer, auto-gerado pelo
+    # `ModelSerializer` a partir de `Empresa.codigo_ocupacao`, já herda
+    # `validators=[validar_codigo_ocupacao]` do MODELO — confere formato e
+    # tabela oficial antes de `validate` rodar).
+    #
+    # ⚠️ **GAP CONHECIDO, registrado para quem tem `apps/empresas/views.py`
+    # no escopo** (fora do escopo de arquivos desta etapa, DL-046 fatia 3):
+    # ao contrário do CAEPF (linha acima), esta constraint NÃO está
+    # passada para `restricao_como_400` via `mensagens_de(...)` em
+    # `EmpresaListCreateView`/`EmpresaDetailView` — só o REGISTRO desta
+    # tradução existe aqui (o que a varredura de `test_dl019_varredura_de_
+    # restricoes.py` exige); falta o FIO até as duas views, mesmo padrão
+    # exato do CAEPF logo acima (`mensagens_de("empresa_cnpj_canonico",
+    # ..., "empresa_caepf_so_para_cpf_com_formato_valido")` nos dois
+    # `perform_create`/`perform_update`, mais a entrada em `_CAMPO_DA_
+    # RESTRICAO_DE_EMPRESA`). Até essa etapa entrar, uma corrida residual
+    # que violasse esta constraint específica (PATCH que omite
+    # `tipo_inscricao`, concorrente com uma troca de tipo — mesma classe
+    # de janela já documentada para o CAEPF) vazaria `IntegrityError` cru
+    # (500), não este texto.
+    "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido": (
+        "Código de ocupação só é aceito para empresa com tipo de inscrição "
+        "CPF, e precisa ter 3 dígitos numéricos da tabela oficial do "
+        "Carnê-Leão Web."
+    ),
     # DL-046 (fatia 1) — mesmo desenho de "codigo_unico_por_empresa"
     # (contabilidade), agora para o plano de contas do livro-caixa.
     "conta_livro_caixa_codigo_unico_por_empresa": (
@@ -474,6 +502,19 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "antes de qualquer escrita. Sem caminho de escrita por cliente "
         "REALISTA para o valor inválido."
     ),
+    # DL-046, fatia 3 (RC-127/HI-34): FORMATO do código de ocupação da
+    # conta (sobreposição opcional) — `criar_conta_livro_caixa` sempre
+    # chama `conta.full_clean()` antes do INSERT, que valida o campo
+    # (`validar_codigo_ocupacao`, formato e tabela oficial) e `clean()`
+    # (coerência com o modelo de rendimento da conta) ANTES de qualquer
+    # escrita. Sem caminho de escrita por cliente REALISTA para o valor
+    # inválido; só ORM/SQL direto alcançaria esta constraint.
+    "conta_livro_caixa_codigo_ocupacao_formato_valido": (
+        "`CheckConstraint` de formato de `ContaLivroCaixa.codigo_ocupacao` "
+        "(DL-046, fatia 3): 3 dígitos numéricos ou vazio. `criar_conta_"
+        "livro_caixa` já recusa antes do INSERT; só ORM/SQL direto "
+        "alcançaria esta constraint."
+    ),
     # DL-046 (fatia 1): `MinValueValidator(Decimal("0.01"))` no campo já
     # recusa valor <= 0 em qualquer `full_clean()` (admin), e
     # `criar_lancamento_caixa` valida o mesmo antes do INSERT (mesmo
@@ -485,6 +526,34 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "valor <= 0. O caminho de cliente (`criar_lancamento_caixa`) já "
         "recusa antes do INSERT; só ORM/SQL direto alcançaria esta "
         "constraint."
+    ),
+    # DL-046, fatia 3 (RC-127): os três valores monetários novos e a
+    # competência do pagamento de previdência oficial — mesmo motivo de
+    # "lancamento_caixa_valor_positivo", acima: `criar_lancamento_caixa`
+    # (`_valor_monetario_opcional`) e `LancamentoCaixa.clean()` já recusam
+    # antes do INSERT; só ORM/SQL direto alcançaria estas constraints.
+    "lancamento_caixa_valor_irrf_nao_negativo": (
+        "`CheckConstraint` de `LancamentoCaixa.valor_irrf` (DL-046, fatia "
+        "3): recusa valor negativo. O caminho de cliente já recusa antes "
+        "do INSERT; só ORM/SQL direto alcançaria esta constraint."
+    ),
+    "lancamento_caixa_multa_previdencia_nao_negativa": (
+        "`CheckConstraint` de `LancamentoCaixa.multa_previdencia` (DL-046, "
+        "fatia 3): recusa valor negativo. O caminho de cliente já recusa "
+        "antes do INSERT; só ORM/SQL direto alcançaria esta constraint."
+    ),
+    "lancamento_caixa_juros_previdencia_nao_negativa": (
+        "`CheckConstraint` de `LancamentoCaixa.juros_previdencia` (DL-046, "
+        "fatia 3): recusa valor negativo. O caminho de cliente já recusa "
+        "antes do INSERT; só ORM/SQL direto alcançaria esta constraint."
+    ),
+    "lancamento_caixa_competencia_previdencia_dia_1": (
+        "`CheckConstraint` de `LancamentoCaixa.competencia_previdencia` "
+        "(DL-046, fatia 3): exige o primeiro dia do mês. `criar_lancamento_"
+        "caixa` chama `validate_constraints()` explicitamente antes do "
+        "INSERT (mesmo padrão dos três acima) — um dia diferente de 1 já "
+        "vira `LancamentoCaixaInvalido` (400) nesse ponto; só ORM/SQL "
+        "direto alcançaria a constraint de banco diretamente."
     ),
     # DL-046 (fatia 2): as SEIS restrições das quatro tabelas normativas do
     # carnê-leão (`apps.livro_caixa.models`). Nenhuma delas tem caminho de

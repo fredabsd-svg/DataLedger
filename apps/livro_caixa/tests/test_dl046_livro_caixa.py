@@ -2328,6 +2328,9 @@ def test_d3_relatorio_separa_p20_das_despesas_de_custeio(cenario):
         data=date(2026, 5, 3),
         valor="150.00",
         historico="INSS do mês",
+        # DL-046, fatia 3 (RC-127): competência é obrigatória no pagamento
+        # de previdência oficial (P20.01.00001).
+        competencia_previdencia=date(2026, 5, 1),
     )
 
     apuracao = apurar_livro_caixa(

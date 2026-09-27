@@ -19,7 +19,17 @@ from apps.livro_caixa.models import ContaLivroCaixa, DependentesCarneLeaoCliente
 class ContaLivroCaixaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContaLivroCaixa
-        fields = ["id", "codigo", "nome", "natureza", "codigo_carne_leao", "ativa", "criado_em"]
+        fields = [
+            "id",
+            "codigo",
+            "nome",
+            "natureza",
+            "codigo_carne_leao",
+            # DL-046, fatia 3 (RC-127/HI-34).
+            "codigo_ocupacao",
+            "ativa",
+            "criado_em",
+        ]
         read_only_fields = fields
 
 
@@ -43,6 +53,11 @@ class LancamentoCaixaSerializer(serializers.ModelSerializer):
             "cpf_beneficiario_servico",
             "cpf_beneficiario_nao_informado",
             "cnpj_pagador",
+            # DL-046, fatia 3 (RC-127).
+            "valor_irrf",
+            "competencia_previdencia",
+            "multa_previdencia",
+            "juros_previdencia",
             "estorno_de",
             "criado_em",
         ]

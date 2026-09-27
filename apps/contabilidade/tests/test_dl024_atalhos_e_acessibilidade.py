@@ -1026,6 +1026,22 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:carne-leao-mensal": ("API REST (CarneLeaoMensalView, DRF) — JSON; DL-046 fatia 2"),
     "livro_caixa:carne-leao-anual": ("API REST (CarneLeaoAnualView, DRF) — JSON; DL-046 fatia 2"),
+    # DL-046 fatia 3 (RC-127): arquivos de importação do Carnê-Leão Web —
+    # mesmo motivo das rotas de fatia 1/2, acima (só servidor + API nesta
+    # fatia). As duas últimas são DOWNLOAD (text/csv como anexo), não HTML —
+    # mesmo motivo dos dois downloads de XML do Fiscal, mais abaixo neste
+    # arquivo ("download de anexo (...), não HTML").
+    "livro_caixa:carne-leao-arquivos-pendencias": (
+        "API REST (ArquivosCarneLeaoPendenciasView, DRF) — JSON; DL-046 fatia 3"
+    ),
+    "livro_caixa:carne-leao-arquivo-rendimentos": (
+        "download de anexo (text/csv), não HTML (ArquivoCarneLeaoRendimentosDownloadView); "
+        "DL-046 fatia 3"
+    ),
+    "livro_caixa:carne-leao-arquivo-pagamentos": (
+        "download de anexo (text/csv), não HTML (ArquivoCarneLeaoPagamentosDownloadView); "
+        "DL-046 fatia 3"
+    ),
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
     # competência ENCERRADA como pré-condição de estado — sob o `cenario`
     # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o

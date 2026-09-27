@@ -1,6 +1,9 @@
 from django.urls import path
 
 from apps.livro_caixa.views import (
+    ArquivoCarneLeaoPagamentosDownloadView,
+    ArquivoCarneLeaoRendimentosDownloadView,
+    ArquivosCarneLeaoPendenciasView,
     CarneLeaoAnualView,
     CarneLeaoMensalView,
     ContaLivroCaixaListCreateView,
@@ -54,5 +57,21 @@ urlpatterns = [
         "empresas/<int:empresa_id>/carne-leao/anual/",
         CarneLeaoAnualView.as_view(),
         name="carne-leao-anual",
+    ),
+    # DL-046, fatia 3 — arquivos de importação do Carnê-Leão Web (RC-127).
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/pendencias/",
+        ArquivosCarneLeaoPendenciasView.as_view(),
+        name="carne-leao-arquivos-pendencias",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/rendimentos/",
+        ArquivoCarneLeaoRendimentosDownloadView.as_view(),
+        name="carne-leao-arquivo-rendimentos",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/pagamentos/",
+        ArquivoCarneLeaoPagamentosDownloadView.as_view(),
+        name="carne-leao-arquivo-pagamentos",
     ),
 ]

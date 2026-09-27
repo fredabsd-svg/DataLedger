@@ -145,8 +145,19 @@ def _lancar_trabalho(empresa, conta, dia, valor, *, recebido_de="PF", cnpj_pagad
 
 
 def _lancar_despesa(empresa, conta, dia, valor, historico="Despesa — teste de tela"):
+    # DL-046, fatia 3 (RC-127): competência obrigatória em previdência
+    # oficial (P20.01.00001) — mesmo padrão do helper equivalente da fatia
+    # 2 (test_dl046_fatia2_carne_leao.py).
+    competencia_previdencia = None
+    if conta.codigo_carne_leao == "P20.01.00001":
+        competencia_previdencia = date(dia.year, dia.month, 1)
     return criar_lancamento_caixa(
-        empresa=empresa, conta=conta, data=dia, valor=Decimal(valor), historico=historico
+        empresa=empresa,
+        conta=conta,
+        data=dia,
+        valor=Decimal(valor),
+        historico=historico,
+        competencia_previdencia=competencia_previdencia,
     )
 
 

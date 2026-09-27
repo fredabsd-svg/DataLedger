@@ -1,0 +1,6 @@
+99/99/9999;R01.003.001;;999999999,99;;Modelo de linha para rendimentos de Aluguel recebido de Pessoa Física;PF
+99/99/9999;R01.003.001;;999999999,99;;Modelo de linha para rendimentos de Aluguel recebido do Exterior;EX
+99/99/9999;R01.003.001;;999999999,99;999999999,99;Modelo de linha para rendimentos de Aluguel recebido de Pessoa Física com dedução informada;PF
+99/99/9999;R01.003.001;;999999999,99;999999999,99;Modelo de linha para rendimentos de Aluguel recebido do Exterior com dedução informada;EX
+99/99/9999;R01.004.001;;999999999,99;;Modelo de linha para outros rendimentos recebido de Pessoa Física;PF
+99/99/9999;R01.004.001;;999999999,99;;Modelo de linha para outros rendimentos recebido do Exterior;EX

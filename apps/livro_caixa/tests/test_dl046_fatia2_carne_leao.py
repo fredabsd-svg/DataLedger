@@ -205,8 +205,23 @@ def _lancar_trabalho(empresa, conta, data, valor):
 
 
 def _lancar_despesa(empresa, conta, data, valor, historico="Despesa"):
+    # DL-046, fatia 3 (RC-127): a competência é OBRIGATÓRIA em qualquer
+    # lançamento de previdência oficial (P20.01.00001) — esta suíte (fatia
+    # 2, anterior à fatia 3) não conhecia esse campo; o padrão de teste
+    # razoável é a competência do MESMO mês do pagamento (o caso comum:
+    # contribuição paga no mês de referência), a menos que um teste
+    # específico precise de outra — nesse caso, chama `criar_lancamento_
+    # caixa` diretamente com `competencia_previdencia` explícita.
+    competencia_previdencia = None
+    if conta.codigo_carne_leao == "P20.01.00001":
+        competencia_previdencia = date(data.year, data.month, 1)
     return criar_lancamento_caixa(
-        empresa=empresa, conta=conta, data=data, valor=valor, historico=historico
+        empresa=empresa,
+        conta=conta,
+        data=data,
+        valor=valor,
+        historico=historico,
+        competencia_previdencia=competencia_previdencia,
     )
 
 
