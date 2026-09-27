@@ -64,3 +64,23 @@ pelo que for componente compartilhado.
    obrigatório, guardas automatizadas existentes verdes.
 7. Suíte completa, `ruff check`, `ruff format --check`, `manage.py check`,
    validação da documentação.
+
+## Correção depois do merge: folha de estilo em cache
+
+Achado do Fred em 2026-09-26, depois do merge do PR #50: o Início apareceu com
+a **estrutura nova e a folha de estilo antiga** (fonte serifada, ícones
+gigantes, links sublinhados, dicas "Alt+P" visíveis). O link da folha era um
+caminho fixo (`/static/css/base.css`), sem nada que mudasse quando o arquivo
+mudava; navegador e cache intermediário continuavam servindo a versão velha.
+
+Correção: o `<head>` passa a pedir `/static/css/base.css?v=<impressão
+digital>` e `/static/css/public.css?v=<impressão digital>`, com os 12 primeiros
+caracteres do SHA-256 do conteúdo, calculados uma vez por processo
+(`apps.core.context_processors.versao_dos_estaticos`). Teste:
+`apps/core/tests/test_versao_dos_estaticos.py`.
+
+⚠️ Em instalação com `DEBUG=False`, o WhiteNoise serve o que está em
+`staticfiles/`: depois de atualizar o código é preciso rodar
+`python manage.py collectstatic --noinput` (o `Dockerfile` já faz isso ao
+reconstruir a imagem). A versão no link resolve o cache do navegador, não uma
+pasta `staticfiles/` desatualizada.

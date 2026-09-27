@@ -39,6 +39,10 @@ test_isolamento_painel_de_uma_empresa_nao_mostra_competencia_de_outra`.
 Não repetir esse erro: nunca uma queryset de várias empresas aqui.
 """
 
+import functools
+import hashlib
+
+from django.contrib.staticfiles import finders
 from django.urls import reverse
 
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
@@ -177,3 +181,37 @@ def navegacao_do_menu(request):
     contexto["empresa_atual"] = empresa_atual
     contexto["trilha_padrao"] = _trilha_padrao(resolver_match, empresa_atual)
     return contexto
+
+
+@functools.lru_cache(maxsize=None)
+def _impressao_digital_do_estatico(caminho_relativo):
+    """Primeiros 12 caracteres do SHA-256 do CONTEÚDO do arquivo estático,
+    localizado pelo mesmo finder que o `runserver` e o `collectstatic` usam.
+    Calculado uma vez por processo (o arquivo não muda sem reiniciar o
+    servidor, que é quando uma versão nova sobe). Arquivo não encontrado
+    devolve "" — o link continua funcionando, só sem a versão.
+    """
+    caminho = finders.find(caminho_relativo)
+    if not caminho:
+        return ""
+    with open(caminho, "rb") as arquivo:
+        return hashlib.sha256(arquivo.read()).hexdigest()[:12]
+
+
+def versao_dos_estaticos(request):
+    """Versão das folhas de estilo para o link `?v=` do `<head>`.
+
+    Achado do Fred em 2026-09-26: depois do merge da DL-044 as telas
+    apareceram com a ESTRUTURA nova e a folha de estilo ANTIGA (fonte
+    serifada, ícones gigantes, links sublinhados). O link é um caminho
+    fixo (`/static/css/base.css`, ver o comentário em `templates/base.html`
+    sobre por que não se usa a tag `static` com manifesto), então o
+    navegador e qualquer cache no caminho não tinham como saber que o
+    arquivo mudou. A impressão digital do conteúdo no `?v=` muda sozinha a
+    cada versão nova da folha — sem depender de lembrar de trocar um
+    número à mão.
+    """
+    return {
+        "versao_css_base": _impressao_digital_do_estatico("css/base.css"),
+        "versao_css_publico": _impressao_digital_do_estatico("css/public.css"),
+    }

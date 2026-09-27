@@ -376,7 +376,14 @@ def _com_css_local(html, caminho_css=None):
     `scripts/medir_identificacao_do_emitente.py` reusar a MESMA
     reescrita."""
     caminho_css = caminho_css or (RAIZ / "static" / "css" / "base.css").resolve()
-    return html.replace('href="/static/css/base.css"', f'href="file://{caminho_css}"')
+    # O link leva `?v=<impressão digital>` desde a correção do cache da
+    # folha de estilo (DL-044, `apps.core.context_processors.
+    # versao_dos_estaticos`); a reescrita aceita o link com ou sem a versão.
+    return re.sub(
+        r'href="/static/css/base\.css(?:\?v=[^"]*)?"',
+        lambda _: f'href="file://{caminho_css}"',
+        html,
+    )
 
 
 def _renderizar_paginas():

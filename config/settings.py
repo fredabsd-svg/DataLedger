@@ -96,6 +96,9 @@ TEMPLATES = [
                 # módulos convidar no menu principal) — ver
                 # apps/core/context_processors.py.
                 "apps.core.context_processors.navegacao_do_menu",
+                # Versão (impressão digital do conteúdo) das folhas de estilo
+                # no link do <head>, para o navegador nunca usar CSS velho.
+                "apps.core.context_processors.versao_dos_estaticos",
             ],
         },
     },
