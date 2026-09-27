@@ -289,3 +289,99 @@ Registradas em [requisitos.md](requisitos.md) como pendências:
 4. Quais **segmentos especializados** (combustíveis, imobiliário, transporte)
    fazem parte da carteira? Se nenhum, ficam fora e o escopo encolhe bastante.
 5. Qual a rotina que **mais consome tempo** hoje no escritório?
+
+## Inventário completo e o fluxo da EFD Contribuições no Lucro Presumido (2026-09-27)
+
+Pedido do Fred em 2026-09-27: cobertura equivalente ao sistema de referência
+([DL-047](../planos/DL-047-mapa-de-paridade-funcional.md)). O manual da
+Escrita Fiscal entregue é a **mesma versão de 2018** já analisada acima; a
+novidade é a profundidade — o sumário inteiro (páginas 4-53) foi percorrido
+até o nível de relatório — e o fluxograma da EFD Contribuições no Lucro
+Presumido (manual de 22 páginas). Páginas citadas são dos manuais; o texto é
+nosso. A lista de obrigações é de 2018: **nenhuma vira requisito sem
+conferência de vigência em fonte oficial** (várias foram extintas ou
+substituídas).
+
+### Relatórios, por grupo
+
+| Grupo | Conteúdo | Classe | Páginas | DataLedger |
+| --- | --- | --- | --- | --- |
+| Livros fiscais | Termos; registros de entradas, saídas, apuração de ICMS, IPI e ISS; inventário; anexos de talonário e autenticação | Livro (forma da legislação fiscal) | 1559-1593 | Não existe |
+| Demonstrativos de apuração | Memória por imposto; resumo; Simples Nacional; PIS/COFINS e o espelho da EFD Contribuições; regimes especiais (bebidas frias, imobiliário, financeiras); CPRB; diferidos; retenções a recolher e a compensar | Demonstração | 1593-1619 | Não existe |
+| Acompanhamento e conferência | Conferência de entradas, saídas, serviços, cupons e transporte; faturamento; receita bruta acumulada do Simples; resumo por acumulador e por CFOP e alíquota; notas não lançadas; ajustes; integração contábil; exceções (diferencial de alíquotas, ressarcimento de ST, créditos acumulados e presumidos) | Conferência | 1619-1675 | Não existe (a consulta de NFS-e recebidas é o embrião) |
+| Obrigações acessórias | EFD ICMS/IPI, EFD Contribuições (por registro), EFD-Reinf, DCTF, DeSTDA, DEFIS, DMED, declarações estaduais, e várias de vigência duvidosa | Arquivo regulatório | 1675-1859 | Não existe |
+| Guias | DARF, GPS, DAS, DARE, GNRE, DARM | Guia | 1859-1921 | Não existe |
+| Cadastrais, estoque, contas a pagar e receber | Listagens, Bloco K, ICMS recuperável, ST | Conferência | 1921-1985 | Não existe |
+
+### Funções
+
+| Área | Função | Páginas | DataLedger |
+| --- | --- | --- | --- |
+| Cadastro | Fornecedores, clientes, remetentes e destinatários | 202-219 | Não existe |
+| Cadastro | **Acumuladores** (a regra que liga o documento ao tratamento tributário) | 365-419 | Não existe |
+| Cadastro | Produtos e dados de impostos por NCM | 221-284 | Não existe |
+| Cadastro | Impostos com alíquota por vigência; convênios e protocolos de ST; crédito presumido | 419-447, 1007-1011 | Não existe |
+| Cadastro | Históricos para a integração contábil | 335-365 | Não existe |
+| Importação | Por formato de documento (NF-e, NFC-e, CF-e, NFS-e municipais, CT-e, BP-e, arquivos SPED, Sintegra) | 447-961 | Parcial: NFS-e nacional (leiaute posterior ao manual) |
+| Movimento | Notas de entrada, saída e serviço; reduções Z; bilhetes | 1049-1284 | Não existe (a recepção grava o documento, não o lançamento fiscal) |
+| Movimento | Impostos lançados e calculados, compensações, suspensão | 1284-1345 | Não existe |
+| Movimento | Estoque, combustíveis, empreendimentos imobiliários | 1405-1509 | Não existe |
+| Movimento | **Apuração** | 1509-1524 | Não existe |
+| Movimento | Parcelamento, Simples Nacional, pagamento | 1524-1550 | Não existe |
+| Movimento | **Integração contábil**; integração com honorários | 1550-1559 | Não existe |
+| Operação | Conferência de lançamentos, alteração em massa, consulta de apuração, importador genérico, backup | 1987-2284 | Não existe |
+
+### O fluxo da EFD Contribuições no Lucro Presumido
+
+Duas decisões nos parâmetros da empresa, em sequência:
+
+1. **Regime de apuração do PIS/COFINS: competência ou caixa.**
+2. **Forma de cálculo:**
+   - **competência, completo:** tratamento igual ao do lucro real, item a
+     item, a partir do cadastro de produto com tributação por vigência; exige
+     controle de estoque (p. 2-3);
+   - **competência, simplificado por produto:** ainda usa o cadastro de
+     produto, sem a granularidade do não cumulativo (p. 4-7);
+   - **competência, simplificado por nota:** dispensa o produto; o cálculo
+     nasce do **acumulador** aplicado ao valor da nota (p. 8-10);
+   - **caixa:** só existe o simplificado (por produto ou por nota), e o fato
+     gerador passa a ser o **recebimento** — exige contas a receber, parcela
+     em toda nota e base proporcional ao valor recebido (p. 11-22).
+
+**O que isso diz ao DataLedger:** o ramo **simplificado por nota** é o que
+menos exige — só o acumulador —, e combina com o nosso acervo real, que é
+quase todo NFS-e (RC-76). O regime de caixa exige contas a receber, que não
+existe.
+
+### Cadeia de dependências
+
+Parâmetros fiscais da empresa (regime, apuração, forma de cálculo) →
+impostos e alíquotas por vigência → **acumuladores** → (produto e NCM, só nos
+ramos que exigem) → lançamento fiscal a partir do documento recebido →
+(contas a receber, no regime de caixa) → **apuração** → livros,
+demonstrativos, guias, obrigações e **integração contábil**.
+
+### Fontes oficiais a consultar antes de implementar
+
+Alíquotas de PIS/COFINS (Leis 10.637/2002 e 10.833/2003 e atos
+posteriores); Guia Prático da EFD Contribuições e da EFD ICMS/IPI vigentes;
+tabelas de CST, CSOSN e CFOP (Ajuste SINIEF, Confaz); legislação do ICMS de
+cada UF atendida; LC 116/2003 e legislação municipal do ISS; LC 123/2006 e
+resoluções do CGSN; LC 214/2025 e regulamentação para IBS/CBS; e a vigência
+de cada obrigação acessória no portal do Sped e da Receita.
+
+### Ondas recomendadas
+
+1. **Feito:** recepção e consulta de NFS-e nacional.
+2. **Fundação:** parâmetros fiscais da empresa, participantes e
+   **acumuladores**.
+3. **Escrituração de serviços:** a NFS-e recebida vira lançamento fiscal com
+   acumulador (85% do acervo real é NFS-e).
+4. **Integração contábil:** o lançamento fiscal gera partida no Diário — é o
+   que dá valor à contabilidade já pronta.
+5. **Um regime ponta a ponta:** Simples Nacional com DAS e, se houver
+   cliente, Lucro Presumido pelo ramo simplificado por nota com a EFD
+   Contribuições.
+6. **NF-e de entrada e saída.**
+7. **Livros e obrigações acessórias**, escolhidas pelo Fred entre as
+   vigentes.

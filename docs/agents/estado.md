@@ -95,7 +95,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
 | [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
-| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Fatias 1 e 2 integradas (PR #53 e #54); fatia 3 em **[Próximo passo](#próximo-passo)** |
+| [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -104,7 +105,17 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-046 fatia 2 (apuração do carnê-leão) em PR.**
+**AGORA — DL-047 (mapa de paridade e plano detalhado por módulo, só
+documentação) e DL-046 fatia 3 (arquivo para o Carnê-Leão Web, em
+implementação na branch local `dl046-f3`).**
+
+- **DL-047:** a pedido do Fred (2026-09-27), inventário de todas as funções
+  e relatórios do sistema de referência em Contabilidade, Fiscal, Folha,
+  Patrimônio e Lalur, com os manuais só como referência
+  ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). O plano
+  detalhado por módulo, item por item, está sendo escrito em
+  `docs/projeto/paridade/` (também Honorários). Os manuais **não** entram
+  neste repositório, que é público.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -127,7 +138,7 @@ merge do PR #38, sem commit individual por etapa.
   [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
   conta de grupo só pelo admin até existir tela de editar conta (BL-541).
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
-  integrada pelo PR #53. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
+  integrada pelo PR #53; fatia 2 (apuração) integrada pelo PR #54. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
   Federal, leiaute público do Carnê-Leão Web, manual do sistema de
   referência) e respostas do Fred (RC-127 a RC-130). Rodada 1 da auditoria
   ([relatório](../auditorias/2026-09-26-dl-046-rodada-1.md)) e
@@ -138,8 +149,8 @@ merge do PR #38, sem commit individual por etapa.
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
   instrumento de medição do N3 quebrado, corrigido e medido de novo. A
   **fatia 2** (apuração mensal e
-  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) está **em
-  PR**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
+  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) foi
+  **integrada pelo PR #54**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
   [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md)
   reprovaram; as correções seguiram a DE-091 e a DE-092 (a RC-132 estava
   errada no limite do livro-caixa, conferido nas perguntas 427 a 429 do
