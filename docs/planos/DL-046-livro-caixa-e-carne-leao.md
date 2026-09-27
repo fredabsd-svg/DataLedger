@@ -72,8 +72,12 @@ onde escriturar o livro-caixa nem apurar o carnê-leão.
   **excesso de deduções** levado aos meses seguintes até dezembro (art. 69).
 - Demonstrativo mensal e anual, com memória de cálculo; valor abaixo de
   R$ 10,00 acumulado.
-- **Antes de codificar a redução da Lei 15.270/2025 no carnê-leão**, confirmar
-  na fonte integral que ela se aplica ao recolhimento mensal (PE-71).
+- ~~Antes de codificar a redução da Lei 15.270/2025 no carnê-leão, confirmar
+  na fonte integral que ela se aplica ao recolhimento mensal (PE-71).~~
+  **Confirmado em 2026-09-27 (RC-131)** — ver "PE-71 respondida", abaixo.
+- Desconto simplificado mensal como alternativa às deduções reais: a
+  apuração calcula as duas e aplica a mais benéfica, mostrando as duas
+  (HI-33).
 
 ## Fatia 3 — Arquivo para o Carnê-Leão Web (RC-127)
 
@@ -563,3 +567,38 @@ resultado está abaixo sem omissão.
   ponta a ponta passavam, então a falha era da DL-046 e não do ambiente.
 
 **Não testado:** a CI deste conjunto ainda vai rodar no PR.
+
+## PE-71 respondida (2026-09-27)
+
+Pesquisa do `auxiliar-pesquisa` em fonte oficial, lida em texto integral e
+conferida pelo `arquiteto-senior` nos pontos decisivos. Registro em RC-131
+e HI-32 a HI-34.
+
+- **A redução mensal da Lei 15.270/2025 se aplica ao carnê-leão.** A lei
+  insere o art. 3º-A na Lei 9.250/1995, ao lado da tabela mensal que o art.
+  3º manda aplicar ao art. 8º da Lei 7.713/1988 (o carnê-leão). A Receita
+  diz isso expressamente no Perguntas e Respostas IRPF 2026 (v1.00, de
+  23/04/2026), nas perguntas 266 e 267, as do carnê-leão: *"A partir de 1º
+  de janeiro de 2026, será concedido redução mensal do imposto aos
+  contribuintes com rendimento tributável de até R$ 7.350,00"*.
+- **Códigos do Carnê-Leão Web:** a página de tópicos de ajuda continua
+  recusando leitura automática (403), mas as páginas do Manual do
+  Carnê-Leão (rendimentos, pagamentos, pagamentos do plano de contas e
+  ocupações) responderam e trazem as tabelas. O código de previdência
+  oficial é `P20.01.00001`, no formato que o livro-caixa já usa.
+- **DARF 0190**, vencimento no último dia útil do mês seguinte, e valor
+  abaixo de R$ 10,00 levado ao mês seguinte: confirmados na página
+  "Carnê-leão — pagar", no RIR/2018 art. 123 e na pergunta 267.
+
+**Erro da pesquisa, corrigido antes do registro.** O relatório terminou
+recomendando uma tabela progressiva com parcelas a deduzir de R$ 636,13
+(22,5%) e R$ 869,36 (27,5%), valores de tabela antiga. O texto bruto da
+Lei 15.191/2025 (art. 2º, que dá nova redação ao art. 1º, XII, da Lei
+11.482/2007, "a partir do mês de maio do ano-calendário de 2025") traz
+**R$ 675,49** e **R$ 908,73**. O RC-131 registra os valores da lei. Quem
+codificar a fatia 2 grava a tabela como dado com vigência e confere de novo
+contra o texto da lei.
+
+**Ainda hipótese:** o valor por dependente de 2026 (R$ 189,59) é o último
+fixado em norma, sem alteração encontrada, mas nenhuma fonte diz "2026"
+literalmente (HI-32).
