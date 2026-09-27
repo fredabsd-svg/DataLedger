@@ -21,18 +21,18 @@ Regras deste arquivo, aprendidas com defeito:
 
 ## Resumo
 
-Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; atualizado em 26/09/2026 com as DL-010 F1, DL-038, DL-041 e DL-043.
+Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; atualizado em 26/09/2026 com as DL-010 F1, DL-038, DL-041, DL-043 e DL-045 (fatias 1 e 2).
 
 | Área | O que existe hoje |
 | --- | --- |
 | Plataforma | Escritórios isolados entre si, usuários, papéis, entrada pública, cadastro de novo escritório, primeiro acesso e convite |
 | Cadastro | Empresas e estabelecimentos, CNPJ alfanumérico, histórico de regime tributário, NIRE |
-| Contabilidade | Plano de contas hierárquico com circulante/não circulante; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043) |
+| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187, propriedade de apresentação — pode mudar com movimento, DE-086)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043); **apuração e tela da DRE** (mês e acumulado do exercício), servidor e formulário de classificação (DL-045 fatias 1 a 3) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | **DRE**; compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
 **Verificação local em 25/09/2026** (PostgreSQL 16, Python 3.13.12, commit do
 merge do PR #46): `ruff check`, `ruff format --check`, `manage.py check`,
@@ -93,7 +93,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-042](../planos/DL-042-redesenho-global-saas.md) | Redesenho global da interface com a skill de design de SaaS | Integrada (PR #48) |
 | [DL-043](../planos/DL-043-parametros-contabeis-e-zeramento.md) | Parâmetros contábeis por empresa e zeramento do resultado (RC-104, RC-105, BL-474) | Integrada (PR #49) |
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
-| [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
+| [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -102,8 +103,7 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-044 (visual das telas de trabalho) em PR; DL-045 (DRE) em
-correção da auditoria.**
+**AGORA — DL-045 (DRE) em PR. Em seguida, DL-046 (livro-caixa) em PR.**
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -119,12 +119,30 @@ correção da auditoria.**
   [dl044/comparacao.md](../assets/telas/dl044/comparacao.md). Identificação do
   emitente e densidade do Balancete medidas antes e depois. A parcial sem
   uso das antigas abas do Fiscal foi apagada com autorização do Fred (26/09).
-  Em PR.
-- **DL-045** (DRE, nível 1): em branches locais (`dl045-dre`, servidor;
-  `dl045-tela`, tela sobre a DL-044). Rodada 1 da auditoria do servidor
-  **reprovada** (veto, hierarquia e estorno de zeramento; a aritmética bate);
-  correção em andamento, depois reconferência única com a tela. O plano, a
-  auditoria e as decisões (DE-085, RC-118 a RC-126) entram no PR da DL-045.
+  Integrada pelo PR #50; o PR #51 corrigiu a folha de estilo servida em cache
+  depois do merge (versão do arquivo no link).
+- **DL-045** (DRE, nível 1): servidor e tela integrados nesta branch, **em
+  PR**. Rodada 1 da auditoria
+  ([relatório](../auditorias/2026-09-26-dl-045-rodada-1.md)) **reprovou** o
+  servidor com quatro achados altos; corrigido conforme a DE-085. Dúvidas
+  contábeis D1 a D6 decididas por delegação do Fred e conferidas nos manuais
+  (RC-121 a RC-126). A
+  [reconferência](../auditorias/2026-09-26-dl-045-reconferencia.md)
+  **reprovou de novo** (R1, alto: a guarda de reparentamento deixava a DRE e o
+  Balanço inemitíveis sem SQL). A [DE-086](../projeto/decisoes.md#de-086)
+  reabriu o critério de imutabilidade (AGENTS.md §3.1): a linha da DRE é
+  propriedade de apresentação, pode mudar com movimento, sempre com trilha.
+  Correção do servidor e da tela feita; **sem terceira rodada de auditoria**,
+  o fechamento foi por verificação independente, descrita no
+  [plano](../planos/DL-045-demonstracao-do-resultado.md). O Fred decide no PR.
+  Ressalva: mover conta de grupo só pelo admin até existir tela de editar
+  conta (BL-541).
+- **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
+  pronta na branch local `dl046-livro-caixa`, com auditoria, reconferência e
+  verificação do fechamento; entra por PR depois da DL-045, com o plano e as
+  decisões (DE-087, DE-088). A fatia 2 (apuração mensal) dependia da PE-71,
+  já respondida em fonte oficial; o registro (RC-131) entra com o PR da
+  DL-046.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em

@@ -52,6 +52,14 @@ from django.utils import timezone
 NOMES_DE_TELA_DE_CONTABILIDADE = {
     "plano_de_contas": "contabilidade_web:plano_de_contas",
     "conta_nova": "contabilidade_web:conta_nova",
+    # DL-045, correção da rodada 1 de auditoria (A7): formulário de UM
+    # campo (Linha da DRE) de uma conta EXISTENTE — MESMA permissão de
+    # "conta_nova" (`_pode_escriturar`), renderiza 200 para QUALQUER
+    # conta do cenário padrão (a tela nunca julga tipo/compatibilidade no
+    # GET — só o POST passa por `Conta.clean()`, via `classificar_conta_
+    # na_dre`). Reaproveita `cenario["caixa"]`, a mesma conta que "razao"
+    # já usa abaixo.
+    "conta_classificacao_dre": "contabilidade_web:conta_classificacao_dre",
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
@@ -62,6 +70,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # tolerada: a tela RESPONDE corretamente "não, e eis o porquê", nunca
     # 500.
     "balanco": "contabilidade_web:balanco",
+    # DL-045 fatia 3: MESMA classe do Balanço logo acima — sob o cenário
+    # PADRÃO deste módulo (sem `classificacao_dre` em nenhuma conta), a
+    # DRE também renderiza 200 no estado "não pode ser emitida" (ver
+    # `views_web.py::dre`/`avaliar_emissao_da_dre` em services.py): a
+    # tela RESPONDE corretamente "não, e eis o porquê", nunca 500 — não é
+    # uma exceção tolerada, é a mesma garantia do Balanço.
+    "dre": "contabilidade_web:dre",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -148,6 +163,7 @@ def _urls_de_contabilidade(cenario):
     args_por_tela = {
         "plano_de_contas": ([empresa_id], ""),
         "conta_nova": ([empresa_id], ""),
+        "conta_classificacao_dre": ([empresa_id, cenario["caixa"].id], ""),
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),
@@ -155,6 +171,10 @@ def _urls_de_contabilidade(cenario):
         # (mesma convenção de conveniência do período do Balancete/Diário/
         # Razão), nunca um padrão do motor de cálculo.
         "balanco": ([empresa_id], ""),
+        # DL-045 fatia 3: sem querystring — a tela usa o MÊS corrente como
+        # competência padrão (mesma convenção de conveniência de
+        # "balanco", acima, e do painel de fechamento).
+        "dre": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),

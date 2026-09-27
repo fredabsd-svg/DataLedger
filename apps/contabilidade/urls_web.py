@@ -7,8 +7,10 @@ from apps.contabilidade.views_web import (
     competencia_fechar,
     competencia_reabrir,
     conferencia,
+    conta_classificacao_dre,
     conta_nova,
     diario,
+    dre,
     fechamento,
     lancamento_detalhe,
     lancamento_novo,
@@ -42,6 +44,17 @@ urlpatterns = [
         conta_nova,
         name="conta_nova",
     ),
+    # DL-045, correção da rodada 1 de auditoria (A7): classificar (ou
+    # reclassificar, ou remover) a Linha da DRE de uma conta EXISTENTE —
+    # a porta de TELA que faltava; a API já tinha `ContaClassificacaoDreView`
+    # (PATCH) desde a correção do servidor. "plano-de-contas/<conta_id>/
+    # classificacao-dre/" — mesmo prefixo de `conta_nova`, mesmo padrão de
+    # caminho curto da API (`contas/<conta_id>/classificacao-dre/`).
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dre/",
+        conta_classificacao_dre,
+        name="conta_classificacao_dre",
+    ),
     path(
         "empresas/<int:empresa_id>/lancamento/novo/",
         lancamento_novo,
@@ -63,6 +76,13 @@ urlpatterns = [
     # "balancete"/"diario"/"razao" já usados nesta urlconf; o nome completo
     # do documento aparece no <h1>/<title> da tela, não na URL.
     path("empresas/<int:empresa_id>/balanco/", balanco, name="balanco"),
+    # DL-045 fatia 3: mesmo padrão curto de "balanco"/"balancete" acima —
+    # o nome completo ("Demonstração do Resultado do Exercício") aparece
+    # no <h1>/<title>, não na URL. 'ano'/'mes' viajam por querystring
+    # (GET), mesmo padrão de "fechamento/" (ver `_competencia_pedida`) —
+    # NUNCA no caminho da URL, porque a navegação "‹ anterior/seguinte ›"
+    # muda a competência sem trocar de rota.
+    path("empresas/<int:empresa_id>/dre/", dre, name="dre"),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/
     # Balanço/Conferência) em cartões — SEGUNDO caminho para as mesmas

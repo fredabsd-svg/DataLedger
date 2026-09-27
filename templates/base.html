@@ -202,6 +202,17 @@
             <path d="M6.5 4.5h8l3 3v12h-11z" />
             <path d="M9 13.5l2 2 4-4.5" />
         </symbol>
+        {% comment %}
+        DL-045 fatia 3: sexto ícone do hub de relatórios — DRE. Mesma
+        grade e traço dos cinco acima; a FORMA lembra uma barra de
+        resultado crescendo (receita menos deduções até o lucro), para
+        não repetir a forma de "balança" (balancete) nem de "colunas
+        Ativo/Passivo" (balanço).
+        {% endcomment %}
+        <symbol id="icone-dre" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 18.5h16" />
+            <path d="M6.5 18.5v-4M11 18.5v-8M15.5 18.5v-6M19.5 18.5v-10" />
+        </symbol>
     </svg>
 
     {% if request.user.is_authenticated %}
@@ -483,6 +494,23 @@
                                                                     <a href="{% url 'contabilidade_web:balanco' empresa_atual.id %}" accesskey="b" aria-keyshortcuts="Alt+B">
                                                                         Balanço <kbd class="tecla" aria-hidden="true">Alt+B</kbd>
                                                                     </a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% comment %}
+                                                                DL-045 fatia 3: sexto item do grupo — mesma
+                                                                permissão de leitura e mesma recusa de
+                                                                livro-caixa que os cinco acima. Sem accesskey
+                                                                dedicado (as letras sem colisão conhecida do
+                                                                comentário acima já foram usadas pelas outras
+                                                                cinco; "D" colide com o menu nativo do
+                                                                navegador — ver a nota grande sobre accesskey,
+                                                                mais acima neste arquivo).
+                                                                {% endcomment %}
+                                                                {% if pagina_atual == "dre" %}
+                                                                    <span class="item-atual" aria-current="page">DRE</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'contabilidade_web:dre' empresa_atual.id %}">DRE</a>
                                                                 {% endif %}
                                                             </li>
                                                         </ul>

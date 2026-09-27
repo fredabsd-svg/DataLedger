@@ -582,16 +582,35 @@ SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS = ".identificacao-do-documento p"
 
 # Piso de regressão, MESMA lógica de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`
 # (ver o comentário completo lá sobre por que um piso pequeno e
-# versionado, ao lado da derivação que cresce sozinha): hoje só o Balanço
-# (DL-034) é classe 2. Um módulo novo que ganhe demonstração própria
-# (Fiscal, Folha) e o comentário deste piso não crescer junto é erro
-# visível, revisado — nunca divergência silenciosa entre duas cópias.
-TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset({"contabilidade_web:balanco"})
+# versionado, ao lado da derivação que cresce sozinha): Balanço (DL-034) e
+# DRE (DL-045) são classe 2 hoje. Um módulo novo que ganhe demonstração
+# própria (Fiscal, Folha) e o comentário deste piso não crescer junto é
+# erro visível, revisado — nunca divergência silenciosa entre duas
+# cópias.
+TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
+    {"contabilidade_web:balanco", "contabilidade_web:dre"}
+)
 
 _PADRAO_MARCADOR_IDENTIFICACAO_DO_DOCUMENTO = re.compile(
     r'class="[^"]*\bidentificacao-do-documento\b[^"]*"'
 )
 _PADRAO_MARCADOR_NOTA_DE_RECONCILIACAO = re.compile(r'class="[^"]*\bnota-de-reconciliacao\b[^"]*"')
+
+# DL-045 fatia 3, achado ao integrar a DRE a esta MESMA medição (mesmo
+# piso pequeno e versionado de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`/
+# `TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS`, acima): a
+# checagem da nota de reconciliação (RC-104) era, até esta etapa, uma
+# exigência INCONDICIONAL para QUALQUER tela classe 2 medida contra o
+# cenário sintético de `_preparar_empresa_classe_2` — correto enquanto só
+# o Balanço era classe 2 (ele tem "resultado não transferido ao PL" de
+# propósito, ver o comentário lá), mas a nota de reconciliação é uma
+# ressalva PRÓPRIA do BALANÇO (a equação Ativo = Passivo + PL, RC-104) —
+# a DRE nunca teve esse conceito, então a checagem incondicional reprovava
+# a DRE por FALTAR algo que o documento dela nunca deveria ter. O piso é
+# quem lista, TELA por tela, quem precisa da nota — nunca "toda tela desta
+# medição", e quem tira uma tela daqui porque ela não precisa da nota
+# nunca afrouxa a exigência das que continuam dentro.
+TELAS_COM_NOTA_DE_RECONCILIACAO_ESPERADA = frozenset({"contabilidade_web:balanco"})
 
 
 class _ExtratorDeBlocoDoDocumento(HTMLParser):
@@ -764,6 +783,7 @@ def _preparar_empresa_classe_2(escritorio):
     from django.utils import timezone
 
     from apps.contabilidade.models import (
+        ClassificacaoDre,
         ClassificacaoPatrimonial,
         Conta,
         NaturezaConta,
@@ -834,6 +854,15 @@ def _preparar_empresa_classe_2(escritorio):
     # provar o critério de aceite 3 (a nota de reconciliação em CADA
     # folha que traz um dos dois grandes totais) no MESMO documento que
     # prova o critério 2 — um só PDF cobre os dois.
+    # DL-045 fatia 3: `classificacao_dre` classificada — sem ela, a DRE
+    # medida contra ESTA MESMA empresa (reaproveitada, ver o docstring da
+    # função) ficaria em veto permanente
+    # (`contas_sem_classificacao_dre_com_movimento`, services.py: conta de
+    # RECEITA, folha, com movimento, sem linha da DRE nem própria nem
+    # herdada) — e o bloco do item 51 só existe no ramo `pode_emitir`
+    # (mesma regra do Balanço). "Receita bruta" é a linha certa para uma
+    # conta de RECEITA raiz (`TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`,
+    # models.py).
     receita = Conta.objects.create(
         empresa=empresa,
         codigo="4",
@@ -841,6 +870,7 @@ def _preparar_empresa_classe_2(escritorio):
         tipo=TipoConta.RECEITA,
         natureza=C,
         aceita_lancamento=True,
+        classificacao_dre=ClassificacaoDre.RECEITA_BRUTA,
     )
     caixa = Conta.objects.create(
         empresa=empresa,
@@ -3240,31 +3270,40 @@ def main(argv):
                     # fica fora do bloco normativo, mas no mesmo cabeçalho
                     # repetido. O cenário sintético desta medição contém
                     # resultado não transferido; se o gancho sumir, reprova.
-                    marcador_nota = _PADRAO_MARCADOR_NOTA_DE_RECONCILIACAO.search(html_da_tela)
-                    nota_esperada = _derivar_texto_da_nota_de_reconciliacao(html_da_tela)
-                    if marcador_nota and not nota_esperada:
-                        _recusar(
-                            f"{nome}: '.nota-de-reconciliacao' foi encontrada, mas não foi "
-                            "possível extrair o bloco completo; extração parcial é recusada."
-                        )
-                    if not marcador_nota:
-                        motivos.append(
-                            "nota de reconciliação esperada para o cenário sintético não "
-                            "encontrada no HTML"
-                        )
-                    else:
-                        folhas_sem_nota = [
-                            pagina
-                            for pagina in range(1, total_paginas + 1)
-                            if nota_esperada not in _texto_da_pagina_sem_espaco(caminho_pdf, pagina)
-                        ]
-                        entrada["folhas_sem_nota_de_reconciliacao"] = folhas_sem_nota
-                        if folhas_sem_nota:
-                            motivos.append(
-                                "nota de reconciliação AUSENTE em "
-                                f"{len(folhas_sem_nota)} de {total_paginas} página(s): "
-                                f"folha(s) {folhas_sem_nota} — medido no PDF exportado"
+                    #
+                    # DL-045 fatia 3: só as telas em `TELAS_COM_NOTA_DE_
+                    # RECONCILIACAO_ESPERADA` (hoje só o Balanço) são
+                    # cobradas por esta nota — ver o comentário grande da
+                    # constante. Uma tela FORA dela nunca é penalizada por
+                    # não ter uma ressalva que nunca fez sentido para o
+                    # documento dela.
+                    if nome in TELAS_COM_NOTA_DE_RECONCILIACAO_ESPERADA:
+                        marcador_nota = _PADRAO_MARCADOR_NOTA_DE_RECONCILIACAO.search(html_da_tela)
+                        nota_esperada = _derivar_texto_da_nota_de_reconciliacao(html_da_tela)
+                        if marcador_nota and not nota_esperada:
+                            _recusar(
+                                f"{nome}: '.nota-de-reconciliacao' foi encontrada, mas não foi "
+                                "possível extrair o bloco completo; extração parcial é recusada."
                             )
+                        if not marcador_nota:
+                            motivos.append(
+                                "nota de reconciliação esperada para o cenário sintético não "
+                                "encontrada no HTML"
+                            )
+                        else:
+                            folhas_sem_nota = [
+                                pagina
+                                for pagina in range(1, total_paginas + 1)
+                                if nota_esperada
+                                not in _texto_da_pagina_sem_espaco(caminho_pdf, pagina)
+                            ]
+                            entrada["folhas_sem_nota_de_reconciliacao"] = folhas_sem_nota
+                            if folhas_sem_nota:
+                                motivos.append(
+                                    "nota de reconciliação AUSENTE em "
+                                    f"{len(folhas_sem_nota)} de {total_paginas} página(s): "
+                                    f"folha(s) {folhas_sem_nota} — medido no PDF exportado"
+                                )
 
                     # Reuso direto do oráculo que mede bbox e tinta contra o
                     # papel para cada linha do timbre. Os filhos são os `<p>`

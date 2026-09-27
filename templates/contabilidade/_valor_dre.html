@@ -1,0 +1,32 @@
+{% comment %}
+DL-045 fatia 3 — valor de UMA célula da DRE (uma linha do art. 187 ou um
+dos seis subtotais, HI-29): magnitude em pt-BR, entre PARÊNTESES quando
+negativa (RC-90: sinal nunca é o único canal de um valor negativo) — ver
+`_valor_dre` (views_web.py) para a leitura completa de por que a MESMA
+apresentação serve tanto a uma LINHA (negativa = saldo no lado oposto ao
+natural da linha, um alerta de conferência) quanto a um SUBTOTAL
+(negativa = prejuízo naquele nível, o resultado normal de um mês ruim).
+
+Por que este parcial existe ao lado de `_saldo_grupo.html`, em vez de
+reusá-lo: `_saldo_grupo.html` compara a natureza APURADA com a natureza
+ESPERADA de um GRUPO do Balanço e mostra o indicador D/C — uma pergunta
+que não existe para um subtotal da DRE (ele não tem "natureza cadastrada"
+nenhuma, e um resultado negativo não é uma ANOMALIA a apontar com D/C,
+é o resultado normal do período). Reescrever o texto de `_saldo_grupo.
+html` para "linha/subtotal da DRE" continuar fazendo sentido sem o
+indicador D/C seria mais confuso do que este parcial próprio, deliberada-
+mente pequeno e paralelo ao original.
+
+Variável esperada: `valor` (dict `{ptbr, negativo}`, já formatado pela
+view — `_valor_dre`, views_web.py).
+
+Mesmo cuidado de `_saldo_grupo.html` com "spaceless" — ver o comentário
+completo lá para o motivo (não repetido aqui, para as duas explicações
+não divergirem quando uma for editada sem a outra).
+{% endcomment %}{% spaceless %}
+{% if valor.negativo %}
+    <span class="valor-invertido">(<span class="valor-monetario">{{ valor.ptbr }}</span>)</span>
+{% else %}
+    <span class="valor-monetario">{{ valor.ptbr }}</span>
+{% endif %}
+{% endspaceless %}

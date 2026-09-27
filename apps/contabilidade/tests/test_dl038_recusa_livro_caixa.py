@@ -70,7 +70,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_dezessete_rotas_web_e_as_treze_da_api():
+def test_a_derivacao_encontrou_as_dezenove_rotas_web_e_as_quinze_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -86,8 +86,22 @@ def test_a_derivacao_encontrou_as_dezessete_rotas_web_e_as_treze_da_api():
     # caminho para Diário/Razão/Balancete/Balanço/Conferência, mesma
     # permissão de leitura e mesma recusa de livro-caixa das cinco. Nenhuma
     # rota nova na API. 16 -> 17 do lado da tela.
-    assert len(ROTAS_API) == 13, ROTAS_API
-    assert len(ROTAS_WEB) == 17, ROTAS_WEB
+    #
+    # DL-045 fatia 2 (servidor): uma rota nova na API — leitura da DRE
+    # (`DreView`, GET). 13 -> 14 do lado da API.
+    #
+    # DL-045 fatia 3 (especialista-frontend): UMA rota nova na tela — "dre"
+    # (a contrapartida de tela da `DreView`, leitura já existente desde a
+    # fatia 2 — nenhuma rota nova na API por causa dela). 17 -> 18 do lado
+    # da tela.
+    #
+    # DL-045, correção da rodada 1 de auditoria (A7): `ContaClassificacaoDreView`
+    # (PATCH), a porta de API para classificar a linha da DRE de conta já
+    # existente — 14 -> 15 do lado da API — e a CONTRAPARTIDA de tela,
+    # "conta_classificacao_dre" (GET mostra o formulário, POST grava) —
+    # 18 -> 19 do lado da tela.
+    assert len(ROTAS_WEB) == 19, ROTAS_WEB
+    assert len(ROTAS_API) == 15, ROTAS_API
 
 
 @pytest.fixture
@@ -155,6 +169,9 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
             resposta = client.get(endereco)
         elif metodo == "POST":
             resposta = client.post(endereco, data=json.dumps({}), content_type="application/json")
+        elif metodo == "PATCH":
+            # DL-045/A7: primeira rota PATCH da API — `ContaClassificacaoDreView`.
+            resposta = client.patch(endereco, data=json.dumps({}), content_type="application/json")
         else:
             continue
 
@@ -165,7 +182,7 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
             metodo,
             corpo,
         )
-        if metodo == "POST":
+        if metodo in ("POST", "PATCH"):
             assert _nada_foi_gravado(empresa), (rota, metodo, "gravou mesmo recusando")
 
 
