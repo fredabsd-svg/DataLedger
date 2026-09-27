@@ -16,6 +16,13 @@ from apps.livro_caixa.validators import (
     validar_data_de_lancamento_caixa_do_modelo,
 )
 
+# DL-046, fatia 2: mesmos limites de precisão do resto do módulo monetário
+# (`apps.core.dinheiro`, DE-010) — `max_digits`/`decimal_places` generosos o
+# bastante para qualquer valor real de carnê-leão, sem inventar um teto
+# arbitrário menor que o do resto do sistema.
+_MAX_DIGITOS_VALOR_NORMATIVO = 18
+_CASAS_VALOR_NORMATIVO = 2
+
 # M2 (rodada 1 de auditoria da DL-046): `models.CharField` NÃO inclui
 # `ProhibitNullCharactersValidator` por padrão (só `forms.CharField` inclui,
 # na camada de FORMULÁRIO) — por isso um `\x00` num campo de texto livre
@@ -400,3 +407,289 @@ class LancamentoCaixa(models.Model):
         )
         if erros:
             raise ValidationError(erros)
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 2 — apuração mensal do carnê-leão (RC-131, HI-32 a HI-36).
+#
+# ⚠️ Critério 5 do plano: "nenhum número normativo no código: teste que
+# falha se a tabela vier de constante". Por isso NENHUM valor da tabela
+# progressiva, da redução da Lei 15.270/2025 ou do valor por dependente
+# aparece como literal Python em `apps.livro_caixa.carne_leao` — os quatro
+# modelos abaixo são a ÚNICA fonte desses números, e chegam ao banco só por
+# MIGRAÇÃO DE DADOS (nunca por admin: ver o comentário de
+# `VigenciaTabelaProgressivaCarneLeao`, abaixo, sobre por que este app não
+# registra `ModelAdmin` para eles nesta fatia).
+#
+# DE-089 (decisões.md): o desenho de VIGÊNCIA aqui é DELIBERADAMENTE mais
+# simples que o de `ParametroContabilEmpresa`/`HistoricoRegimeTributario`
+# (apps.contabilidade/apps.empresas) — sem `vigencia_fim`, sem gatilho de
+# não sobreposição. Não é descuido: aqueles dois modelos guardam PARÂMETRO
+# POR EMPRESA, escrito por múltiplos usuários concorrentes, onde uma
+# vigência aberta duplicada é um estado inconsistente alcançável por
+# corrida real (dois `POST` simultâneos). As quatro tabelas normativas
+# abaixo são GLOBAIS (não por empresa), escritas SÓ por migração de dados
+# — nunca por uma requisição HTTP concorrente —, então a pergunta "qual
+# vigência vale para esta data" tem uma resposta simples e suficiente: a de
+# MAIOR `vigencia_inicio` que não seja posterior à data pedida. Uma
+# `UniqueConstraint` em `vigencia_inicio` já impede duas vigências com a
+# mesma data de início (a única ambiguidade que este desenho não resolve
+# por construção); não há "vigência aberta/fechada" para rastrear.
+def _vigencia_aplicavel_ou_none(queryset, referencia):
+    """Devolve a linha de maior `vigencia_inicio` que não seja POSTERIOR a
+    `referencia`, ou `None` se não houver nenhuma — mesmo raciocínio do
+    parágrafo do DE-089 acima, compartilhado pelas quatro tabelas
+    normativas desta fatia (`carne_leao.py` importa esta função; ela mora
+    aqui, ao lado dos modelos, para não duplicar a MESMA consulta quatro
+    vezes)."""
+    return queryset.filter(vigencia_inicio__lte=referencia).order_by("-vigencia_inicio").first()
+
+
+class VigenciaTabelaProgressivaCarneLeao(models.Model):
+    """Uma VERSÃO da tabela progressiva mensal do carnê-leão (RIR/2018,
+    art. 122; Lei nº 11.482/2007, art. 1º, XII, na redação da Lei
+    15.191/2025) — as FAIXAS (`FaixaTabelaProgressivaCarneLeao`) vivem à
+    parte, uma linha por faixa, todas apontando para esta vigência.
+
+    `fonte` é OBRIGATÓRIA e fica gravada ao lado do número (AGENTS.md §9):
+    quem ler o banco no futuro precisa saber de onde cada valor veio, sem
+    precisar abrir a migração de dados que o inseriu.
+
+    ⚠️ Sem `ModelAdmin` nesta fatia (decisão reportada, ver o plano
+    DL-046): um valor normativo mudar por um `POST` de formulário do admin,
+    sem revisão de código nem citação de fonte no mesmo commit, é
+    exatamente o risco que "gravado por migração de dados, com a fonte
+    citada" existe para evitar. Uma vigência nova entra por uma migração
+    de dados nova — revisável, versionada, com a fonte no próprio código
+    da migração —, nunca por edição ad-hoc.
+    """
+
+    # `UniqueConstraint` explícita em `Meta.constraints`, NUNCA
+    # `unique=True` no campo: um `unique=True` gera um índice único
+    # IMPLÍCITO, que a varredura de restrições
+    # (`apps/core/tests/test_dl019_varredura_de_restricoes.py`) trata numa
+    # lista PRÓPRIA e mais rígida (fora do escopo de arquivos desta etapa),
+    # separada de `Meta.constraints` (que `apps/core/restricoes.py`, dentro
+    # do escopo, já cobre). Mesmo VALOR de unicidade; forma DIFERENTE de
+    # declará-lo.
+    vigencia_inicio = models.DateField("vigência (início)")
+    fonte = models.TextField("fonte normativa")
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "vigência da tabela progressiva do carnê-leão"
+        verbose_name_plural = "vigências da tabela progressiva do carnê-leão"
+        ordering = ["-vigencia_inicio"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vigencia_inicio"], name="vigencia_tabela_carne_leao_inicio_unico"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Tabela progressiva do carnê-leão desde {self.vigencia_inicio}"
+
+
+class FaixaTabelaProgressivaCarneLeao(models.Model):
+    """Uma FAIXA (alíquota + parcela a deduzir) de uma vigência da tabela
+    progressiva. `aliquota` é gravada como FRAÇÃO (0.0750 = 7,5%), para a
+    apuração multiplicar direto pela base, sem dividir por 100 em nenhum
+    ponto do motor de cálculo."""
+
+    vigencia = models.ForeignKey(
+        VigenciaTabelaProgressivaCarneLeao, on_delete=models.PROTECT, related_name="faixas"
+    )
+    ordem = models.PositiveSmallIntegerField("ordem")
+    limite_inferior = models.DecimalField(
+        "limite inferior",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    # `null=True`: a última faixa (maior alíquota) não tem limite superior
+    # ("acima de X") — `None` representa "sem limite", nunca um número
+    # grande arbitrário inventado para simular infinito.
+    limite_superior = models.DecimalField(
+        "limite superior",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+        null=True,
+        blank=True,
+    )
+    aliquota = models.DecimalField("alíquota (fração)", max_digits=6, decimal_places=4)
+    parcela_a_deduzir = models.DecimalField(
+        "parcela a deduzir",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+
+    class Meta:
+        verbose_name = "faixa da tabela progressiva do carnê-leão"
+        verbose_name_plural = "faixas da tabela progressiva do carnê-leão"
+        ordering = ["vigencia", "ordem"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vigencia", "ordem"], name="faixa_carne_leao_ordem_unica_por_vigencia"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(ordem__gte=1), name="faixa_carne_leao_ordem_positiva"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(aliquota__gte=0) & models.Q(aliquota__lte=1),
+                name="faixa_carne_leao_aliquota_valida",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(limite_inferior__gte=0),
+                name="faixa_carne_leao_limite_inferior_nao_negativo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Faixa {self.ordem} — {self.vigencia}"
+
+
+class VigenciaReducaoCarneLeao(models.Model):
+    """Uma VERSÃO dos parâmetros da redução mensal da Lei 15.270/2025 (Lei
+    nº 9.250/1995, art. 3º-A): até `limite_faixa_plena`, redução fixa de
+    `reducao_maxima` (imposto zero); de `limite_faixa_plena` até
+    `limite_superior`, redução linear decrescente
+    `constante_formula - coeficiente * base`; acima de `limite_superior`,
+    sem redução (§2º). A memória de cálculo completa mora em
+    `apps.livro_caixa.carne_leao`."""
+
+    # Mesmo motivo do comentário em `VigenciaTabelaProgressivaCarneLeao`
+    # (unicidade por `Meta.constraints`, não `unique=True` de campo).
+    vigencia_inicio = models.DateField("vigência (início)")
+    fonte = models.TextField("fonte normativa")
+    limite_faixa_plena = models.DecimalField(
+        "limite da faixa de redução plena",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    reducao_maxima = models.DecimalField(
+        "redução máxima (faixa plena)",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    constante_formula = models.DecimalField(
+        "constante da fórmula linear",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    coeficiente = models.DecimalField(
+        "coeficiente da fórmula linear", max_digits=10, decimal_places=6
+    )
+    limite_superior = models.DecimalField(
+        "limite superior (fim da redução)",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "vigência da redução do carnê-leão (Lei 15.270/2025)"
+        verbose_name_plural = "vigências da redução do carnê-leão (Lei 15.270/2025)"
+        ordering = ["-vigencia_inicio"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vigencia_inicio"], name="vigencia_reducao_carne_leao_inicio_unico"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(limite_faixa_plena__gte=0)
+                & models.Q(reducao_maxima__gte=0)
+                & models.Q(limite_superior__gte=0),
+                name="reducao_carne_leao_valores_nao_negativos",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Redução do carnê-leão (Lei 15.270/2025) desde {self.vigencia_inicio}"
+
+
+class VigenciaDependenteCarneLeao(models.Model):
+    """Uma VERSÃO do valor de dedução mensal por dependente (RIR/2018,
+    art. 71; HI-32 — 2026 sem confirmação literal, sem norma posterior
+    encontrada que altere)."""
+
+    # Mesmo motivo do comentário em `VigenciaTabelaProgressivaCarneLeao`
+    # (unicidade por `Meta.constraints`, não `unique=True` de campo).
+    vigencia_inicio = models.DateField("vigência (início)")
+    fonte = models.TextField("fonte normativa")
+    valor_por_dependente = models.DecimalField(
+        "valor por dependente",
+        max_digits=_MAX_DIGITOS_VALOR_NORMATIVO,
+        decimal_places=_CASAS_VALOR_NORMATIVO,
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "vigência do valor por dependente do carnê-leão"
+        verbose_name_plural = "vigências do valor por dependente do carnê-leão"
+        ordering = ["-vigencia_inicio"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vigencia_inicio"], name="vigencia_dependente_carne_leao_inicio_unico"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(valor_por_dependente__gte=0),
+                name="dependente_carne_leao_valor_nao_negativo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"R$ {self.valor_por_dependente} por dependente desde {self.vigencia_inicio}"
+
+
+class DependentesCarneLeaoCliente(models.Model):
+    """Quantidade de dependentes de UM cliente (empresa em modo
+    livro-caixa), informada pelo escritório, com vigência MENSAL (HI-35 —
+    sem cadastro nominal nesta fatia: só a quantidade usada na dedução).
+
+    `competencia_inicio` é sempre o PRIMEIRO DIA de um mês — "a partir de
+    um mês" (HI-35) — e a apuração de um mês qualquer usa o registro de
+    maior `competencia_inicio` que não seja posterior ao primeiro dia
+    daquele mês (mesmo raciocínio de `_vigencia_aplicavel_ou_none`, mas por
+    EMPRESA em vez de global — por isso o índice único é composto)."""
+
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="dependentes_carne_leao"
+    )
+    quantidade = models.PositiveSmallIntegerField("quantidade de dependentes")
+    competencia_inicio = models.DateField("vigente a partir de (mês)")
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "quantidade de dependentes do carnê-leão"
+        verbose_name_plural = "quantidades de dependentes do carnê-leão"
+        ordering = ["empresa", "-competencia_inicio"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "competencia_inicio"],
+                name="dependentes_carne_leao_competencia_unica_por_empresa",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.empresa} — {self.quantidade} dependente(s) desde {self.competencia_inicio}"
+
+    def clean(self):
+        if self.empresa_id:
+            try:
+                recusar_se_nao_livro_caixa(self.empresa)
+            except EmpresaNaoEmModoLivroCaixa as exc:
+                raise ValidationError({"empresa": exc.mensagem}) from exc
+        if self.competencia_inicio and self.competencia_inicio.day != 1:
+            raise ValidationError(
+                {
+                    "competencia_inicio": (
+                        "A vigência dos dependentes começa sempre no primeiro dia de "
+                        "um mês (HI-35)."
+                    )
+                }
+            )

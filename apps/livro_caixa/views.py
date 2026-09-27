@@ -10,6 +10,9 @@ auditoria na mesma transação; a política dos cinco dicionários (BL-196) é
 aplicada em toda rota de escrita, com o contrato dela declarado ao lado.
 """
 
+import re
+from datetime import date
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -31,9 +34,25 @@ from apps.core.requisicao import (
 from apps.core.restricoes import RestricaoViolada
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
-from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa, OrigemRecebimento
+from apps.livro_caixa.carne_leao import (
+    DependentesCarneLeaoInvalido,
+    TabelaCarneLeaoNaoConfigurada,
+    apurar_carne_leao_anual,
+    apurar_carne_leao_mensal,
+    registrar_dependentes_carne_leao,
+)
+from apps.livro_caixa.models import (
+    ContaLivroCaixa,
+    DependentesCarneLeaoCliente,
+    LancamentoCaixa,
+    OrigemRecebimento,
+)
 from apps.livro_caixa.permissoes import papel_pode_ler_livro_caixa
-from apps.livro_caixa.serializers import ContaLivroCaixaSerializer, LancamentoCaixaSerializer
+from apps.livro_caixa.serializers import (
+    ContaLivroCaixaSerializer,
+    DependentesCarneLeaoClienteSerializer,
+    LancamentoCaixaSerializer,
+)
 from apps.livro_caixa.services import (
     ChaveIdempotenciaConflitanteCaixa,
     LancamentoCaixaInvalido,
@@ -433,3 +452,152 @@ class LivroCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 2 — apuração mensal do carnê-leão (RC-131 a RC-134).
+
+
+def _json_seguro(valor):
+    """Converte `Decimal`/`date` para os tipos que o JSON do DRF aceita sem
+    perder precisão — `Decimal` como TEXTO (nunca número JSON, DE-030),
+    `date` em ISO — recursivamente sobre `dict`/`list`, para servir tanto o
+    resultado de um mês quanto o de `apurar_carne_leao_anual` (lista de
+    meses) sem duplicar a conversão em duas views."""
+    if isinstance(valor, dict):
+        return {chave: _json_seguro(item) for chave, item in valor.items()}
+    if isinstance(valor, list):
+        return [_json_seguro(item) for item in valor]
+    if isinstance(valor, date):
+        return valor.isoformat()
+    # `Decimal` não é `int`/`float`/`str`/`bool`/`None` — cobre pelo `else`.
+    if isinstance(valor, (int, float, bool, str)) or valor is None:
+        return valor
+    return str(valor)
+
+
+# Querystring: mesmo raciocínio de `_validar_ano_mes` (apps.contabilidade.
+# views) — dígitos ASCII estritos, nunca `\d` (R2-7/R3-6), antes de `int()`.
+_PADRAO_ANO_MES_SIMPLES = re.compile(r"^[0-9]{1,4}$")
+_MES_MINIMO, _MES_MAXIMO = 1, 12
+_ANO_MINIMO, _ANO_MAXIMO = 1970, 2999
+
+
+def _extrair_ano_da_querystring(request):
+    bruto = request.query_params.get("ano")
+    if not bruto or not _PADRAO_ANO_MES_SIMPLES.fullmatch(bruto):
+        raise DRFValidationError("Informe 'ano' (dígitos) na querystring.")
+    ano = int(bruto)
+    if not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+        raise DRFValidationError(
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO} e {_ANO_MAXIMO}."
+        )
+    return ano
+
+
+def _extrair_mes_da_querystring(request):
+    bruto = request.query_params.get("mes")
+    if not bruto or not _PADRAO_ANO_MES_SIMPLES.fullmatch(bruto):
+        raise DRFValidationError("Informe 'mes' (dígitos, 1 a 12) na querystring.")
+    mes = int(bruto)
+    if not (_MES_MINIMO <= mes <= _MES_MAXIMO):
+        raise DRFValidationError(
+            f"'mes' inválido: {mes} — deve estar entre {_MES_MINIMO} e {_MES_MAXIMO}."
+        )
+    return mes
+
+
+class CarneLeaoMensalView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """Demonstrativo mensal do carnê-leão — `?ano=AAAA&mes=M` (querystring).
+    Só LEITURA: nunca grava resultado (RC-130) — recalculado sempre a
+    partir dos lançamentos de caixa e das tabelas normativas vigentes."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerLivroCaixa]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano = _extrair_ano_da_querystring(request)
+        mes = _extrair_mes_da_querystring(request)
+        try:
+            resultado = apurar_carne_leao_mensal(empresa=empresa, ano=ano, mes=mes)
+        except TabelaCarneLeaoNaoConfigurada as exc:
+            raise DRFValidationError(str(exc)) from exc
+        return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
+
+
+class CarneLeaoAnualView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """Demonstrativo anual do carnê-leão — `?ano=AAAA` (querystring), os 12
+    meses do ano-calendário. Mesmas garantias de `CarneLeaoMensalView`."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerLivroCaixa]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano = _extrair_ano_da_querystring(request)
+        try:
+            resultado = apurar_carne_leao_anual(empresa=empresa, ano=ano)
+        except TabelaCarneLeaoNaoConfigurada as exc:
+            raise DRFValidationError(str(exc)) from exc
+        return Response(_json_seguro(resultado), status=status.HTTP_200_OK)
+
+
+CONTRATO_POST_DEPENDENTES_CARNE_LEAO = ContratoDeRequisicao(
+    campos={"quantidade", "competencia_inicio"},
+    contexto="no registro de dependentes do carnê-leão",
+)
+
+
+class DependentesCarneLeaoListCreateView(
+    EmpresaEscopadaLivroCaixaMixin, generics.ListCreateAPIView
+):
+    """`GET` lista as vigências de quantidade de dependentes da empresa;
+    `POST` registra uma nova, a partir de um mês (HI-35)."""
+
+    permission_classes = [TemEscritorioAtivo]
+    serializer_class = DependentesCarneLeaoClienteSerializer
+
+    def get_permissions(self):
+        permissions = [permission() for permission in self.permission_classes]
+        if self.request.method == "POST":
+            permissions.append(PodeEscriturarLivroCaixa())
+        else:
+            permissions.append(PodeLerLivroCaixa())
+        return permissions
+
+    def get_queryset(self):
+        return DependentesCarneLeaoCliente.objects.filter(empresa=self.get_empresa())
+
+    def post(self, request, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_DEPENDENTES_CARNE_LEAO)
+        dados = request.data if isinstance(request.data, dict) else {}
+        empresa = self.get_empresa()
+
+        quantidade_bruta = dados.get("quantidade")
+        if not isinstance(quantidade_bruta, int) or isinstance(quantidade_bruta, bool):
+            raise DRFValidationError("O campo 'quantidade' deve ser um número inteiro (JSON).")
+        if quantidade_bruta < 0:
+            raise DRFValidationError("O campo 'quantidade' não pode ser negativo.")
+
+        bruto_competencia = dados.get("competencia_inicio")
+        if not isinstance(bruto_competencia, str):
+            raise DRFValidationError("Informe 'competencia_inicio' no formato AAAA-MM-DD.")
+        try:
+            competencia_inicio = para_data(bruto_competencia)
+        except DataInvalida as exc:
+            raise DRFValidationError(f"'competencia_inicio' inválida: {exc}") from exc
+
+        try:
+            registro = registrar_dependentes_carne_leao(
+                empresa=empresa,
+                quantidade=quantidade_bruta,
+                competencia_inicio=competencia_inicio,
+                criado_por=request.user,
+                request=request,
+            )
+        except DependentesCarneLeaoInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except RestricaoViolada as exc:
+            raise DRFValidationError({"competencia_inicio": [str(exc)]}) from exc
+
+        serializer = self.get_serializer(registro)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -680,3 +680,236 @@ comportamento silencioso:
 
 **Hipótese nova:** **HI-35** — dependentes são informados pelo escritório
 por quantidade, com vigência mensal, sem cadastro nominal nesta fatia.
+
+## Implementação da fatia 2 (2026-09-27, `desenvolvedor-pleno`)
+
+Servidor + API apenas — a tela vem depois pelo `especialista-frontend`.
+Branch `dl046-f2`, base `58f66fb`, worktree `wt-dl046f2`.
+
+### Dúvidas resolvidas na fonte antes de codificar
+
+As quatro dúvidas listadas na seção anterior, na ordem em que aparecem lá:
+
+1. **Base da redução da Lei 15.270/2025: rendimento bruto ou base após
+   deduções?** **Base de cálculo após deduções.** A Lei nº 9.250/1995, art.
+   3º-A (redação da Lei 15.270/2025), fala em "rendimentos tributáveis
+   sujeitos à incidência mensal do Imposto sobre a Renda das Pessoas
+   Físicas" — a MESMA expressão que o art. 3º, caput, da mesma lei usa
+   para os rendimentos "de que tratam os arts. 7º, 8º e 12 da Lei nº
+   7.713/1988" aos quais a tabela progressiva se aplica; o art. 8º da Lei
+   7.713/1988 é exatamente o carnê-leão, cuja base (RIR/2018, art. 121) já
+   é apurada APÓS as deduções. Registrado como **RC-133**.
+2. **Rendimento de pessoa jurídica entra na base do carnê-leão, ou só serve
+   de limite para a dedução do livro-caixa?** **Não entra, exceto
+   notarial.** RIR/2018, art. 118, caput, restringe a base a rendimento
+   recebido de OUTRA PESSOA FÍSICA ou de fonte do EXTERIOR; o inciso IV é
+   explícito para aluguel ("recebidos de pessoas físicas"). A Lei nº
+   7.713/1988, art. 8º, §1º, estende o caput aos emolumentos/custas de
+   serventuários da Justiça SEM restringir a fonte pagadora — só esse
+   modelo (notarial) integra a base vindo de PJ. Rendimento de PJ fora
+   desse caso é tributado por retenção na fonte pela própria fonte
+   pagadora, fora do escopo desta fatia. Como consequência, PJ também não
+   entra no limite da dedução do livro-caixa (que só se aplica ao
+   rendimento que É base do carnê-leão). Registrado como **RC-132**, junto
+   com a imunidade da pensão alimentícia recebida (STF, ADI 5.422, citada
+   no Perguntas e Respostas IRPF 2026, pergunta 266).
+3. **Limite da compensação do imposto pago no exterior?** A diferença
+   entre o imposto apurado COM a inclusão do rendimento de fontes do
+   exterior daquele mês e o imposto apurado SEM essa inclusão (mesma
+   dedução — real ou simplificada — já escolhida como mais benéfica); o
+   excesso não compensado é levado aos meses seguintes até dezembro do
+   mesmo ano-calendário e à Declaração de Ajuste Anual — Perguntas e
+   Respostas IRPF 2026, pergunta 267 ("Atenção"). Registrado como
+   **RC-134**.
+4. **Arredondamento de cada etapa?** **Sem fonte encontrada** — nenhuma
+   das quatro fontes lidas fixa a política das etapas intermediárias (só o
+   resultado final, implicitamente, por ser sempre em reais e centavos).
+   Registrado como **HI-36**: `PoliticaArredondamento.MEIO_PARA_CIMA`
+   (ROUND_HALF_UP) a 2 casas, aplicado a cada valor que se torna uma linha
+   da memória de cálculo — opção CONSERVADORA (nunca truncar, que
+   reduziria o imposto devido em relação ao valor exato).
+
+### Achado material — a lei descreve "imposto zero" até R$ 5.000,00, mas a combinação literal das duas fontes confirmadas não zera
+
+Ao escrever o caso de referência do critério de aceite 1 ("rendimento de
+R$ 5.000,00 — imposto zero pela redução"), a combinação das duas fontes
+CONFIRMADAS (a tabela progressiva de RC-131 e a fórmula de redução de
+RC-131/art. 3º-A) produz, para R$ 5.000,00 de rendimento SEM outras
+deduções: imposto pela tabela R$ 466,27 (5000×0,275−908,73), redução
+máxima R$ 312,89, imposto devido **R$ 153,38** — não zero.
+
+As duas fontes foram lidas em texto integral e conferidas separadamente (a
+tabela contra a Lei 15.191/2025, a redução contra a Lei 15.270/2025); o
+coeficiente da redução (0,133145) está internamente coerente com seus
+próprios dois pontos (312,89 em 5.000,00; ~0,00 em 7.350,00 — confirmado:
+978,62 − 0,133145×7350 = 0,00425 ≈ 0). O que NÃO fecha é a combinação das
+DUAS fórmulas, apesar de cada uma isoladamente bater com sua fonte.
+
+**Hipótese sobre a causa, não confirmada:** a Lei 15.270/2025 parece
+calibrada para a FOLHA DE PAGAMENTO (onde a contribuição previdenciária
+obrigatória já reduz a base ANTES da tabela do IRRF incidir) — o
+carnê-leão não tem uma dedução equivalente que reduza a base do mesmo
+jeito antes da tabela. Não fui buscar essa hipótese em nenhuma fonte
+adicional (fora do escopo das quatro dúvidas listadas); registro só como
+pista para quem investigar depois.
+
+**O que foi implementado:** o motor de cálculo usa os números
+LITERALMENTE confirmados das duas fontes, sem ajuste nenhum para forçar
+"zero" em R$ 5.000,00 — inventar um ajuste sem fonte violaria a proibição
+de inventar fórmula. Os testes verificam o valor MATEMATICAMENTE DERIVADO
+(R$ 153,38), com o cálculo escrito no comentário, e o achado fica
+registrado aqui e no docstring do módulo (`apps/livro_caixa/carne_leao.py`)
+para quem for validar profissionalmente (Fred) antes de uso com cliente
+real — mesma ressalva que já valia para toda a fatia 2 (HI-32/HI-33).
+**Decisão a confirmar com o Fred**, não minha para tomar: se a intenção de
+produto for "sempre mostrar zero até R$ 5.000,00" mesmo quando a norma não
+sustenta isso matematicamente, é preciso decidir se o produto replica a
+norma (o que fiz) ou replica a intenção declarada da norma (o que exigiria
+uma regra adicional, sem fonte, fora do que fui autorizado a inventar).
+
+### O que foi feito
+
+1. **Quatro modelos normativos, nunca constante no código** (RC-131 a
+   RC-134, HI-32, HI-36): `VigenciaTabelaProgressivaCarneLeao` +
+   `FaixaTabelaProgressivaCarneLeao` (tabela progressiva, uma vigência com
+   N faixas), `VigenciaReducaoCarneLeao` (redução da Lei 15.270/2025),
+   `VigenciaDependenteCarneLeao` (valor por dependente) — todos com
+   `fonte` obrigatória, gravados só por MIGRAÇÃO DE DADOS
+   (`0004_fatia2_seed_tabelas_normativas.py`, com a fonte de cada valor
+   citada no próprio código da migração), sem `ModelAdmin` (DE-090).
+   Unicidade de `vigencia_inicio` por `UniqueConstraint` em
+   `Meta.constraints`, nunca `unique=True` de campo (DE-089, evita a lista
+   separada de índices únicos implícitos — ver "Não testado/bloqueado").
+2. **`DependentesCarneLeaoCliente`** (empresa, quantidade, competência):
+   único modelo desta fatia com caminho de ESCRITA de cliente
+   (`registrar_dependentes_carne_leao`, trava a empresa por
+   `select_for_update()` mesmo padrão de N6/DL-046 fatia 1).
+3. **Motor de cálculo** (`apps/livro_caixa/carne_leao.py`): funções PURAS
+   (`_pipeline`/`_imposto_pela_tabela`/`_reducao_bruta`/`_agregados_do_mes`,
+   sem ORM, testáveis com casos calculados à mão) separadas da camada ORM
+   (`_apurar_ano_calendario`, que agrega lançamentos + vigências com número
+   de consultas CONSTANTE em relação ao número de meses). Encadeamento
+   (excesso de livro-caixa, saldo de crédito do exterior, saldo abaixo de
+   R$ 10,00) SEMPRE recalculado a partir de janeiro do ano pedido — nunca
+   lê nem grava resultado (RC-130).
+4. **Leitura sob SNAPSHOT** (DE-067, mesmo padrão de
+   `apurar_balanco_patrimonial`/`_apurar_coluna_dre`, contabilidade):
+   `apurar_carne_leao_mensal`/`apurar_carne_leao_anual` rodam sob
+   `REPEATABLE READ` quando não já dentro de uma transação.
+5. **API somente leitura**: `GET .../carne-leao/mensal/?ano=&mes=`,
+   `GET .../carne-leao/anual/?ano=`; e a única de escrita desta fatia,
+   `GET/POST .../dependentes-carne-leao/`. Mesma matriz de papéis e mesma
+   recusa por modo de escrituração da fatia 1
+   (`EmpresaEscopadaLivroCaixaMixin`).
+
+### Regras reportadas, não decididas (para o `arquiteto-senior`/Fred)
+
+- **O achado material acima** (R$ 5.000,00 não zera) é a principal.
+- **Pensão alimentícia paga × dependente do MESMO beneficiário**
+  (RIR/2018, art. 72, §1º: veda deduzir os dois para o mesmo beneficiário
+  no mesmo mês). Como os dependentes desta fatia são só QUANTIDADE (HI-35,
+  sem nome), a apuração SOMA as duas deduções sem verificar coincidência
+  de beneficiário — se o escritório escriturar pensão e dependente da
+  MESMA pessoa, a contagem duplicada é responsabilidade de quem digita a
+  quantidade, não uma verificação do sistema. Documentado no código
+  (`apps/livro_caixa/carne_leao.py`).
+- **Modelo ALUGUEL_OUTROS (código `R01.004.001`, "outros rendimentos")
+  segue a MESMA restrição de aluguel** (só PF/EX na base) por analogia —
+  a fonte confirma isso literalmente só para aluguel (art. 118, IV); não
+  encontrei fonte específica para "outros rendimentos".
+- **Código de rendimento fora dos quatro modelos oficiais mapeados** (nem
+  trabalho não assalariado, nem notarial, nem aluguel/outros, nem pensão):
+  integra a base independentemente da fonte pagadora — opção CONSERVADORA
+  (nunca presumir isenção sem fonte), até a tabela completa de códigos
+  (PE-71) aparecer.
+- **Saldo "abaixo de R$ 10,00" reinicia em janeiro NESTA IMPLEMENTAÇÃO**,
+  sem fonte que confirme esse corte por ano-calendário (diferente do
+  excesso do livro-caixa e do crédito do exterior, que a norma confirma
+  reiniciarem em janeiro) — limitação de escopo, porque a apuração nunca
+  lê dezembro do ano anterior. Ver "Não testado/bloqueado".
+- **Desempate entre deduções reais e desconto simplificado**, quando os
+  dois produzem o MESMO imposto após redução: fica com as deduções REAIS
+  (regra geral, art. 68) — desenho meu, sem instrução explícita sobre o
+  desempate.
+
+### Testes
+
+`apps/livro_caixa/tests/test_dl046_fatia2_carne_leao.py` (35 testes):
+motor puro (faixa isenta, cada faixa, os quatro pontos notáveis da
+redução — R$ 5.000,00/6.000,00/7.350,00/7.350,01 —, centavos na fronteira
+de faixa), motor ORM (excesso de livro-caixa carregado e não carregado ao
+ano seguinte, dependentes com vigência mensal, desconto simplificado mais
+e menos benéfico, valor abaixo de R$ 10,00 acumulado, compensação do
+imposto pago no exterior, rendimento de PJ excluído da base, pensão
+recebida imune, notarial de PJ incluído), troca de vigência no meio do ano
+(critério 2), RC-130 (estorno no mês original refletindo no encadeamento),
+isolamento/autorização/modo via API, e a prova de que a tabela nunca vem
+de constante (deletar todas as vigências levanta
+`TabelaCarneLeaoNaoConfigurada`; mudar um valor só no banco muda o
+resultado).
+
+**Mutantes aplicados (vivos, confirmados vermelhos, revertidos):**
+
+| # | Ponto mutado | Teste que matou |
+| --- | --- | --- |
+| M1 | `_reducao_bruta`: faixa plena da redução desativada | `test_rendimento_5000_sem_outras_deducoes_nao_zera_o_imposto` |
+| M2 | `_apurar_um_mes`: reset de dezembro do excesso de livro-caixa desativado | `test_excesso_de_dezembro_nao_passa_para_janeiro` |
+| M3 | `rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal`: sempre `True` (RC-132 desativada) | `test_rendimento_de_pessoa_juridica_nao_entra_na_base_do_trabalho_nao_assalariado` |
+| M4 | `_lancamentos_por_mes`: filtro de `empresa` removido da consulta | `test_api_carne_leao_mensal_isolamento_entre_empresas_do_mesmo_escritorio` |
+| M5 | `_agregados_do_mes`: sinal do estorno deixa de inverter | `test_estorno_no_mes_original_reflete_no_encadeamento`, `test_agregados_do_mes_estorno_tem_sinal_invertido` |
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — sem apontamentos (arquivos novos/alterados
+  formatados com `ruff format` durante a implementação).
+- `python manage.py check` — nenhum problema.
+- `python manage.py makemigrations --check --dry-run` — nenhuma alteração
+  pendente.
+- Migrações `livro_caixa.0003_fatia2_tabelas_normativas` e
+  `0004_fatia2_seed_tabelas_normativas` aplicadas com sucesso em
+  PostgreSQL vazio, com reversão e reaplicação confirmadas.
+- `pytest` (suíte completa): ver o relatório de entrega para o número
+  exato — **1 falha pré-existente e esperada**
+  (`test_versao_minima_python.py`, ambiente Python 3.13 local em vez do
+  3.14 da CI, já registrada nas fatias anteriores) e **3 falhas NOVAS**,
+  todas de "andaime" (guardas de repositório, AGENTS.md §3.1 nível 3), que
+  exigem editar arquivos FORA da lista autorizada para esta tarefa — ver
+  "Não testado/bloqueado", abaixo.
+
+### Não testado / bloqueado
+
+- **Três guardas de repositório ficam vermelhas e não posso corrigi-las**
+  (fora da lista de arquivos autorizada para esta tarefa — instrução
+  explícita: "NÃO altere... nem arquivos fora dessa lista sem me
+  perguntar"):
+  1. `apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py::
+     test_toda_rota_do_produto_esta_coberta_ou_excluida` — as três rotas
+     novas (`livro_caixa:carne-leao-mensal`, `livro_caixa:carne-leao-anual`,
+     `livro_caixa:dependentes-carne-leao`) precisam de entrada em
+     `EXCLUSOES_NOMEADAS_DE_TELA` (mesmo padrão das quatro rotas da fatia
+     1, já lá): `"API REST (..., DRF) — JSON; DL-046 fatia 2"`.
+  2. `apps/core/tests/test_dl024_trilha_admin.py::
+     test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_exclusao`
+     — os cinco modelos novos (`VigenciaTabelaProgressivaCarneLeao`,
+     `FaixaTabelaProgressivaCarneLeao`, `VigenciaReducaoCarneLeao`,
+     `VigenciaDependenteCarneLeao`, `DependentesCarneLeaoCliente`) entram
+     na cobertura "por padrão" (mesmo mecanismo de `apps.fiscal`/
+     `ContaLivroCaixa`/`LancamentoCaixa`, já explicado no comentário do
+     próprio teste) — só falta acrescentá-los ao conjunto
+     `esperados_cobertos` do teste.
+  3. `apps/core/tests/test_dl019_varredura_de_restricoes.py` tentou
+     reprovar por índice único implícito, mas isso já foi CORRIGIDO nesta
+     etapa (as três `vigencia_inicio` passaram a usar `UniqueConstraint`
+     em `Meta.constraints`, dentro da lista autorizada) — sem pendência.
+  Corrigir os itens 1 e 2 é mecânico (acrescentar entradas ao mesmo padrão
+  já usado para a fatia 1, nos mesmos arquivos) — deixo o texto exato
+  pronto no relatório de entrega para quem tiver permissão aplicar.
+- **Dígito verificador do CAEPF, faixa de data do lançamento de caixa,
+  HI-31** — herdados da fatia 1, sem mudança aqui.
+- **Tela do demonstrativo** — do `especialista-frontend`, fora do meu
+  escopo.
+- **Validação profissional dos casos de referência** (Fred) — inclusive,
+  e ESPECIALMENTE, o achado material sobre R$ 5.000,00.
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
+  (mesmo bloqueio já registrado pelas fatias anteriores).

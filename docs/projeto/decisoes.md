@@ -4869,3 +4869,79 @@ informado) e pela regra de CPF da DE-087 item 6.
 7. **Fechamento sem nova rodada de auditoria**, como nas DL-043 e DL-045:
    verificação independente dos casos propostos e dos mutantes, e o Fred decide
    no PR se aceita.
+
+## DE-089 — Vigência normativa do carnê-leão: sem `vigencia_fim`, sem gatilho de sobreposição
+
+Data: 2026-09-27. Responsável: `desenvolvedor-pleno`, na implementação da fatia
+2 da [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) (apuração mensal do
+carnê-leão, RC-131 a RC-134).
+
+**A pergunta:** as quatro tabelas normativas do carnê-leão
+(`VigenciaTabelaProgressivaCarneLeao`/`FaixaTabelaProgressivaCarneLeao`,
+`VigenciaReducaoCarneLeao`, `VigenciaDependenteCarneLeao`) precisam do MESMO
+desenho de vigência que `ParametroContabilEmpresa`
+(apps.contabilidade)/`HistoricoRegimeTributario` (apps.empresas) — campo
+`vigencia_fim`, `UniqueConstraint` condicional na vigência aberta e gatilho de
+banco (só PostgreSQL) que recusa sobreposição de intervalos?
+
+**A decisão: não.** Desenho mais simples — só `vigencia_inicio` (`unique=True`
+GLOBAL, não por empresa), sem `vigencia_fim` e sem gatilho. A vigência
+aplicável a uma data é sempre a de MAIOR `vigencia_inicio` que não seja
+posterior a ela (`_vigencia_aplicavel_ou_none`/`_maior_vigencia_nao_posterior`,
+`apps/livro_caixa/models.py`/`carne_leao.py`).
+
+**Por quê, em uma frase:** o problema que o desenho pesado resolve —
+CORRIDA entre duas gravações concorrentes que produzem duas vigências
+"abertas" ao mesmo tempo — não existe aqui, porque estas quatro tabelas só têm
+UM caminho de escrita: migração de dados, revisada e versionada, nunca uma
+requisição HTTP concorrente. `ParametroContabilEmpresa`/
+`HistoricoRegimeTributario` guardam parâmetro POR EMPRESA, escrito por
+`POST`/`PATCH` de qualquer usuário autorizado a qualquer momento — a corrida é
+real e já foi medida (BL-474). As quatro tabelas normativas do carnê-leão são
+GLOBAIS, e a única forma de dois registros colidirem na mesma data é dois
+desenvolvedores editando a MESMA migração de dados ao mesmo tempo — um
+problema de Git, não de concorrência em produção, e a `UniqueConstraint` em
+`vigencia_inicio` já impede duas linhas com a mesma data de início.
+
+**O que isto NÃO cobre, e é limite aceito:** `DependentesCarneLeaoCliente`
+(quantidade de dependentes POR EMPRESA, escrita pelo escritório via API) usa o
+MESMO desenho simples (só `competencia_inicio`, `UniqueConstraint(empresa,
+competencia_inicio)`) — aqui SIM existe um caminho de escrita de cliente, mas
+sem o mesmo risco de "vigência aberta duplicada" dos outros dois modelos: como
+a vigência é identificada pela COMPETÊNCIA (não por um estado "aberta/
+fechada"), duas requisições concorrentes para a MESMA competência colidem na
+`UniqueConstraint` (traduzida a 400, `apps.core.restricoes`) em vez de
+produzirem um estado ambíguo — não há "vigência aberta" para duas gravações
+disputarem. Reportado, não uma segunda rodada de auditoria: se o Fred quiser
+uma trava adicional (`select_for_update` na competência específica, por
+exemplo), é extensão aditiva sobre este desenho, não reescrita dele.
+
+## DE-090 — Carnê-leão: as três tabelas normativas ficam SEM `ModelAdmin` nesta fatia
+
+Data: 2026-09-27. Responsável: `desenvolvedor-pleno`, mesma etapa da DE-089.
+
+**A decisão:** `VigenciaTabelaProgressivaCarneLeao`/
+`FaixaTabelaProgressivaCarneLeao`/`VigenciaReducaoCarneLeao`/
+`VigenciaDependenteCarneLeao` não ganham `ModelAdmin` nesta fatia — nem para
+LEITURA (diferente de `LancamentoCaixaAdmin`, que é só-leitura mas EXISTE).
+
+**Por quê:** um valor normativo (alíquota, parcela a dedu­zir, coeficiente da
+redução) mudar por um `POST` de formulário do admin, sem revisão de código
+nem citação de FONTE no mesmo commit, é exatamente o risco que "gravado por
+migração de dados, com a fonte citada" (critério 5 do plano) existe para
+evitar — mesmo um admin SÓ-LEITURA ofereceria a tela de detalhe com o botão
+"Adicionar" ativo por padrão do Django, que precisaria de
+`has_add_permission=False`/`has_change_permission=False` explícitos para não
+virar um segundo caminho de escrita silencioso. Sem nenhum caminho de cliente
+(nem leitura nem escrita) para estes quatro modelos, a decisão mais simples e
+mais segura é não registrar nenhum admin agora — consultar o valor vigente é
+tarefa do `shell`/`psql` até (e se) o produto precisar de uma tela de gestão
+destas tabelas, que teria de ser desenhada com o MESMO cuidado da migração de
+dados (fonte obrigatória, nunca edição livre de número).
+
+**Efeito colateral, registrado para não ser esquecido:** por não haver rota de
+API nem admin para estes quatro modelos, as seis `CheckConstraint`/
+`UniqueConstraint` deles entram em `RESTRICOES_SEM_CAMINHO_DE_CLIENTE`
+(`apps/core/restricoes.py`), não no mapa traduzido para 400 — quando (e se)
+ganharem caminho de escrita, migram para lá, como já aconteceu antes com
+outras constraints desta família (BL-220).
