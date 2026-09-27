@@ -140,8 +140,9 @@ merge do PR #38, sem commit individual por etapa.
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
   pronta na branch local `dl046-livro-caixa`, com auditoria, reconferência e
   verificação do fechamento; entra por PR depois da DL-045, com o plano e as
-  decisões (DE-087, DE-088). A fatia 2 (apuração mensal) depende da PE-71,
-  em pesquisa na fonte oficial.
+  decisões (DE-087, DE-088). A fatia 2 (apuração mensal) dependia da PE-71,
+  já respondida em fonte oficial; o registro (RC-131) entra com o PR da
+  DL-046.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
