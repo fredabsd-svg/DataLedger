@@ -128,8 +128,7 @@ MENSAGENS_DE_RESTRICAO = {
     # duas histórias diferentes do mesmo motivo (DE-026).
     "dependentes_carne_leao_competencia_unica_por_empresa": (
         "Já existe uma quantidade de dependentes registrada para esta empresa a partir "
-        "deste mês — use a retificação (PATCH) para corrigir o valor, em vez de um novo "
-        "registro."
+        "deste mês — use Retificar para corrigir o valor, em vez de um novo registro."
     ),
 }
 

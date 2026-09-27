@@ -723,8 +723,8 @@ class DependentesCarneLeaoCliente(models.Model):
                 name="dependentes_carne_leao_competencia_unica_por_empresa",
                 violation_error_message=(
                     "Já existe uma quantidade de dependentes registrada para esta "
-                    "empresa a partir deste mês — use a retificação (PATCH) para "
-                    "corrigir o valor, em vez de um novo registro."
+                    "empresa a partir deste mês — use Retificar para corrigir o "
+                    "valor, em vez de um novo registro."
                 ),
             ),
             # B-5: mesmo motivo das tabelas normativas, mas aqui já existe
@@ -750,8 +750,7 @@ class DependentesCarneLeaoCliente(models.Model):
             raise ValidationError(
                 {
                     "competencia_inicio": (
-                        "A vigência dos dependentes começa sempre no primeiro dia de "
-                        "um mês (HI-35)."
+                        "A vigência dos dependentes começa sempre no primeiro dia de um mês."
                     )
                 }
             )
