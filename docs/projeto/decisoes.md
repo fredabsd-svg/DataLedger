@@ -4736,3 +4736,42 @@ outra branch.
     faixa de data por analogia).
 15. **M7** — os 14 casos de teste propostos viram teste; os mutantes
     sobreviventes precisam morrer.
+
+## DE-088 — Livro-caixa: decisões sobre a reconferência da DL-046
+
+Data: 2026-09-27. Responsável: `arquiteto-senior`, sobre a
+[reconferência](../auditorias/2026-09-27-dl-046-reconferencia.md), que fechou
+A1, A2 e A3 e reprovou por N1 (a tela não oferece o indicador de CPF não
+informado) e pela regra de CPF da DE-087 item 6.
+
+1. **O critério da DE-087 item 6 é reaberto (AGENTS.md §3.1).** O texto
+   generalizou para toda receita uma regra que o leiaute oficial aplica **por
+   modelo de rendimento** (instruções dos modelos de importação do Carnê-Leão
+   Web, Receita, 2025). A regra passa a ser, por modelo:
+   - **Trabalho não assalariado** (códigos do modelo oficial correspondente):
+     recebido de PF exige o CPF do titular do pagamento, e o CPF do beneficiário
+     ou o indicador "CPF não informado"; recebido de PJ exige o CNPJ.
+   - **Serviços notariais e de registro** (`R01.001.002`): recebido de PF exige
+     o CPF do titular; CPF do beneficiário e indicador ficam **vazios**; recebido
+     de PJ exige o CNPJ.
+   - **Aluguel e outros rendimentos**: o leiaute não tem campos de CPF nem de
+     CNPJ — eles ficam vazios.
+   - Em qualquer modelo: CPF só em PF, CNPJ só em PJ, indicador só onde o
+     modelo o prevê.
+   - Código de rendimento que não está em nenhum modelo público: sem exigência
+     de CPF/CNPJ até a tabela oficial completa (PE-71).
+   A tabela código → modelo sai dos arquivos-modelo oficiais, citados no código.
+2. **N1:** o formulário oferece o indicador, com texto de ajuda da regra acima.
+3. **N2:** a chave de idempotência continua validada por tamanho e NUL mesmo
+   com a unicidade tratada fora do `full_clean`; nunca 500.
+4. **N3, N4, N5:** o grupo P20 repete a identificação do contribuinte em toda
+   folha, mostra o estorno entre parênteses com a referência ao original, e o
+   livro imprime o total de cada grupo; a mensagem de vazio considera os dois.
+5. **N6:** a troca de modo e a criação de conta de caixa travam a empresa
+   (`select_for_update`), fechando a corrida.
+6. **N7, N13, N16, N21 e demais lacunas (N10), N8, N9:** a impressão digital
+   inclui o indicador; o estorno copia o indicador; testes para os mutantes
+   sobreviventes; teste instável reescrito; comentários obsoletos removidos.
+7. **Fechamento sem nova rodada de auditoria**, como nas DL-043 e DL-045:
+   verificação independente dos casos propostos e dos mutantes, e o Fred decide
+   no PR se aceita.
