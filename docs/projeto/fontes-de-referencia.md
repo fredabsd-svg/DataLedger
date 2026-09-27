@@ -58,11 +58,11 @@ planejar o módulo correspondente:
 | --- | --- |
 | `Domínio Escrita Fiscal.pdf` | Fiscal — **já analisado**, ver [mapa funcional](mapa-funcional-fiscal.md) |
 | `Domínio Contabilidade.pdf` | Contabilidade — **já analisado**, ver [mapa funcional contábil](mapa-funcional-contabil.md) |
-| `Domínio Folha.pdf` | Folha de pagamento |
+| `Domínio Folha.pdf` | Folha de pagamento — **analisado**, ver [mapa funcional da folha](mapa-funcional-folha.md) |
 | `Domínio Honorários.pdf` | Honorários |
 | `Domínio Processos.pdf` | Processos e paralegal |
-| `Domínio Patrimônio.pdf` | Ativo imobilizado e depreciação |
-| `Domínio Lalur.pdf` | Apuração do lucro real |
+| `Domínio Patrimônio.pdf` | Ativo imobilizado e depreciação — **analisado**, ver [mapa de Patrimônio e Lalur](mapa-funcional-patrimonio-lalur.md) |
+| `Domínio Lalur.pdf` | Apuração do lucro real — **analisado**, mesmo mapa |
 | `Domínio Ponto Eletrônico.pdf` | Ponto, ligado a Folha |
 | `Domínio Registro.pdf`, `Domínio Protocolo.pdf` | Documentos e protocolo |
 | `Domínio Auditoria.pdf` | Auditoria interna |
@@ -72,6 +72,21 @@ planejar o módulo correspondente:
 **Atenção à data.** O manual fiscal analisado é de **2018**. Os demais
 provavelmente também. Serve como mapa de **capacidades**, nunca como fonte de
 **regra tributária vigente**.
+
+### A conversão para texto entregue pelo Fred em 2026-09-27
+
+O Fred entregou os manuais acima convertidos para Markdown (34 arquivos,
+cerca de 9.100 páginas, com marcador de página), para consulta rápida. Regras:
+
+- **Nunca entram neste repositório.** Cada manual declara que não pode ser
+  reproduzido sem permissão escrita do fornecedor, e o repositório do
+  DataLedger é **público** (conferido na API do GitHub em 2026-09-27). Por
+  decisão do Fred, ficam num repositório **privado e separado**, só de
+  referências, fora do produto.
+- **Uso:** consultar, citar manual e página, reescrever o entendimento com
+  palavras nossas. Nada de texto, tela, rótulo ou estrutura de menu copiados.
+- A análise de paridade feita com eles está na
+  [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md).
 
 ## 1.1 Catálogo de 120 relatórios contábeis, entregue pelo Fred em 2026-09-20
 

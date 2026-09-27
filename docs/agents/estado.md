@@ -95,7 +95,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
 | [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
-| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Fatias 1 e 2 integradas (PR #53 e #54); fatia 3 em **[Próximo passo](#próximo-passo)** |
+| [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -104,7 +105,45 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — DL-046 fatia 2 (apuração do carnê-leão) em PR.**
+**AGORA — sessão de 2026-09-27 encerrada. Onde parei, para quem assumir:**
+
+1. **DL-047 — plano de paridade por módulo: concluída** (só documentação;
+   integra pelo PR da DL-047). Seis planos item por item em
+   [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
+   (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26) e
+   Lalur (26). **Próxima decisão é do Fred:** por qual módulo começar. A
+   recomendação no [plano](../planos/DL-047-mapa-de-paridade-funcional.md) é
+   **A — fechar a Contabilidade anual** (CTB-12 a CTB-17: estrutura de
+   demonstração ligada à conta, DLPA, DMPL, DFC; depois CTB-24 a CTB-31:
+   encerramento do exercício, termos, livro Diário, sócios e contador) e,
+   logo depois, **B — Fiscal alimentando a Contabilidade** (FIS-03 a FIS-22).
+   Cada plano de módulo termina com as perguntas ao Fred consolidadas.
+2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: servidor pronto, NÃO
+   integrado.** Está em commits na branch `claude/vigilant-bardeen-jo12l4`,
+   **acima** do merge da DL-047 e **sem PR** (commits `860cfd1`, preservação,
+   e `e850ba9`, entrega do servidor; plano da fatia 3 em `4c5aca8`). O que
+   existe: campos novos (ocupação no cliente e na conta, IRRF de PJ,
+   competência, multa e juros da previdência), serviço
+   `apps/livro_caixa/carne_leao_arquivos.py`, API de pendências e download
+   dos dois arquivos, 60 testes com os 6 arquivos-modelo oficiais; RC-135,
+   RC-136, HI-42, HI-43, DE-093 e DE-094. **Falta, nesta ordem:**
+   (a) ligar a restrição `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido`
+   a `restricao_como_400` em `apps/empresas/views.py` (instrução no próprio
+   registro em `apps/core/restricoes.py`); (b) a tela (pendências,
+   conferência e download; campos novos nos formulários de lançamento e de
+   cliente); (c) auditoria independente e reconferência; (d) PR. A importação
+   real no Carnê-Leão Web (HI-41, HI-42, HI-43) só o escritório pode
+   conferir.
+3. **Manuais do sistema de referência:** o Fred escolheu guardá-los num
+   **repositório privado separado**. Pendente: ele criar o repositório e
+   informar o nome. Enquanto isso, nada deles entra aqui — este repositório
+   é **público** (conferido na API em 2026-09-27); o Fred ainda vai decidir
+   se o DataLedger continua público.
+
+- **DL-047:** inventário e planos por módulo, a pedido do Fred
+  (2026-09-27), com os manuais só como referência
+  ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). Integrada pelo
+  PR da DL-047.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR
@@ -127,7 +166,7 @@ merge do PR #38, sem commit individual por etapa.
   [plano](../planos/DL-045-demonstracao-do-resultado.md)). Ressalva: mover
   conta de grupo só pelo admin até existir tela de editar conta (BL-541).
 - **DL-046** (livro-caixa e carnê-leão, nível 1): fatia 1 (livro-caixa)
-  integrada pelo PR #53. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
+  integrada pelo PR #53; fatia 2 (apuração) integrada pelo PR #54. Plano com fontes (RIR/2018 arts. 68-69 e 118-125, Receita
   Federal, leiaute público do Carnê-Leão Web, manual do sistema de
   referência) e respostas do Fred (RC-127 a RC-130). Rodada 1 da auditoria
   ([relatório](../auditorias/2026-09-26-dl-046-rodada-1.md)) e
@@ -138,8 +177,8 @@ merge do PR #38, sem commit individual por etapa.
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
   instrumento de medição do N3 quebrado, corrigido e medido de novo. A
   **fatia 2** (apuração mensal e
-  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) está **em
-  PR**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
+  anual do carnê-leão, PE-71 respondida em fonte oficial — RC-131) foi
+  **integrada pelo PR #54**: a [rodada 1](../auditorias/2026-09-27-dl-046-fatia2-rodada-1.md) e a
   [reconferência](../auditorias/2026-09-27-dl-046-fatia2-reconferencia.md)
   reprovaram; as correções seguiram a DE-091 e a DE-092 (a RC-132 estava
   errada no limite do livro-caixa, conferido nas perguntas 427 a 429 do

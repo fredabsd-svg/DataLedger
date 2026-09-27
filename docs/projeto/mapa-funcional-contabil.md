@@ -501,3 +501,110 @@ contabilidade.
 5. Plano de contas compartilhado entre empresas do mesmo grupo é necessário?
    (PE-31)
 6. Quais das obrigações listadas o escritório **de fato entrega** hoje? (PE-32)
+
+## Inventário completo — manual 10.1A-12 (2026-09-27)
+
+Pedido do Fred em 2026-09-27: o produto deve ter **todas** as funções do
+sistema de referência, usado só como referência
+([DL-047](../planos/DL-047-mapa-de-paridade-funcional.md)). O manual novo que
+ele entregou (Contabilidade, versão 10.1A-12, 856 páginas) foi relido pelo
+sumário inteiro e por amostras das páginas; as páginas abaixo são dele. A
+situação no DataLedger foi conferida no código pelo `arquiteto-senior`, que
+corrigiu duas afirmações do levantamento: o Razão **tem** filtro de período
+(DL-015), e a camada de saldos **existe** (`apurar_saldos`, DL-032).
+
+Classes de documento conforme
+[personalizacao-de-relatorio.md](personalizacao-de-relatorio.md): C =
+conferência, D = demonstração, L = livro, R = arquivo regulatório.
+
+### Relatórios
+
+| Relatório | Classe | Página | DataLedger |
+| --- | --- | --- | --- |
+| Diário | C (L na forma de livro) | 248-253 | Existe como conferência; falta a forma de livro |
+| Razão | C (L) | 258-263 | Existe, por período; falta centro de custo e forma de livro |
+| Balancete | C | 264-270 | Existe |
+| Balanço Patrimonial | D | 271-279 | Existe, com veto de emissão |
+| DRE | D | 583-593 | Existe (DL-045) |
+| Conferência de lotes | C | 779-780 | Existe (tela de conferência) |
+| Carnê-leão, demonstrativos mensal e anual | D | 650-652 | Existe (DL-046) |
+| Termos de abertura e encerramento; termo de transferência | L | 290-293 | Não existe |
+| Livros contábeis (emissão encadernável com termos) | L | 299-358 | Não existe |
+| Carta de responsabilidade da administração | D | 296-298 | Não existe |
+| DLPA | D | 604-611 | Não existe |
+| DMPL | D | 616-622 | Não existe |
+| DFC (direto e indireto) e acompanhamento da DFC | D, C | 622-631, 666-667 | Não existe |
+| DRA (resultado abrangente) | D | 593-599 | Não existe |
+| DVA | D | 599-604 | Não existe |
+| Notas explicativas | D | 645-646 | Não existe |
+| Análise vertical e horizontal (Balanço e DRE) | D | 568-577 | Não existe |
+| Coeficientes de análise (índices) e EBITDA | D | 352-355, 577-582, 637-642 | Não existe |
+| Comparativo de movimento entre períodos | C | 356-358, 657-660 | Não existe |
+| Balanço em forma de demonstração | D | 642-645 | O Balanço atual já é vertical |
+| Gráficos | C | 646-650 | Não existe |
+| Caixa (empresa) | C, L | 288-289 | Só o livro-caixa de pessoa física |
+| Acompanhamentos (diário, lançamentos, conferência) | C | 651-657 | Não existe |
+| Centro de custo (rateios, lançamentos) | C, D | 692-696 | Não existe |
+| Orçamento × realizado | C, D | 696-703 | Não existe |
+| Cadastrais (empresas, sócios, contas, históricos, lançamentos padrão, centros de custo) | C | 677-691 | Só listagens de empresas e do plano de contas |
+| Apuração de CMV e CPV | C + lançamento | 660-663, 832-839 | Não existe; depende de estoque |
+| ECD (SPED Contábil) | R | 359-374 | Não existe |
+| ECF (SPED Contábil Fiscal) | R | 375-541 | Não existe |
+| Balanço fiscal e conferência do FCONT | D, C | 280-285, 663-666 | Fora: o FCONT acabou com o fim do RTT (confirmar) |
+| Balancetes e arquivos setoriais (ANEEL, ANTT, COFI, Bacen, ANS/DIOPS, Sinco, TCE/SC, partidos) | R | 542-567 | Nicho: só se houver cliente regulado |
+| Balanço social; DOAR; DSP (terceiro setor) | D | 285-287, 611-616, 631-637 | Nicho ou histórico |
+
+### Funções
+
+| Função | Página | DataLedger |
+| --- | --- | --- |
+| Cadastro da empresa; troca de empresa | 29-45, 66 | Existe (sem quadro societário e certificado) |
+| Perfis de empresa (modelo para cliente novo) | 46-48 | Não existe |
+| Sócios e quadro societário | 48-61 | Não existe |
+| Contador responsável (CRC) | 62-65 | Não existe |
+| Parâmetros da empresa | 67-105 | Parcial (DL-043) |
+| Período de trabalho | 106-108 | Não existe (só o fechamento de competência) |
+| Fechamento de competência | 108 | Existe (DL-016, DL-031) |
+| Permissões por módulo, menu e empresa | 109-119 | Parcial (papéis por escritório) |
+| Plano de contas com vínculos (referencial, demonstrativos, carnê-leão) | 120-143 | Parcial: hierarquia, circulante, linha da DRE |
+| Históricos padronizados | 144 | Não existe |
+| Índices de correção e moeda | 145-148 | Não existe |
+| SCP | 153-160 | Não existe |
+| Departamentos e centros de custo | 160-161 | Não existe (RC-54, BL-67 a BL-69) |
+| Configuração de notas explicativas | 162-166 | Não existe |
+| Regra de contabilização de extrato bancário | 167-171 | Não existe |
+| Lançamentos padrão | 172-175 | Não existe |
+| Participantes (terceiros) | 177-178 | Não existe |
+| Conglomerado econômico | 178-179 | Não existe |
+| Lançamento com dimensões (centro de custo, referencial, participante, DMPL, DFC) | 180-197 | Parcial: partida dobrada, imutável, estorno, idempotência |
+| Lançamento e consulta na mesma tela | 199-217 | Não existe |
+| Extrato bancário (importação e lançamento) | 234-236 | Não existe |
+| Lançamentos orçados | 236-238 | Não existe |
+| Conciliação (lançamentos, contas, bancária, clientes e fornecedores) | 238-247, 667-676 | Não existe |
+| Importações (outra empresa, leiaute padrão, genérico, extrato) | 782-829 | Não existe |
+| Exportações | 829-832 | Não existe |
+| Consultas rápidas (saldos, contas × lançamentos, movimento mensal) | 710-714 | Parcial (API) |
+| Alteração de lançamentos em massa | 730-732 | Não existe — ver "não copiar" acima |
+| Alteração da estrutura do plano de contas | 734-737 | Não existe (BL-541 cobre a tela de editar conta) |
+| Vínculo ao plano referencial | 765-769 | Não existe |
+| Vínculo às estruturas de demonstração | 769-771 | Só a linha da DRE (DL-045) |
+| Ajustes para ECF e demais arquivos | 737-765 | Não existe |
+| Zeramento | 92-95, 840-841 | Existe (DL-043) |
+| Exclusões e eliminação de período | 841-847 | Não existe — ver "não copiar" acima |
+| Backup | 715-723 | Não existe (PE-07) |
+| Registro de atividades | 848-850 | A trilha de auditoria (DL-024, DL-030) já cobre, com mais garantia |
+
+### Cadeia de dependências
+
+| Base | Destrava |
+| --- | --- |
+| Camada de saldos (existe) | Análise vertical e horizontal, comparativo, índices, EBITDA |
+| Estrutura de demonstração ligada à conta (hoje só a DRE) | DLPA, DMPL, DFC, DRA, DVA, notas explicativas |
+| Encerramento do exercício (hoje só competência) | Termos, livros encadernáveis, DLPA |
+| Centro de custo e departamento | Razão e relatórios por centro de custo, orçamento |
+| Participantes | Conciliação de clientes e fornecedores, integração fiscal |
+| Histórico padronizado | Lançamento padrão, integração fiscal e de folha |
+| Plano referencial por vigência | ECD, ECF, arquivos setoriais |
+| Extrato bancário e regra de contabilização | Conciliação bancária |
+| Sócios e contador responsável | Termos, carta de responsabilidade, signatários da ECD |
+| Estoque (módulo inexistente) | CMV e CPV |
