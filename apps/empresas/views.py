@@ -726,7 +726,12 @@ def lista_empresas(request):
     # aqui), então oferecer o atalho de volta para a MESMA seção, por
     # empresa, não expõe nada que a tela já não expusesse.
     secao_de_troca = request.GET.get("secao", "")
-    if secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA:
+    # A seção pode vir de uma tela da contabilidade ou do livro-caixa
+    # (DL-046, achado A3): o "Continuar aqui" vale para as duas.
+    if (
+        secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA
+        and secao_de_troca not in SECOES_DE_TROCA_DE_EMPRESA_LIVRO_CAIXA
+    ):
         secao_de_troca = ""
 
     contexto = {

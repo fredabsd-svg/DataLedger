@@ -721,7 +721,10 @@ def livro_caixa_relatorio(request, empresa_id):
             # serviço, então este bloco é GENÉRICO e INERTE — nenhum item
             # sai do grupo principal, nenhum teste muda de resultado, até
             # o desenvolvedor completar o outro lado.
-            "eh_pagamento_p20_carne_leao": item.get("eh_pagamento_p20_carne_leao", False),
+            # Integração com o servidor corrigido (DE-087 item 13): o
+            # serviço marca cada item com `grupo`; os pagamentos P20 são
+            # `saida_deducao_carne_leao`.
+            "eh_pagamento_p20_carne_leao": item.get("grupo") == "saida_deducao_carne_leao",
         }
         for item in apuracao["itens"]
     ]
@@ -733,6 +736,10 @@ def livro_caixa_relatorio(request, empresa_id):
             ],
             "total_entradas_ptbr": _valor_ptbr(apuracao["total_entradas"]),
             "total_saidas_ptbr": _valor_ptbr(apuracao["total_saidas"]),
+            "total_saidas_custeio_ptbr": _valor_ptbr(apuracao["total_saidas_custeio"]),
+            "total_saidas_deducao_carne_leao_ptbr": _valor_ptbr(
+                apuracao["total_saidas_deducao_carne_leao"]
+            ),
             "saldo_ptbr": _valor_ptbr(apuracao["saldo"]),
         }
     )

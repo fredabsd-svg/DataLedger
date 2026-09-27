@@ -883,3 +883,65 @@ def test_paralegal_recebe_403_ao_tentar_estornar_pela_tela(client, cenario_com_l
     assert resposta_post.status_code == 403
     lancamento.refresh_from_db()
     assert not LancamentoCaixa.objects.filter(estorno_de=lancamento).exists()
+
+
+# ---------------------------------------------------------------------------
+# Integração das duas metades da correção da rodada 1 (servidor + telas).
+# ---------------------------------------------------------------------------
+
+
+def test_relatorio_separa_pagamentos_p20_das_despesas_de_custeio(client, cenario):
+    """DE-087 item 13: o pagamento P20 sai no grupo próprio, não entre as
+    despesas de custeio, e o saldo de caixa continua o mesmo."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+    conta_p20 = ContaLivroCaixa.objects.create(
+        empresa=empresa,
+        codigo="D20",
+        nome="Previdência oficial paga",
+        natureza=NaturezaCaixa.DESPESA,
+        codigo_carne_leao="P20.01.00004",
+    )
+    data = timezone.datetime(2026, 3, 12).date()
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_despesa"],
+        data=data,
+        valor=Decimal("200.00"),
+        historico="Material de escritório",
+    )
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=conta_p20,
+        data=data,
+        valor=Decimal("300.00"),
+        historico="Contribuição previdenciária",
+    )
+
+    resposta = client.get(
+        reverse("livro_caixa_web:relatorio", args=[empresa.id])
+        + "?inicio=2026-03-01&fim=2026-03-31"
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.content.decode()
+    assert "Pagamentos que deduzem a base do carnê-leão" in corpo
+    grupo_p20 = corpo.split("Pagamentos que deduzem a base do carnê-leão", 1)[1]
+    assert "Contribuição previdenciária" in grupo_p20
+    assert "Material de escritório" not in grupo_p20
+    assert resposta.context["total_saidas_custeio_ptbr"] == "200,00"
+    assert resposta.context["total_saidas_deducao_carne_leao_ptbr"] == "300,00"
+    assert resposta.context["total_saidas_ptbr"] == "500,00"
+
+
+@pytest.mark.parametrize("secao", ["relatorio", "lancamentos", "lancamento_novo"])
+def test_lista_de_empresas_oferece_continuar_aqui_vindo_do_livro_caixa(client, cenario, secao):
+    """Achado A3 (resíduo): vindo de uma tela do livro-caixa, a lista de
+    empresas oferece o "Continuar aqui" para a mesma seção."""
+    _autenticar(client, cenario["escritorio"])
+    empresa = cenario["empresa"]
+
+    resposta = client.get(reverse("empresas:lista") + f"?secao={secao}")
+
+    assert resposta.status_code == 200
+    assert f"?empresa_id={empresa.id}&secao={secao}" in resposta.content.decode()

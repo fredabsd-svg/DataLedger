@@ -199,10 +199,8 @@ escritório que o emite).
         D3 (DE-087 item 13, dúvida do Fred ainda sem confirmação
         normativa): pagamentos P20 (imposto pago, previdência oficial,
         pensão) são DEDUÇÃO do carnê-leão, art. 68 — não despesa de
-        custeio. `pagamentos_p20_carne_leao` vem SEMPRE vazio hoje
-        (`apurar_livro_caixa`, services.py, ainda não marca nenhum item
-        assim) — este bloco fica pronto, mas INERTE, para quando o
-        serviço passar a marcar; até lá, nunca renderiza.
+        custeio. `apurar_livro_caixa` marca esses itens com
+        `grupo == "saida_deducao_carne_leao"`; a view os separa aqui.
         {% endcomment %}
         {% if pagamentos_p20_carne_leao %}
             <table class="tabela-dados">
