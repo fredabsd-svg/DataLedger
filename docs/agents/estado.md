@@ -137,9 +137,11 @@ merge do PR #38, sem commit individual por etapa.
   verificação independente descrita no
   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md) — ela achou o
   instrumento de medição do N3 quebrado, corrigido e medido de novo. O Fred
-  decide no PR. A fatia 2 (apuração mensal do carnê-leão) está
-  **desbloqueada**: a PE-71 foi respondida em fonte oficial (RC-131, HI-32 a
-  HI-34), e é a próxima etapa depois deste PR.
+  decide no PR. A fatia 2 (apuração mensal do carnê-leão, com a PE-71
+  respondida em fonte oficial — RC-131) está implementada na branch local
+  `dl046-f2-tela`: rodada 1 e reconferência da auditoria reprovaram e foram
+  corrigidas; o fechamento está em verificação independente, sem terceira
+  rodada. Entra por PR próprio depois deste.
 - Agentes em paralelo usam **banco de teste próprio** (nome do banco trocado no
   `DATABASE_URL`).
 - Commits `wip: preservação, não entrega` na branch protegem trabalho em
