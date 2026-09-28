@@ -170,6 +170,18 @@ nunca um botão que devolveria arquivo parcial ou erro.
                 Conferência dos arquivos do Carnê-Leão de {{ empresa.razao_social }} no período
             </caption>
             <thead>
+                {% comment %}
+                    Este é um DOCUMENTO DE CONFERÊNCIA, e a identificação do
+                    emitente é obrigação, não opcional — mesma técnica do
+                    demonstrativo mensal: a linha fica no cabecalho da tabela
+                    e repete em toda folha impressa. Sem ela o documento sai
+                    sem identificar quem emitiu.
+                {% endcomment %}
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="2">
+                        {% include "livro_caixa/_identificacao_do_documento_carne_leao.html" %}
+                    </th>
+                </tr>
                 <tr>
                     <th scope="col">Linha</th>
                     <th scope="col" class="cabecalho-numerico">Valor</th>
