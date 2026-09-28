@@ -2503,6 +2503,12 @@ def _criar_cenario_carne_leao_anual_sintetico():
             data=date(2025, mes, 12),
             valor=Decimal("908.86"),
             historico="Previdência — cenário R-A1",
+            # DL-046 fatia 3: o pagamento de previdência oficial
+            # (P20.01.00001) passou a exigir a competência, que é o que o
+            # leiaute oficial declara. O cenário do instrumento era anterior
+            # a esse requisito e não a informava — o que não quebrava nada
+            # enquanto o requisito não existia.
+            competencia_previdencia=date(2025, mes, 1),
         )
         if mes % 2:
             criar_lancamento_caixa(
