@@ -122,21 +122,15 @@ MENSAGENS_DE_RESTRICAO = {
     # `validators=[validar_codigo_ocupacao]` do MODELO — confere formato e
     # tabela oficial antes de `validate` rodar).
     #
-    # ⚠️ **GAP CONHECIDO, registrado para quem tem `apps/empresas/views.py`
-    # no escopo** (fora do escopo de arquivos desta etapa, DL-046 fatia 3):
-    # ao contrário do CAEPF (linha acima), esta constraint NÃO está
-    # passada para `restricao_como_400` via `mensagens_de(...)` em
-    # `EmpresaListCreateView`/`EmpresaDetailView` — só o REGISTRO desta
-    # tradução existe aqui (o que a varredura de `test_dl019_varredura_de_
-    # restricoes.py` exige); falta o FIO até as duas views, mesmo padrão
-    # exato do CAEPF logo acima (`mensagens_de("empresa_cnpj_canonico",
-    # ..., "empresa_caepf_so_para_cpf_com_formato_valido")` nos dois
-    # `perform_create`/`perform_update`, mais a entrada em `_CAMPO_DA_
-    # RESTRICAO_DE_EMPRESA`). Até essa etapa entrar, uma corrida residual
-    # que violasse esta constraint específica (PATCH que omite
-    # `tipo_inscricao`, concorrente com uma troca de tipo — mesma classe
-    # de janela já documentada para o CAEPF) vazaria `IntegrityError` cru
-    # (500), não este texto.
+    # O FIO até as views está LIGADO desde 2026-09-27: esta chave entra em
+    # `mensagens_de(...)` dos dois `perform_create`/`perform_update` de
+    # `apps/empresas/views.py`, e `"codigo_ocupacao"` é a entrada dela em
+    # `_CAMPO_DA_RESTRICAO_DE_EMPRESA` (sem ela, a corrida caía no
+    # `.get(..., "cnpj")` e reportava o erro no campo errado — o mesmo
+    # defeito do CAEPF, achado da rodada 1). A janela de corrida que esta
+    # camada segura é a mesma já documentada para o CAEPF: PATCH que omite
+    # `tipo_inscricao`, concorrente com uma troca de tipo. Prova do fio:
+    # `apps/empresas/tests/test_dl046_fatia3_restricao_ocupacao_como_400.py`.
     "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido": (
         "Código de ocupação só é aceito para empresa com tipo de inscrição "
         "CPF, e precisa ter 3 dígitos numéricos da tabela oficial do "

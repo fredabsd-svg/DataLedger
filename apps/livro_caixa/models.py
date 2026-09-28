@@ -575,8 +575,15 @@ class LancamentoCaixa(models.Model):
             raise ValidationError(erros)
 
         # DL-046, fatia 3 (RC-127): IRRF retido só em rendimento recebido de
-        # PJ — `apps.livro_caixa.validators.erro_de_valor_irrf`.
-        erro_irrf = erro_de_valor_irrf(recebido_de=self.recebido_de, valor_irrf=self.valor_irrf)
+        # PJ — e só em modelo de rendimento que TEM coluna de IRRF no leiaute
+        # (a linha de aluguel e outros não tem; aceitar o valor faria o
+        # arquivo sumir com ele em silêncio). Mesma regra por MODELO de
+        # `erros_de_cpf_cnpj_do_rendimento`, logo acima (DE-088) — por isso
+        # `modelo` é reaproveitado daqui e não recalculado.
+        # `apps.livro_caixa.validators.erro_de_valor_irrf`.
+        erro_irrf = erro_de_valor_irrf(
+            modelo=modelo, recebido_de=self.recebido_de, valor_irrf=self.valor_irrf
+        )
         if erro_irrf is not None:
             raise ValidationError({"valor_irrf": erro_irrf})
 

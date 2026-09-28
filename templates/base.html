@@ -482,6 +482,23 @@
                                                                     <a href="{% url 'livro_caixa_web:dependentes_carne_leao' empresa_atual.id %}">Dependentes (carnê-leão)</a>
                                                                 {% endif %}
                                                             </li>
+                                                            {% comment %}
+                                                            DL-046, fatia 3 (RC-127): geração dos
+                                                            arquivos que o Carnê-Leão Web importa
+                                                            — quarto item do mesmo grupo, mesmo
+                                                            desenho dos três acima. Sem
+                                                            accesskey, como todo item novo desta
+                                                            lista (letras seguras já ocupadas —
+                                                            ver a nota grande sobre colisão, mais
+                                                            acima neste arquivo).
+                                                            {% endcomment %}
+                                                            <li>
+                                                                {% if pagina_atual == "arquivos_carne_leao" %}
+                                                                    <span class="item-atual" aria-current="page">Arquivos do Carnê-Leão</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:arquivos_carne_leao' empresa_atual.id %}">Arquivos do Carnê-Leão</a>
+                                                                {% endif %}
+                                                            </li>
                                                         </ul>
                                                     </div>
                                                 {% endwith %}

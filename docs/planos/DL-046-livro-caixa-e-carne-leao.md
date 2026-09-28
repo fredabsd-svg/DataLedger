@@ -2464,7 +2464,10 @@ Prefixo `livro-caixa/empresas/<empresa_id>/carne-leao/arquivos/`.
   rendimentos. `200` com `Content-Disposition: attachment;
   filename="carne-leao-rendimentos-AAAA-MM-a-AAAA-MM.csv"` (nome NEUTRO,
   sem CPF/CNPJ) e `Content-Type: text/csv; charset=ISO-8859-1`; `400` com
-  `{"pendencias": [...]}` se houver pendência; `400` se período inválido.
+  `{"pendencias": [...]}` se houver pendência; `400` se período inválido;
+  `400` se o período não tem movimento algum a importar (mesma regra de
+  estado vazio da tela, `conferencia_sem_movimento` — achado 4 da rodada 1
+  da auditoria; antes, o download devolvia CSV vazio com `200`).
 - `GET .../pagamentos/?inicio=...&fim=...` — mesmo contrato, arquivo de
   pagamentos, `filename="carne-leao-pagamentos-..."`.
 - As três rotas: `403` para papel sem autorização (mesma matriz de leitura
@@ -2560,3 +2563,146 @@ vermelho — commit antes de cada aplicação):**
   troca de tipo) vazaria `IntegrityError` cru (500) em vez do texto
   amigável. Reportado ao `arquiteto-senior` para decidir quem fecha essa
   ponta.
+
+## Fecho da ponta aberta e campos de tela (2026-09-27, `arquiteto-senior`)
+
+Ordem direta do Fred nesta sessão ("leia todo o app [...] para codar o
+projeto"), com a escolha do que codar levada a ele: **fechar a fatia 3
+antes de abrir frente nova**. Nível de risco 1 (arquivo entregue à
+Receita em nome do cliente), então plano, critérios e auditoria
+independente valem por inteiro.
+
+### (a) O fio da restrição de código de ocupação — FECHADO
+
+A ponta que o registro de `apps/core/restricoes.py` marcava como GAP foi
+ligada, no mesmo padrão exato do CAEPF logo acima dela.
+
+| Onde | Mudança |
+| --- | --- |
+| `apps/empresas/views.py` | `"empresa_codigo_ocupacao_so_para_cpf_com_formato_valido"` entra em `mensagens_de(...)` dos **dois** caminhos de gravação (`EmpresaListCreateView.perform_create` e `EmpresaDetailView.perform_update`) e ganha entrada `"codigo_ocupacao"` em `_CAMPO_DA_RESTRICAO_DE_EMPRESA` — sem esta última, a corrida caía no `.get(..., "cnpj")` e reportava o erro no campo errado (o mesmo defeito do CAEPF, achado da rodada 1). |
+
+Teste: `apps/empresas/tests/test_dl046_fatia3_restricao_ocupacao_como_400.py`
+(9 testes — 8 rodam em qualquer backend, 1 só em PostgreSQL). O molde é o
+de `test_dl039_bl533_gatilho_sem_500.py`: a checagem em Python é
+neutralizada ("janela de corrida") e só a defesa de banco sobra. O
+oráculo que separa "recusou o banco" de "recusou o serializer" é o
+próprio texto — só a mensagem registrada fala em "tabela oficial".
+
+⚠️ **Limitação de ambiente declarada:** `restricao_como_400` traduz lendo
+`exc.__cause__.diag.constraint_name`, diagnóstico que **só o psycopg
+(PostgreSQL) anexa**. Esta verificação rodou em SQLite (Python 3.14.7,
+sem PostgreSQL nem Docker na máquina), onde o driver não tem `.diag` —
+então o caminho real do banco não é exercitado aqui. Isso **já era assim
+antes desta etapa**, medido: `test_dl019_canonizacao_como_400.py` reprovou
+nos seus 5 testes dependentes de diagnóstico no mesmo ambiente. O teste
+que compara o nome registrado com o nome real da constraint é por isso
+pulado em SQLite, com o motivo escrito no próprio `skipif`. **A evidência
+que vale para merge é a da CI, que roda PostgreSQL 16.**
+
+### (b1) Campos novos que a tela não enviava — FECHADO
+
+⚠️ **Bloqueio funcional que isto resolve:** `P20.01.00001` (previdência
+oficial) **exige** `competencia_previdencia`
+(`apps/livro_caixa/validators.py:erros_de_previdencia_oficial`), e a tela
+não oferecia o campo — logo **o pagamento de previdência oficial não
+podia ser lançado pela tela**. Só a API conseguia.
+
+| Arquivo | Mudança |
+| --- | --- |
+| `apps/empresas/forms.py` | `EmpresaForm` ganha `codigo_ocupacao` (Meta.fields, help_text e coerência com `tipo_inscricao` em `clean()`, mesma regra e mesma mensagem do `EmpresaSerializer.validate` — DE-026). |
+| `apps/livro_caixa/views_web.py` | `ContaCaixaForm` ganha `codigo_ocupacao` (sobreposição da ocupação do cliente por conta); o contrato do formulário de lançamento e `_contexto_form_lancamento_caixa` ganham `valor_irrf`, `competencia_previdencia`, `multa_previdencia` e `juros_previdencia`; dois helpers de leitura (`_valor_monetario_opcional_do_formulario`, `_competencia_previdencia_do_formulario`) — o campo vazio do HTML é `""`, não `None`, e é essa troca que faz o serviço enxergar "não informado". |
+| `templates/livro_caixa/lancamento_form.html` | Os quatro campos novos, preservando o digitado em recusa. |
+
+Os dois templates de formulário que iteram `form` (`empresas/form.html` e
+`livro_caixa/conta_form.html`) apanham os campos novos sem mudança.
+
+### Verificação executada nesta etapa
+
+- `ruff check` e `ruff format --check` sobre os arquivos alterados — sem
+  apontamentos.
+- `pytest apps/empresas` (excluídos os arquivos de concorrência com
+  threads reais, que travam no SQLite, e as falhas pré-existentes
+  mapeadas abaixo): **com** as mudanças desta etapa **311 passed, 20
+  failed**; **sem** elas, comprovação por `git stash`, **306 passed, 25
+  failed**. **Nada quebrou** — as 5 falhas a menos são exatamente os
+  testes novos do item (a).
+
+### Falhas pré-existentes registradas (não são desta etapa)
+
+Reproduzidas **sem** as mudanças desta etapa, por `git stash`, no mesmo
+ambiente. Todas são da mesma classe: dependem de `diag.constraint_name`
+(do psycopg), ou de migração com rollback em banco que não é o
+PostgreSQL.
+
+- `test_dl019_canonizacao_como_400.py` — 5
+- `test_bl54_formato_cnpj_constraint.py` — 4 (corrigido de 3 após a
+  reconferência da rodada 1: falta o caso POSITIVO, que reprovava por
+  gatilho de banco inexistente em SQLite)
+- `test_canonizacao_constraint.py` — 1
+- `test_dl038_api.py` — 2
+- `test_dl038_telas.py` — 1
+- `test_api.py` — 1
+- `test_dl039_bl529_gatilho_estabelecimento_cpf.py` — 4
+- `test_dl039_bl533_gatilho_sem_500.py` — 2
+- `test_dl041_migracao.py` — 3
+- `test_services.py` — 3
+- `test_views.py` — 1
+
+Foram **excluídos da execução** (não reprova — trava) os arquivos com
+corrida real em threads: `test_api.py` (em parte),
+`test_bl144_matriz_duplicada.py`,
+`test_dl023_regime_tributario_periodo_unico.py`, `test_dl038_migracao.py`,
+`test_dl039_bl534_corrida_real.py`, `test_dl041_unicidade_por_escritorio.py`
+e `test_dl076_b8_modo_escrituracao_constraint.py`. SQLite trava em escrita
+concorrente; o projeto é de PostgreSQL 16.
+
+### (b2) Tela de pendências, conferência e download — ENTREGUE
+
+`especialista-frontend`, nesta mesma etapa: `arquivos_carne_leao` (painel
+de período combinado com documento de conferência), mais os dois downloads
+(`arquivo_rendimentos`/`arquivo_pagamentos`, CSV ISO-8859-1, nome de
+arquivo NEUTRO sem CPF/CNPJ, pendência nunca vira arquivo parcial), o item
+no menu lateral e os testes de tela. As rotas entram na guarda de telas
+(`test_dl024_atalhos_e_acessibilidade.py`).
+
+## Correção da rodada 1 da auditoria (2026-09-27)
+
+Auditoria independente da fatia 3 inteira (servidor + tela): **REPROVADA**
+— achado 1 era nível 1. Regra de parada do AGENTS.md §3.1: uma auditoria,
+uma correção, uma reconferência; terceira rodada é proibida.
+
+| # | Sev. | Achado | Correção | Prova |
+| --- | --- | --- | --- | --- |
+| 1 | ALTO (n1) | `valor_irrf` aceito em modelo de rendimento sem coluna de IRRF (aluguel/outros) e **omitido do CSV em silêncio** — o contador informa o valor e ele some do arquivo que vai à Receita. | `erro_de_valor_irrf` passa a ser por MODELO (mesmo desenho de `erros_de_cpf_cnpj_do_rendimento`, DE-088) e recusa no modelo de aluguel; texto de apoio da tela corrigido; teste que cementava o comportamento trocado pelo caso recusado. | `test_valor_irrf_e_recusado_no_modelo_de_aluguel_que_nao_tem_a_coluna` |
+| 2 | MÉDIO | `codigo_ocupacao` em `EmpresaForm` e `ContaCaixaForm` sem teste nenhum — mutação da condição do `clean()` ou da entrada no contrato não reprovava nada. | Dois arquivos de teste novos (11 testes), incluindo a entrada no `_CONTRATO_DO_FORMULARIO_DE_CONTA_CAIXA` — sem ela a tela devolvia 400 no próprio campo novo. | `test_dl046_fatia3_ocupacao_na_tela.py`, `test_dl046_tela_ocupacao_da_conta.py` |
+| 3 | BAIXO | DE-092 parcial: a API devolvia identificador interno nos `motivo`. | Limpo na FONTE (`carne_leao_arquivos.py`) — "(HI-41)" e "(PE-71)" saíram das mensagens; o texto interno continua em comentário, onde pode. | varredura sem identificador |
+| 4 | BAIXO | Download direto de período sem movimento devolvia CSV vazio com 200, contradizendo a tela. | `conferencia_sem_movimento()` em `carne_leao_arquivos.py` — regra ÚNICA usada nos três lugares (tela e os dois downloads) e na API. | `test_download_de_periodo_sem_movimento_nao_devolve_csv_vazio_com_200` |
+| 5 | MÉDIO | Trilha `carne_leao_arquivo.gerado` gravada por mera CONFERÊNCIA: cada GET da tela dizia que um arquivo tinha sido gerado sem ninguém ter baixado. | `gerar_arquivos_carne_leao(..., para_download=)` distingue `carne_leao_arquivo.conferido` de `...gerado`; downloads passam `True`. A regra de não expor conteúdo vale para as duas. | `test_a_trilha_diz_conferido_quando_so_confere_e_gerado_quando_baixa` |
+
+Também corrigida a contagem de `test_bl54_formato_cnpj_constraint.py` (3 →
+4) na lista de falhas pré-existentes, acima — a auditoria mediu diferente e
+a memória foi atualizada.
+
+### Ressalvas que a auditoria deixou e NÃO são desta etapa
+
+- Regras citadas no código ("P&R IRPF 2026 p. 334", importação automática
+  do imposto pago, 117 fixo do notarial, "ano selecionado") — **a
+  confirmar** em fonte oficial; a auditoria não pôde consultar.
+- A linha de aluguel com `recebido_de=PJ` não tem correspondente nos
+  arquivos-modelo oficiais (só `PF` e `EX`) — **a confirmar** na importação
+  real (HI-41/HI-42/HI-43 seguem sem essa confirmação).
+- Três testes-CONTROLE de `test_dl024_varredura_de_interface.py` comparam
+  caminho POSIX com o retorno Windows (`'static/css/x' in {'static\css\x'}`)
+  — defeito do **instrumento**, pré-existente, sem relação com esta entrega.
+
+### Verificação das correções
+
+- `ruff check .` — sem apontamentos.
+- `pytest apps/livro_caixa` — **411 passed, 4 failed** (as 4 pré-existentes
+  de ambiente, já mapeadas acima).
+- `pytest ...test_dl046_telas_arquivos_carne_leao.py` — **36 passed**.
+- `pytest apps/empresas/tests/test_dl046_fatia3_ocupacao_na_tela.py
+  apps/livro_caixa/tests/test_dl046_tela_ocupacao_da_conta.py` — **11
+  passed**.
+
+

@@ -436,18 +436,44 @@ def erro_de_codigo_ocupacao_da_conta(modelo, *, natureza, codigo_ocupacao):
     )
 
 
-def erro_de_valor_irrf(*, recebido_de, valor_irrf):
+def erro_de_valor_irrf(*, modelo, recebido_de, valor_irrf):
     """`LancamentoCaixa.valor_irrf` (RC-127): IRRF retido só existe em
     rendimento recebido de PESSOA JURÍDICA (leiaute oficial — indicador "S"
     quando há retenção com o valor, "N" caso contrário; o indicador é
     DERIVADO na geração do arquivo, nunca gravado como campo próprio).
-    Devolve mensagem de recusa, ou `None` quando está coerente."""
+    Devolve mensagem de recusa, ou `None` quando está coerente.
+
+    A regra é POR MODELO de rendimento, não universal — mesmo desenho de
+    `erros_de_cpf_cnpj_do_rendimento` (DE-088), e pela MESMA razão: a
+    linha de aluguel e outros rendimentos tem 7 campos e **não tem coluna
+    de indicador nem de valor de IRRF** (conferido nos arquivos-modelo
+    oficiais — `tests/fixtures/carne_leao_modelos/
+    aluguel_e_outros_rendimentos.csv`). Aceitar o valor aqui faria o
+    arquivo que vai à Receita **sumir com o IRRF em silêncio**: o dado é
+    gravado, a tela mostra sucesso, e a linha sai sem ele. Nada é truncado
+    nem descartado em silêncio — se o leiaute não tem a coluna, o campo é
+    recusado no lançamento.
+
+    ⚠️ `MODELO_DESCONHECIDO` (código fora das quatro tabelas confirmadas,
+    PE-71) fica SEM exigência aqui, pelo mesmo critério de `cnpj_pagador`:
+    não se recusa com base em leiaute que não se conhece. Nesse caso o
+    arquivo nem chega a ser gerado — o código desconhecido já é pendência
+    em `apps.livro_caixa.carne_leao_arquivos` —, então nenhum dado se perde
+    em silêncio enquanto a tabela não for confirmada.
+    """
     if valor_irrf is None:
         return None
     if recebido_de != "PJ":
         return (
             "Valor de IRRF retido só é aceito quando 'recebido de' é pessoa "
             "jurídica (PJ) — leiaute oficial do Carnê-Leão Web."
+        )
+    if modelo == MODELO_ALUGUEL_OUTROS:
+        return (
+            "O modelo de aluguel e outros rendimentos não tem coluna de IRRF no "
+            "arquivo de importação do Carnê-Leão Web — deixe o valor em branco. "
+            "Este campo é aceito só em rendimento de trabalho não assalariado ou "
+            "de serviços notariais e de registro."
         )
     return None
 

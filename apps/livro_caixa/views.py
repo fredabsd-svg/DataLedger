@@ -46,6 +46,7 @@ from apps.livro_caixa.carne_leao import (
 from apps.livro_caixa.carne_leao_arquivos import (
     GeracaoArquivoCarneLeaoBloqueada,
     PeriodoInvalidoParaArquivoCarneLeaoWeb,
+    conferencia_sem_movimento,
     gerar_arquivos_carne_leao,
 )
 from apps.livro_caixa.models import (
@@ -784,8 +785,17 @@ class _ArquivoCarneLeaoDownloadViewBase(EmpresaEscopadaLivroCaixaMixin, APIView)
         empresa = self.get_empresa()
         inicio, fim = _extrair_periodo_arquivo_carne_leao(request)
         try:
-            rendimentos_bytes, pagamentos_bytes, _conferencia = gerar_arquivos_carne_leao(
-                empresa=empresa, inicio=inicio, fim=fim, usuario=request.user, request=request
+            rendimentos_bytes, pagamentos_bytes, conferencia = gerar_arquivos_carne_leao(
+                empresa=empresa,
+                inicio=inicio,
+                fim=fim,
+                usuario=request.user,
+                request=request,
+                # Os bytes VÃO para o cliente aqui: a trilha registra
+                # "carne_leao_arquivo.gerado". A rota de pendências, que
+                # chama a mesma geração só para conferir, fica com o padrão
+                # "conferido" (achado 5 da rodada 1 da auditoria).
+                para_download=True,
             )
         except PeriodoInvalidoParaArquivoCarneLeaoWeb as exc:
             raise DRFValidationError(str(exc)) from exc
@@ -793,6 +803,15 @@ class _ArquivoCarneLeaoDownloadViewBase(EmpresaEscopadaLivroCaixaMixin, APIView)
             return Response(
                 {"pendencias": _pendencias_para_json(exc.pendencias)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Achado 4 da rodada 1 da auditoria: sem movimento no período não há
+        # arquivo a importar — a MESMA regra de estado vazio da tela. Antes,
+        # um GET direto aqui devolvia CSV vazio com 200, contradizendo o que
+        # a tela mostrava para o mesmo período.
+        if conferencia_sem_movimento(conferencia):
+            raise DRFValidationError(
+                "Não há lançamentos neste período para exportar — o arquivo do "
+                "Carnê-Leão Web só é gerado quando existe movimento a importar."
             )
         conteudo = self._bytes_do_arquivo(rendimentos_bytes, pagamentos_bytes)
         nome_arquivo = _nome_arquivo_carne_leao(self.prefixo_do_nome, inicio, fim)

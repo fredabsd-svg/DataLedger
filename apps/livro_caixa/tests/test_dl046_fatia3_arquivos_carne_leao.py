@@ -1350,7 +1350,11 @@ def test_isolamento_entre_empresas_do_mesmo_escritorio(cenario):
 # ---------------------------------------------------------------------------
 
 
-def test_trilha_do_arquivo_gerado_nunca_expoe_conteudo(cenario):
+def test_trilha_do_arquivo_nunca_expoe_conteudo_nem_na_conferencia(cenario):
+    """A regra de não expor conteúdo vale para as DUAS ações: a de conferência
+    (que é a que a mera consulta à tela gera) e a de download. Achado 5 da
+    rodada 1 da auditoria dividiu a ação em duas — a regra de redação
+    acompanhou, e é este teste que impede as duas de divergirem."""
     from apps.auditoria.models import RegistroAuditoria
 
     empresa = cenario["empresa_a"]
@@ -1365,13 +1369,50 @@ def test_trilha_do_arquivo_gerado_nunca_expoe_conteudo(cenario):
         recebido_de=OrigemRecebimento.EX,
     )
     gerar_arquivos_carne_leao(empresa=empresa, inicio=dia, fim=dia, usuario=usuario)
+    gerar_arquivos_carne_leao(
+        empresa=empresa, inicio=dia, fim=dia, usuario=usuario, para_download=True
+    )
 
-    registro = RegistroAuditoria.objects.filter(acao="carne_leao_arquivo.gerado").latest("id")
-    assert registro.detalhes["linhas_rendimentos"] == 1
-    assert registro.detalhes["total_rendimentos"] == "1000.00"
-    detalhes_texto = str(registro.detalhes)
-    assert "111.222.333-44" not in detalhes_texto
-    assert "SIGILOSO" not in detalhes_texto
+    for acao in ("carne_leao_arquivo.conferido", "carne_leao_arquivo.gerado"):
+        registro = RegistroAuditoria.objects.filter(acao=acao).latest("id")
+        assert registro.detalhes["linhas_rendimentos"] == 1, acao
+        assert registro.detalhes["total_rendimentos"] == "1000.00", acao
+        detalhes_texto = str(registro.detalhes)
+        assert "111.222.333-44" not in detalhes_texto, acao
+        assert "SIGILOSO" not in detalhes_texto, acao
+
+
+def test_a_trilha_diz_conferido_quando_so_confere_e_gerado_quando_baixa(cenario):
+    """Achado 5 da rodada 1 da auditoria (nível 1 — trilha de auditoria): a
+    tela de arquivos chama a geração só para CONFERIR, e antes disto cada
+    GET dela gravava na trilha que um arquivo tinha sido GERADO, sem ninguém
+    ter baixado nada. A ação agora diz o que de fato aconteceu."""
+    from apps.auditoria.models import RegistroAuditoria
+
+    empresa = cenario["empresa_a"]
+    dia = date(2026, 10, 6)
+    usuario = _usuario_com_papel(Papel.GESTOR, cenario["escritorio_a"], "gestor-trilha-acao")
+    criar_lancamento_caixa(
+        empresa=empresa,
+        conta=cenario["conta_trabalho"],
+        data=dia,
+        valor="1000.00",
+        historico="Honorário de outubro",
+        recebido_de=OrigemRecebimento.EX,
+    )
+
+    # Só conferir: NÃO pode dizer que gerou.
+    gerar_arquivos_carne_leao(empresa=empresa, inicio=dia, fim=dia, usuario=usuario)
+    assert RegistroAuditoria.objects.filter(
+        acao="carne_leao_arquivo.conferido", objeto_id=empresa.id
+    ).exists()
+    assert not RegistroAuditoria.objects.filter(acao="carne_leao_arquivo.gerado").exists()
+
+    # Baixar de fato: aí sim "gerado".
+    gerar_arquivos_carne_leao(
+        empresa=empresa, inicio=dia, fim=dia, usuario=usuario, para_download=True
+    )
+    assert RegistroAuditoria.objects.filter(acao="carne_leao_arquivo.gerado").exists()
 
 
 # ---------------------------------------------------------------------------

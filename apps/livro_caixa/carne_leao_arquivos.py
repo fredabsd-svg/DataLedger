@@ -147,7 +147,7 @@ def _erro_de_historico(historico):
         return (
             "histórico contém caractere não representável em ISO-8859-1 "
             f"(posição {exc.start}: {trecho!r}) — o Carnê-Leão Web importa o "
-            "arquivo nessa codificação (HI-41); nada é substituído em silêncio."
+            "arquivo nessa codificação; nada é substituído em silêncio."
         )
     if ";" in historico or "\r" in historico or "\n" in historico:
         return (
@@ -323,7 +323,7 @@ def _pendencias_e_linhas(empresa, lancamentos):
                         lancamento.id,
                         "conta.codigo_carne_leao",
                         f"código de rendimento '{codigo}' fora das tabelas confirmadas "
-                        "para importação no Carnê-Leão Web (PE-71).",
+                        "para importação no Carnê-Leão Web.",
                     )
                 )
                 continue
@@ -437,7 +437,7 @@ def _lancamentos_incluidos(empresa, inicio, fim):
     return incluidos, excluidos_estorno, excluidos_sem_codigo
 
 
-def _gerar_arquivos_sob_snapshot(*, empresa, inicio, fim, usuario, request):
+def _gerar_arquivos_sob_snapshot(*, empresa, inicio, fim, usuario, request, para_download):
     incluidos, excluidos_estorno, excluidos_sem_codigo = _lancamentos_incluidos(
         empresa, inicio, fim
     )
@@ -479,11 +479,19 @@ def _gerar_arquivos_sob_snapshot(*, empresa, inicio, fim, usuario, request):
         "lancamentos_excluidos_sem_codigo": excluidos_sem_codigo,
     }
 
-    # Trilha do arquivo gerado (período, linhas, totais — NUNCA o conteúdo:
-    # nenhum histórico, CPF/CNPJ ou valor por lançamento entra em
-    # `detalhes`, só agregados).
+    # Trilha do arquivo (período, linhas, totais — NUNCA o conteúdo: nenhum
+    # histórico, CPF/CNPJ ou valor por lançamento entra em `detalhes`, só
+    # agregados).
+    #
+    # Achado 5 da rodada 1 da auditoria: a ação é DISTINTA conforme o que
+    # aconteceu de fato. Antes era sempre "carne_leao_arquivo.gerado", e a
+    # tela de arquivos chama esta geração só para CONFERIR — logo cada GET
+    # da tela gravava na trilha que um arquivo tinha sido GERADO, sem
+    # ninguém ter baixado nada. Trilha de auditoria é superfície de nível 1:
+    # ela pode dizer que alguém conferiu, nunca dizer que algo foi gerado
+    # quando não foi.
     registrar(
-        acao="carne_leao_arquivo.gerado",
+        acao="carne_leao_arquivo.gerado" if para_download else "carne_leao_arquivo.conferido",
         usuario=usuario,
         escritorio=empresa.escritorio,
         objeto=empresa,
@@ -502,9 +510,36 @@ def _gerar_arquivos_sob_snapshot(*, empresa, inicio, fim, usuario, request):
     return rendimentos_bytes, pagamentos_bytes, conferencia
 
 
-def gerar_arquivos_carne_leao(*, empresa, inicio, fim, usuario, request=None):
+def conferencia_sem_movimento(conferencia):
+    """`True` quando o período não tem NENHUM lançamento — nem o que entrou
+    no arquivo, nem o que ficou de fora (estorno/estornado ou conta sem
+    código do Carnê-Leão Web).
+
+    É o estado VAZIO do período: não há o que exportar, porque um CSV sem
+    linha não é o que a importação do Carnê-Leão Web consome. A regra mora
+    aqui, e não na tela, porque são TRÊS superfícies que precisam decidir a
+    mesma coisa — a tela de arquivos (esconde os botões) e os dois
+    downloads, que sem isso devolviam CSV vazio com 200 (sucesso aparente
+    contradizendo a tela). Achado 4 da rodada 1 da auditoria. Nenhum valor
+    monetário é somado aqui: só contagem.
+    """
+    return (
+        conferencia["linhas_rendimentos"] == 0
+        and conferencia["linhas_pagamentos"] == 0
+        and conferencia["lancamentos_excluidos_estorno"] == 0
+        and conferencia["lancamentos_excluidos_sem_codigo"] == 0
+    )
+
+
+def gerar_arquivos_carne_leao(*, empresa, inicio, fim, usuario, request=None, para_download=False):
     """Gera os dois arquivos de importação do Carnê-Leão Web (rendimentos e
     pagamentos) para `[inicio, fim]`, dentro de um único ano-calendário.
+
+    `para_download` decide o que a trilha de auditoria registra: `True`
+    quando os bytes vão mesmo para o cliente
+    ("carne_leao_arquivo.gerado"), `False` quando a chamada é só de
+    CONFERÊNCIA ("carne_leao_arquivo.conferido"). Padrão `False` de
+    propósito — quem só confere não deve deixar registro de que gerou.
 
     Devolve `(rendimentos_bytes, pagamentos_bytes, conferencia)` — os dois
     primeiros já em ISO-8859-1 com CRLF (HI-41), prontos para servir como
@@ -543,4 +578,5 @@ def gerar_arquivos_carne_leao(*, empresa, inicio, fim, usuario, request=None):
         fim=fim,
         usuario=usuario,
         request=request,
+        para_download=para_download,
     )

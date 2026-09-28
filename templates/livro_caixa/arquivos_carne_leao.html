@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block titulo %}Arquivos do Carnê-Leão — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+RC-97: "nome do relatório — razão social do cliente", mesmo padrão de
+relatorio.html (Livro Caixa) e carne_leao_mensal.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+Estes arquivos saem com o CONTEÚDO do período do cliente (o que a
+importação no Carnê-Leão Web consome) — por isso "Escritório ativo" pode
+sair da impressão, mesmo raciocínio de relatorio.html e
+carne_leao_mensal.html.
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if inicio and fim %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Período</span>
+            <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Arquivos do Carnê-Leão</h1>{% endblock %}
+
+{% comment %}
+Os downloads só existem quando a geração passou inteira (`pode_baixar`,
+views_web.py) — com pendência ou período inválido esta faixa fica vazia,
+nunca um botão que devolveria arquivo parcial ou erro.
+{% endcomment %}
+{% block acoes_pagina %}
+    {% if pode_baixar %}
+        <a class="botao botao--primario"
+           href="{% url 'livro_caixa_web:arquivo_rendimentos' empresa.id %}?inicio={{ inicio|date:'Y-m-d' }}&amp;fim={{ fim|date:'Y-m-d' }}">
+            Baixar rendimentos (CSV)
+        </a>
+        <a class="botao botao--secundario"
+           href="{% url 'livro_caixa_web:arquivo_pagamentos' empresa.id %}?inicio={{ inicio|date:'Y-m-d' }}&amp;fim={{ fim|date:'Y-m-d' }}">
+            Baixar pagamentos (CSV)
+        </a>
+    {% endif %}
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">Carnê-leão — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Arquivos do Carnê-Leão</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:carne_leao_mensal' empresa.id %}">‹ Voltar para o carnê-leão</a>
+    </nav>
+{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Os dois arquivos que o Carnê-Leão Web (Receita Federal) importa para o período não ter
+        de ser redigitado: rendimentos recebidos e pagamentos, um lançamento por linha, no
+        leiaute oficial. O período precisa ficar dentro de um único ano-calendário. Ficam fora,
+        por desenho do próprio leiaute, o lançamento estornado e o próprio estorno (o
+        Carnê-Leão Web não aceita valor negativo) e o lançamento de conta sem código do
+        Carnê-Leão Web — a conferência abaixo mostra o que isso tirou de cada arquivo.
+    </p>
+
+    <form method="get" class="formulario-periodo">
+        <div class="campo">
+            <label for="id_inicio">Início</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ inicio|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim</label>
+            <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
+                   aria-describedby="id_periodo_ajuda">
+        </div>
+        <button type="submit">Consultar período</button>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+    </form>
+
+    {% if not inicio or not fim %}
+        <p>
+            O período informado não pôde ser usado, por isso nada foi carregado.
+            <a href="{% url 'livro_caixa_web:arquivos_carne_leao' empresa.id %}">Voltar ao período padrão (mês atual)</a>
+            para ver os arquivos, ou corrija as datas no filtro acima.
+        </p>
+    {% endif %}
+
+    {% comment %}
+    Estado de ERRO: quando o período é válido mas cruza mais de um
+    ano-calendário, a recusa vem do serviço e chega como mensagem
+    (`messages.error`, views_web.py) — o parágrafo acima cobre a querystring
+    malformada. Os dois casos mostram o MESMO caminho de saída: corrigir o
+    filtro ou voltar ao período padrão.
+    {% endcomment %}
+
+    {% if pendencias %}
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> nenhum arquivo foi gerado — existem lançamentos que o leiaute
+            do Carnê-Leão Web recusaria. A lista abaixo está COMPLETA (nada é truncado nem
+            corrigido em silêncio): corrija cada lançamento e consulte o período novamente.
+        </div>
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Pendências que impedem a geração dos arquivos do Carnê-Leão de {{ empresa.razao_social }}
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col">Lançamento</th>
+                    <th scope="col">Campo</th>
+                    <th scope="col">O que falta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pendencia in pendencias %}
+                    <tr>
+                        <td>
+                            {% if inicio and fim %}
+                                <a href="{% url 'livro_caixa_web:lancamentos' empresa.id %}?inicio={{ inicio|date:'Y-m-d' }}&amp;fim={{ fim|date:'Y-m-d' }}">nº {{ pendencia.lancamento_id }}</a>
+                            {% else %}
+                                nº {{ pendencia.lancamento_id }}
+                            {% endif %}
+                        </td>
+                        <td>{{ pendencia.campo }}</td>
+                        <td>{{ pendencia.motivo }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if conferencia %}
+        {% comment %}
+        Estado VAZIO: nenhum lançamento no período, nem incluído nem
+        excluído — os dois arquivos sairiam sem linha nenhuma, e por isso
+        os downloads ficam de fora (`pode_baixar`, views_web.py). A
+        conferência continua sendo impressa, mesmo zerada: as diferenças
+        ficam expostas SEMPRE (critério 5 do plano), inclusive aqui.
+        {% endcomment %}
+        {% if estado_vazio %}
+            <div class="estado-vazio">
+                <p class="estado-vazio__titulo"><strong>Nenhum lançamento neste período.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem lançamento nenhum — nem incluído, nem excluído — não há o que exportar:
+                    os arquivos de rendimentos e de pagamentos sairiam vazios. Lance os
+                    recebimentos e os pagamentos do período (ou consulte outro período) para os
+                    arquivos poderem ser gerados.
+                </p>
+            </div>
+        {% endif %}
+
+        {% comment %}
+        Documento de conferência, no desenho de carne_leao_mensal.html
+        (arquétipo D + documento): só o que o SERVIÇO devolveu, formatado
+        em pt-BR — a view não calcula valor nenhum. `.valor-monetario` é a
+        classe de TABULAÇÃO do sistema (também usada para a contagem de
+        dependentes em dependentes_carne_leao.html): tudo que é número
+        nesta tabela sai alinhado por dígito.
+        {% endcomment %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">
+                Conferência dos arquivos do Carnê-Leão de {{ empresa.razao_social }} no período
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col">Linha</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Arquivo de rendimentos</th></tr>
+                <tr>
+                    <td>Linhas geradas (uma por lançamento)</td>
+                    <td class="valor-monetario">{{ conferencia.linhas_rendimentos }}</td>
+                </tr>
+                {% for item in conferencia.totais_rendimentos %}
+                    <tr>
+                        <td>— total do código {{ item.codigo }}</td>
+                        <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+                <tr class="linha-total">
+                    <td>Total do arquivo de rendimentos</td>
+                    <td class="valor-monetario">{{ conferencia.total_rendimentos_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Total de entradas no Livro Caixa do período</td>
+                    <td class="valor-monetario">{{ conferencia.total_entradas_livro_caixa_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Diferença (Livro Caixa menos arquivo)
+                        {% if conferencia.diferenca_rendimentos_zerada %}
+                            <p class="texto-apoio">
+                                Diferença zero: o arquivo de rendimentos bate com as entradas do
+                                Livro Caixa do período.
+                            </p>
+                        {% else %}
+                            <p class="texto-apoio">
+                                Diferença diferente de zero: existe lançamento de conta sem código
+                                do Carnê-Leão Web — ele fica fora do arquivo e continua no Livro
+                                Caixa. Confira antes de importar.
+                            </p>
+                        {% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ conferencia.diferenca_rendimentos_ptbr }}</td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Arquivo de pagamentos</th></tr>
+                <tr>
+                    <td>Linhas geradas (uma por lançamento)</td>
+                    <td class="valor-monetario">{{ conferencia.linhas_pagamentos }}</td>
+                </tr>
+                {% for item in conferencia.totais_pagamentos %}
+                    <tr>
+                        <td>— total do código {{ item.codigo }}</td>
+                        <td class="valor-monetario">{{ item.valor_ptbr }}</td>
+                    </tr>
+                {% endfor %}
+                <tr class="linha-total">
+                    <td>Total do arquivo de pagamentos</td>
+                    <td class="valor-monetario">{{ conferencia.total_pagamentos_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Total de saídas no Livro Caixa do período</td>
+                    <td class="valor-monetario">{{ conferencia.total_saidas_livro_caixa_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>
+                        Diferença (Livro Caixa menos arquivo)
+                        {% if conferencia.diferenca_pagamentos_zerada %}
+                            <p class="texto-apoio">
+                                Diferença zero: o arquivo de pagamentos bate com as saídas do
+                                Livro Caixa do período.
+                            </p>
+                        {% else %}
+                            <p class="texto-apoio">
+                                Diferença diferente de zero: existe lançamento de conta sem código
+                                do Carnê-Leão Web — ele fica fora do arquivo e continua no Livro
+                                Caixa. Confira antes de importar.
+                            </p>
+                        {% endif %}
+                    </td>
+                    <td class="valor-monetario">{{ conferencia.diferenca_pagamentos_ptbr }}</td>
+                </tr>
+            </tbody>
+
+            <tbody>
+                <tr><th scope="colgroup" colspan="2">Fora dos dois arquivos (por desenho do leiaute)</th></tr>
+                <tr>
+                    <td>Lançamentos estornados e estornos omitidos</td>
+                    <td class="valor-monetario">{{ conferencia.lancamentos_excluidos_estorno }}</td>
+                </tr>
+                <tr>
+                    <td>Lançamentos de conta sem código do Carnê-Leão Web omitidos</td>
+                    <td class="valor-monetario">{{ conferencia.lancamentos_excluidos_sem_codigo }}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}
