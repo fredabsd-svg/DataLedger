@@ -228,6 +228,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-045** — Demonstração do Resultado do Exercício (DRE): classificação de conta pelas linhas do art. 187 da Lei 6.404/76, com resultado financeiro destacado e equivalência patrimonial em linha própria (NBC TG 26, NBC TG 1000, modelos da ITG 1000); apuração pelo movimento do período, excluindo o zeramento, em coluna do mês e acumulado do exercício. Plano em [docs/planos/DL-045-demonstracao-do-resultado.md](docs/planos/DL-045-demonstracao-do-resultado.md)
 - **DL-046** — livro-caixa e carnê-leão do cliente pessoa física: lançamentos de caixa com o código do Carnê-Leão Web, apuração mensal com excesso de deduções (RIR/2018, arts. 68-69 e 118-125) e arquivo de importação no leiaute oficial
 - **DL-047** — mapa de paridade funcional com o sistema de referência: inventário de relatórios e funções de Contabilidade, Fiscal, Folha, Patrimônio, Lalur e Honorários, com plano detalhado por módulo em [docs/projeto/paridade/](docs/projeto/paridade/). Plano em [docs/planos/DL-047-mapa-de-paridade-funcional.md](docs/planos/DL-047-mapa-de-paridade-funcional.md)
+- **DL-048** — Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC (indireto) e DRA e DVA (CTB-12 a CTB-17 do mapa de paridade). Itens em [docs/projeto/paridade/contabilidade.md](docs/projeto/paridade/contabilidade.md). Plano em [docs/planos/DL-048-contabilidade-anual-demonstracoes.md](docs/planos/DL-048-contabilidade-anual-demonstracoes.md)
 
 Ainda não existem:
 
