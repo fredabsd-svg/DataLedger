@@ -14,6 +14,7 @@ import re
 from datetime import date
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -41,6 +42,12 @@ from apps.livro_caixa.carne_leao import (
     apurar_carne_leao_mensal,
     registrar_dependentes_carne_leao,
     retificar_dependentes_carne_leao,
+)
+from apps.livro_caixa.carne_leao_arquivos import (
+    GeracaoArquivoCarneLeaoBloqueada,
+    PeriodoInvalidoParaArquivoCarneLeaoWeb,
+    conferencia_sem_movimento,
+    gerar_arquivos_carne_leao,
 )
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
@@ -119,7 +126,7 @@ class PodeLerLivroCaixa(BasePermission):
 
 
 CONTRATO_POST_CONTA_CAIXA = ContratoDeRequisicao(
-    campos={"codigo", "nome", "natureza", "codigo_carne_leao", "ativa"},
+    campos={"codigo", "nome", "natureza", "codigo_carne_leao", "codigo_ocupacao", "ativa"},
     contexto="no cadastro de conta do livro-caixa",
 )
 
@@ -135,6 +142,12 @@ CONTRATO_POST_LANCAMENTO_CAIXA = ContratoDeRequisicao(
         "cpf_beneficiario_servico",
         "cpf_beneficiario_nao_informado",
         "cnpj_pagador",
+        # DL-046, fatia 3 (RC-127): IRRF retido (só rendimento de PJ) e
+        # competência/multa/juros do pagamento de previdência oficial.
+        "valor_irrf",
+        "competencia_previdencia",
+        "multa_previdencia",
+        "juros_previdencia",
     },
     contexto="no lançamento de caixa",
 )
@@ -207,6 +220,12 @@ class ContaLivroCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
         if not nome:
             raise DRFValidationError("O campo 'nome' não pode ficar em branco.")
 
+        # DL-046, fatia 3 (RC-127/HI-34): sobreposição opcional do código de
+        # ocupação — mesma checagem de tipo de `codigo`/`nome`, acima.
+        codigo_ocupacao = dados.get("codigo_ocupacao", "")
+        if codigo_ocupacao is not None and not isinstance(codigo_ocupacao, str):
+            raise DRFValidationError("O campo 'codigo_ocupacao' deve ser texto.")
+
         try:
             conta = criar_conta_livro_caixa(
                 empresa=self.get_empresa(),
@@ -214,6 +233,7 @@ class ContaLivroCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
                 nome=nome,
                 natureza=dados.get("natureza"),
                 codigo_carne_leao=dados.get("codigo_carne_leao"),
+                codigo_ocupacao=(codigo_ocupacao or "").strip(),
                 ativa=dados.get("ativa", True),
                 criado_por=request.user,
                 request=request,
@@ -326,6 +346,31 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
         if not isinstance(cpf_beneficiario_nao_informado, bool):
             raise DRFValidationError("O campo 'cpf_beneficiario_nao_informado' deve ser booleano.")
 
+        # DL-046, fatia 3 (RC-127): três valores monetários OPCIONAIS —
+        # mesma regra de 'valor' (DE-030): só TEXTO, nunca número JSON (que
+        # perderia precisão binária antes de qualquer checagem). Ausente ou
+        # `None` é aceito (campo opcional); a CONVERSÃO para `Decimal` e a
+        # coerência com o código da conta ficam no serviço/modelo.
+        valores_monetarios_opcionais = {}
+        for campo in ("valor_irrf", "multa_previdencia", "juros_previdencia"):
+            valor_campo = dados.get(campo)
+            if valor_campo is not None and not isinstance(valor_campo, str):
+                raise DRFValidationError(
+                    f"'{campo}' inválido: {valor_campo!r} precisa ser enviado como TEXTO "
+                    '(ex.: "100.00"), nunca como número JSON.'
+                )
+            valores_monetarios_opcionais[campo] = valor_campo
+
+        # Competência da previdência oficial — mesmo formato de 'data'
+        # (AAAA-MM-DD), sempre o primeiro dia do mês (checado no modelo).
+        competencia_bruta = dados.get("competencia_previdencia")
+        competencia_previdencia = None
+        if competencia_bruta is not None:
+            try:
+                competencia_previdencia = para_data(competencia_bruta)
+            except DataInvalida as exc:
+                raise DRFValidationError(f"'competencia_previdencia' inválida: {exc}") from exc
+
         chave_idempotencia = (request.headers.get("Idempotency-Key") or "").strip() or None
         if chave_idempotencia and len(chave_idempotencia) > TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA_CAIXA:
             raise DRFValidationError(
@@ -346,6 +391,10 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
                 cpf_beneficiario_servico=dados.get("cpf_beneficiario_servico", "") or "",
                 cpf_beneficiario_nao_informado=cpf_beneficiario_nao_informado,
                 cnpj_pagador=dados.get("cnpj_pagador", "") or "",
+                valor_irrf=valores_monetarios_opcionais["valor_irrf"],
+                competencia_previdencia=competencia_previdencia,
+                multa_previdencia=valores_monetarios_opcionais["multa_previdencia"],
+                juros_previdencia=valores_monetarios_opcionais["juros_previdencia"],
                 criado_por=request.user,
                 chave_idempotencia=chave_idempotencia,
                 request=request,
@@ -643,3 +692,148 @@ class DependentesCarneLeaoRetificarView(EmpresaEscopadaLivroCaixaMixin, APIView)
 
         serializer = DependentesCarneLeaoClienteSerializer(registro)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 3 (RC-127) — arquivos de importação do Carnê-Leão Web.
+
+
+def _extrair_periodo_arquivo_carne_leao(request):
+    """`inicio`/`fim` da querystring — mesmo contrato de `LivroCaixaView`
+    (AAAA-MM-DD). A ordenação e a checagem de ano-calendário único ficam no
+    SERVIÇO (`gerar_arquivos_carne_leao`), para a mensagem de erro nunca
+    divergir entre esta view e as duas de download, abaixo — as três
+    chamam a mesma função."""
+    bruto_inicio = request.query_params.get("inicio")
+    bruto_fim = request.query_params.get("fim")
+    if not bruto_inicio or not bruto_fim:
+        raise DRFValidationError("Informe 'inicio' e 'fim' (formato AAAA-MM-DD) na querystring.")
+    try:
+        inicio = para_data(bruto_inicio)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'inicio' inválido: {exc}") from exc
+    try:
+        fim = para_data(bruto_fim)
+    except DataInvalida as exc:
+        raise DRFValidationError(f"'fim' inválido: {exc}") from exc
+    return inicio, fim
+
+
+def _pendencias_para_json(pendencias):
+    return [
+        {"lancamento_id": p.lancamento_id, "campo": p.campo, "motivo": p.motivo} for p in pendencias
+    ]
+
+
+class ArquivosCarneLeaoPendenciasView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """`GET .../carne-leao/arquivos/pendencias/?inicio=...&fim=...` — só
+    LEITURA (nunca grava nada): roda a MESMA geração que os dois downloads,
+    abaixo, e devolve as pendências (se houver) ou a conferência (se não
+    houver) — a tela decide se oferece os botões de download a partir desta
+    resposta, sem precisar baixar o arquivo primeiro para descobrir se ele
+    existe."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerLivroCaixa]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        inicio, fim = _extrair_periodo_arquivo_carne_leao(request)
+        try:
+            _, _, conferencia = gerar_arquivos_carne_leao(
+                empresa=empresa, inicio=inicio, fim=fim, usuario=request.user, request=request
+            )
+        except PeriodoInvalidoParaArquivoCarneLeaoWeb as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except GeracaoArquivoCarneLeaoBloqueada as exc:
+            return Response(
+                {"pendencias": _pendencias_para_json(exc.pendencias), "gerar_disponivel": False},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {
+                "pendencias": [],
+                "gerar_disponivel": True,
+                "conferencia": _json_seguro(conferencia),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+def _nome_arquivo_carne_leao(prefixo, inicio, fim):
+    return f"carne-leao-{prefixo}-{inicio:%Y-%m}-a-{fim:%Y-%m}.csv"
+
+
+def _resposta_de_download_csv(conteudo, nome_arquivo):
+    resposta = HttpResponse(conteudo, content_type="text/csv; charset=ISO-8859-1")
+    resposta["Content-Disposition"] = f'attachment; filename="{nome_arquivo}"'
+    return resposta
+
+
+class _ArquivoCarneLeaoDownloadViewBase(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """Base comum aos dois downloads, abaixo — só o PREFIXO do nome do
+    arquivo e qual dos dois `bytes` devolver mudam entre eles; o resto
+    (autorização, extração do período, tratamento de pendência/período
+    inválido) é idêntico, e fica aqui para não duplicar."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerLivroCaixa]
+    prefixo_do_nome = None  # definido nas subclasses
+
+    def _bytes_do_arquivo(self, rendimentos_bytes, pagamentos_bytes):
+        raise NotImplementedError
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        inicio, fim = _extrair_periodo_arquivo_carne_leao(request)
+        try:
+            rendimentos_bytes, pagamentos_bytes, conferencia = gerar_arquivos_carne_leao(
+                empresa=empresa,
+                inicio=inicio,
+                fim=fim,
+                usuario=request.user,
+                request=request,
+                # Os bytes VÃO para o cliente aqui: a trilha registra
+                # "carne_leao_arquivo.gerado". A rota de pendências, que
+                # chama a mesma geração só para conferir, fica com o padrão
+                # "conferido" (achado 5 da rodada 1 da auditoria).
+                para_download=True,
+            )
+        except PeriodoInvalidoParaArquivoCarneLeaoWeb as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except GeracaoArquivoCarneLeaoBloqueada as exc:
+            return Response(
+                {"pendencias": _pendencias_para_json(exc.pendencias)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Achado 4 da rodada 1 da auditoria: sem movimento no período não há
+        # arquivo a importar — a MESMA regra de estado vazio da tela. Antes,
+        # um GET direto aqui devolvia CSV vazio com 200, contradizendo o que
+        # a tela mostrava para o mesmo período.
+        if conferencia_sem_movimento(conferencia):
+            raise DRFValidationError(
+                "Não há lançamentos neste período para exportar — o arquivo do "
+                "Carnê-Leão Web só é gerado quando existe movimento a importar."
+            )
+        conteudo = self._bytes_do_arquivo(rendimentos_bytes, pagamentos_bytes)
+        nome_arquivo = _nome_arquivo_carne_leao(self.prefixo_do_nome, inicio, fim)
+        return _resposta_de_download_csv(conteudo, nome_arquivo)
+
+
+class ArquivoCarneLeaoRendimentosDownloadView(_ArquivoCarneLeaoDownloadViewBase):
+    """`GET .../carne-leao/arquivos/rendimentos/?inicio=...&fim=...` —
+    download do CSV de rendimentos, nome neutro (sem CPF/CNPJ), pronto para
+    importar no Carnê-Leão Web."""
+
+    prefixo_do_nome = "rendimentos"
+
+    def _bytes_do_arquivo(self, rendimentos_bytes, pagamentos_bytes):
+        return rendimentos_bytes
+
+
+class ArquivoCarneLeaoPagamentosDownloadView(_ArquivoCarneLeaoDownloadViewBase):
+    """`GET .../carne-leao/arquivos/pagamentos/?inicio=...&fim=...` —
+    download do CSV de pagamentos."""
+
+    prefixo_do_nome = "pagamentos"
+
+    def _bytes_do_arquivo(self, rendimentos_bytes, pagamentos_bytes):
+        return pagamentos_bytes

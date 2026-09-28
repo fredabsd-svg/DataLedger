@@ -107,8 +107,8 @@ merge do PR #38, sem commit individual por etapa.
 
 **AGORA — sessão de 2026-09-27 encerrada. Onde parei, para quem assumir:**
 
-1. **DL-047 — plano de paridade por módulo: concluída** (só documentação;
-   integra pelo PR da DL-047). Seis planos item por item em
+1. **DL-047 — plano de paridade por módulo: concluída e integrada pelo PR
+   #55** (só documentação). Seis planos item por item em
    [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
    (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26) e
    Lalur (26). **Próxima decisão é do Fred:** por qual módulo começar. A
@@ -118,20 +118,25 @@ merge do PR #38, sem commit individual por etapa.
    encerramento do exercício, termos, livro Diário, sócios e contador) e,
    logo depois, **B — Fiscal alimentando a Contabilidade** (FIS-03 a FIS-22).
    Cada plano de módulo termina com as perguntas ao Fred consolidadas.
-2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: servidor pronto, NÃO
-   integrado.** Está em commits na branch `claude/vigilant-bardeen-jo12l4`,
-   **acima** do merge da DL-047 e **sem PR** (commits `860cfd1`, preservação,
-   e `e850ba9`, entrega do servidor; plano da fatia 3 em `4c5aca8`). O que
-   existe: campos novos (ocupação no cliente e na conta, IRRF de PJ,
-   competência, multa e juros da previdência), serviço
-   `apps/livro_caixa/carne_leao_arquivos.py`, API de pendências e download
-   dos dois arquivos, 60 testes com os 6 arquivos-modelo oficiais; RC-135,
-   RC-136, HI-42, HI-43, DE-093 e DE-094. **Falta, nesta ordem:**
-   (a) ligar a restrição `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido`
-   a `restricao_como_400` em `apps/empresas/views.py` (instrução no próprio
-   registro em `apps/core/restricoes.py`); (b) a tela (pendências,
-   conferência e download; campos novos nos formulários de lançamento e de
-   cliente); (c) auditoria independente e reconferência; (d) PR. A importação
+2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: em fechamento nesta
+   sessão (2026-09-27).** O servidor (campos novos, `carne_leao_arquivos.py`,
+   API de pendências e download, 60 testes com os 6 arquivos-modelo
+   oficiais) já estava pronto na branch `claude/vigilant-bardeen-jo12l4`,
+   **acima** do merge do PR #55 e sem PR. **O que faltava foi feito agora:**
+   (a) o FIO da restrição
+   `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido` até
+   `restricao_como_400` nas duas views de `Empresa` — estava só registrado,
+   e uma corrida residual vazava `IntegrityError` cru (500); com teste em
+   `apps/empresas/tests/test_dl046_fatia3_restricao_ocupacao_como_400.py`;
+   (b1) os campos que a tela não enviava — `codigo_ocupacao` no cliente e na
+   conta, e `valor_irrf`/`competencia_previdencia`/`multa_previdencia`/
+   `juros_previdencia` no lançamento. ⚠️ **Isto desbloqueou um defeito real:
+   o pagamento de previdência oficial (`P20.01.00001`) não podia ser lançado
+   pela tela**, porque exige a competência e o campo não existia no
+   formulário. (b2) a tela de pendências/conferência/download. Detalhe,
+   evidência executada e falhas pré-existentes mapeadas no
+   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). **Falta, nesta
+   ordem:** (c) auditoria independente e reconferência; (d) PR. A importação
    real no Carnê-Leão Web (HI-41, HI-42, HI-43) só o escritório pode
    conferir.
 3. **Manuais do sistema de referência:** o Fred escolheu guardá-los num
@@ -143,7 +148,7 @@ merge do PR #38, sem commit individual por etapa.
 - **DL-047:** inventário e planos por módulo, a pedido do Fred
   (2026-09-27), com os manuais só como referência
   ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). Integrada pelo
-  PR da DL-047.
+  PR #55.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR

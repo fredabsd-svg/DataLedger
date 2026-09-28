@@ -167,6 +167,74 @@
                     </p>
                 </div>
 
+                {% comment %}
+                DL-046, fatia 3 (RC-127/RC-135): os quatro campos novos do
+                lançamento de caixa — IRRF de rendimento de PJ, e
+                competência/multa/juros do pagamento de previdência oficial
+                (P20.01.00001). Sem o campo de competência a tela não
+                conseguia lançar previdência oficial NENHUMA: o servidor
+                exige a competência nesse código
+                (`apps.livro_caixa.validators.erros_de_previdencia_oficial`)
+                e a tela não enviava o campo. Mesmo desenho dos campos de
+                receita acima — sempre visíveis, sem JavaScript decidindo
+                nada; quem recusa o preenchimento fora do lugar é o servidor
+                (`LancamentoCaixa.clean()`), nunca a tela.
+                {% endcomment %}
+                <div class="campo">
+                    <label for="id_valor_irrf">Valor do IRRF retido (só receita de PJ)</label>
+                    <input type="text" inputmode="decimal" id="id_valor_irrf" name="valor_irrf"
+                           value="{{ valor_irrf }}" placeholder="0,00"
+                           aria-describedby="id_valor_irrf_ajuda">
+                    <p class="texto-apoio" id="id_valor_irrf_ajuda">
+                        Preencha somente quando o rendimento recebido de pessoa jurídica (PJ) teve
+                        IRRF retido pelo pagador — é o que faz o arquivo de importação do
+                        Carnê-Leão Web declarar a retenção e o valor. O leiaute só tem esta coluna
+                        em rendimento de <strong>trabalho não assalariado</strong> e de
+                        <strong>serviços notariais e de registro</strong>: em aluguel e outros
+                        rendimentos, em receita de pessoa física (PF) ou do exterior (EX), deixe em
+                        branco (o servidor recusa o campo).
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_competencia_previdencia">Competência da previdência oficial</label>
+                    <input type="date" id="id_competencia_previdencia" name="competencia_previdencia"
+                           value="{{ competencia_previdencia }}"
+                           aria-describedby="id_competencia_previdencia_ajuda">
+                    <p class="texto-apoio ajuda-formato-data" id="id_competencia_previdencia_ajuda">
+                        O formato deste campo é o do seu navegador. Toda data exibida pelo sistema
+                        é dd/mm/aaaa. Informe sempre o primeiro dia do mês de competência da
+                        contribuição (01/03/2026 para março de 2026) — o mês e o ano são o que o
+                        arquivo de importação declara. Obrigatório na conta de previdência oficial
+                        (P20.01.00001) e recusado em qualquer outra conta.
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_multa_previdencia">Multa paga com a previdência oficial</label>
+                    <input type="text" inputmode="decimal" id="id_multa_previdencia"
+                           name="multa_previdencia" value="{{ multa_previdencia }}" placeholder="0,00"
+                           aria-describedby="id_multa_previdencia_ajuda">
+                    <p class="texto-apoio" id="id_multa_previdencia_ajuda">
+                        Somente na conta de previdência oficial (P20.01.00001). Multa de atraso é
+                        acréscimo legal e NÃO entra na dedução do carnê-leão (Perguntas e Respostas
+                        IRPF 2026, pergunta 334) — este valor serve para compor o arquivo de
+                        importação do Carnê-Leão Web.
+                    </p>
+                </div>
+
+                <div class="campo">
+                    <label for="id_juros_previdencia">Juros pagos com a previdência oficial</label>
+                    <input type="text" inputmode="decimal" id="id_juros_previdencia"
+                           name="juros_previdencia" value="{{ juros_previdencia }}" placeholder="0,00"
+                           aria-describedby="id_juros_previdencia_ajuda">
+                    <p class="texto-apoio" id="id_juros_previdencia_ajuda">
+                        Mesma regra da multa, acima: somente na conta de previdência oficial
+                        (P20.01.00001), não dedutível no carnê-leão — entra apenas no arquivo de
+                        importação do Carnê-Leão Web.
+                    </p>
+                </div>
+
                 <div class="acoes-formulario">
                     <button class="botao botao--primario" type="submit">Gravar lançamento</button>
                 </div>

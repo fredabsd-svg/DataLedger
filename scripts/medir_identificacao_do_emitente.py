@@ -1176,6 +1176,10 @@ def _preparar_empresa_livro_caixa(escritorio):
                 data=data,
                 valor=Decimal("50.00") + Decimal(indice),
                 historico=f"Previdência oficial sintética {indice:03d} — medição DL-046",
+                # DL-046 fatia 3: P20.01.00001 passou a exigir a competência
+                # (mês/ano, sempre dia 1). O cenário deste instrumento era
+                # anterior ao requisito e não a informava.
+                competencia_previdencia=data.replace(day=1),
             )
         # N4: pelo menos um estorno DENTRO do grupo P20, para a medição também
         # exercitar o parêntese/referência do estorno naquela tabela (não só

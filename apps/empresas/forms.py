@@ -129,6 +129,7 @@ class EmpresaForm(forms.ModelForm):
             "cnpj",
             "cpf",
             "caepf",
+            "codigo_ocupacao",
             "modo_escrituracao",
         ]
         help_texts = {
@@ -139,6 +140,16 @@ class EmpresaForm(forms.ModelForm):
             "cnpj": "Aceita com ou sem máscara.",
             "cpf": "Aceita com ou sem máscara.",
             "caepf": "14 dígitos; só para pessoa física. Opcional, sem máscara.",
+            # DL-046 fatia 3 (RC-127/HI-42): o campo existia no MODELO e na
+            # API, mas a tela não o oferecia — e sem ele o arquivo de
+            # importação do Carnê-Leão Web saía com a linha da ocupação
+            # vazia, virando pendência. Só para pessoa física.
+            "codigo_ocupacao": (
+                "3 dígitos da tabela oficial de ocupações do Carnê-Leão Web "
+                "(ex.: 225 médico). Só para pessoa física. Opcional — a "
+                "ocupação pode ser informada conta a conta no plano de "
+                "contas do livro-caixa, e essa sobreposição é que prevalece."
+            ),
             "modo_escrituracao": (
                 "Se não escolher, o sistema aplica a sugestão: livro-caixa para "
                 "CPF, contabilidade para CNPJ. Você pode trocar quando quiser."
@@ -241,6 +252,21 @@ class EmpresaForm(forms.ModelForm):
             except DjangoValidationError as exc:
                 for mensagem in exc.messages:
                     self.add_error("caepf", mensagem)
+
+        # DL-046, fatia 3 (RC-127/HI-34): MESMA regra e MESMA mensagem de
+        # `EmpresaSerializer.validate` (apps/empresas/serializers.py),
+        # DE-026 — a tela e a API nunca contam duas histórias diferentes do
+        # mesmo motivo. O FORMATO e o pertencimento à tabela oficial já
+        # foram conferidos em `clean_fields()` (o
+        # `validators=[validar_codigo_ocupacao]` do campo do modelo); aqui
+        # só falta a coerência com `tipo_inscricao`, exatamente como no
+        # CAEPF logo acima.
+        codigo_ocupacao = cleaned.get("codigo_ocupacao") or ""
+        if codigo_ocupacao and tipo != TipoInscricao.CPF:
+            self.add_error(
+                "codigo_ocupacao",
+                "Código de ocupação só é aceito para empresa com tipo de inscrição CPF.",
+            )
 
         # HI-23 — sugestão sem JavaScript (ver o ponto 4 da docstring da
         # classe). Só entra em jogo quando o contador NÃO marcou nenhuma

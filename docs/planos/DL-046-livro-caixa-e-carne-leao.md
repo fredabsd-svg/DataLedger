@@ -2261,3 +2261,448 @@ Os três primeiros foram corrigidos no commit `76781ec`, pela
 `especialista-frontend`, com teste para cada um (o do total confere o texto
 **por página**) e prova de mutação. Registro da correção na seção
 "Correção final da reconferência" acima.
+
+## Fatia 3 — objetivo, escopo e critérios (2026-09-27, `arquiteto-senior`)
+
+**Objetivo:** o escritório gera, a partir do livro-caixa, os arquivos que o
+Carnê-Leão Web importa (RC-127: o escritório entrega das duas formas,
+digitando e importando), sem redigitar lançamento. Nível de risco 1: arquivo
+entregue à Receita em nome do cliente.
+
+**Fonte:** Receita Federal, Manual do Carnê-Leão, página "Formato do arquivo
+de Escrituração" (publicada em 10/07/2023, atualizada em 21/10/2025,
+consultada em 2026-09-27), e os modelos oficiais de arquivo
+(`escrituracao-carne-leao.zip`, instruções de 2025). Manual de sistema de
+referência só como rotina.
+
+**O que o leiaute exige e o livro-caixa ainda não tem:**
+
+| Campo do leiaute | Onde entra | Regra |
+| --- | --- | --- |
+| Código da ocupação (3 caracteres) | Cadastro do cliente pessoa física, com possibilidade de outro código na conta de rendimento (HI-34) | Obrigatório na linha de trabalho não assalariado; o notarial usa 117, como no modelo oficial |
+| Indicador e valor de IRRF | Lançamento de rendimento recebido de pessoa jurídica | "S" com valor quando houve retenção; "N" quando não houve |
+| Competência (MM/AAAA), multa e juros | Lançamento de previdência oficial (`P20.01.00001`) | Competência exigida pelo modelo; multa e juros quando houver |
+
+**Escopo:**
+
+1. Os campos da tabela acima, com validação no servidor e trilha, e na tela
+   de lançamento e de cadastro.
+2. Serviço de geração dos **dois arquivos** (rendimentos e pagamentos) para
+   um período dentro de um único ano-calendário: separador `;`, data
+   `DD/MM/AAAA`, valor com vírgula e sem separador de milhar, campos vazios
+   mantendo a posição, uma linha por lançamento, código vindo da conta.
+3. **Fora do arquivo:** lançamento estornado e o próprio estorno (o
+   Carnê-Leão Web não aceita valor negativo, e o estorno fica no mesmo mês do
+   original — RC-130); contas sem código do Carnê-Leão Web.
+4. **Pendências antes de gerar:** o arquivo não sai enquanto houver linha
+   que o leiaute recusaria — ocupação ausente, competência da previdência
+   ausente, histórico acima de 255 caracteres, código fora das tabelas. A
+   tela lista cada pendência com o lançamento, como o veto da DRE e do
+   Balanço. Nada é truncado nem corrigido em silêncio.
+5. **Conferência:** o total do arquivo por código bate com o livro-caixa do
+   período, e a tela mostra essa conferência junto do download.
+6. Autorização no servidor, isolamento por empresa e escritório, só modo
+   livro-caixa, e registro na trilha de cada arquivo gerado (quem, período,
+   quantidade de linhas e totais — nunca o conteúdo).
+
+**Fora desta fatia:** recibos do Receita Saúde (o leiaute tem campos
+próprios e o profissional de saúde os emite no aplicativo da Receita);
+pagamento do próprio carnê-leão (`P20.01.00004`); o campo "valor da
+dedução" do aluguel (HI-39 — o aluguel é lançado já sem as parcelas do art.
+42, e a linha sai com esse campo vazio).
+
+**Critérios de aceite:**
+
+1. Cada linha gerada tem o mesmo número de campos e o mesmo formato da linha
+   correspondente do modelo oficial, para cada modelo (trabalho não
+   assalariado PF com e sem CPF do beneficiário, PJ com e sem IRRF,
+   exterior; notarial PF, PJ e exterior; aluguel e outros; pagamentos gerais
+   e do plano de contas padrão), conferido em teste contra os arquivos de
+   modelo.
+2. Codificação e quebra de linha iguais às dos modelos oficiais (HI-41).
+3. Estorno e estornado fora; período fora do ano-calendário recusado.
+4. Pendências listadas, arquivo recusado, nada truncado.
+5. Totais do arquivo iguais aos do livro-caixa do período, por código.
+6. Isolamento, autorização, modo livro-caixa, trilha — com teste.
+7. Suíte completa, lint, formatação, `check`, `makemigrations --check`,
+   migração em banco vazio.
+
+**Dúvidas que o `desenvolvedor-pleno` resolve na fonte oficial antes de
+codificar** (Perguntas e Respostas IRPF 2026 e Manual do Carnê-Leão): multa
+e juros pagos com a previdência oficial entram na dedução ou não; se o
+Carnê-Leão Web exige o arquivo por mês ou aceita o ano inteiro. O que ficar
+sem resposta vira hipótese registrada.
+
+## Implementação da fatia 3 — servidor (2026-09-27, `desenvolvedor-pleno`)
+
+Servidor + API apenas — a tela vem depois pelo `especialista-frontend`.
+
+### As duas dúvidas, resolvidas antes de codificar (registro completo em RC-135/RC-136)
+
+1. **Multa e juros da previdência oficial NÃO entram na dedução do
+   carnê-leão.** Perguntas e Respostas IRPF 2026, pergunta 334
+   ("Previdência oficial paga com atraso"): *"As contribuições pagas (...)
+   à previdência oficial referentes a anos anteriores (EXCETO OS
+   ACRÉSCIMOS LEGAIS) podem ser consideradas como dedução (...)"*. O motor
+   (`apps.livro_caixa.carne_leao`) já deduzia só `LancamentoCaixa.valor` —
+   nenhuma mudança na apuração do imposto; multa e juros ganharam campo
+   PRÓPRIO (`multa_previdencia`/`juros_previdencia`) só para compor o
+   arquivo de importação, fora da base de cálculo.
+2. **O Carnê-Leão Web não exige arquivo mensal.** O manual do sistema de
+   referência (rotina, não norma — AGENTS.md/CLAUDE.md) descreve
+   rendimentos/pagamentos "no ano selecionado" e a importação como "até
+   1000 linhas", sem restrição de mês. `gerar_arquivos_carne_leao` recusa
+   só período fora de ordem ou cruzando mais de um ano-calendário
+   (`PeriodoInvalidoParaArquivoCarneLeaoWeb`).
+
+### O que foi feito
+
+1. **Três campos novos, com migração, validação e trilha** (RC-127):
+   - `Empresa.codigo_ocupacao` (`apps/empresas/models.py`) — 3 dígitos,
+     validado contra `apps.empresas.validators.
+     TABELA_OCUPACOES_CARNE_LEAO_WEB` (as 135 linhas da tabela oficial de
+     ocupações do Carnê-Leão Web — fonte e zero-padding dos seis códigos
+     curtos documentados no próprio código e em HI-42), só para
+     `tipo_inscricao=CPF` (`CheckConstraint`
+     "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido", mesmo
+     padrão do CAEPF).
+   - `ContaLivroCaixa.codigo_ocupacao` (`apps/livro_caixa/models.py`) —
+     sobreposição opcional (HI-34), só em conta de trabalho não
+     assalariado ou notarial (neste último, só aceita "117", travado por
+     `apps.livro_caixa.validators.erro_de_codigo_ocupacao_da_conta`).
+   - `LancamentoCaixa.valor_irrf` — só em receita recebida de PJ
+     (`apps.livro_caixa.validators.erro_de_valor_irrf`); o indicador S/N
+     do arquivo é DERIVADO (nunca gravado).
+   - `LancamentoCaixa.competencia_previdencia`/`multa_previdencia`/
+     `juros_previdencia` — só na despesa de previdência oficial
+     (`P20.01.00001`), competência OBRIGATÓRIA nesse código
+     (`apps.livro_caixa.validators.erros_de_previdencia_oficial`), multa/
+     juros opcionais, os três recusados em qualquer outro código.
+     `criar_lancamento_caixa`/`estornar_lancamento_caixa` (`services.py`)
+     aceitam, validam (`_valor_monetario_opcional`) e o estorno COPIA os
+     quatro campos, mesmo padrão do `cpf_beneficiario_nao_informado` já
+     existente (N13). `_impressao_digital_caixa` passa a incluir os
+     quatro na impressão de idempotência — sem isso, dois corpos
+     diferindo só num desses campos colidiriam na mesma chave.
+   - Migração `apps/empresas/migrations/0015_dl046_fatia3_codigo_ocupacao.py`
+     + `apps/livro_caixa/migrations/0008_dl046_fatia3_campos_arquivo_carne_leao.py`
+     — a segunda com a dependência de `empresas` fixada À MÃO em
+     `0001_initial` (nunca a migração mais recente que o
+     `makemigrations` propôs por padrão), mesmo achado colateral já
+     corrigido na fatia 1: sem isso, um teste de reversão de `empresas`
+     (`test_dl038_migracao.py`) desaplicaria esta migração inteira e as
+     colunas dela, só por dependência acidental — medido rodando a
+     suíte COMPLETA, não apareceu isolado.
+2. **Serviço `gerar_arquivos_carne_leao`**
+   (`apps/livro_caixa/carne_leao_arquivos.py`, módulo novo — separado de
+   `carne_leao.py`, que é o MOTOR do imposto, nunca o gerador de arquivo):
+   - `(rendimentos_bytes, pagamentos_bytes, conferencia)` em sucesso, ou
+     `GeracaoArquivoCarneLeaoBloqueada` (lista de `Pendencia(lancamento_id,
+     campo, motivo)`) ou `PeriodoInvalidoParaArquivoCarneLeaoWeb`.
+   - Leitura sob `REPEATABLE READ` (`_sob_snapshot`, mesma técnica de
+     `apps.livro_caixa.carne_leao._sob_snapshot` — duplicada, não
+     importada, porque é uma função PRIVADA daquele módulo).
+   - **Fora do arquivo, sempre:** lançamento estornado e o próprio
+     estorno (`_lancamentos_incluidos` — a checagem de "foi estornado?"
+     NÃO se limita ao período pedido, porque um período mais estreito que
+     um mês pode conter só um lado do par); conta sem código do Carnê-
+     Leão Web (`ContaLivroCaixa.codigo_carne_leao == ""`, só alcançável
+     por dado legado gravado por ORM direto).
+   - **Pendências, nunca truncamento:** ocupação ausente (trabalho não
+     assalariado); competência ausente (previdência oficial); histórico
+     > 255 caracteres; histórico com caractere fora de ISO-8859-1 (HI-41);
+     histórico com `;`/CR/LF (DE-093, decisão nova desta fatia — o
+     leiaute não tem escape para o separador de campo); código de
+     rendimento ou pagamento fora das quatro/quatro tabelas confirmadas
+     (PE-71); `P20.01.00004` (fora do escopo desta fatia, plano).
+   - **Reprodução exata do leiaute oficial**, inclusive a assimetria
+     entre os dois grupos de arquivo — rendimentos TRUNCAM campo final
+     vazio, pagamentos gerais (P20) NUNCA truncam — registrada como
+     DE-094, medida diretamente nos seis arquivos-modelo oficiais.
+   - **Conferência:** totais por código do arquivo, mais os totais do
+     Livro Caixa do MESMO período (`apurar_livro_caixa`) lado a lado, com
+     a diferença exposta (`diferenca_rendimentos`/`diferenca_pagamentos`)
+     — nunca escondida; só pode ser não-zero quando há lançamento de
+     conta sem código (excluído do arquivo, presente no Livro Caixa).
+   - Trilha (`carne_leao_arquivo.gerado`): período, linhas, totais —
+     nunca histórico, CPF/CNPJ nem qualquer dado por lançamento.
+3. **API** (`apps/livro_caixa/views.py`/`urls.py`, NÃO em `views_web.py`/
+   `urls_web.py`) — contrato completo na seção abaixo.
+4. **Fixture de teste** — os seis arquivos-modelo oficiais da Receita
+   (`apps/livro_caixa/tests/fixtures/carne_leao_modelos/`), copiados
+   byte a byte (mesma codificação/CRLF), com README citando a origem —
+   servem de oráculo aos testes de reprodução linha a linha.
+
+### Achados corrigidos durante a implementação (autorrevisão, antes de entregar)
+
+| # | Achado | Correção |
+| --- | --- | --- |
+| 1 | As seis `CheckConstraint` novas não apareciam em nenhum dos três registros de `apps/core/restricoes.py` — `test_dl019_varredura_de_restricoes.py` reprovava. | Registradas em `MENSAGENS_DE_RESTRICAO`, mesma classe das já existentes (CAEPF, natureza, valor positivo) — cada uma com o motivo de o caminho de cliente já recusar antes do INSERT. `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido` também entrou em `_CAMPO_DA_RESTRICAO_DE_EMPRESA` e nos dois `mensagens_de(...)` de `apps/empresas/views.py` (mesmo padrão do CAEPF). |
+| 2 | A migração nova de `livro_caixa` dependia, por padrão do `makemigrations`, de `empresas.0015` (a mais recente no momento da geração) — rodando a suíte COMPLETA, `test_dl038_migracao.py` (reversão de `empresas`) desaplicava a migração inteira, e os testes de corrida (`test_a2_*`, `test_n6_*`) que rodam DEPOIS na mesma sessão de banco quebravam com "column does not exist". | Dependência fixada à mão em `empresas.0001_initial` (onde `Empresa` nasce) — mesmo padrão já usado por `livro_caixa.0001_inicial` na fatia 1, pelo mesmo motivo. |
+| 3 | Testes pré-existentes da fatia 2 (`_lancar_despesa` em dois arquivos de teste) criavam lançamento de previdência oficial sem competência — passou a ser campo obrigatório nesse código. | Os dois helpers passaram a derivar `competencia_previdencia` do mês da própria `data`, quando a conta é `P20.01.00001` — comportamento razoável de teste (contribuição paga no mês de referência), documentado no próprio helper. |
+
+### Contrato da API (para o `especialista-frontend`)
+
+Prefixo `livro-caixa/empresas/<empresa_id>/carne-leao/arquivos/`.
+
+- `GET .../pendencias/?inicio=AAAA-MM-DD&fim=AAAA-MM-DD` — roda a MESMA
+  geração dos dois downloads, mas nunca devolve os bytes:
+  - Sem pendência: `200`, `{"pendencias": [], "gerar_disponivel": true,
+    "conferencia": {"empresa_id", "periodo_inicio", "periodo_fim",
+    "linhas_rendimentos", "linhas_pagamentos",
+    "totais_rendimentos_por_codigo": {codigo: "valor"},
+    "totais_pagamentos_por_codigo": {...}, "total_rendimentos",
+    "total_pagamentos", "total_entradas_livro_caixa",
+    "total_saidas_livro_caixa", "diferenca_rendimentos",
+    "diferenca_pagamentos", "lancamentos_excluidos_estorno",
+    "lancamentos_excluidos_sem_codigo"}}` (todo valor monetário como
+    TEXTO, DE-030).
+  - Com pendência: `200`, `{"pendencias": [{"lancamento_id", "campo",
+    "motivo"}, ...], "gerar_disponivel": false}` (sem `conferencia`).
+  - Período inválido: `400`.
+- `GET .../rendimentos/?inicio=...&fim=...` — download do CSV de
+  rendimentos. `200` com `Content-Disposition: attachment;
+  filename="carne-leao-rendimentos-AAAA-MM-a-AAAA-MM.csv"` (nome NEUTRO,
+  sem CPF/CNPJ) e `Content-Type: text/csv; charset=ISO-8859-1`; `400` com
+  `{"pendencias": [...]}` se houver pendência; `400` se período inválido;
+  `400` se o período não tem movimento algum a importar (mesma regra de
+  estado vazio da tela, `conferencia_sem_movimento` — achado 4 da rodada 1
+  da auditoria; antes, o download devolvia CSV vazio com `200`).
+- `GET .../pagamentos/?inicio=...&fim=...` — mesmo contrato, arquivo de
+  pagamentos, `filename="carne-leao-pagamentos-..."`.
+- As três rotas: `403` para papel sem autorização (mesma matriz de leitura
+  do resto do livro-caixa — `PodeLerLivroCaixa`, ADMINISTRADOR/GESTOR/
+  ANALISTA/FINANCEIRO/PARALEGAL); `404` para empresa de outro escritório
+  ou id inexistente; `400` para empresa em modo contabilidade; nunca
+  `500` (medido com querystring malformada, id fora do intervalo do
+  banco, sem login).
+
+### Testes
+
+`apps/livro_caixa/tests/test_dl046_fatia3_arquivos_carne_leao.py` (60
+testes): reprodução linha a linha dos seis arquivos-modelo oficiais
+(trabalho não assalariado PF com/sem CPF do beneficiário, PJ com/sem
+IRRF, exterior; notarial PF, PJ com/sem IRRF, exterior; aluguel e outros,
+PF/exterior; pagamentos gerais previdência/pensão/exterior; pagamentos do
+plano de contas padrão, dois códigos; plano PRÓPRIO pela regra de
+formação P10/P11 + código, sem arquivo-modelo); sobreposição de ocupação
+por conta; codificação ISO-8859-1 e CRLF; estorno/estornado fora
+(inclusive o par dividido entre dois lados do período); conta sem código
+excluída; sete cenários de pendência (ocupação ausente, competência
+ausente, histórico > 255, histórico no limite de 255 aceito, histórico
+com caractere fora de latin-1, histórico com `;`, código de rendimento e
+de pagamento fora das tabelas, `P20.01.00004` fora do escopo, lista com
+mais de uma pendência de uma vez); período fora de um ano-calendário e
+início > fim recusados, ano inteiro aceito; conferência batendo com o
+Livro Caixa; isolamento entre empresas do MESMO escritório (não só
+escritórios diferentes); trilha nunca expõe conteúdo; modelo (sucesso/
+erro/limite dos seis campos novos, inclusive negativo, inclusive fora do
+código certo); API completa (pendências com/sem pendência, download dos
+dois arquivos, 400 com pendência, 400 período inválido, isolamento entre
+escritórios, papel PARALEGAL lê e CLIENTE não, modo contabilidade,
+nunca 500 sem login/querystring malformada/id inexistente).
+
+**Mutantes aplicados (vivo, um por vez, revertido depois de confirmar
+vermelho — commit antes de cada aplicação):**
+
+| # | Ponto mutado | Teste que matou |
+| --- | --- | --- |
+| 1 | `_erro_de_historico`: checagem de `;`/CR/LF removida | `test_pendencia_historico_com_ponto_e_virgula` |
+| 2 | `_lancamentos_incluidos`: exclusão de estorno/estornado removida (`if False:` no lugar da condição) | `test_lancamento_estornado_e_o_proprio_estorno_ficam_fora` |
+| 3 | `modelo_do_codigo_de_pagamento`: ramo `MODELO_PAGAMENTO_FORA_DE_ESCOPO` removido (`P20.01.00004` cairia em `MODELO_PAGAMENTO_DESCONHECIDO`) | **Sobreviveu na primeira tentativa** — a mensagem de `MODELO_PAGAMENTO_DESCONHECIDO` também cita o código (`"código de pagamento 'P20.01.00004' fora das tabelas..."`), e o teste só conferia a presença do código, não o texto do MOTIVO. `test_pendencia_imposto_pago_proprio_fora_do_escopo` ganhou uma asserção nova (`"fora do escopo desta funcionalidade" in motivo`, texto que só a mensagem de FORA DE ESCOPO tem) — com ela, o mesmo mutante morre. |
+| 4 | `erro_de_codigo_ocupacao_da_conta`: checagem do código 117 fixo do modelo notarial removida | `test_conta_notarial_com_ocupacao_diferente_de_117_e_recusada` |
+| 5 | `_lancamentos_incluidos`: filtro `empresa=empresa` da consulta principal removido | `test_isolamento_entre_empresas_do_mesmo_escritorio` |
+
+### Verificação
+
+- `ruff check .` — sem apontamentos.
+- `ruff format --check .` — 308 arquivos já formatados.
+- `python manage.py check` — nenhum problema.
+- `python manage.py makemigrations --check --dry-run` — nenhuma alteração
+  pendente.
+- `python manage.py migrate` em PostgreSQL vazio (`dl046f3`, recriado do
+  zero) — as duas migrações novas (`empresas.0015`, `livro_caixa.0008`)
+  aplicadas com sucesso, junto com toda a cadeia anterior.
+- `pytest` (suíte completa): **3380 passed, 1 failed (pré-existente, fora
+  do escopo desta etapa — `test_versao_minima_python.py`, ambiente Python
+  3.13 em vez do 3.14 esperado pela CI — falha também na `main`), 49
+  skipped**. `apps/livro_caixa/tests/test_dl046_fatia3_arquivos_carne_leao.py`
+  isolado: 60 passed.
+- Achado corrigido ao rodar a suíte COMPLETA (não isolada): a migração
+  nova de `livro_caixa` dependia, por padrão do `makemigrations`, da
+  migração mais recente de `empresas` (`0015`) — `test_dl038_migracao.py`
+  (reversão de `empresas`) desaplicava a migração inteira, e os testes de
+  corrida da fatia 1 (`test_a2_*`, `test_n6_*`), que rodam depois na
+  MESMA sessão de banco, quebravam com "column does not exist". Corrigido
+  fixando a dependência em `empresas.0001_initial` (mesmo padrão já usado
+  por `livro_caixa.0001_inicial`, fatia 1) — ver a seção "Achados
+  corrigidos", acima. Suíte completa reexecutada depois da correção:
+  limpa, com o único failed já conhecido.
+
+### Não testado / bloqueado
+
+- Tela/navegação, impressão — do `especialista-frontend`, fora deste
+  escopo.
+- `pwsh ./scripts/validate-docs.ps1` — `pwsh` não existe neste ambiente
+  (mesmo bloqueio já registrado nas fatias anteriores).
+- Importação REAL no Carnê-Leão Web com dado de cliente — não há acesso a
+  esse sistema neste ambiente; HI-41, HI-42, HI-43 e RC-136 continuam
+  precisando dessa confirmação prática.
+- Dígito verificador do CAEPF (HI-31) — sem fonte oficial, não é desta
+  fatia.
+- **`apps/empresas/views.py` NÃO foi tocado** (fora dos arquivos
+  permitidos desta etapa): a constraint
+  "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido" está
+  registrada em `apps/core/restricoes.py` (a varredura
+  `test_dl019_varredura_de_restricoes.py` exige isso e só isso), mas
+  NÃO está fiada a `restricao_como_400` nas duas views de `Empresa` —
+  diferente do CAEPF, que já tem essa segunda metade. Até alguém com
+  `views.py` no escopo completar o fio (mesmo padrão exato do CAEPF,
+  comentado no próprio registro), uma corrida residual específica desta
+  constraint (PATCH que omite `tipo_inscricao`, concorrente com uma
+  troca de tipo) vazaria `IntegrityError` cru (500) em vez do texto
+  amigável. Reportado ao `arquiteto-senior` para decidir quem fecha essa
+  ponta.
+
+## Fecho da ponta aberta e campos de tela (2026-09-27, `arquiteto-senior`)
+
+Ordem direta do Fred nesta sessão ("leia todo o app [...] para codar o
+projeto"), com a escolha do que codar levada a ele: **fechar a fatia 3
+antes de abrir frente nova**. Nível de risco 1 (arquivo entregue à
+Receita em nome do cliente), então plano, critérios e auditoria
+independente valem por inteiro.
+
+### (a) O fio da restrição de código de ocupação — FECHADO
+
+A ponta que o registro de `apps/core/restricoes.py` marcava como GAP foi
+ligada, no mesmo padrão exato do CAEPF logo acima dela.
+
+| Onde | Mudança |
+| --- | --- |
+| `apps/empresas/views.py` | `"empresa_codigo_ocupacao_so_para_cpf_com_formato_valido"` entra em `mensagens_de(...)` dos **dois** caminhos de gravação (`EmpresaListCreateView.perform_create` e `EmpresaDetailView.perform_update`) e ganha entrada `"codigo_ocupacao"` em `_CAMPO_DA_RESTRICAO_DE_EMPRESA` — sem esta última, a corrida caía no `.get(..., "cnpj")` e reportava o erro no campo errado (o mesmo defeito do CAEPF, achado da rodada 1). |
+
+Teste: `apps/empresas/tests/test_dl046_fatia3_restricao_ocupacao_como_400.py`
+(9 testes — 8 rodam em qualquer backend, 1 só em PostgreSQL). O molde é o
+de `test_dl039_bl533_gatilho_sem_500.py`: a checagem em Python é
+neutralizada ("janela de corrida") e só a defesa de banco sobra. O
+oráculo que separa "recusou o banco" de "recusou o serializer" é o
+próprio texto — só a mensagem registrada fala em "tabela oficial".
+
+⚠️ **Limitação de ambiente declarada:** `restricao_como_400` traduz lendo
+`exc.__cause__.diag.constraint_name`, diagnóstico que **só o psycopg
+(PostgreSQL) anexa**. Esta verificação rodou em SQLite (Python 3.14.7,
+sem PostgreSQL nem Docker na máquina), onde o driver não tem `.diag` —
+então o caminho real do banco não é exercitado aqui. Isso **já era assim
+antes desta etapa**, medido: `test_dl019_canonizacao_como_400.py` reprovou
+nos seus 5 testes dependentes de diagnóstico no mesmo ambiente. O teste
+que compara o nome registrado com o nome real da constraint é por isso
+pulado em SQLite, com o motivo escrito no próprio `skipif`. **A evidência
+que vale para merge é a da CI, que roda PostgreSQL 16.**
+
+### (b1) Campos novos que a tela não enviava — FECHADO
+
+⚠️ **Bloqueio funcional que isto resolve:** `P20.01.00001` (previdência
+oficial) **exige** `competencia_previdencia`
+(`apps/livro_caixa/validators.py:erros_de_previdencia_oficial`), e a tela
+não oferecia o campo — logo **o pagamento de previdência oficial não
+podia ser lançado pela tela**. Só a API conseguia.
+
+| Arquivo | Mudança |
+| --- | --- |
+| `apps/empresas/forms.py` | `EmpresaForm` ganha `codigo_ocupacao` (Meta.fields, help_text e coerência com `tipo_inscricao` em `clean()`, mesma regra e mesma mensagem do `EmpresaSerializer.validate` — DE-026). |
+| `apps/livro_caixa/views_web.py` | `ContaCaixaForm` ganha `codigo_ocupacao` (sobreposição da ocupação do cliente por conta); o contrato do formulário de lançamento e `_contexto_form_lancamento_caixa` ganham `valor_irrf`, `competencia_previdencia`, `multa_previdencia` e `juros_previdencia`; dois helpers de leitura (`_valor_monetario_opcional_do_formulario`, `_competencia_previdencia_do_formulario`) — o campo vazio do HTML é `""`, não `None`, e é essa troca que faz o serviço enxergar "não informado". |
+| `templates/livro_caixa/lancamento_form.html` | Os quatro campos novos, preservando o digitado em recusa. |
+
+Os dois templates de formulário que iteram `form` (`empresas/form.html` e
+`livro_caixa/conta_form.html`) apanham os campos novos sem mudança.
+
+### Verificação executada nesta etapa
+
+- `ruff check` e `ruff format --check` sobre os arquivos alterados — sem
+  apontamentos.
+- `pytest apps/empresas` (excluídos os arquivos de concorrência com
+  threads reais, que travam no SQLite, e as falhas pré-existentes
+  mapeadas abaixo): **com** as mudanças desta etapa **311 passed, 20
+  failed**; **sem** elas, comprovação por `git stash`, **306 passed, 25
+  failed**. **Nada quebrou** — as 5 falhas a menos são exatamente os
+  testes novos do item (a).
+
+### Falhas pré-existentes registradas (não são desta etapa)
+
+Reproduzidas **sem** as mudanças desta etapa, por `git stash`, no mesmo
+ambiente. Todas são da mesma classe: dependem de `diag.constraint_name`
+(do psycopg), ou de migração com rollback em banco que não é o
+PostgreSQL.
+
+- `test_dl019_canonizacao_como_400.py` — 5
+- `test_bl54_formato_cnpj_constraint.py` — 4 (corrigido de 3 após a
+  reconferência da rodada 1: falta o caso POSITIVO, que reprovava por
+  gatilho de banco inexistente em SQLite)
+- `test_canonizacao_constraint.py` — 1
+- `test_dl038_api.py` — 2
+- `test_dl038_telas.py` — 1
+- `test_api.py` — 1
+- `test_dl039_bl529_gatilho_estabelecimento_cpf.py` — 4
+- `test_dl039_bl533_gatilho_sem_500.py` — 2
+- `test_dl041_migracao.py` — 3
+- `test_services.py` — 3
+- `test_views.py` — 1
+
+Foram **excluídos da execução** (não reprova — trava) os arquivos com
+corrida real em threads: `test_api.py` (em parte),
+`test_bl144_matriz_duplicada.py`,
+`test_dl023_regime_tributario_periodo_unico.py`, `test_dl038_migracao.py`,
+`test_dl039_bl534_corrida_real.py`, `test_dl041_unicidade_por_escritorio.py`
+e `test_dl076_b8_modo_escrituracao_constraint.py`. SQLite trava em escrita
+concorrente; o projeto é de PostgreSQL 16.
+
+### (b2) Tela de pendências, conferência e download — ENTREGUE
+
+`especialista-frontend`, nesta mesma etapa: `arquivos_carne_leao` (painel
+de período combinado com documento de conferência), mais os dois downloads
+(`arquivo_rendimentos`/`arquivo_pagamentos`, CSV ISO-8859-1, nome de
+arquivo NEUTRO sem CPF/CNPJ, pendência nunca vira arquivo parcial), o item
+no menu lateral e os testes de tela. As rotas entram na guarda de telas
+(`test_dl024_atalhos_e_acessibilidade.py`).
+
+## Correção da rodada 1 da auditoria (2026-09-27)
+
+Auditoria independente da fatia 3 inteira (servidor + tela): **REPROVADA**
+— achado 1 era nível 1. Regra de parada do AGENTS.md §3.1: uma auditoria,
+uma correção, uma reconferência; terceira rodada é proibida.
+
+| # | Sev. | Achado | Correção | Prova |
+| --- | --- | --- | --- | --- |
+| 1 | ALTO (n1) | `valor_irrf` aceito em modelo de rendimento sem coluna de IRRF (aluguel/outros) e **omitido do CSV em silêncio** — o contador informa o valor e ele some do arquivo que vai à Receita. | `erro_de_valor_irrf` passa a ser por MODELO (mesmo desenho de `erros_de_cpf_cnpj_do_rendimento`, DE-088) e recusa no modelo de aluguel; texto de apoio da tela corrigido; teste que cementava o comportamento trocado pelo caso recusado. | `test_valor_irrf_e_recusado_no_modelo_de_aluguel_que_nao_tem_a_coluna` |
+| 2 | MÉDIO | `codigo_ocupacao` em `EmpresaForm` e `ContaCaixaForm` sem teste nenhum — mutação da condição do `clean()` ou da entrada no contrato não reprovava nada. | Dois arquivos de teste novos (11 testes), incluindo a entrada no `_CONTRATO_DO_FORMULARIO_DE_CONTA_CAIXA` — sem ela a tela devolvia 400 no próprio campo novo. | `test_dl046_fatia3_ocupacao_na_tela.py`, `test_dl046_tela_ocupacao_da_conta.py` |
+| 3 | BAIXO | DE-092 parcial: a API devolvia identificador interno nos `motivo`. | Limpo na FONTE (`carne_leao_arquivos.py`) — "(HI-41)" e "(PE-71)" saíram das mensagens; o texto interno continua em comentário, onde pode. | varredura sem identificador |
+| 4 | BAIXO | Download direto de período sem movimento devolvia CSV vazio com 200, contradizendo a tela. | `conferencia_sem_movimento()` em `carne_leao_arquivos.py` — regra ÚNICA usada nos três lugares (tela e os dois downloads) e na API. | `test_download_de_periodo_sem_movimento_nao_devolve_csv_vazio_com_200` |
+| 5 | MÉDIO | Trilha `carne_leao_arquivo.gerado` gravada por mera CONFERÊNCIA: cada GET da tela dizia que um arquivo tinha sido gerado sem ninguém ter baixado. | `gerar_arquivos_carne_leao(..., para_download=)` distingue `carne_leao_arquivo.conferido` de `...gerado`; downloads passam `True`. A regra de não expor conteúdo vale para as duas. | `test_a_trilha_diz_conferido_quando_so_confere_e_gerado_quando_baixa` |
+
+Também corrigida a contagem de `test_bl54_formato_cnpj_constraint.py` (3 →
+4) na lista de falhas pré-existentes, acima — a auditoria mediu diferente e
+a memória foi atualizada.
+
+### Ressalvas que a auditoria deixou e NÃO são desta etapa
+
+- Regras citadas no código ("P&R IRPF 2026 p. 334", importação automática
+  do imposto pago, 117 fixo do notarial, "ano selecionado") — **a
+  confirmar** em fonte oficial; a auditoria não pôde consultar.
+- A linha de aluguel com `recebido_de=PJ` não tem correspondente nos
+  arquivos-modelo oficiais (só `PF` e `EX`) — **a confirmar** na importação
+  real (HI-41/HI-42/HI-43 seguem sem essa confirmação).
+- Três testes-CONTROLE de `test_dl024_varredura_de_interface.py` comparam
+  caminho POSIX com o retorno Windows (`'static/css/x' in {'static\css\x'}`)
+  — defeito do **instrumento**, pré-existente, sem relação com esta entrega.
+
+### Verificação das correções
+
+- `ruff check .` — sem apontamentos.
+- `pytest apps/livro_caixa` — **411 passed, 4 failed** (as 4 pré-existentes
+  de ambiente, já mapeadas acima).
+- `pytest ...test_dl046_telas_arquivos_carne_leao.py` — **36 passed**.
+- `pytest apps/empresas/tests/test_dl046_fatia3_ocupacao_na_tela.py
+  apps/livro_caixa/tests/test_dl046_tela_ocupacao_da_conta.py` — **11
+  passed**.
+
+

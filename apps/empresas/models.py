@@ -8,6 +8,7 @@ from apps.empresas.validators import (
     normalizar_cpf,
     validar_caepf,
     validar_cnpj,
+    validar_codigo_ocupacao,
     validar_cpf,
     validar_vigencia_de_regime,
 )
@@ -66,6 +67,13 @@ _CPF_TEM_FORMATO_VALIDO = models.Q(cpf__regex=r"^[0-9]{11}$")
 # (HI-31; ver `apps.empresas.validators.validar_caepf` para a fonte, SERPRO,
 # e a ressalva de que nenhuma fonte confirmada documenta o algoritmo do DV).
 _CAEPF_TEM_FORMATO_VALIDO = models.Q(caepf__regex=r"^[0-9]{14}$")
+
+# DL-046, fatia 3 (RC-127/HI-34): formato do código de ocupação do
+# Carnê-Leão Web — 3 dígitos numéricos (o PERTENCIMENTO à tabela oficial,
+# que uma `CheckConstraint` de banco não confere, é responsabilidade de
+# `apps.empresas.validators.validar_codigo_ocupacao`, chamado por
+# `full_clean()`/serializer — mesma divisão de camadas do CAEPF acima).
+_CODIGO_OCUPACAO_TEM_FORMATO_VALIDO = models.Q(codigo_ocupacao__regex=r"^[0-9]{3}$")
 
 
 class TipoInscricao(models.TextChoices):
@@ -196,6 +204,34 @@ class Empresa(models.Model):
         help_text=(
             "Cadastro de Atividade Econômica da Pessoa Física (opcional, "
             "RC-129) — 14 dígitos, sem máscara. Só para tipo de inscrição CPF."
+        ),
+    )
+    # DL-046, fatia 3 (RC-127/HI-34): código de ocupação do Carnê-Leão Web
+    # — OPCIONAL, só para `tipo_inscricao=CPF` (mesmo padrão condicional do
+    # CAEPF acima: guarda em `clean()`? Não — aqui a única regra CRUZADA é
+    # "só para CPF" e "3 dígitos da tabela oficial", ambas expressáveis sem
+    # comparar com OUTRO campo de texto livre, por isso a `CheckConstraint`
+    # "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido" já fecha o
+    # domínio sozinha — sem precisar de um `Empresa.clean()` adicional,
+    # diferente do CAEPF (que cruza com `self.cpf`). O PERTENCIMENTO à
+    # tabela oficial (`apps.empresas.validators.
+    # TABELA_OCUPACOES_CARNE_LEAO_WEB`) é responsabilidade só de
+    # `validar_codigo_ocupacao`, chamado por `full_clean()`/serializer — a
+    # constraint de banco confere só o FORMATO (3 dígitos), pelo mesmo
+    # motivo do CAEPF (SQL não confere pertencimento a uma tabela Python).
+    # Usado na linha de rendimento de trabalho não assalariado do arquivo
+    # de importação do Carnê-Leão Web (RC-127); pode ser sobreposto por
+    # conta (`apps.livro_caixa.models.ContaLivroCaixa.codigo_ocupacao`).
+    codigo_ocupacao = models.CharField(
+        "código de ocupação (Carnê-Leão Web)",
+        max_length=3,
+        blank=True,
+        default="",
+        validators=[validar_codigo_ocupacao],
+        help_text=(
+            "Código de 3 dígitos da tabela oficial de ocupações do "
+            "Carnê-Leão Web (RC-127/HI-34). Só para tipo de inscrição CPF. "
+            "Pode ser sobreposto por conta do livro-caixa."
         ),
     )
     # DL-038 (R4): como a empresa é escriturada. Ver ModoEscrituracao acima
@@ -363,6 +399,16 @@ class Empresa(models.Model):
                 )
                 | (~models.Q(tipo_inscricao=TipoInscricao.CPF) & models.Q(caepf="")),
                 name="empresa_caepf_so_para_cpf_com_formato_valido",
+            ),
+            # DL-046, fatia 3 (RC-127/HI-34): código de ocupação só para
+            # empresa de tipo CPF — mesmo padrão condicional do CAEPF acima.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(tipo_inscricao=TipoInscricao.CPF)
+                    & (models.Q(codigo_ocupacao="") | _CODIGO_OCUPACAO_TEM_FORMATO_VALIDO)
+                )
+                | (~models.Q(tipo_inscricao=TipoInscricao.CPF) & models.Q(codigo_ocupacao="")),
+                name="empresa_codigo_ocupacao_so_para_cpf_com_formato_valido",
             ),
         ]
 

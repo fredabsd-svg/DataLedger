@@ -144,6 +144,14 @@ _CAMPO_DA_RESTRICAO_DE_EMPRESA = {
     # ESTA constraint específica caía no `.get(..., "cnpj")` (o padrão de
     # `_campo_da_restricao_de_empresa`) e reportava o erro no campo errado.
     "empresa_caepf_so_para_cpf_com_formato_valido": "caepf",
+    # DL-046 fatia 3 (RC-127/HI-34): o FIO que faltava — a constraint do
+    # código de ocupação tinha o REGISTRO em `apps.core.restricoes`
+    # (exigido pela varredura de `test_dl019_varredura_de_restricoes.py`)
+    # mas não passava por `restricao_como_400` em nenhuma view. Sem esta
+    # entrada, uma corrida que violasse esta constraint específica caía no
+    # `.get(..., "cnpj")` de `_campo_da_restricao_de_empresa` e reportava o
+    # erro no campo errado — o MESMO defeito do CAEPF, logo acima.
+    "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido": "codigo_ocupacao",
     # Achado D1 da auditoria DL-039 rodada 1 (BL-533): gatilho de banco
     # (não é `Meta.constraint` — ver `apps.core.restricoes.MENSAGENS_DE_
     # RESTRICAO_DE_GATILHO`), disparado quando a checagem em Python
@@ -286,6 +294,9 @@ class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
                         "empresa_cpf_formato_valido",
                         "empresa_inscricao_consistente_com_tipo",
                         "empresa_caepf_so_para_cpf_com_formato_valido",
+                        # DL-046 fatia 3: mesmo padrão do CAEPF, acima —
+                        # ver `_CAMPO_DA_RESTRICAO_DE_EMPRESA`.
+                        "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido",
                     )
                 ),
             ):
@@ -396,6 +407,10 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
                             "empresa_cpf_formato_valido",
                             "empresa_inscricao_consistente_com_tipo",
                             "empresa_caepf_so_para_cpf_com_formato_valido",
+                            # DL-046 fatia 3: mesmo padrão de
+                            # `perform_create` — a atualização é o outro
+                            # caminho de gravação do mesmo campo.
+                            "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido",
                         ),
                         # D1/BL-533: janela de corrida entre a checagem em
                         # Python e o UPDATE — ver o comentário em

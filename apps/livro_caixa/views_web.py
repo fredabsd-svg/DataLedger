@@ -31,8 +31,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Exists, OuterRef
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.core.datas import DataInvalida, para_data
@@ -53,6 +56,12 @@ from apps.livro_caixa.carne_leao import (
     apurar_carne_leao_mensal,
     registrar_dependentes_carne_leao,
     retificar_dependentes_carne_leao,
+)
+from apps.livro_caixa.carne_leao_arquivos import (
+    GeracaoArquivoCarneLeaoBloqueada,
+    PeriodoInvalidoParaArquivoCarneLeaoWeb,
+    conferencia_sem_movimento,
+    gerar_arquivos_carne_leao,
 )
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
@@ -232,7 +241,7 @@ def _decimal_do_formulario(texto):
 class ContaCaixaForm(forms.ModelForm):
     class Meta:
         model = ContaLivroCaixa
-        fields = ["codigo", "nome", "natureza", "codigo_carne_leao", "ativa"]
+        fields = ["codigo", "nome", "natureza", "codigo_carne_leao", "codigo_ocupacao", "ativa"]
         help_texts = {
             "codigo_carne_leao": (
                 "Código do Carnê-Leão Web (Receita Federal) — a dedutibilidade "
@@ -245,6 +254,19 @@ class ContaCaixaForm(forms.ModelForm):
                 "não foi confirmada (PE-71) — aqui só o FORMATO, nunca a "
                 "lista inteira."
             ),
+            # DL-046 fatia 3 (HI-34): sobreposição OPCIONAL da ocupação do
+            # cliente — quando preenchida, é esta que entra no arquivo do
+            # Carnê-Leão Web, no lugar da de `Empresa`. Obrigatória na
+            # prática para a conta notarial (que é sempre 117) e para o
+            # trabalho não assalariado quando a linha do arquivo precisa da
+            # ocupação; `ContaLivroCaixa.clean()` é quem recusa ocupação
+            # fora desses dois modelos de rendimento.
+            "codigo_ocupacao": (
+                "3 dígitos da tabela oficial de ocupações do Carnê-Leão Web, "
+                "sobrepõe a ocupação do cliente nesta conta. Só para conta de "
+                "RECEITA de trabalho não assalariado (R01.001.001) ou "
+                "notarial (R01.001.002) — nesta última é sempre 117."
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -256,7 +278,17 @@ class ContaCaixaForm(forms.ModelForm):
 
 _CONTRATO_DO_FORMULARIO_DE_CONTA_CAIXA = ContratoDeRequisicao(
     campos=frozenset(
-        {"csrfmiddlewaretoken", "codigo", "nome", "natureza", "codigo_carne_leao", "ativa"}
+        {
+            "csrfmiddlewaretoken",
+            "codigo",
+            "nome",
+            "natureza",
+            "codigo_carne_leao",
+            # DL-046 fatia 3: campo novo da tela — sem esta entrada o
+            # contrato recusaria (400) o preenchimento dele.
+            "codigo_ocupacao",
+            "ativa",
+        }
     ),
     aceita_arquivo=False,
     aceita_querystring=False,
@@ -323,6 +355,7 @@ def conta_caixa_nova(request, empresa_id):
                     nome=form.cleaned_data["nome"],
                     natureza=form.cleaned_data["natureza"],
                     codigo_carne_leao=form.cleaned_data["codigo_carne_leao"],
+                    codigo_ocupacao=form.cleaned_data["codigo_ocupacao"],
                     ativa=form.cleaned_data["ativa"],
                     criado_por=request.user,
                     request=request,
@@ -377,6 +410,15 @@ _CONTRATO_DO_FORMULARIO_DE_LANCAMENTO_CAIXA = ContratoDeRequisicao(
             # leiaute oficial prevê exatamente esse caso (indicador "S").
             "cpf_beneficiario_nao_informado",
             "cnpj_pagador",
+            # DL-046 fatia 3 (RC-127/RC-135): os quatro campos novos do
+            # lançamento. Sem eles a tela não conseguia lançar o pagamento
+            # de previdência oficial (P20.01.00001), que EXIGE a competência
+            # — nem informar o IRRF de PJ, que é o que faz o indicador S/N
+            # do arquivo do Carnê-Leão Web sair correto.
+            "valor_irrf",
+            "competencia_previdencia",
+            "multa_previdencia",
+            "juros_previdencia",
             "chave_idempotencia",
         }
     ),
@@ -397,6 +439,39 @@ def _cpf_beneficiario_nao_informado_marcado(dados):
     return bool(dados.get("cpf_beneficiario_nao_informado"))
 
 
+def _valor_monetario_opcional_do_formulario(bruto):
+    """Campo monetário OPCIONAL de formulário HTML: `""` (o que o navegador
+    envia para um input em branco) vira `None` — "não informado" —, e o
+    resto é lido com a MESMA gramática pt-BR do campo `valor`
+    (`_decimal_do_formulario`, DE-029), virando `Decimal`.
+
+    A conversão acontece AQUI, e não só no serviço, porque os dois
+    contratos são diferentes de propósito: o contrato do SERVIÇO é o da
+    API (`para_decimal`, DE-030 — texto decimal simples, "12.34"), e o da
+    TELA é pt-BR ("12,34", "1.500,00" — direção de arte §4.9). Passar o
+    texto da tela adiante faria o serviço recusar um "12,34" com uma
+    mensagem de gramática que não é a deste campo. O que segue para
+    `criar_lancamento_caixa` é `Decimal`/`None` — a validação de escala e
+    de sinal continua sendo do serviço (`_valor_monetario_opcional`), nunca
+    duplicada aqui. `ValorMonetarioInvalido` propaga para a view recusar
+    com o texto digitado preservado."""
+    texto = (bruto or "").strip()
+    if not texto:
+        return None
+    return _decimal_do_formulario(texto)
+
+
+def _competencia_previdencia_do_formulario(bruto):
+    """Competência da previdência oficial vinda do formulário: AAAA-MM-DD,
+    sempre o primeiro dia do mês (é o modelo que checa o dia). Vazio é
+    "não informado"; data malformada propaga `DataInvalida`, que a view
+    traduz para recusa com o dígito digitado preservado."""
+    texto = (bruto or "").strip()
+    if not texto:
+        return None
+    return para_data(texto)
+
+
 def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotencia):
     return {
         "empresa": empresa,
@@ -412,6 +487,13 @@ def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotenci
         "cpf_beneficiario_servico": dados.get("cpf_beneficiario_servico", ""),
         "cpf_beneficiario_nao_informado": _cpf_beneficiario_nao_informado_marcado(dados),
         "cnpj_pagador": dados.get("cnpj_pagador", ""),
+        # DL-046 fatia 3: os quatro campos novos voltam para o formulário
+        # como TEXTO digitado (mesmo tratamento de `valor`), para a recusa
+        # não apagar o que o contador preencheu.
+        "valor_irrf": dados.get("valor_irrf", ""),
+        "competencia_previdencia": dados.get("competencia_previdencia", ""),
+        "multa_previdencia": dados.get("multa_previdencia", ""),
+        "juros_previdencia": dados.get("juros_previdencia", ""),
         "chave_idempotencia": chave_idempotencia,
         "data_minima_iso": DATA_MINIMA_LANCAMENTO_CAIXA.isoformat(),
         "data_maxima_iso": data_maxima_lancamento_caixa().isoformat(),
@@ -483,6 +565,21 @@ def lancamento_caixa_novo(request, empresa_id):
         except ValorMonetarioInvalido as exc:
             return _recusa(str(exc))
 
+        # DL-046, fatia 3 (RC-127/RC-135): os três campos monetários
+        # opcionais novos são lidos com a MESMA gramática pt-BR de `valor`
+        # (ver `_valor_monetario_opcional_do_formulario`), aqui e não dentro
+        # da chamada do serviço — a recusa precisa nomear o CAMPO digitado
+        # errado, e um `ValorMonetarioInvalido` levantado na avaliação dos
+        # argumentos não estaria coberto pelos `except` abaixo.
+        valores_monetarios_opcionais = {}
+        for nome_do_campo in ("valor_irrf", "multa_previdencia", "juros_previdencia"):
+            try:
+                valores_monetarios_opcionais[nome_do_campo] = (
+                    _valor_monetario_opcional_do_formulario(request.POST.get(nome_do_campo, ""))
+                )
+            except ValorMonetarioInvalido as exc:
+                return _recusa(f"'{nome_do_campo}' inválido: {exc}")
+
         data_texto = request.POST.get("data", "")
         try:
             data_lancamento = para_data(data_texto)
@@ -504,12 +601,28 @@ def lancamento_caixa_novo(request, empresa_id):
                     request.POST
                 ),
                 cnpj_pagador=request.POST.get("cnpj_pagador", "").strip(),
+                # DL-046, fatia 3 (RC-127/RC-135): os quatro campos novos —
+                # os três monetários já convertidos acima (`Decimal`/`None`;
+                # o campo vazio do HTML é `""`, e o helper faz a troca por
+                # "não informado").
+                valor_irrf=valores_monetarios_opcionais["valor_irrf"],
+                multa_previdencia=valores_monetarios_opcionais["multa_previdencia"],
+                juros_previdencia=valores_monetarios_opcionais["juros_previdencia"],
+                competencia_previdencia=_competencia_previdencia_do_formulario(
+                    request.POST.get("competencia_previdencia", "")
+                ),
                 criado_por=request.user,
                 chave_idempotencia=chave_idempotencia,
                 request=request,
             )
         except ChaveIdempotenciaConflitanteCaixa as exc:
             return _recusa(str(exc))
+        except DataInvalida as exc:
+            # Só a `competencia_previdencia` é lida dentro deste `try` por
+            # `para_data` (a `data` do lançamento já é convertida antes) —
+            # mesma mensagem do campo vizinho, para os dois não contarem
+            # histórias diferentes do mesmo tipo de erro.
+            return _recusa(f"'competencia_previdencia' inválida: {exc}")
         except LancamentoCaixaInvalido as exc:
             return _recusa(str(exc))
 
@@ -1496,3 +1609,267 @@ def dependentes_carne_leao_retificar(request, empresa_id, dependente_id):
         "retificada com sucesso.",
     )
     return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
+
+
+# ---------------------------------------------------------------------------
+# Arquivos de importação do Carnê-Leão Web (DL-046, fatia 3 — RC-127):
+# tela de pendências/conferência e os dois downloads de CSV.
+#
+# A tela NÃO calcula nada: chama `gerar_arquivos_carne_leao`
+# (`apps.livro_caixa.carne_leao_arquivos`, serviço do `desenvolvedor-pleno`)
+# e só FORMATA (pt-BR, `_valor_ptbr`) o que ele devolveu — mesma regra do
+# bloco do carnê-leão, acima. As três views repetem a MESMA ordem de
+# checagem das outras telas deste arquivo (escritório ativo → empresa do
+# escritório → papel de leitura → modo livro-caixa), e nenhuma delas
+# calcula valor monetário nenhum.
+#
+# A trilha distingue o que aconteceu de fato: a chamada de mera CONFERÊNCIA
+# (esta tela, sem download) grava `carne_leao_arquivo.conferido`, e só quem
+# baixa os bytes deixa `carne_leao_arquivo.gerado` — ver o parâmetro
+# `para_download` de `gerar_arquivos_carne_leao`. (A versão anterior desta
+# seção chamava isto de "limitação declarada"; deixou de ser quando a ação
+# passou a dizer a verdade.)
+# ---------------------------------------------------------------------------
+
+
+# DE-092: nenhum identificador interno do projeto em texto VISÍVEL.
+#
+# A correção é na FONTE — as mensagens de `Pendencia.motivo` perderam as
+# referências entre parênteses em `apps/livro_caixa/carne_leao_arquivos.py`.
+# A normalização de apresentação que existia aqui foi removida na
+# reconferência da rodada 1: com a fonte limpa ela não tinha mais o que
+# remover, e mantê-la esconderia uma reintrodução futura justamente do
+# lugar onde ela precisa aparecer. O que protege hoje é a varredura de
+# texto visível nos testes (`test_sem_identificador_interno_nem_patch`).
+
+
+# Rótulo de exibição do CAMPO de cada pendência (o valor de `Pendencia.
+# campo` é o nome do campo no modelo/serviço, jargão demais para a tela).
+# Campo sem entrada aqui aparece com o próprio nome — nunca some em silêncio.
+_ROTULOS_DE_CAMPO_DE_PENDENCIA = {
+    "historico": "Histórico",
+    "codigo_ocupacao": "Código de ocupação",
+    "competencia_previdencia": "Competência da previdência oficial",
+    "conta.codigo_carne_leao": "Código do Carnê-Leão Web da conta",
+}
+
+
+def _pendencias_para_tela(pendencias):
+    """Lista COMPLETA das pendências (critério 4 do plano: nada truncado),
+    só com o rótulo do campo traduzido e o motivo normalizado (DE-092)."""
+    return [
+        {
+            "lancamento_id": pendencia.lancamento_id,
+            "campo": _ROTULOS_DE_CAMPO_DE_PENDENCIA.get(pendencia.campo, pendencia.campo),
+            "motivo": pendencia.motivo,
+        }
+        for pendencia in pendencias
+    ]
+
+
+def _conferencia_de_arquivo_para_tela(conferencia):
+    """Formata a `conferencia` do serviço para a tela — SEMPRE expõe as
+    duas diferenças (o serviço só permite diferença não-zero por lançamento
+    de conta SEM código do Carnê-Leão Web: fora do arquivo, dentro do
+    Livro Caixa), e diz em TEXTO se cada uma é zero ou não (direção de arte
+    §4.3: cor nunca é o único canal). Os booleanos abaixo são comparação
+    com ZERO para escolher o texto — nenhum valor monetário é calculado
+    aqui.
+
+    `sem_lancamentos_no_periodo` marca o estado VAZIO da tela: nenhum
+    lançamento entrou no arquivo E nada foi excluído — não há o que
+    exportar, e os dois botões de download ficam de fora (arquivo vazio não
+    é o que a importação do Carnê-Leão Web consome)."""
+    zerado = Decimal("0.00")
+    return {
+        "linhas_rendimentos": conferencia["linhas_rendimentos"],
+        "linhas_pagamentos": conferencia["linhas_pagamentos"],
+        "totais_rendimentos": [
+            {"codigo": codigo, "valor_ptbr": _valor_ptbr(valor)}
+            for codigo, valor in sorted(conferencia["totais_rendimentos_por_codigo"].items())
+        ],
+        "totais_pagamentos": [
+            {"codigo": codigo, "valor_ptbr": _valor_ptbr(valor)}
+            for codigo, valor in sorted(conferencia["totais_pagamentos_por_codigo"].items())
+        ],
+        "total_rendimentos_ptbr": _valor_ptbr(conferencia["total_rendimentos"]),
+        "total_pagamentos_ptbr": _valor_ptbr(conferencia["total_pagamentos"]),
+        "total_entradas_livro_caixa_ptbr": _valor_ptbr(conferencia["total_entradas_livro_caixa"]),
+        "total_saidas_livro_caixa_ptbr": _valor_ptbr(conferencia["total_saidas_livro_caixa"]),
+        "diferenca_rendimentos_ptbr": _valor_ptbr(conferencia["diferenca_rendimentos"]),
+        "diferenca_pagamentos_ptbr": _valor_ptbr(conferencia["diferenca_pagamentos"]),
+        "diferenca_rendimentos_zerada": conferencia["diferenca_rendimentos"] == zerado,
+        "diferenca_pagamentos_zerada": conferencia["diferenca_pagamentos"] == zerado,
+        "lancamentos_excluidos_estorno": conferencia["lancamentos_excluidos_estorno"],
+        "lancamentos_excluidos_sem_codigo": conferencia["lancamentos_excluidos_sem_codigo"],
+        "sem_lancamentos_no_periodo": conferencia_sem_movimento(conferencia),
+    }
+
+
+def _url_da_tela_de_arquivos(empresa, request):
+    """Destino dos redirects dos downloads — preserva `inicio`/`fim` da
+    querystring, porque o estado desta família de telas mora na URL (sem
+    sessão): sem isso, o redirect cairia no mês corrente e esconderia o
+    período que a pessoa estava conferindo."""
+    parametros = {
+        chave: request.GET[chave] for chave in ("inicio", "fim") if request.GET.get(chave)
+    }
+    url = reverse("livro_caixa_web:arquivos_carne_leao", args=[empresa.id])
+    return f"{url}?{urlencode(parametros)}" if parametros else url
+
+
+@login_required
+@require_safe
+def arquivos_carne_leao(request, empresa_id):
+    """`GET .../carne-leao/arquivos/?inicio=...&fim=...` — painel de
+    período (arquétipo D) combinado com o documento de conferência: lista
+    TODAS as pendências quando o leiaute oficial recusaria alguma linha
+    (sem nenhum download — nunca arquivo parcial), ou mostra a conferência
+    e os dois downloads quando a geração passa. Período inválido (querystring
+    malformada ou fora de um ano-calendário) é 400 com mensagem, nunca 500."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler o livro-caixa desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return recusa
+
+    inicio, fim = _periodo_do_formulario_caixa(request)
+    contexto = {
+        "empresa": empresa,
+        "inicio": inicio,
+        "fim": fim,
+        "pode_baixar": False,
+        "pendencias": [],
+        "conferencia": None,
+        "estado_vazio": False,
+    }
+    if inicio is None or fim is None:
+        messages.error(request, "O período informado não pôde ser usado.")
+        return render(request, "livro_caixa/arquivos_carne_leao.html", contexto, status=400)
+
+    try:
+        _rendimentos, _pagamentos, conferencia = gerar_arquivos_carne_leao(
+            empresa=empresa, inicio=inicio, fim=fim, usuario=request.user, request=request
+        )
+    except PeriodoInvalidoParaArquivoCarneLeaoWeb as exc:
+        messages.error(request, str(exc))
+        return render(request, "livro_caixa/arquivos_carne_leao.html", contexto, status=400)
+    except GeracaoArquivoCarneLeaoBloqueada as exc:
+        contexto["pendencias"] = _pendencias_para_tela(exc.pendencias)
+        return render(request, "livro_caixa/arquivos_carne_leao.html", contexto)
+
+    contexto["conferencia"] = _conferencia_de_arquivo_para_tela(conferencia)
+    contexto["estado_vazio"] = contexto["conferencia"]["sem_lancamentos_no_periodo"]
+    contexto["pode_baixar"] = not contexto["estado_vazio"]
+    return render(request, "livro_caixa/arquivos_carne_leao.html", contexto)
+
+
+def _servir_arquivo_carne_leao(request, empresa_id, *, prefixo, escolher_conteudo):
+    """Corpo comum dos dois downloads, abaixo — só o PREFIXO do nome do
+    arquivo e qual dos dois `bytes` servir mudam entre eles (mesmo desenho
+    de `_ArquivoCarneLeaoDownloadViewBase`, na API). Mesmas checagens, na
+    mesma ordem, da tela de arquivos.
+
+    ⚠️ Nunca arquivo parcial: com pendência (ou período inválido) a
+    resposta é `messages.error` + redirect de volta para a tela de
+    arquivos, que lista o que falta — o download só existe quando a
+    geração passou inteira. O nome do arquivo é NEUTRO (período e tipo),
+    nunca CPF/CNPJ (LGPD: o anexo pode parar em pasta de download
+    compartilhada)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler o livro-caixa desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return recusa
+
+    inicio, fim = _periodo_do_formulario_caixa(request)
+    if inicio is None or fim is None:
+        messages.error(request, "O período informado não pôde ser usado.")
+        return redirect(_url_da_tela_de_arquivos(empresa, request))
+
+    try:
+        rendimentos_bytes, pagamentos_bytes, conferencia = gerar_arquivos_carne_leao(
+            empresa=empresa,
+            inicio=inicio,
+            fim=fim,
+            usuario=request.user,
+            request=request,
+            # Achado 5 da rodada 1 da auditoria: aqui os bytes VÃO para o
+            # cliente, então a trilha registra "gerado" — a tela de
+            # conferência, que chama a mesma função só para olhar os
+            # números, registra "conferido".
+            para_download=True,
+        )
+    except PeriodoInvalidoParaArquivoCarneLeaoWeb as exc:
+        messages.error(request, str(exc))
+        return redirect(_url_da_tela_de_arquivos(empresa, request))
+    except GeracaoArquivoCarneLeaoBloqueada:
+        messages.error(
+            request,
+            "O arquivo não foi gerado: existem lançamentos que o leiaute do Carnê-Leão Web "
+            "recusaria. A lista completa está na tela de arquivos, para corrigir antes de "
+            "importar — nada é truncado nem corrigido em silêncio.",
+        )
+        return redirect(_url_da_tela_de_arquivos(empresa, request))
+
+    # Achado 4 da rodada 1 da auditoria: a TELA esconde os botões quando não
+    # há o que exportar, mas o endereço de download continuava devolvendo um
+    # CSV vazio com 200 — sucesso aparente num canto onde a tela dizia outra
+    # coisa. A MESMA regra de estado vazio vale aqui: sem lançamento no
+    # período (incluído ou excluído), não há arquivo a importar e a resposta
+    # volta para a tela com o motivo.
+    if conferencia_sem_movimento(conferencia):
+        messages.error(
+            request,
+            "Não há lançamentos neste período para exportar — o arquivo do Carnê-Leão Web "
+            "só é gerado quando existe movimento a importar.",
+        )
+        return redirect(_url_da_tela_de_arquivos(empresa, request))
+
+    # Mesmo formato dos arquivos-modelo oficiais (HI-41, registrado no
+    # serviço): ISO-8859-1 com CRLF — o `Content-Type` declara a
+    # codificação para o navegador não reencodificar os acentos.
+    nome_arquivo = f"carne-leao-{prefixo}-{inicio:%Y-%m}-a-{fim:%Y-%m}.csv"
+    resposta = HttpResponse(
+        escolher_conteudo(rendimentos_bytes, pagamentos_bytes),
+        content_type="text/csv; charset=ISO-8859-1",
+    )
+    resposta["Content-Disposition"] = f'attachment; filename="{nome_arquivo}"'
+    return resposta
+
+
+@login_required
+@require_safe
+def arquivo_rendimentos_carne_leao(request, empresa_id):
+    """Download do CSV de rendimentos do período — pronto para importar no
+    Carnê-Leão Web (mesmo contrato de nome/codificação das telas de
+    download do Fiscal)."""
+    return _servir_arquivo_carne_leao(
+        request,
+        empresa_id,
+        prefixo="rendimentos",
+        escolher_conteudo=lambda rendimentos, pagamentos: rendimentos,
+    )
+
+
+@login_required
+@require_safe
+def arquivo_pagamentos_carne_leao(request, empresa_id):
+    """Download do CSV de pagamentos do período — mesmo contrato do de
+    rendimentos, ao lado."""
+    return _servir_arquivo_carne_leao(
+        request,
+        empresa_id,
+        prefixo="pagamentos",
+        escolher_conteudo=lambda rendimentos, pagamentos: pagamentos,
+    )

@@ -374,3 +374,193 @@ def rendimento_carne_leao_e_sujeito_ao_recolhimento_mensal(codigo, *, recebido_d
         return True
     # MODELO_TRABALHO_NAO_ASSALARIADO e MODELO_ALUGUEL_OUTROS: só PF/EX.
     return recebido_de in ("PF", "EX")
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 3 (RC-127) — campos do leiaute do Carnê-Leão Web que o
+# livro-caixa ainda não tinha: código de ocupação (conta), indicador/valor
+# de IRRF (rendimento recebido de PJ) e competência/multa/juros do
+# pagamento de previdência oficial. Fonte: instruções dos modelos de
+# importação (Receita, 2025) e página "Formato do arquivo de Escrituração"
+# — ver o plano DL-046, seção da fatia 3, e `docs/projeto/requisitos.md`.
+
+# Código de ocupação fixo do modelo NOTARIAL, por instrução oficial ("Código
+# da ocupação - informar código 117", instruções dos modelos de importação,
+# Receita, 2025) — "117" = "Titular de Cartório" na tabela oficial de
+# ocupações (`apps.empresas.validators.TABELA_OCUPACOES_CARNE_LEAO_WEB`).
+CODIGO_OCUPACAO_NOTARIAL = "117"
+
+
+def erro_de_codigo_ocupacao_da_conta(modelo, *, natureza, codigo_ocupacao):
+    """Mensagem de recusa para `ContaLivroCaixa.codigo_ocupacao` (a
+    sobreposição opcional do código de ocupação do cadastro — HI-34), ou
+    `None` quando está coerente. Só RECEITA de trabalho não assalariado ou
+    notarial aceita este campo:
+
+    - Trabalho não assalariado: qualquer código da tabela oficial (o
+      `full_clean()` do campo já confere formato/tabela via
+      `apps.empresas.validators.validar_codigo_ocupacao` — aqui só a
+      COERÊNCIA com o modelo).
+    - Notarial: a instrução oficial fixa o código 117 ("Titular de
+      Cartório") para esta linha — um valor DIFERENTE de 117 seria uma
+      conta que descreve um serviço notarial com ocupação de outra coisa,
+      incoerente com o próprio código de rendimento; o gerador do arquivo
+      (`apps.livro_caixa.carne_leao_arquivos`) usa 117 mesmo sem
+      sobreposição, então só recusa aqui um valor EXPLICITAMENTE diferente.
+    - Despesa, aluguel/outros e código desconhecido: o leiaute não tem este
+      campo (ou não se sabe qual modelo se aplica, PE-71) — só aceita vazio.
+    """
+    if not codigo_ocupacao:
+        return None
+    # `natureza` chega como STRING ("receita"/"despesa", o valor bruto de
+    # `NaturezaCaixa`) — este módulo não importa `apps.livro_caixa.models`
+    # (evita import circular, mesmo motivo do docstring do módulo); mesmo
+    # padrão de `mensagem_de_codigo_carne_leao_invalido`, acima.
+    if natureza != "receita":
+        return "Código de ocupação só é aceito em conta de RECEITA (rendimento do Carnê-Leão Web)."
+    if modelo == MODELO_TRABALHO_NAO_ASSALARIADO:
+        return None
+    if modelo == MODELO_NOTARIAL:
+        if codigo_ocupacao != CODIGO_OCUPACAO_NOTARIAL:
+            return (
+                "O modelo de serviços notariais e de registro usa sempre o "
+                f"código de ocupação {CODIGO_OCUPACAO_NOTARIAL} (Titular de "
+                "Cartório, instrução oficial do Carnê-Leão Web) — deixe em "
+                "branco para o gerador do arquivo preencher automaticamente, "
+                "ou informe exatamente esse código."
+            )
+        return None
+    return (
+        "Código de ocupação só é aceito em conta de rendimento de trabalho "
+        "não assalariado ou de serviços notariais e de registro."
+    )
+
+
+def erro_de_valor_irrf(*, modelo, recebido_de, valor_irrf):
+    """`LancamentoCaixa.valor_irrf` (RC-127): IRRF retido só existe em
+    rendimento recebido de PESSOA JURÍDICA (leiaute oficial — indicador "S"
+    quando há retenção com o valor, "N" caso contrário; o indicador é
+    DERIVADO na geração do arquivo, nunca gravado como campo próprio).
+    Devolve mensagem de recusa, ou `None` quando está coerente.
+
+    A regra é POR MODELO de rendimento, não universal — mesmo desenho de
+    `erros_de_cpf_cnpj_do_rendimento` (DE-088), e pela MESMA razão: a
+    linha de aluguel e outros rendimentos tem 7 campos e **não tem coluna
+    de indicador nem de valor de IRRF** (conferido nos arquivos-modelo
+    oficiais — `tests/fixtures/carne_leao_modelos/
+    aluguel_e_outros_rendimentos.csv`). Aceitar o valor aqui faria o
+    arquivo que vai à Receita **sumir com o IRRF em silêncio**: o dado é
+    gravado, a tela mostra sucesso, e a linha sai sem ele. Nada é truncado
+    nem descartado em silêncio — se o leiaute não tem a coluna, o campo é
+    recusado no lançamento.
+
+    ⚠️ `MODELO_DESCONHECIDO` (código fora das quatro tabelas confirmadas,
+    PE-71) fica SEM exigência aqui, pelo mesmo critério de `cnpj_pagador`:
+    não se recusa com base em leiaute que não se conhece. Nesse caso o
+    arquivo nem chega a ser gerado — o código desconhecido já é pendência
+    em `apps.livro_caixa.carne_leao_arquivos` —, então nenhum dado se perde
+    em silêncio enquanto a tabela não for confirmada.
+    """
+    if valor_irrf is None:
+        return None
+    if recebido_de != "PJ":
+        return (
+            "Valor de IRRF retido só é aceito quando 'recebido de' é pessoa "
+            "jurídica (PJ) — leiaute oficial do Carnê-Leão Web."
+        )
+    if modelo == MODELO_ALUGUEL_OUTROS:
+        return (
+            "O modelo de aluguel e outros rendimentos não tem coluna de IRRF no "
+            "arquivo de importação do Carnê-Leão Web — deixe o valor em branco. "
+            "Este campo é aceito só em rendimento de trabalho não assalariado ou "
+            "de serviços notariais e de registro."
+        )
+    return None
+
+
+# Código de pagamento da previdência oficial — o único que aceita
+# competência/multa/juros nesta fatia (RC-127; instruções dos modelos de
+# importação, Receita, 2025, "Modelo de Arquivo de Pagamentos Gerais",
+# campos 5 a 7: "para os pagamentos do tipo Imposto Pago e Previdência
+# Oficial"). O plano restringe a ESTES campos SÓ à previdência oficial
+# nesta fatia — o "Imposto Pago" (P20.01.00004) fica fora do escopo (ver
+# `apps.livro_caixa.carne_leao_arquivos`).
+CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL = "P20.01.00001"
+
+
+def erros_de_previdencia_oficial(codigo, *, competencia, multa, juros):
+    """Mensagens de recusa (`dict` campo→mensagem) para os três campos
+    novos do pagamento de previdência oficial — vazio (`{}`) quando está
+    coerente. Só `CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL` aceita os três
+    campos, e a COMPETÊNCIA é obrigatória nele (o modelo oficial sempre a
+    preenche — "Modelo de linha para pagamento de Previdência Oficial" traz
+    "99/9999" no campo 7); multa e juros são opcionais ("quando aplicável").
+    Qualquer outro código de pagamento recusa os três, preenchidos."""
+    if codigo == CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL:
+        erros = {}
+        if competencia is None:
+            erros["competencia_previdencia"] = (
+                "Pagamento de previdência oficial (P20.01.00001) exige a "
+                "competência (mês/ano) — leiaute oficial do Carnê-Leão Web."
+            )
+        return erros
+    erros = {}
+    if competencia is not None:
+        erros["competencia_previdencia"] = (
+            "Competência só é aceita no pagamento de previdência oficial "
+            f"({CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL})."
+        )
+    if multa is not None:
+        erros["multa_previdencia"] = (
+            "Valor da multa só é aceito no pagamento de previdência oficial "
+            f"({CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL})."
+        )
+    if juros is not None:
+        erros["juros_previdencia"] = (
+            "Valor dos juros só é aceito no pagamento de previdência oficial "
+            f"({CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL})."
+        )
+    return erros
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 3 — modelo do código de PAGAMENTO (para o gerador do
+# arquivo saber o formato da linha e as pendências de código fora das
+# tabelas). Espelha `modelo_do_codigo_de_rendimento`, acima, para
+# pagamentos: P10/P11 (plano de contas, "regra de formação" da instrução
+# oficial — qualquer sufixo é aceito, é o código da conta do usuário) usam
+# o modelo de 4 campos; P20.01.00001 (previdência oficial) usa o modelo de
+# 7 campos COM competência/multa/juros; P20.01.00002 (pensão alimentícia
+# paga) e P20.01.00003 (imposto pago no exterior) usam o modelo de 7 campos
+# SEM esses três (sempre vazios); P20.01.00004 (imposto pago — pagamento do
+# próprio carnê-leão) fica FORA do escopo desta fatia (plano DL-046); e
+# qualquer outro código (inclusive outro sufixo de P20) é DESCONHECIDO —
+# vira pendência "código fora das tabelas" na geração do arquivo, nunca uma
+# linha adivinhada.
+MODELO_PAGAMENTO_PLANO_DE_CONTAS = "plano_de_contas"
+MODELO_PAGAMENTO_PREVIDENCIA_OFICIAL = "previdencia_oficial"
+MODELO_PAGAMENTO_GERAL_SIMPLES = "geral_simples"
+MODELO_PAGAMENTO_FORA_DE_ESCOPO = "fora_de_escopo"
+MODELO_PAGAMENTO_DESCONHECIDO = "desconhecido"
+
+CODIGO_PAGAMENTO_PENSAO_ALIMENTICIA_PAGA = "P20.01.00002"
+CODIGO_PAGAMENTO_IMPOSTO_PAGO_EXTERIOR = "P20.01.00003"
+# Fora do escopo desta fatia (plano DL-046, "Fora desta fatia") — o próprio
+# pagamento do carnê-leão, código fixo da Receita.
+CODIGO_PAGAMENTO_IMPOSTO_PAGO = "P20.01.00004"
+
+
+def modelo_do_codigo_de_pagamento(codigo):
+    """Devolve uma das constantes `MODELO_PAGAMENTO_*` para `codigo` — ver o
+    comentário do bloco acima. Função PURA (sem ORM)."""
+    if not codigo:
+        return MODELO_PAGAMENTO_DESCONHECIDO
+    if codigo.startswith("P10") or codigo.startswith("P11"):
+        return MODELO_PAGAMENTO_PLANO_DE_CONTAS
+    if codigo == CODIGO_PAGAMENTO_PREVIDENCIA_OFICIAL:
+        return MODELO_PAGAMENTO_PREVIDENCIA_OFICIAL
+    if codigo in (CODIGO_PAGAMENTO_PENSAO_ALIMENTICIA_PAGA, CODIGO_PAGAMENTO_IMPOSTO_PAGO_EXTERIOR):
+        return MODELO_PAGAMENTO_GERAL_SIMPLES
+    if codigo == CODIGO_PAGAMENTO_IMPOSTO_PAGO:
+        return MODELO_PAGAMENTO_FORA_DE_ESCOPO
+    return MODELO_PAGAMENTO_DESCONHECIDO

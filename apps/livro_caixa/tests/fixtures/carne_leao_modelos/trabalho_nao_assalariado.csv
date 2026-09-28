@@ -1,0 +1,5 @@
+99/99/9999;R01.001.001;999;999999999,99;;Modelo de linha para rendimento do trabalho não assalariado recebido de Pessoa Física quando o CPF do beneficiario foi informado;PF;99999999999;99999999999
+99/99/9999;R01.001.001;999;999999999,99;;Modelo de linha para rendimento do trabalho não assalariado recebido de Pessoa Física quando o CPF do beneficiario não for informado;PF;99999999999;;S
+99/99/9999;R01.001.001;999;999999999,99;;Modelo de linha para rendimento do trabalho não assalariado recebido de Pessoa Jurídica com IRRF;PJ;;;;99999999999999;S;99999,99
+99/99/9999;R01.001.001;999;999999999,99;;Modelo de linha para rendimento do trabalho não assalariado recebido de Pessoa Jurídica sem IRRF;PJ;;;;99999999999999;N
+99/99/9999;R01.001.001;999;999999999,99;;Modelo de linha para rendimento do trabalho não assalariado no exterior no Exterior;EX

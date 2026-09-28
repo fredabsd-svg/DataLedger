@@ -183,6 +183,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
             "cnpj",
             "cpf",
             "caepf",
+            "codigo_ocupacao",
             "modo_escrituracao",
             "ativo",
             "regime_atual",
@@ -226,6 +227,25 @@ class EmpresaSerializer(serializers.ModelSerializer):
                 validar_caepf(caepf, cpf=cpf)
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"caepf": exc.messages}) from exc
+
+        # DL-046, fatia 3 (RC-127/HI-34): código de ocupação só para
+        # empresa CPF — mesma invariante da CheckConstraint
+        # "empresa_codigo_ocupacao_so_para_cpf_com_formato_valido"; o
+        # FORMATO e o pertencimento à tabela oficial já são conferidos pelo
+        # `validators=[validar_codigo_ocupacao]` do campo do serializer
+        # (roda em `to_internal_value`, antes de `validate`), então aqui só
+        # falta a checagem CRUZADA com `tipo_inscricao`.
+        codigo_ocupacao = attrs.get(
+            "codigo_ocupacao", getattr(self.instance, "codigo_ocupacao", "")
+        )
+        if codigo_ocupacao and tipo != TipoInscricao.CPF:
+            raise serializers.ValidationError(
+                {
+                    "codigo_ocupacao": (
+                        "Código de ocupação só é aceito para empresa com tipo de inscrição CPF."
+                    )
+                }
+            )
 
         # Achado U-B4 da auditoria DL-041 rodada 1 (decisão do
         # arquiteto-senior): o CNPJ desta empresa não pode ser o MESMO de

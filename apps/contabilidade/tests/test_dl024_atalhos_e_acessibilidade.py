@@ -1026,6 +1026,36 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:carne-leao-mensal": ("API REST (CarneLeaoMensalView, DRF) — JSON; DL-046 fatia 2"),
     "livro_caixa:carne-leao-anual": ("API REST (CarneLeaoAnualView, DRF) — JSON; DL-046 fatia 2"),
+    # DL-046 fatia 3 (RC-127): arquivos de importação do Carnê-Leão Web —
+    # mesmo motivo das rotas de fatia 1/2, acima (só servidor + API nesta
+    # fatia). As duas últimas são DOWNLOAD (text/csv como anexo), não HTML —
+    # mesmo motivo dos dois downloads de XML do Fiscal, mais abaixo neste
+    # arquivo ("download de anexo (...), não HTML").
+    "livro_caixa:carne-leao-arquivos-pendencias": (
+        "API REST (ArquivosCarneLeaoPendenciasView, DRF) — JSON; DL-046 fatia 3"
+    ),
+    "livro_caixa:carne-leao-arquivo-rendimentos": (
+        "download de anexo (text/csv), não HTML (ArquivoCarneLeaoRendimentosDownloadView); "
+        "DL-046 fatia 3"
+    ),
+    "livro_caixa:carne-leao-arquivo-pagamentos": (
+        "download de anexo (text/csv), não HTML (ArquivoCarneLeaoPagamentosDownloadView); "
+        "DL-046 fatia 3"
+    ),
+    # DL-046 fatia 3 (especialista-frontend): os DOIS downloads da TELA web
+    # de arquivos — mesmo motivo dos três acima e dos dois downloads de XML
+    # do Fiscal ("download de anexo (...), não HTML"): devolvem text/csv
+    # como anexo, nunca uma página que estenda base.html. A tela de
+    # pendências/conferência deles SAIU desta lista — é HTML de verdade e
+    # está em NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE, abaixo.
+    "livro_caixa_web:arquivo_rendimentos": (
+        "download de anexo (text/csv), não HTML — apps/livro_caixa/tests/"
+        "test_dl046_telas_arquivos_carne_leao.py; DL-046 fatia 3"
+    ),
+    "livro_caixa_web:arquivo_pagamentos": (
+        "download de anexo (text/csv), não HTML — apps/livro_caixa/tests/"
+        "test_dl046_telas_arquivos_carne_leao.py; DL-046 fatia 3"
+    ),
     # DL-031 (fatia 2 da DL-016): as duas telas de ação que exigem
     # competência ENCERRADA como pré-condição de estado — sob o `cenario`
     # PADRÃO deste arquivo (competência 'aberta') a view devolve 302 para o
@@ -1108,6 +1138,11 @@ NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE = {
     "livro_caixa_web:dependentes_carne_leao": (
         "test_tela_livro_caixa_dependentes_carne_leao_e_acessivel"
     ),
+    # DL-046, fatia 3 (especialista-frontend): a tela de pendências,
+    # conferência e download dos arquivos do Carnê-Leão Web — mesmo papel
+    # das nove de cima (os dois downloads dela são anexo, não tela: ver
+    # EXCLUSOES_NOMEADAS_DE_TELA).
+    "livro_caixa_web:arquivos_carne_leao": "test_tela_livro_caixa_arquivos_carne_leao_e_acessivel",
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
@@ -1452,6 +1487,24 @@ def test_tela_livro_caixa_dependentes_carne_leao_e_acessivel(client, cenario_liv
     )
     assert resposta.status_code == 200
     assert "livro_caixa/dependentes_carne_leao.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# DL-046, fatia 3 (especialista-frontend): a tela de pendências/conferência
+# dos arquivos do Carnê-Leão Web — mesmo cenário e mesma checagem geral das
+# nove de cima, sem atalho/accesskey próprio. Sob o `cenario_livro_caixa`
+# padrão (receita de aluguel, código que não exige ocupação) ela pousa no
+# estado de SUCESSO com conferência — os estados de pendência/erro/vazio
+# têm teste próprio em apps/livro_caixa/tests/
+# test_dl046_telas_arquivos_carne_leao.py.
+
+
+def test_tela_livro_caixa_arquivos_carne_leao_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:arquivos_carne_leao", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/arquivos_carne_leao.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

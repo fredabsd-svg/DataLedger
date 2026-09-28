@@ -455,3 +455,221 @@ def validar_caepf(valor, *, cpf=None):
                 "dígitos do CAEPF devem ser os 9 primeiros dígitos do CPF do "
                 "titular (Cadastro Compartilhado da Receita Federal)."
             )
+
+
+# ---------------------------------------------------------------------------
+# DL-046, fatia 3 (RC-127, HI-34) — código de ocupação do Carnê-Leão Web.
+#
+# Tabela oficial ("Códigos de ocupações", Manual do Carnê-Leão, Receita
+# Federal — publicada em 10/07/2023, atualizada em 30/01/2024, consultada
+# em 2026-09-27): 3 dígitos numéricos ("Código da ocupação: 03 caracteres",
+# página "Formato do arquivo de Escrituração"). Os seis códigos militares e
+# "sem ocupação" aparecem na página como 1 ou 2 dígitos ("10", "20", "30",
+# "40", "50", "0") — preenchidos aqui com zero à esquerda até 3 posições,
+# para bater com a largura fixa do campo; nenhum outro valor foi alterado
+# em relação ao texto publicado, inclusive o parêntese não fechado do
+# código 101 (assim mesmo na página oficial — conferido no HTML de
+# origem). O código 229 segue na tabela porque a própria página o mantém,
+# marcado "até o ano-calendário 2023"; este validador não é sensível a
+# ano-calendário (só confere formato e pertencimento à tabela), então
+# aceitar 229 evita recusar um lançamento histórico legítimo — quem
+# escritura decide qual código cabe ao ano do lançamento.
+TABELA_OCUPACOES_CARNE_LEAO_WEB = {
+    "101": (
+        "Membro do Poder Executivo (Presidente da República, Vice-Presidente da República, "
+        "Ministro de Estado, Governador, Vice-Governador, Prefeito, Vice-Prefeito"
+    ),
+    "102": (
+        "Membro do Poder Judiciário (Ministro, Juiz e Desembargador) e de Tribunal de Contas "
+        "(Ministro e Conselheiro)"
+    ),
+    "103": "Membro do Poder Legislativo (Senador, Deputado Federal, Deputado Estadual e Vereador)",
+    "104": "Membro do Ministério Público (Procurador e Promotor)",
+    "105": (
+        "Dirigente superior da administração pública (ocupante de cargo de direção, chefia, "
+        "assessoria e de natureza especial), inclusive os das fundações públicas e autarquias"
+    ),
+    "106": "Diplomata e afins",
+    "107": "Servidor das carreiras do Poder Legislativo",
+    "108": "Servidor das carreiras do Ministério Público",
+    "109": (
+        "Servidor das carreiras do Poder Judiciário, Oficial de Justiça, Auxiliar, Assistente e "
+        "Analista Judiciário"
+    ),
+    "110": (
+        "Advogado do setor público, Procurador da Fazenda, Consultor Jurídico, Procurador de "
+        "autarquias e fundações públicas, Defensor Público"
+    ),
+    "111": "Servidor das carreiras de auditoria fiscal e de fiscalização",
+    "112": "Servidor das carreiras do Banco Central, CVM e Susep",
+    "113": "Delegado de Polícia e outros servidores das carreiras de polícia, exceto militar",
+    "114": (
+        "Servidor das carreiras de gestão governamental, analista, gestor e técnico de planejamento"
+    ),
+    "115": "Servidor das carreiras de ciência e tecnologia",
+    "116": (
+        "Servidor das demais carreiras da administração pública direta, autárquica e fundacional"
+    ),
+    "117": "Titular de Cartório",
+    "118": (
+        "Dirigente ou administrador de partido político, organização patronal, sindical, "
+        "filantrópica e religiosa"
+    ),
+    "120": (
+        "Dirigente, presidente e diretor de empresa industrial, comercial ou prestadora de serviços"
+    ),
+    "121": "Presidente e diretor de empresa pública e sociedade de economia mista",
+    "130": "Gerente ou supervisor de empresa industrial, comercial ou prestadora de serviços",
+    "131": "Gerente ou supervisor de empresa pública e sociedade de economia mista",
+    "140": (
+        "Presidente, diretor, gerente e supervisor de organismo internacional e de organização "
+        "não-governamental"
+    ),
+    "211": "Matemático, estatístico, atuário e afins",
+    "212": (
+        "Analista de sistemas, desenvolvedor de software, administrador de redes e bancos de dados "
+        "e outros especialistas em informática (exceto técnico)"
+    ),
+    "213": "Físico, químico, meteorologista, geólogo, oceanógrafo e afins",
+    "214": "Engenheiro, arquiteto e afins",
+    "215": "Piloto de aeronaves, comandante de embarcações e oficiais de máquinas",
+    "221": "Biólogo, biomédico e afins",
+    "222": "Agrônomo e afins",
+    "224": "Profissional da educação física (exceto professor)",
+    "225": "Médico",
+    "226": "Odontólogo",
+    "227": "Enfermeiro de nível superior, nutricionista, farmacêutico e afins",
+    "228": "Veterinário, patologista (veterinário) e zootecnista",
+    "229": (
+        "Fonoaudiólogo, fisioterapeuta, terapeuta ocupacional e afins (até o ano-calendário 2023)"
+    ),
+    "230": "Fonoaudiólogo (a partir do ano-calendário 2024)",
+    "231": "Fisioterapeuta (a partir do ano-calendário 2024)",
+    "232": "Terapeuta ocupacional (a partir do ano-calendário 2024)",
+    "241": "Advogado",
+    "250": "Sociólogo e cientista político",
+    "251": "Antropólogo e arqueólogo",
+    "252": "Economista, administrador, contador, auditor e afins",
+    "253": "Profissional de marketing, de publicidade e de comercialização",
+    "254": "Psicanalista",
+    "255": "Psicólogo",
+    "256": "Geógrafo",
+    "257": "Historiador",
+    "258": "Assistente social e economista doméstico",
+    "259": "Filósofo",
+    "261": "Jornalista e repórter",
+    "263": "Sacerdote ou membro de ordens ou seitas religiosas",
+    "264": "Tradutor, intérprete, filólogo",
+    "265": "Bibliotecário, documentalista, arquivólogo, museólogo",
+    "266": "Escritor, crítico, redator",
+    "271": "Locutor, comentarista",
+    "272": "Ator, diretor de espetáculos",
+    "273": "Cantor e compositor",
+    "274": "Músico, arranjador, regente de orquestra ou coral",
+    "275": "Desenhista industrial (designer), escultor, pintor artístico e afins",
+    "276": "Cenógrafo, decorador de interiores",
+    "277": "Empresário e produtor de espetáculos",
+    "279": "Outros profissionais do espetáculo e das artes",
+    "290": "Professor na educação infantil",
+    "291": "Professor do ensino fundamental",
+    "292": "Professor do ensino médio",
+    "293": "Professor do ensino profissional",
+    "294": "Professor do ensino superior",
+    "295": "Instrutor e professor de escolas livres",
+    "296": "Pedagogo, orientador educacional",
+    "311": "Técnico em ciências físicas e químicas",
+    "312": "Técnico em construção civil, de edificações e obras de infra-estrutura",
+    "313": "Técnico em eletro-eletrônica e fotônica",
+    "314": "Técnico em metalmecânica",
+    "316": "Técnico em mineralogia e geologia",
+    "317": "Técnico em informática",
+    "318": "Desenhista técnico e modelista",
+    "319": "Outros técnicos de nível médio das ciências físicas, químicas, engenharia e afins",
+    "320": "Técnico em biologia",
+    "321": "Técnico da produção agropecuária",
+    "322": "Técnico da ciência da saúde humana",
+    "323": "Técnico da ciência da saúde animal",
+    "324": "Técnico de laboratório, Raios-X e outros equipamentos e instrumentos de diagnóstico",
+    "325": "Técnico de bioquímica e da biotecnologia",
+    "328": "Técnico de conservação, dissecação e empalhamento de corpos",
+    "351": "Técnico das ciências administrativas e contábeis",
+    "352": "Técnico de inspeção, fiscalização e coordenação administrativa",
+    "353": "Agente de Bolsa de Valores, câmbio e outros serviços financeiros",
+    "354": "Agente e representante comercial, corretor, leiloeiro e afins",
+    "355": "Corretor e Administrador de Imóveis",
+    "371": "Técnico de serviços culturais",
+    "372": (
+        "Cinegrafista, fotógrafo e outros técnicos em operação de máquinas de tratamento de dados"
+    ),
+    "373": "Técnico em operação de estações de rádio e televisão",
+    "374": "Técnico em operação de aparelhos de sonorização, cenografia e projeção",
+    "375": "Decorador e vitrinista",
+    "376": "Apresentador, artistas de artes populares e modelos",
+    "377": "Atleta, desportista e afins",
+    "391": "Outros técnicos de nível médio",
+    "410": "Bancário, economiário, escriturário, secretário, assistente e auxiliar administrativo",
+    "420": "Trabalhador de atendimento ao público, caixa, despachante, recenseador e afins",
+    "511": "Comissário de bordo, guia de turismo, agente de viagem e afins",
+    "512": "Trabalhador dos serviços domésticos em geral",
+    "513": "Trabalhador dos serviços de hotelaria e alimentação",
+    "514": "Trabalhador dos serviços de administração, conservação e manutenção de edifícios",
+    "515": "Trabalhador dos serviços de saúde",
+    "516": "Trabalhador dos serviços de embelezamento e cuidados pessoais",
+    "517": "Trabalhador dos serviços de proteção e segurança (exceto militar)",
+    "518": (
+        "Motorista e condutor do transporte de passageiros (motorista de taxi, ônibus, pequena "
+        "embarcação etc)"
+    ),
+    "519": "Outros trabalhadores de serviços diversos",
+    "529": "Vendedor e prestador de serviços do comércio, ambulante, caixeiro-viajante e camelô",
+    "610": "Produtor na exploração agropecuária",
+    "620": "Trabalhador na exploração agropecuária",
+    "630": "Pescador, caçador e extrativista florestal",
+    "640": "Operador de máquina agropecuária e florestal",
+    "710": "Trabalhador da indústria extrativa e da construção civil",
+    "720": "Trabalhador da transformação de metais e compósitos",
+    "730": "Trabalhador da fabricação e instalação eletro-eletrônica",
+    "740": "Montador de aparelhos e instrumentos de precisão e musicais",
+    "750": "Joalheiro, vidreiro, ceramista e afins",
+    "760": "Trabalhador das indústrias têxteis, do curtimento, do vestuário e das artes gráficas",
+    "770": "Trabalhador das indústrias de madeira e do mobiliário",
+    "780": (
+        "Condutor e operador de robôs, veículos de equipamentos de movimentação de carga e afins"
+    ),
+    "810": "Trabalhador das indústrias química, petroquímica, borracha e plástico e afins",
+    "820": "Trabalhador de instalações siderúrgicas e de materiais de construção",
+    "830": "Trabalhador de instalações e máquinas de fabricação de celulose e papel",
+    "840": "Trabalhador da fabricação de alimentos, bebidas, fumo e de agroindústrias",
+    "860": "Operador de instalações de produção e distribuição de energia",
+    "870": "Trabalhador de outras instalações agroindustriais",
+    "900": "Trabalhador de reparação e manutenção",
+    "010": "Militar da Aeronáutica",
+    "020": "Militar do Exército",
+    "030": "Militar da Marinha",
+    "040": "Policial Militar",
+    "050": "Bombeiro Militar",
+    "000": "Sem ocupações",
+}
+
+
+def validar_codigo_ocupacao(valor):
+    """Valida o FORMATO (3 dígitos numéricos) e o PERTENCIMENTO de `valor` à
+    tabela oficial de ocupações do Carnê-Leão Web
+    (`TABELA_OCUPACOES_CARNE_LEAO_WEB`, acima). Usado no cadastro da pessoa
+    física (`Empresa.codigo_ocupacao`) e, por sobreposição opcional, na
+    conta de rendimento do livro-caixa
+    (`apps.livro_caixa.models.ContaLivroCaixa.codigo_ocupacao`) — a mesma
+    regra nos dois lugares, sem duplicar a tabela.
+    """
+    if not isinstance(valor, str):
+        raise ValidationError("Código de ocupação deve ser um texto.")
+    codigo = valor.strip()
+    if not re.fullmatch(r"[0-9]{3}", codigo):
+        raise ValidationError(
+            "Código de ocupação deve ter 3 dígitos numéricos (tabela oficial "
+            "de ocupações do Carnê-Leão Web)."
+        )
+    if codigo not in TABELA_OCUPACOES_CARNE_LEAO_WEB:
+        raise ValidationError(
+            f"Código de ocupação '{codigo}' não consta na tabela oficial do Carnê-Leão Web."
+        )

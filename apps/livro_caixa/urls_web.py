@@ -1,6 +1,9 @@
 from django.urls import path
 
 from apps.livro_caixa.views_web import (
+    arquivo_pagamentos_carne_leao,
+    arquivo_rendimentos_carne_leao,
+    arquivos_carne_leao,
     carne_leao_anual,
     carne_leao_mensal,
     conta_caixa_nova,
@@ -75,5 +78,26 @@ urlpatterns = [
         "empresas/<int:empresa_id>/carne-leao/dependentes/<int:dependente_id>/retificar/",
         dependentes_carne_leao_retificar,
         name="dependentes_carne_leao_retificar",
+    ),
+    # DL-046, fatia 3 (RC-127) — arquivos de importação do Carnê-Leão Web.
+    # "carne-leao/arquivos/" e os dois sufixos dele ("rendimentos/",
+    # "pagamentos/") não colidem com "carne-leao/anual/" nem com
+    # "carne-leao/dependentes/": são prefixos distintos, e o Django casa
+    # cada padrão com o caminho INTEIRO (a rota de download nunca cai na
+    # da tela, nem o contrário).
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/",
+        arquivos_carne_leao,
+        name="arquivos_carne_leao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/rendimentos/",
+        arquivo_rendimentos_carne_leao,
+        name="arquivo_rendimentos",
+    ),
+    path(
+        "empresas/<int:empresa_id>/carne-leao/arquivos/pagamentos/",
+        arquivo_pagamentos_carne_leao,
+        name="arquivo_pagamentos",
     ),
 ]

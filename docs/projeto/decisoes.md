@@ -5057,3 +5057,72 @@ listou, e o Fred decide no PR.
 
 **Reversão:** mudanças locais ao motor, ao serviço, às telas e à folha de
 estilo; sem migração prevista.
+
+## DE-093 — Carnê-leão, fatia 3: histórico com `;`, CR ou LF é pendência, nunca escape
+
+Data: 2026-09-27. Responsável: `desenvolvedor-pleno`, na implementação da
+fatia 3 da [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) (arquivos
+de importação do Carnê-Leão Web, RC-127).
+
+**A pergunta:** o histórico de um lançamento de caixa pode conter `;`
+(o separador de campo do leiaute), retorno de carro (`\r`) ou quebra de
+linha (`\n`) — campos existentes no produto (`historico`, `max_length=300`)
+nunca tiveram essa restrição, porque a contabilidade não gera arquivo de
+importação de terceiro. O que a geração do arquivo do Carnê-Leão Web faz
+quando encontra um desses caracteres?
+
+**A decisão:** vira PENDÊNCIA (a linha não é gerada, o lançamento aparece na
+lista de pendências com o campo `historico` e o motivo) — nunca um escape
+(aspas, `\;`), nunca uma substituição silenciosa (por espaço, por exemplo).
+
+**Por quê:** nenhuma das fontes lidas (instruções dos modelos de
+importação, página "Formato do arquivo de Escrituração") descreve um
+mecanismo de escape para o leiaute do Carnê-Leão Web — a única instrução
+sobre o `;` é "não retire o ponto e vírgula da linha MODELO", nada sobre um
+`;` dentro do CONTEÚDO de um campo. Inventar um escape sem fonte violaria a
+regra de não inventar leiaute oficial (AGENTS.md §10); gerar a linha do
+jeito que está romperia a contagem de campos no Carnê-Leão Web, de forma
+silenciosa — pior que recusar. HI-43 (`requisitos.md`) registra esta
+decisão como hipótese: se o Carnê-Leão Web tiver um mecanismo de escape que
+esta implementação desconhece, a regra pode ficar mais permissiva sem
+perder segurança.
+
+**O que isto NÃO muda:** o campo `historico` do modelo continua aceitando
+`;`/CR/LF normalmente para o resto do produto (relatório Livro Caixa,
+apuração do carnê-leão) — a restrição é só da GERAÇÃO DO ARQUIVO, a ÚNICA
+superfície onde esse caractere tem um significado estrutural especial.
+
+## DE-094 — Carnê-leão, fatia 3: leiaute de pagamentos gerais (P20) nunca trunca campo final vazio; leiaute de rendimentos trunca
+
+Data: 2026-09-27. Responsável: `desenvolvedor-pleno`, mesma etapa da DE-093.
+
+**O achado, medido diretamente nos seis arquivos-modelo oficiais** (Receita
+Federal, 2025 — fixture de teste em
+`apps/livro_caixa/tests/fixtures/carne_leao_modelos/`, README com a
+origem): os dois leiautes de RENDIMENTO com campos condicionais (trabalho
+não assalariado, notarial) **truncam** os campos finais vazios — uma linha
+PF com o indicador de "CPF do beneficiário não informado" marcado (`S`)
+termina no campo 10, sem os três campos seguintes (CNPJ, indicador e valor
+de IRRF), mesmo todos vazios; uma linha PJ sem IRRF termina no campo 12
+(indicador `N`), sem o campo 13 (valor). Já o leiaute de PAGAMENTOS GERAIS
+(código `P20`, qualquer um dos quatro) **nunca trunca**: as linhas de
+Pensão Alimentícia Paga e de Imposto Pago no Exterior — nenhum dos dois
+usa multa/juros/competência — têm os TRÊS campos finais vazios, mas
+PRESENTES (`;;;` explícito), sempre com 7 campos.
+
+**A decisão:** o gerador (`apps.livro_caixa.carne_leao_arquivos`) reproduz
+os dois comportamentos, cada um no seu leiaute — nunca um único algoritmo
+de "corta o que sobrar vazio no fim" aplicado aos dois. Para rendimentos, a
+lista de campos de cada `_campos_rendimento_*` já para na posição certa
+(o Python simplesmente não anexa os campos finais quando não se aplicam);
+para pagamentos gerais (`_campos_pagamento_geral`), a lista tem SEMPRE 7
+posições, com `""` explícito quando o campo não se aplica ao código.
+
+**Por quê registrar como decisão, e não só como código:** um agente futuro
+que "simplificasse" os dois geradores para o mesmo padrão (por exemplo,
+sempre truncar, ou sempre preencher os 7 campos em ambos) quebraria a
+reprodução linha a linha contra o arquivo-modelo oficial em pelo menos um
+dos dois leiautes — o teste (`test_dl046_fatia3_arquivos_carne_leao.py`)
+pega isso, mas o MOTIVO da assimetria (ela é do LEIAUTE OFICIAL, não um
+acidente de implementação) precisa estar em algum lugar que sobreviva a
+uma refatoração apressada.

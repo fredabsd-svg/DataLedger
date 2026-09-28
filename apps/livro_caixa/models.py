@@ -8,9 +8,12 @@ from django.db import models
 from apps.empresas.fields import CNPJModelField, CPFModelField
 from apps.empresas.models import Empresa
 from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_livro_caixa
-from apps.empresas.validators import validar_cnpj, validar_cpf
+from apps.empresas.validators import validar_cnpj, validar_codigo_ocupacao, validar_cpf
 from apps.livro_caixa.validators import (
+    erro_de_codigo_ocupacao_da_conta,
+    erro_de_valor_irrf,
     erros_de_cpf_cnpj_do_rendimento,
+    erros_de_previdencia_oficial,
     mensagem_de_codigo_carne_leao_invalido,
     modelo_do_codigo_de_rendimento,
     validar_data_de_lancamento_caixa_do_modelo,
@@ -92,6 +95,28 @@ class ContaLivroCaixa(models.Model):
             "(P10/P11/P20 + dígitos) para conta de despesa (HI-30)."
         ),
     )
+    # DL-046, fatia 3 (RC-127/HI-34): sobrepõe o código de ocupação do
+    # cadastro (`Empresa.codigo_ocupacao`) SÓ para esta conta — o leiaute
+    # oficial pede a ocupação por LINHA de rendimento de trabalho não
+    # assalariado, e o escritório pode ter um cliente com mais de uma
+    # ocupação, cada uma numa conta diferente. Vazio (padrão) usa o do
+    # cadastro; a coerência com o MODELO da conta (só trabalho não
+    # assalariado e notarial — este último travado em 117) é validada em
+    # `clean()`, porque depende de `self.codigo_carne_leao`/`self.natureza`,
+    # outros campos do MESMO modelo.
+    codigo_ocupacao = models.CharField(
+        "código de ocupação (Carnê-Leão Web) — sobrepõe o do cadastro",
+        max_length=3,
+        blank=True,
+        default="",
+        validators=[validar_codigo_ocupacao],
+        help_text=(
+            "Opcional — sobrepõe o código de ocupação do cadastro da "
+            "empresa só para esta conta (HI-34). Só em conta de rendimento "
+            "de trabalho não assalariado ou notarial (neste último, sempre "
+            "117)."
+        ),
+    )
     ativa = models.BooleanField("ativa", default=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
@@ -110,6 +135,20 @@ class ContaLivroCaixa(models.Model):
             models.CheckConstraint(
                 condition=models.Q(natureza__in=[NaturezaCaixa.RECEITA, NaturezaCaixa.DESPESA]),
                 name="conta_livro_caixa_natureza_valida",
+            ),
+            # DL-046, fatia 3: FORMATO do código de ocupação (3 dígitos ou
+            # vazio) — mesmo padrão condicional de `Empresa.codigo_
+            # ocupacao`/CAEPF (DE-008, camada 1). A coerência com o MODELO
+            # da conta (só trabalho não assalariado/notarial) e o
+            # pertencimento à tabela oficial ficam em `clean()`/
+            # `validar_codigo_ocupacao` — uma `CheckConstraint` de banco não
+            # confere pertencimento a uma tabela Python nem compara com
+            # OUTRO campo de texto livre (`codigo_carne_leao`) de forma
+            # simples em SQL.
+            models.CheckConstraint(
+                condition=models.Q(codigo_ocupacao="")
+                | models.Q(codigo_ocupacao__regex=r"^[0-9]{3}$"),
+                name="conta_livro_caixa_codigo_ocupacao_formato_valido",
             ),
         ]
 
@@ -142,6 +181,20 @@ class ContaLivroCaixa(models.Model):
             )
             if mensagem is not None:
                 raise ValidationError({"codigo_carne_leao": mensagem})
+
+        # DL-046, fatia 3 (RC-127/HI-34): coerência do código de ocupação
+        # (sobreposição) com o MODELO de rendimento da conta — só depois da
+        # checagem de formato do código do Carnê-Leão Web, acima, porque
+        # `modelo_do_codigo_de_rendimento` espera um código já coerente com
+        # a natureza (um código de PAGAMENTO nunca é "trabalho não
+        # assalariado" nem "notarial").
+        if self.codigo_ocupacao:
+            modelo = modelo_do_codigo_de_rendimento(self.codigo_carne_leao)
+            erro_ocupacao = erro_de_codigo_ocupacao_da_conta(
+                modelo, natureza=self.natureza, codigo_ocupacao=self.codigo_ocupacao
+            )
+            if erro_ocupacao is not None:
+                raise ValidationError({"codigo_ocupacao": erro_ocupacao})
 
         # Guardas de TRANSIÇÃO (mesmo molde do BL-83/DL-023 e da DL-033/
         # DL-045), consolidadas numa consulta só. A PRIMEIRA gravação
@@ -273,6 +326,62 @@ class LancamentoCaixa(models.Model):
     cnpj_pagador = CNPJModelField(
         "CNPJ do pagador", max_length=14, blank=True, default="", validators=[validar_cnpj]
     )
+    # DL-046, fatia 3 (RC-127): IRRF retido — leiaute oficial dos modelos de
+    # rendimento (Receita, 2025), campos "Indicador de IRRF"/"Valor IRRF".
+    # Só o VALOR é gravado; o INDICADOR ("S"/"N") é DERIVADO na geração do
+    # arquivo (S com valor > 0, N sem retenção) — nunca um segundo campo que
+    # poderia divergir do valor. Só aceito quando `recebido_de="PJ"`
+    # (`clean()`, abaixo — `apps.livro_caixa.validators.erro_de_valor_irrf`).
+    valor_irrf = models.DecimalField(
+        "valor de IRRF retido",
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text=(
+            "Opcional — só em rendimento recebido de pessoa jurídica (PJ). "
+            "O indicador S/N do arquivo de importação é derivado deste "
+            "valor (S se maior que zero, N caso contrário)."
+        ),
+    )
+    # DL-046, fatia 3 (RC-127): competência, multa e juros do PAGAMENTO de
+    # previdência oficial (`P20.01.00001`) — leiaute oficial ("Modelo de
+    # Arquivo de Pagamentos Gerais", campos 5 a 7: "para os pagamentos do
+    # tipo Imposto Pago e Previdência Oficial"). Nesta fatia, restrito só à
+    # previdência oficial (o "Imposto Pago" — P20.01.00004 — está fora do
+    # escopo, ver o plano DL-046); qualquer OUTRO código recusa os três
+    # (`clean()`, abaixo — `apps.livro_caixa.validators.
+    # erros_de_previdencia_oficial`). `competencia_previdencia` guarda
+    # sempre o PRIMEIRO DIA do mês (mesma convenção de `VigenciaTabela
+    # ProgressivaCarneLeao.vigencia_inicio`/`DependentesCarneLeaoCliente.
+    # competencia_inicio`) — só mês/ano importam, o dia é descartado na
+    # geração do arquivo (formato MM/AAAA).
+    competencia_previdencia = models.DateField(
+        "competência da previdência oficial (mês)",
+        null=True,
+        blank=True,
+        help_text=(
+            "Obrigatória só no pagamento de previdência oficial "
+            "(P20.01.00001) — sempre o primeiro dia do mês de competência."
+        ),
+    )
+    multa_previdencia = models.DecimalField(
+        "valor da multa (previdência oficial)",
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    juros_previdencia = models.DecimalField(
+        "valor dos juros (previdência oficial)",
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
     # Idempotência (BL-41, mesmo padrão de `LancamentoContabil`).
     chave_idempotencia = models.CharField(
         "chave de idempotência",
@@ -321,6 +430,36 @@ class LancamentoCaixa(models.Model):
                 fields=["empresa", "chave_idempotencia"],
                 condition=models.Q(chave_idempotencia__isnull=False),
                 name="lancamento_caixa_chave_idempotencia_unica_por_empresa",
+            ),
+            # DL-046, fatia 3: valores não negativos dos três campos novos
+            # de previdência oficial e do IRRF — mesma camada 1 (DE-008) de
+            # `lancamento_caixa_valor_positivo`, acima; a COERÊNCIA com o
+            # código da conta (só previdência oficial aceita os três; só PJ
+            # aceita IRRF) fica em `clean()`, que não é alcançável por SQL
+            # puro (depende de `self.conta.codigo_carne_leao`, outra
+            # tabela).
+            models.CheckConstraint(
+                condition=models.Q(valor_irrf__isnull=True) | models.Q(valor_irrf__gte=0),
+                name="lancamento_caixa_valor_irrf_nao_negativo",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(multa_previdencia__isnull=True)
+                | models.Q(multa_previdencia__gte=0),
+                name="lancamento_caixa_multa_previdencia_nao_negativa",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(juros_previdencia__isnull=True)
+                | models.Q(juros_previdencia__gte=0),
+                name="lancamento_caixa_juros_previdencia_nao_negativa",
+            ),
+            # A competência é sempre o PRIMEIRO DIA do mês (mesmo motivo de
+            # "vigencia_tabela_carne_leao_inicio_dia_1" — o arquivo só usa
+            # MM/AAAA; um dia fora do 1º só criaria ambiguidade sem
+            # propósito).
+            models.CheckConstraint(
+                condition=models.Q(competencia_previdencia__isnull=True)
+                | models.Q(competencia_previdencia__day=1),
+                name="lancamento_caixa_competencia_previdencia_dia_1",
             ),
         ]
 
@@ -376,18 +515,45 @@ class LancamentoCaixa(models.Model):
                 or self.cpf_beneficiario_servico
                 or self.cpf_beneficiario_nao_informado
                 or self.cnpj_pagador
+                or self.valor_irrf is not None
             ):
                 raise ValidationError(
                     "Lançamento de DESPESA não tem 'recebido de', CPF do titular/"
-                    "beneficiário nem CNPJ do pagador — esses campos são só de "
-                    "lançamento de RECEITA."
+                    "beneficiário, CNPJ do pagador nem IRRF — esses campos são só "
+                    "de lançamento de RECEITA."
                 )
+            # DL-046, fatia 3 (RC-127): competência/multa/juros só no
+            # pagamento de previdência oficial — a regra por CÓDIGO mora em
+            # `apps.livro_caixa.validators.erros_de_previdencia_oficial`
+            # (módulo puro, sem ORM), mesmo padrão de `erros_de_cpf_cnpj_
+            # do_rendimento` para RECEITA, abaixo.
+            erros_previdencia = erros_de_previdencia_oficial(
+                self.conta.codigo_carne_leao,
+                competencia=self.competencia_previdencia,
+                multa=self.multa_previdencia,
+                juros=self.juros_previdencia,
+            )
+            if erros_previdencia:
+                raise ValidationError(erros_previdencia)
             return
 
         # RECEITA a partir daqui.
         if not self.recebido_de:
             raise ValidationError(
                 {"recebido_de": "Lançamento de receita exige 'recebido de' (PF, PJ ou EX)."}
+            )
+
+        # DL-046, fatia 3: os três campos de previdência oficial são só de
+        # DESPESA (P20.01.00001) — uma RECEITA nunca os aceita.
+        if (
+            self.competencia_previdencia is not None
+            or self.multa_previdencia is not None
+            or self.juros_previdencia is not None
+        ):
+            raise ValidationError(
+                "Competência, multa e juros de previdência oficial são só de "
+                "lançamento de DESPESA (P20.01.00001) — não se aplicam a "
+                "lançamento de RECEITA."
             )
 
         # M5/DE-088 item 1 (reabertura da DE-087 item 6, reconferência):
@@ -407,6 +573,19 @@ class LancamentoCaixa(models.Model):
         )
         if erros:
             raise ValidationError(erros)
+
+        # DL-046, fatia 3 (RC-127): IRRF retido só em rendimento recebido de
+        # PJ — e só em modelo de rendimento que TEM coluna de IRRF no leiaute
+        # (a linha de aluguel e outros não tem; aceitar o valor faria o
+        # arquivo sumir com ele em silêncio). Mesma regra por MODELO de
+        # `erros_de_cpf_cnpj_do_rendimento`, logo acima (DE-088) — por isso
+        # `modelo` é reaproveitado daqui e não recalculado.
+        # `apps.livro_caixa.validators.erro_de_valor_irrf`.
+        erro_irrf = erro_de_valor_irrf(
+            modelo=modelo, recebido_de=self.recebido_de, valor_irrf=self.valor_irrf
+        )
+        if erro_irrf is not None:
+            raise ValidationError({"valor_irrf": erro_irrf})
 
 
 # ---------------------------------------------------------------------------

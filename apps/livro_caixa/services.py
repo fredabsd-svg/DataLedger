@@ -62,6 +62,10 @@ def _impressao_digital_caixa(
     cpf_beneficiario_servico,
     cpf_beneficiario_nao_informado,
     cnpj_pagador,
+    valor_irrf,
+    competencia_previdencia,
+    multa_previdencia,
+    juros_previdencia,
     estorno_de_id,
 ):
     """Hash estável do conteúdo de um lançamento de caixa, para a
@@ -76,6 +80,12 @@ def _impressao_digital_caixa(
     e indicador incoerentes se fosse gravado de verdade) como se fosse
     repetição do primeiro — sucesso (200) para um corpo que nunca foi
     validado.
+
+    DL-046, fatia 3: os quatro campos novos (IRRF e previdência oficial)
+    entram na impressão pelo MESMO motivo do N7 — sem isso, dois corpos
+    diferindo só em `valor_irrf` (ou só em `multa_previdencia`, etc.), com a
+    mesma chave, colidiriam na MESMA impressão, e a repetição devolveria o
+    segundo corpo (nunca validado) como se fosse repetição do primeiro.
     """
     estrutura = {
         "empresa_id": empresa_id,
@@ -89,6 +99,12 @@ def _impressao_digital_caixa(
         "cpf_beneficiario_servico": cpf_beneficiario_servico or "",
         "cpf_beneficiario_nao_informado": bool(cpf_beneficiario_nao_informado),
         "cnpj_pagador": cnpj_pagador or "",
+        "valor_irrf": str(valor_irrf) if valor_irrf is not None else None,
+        "competencia_previdencia": (
+            competencia_previdencia.isoformat() if competencia_previdencia is not None else None
+        ),
+        "multa_previdencia": str(multa_previdencia) if multa_previdencia is not None else None,
+        "juros_previdencia": str(juros_previdencia) if juros_previdencia is not None else None,
         "estorno_de_id": estorno_de_id,
     }
     bruto = json.dumps(estrutura, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -96,7 +112,16 @@ def _impressao_digital_caixa(
 
 
 def criar_conta_livro_caixa(
-    *, empresa, codigo, nome, natureza, codigo_carne_leao, ativa=True, criado_por=None, request=None
+    *,
+    empresa,
+    codigo,
+    nome,
+    natureza,
+    codigo_carne_leao,
+    codigo_ocupacao="",
+    ativa=True,
+    criado_por=None,
+    request=None,
 ):
     """Cria uma conta do livro-caixa, validando tudo por `full_clean()`
     ANTES de gravar — um lugar só para a recusa por modo de escrituração e
@@ -137,6 +162,7 @@ def criar_conta_livro_caixa(
             nome=nome,
             natureza=natureza,
             codigo_carne_leao=codigo_carne_leao,
+            codigo_ocupacao=codigo_ocupacao or "",
             ativa=ativa,
         )
         conta.full_clean()
@@ -169,6 +195,30 @@ def _normalizado_ou_vazio(valor, normalizador):
     return normalizador(valor)
 
 
+def _valor_monetario_opcional(bruto, *, nome_campo):
+    """DL-046, fatia 3: converte um valor monetário OPCIONAL (IRRF, multa
+    ou juros) — `None`/`""` devolve `None`; texto devolve `Decimal` de 2
+    casas, nunca negativo. Mesma política de `valor` (recusa, nunca
+    arredonda; escala máxima de `ESCALA_MAXIMA_LANCAMENTO_CAIXA`) — mas sem
+    a exigência de ser MAIOR que zero (`valor` do lançamento é sempre
+    positivo; multa/juros/IRRF podem legitimamente ser zero ou ausentes)."""
+    if bruto is None or bruto == "":
+        return None
+    try:
+        valor = para_decimal(bruto)
+    except ValorMonetarioInvalido as exc:
+        raise LancamentoCaixaInvalido(f"'{nome_campo}' inválido: {exc}") from exc
+    if valor < 0:
+        raise LancamentoCaixaInvalido(f"'{nome_campo}' não pode ser negativo; recebido {valor}.")
+    escala = casas_decimais(valor)
+    if escala > ESCALA_MAXIMA_LANCAMENTO_CAIXA:
+        raise LancamentoCaixaInvalido(
+            f"'{nome_campo}' tem {escala} casas decimais; o livro-caixa aceita no "
+            f"máximo {ESCALA_MAXIMA_LANCAMENTO_CAIXA}."
+        )
+    return valor.quantize(Decimal("0.01"))
+
+
 @transaction.atomic
 def criar_lancamento_caixa(
     *,
@@ -183,6 +233,10 @@ def criar_lancamento_caixa(
     cpf_beneficiario_servico="",
     cpf_beneficiario_nao_informado=False,
     cnpj_pagador="",
+    valor_irrf=None,
+    competencia_previdencia=None,
+    multa_previdencia=None,
+    juros_previdencia=None,
     criado_por=None,
     chave_idempotencia=None,
     estorno_de=None,
@@ -286,6 +340,16 @@ def criar_lancamento_caixa(
     except DjangoValidationError as exc:
         raise LancamentoCaixaInvalido("; ".join(exc.messages)) from exc
 
+    # DL-046, fatia 3: os três valores monetários opcionais seguem a MESMA
+    # política de `valor` (texto, nunca número JSON — a checagem de tipo é
+    # da VIEW; aqui só a conversão). `competencia_previdencia` já chega como
+    # `date`/`None` (a VIEW converte "AAAA-MM-DD", mesmo padrão de `data`) —
+    # a coerência com o código da conta (só previdência oficial) é
+    # verificada por `full_clean()`, mais abaixo.
+    valor_irrf = _valor_monetario_opcional(valor_irrf, nome_campo="valor_irrf")
+    multa_previdencia = _valor_monetario_opcional(multa_previdencia, nome_campo="multa_previdencia")
+    juros_previdencia = _valor_monetario_opcional(juros_previdencia, nome_campo="juros_previdencia")
+
     if chave_idempotencia:
         impressao = _impressao_digital_caixa(
             empresa_id=empresa.id,
@@ -299,6 +363,10 @@ def criar_lancamento_caixa(
             cpf_beneficiario_servico=cpf_beneficiario_servico,
             cpf_beneficiario_nao_informado=cpf_beneficiario_nao_informado,
             cnpj_pagador=cnpj_pagador,
+            valor_irrf=valor_irrf,
+            competencia_previdencia=competencia_previdencia,
+            multa_previdencia=multa_previdencia,
+            juros_previdencia=juros_previdencia,
             estorno_de_id=estorno_de.id if estorno_de is not None else None,
         )
         existente = LancamentoCaixa.objects.filter(
@@ -343,6 +411,10 @@ def criar_lancamento_caixa(
         cpf_beneficiario_servico=cpf_beneficiario_servico or "",
         cpf_beneficiario_nao_informado=bool(cpf_beneficiario_nao_informado),
         cnpj_pagador=cnpj_pagador or "",
+        valor_irrf=valor_irrf,
+        competencia_previdencia=competencia_previdencia,
+        multa_previdencia=multa_previdencia,
+        juros_previdencia=juros_previdencia,
         chave_idempotencia=chave_idempotencia or None,
         chave_idempotencia_fingerprint=impressao,
         estorno_de=estorno_de,
@@ -515,6 +587,14 @@ def estornar_lancamento_caixa(
             cpf_beneficiario_servico=lancamento.cpf_beneficiario_servico,
             cpf_beneficiario_nao_informado=lancamento.cpf_beneficiario_nao_informado,
             cnpj_pagador=lancamento.cnpj_pagador,
+            # DL-046, fatia 3: os quatro campos novos são copiados do
+            # original pelo MESMO motivo do `cpf_beneficiario_nao_informado`
+            # acima (N13) — o estorno é um espelho exato do lançamento que
+            # reverte, nunca um lançamento novo com dados próprios.
+            valor_irrf=lancamento.valor_irrf,
+            competencia_previdencia=lancamento.competencia_previdencia,
+            multa_previdencia=lancamento.multa_previdencia,
+            juros_previdencia=lancamento.juros_previdencia,
             criado_por=criado_por,
             estorno_de=lancamento,
             request=request,
