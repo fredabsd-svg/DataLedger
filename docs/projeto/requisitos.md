@@ -383,14 +383,36 @@ NBC TG 51 (PDF do CFC), Lei 6.404/76 consolidada no Planalto, Leis 11.638/2007,
 
 ### ⚠️ Vigência — não fixar norma sem data
 
-**A NBC TG 26 (R5) está revogada.** A ficha da resolução no CFC registra
-"em vigor: NÃO", revogada pela **NBC TG 51 — Apresentação e Divulgação nas
-Demonstrações Contábeis (CPC 51 / IFRS 18)**, DOU 25/02/2026.
+**A NBC TG 26 (R5) está revogada** pela **NBC TG 51 — Apresentação e Divulgação nas
+Demonstrações Contábeis (CPC 51 / IFRS 18)**, ato de **13 de novembro de 2025**, que se
+aplica aos **exercícios iniciados a partir de 1º de janeiro de 2027**.
+
+Texto da cláusula de vigência, **verbatim do PDF oficial do CFC** (29/09/2026):
+
+> *"Esta norma entra em vigor na data de sua publicação, aplicando-se aos exercícios
+> iniciados a partir de 1º de janeiro de 2027, e revoga a NBC TG 26, aprovada pela
+> Resolução CFC n.º 1.185/2009, a NBC TG 26 (R1), a NBC TG 26 (R2), a NBC TG 26 (R3),
+> a NBC TG 26 (R4) e a NBC TG 26 (R5)… Brasília, 13 de novembro de 2025."*
+
+⚠️ **Correção de 29/09/2026 — a data 25/02/2026 NÃO é a do ato.** Ela é o campo
+*"Data de Publicação no Diário Oficial da União"* da ficha da resolução no Sistema de
+Resoluções do CFC. O **Fred indicou 22/12/2025**, e nenhuma das duas foi confirmada em
+segunda fonte oficial. **Registrado como divergência, não resolvido por escolha** — e
+**sem efeito em nenhuma conclusão**: em qualquer das duas datas, a aplicabilidade é
+**01/01/2027**.
+
+⚠️ **O que NÃO mudou com a vigência:** a revogação da R5 **não** retroage sobre
+exercícios já iniciados. **Os exercícios 2025 e 2026 continuam ancorados na NBC TG 26
+(R5)** — e é nela que a identidade é o **item 51** e a forma de cumpri-la é o
+**item 52**.
 
 | Período | Norma que rege |
 | --- | --- |
-| Exercícios iniciados até 31/12/2026 | NBC TG 26 (R5) |
+| Exercícios iniciados até 31/12/2026 | **NBC TG 26 (R5)** |
 | Exercícios iniciados em/após 01/01/2027 | **NBC TG 51** (revoga a NBC TG 26 R1–R5) |
+
+⚠️ **Adoção antecipada:** o produto **deve prever** a opção de adotar a NBC TG 51 antes
+de 01/01/2027. Decisão do Fred, 29/09/2026 — **obrigatória**, não opcional.
 
 Os itens de demonstração da DL-048 nascem **versionados por vigência** (DE-010),
 nunca como constante única.
@@ -446,7 +468,7 @@ a pendência já previa corretamente.
 | Regra | Na NBC TG 26 (R5) | Na NBC TG 51 (vigente a partir de 01/01/2027) |
 | --- | --- | --- |
 | Bloco de identificação, (a)–(e) | item 51 | **item 27** — (a)–(e) **redação idêntica** |
-| Como se cumpre a identificação | item 52 — *"cabeçalhos de página… em cada página"* | **item B10** — ⚠️ **mais frouxo**: *"é exigido julgamento"*; admite *"identificação digital"* em vez de páginas separadas |
+| Como se cumpre a identificação | item 52 — *"cabeçalhos de página… em cada página"*; **já exigia julgamento** | **item B10** — *"títulos apropriados para as páginas"*; **também exige julgamento**; a expressão *"em cada página"* **não aparece** |
 | Identificar e distinguir do resto do documento | item 49/51 | **item 25** |
 | Arredondamento em milhares/milhões | item 53 | **item B11** |
 | Conteúdo mínimo da DMPL | itens 106(a)–(d) | **item 107(a)–(c)** |
@@ -477,15 +499,34 @@ a pendência já previa corretamente.
 > apresentação…; e (e) o nível de arredondamento utilizado para os valores nas
 > demonstrações contábeis."*
 
-⚠️ **A diferença que muda código, e não é de número:** o item **52 da R5** diz
-*"em cada página"* — é a **forma prescrita** de cumprir o item 51, e é o fundamento
-de `repetir_em_cada_pagina` e da medição na CI. O **item B10 da TG 51**troca isso por
-*"é exigido julgamento na determinação da melhor forma"*, e exemplifica
-**identificação digital** como forma alternativa. Ou seja: **de 2027 em diante,
-repetir em cada página deixa de ser a prescrição e passa a ser uma das maneiras de
-cumprir.** A regra do produto pode continuar repetindo — mas o texto que a justifica
-precisa mudar junto, senão o sistema vai "cumprir a norma" citando uma norma
-revogada. **É mudança de NÍVEL 1**: o texto vai no documento entregue ao cliente.
+⚠️ **Item 52 (R5) × item B10 (TG 51) — lado a lado, e o que realmente mudou.**
+
+Uma versão anterior desta seção afirmava que o B10 *"troca a prescrição por julgamento"*.
+**Isso estava errado, e foi corrigido em 29/09/2026.** Os dois textos foram lidos da
+fonte primária nesta sessão (PDF do CFC, ambos).
+
+| | **NBC TG 26 (R5), item 52** | **NBC TG 51, item B10** |
+| --- | --- | --- |
+| Como se cumpre | *"apresentação apropriada de **cabeçalhos de página**, títulos de demonstração, de nota, de coluna e similares **em cada página** das demonstrações contábeis"* | *"apresentando **títulos apropriados para as páginas**, demonstrações, notas explicativas, colunas e outros"* |
+| Julgamento | *"Na determinação da melhor forma de apresentar tais informações, **é necessário o exercício de julgamento**"* | *"**É exigido julgamento** na determinação da melhor forma de fornecer essas informações"* |
+| Quando eletrônico | *"os itens acima devem ser então apresentados com **frequência suficiente**"* | *"a entidade considera **outras formas de cumprir os requisitos** – por exemplo, por meio da **identificação digital** apropriada"* |
+
+**Veredito, ponto por ponto:**
+
+- ✅ **O Fred está certo no que é essencial:** o item 52 **já exigia julgamento**, e o
+  B10 **também**. **Não houve mudança de prescrição para julgamento** — essa frase
+  estava errada aqui e sai. O requisito de julgamento é o mesmo nas duas normas.
+- ⚠️ **Mas há uma diferença material, e ela é outra:** a expressão ***"em cada página"***
+  está no item 52 e **não aparece no B10**. O B10 mantém a ideia de títulos por página,
+  mas **não a formula como forma prescrita**.
+- ✅ **Consequência prática, e é o que decide o produto:** **repetir a identificação em
+  cada página continua CUMPRINDO a norma em 2027** — o B10 nomeia *"títulos
+  apropriados para as páginas"* entre as formas de cumprir. Portanto, **o documento
+  entregue ao cliente NÃO precisa mudar**, exatamente como o Fred determinou.
+- ⚠️ **O que muda é a JUSTIFICATIVA, não o comportamento.** Para exercício a partir de
+  01/01/2027, o texto interno não pode afirmar *"a norma prescreve repetir em cada
+  página"*; passa a ser *"uma das formas de cumprir o item B10"*. A citação do item
+  também muda: **52 (R5) → B10 (TG 51)**.
 
 **Texto verbatim da NBC TG 51, itens 107 e 112** (conteúdo e amarração):
 
@@ -546,20 +587,62 @@ produto** — não como derivação normativa. O que é obrigatório é apresent
 grupos do item 111A. A distinção fica escrita no código, para que o texto do produto
 não afirme uma obrigação que a norma não tem (a mesma classe do BL-514).
 
-### ⚠️ "Reserva de lucros a realizar" — sem lastro normativo, mantida por decisão do produto
+### ✅ "Reserva de lucros a realizar" — TEM lastro legal: art. 197 da Lei 6.404/76
 
-Das **seis** reservas de lucros da RC-137, **cinco** têm dispositivo na Lei 6.404/76:
-legal (art. 193), estatutária (art. 194), para contingências (art. 195), de incentivos
-fiscais (art. 195-A) e de retenção de lucros (art. 196). ⚠️ **A "reserva de lucros a
-realizar" NÃO existe na Lei 6.404/76, nem na NBC TG 26 (R5), nem na NBC TG 51** —
-verificada por varredura textual das três.
+⚠️ **A versão anterior desta seção afirmava que esta reserva não tinha lastro normativo.
+ESTAVA ERRADO, e o erro foi meu, não do Fred.** O `auxiliar-pesquisa` reportou
+*"NÃO CONFIRMADO — NÃO EXISTE na Lei 6.404/76"*, e essa conclusão foi parar no
+repositório sem verificação própria. **O art. 197 existe e trata exatamente dessa
+reserva.** Conferido no texto consolidado do Planalto em 29/09/2026, e em **duas
+redações**.
 
-**Decisão do Fred (29/09/2026): MANTER no `ClassificacaoDlpa` e no documento**,
-rotulada como **prática de escrituração**, não como exigência legal. A justificativa é
-de mercado — a reserva existe em escritórios porque adia dividendos sobre lucro ainda
-não realizado. ⚠️ **O texto do código e o do documento emitido devem dizer isso**: uma
-reserva apresentada como se a lei a nomeasse é afirmação falsa no papel que o cliente
-recebe. A validação profissional continua sendo do Fred (AGENTS.md §10).
+Das **seis** reservas de lucros da RC-137, **todas as seis** têm dispositivo na Lei
+6.404/76:
+
+| Reserva | Dispositivo |
+| --- | --- |
+| Legal | art. 193 |
+| Estatutária | art. 194 |
+| Para contingências | art. 195 |
+| De incentivos fiscais | art. 195-A |
+| De retenção de lucros | art. 196 |
+| **De lucros a realizar** | **art. 197** — e também nomeada no **art. 199** |
+
+**Texto verbatim do art. 197, redação da Lei 10.303/2001** (Planalto, 29/09/2026):
+
+> *"Art. 197. No exercício em que o montante do dividendo obrigatório, calculado nos
+> termos do estatuto ou do art. 202, ultrapassar a parcela realizada do lucro líquido do
+> exercício, a assembléia-geral poderá, por proposta dos órgãos de administração,
+> destinar o excesso à constituição de **reserva de lucros a realizar**. (Redação dada
+> pela Lei nº 10.303, de 2001)"*
+
+E a redação anterior, no mesmo artigo:
+
+> *"Art. 197. No exercício em que os lucros a realizar ultrapassarem o total deduzido
+> nos termos dos artigos 193 a 196, a assembléia-geral poderá, por proposta dos órgãos da
+> administração, destinar o excesso à constituição de reserva de lucros a realizar.
+> Parágrafo único. Para os efeitos deste artigo, são lucros a realizar: a) o saldo
+> credor da conta de registro das contrapartidas dos ajustes de correção monetária
+> (artigo 185, § 3º); b) o aumento do valor do investimento em coligadas e controladas
+> (artigo 248, III); c) o lucro em vendas a prazo realizável após o término do exercício
+> seguinte."*
+
+⚠️ **Segunda confirmação, no art. 199** (redação da Lei 11.638/2007), que também a
+nomeia: *"O saldo das reservas de lucros, **exceto as para contingências e de lucros a
+realizar**, não poderá ultrapassar o capital social"*.
+
+**Consequência (decisão do Fred, 29/09/2026):** trocar o rótulo **"prática de
+escrituração"** por **"art. 197 da Lei 6.404/76"** no texto do código e do documento.
+Aplica-se a **S/A**; para a **Ltda**, por **regência supletiva da LSA**, nos termos do
+art. 1.069 do Código Civil. ⚠️ **O rótulo do enum no produto não muda** — a chave
+`reserva_de_lucros_a_realizar` continua correta; o que muda é a **fundamentação
+declarada**, que hoje seria falsa se continuasse dizendo "sem lastro normativo".
+
+⚠️ **Lição de processo que esta correção deixa registrada:** um relatório de pesquisa
+que diz "não existe" **não é** o mesmo que "não encontrei". Quando a ausência é
+reportada como fato, ela precisa de **varredura de segunda fonte** antes de virar
+afirmação no repositório. O erro entrou como *"varrido o texto e não existe"* — e o
+artigo estava lá desde 1976.
 
 ### ⚠️ Reservas de CAPITAL que a RC-137 não listou — pendência para a DMPL
 
@@ -616,14 +699,25 @@ dentro do "saldo do início do período"** (art. 186, I), **não** em linha pró
   de companhia aberta.
 - **BL-340** — NIRE e nível de arredondamento não existem no cadastro, mas o
   item 51 os exige no documento.
-- ⚠️ **NOVA em 29/09/2026 — origem legal da obrigação da DMPL NÃO CONFIRMADA.** A
-  obrigação está confirmada **pela norma técnica** (item 10(c) da R5 e da TG 51), e é
-  por lá que o código deve ir. Mas **qual dispositivo legal** a instituiu (Lei
-  11.638/2007? norma da CVM?) não foi lido em fonte oficial — o Planalto falhou para
-  esse diploma nesta sessão. **Lacuna declarada; não preencher por inferência.**
-- ⚠️ **NOVA em 29/09/2026 — "reserva de lucros a realizar" sem lastro normativo.**
-  Mantida no produto por decisão do Fred, rotulada como prática de escrituração, não
-  como exigência legal. Ver a seção própria acima.
+- ✅ **FECHADA em 29/09/2026 — base normativa da DMPL.** Por ordem do Fred, a busca em
+  diploma foi encerrada: **a Lei 11.638/2007 não criou a DMPL** (trocou a DOAR pela DFC e
+  criou a DVA). A base é: **competência** = DL 9.295/46, art. 6º, alínea "f" (redação da
+  Lei 12.249/2010), confirmada no **préâmbulo da própria NBC TG 51**, verbatim;
+  **obrigação** = NBC TG 26 (R5) item 10 e, a partir de 2027, NBC TG 51; **PMEs** =
+  NBC TG 1000, que admite a DLPA no lugar da DMPL em certas condições;
+  **microempresas** = ITG 1000, não obrigatória. ⚠️ **Única lacuna que restou:** para
+  **companhias abertas**, o **ato da CVM que aprovou o CPC 26** não foi lido em fonte
+  oficial — declarado, não inventado.
+- ✅ **FECHADA em 29/09/2026 — "reserva de lucros a realizar" TEM lastro legal:**
+  **art. 197** da Lei 6.404/76 (redação da Lei 10.303/2001), também nomeada no
+  **art. 199**. A afirmação anterior de que "não existia" **estava errada** e saiu.
+  Ver a seção própria acima.
+- ✅ **FECHADA em 29/09/2026 — item 52 × item B10.** O Fred está certo: o item 52 **já
+  exigia julgamento**, e o B10 **também** — **não houve mudança de prescrição para
+  julgamento**. A única diferença material é que a expressão *"em cada página"* não
+  aparece no B10, mas **repetir em cada página continua cumprindo** a norma em 2027 (o
+  B10 nomeia *"títulos apropriados para as páginas"*). **Logo, o documento entregue ao
+  cliente NÃO muda**; mudam a **justificativa interna** e a **citação** (52 → B10).
 - ⚠️ **NOVA em 29/09/2026 — três reservas de capital do art. 182** que a RC-137 não
   listou: prêmio na emissão de debêntures e doações/subvenções para investimento
   (entram na DMPL); correção monetária do capital realizado (letra morta, não entra).

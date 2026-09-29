@@ -125,29 +125,51 @@ codificar.
 | A DMPL é exigida pelo art. 176 | **O art. 176 não lista a DMPL.** Inciso III é a DRE; inciso V é a DVA (*"se companhia aberta"*). A expressão *"demonstração das mutações do patrimônio líquido"* aparece **uma única vez** em todo o diploma: no **art. 186, §2º** — e como **faculdade**: a DLPA *"poderá ser incluída"* nela. |
 | A estrutura da DMPL está no art. 178, §2º ou no art. 179 | **Não.** Ambos são do **Balanço Patrimonial** (grupos do passivo e classificação do ativo). |
 
-**A base real, em duas peças:**
+**A base real, em três peças — corrigida em 29/09/2026 por ordem do Fred:**
 
+- **Competência para editar a norma:** o próprio preâmbulo da NBC TG 51 traz o
+  fundamento, e ele é a chave de todo o arcabouço — *"com fundamento no disposto na
+  alínea **"f" do Art. 6º do Decreto-Lei n.º 9.295**, de 27 de março de 1946,
+  alterado pela Lei n.º 12.249, de 11 de junho de 2010"* (texto do PDF oficial do
+  CFC, lido nesta sessão).
 - **Obrigação:** norma técnica. A DMPL integra o conjunto completo de demonstrações
-  contábeis — NBC TG 26 (R5) item 10(c) e **NBC TG 51 item 10(c)**, conforme a
-  vigência. A Lei 6.404/76 desonera expressamente a DFC (art. 176, §6º) e a DVA
-  (item V) e **nunca** desonera a DMPL.
+  contábeis — **NBC TG 26 (R5), item 10**, e a partir de 01/01/2027 a **NBC TG 51**.
+  ⚠️ **A Lei 11.638/2007 NÃO criou a DMPL** — ela trocou a DOAR pela DFC e criou a DVA.
+  A Lei 6.404/76 desonera expressamente a DFC (art. 176, §6º) e a DVA (item V) e
+  **nunca** desonera a DMPL.
 - **Estrutura:** norma técnica. Itens **106 a 110 e 106B** da NBC TG 26 (R5), ou
   **107 a 112 e 111A** da NBC TG 51, conforme a vigência.
 
-⚠️ **Lacuna declarada, não preenchida:** qual dispositivo legal originou a obrigação
-da DMPL (candidatos: Lei 11.638/2007 e/ou normas da CVM) **NÃO foi confirmado em fonte
-oficial** — o acesso ao Planalto falhou para esse diploma nesta sessão. **Não
-inventar:** registrar como pendência e seguir pela norma técnica, que é onde o
-conteúdo está.
+**Quem deve emitir a DMPL, por porte:**
 
-⚠️ **A conciliação com o Balanço NÃO é uma citação de norma.** Não existe item, na
-TG 26 (R5) nem na TG 51, que exija literalmente *"o saldo final da DMPL deve ser igual
-ao do Balanço"* — a varredura das duas normas inteiras não achou um. O que existe é
-funcional: a conciliação inicial→final (item 106(d) da R5 / 107(c) da TG 51) e a
-amarração funcional (item 109 da R5 / 112 da TG 51). **O critério de aceite acima é
-INVARANTE DE CONSISTÊNCIA DO SISTEMA entre demonstrações, não requisito normativo** —
-e o código deve dizê-lo, para que ninguém "conforme" o produto a uma frase que a
-norma não contém.
+| Entidade | Situação |
+| --- | --- |
+| Companhia fechada e aberta | obrigatória — NBC TG 26 (R5) item 10; a partir de 2027, NBC TG 51 |
+| Pequena empresa | NBC TG 1000 — **admite a DLPA no lugar da DMPL** em certas condições |
+| Microempresa | ITG 1000 — **não obrigatória** |
+
+⚠️ **Lacuna declarada, não preenchida:** para **companhias abertas**, além da norma
+técnica, incide o **ato da CVM que aprovou o CPC 26**, que **não foi lido em fonte
+oficial** nesta sessão. Registrar como pendência — **não inventar** o número do ato.
+
+#### A conciliação com o Balanço: exigência DERIVADA do item 106(d), não citação literal
+
+A versão anterior desta seção dizia que a conciliação *"não é uma citação de norma"*.
+**Isso era incompleto, e foi corrigido em 29/09/2026.**
+
+O **item 106(d) da NBC TG 26 (R5)** — e o **107(c) da TG 51**, seu equivalente — exige,
+para **cada componente do patrimônio líquido**, *"uma conciliação entre o valor contábil
+no início e no final do período"*. O saldo final dessa conciliação é, por definição, **o
+saldo contábil do componente** — que é o mesmo número que o Balanço Patrimonial
+apresenta na mesma data. A reconciliação entre demonstrações não é preferência do
+produto: é **exigência derivada do item 106(d)** somada à **consistência do conjunto**,
+já que duas demonstrações que discorrem não formam o conjunto completo de que fala o
+item 10.
+
+⚠️ **O que continua verdadeiro:** nenhum item diz, em letra, *"o saldo final da DMPL
+deve ser igual ao do Balanço"*. A reconciliação é **derivada**, e o código deve
+descrevê-la exatamente assim — como exigência decorrente do 106(d) e da consistência
+do conjunto, **não** como citação literal de um item que não existe.
 
 #### ⚠️ Uma coluna por TIPO de reserva é escolha de desenho, não obrigação
 
@@ -186,11 +208,48 @@ raciocínio ser escrito. As duas primeiras entram.
 
 #### Vigência: a DMPL tem DUAS versões de fonte
 
-A **NBC TG 26 (R5) foi revogada** em 25/02/2026 pela **NBC TG 51** (DOU 25/02/2026),
-que se aplica a **períodos anuais com início em ou após 01/01/2027** (item C1). O
-item citado no código **varia com a data de início do exercício** — tabela de
-vigência em [requisitos.md](../projeto/requisitos.md). É o DE-010 (norma versionada
-por vigência) aplicado ao enum de linhas da DMPL.
+Texto da cláusula de vigência da NBC TG 51, **verbatim do PDF oficial do CFC**
+(consultado em 29/09/2026):
+
+> *"Esta norma entra em vigor na data de sua publicação, aplicando-se aos exercícios
+> iniciados a partir de 1º de janeiro de 2027, e revoga a NBC TG 26, aprovada pela
+> Resolução CFC n.º 1.185/2009, a NBC TG 26 (R1), a NBC TG 26 (R2), a NBC TG 26 (R3),
+> a NBC TG 26 (R4) e a NBC TG 26 (R5)… Brasília, 13 de novembro de 2025."*
+
+E o item C1, sobre o alinhamento pleno ao IFRS:
+
+> *"C1 A vigência desta Norma será estabelecida pelos órgãos reguladores que o
+> aprovarem, sendo que, para o pleno atendimento às normas internacionais de
+> contabilidade, a entidade deve aplicar esta Norma para períodos anuais com início
+> em ou após 1º de janeiro de 2027."*
+
+⚠️ **Datas — o que está confirmado e o que ainda não está:**
+
+| Data | Valor | Situação |
+| --- | --- | --- |
+| Ato (resolução) | **13/11/2025** | ✅ **CONFIRMADO** — cabeçalho do PDF oficial e fecho da cláusula de vigência |
+| Aplicabilidade | **exercícios iniciados a partir de 01/01/2027** | ✅ **CONFIRMADO** — cláusula de vigência e item C1 |
+| Publicação no DOU | ⚠️ **em divergência** | ver abaixo |
+
+⚠️ **Divergência registrada, não resolvida por escolha:** o campo *"Data de Publicação
+no Diário Oficial da União"* da ficha da resolução no Sistema de Resoluções do CFC
+(`www2.cfc.org.br/sisweb/sre/detalhes_sre.aspx?Codigo=2025/NBCTG51`) registra
+**25/02/2026**; o Fred indicou **22/12/2025** em 29/09/2026. **Nenhuma das duas foi
+confirmada em segunda fonte oficial.** Como a cláusula diz *"entra em vigor na data de
+sua publicação"*, a data importa — mas **não altera nenhuma conclusão**: em qualquer
+das duas, a aplicabilidade é **01/01/2027**. Pendente de conferência no DOU; não
+influir no código.
+
+⚠️ **Correção registrada:** a versão anterior desta seção afirmava *"revogada em
+25/02/2026"* como se essa fosse a data do ato. **Não é** — o ato é de **13/11/2025**;
+25/02/2026 é, no que foi lido, a data de publicação no DOU. O que a revogação
+significa, em_si, e a data a partir da qual a nova norma se aplica, estão confirmados
+acima e **não mudam**.
+
+**Consequência para o código (decisão do Fred, 29/09/2026 — OBRIGATÓRIA):** o item
+citado no código **varia com a data de início do exercício**, e o produto **deve
+prever a adoção antecipada** da NBC TG 51. É o DE-010 (norma versionada por vigência)
+aplicado ao enum de linhas da DMPL.
 
 ### 4. CTB-15 — DFC (Demonstração dos Fluxos de Caixa)
 

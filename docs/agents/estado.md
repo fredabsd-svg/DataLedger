@@ -141,58 +141,68 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29 (2ª rodada, **com rede**). A conformidade normativa da
-DL-048 foi RECONFERIDA em fonte oficial, e ela **DESMENTIU a premissa do plano da
-DMPL** (CTB-14). O plano está corrigido; implementar a DMPL é o próximo passo, e ele
-depende das decisões do Fred registradas abaixo.**
+**AGORA — sessão de 2026-09-29 (3ª rodada). O Fred revisou o relatório e corrigiu
+**quatro pontos**; todos foram **verificados na fonte** antes de entrar no repositório,
+e **dois deles corrigem erro meu**. As decisões que faltavam foram dadas. A DMPL (CTB-14)
+pode ser implementada; a D8 (API da DLPA) também.**
 
-### O que esta sessão mudou
+### Correções do Fred (29/09/2026) — as quatro verificadas
 
-- **A rede passou a funcionar.** O bloqueio *"sem rede nesta máquina"* que aparecia em
-  três lugares deste arquivo **não existe mais** — e foi ele que deixou a conformidade
-  normativa em suspenso na sessão anterior.
-- **NBC TG 26 (R5) REVOGADA em 25/02/2026** pela **NBC TG 51** (DOU 25/02/2026,
-  correlata ao IFRS 18), aplicável a períodos anuais com início **em ou após
-  01/01/2027** (item C1). Verificado nos **dois sentidos** no Sistema de Resoluções
-  do CFC: a ficha da TG 51 lista a revogação da R5, e a ficha da R5 registra
-  `em vigor: NAO` / `revogada: SIM`.
-  ⚠️ **O projeto já sabia** (registrado em 28/09, com tabela de transição em
-  `requisitos.md`); o que faltava era o **mapeamento**, agora **FECHADO**:
-  identificação = **item 27** da TG 51, (a)–(e) idênticos; DMPL = **itens 107 a 112
-  e 111A**. Correção: a pendência dizia *"107–109"* — o bloco real é **107–112 + 111A**.
-- **A premissa da DMPL no plano estava ERRADA** e o plano foi corrigido: o **art. 176
-  da Lei 6.404/76 NÃO lista a DMPL**. A expressão aparece **uma vez** em todo o
-  diploma, no **art. 186, §2º**, e como **faculdade** (*"poderá ser incluída"*). A
-  obrigação vem da **norma técnica** (item 10(c)); a estrutura, dos itens 106–110/106B
-  (R5) ou 107–112/111A (TG 51).
-- **⚠️ A conciliação DMPL ↔ Balanço não é citação de norma** — nenhum item, na R5 nem
-  na TG 51, a exige literalmente (as duas normas foram varridas inteiras). É
-  **invariante de consistência do sistema** entre demonstrações, e o código tem que
-  dizer isso.
-- **"Reserva de lucros a realizar" não tem lastro normativo** — ausente da Lei
-  6.404/76, da R5 e da TG 51; as outras cinco têm (arts. 193, 194, 195, 195-A, 196).
-  **Decisão do Fred: MANTER** no produto, rotulada como **prática de escrituração**, não
-  como exigência legal.
-- **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
-  primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
-- **A decisão de 29/09 sobre a correção monetária se CONFIRMA** com base oficial: Lei
+| # | Correção | Verificação na fonte |
+| --- | --- | --- |
+| 1 | A NBC TG 26 (R5) **não** está revogada "para 2026" | ✅ **CONFIRMADO** — o ato é de **13/11/2025** (cabeçalho e fecho da cláusula de vigência do PDF oficial) e a aplicabilidade é **exercícios iniciados a partir de 01/01/2027**. **Exercícios 2025/2026 seguem ancorados na R5.** A data 25/02/2026 é o campo "publicação no DOU" da ficha do CFC, **não a do ato** — a afirmação anterior neste arquivo e no plano **corrigida**. ⚠️ A data do DOU em si está em divergência entre o CFC (25/02/2026) e o Fred (22/12/2025): **registrada como divergência, sem efeito em conclusão alguma.** |
+| 2 | A reserva de lucros a realizar **tem** lastro: art. 197 LSA | ✅ **CONFIRMADO — e eu estava ERRADO.** O art. 197 (redação da Lei 10.303/2001) institui exatamente essa reserva, e o **art. 199** também a nomeia. A afirmação anterior ("não existe na LSA") saiu. **O erro foi meu** — veio do relatório de pesquisa, que reportou ausência como fato sem segunda fonte. Rótulo trocado para **"art. 197 LSA"** (S/A; Ltda por regência supletiva, art. 1.069 CC). |
+| 3 | A conciliação DMPL ↔ Balanço não é só invariante | ✅ **CONFIRMADO** — o **item 106(d) da R5 / 107(c) da TG 51** exige, para **cada componente do PL**, a conciliação entre o valor contábil no início e no final; esse saldo final é o do Balanço na mesma data. Reescrito como **exigência derivada do item 106(d) e da consistência do conjunto** — não como citação literal. |
+| 4 | O item 52 **já** exigia julgamento; não mudou | ✅ **CONFIRMADO — e eu estava ERRADO.** O item 52 diz *"é necessário o exercício de julgamento"*; o B10 diz *"É exigido julgamento"*. **Não houve mudança de prescrição para julgamento.** A única diferença material: a expressão ***"em cada página"*** está no 52 e **não aparece no B10** — mas o B10 nomeia *"títulos apropriados para as páginas"*, então **repetir em cada página continua cumprindo** a norma em 2027. **Logo o documento do cliente NÃO muda**; muda a justificativa interna e a citação (52 → B10). |
+
+### Decisões do Fred, agora fechadas
+
+1. ✅ **Versionamento por data de início do exercício: APROVADO, e é OBRIGATÓRIO** —
+   não opcional. O item citado varia com a vigência, e o produto **deve prever a adoção
+   antecipada** da NBC TG 51 antes de 01/01/2027.
+2. ✅ **Item 52 / B10: resolvido** pelo ponto 4 acima. Documento do cliente **não** muda.
+3. ✅ **Base da DMPL: encerrada a busca em diploma.** A Lei 11.638/2007 **não** criou a
+   DMPL (trocou a DOAR pela DFC e criou a DVA). A base é: **competência** = DL 9.295/46,
+   art. 6º, alínea "f" (redação da Lei 12.249/2010) — confirmada no **préâmbulo da
+   própria NBC TG 51**, verbatim; **obrigação** = NBC TG 26 (R5) item 10 e, de 2027 em
+   diante, NBC TG 51; **PMEs** = NBC TG 1000 (admite a DLPA no lugar da DMPL em certas
+   condições); **microempresas** = ITG 1000, **não obrigatória**.
+   ⚠️ **Única lacuna que resta:** para **companhias abertas**, o **ato da CVM que
+   aprovou o CPC 26** não foi lido em fonte oficial — declarado, não inventado.
+
+### O que mais mudou nesta rodada
+
+- **Repositório movido para fora do OneDrive** → **`C:\src\DataLedger`**. O OneDrive era
+  a causa do I/O-bound, não o SQLite. Copiado, verificado (mesmo commit, `manage.py
+  check` limpo) e é o novo local de trabalho.
+- **Módulo que travava a suíte: ACHADO e nomeado** —
+  `apps/contabilidade/tests/test_bl144_codigo_conta_duplicado.py:161`. O teste faz
+  `t.join()` **sem timeout** esperando 4 threads sincronizadas num `threading.Barrier(4)`
+  (linha 140): se uma thread não chega à barreira, o `join()` espera **para sempre**.
+  Não é o OneDrive — é um **defeito do próprio teste**, que transforma falha em travamento
+  invisível. ⚠️ A descrição antiga neste arquivo mandava deselecionar
+  `test_restricoes_contabilidade.py::test_bl144_codigo_conta_duplicado`, **caminho
+  errado** — por isso a deseleção anterior não funcionou.
+- **PowerShell 7 instalado (7.6.6)**; `scripts/validate-docs.ps1` **original** executado
+  e **verde** (*"Documentação válida: 187 arquivos Markdown verificados"*, exit 0). A
+  **réplica em Python foi descartada**, para não haver dois validadores.
+- **Reserva de lucros a realizar** deixa de ser "escolha de desenho" e passa a ter
+  fundamentação legal — ver o ponto 2 acima.
+- **A decisão de 29/09 sobre a correção monetária se confirma** com base oficial: Lei
   9.249/95, art. 4º, p.ú. veda *"qualquer sistema de correção monetária de demonstrações
   financeiras, inclusive para fins societários"*. ⚠️ A referência a "**Lei 9.492/95**"
   que circulou é **ERRADA** (a 9.492 é de 1997, protesto de títulos).
-- **Branch de trabalho:** `docs/dl-048-premissa-normativa`, a partir de `92859ff`.
+- **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
+  primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
+- **Branch de trabalho:** `docs/dl-048-premissa-normativa`.
 
-### Decisões do Fred pendentes para a DMPL
+### Próximo passo, agora sem decisão pendente
 
-1. Aplicar as **duas normas por data de início do exercício** no enum de linhas da
-   DMPL — a numeração muda inteira, então o item citado tem de variar (DE-010).
-2. **O item 52 virou item B10:** em 2027, repetir a identificação em cada página deixa
-   de ser a forma prescrita e passa a ser **uma** das maneiras de cumprir, com
-   julgamento e *"identificação digital"* admitida. É mudança de **nível 1** — o texto
-   vai no documento do cliente, e `identificacao.py`, as classes de documento, os
-   templates e a medição na CI citam hoje o item 51/52 da R5.
-3. **Lacuna declarada, não preenchida:** qual dispositivo **legal** instituiu a
-   obrigação da DMPL (Lei 11.638/2007? norma da CVM?). A obrigação está confirmada
-   **pela norma técnica**; a origem legal fica como lacuna, não inferida.
+1. **D8 (API da DLPA)** — `DlpaView` + `ContaClassificacaoDlpaView`, **projetada prevendo
+   que a DLPA pode estar embutida na DMPL** (art. 186, §2º), e não só como peça
+   autônoma. Nível 2.
+2. **CTB-14 (DMPL)** — nível 1, com auditoria independente obrigatória. Aplica as duas
+   normas por data de início do exercício, com adoção antecipada prevista.
 
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
