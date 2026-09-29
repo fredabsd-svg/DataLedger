@@ -1,11 +1,15 @@
 {% comment %}
-DL-045 fatia 3 — valor de UMA célula da DRE (uma linha do art. 187 ou um
-dos seis subtotais, HI-29): magnitude em pt-BR, entre PARÊNTESES quando
-negativa (RC-90: sinal nunca é o único canal de um valor negativo) — ver
-`_valor_dre` (views_web.py) para a leitura completa de por que a MESMA
-apresentação serve tanto a uma LINHA (negativa = saldo no lado oposto ao
-natural da linha, um alerta de conferência) quanto a um SUBTOTAL
-(negativa = prejuízo naquele nível, o resultado normal de um mês ruim).
+DL-045 fatia 3 — valor de UMA célula assinada de demonstração: uma linha
+do art. 187 ou um dos seis subtotais da DRE (HI-29) e, desde a DL-048/
+CTB-13, as linhas da DLPA (art. 186). Magnitude em pt-BR, entre
+PARÊNTESES quando negativa (RC-90: sinal nunca é o único canal de um
+valor negativo) — ver `_valor_dre` (views_web.py) para a leitura
+completa de por que a MESMA apresentação serve tanto a uma LINHA
+(negativa = saldo no lado oposto ao natural da linha, um alerta de
+conferência) quanto a um SUBTOTAL (negativa = prejuízo naquele nível, o
+resultado normal de um mês ruim) — e, na DLPA, a uma destinação
+(negativa = transferência para reserva ou dividendos, o formato com que o
+art. 186, III, apresenta a saída de lucro).
 
 Por que este parcial existe ao lado de `_saldo_grupo.html`, em vez de
 reusá-lo: `_saldo_grupo.html` compara a natureza APURADA com a natureza

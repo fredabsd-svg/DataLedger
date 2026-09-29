@@ -16,8 +16,13 @@ from apps.contabilidade.models import (
     NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE,
     NATUREZA_NATURAL_DO_TIPO,
     NATUREZA_NATURAL_DO_TIPO_DRE,
+    # DL-048/CTB-13: as seis reservas de LUCROS de RC-137 (o subconjunto
+    # do enum cuja DIREÇÃO do movimento decide reversão × transferência)
+    # e o próprio enum de linha da DLPA.
+    RESERVAS_DE_LUCROS_DA_DLPA,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
+    ClassificacaoDlpa,
     ClassificacaoDre,
     ClassificacaoPatrimonial,
     Competencia,
@@ -5279,6 +5284,510 @@ def mensagens_da_validacao_django(exc):
     if hasattr(exc, "message_dict"):
         return [mensagem for mensagens in exc.message_dict.values() for mensagem in mensagens]
     return list(exc.messages)
+
+
+# ---------------------------------------------------------------------------
+# DL-048 — Contabilidade anual: CTB-12 (estrutura de demonstração ligada à
+# conta) + CTB-13 (DLPA — Demonstração dos Lucros ou Prejuízos Acumulados).
+#
+# Fonte normativa: Lei 6.404/76, art. 176, II (a DLPA continua obrigatória
+# — inciso não revogado) e art. 186, I–III e §§1º/2º (linhas e relação com
+# a DMPL), lidas no Planalto e registradas em `docs/projeto/requisitos.md`
+# em 28/09/2026 — junto das DUAS premissas do plano de paridade que a
+# fonte desmentiu (a NBC TG 26 item 106 não fala em DLPA; a Lei
+# 11.941/2009 não a substitui — o art. 42 é vetado). Estrutura de colunas/
+# reservas: RC-137 (Fred, 28/09/2026).
+# ---------------------------------------------------------------------------
+
+
+def _rotulo_minusculo_da_reserva(reserva):
+    """Rótulo da reserva com a primeira letra minúscula — para os títulos
+    "Transferência para reserva legal" / "Reversão de reserva legal"
+    lerem como frase, sem a caixa do rótulo do enum no meio da linha."""
+    rotulo = ClassificacaoDlpa(reserva).label
+    return rotulo[0].lower() + rotulo[1:]
+
+
+# Linhas FIXAS da DLPA (art. 186, I–III) que não são reservas — enum ->
+# título impresso. Teste derivado (`test_dl048_dlpa.py`) exige que as
+# chaves sejam EXATAMENTE o enum menos a conta sujeito e menos as seis
+# reservas: um valor novo no enum sem título aqui reprova o teste em vez
+# de sumir do documento (mesmo molde dos mapas `TIPOS_ACEITOS_*`).
+_TITULOS_DAS_LINHAS_DA_DLPA = {
+    ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: "Ajustes de exercícios anteriores",
+    ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL: "Correção monetária do saldo inicial",
+    ClassificacaoDlpa.RESULTADO_DO_EXERCICIO: "Lucro (prejuízo) líquido do exercício",
+    ClassificacaoDlpa.DIVIDENDO: "Dividendos distribuídos",
+    ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: "Lucros incorporados ao capital",
+}
+
+# Cada reserva de lucro tem DUAS linhas possíveis na DLPA, e a DIREÇÃO do
+# movimento (não o cadastro) decide qual aparece: reduzir os lucros
+# acumulados é destinação (art. 186, III — "transferências para reservas");
+# aumentá-los, é reversão (art. 186, II — "reversões de reservas"). Uma
+# mesma conta pode gerar as duas no mesmo exercício, e aí as DUAS linhas
+# aparecem — a soma continua batendo com o movimento por construção.
+_TITULOS_DAS_RESERVAS_DA_DLPA = {
+    reserva: {
+        "reversao": f"Reversão de {_rotulo_minusculo_da_reserva(reserva)}",
+        "transferencia": f"Transferência para {_rotulo_minusculo_da_reserva(reserva)}",
+    }
+    for reserva in RESERVAS_DE_LUCROS_DA_DLPA
+}
+
+_TITULO_SALDO_INICIAL_DA_DLPA = "Saldo inicial de lucros ou prejuízos acumulados"
+_TITULO_SALDO_FINAL_DA_DLPA = "Saldo final de lucros ou prejuízos acumulados"
+
+_MENSAGEM_SEM_CONTA_SUJEITO_DA_DLPA = (
+    "Nenhuma conta está classificada como lucros ou prejuízos acumulados — classifique, no "
+    "plano de contas, a conta que recebe o resultado do exercício."
+)
+
+
+def _efeito_de_item_sobre_resultado_acumulado(item):
+    """(crédito − débito) de UM item — o efeito do item sobre o resultado
+    acumulado, INDEPENDENTE da natureza cadastrada da conta.
+
+    A identidade que sustenta a leitura inteira da DLPA: as duas formas de
+    a conta sujeito existir produzem o MESMO sinal —
+
+    - "Lucros acumulados" (credora): crédito aumenta o resultado → cr − db;
+    - "(-) Prejuízos acumulados" (devedora, retificadora): débito AUMENTA o
+      prejuízo, logo REDUZ o resultado → o −(db − cr) da retificadora é
+      exatamente cr − db.
+
+    Por isso as DUAS contas somam no mesmo saldo sem regra de translação.
+    ⚠️ A compensação entre lucros e prejuízos (PE-38/HI-26, "compensa todo
+    mês, no encerramento anual, ou por lançamento à mão?") segue PENDENTE
+    com o Fred — e esta leitura é justamente a que não pressupõe resposta:
+    um lançamento que transfere de uma conta sujeito para a outra tem
+    efeito LÍQUIDO ZERO e some da demonstração, seja qual for o mecanismo
+    que o escritório use; a DLPA mostra o que está GRAVADO, nunca inventa a
+    transferência que faltaria.
+    """
+    if item.tipo == TipoPartida.CREDITO:
+        return item.valor
+    return -item.valor
+
+
+def apurar_dlpa(*, empresa, ano, mes):
+    """Demonstração dos Lucros ou Prejuízos Acumulados (DLPA) — DL-048,
+    etapas CTB-12 e CTB-13.
+
+    **O que lê.** O movimento das contas classificadas como
+    `LUCROS_OU_PREJUIZOS_ACUMULADOS` (podem ser VÁRIAS — "Lucros
+    Acumulados" + "(-) Prejuízos Acumulados" somam pelo MESMO lado, ver
+    `_efeito_de_item_sobre_resultado_acumulado`) no EXERCÍCIO
+    `ano` (01/01, HI-28: exercício = ano civil) até o fim da competência
+    `mes`:
+
+        saldo inicial (até 31/12 do ano anterior)
+      + Σ linhas por evento classificado (art. 186, I–III)
+      = saldo final
+
+    **Por evento, por contrapartida (CTB-12).** Cada item CONTRA a conta
+    sujeito é classificado pela `classificacao_dlpa` da própria conta
+    contra a qual o lançamento foi feito — nunca por inferência de código
+    ou nome. Contrapartida SEM classificação vira pendência que VETA a
+    emissão (`movimentos_sem_classificacao_dlpa`); classificação gravada
+    fora do enum vira `contas_com_classificacao_dlpa_desconhecida`. Sem
+    pendência nenhuma, a identidade `saldo inicial + Σ linhas = saldo
+    final` vale por MATEMÁTICA (Σcrédito = Σdébito em cada lançamento),
+    não por conferência — o teste derivado a prova.
+
+    ⚠️ **DIFERENÇA FUNDAMENTAL com a DRE (apurar_dre): aqui o zeramento
+    NÃO é excluído — ele é o dado.** A DRE exclui os lançamentos de
+    zeramento porque somaria a própria contrapartida; a DLPA é
+    justamente a demonstração DESSE movimento (art. 186, II: o lucro
+    líquido do exercício entra pela transferência do zeramento). Nenhuma
+    chave `zeramento:` é filtrada aqui.
+
+    **Saldo inicial/final:** agregação própria sobre `ItemLancamento`
+    (crédito − débito, `data < 01/01(ano)` e até `data_fim`) — não usa
+    `apurar_saldos` para CALCULAR, de propósito: a camada de saldos só
+    entra na CONCILIAÇÃO abaixo, para que os dois caminhos sejam
+    independentes (é a comparação que prova o número, não uma segunda
+    chamada da mesma conta).
+
+    **Conciliação com o Balanço (critério de aceite da CTB-13):**
+    `conciliacao.diferenca` = saldo final da DLPA − Σ, sobre as contas
+    sujeito, do `saldo` que `apurar_saldos` apura em `data_fim` (o
+    saldo_final do motor do Balancete, assinado pela natureza CADASTRADA
+    da conta), convertido para efeito de PL: credora entra com `+saldo`,
+    devedora (retificadora) com `−saldo` — a MESMA identidade
+    crédito − débito de `_efeito_de_item_sobre_resultado_acumulado`.
+    ⚠️ `saldo` é CONSOLIDADO (próprio + subárvore, DE-020), enquanto a
+    leitura da DLPA é por conta EXATA (CTB-12, sem herança): conta
+    sujeito com FILHAS movimentadas gera diferença ≠ 0 e veta a
+    emissão — corretamente, porque a demonstração não leu a subárvore que
+    o Balanço somou; e classificar pai E filha como sujeito duplicaria o
+    saldo consolidado na soma. Por isso a conta sujeito deve ser FOLHA,
+    como as três contas de destino do zeramento já são exigidas
+    (`registrar_parametro_contabil`). Diferença ≠ 0 vira pendência
+    `diferenca_de_fechamento` (num dado íntegro não acontece; acende a
+    luz se acontecer).
+
+    **Aviso (nunca veto):** `avisos.resultado_nao_transferido` expõe o
+    resultado ainda não zerado para o PL (`apurar_saldos.equacao`) — a
+    DLPA mostra o movimento GRAVADO; se o zeramento da competência ainda
+    não foi feito, o lucro do exercício não aparece, e o aviso diz isso
+    em vez de a tela parecer incompleta em silêncio.
+
+    **SNAPSHOT (DE-067):** mesma transação `REPEATABLE READ` que
+    `apurar_balanco_patrimonial`/`apurar_dre` usam — esta função gera
+    DOCUMENTO impresso; uma escrita concorrente entre a primeira e a
+    última consulta não pode produzir número que não fecha. Degrada em
+    vez de quebrar quando chamada de dentro de um `transaction.atomic()`
+    já aberto (cliente de teste do Django): o comando é pulado, e a
+    leitura roda sob o isolamento que já houver (explicação completa no
+    docstring de `apurar_balanco_patrimonial`).
+
+    **Consultas:** constante em relação a lançamentos e contas — mapa de
+    contas (1), agregado do saldo inicial (1), ids de lançamentos do
+    período (1), itens desses lançamentos (1) e `apurar_saldos` (mesmo
+    custo do Balanço). Nenhuma consulta por conta nem por linha.
+
+    Não verifica autorização nem papel — mesmo limite de `apurar_dre`;
+    quem chama (a view) verifica permissão antes. Confia que `ano`/`mes`
+    chegam como `int` válidos (1 <= mes <= 12): validação de FORMATO é da
+    fronteira (`_competencia_dre_do_formulario`, reaproveitada pela tela).
+    Levanta `HierarquiaInconsistente` se o plano de contas tiver ciclo
+    (vem de `apurar_saldos`); quem chama trata.
+    """
+    ultimo_dia_do_mes = calendar.monthrange(ano, mes)[1]
+    data_inicio = date(ano, 1, 1)
+    data_fim = date(ano, mes, ultimo_dia_do_mes)
+    zero = Decimal("0")
+
+    ja_estava_em_transacao = connection.in_atomic_block
+    with transaction.atomic():
+        if not ja_estava_em_transacao:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
+        contas = {conta.id: conta for conta in Conta.objects.filter(empresa=empresa)}
+        sujeito_ids = [
+            conta.id
+            for conta in contas.values()
+            if conta.classificacao_dlpa == ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS
+        ]
+
+        pendencias = {
+            "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada": (
+                [] if sujeito_ids else [{"mensagem": _MENSAGEM_SEM_CONTA_SUJEITO_DA_DLPA}]
+            ),
+            "movimentos_sem_classificacao_dlpa": [],
+            "contas_com_classificacao_dlpa_desconhecida": [],
+            "diferenca_de_fechamento": [],
+        }
+
+        # Saldo inicial: movimento das contas sujeito ANTES de 01/01(ano).
+        # Os DOIS filtros de empresa (lançamento E conta) replicam a defesa
+        # DE-021 do motor do Balancete: item cruzado entre empresas nunca
+        # entra em apuração nenhuma.
+        agregado_inicial = ItemLancamento.objects.filter(
+            lancamento__empresa=empresa,
+            conta__empresa=empresa,
+            conta_id__in=sujeito_ids,
+            lancamento__data__lt=data_inicio,
+        ).aggregate(
+            debitos=Sum(
+                "valor",
+                filter=Q(tipo=TipoPartida.DEBITO),
+                default=zero,
+                output_field=_CAMPO_SOMA_MONETARIA,
+            ),
+            creditos=Sum(
+                "valor",
+                filter=Q(tipo=TipoPartida.CREDITO),
+                default=zero,
+                output_field=_CAMPO_SOMA_MONETARIA,
+            ),
+        )
+        saldo_inicial = agregado_inicial["creditos"] - agregado_inicial["debitos"]
+
+        # Lançamentos do exercício que tocam a conta sujeito (UMA consulta
+        # de ids) e depois TODOS os itens desses lançamentos (UMA consulta)
+        # — a contrapartida mora no mesmo lançamento, então é aqui que a
+        # classificação de cada evento é lida.
+        ids_lancamentos = list(
+            ItemLancamento.objects.filter(
+                lancamento__empresa=empresa,
+                conta__empresa=empresa,
+                conta_id__in=sujeito_ids,
+                lancamento__data__gte=data_inicio,
+                lancamento__data__lte=data_fim,
+            )
+            .values_list("lancamento_id", flat=True)
+            .distinct()
+        )
+
+        valores = {}
+        lancamentos_por_chave = {}
+        sem_classificacao = {}
+        desconhecidas = {}
+        movimento = zero
+        sujeito_set = set(sujeito_ids)
+
+        itens = ItemLancamento.objects.filter(lancamento_id__in=ids_lancamentos).order_by(
+            "lancamento_id", "id"
+        )
+        for item in itens:
+            efeito = _efeito_de_item_sobre_resultado_acumulado(item)
+            if item.conta_id in sujeito_set:
+                movimento += efeito
+                continue
+
+            # Contrapartida: a LINHA recebe o efeito INVERSO do item — se o
+            # item creditou 1.250,00 numa reserva, os lucros acumulados
+            # caíram 1.250,00 (destinação); se debitou 500,00 numa reserva,
+            # eles subiram (reversão). A soma de todas as linhas é o
+            # movimento por construção (Σcrédito = Σdébito por lançamento).
+            conta = contas.get(item.conta_id)
+            if conta is None:
+                # Inalcançável pelos filtros acima (conta de outra empresa
+                # já teria sido excluída junto com o lançamento) — tratar
+                # como "sem classificação" em vez de `KeyError` cru se um
+                # dia um item sobreviver a um filtro trocado.
+                continue
+            classificacao = conta.classificacao_dlpa
+            if classificacao is None:
+                sem_classificacao.setdefault(
+                    item.conta_id, {"conta": conta.codigo, "nome": conta.nome}
+                )
+                continue
+            if classificacao not in ClassificacaoDlpa.values:
+                desconhecidas.setdefault(
+                    item.conta_id,
+                    {
+                        "conta": conta.codigo,
+                        "nome": conta.nome,
+                        "classificacao_dlpa": classificacao,
+                    },
+                )
+                continue
+
+            efeito_da_linha = -efeito
+            if classificacao in RESERVAS_DE_LUCROS_DA_DLPA:
+                verbo = "transferencia" if efeito_da_linha < 0 else "reversao"
+                chave = f"{verbo}:{classificacao}"
+            else:
+                chave = classificacao
+            valores[chave] = valores.get(chave, zero) + efeito_da_linha
+            lancamentos_por_chave.setdefault(chave, []).append(item.lancamento_id)
+
+        pendencias["movimentos_sem_classificacao_dlpa"] = list(sem_classificacao.values())
+        pendencias["contas_com_classificacao_dlpa_desconhecida"] = list(desconhecidas.values())
+
+        saldo_final = saldo_inicial + movimento
+
+        # Conciliação DLPA ↔ Balanço (critério de aceite da CTB-13): dois
+        # caminhos INDEPENDENTES para o mesmo número — a agregação própria
+        # acima e o motor do Balancete (`apurar_saldos`, em `data_fim`).
+        # O saldo do Balancete é CONSOLIDADO (próprio + subárvore, DE-020),
+        # enquanto a leitura da DLPA é por conta EXATA: nos dois casos em
+        # que isso importa (conta sujeito com filhas movimentadas; pai e
+        # filha ambos classificados como sujeito) a conta diverge e a
+        # `diferenca_de_fechamento` veta — corretamente. Conta sujeito
+        # FOLHA (o caso das três contas de destino do zeramento) não tem
+        # nenhum dos dois, e a conferência é exata.
+        saldos = apurar_saldos(empresa=empresa, data_base=data_fim)
+        # A linha de `apurar_saldos` chama o CÓDIGO de `"conta"` (mesma
+        # chave que as listas de pendência usam) e reduz o motor do
+        # Balancete a `{conta, nome, tipo, natureza, nivel, raiz,
+        # classificacao_patrimonial, saldo}` — `saldo` é o saldo_final
+        # assinado pela natureza CADASTRADA; converter para efeito de PL
+        # (credora `+`, devedora `−`) dá exatamente crédito − débito, a
+        # identidade que `_efeito_de_item_sobre_resultado_acumulado`
+        # aplica item a item. Ver o docstring (acima) sobre contas
+        # sujeito com filhas.
+        linhas_do_balanco = {linha["conta"]: linha for linha in saldos["contas"]}
+        saldo_no_balanco = zero
+        for conta_id in sujeito_ids:
+            linha = linhas_do_balanco.get(contas[conta_id].codigo)
+            if linha is None:
+                # Conta sujeito ausente do motor do Balancete não existe
+                # hoje (toda conta ganha linha); se um dia existir, a
+                # diferença abaixo acende em vez de somar zero em silêncio.
+                continue
+            contribuicao = linha["saldo"]
+            if linha["natureza"] != NaturezaConta.CREDORA:
+                contribuicao = -contribuicao
+            saldo_no_balanco += contribuicao
+        diferenca = saldo_final - saldo_no_balanco
+        if diferenca != zero:
+            pendencias["diferenca_de_fechamento"] = [{"diferenca": diferenca}]
+
+        resultado_nao_transferido = saldos["equacao"]["resultado_nao_transferido"]
+        avisos = {
+            "resultado_nao_transferido": (
+                [] if resultado_nao_transferido == zero else [{"valor": resultado_nao_transferido}]
+            )
+        }
+
+        def _linha_fixa(classificacao):
+            return {
+                "chave": classificacao,
+                "titulo": _TITULOS_DAS_LINHAS_DA_DLPA[classificacao],
+                "valor": valores.get(classificacao, zero),
+                "lancamentos": list(dict.fromkeys(lancamentos_por_chave.get(classificacao, []))),
+            }
+
+        def _linha_de_reserva(reserva, verbo):
+            chave = f"{verbo}:{reserva}"
+            valor = valores.get(chave, zero)
+            if valor == zero:
+                return None
+            return {
+                "chave": chave,
+                "titulo": _TITULOS_DAS_RESERVAS_DA_DLPA[reserva][verbo],
+                "valor": valor,
+                "lancamentos": list(dict.fromkeys(lancamentos_por_chave.get(chave, []))),
+            }
+
+        # Ordem FIXA = ordem dos incisos do art. 186 (I → II → III): saldo
+        # inicial e inciso I; reversões e lucro (II); transferências,
+        # dividendos e capital (III); saldo final. Linhas de reserva só
+        # aparecem com movimento — as demais são estrutura legal e saem
+        # sempre, inclusive zeradas (o documento mostra que não houve o
+        # evento, não some com ele).
+        linhas = [
+            {
+                "chave": "saldo_inicial",
+                "titulo": _TITULO_SALDO_INICIAL_DA_DLPA,
+                "valor": saldo_inicial,
+                "lancamentos": [],
+            },
+            _linha_fixa(ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR),
+            _linha_fixa(ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL),
+        ]
+        for reserva in RESERVAS_DE_LUCROS_DA_DLPA:
+            reversao = _linha_de_reserva(reserva, "reversao")
+            if reversao is not None:
+                linhas.append(reversao)
+        linhas.append(_linha_fixa(ClassificacaoDlpa.RESULTADO_DO_EXERCICIO))
+        for reserva in RESERVAS_DE_LUCROS_DA_DLPA:
+            transferencia = _linha_de_reserva(reserva, "transferencia")
+            if transferencia is not None:
+                linhas.append(transferencia)
+        linhas.append(_linha_fixa(ClassificacaoDlpa.DIVIDENDO))
+        linhas.append(_linha_fixa(ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL))
+        linhas.append(
+            {
+                "chave": "saldo_final",
+                "titulo": _TITULO_SALDO_FINAL_DA_DLPA,
+                "valor": saldo_final,
+                "lancamentos": [],
+            }
+        )
+
+    return {
+        "empresa_id": empresa.id,
+        "ano": ano,
+        "mes": mes,
+        "data_inicio_exercicio": data_inicio,
+        "data_fim": data_fim,
+        "saldo_inicial": saldo_inicial,
+        "movimento": movimento,
+        "saldo_final": saldo_final,
+        "linhas": linhas,
+        "conciliacao": {"saldo_no_balanco": saldo_no_balanco, "diferenca": diferenca},
+        "pendencias": pendencias,
+        "avisos": avisos,
+    }
+
+
+# DUAS tuplas DISJUNTAS e EXPLÍCITAS — mesmo contrato de
+# `avaliar_emissao_da_dre`/`_LISTAS_DA_DRE_QUE_IMPEDEM_A_EMISSAO` e da
+# correção BL-502 do Balanço: a união das duas tem de ser EXATAMENTE o
+# inventário de chaves de `apurar_dlpa["pendencias"]` (teste derivado em
+# `test_dl048_dlpa.py`), e nenhuma lista pode estar nas duas.
+_LISTAS_DA_DLPA_QUE_IMPEDEM_A_EMISSAO = (
+    "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada",
+    "movimentos_sem_classificacao_dlpa",
+    "contas_com_classificacao_dlpa_desconhecida",
+    "diferenca_de_fechamento",
+)
+# Nenhuma pendência da DLPA é só aviso HOJE (as quatro acima vetam todas);
+# `avisos` fica no retorno de `apurar_dlpa` como contrato próprio — ele não
+# é particionado com as pendências, é uma chave separada do dicionário.
+_LISTAS_DE_AVISO_DA_DLPA = ("resultado_nao_transferido",)
+
+
+def avaliar_emissao_da_dlpa(dlpa):
+    """Decide, no SERVIDOR, se a DLPA pode ser emitida — mesmo padrão de
+    `avaliar_emissao_da_dre`/`avaliar_emissao_do_balanco`.
+
+    Qualquer lista de pendência NÃO vazia veta (`pode_emitir=False`); as
+    listas vazias somem do dicionário devolvido, para o contexto da tela
+    percorrer só o que existe. `avisos` nunca veta — é o resultado ainda
+    não transferido ao PL, que a tela mostra como conferência de bancada.
+
+    Retorna `{"pode_emitir": bool, "listas_pendentes": {nome: itens},
+    "avisos": {nome: itens}}` — cada dict só tem as chaves com algo a
+    reportar.
+    """
+    pendentes = {nome: itens for nome, itens in dlpa["pendencias"].items() if itens}
+    avisos = {nome: itens for nome, itens in dlpa["avisos"].items() if itens}
+    return {
+        "pode_emitir": not pendentes,
+        "listas_pendentes": pendentes,
+        "avisos": avisos,
+    }
+
+
+@transaction.atomic
+def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
+    """Classifica (ou reclassifica, ou remove) a linha da DLPA de uma conta
+    EXISTENTE — a porta de serviço da tela `conta_classificacao_dlpa`
+    (CTB-12: reaproveitar o padrão de `classificar_conta_na_dre`).
+
+    `classificacao` é um valor de `ClassificacaoDlpa` (ou `None`/`""` para
+    REMOVER — normalizado para `None`, mesma regra do achado A4 da
+    DL-045). NÃO valida contra `ClassificacaoDlpa.values` aqui:
+    `full_clean()` (abaixo) já recusa qualquer valor fora dos `choices`, e
+    a guarda de compatibilidade com o TIPO da conta roda em `Conta.clean()`.
+
+    A classificação da DLPA é propriedade de APRESENTAÇÃO, como a da DRE
+    (DE-086): qualquer mudança é livre mesmo com movimento — ela não
+    altera saldo nenhum, e a trilha (abaixo) mostra quando e por quem
+    mudou. A consequência é a mesma da DRE: a DLPA de um período passado
+    reflete a classificação VIGENTE na emissão.
+
+    CORRIDA: `select_for_update()` antes de ler o valor gravado — duas
+    classificações concorrentes da MESMA conta serializam, e o "antes" da
+    trilha é sempre o valor real (mesmo molde de `classificar_conta_na_dre`).
+
+    PERMISSÃO: verificada pela VIEW (`PodeEscriturar`, no servidor) — esta
+    função não verifica papel, mesmo limite das irmãs.
+
+    TRILHA: um `registrar()` na MESMA transação, com o valor REALMENTE
+    gravado antes (sob a trava) e o de depois. `request` é opcional (trilha
+    sem IP em chamada direta).
+
+    Devolve a `Conta` já salva (mesma instância, atualizada).
+    """
+    valor_antes = (
+        Conta.objects.select_for_update()
+        .filter(pk=conta.pk)
+        .values_list("classificacao_dlpa", flat=True)
+        .get()
+    )
+    conta.classificacao_dlpa = classificacao or None
+    conta.full_clean()
+    conta.save(update_fields=["classificacao_dlpa"])
+    registrar(
+        acao="conta.classificacao_dlpa_alterada",
+        usuario=usuario,
+        escritorio=conta.empresa.escritorio,
+        objeto=conta,
+        request=request,
+        detalhes={
+            "classificacao_dlpa_antes": valor_antes,
+            "classificacao_dlpa_depois": conta.classificacao_dlpa,
+        },
+    )
+    return conta
 
 
 def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% comment %}
+DL-048/CTB-12: formulário de UM campo só — a Linha da DLPA de uma conta
+EXISTENTE. Molde direto de `conta_classificacao_dre.html` (mesma
+moldura, mesmo padrão de erro/ajuda por campo): a tela irmã da DRE já
+provou este desenho, e duplicar a explicação em dois lugares faria os
+dois divergirem na primeira edição.
+{% endcomment %}
+{% block titulo %}Linha da DLPA — {{ conta.codigo }} {{ conta.nome }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Linha da DLPA — {{ conta.codigo }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Linha da DLPA — {{ conta.codigo }} {{ conta.nome }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Tipo cadastrado: <strong>{{ conta.get_tipo_display }}</strong>.
+        Linha atual: <strong>{{ conta.get_classificacao_dlpa_display|default:"Sem classificação" }}</strong>.
+    </p>
+
+    {% comment %}
+    Mesmo motivo do `conta_form.html`/`conta_classificacao_dre.html`:
+    `action` explícito e sem querystring.
+    {% endcomment %}
+    <form method="post"
+          action="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id conta.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+        {% comment %}
+        Cada guarda de `Conta.clean()` (compatibilidade de tipo, choices)
+        chega aqui como `form.non_field_errors()` —
+        `classificar_conta_na_dlpa` (`conta_classificacao_dlpa`,
+        views_web.py) nunca julga nada sozinha, só grava e propaga o que o
+        servidor recusar.
+        {% endcomment %}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.help_text %}<p class="visualmente-oculto" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                {% if campo.errors %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit">Salvar</button>
+    </form>
+{% endblock %}

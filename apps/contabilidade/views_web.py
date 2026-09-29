@@ -51,6 +51,10 @@ from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
+    # DL-048/CTB-12: linha da DLPA (art. 186) — terceiro campo do mesmo
+    # padrão. Usado pela tela `dlpa` (rótulos das linhas e do formulário),
+    # pela tela de classificar conta e pela humanização das pendências.
+    ClassificacaoDlpa,
     # DL-045, fatia 3: linha da DRE (art. 187) — mesmo desenho de
     # `ClassificacaoPatrimonial`, logo abaixo. Usada pela tela da DRE
     # (`dre`/`_montar_linhas_da_dre`, mais abaixo) e pelo formulário de
@@ -122,8 +126,13 @@ from apps.contabilidade.services import (
     # agora para a DRE. `apurar_dre` passou a pagar o mesmo snapshot
     # REPEATABLE READ que `apurar_balanco_patrimonial` paga (A5, rodada 1
     # de auditoria da DL-045) — nada para esta tela fazer a respeito.
+    # DL-048/CTB-13: apuração da DLPA — mesma família de nome da DRE,
+    # mesmo contrato de snapshot e de "quem chama verifica permissão".
+    apurar_dlpa,
     apurar_dre,
     apurar_razao,
+    # DL-048: decisão de emissão da DLPA, no servidor (a tela só obedece).
+    avaliar_emissao_da_dlpa,
     avaliar_emissao_da_dre,
     avaliar_emissao_do_balancete,
     # DL-045, correção da rodada 1 de auditoria (A7): a porta de serviço
@@ -132,6 +141,10 @@ from apps.contabilidade.services import (
     # (`ContaClassificacaoDreView`), nunca uma segunda cópia da regra
     # (todas as guardas moram em `Conta.clean()`). Ver `conta_
     # classificacao_dre`, mais abaixo.
+    # DL-048/CTB-12: porta ÚNICA de gravação da classificação da DLPA —
+    # mesmo desenho de `classificar_conta_na_dre` (guarda em
+    # `Conta.clean()` + trilha na MESMA transação), nunca uma segunda cópia.
+    classificar_conta_na_dlpa,
     classificar_conta_na_dre,
     criar_lancamento,
     data_maxima_lancamento,
@@ -752,6 +765,11 @@ class ContaCriarForm(forms.ModelForm):
             "conta_pai",
             "aceita_lancamento",
             "classificacao_dre",
+            # DL-048/CTB-12: mesmo caminho da Linha da DRE (a conta já
+            # nasce classificável nas DUAS demonstrações — o select é o
+            # mesmo molde; a compatibilidade com o tipo continua sendo
+            # decisão só do servidor, em `Conta.clean()`).
+            "classificacao_dlpa",
         ]
 
     def __init__(self, *args, empresa, **kwargs):
@@ -784,6 +802,20 @@ class ContaCriarForm(forms.ModelForm):
             "Só se aplica a conta de Receita ou Despesa (Lei 6.404/76, art. 187) — o "
             "servidor recusa uma linha incompatível com o tipo desta conta. Reclassificar "
             "uma conta que já tem lançamento gravado também é recusado."
+        )
+        # DL-048/CTB-12: espelho da DRE acima. "Linha da DLPA" no select
+        # (o `verbose_name` "classificação (DLPA)" é para coluna de
+        # tabela); a ajuda NOMEIA os dois papéis do campo — conta sujeito
+        # (a que a demonstração lê) e contrapartida (reserva, dividendo…) —
+        # porque a mesma tela classifica os dois casos e o contador precisa
+        # saber o que está escolhendo.
+        self.fields["classificacao_dlpa"].label = "Linha da DLPA"
+        self.fields["classificacao_dlpa"].help_text = (
+            "Conta de Patrimônio Líquido ligada à Demonstração dos Lucros ou Prejuízos "
+            "Acumulados (Lei 6.404/76, art. 186): classifique aqui a conta de lucros/"
+            "prejuízos acumulados E as contrapartidas que movimentam ela (reserva, "
+            "dividendo, resultado do exercício). O servidor recusa uma linha "
+            "incompatível com o tipo desta conta."
         )
 
 
@@ -1065,6 +1097,100 @@ def conta_classificacao_dre(request, empresa_id, conta_id):
     return render(
         request,
         "contabilidade/conta_classificacao_dre.html",
+        {"empresa": empresa, "conta": conta, "form": form},
+    )
+
+
+class ClassificacaoDlpaForm(forms.Form):
+    """Formulário de UM campo só — a Linha da DLPA de uma conta EXISTENTE
+    (DL-048/CTB-12: reaproveitar o padrão de `ClassificacaoDreForm`).
+    Não é um `ModelForm`: a gravação passa SEMPRE por
+    `classificar_conta_na_dlpa` (services.py), que chama `full_clean()` e
+    carrega as guardas de `Conta.clean()` (compatibilidade de tipo, choices)
+    + a trilha de auditoria. Este formulário só coleta o valor e devolve
+    `None` para "Sem classificação" (nunca `""` — normalização na view,
+    mesmo achado A4 da DL-045).
+    """
+
+    classificacao_dlpa = forms.ChoiceField(
+        label="Linha da DLPA",
+        choices=[("", "Sem classificação")] + list(ClassificacaoDlpa.choices),
+        required=False,
+        help_text=(
+            "Lei 6.404/76, art. 186. Classifique a conta de lucros/prejuízos acumulados "
+            "(a que a demonstração lê) e cada contrapartida que movimenta ela — reserva, "
+            "dividendo, resultado do exercício. O servidor recusa uma linha "
+            "incompatível com o tipo desta conta; conta de subconta não herda a "
+            "classificação da mãe."
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def conta_classificacao_dlpa(request, empresa_id, conta_id):
+    """Classifica (ou reclassifica, ou remove) a Linha da DLPA de uma conta
+    EXISTENTE — DL-048/CTB-12: a porta de TELA no molde de
+    `conta_classificacao_dre`. Chamada pelo veto da tela `dlpa` (cada conta
+    pendente ganha link direto) e pelo Plano de contas.
+
+    Autorização: `_pode_escriturar` (MESMO papel da API e da classificação
+    da DRE — nenhuma permissão nova); filtro `empresa=empresa` — conta de
+    outra empresa/escritório dá 404, nunca confirma existência.
+
+    A GRAVAÇÃO passa inteira por `classificar_conta_na_dlpa`; esta view só
+    traduz `ValidationError` para `form.add_error(None, ...)` e re-renderiza
+    com 200 (recusa de regra é a tela respondendo "nunca um 500"). O
+    `refresh_from_db()` em caso de recusa restaura o valor REALMENTE
+    gravado — o serviço muta a instância antes do `full_clean()` recusar
+    (mesmo achado R6 da reconferência da DL-045).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite classificar a linha da DLPA nesta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DLPA)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_classificacao_dlpa.html",
+                {"empresa": empresa, "conta": conta, "form": ClassificacaoDlpaForm(request.POST)},
+                status=400,
+            )
+
+        form = ClassificacaoDlpaForm(request.POST)
+        if form.is_valid():
+            classificacao = form.cleaned_data["classificacao_dlpa"] or None
+            try:
+                classificar_conta_na_dlpa(
+                    conta=conta, classificacao=classificacao, usuario=request.user, request=request
+                )
+            except DjangoValidationError as exc:
+                conta.refresh_from_db()
+                for mensagem in mensagens_da_validacao_django(exc):
+                    form.add_error(None, mensagem)
+            else:
+                messages.success(request, f"Linha da DLPA de “{conta}” atualizada com sucesso.")
+                return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+    else:
+        form = ClassificacaoDlpaForm(initial={"classificacao_dlpa": conta.classificacao_dlpa or ""})
+
+    return render(
+        request,
+        "contabilidade/conta_classificacao_dlpa.html",
         {"empresa": empresa, "conta": conta, "form": form},
     )
 
@@ -1761,7 +1887,8 @@ def _contrato_do_formulario_de_lancamento(post):
 # DL-045 fatia 3: "classificacao_dre" entrou no conjunto — o formulário de
 # `conta_nova` (único que usa este contrato nesta etapa — ver o docstring
 # de `ContaCriarForm` sobre a tela de edição, ainda inexistente) passou a
-# emitir esse campo a mais.
+# emitir esse campo a mais. DL-048/CTB-12: "classificacao_dlpa" entra pelo
+# mesmo motivo e pelo mesmo caminho.
 _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
     campos=frozenset(
         {
@@ -1773,6 +1900,7 @@ _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
             "conta_pai",
             "aceita_lancamento",
             "classificacao_dre",
+            "classificacao_dlpa",
             "confirmar_conta_sem_conta_mae",
         }
     ),
@@ -1793,6 +1921,17 @@ _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DRE = ContratoDeRequisicao(
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na classificação da linha da DRE",
+)
+
+# DL-048/CTB-12: o MESMO contrato de um campo para a tela irmã da DLPA —
+# telas diferentes, campos diferentes, um contrato por tela (nunca um
+# contrato reaproveitado com campo a mais, que a varredura não alcança).
+_CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DLPA = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "classificacao_dlpa"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na classificação da linha da DLPA",
 )
 
 
@@ -3049,6 +3188,11 @@ _ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
     "classificacao_patrimonial_ancestral": "Classificação do ancestral",
     "classificacao_dre": "Linha da DRE cadastrada",
     "classificacao_dre_ancestral": "Linha da DRE do ancestral",
+    # DL-048/CTB-12: mesma dupla de chaves para a classificação da DLPA —
+    # os dicts são GENÉRICOS por campo de pendência (nenhum par "só da
+    # DRE" ou "só da DLPA"), e `contas_com_classificacao_dlpa_
+    # desconhecida` carrega este campo cru.
+    "classificacao_dlpa": "Linha da DLPA cadastrada",
     # DL-045, correção da rodada 1 de auditoria (A2): campo extra de
     # `contas_com_tipo_divergente_da_linha` (services.py) — a linha
     # EFETIVA (própria válida, ou herdada do ancestral) contra a qual o
@@ -3071,6 +3215,10 @@ _ENUM_DO_CAMPO_DE_PENDENCIA = {
     "classificacao_dre": ClassificacaoDre,
     "classificacao_dre_ancestral": ClassificacaoDre,
     "classificacao_dre_efetiva": ClassificacaoDre,
+    # DL-048: valor fora do enum (dado corrompido por ORM direto) cai no
+    # `except ValueError` de `_humanizar_valor_de_campo_de_pendencia` e sai
+    # CRU — é o próprio defeito que a lista denuncia, mesmo caminho da DRE.
+    "classificacao_dlpa": ClassificacaoDlpa,
     "natureza": NaturezaConta,
 }
 
@@ -4034,6 +4182,279 @@ def dre(request, empresa_id):
 
 
 # ---------------------------------------------------------------------------
+# DL-048 — DLPA (Demonstração dos Lucros ou Prejuízos Acumulados): tela
+# irmã da DRE (`dre`, acima). Mesmo esqueleto — autorização de leitura,
+# recusa de livro-caixa, veto do SERVIDOR com pendências nomeadas e link
+# de correção, bloco de identificação item 51 repetido em cada página.
+# ---------------------------------------------------------------------------
+
+# Título humano e AÇÃO que resolve de cada lista de pendência da DLPA
+# (chaves de `apurar_dlpa["pendencias"]`, services.py) — mesma dupla de
+# dicionários que Balanço e DRE usam (BL-508: toda pendência nomeia a ação
+# que resolve; `.get` com a chave crua nunca quebra a tela, só denuncia
+# lista nova sem cadastro). Teste derivado em `test_dl048_dlpa.py` cruza as
+# chaves das duas com `_LISTAS_DA_DLPA_QUE_IMPEDEM_A_EMISSAO`.
+_TITULOS_DAS_LISTAS_DE_PENDENCIA_DA_DLPA = {
+    "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada": (
+        "Conta de lucros ou prejuízos acumulados"
+    ),
+    "movimentos_sem_classificacao_dlpa": "Movimento das contas de lucros acumulados",
+    "contas_com_classificacao_dlpa_desconhecida": "Classificação da DLPA desconhecida",
+    "diferenca_de_fechamento": "Diferença entre a DLPA e o Balanço",
+}
+
+ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DLPA_POR_LISTA = {
+    "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada": (
+        "Classifique, no plano de contas, a conta que recebe o resultado do exercício "
+        "(campo “Linha da DLPA” → “Lucros ou prejuízos acumulados”)."
+    ),
+    "movimentos_sem_classificacao_dlpa": (
+        "Classifique cada conta listada (link ao lado): o movimento delas contra os lucros "
+        "acumulados não tem linha da DLPA — o produto não adivinha de que evento se trata."
+    ),
+    "contas_com_classificacao_dlpa_desconhecida": (
+        "Reclassifique cada conta listada com uma das opções válidas do campo “Linha da "
+        "DLPA” — o valor gravado não existe mais no cadastro."
+    ),
+    "diferenca_de_fechamento": (
+        "A soma das linhas da DLPA não bate com o saldo das contas sujeito no "
+        "Balanço da mesma data — confira os lançamentos dessas contas pelo Razão e, se o "
+        "plano de contas mudou de estrutura (conta sujeito com subcontas movimentadas), "
+        "classifique as subcontas também: isto não deveria acontecer em dado íntegro."
+    ),
+}
+
+_TITULOS_DOS_AVISOS_DA_DLPA = {
+    "resultado_nao_transferido": "Resultado do exercício ainda não zerado",
+}
+
+
+def _lista_de_pendencia_dlpa_para_contexto(nome, itens, contas_id_por_codigo):
+    """Uma entrada do veto da DLPA, pronta para o template — título humano,
+    `tipo_linha` (o ramo de renderização) e a AÇÃO que resolve.
+
+    DUAS formas de item, e o `nome` da lista decide o ramo (as listas de
+    `apurar_dlpa` têm contrato próprio, diferente das da DRE — que são
+    todas baseadas em conta ou em lançamento):
+
+    - baseada em CONTA (`"conta"`/`"nome"` + campo extra) →
+      `tipo_linha="conta"`, humanizada por `_linhas_de_pendencia` (mesmo
+      caminho do Balanço/DRE) e com `conta_id` resolvido em UMA consulta
+      batelada para o link "classificar esta conta";
+    - ITEM sem conta (nenhuma conta sujeito; diferença de fechamento) →
+      `tipo_linha="detalhe"`, texto pronto, sem link.
+    """
+    titulo = _TITULOS_DAS_LISTAS_DE_PENDENCIA_DA_DLPA.get(nome, nome)
+    acao = ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DLPA_POR_LISTA.get(
+        nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+    )
+    if nome == "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada":
+        linhas = [{"conta": None, "nome": None, "detalhe": item["mensagem"]} for item in itens]
+        return {"titulo": titulo, "tipo_linha": "detalhe", "linhas": linhas, "acao": acao}
+    if nome == "diferenca_de_fechamento":
+        linhas = [
+            {
+                "conta": None,
+                "nome": None,
+                "detalhe": (
+                    "Soma das linhas da DLPA menos o saldo das contas sujeito no "
+                    f"Balanço: {_valor_ptbr(item['diferenca'])}."
+                ),
+            }
+            for item in itens
+        ]
+        return {"titulo": titulo, "tipo_linha": "detalhe", "linhas": linhas, "acao": acao}
+
+    linhas = _linhas_de_pendencia(itens)
+    for linha in linhas:
+        linha["conta_id"] = contas_id_por_codigo.get(linha["conta"])
+    return {"titulo": titulo, "tipo_linha": "conta", "linhas": linhas, "acao": acao}
+
+
+def _contas_id_por_codigo_das_pendencias_dlpa(empresa, emissao):
+    """Mapa código → id das contas citadas em QUALQUER pendência da DLPA —
+    UMA consulta batelada, nunca uma por linha (mesmo molde de
+    `_contas_id_por_codigo_das_pendencias_dre`). Listas sem "conta"
+    (nenhuma conta sujeito; diferença de fechamento) não contribuem código
+    nenhum; vazio, sem consulta, quando não há pendência baseada em conta.
+    """
+    codigos = set()
+    for itens in emissao["listas_pendentes"].values():
+        codigos.update(item["conta"] for item in itens if "conta" in item)
+    if not codigos:
+        return {}
+    return dict(
+        Conta.objects.filter(empresa=empresa, codigo__in=codigos).values_list("codigo", "id")
+    )
+
+
+def _listas_de_aviso_da_dlpa_para_contexto(avisos):
+    """Avisos da DLPA (nunca vetam) no mesmo formato das pendências — a
+    tela mostra os DOIS desfechos (emitida com aviso, ou recusada por
+    outro motivo com o aviso também presente), como Balanço e DRE fazem
+    (DE-070). Sem `acao`: aviso não se resolve, se CONFERE.
+    """
+    listas = []
+    for nome, itens in avisos.items():
+        if nome == "resultado_nao_transferido":
+            linhas = [
+                {
+                    "conta": None,
+                    "nome": None,
+                    "detalhe": (
+                        "Ainda há resultado sem zerar: "
+                        f"{_valor_ptbr(abs(item['valor']))}. A DLPA mostra o movimento "
+                        "gravado — feito o zeramento da competência, o lucro do exercício "
+                        "entra na linha “Lucro (prejuízo) líquido do exercício”."
+                    ),
+                }
+                for item in itens
+            ]
+        else:
+            # Lista de aviso nova sem cadastro nunca quebra a tela (mesmo
+            # `.get` falho das pendências) — só denuncia o nome cru.
+            linhas = [{"conta": None, "nome": None, "detalhe": str(item)} for item in itens]
+        listas.append(
+            {
+                "titulo": _TITULOS_DOS_AVISOS_DA_DLPA.get(nome, nome),
+                "tipo_linha": "detalhe",
+                "linhas": linhas,
+            }
+        )
+    return listas
+
+
+def _montar_linhas_da_dlpa(dlpa_apurada):
+    """Linhas IMPRESSAS da DLPA, a partir da lista que `apurar_dlpa` já
+    ordenou pelo art. 186 — a ordem e a estrutura vêm do SERVIÇO (é lá que
+    a lei fixa os incisos); aqui só se formata valor em pt-BR (`_valor_dre`:
+    negativo entre parênteses, RC-90 — a mesma regra de todas as células
+    assinadas deste produto) e se marca `eh_saldo` para o template
+    destacar as DUAS linhas de saldo.
+    """
+    return [
+        {
+            "chave": linha["chave"],
+            "titulo": linha["titulo"],
+            "valor": _valor_dre(linha["valor"]),
+            "eh_saldo": linha["chave"] in ("saldo_inicial", "saldo_final"),
+        }
+        for linha in dlpa_apurada["linhas"]
+    ]
+
+
+@login_required
+@require_safe
+def dlpa(request, empresa_id):
+    """Demonstração dos Lucros ou Prejuízos Acumulados (DL-048/CTB-13) —
+    tela no molde de `dre`: MESMA autorização de leitura (`_pode_ler`),
+    mesma recusa de livro-caixa, mesmo veto do servidor com pendências
+    nomeadas e link de correção, mesmo bloco de identificação item 51 em
+    cada página impressa.
+
+    Período: EXERCÍCIO (ano civil, HI-28) até a competência pedida — a
+    navegação "‹ anterior / seguinte ›" desloca o MÊS de referência, mesma
+    gramática da DRE (nunca uma segunda). O bloco de identificação cobra
+    01/01(ano) → data fim, que é o período que a demonstração cobre.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    # O link "classificar esta conta" do veto só aparece para quem PODE
+    # ESCRITURAR (mesmo achado R8 da reconferência da DL-045) — presente em
+    # TODOS os `render()` desta view.
+    contexto = {"empresa": empresa, "pode_escriturar": _pode_escriturar(request)}
+
+    ano, mes, erro_competencia = _competencia_dre_do_formulario(request)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return render(request, "contabilidade/dlpa.html", contexto, status=400)
+
+    ano_anterior, mes_anterior = _competencia_adjacente(ano, mes, -1)
+    ano_seguinte, mes_seguinte = _competencia_adjacente(ano, mes, 1)
+    contexto.update(
+        {
+            "ano": ano,
+            "mes": mes,
+            "data_referencia": date(ano, mes, 1),
+            # Link só quando a competência adjacente é VÁLIDA (mesmo R10 da
+            # reconferência da DRE): perto da borda da faixa some, em vez
+            # de levar a um 400.
+            "ano_anterior": ano_anterior
+            if _ano_mes_de_competencia_valido(ano_anterior, mes_anterior)
+            else None,
+            "mes_anterior": mes_anterior,
+            "ano_seguinte": ano_seguinte
+            if _ano_mes_de_competencia_valido(ano_seguinte, mes_seguinte)
+            else None,
+            "mes_seguinte": mes_seguinte,
+        }
+    )
+
+    # Estado VAZIO (mesmo critério do Balancete/Balanço/DRE): empresa sem
+    # NENHUMA conta — nada para classificar, nada para recusar ainda.
+    empresa_tem_plano_de_contas = Conta.objects.filter(empresa=empresa).exists()
+    contexto["empresa_tem_plano_de_contas"] = empresa_tem_plano_de_contas
+    if not empresa_tem_plano_de_contas:
+        return render(request, "contabilidade/dlpa.html", contexto)
+
+    try:
+        dlpa_apurada = apurar_dlpa(empresa=empresa, ano=ano, mes=mes)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/dlpa.html", contexto, status=409)
+
+    emissao = avaliar_emissao_da_dlpa(dlpa_apurada)
+
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+    contexto.update(
+        {
+            "identificacao": identificacao_da_demonstracao(),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # NBC TG 26 item 51(c) — "o período coberto": a DLPA cobre o
+            # EXERCÍCIO até a competência, então o bloco de identificação
+            # precisa das duas pontas, não só do mês pedido.
+            "data_inicio_exercicio": dlpa_apurada["data_inicio_exercicio"],
+            "data_fim": dlpa_apurada["data_fim"],
+        }
+    )
+
+    # Avisos aparecem nos DOIS desfechos (fora do if/else do veto), como
+    # Balanço e DRE (DE-070) — conferência de bancada, nunca documento.
+    contexto["listas_apenas_aviso"] = _listas_de_aviso_da_dlpa_para_contexto(emissao["avisos"])
+
+    if not emissao["pode_emitir"]:
+        # Critério da etapa: havendo QUALQUER pendência, a tela NÃO monta
+        # a demonstração — só o que falta, nomeado, com link de correção.
+        # 200, não erro de protocolo: a tela respondeu "pode emitir? → não".
+        contas_id_por_codigo = _contas_id_por_codigo_das_pendencias_dlpa(empresa, emissao)
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "listas_pendentes": [
+                    _lista_de_pendencia_dlpa_para_contexto(nome, itens, contas_id_por_codigo)
+                    for nome, itens in emissao["listas_pendentes"].items()
+                ],
+            }
+        )
+        return render(request, "contabilidade/dlpa.html", contexto)
+
+    contexto.update({"pode_emitir": True, "linhas": _montar_linhas_da_dlpa(dlpa_apurada)})
+    return render(request, "contabilidade/dlpa.html", contexto)
+
+
+# ---------------------------------------------------------------------------
 # Conferência
 # ---------------------------------------------------------------------------
 
@@ -4340,6 +4761,17 @@ def relatorios(request, empresa_id):
             "titulo": "DRE",
             "descricao": "Resultado do período, por mês e acumulado do exercício.",
             "url": reverse("contabilidade_web:dre", args=[empresa.id]),
+        },
+        # DL-048/CTB-13: sétimo cartão — movimento dos lucros/prejuízos
+        # acumulados no exercício (art. 186), mesmo molde do de cima
+        # (permissão/recusa já checadas acima, ícone PRÓPRIO no sprite de
+        # templates/base.html).
+        {
+            "chave": "dlpa",
+            "icone": "dlpa",
+            "titulo": "DLPA",
+            "descricao": "Movimento dos lucros ou prejuízos acumulados no exercício.",
+            "url": reverse("contabilidade_web:dlpa", args=[empresa.id]),
         },
         {
             "chave": "conferencia",
