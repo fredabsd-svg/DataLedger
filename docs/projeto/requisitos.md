@@ -372,3 +372,76 @@ deve representar configuração do ambiente e acesso ao sistema. Assistente inte
 provedores e MCP têm destaque na proposta, com seu estado planejado explícito.
 Esta orientação substitui a linguagem comercial da primeira versão da DL-036;
 preserva os controles e a arquitetura multiempresa e não declara integrações prontas.
+
+
+## Fontes normativas das demonstrações contábeis — DL-048, consultadas em 28/09/2026
+
+Confirmação em fonte oficial antes de qualquer constante entrar no código
+(AGENTS.md §10; decisão 2 do Fred na DL-048). Fontes: NBC TG 26 (R5) rev.19 e
+NBC TG 51 (PDF do CFC), Lei 6.404/76 consolidada no Planalto, Leis 11.638/2007,
+11.941/2009 e 10.303/2001, e Resolução CVM 80/2022.
+
+### ⚠️ Vigência — não fixar norma sem data
+
+**A NBC TG 26 (R5) está revogada.** A ficha da resolução no CFC registra
+"em vigor: NÃO", revogada pela **NBC TG 51 — Apresentação e Divulgação nas
+Demonstrações Contábeis (CPC 51 / IFRS 18)**, DOU 25/02/2026.
+
+| Período | Norma que rege |
+| --- | --- |
+| Exercícios iniciados até 31/12/2026 | NBC TG 26 (R5) |
+| Exercícios iniciados em/após 01/01/2027 | **NBC TG 51** (revoga a NBC TG 26 R1–R5) |
+
+Os itens de demonstração da DL-048 nascem **versionados por vigência** (DE-010),
+nunca como constante única.
+
+### Premissas do plano de paridade que estão ERRADAS — não implementar
+
+| Premissa | O que a fonte diz |
+| --- | --- |
+| *"O item 106 da NBC TG 26 permite DLPA em vez da DMPL"* | **Não existe.** O item 106 define o **conteúdo da DMPL**; a norma inteira não menciona DLPA (busca textual = 0 ocorrências). |
+| *"A Lei 11.941/2009 substituiu a DLPA pela DMPL nas companhias abertas"* | **Não existe.** A lei não menciona DMPL; o seu **art. 42 é VETADO**. Não usar como fundamento. |
+
+**A base real da DLPA é a Lei das S.A.:** art. 176, II (demonstração obrigatória,
+inciso não revogado) e **art. 186, I–III e §§1º/2º** (linhas e relação com a DMPL:
+*"poderá ser incluída na demonstração das mutações do patrimônio líquido"*).
+
+### Constantes confirmadas
+
+| Regra | Valor | Dispositivo |
+| --- | --- | --- |
+| Reserva legal — alíquota | **5% do lucro líquido do exercício** | LSA art. 193, caput (redação original, sem alteração) |
+| Reserva legal — teto | **20% do capital social** | LSA art. 193, caput |
+| Reserva legal — ordem | **antes de qualquer outra destinação** | LSA art. 193, caput |
+| Reserva legal — dispensa | constituição facultativa quando (RL + reservas de capital do art. 182, §1º) > **30% do capital social** | LSA art. 193, §1º |
+| Reserva legal — usos | **somente compensar prejuízos ou aumentar o capital** | LSA art. 193, §2º |
+| Reservas de capital no teste dos 30% | só art. 182, §1º, **a)** e **b)** + §2º — as alíneas **c)** e **d)** foram revogadas pela Lei 11.638/2007 | LSA art. 182 |
+| Destino do excedente de lucro | distribuído como dividendos | LSA art. 202, §6º (Lei 10.303/2001) |
+| **Linhas da DLPA** | I — saldo inicial + ajustes de exercícios anteriores + correção monetária do saldo inicial; II — reversões de reservas + lucro líquido; III — transferências para reservas + dividendos + lucros incorporados ao capital + saldo final; §2º — **dividendo por ação** | LSA art. 186, I–III e §2º |
+| Ajuste de exercício anterior | apenas mudança de critério contábil ou retificação de erro imputável a exercício anterior | LSA art. 186, §1º |
+| Destinação de lucros na demonstração | conforme proposta dos órgãos de administração | LSA art. 176, §3º |
+| **Colunas da DMPL** | capital social; reservas de capital; ajustes de avaliação patrimonial; reservas de lucros; ações/quotas em tesouraria; prejuízos acumulados; lucros acumulados (se admitidos); demais contas do CFC | NBC TG 26 (R5), item 106B |
+| Linhas/eventos da DMPL (mínimo) | resultado abrangente (proprietários × NCP); ajustes retrospectivos (NBC TG 23); conciliação inicial→final com (i) resultado líquido, (ii) cada item de ORA, (iii) transações com proprietários | NBC TG 26 (R5), item 106(a)–(d) |
+| Dividendos na DMPL | valor reconhecido como distribuição no período + valor por ação (DMPL ou notas) | NBC TG 26 (R5), item 107 |
+| Ordem de linhas/colunas | **não é fixada pela norma** — conteúdo mínimo + julgamento | NBC TG 26 (R5), itens 106(d), 108, 15–24, 29–31 |
+| Bloco de identificação | (a) entidade + alterações; (b) individual ou grupo; (c) data-base/período; (d) moeda (NBC TG 02); (e) nível de arredondamento | NBC TG 26 (R5), item 51(a)–(e) |
+| Repetição da identificação | **normalmente** por cabeçalhos em cada página; julgamento; mídia eletrônica flexibiliza (não é regra absoluta) | NBC TG 26 (R5), item 52 |
+| Arredondamento | milhares/milhões aceitáveis se divulgado e sem omissão material | NBC TG 26 (R5), item 53 |
+| Circulante × não circulante | faixa vigente **60 a 76B** (não "60–76") | NBC TG 26 (R5), itens 60, 61, 66, 69 |
+| DFC dispensada | companhia fechada com PL < **R$ 2.000.000,00** na data do balanço | LSA art. 176, §6º (Lei 11.638/2007) |
+| DVA obrigatória | companhia aberta | LSA art. 176, V (Lei 11.638/2007) |
+| Sociedade de menor porte | companhia fechada com receita bruta anual ≤ **R$ 78.000.000,00** — só simplificações de convocação/publicação/livros, **não** altera o conjunto de demonstrações | LSA art. 294 (red. LC 182/2021) |
+
+⚠️ **Não implementar** a linha "correção monetária do saldo inicial" (art. 186, I):
+é texto de 1976, sem efeito prático desde o Plano Real — não criar índice.
+
+### Pendências desta confirmação
+
+- **Leiaute CVM para companhias abertas** — NÃO ENCONTRADO na Resolução CVM
+  80/2022 (texto consolidado, consultado 28/09/2026). Localizar a norma de
+  informações periódicas/Formulário de Referência antes de codificar leiaute
+  de companhia aberta.
+- **NBC TG 51** — mapear os itens 107–109 (DMPL) e o item 27(a)–(e) (identificação)
+  para o módulo de 2027, e tratar as duas normas por data de exercício.
+- **BL-340** — NIRE e nível de arredondamento não existem no cadastro, mas o
+  item 51 os exige no documento.
