@@ -435,6 +435,21 @@ inciso não revogado) e **art. 186, I–III e §§1º/2º** (linhas e relação 
 ⚠️ **Não implementar** a linha "correção monetária do saldo inicial" (art. 186, I):
 é texto de 1976, sem efeito prático desde o Plano Real — não criar índice.
 
+**Nota de decisão (Fred, 29/09/2026) — o texto acima NÃO muda; o produto é que
+se afasta dele, e a diferença fica registrada aqui:** o art. 186, I ainda
+**cita** a rubrica, e a linha da tabela de constantes acima é a transcrição
+fiel disso. O que o produto faz é **não emiti-la**, porque a **Lei 9.249/95,
+art. 4º, p.ú., vedou o sistema de correção monetária da moeda** — desde
+então a rubrica é letra morta em qualquer exercício posterior, e uma linha
+que não pode receber movimento só ocuparia espaço no documento entregue ao
+cliente. O membro saiu **inteiro** do enum `ClassificacaoDlpa` (não
+deprecado: a migração 0012 ainda não entrou na `main`, então não há valor
+gravado em ambiente compartilhado), a linha sai da apuração e do texto
+emitido, e nenhum índice é criado. Reverter é repor membro, rótulo e
+renderer. ⚠️ A Lei 9.249/95 **não foi reconferida na fonte oficial em
+29/09/2026** (sem acesso à rede na máquina) — fica pendente de leitura no
+Planalto antes de a DMPL (CTB-14) tratar de moeda estrangeira.
+
 ### Pendências desta confirmação
 
 - **Leiaute CVM para companhias abertas** — NÃO ENCONTRADO na Resolução CVM

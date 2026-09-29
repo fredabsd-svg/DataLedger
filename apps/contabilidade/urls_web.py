@@ -7,9 +7,14 @@ from apps.contabilidade.views_web import (
     competencia_fechar,
     competencia_reabrir,
     conferencia,
+    # DL-048/CTB-12: tela irmã de `conta_classificacao_dre` — classificar
+    # (ou reclassificar, ou remover) a Linha da DLPA de uma conta existente.
+    conta_classificacao_dlpa,
     conta_classificacao_dre,
     conta_nova,
     diario,
+    # DL-048/CTB-13: a própria demonstração.
+    dlpa,
     dre,
     fechamento,
     lancamento_detalhe,
@@ -83,6 +88,19 @@ urlpatterns = [
     # NUNCA no caminho da URL, porque a navegação "‹ anterior/seguinte ›"
     # muda a competência sem trocar de rota.
     path("empresas/<int:empresa_id>/dre/", dre, name="dre"),
+    # DL-048/CTB-13: mesmo padrão curto de "dre"/"balanco" — o nome completo
+    # ("Demonstração dos Lucros ou Prejuízos Acumulados") fica no
+    # <h1>/<title>. 'ano'/'mes' viajam por querystring (GET), mesma
+    # gramática da DRE — nunca no caminho da URL.
+    path("empresas/<int:empresa_id>/dlpa/", dlpa, name="dlpa"),
+    # DL-048/CTB-12: classificar a Linha da DLPA de uma conta existente —
+    # mesmo prefixo e mesmo padrão de caminho curto da tela irmã
+    # (`classificacao-dre/`, acima).
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dlpa/",
+        conta_classificacao_dlpa,
+        name="conta_classificacao_dlpa",
+    ),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/
     # Balanço/Conferência) em cartões — SEGUNDO caminho para as mesmas

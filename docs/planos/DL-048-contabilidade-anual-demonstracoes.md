@@ -1,6 +1,6 @@
 # DL-048 — Contabilidade anual: estrutura de demonstração ligada à conta (CTB-12 a CTB-17)
 
-**Estado:** planejada
+**Estado:** em desenvolvimento
 **Nível de risco:** 1 — são demonstrações contábeis entregues ao cliente (dinheiro, livro e documento).
 **Origem:** ordem direta do Fred em 2026-09-28, escolhendo a **opção A** do mapa de
 paridade ([DL-047](DL-047-mapa-de-paridade-funcional.md)) — fechar a Contabilidade anual
@@ -157,3 +157,153 @@ da onda.
 A fonte normativa da DLPA e da DMPL precisa ser confirmada e registrada em
 `requisitos.md` **antes** do primeiro commit funcional. É a primeira tarefa desta
 etapa.
+
+✅ **Cumprida em 28/09/2026** — ver "Fontes normativas das demonstrações
+contábeis — DL-048" em [requisitos.md](../projeto/requisitos.md), com a
+descoberta de que a base da DLPA é a Lei 6.404/76 (art. 176, II e art. 186),
+não a NBC TG 26 item 106 nem a Lei 11.941/2009.
+
+## Fatia CTB-12 + CTB-13 (DLPA) — codada e testada em 2026-09-28
+
+Branch `feat/dl-048-dlpa`. **Nível 1:** o que falta para a etapa fechar, nesta
+ordem: (a) **auditoria independente** (obrigatória — **em curso** desde
+29/09/2026); (b) correção da auditoria e reconferência; (c) **entrega do
+conteúdo na `main`** e merge.
+
+⚠️ **O PR #58 foi MESCLADO e o conteúdo NÃO está na `main`** (medido em
+29/09/2026). O #57 (plano) foi mesclado na `main` às 11:17:33 e o #58 foi
+mesclado na base `docs/dl-048-plano` às 11:17:52, 19 segundos depois — o
+caso que o `AGENTS.md` §6 descreve: *encadeado não se mescla na branch
+intermediária depois de a dependência já ter entrado*. O GitHub diz
+"MERGED"; a `main` não tem nenhum dos 3 commits da fatia. A CI do #58 ficou
+VERDE nos 4 jobs (commit `7e78c8f`) **contra a branch do plano**, o que
+confirma o defeito: ela mediu o código, não o destino. A CI é verde **e o
+produto não mudou na `main`** — é o exemplo mais limpo de por que "CI verde"
+e "entregue" não são a mesma coisa. Enquanto (a)–(c) não acontecem, a
+etapa **NÃO** é "integrada".
+
+### Entrega na `main` (29/09/2026)
+
+- `origin/main` tem **1 commit** a mais que a branch (o merge do #57); a
+  branch da fatia tem **3 commits** fora da `main`.
+- O merge `main ← feat/dl-048-dlpa` é **limpo** (`git merge-tree`, sem
+  conflito) e o diff são exatamente as **19 arquivos** da fatia — nenhum
+  arquivo alheio entra com ele.
+- Regressão **medida por comparação nominal** contra um *worktree* limpo de
+  `origin/main`, mesmo comando e mesmo recorte: `apps/contabilidade` dá
+  **54 failed nos dois, os mesmos 54**, com **+41 passed**; `apps/core` dá
+  **13 failed nos dois, os mesmos 13**, com **+1 passed**. A fatia não
+  introduz nenhuma falha. `ruff check`, `ruff format --check` (313
+  arquivos), `manage.py check` e `makemigrations --check` limpos.
+- ⚠️ **A fonte normativa não foi reconferida em 29/09**: sem rede nesta
+  máquina, a conformidade com o art. 186 **não foi revalidada**. A
+  confirmação de 28/09/2026 em [requisitos.md](../projeto/requisitos.md)
+  segue de pé por ser de sessão anterior, não por ter sido checada agora.
+- ✅ **Resolvido em 29/09/2026 (decisão do Fred): a rubrica "Correção
+  monetária do saldo inicial" (art. 186, I) foi REMOVIDA** do enum, da
+  apuração e do texto emitido. Fundamento: a Lei 9.249/95, art. 4º, p.ú.,
+  vedou o sistema de correção monetária da moeda — em exercício de 2026 a
+  linha é letra morta, e linha que não recebe movimento só ocupa espaço no
+  documento do cliente. O membro saiu inteiro (a migração 0012 nunca entrou
+  na `main`, então não há valor gravado em ambiente compartilhado) e a
+  guarda `contas_com_classificacao_dlpa_desconhecida` garante que um valor
+  órfão **vete a emissão** em vez de sumir em silêncio. A nota está em
+  [requisitos.md](../projeto/requisitos.md), sem corrigir o sentido do texto
+  normativo. **Dois testes novos** cobrem o contrato: a rubrica ausente do
+  enum, das linhas e do texto, com a identidade fechando **sem** a chave; e
+  o valor órfão vetando a emissão.
+
+### Decisões de implementação (registradas para revisão; todas reversíveis)
+
+| # | Decisão | Por quê |
+| --- | --- | --- |
+| D1 | **Conta sujeito = `classificacao_dlpa = "lucros_ou_prejuizos_acumulados"`; podem ser VÁRIAS contas** (o caso "Lucros Acumulados" + "(-) Prejuízos Acumulados" em plano separado). | CTB-12 manda campo fixo na conta (molde `classificacao_patrimonial`/`classificacao_dre`), não parâmetro do zeramento: a demonstração não depende de quem configurou o zeramento, e as duas contas somam pelo mesmo lado (D2). |
+| D2 | **Efeito de um item sobre o resultado acumulado = crédito − débito, independente da natureza cadastrada.** | É idêntico para a credora (cr − db) e para a retificadora devedora (o −(db − cr) do PL é cr − db): as duas formas da conta existir convergem sem regra de translação. |
+| D3 | **A linha vem da `classificacao_dlpa` da CONTRAPARTIDA do lançamento** — sem classificação, a apuração declara pendência e a emissão é recusada. | "Nenhuma conta classificada por inferência" (CTB-12): a contrapartida é quem diz que evento moveu os lucros (zeramento, reserva, dividendo…); o produto não adivinha. |
+| D4 | **A DIREÇÃO do movimento decide reversão (art. 186, II) × transferência (art. 186, III)** para a MESMA conta de reserva. | O cadastro só diz "é reserva"; reduzir lucros é destinação, aumentar é reversão. Guarda derivada de uma propriedade do movimento, não de lista (AGENTS.md §8). |
+| D5 | **Sem herança: a classificação vale para a conta EXATA que participa do lançamento** (diferente da DRE). | Subconta sem classificação vira pendência nomeada, com link para classificar — nunca valor presumido do ancestral. Se a herança for pedida, ela SUBSTITUI esta regra (AGENTS.md §8). |
+| D6 | **Período = EXERCÍCIO (01/01, ano civil, HI-28) até a competência pedida**; saldo inicial em 31/12 do ano anterior; navegação por mês, mesma gramática da DRE. | A DLPA é demonstração do exercício; o seletor de mês controla "até quando", nunca um período livre. |
+| D7 | **A compensação de lucros/prejuízos (PE-38/HI-26, ainda com o Fred) não é presumida.** Lançamento entre as DUAS contas sujeito tem efeito líquido ZERO e some da demonstração. | A leitura é neutra ao mecanismo que o escritório venha a usar: não inventa transferência que não foi lançada, nem esconde a que foi. |
+| D8 | **Tela primeiro, API depois.** Nesta fatia: `dlpa` e `conta_classificacao_dlpa` (2 rotas web); `DlpaView` (GET) + `ContaClassificacaoDlpaView` (PATCH) + `ContaSerializer.classificacao_dlpa` são a fatia seguinte. | Mantém o escopo da fatia revisável; as contagens de rota de `test_dl038_recusa_livro_caixa.py` já registram 21 web / 15 API com o histórico. |
+| D9 | **Conciliação DLPA ↔ Balanço por caminho independente**: a apuração soma `ItemLancamento` por conta exata; a conferência usa o `saldo` do motor do Balancete (`apurar_saldos`) em `data_fim`, credora `+`/devedora `−`. | É a comparação entre dois caminhos que prova o número (critério de aceite). ⚠️ **Reescrita em 29/09/2026** (achado 9 da auditoria): a versão original dizia "conta sujeito deve ser FOLHA" como se fosseimposta, e não é — `Conta.clean()` aceita classificar uma conta que já tem filha, e **a estrutura que o próprio `zerar_resultado` cria tem sujeito com subconta** (a conta "3" dos lucros acumulados com a "3.1" do resultado abaixo). Prometer a restrição num texto que o produto não aplica é pior que não prometer. O que o produto **faz** é detectar a consequência: subconta que se move faz a conta exata divergir da consolidada, a `diferenca_de_fechamento` acende e **veta a emissão** — coberto por teste. Subconta parada não diverge e emite com o número certo. |
+
+### Critérios cobertos e evidência (2026-09-28)
+
+Testes novos: `apps/contabilidade/tests/test_dl048_dlpa.py` — **39 testes**:
+caso de referência do plano (13.750,00), identidade
+`saldo inicial + Σ linhas = saldo final`, conciliação com o Balanço, ordem dos
+incisos do art. 186, rastreabilidade (cada linha com seus lançamentos),
+estorno, compensação neutra, isolamento, as três pendências (sem conta sujeito;
+movimento sem classificação; classificação fora do enum) e o aviso de
+resultado não zerado, cadeia `zerar_resultado` → linha da DLPA, permissão 403,
+isolamento 404, veto com link só para quem escritura, identificação do item 51
+na página emitida, hub/menu/plano de contas e as duas telas de classificação
+com trilha.
+
+Guardas existentes re-executadas nesta sessão: `test_dl019_varredura_de_
+restricoes` (constraint `ck_conta_classificacao_dlpa_nao_vazia` registrada),
+`test_dl038_recusa_livro_caixa` (21/15), `test_documentacao_do_estado`,
+`test_dl024_atalhos_e_acessibilidade` (cobertura das duas rotas novas).
+`ruff check`, `ruff format --check`, `manage.py check` e
+`makemigrations --check` aprovados.
+
+⚠️ **Não executado nesta sessão:** a medição no navegador real
+(`scripts/medir_identificacao_do_emitente.py` — a DLPA entrou no piso de
+classe 2 e o cenário de medição semeia a conta sujeito) e o
+`validate-docs.ps1`; os dois rodam na CI.
+
+### Limitações declaradas da fatia
+
+- API sem a DLPA (D8) — paridade é a próxima fatia.
+- Sem herança de classificação (D5); conta sujeito deve ser folha (D9).
+- A rubrica "Correção monetária do saldo inicial" (art. 186, I) **não é
+  emitida** — decisão do Fred em 29/09/2026, com a Lei 9.249/95, art. 4º,
+  p.ú., como fundamento (moeda vedada; letra morta em exercício posterior).
+- Rótulo do enum "Reserva de contingências" (RC-137 escreve "Para
+  Contingências") — mesma reserva; a frase invertida não cabe no título
+  "Transferência para reserva …" sem soar errado.
+- Dividendos só aparecem na DLPA quando o lançamento movimenta a conta
+  sujeito; escrituração que distribui sem tocar os lucros acumulados não gera
+  a linha (o saldo continua conciliado — a apuração cobre todo o movimento da
+  conta sujeito).
+
+### Limitações que a auditoria de 29/09/2026 deixou em aberto
+
+A [rodada 1 da auditoria](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md)
+reprovou. Os achados de **alta** foram corrigidos (o gate da conciliação com o
+Balanço ganhou quatro testes; o diagnóstico de classificação órfã na conta
+sujeito foi corrigido; os dois testes fracos foram reescritos) e **o restante
+também**, por ordem do Fred em 29/09/2026: o veto da conciliação passou a
+nomear as contas, a tela discrimina a origem de cada linha (achado 5), o
+formulário de conta nova ganhou cobertura (achado 16) e a decisão D9 foi
+reescrita para dizer o que o produto faz em vez do que ele não impõe
+(achado 9). Ficam declarados, e não escondidos:
+
+- **Achado 8 — o snapshot `REPEATABLE READ` não tem teste.** O comando só é
+  emitido fora de transação aberta, e `pytest.mark.django_db` abre uma: a
+  proteção existe no código e **nenhum teste** a exercita. O modelo a portar é
+  `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` (DL-045) — que
+  exige PostgreSQL e por isso não pôde ser escrito e executado nesta máquina.
+- **Achado 11 — o §2º (dividendo por ação) não existe no enum.** Ele consta
+  como exigido em [requisitos.md](../projeto/requisitos.md) e não está nem na
+  apuração nem no documento. Declarado, não implementado às cegas: a rubrica
+  pede valor por ação e a DLPA **não tem dado de ações** — a base de cálculo é
+  do DMPL (CTB-14). ⚠️ O auditor **também não pôde** confirmar o §2º em fonte
+  oficial (sem rede).
+- **Achado 13 — `data_inicio_exercicio` vai ao contexto e não é usado.** O
+  template repete `01/01/{{ ano }}` em três lugares. Inofensivo enquanto o
+  exercício é o ano civil (D6); vira divergência silenciosa no documento se
+  HI-28 mudar.
+- **Achado 15 — um ajuste de exercício anterior lançado em 31/12 cai no saldo
+  inicial** e a linha sai zerada; o mesmo ajuste em 02/01 aparece na linha. O
+  filtro é só por data, e o produto não controla nem sinaliza a data digitada.
+- **Achado 12 — o rollback da 0012 perde as classificações** gravadas (o
+  `RemoveField` não as preserva). A trilha registra cada mudança, mas só a
+  partir de quando existe.
+- **Achado 14 — `mes` fora da faixa 1–12** levanta exceção crua
+  (`IllegalMonthError`/`TypeError`) em vez de erro de domínio. Hoje nenhum
+  caminho erre (a view valida), e a correção pertence à fatia de API (D8).
+- **Conformidade normativa: NÃO CONCLUÍDA.** Nem a auditoria nem a
+  implementação puderam ler Planalto/CFC nesta máquina: **nenhuma** linha do
+  art. 186, nem a Lei 6.404/76, nem a Lei 9.249/95 foi reconferida em fonte
+  oficial. A verificação normativa é do Fred, com o texto na mão.

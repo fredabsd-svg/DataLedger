@@ -27,20 +27,55 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; at
 | --- | --- |
 | Plataforma | Escritórios isolados entre si, usuários, papéis, entrada pública, cadastro de novo escritório, primeiro acesso e convite |
 | Cadastro | Empresas e estabelecimentos, CNPJ alfanumérico, histórico de regime tributário, NIRE |
-| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187, propriedade de apresentação — pode mudar com movimento, DE-086)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043); **apuração e tela da DRE** (mês e acumulado do exercício), servidor e formulário de classificação (DL-045 fatias 1 a 3) |
+| Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187, propriedade de apresentação — pode mudar com movimento, DE-086)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043); **apuração e tela da DRE** (mês e acumulado do exercício), servidor e formulário de classificação (DL-045 fatias 1 a 3); **DLPA — Demonstração dos Lucros ou Prejuízos Acumulados** (art. 186): classificação ligada à conta, apuração pelo movimento com conciliação ao Balanço, veto que nomeia o que falta e telas de emissão/classificação (DL-048, fatia CTB-12 + CTB-13) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26); escrituração fiscal e apuração; livro-caixa e carnê-leão; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DLPA (**DMPL, DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
-**Verificação local em 25/09/2026** (PostgreSQL 16, Python 3.13.12, commit do
-merge do PR #46): `ruff check`, `ruff format --check`, `manage.py check`,
-`migrate` em banco vazio e `gerar_agentes.py --verificar` aprovados;
-`pytest`: **2191 passed, 1 failed, 45 skipped**. A falha é de ambiente:
-`test_versao_minima_python.py::test_o_proprio_mecanismo_recusa_sintaxe_exclusiva_de_versao_posterior`
-exige Python 3.14, que é o da CI, e a máquina tinha 3.13. `validate-docs.ps1`
-**não executado** localmente (sem `pwsh`); roda na CI.
+**Verificação local em 29/09/2026** (Windows, Python 3.14.7, SQLite, branch
+`feat/dl-048-dlpa`; o pytest desta máquina precisa do contorno de ambiente
+`PYTEST_PLUGINS=dsh_tmp_fix` com `PYTHONPATH` apontando para
+`Harness/.dsh-tmp/` e `TMPDIR` fora do repositório — sem isso o pytest morre
+com `PermissionError` no `tmp_path_factory`, defeito do sandbox deste Windows,
+não do projeto):
+
+- `ruff check` **limpo**; `ruff format --check` **313 arquivos** já
+  formatados; `manage.py check` **sem problema**; `makemigrations --check`
+  **sem mudanças**.
+- **A fatia não introduz NENHUMA falha de regressão** — medido por
+  comparação nominal da lista de testes que falham em `apps/contabilidade`,
+  na branch da fatia e num *worktree* limpo de `origin/main`, com o mesmo
+  comando e o mesmo recorte: **54 failed nos dois, e os 54 são os MESMOS
+  testes** (`Compare-Object` sem diferença), com **1269 → 1310 passed**
+  (**+41** = os 39 da DLPA + 2 casos parametrizados de acessibilidade das
+  duas rotas novas). `apps/core` idem: **13 failed nos dois, os mesmos 13**,
+  **685 → 686 passed** (+1, a varredura de restrições com a constraint nova).
+  As 67 falhas são **pré-existentes e alheias à DL-048**.
+- Deselecionados por travarem neste Windows/SQLite (a CI em Linux +
+  PostgreSQL é quem roda a classe): `test_bl144_codigo_conta_duplicado` e
+  tudo casando com `concorrent`/`thread`.
+- **Não executado localmente:** a medição no navegador real
+  (`scripts/medir_identificacao_do_emitente.py`), o `validate-docs.ps1`
+  (exige PowerShell 7; só 5.1 instalada) e `gerar_agentes --verificar`
+  (reprova só pelas permissões 0o666 do Windows, BL-175, pré-existente).
+  Os três rodam oficiais na CI.
+- **Não reconferido nesta sessão:** a fonte normativa. Não houve acesso à
+  rede (`planalto.gov.br` e a busca web falharam), então a conformidade com
+  o art. 186 **não foi revalidada por mim** — a confirmação de 28/09/2026
+  continua registrada em
+  [requisitos.md](../projeto/requisitos.md) e segue de pé por ser de sessão
+  anterior, não por ter sido reconferida agora.
+- ✅ **Resolvido em 29/09/2026 (decisão do Fred):** a rubrica "Correção
+  monetária do saldo inicial" (art. 186, I) foi **removida** do enum, da
+  apuração e do texto emitido — a Lei 9.249/95, art. 4º, p.ú., vedou a
+  correção monetária da moeda e a linha é letra morta em exercício de 2026.
+  Membro removido inteiro (a migração 0012 nunca entrou na `main`), dois
+  testes novos de contrato, nota registrada em
+  [requisitos.md](../projeto/requisitos.md) sem corrigir o sentido do texto
+  normativo. A Lei 9.249/95 **não foi reconferida na fonte oficial** (sem
+  rede nesta máquina) — pendente de leitura no Planalto.
 
 ## Todas as etapas
 
@@ -95,9 +130,9 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-041](../planos/DL-041-unicidade-por-escritorio.md) | Unicidade de CNPJ e CPF por escritório (RC-115) | Integrada (PR #48) |
 | [DL-044](../planos/DL-044-telas-de-trabalho.md) | Telas de trabalho com aspecto de produto profissional (RC-116, RC-117) | Integrada (PR #50 e #51) |
 | [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
-| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | Fatias 1 e 2 integradas (PR #53 e #54); fatia 3 em **[Próximo passo](#próximo-passo)** |
+| [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | **Integrada (PR #53, #54 e #56)** — fatias 1, 2 e 3; a auditoria da fatia 3 não consta em `docs/auditorias/` |
 | [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | Planejada — fontes normativas confirmadas e respostas do Fred registradas (RC-137 a RC-140) |
+| [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | Em desenvolvimento |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -106,50 +141,70 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-27 encerrada. Onde parei, para quem assumir:**
+**AGORA — sessão de 2026-09-29. DL-048: auditoria executada e **REPROVADA**,
+achados de alta corrigidos, PR #59 aberto e verde na `main`; falta o merge:**
 
-1. **DL-047 — plano de paridade por módulo: concluída e integrada pelo PR
-   #55** (só documentação). Seis planos item por item em
-   [docs/projeto/paridade/](../projeto/paridade/README.md): Contabilidade
-   (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26) e
-   Lalur (26). **Próxima decisão é do Fred:** por qual módulo começar. A
-   recomendação no [plano](../planos/DL-047-mapa-de-paridade-funcional.md) é
-   **A — fechar a Contabilidade anual** (CTB-12 a CTB-17: estrutura de
-   demonstração ligada à conta, DLPA, DMPL, DFC; depois CTB-24 a CTB-31:
-   encerramento do exercício, termos, livro Diário, sócios e contador) e,
-   logo depois, **B — Fiscal alimentando a Contabilidade** (FIS-03 a FIS-22).
-   Cada plano de módulo termina com as perguntas ao Fred consolidadas.
-2. **DL-046 fatia 3 — arquivo para o Carnê-Leão Web: em fechamento nesta
-   sessão (2026-09-27).** O servidor (campos novos, `carne_leao_arquivos.py`,
-   API de pendências e download, 60 testes com os 6 arquivos-modelo
-   oficiais) já estava pronto na branch `claude/vigilant-bardeen-jo12l4`,
-   **acima** do merge do PR #55 e sem PR. **O que faltava foi feito agora:**
-   (a) o FIO da restrição
-   `empresa_codigo_ocupacao_so_para_cpf_com_formato_valido` até
-   `restricao_como_400` nas duas views de `Empresa` — estava só registrado,
-   e uma corrida residual vazava `IntegrityError` cru (500); com teste em
-   `apps/empresas/tests/test_dl046_fatia3_restricao_ocupacao_como_400.py`;
-   (b1) os campos que a tela não enviava — `codigo_ocupacao` no cliente e na
-   conta, e `valor_irrf`/`competencia_previdencia`/`multa_previdencia`/
-   `juros_previdencia` no lançamento. ⚠️ **Isto desbloqueou um defeito real:
-   o pagamento de previdência oficial (`P20.01.00001`) não podia ser lançado
-   pela tela**, porque exige a competência e o campo não existia no
-   formulário. (b2) a tela de pendências/conferência/download. Detalhe,
-   evidência executada e falhas pré-existentes mapeadas no
-   [plano](../planos/DL-046-livro-caixa-e-carne-leao.md). **Falta, nesta
-   ordem:** (c) auditoria independente e reconferência; (d) PR. A importação
-   real no Carnê-Leão Web (HI-41, HI-42, HI-43) só o escritório pode
-   conferir.
-3. **Manuais do sistema de referência:** o Fred escolheu guardá-los num
+1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
+   desenvolvimento; a fatia está CODE E TESTADA na branch
+   `feat/dl-048-dlpa`.** Entregue nesta sessão: campo `classificacao_dlpa`
+   na conta (molde CTB-12, migração 0012), `apurar_dlpa` /
+   `avaliar_emissao_da_dlpa` / `classificar_conta_na_dlpa`, as telas
+   `dlpa` e `conta_classificacao_dlpa`, ícone/menu/hub, a DLPA no piso de
+   classe 2 da medição de identificação e **39 testes novos**
+   (`apps/contabilidade/tests/test_dl048_dlpa.py`). Decisões D1–D9,
+   critérios cobertos e limitações declaradas no
+   [plano](../planos/DL-048-contabilidade-anual-demonstracoes.md);
+   fontes normativas em [requisitos.md](../projeto/requisitos.md)
+   (RC-137 a RC-140).
+
+   ⚠️ **O PR #58 foi MESCLADO e o conteúdo NÃO chegou à `main`** — o
+   defeito de encadeamento que o `AGENTS.md` §6 descreve, medido nesta
+   sessão. O #57 (plano) foi mesclado na `main` às 11:17:33 e o #58 foi
+   mesclado na branch intermediária `docs/dl-048-plano` às 11:17:52,
+   **19 segundos depois**, quando a base já não carregaria mais o
+   conteúdo para a `main`. O GitHub mostra "MERGED"; a `main` **não tem
+   nenhum dos 3 commits da fatia**. A frase que este arquivo fazia até
+   28/09 — *"depois o GitHub reaponta a base quando a branch do plano for
+   apagada"* — **é falsa** e foi removida: apagar a branch não entrega o
+   conteúdo, apenas o deixa inacessível. O conserto é um PR novo da
+   branch de trabalho direto para a `main`.
+
+   Estado verificado em 29/09/2026: o conserto é o **PR #59**, aberto da
+   branch de trabalho direto para a `main` (o merge `main ←
+   feat/dl-048-dlpa` foi conferido **limpo** com `git merge-tree`, sem
+   conflito). Nível 1 — **a auditoria independente foi EXECUTADA e
+   REPROVOU** ([rodada 1](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md),
+   16 achados: 2 de alta, 9 de média, 5 de baixa). Os achados de alta e de
+   média prioritária foram **corrigidos e reconferidos** nesta mesma
+   rodada — uma auditoria, uma correção, uma reconferência, como o
+   `AGENTS.md` §3.1 exige; o restante está **declarado como limitação** no
+   plano, não escondido. O PR #59 está **CLEAN** com os quatro jobs
+   verdes. ⚠️ **Falta o merge**, e a **conformidade normativa segue NÃO
+   CONCLUÍDA**: sem rede nesta máquina, nem a implementação nem a auditoria
+   leram Planalto/CFC, e **nenhuma** linha do art. 186 foi confirmada em
+   fonte oficial. Depois disso: fatia de paridade de API
+   (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
+   (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
+   Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a
+   leitura D7 é neutra a ela) e a validação do art. 193 antes de
+   implementar o cálculo da reserva legal.
+2. **DL-046 fatia 3 — INTEGRADA pelo PR #56 (28/09, 09:02).** O relato
+   anterior ("falta (c) auditoria e (d) PR") era o estado da branch antes
+   do merge: o PR existe e está mesclado; **a auditoria independente da
+   fatia 3 não consta em [`docs/auditorias/`](../auditorias/)** (lá só
+   estão rodada 1 e reconferência das fatias 1 e 2) — se o Fred exigir a
+   rodada, ela ainda não aconteceu. A importação real no Carnê-Leão Web
+   (HI-41, HI-42, HI-43) só o escritório pode conferir.
+3. **DL-047 — integrada pelo PR #55** (só documentação): seis planos de
+   paridade item por item em
+   [docs/projeto/paridade/](../projeto/paridade/README.md) — Contabilidade
+   (74), Fiscal (91), Folha e Ponto (80), Honorários (59), Patrimônio (26)
+   e Lalur (26). A opção A escolhida pelo Fred virou a DL-048, acima.
+4. **Manuais do sistema de referência:** o Fred escolheu guardá-los num
    **repositório privado separado**. Pendente: ele criar o repositório e
    informar o nome. Enquanto isso, nada deles entra aqui — este repositório
    é **público** (conferido na API em 2026-09-27); o Fred ainda vai decidir
    se o DataLedger continua público.
-
-- **DL-047:** inventário e planos por módulo, a pedido do Fred
-  (2026-09-27), com os manuais só como referência
-  ([plano](../planos/DL-047-mapa-de-paridade-funcional.md)). Integrada pelo
-  PR #55.
 
 - **DL-040, DL-041 e DL-042**: integradas à `main` pelo PR #48.
 - **DL-043** (parâmetros contábeis e zeramento): integrada à `main` pelo PR

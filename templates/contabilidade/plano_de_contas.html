@@ -74,6 +74,14 @@ mesma regra de servidor de antes, só reposicionada.
                         de resultado ainda não classificada).
                         {% endcomment %}
                         <th scope="col">Linha da DRE</th>
+                        {% comment %}
+                        DL-048/CTB-12: coluna irmã da de cima — a linha da
+                        DLPA cadastrada em cada conta (`Conta.
+                        classificacao_dlpa`): conta sujeito (lucros/
+                        prejuízos acumulados) e cada contrapartida
+                        classificada. "—" para conta sem linha.
+                        {% endcomment %}
+                        <th scope="col">Linha da DLPA</th>
                         <th scope="col">Situação</th>
                         {% if pode_escriturar %}<th scope="col">Ações</th>{% endif %}
                     </tr>
@@ -88,6 +96,7 @@ mesma regra de servidor de antes, só reposicionada.
                             <td>{{ linha.conta.get_natureza_display }}</td>
                             <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
                             <td>{{ linha.conta.get_classificacao_dre_display|default:"—" }}</td>
+                            <td>{{ linha.conta.get_classificacao_dlpa_display|default:"—" }}</td>
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
                             {% if pode_escriturar %}
                                 <td>
@@ -107,6 +116,23 @@ mesma regra de servidor de antes, só reposicionada.
                                             Linha da DRE
                                         </a>
                                     {% endif %}
+                                    {% comment %}
+                                    DL-048/CTB-12: o botão da DLPA não tem
+                                    condição de TIPO — diferente da DRE,
+                                    existe linha da DLPA para QUALQUER
+                                    tipo de conta (o ajuste de exercício
+                                    anterior aceita qualquer tipo, por
+                                    decisão registrada em
+                                    `TIPOS_ACEITOS_DA_CLASSIFICACAO_
+                                    DLPA`), então recusar o link por tipo
+                                    aqui excluiria o caso legítimo. Quem
+                                    escolhe uma linha incompatível recebe
+                                    a recusa do servidor no formulário.
+                                    {% endcomment %}
+                                    <a class="botao botao--secundario botao--pequeno"
+                                       href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta.id %}">
+                                        Linha da DLPA
+                                    </a>
                                 </td>
                             {% endif %}
                         </tr>

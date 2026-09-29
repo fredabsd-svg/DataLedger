@@ -531,7 +531,7 @@ conferência, D = demonstração, L = livro, R = arquivo regulatório.
 | Termos de abertura e encerramento; termo de transferência | L | 290-293 | Não existe |
 | Livros contábeis (emissão encadernável com termos) | L | 299-358 | Não existe |
 | Carta de responsabilidade da administração | D | 296-298 | Não existe |
-| DLPA | D | 604-611 | Não existe |
+| DLPA | D | 604-611 | Existe (DL-048, fatia CTB-13) |
 | DMPL | D | 616-622 | Não existe |
 | DFC (direto e indireto) e acompanhamento da DFC | D, C | 622-631, 666-667 | Não existe |
 | DRA (resultado abrangente) | D | 593-599 | Não existe |
@@ -566,7 +566,7 @@ conferência, D = demonstração, L = livro, R = arquivo regulatório.
 | Período de trabalho | 106-108 | Não existe (só o fechamento de competência) |
 | Fechamento de competência | 108 | Existe (DL-016, DL-031) |
 | Permissões por módulo, menu e empresa | 109-119 | Parcial (papéis por escritório) |
-| Plano de contas com vínculos (referencial, demonstrativos, carnê-leão) | 120-143 | Parcial: hierarquia, circulante, linha da DRE |
+| Plano de contas com vínculos (referencial, demonstrativos, carnê-leão) | 120-143 | Parcial: hierarquia, circulante, linha da DRE e da DLPA |
 | Históricos padronizados | 144 | Não existe |
 | Índices de correção e moeda | 145-148 | Não existe |
 | SCP | 153-160 | Não existe |
@@ -587,7 +587,7 @@ conferência, D = demonstração, L = livro, R = arquivo regulatório.
 | Alteração de lançamentos em massa | 730-732 | Não existe — ver "não copiar" acima |
 | Alteração da estrutura do plano de contas | 734-737 | Não existe (BL-541 cobre a tela de editar conta) |
 | Vínculo ao plano referencial | 765-769 | Não existe |
-| Vínculo às estruturas de demonstração | 769-771 | Só a linha da DRE (DL-045) |
+| Vínculo às estruturas de demonstração | 769-771 | Só as linhas da DRE (DL-045) e da DLPA (DL-048) |
 | Ajustes para ECF e demais arquivos | 737-765 | Não existe |
 | Zeramento | 92-95, 840-841 | Existe (DL-043) |
 | Exclusões e eliminação de período | 841-847 | Não existe — ver "não copiar" acima |
@@ -599,8 +599,8 @@ conferência, D = demonstração, L = livro, R = arquivo regulatório.
 | Base | Destrava |
 | --- | --- |
 | Camada de saldos (existe) | Análise vertical e horizontal, comparativo, índices, EBITDA |
-| Estrutura de demonstração ligada à conta (hoje só a DRE) | DLPA, DMPL, DFC, DRA, DVA, notas explicativas |
-| Encerramento do exercício (hoje só competência) | Termos, livros encadernáveis, DLPA |
+| Estrutura de demonstração ligada à conta (hoje DRE e DLPA) | DMPL, DFC, DRA, DVA, notas explicativas |
+| Encerramento do exercício (hoje só competência) | Termos, livros encadernáveis |
 | Centro de custo e departamento | Razão e relatórios por centro de custo, orçamento |
 | Participantes | Conciliação de clientes e fornecedores, integração fiscal |
 | Histórico padronizado | Lançamento padrão, integração fiscal e de folha |

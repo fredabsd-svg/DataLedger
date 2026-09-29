@@ -440,6 +440,160 @@ class ClassificacaoDre(models.TextChoices):
     PARTICIPACOES = "participacoes", "Participações"
 
 
+class ClassificacaoDlpa(models.TextChoices):
+    """Linha da Demonstração dos Lucros ou Prejuízos Acumulados (DLPA) —
+    DL-048, etapas CTB-12 e CTB-13 (RC-137, decisão 1 do Fred em
+    2026-09-28). Fonte: Lei 6.404/76, art. 176, II (a DLPA continua
+    obrigatória — inciso não revogado) e **art. 186, I–III e §§1º/2º**
+    (linhas e relação com a DMPL), lidos no Planalto e registrados em
+    `docs/projeto/requisitos.md` ("Fontes normativas das demonstrações
+    contábeis — DL-048, consultadas em 28/09/2026").
+
+    ⚠️ **A base NÃO é a NBC TG 26 item 106** — o plano de paridade
+    (DL-047) dizia isso e a fonte DESMENTIU: a norma inteira não menciona
+    DLPA (0 ocorrências; o item 106 descreve a DMPL). Também não é a Lei
+    11.941/2009 (o art. 42 da lei é vetado). Quem sustenta a DLPA é a
+    Lei das S.A. — ver a nota em `requisitos.md`.
+
+    Mesmo molde de `ClassificacaoPatrimonial`/`ClassificacaoDre` (CTB-12
+    é repetir o padrão): campo FIXO da conta, `null=True`, nunca inferido
+    de código ou nome — é o contador quem classifica; a apuração da DLPA
+    só DECLARA o que falta (`apurar_dlpa`, services.py) e a emissão é
+    recusada enquanto houver movimento sem classificação.
+
+    Dois PAPEIS convivem no mesmo campo, e é proposital:
+
+    - `LUCROS_OU_PREJUIZOS_ACUMULADOS` marca a conta SUBJETO da
+      demonstração (a conta cujo movimento a DLPA lê). Podem ser VÁRIAS
+      contas classificadas com este valor — o caso real de "Lucros
+      Acumulados" + "(-) Prejuízos Acumulados" em plano separado; a
+      apuração soma as duas pelo MESMO lado (crédito − débito), que é o
+      efeito de ambas sobre o resultado acumulado.
+    - Os demais valores marcam a CONTRAPARTIDA de um movimento da conta
+      sujeito: é ela que diz QUEM movimentou os lucros acumulados (o
+      zeramento, uma reserva, os dividendos…).
+
+    As seis reservas de LUCROS vêm de RC-137 (Fred, 2026-09-28): na
+    DLPA elas aparecem como LINHAS DE DESTINAÇÃO; na DMPL (CTB-14) como
+    colunas — o mesmo fato por dois lados, lido pela mesma apuração.
+    Reservas de CAPITAL (ágio, alienação de partes beneficiárias) ficam
+    de FORA de propósito: RC-137 confirma que não transitam pela DLPA
+    (não vêm do lucro líquido) — se uma delas movimentar os lucros
+    acumulados, o movimento cai em "sem classificação" e a emissão é
+    recusada, que é o comportamento honesto.
+
+    ⚠️ **Sem herança de ancestral** (decisão da implementação, registrada
+    no plano): diferente da DRE, a classificação da DLPA vale para a
+    conta EXATA que participa do lançamento — subconta de uma conta
+    classificada não herda. A apuração declara a pendência em vez de
+    presumir; classificar a subconta é a correção (uma tela própria
+    existe para isso). Se a herança um dia for pedida, ela SUBSTITUI esta
+    regra (AGENTS.md §8), nunca convive.
+    """
+
+    LUCROS_OU_PREJUIZOS_ACUMULADOS = (
+        "lucros_ou_prejuizos_acumulados",
+        "Lucros ou prejuízos acumulados (conta da DLPA)",
+    )
+    RESULTADO_DO_EXERCICIO = (
+        "resultado_do_exercicio",
+        "Resultado do exercício (lucro ou prejuízo transferido)",
+    )
+    RESERVA_LEGAL = "reserva_legal", "Reserva legal"
+    RESERVA_ESTATUTARIA = "reserva_estatutaria", "Reserva estatutária"
+    RESERVA_PARA_CONTINGENCIAS = (
+        "reserva_para_contingencias",
+        "Reserva para contingências",
+    )
+    RESERVA_DE_INCENTIVOS_FISCAIS = (
+        "reserva_de_incentivos_fiscais",
+        "Reserva de incentivos fiscais",
+    )
+    RESERVA_DE_RETENCAO_DE_LUCROS = (
+        "reserva_de_retencao_de_lucros",
+        "Reserva de retenção de lucros",
+    )
+    RESERVA_DE_LUCROS_A_REALIZAR = (
+        "reserva_de_lucros_a_realizar",
+        "Reserva de lucros a realizar",
+    )
+    DIVIDENDO = "dividendo", "Dividendos distribuídos"
+    LUCRO_INCORPORADO_AO_CAPITAL = (
+        "lucro_incorporado_ao_capital",
+        "Lucro incorporado ao capital",
+    )
+    AJUSTE_DE_EXERCICIO_ANTERIOR = (
+        "ajuste_de_exercicio_anterior",
+        "Ajuste de exercício anterior",
+    )
+
+    # ⚠️ **A rubrica "Correção monetária do saldo inicial" (art. 186, I) NÃO
+    # existe neste enum, por decisão do Fred em 29/09/2026.** A lei ainda
+    # cita a linha, mas a Lei 9.249/95, art. 4º, p.ú., vedou a correção
+    # monetária da moeda — em exercício de 2026 ela é letra morta, e uma
+    # rubrica que nunca pode receber movimento é linha que só ocupa espaço
+    # no documento entregue ao cliente. O membro sai do enum INTEIRO (não
+    # fica depreciado): a migração 0012 ainda não entrou na `main`, então
+    # não existe valor gravado em nenhum ambiente compartilhado — e, se
+    # algum dia houver, a guarda `contas_com_classificacao_dlpa_desconhecida`
+    # (services.py) trata o valor órfão como pendência que VETA a emissão,
+    # em vez de somar linha nenhuma. Reverter é repor membro, rótulo e
+    # renderer.
+
+
+# As SEIS reservas de LUCROS de RC-137 (Fred, 2026-09-28) — o subconjunto
+# do enum que a apuração da DLPA trata por DIREÇÃO: um movimento contra
+# uma conta assim, que REDUZ os lucros acumulados, é destinação (art. 186,
+# III — "transferências para reservas"); um que AUMENTA, é reversão (art.
+# 186, II — "reversões de reservas"). O subconjunto existe como conjunto
+# declarado porque "é reserva" não se deriva de `TipoConta` (as seis têm o
+# mesmo tipo das demais contas de PL) nem do rótulo (comparar string é o
+# antipadrão que DL-033 proíbe). Teste derivado confere: todo valor da
+# tupla pertence ao enum, e as seis entradas de
+# `TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA` exatamente batem com ela.
+RESERVAS_DE_LUCROS_DA_DLPA = (
+    ClassificacaoDlpa.RESERVA_LEGAL,
+    ClassificacaoDlpa.RESERVA_ESTATUTARIA,
+    ClassificacaoDlpa.RESERVA_PARA_CONTINGENCIAS,
+    ClassificacaoDlpa.RESERVA_DE_INCENTIVOS_FISCAIS,
+    ClassificacaoDlpa.RESERVA_DE_RETENCAO_DE_LUCROS,
+    ClassificacaoDlpa.RESERVA_DE_LUCROS_A_REALIZAR,
+)
+
+
+# Fonte ÚNICA (mesmo padrão de `TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE`, DE-056)
+# de quais `TipoConta` cada `ClassificacaoDlpa` aceita — usada pela guarda
+# de `Conta.clean()`, abaixo. Teste derivado exige que as chaves sejam
+# EXATAMENTE `ClassificacaoDlpa.values`.
+#
+# - Conta sujeito, resultado do exercício e reservas: Patrimônio Líquido —
+#   o mesmo grupo que `registrar_parametro_contabil` já exige das três
+#   contas de destino do zeramento (DL-043), regra independente aqui.
+# - Dividendos: aceita PASSIVO E PL ("Dividendos a pagar" é passivo;
+#   "Lucros a distribuir"/"Dividendos a distribuir" é PL) — os dois
+#   arranjos são usuais no plano de contas, e a guarda existe para
+#   impedir nonsense (uma conta de receita classificada como dividendo),
+#   não para escolher o arranjo do escritório.
+# - Ajuste de exercício anterior: QUALQUER tipo de propósito — a
+#   contrapartida de uma retificação de erro de exercício anterior (LSA
+#   art. 186, §1º; CPC 23) pode ser qualquer conta (uma baixa de ativo, um
+#   passivo, uma receita): a norma não restringe o lado de fora, e
+#   restringir aqui inventaria regra que a fonte não tem.
+TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA = {
+    ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESULTADO_DO_EXERCICIO: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_LEGAL: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_ESTATUTARIA: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_PARA_CONTINGENCIAS: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_DE_INCENTIVOS_FISCAIS: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_DE_RETENCAO_DE_LUCROS: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.RESERVA_DE_LUCROS_A_REALIZAR: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.DIVIDENDO: (TipoConta.PASSIVO, TipoConta.PATRIMONIO_LIQUIDO),
+    ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: (TipoConta.PATRIMONIO_LIQUIDO,),
+    ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: tuple(TipoConta.values),
+}
+
+
 # Fonte ÚNICA (mesmo padrão de `TIPO_DA_CLASSIFICACAO_PATRIMONIAL`, DE-056)
 # de quais `TipoConta` cada `ClassificacaoDre` aceita — usada pela guarda de
 # `Conta.clean()` abaixo, pelo serializer e pela apuração da DRE
@@ -563,6 +717,18 @@ class Conta(models.Model):
         null=True,
         blank=True,
     )
+    # DL-048/CTB-12–CTB-13: linha da DLPA (Lei 6.404/76, art. 186) — o
+    # TERCEIRO campo de classificação do mesmo padrão, mesmas razões dos
+    # dois acima (`null=True`/`blank=True`, nunca inferido; ver o docstring
+    # de `ClassificacaoDlpa` para os dois papéis do campo: conta sujeito e
+    # contrapartida).
+    classificacao_dlpa = models.CharField(
+        "classificação (DLPA)",
+        max_length=60,
+        choices=ClassificacaoDlpa.choices,
+        null=True,
+        blank=True,
+    )
     aceita_lancamento = models.BooleanField(
         "aceita lançamento",
         default=True,
@@ -596,6 +762,17 @@ class Conta(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(classificacao_dre=""),
                 name="ck_conta_classificacao_dre_nao_vazia",
+            ),
+            # DL-048/CTB-12: mesma defesa de BANCO (DE-008, camada 1) da
+            # DRE acima, desde o DIA UM do campo — `""` nunca é um estado
+            # válido, e sem esta constraint ele seria alcançável por quem
+            # grava por fora do serializer e do `clean()` (ORM direto,
+            # migração de dado), aparecendo como classificação DESCONHECIDA
+            # na apuração da DLPA em vez de "sem classificação". A guarda
+            # de `clean()` normaliza `""` → `None` no caminho validado.
+            models.CheckConstraint(
+                condition=~models.Q(classificacao_dlpa=""),
+                name="ck_conta_classificacao_dlpa_nao_vazia",
             ),
         ]
 
@@ -688,6 +865,13 @@ class Conta(models.Model):
         # nunca foi uma escolha de ninguém.
         if self.classificacao_dre == "":
             self.classificacao_dre = None
+        # DL-048/A4-da-DLPA: `""` → `None` na MESMA batida, pelo mesmo
+        # motivo do achado A4 da DL-045 — string vazia gravada por qualquer
+        # caminho que não o serializer apareceria como classificação
+        # DESCONHECIDA em `apurar_dlpa` (services.py), vetando a emissão por
+        # um valor que nunca foi escolha de ninguém.
+        if self.classificacao_dlpa == "":
+            self.classificacao_dlpa = None
 
         # Achado B4 da auditoria rodada 1 (DL-038, R5): a recusa de
         # contabilidade por partidas dobradas para empresa em modo
@@ -769,6 +953,26 @@ class Conta(models.Model):
                     f'A linha da DRE "{rotulo_classificacao_dre}" não é compatível com o '
                     f"tipo desta conta: só se aplica a contas de tipo "
                     f"{rotulos_tipos_aceitos_dre} (Lei 6.404/76, art. 187)."
+                )
+
+        # DL-048/CTB-12: linha da DLPA (Lei 6.404/76, art. 186) — MESMO
+        # padrão das duas guardas acima: `.get(...)` com `None` para valor
+        # gravado fora do enum não estourar `KeyError` (só alcançável por
+        # ORM/SQL direto, já que `choices` valida nos formulários). As duas
+        # exceções declaradas no mapa (dividendo; ajuste/correção, que
+        # aceitam qualquer tipo) têm sua razão escrita em
+        # `TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA`, nunca aqui.
+        if self.classificacao_dlpa:
+            tipos_aceitos_dlpa = TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA.get(self.classificacao_dlpa)
+            if tipos_aceitos_dlpa is not None and self.tipo not in tipos_aceitos_dlpa:
+                rotulo_classificacao_dlpa = ClassificacaoDlpa(self.classificacao_dlpa).label
+                rotulos_tipos_aceitos_dlpa = " ou ".join(
+                    TipoConta(tipo).label for tipo in tipos_aceitos_dlpa
+                )
+                raise ValidationError(
+                    f'A linha da DLPA "{rotulo_classificacao_dlpa}" não é compatível com o '
+                    f"tipo desta conta: só se aplica a contas de tipo "
+                    f"{rotulos_tipos_aceitos_dlpa} (Lei 6.404/76, art. 186)."
                 )
 
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):

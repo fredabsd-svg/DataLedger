@@ -213,6 +213,18 @@
             <path d="M4 18.5h16" />
             <path d="M6.5 18.5v-4M11 18.5v-8M15.5 18.5v-6M19.5 18.5v-10" />
         </symbol>
+        {% comment %}
+        DL-048/CTB-13: sétimo ícone do hub de relatórios — DLPA. Mesma
+        grade e traço dos seis acima; a FORMA lembra um saldo que se
+        MOVIMENTA (caixa do acumulado com a seta de entrada/saída do
+        período dentro), para não repetir a barra de resultado da DRE nem
+        as colunas Ativo/Passivo do balanço.
+        {% endcomment %}
+        <symbol id="icone-dlpa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 5.5h15v13h-15z" />
+            <path d="M8 12h7.5" />
+            <path d="M13 9.5 15.5 12 13 14.5" />
+        </symbol>
     </svg>
 
     {% if request.user.is_authenticated %}
@@ -611,6 +623,24 @@
                                                                     <span class="item-atual" aria-current="page">DRE</span>
                                                                 {% else %}
                                                                     <a href="{% url 'contabilidade_web:dre' empresa_atual.id %}">DRE</a>
+                                                                {% endif %}
+                                                            </li>
+                                                            <li>
+                                                                {% comment %}
+                                                                DL-048/CTB-13: sétimo item do grupo —
+                                                                mesma permissão de leitura e mesma
+                                                                recusa de livro-caixa que os seis
+                                                                acima. Sem accesskey dedicado, pelo
+                                                                MESMO motivo da DRE logo acima (letras
+                                                                livres esgotadas; "D" colide com o menu
+                                                                nativo do navegador — ver a nota grande
+                                                                sobre accesskey, mais acima neste
+                                                                arquivo).
+                                                                {% endcomment %}
+                                                                {% if pagina_atual == "dlpa" %}
+                                                                    <span class="item-atual" aria-current="page">DLPA</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'contabilidade_web:dlpa' empresa_atual.id %}">DLPA</a>
                                                                 {% endif %}
                                                             </li>
                                                         </ul>
