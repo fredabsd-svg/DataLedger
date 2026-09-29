@@ -861,17 +861,22 @@ dividendos: (10.000,00). Saldo final: 13.750,00.
 
 **Referência de rotina.** Manual, páginas 604-611.
 
-**Fonte normativa.** **A confirmar** — preliminar, não conferida nesta sessão:
-desde a Lei 11.941/2009, companhias abertas substituíram a DLPA pela DMPL
-(que a contém); sociedades de menor porte e companhias fechadas podem
-apresentar a DLPA isoladamente (indício: CPC 26/NBC TG 26, item 106,
-permite DLPA em vez de DMPL quando as únicas mudanças do PL forem lucro,
-distribuição e movimentação de reservas). **Confirmar em texto oficial
-vigente e com o Fred antes de implementar** (AGENTS.md §10) — em especial se
-a carteira do escritório precisa de DLPA isolada ou só de DMPL (que a
-supera).
+**Fonte normativa.** **Confirmada** em 28/09/2026 — ver
+["Fontes normativas das demonstrações contábeis"](../requisitos.md#fontes-normativas-das-demonstrações-contábeis--dl-048-consultadas-em-28092026).
+**A premissa que este bloco trazia antes estava ERRADA e foi desmentida pela
+fonte:** (a) *"o item 106 da NBC TG 26 permite DLPA em vez de DMPL"* — o item
+106 define o conteúdo da **DMPL** e a norma não menciona DLPA em lugar nenhum
+(busca textual = 0 ocorrências); (b) *"a Lei 11.941/2009 substituiu a DLPA pela
+DMPL em companhias abertas"* — a lei não menciona DMPL e o seu **art. 42 é
+VETADO**, não pode ser fundamento. A base real é a **Lei 6.404/76, art. 176,
+II** (obrigatoriedade, inciso não revogado) e o **art. 186, I–III**.
 
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** **Existe** — entregue pela
+[DL-048](../../planos/DL-048-contabilidade-anual-demonstracoes.md), fatia
+CTB-12 + CTB-13: campo `classificacao_dlpa` ligado à conta, apuração
+`apurar_dlpa`, conciliação com o Balanço e as telas `dlpa` e
+`conta_classificacao_dlpa`. Ver também
+[`mapa-funcional-contabil.md`](../mapa-funcional-contabil.md).
 
 **Depende de.** CTB-09 (Balanço, para o saldo de PL), CTB-10 (DRE, para o
 lucro do exercício), CTB-11 (zeramento, cuja etapa 2 já transfere o resultado

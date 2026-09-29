@@ -266,3 +266,54 @@ classe 2 e o cenário de medição semeia a conta sujeito) e o
   sujeito; escrituração que distribui sem tocar os lucros acumulados não gera
   a linha (o saldo continua conciliado — a apuração cobre todo o movimento da
   conta sujeito).
+
+### Limitações que a auditoria de 29/09/2026 deixou em aberto
+
+A [rodada 1 da auditoria](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md)
+reprovou. Os achados de **alta** foram corrigidos (o gate da conciliação com o
+Balanço ganhou quatro testes; o diagnóstico de classificação órfã na conta
+sujeito foi corrigido; os dois testes fracos foram reescritos). O que segue
+fica **declarado, não escondido** — nenhum destes é regra de número, são
+cobertura, tela e fonte:
+
+- **Achado 4 — o veto da conciliação não nomeia a conta.** Ele informa o valor
+  da diferença e a hipótese, mas não diz *qual* conta sujeito tem subconta
+  movimentada; e o negativo sai com `-` em vez dos parênteses que o próprio
+  documento usa (RC-90). As outras três pendências nomeiam e linkam.
+- **Achado 5 — a rastreabilidade morre na view.** `apurar_dlpa` devolve
+  `lancamentos` por linha e `_montar_linhas_da_dlpa` **não expõe** esse campo:
+  no documento entregue ao cliente, uma linha de ajuste aparece agregada, sem
+  o lançamento que a originou (o art. 186, §1º pede discriminação). O critério
+  "cada linha vem de lançamento identificável" vale **na apuração**, não no
+  impresso.
+- **Achado 8 — o snapshot `REPEATABLE READ` não tem teste.** O comando só é
+  emitido fora de transação aberta, e `pytest.mark.django_db` abre uma: a
+  proteção existe no código e **nenhum teste** a exercita. O modelo a portar é
+  `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` (DL-045).
+- **Achado 9 — "conta sujeito deve ser folha" (D9) não é imposta.** `Conta.
+  clean()` aceita classificar como sujeito uma conta que já tem filha. Com a
+  filha parada a emissão sai com o número certo; com a filha movimentada a
+  `diferenca_de_fechamento` veta — agora **com teste** (era o achado 2).
+- **Achado 11 — o §2º (dividendo por ação) não existe no enum.** Ele consta
+  como exigido em [requisitos.md](../projeto/requisitos.md) e não está nem na
+  apuração nem no documento. Declarado, não implementando às cegas: a rubrica
+  pede valor por ação e a DLPA **não tem dado de ações** — a base de cálculo é
+  do DMPL (CTB-14). ⚠️ O auditor **também não pôde** confirmar o §2º em fonte
+  oficial (sem rede).
+- **Achado 13 — `data_inicio_exercicio` vai ao contexto e não é usado.** O
+  template repete `01/01/{{ ano }}` em três lugares. Inofensivo enquanto o
+  exercício é o ano civil (D6); vira divergência silenciosa no documento se
+  HI-28 mudar.
+- **Achado 15 — um ajuste de exercício anterior lançado em 31/12 cai no saldo
+  inicial** e a linha sai zerada; o mesmo ajuste em 02/01 aparece na linha. O
+  filtro é só por data, e o produto não controla nem sinaliza a data digitada.
+- **Achado 16 — o campo `classificacao_dlpa` no `conta_nova` não tem teste.**
+  O caminho foi verificado por sonda do auditor (grava com `302` e recusa
+  linha incompatível sem gravar nada); é cobertura que falta, não defeito.
+- **Achado 12 — o rollback da 0012 perde as classificações** gravadas (o
+  `RemoveField` não as preserva). A trilha registra cada mudança, mas só a
+  partir de quando existe.
+- **Conformidade normativa: NÃO CONCLUÍDA.** Nem a auditoria nem a
+  implementação puderam ler Planalto/CFC nesta máquina: **nenhuma** linha do
+  art. 186, nem a Lei 6.404/76, nem a Lei 9.249/95 foi reconferida em fonte
+  oficial. A verificação normativa é do Fred, com o texto na mão.

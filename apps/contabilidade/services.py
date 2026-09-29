@@ -5471,6 +5471,27 @@ def apurar_dlpa(*, empresa, ano, mes):
             if conta.classificacao_dlpa == ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS
         ]
 
+        # Toda conta com classificação FORA do enum entra na pendência,
+        # INDEPENDENTE do papel que ela tenha (achado 3 da auditoria de
+        # 29/09/2026). Antes, um valor órfão só era visto quando a conta
+        # aparecia como CONTRAPARTIDA de algum lançamento; numa conta que
+        # o contador queria usar como sujeito, o valor ilegível a fazia
+        # sumir da lista e a apuração respondia "nenhuma conta está
+        # classificada" — mandando o contador ao plano de contas sem
+        # dizer que o valor gravado é lixo. Declarar o que não se
+        # interpreta é a regra do CTB-12; a falha já era fechada, o
+        # DIAGNÓSTICO é que apontava para a ação errada.
+        desconhecidas = {
+            conta.id: {
+                "conta": conta.codigo,
+                "nome": conta.nome,
+                "classificacao_dlpa": conta.classificacao_dlpa,
+            }
+            for conta in contas.values()
+            if conta.classificacao_dlpa is not None
+            and conta.classificacao_dlpa not in ClassificacaoDlpa.values
+        }
+
         pendencias = {
             "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada": (
                 [] if sujeito_ids else [{"mensagem": _MENSAGEM_SEM_CONTA_SUJEITO_DA_DLPA}]
@@ -5524,7 +5545,6 @@ def apurar_dlpa(*, empresa, ano, mes):
         valores = {}
         lancamentos_por_chave = {}
         sem_classificacao = {}
-        desconhecidas = {}
         movimento = zero
         sujeito_set = set(sujeito_ids)
 

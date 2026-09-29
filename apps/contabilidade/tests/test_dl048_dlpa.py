@@ -563,14 +563,49 @@ def test_cada_linha_carrega_os_lancamentos_que_a_geraram(cenario_dlpa):
     # Linha com UMA origem: a transferência do resultado, identificável.
     transferencia = por_chave[f"transferencia:{ClassificacaoDlpa.RESERVA_LEGAL}"]
     assert len(transferencia["lancamentos"]) == 1
-    # Linha com DUAS origens (constituição + reversão da reserva).
+    # As DUAS linhas da reserva vêm de lançamentos DIFERENTES.
     reversao = por_chave[f"reversao:{ClassificacaoDlpa.RESERVA_LEGAL}"]
     assert len(reversao["lancamentos"]) == 1
-    # As DUAS linhas da reserva vêm de lançamentos DIFERENTES.
     assert set(transferencia["lancamentos"]).isdisjoint(reversao["lancamentos"])
     # Linhas de saldo nunca têm origem em lançamento próprio.
     assert por_chave["saldo_inicial"]["lancamentos"] == []
     assert por_chave["saldo_final"]["lancamentos"] == []
+
+
+def test_linha_com_dois_lancamentos_guarda_os_dois_sem_duplicar(cenario_dlpa):
+    """Achado 6 da auditoria de 29/09/2026: o caminho de AGREGAÇÃO — uma
+    mesma linha alimentada por DOIS lançamentos — não era exercitado por
+    teste nenhum. O `setdefault(...).append(...)` seguido de
+    `dict.fromkeys(...)` é exatamente onde um erro passaria despercebido:
+    duplicar um id, ou perder um dos dois, e a rastreabilidade do art. 186
+    ("cada linha precisa vir de lançamento identificável") deixaria de
+    valer sem nada reprovar.
+
+    Aqui a MESMA reserva recebe uma SEGUNDA transferência no mesmo
+    exercício, e a linha tem de carregar os dois lançamentos distintos,
+    sem repetição, com o valor somado."""
+    empresa = cenario_dlpa["empresa"]
+    reserva = cenario_dlpa["reserva"]
+    # A linha da 1ª transferência já existe no cenário com 1.250,00.
+    _lancar(
+        empresa,
+        timezone.datetime(2026, 3, 18).date(),
+        "Segunda transferência para reserva legal",
+        cenario_dlpa["lucros"],
+        reserva,
+        "400.00",
+    )
+
+    dlpa = apurar_dlpa(empresa=cenario_dlpa["empresa"], ano=ANO, mes=MES)
+    linha = {item["chave"]: item for item in dlpa["linhas"]}[
+        f"transferencia:{ClassificacaoDlpa.RESERVA_LEGAL}"
+    ]
+    # DOIS lançamentos, distintos, e a lista sem repetição — os dois
+    # objetos de lançamento alimentam a MESMA linha.
+    assert len(linha["lancamentos"]) == 2
+    assert len(set(linha["lancamentos"])) == 2
+    # E o valor é a soma dos DOIS: −1.250,00 − 400,00 = −1.650,00.
+    assert linha["valor"] == Decimal("-1650.00")
 
 
 def test_saldo_inicial_cobre_somente_o_que_e_de_ano_anterior(cenario_dlpa):
@@ -589,8 +624,17 @@ def test_saldo_inicial_cobre_somente_o_que_e_de_ano_anterior(cenario_dlpa):
 def test_compensacao_entre_lucros_e_prejuizos_soma_zero_e_some(cenario_dlpa):
     """PE-38/HI-26 (com o Fred) — a leitura não pressupõe resposta: um
     lançamento entre as DUAS contas sujeito tem efeito líquido zero
-    (`crédito − débito` se cancela) e não aparece em nenhuma linha."""
+    (`crédito − débito` se cancela) e não aparece em nenhuma linha.
+
+    Achado 7 da auditoria de 29/09/2026: a versão anterior só afirmava que
+    NENHUMA linha valia exatamente 1.000,00. Isso passaria se a
+    compensação tivesse sido reatribuída a outra linha (o lucro iria a
+    26.000,00 e os dividendos a −11.000,00). Aqui a afirmação é o que o
+    nome do teste promete: o dicionário INTEIRO de linhas é idêntico
+    antes e depois do lançamento de compensação."""
     empresa = cenario_dlpa["empresa"]
+    antes = _linhas_por_chave(apurar_dlpa(empresa=empresa, ano=ANO, mes=MES))
+
     _lancar(
         empresa,
         timezone.datetime(2026, 3, 22).date(),
@@ -600,13 +644,165 @@ def test_compensacao_entre_lucros_e_prejuizos_soma_zero_e_some(cenario_dlpa):
         "1000.00",
     )
     dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=MES)
-    valores = _linhas_por_chave(dlpa)
+    depois = _linhas_por_chave(dlpa)
+
     assert dlpa["saldo_final"] == Decimal("14500.00"), "compensação não pode mover o saldo"
     assert dlpa["movimento"] == Decimal("13700.00")
-    for chave, valor in valores.items():
-        if chave.startswith(("reversao:", "transferencia:")):
-            continue
-        assert valor != Decimal("1000.00"), f"linha {chave} pegou a compensação"
+    # A igualdade INTEIRA é a guarda de verdade: nenhuma linha pode ter
+    # recebido os 1.000,00, para nenhuma das linhas.
+    assert depois == antes
+    # E, explicitamente, as linhas que uma reatribuição alteraria.
+    assert depois[ClassificacaoDlpa.RESULTADO_DO_EXERCICIO] == Decimal("25000.00")
+    assert depois[ClassificacaoDlpa.DIVIDENDO] == Decimal("-10000.00")
+
+
+def test_saldo_final_bate_com_o_balanco_e_a_conciliacao_nao_acende(cenario_dlpa):
+    """O critério de aceite da CTB-13 é este número: saldo final da DLPA ==
+    saldo da conta de lucros acumulados no Balanço da mesma data. No caso
+    íntegro os DOIS caminhos (a agregação própria da DLPA e o motor do
+    Balancete) concordam e a pendência fica apagada."""
+    dlpa = apurar_dlpa(empresa=cenario_dlpa["empresa"], ano=ANO, mes=MES)
+    assert dlpa["conciliacao"]["diferenca"] == Decimal("0.00")
+    assert dlpa["conciliacao"]["saldo_no_balanco"] == dlpa["saldo_final"]
+    assert dlpa["pendencias"]["diferenca_de_fechamento"] == []
+
+
+def test_conta_sujeito_com_filha_movimentada_acende_a_diferenca_e_veta(cenario_dlpa):
+    """Achado 2 da auditoria de 29/09/2026 (gravidade ALTA): a pendência
+    que IMPLEMENTA o critério de aceite da CTB-13 — a conciliação com o
+    Balanço — não era disparada por teste nenhum. O único teste que a
+    tocava comparava só o NOME da chave, e passaria mesmo com o cálculo
+    devolvendo uma diferença constante. Aqui ela é disparada de verdade.
+
+    O cenário é o que a decisão D9 nomeia: conta sujeito que **não é
+    folha**, cuja FILHA tem movimento. Os dois caminhos divergem por
+    construção — a DLPA lê a conta EXATA (D5, sem herança) e o motor do
+    Balancete consolida a subárvore — então a diferença acende e a
+    emissão é recusada, nomeando o valor."""
+    empresa = cenario_dlpa["empresa"]
+    filha = _conta(
+        empresa,
+        codigo="3.1.1",
+        nome="Lucros Acumulados - Subconta",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=cenario_dlpa["lucros"],
+    )
+    _lancar(
+        empresa,
+        timezone.datetime(2026, 3, 10).date(),
+        "Movimento na subconta da conta sujeito",
+        filha,
+        cenario_dlpa["caixa"],
+        "777.00",
+    )
+
+    dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=MES)
+    # A diferença NÃO é zero — é exatamente o 777,00 que a DLPA (conta
+    # exata) não viu e o Balanço (consolidado) viu. A subconta foi
+    # DEBITADA, então a subárvore consolidada fica 777,00 ABAIXO da conta
+    # exata: `diferenca = saldo_final − saldo_no_balanco` sai positiva.
+    assert dlpa["conciliacao"]["diferenca"] == Decimal("777.00")
+    assert (
+        dlpa["conciliacao"]["diferenca"]
+        == dlpa["saldo_final"] - dlpa["conciliacao"]["saldo_no_balanco"]
+    )
+
+    emissao = avaliar_emissao_da_dlpa(dlpa)
+    assert emissao["pode_emitir"] is False
+    assert emissao["listas_pendentes"]["diferenca_de_fechamento"] == [
+        {"diferenca": Decimal("777.00")}
+    ]
+
+
+def test_conta_sujeito_com_filha_parada_ainda_emite(cenario_dlpa):
+    """O caso ESPELHO do anterior, e é ele que impede o conserto de
+    "resolver" a divergência vetando sempre: subconta que não se move não
+    produz diferença, a emissão acontece e o número sai certo. A
+    conciliação é sobre MOVIMENTO, não sobre o simples existir da
+    subconta."""
+    empresa = cenario_dlpa["empresa"]
+    _conta(
+        empresa,
+        codigo="3.1.1",
+        nome="Lucros Acumulados - Subconta parada",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=cenario_dlpa["lucros"],
+    )
+
+    dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=MES)
+    assert dlpa["conciliacao"]["diferenca"] == Decimal("0.00")
+    assert avaliar_emissao_da_dlpa(dlpa)["pode_emitir"] is True
+    assert dlpa["saldo_final"] == Decimal("14500.00")
+
+
+def test_conta_sujeito_com_classificacao_corrompida_e_nomeada(cenario_dlpa):
+    """Achado 3 da auditoria de 29/09/2026: com `classificacao_dlpa`
+    gravada fora do enum NA conta que o contador queria usar como sujeito,
+    a apuração respondia só "nenhuma conta classificada" — mandando o
+    contador ao plano de contas sem dizer que o valor gravado é lixo, e
+    a conta aparecia com "—" (fora do enum não há rótulo). Agora o valor
+    órfão é DECLARADO com código, nome e valor cru, e a emissão é
+    recusada: falha fechada, com o diagnóstico certo."""
+    empresa = cenario_dlpa["empresa"]
+    # O cenário tem DUAS contas sujeito (3.1 e 3.2); as DUAS são
+    # corrompidas para reproduzir o caso original, em que nenhuma sobra
+    # como sujeito e a apuração só dizia "nenhuma classificada".
+    Conta.objects.filter(pk__in=[cenario_dlpa["lucros"].pk, cenario_dlpa["prejuizos"].pk]).update(
+        classificacao_dlpa="linha_que_nao_existe"
+    )
+
+    dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=MES)
+    emissao = avaliar_emissao_da_dlpa(dlpa)
+    assert emissao["pode_emitir"] is False
+    # A pendência que NOMEIA o valor corrompido está presente...
+    desconhecidas = emissao["listas_pendentes"]["contas_com_classificacao_dlpa_desconhecida"]
+    assert {
+        "conta": "3.1",
+        "nome": "Lucros Acumulados",
+        "classificacao_dlpa": "linha_que_nao_existe",
+    } in desconhecidas
+    # ...e a conta NÃO foi rebaixada a "não classificada" sem explicação:
+    # as DUAS pendências aparecem, porque as duas coisas são verdade.
+    assert (
+        "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada"
+        in emissao["listas_pendentes"]
+    )
+
+
+def test_a_tela_nao_monta_a_demonstracao_quando_a_conciliacao_acende(cenario_dlpa, client):
+    """A mesma pendência, ponta a ponta pela TELA: com a conciliação
+    quebrada, a DLPA não é montada — o contador recebe só o que falta."""
+    empresa = cenario_dlpa["empresa"]
+    _autenticar(client, cenario_dlpa["escritorio"], "conta-conciliacao")
+    filha = _conta(
+        empresa,
+        codigo="3.1.1",
+        nome="Lucros Acumulados - Subconta",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=cenario_dlpa["lucros"],
+    )
+    _lancar(
+        empresa,
+        timezone.datetime(2026, 3, 10).date(),
+        "Movimento na subconta da conta sujeito",
+        filha,
+        cenario_dlpa["caixa"],
+        "777.00",
+    )
+
+    resposta = client.get(reverse("contabilidade_web:dlpa", args=[empresa.id]))
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode()
+    assert "pode_emitir" in resposta.context
+    assert resposta.context["pode_emitir"] is False
+    # O veto nomeia a pendência de conciliação...
+    titulos = [lista["titulo"] for lista in resposta.context["listas_pendentes"]]
+    assert any("Diferença entre a DLPA e o Balanço" in titulo for titulo in titulos)
+    # ...e a demonstração NÃO é montada.
+    assert "13.700,00" not in conteudo
 
 
 def test_estorno_de_uma_destinacao_compensa_na_identidade(cenario_dlpa):
