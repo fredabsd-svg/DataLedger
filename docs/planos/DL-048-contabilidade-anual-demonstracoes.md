@@ -1,6 +1,6 @@
 # DL-048 — Contabilidade anual: estrutura de demonstração ligada à conta (CTB-12 a CTB-17)
 
-**Estado:** planejada
+**Estado:** em desenvolvimento
 **Nível de risco:** 1 — são demonstrações contábeis entregues ao cliente (dinheiro, livro e documento).
 **Origem:** ordem direta do Fred em 2026-09-28, escolhendo a **opção A** do mapa de
 paridade ([DL-047](DL-047-mapa-de-paridade-funcional.md)) — fechar a Contabilidade anual
@@ -157,3 +157,70 @@ da onda.
 A fonte normativa da DLPA e da DMPL precisa ser confirmada e registrada em
 `requisitos.md` **antes** do primeiro commit funcional. É a primeira tarefa desta
 etapa.
+
+✅ **Cumprida em 28/09/2026** — ver "Fontes normativas das demonstrações
+contábeis — DL-048" em [requisitos.md](../projeto/requisitos.md), com a
+descoberta de que a base da DLPA é a Lei 6.404/76 (art. 176, II e art. 186),
+não a NBC TG 26 item 106 nem a Lei 11.941/2009.
+
+## Fatia CTB-12 + CTB-13 (DLPA) — codada e testada em 2026-09-28
+
+Branch `feat/dl-048-dlpa`. **Nível 1:** o que falta para a etapa fechar, nesta
+ordem: (a) **auditoria independente** (obrigatória — não foi executada nesta
+sessão); (b) correção da auditoria e reconferência; (c) push + PR desta branch
+encadeado no PR #57 (do plano, base `docs/dl-048-plano`). Enquanto (a)–(c) não
+acontecem, a etapa NÃO é "integrada".
+
+### Decisões de implementação (registradas para revisão; todas reversíveis)
+
+| # | Decisão | Por quê |
+| --- | --- | --- |
+| D1 | **Conta sujeito = `classificacao_dlpa = "lucros_ou_prejuizos_acumulados"`; podem ser VÁRIAS contas** (o caso "Lucros Acumulados" + "(-) Prejuízos Acumulados" em plano separado). | CTB-12 manda campo fixo na conta (molde `classificacao_patrimonial`/`classificacao_dre`), não parâmetro do zeramento: a demonstração não depende de quem configurou o zeramento, e as duas contas somam pelo mesmo lado (D2). |
+| D2 | **Efeito de um item sobre o resultado acumulado = crédito − débito, independente da natureza cadastrada.** | É idêntico para a credora (cr − db) e para a retificadora devedora (o −(db − cr) do PL é cr − db): as duas formas da conta existir convergem sem regra de translação. |
+| D3 | **A linha vem da `classificacao_dlpa` da CONTRAPARTIDA do lançamento** — sem classificação, a apuração declara pendência e a emissão é recusada. | "Nenhuma conta classificada por inferência" (CTB-12): a contrapartida é quem diz que evento moveu os lucros (zeramento, reserva, dividendo…); o produto não adivinha. |
+| D4 | **A DIREÇÃO do movimento decide reversão (art. 186, II) × transferência (art. 186, III)** para a MESMA conta de reserva. | O cadastro só diz "é reserva"; reduzir lucros é destinação, aumentar é reversão. Guarda derivada de uma propriedade do movimento, não de lista (AGENTS.md §8). |
+| D5 | **Sem herança: a classificação vale para a conta EXATA que participa do lançamento** (diferente da DRE). | Subconta sem classificação vira pendência nomeada, com link para classificar — nunca valor presumido do ancestral. Se a herança for pedida, ela SUBSTITUI esta regra (AGENTS.md §8). |
+| D6 | **Período = EXERCÍCIO (01/01, ano civil, HI-28) até a competência pedida**; saldo inicial em 31/12 do ano anterior; navegação por mês, mesma gramática da DRE. | A DLPA é demonstração do exercício; o seletor de mês controla "até quando", nunca um período livre. |
+| D7 | **A compensação de lucros/prejuízos (PE-38/HI-26, ainda com o Fred) não é presumida.** Lançamento entre as DUAS contas sujeito tem efeito líquido ZERO e some da demonstração. | A leitura é neutra ao mecanismo que o escritório venha a usar: não inventa transferência que não foi lançada, nem esconde a que foi. |
+| D8 | **Tela primeiro, API depois.** Nesta fatia: `dlpa` e `conta_classificacao_dlpa` (2 rotas web); `DlpaView` (GET) + `ContaClassificacaoDlpaView` (PATCH) + `ContaSerializer.classificacao_dlpa` são a fatia seguinte. | Mantém o escopo da fatia revisável; as contagens de rota de `test_dl038_recusa_livro_caixa.py` já registram 21 web / 15 API com o histórico. |
+| D9 | **Conciliação DLPA ↔ Balanço por caminho independente**: a apuração soma `ItemLancamento` por conta exata; a conferência usa o `saldo` do motor do Balancete (`apurar_saldos`) em `data_fim`, credora `+`/devedora `−`. Conta sujeito deve ser FOLHA. | É a comparação entre dois caminhos que prova o número (critério de aceite); filhas movimentadas geram diferença e vetam, corretamente. |
+
+### Critérios cobertos e evidência (2026-09-28)
+
+Testes novos: `apps/contabilidade/tests/test_dl048_dlpa.py` — **39 testes**:
+caso de referência do plano (13.750,00), identidade
+`saldo inicial + Σ linhas = saldo final`, conciliação com o Balanço, ordem dos
+incisos do art. 186, rastreabilidade (cada linha com seus lançamentos),
+estorno, compensação neutra, isolamento, as três pendências (sem conta sujeito;
+movimento sem classificação; classificação fora do enum) e o aviso de
+resultado não zerado, cadeia `zerar_resultado` → linha da DLPA, permissão 403,
+isolamento 404, veto com link só para quem escritura, identificação do item 51
+na página emitida, hub/menu/plano de contas e as duas telas de classificação
+com trilha.
+
+Guardas existentes re-executadas nesta sessão: `test_dl019_varredura_de_
+restricoes` (constraint `ck_conta_classificacao_dlpa_nao_vazia` registrada),
+`test_dl038_recusa_livro_caixa` (21/15), `test_documentacao_do_estado`,
+`test_dl024_atalhos_e_acessibilidade` (cobertura das duas rotas novas).
+`ruff check`, `ruff format --check`, `manage.py check` e
+`makemigrations --check` aprovados.
+
+⚠️ **Não executado nesta sessão:** a medição no navegador real
+(`scripts/medir_identificacao_do_emitente.py` — a DLPA entrou no piso de
+classe 2 e o cenário de medição semeia a conta sujeito) e o
+`validate-docs.ps1`; os dois rodam na CI.
+
+### Limitações declaradas da fatia
+
+- API sem a DLPA (D8) — paridade é a próxima fatia.
+- Sem herança de classificação (D5); conta sujeito deve ser folha (D9).
+- Linha "Correção monetária do saldo inicial" existe e sai zerada: é conteúdo
+  do art. 186, I — a norma não a revogou do rol, e não há movimento que a
+  alimente hoje.
+- Rótulo do enum "Reserva de contingências" (RC-137 escreve "Para
+  Contingências") — mesma reserva; a frase invertida não cabe no título
+  "Transferência para reserva …" sem soar errado.
+- Dividendos só aparecem na DLPA quando o lançamento movimenta a conta
+  sujeito; escrituração que distribui sem tocar os lucros acumulados não gera
+  a linha (o saldo continua conciliado — a apuração cobre todo o movimento da
+  conta sujeito).

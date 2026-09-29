@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block titulo %}Demonstração dos Lucros ou Prejuízos Acumulados — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+Mesmo formato "nome do relatório — razão social do cliente" que
+Balancete/Diário/Razão/Balanço/DRE usam (BL-332/RC-97).
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+DL-048/CTB-13: mesmo padrão do Balanço e da DRE — timbre de impressão do
+ESCRITÓRIO (BL-282/BL-338) e o bloco de identificação da ENTIDADE
+(cliente), exigido pelo item 51 em CADA página (RC-95), dentro do
+`<thead>` da tabela, mais abaixo. Classe D (demonstração): identificação é
+obrigação, não opção de layout (NBC TG 26 itens 51 e 52).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if data_referencia %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Até</span>
+            <strong>{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Demonstração dos Lucros ou Prejuízos Acumulados</h1>{% endblock %}
+
+{% block content %}
+    {% comment %}
+    BL-282: timbre do ESCRITÓRIO emitente (RC-97/NBC ITG 2000 item 12),
+    só na folha 1 — mesmo bloco do Balanço/DRE.
+    {% endcomment %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
+    Navegação de competência "‹ Março de 2026 ›" — mesma gramática da DRE
+    (mês/ano na querystring, sem JavaScript): a DLPA mostra o exercício
+    ATÉ o mês pedido, então o seletor é o mês de referência. Cada link só
+    aparece quando `dlpa()` (views_web.py) confirma que a competência
+    adjacente é VÁLIDA — perto das bordas da faixa some, em vez de levar a
+    um 400 (mesmo R10 da reconferência da DL-045).
+    {% endcomment %}
+    <nav class="navegacao-competencia" aria-label="Navegação de competência">
+        {% if ano_anterior %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dlpa' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+                ‹ Mês anterior
+            </a>
+        {% endif %}
+        <strong class="navegacao-competencia__atual">
+            {% if data_referencia %}Até {{ data_referencia|date:"F \d\e Y"|capfirst }}{% endif %}
+        </strong>
+        {% if ano_seguinte %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dlpa' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+                Mês seguinte ›
+            </a>
+        {% endif %}
+    </nav>
+
+    {% if not data_referencia %}
+        <p>
+            A competência informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:dlpa' empresa.id %}">Voltar à competência padrão (mês corrente)</a>
+            para ver a DLPA.
+        </p>
+    {% elif not empresa_tem_plano_de_contas %}
+        {% comment %}
+        Estado VAZIO (mesmo critério do Balancete/Balanço/DRE, B4/BL-283).
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
+    {% elif not pode_emitir %}
+        {% comment %}
+        Critério da DL-048 — quem decidiu que NÃO pode emitir foi o
+        SERVIDOR (`avaliar_emissao_da_dlpa`); esta tela só OBEDECE e
+        EXPLICA: nenhum valor é montado enquanto houver pendência, e cada
+        pendência nomeia a SI MESMA (`lista.titulo`), a AÇÃO que resolve
+        (`lista.acao`) e, quando é conta, o link direto para classificar.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">A DLPA NÃO pode ser emitida nesta competência</strong>
+        </div>
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> há pendência que impede a emissão — veja abaixo.
+            {% for lista in listas_pendentes %}
+                <p><strong>{{ lista.titulo }}</strong></p>
+                <ul>
+                    {% if lista.tipo_linha == "conta" %}
+                        {% for linha in lista.linhas %}
+                            <li>
+                                Conta {{ linha.conta }} — {{ linha.nome }}
+                                {% if linha.detalhe %}({{ linha.detalhe }}){% endif %}
+                                {% if pode_escriturar and linha.conta_id %}
+                                    —
+                                    <a href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta_id %}">
+                                        classificar esta conta
+                                    </a>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    {% else %}
+                        {% for linha in lista.linhas %}
+                            <li>{{ linha.detalhe }}</li>
+                        {% endfor %}
+                    {% endif %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+            <p>
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
+                para ver a classificação de todas as contas.
+            </p>
+        </div>
+    {% else %}
+        {% comment %}
+        Controle POSITIVO: `pode_emitir` chegou `True` do servidor, então a
+        demonstração é montada.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
+            <strong class="faixa-fechamento__veredito">DLPA pronta para emissão</strong>
+        </div>
+
+        {% comment %}
+        Critério 7 da DL-048 (o mesmo medido da DRE): o bloco de
+        identificação do item 51 vive DENTRO do `<thead>`, ao lado do
+        cabeçalho de coluna, pelo mesmo mecanismo provado pelo Balanço
+        (`display: table-header-group`, BL-282) — repete em TODA página
+        impressa. Medido no navegador real pelo job "Medir identificação do
+        emitente" (scripts/medir_identificacao_do_emitente.py).
+        {% endcomment %}
+        <table class="tabela-dados tabela-dlpa">
+            <caption class="visualmente-oculto">
+                Demonstração dos Lucros ou Prejuízos Acumulados de {{ empresa.razao_social }} —
+                exercício de 01/01/{{ ano }} a {{ data_fim|date:"d/m/Y" }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="2">
+                        <div class="identificacao-do-documento">
+                            <p><strong>{{ empresa.razao_social }}</strong> — {{ rotulo_inscricao }} {{ inscricao_formatada }}</p>
+                            <p>
+                                Demonstração dos Lucros ou Prejuízos Acumulados
+                                ({{ identificacao.entidade_individual_ou_grupo|capfirst }}) —
+                                exercício de 01/01/{{ ano }} a {{ data_fim|date:"d/m/Y" }}
+                                (até a competência de {{ data_referencia|date:"F \d\e Y" }})
+                            </p>
+                            <p>
+                                Valores em {{ identificacao.moeda_de_apresentacao }} —
+                                {{ identificacao.nivel_de_arredondamento|capfirst }}
+                            </p>
+                            {% comment %}
+                            Critério de apuração IMPRESSO, dentro do bloco que
+                            repete em cada página (mesmo padrão do Balancete e
+                            da DRE): movimento das contas de lucros/prejuízos
+                            acumulados CLASSIFICADAS, com cada linha vinda da
+                            contrapartida classificada — e a conferência com o
+                            Balanço da mesma data é condição de emissão, não
+                            promessa decorativa (pendência
+                            "diferenca_de_fechamento" veta).
+                            {% endcomment %}
+                            <p>
+                                Critério de apuração: movimento das contas de lucros ou prejuízos
+                                acumulados classificadas, de 01/01/{{ ano }} a
+                                {{ data_fim|date:"d/m/Y" }}; cada linha vem da contrapartida
+                                classificada no lançamento; saldo final conferido com o Balanço
+                                Patrimonial da mesma data.
+                            </p>
+                        </div>
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col">Histórico (Lei 6.404/76, art. 186)</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% comment %}
+                A ORDEM e a estrutura vêm do SERVIÇO (`apurar_dlpa`,
+                services.py), que as fixa pelo art. 186 (I → II → III) — aqui
+                é só um laço, porque ao contrário da DRE (estrutura legal
+                com subtotais nomeados um a um) as linhas de reserva desta
+                demonstração SÃO dinâmicas: só existem com movimento.
+                {% endcomment %}
+                {% for linha in linhas %}
+                    <tr{% if linha.eh_saldo %} class="linha-total"{% endif %}>
+                        <td>{{ linha.titulo }}</td>
+                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% comment %}
+    Mesmo padrão do Balanço/DRE (DE-070): os avisos (que NUNCA bloqueiam)
+    aparecem nos DOIS desfechos — emitida com aviso, ou recusada por outro
+    motivo com o aviso também presente — fora do if/else acima, e SÓ na
+    tela (`mensagem--somente-tela`): conferência de bancada, nunca
+    conteúdo do documento.
+    {% endcomment %}
+    {% if listas_apenas_aviso %}
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+            <strong>Aviso:</strong> não impede a emissão da DLPA.
+            {% for lista in listas_apenas_aviso %}
+                <p><strong>{{ lista.titulo }}</strong></p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>{{ linha.detalhe }}</li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

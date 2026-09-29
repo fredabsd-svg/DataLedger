@@ -482,6 +482,25 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`Conta.clean()`); só ORM/SQL direto, fora de qualquer requisição "
         'de cliente, alcançaria esta constraint com `""`.'
     ),
+    # DL-048/CTB-12: constraint NOVA no dia um do campo
+    # `classificacao_dlpa`, pelo mesmo motivo da de cima — só que aqui ela
+    # nasce junto (a migração 0012 a cria já no AddField), nunca precisou
+    # de correção retroativa. Os caminhos de cliente que gravam o campo
+    # hoje são a tela de classificação (`conta_classificacao_dlpa`, que só
+    # grava via `classificar_conta_na_dlpa` → `full_clean()`), o formulário
+    # de conta nova (`ContaCriarForm` → `full_clean()`), o admin (idem) e
+    # o cadastro de conta pela API (`ContaSerializer` — ainda sem o campo;
+    # quando entrar, é `validate_classificacao_dlpa` no mesmo molde). Todos
+    # normalizam `""` para `None` antes do INSERT pelo topo de
+    # `Conta.clean()`; só ORM/SQL direto alcançaria a constraint com `""`.
+    "ck_conta_classificacao_dlpa_nao_vazia": (
+        "`CheckConstraint` de `Conta.classificacao_dlpa` (DL-048/CTB-12): "
+        'recusa `""` (string vazia) — só `NULL` ou um valor de '
+        "`ClassificacaoDlpa`. Todos os caminhos de cliente que gravam o "
+        'campo passam por `Conta.clean()` (topo do método normaliza `""` '
+        "para `None`); só ORM/SQL direto, fora de qualquer requisição de "
+        'cliente, alcançaria esta constraint com `""`.'
+    ),
     # DL-046 (fatia 1): domínio de `ContaLivroCaixa.natureza` — mesmo
     # motivo de `empresa_modo_escrituracao_valido` acima (achado B8/
     # DL-038): `choices=` no campo só vale para form/serializer, nunca
