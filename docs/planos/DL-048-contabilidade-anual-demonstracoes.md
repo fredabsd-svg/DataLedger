@@ -113,6 +113,85 @@ capital, lucro do exercício, constituição de reserva, distribuição, saldo f
   mesma data. É a conciliação que impede a demonstração de "fechar sozinha" errada.
 - **Classe do documento:** demonstração.
 
+#### ⚠️ Base normativa CORRIGIDA em 29/09/2026 — a premissa desta seção estava errada
+
+A versão anterior citava o **art. 176 da Lei 6.404/76** como a base da DMPL. **A fonte
+oficial desmente isso**, e o AGENTS.md §3.1 manda reabrir o critério de aceite com o
+Fred em vez de comprar mais uma rodada de auditoria — foi o que fizemos, antes de
+codificar.
+
+| O que se acreditava | O que a fonte diz (Planalto, consolidado, 29/09/2026) |
+| --- | --- |
+| A DMPL é exigida pelo art. 176 | **O art. 176 não lista a DMPL.** Inciso III é a DRE; inciso V é a DVA (*"se companhia aberta"*). A expressão *"demonstração das mutações do patrimônio líquido"* aparece **uma única vez** em todo o diploma: no **art. 186, §2º** — e como **faculdade**: a DLPA *"poderá ser incluída"* nela. |
+| A estrutura da DMPL está no art. 178, §2º ou no art. 179 | **Não.** Ambos são do **Balanço Patrimonial** (grupos do passivo e classificação do ativo). |
+
+**A base real, em duas peças:**
+
+- **Obrigação:** norma técnica. A DMPL integra o conjunto completo de demonstrações
+  contábeis — NBC TG 26 (R5) item 10(c) e **NBC TG 51 item 10(c)**, conforme a
+  vigência. A Lei 6.404/76 desonera expressamente a DFC (art. 176, §6º) e a DVA
+  (item V) e **nunca** desonera a DMPL.
+- **Estrutura:** norma técnica. Itens **106 a 110 e 106B** da NBC TG 26 (R5), ou
+  **107 a 112 e 111A** da NBC TG 51, conforme a vigência.
+
+⚠️ **Lacuna declarada, não preenchida:** qual dispositivo legal originou a obrigação
+da DMPL (candidatos: Lei 11.638/2007 e/ou normas da CVM) **NÃO foi confirmado em fonte
+oficial** — o acesso ao Planalto falhou para esse diploma nesta sessão. **Não
+inventar:** registrar como pendência e seguir pela norma técnica, que é onde o
+conteúdo está.
+
+⚠️ **A conciliação com o Balanço NÃO é uma citação de norma.** Não existe item, na
+TG 26 (R5) nem na TG 51, que exija literalmente *"o saldo final da DMPL deve ser igual
+ao do Balanço"* — a varredura das duas normas inteiras não achou um. O que existe é
+funcional: a conciliação inicial→final (item 106(d) da R5 / 107(c) da TG 51) e a
+amarração funcional (item 109 da R5 / 112 da TG 51). **O critério de aceite acima é
+INVARANTE DE CONSISTÊNCIA DO SISTEMA entre demonstrações, não requisito normativo** —
+e o código deve dizê-lo, para que ninguém "conforme" o produto a uma frase que a
+norma não contém.
+
+#### ⚠️ Uma coluna por TIPO de reserva é escolha de desenho, não obrigação
+
+A RC-137 do Fred define uma coluna por tipo de reserva. A reconferência mostra que:
+
+- **A lei** (art. 178, §2º, III) e **as normas** (item 106B da R5 / **111A** da TG 51)
+  mandam **seis GRUPOS genéricos**: capital social; reservas de capital; ajustes de
+  avaliação patrimonial; reservas de lucros; ações ou quotas em tesouraria;
+  prejuízos acumulados; e, *"se legalmente admitidos"*, os lucros acumulados.
+- **O item 106(d) da R5 / 107(c) da TG 51 diz "no mínimo"** — é o que abre a janela
+  para rubricas extras, como uma coluna por tipo de reserva.
+- O **ITG 1000, Anexo 4** (modelo de DMPL da **pequena empresa**; a microempresa tem
+  DLPA, Anexo 10) traz **uma coluna por GRUPO**, não por tipo.
+
+⚠️ A coluna por tipo de reserva é, portanto, **desenho permitido e boa prática de
+mercado — não derivação normativa**. No código ela é `permissiva`; a exigência de
+apresentar os sete itens acima é que é `obrigatoria` (item 111A da TG 51). Promover a
+primeira ao posto da segunda é a mesma classe de defeito do BL-514: garantia que o
+produto não dá, descrita como se desse.
+
+#### Colunas de reservas de CAPITAL que a RC-137 não listou
+
+⚠️ **Pendência para a DMPL.** A RC-137 lista ágio na emissão de ações e
+alienação de partes beneficiárias/bônus de subscrição. A lei tem **três** reservas de
+capital que ficaram de fora, e são coluna da DMPL por norma (item 111A):
+
+| Reserva | Dispositivo |
+| --- | --- |
+| Prêmio na emissão de debêntures | LSA art. 182, §1º, "c" |
+| Doações e subvenções para investimento | LSA art. 182, §1º, "d" |
+| Correção monetária do capital realizado | LSA art. 182, §2º |
+
+⚠️ A terceira é **letra morta pelo mesmo fundamento** que tirou a correção monetária
+da DLPA (Lei 9.249/95, art. 4º, p.ú.) e **não deve virar coluna** sem o mesmo
+raciocínio ser escrito. As duas primeiras entram.
+
+#### Vigência: a DMPL tem DUAS versões de fonte
+
+A **NBC TG 26 (R5) foi revogada** em 25/02/2026 pela **NBC TG 51** (DOU 25/02/2026),
+que se aplica a **períodos anuais com início em ou após 01/01/2027** (item C1). O
+item citado no código **varia com a data de início do exercício** — tabela de
+vigência em [requisitos.md](../projeto/requisitos.md). É o DE-010 (norma versionada
+por vigência) aplicado ao enum de linhas da DMPL.
+
 ### 4. CTB-15 — DFC (Demonstração dos Fluxos de Caixa)
 
 Direto e indireto, por atividade.
@@ -162,6 +241,37 @@ etapa.
 contábeis — DL-048" em [requisitos.md](../projeto/requisitos.md), com a
 descoberta de que a base da DLPA é a Lei 6.404/76 (art. 176, II e art. 186),
 não a NBC TG 26 item 106 nem a Lei 11.941/2009.
+
+✅ **Reconferida em 29/09/2026, agora COM rede** (o bloqueio anterior — "sem rede
+nesta máquina" — deixou de existir). Duas frentes de pesquisa em fonte oficial, com
+os textos baixados por download direto e transcritos, mais verificação independente
+própria no cadastro de resoluções do CFC:
+
+- **Vigência fechada:** a NBC TG 26 (R5) está **revogada** desde 25/02/2026 pela
+  **NBC TG 51** (DOU 25/02/2026, correlata ao IFRS 18), que se aplica a períodos
+  anuais com início **em ou após 01/01/2027** (item C1). Verificado nos **dois
+  sentidos** no sistema de resoluções do CFC: a ficha da TG 51 lista a revogação da
+  R5, e a ficha da R5 registra `em vigor: NAO` / `revogada: SIM`.
+- **A pendência "mapear os itens da TG 51" está FECHADA** (ver [requisitos.md](../projeto/requisitos.md)):
+  identificação = **item 27**, (a)–(e) idênticos; DMPL = **itens 107 a 112 e 111A**.
+- **Lei 6.404/76:** art. 186, I–III e §§1º/2º **confirmados verbatim**, sem nota de
+  alteração desde 1976; art. 176, 178, 179, 187, 193 e a Lei 9.249/95 (art. 4º, p.ú.)
+  também.
+- **A decisão de 29/09 sobre a correção monetária se CONFIRMA** com fundamento
+  oficial: a Lei 9.249/95, art. 4º, parágrafo único, veda *"qualquer sistema de
+  correção monetária de demonstrações financeiras, inclusive para fins societários"*;
+  e a **mesma lei**, no art. 5º, retirou a conta da DRE (art. 187, IV) sem tocar no
+  art. 186 — descuido legislativo, não opção do produto. ⚠️ **Correção**: a referência
+  a "Lei 9.492/95" que circulava na sessão anterior é **errada** (a Lei 9.492 é de
+  1997, sobre protesto de títulos); o parágrafo único **nunca foi alterado**.
+- ⚠️ **Ressalva que o texto acima não faz e o produto precisa saber:** a vedação é sobre
+  **nova atualização**. Saldo histórico de 31/12/1995 pode e deve ser **carregado e
+  apresentado dentro do "saldo do início do período"** (art. 186, I) — **não** em
+  linha própria, e **não zerado**.
+- **Quatro premissas foram desmentidas** e estão corrigidas nas seções acima: a DMPL
+  não está no art. 176; o §2º do art. 187 está revogado (Lei 11.638/2007) e não serve
+  de requisito; "reserva de lucros a realizar" não tem lastro normativo; e a
+  RC-137 omitiu três reservas de capital do art. 182.
 
 ## Fatia CTB-12 + CTB-13 (DLPA) — codada e testada em 2026-09-28
 

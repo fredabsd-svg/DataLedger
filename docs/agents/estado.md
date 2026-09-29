@@ -141,7 +141,58 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048: auditoria executada, achados corrigidos e a fatia **INTEGRADA na main** pelo PR #59; o que falta é a conformidade normativa:**
+**AGORA — sessão de 2026-09-29 (2ª rodada, **com rede**). A conformidade normativa da
+DL-048 foi RECONFERIDA em fonte oficial, e ela **DESMENTIU a premissa do plano da
+DMPL** (CTB-14). O plano está corrigido; implementar a DMPL é o próximo passo, e ele
+depende das decisões do Fred registradas abaixo.**
+
+### O que esta sessão mudou
+
+- **A rede passou a funcionar.** O bloqueio *"sem rede nesta máquina"* que aparecia em
+  três lugares deste arquivo **não existe mais** — e foi ele que deixou a conformidade
+  normativa em suspenso na sessão anterior.
+- **NBC TG 26 (R5) REVOGADA em 25/02/2026** pela **NBC TG 51** (DOU 25/02/2026,
+  correlata ao IFRS 18), aplicável a períodos anuais com início **em ou após
+  01/01/2027** (item C1). Verificado nos **dois sentidos** no Sistema de Resoluções
+  do CFC: a ficha da TG 51 lista a revogação da R5, e a ficha da R5 registra
+  `em vigor: NAO` / `revogada: SIM`.
+  ⚠️ **O projeto já sabia** (registrado em 28/09, com tabela de transição em
+  `requisitos.md`); o que faltava era o **mapeamento**, agora **FECHADO**:
+  identificação = **item 27** da TG 51, (a)–(e) idênticos; DMPL = **itens 107 a 112
+  e 111A**. Correção: a pendência dizia *"107–109"* — o bloco real é **107–112 + 111A**.
+- **A premissa da DMPL no plano estava ERRADA** e o plano foi corrigido: o **art. 176
+  da Lei 6.404/76 NÃO lista a DMPL**. A expressão aparece **uma vez** em todo o
+  diploma, no **art. 186, §2º**, e como **faculdade** (*"poderá ser incluída"*). A
+  obrigação vem da **norma técnica** (item 10(c)); a estrutura, dos itens 106–110/106B
+  (R5) ou 107–112/111A (TG 51).
+- **⚠️ A conciliação DMPL ↔ Balanço não é citação de norma** — nenhum item, na R5 nem
+  na TG 51, a exige literalmente (as duas normas foram varridas inteiras). É
+  **invariante de consistência do sistema** entre demonstrações, e o código tem que
+  dizer isso.
+- **"Reserva de lucros a realizar" não tem lastro normativo** — ausente da Lei
+  6.404/76, da R5 e da TG 51; as outras cinco têm (arts. 193, 194, 195, 195-A, 196).
+  **Decisão do Fred: MANTER** no produto, rotulada como **prática de escrituração**, não
+  como exigência legal.
+- **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
+  primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
+- **A decisão de 29/09 sobre a correção monetária se CONFIRMA** com base oficial: Lei
+  9.249/95, art. 4º, p.ú. veda *"qualquer sistema de correção monetária de demonstrações
+  financeiras, inclusive para fins societários"*. ⚠️ A referência a "**Lei 9.492/95**"
+  que circulou é **ERRADA** (a 9.492 é de 1997, protesto de títulos).
+- **Branch de trabalho:** `docs/dl-048-premissa-normativa`, a partir de `92859ff`.
+
+### Decisões do Fred pendentes para a DMPL
+
+1. Aplicar as **duas normas por data de início do exercício** no enum de linhas da
+   DMPL — a numeração muda inteira, então o item citado tem de variar (DE-010).
+2. **O item 52 virou item B10:** em 2027, repetir a identificação em cada página deixa
+   de ser a forma prescrita e passa a ser **uma** das maneiras de cumprir, com
+   julgamento e *"identificação digital"* admitida. É mudança de **nível 1** — o texto
+   vai no documento do cliente, e `identificacao.py`, as classes de documento, os
+   templates e a medição na CI citam hoje o item 51/52 da R5.
+3. **Lacuna declarada, não preenchida:** qual dispositivo **legal** instituiu a
+   obrigação da DMPL (Lei 11.638/2007? norma da CVM?). A obrigação está confirmada
+   **pela norma técnica**; a origem legal fica como lacuna, não inferida.
 
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em

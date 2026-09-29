@@ -432,6 +432,152 @@ inciso não revogado) e **art. 186, I–III e §§1º/2º** (linhas e relação 
 | DVA obrigatória | companhia aberta | LSA art. 176, V (Lei 11.638/2007) |
 | Sociedade de menor porte | companhia fechada com receita bruta anual ≤ **R$ 78.000.000,00** — só simplificações de convocação/publicação/livros, **não** altera o conjunto de demonstrações | LSA art. 294 (red. LC 182/2021) |
 
+### NBC TG 51 — mapeamento FECHADO em 29/09/2026 (fecha a pendência de 28/09)
+
+Texto integral baixado do **Sistema de Resoluções do CFC** (PDF oficial, 72 páginas,
+`https://www1.cfc.org.br/sisweb/SRE/docs/NBCTG51.pdf`), com **data de consulta
+29/09/2026**. Esta seção fecha a pendência *"NBC TG 51 — mapear os itens 107–109
+(DMPL) e o item 27(a)–(e) (identificação)"* registrada no fim deste arquivo.
+
+⚠️ **Correção de numeração:** a pendência dizia *"itens 107–109"*. O bloco real da
+DMPL na TG 51 é **107 a 112, mais o 111A** — e a identificação é o **item 27**, como
+a pendência já previa corretamente.
+
+| Regra | Na NBC TG 26 (R5) | Na NBC TG 51 (vigente a partir de 01/01/2027) |
+| --- | --- | --- |
+| Bloco de identificação, (a)–(e) | item 51 | **item 27** — (a)–(e) **redação idêntica** |
+| Como se cumpre a identificação | item 52 — *"cabeçalhos de página… em cada página"* | **item B10** — ⚠️ **mais frouxo**: *"é exigido julgamento"*; admite *"identificação digital"* em vez de páginas separadas |
+| Identificar e distinguir do resto do documento | item 49/51 | **item 25** |
+| Arredondamento em milhares/milhões | item 53 | **item B11** |
+| Conteúdo mínimo da DMPL | itens 106(a)–(d) | **item 107(a)–(c)** |
+| Componentes do PL (colunas) | item 106B | **item 111A** |
+| Dividendos na DMPL ou notas | item 107 | **item 110** |
+| Mutação do PL = variação dos ativos líquidos | item 109 | **item 112** |
+| Ajustes retrospectivos | item 108 | **item 108** |
+| Análise de ORA por item | item 109 | **item 109** |
+| Components do PL (exemplos) | item 108 | **item 111** |
+
+**Texto verbatim da NBC TG 51, item 111A** (a definição das colunas da DMPL):
+
+> *"111A. O patrimônio líquido deve apresentar o capital social, as reservas de
+> capital, os ajustes de avaliação patrimonial, as reservas de lucros, as ações ou
+> quotas em tesouraria, os prejuízos acumulados, se legalmente admitidos os lucros
+> acumulados e as demais contas exigidas pelos Pronunciamentos Técnicos emitidos pelo
+> CPC e pela legislação societária."*
+
+**Texto verbatim da NBC TG 51, item 27** (o bloco de identificação):
+
+> *"27. A entidade deve identificar claramente cada demonstração contábil primária e
+> as notas explicativas. Além disso, a entidade deve divulgar de forma destacada e
+> repetirá quando necessário para que as informações fornecidas sejam compreensíveis:
+> (a) o nome da entidade que reporta ou outros meios de identificação, e qualquer
+> alteração nessas informações desde a data do balanço anterior; (b) se as demonstrações
+> contábeis são da entidade individual ou de um grupo de entidades; (c) a data do
+> balanço ou do período abrangido pelas demonstrações contábeis; (d) a moeda de
+> apresentação…; e (e) o nível de arredondamento utilizado para os valores nas
+> demonstrações contábeis."*
+
+⚠️ **A diferença que muda código, e não é de número:** o item **52 da R5** diz
+*"em cada página"* — é a **forma prescrita** de cumprir o item 51, e é o fundamento
+de `repetir_em_cada_pagina` e da medição na CI. O **item B10 da TG 51**troca isso por
+*"é exigido julgamento na determinação da melhor forma"*, e exemplifica
+**identificação digital** como forma alternativa. Ou seja: **de 2027 em diante,
+repetir em cada página deixa de ser a prescrição e passa a ser uma das maneiras de
+cumprir.** A regra do produto pode continuar repetindo — mas o texto que a justifica
+precisa mudar junto, senão o sistema vai "cumprir a norma" citando uma norma
+revogada. **É mudança de NÍVEL 1**: o texto vai no documento entregue ao cliente.
+
+**Texto verbatim da NBC TG 51, itens 107 e 112** (conteúdo e amarração):
+
+> *"107. A entidade deve apresentar uma demonstração das mutações do patrimônio líquido
+> conforme requerido pelo item 10. A demonstração das mutações do patrimônio líquido
+> incluirá: (a) o resultado abrangente total do período de reporte, apresentando
+> separadamente os valores totais atribuíveis a sócios da controladora e a
+> participações de não controladores; (b) para cada componente do patrimônio líquido,
+> os efeitos da aplicação retrospectiva ou reapresentação retrospectiva reconhecidos de
+> acordo com a NBC TG 23; e (c) para cada componente do patrimônio líquido, uma
+> conciliação entre o valor contábil no início e no final do período, apresentando
+> separadamente (no mínimo) as mudanças resultantes de: (i) lucro ou prejuízo líquido;
+> (ii) outros resultados abrangentes; e (iii) transações com sócios na sua capacidade
+> de sócios…"*
+
+> *"112. As mutações do patrimônio líquido da entidade entre o início e o final do
+> período de reporte refletem o aumento ou a redução de seus ativos líquidos durante o
+> período…"*
+
+⚠️ **O que a TG 51 NÃO tem, e alguém vai perguntar:** **não existe item, na TG 26 (R5)
+nem na TG 51, que exija literalmente a reconciliação da DMPL com o Balanço
+Patrimonial.** A varredura das duas normas inteiras não achou um. O critério de aceite
+da CTB-14 (*"o total da DMPL bate com o PL do Balanço"*) é **invariante de
+consistência do sistema entre demonstrações**, não requisito normativo — e assim tem
+que ser escrito no código.
+
+⚠️ **Mudança de 2027 que toca a linha de topo da DMPL:** na TG 51, o item **107(a)**
+fala em *"resultado abrangente **total** do período"* (a R5, item 106(a), falava em
+*"resultado abrangente"*), e o item **12A** determina que, no Brasil, o resultado e o
+resultado abrangente sejam apresentados **separadamente**. A DRE atual não tem ORA, e a
+DMPL que vier precisa dizer de onde tira esse valor — ou declarar que ainda não o tem.
+
+⚠️ **Não foi confirmado em fonte oficial:** qual dispositivo **legal** originou a
+obrigação da DMPL (candidatos: Lei 11.638/2007 e/ou normas da CVM). O acesso ao
+Planalto falhou para esse diploma nesta sessão. A obrigação está confirmada **pela
+norma técnica** (item 10(c) das duas normas), que é onde o conteúdo está — mas a
+origem legal fica **declarada como lacuna**, não preenchida por inferência.
+
+⚠️ **Não foi confirmado em fonte oficial:** a **ITG 1000** é norma de microempresa e
+**pequena empresa** (Resolução CFC 2022/ITG1000, DOU 26/12/2022). O **Anexo 4** traz o
+modelo de DMPL da **pequena empresa** com **cinco colunas** (capital social; reservas
+de capital; reservas de lucro; lucro ou prejuízo acumulado; total) e **treze linhas**
+(saldos em 31/12, resultado do exercício, lucros distribuídos, ajustes de exercícios
+anteriores, constituição/reversão de reservas, aumento/redução do capital social).
+A **microempresa não tem DMPL** — tem DLPA (Anexo 10). O modelo oficial, portanto,
+**não traz** "ajustes de mudança de método" nem "transferências internas" como linhas,
+e traz **uma coluna por GRUPO**, não por tipo de reserva.
+
+### Coluna por TIPO de reserva: escolha de desenho, não obrigação (decisão de 29/09/2026)
+
+A RC-137 define uma coluna por tipo de reserva. A reconferimento mostra que **nenhuma
+norma exige isso**: a lei (art. 178, §2º, III) e as normas (item 106B da R5 / 111A da
+TG 51) mandam **grupos genéricos**, e o "no mínimo" do item 106(d) / 107(c) apenas
+**permite** rubricas extras.
+
+**Decisão do Fred (29/09/2026): MANTER a coluna por tipo, e registrá-la como escolha do
+produto** — não como derivação normativa. O que é obrigatório é apresentar os sete
+grupos do item 111A. A distinção fica escrita no código, para que o texto do produto
+não afirme uma obrigação que a norma não tem (a mesma classe do BL-514).
+
+### ⚠️ "Reserva de lucros a realizar" — sem lastro normativo, mantida por decisão do produto
+
+Das **seis** reservas de lucros da RC-137, **cinco** têm dispositivo na Lei 6.404/76:
+legal (art. 193), estatutária (art. 194), para contingências (art. 195), de incentivos
+fiscais (art. 195-A) e de retenção de lucros (art. 196). ⚠️ **A "reserva de lucros a
+realizar" NÃO existe na Lei 6.404/76, nem na NBC TG 26 (R5), nem na NBC TG 51** —
+verificada por varredura textual das três.
+
+**Decisão do Fred (29/09/2026): MANTER no `ClassificacaoDlpa` e no documento**,
+rotulada como **prática de escrituração**, não como exigência legal. A justificativa é
+de mercado — a reserva existe em escritórios porque adia dividendos sobre lucro ainda
+não realizado. ⚠️ **O texto do código e o do documento emitido devem dizer isso**: uma
+reserva apresentada como se a lei a nomeasse é afirmação falsa no papel que o cliente
+recebe. A validação profissional continua sendo do Fred (AGENTS.md §10).
+
+### ⚠️ Reservas de CAPITAL que a RC-137 não listou — pendência para a DMPL
+
+O item 111A da TG 51 exige **reservas de capital** entre as colunas da DMPL. A RC-137
+lista duas (ágio na emissão de ações; alienação de partes beneficiárias / bônus de
+subscrição). A lei tem **três** a mais:
+
+| Reserva | Dispositivo | Situação |
+| --- | --- | --- |
+| Ágio na emissão de ações | art. 182, §1º, "a" | ✅ na RC-137 |
+| Alienação de partes beneficiárias / bônus de subscrição | art. 182, §1º, "b" | ✅ na RC-137 |
+| **Prêmio na emissão de debêntures** | art. 182, §1º, "c" | ⚠️ **ausente** — entra na DMPL |
+| **Doações e subvenções para investimento** | art. 182, §1º, "d" | ⚠️ **ausente** — entra na DMPL |
+| **Correção monetária do capital realizado** | art. 182, §2º | ⚠️ **letra morta** — mesma vedação da Lei 9.249/95, art. 4º, p.ú.; não deve virar coluna |
+
+⚠️ A RC-137 está **correta** ao deixar as reservas de capital fora da DLPA: elas não
+transitam pelo lucro líquido. Mas a DMPL **precisa** delas como coluna.
+
 ⚠️ **Não implementar** a linha "correção monetária do saldo inicial" (art. 186, I):
 é texto de 1976, sem efeito prático desde o Plano Real — não criar índice.
 
@@ -446,17 +592,45 @@ cliente. O membro saiu **inteiro** do enum `ClassificacaoDlpa` (não
 deprecado: a migração 0012 ainda não entrou na `main`, então não há valor
 gravado em ambiente compartilhado), a linha sai da apuração e do texto
 emitido, e nenhum índice é criado. Reverter é repor membro, rótulo e
-renderer. ⚠️ A Lei 9.249/95 **não foi reconferida na fonte oficial em
-29/09/2026** (sem acesso à rede na máquina) — fica pendente de leitura no
-Planalto antes de a DMPL (CTB-14) tratar de moeda estrangeira.
+renderer. ✅ **A Lei 9.249/95 foi reconferida na fonte oficial em 29/09/2026** (a
+máquina ganhou acesso à rede): o art. 4º, parágrafo único, veda *"qualquer sistema de
+correção monetária de demonstrações financeiras, inclusive para fins societários"*, e o
+parágrafo único **nunca foi alterado** (nenhuma nota de alteração no Planalto nem na
+Câmara). Corroboração: a **mesma lei**, no art. 5º, retirou a conta de correção
+monetária do art. 187, IV, e **deixou o art. 186 intacto** — descuido legislativo, não
+escolha do produto. ⚠️ **Ressalva que o texto acima não faz:** a vedação é sobre **nova
+atualização**; saldo histórico de 31/12/1995 pode e deve ser **carregado e apresentado
+dentro do "saldo do início do período"** (art. 186, I), **não** em linha própria e
+**não zerado**. ⚠️ A referência a "**Lei 9.492/95**" que circulou na sessão anterior é
+**ERRADA** — a Lei 9.492 é de 1997 e trata de protesto de títulos; a lei é a 9.249/95.
 
 ### Pendências desta confirmação
 
+- ✅ **FECHADA em 29/09/2026 — NBC TG 51 mapeada.** Os itens **27** (identificação),
+  **B10** (como cumpri-la), **B11** (arredondamento), **107 a 112** e **111A** (DMPL)
+  foram transcritos do PDF oficial do CFC e estão no topo desta seção. Resta
+  **aplicar** no código: tratar as duas normas por data de início do exercício.
 - **Leiaute CVM para companhias abertas** — NÃO ENCONTRADO na Resolução CVM
   80/2022 (texto consolidado, consultado 28/09/2026). Localizar a norma de
   informações periódicas/Formulário de Referência antes de codificar leiaute
   de companhia aberta.
-- **NBC TG 51** — mapear os itens 107–109 (DMPL) e o item 27(a)–(e) (identificação)
-  para o módulo de 2027, e tratar as duas normas por data de exercício.
 - **BL-340** — NIRE e nível de arredondamento não existem no cadastro, mas o
   item 51 os exige no documento.
+- ⚠️ **NOVA em 29/09/2026 — origem legal da obrigação da DMPL NÃO CONFIRMADA.** A
+  obrigação está confirmada **pela norma técnica** (item 10(c) da R5 e da TG 51), e é
+  por lá que o código deve ir. Mas **qual dispositivo legal** a instituiu (Lei
+  11.638/2007? norma da CVM?) não foi lido em fonte oficial — o Planalto falhou para
+  esse diploma nesta sessão. **Lacuna declarada; não preencher por inferência.**
+- ⚠️ **NOVA em 29/09/2026 — "reserva de lucros a realizar" sem lastro normativo.**
+  Mantida no produto por decisão do Fred, rotulada como prática de escrituração, não
+  como exigência legal. Ver a seção própria acima.
+- ⚠️ **NOVA em 29/09/2026 — três reservas de capital do art. 182** que a RC-137 não
+  listou: prêmio na emissão de debêntures e doações/subvenções para investimento
+  (entram na DMPL); correção monetária do capital realizado (letra morta, não entra).
+  Ver a seção própria acima.
+- ⚠️ **NOVA em 29/09/2026 — o item 51 da R5 é revogado; o equivalente vigente é o
+  item 27 da TG 51, e o item 52 (repetição em cada página) virou item B10, que é
+  julgamento.** O texto de `identificacao.py`, das classes de documento, dos templates
+  e da medição na CI cita o item 51/52 da R5: vale para exercício até 31/12/2026 e
+  **precisa de texto paralelo para 01/01/2027 em diante.** É mudança de nível 1 — o
+  texto vai no documento entregue ao cliente.
