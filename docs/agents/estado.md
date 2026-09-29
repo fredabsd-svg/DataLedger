@@ -138,8 +138,11 @@ merge do PR #38, sem commit individual por etapa.
    #58 (https://github.com/fredabsd-svg/DataLedger/pull/58), encadeado no
    PR #57 do plano (base `docs/dl-048-plano` — mesclar o #57 primeiro;
    depois o GitHub reaponta a base quando a branch do plano for apagada).
-   Nível 1 — falta ainda: (a) AUDITORIA INDEPENDENTE (não executada nesta
-   sessão); (b) correção e reconferência; e a CI do #58.** Depois disso: fatia de paridade de API
+   Nível 1 — **CI do #58 VERDE** no commit `5edb3e7` (Lint e testes,
+   Medir identificação do emitente no navegador, Regras do projeto e
+   Validar documentação); falta ainda: (a) AUDITORIA INDEPENDENTE (não
+   executada nesta sessão) e (b) correção e reconferência, além da
+   revisão e merge — o #57 primeiro.** Depois disso: fatia de paridade de API
    (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
    (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
    Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a
