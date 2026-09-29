@@ -67,13 +67,15 @@ não do projeto):
   continua registrada em
   [requisitos.md](../projeto/requisitos.md) e segue de pé por ser de sessão
   anterior, não por ter sido reconferida agora.
-- ⚠️ **Tensão entre documentos, em aberto:** [requisitos.md](../projeto/requisitos.md)
-  diz *"**Não implementar** a linha 'correção monetária do saldo inicial'
-  (art. 186, I) … não criar índice"*, e o [plano](../planos/DL-048-contabilidade-anual-demonstracoes.md)
-  diz que a linha **existe e sai zerada**. A linha está no enum e sai
-  impressa. O valor é sempre zero e nenhum índice é calculado, então não há
-  risco de número errado — mas a exigência registrada e o comportamento
-  entregue **não dizem a mesma coisa** e isso é decisão do Fred, não minha.
+- ✅ **Resolvido em 29/09/2026 (decisão do Fred):** a rubrica "Correção
+  monetária do saldo inicial" (art. 186, I) foi **removida** do enum, da
+  apuração e do texto emitido — a Lei 9.249/95, art. 4º, p.ú., vedou a
+  correção monetária da moeda e a linha é letra morta em exercício de 2026.
+  Membro removido inteiro (a migração 0012 nunca entrou na `main`), dois
+  testes novos de contrato, nota registrada em
+  [requisitos.md](../projeto/requisitos.md) sem corrigir o sentido do texto
+  normativo. A Lei 9.249/95 **não foi reconferida na fonte oficial** (sem
+  rede nesta máquina) — pendente de leitura no Planalto.
 
 ## Todas as etapas
 

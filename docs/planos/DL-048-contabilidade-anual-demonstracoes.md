@@ -199,12 +199,19 @@ etapa **NÃO** é "integrada".
   máquina, a conformidade com o art. 186 **não foi revalidada**. A
   confirmação de 28/09/2026 em [requisitos.md](../projeto/requisitos.md)
   segue de pé por ser de sessão anterior, não por ter sido checada agora.
-- ⚠️ **Tensão entre documentos, em aberto:** `requisitos.md` manda
-  **não implementar** a linha "correção monetária do saldo inicial"
-  (art. 186, I) e não criar índice; a linha **existe e sai zerada** no
-  enum e na tela. Zero sempre, nenhum índice calculado — sem risco de
-  número errado, mas a exigência registrada e o comportamento entregue
-  não dizem a mesma coisa. **Decisão do Fred.**
+- ✅ **Resolvido em 29/09/2026 (decisão do Fred): a rubrica "Correção
+  monetária do saldo inicial" (art. 186, I) foi REMOVIDA** do enum, da
+  apuração e do texto emitido. Fundamento: a Lei 9.249/95, art. 4º, p.ú.,
+  vedou o sistema de correção monetária da moeda — em exercício de 2026 a
+  linha é letra morta, e linha que não recebe movimento só ocupa espaço no
+  documento do cliente. O membro saiu inteiro (a migração 0012 nunca entrou
+  na `main`, então não há valor gravado em ambiente compartilhado) e a
+  guarda `contas_com_classificacao_dlpa_desconhecida` garante que um valor
+  órfão **vete a emissão** em vez de sumir em silêncio. A nota está em
+  [requisitos.md](../projeto/requisitos.md), sem corrigir o sentido do texto
+  normativo. **Dois testes novos** cobrem o contrato: a rubrica ausente do
+  enum, das linhas e do texto, com a identidade fechando **sem** a chave; e
+  o valor órfão vetando a emissão.
 
 ### Decisões de implementação (registradas para revisão; todas reversíveis)
 
@@ -249,9 +256,9 @@ classe 2 e o cenário de medição semeia a conta sujeito) e o
 
 - API sem a DLPA (D8) — paridade é a próxima fatia.
 - Sem herança de classificação (D5); conta sujeito deve ser folha (D9).
-- Linha "Correção monetária do saldo inicial" existe e sai zerada: é conteúdo
-  do art. 186, I — a norma não a revogou do rol, e não há movimento que a
-  alimente hoje.
+- A rubrica "Correção monetária do saldo inicial" (art. 186, I) **não é
+  emitida** — decisão do Fred em 29/09/2026, com a Lei 9.249/95, art. 4º,
+  p.ú., como fundamento (moeda vedada; letra morta em exercício posterior).
 - Rótulo do enum "Reserva de contingências" (RC-137 escreve "Para
   Contingências") — mesma reserva; a frase invertida não cabe no título
   "Transferência para reserva …" sem soar errado.

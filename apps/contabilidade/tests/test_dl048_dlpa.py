@@ -465,7 +465,6 @@ def test_linhas_na_ordem_dos_incisos_do_artigo_186(cenario_dlpa):
     assert _chaves_em_ordem(dlpa) == [
         "saldo_inicial",
         ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR,
-        ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL,
         f"reversao:{ClassificacaoDlpa.RESERVA_LEGAL}",
         ClassificacaoDlpa.RESULTADO_DO_EXERCICIO,
         f"transferencia:{ClassificacaoDlpa.RESERVA_LEGAL}",
@@ -480,9 +479,82 @@ def test_linhas_na_ordem_dos_incisos_do_artigo_186(cenario_dlpa):
     assert valores[f"transferencia:{ClassificacaoDlpa.RESERVA_LEGAL}"] == Decimal("-1250.00")
     assert valores[ClassificacaoDlpa.DIVIDENDO] == Decimal("-10000.00")
     assert valores[ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL] == Decimal("-500.00")
-    # Correção monetária é linha legal sem movimento: existe, zerada —
-    # nunca some do documento.
-    assert valores[ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL] == Decimal("0.00")
+
+
+def test_a_dlpa_nao_tem_a_rubrica_de_correcao_monetaria(cenario_dlpa):
+    """Contrato do Fred (29/09/2026): a rubrica "Correção monetária do
+    saldo inicial" (art. 186, I) **não sai** no documento — a Lei 9.249/95,
+    art. 4º, p.ú., vedou a correção monetária da moeda, então a linha é
+    letra morta em qualquer exercício posterior e só ocuparia espaço no
+    documento entregue ao cliente.
+
+    Três faces do mesmo contrato, e as três precisam valer: a rubrica
+    some do ENUM (ninguém pode classificar conta nela), some das LINHAS
+    da apuração e some do TEXTO emitido (nada de rótulo sobrando na tela
+    nem no impresso).
+    """
+    dlpa = apurar_dlpa(empresa=cenario_dlpa["empresa"], ano=ANO, mes=MES)
+
+    # 1. O enum não tem o membro — o caminho de classificação fecha.
+    assert "correcao_monetaria_do_saldo_inicial" not in ClassificacaoDlpa.values
+    assert not any("correção monetária" in rotulo.lower() for rotulo in ClassificacaoDlpa.labels)
+
+    # 2. Nenhuma linha da apuração carrega a chave, nem por título.
+    chaves = _chaves_em_ordem(dlpa)
+    assert "correcao_monetaria_do_saldo_inicial" not in chaves
+    assert not any("correção monetária" in linha["titulo"].lower() for linha in dlpa["linhas"])
+
+    # 3. A IDENTIDADE continua fechando SEM essa chave: é o que prova que
+    #    tirar a linha não mexeu em número nenhum. Saldo inicial 800,00
+    #    + ajuste 150,00 + reversão 300,00 + lucro 25.000,00
+    #    + transferência −1.250,00 + dividendos −10.000,00
+    #    + incorporação ao capital −500,00 = 13.700,00 de movimento.
+    movimento_esperado = (
+        Decimal("150.00")
+        + Decimal("300.00")
+        + Decimal("25000.00")
+        - Decimal("1250.00")
+        - Decimal("10000.00")
+        - Decimal("500.00")
+    )
+    assert movimento_esperado == Decimal("13700.00")
+    assert dlpa["saldo_inicial"] + movimento_esperado == dlpa["saldo_final"]
+    assert dlpa["movimento"] == Decimal("13700.00")
+    soma_das_linhas = sum(
+        (
+            linha["valor"]
+            for linha in dlpa["linhas"]
+            if linha["chave"] not in ("saldo_inicial", "saldo_final")
+        ),
+        Decimal("0.00"),
+    )
+    assert soma_das_linhas == Decimal("13700.00")
+    assert dlpa["saldo_inicial"] + soma_das_linhas == dlpa["saldo_final"]
+
+
+def test_nenhuma_conta_pode_ser_classificada_na_rubrica_removida(cenario_dlpa):
+    """O caminho de escrita também fecha: uma conta que ainda tivesse o
+    valor antigo — vinda de base gravada antes da decisão — cai na
+    pendência que VETA a emissão, nomeando o valor cru, em vez de virar
+    linha invisível no total. É o que faz a remoção ser segura mesmo sem
+    migração de dado: o pior caso possível é bloqueio visível, nunca soma
+    silenciosa."""
+    empresa = cenario_dlpa["empresa"]
+    reserva = cenario_dlpa["reserva"]
+    Conta.objects.filter(pk=reserva.pk).update(
+        classificacao_dlpa="correcao_monetaria_do_saldo_inicial"
+    )
+
+    dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=MES)
+    emissao = avaliar_emissao_da_dlpa(dlpa)
+    assert emissao["pode_emitir"] is False
+    assert emissao["listas_pendentes"]["contas_com_classificacao_dlpa_desconhecida"] == [
+        {
+            "conta": "3.3",
+            "nome": "Reserva Legal",
+            "classificacao_dlpa": "correcao_monetaria_do_saldo_inicial",
+        }
+    ]
 
 
 def test_cada_linha_carrega_os_lancamentos_que_a_geraram(cenario_dlpa):

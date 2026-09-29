@@ -5315,7 +5315,6 @@ def _rotulo_minusculo_da_reserva(reserva):
 # de sumir do documento (mesmo molde dos mapas `TIPOS_ACEITOS_*`).
 _TITULOS_DAS_LINHAS_DA_DLPA = {
     ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: "Ajustes de exercícios anteriores",
-    ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL: "Correção monetária do saldo inicial",
     ClassificacaoDlpa.RESULTADO_DO_EXERCICIO: "Lucro (prejuízo) líquido do exercício",
     ClassificacaoDlpa.DIVIDENDO: "Dividendos distribuídos",
     ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: "Lucros incorporados ao capital",
@@ -5651,6 +5650,13 @@ def apurar_dlpa(*, empresa, ano, mes):
         # aparecem com movimento — as demais são estrutura legal e saem
         # sempre, inclusive zeradas (o documento mostra que não houve o
         # evento, não some com ele).
+        #
+        # ⚠️ A rubrica "Correção monetária do saldo inicial" (art. 186, I)
+        # NÃO entra: decisão do Fred em 29/09/2026, com a Lei 9.249/95,
+        # art. 4º, p.ú., como fundamento (moeda vedada; a linha é letra
+        # morta em qualquer exercício posterior). Ver o comentário no
+        # `ClassificacaoDlpa`. A identidade da demonstração não muda: a
+        # linha era sempre zerada e nada somava.
         linhas = [
             {
                 "chave": "saldo_inicial",
@@ -5659,7 +5665,6 @@ def apurar_dlpa(*, empresa, ano, mes):
                 "lancamentos": [],
             },
             _linha_fixa(ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR),
-            _linha_fixa(ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL),
         ]
         for reserva in RESERVAS_DE_LUCROS_DA_DLPA:
             reversao = _linha_de_reserva(reserva, "reversao")

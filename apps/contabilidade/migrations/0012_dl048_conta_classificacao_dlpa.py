@@ -12,6 +12,13 @@
 # camada 1) contra `classificacao_dlpa=""` gravado por fora do
 # `full_clean()` — o mesmo estado torto que a migração 0011 só CORRIGIU
 # na DRE depois de existir; aqui ele nunca chega a existir.
+#
+# 29/09/2026: as `choices` saíram com ONZE valores, sem "correção
+# monetária do saldo inicial" (decisão do Fred; Lei 9.249/95, art. 4º,
+# p.ú.). Esta migração é corrigida no lugar — e não por uma 0013 — porque
+# ela NUNCA entrou na `main` e portanto não foi aplicada em ambiente
+# compartilhado nenhum; corrigir aqui evita gravar uma etapa de migração
+# para desfazer algo que só existiu em branch.
 
 from django.db import migrations, models
 
@@ -27,7 +34,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='conta',
             name='classificacao_dlpa',
-            field=models.CharField(blank=True, choices=[('lucros_ou_prejuizos_acumulados', 'Lucros ou prejuízos acumulados (conta da DLPA)'), ('resultado_do_exercicio', 'Resultado do exercício (lucro ou prejuízo transferido)'), ('reserva_legal', 'Reserva legal'), ('reserva_estatutaria', 'Reserva estatutária'), ('reserva_para_contingencias', 'Reserva para contingências'), ('reserva_de_incentivos_fiscais', 'Reserva de incentivos fiscais'), ('reserva_de_retencao_de_lucros', 'Reserva de retenção de lucros'), ('reserva_de_lucros_a_realizar', 'Reserva de lucros a realizar'), ('dividendo', 'Dividendos distribuídos'), ('lucro_incorporado_ao_capital', 'Lucro incorporado ao capital'), ('ajuste_de_exercicio_anterior', 'Ajuste de exercício anterior'), ('correcao_monetaria_do_saldo_inicial', 'Correção monetária do saldo inicial')], max_length=60, null=True, verbose_name='classificação (DLPA)'),
+            field=models.CharField(blank=True, choices=[('lucros_ou_prejuizos_acumulados', 'Lucros ou prejuízos acumulados (conta da DLPA)'), ('resultado_do_exercicio', 'Resultado do exercício (lucro ou prejuízo transferido)'), ('reserva_legal', 'Reserva legal'), ('reserva_estatutaria', 'Reserva estatutária'), ('reserva_para_contingencias', 'Reserva para contingências'), ('reserva_de_incentivos_fiscais', 'Reserva de incentivos fiscais'), ('reserva_de_retencao_de_lucros', 'Reserva de retenção de lucros'), ('reserva_de_lucros_a_realizar', 'Reserva de lucros a realizar'), ('dividendo', 'Dividendos distribuídos'), ('lucro_incorporado_ao_capital', 'Lucro incorporado ao capital'), ('ajuste_de_exercicio_anterior', 'Ajuste de exercício anterior')], max_length=60, null=True, verbose_name='classificação (DLPA)'),
         ),
         migrations.AddConstraint(
             model_name='conta',

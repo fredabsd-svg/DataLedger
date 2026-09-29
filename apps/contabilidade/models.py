@@ -526,10 +526,19 @@ class ClassificacaoDlpa(models.TextChoices):
         "ajuste_de_exercicio_anterior",
         "Ajuste de exercício anterior",
     )
-    CORRECAO_MONETARIA_DO_SALDO_INICIAL = (
-        "correcao_monetaria_do_saldo_inicial",
-        "Correção monetária do saldo inicial",
-    )
+
+    # ⚠️ **A rubrica "Correção monetária do saldo inicial" (art. 186, I) NÃO
+    # existe neste enum, por decisão do Fred em 29/09/2026.** A lei ainda
+    # cita a linha, mas a Lei 9.249/95, art. 4º, p.ú., vedou a correção
+    # monetária da moeda — em exercício de 2026 ela é letra morta, e uma
+    # rubrica que nunca pode receber movimento é linha que só ocupa espaço
+    # no documento entregue ao cliente. O membro sai do enum INTEIRO (não
+    # fica depreciado): a migração 0012 ainda não entrou na `main`, então
+    # não existe valor gravado em nenhum ambiente compartilhado — e, se
+    # algum dia houver, a guarda `contas_com_classificacao_dlpa_desconhecida`
+    # (services.py) trata o valor órfão como pendência que VETA a emissão,
+    # em vez de somar linha nenhuma. Reverter é repor membro, rótulo e
+    # renderer.
 
 
 # As SEIS reservas de LUCROS de RC-137 (Fred, 2026-09-28) — o subconjunto
@@ -565,12 +574,11 @@ RESERVAS_DE_LUCROS_DA_DLPA = (
 #   arranjos são usuais no plano de contas, e a guarda existe para
 #   impedir nonsense (uma conta de receita classificada como dividendo),
 #   não para escolher o arranjo do escritório.
-# - Ajuste de exercício anterior e correção monetária do saldo inicial:
-#   QUALQUER tipo de propósito — a contrapartida de uma retificação de
-#   erro de exercício anterior (LSA art. 186, §1º; CPC 23) pode ser
-#   qualquer conta (uma baixa de ativo, um passivo, uma receita): a norma
-#   não restringe o lado de fora, e restringir aqui inventaria regra que
-#   a fonte não tem.
+# - Ajuste de exercício anterior: QUALQUER tipo de propósito — a
+#   contrapartida de uma retificação de erro de exercício anterior (LSA
+#   art. 186, §1º; CPC 23) pode ser qualquer conta (uma baixa de ativo, um
+#   passivo, uma receita): a norma não restringe o lado de fora, e
+#   restringir aqui inventaria regra que a fonte não tem.
 TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA = {
     ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.RESULTADO_DO_EXERCICIO: (TipoConta.PATRIMONIO_LIQUIDO,),
@@ -583,7 +591,6 @@ TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA = {
     ClassificacaoDlpa.DIVIDENDO: (TipoConta.PASSIVO, TipoConta.PATRIMONIO_LIQUIDO),
     ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: tuple(TipoConta.values),
-    ClassificacaoDlpa.CORRECAO_MONETARIA_DO_SALDO_INICIAL: tuple(TipoConta.values),
 }
 
 
