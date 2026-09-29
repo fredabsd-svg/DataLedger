@@ -132,7 +132,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-045](../planos/DL-045-demonstracao-do-resultado.md) | Demonstração do Resultado do Exercício: classificação (art. 187) e apuração pelo movimento (RC-118 a RC-120) | Integrada (PR #52) |
 | [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | **Integrada (PR #53, #54 e #56)** — fatias 1, 2 e 3; a auditoria da fatia 3 não consta em `docs/auditorias/` |
 | [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | Em desenvolvimento |
+| [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | **Fatia CTB-12 + CTB-13 (a DLPA) integrada pelo PR #59** — com auditoria reprovada e achados corrigidos; CTB-14 a CTB-17 em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -141,8 +141,8 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048: auditoria executada e **REPROVADA**,
-achados de alta corrigidos, PR #59 aberto e verde na `main`; falta o merge:**
+**AGORA — sessão de 2026-09-29. DL-048: auditoria executada, achados corrigidos e a fatia **INTEGRADA na main** pelo PR #59; o que falta é a conformidade normativa:**
+
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
    desenvolvimento; a fatia está CODE E TESTADA na branch
@@ -169,21 +169,30 @@ achados de alta corrigidos, PR #59 aberto e verde na `main`; falta o merge:**
    conteúdo, apenas o deixa inacessível. O conserto é um PR novo da
    branch de trabalho direto para a `main`.
 
-   Estado verificado em 29/09/2026: o conserto é o **PR #59**, aberto da
+   Estado verificado em 29/09/2026: o conserto foi o **PR #59**, aberto da
    branch de trabalho direto para a `main` (o merge `main ←
    feat/dl-048-dlpa` foi conferido **limpo** com `git merge-tree`, sem
    conflito). Nível 1 — **a auditoria independente foi EXECUTADA e
    REPROVOU** ([rodada 1](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md),
    16 achados: 2 de alta, 9 de média, 5 de baixa). Os achados de alta e de
-   média prioritária foram **corrigidos e reconferidos** nesta mesma
-   rodada — uma auditoria, uma correção, uma reconferência, como o
-   `AGENTS.md` §3.1 exige; o restante está **declarado como limitação** no
-   plano, não escondido. O PR #59 está **CLEAN** com os quatro jobs
-   verdes. ⚠️ **Falta o merge**, e a **conformidade normativa segue NÃO
-   CONCLUÍDA**: sem rede nesta máquina, nem a implementação nem a auditoria
-   leram Planalto/CFC, e **nenhuma** linha do art. 186 foi confirmada em
-   fonte oficial. Depois disso: fatia de paridade de API
-   (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
+   média foram corrigidos em **duas rodadas** — a primeira por conta própria,
+   a segunda por ordem do Fred, que optou por não mesclar antes de corrigir o
+   restante. ⚠️ O `AGENTS.md` §3.1 diz que a **terceira** rodada é proibida;
+   a segunda não é, e foi pedida.
+
+   ✅ **INTEGRADA pelo PR #59**, mesclado na `main` em 29/09/2026 às 17:43
+   (squash, `7761ea5`), com os **quatro jobs verdes** no commit `f831dad` e
+   **conferência de conteúdo**: `git diff origin/main origin/feat/dl-048-dlpa`
+   sai **vazio** — a `main` tem exatamente o mesmo conteúdo da branch (23
+   arquivos, +3.909/−82 contra o ponto de partida da fatia).
+
+   ⚠️ **O que a integração NÃO resolve: a conformidade normativa é NÃO
+   CONCLUÍDA.** Sem rede nesta máquina, nem a implementação nem a auditoria
+   leram Planalto/CFC, e **nenhuma** linha do art. 186 — nem a Lei 6.404/76,
+   nem a Lei 9.249/95 (base da remoção da rubrica de correção monetária) —
+   foi confirmada em fonte oficial. Isto é do Fred, com o texto na mão.
+   Depois disso: fatia de paridade de API (`DlpaView` +
+   `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
    (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
    Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a
    leitura D7 é neutra a ela) e a validação do art. 193 antes de
