@@ -225,7 +225,7 @@ etapa **NÃO** é "integrada".
 | D6 | **Período = EXERCÍCIO (01/01, ano civil, HI-28) até a competência pedida**; saldo inicial em 31/12 do ano anterior; navegação por mês, mesma gramática da DRE. | A DLPA é demonstração do exercício; o seletor de mês controla "até quando", nunca um período livre. |
 | D7 | **A compensação de lucros/prejuízos (PE-38/HI-26, ainda com o Fred) não é presumida.** Lançamento entre as DUAS contas sujeito tem efeito líquido ZERO e some da demonstração. | A leitura é neutra ao mecanismo que o escritório venha a usar: não inventa transferência que não foi lançada, nem esconde a que foi. |
 | D8 | **Tela primeiro, API depois.** Nesta fatia: `dlpa` e `conta_classificacao_dlpa` (2 rotas web); `DlpaView` (GET) + `ContaClassificacaoDlpaView` (PATCH) + `ContaSerializer.classificacao_dlpa` são a fatia seguinte. | Mantém o escopo da fatia revisável; as contagens de rota de `test_dl038_recusa_livro_caixa.py` já registram 21 web / 15 API com o histórico. |
-| D9 | **Conciliação DLPA ↔ Balanço por caminho independente**: a apuração soma `ItemLancamento` por conta exata; a conferência usa o `saldo` do motor do Balancete (`apurar_saldos`) em `data_fim`, credora `+`/devedora `−`. Conta sujeito deve ser FOLHA. | É a comparação entre dois caminhos que prova o número (critério de aceite); filhas movimentadas geram diferença e vetam, corretamente. |
+| D9 | **Conciliação DLPA ↔ Balanço por caminho independente**: a apuração soma `ItemLancamento` por conta exata; a conferência usa o `saldo` do motor do Balancete (`apurar_saldos`) em `data_fim`, credora `+`/devedora `−`. | É a comparação entre dois caminhos que prova o número (critério de aceite). ⚠️ **Reescrita em 29/09/2026** (achado 9 da auditoria): a versão original dizia "conta sujeito deve ser FOLHA" como se fosseimposta, e não é — `Conta.clean()` aceita classificar uma conta que já tem filha, e **a estrutura que o próprio `zerar_resultado` cria tem sujeito com subconta** (a conta "3" dos lucros acumulados com a "3.1" do resultado abaixo). Prometer a restrição num texto que o produto não aplica é pior que não prometer. O que o produto **faz** é detectar a consequência: subconta que se move faz a conta exata divergir da consolidada, a `diferenca_de_fechamento` acende e **veta a emissão** — coberto por teste. Subconta parada não diverge e emite com o número certo. |
 
 ### Critérios cobertos e evidência (2026-09-28)
 
@@ -272,31 +272,21 @@ classe 2 e o cenário de medição semeia a conta sujeito) e o
 A [rodada 1 da auditoria](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md)
 reprovou. Os achados de **alta** foram corrigidos (o gate da conciliação com o
 Balanço ganhou quatro testes; o diagnóstico de classificação órfã na conta
-sujeito foi corrigido; os dois testes fracos foram reescritos). O que segue
-fica **declarado, não escondido** — nenhum destes é regra de número, são
-cobertura, tela e fonte:
+sujeito foi corrigido; os dois testes fracos foram reescritos) e **o restante
+também**, por ordem do Fred em 29/09/2026: o veto da conciliação passou a
+nomear as contas, a tela discrimina a origem de cada linha (achado 5), o
+formulário de conta nova ganhou cobertura (achado 16) e a decisão D9 foi
+reescrita para dizer o que o produto faz em vez do que ele não impõe
+(achado 9). Ficam declarados, e não escondidos:
 
-- **Achado 4 — o veto da conciliação não nomeia a conta.** Ele informa o valor
-  da diferença e a hipótese, mas não diz *qual* conta sujeito tem subconta
-  movimentada; e o negativo sai com `-` em vez dos parênteses que o próprio
-  documento usa (RC-90). As outras três pendências nomeiam e linkam.
-- **Achado 5 — a rastreabilidade morre na view.** `apurar_dlpa` devolve
-  `lancamentos` por linha e `_montar_linhas_da_dlpa` **não expõe** esse campo:
-  no documento entregue ao cliente, uma linha de ajuste aparece agregada, sem
-  o lançamento que a originou (o art. 186, §1º pede discriminação). O critério
-  "cada linha vem de lançamento identificável" vale **na apuração**, não no
-  impresso.
 - **Achado 8 — o snapshot `REPEATABLE READ` não tem teste.** O comando só é
   emitido fora de transação aberta, e `pytest.mark.django_db` abre uma: a
   proteção existe no código e **nenhum teste** a exercita. O modelo a portar é
-  `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` (DL-045).
-- **Achado 9 — "conta sujeito deve ser folha" (D9) não é imposta.** `Conta.
-  clean()` aceita classificar como sujeito uma conta que já tem filha. Com a
-  filha parada a emissão sai com o número certo; com a filha movimentada a
-  `diferenca_de_fechamento` veta — agora **com teste** (era o achado 2).
+  `test_a5_com_o_wrapper_o_snapshot_protege_do_lucro_fantasma` (DL-045) — que
+  exige PostgreSQL e por isso não pôde ser escrito e executado nesta máquina.
 - **Achado 11 — o §2º (dividendo por ação) não existe no enum.** Ele consta
   como exigido em [requisitos.md](../projeto/requisitos.md) e não está nem na
-  apuração nem no documento. Declarado, não implementando às cegas: a rubrica
+  apuração nem no documento. Declarado, não implementado às cegas: a rubrica
   pede valor por ação e a DLPA **não tem dado de ações** — a base de cálculo é
   do DMPL (CTB-14). ⚠️ O auditor **também não pôde** confirmar o §2º em fonte
   oficial (sem rede).
@@ -307,12 +297,12 @@ cobertura, tela e fonte:
 - **Achado 15 — um ajuste de exercício anterior lançado em 31/12 cai no saldo
   inicial** e a linha sai zerada; o mesmo ajuste em 02/01 aparece na linha. O
   filtro é só por data, e o produto não controla nem sinaliza a data digitada.
-- **Achado 16 — o campo `classificacao_dlpa` no `conta_nova` não tem teste.**
-  O caminho foi verificado por sonda do auditor (grava com `302` e recusa
-  linha incompatível sem gravar nada); é cobertura que falta, não defeito.
 - **Achado 12 — o rollback da 0012 perde as classificações** gravadas (o
   `RemoveField` não as preserva). A trilha registra cada mudança, mas só a
   partir de quando existe.
+- **Achado 14 — `mes` fora da faixa 1–12** levanta exceção crua
+  (`IllegalMonthError`/`TypeError`) em vez de erro de domínio. Hoje nenhum
+  caminho erre (a view valida), e a correção pertence à fatia de API (D8).
 - **Conformidade normativa: NÃO CONCLUÍDA.** Nem a auditoria nem a
   implementação puderam ler Planalto/CFC nesta máquina: **nenhuma** linha do
   art. 186, nem a Lei 6.404/76, nem a Lei 9.249/95 foi reconferida em fonte

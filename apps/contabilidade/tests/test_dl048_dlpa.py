@@ -710,9 +710,68 @@ def test_conta_sujeito_com_filha_movimentada_acende_a_diferenca_e_veta(cenario_d
 
     emissao = avaliar_emissao_da_dlpa(dlpa)
     assert emissao["pode_emitir"] is False
-    assert emissao["listas_pendentes"]["diferenca_de_fechamento"] == [
-        {"diferenca": Decimal("777.00")}
-    ]
+    pendencia = emissao["listas_pendentes"]["diferenca_de_fechamento"][0]
+    assert pendencia["diferenca"] == Decimal("777.00")
+    # Achado 4: o veto NOMEIA as contas sujeito com o próprio saldo, para o
+    # contador olhar no Balanço e ver qual diverge.
+    assert {conta["conta"] for conta in pendencia["contas"]} == {"3.1", "3.2"}
+
+
+def test_o_veto_da_conciliacao_nomeia_a_conta_e_usa_parenteses(cenario_dlpa, client):
+    """Achado 4, ponta a ponta pela tela: o texto do veto mostra código e
+    nome da conta sujeito, e o saldo NEGATIVO sai entre parênteses — como
+    em toda célula assinada do produto (RC-90) e como sai na linha do
+    Balanço que o contador vai conferir para validar."""
+    empresa = cenario_dlpa["empresa"]
+    _autenticar(client, cenario_dlpa["escritorio"], "veto-conciliacao")
+    filha = _conta(
+        empresa,
+        codigo="3.1.1",
+        nome="Lucros Acumulados - Subconta",
+        tipo=TipoConta.PATRIMONIO_LIQUIDO,
+        natureza=C,
+        pai=cenario_dlpa["lucros"],
+    )
+    _lancar(
+        empresa,
+        timezone.datetime(2026, 3, 10).date(),
+        "Movimento na subconta da conta sujeito",
+        filha,
+        cenario_dlpa["caixa"],
+        "777.00",
+    )
+    # A conta 3.2 é DEVEDORA ("(-) Prejuízos Acumulados"): um DÉBITO nela
+    # produz efeito de PL NEGATIVO, que é o caso em que a regra dos
+    # parênteses precisa aparecer. Sem este lançamento as duas contas
+    # sujeito saem positivas e o teste não exercitaria nada.
+    _lancar(
+        empresa,
+        timezone.datetime(2026, 3, 12).date(),
+        "Débito em prejuízos acumulados",
+        cenario_dlpa["prejuizos"],
+        cenario_dlpa["caixa"],
+        "300.00",
+    )
+
+    resposta = client.get(reverse("contabilidade_web:dlpa", args=[empresa.id]))
+    assert resposta.context["pode_emitir"] is False
+    lista = next(
+        item
+        for item in resposta.context["listas_pendentes"]
+        if "Diferença entre a DLPA e o Balanço" in item["titulo"]
+    )
+    linhas = lista["linhas"]
+    # As DUAS contas sujeito nomeadas, com código e nome.
+    assert {linha["conta"] for linha in linhas} == {"3.1", "3.2"}
+    assert any(linha["nome"] == "Lucros Acumulados" for linha in linhas)
+    # A conta com saldo negativo sai entre parênteses — e acredora, sem
+    # parênteses. Nenhum sinal de menos solto no texto.
+    detalhes = [linha["detalhe"] for linha in linhas]
+    negativo = next(d for d in detalhes if "(" in d)
+    positivo = next(d for d in detalhes if "(" not in d)
+    assert negativo == "Saldo no Balanço: (300,00)"
+    assert "-" not in negativo
+    assert positivo.startswith("Saldo no Balanço: ")
 
 
 def test_conta_sujeito_com_filha_parada_ainda_emite(cenario_dlpa):
@@ -769,6 +828,79 @@ def test_conta_sujeito_com_classificacao_corrompida_e_nomeada(cenario_dlpa):
         "nenhuma_conta_de_lucros_ou_prejuizos_acumulados_classificada"
         in emissao["listas_pendentes"]
     )
+
+
+def test_a_demonstracao_imprime_a_origem_de_cada_linha(cenario_dlpa, client):
+    """Achado 5 da auditoria de 29/09/2026: `apurar_dlpa` devolvia os
+    lançamentos de cada linha e a view **jogava fora** — a rastreabilidade
+    do art. 186 ("cada linha precisa vir de lançamento identificável")
+    existia na apuração e morria antes do documento. Agora o lançamento
+    que formou a linha é discriminado na tela, o que é o que o §1º do
+    artigo pede dos ajustes de exercício anterior."""
+    empresa = cenario_dlpa["empresa"]
+    _autenticar(client, cenario_dlpa["escritorio"], "conta-origem")
+
+    resposta = client.get(reverse("contabilidade_web:dlpa", args=[empresa.id]))
+    assert resposta.status_code == 200
+    assert resposta.context["pode_emitir"] is True
+
+    # A linha do ajuste de exercício anterior discrimina o lançamento que
+    # a formou — data e histórico, como no Diário.
+    linhas = resposta.context["linhas"]
+    por_chave = {linha["chave"]: linha for linha in linhas}
+    origens = por_chave[ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR]["origens"]
+    assert origens == ["20/03/2026 — Ajuste de exercício anterior (retificação de erro)"]
+    # A linha de saldo não tem origem: saldo não vem de lançamento próprio.
+    assert por_chave["saldo_inicial"]["origens"] == []
+    assert por_chave["saldo_final"]["origens"] == []
+    # E a discriminação aparece no HTML entregue, não só no contexto.
+    conteudo = resposta.content.decode()
+    assert "Ajuste de exercício anterior (retificação de erro)" in conteudo
+    assert "20/03/2026" in conteudo
+
+
+def test_a_conta_nova_aceita_a_classificacao_da_dlpa(client, cenario_dlpa):
+    """Achado 16: o campo `classificacao_dlpa` no formulário de conta nova
+    é caminho de escrita do campo NOVO e não tinha cobertura. O auditor
+    verificara o comportamento por sonda própria; aqui vira teste."""
+    _autenticar(client, cenario_dlpa["escritorio"], "criador-conta")
+    resposta = client.post(
+        reverse("contabilidade_web:conta_nova", args=[cenario_dlpa["empresa"].id]),
+        data={
+            "codigo": "9",
+            "nome": "Reserva Estatutária",
+            "tipo": TipoConta.PATRIMONIO_LIQUIDO,
+            "natureza": NaturezaConta.CREDORA,
+            "conta_pai": "",
+            "aceita_lancamento": "on",
+            "classificacao_dlpa": ClassificacaoDlpa.RESERVA_ESTATUTARIA,
+        },
+    )
+    assert resposta.status_code == 302
+    conta = Conta.objects.get(codigo="9", empresa=cenario_dlpa["empresa"])
+    assert conta.classificacao_dlpa == ClassificacaoDlpa.RESERVA_ESTATUTARIA
+
+
+def test_a_conta_nova_recusa_classificacao_incompativel_sem_gravar(client, cenario_dlpa):
+    """O caminho de recusa: linha que o tipo da conta não aceita volta
+    com o erro e **não grava nada** — a guarda é do servidor
+    (`Conta.clean()`), não da tela."""
+    _autenticar(client, cenario_dlpa["escritorio"], "criador-conta-invalido")
+    url = reverse("contabilidade_web:conta_nova", args=[cenario_dlpa["empresa"].id])
+    resposta = client.post(
+        url,
+        data={
+            "codigo": "4.9",
+            "nome": "Conta de resultado com linha de reserva",
+            "tipo": TipoConta.RECEITA,
+            "natureza": NaturezaConta.CREDORA,
+            "conta_pai": "",
+            "aceita_lancamento": "on",
+            "classificacao_dlpa": ClassificacaoDlpa.RESERVA_ESTATUTARIA,
+        },
+    )
+    assert resposta.status_code == 200
+    assert not Conta.objects.filter(codigo="4.9", empresa=cenario_dlpa["empresa"]).exists()
 
 
 def test_a_tela_nao_monta_a_demonstracao_quando_a_conciliacao_acende(cenario_dlpa, client):

@@ -45,6 +45,7 @@ from django.utils import timezone
 # contrato. Uma view de função alcançável pelo urlconf e SEM esta declaração
 # reprova a varredura — não existe mais o caminho "não consegui classificar,
 # então não é escrita".
+from django.utils.formats import date_format
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
@@ -4229,6 +4230,20 @@ _TITULOS_DOS_AVISOS_DA_DLPA = {
 }
 
 
+def _saldo_entre_parenteses(valor):
+    """Monetário em pt-BR com o negativo entre parênteses (RC-90), como em
+    toda célula assinada deste produto — inclusive nas linhas de Balanço e
+    DRE que o contador vai conferir para validar o número da DLPA.
+
+    Existe por causa do achado 4 da auditoria de 29/09/2026: o veto da
+    conciliação saía com o sinal de menos solto, o que destoava do
+    documento que o contador tem na mão do outro lado da tela.
+    """
+    if valor < 0:
+        return f"({_valor_ptbr(abs(valor))})"
+    return _valor_ptbr(valor)
+
+
 def _lista_de_pendencia_dlpa_para_contexto(nome, itens, contas_id_por_codigo):
     """Uma entrada do veto da DLPA, pronta para o template — título humano,
     `tipo_linha` (o ramo de renderização) e a AÇÃO que resolve.
@@ -4252,17 +4267,40 @@ def _lista_de_pendencia_dlpa_para_contexto(nome, itens, contas_id_por_codigo):
         linhas = [{"conta": None, "nome": None, "detalhe": item["mensagem"]} for item in itens]
         return {"titulo": titulo, "tipo_linha": "detalhe", "linhas": linhas, "acao": acao}
     if nome == "diferenca_de_fechamento":
-        linhas = [
-            {
-                "conta": None,
-                "nome": None,
-                "detalhe": (
-                    "Soma das linhas da DLPA menos o saldo das contas sujeito no "
-                    f"Balanço: {_valor_ptbr(item['diferenca'])}."
-                ),
-            }
-            for item in itens
-        ]
+        # Achado 4 da auditoria de 29/09/2026: o veto agora NOMEIA as contas
+        # sujeito com o próprio saldo (as outras três pendências já nomeavam
+        # e linkavam; esta era a que menos ajudava), e o negativo sai entre
+        # parênteses como no resto do documento (RC-90) — antes saía com o
+        # sinal de menos, e a linha do Balanço que o contador vai conferir
+        # usa parênteses.
+        linhas = []
+        for item in itens:
+            contas_do_item = [
+                {
+                    "conta": conta["conta"],
+                    "nome": conta["nome"],
+                    # Negativo entre parênteses, como em TODA célula
+                    # assinada deste produto (RC-90) — inclusive na linha do
+                    # Balanço que o contador vai conferir para validar.
+                    "detalhe": f"Saldo no Balanço: {_saldo_entre_parenteses(conta['saldo'])}",
+                }
+                for conta in item.get("contas", [])
+            ]
+            # `apurar_dlpa` sempre devolve as contas; o texto de total fica
+            # como rede de segurança para um item vindo de base anterior.
+            linhas.extend(
+                contas_do_item
+                or [
+                    {
+                        "conta": None,
+                        "nome": None,
+                        "detalhe": (
+                            "Soma das linhas da DLPA menos o saldo das contas "
+                            f"sujeito no Balanço: {_valor_ptbr(item['diferenca'])}."
+                        ),
+                    }
+                ]
+            )
         return {"titulo": titulo, "tipo_linha": "detalhe", "linhas": linhas, "acao": acao}
 
     linhas = _linhas_de_pendencia(itens)
@@ -4324,6 +4362,31 @@ def _listas_de_aviso_da_dlpa_para_contexto(avisos):
     return listas
 
 
+def _lancamentos_da_dlpa_por_id(ids):
+    """Os lançamentos que originaram as linhas da DLPA, indexados por id.
+
+    **UMA consulta para todas as linhas**, nunca uma por linha: a
+    rastreabilidade multiplica por N (achado 5 da auditoria de 29/09/2026)
+    e consulta-por-linha é o caminho que faz uma tela ficar lenta sem o
+    contador perceber. Sem lançamentos, mapa vazio e nenhuma consulta —
+    uma DLPA sem movimento nenhum é caso comum.
+
+    A descrição é data + histórico, o que basta para o contador
+    localizar o lançamento no Diário/Razão; nada de conteúdo sensível
+    entra no documento além do que já está nas linhas.
+    """
+    if not ids:
+        return {}
+    return {
+        lancamento.id: {
+            "data": lancamento.data,
+            "historico": lancamento.historico,
+            "descricao": f"{date_format(lancamento.data, 'd/m/Y')} — {lancamento.historico}",
+        }
+        for lancamento in LancamentoContabil.objects.filter(id__in=ids).order_by("data", "id")
+    }
+
+
 def _montar_linhas_da_dlpa(dlpa_apurada):
     """Linhas IMPRESSAS da DLPA, a partir da lista que `apurar_dlpa` já
     ordenou pelo art. 186 — a ordem e a estrutura vêm do SERVIÇO (é lá que
@@ -4331,13 +4394,34 @@ def _montar_linhas_da_dlpa(dlpa_apurada):
     negativo entre parênteses, RC-90 — a mesma regra de todas as células
     assinadas deste produto) e se marca `eh_saldo` para o template
     destacar as DUAS linhas de saldo.
+
+    **`lancamentos` é repassado** (achado 5 da auditoria de 29/09/2026): o
+    serviço já devolvia, por linha, os lançamentos que a geraram — e a
+    view jogava fora. O art. 186, §1º pede que os ajustes de exercícios
+    anteriores sejam *"identificados e discriminados"*; sem isto, a
+    rastreabilidade morria entre a apuração e o documento entregue, e o
+    contador não conseguia conferir a linha contra o Razão pela própria
+    tela. Os ids vão para o contexto; a identificação legível (data,
+    histórico) é montada aqui, com UMA consulta, e nunca por linha.
     """
+    ids_por_linha = {
+        linha["chave"]: linha.get("lancamentos", []) for linha in dlpa_apurada["linhas"]
+    }
+    todos_os_ids = {id_lancamento for ids in ids_por_linha.values() for id_lancamento in ids}
+    lancamentos_por_id = _lancamentos_da_dlpa_por_id(todos_os_ids)
     return [
         {
             "chave": linha["chave"],
             "titulo": linha["titulo"],
             "valor": _valor_dre(linha["valor"]),
             "eh_saldo": linha["chave"] in ("saldo_inicial", "saldo_final"),
+            # Descrição legível de cada origem da linha, na ordem em que a
+            # apuração as viu. Lista vazia nas linhas de saldo e nas
+            # rubricas sem movimento — o template não imprime sufixo.
+            "origens": [
+                lancamentos_por_id.get(id_lancamento, {}).get("descricao", "")
+                for id_lancamento in ids_por_linha.get(linha["chave"], [])
+            ],
         }
         for linha in dlpa_apurada["linhas"]
     ]

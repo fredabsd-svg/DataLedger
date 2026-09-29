@@ -200,7 +200,24 @@ obrigação, não opção de layout (NBC TG 26 itens 51 e 52).
                 {% endcomment %}
                 {% for linha in linhas %}
                     <tr{% if linha.eh_saldo %} class="linha-total"{% endif %}>
-                        <td>{{ linha.titulo }}</td>
+                        <td>
+                            {{ linha.titulo }}
+                            {% comment %}
+                            DL-048, art. 186 §1º: os ajustes de exercícios
+                            anteriores são "identificados e discriminados". A
+                            discriminação é a própria origem da linha — data
+                            e histórico do lançamento que a formou (achado 5
+                            da auditoria de 29/09/2026: a rastreabilidade
+                            existia na apuração e morria antes do documento).
+                            {% endcomment %}
+                            {% if linha.origens %}
+                                <ul class="lista-origens-da-linha">
+                                    {% for origem in linha.origens %}
+                                        <li>{{ origem }}</li>
+                                    {% endfor %}
+                                </ul>
+                            {% endif %}
+                        </td>
                         <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
                     </tr>
                 {% endfor %}

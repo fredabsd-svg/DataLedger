@@ -5622,8 +5622,13 @@ def apurar_dlpa(*, empresa, ano, mes):
         # sujeito com filhas.
         linhas_do_balanco = {linha["conta"]: linha for linha in saldos["contas"]}
         saldo_no_balanco = zero
+        # Cada conta sujeito com o PRÓPRIO saldo no Balanço. Serve para a
+        # SOMA abaixo e para o veto: o contador precisa ver *qual* conta
+        # diverge, não só o total (achado 4 da auditoria de 29/09/2026).
+        saldo_de_cada_sujeito = []
         for conta_id in sujeito_ids:
-            linha = linhas_do_balanco.get(contas[conta_id].codigo)
+            conta = contas[conta_id]
+            linha = linhas_do_balanco.get(conta.codigo)
             if linha is None:
                 # Conta sujeito ausente do motor do Balancete não existe
                 # hoje (toda conta ganha linha); se um dia existir, a
@@ -5633,9 +5638,17 @@ def apurar_dlpa(*, empresa, ano, mes):
             if linha["natureza"] != NaturezaConta.CREDORA:
                 contribuicao = -contribuicao
             saldo_no_balanco += contribuicao
+            saldo_de_cada_sujeito.append(
+                {"conta": conta.codigo, "nome": conta.nome, "saldo": contribuicao}
+            )
         diferenca = saldo_final - saldo_no_balanco
         if diferenca != zero:
-            pendencias["diferenca_de_fechamento"] = [{"diferenca": diferenca}]
+            pendencias["diferenca_de_fechamento"] = [
+                {
+                    "diferenca": diferenca,
+                    "contas": saldo_de_cada_sujeito,
+                }
+            ]
 
         resultado_nao_transferido = saldos["equacao"]["resultado_nao_transferido"]
         avisos = {
@@ -5736,6 +5749,13 @@ _LISTAS_DA_DLPA_QUE_IMPEDEM_A_EMISSAO = (
 # Nenhuma pendência da DLPA é só aviso HOJE (as quatro acima vetam todas);
 # `avisos` fica no retorno de `apurar_dlpa` como contrato próprio — ele não
 # é particionado com as pendências, é uma chave separada do dicionário.
+# NADA de aviso sobre "conta sujeito com subconta" (achado 9 da auditoria de
+# 29/09/2026): a estrutura que o PRÓPRIO zeramento cria tem sujeito com
+# subconta (a conta "3" dos lucros acumulados com a "3.1" do resultado
+# abaixo), então o aviso dispararia na estrutura recomendada pelo produto —
+# ruído que treina o contador a ignorar aviso. O risco que o achado 9 apontava
+# — subconta que se move e faz a DLPA divergir do Balanço — é exatamente o que
+# a `diferenca_de_fechamento` detecta e VETA, agora com teste.
 _LISTAS_DE_AVISO_DA_DLPA = ("resultado_nao_transferido",)
 
 
