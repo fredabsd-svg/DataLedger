@@ -141,8 +141,8 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048 em desenvolvimento; a auditoria
-independiente (nível 1) está em curso e a fatia ainda NÃO está na `main`:**
+**AGORA — sessão de 2026-09-29. DL-048: auditoria executada e **REPROVADA**,
+achados de alta corrigidos, PR #59 aberto e verde na `main`; falta o merge:**
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
    desenvolvimento; a fatia está CODE E TESTADA na branch
@@ -169,13 +169,20 @@ independiente (nível 1) está em curso e a fatia ainda NÃO está na `main`:**
    conteúdo, apenas o deixa inacessível. O conserto é um PR novo da
    branch de trabalho direto para a `main`.
 
-   Estado verificado em 29/09/2026: `origin/main` tem **1 commit** a mais
-   que a branch (o merge do #57) e a branch da fatia tem **3 commits**
-   fora da `main`; o merge `main ← feat/dl-048-dlpa` é **limpo**
-   (`git merge-tree`, sem conflito) e o diff resultante são exatamente as
-   19 arquivos da fatia. Nível 1 — falta ainda (a) **AUDITORIA
-   INDEPENDENTE** (em curso nesta sessão) e (b) correção e reconferência,
-   além da revisão e do merge. Depois disso: fatia de paridade de API
+   Estado verificado em 29/09/2026: o conserto é o **PR #59**, aberto da
+   branch de trabalho direto para a `main` (o merge `main ←
+   feat/dl-048-dlpa` foi conferido **limpo** com `git merge-tree`, sem
+   conflito). Nível 1 — **a auditoria independente foi EXECUTADA e
+   REPROVOU** ([rodada 1](../auditorias/2026-09-29-dl-048-dlpa-rodada-1.md),
+   16 achados: 2 de alta, 9 de média, 5 de baixa). Os achados de alta e de
+   média prioritária foram **corrigidos e reconferidos** nesta mesma
+   rodada — uma auditoria, uma correção, uma reconferência, como o
+   `AGENTS.md` §3.1 exige; o restante está **declarado como limitação** no
+   plano, não escondido. O PR #59 está **CLEAN** com os quatro jobs
+   verdes. ⚠️ **Falta o merge**, e a **conformidade normativa segue NÃO
+   CONCLUÍDA**: sem rede nesta máquina, nem a implementação nem a auditoria
+   leram Planalto/CFC, e **nenhuma** linha do art. 186 foi confirmada em
+   fonte oficial. Depois disso: fatia de paridade de API
    (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
    (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
    Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a
