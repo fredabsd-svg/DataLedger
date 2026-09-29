@@ -167,9 +167,11 @@ não a NBC TG 26 item 106 nem a Lei 11.941/2009.
 
 Branch `feat/dl-048-dlpa`. **Nível 1:** o que falta para a etapa fechar, nesta
 ordem: (a) **auditoria independente** (obrigatória — não foi executada nesta
-sessão); (b) correção da auditoria e reconferência; (c) push + PR desta branch
-encadeado no PR #57 (do plano, base `docs/dl-048-plano`). Enquanto (a)–(c) não
-acontecem, a etapa NÃO é "integrada".
+sessão); (b) correção da auditoria e reconferência; (c) CI aprovada no **PR
+#58** (aberto contra `docs/dl-048-plano`, encadeado no PR #57 do plano —
+mesclar o #57 primeiro; depois disso o GitHub reaponta a base quando a
+branch do plano for apagada). Enquanto (a)–(c) não acontecem, a etapa NÃO é
+"integrada".
 
 ### Decisões de implementação (registradas para revisão; todas reversíveis)
 

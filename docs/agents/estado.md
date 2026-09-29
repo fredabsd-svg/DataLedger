@@ -134,10 +134,12 @@ merge do PR #38, sem commit individual por etapa.
    critérios cobertos e limitações declaradas no
    [plano](../planos/DL-048-contabilidade-anual-demonstracoes.md);
    fontes normativas em [requisitos.md](../projeto/requisitos.md)
-   (RC-137 a RC-140). **Nível 1 — falta, nesta ordem: (a) AUDITORIA
-   INDEPENDENTE (não executada nesta sessão); (b) correção e
-   reconferência; (c) push + PR da branch, encadeado no PR #57 (do plano,
-   base `docs/dl-048-plano`).** Depois disso: fatia de paridade de API
+   (RC-137 a RC-140). **(c) push e PR FEITOS: PR
+   #58 (https://github.com/fredabsd-svg/DataLedger/pull/58), encadeado no
+   PR #57 do plano (base `docs/dl-048-plano` — mesclar o #57 primeiro;
+   depois o GitHub reaponta a base quando a branch do plano for apagada).
+   Nível 1 — falta ainda: (a) AUDITORIA INDEPENDENTE (não executada nesta
+   sessão); (b) correção e reconferência; e a CI do #58.** Depois disso: fatia de paridade de API
    (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
    (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
    Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a
