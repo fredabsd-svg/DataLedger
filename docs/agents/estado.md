@@ -34,28 +34,46 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; at
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
 | **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DLPA (**DMPL, DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
 
-**Verificação local em 28/09/2026** (Windows, Python 3.14.7, SQLite, branch
-`feat/dl-048-dlpa`; o pytest desta máquina precisa de um contorno de
-ambiente FORA do repositório, em `Harness/.dsh-tmp/` — o sandbox converte
-`mkdir(mode=0o700)` em ACL que nem o criador consegue listar):
-`ruff check`, `ruff format --check` (313 arquivos), `manage.py check`,
-`makemigrations --check` e `migrate` aplicando a 0012 aprovados. Suíte
-completa em blocos: **3.321 passed, 120 failed, 72 skipped, 17
-deselected** — a diferença de +39 passed contra o worktree limpo do HEAD
-são exatamente os testes novos da DL-048 (`test_dl048_dlpa.py`,
-**39/39**), e as guardas que a etapa toca passaram isoladas (restrições +
-rotas + documentação: **143**; atalhos/cobertura: **56**). As 120 falhas
-são **todas pré-existentes**: 117 idênticas no worktree limpo e as 3
-restantes são de concorrência com **flakiness comprovado** (5 execuções ×
-2 árvores, contagem variando de 1 a 3 no MESMO código). A classe de
-concorrência com threads **trava** neste Windows/SQLite: 6 testes provados
-travando no HEAD limpo (bl144 ×2, corridas de `empresas/test_api` ×2,
-`dl023` ×2), deselecionados localmente — a CI (Linux + PostgreSQL) é quem
-roda essa classe. Os 72 skips são os ponta-a-ponta de navegador/poppler
-(sem Chromium/poppler aqui). `gerar_agentes --verificar` reprova só pelas
-permissões 0o666 (BL-175, Windows, pré-existente); `validate-docs.ps1`
-exige PowerShell 7 (só 5.1 instalada) — a higiene dos `.md` alterados foi
-conferida por substituto local equivalente; os dois rodam oficiais na CI.
+**Verificação local em 29/09/2026** (Windows, Python 3.14.7, SQLite, branch
+`feat/dl-048-dlpa`; o pytest desta máquina precisa do contorno de ambiente
+`PYTEST_PLUGINS=dsh_tmp_fix` com `PYTHONPATH` apontando para
+`Harness/.dsh-tmp/` e `TMPDIR` fora do repositório — sem isso o pytest morre
+com `PermissionError` no `tmp_path_factory`, defeito do sandbox deste Windows,
+não do projeto):
+
+- `ruff check` **limpo**; `ruff format --check` **313 arquivos** já
+  formatados; `manage.py check` **sem problema**; `makemigrations --check`
+  **sem mudanças**.
+- **A fatia não introduz NENHUMA falha de regressão** — medido por
+  comparação nominal da lista de testes que falham em `apps/contabilidade`,
+  na branch da fatia e num *worktree* limpo de `origin/main`, com o mesmo
+  comando e o mesmo recorte: **54 failed nos dois, e os 54 são os MESMOS
+  testes** (`Compare-Object` sem diferença), com **1269 → 1310 passed**
+  (**+41** = os 39 da DLPA + 2 casos parametrizados de acessibilidade das
+  duas rotas novas). `apps/core` idem: **13 failed nos dois, os mesmos 13**,
+  **685 → 686 passed** (+1, a varredura de restrições com a constraint nova).
+  As 67 falhas são **pré-existentes e alheias à DL-048**.
+- Deselecionados por travarem neste Windows/SQLite (a CI em Linux +
+  PostgreSQL é quem roda a classe): `test_bl144_codigo_conta_duplicado` e
+  tudo casando com `concorrent`/`thread`.
+- **Não executado localmente:** a medição no navegador real
+  (`scripts/medir_identificacao_do_emitente.py`), o `validate-docs.ps1`
+  (exige PowerShell 7; só 5.1 instalada) e `gerar_agentes --verificar`
+  (reprova só pelas permissões 0o666 do Windows, BL-175, pré-existente).
+  Os três rodam oficiais na CI.
+- **Não reconferido nesta sessão:** a fonte normativa. Não houve acesso à
+  rede (`planalto.gov.br` e a busca web falharam), então a conformidade com
+  o art. 186 **não foi revalidada por mim** — a confirmação de 28/09/2026
+  continua registrada em
+  [requisitos.md](../projeto/requisitos.md) e segue de pé por ser de sessão
+  anterior, não por ter sido reconferida agora.
+- ⚠️ **Tensão entre documentos, em aberto:** [requisitos.md](../projeto/requisitos.md)
+  diz *"**Não implementar** a linha 'correção monetária do saldo inicial'
+  (art. 186, I) … não criar índice"*, e o [plano](../planos/DL-048-contabilidade-anual-demonstracoes.md)
+  diz que a linha **existe e sai zerada**. A linha está no enum e sai
+  impressa. O valor é sempre zero e nenhum índice é calculado, então não há
+  risco de número errado — mas a exigência registrada e o comportamento
+  entregue **não dizem a mesma coisa** e isso é decisão do Fred, não minha.
 
 ## Todas as etapas
 
@@ -121,7 +139,8 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-28 encerrada. DL-048 em desenvolvimento; falta a auditoria:**
+**AGORA — sessão de 2026-09-29. DL-048 em desenvolvimento; a auditoria
+independiente (nível 1) está em curso e a fatia ainda NÃO está na `main`:**
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
    desenvolvimento; a fatia está CODE E TESTADA na branch
@@ -134,15 +153,27 @@ merge do PR #38, sem commit individual por etapa.
    critérios cobertos e limitações declaradas no
    [plano](../planos/DL-048-contabilidade-anual-demonstracoes.md);
    fontes normativas em [requisitos.md](../projeto/requisitos.md)
-   (RC-137 a RC-140). **(c) push e PR FEITOS: PR
-   #58 (https://github.com/fredabsd-svg/DataLedger/pull/58), encadeado no
-   PR #57 do plano (base `docs/dl-048-plano` — mesclar o #57 primeiro;
-   depois o GitHub reaponta a base quando a branch do plano for apagada).
-   Nível 1 — **CI do #58 VERDE** no commit `5edb3e7` (Lint e testes,
-   Medir identificação do emitente no navegador, Regras do projeto e
-   Validar documentação); falta ainda: (a) AUDITORIA INDEPENDENTE (não
-   executada nesta sessão) e (b) correção e reconferência, além da
-   revisão e merge — o #57 primeiro.** Depois disso: fatia de paridade de API
+   (RC-137 a RC-140).
+
+   ⚠️ **O PR #58 foi MESCLADO e o conteúdo NÃO chegou à `main`** — o
+   defeito de encadeamento que o `AGENTS.md` §6 descreve, medido nesta
+   sessão. O #57 (plano) foi mesclado na `main` às 11:17:33 e o #58 foi
+   mesclado na branch intermediária `docs/dl-048-plano` às 11:17:52,
+   **19 segundos depois**, quando a base já não carregaria mais o
+   conteúdo para a `main`. O GitHub mostra "MERGED"; a `main` **não tem
+   nenhum dos 3 commits da fatia**. A frase que este arquivo fazia até
+   28/09 — *"depois o GitHub reaponta a base quando a branch do plano for
+   apagada"* — **é falsa** e foi removida: apagar a branch não entrega o
+   conteúdo, apenas o deixa inacessível. O conserto é um PR novo da
+   branch de trabalho direto para a `main`.
+
+   Estado verificado em 29/09/2026: `origin/main` tem **1 commit** a mais
+   que a branch (o merge do #57) e a branch da fatia tem **3 commits**
+   fora da `main`; o merge `main ← feat/dl-048-dlpa` é **limpo**
+   (`git merge-tree`, sem conflito) e o diff resultante são exatamente as
+   19 arquivos da fatia. Nível 1 — falta ainda (a) **AUDITORIA
+   INDEPENDENTE** (em curso nesta sessão) e (b) correção e reconferência,
+   além da revisão e do merge. Depois disso: fatia de paridade de API
    (`DlpaView` + `ContaClassificacaoDlpaView`, decisão D8) e o CTB-14
    (DMPL), que reusa a MESMA leitura de eventos (RC-137). Pendências do
    Fred que seguem abertas: PE-38/HI-26 (mecanismo de compensação — a

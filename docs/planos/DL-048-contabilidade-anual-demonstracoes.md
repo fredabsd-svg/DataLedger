@@ -166,14 +166,45 @@ não a NBC TG 26 item 106 nem a Lei 11.941/2009.
 ## Fatia CTB-12 + CTB-13 (DLPA) — codada e testada em 2026-09-28
 
 Branch `feat/dl-048-dlpa`. **Nível 1:** o que falta para a etapa fechar, nesta
-ordem: (a) **auditoria independente** (obrigatória — não foi executada nesta
-sessão); (b) correção da auditoria e reconferência; (c) revisão e merge do
-**PR #58** (aberto contra `docs/dl-048-plano`, encadeado no PR #57 do plano —
-mesclar o #57 primeiro; depois disso o GitHub reaponta a base quando a
-branch do plano for apagada). ✅ **CI do #58 VERDE** no commit `5edb3e7`
-(Lint e testes, Medir identificação do emitente no navegador, Regras do
-projeto e Validar documentação). Enquanto (a)–(c) não acontecem, a etapa
-NÃO é "integrada".
+ordem: (a) **auditoria independente** (obrigatória — **em curso** desde
+29/09/2026); (b) correção da auditoria e reconferência; (c) **entrega do
+conteúdo na `main`** e merge.
+
+⚠️ **O PR #58 foi MESCLADO e o conteúdo NÃO está na `main`** (medido em
+29/09/2026). O #57 (plano) foi mesclado na `main` às 11:17:33 e o #58 foi
+mesclado na base `docs/dl-048-plano` às 11:17:52, 19 segundos depois — o
+caso que o `AGENTS.md` §6 descreve: *encadeado não se mescla na branch
+intermediária depois de a dependência já ter entrado*. O GitHub diz
+"MERGED"; a `main` não tem nenhum dos 3 commits da fatia. A CI do #58 ficou
+VERDE nos 4 jobs (commit `7e78c8f`) **contra a branch do plano**, o que
+confirma o defeito: ela mediu o código, não o destino. A CI é verde **e o
+produto não mudou na `main`** — é o exemplo mais limpo de por que "CI verde"
+e "entregue" não são a mesma coisa. Enquanto (a)–(c) não acontecem, a
+etapa **NÃO** é "integrada".
+
+### Entrega na `main` (29/09/2026)
+
+- `origin/main` tem **1 commit** a mais que a branch (o merge do #57); a
+  branch da fatia tem **3 commits** fora da `main`.
+- O merge `main ← feat/dl-048-dlpa` é **limpo** (`git merge-tree`, sem
+  conflito) e o diff são exatamente as **19 arquivos** da fatia — nenhum
+  arquivo alheio entra com ele.
+- Regressão **medida por comparação nominal** contra um *worktree* limpo de
+  `origin/main`, mesmo comando e mesmo recorte: `apps/contabilidade` dá
+  **54 failed nos dois, os mesmos 54**, com **+41 passed**; `apps/core` dá
+  **13 failed nos dois, os mesmos 13**, com **+1 passed**. A fatia não
+  introduz nenhuma falha. `ruff check`, `ruff format --check` (313
+  arquivos), `manage.py check` e `makemigrations --check` limpos.
+- ⚠️ **A fonte normativa não foi reconferida em 29/09**: sem rede nesta
+  máquina, a conformidade com o art. 186 **não foi revalidada**. A
+  confirmação de 28/09/2026 em [requisitos.md](../projeto/requisitos.md)
+  segue de pé por ser de sessão anterior, não por ter sido checada agora.
+- ⚠️ **Tensão entre documentos, em aberto:** `requisitos.md` manda
+  **não implementar** a linha "correção monetária do saldo inicial"
+  (art. 186, I) e não criar índice; a linha **existe e sai zerada** no
+  enum e na tela. Zero sempre, nenhum índice calculado — sem risco de
+  número errado, mas a exigência registrada e o comportamento entregue
+  não dizem a mesma coisa. **Decisão do Fred.**
 
 ### Decisões de implementação (registradas para revisão; todas reversíveis)
 
