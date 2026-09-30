@@ -344,10 +344,10 @@ def _chave_do_lock_do_mes(*, empresa_id, ano, mes):
     return (_NAMESPACE_LOCK_MES_CAIXA << 56) | (empresa_id << 16) | indice_do_mes
 
 
-def _adquirir_lock_do_mes(*, empresa_id, ano, mes, exclusivo):
-    """Pede o lock consultivo do mês (ver o bloco de comentários acima) e
-    ESPERA por ele. Propaga `OperationalError` — quem chama traduz, porque a
-    mensagem e a exceção de domínio dependem do contexto (lançar x fechar).
+def _adquirir_lock_consultivo(*, chave, exclusivo, nome):
+    """Pede o lock consultivo `chave` (bigint) e ESPERA por ele. Propaga
+    `OperationalError` — quem chama traduz, porque a mensagem e a exceção de
+    domínio dependem do contexto (lançar x fechar x dependentes).
 
     Precisa rodar DENTRO de uma transação: fora dela o lock `_xact_` seria
     liberado ao fim do próprio comando e não protegeria nada — por isso a
@@ -360,24 +360,186 @@ def _adquirir_lock_do_mes(*, empresa_id, ano, mes, exclusivo):
     """
     if not connection.in_atomic_block:
         raise RuntimeError(
-            "O lock do mês do livro-caixa só protege dentro de uma transação; "
+            "O lock do livro-caixa só protege dentro de uma transação; "
             "chame a partir de uma função decorada com transaction.atomic."
         )
     if connection.vendor != "postgresql":
         warnings.warn(
-            f"_adquirir_lock_do_mes sem lock: a conexão é '{connection.vendor}', não "
+            f"{nome} sem lock: a conexão é '{connection.vendor}', não "
             "PostgreSQL. A garantia de CONCORRÊNCIA do fechamento de mês (DL-053) não "
             "vale aqui, só a checagem serial. Válido apenas em desenvolvimento local.",
             RuntimeWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
         return
     funcao = "pg_advisory_xact_lock" if exclusivo else "pg_advisory_xact_lock_shared"
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"SELECT {funcao}(%s)",
-            [_chave_do_lock_do_mes(empresa_id=empresa_id, ano=ano, mes=mes)],
-        )
+        cursor.execute(f"SELECT {funcao}(%s)", [chave])
+
+
+def _adquirir_lock_do_mes(*, empresa_id, ano, mes, exclusivo):
+    """Lock consultivo do mês (ver o bloco de comentários acima)."""
+    _adquirir_lock_consultivo(
+        chave=_chave_do_lock_do_mes(empresa_id=empresa_id, ano=ano, mes=mes),
+        exclusivo=exclusivo,
+        nome="_adquirir_lock_do_mes",
+    )
+
+
+# DL-053 / RC-147: lock consultivo dos DEPENDENTES do carnê-leão, UM por
+# empresa. Por que não um lock por mês alcançado: a vigência dos dependentes é
+# aberta (vale "a partir de" um mês, sem fim), então o conjunto de meses
+# alcançados é ilimitado — e, pior, inclui meses SEM linha, que um fechamento
+# concorrente pode criar (o mesmo caso do lançamento). Uma chave por empresa
+# resolve os dois: registrar/retificar dependentes toma o lock EXCLUSIVO,
+# `encerrar_mes_caixa` toma o MESMO lock em modo COMPARTILHADO antes do lock do
+# mês. Assim um fechamento em andamento faz a alteração esperar (e depois vê o
+# mês encerrado), e uma alteração em andamento faz o fechamento esperar (e o
+# mês fecha já com os dependentes novos). Dois fechamentos não se bloqueiam aqui
+# (compartilhado); o lock do próprio mês já os serializa. Só encerrar toma este
+# lock — reabrir só libera, nunca cria o problema.
+#
+# Ordem de aquisição (sem ciclo possível): dependentes -> mês, sempre. Quem
+# altera dependentes toma APENAS o lock dos dependentes e, DEPOIS, a linha da
+# empresa (`FOR UPDATE`); nunca o inverso — o fechamento comita uma FK para a
+# empresa (verificada no COMMIT, conflita com `FOR UPDATE` na linha da
+# empresa), então segurar a linha da empresa enquanto se espera o lock dos
+# dependentes seria deadlock.
+_NAMESPACE_LOCK_DEPENDENTES_CAIXA = 0x4D  # 8 bits, distinto do namespace do mês
+
+
+def _adquirir_lock_dos_dependentes(*, empresa_id, exclusivo):
+    if not (0 < empresa_id <= _MAXIMO_EMPRESA_ID_NO_LOCK):
+        raise ValueError(f"empresa_id fora da faixa do lock dos dependentes: {empresa_id}")
+    _adquirir_lock_consultivo(
+        chave=(_NAMESPACE_LOCK_DEPENDENTES_CAIXA << 56) | empresa_id,
+        exclusivo=exclusivo,
+        nome="_adquirir_lock_dos_dependentes",
+    )
+
+
+def _indice_do_mes(ano, mes):
+    return ano * 12 + (mes - 1)
+
+
+def _quantidade_aplicavel(registros, indice_do_mes):
+    """Quantidade de dependentes aplicada a um mês — a MESMA regra de
+    `apps.livro_caixa.carne_leao._dependentes_por_mes`: o registro de maior
+    `competencia_inicio` que não seja posterior ao primeiro dia do mês; sem
+    nenhum, zero. `registros` é uma lista de `(competencia_inicio, quantidade)`."""
+    aplicavel = None
+    for inicio, quantidade in registros:
+        if _indice_do_mes(inicio.year, inicio.month) <= indice_do_mes and (
+            aplicavel is None or inicio > aplicavel[0]
+        ):
+            aplicavel = (inicio, quantidade)
+    return aplicavel[1] if aplicavel is not None else 0
+
+
+def _intervalos_de_meses_com_quantidade_diferente(antes, depois):
+    """Intervalos de meses `[inicio, fim)` (índices; `fim=None` = sem fim) em
+    que a quantidade aplicada difere entre `antes` e `depois`.
+
+    A quantidade aplicada só muda nos `competencia_inicio` de algum registro,
+    então basta comparar uma vez por intervalo entre pontos de quebra
+    consecutivos (a união dos inícios das duas listas) — sem enumerar meses, o
+    que é essencial porque a vigência é aberta."""
+    quebras = sorted(
+        {_indice_do_mes(i.year, i.month) for i, _ in antes}
+        | {_indice_do_mes(i.year, i.month) for i, _ in depois}
+    )
+    intervalos = []
+    for posicao, inicio in enumerate(quebras):
+        fim = quebras[posicao + 1] if posicao + 1 < len(quebras) else None
+        if _quantidade_aplicavel(antes, inicio) != _quantidade_aplicavel(depois, inicio):
+            intervalos.append((inicio, fim))
+    return intervalos
+
+
+def _recusar_se_dependentes_alteram_mes_encerrado(*, empresa, antes, depois):
+    """A TRAVA dos dependentes (RC-147, critérios da DL-053). Precisa rodar
+    com o lock EXCLUSIVO dos dependentes já tomado, DEPOIS de lido o estado dos
+    registros (`antes`) e ANTES de gravar.
+
+    `antes`/`depois`: listas de `(competencia_inicio, quantidade)` de TODOS os
+    registros da empresa, sem e com a alteração pedida.
+
+    ## Quais meses a alteração alcança (regra exata)
+
+    1. **Efeito direto:** os meses em que a quantidade aplicada difere entre
+       `antes` e `depois` (ver `_intervalos_de_meses_com_quantidade_diferente`).
+       Registrar em C vale de C até o próximo registro existente (exclusive) —
+       ou sem fim, se não houver posterior —, só nos meses em que a quantidade
+       de fato muda (registrar o mesmo número que já valia não altera nada).
+       Retificar vale para os meses cobertos pelo registro, de C até o próximo
+       registro (exclusive).
+    2. **Encadeamento:** o carnê-leão de um mês depende do anterior no MESMO
+       ano-calendário (excesso de livro-caixa, crédito do exterior e saldo
+       abaixo de R$ 10,00 — RC-130; a apuração recalcula de janeiro em diante).
+       Mudar a dedução de um mês pode, portanto, mudar os meses seguintes até
+       dezembro daquele ano. Sem recalcular a apuração aqui, a regra é
+       CONSERVADORA: o alcance de cada trecho vai do primeiro mês afetado até
+       dezembro do ano do último mês afetado (ou sem fim, se o efeito direto é
+       aberto). Um mês encerrado dentro desse alcance recusa.
+
+    Só linhas `encerrado` interessam (mês sem linha ou reaberto é aberto), e
+    uma consulta as traz todas — o custo não cresce com o tamanho da vigência.
+    """
+    intervalos = _intervalos_de_meses_com_quantidade_diferente(antes, depois)
+    if not intervalos:
+        return
+    alcances = []
+    for inicio, fim in intervalos:
+        if fim is None:
+            alcances.append((inicio, None))
+        else:
+            ultimo_mes_afetado = fim - 1
+            dezembro_do_ano = (ultimo_mes_afetado // 12) * 12 + 11
+            alcances.append((inicio, dezembro_do_ano))
+
+    encerrados = FechamentoMesCaixa.objects.filter(
+        empresa=empresa, estado=EstadoMesCaixa.ENCERRADO
+    ).values_list("ano", "mes")
+    for ano, mes in sorted(encerrados):
+        indice = _indice_do_mes(ano, mes)
+        for primeiro, ultimo in alcances:
+            if indice >= primeiro and (ultimo is None or indice <= ultimo):
+                inicio_do_efeito = min(i for i, _ in intervalos)
+                raise MesCaixaEncerrado(
+                    f"O mês {mes:02d}/{ano} do livro-caixa de {empresa} está encerrado e teria "
+                    "o carnê-leão alterado por esta mudança nos dependentes (a quantidade "
+                    f"vale a partir de {inicio_do_efeito % 12 + 1:02d}/{inicio_do_efeito // 12} "
+                    "e o efeito se encadeia até dezembro do ano). Reabra o mês (informando o "
+                    "motivo) antes de alterar os dependentes."
+                )
+
+
+def travar_dependentes_do_carne_leao(*, empresa):
+    """Toma o lock EXCLUSIVO dos dependentes da empresa (RC-147), traduzindo o
+    estouro de `lock_timeout`/deadlock para `MesCaixaOcupado` (409; subclasse de
+    `MesCaixaEncerrado`, então todas as portas traduzem igual). Usado por
+    `apps.livro_caixa.carne_leao` como PRIMEIRO passo de registrar/retificar —
+    antes de qualquer `FOR UPDATE` na linha da empresa (ver o comentário de
+    `_adquirir_lock_dos_dependentes`) e antes de ler o estado dos meses."""
+    try:
+        _adquirir_lock_dos_dependentes(empresa_id=empresa.id, exclusivo=True)
+    except OperationalError as exc:
+        if not _e_falha_de_espera_de_lock(exc):
+            raise
+        raise MesCaixaOcupado(
+            f"Os dependentes do carnê-leão de {empresa} estão sendo alterados, ou um mês do "
+            "livro-caixa dela está sendo encerrado, por outra operação agora; não foi possível "
+            "confirmar o estado dos meses a tempo. Nada foi gravado. Tente novamente em "
+            "instantes."
+        ) from exc
+
+
+def recusar_dependentes_que_alteram_mes_encerrado(*, empresa, antes, depois):
+    """Ponto público da trava dos dependentes; ver
+    `_recusar_se_dependentes_alteram_mes_encerrado` para a regra exata de
+    meses alcançados. Exige `travar_dependentes_do_carne_leao` já chamado na
+    mesma transação."""
+    _recusar_se_dependentes_alteram_mes_encerrado(empresa=empresa, antes=antes, depois=depois)
 
 
 def _recusar_se_mes_caixa_encerrado(*, empresa, data, e_estorno):
@@ -865,12 +1027,20 @@ def _validar_empresa_ano_mes_do_fechamento(*, empresa, ano, mes, usuario):
         )
 
 
-def _travar_mes_para_transicao(*, empresa, ano, mes):
+def _travar_mes_para_transicao(*, empresa, ano, mes, dependentes_compartilhado=False):
     """Lock consultivo EXCLUSIVO do mês (espera os lançamentos em andamento e
     barra os novos até o commit) e, se a linha existir, `FOR UPDATE` nela.
     Devolve a linha travada ou `None` (mês sem registro = aberto). Estouro de
-    `lock_timeout`/deadlock vira `FechamentoMesCaixaTravado` (409)."""
+    `lock_timeout`/deadlock vira `FechamentoMesCaixaTravado` (409).
+
+    `dependentes_compartilhado=True` (só o ENCERRAMENTO — RC-147): antes do lock
+    do mês, toma o lock dos dependentes da empresa em modo compartilhado, para
+    uma alteração de dependentes em andamento terminar antes de o mês fechar
+    (ver o comentário de `_adquirir_lock_dos_dependentes`). Ordem fixa:
+    dependentes, depois mês."""
     try:
+        if dependentes_compartilhado:
+            _adquirir_lock_dos_dependentes(empresa_id=empresa.id, exclusivo=False)
         _adquirir_lock_do_mes(empresa_id=empresa.id, ano=ano, mes=mes, exclusivo=True)
         return (
             FechamentoMesCaixa.objects.select_for_update()
@@ -915,7 +1085,9 @@ def encerrar_mes_caixa(*, empresa, ano, mes, usuario, request=None):
     estourar.
     """
     _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
-    fechamento = _travar_mes_para_transicao(empresa=empresa, ano=ano, mes=mes)
+    fechamento = _travar_mes_para_transicao(
+        empresa=empresa, ano=ano, mes=mes, dependentes_compartilhado=True
+    )
 
     if fechamento is not None and fechamento.estado == EstadoMesCaixa.ENCERRADO:
         raise FechamentoMesCaixaRecusado(

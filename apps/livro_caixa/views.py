@@ -803,6 +803,10 @@ class DependentesCarneLeaoListCreateView(
                 criado_por=request.user,
                 request=request,
             )
+        except MesCaixaEncerrado as exc:
+            # RC-147: a alteração mudaria o carnê-leão de um mês encerrado —
+            # 409, nada gravado; reabrir o mês é o caminho.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DependentesCarneLeaoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
         except RestricaoViolada as exc:
@@ -846,6 +850,9 @@ class DependentesCarneLeaoRetificarView(EmpresaEscopadaLivroCaixaMixin, APIView)
                 retificado_por=request.user,
                 request=request,
             )
+        except MesCaixaEncerrado as exc:
+            # RC-147: idem registro — retificar alteraria mês encerrado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DependentesCarneLeaoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
