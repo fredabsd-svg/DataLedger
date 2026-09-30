@@ -372,3 +372,44 @@ def test_classificacao_dlpa_com_trilha_falhando_nao_altera_a_conta(client, cenar
     cenario["lucros"].refresh_from_db()
     assert not cenario["lucros"].classificacao_dlpa
     assert client.patch(url, data=corpo, content_type="application/json").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Tela web de lançamento (antes só inspecionada): mesma garantia da API
+# ---------------------------------------------------------------------------
+
+REGISTRAR_NA_VIEW_WEB = "apps.contabilidade.views_web.registrar"
+
+
+def _post_web_de_lancamento(client, cenario, chave):
+    return client.post(
+        reverse("contabilidade_web:lancamento_novo", args=[cenario["empresa"].id]),
+        {
+            "acao": "gravar",
+            "num_linhas": "4",
+            "data": "2026-01-20",
+            "historico": "Lançamento pela tela",
+            "chave_idempotencia": chave,
+            "conta_1": str(cenario["caixa"].id),
+            "tipo_1": "debito",
+            "valor_1": "50,00",
+            "conta_2": str(cenario["receita"].id),
+            "tipo_2": "credito",
+            "valor_2": "50,00",
+        },
+    )
+
+
+def test_tela_de_lancamento_com_trilha_falhando_nao_grava_e_retentativa_grava(client, cenario):
+    with patch(REGISTRAR_NA_VIEW_WEB, side_effect=_falha_da_trilha()):
+        with pytest.raises(RuntimeError):
+            _post_web_de_lancamento(client, cenario, "chave-web-dl052")
+
+    assert LancamentoContabil.objects.count() == 0
+    assert _trilha("lancamento.criado") == 0
+
+    depois = _post_web_de_lancamento(client, cenario, "chave-web-dl052")
+
+    assert depois.status_code == 302
+    assert LancamentoContabil.objects.count() == 1
+    assert _trilha("lancamento.criado") == 1

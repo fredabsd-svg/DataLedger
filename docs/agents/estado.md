@@ -124,7 +124,7 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 ## Próximo passo
 
 **DL-052 — Integridade do livro e do acesso (30/09/2026), em
-desenvolvimento.** Ordem do Fred depois da análise do repositório: *"Aprovo a
+validação** — implementada e aguardando a auditoria independente. Ordem do Fred depois da análise do repositório: *"Aprovo a
 DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md). Branch
 `claude/zealous-goldberg-jr5ggu` → `main`.

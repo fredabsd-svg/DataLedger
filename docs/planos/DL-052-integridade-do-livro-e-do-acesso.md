@@ -38,9 +38,12 @@ no código:
      achou também `criado_por_id` virando nulo ao apagar usuário
      (`SET_NULL`); o Fred decidiu (RC-144) que usuário se desativa e não se
      apaga, então essa via é fechada em vez de liberada.
-   - **Usuário não se exclui (RC-144, BL-559):** `criado_por` do lançamento
-     e autorias da trilha com `PROTECT`; admin sem exclusão de usuário;
-     desativar continua possível.
+   - **Usuário não se exclui (RC-144, BL-559):** `PROTECT` na autoria de
+     `LancamentoContabil.criado_por`, `Competencia.fechada_por` e
+     `entregue_por`, `RegistroAuditoria.usuario`, `LancamentoCaixa.criado_por`
+     e `DependentesCarneLeaoCliente.criado_por`; admin sem exclusão de
+     usuário; desativar continua possível. `RegistroAuditoria.escritorio`
+     mantém o `SET_NULL` que preserva o evento.
    - Gatilho de restrição **adiado para o fim da transação** que recusa
      lançamento cujos itens não somem débito igual a crédito, ou que não tenha
      ao menos um débito e um crédito (as mesmas regras de `criar_lancamento`;
@@ -101,5 +104,18 @@ e titularidade de CNPJ (M5), IP atrás de proxy (M6) e os achados baixos.
 
 ## Evidências
 
-Registradas na entrega, no [estado](../agents/estado.md) e no relatório de
-auditoria em [`docs/auditorias/`](../auditorias/).
+Implementação (`desenvolvedor-pleno`, PostgreSQL 16 local, Python 3.13):
+
+- Suíte completa: **3.658 aprovados, 50 pulados, 1 reprovado** — a
+  reprovação é a conhecida de versão do Python (exige 3.14), igual à linha de
+  base de 30/09 (3.591 aprovados).
+- Testes novos reprovam contra o código anterior: convite 7 falhas; estorno e
+  criação pela API 2 falhas; admin de usuário 3 falhas. Os gatilhos
+  reprovaram 9 testes e deram erro em 24 ao serem ligados, até as adaptações
+  de montagem (`gatilho_desligado`, asserções intactas).
+- `ruff check` limpo; 326 arquivos formatados; `makemigrations --check` sem
+  mudança; migrações aplicadas e revertidas nas duas direções.
+- Não testado: `TRUNCATE` e o dono da tabela desligando gatilho (fora do que
+  o banco impede); concorrência dos gatilhos adiados.
+
+Auditoria independente: relatório em [`docs/auditorias/`](../auditorias/).
