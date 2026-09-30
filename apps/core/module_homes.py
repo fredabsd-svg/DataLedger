@@ -45,6 +45,8 @@ SESSION_KEY = "module_home_context"
 # permitir ida e volta sem crescimento ilimitado do payload.
 LIMITE_PREFERENCIAS_ESCRITORIOS = 16
 MESES = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+# DL-051: Vendas não pertence ao aplicativo contábil. Estoque e inventário
+# são rotinas de Fiscal (FIS-39/FIS-47), sem módulo independente ou placeholder.
 MODULOS = {
     "contabilidade": {
         "slug": "contabilidade",
@@ -59,8 +61,6 @@ MODULOS = {
     },
     "financeiro": {"slug": "financeiro", "titulo": "Financeiro", "disponibilidade": "indisponivel"},
     "folha": {"slug": "folha", "titulo": "Folha", "disponibilidade": "indisponivel"},
-    "vendas": {"slug": "vendas", "titulo": "Vendas", "disponibilidade": "indisponivel"},
-    "estoque": {"slug": "estoque", "titulo": "Estoque", "disponibilidade": "indisponivel"},
 }
 
 

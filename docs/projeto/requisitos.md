@@ -24,6 +24,16 @@ desenvolvimento: [AGENTS.md](../../AGENTS.md).
 Plano e critérios: [DL-049](../planos/DL-049-home-por-modulo.md). Essas hipóteses
 não alteram regras de fechamento, prazo legal, cálculo ou permissão do domínio.
 
+## Correção dos módulos — DL-051
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-141 | Confirmado | Fred, 30/09/2026: Vendas não pertence ao DataLedger. Inventário e controle de estoque ficam dentro de Fiscal, sem módulo próprio. Retirar os módulos indevidos da navegação e das páginas informativas da DL-049. Referência visual não autoriza ampliar o escopo funcional. |
+
+Plano: [DL-051](../planos/DL-051-correcao-dos-modulos.md). FIS-39/FIS-47
+continuam planejados no [módulo Fiscal](paridade/fiscal.md), sem nova
+funcionalidade ou atalho fictício nesta correção.
+
 ## Legenda
 
 | Estado | Significado |
