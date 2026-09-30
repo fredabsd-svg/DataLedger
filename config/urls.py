@@ -19,6 +19,7 @@ urlpatterns = [
     path("api/", include("apps.core.urls")),
     path("api/auditoria/", include("apps.auditoria.urls")),
     path("empresas/", include("apps.empresas.urls")),
+    path("modulos/", include("apps.core.urls_home")),
     path("contabilidade/", include("apps.contabilidade.urls")),
     # DL-046 fatia 1: livro-caixa e carnê-leão do cliente pessoa física
     # (RC-113/RC-114) — API própria, servidor + API; a tela vem depois pelo

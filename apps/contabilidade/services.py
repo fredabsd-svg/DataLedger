@@ -5962,7 +5962,7 @@ def localizar_lancamentos_com_data_fora_da_faixa(*, empresa):
     )
 
 
-def localizar_lotes_desbalanceados(*, empresa):
+def localizar_lotes_desbalanceados(*, empresa=None, empresas=None):
     """Lançamentos da empresa com menos de duas partidas OU débito diferente
     de crédito (BL-64, achado 9).
 
@@ -5993,9 +5993,16 @@ def localizar_lotes_desbalanceados(*, empresa):
     excede o crédito, negativo no caso contrário — preserva a direção do
     desbalanceamento, útil para quem for investigar).
     """
+    # DL-049: a home da carteira precisa aplicar a MESMA regra RC-58 em
+    # uma consulta, sem repetir uma varredura por empresa. O chamador deve
+    # fornecer exatamente um escopo, já autorizado; filtros de período
+    # continuam deliberadamente ausentes porque o bloqueio é da base inteira.
+    if (empresa is None) == (empresas is None):
+        raise ValueError("Informe uma empresa ou um conjunto de empresas, exclusivamente.")
+    escopo = {"empresa": empresa} if empresa is not None else {"empresa__in": empresas}
     zero = Decimal("0")
     return (
-        LancamentoContabil.objects.filter(empresa=empresa)
+        LancamentoContabil.objects.filter(**escopo)
         .annotate(
             total_debito=Sum(
                 "itens__valor",

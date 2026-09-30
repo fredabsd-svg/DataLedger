@@ -11,6 +11,19 @@ desenvolvimento: [AGENTS.md](../../AGENTS.md).
 > contábeis e legais. Todo item marcado como regra contábil ou fiscal depende
 > de validação do Fred, como responsável técnico do domínio.
 
+## Página inicial por módulo — DL-049
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-138 | Confirmado | Fred, 29/09/2026: mesmo esqueleto operacional por módulo, até quatro indicadores acionáveis, resumo da carteira, fila por urgência, textos pt-BR e filtros de empresa/competência persistentes. Aplicar o prompt revisado ao projeto. |
+| RC-139 | Confirmado | Fred, 29/09/2026: usar as cinco skills de interface indicadas, executar sem perguntas, escolher a direção adequada, revisar, criar commit, enviar ao GitHub e mesclar após validação. |
+| HI-44 | Hipótese operacional | Grupo é uma seleção de IDs de empresas autorizadas, sem novo cadastro de grupos ou consolidação. Usar preferência da sessão vinculada ao escritório; primeira visita escolhe uma empresa elegível explicitamente. |
+| HI-45 | Hipótese de apresentação | No Fiscal existente, os indicadores mostram ocorrências de recepção/documentos, pois não há estado persistido de tratamento. Recusas sem empresa/competência conhecida não recebem atribuição inventada. Ausência de dado é distinta de zero apurado. |
+| HI-46 | Hipótese de entrega | A comparação de variantes é feita pelo líder conforme a ordem de execução autônoma. A implementação usa templates Django e controles nativos; não troca a stack para adotar bibliotecas React. |
+
+Plano e critérios: [DL-049](../planos/DL-049-home-por-modulo.md). Essas hipóteses
+não alteram regras de fechamento, prazo legal, cálculo ou permissão do domínio.
+
 ## Legenda
 
 | Estado | Significado |

@@ -204,6 +204,7 @@ def navegacao_do_menu(request):
         "pode_cadastrar_empresa_no_menu": PodeGerenciarEmpresa().has_permission(request, None),
         "empresa_atual": None,
         "trilha_padrao": [],
+        "modulos_home_menu": [],
     }
 
     usuario = getattr(request, "user", None)
@@ -214,6 +215,14 @@ def navegacao_do_menu(request):
     empresa_atual = _empresa_atual(request, resolver_match)
     contexto["empresa_atual"] = empresa_atual
     contexto["trilha_padrao"] = _trilha_padrao(resolver_match, empresa_atual)
+    # DL-049: a troca de módulo recebe URLs e permissões, nunca a lista
+    # plural de clientes ou consultas de totais nas telas globais/403.
+    from apps.core.module_homes import menu_modulos
+
+    contexto["modulos_home_menu"] = menu_modulos(request, empresa_atual)
+    home = getattr(request, "_module_home_context", None)
+    if home is not None:
+        contexto["modulos_home_menu"] = home["modulos_navigation"]
     return contexto
 
 
@@ -248,4 +257,6 @@ def versao_dos_estaticos(request):
     return {
         "versao_css_base": _impressao_digital_do_estatico("css/base.css"),
         "versao_css_publico": _impressao_digital_do_estatico("css/public.css"),
+        "versao_css_module_home": _impressao_digital_do_estatico("css/module-home.css"),
+        "versao_js_module_home": _impressao_digital_do_estatico("js/module-home.js"),
     }

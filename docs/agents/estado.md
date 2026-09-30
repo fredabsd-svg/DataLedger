@@ -133,6 +133,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | **Integrada (PR #53, #54 e #56)** — fatias 1, 2 e 3; a auditoria da fatia 3 não consta em `docs/auditorias/` |
 | [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | **Fatia CTB-12 + CTB-13 (a DLPA) integrada pelo PR #59** — com auditoria reprovada e achados corrigidos; CTB-14 a CTB-17 em **[Próximo passo](#próximo-passo)** |
+| [DL-049](../planos/DL-049-home-por-modulo.md) | Página inicial por módulo, filtros persistentes e fila operacional multiempresa | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -140,6 +141,36 @@ fechamento como DL-031. Rastreabilidade: DL-028 a DL-034 entraram juntas pelo
 merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
+
+**DL-049 — Home por módulo (30/09/2026). Estado da entrega no
+[PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63): em revisão
+enquanto aberto; integrada após o merge confirmado nesse PR.** Demanda direta
+do Fred para aplicar a especificação, comparar variantes, revisar e mesclar.
+Escolha de interface autorizada sem nova pergunta. Contábil, recepção Fiscal
+e Livro-caixa possuem consulta operacional; módulos futuros permanecem
+identificados como indisponíveis. Sem migração ou transmissão.
+Plano: [DL-049](../planos/DL-049-home-por-modulo.md).
+Roteiro de navegador aprovado com dados fictícios: filtros, lista por indicador,
+carteira sem JavaScript, permissão e larguras de 1.440, 1.280 e 390 px. A
+primeira linha crítica ficou inteira até 898,16 px no cenário 1.440 × 900.
+Telefone físico, leitor de tela e teste com operadores permanecem não executados.
+Na revisão local `9f9c2a5`, a suíte PostgreSQL registrou **3.573 aprovados,
+19 pulados e 2 avisos**. A [auditoria independente](../auditorias/2026-09-30-dl-049-rodada-1.md)
+reprovou três comportamentos: Fiscal sem empresas escondia ocorrências;
+retorno a um escritório perdia filtros; listas sem fonte aceitavam estado
+inválido. A correção conserva ocorrências sem cliente, preferências dos 16
+escritórios recentes e valida filtros também nos retornos antecipados.
+Os **351 testes do recorte de regressão, incluindo 71 da home**, passaram
+em SQLite temporário após a correção, com 31 avisos existentes de ambiente;
+esse recorte não comprova concorrência nem agregação monetária. A política
+atual do ambiente impede reutilizar o PostgreSQL local via rede.
+A [reconferência única](../auditorias/2026-09-30-dl-049-reconferencia.md)
+aprovou a correção na árvore `f1d7592`, com 138 testes próprios, navegador e
+inspeção da CI do commit remoto `280873b`. Os quatro jobs passaram; Backend
+em PostgreSQL 16.15 registrou **3.563 aprovados, 50 pulados e 2 avisos**;
+o instrumento de documentos registrou **139 aprovados**, mais a medição real.
+Relatórios e apontadores são a única alteração posterior à árvore auditada;
+a CI do último HEAD do PR deve passar antes de integrar.
 
 **AGORA — sessão de 2026-09-29 (3ª rodada). O Fred revisou o relatório e corrigiu
 **quatro pontos**; todos foram **verificados na fonte** antes de entrar no repositório,
