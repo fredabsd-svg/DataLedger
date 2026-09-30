@@ -189,6 +189,9 @@ def test_criterio1_analista_forcando_a_acao_recebe_403_e_banco_intacto(client, c
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_criterio2_painel_bloqueia_o_link_de_fechar_e_aponta_para_a_conferencia(client, cenario):
     empresa, caixa = cenario["empresa"], cenario["caixa"]
     _lote_desbalanceado(empresa, caixa, 2026, 3)
@@ -203,6 +206,9 @@ def test_criterio2_painel_bloqueia_o_link_de_fechar_e_aponta_para_a_conferencia(
     assert "Bloqueado pela conferência" in corpo
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_criterio2_tela_de_fechar_nao_oferece_o_botao_quando_ha_lote_desbalanceado(client, cenario):
     empresa, caixa = cenario["empresa"], cenario["caixa"]
     _lote_desbalanceado(empresa, caixa, 2026, 3)
@@ -318,6 +324,9 @@ def test_criterio4_entregar_confirmando_grava_entregue_em(client, cenario):
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_criterio5_post_fechar_com_lote_desbalanceado_recusa_em_portugues_sem_500(client, cenario):
     empresa, caixa = cenario["empresa"], cenario["caixa"]
     _lote_desbalanceado(empresa, caixa, 2026, 6)

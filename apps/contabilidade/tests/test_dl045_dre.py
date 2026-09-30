@@ -3255,6 +3255,9 @@ def test_r4_corrida_na_classificacao_serializa_e_a_trilha_fica_coerente(monkeypa
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_r7_m27_m27b_isolamento_da_dre_com_item_forjado_de_outra_empresa(cenario):
     """R7/M27/M27b (reconferência): mata os dois mutantes que tiram um
     dos dois filtros de empresa de `_agregar_movimento_dre_por_conta`

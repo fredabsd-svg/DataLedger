@@ -9,7 +9,7 @@ perfil:
   memoria_de_projeto: nao
   delega_para: [auxiliar-pesquisa, auxiliar-verificacao]
 claude:
-  model: opus
+  model: sonnet
   effort: high
   color: red
   tools: "Read, Glob, Grep, Bash, WebFetch, WebSearch, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, SendMessage, Agent"

@@ -30,6 +30,7 @@ from apps.contabilidade.models import (
     TipoPartida,
 )
 from apps.contabilidade.services import criar_lancamento, estornar_lancamento, listar_diario
+from apps.contabilidade.tests.gatilhos_do_livro import IMUTAVEL_LANCAMENTO, gatilho_desligado
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -591,6 +592,9 @@ def test_balancete_com_nivel_corta_analiticas_mas_totais_continuam_completos(
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_conferencia_encontra_lote_desbalanceado_gravado_via_orm(client, cenario):
     # `criar_lancamento` corretamente IMPEDE um lote desbalanceado — é por
     # isso que o cenário deste teste precisa contornar o serviço e gravar
@@ -1033,6 +1037,9 @@ def test_balancete_isolamento_de_conteudo_entre_escritorios(client, cenario):
     assert corpo["total_debitos"] == corpo["total_creditos"] == "100.00"
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_conferencia_isolamento_de_conteudo_entre_escritorios(client, cenario):
     _autenticar(client, cenario["escritorio_a"])
     lote_a = LancamentoContabil.objects.create(
@@ -1626,10 +1633,15 @@ def test_diario_desempate_estavel_por_criado_em_e_id_na_mesma_data(client, cenar
     # pode vir do `id`, ascendente. Sem isto, o mutante que remove o
     # desempate por criado_em/id ainda poderia, por acaso, ordenar certo pela
     # ordem natural de criação.
+    #
+    # DL-052: o banco agora recusa UPDATE de lançamento; este teste precisa
+    # dele para fabricar o empate de `criado_em`, então o gatilho de
+    # imutabilidade fica desligado SÓ neste bloco (a asserção não muda).
     mesmo_instante = timezone.now()
-    LancamentoContabil.objects.filter(pk__in=[lancamento_1.id, lancamento_2.id]).update(
-        criado_em=mesmo_instante
-    )
+    with gatilho_desligado(IMUTAVEL_LANCAMENTO):
+        LancamentoContabil.objects.filter(pk__in=[lancamento_1.id, lancamento_2.id]).update(
+            criado_em=mesmo_instante
+        )
 
     response = client.get(
         reverse("contabilidade:diario", args=[cenario["empresa_a"].id]),
@@ -1809,6 +1821,9 @@ def test_razao_de_conta_analitica_nao_e_marcado_como_consolidado(client, cenario
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_conferencia_distingue_lote_sem_partidas_de_lote_desbalanceado(client, cenario):
     _autenticar(client, cenario["escritorio_a"])
     lote_vazio = LancamentoContabil.objects.create(
@@ -1862,6 +1877,9 @@ def test_conferencia_distingue_lote_sem_partidas_de_lote_desbalanceado(client, c
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_item_de_lancamento_de_outra_empresa_nao_aparece_no_razao_nem_no_balancete(client, cenario):
     # Reprodução do achado 10: lançamento LEGÍTIMO da empresa A recebe, por
     # ORM direto, um item extra apontando para uma conta da empresa B — só
@@ -2750,6 +2768,9 @@ def test_balancete_rodape_traz_so_o_movimento_de_dentro_do_periodo(client, cenar
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_razao_saldo_anterior_nao_soma_item_de_lancamento_de_outra_empresa(client, cenario):
     # Mesma corrupção do achado 10 (item de A apontando para conta de B),
     # mas datada ANTES do período consultado — caminho do `saldo_anterior`,
@@ -2791,6 +2812,9 @@ def test_razao_saldo_anterior_nao_soma_item_de_lancamento_de_outra_empresa(clien
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_item_lancamento_clean_recusa_conta_de_outra_empresa(cenario):
     lancamento = LancamentoContabil.objects.create(
         empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
@@ -2806,6 +2830,9 @@ def test_item_lancamento_clean_recusa_conta_de_outra_empresa(cenario):
         item.full_clean()
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_item_lancamento_clean_aceita_conta_da_mesma_empresa(cenario):
     lancamento = LancamentoContabil.objects.create(
         empresa=cenario["empresa_a"], data=date(2024, 1, 5), historico="Lançamento"
@@ -2909,6 +2936,9 @@ def test_admin_lancamento_e_somente_consulta_contrato_direto(rf, django_user_mod
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_admin_lancamento_nao_oferece_acao_de_exclusao_em_lote(rf, cenario, django_user_model):
     """A ação "delete_selected" da listagem chama `QuerySet.delete()`, que
     NÃO passa por `LancamentoContabil.delete()` (a guarda que levanta
@@ -2968,6 +2998,9 @@ def test_admin_lancamento_nao_oferece_acao_de_exclusao_em_lote(rf, cenario, djan
     assert ItemLancamento.objects.count() == total_itens_antes
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_admin_recusa_exclusao_individual_de_lancamento(client, cenario, django_user_model):
     """Caminho individual (botão "Excluir" na ficha, `.../<id>/delete/`):
     ANTES desta correção, a guarda de imutabilidade RODAVA (o `delete()` do
@@ -3003,6 +3036,9 @@ def test_admin_recusa_exclusao_individual_de_lancamento(client, cenario, django_
 # ---------------------------------------------------------------------------
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_admin_recusa_alteracao_de_lancamento_por_post(client, cenario, django_user_model):
     """M11 (achado novo 6): `has_change_permission` é falso, mas nenhum
     teste fixava isso — mutar para `True` fazia a suíte inteira passar do
@@ -3223,6 +3259,9 @@ def test_razao_numero_de_consultas_do_grupo_raiz_de_plano_profundo(client, cenar
     assert len(ctx) <= profundidade + 9
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_razao_nao_consolida_conta_de_outra_empresa_com_conta_pai_corrompido(client, cenario):
     """M05 (achado novo 6): `_descendentes_de` filtra por `empresa=empresa`
     ALÉM de `conta_pai_id__in` — sem esse filtro, uma conta de OUTRA

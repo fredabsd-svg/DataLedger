@@ -156,7 +156,8 @@ class ConviteEscritorio(models.Model):
     `criado_em` + 7 dias, não de um campo gravado), e a consulta de
     "exibível / consumível" precisa cruzar a data atual — isto é
     feito no serviço, não no banco, para que a janela do convite possa
-    ser ajustada sem migração.
+    ser ajustada sem migração. O aceite também exige que o e-mail do
+    usuário seja o do convidado (DL-052, A2).
     """
 
     escritorio = models.ForeignKey(
@@ -202,7 +203,9 @@ class ConviteEscritorio(models.Model):
 
     @property
     def expirado(self) -> bool:
-        """7 dias desde a emissão."""
+        """Mais de 7 dias desde a emissão. A fronteira é estrita (`>`):
+        exatamente `criado_em + 7 dias` ainda vale; um instante depois,
+        não. Quem recusa o aceite é `aceitar_convite_e_criar_vinculo`."""
         from datetime import timedelta
 
         from django.utils import timezone

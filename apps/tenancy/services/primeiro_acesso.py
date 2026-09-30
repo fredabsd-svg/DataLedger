@@ -11,9 +11,13 @@ Três operações que o caminho de bootstrap de uma instalação precisa:
   do escritório) cadastra um e-mail e cria um `ConviteEscritorio` com
   token aceito por rota dedicada.
 - `aceitar_convite_e_criar_vinculo`: portador de token válido (com
-  sessão autenticada) aceita o convite e vira `ANALISTA` (papel de
-  entrada para o segundo funcionário — o administrador promove se for
-  caso).
+  sessão autenticada) aceita o convite e ganha o papel que o convite
+  carrega (`ANALISTA` por padrão — papel de entrada para o segundo
+  funcionário; o administrador promove se for caso). Só aceita convite
+  **dentro do prazo de 7 dias** e **apresentado por usuário cujo e-mail
+  é o do convidado** (DL-052, A2): sem essas duas condições o token
+  vazado por qualquer canal valeria, para sempre, como chave de entrada
+  no escritório.
 
 Por que estas três operações estão aqui, e não em `views.py`: a regra
 de negócio (limite de um escritório por usuário sem vínculo, vínculo
@@ -50,8 +54,10 @@ class ConvidanteNaoEhAdministrador(Exception):
 
 
 class ConviteInvalido(Exception):
-    """Token inexistente, já consumido ou expirado. View traduz para 404
-    (token inexistente) ou 410 (já consumido/expirado)."""
+    """Token inexistente, já consumido, expirado (mais de 7 dias) ou
+    apresentado por usuário cujo e-mail não é o do convidado. A
+    mensagem nunca revela a qual e-mail o convite pertence. A view traduz
+    para mensagem ao usuário e redirecionamento ao painel."""
 
 
 class ConviteTokenColidiu(Exception):
@@ -170,11 +176,50 @@ class ResultadoAceitacao:
     convite: ConviteEscritorio
 
 
+def normalizar_email(email: str | None) -> str:
+    """Forma de comparação de e-mail do convite: sem espaços nas pontas e
+    sem diferença de maiúsculas (`casefold`). Só para COMPARAR — o valor
+    gravado no convite e no usuário não é alterado."""
+    return (email or "").strip().casefold()
+
+
+def convite_e_do_usuario(convite: ConviteEscritorio, usuario) -> bool:
+    """O e-mail do usuário autenticado é o e-mail para o qual o convite
+    foi emitido? Usuário sem e-mail nunca confere (nem com convite de
+    e-mail vazio): convite sem destinatário identificável não é
+    aceitável por ninguém."""
+    email_do_usuario = normalizar_email(getattr(usuario, "email", ""))
+    return bool(email_do_usuario) and email_do_usuario == normalizar_email(convite.email)
+
+
+MENSAGEM_CONVITE_EXPIRADO = (
+    "Este convite venceu (vale 7 dias a partir da emissão). "
+    "Peça ao administrador do escritório para emitir outro."
+)
+MENSAGEM_JA_VINCULADO = (
+    "Sua conta já tem vínculo com este escritório; este convite não é necessário. "
+    "Use o painel para acessá-lo."
+)
+MENSAGEM_CONVITE_DE_OUTRO_EMAIL = (
+    "Este convite não foi emitido para o e-mail da sua conta. "
+    "Entre com a conta do e-mail convidado ou peça ao administrador um novo convite."
+)
+
+
 @transaction.atomic
 def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitacao:
     """Usuário autenticado apresenta token de convite e ganha o vínculo
-    com o papel que o convite carrega. Falha se o convite expirou ou já
-    foi aceito."""
+    com o papel que o convite carrega.
+
+    Recusa com `ConviteInvalido` — sem criar vínculo e sem consumir o
+    convite — quando: o token não existe ou já foi consumido; o convite
+    tem mais de 7 dias (`ConviteEscritorio.expirado`: vence só quando
+    `agora > criado_em + 7 dias`, então exatamente 7 dias ainda vale); ou
+    o e-mail do usuário difere do e-mail do convidado (sem diferença de
+    maiúsculas nem de espaços nas pontas); ou o usuário já tem vínculo com o
+    escritório do convite. As recusas por prazo e por
+    e-mail usam mensagens próprias, e a de e-mail não diz a qual e-mail
+    o convite pertence (DL-052, A2)."""
     convite = (
         ConviteEscritorio.objects.select_for_update()
         .filter(token=token, consumido_em__isnull=True)
@@ -182,6 +227,17 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
     )
     if convite is None:
         raise ConviteInvalido("Convite inexistente, expirado ou já consumido.")
+    if convite.expirado:
+        raise ConviteInvalido(MENSAGEM_CONVITE_EXPIRADO)
+    if not convite_e_do_usuario(convite, usuario):
+        raise ConviteInvalido(MENSAGEM_CONVITE_DE_OUTRO_EMAIL)
+    # DL-052 rodada 1 (D5): quem já tem vínculo (ativo ou não) com o escritório
+    # violaria `unico_vinculo_usuario_escritorio` — antes isso virava
+    # `IntegrityError` (500). Recusa de negócio, convite NÃO consumido.
+    if VinculoUsuarioEscritorio.objects.filter(
+        usuario=usuario, escritorio=convite.escritorio
+    ).exists():
+        raise ConviteInvalido(MENSAGEM_JA_VINCULADO)
 
     vinculo = VinculoUsuarioEscritorio.objects.create(
         usuario=usuario,

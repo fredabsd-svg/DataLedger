@@ -824,28 +824,6 @@ class LancamentoListCreateView(EmpresaEscopadaContabilMixin, generics.ListAPIVie
                 f"{TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA} caracteres."
             )
 
-        try:
-            lancamento = criar_lancamento(
-                empresa=empresa,
-                data=data_lancamento,
-                historico=historico,
-                itens=itens,
-                criado_por=request.user,
-                chave_idempotencia=chave_idempotencia,
-            )
-        except ChaveIdempotenciaConflitante as exc:
-            # Conflito de estado (a chave já existe com outro conteúdo), não
-            # entrada inválida: 409, não 400 — e nada foi gravado (achado A2).
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
-        except CompetenciaEncerrada as exc:
-            # DL-016 fatia 1, critério 1: mesma classe de conflito de estado
-            # que `ChaveIdempotenciaConflitante` — 409, e nada foi gravado (a
-            # recusa acontece DENTRO da transação de `criar_lancamento`,
-            # antes de qualquer INSERT).
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
-        except LancamentoInvalido as exc:
-            raise DRFValidationError(str(exc)) from exc
-
         # O serviço informa se de fato criou ou reaproveitou um lançamento
         # existente (mesma Idempotency-Key). A trilha de auditoria e o
         # status HTTP precisam refletir o resultado real, nunca "criado" por
@@ -860,41 +838,62 @@ class LancamentoListCreateView(EmpresaEscopadaContabilMixin, generics.ListAPIVie
         # omissão falharia ABERTO exatamente no mesmo sentido do defeito que
         # esta correção existe para fechar (achado A7).
         #
-        # BL-14 (DL-024): o bloco que escolhe o `acao` da trilha e chama
-        # `registrar()` foi MOVIDO para dentro do MESMO `transaction.atomic()`
-        # que envolve `criar_lancamento` e `registrar()`. Antes, qualquer
-        # falha no INSERT do `RegistroAuditoria` deixava o lançamento
-        # gravado e a trilha silenciosamente vazia — a contabilidade dizia
-        # uma coisa, a trilha dizia outra. O `transaction.atomic()` aqui
-        # é REENTRANTE (Django cria savepoint): o serviço `criar_lancamento`
-        # é `@transaction.atomic` por si, e o aninhamento resulta em
-        # savepoint, e a falha do `registrar()` reverte o savepoint E o
-        # commit do `criar_lancamento` que ainda não subiu. A `try/except`
-        # para `ChaveIdempotenciaConflitante` e `LancamentoInvalido`
-        # continua sendo honrada (são erros pré-INSERT, nada a reverter);
-        # qualquer outra exceção (incluindo a do `registrar()`) propaga e
-        # a transação externa desfaz tudo.
+        # BL-14 (DL-024) e DL-052 (M1): `criar_lancamento` e `registrar()`
+        # rodam dentro do MESMO `transaction.atomic()` (o `with` abaixo
+        # envolve as duas chamadas). Antes, qualquer falha no INSERT do
+        # `RegistroAuditoria` deixava o lançamento gravado e a trilha
+        # silenciosamente vazia — a contabilidade dizia uma coisa, a trilha
+        # dizia outra. O comentário original do BL-14 afirmava que o `with`
+        # já cobria o `criar_lancamento`, mas ele só cobria o `registrar()`:
+        # `criar_lancamento` (`@transaction.atomic`) comitava sozinho, por
+        # ser a transação mais externa (`ATOMIC_REQUESTS` desligado), antes
+        # de a trilha ser tentada. Agora a falha do `registrar()` reverte
+        # também o lançamento. Os `except` de negócio ficam FORA do `with`:
+        # são recusas pré-INSERT (nada a reverter) e a transação já saiu
+        # limpa quando elas viram resposta HTTP; qualquer outra exceção
+        # (incluindo a do `registrar()`) propaga e desfaz tudo.
         status_code = None
-        with transaction.atomic():
-            if lancamento.criado_agora:
-                registrar(acao="lancamento.criado", objeto=lancamento, request=request)
-                status_code = status.HTTP_201_CREATED
-            else:
-                registrar(
-                    acao="lancamento.criacao_repetida",
-                    objeto=lancamento,
-                    request=request,
-                    # Só um hash curto da chave, nunca a chave crua (achado A8):
-                    # é uma string arbitrária vinda do cliente, e `registrar()`
-                    # só deve receber dados não sensíveis. O hash ainda permite
-                    # correlacionar repetições da MESMA chave entre registros.
-                    detalhes={
-                        "chave_idempotencia_hash": hashlib.sha256(
-                            chave_idempotencia.encode("utf-8")
-                        ).hexdigest()[:12]
-                    },
+        try:
+            with transaction.atomic():
+                lancamento = criar_lancamento(
+                    empresa=empresa,
+                    data=data_lancamento,
+                    historico=historico,
+                    itens=itens,
+                    criado_por=request.user,
+                    chave_idempotencia=chave_idempotencia,
                 )
-                status_code = status.HTTP_200_OK
+                if lancamento.criado_agora:
+                    registrar(acao="lancamento.criado", objeto=lancamento, request=request)
+                    status_code = status.HTTP_201_CREATED
+                else:
+                    registrar(
+                        acao="lancamento.criacao_repetida",
+                        objeto=lancamento,
+                        request=request,
+                        # Só um hash curto da chave, nunca a chave crua (achado A8):
+                        # é uma string arbitrária vinda do cliente, e `registrar()`
+                        # só deve receber dados não sensíveis. O hash ainda permite
+                        # correlacionar repetições da MESMA chave entre registros.
+                        detalhes={
+                            "chave_idempotencia_hash": hashlib.sha256(
+                                chave_idempotencia.encode("utf-8")
+                            ).hexdigest()[:12]
+                        },
+                    )
+                    status_code = status.HTTP_200_OK
+        except ChaveIdempotenciaConflitante as exc:
+            # Conflito de estado (a chave já existe com outro conteúdo), não
+            # entrada inválida: 409, não 400 — e nada foi gravado (achado A2).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except CompetenciaEncerrada as exc:
+            # DL-016 fatia 1, critério 1: mesma classe de conflito de estado
+            # que `ChaveIdempotenciaConflitante` — 409, e nada foi gravado (a
+            # recusa acontece DENTRO da transação de `criar_lancamento`,
+            # antes de qualquer INSERT).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except LancamentoInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
 
         serializer = self.get_serializer(lancamento)
         return Response(serializer.data, status=status_code)
@@ -914,8 +913,24 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
         empresa = self.get_empresa()
         lancamento = get_object_or_404(LancamentoContabil, pk=lancamento_id, empresa=empresa)
 
+        # DL-052 (M1): estorno e trilha na MESMA transação. `estornar_lancamento`
+        # é `@transaction.atomic`, mas como esta view é a transação mais
+        # externa (`ATOMIC_REQUESTS` está desligado) o estorno era COMITADO ao
+        # retornar dele; se `registrar` falhasse em seguida, a resposta era
+        # 500 com o estorno já gravado e nenhum registro na trilha — e, como
+        # o lançamento "já foi estornado", o contador não conseguia refazer.
+        # Com o `atomic` externo, a falha da trilha desfaz o estorno. Os
+        # `except` ficam FORA do `with`: a recusa de negócio sai da transação
+        # (que reverte sem gravar nada) antes de virar resposta HTTP.
         try:
-            estorno = estornar_lancamento(lancamento, criado_por=request.user)
+            with transaction.atomic():
+                estorno = estornar_lancamento(lancamento, criado_por=request.user)
+                registrar(
+                    acao="lancamento.estornado",
+                    objeto=estorno,
+                    request=request,
+                    detalhes={"lancamento_original_id": lancamento.pk},
+                )
         except CompetenciaEncerrada as exc:
             # DL-016 fatia 1, critério 2: o estorno É um lançamento novo, e a
             # competência que decide é a DELE (a data do estorno), não a do
@@ -925,12 +940,6 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
-        registrar(
-            acao="lancamento.estornado",
-            objeto=estorno,
-            request=request,
-            detalhes={"lancamento_original_id": lancamento.pk},
-        )
         serializer = LancamentoContabilSerializer(estorno)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

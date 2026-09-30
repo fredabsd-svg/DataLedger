@@ -265,14 +265,22 @@ def test_aceitar_convite_recusa_token_ja_consumido():
         convidador=admin,
     )
 
+    # DL-052 (A2): o aceite exige o e-mail do convidado. O primeiro usuário
+    # usa o e-mail do convite (o e-mail de usuário é único, então só um
+    # usuário pode tê-lo); a reapresentação do MESMO usuário prova que a
+    # recusa é por convite JÁ CONSUMIDO, não por e-mail divergente.
     primeiro = User.objects.create_user(
-        username="primeiro-convidado", email="primeiro-convidado@dl018.local", password=SENHA
+        username="primeiro-convidado", email="segundo-convidado@dl018.local", password=SENHA
     )
     aceitar_convite_e_criar_vinculo(token=convite.token, usuario=primeiro)
 
-    # Um segundo usuário (ou o mesmo) tentando usar o mesmo token — recusa.
+    with pytest.raises(Exception) as excinfo:
+        aceitar_convite_e_criar_vinculo(token=convite.token, usuario=primeiro)
+    assert "inexistente" in str(excinfo.value).lower() or "consumido" in str(excinfo.value).lower()
+
+    # Um segundo usuário tentando usar o mesmo token — recusa.
     segundo = User.objects.create_user(
-        username="segundo-convidado", email="segundo-convidado@dl018.local", password=SENHA
+        username="segundo-convidado", email="outro-convidado@dl018.local", password=SENHA
     )
     with pytest.raises(Exception) as excinfo:
         aceitar_convite_e_criar_vinculo(token=convite.token, usuario=segundo)

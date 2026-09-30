@@ -51,6 +51,7 @@ from apps.contabilidade.services import (
     registrar_parametro_contabil,
     zerar_resultado,
 )
+from apps.contabilidade.tests.gatilhos_do_livro import IMUTAVEL_LANCAMENTO, gatilho_desligado
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -613,9 +614,13 @@ def test_b3_5c_chave_ja_ocupada_e_409_sem_gravar(client, cenario, monkeypatch):
         ],
         usuario=cenario["gestor"],
     )
-    LancamentoContabil.objects.filter(pk=lancamento_ocupante.pk).update(
-        chave_idempotencia=f"zeramento:{empresa.pk}:2026-03:etapa1:0"
-    )
+    # DL-052: o banco recusa UPDATE de lançamento; aqui o teste PRECISA forjar a
+    # chave reservada em lançamento já gravado (é o cenário do achado B3), então
+    # o gatilho de imutabilidade fica desligado só neste bloco.
+    with gatilho_desligado(IMUTAVEL_LANCAMENTO):
+        LancamentoContabil.objects.filter(pk=lancamento_ocupante.pk).update(
+            chave_idempotencia=f"zeramento:{empresa.pk}:2026-03:etapa1:0"
+        )
 
     from apps.contabilidade import services as contabilidade_services
 
