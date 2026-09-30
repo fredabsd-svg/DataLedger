@@ -145,8 +145,9 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 
 1. **DL-053 — fechamento de mês do livro-caixa** (BL-551), nível 1. O Fred
    respondeu à PE-73 em 30/09: *"livro-caixa pode ter fechamento de mês"*
-   (RC-145). Desenho proposto como hipótese (HI-49): mesma regra de papéis
-   da competência contábil. Plano ainda não escrito; começa depois da DL-052.
+   (RC-145), e confirmou a regra de papéis: a mesma da contabilidade —
+   administrador e gestor fecham e reabrem, analista não (RC-146). Plano
+   ainda não escrito; começa depois da DL-052.
 2. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
    integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
    29/09 já fechadas: versionar pela data de início do exercício, com adoção
@@ -161,8 +162,6 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 
 **Decisões com o Fred:**
 
-- **HI-49:** fechamento do livro-caixa com a mesma regra de papéis da
-  contabilidade (administrador e gestor fecham e reabrem; analista não).
 - Balanço emitido sem o zeramento (três caminhos apresentados em 21/09).
 - Quem vê a contabilidade de quais empresas (PE-36).
 - Pendências do carnê-leão: HI-32, HI-37, HI-38, HI-39; importação real no
