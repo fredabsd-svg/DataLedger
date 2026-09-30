@@ -17,7 +17,7 @@ líder.
 | `arquiteto-senior` | Líder, interlocutor do Fred, arquitetura e integração | `opus` | `high` | `project` |
 | `desenvolvedor-pleno` | Backend, banco, APIs, integrações, regras de negócio | `sonnet` | `high` | `project` |
 | `especialista-frontend` | Interface, fluxos, componentes, acessibilidade | `sonnet` | `high` | `project` |
-| `auditor-qa` | Auditoria independente e testes | `opus` | `high` | nenhuma |
+| `auditor-qa` | Auditoria independente e testes | `sonnet` | `high` | nenhuma |
 
 Perfis auxiliares reutilizáveis — **trabalhadores acionados para tarefas
 específicas, não integrantes permanentes**:
@@ -27,6 +27,14 @@ específicas, não integrantes permanentes**:
 | `auxiliar-pesquisa` | Exploração de código, documentação, análise | `sonnet` | não | não |
 | `auxiliar-implementacao` | Mudanças delimitadas em arquivos atribuídos, com testes | `sonnet` | sim | não |
 | `auxiliar-verificacao` | Verificação independente, sem corrigir | `sonnet` | não | não |
+
+**Economia de modelo — instrução do Fred, 30/09/2026 (RC-143):** *"sempre use o
+sonnet 5.5 para codar e subagente para economizar (até o haiku se achar que ele
+dá conta)"*. Só o `arquiteto-senior`, que orquestra, roda em `opus`. Todo
+sub-agente — inclusive o `auditor-qa`, que até esta data era `opus` — roda em
+`sonnet`. Tarefa mecânica (rodar a suíte, conferir saída, varrer texto) vai a
+`haiku` quando ele der conta; auditoria de nível 1 e implementação, nunca.
+O líder pode passar o modelo na própria chamada do sub-agente.
 
 Os modelos usam os apelidos `opus` e `sonnet`, que a plataforma resolve para a
 versão mais recente permitida pela organização. Se um apelido for bloqueado por

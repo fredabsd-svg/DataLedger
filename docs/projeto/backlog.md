@@ -1899,3 +1899,29 @@ encerrada**; ressalvas baixas abaixo.
 | BL-541 | **Tela de editar conta do plano de contas** (nome, grupo pai), no produto, com as mesmas regras do modelo e trilha. Hoje mover uma conta de grupo só é possível pelo admin do Django — é o caminho de correção do veto da DRE e do Balanço para conta de tipo divergente (DL-045, verificação do fechamento). | `especialista-frontend` | — | aberta | Mover uma conta de grupo pela tela, com a recusa do modelo mostrada na tela e registro na trilha. |
 | BL-542 | **Conferir se o exportador de PDF do Chromium do ambiente afetou medições publicadas.** Na DL-046 fatia 2 se confirmou que o `page.pdf()` do Chromium local, com margem acima de ~1 mm, deixa a barra lateral aparecer no PDF (a mídia de impressão não é aplicada por inteiro). `scripts/medir_impressao.py` usa margem de 10 mm no modo com cabeçalho, e os números de paginação do Balancete, do Diário e do Razão publicados no backlog saíram dele. | `auditor-qa` | — | aberta | Reproduzir com o Chromium da CI e o local; dizer se algum número publicado muda e, se mudar, corrigir o instrumento e republicar. |
 | BL-543 | **Tirar identificadores internos (RC-, DE-, HI-) das telas da contabilidade.** A reconferência da DL-046 fatia 2 (R-M2) registrou o padrão em `fechamento.html`, `balanco.html` e outras; o carnê-leão já foi limpo. | `especialista-frontend` | — | aberta | Varredura do texto visível sem `\b(RC|HI|DE|PE|BL|DL)-\d+`, com teste, em todas as telas. |
+
+## Análise do repositório — DL-052 (2026-09-30)
+
+Origem: análise de 30/09/2026 sobre `dbc6113` (`auditor-qa` por inspeção e
+experimento em banco próprio; `arquiteto-senior` conferiu A1, A2 e M1 no
+código). Plano: [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md).
+BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-544 | **A2 (alta)** — convite de escritório nunca vence e é aceito por usuário de outro e-mail | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Critérios 1 e 2 do plano |
+| BL-545 | **A1 (alta)** — débito = crédito, `valor > 0` e imutabilidade do lançamento só em Python; `QuerySet.update/delete` desbalanceia e apaga | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Critérios 3, 4, 5 e 8 do plano |
+| BL-546 | **M1 (média)** — estorno gravado antes e fora da transação da trilha | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Critério 6 do plano |
+| BL-547 | Token do convite sai da URL (hoje fica em log de acesso e histórico do navegador) — HI-48 | `desenvolvedor-pleno` | BL-544 | aberta | Link sem token no caminho; token não aparece em log de acesso |
+| BL-548 | Cadastro não confirma o e-mail do usuário; a amarração do convite ao e-mail é parcial sem isso — HI-47 | `desenvolvedor-pleno` | — | aberta | Conta só vincula convite depois de e-mail confirmado |
+| BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | aberta | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
+| BL-550 | **M3 (média)** — reclassificar conta na DRE/DLPA altera demonstração de competência encerrada ou entregue; analista consegue | `desenvolvedor-pleno` | — | aberta | Reclassificação com movimento em competência encerrada → 409, ou classificação por vigência |
+| BL-551 | **M4 (média)** — livro-caixa sem trava de período: lançamento posterior muda carnê-leão já apurado | `desenvolvedor-pleno` | PE-73 | bloqueada | Conforme resposta do Fred à PE-73 |
+| BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | aberta | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
+| BL-553 | **M6 (média)** — IP da trilha é sempre `REMOTE_ADDR` (o do proxy em produção) | `desenvolvedor-pleno` | — | aberta | IP real com lista de proxies confiáveis configurável; teste com e sem proxy |
+| BL-554 | **B1 (baixa)** — mensagem de `conta_pai` distingue id de outro escritório de id inexistente (enumeração) | `desenvolvedor-pleno` | — | aberta | Mesma mensagem nos dois casos, com teste |
+| BL-555 | **B2/B3/B4 (baixa)** — consulta de lançamentos por `id__in` sem filtro de empresa na DLPA web; `login.falha` grava o usuário digitado (pode ser a senha); `REST_FRAMEWORK` sem `DEFAULT_AUTHENTICATION_CLASSES` explícito | `desenvolvedor-pleno` | — | aberta | Filtro de empresa; usuário digitado só se existir ou mascarado; classes de autenticação declaradas |
+| BL-556 | CI não audita dependências, segredos, cobertura nem outras versões de Python (promete 3.12+, testa só 3.14) | `arquiteto-senior` | — | aberta | Nível 3: decidir o mínimo útil e ligar |
+| BL-557 | `contabilidade/services.py` com 6.154 linhas; `apurar_saldos` (660), `criar_lancamento` (413); `views_web.lancamento_novo` (529) | `desenvolvedor-pleno` | — | aberta | Refatoração por fatia, sem mudança de comportamento, com a suíte como rede |
+| BL-558 | Dependências circulares entre apps: `core` importa contabilidade, fiscal e livro_caixa (`module_homes.py`); `tenancy` importa fiscal; `views_web` importa símbolo privado de `views` | `arquiteto-senior` | — | aberta | Camadas definidas e uma guarda derivada de import |
+| BL-559 | Apagar um usuário pelo admin zera a autoria (`criado_por`, `on_delete=SET_NULL`) dos lançamentos que ele escriturou. O gatilho da DL-052 **preserva** esse comportamento de propósito, para não mudar regra sem decisão | `arquiteto-senior` | — | aberta | Decidir entre `PROTECT` (usuário se desativa, não se apaga) e manter; a trilha continua com o ator |

@@ -34,6 +34,18 @@ Plano: [DL-051](../planos/DL-051-correcao-dos-modulos.md). FIS-39/FIS-47
 continuam planejados no [módulo Fiscal](paridade/fiscal.md), sem nova
 funcionalidade ou atalho fictício nesta correção.
 
+## Integridade do livro e do acesso — DL-052
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-142 | Confirmado | Fred, 30/09/2026: *"Aprovo a DL-052, pode seguir"* — corrigir o convite que não vence (A2), levar ao banco as invariantes do lançamento (A1) e gravar estorno e trilha juntos (M1), mais limpar o estado e verificar migração pendente na CI. |
+| RC-143 | Confirmado | Fred, 30/09/2026: *"sempre use o sonnet 5.5 para codar e subagente para economizar (até o haiku se achar que ele dá conta)"*. O orquestrador segue em `opus`; implementação, auditoria e auxiliares em `sonnet`; tarefas mecânicas (rodar suíte, conferir saída) podem ir a `haiku`. A plataforma aceita o apelido do modelo, não a versão exata. |
+| HI-47 | Hipótese técnica | O convite vale para o e-mail convidado, comparado sem diferença de maiúsculas e espaços. Como o cadastro não confirma e-mail (BL-548), essa amarração é defesa parcial; a defesa principal é o prazo de 7 dias já documentado desde a DL-018. |
+| HI-48 | Hipótese técnica | O token do convite continua na URL nesta etapa; retirá-lo muda o fluxo do link enviado e fica no BL-547. |
+| PE-73 | Pendência | O livro-caixa deve ter fechamento de mês, como a contabilidade, para que o carnê-leão apurado não mude com lançamento posterior? Ou o escritório precisa lançar retroativamente? Bloqueia o BL-551. |
+
+Plano: [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md).
+
 ## Legenda
 
 | Estado | Significado |

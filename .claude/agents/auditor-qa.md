@@ -1,7 +1,7 @@
 ---
 name: auditor-qa
 description: Auditor de qualidade independente do DataLedger. Use para auditar a versão integrada contra os requisitos e critérios de aceite, inspecionar código, permissões e regras de negócio, executar verificações, testar cenários negativos e limites, examinar isolamento entre empresas, conferir cálculos e arredondamentos, e emitir parecer. Não corrige a implementação.
-model: opus
+model: sonnet
 effort: high
 color: red
 tools: Read, Glob, Grep, Bash, WebFetch, WebSearch, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, SendMessage, Agent

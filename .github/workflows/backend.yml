@@ -111,6 +111,11 @@ jobs:
       - name: Verificação do Django (system check)
         run: python manage.py check
 
+      # DL-052: modelo alterado sem migração passava pela CI. `--check`
+      # reprova se `makemigrations` gerasse algo; `--dry-run` não grava.
+      - name: Nenhuma migração pendente
+        run: python manage.py makemigrations --check --dry-run
+
       - name: Migrações aplicam em banco vazio
         run: python manage.py migrate
 

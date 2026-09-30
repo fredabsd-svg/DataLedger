@@ -232,6 +232,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-049** — Página inicial por módulo: contexto de empresa/competência, indicadores acionáveis, carteira e fila de trabalho. Plano em [docs/planos/DL-049-home-por-modulo.md](docs/planos/DL-049-home-por-modulo.md)
 - **DL-050** — Toda espera de thread em teste ganha timeout, com asserção de que a thread concluiu. Nível 3 (andaime): `join()` e `barreira.wait()` sem timeout faziam a suíte **terminar em silêncio** quando uma thread morria antes da barreira, e timeout sozinho — sem a asserção de `is_alive()` — trocaria o travamento por um falso positivo silencioso. Plano em [docs/planos/DL-050-esperas-de-thread-com-timeout.md](docs/planos/DL-050-esperas-de-thread-com-timeout.md)
 - **DL-051** — Correção do escopo da navegação: Vendas não pertence ao produto; estoque e inventário são rotinas de Fiscal, sem módulo próprio. Plano em [docs/planos/DL-051-correcao-dos-modulos.md](docs/planos/DL-051-correcao-dos-modulos.md)
+- **DL-052** — Integridade do livro e do acesso: convite de escritório com validade e amarrado ao e-mail convidado; débito igual a crédito, valor positivo e imutabilidade do lançamento garantidos também pelo banco; estorno e trilha de auditoria na mesma transação. Plano em [docs/planos/DL-052-integridade-do-livro-e-do-acesso.md](docs/planos/DL-052-integridade-do-livro-e-do-acesso.md)
 
 Ainda não existem:
 
