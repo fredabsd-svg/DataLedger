@@ -77,6 +77,7 @@ from apps.livro_caixa.permissoes import (
 from apps.livro_caixa.services import (
     ChaveIdempotenciaConflitanteCaixa,
     LancamentoCaixaInvalido,
+    MesCaixaEncerrado,
     apurar_livro_caixa,
     criar_conta_livro_caixa,
     criar_lancamento_caixa,
@@ -533,12 +534,12 @@ def lancamento_caixa_novo(request, empresa_id):
 
         chave_idempotencia = request.POST.get("chave_idempotencia") or uuid.uuid4().hex
 
-        def _recusa(mensagem):
+        def _recusa(mensagem, status=400):
             messages.error(request, mensagem)
             contexto = _contexto_form_lancamento_caixa(
                 empresa, contas, request.POST, chave_idempotencia=chave_idempotencia
             )
-            return render(request, "livro_caixa/lancamento_form.html", contexto, status=400)
+            return render(request, "livro_caixa/lancamento_form.html", contexto, status=status)
 
         # M1 (rodada 1 da auditoria da DL-046): `conta` chega da tela como
         # TEXTO cru do formulário — "abc", "1.5" ou espaço em branco
@@ -617,6 +618,11 @@ def lancamento_caixa_novo(request, empresa_id):
             )
         except ChaveIdempotenciaConflitanteCaixa as exc:
             return _recusa(str(exc))
+        except MesCaixaEncerrado as exc:
+            # DL-053: mês encerrado — 409 (conflito de ESTADO, como na API),
+            # com a mensagem do serviço, que nomeia o mês e orienta reabrir.
+            # Nada foi gravado; o formulário volta preenchido.
+            return _recusa(str(exc), status=409)
         except DataInvalida as exc:
             # Só a `competencia_previdencia` é lida dentro deste `try` por
             # `para_data` (a `data` do lançamento já é convertida antes) —
@@ -770,6 +776,16 @@ def lancamento_caixa_estornar(request, empresa_id, lancamento_id):
             )
         try:
             estornar_lancamento_caixa(lancamento, criado_por=request.user, request=request)
+        except MesCaixaEncerrado as exc:
+            # DL-053, critério 2: estorno de lançamento de mês encerrado —
+            # 409, nada gravado; reabrir o mês é o caminho (RC-130).
+            messages.error(request, str(exc))
+            return render(
+                request,
+                "livro_caixa/lancamento_estornar.html",
+                _contexto_lancamento_estornar(empresa, lancamento),
+                status=409,
+            )
         except LancamentoCaixaInvalido as exc:
             messages.error(request, str(exc))
             return render(

@@ -66,6 +66,7 @@ from apps.core.datas import DataInvalida, para_data
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.core.escolhas import EscolhaInvalida, para_escolha
 from apps.core.identificadores import IdentificadorInvalido, para_id
+from apps.core.papeis_de_fechamento import PAPEIS_QUE_FECHAM_PERIODO
 from apps.core.requisicao import (
     ContratoDeRequisicao,
     DadoNaoContratado,
@@ -521,7 +522,11 @@ PodeEscriturar = papel_permitido(
 # GESTOR. ANALISTA lança (está em `PodeEscriturar`, acima) e não fecha/
 # reabre/entrega; FINANCEIRO, PARALEGAL e CLIENTE nunca estiveram em
 # questão para esta operação e ficam de fora pela mesma resposta.
-PodeFecharCompetencia = papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)
+#
+# DL-053 / RC-146: a lista de papéis vive em `apps.core.papeis_de_fechamento`
+# (fonte única, compartilhada com o fechamento de mês do livro-caixa); o
+# comportamento aqui é o MESMO de antes — só a lista saiu deste arquivo.
+PodeFecharCompetencia = papel_permitido(*PAPEIS_QUE_FECHAM_PERIODO)
 
 
 # Leitura das quatro saídas contábeis com período (Diário, Razão, Balancete,

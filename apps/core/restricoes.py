@@ -704,6 +704,46 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "(DL-046, fatia 2, B-5). Já validada em `clean()` antes de qualquer "
         "escrita real de cliente."
     ),
+    # DL-053 (RC-145/RC-146): as seis restrições de `FechamentoMesCaixa`.
+    # O único caminho de escrita é `encerrar_mes_caixa`/`reabrir_mes_caixa`
+    # (`apps.livro_caixa.services`), que validam ano/mês/motivo ANTES de
+    # gravar (400) e serializam por lock consultivo do (empresa, ano, mês) —
+    # duas requisições simultâneas de fechamento do MESMO mês nunca chegam
+    # juntas ao INSERT, então a unicidade não é alcançável por corrida de
+    # cliente. Só ORM/SQL direto alcançaria qualquer uma das seis.
+    "fechamento_mes_caixa_unico_por_empresa_ano_mes": (
+        "`UniqueConstraint(empresa, ano, mes)` de `FechamentoMesCaixa` "
+        "(DL-053). `encerrar_mes_caixa` toma o lock consultivo exclusivo do "
+        "mês e lê a linha antes de criar; a constraint é a defesa de banco "
+        "para ORM/SQL direto."
+    ),
+    "fechamento_mes_caixa_mes_entre_1_e_12": (
+        "`CheckConstraint` de `FechamentoMesCaixa.mes` (DL-053): 1 <= mes <= "
+        "12. API e serviço recusam mês fora da faixa (400) antes de qualquer "
+        "gravação; só ORM/SQL direto alcançaria a constraint."
+    ),
+    "fechamento_mes_caixa_ano_entre_1970_e_2999": (
+        "`CheckConstraint` de `FechamentoMesCaixa.ano` (DL-053): 1970 <= ano "
+        "<= 2999. API e serviço recusam ano fora da faixa (400) antes de "
+        "qualquer gravação; só ORM/SQL direto alcançaria a constraint."
+    ),
+    "fechamento_mes_caixa_estado_valido": (
+        "`CheckConstraint` de domínio de `FechamentoMesCaixa.estado` (DL-053): "
+        "'aberto' ou 'encerrado'. Os serviços só escrevem os dois valores de "
+        "`EstadoMesCaixa`; nenhuma rota recebe o estado do cliente."
+    ),
+    "fechamento_mes_caixa_reabertura_completa": (
+        "`CheckConstraint` de `FechamentoMesCaixa` (DL-053, RC-146): "
+        "reaberto_em, reaberto_por e motivo_reabertura são todos vazios ou "
+        "todos preenchidos, com motivo não vazio. `reabrir_mes_caixa` recusa "
+        "motivo em branco (400) antes de gravar; só ORM/SQL direto alcançaria "
+        "a constraint."
+    ),
+    "fechamento_mes_caixa_aberto_exige_reabertura": (
+        "`CheckConstraint` de `FechamentoMesCaixa` (DL-053): a linha nasce "
+        "encerrada, então 'aberto' sem reabertura registrada não é produzido "
+        "por nenhum fluxo. Só ORM/SQL direto alcançaria a constraint."
+    ),
 }
 
 

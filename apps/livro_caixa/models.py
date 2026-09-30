@@ -937,3 +937,134 @@ class DependentesCarneLeaoCliente(models.Model):
                     )
                 }
             )
+
+
+class EstadoMesCaixa(models.TextChoices):
+    """Estado de um mês do livro-caixa (DL-053, RC-145).
+
+    Só existem DOIS estados, e "mês sem registro" é `ABERTO` por definição
+    (decisão 3 do plano): todo mês nasce aberto, sem que nenhuma linha
+    precise ser criada. Não há "entregue" nem "em encerramento" — ficaram
+    fora do escopo da DL-053 (decisão 6)."""
+
+    ABERTO = "aberto", "Aberto"
+    ENCERRADO = "encerrado", "Encerrado"
+
+
+class FechamentoMesCaixa(models.Model):
+    """Fechamento de UM mês do livro-caixa de UMA empresa (DL-053, RC-145/
+    RC-146) — o controle que faltava para a RC-130 ("o erro de mês anterior
+    se corrige REABRINDO o mês original"). Mês encerrado não aceita
+    lançamento nem estorno (`apps.livro_caixa.services`).
+
+    **Controle próprio do livro-caixa, não a `Competencia` contábil**
+    (decisão 1 do plano): a contabilidade recusa empresa em modo livro-caixa
+    por desenho (`recusar_se_livro_caixa`); reaproveitar `Competencia`
+    acoplaria os dois regimes de escrituração. O desenho espelha a
+    `Competencia` (DL-016): par `(ano, mes)` em vez de `DateField`, unicidade
+    por `UniqueConstraint`, faixa do mês e do ano por `CheckConstraint`.
+
+    **Uma linha só existe depois do primeiro fechamento**: mês sem linha é
+    aberto. Por isso `fechado_em`/`fechado_por` são obrigatórios — a linha é
+    sempre criada por um fechamento. Reabrir NÃO apaga a linha: muda `estado`
+    para `aberto` e grava `reaberto_em`/`reaberto_por`/`motivo_reabertura`.
+    Os dois pares descrevem o ÚLTIMO fechamento e a ÚLTIMA reabertura; quem
+    quer o histórico completo (todos os fechamentos e reaberturas, com o
+    motivo de cada uma) consulta a trilha de auditoria
+    (`fechamento_mes_caixa.encerrado` / `.reaberto`), que é gravada na MESMA
+    transação de cada mudança.
+
+    A trava em si mora em `apps.livro_caixa.services` (toda gravação de
+    `LancamentoCaixa` passa por `criar_lancamento_caixa`); este modelo só
+    guarda o estado. Não há gatilho de banco impedindo o INSERT de um
+    lançamento em mês encerrado por SQL direto — fora do escopo da DL-053
+    (decisão 6).
+    """
+
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="fechamentos_mes_caixa"
+    )
+    ano = models.IntegerField("ano")
+    mes = models.IntegerField("mês")
+    estado = models.CharField("estado", max_length=10, choices=EstadoMesCaixa.choices)
+    fechado_em = models.DateTimeField("fechado em")
+    # RC-144 / DL-052: usuário se desativa, não se apaga — a autoria do
+    # fechamento é parte da trilha do período (PROTECT).
+    fechado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="fechado por",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    reaberto_em = models.DateTimeField("reaberto em", null=True, blank=True)
+    reaberto_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="reaberto por",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    motivo_reabertura = models.TextField(
+        "motivo da reabertura", blank=True, default="", validators=[_SEM_CARACTERE_NULO]
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "fechamento de mês do livro-caixa"
+        verbose_name_plural = "fechamentos de mês do livro-caixa"
+        ordering = ["empresa", "-ano", "-mes"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "mes"],
+                name="fechamento_mes_caixa_unico_por_empresa_ano_mes",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(mes__gte=1) & models.Q(mes__lte=12),
+                name="fechamento_mes_caixa_mes_entre_1_e_12",
+            ),
+            # Mesma faixa de `Competencia` e de `DATA_MINIMA_LANCAMENTO_CAIXA`
+            # em ordem de grandeza: recusa anos absurdos sem fechar a porta a
+            # movimento antigo.
+            models.CheckConstraint(
+                condition=models.Q(ano__gte=1970) & models.Q(ano__lte=2999),
+                name="fechamento_mes_caixa_ano_entre_1970_e_2999",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(estado__in=["aberto", "encerrado"]),
+                name="fechamento_mes_caixa_estado_valido",
+            ),
+            # Reabertura é ato explícito e rastreável (RC-146): ou não houve
+            # nenhuma (os três campos vazios), ou os três estão preenchidos,
+            # com motivo não vazio. Nunca meia reabertura.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(reaberto_em__isnull=True, reaberto_por__isnull=True)
+                    & models.Q(motivo_reabertura="")
+                )
+                | (
+                    models.Q(reaberto_em__isnull=False, reaberto_por__isnull=False)
+                    & ~models.Q(motivo_reabertura="")
+                ),
+                name="fechamento_mes_caixa_reabertura_completa",
+            ),
+            # Um mês só está `aberto` depois de reaberto: a linha nasce
+            # encerrada, então `aberto` sem reabertura registrada é estado
+            # que nenhum fluxo legítimo produz.
+            models.CheckConstraint(
+                condition=models.Q(estado="encerrado") | models.Q(reaberto_em__isnull=False),
+                name="fechamento_mes_caixa_aberto_exige_reabertura",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.mes:02d}/{self.ano} — {self.empresa} ({self.get_estado_display()})"
+
+    def clean(self):
+        # Só empresa em modo livro-caixa tem fechamento de caixa (decisão 1
+        # do plano) — a MESMA regra do resto do módulo, num ponto só.
+        if self.empresa_id:
+            try:
+                recusar_se_nao_livro_caixa(self.empresa)
+            except EmpresaNaoEmModoLivroCaixa as exc:
+                raise ValidationError({"empresa": exc.mensagem}) from exc

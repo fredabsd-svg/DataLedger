@@ -9,10 +9,12 @@ dobradas — isso é a contabilidade).
 
 import hashlib
 import json
+import warnings
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
+from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.core.dinheiro import ValorMonetarioInvalido, casas_decimais, para_decimal
@@ -22,6 +24,8 @@ from apps.empresas.services import EmpresaNaoEmModoLivroCaixa, recusar_se_nao_li
 from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
+    EstadoMesCaixa,
+    FechamentoMesCaixa,
     LancamentoCaixa,
     NaturezaCaixa,
 )
@@ -47,6 +51,48 @@ class ChaveIdempotenciaConflitanteCaixa(Exception):
     para um lançamento de caixa com conteúdo DIFERENTE (mesmo espírito de
     `ChaveIdempotenciaConflitante`, contabilidade) — nunca devolve o
     lançamento errado como se fosse sucesso."""
+
+
+class MesCaixaEncerrado(Exception):
+    """Lançamento ou estorno recusado: o mês de destino do livro-caixa está
+    encerrado (DL-053, RC-145). A correção é reabrir o mês (com motivo) —
+    exatamente o procedimento da RC-130.
+
+    Deliberadamente distinta de `LancamentoCaixaInvalido`: o corpo do
+    lançamento é válido; o que recusa é o ESTADO do mês em que ele cairia.
+    A API traduz para 409 (conflito de estado), a tela também — mesma
+    distinção que `CompetenciaEncerrada` faz na contabilidade. NÃO é
+    subclasse de `LancamentoCaixaInvalido` de propósito: um `except
+    LancamentoCaixaInvalido` esquecido numa porta de escrita nova não pode
+    engolir a recusa como se fosse erro de digitação (400).
+    """
+
+
+class MesCaixaOcupado(MesCaixaEncerrado):
+    """Gravação recusada porque a ESPERA pelo lock do mês estourou o
+    `lock_timeout` do banco (ou houve deadlock) — NUNCA porque o mês está de
+    fato encerrado. Subclasse de `MesCaixaEncerrado` para herdar a tradução
+    HTTP (409) em todas as portas de escrita; a mensagem diz a causa real
+    (um fechamento ou reabertura em andamento) e orienta tentar de novo."""
+
+
+class FechamentoMesCaixaInvalido(Exception):
+    """Entrada malformada para encerrar/reabrir um mês do livro-caixa —
+    ano/mês fora da faixa, motivo de reabertura em branco, empresa fora do
+    modo livro-caixa. A API traduz para 400: o cliente corrige o que enviou.
+    Contraste com `FechamentoMesCaixaRecusado`, que é sobre o ESTADO."""
+
+
+class FechamentoMesCaixaRecusado(Exception):
+    """O ESTADO atual do mês impede a transição pedida: encerrar mês já
+    encerrado, reabrir mês que está aberto (ou que nunca foi fechado). O
+    pedido é bem formado; o que impede é o que já está gravado — 409."""
+
+
+class FechamentoMesCaixaTravado(FechamentoMesCaixaRecusado):
+    """Encerrar/reabrir recusado porque a espera pelo lock do mês estourou
+    o `lock_timeout` (um lançamento ou outra transição do MESMO mês ainda em
+    andamento). Nada foi gravado; tentar de novo é seguro — 409."""
 
 
 def _impressao_digital_caixa(
@@ -217,6 +263,165 @@ def _valor_monetario_opcional(bruto, *, nome_campo):
             f"máximo {ESCALA_MAXIMA_LANCAMENTO_CAIXA}."
         )
     return valor.quantize(Decimal("0.01"))
+
+
+# ---------------------------------------------------------------------------
+# Fechamento de mês do livro-caixa (DL-053, RC-145/RC-146) — NÍVEL 1.
+#
+# ## A trava e a corrida
+#
+# Toda gravação de `LancamentoCaixa` passa por `criar_lancamento_caixa` (o
+# estorno chama a mesma função; não há importação, recepção fiscal nem outra
+# porta que grave lançamento de caixa — varredura registrada no plano da
+# entrega). Por isso a trava mora ali, num ponto só.
+#
+# O problema difícil é o mês SEM LINHA. Um lock de linha (`FOR SHARE`, como a
+# contabilidade faz na `Competencia`) só funciona quando a linha existe; aqui
+# o mês nasce aberto SEM registro, e o fechamento CRIA a linha. Um lançamento
+# que lê "não há linha" e um fechamento que insere a linha e commita logo em
+# seguida não se enxergam: o lançamento é gravado depois do commit do
+# fechamento, em mês encerrado — uma corrida que lock de linha nenhum evita,
+# porque não há linha para travar.
+#
+# A solução é um lock consultivo (advisory) do PostgreSQL por (empresa, ano,
+# mês), escopado à TRANSAÇÃO (`pg_advisory_xact_lock*`: libera sozinho no
+# COMMIT/ROLLBACK, mesmo se o processo morrer):
+#
+# - lançamento/estorno pedem o lock em modo COMPARTILHADO
+#   (`pg_advisory_xact_lock_shared`): vários lançamentos do mesmo mês não se
+#   bloqueiam entre si — a escrituração normal continua concorrente;
+# - encerrar/reabrir pedem o lock em modo EXCLUSIVO (`pg_advisory_xact_lock`):
+#   esperam os lançamentos em andamento terminarem e fazem os seguintes
+#   esperarem até o commit da transição.
+#
+# Só DEPOIS de ter o lock o estado do mês é lido. Em READ COMMITTED (o padrão
+# do Django/PostgreSQL, que este projeto não altera), cada comando enxerga o
+# que já foi comitado, então quem esperou o fechamento vê a linha nova e
+# recusa; quem chegou antes commita o lançamento e o fechamento só então
+# prossegue — o lançamento aconteceu ANTES do fechamento, que é ordem legítima.
+# Em qualquer das duas ordens o lançamento nunca termina em mês encerrado.
+# Com a linha já existente o mesmo lock vale (a trava não depende de a linha
+# existir), e as transições ainda travam a linha com `select_for_update()`
+# para nenhuma escrita direta concorrente (admin, shell) ler estado velho.
+#
+# Escolha entre lock por (empresa, mês) e por empresa: por (empresa, mês) um
+# fechamento de janeiro nunca espera lançamento de fevereiro. O custo é só a
+# composição da chave (bigint): namespace (8 bits) | empresa (40 bits) |
+# índice do mês desde 1970 (16 bits). Usa a forma de UM bigint do PostgreSQL,
+# que é um espaço de chaves diferente da forma de dois int4 usada pelo lock do
+# envio fiscal — os dois nunca colidem.
+#
+# `lock_timeout` (config/settings.py): a espera também é limitada. Estourou —
+# ou o PostgreSQL escolheu esta transação como vítima de deadlock — o
+# `OperationalError` cru é traduzido para exceção de domínio (409); nunca 500.
+# Comparação por SQLSTATE, nunca pelo texto da mensagem (muda com o idioma do
+# servidor). Qualquer outro `OperationalError` (conexão caída) propaga.
+# ---------------------------------------------------------------------------
+
+_NAMESPACE_LOCK_MES_CAIXA = 0x4C  # 8 bits; arbitrário, só precisa ser fixo
+_MAXIMO_EMPRESA_ID_NO_LOCK = 2**40 - 1
+_ANO_MINIMO_FECHAMENTO, _ANO_MAXIMO_FECHAMENTO = 1970, 2999
+TAMANHO_MAXIMO_MOTIVO_REABERTURA = 1000
+
+_SQLSTATE_ESPERA_DE_LOCK_FALHOU = frozenset({"55P03", "40P01"})
+
+
+def _e_falha_de_espera_de_lock(excecao_de_banco):
+    """`True` quando o `OperationalError` foi causado pelo estouro do
+    `lock_timeout` (SQLSTATE 55P03) ou por deadlock (40P01). `psycopg`
+    preserva o código na exceção original, em `__cause__`."""
+    causa = excecao_de_banco.__cause__
+    return getattr(causa, "sqlstate", None) in _SQLSTATE_ESPERA_DE_LOCK_FALHOU
+
+
+def _chave_do_lock_do_mes(*, empresa_id, ano, mes):
+    """Compõe o bigint do lock consultivo de (empresa, ano, mês). `ano` e
+    `mes` já estão na faixa das `CheckConstraint` do modelo (1970..2999,
+    1..12), então o índice cabe em 16 bits (máx. 12 371)."""
+    if not (0 < empresa_id <= _MAXIMO_EMPRESA_ID_NO_LOCK):
+        raise ValueError(f"empresa_id fora da faixa do lock do mês: {empresa_id}")
+    indice_do_mes = (ano - _ANO_MINIMO_FECHAMENTO) * 12 + (mes - 1)
+    return (_NAMESPACE_LOCK_MES_CAIXA << 56) | (empresa_id << 16) | indice_do_mes
+
+
+def _adquirir_lock_do_mes(*, empresa_id, ano, mes, exclusivo):
+    """Pede o lock consultivo do mês (ver o bloco de comentários acima) e
+    ESPERA por ele. Propaga `OperationalError` — quem chama traduz, porque a
+    mensagem e a exceção de domínio dependem do contexto (lançar x fechar).
+
+    Precisa rodar DENTRO de uma transação: fora dela o lock `_xact_` seria
+    liberado ao fim do próprio comando e não protegeria nada — por isso a
+    recusa explícita em vez de uma trava que só parece existir.
+
+    Fora do PostgreSQL (SQLite, só desenvolvimento local — `config/settings.py`
+    recusa SQLite com `DEBUG=False`) não há lock consultivo: o SQLite já
+    serializa toda escrita no arquivo do banco. O aviso é declarado, não
+    silencioso, como o de `apps.contabilidade.services`.
+    """
+    if not connection.in_atomic_block:
+        raise RuntimeError(
+            "O lock do mês do livro-caixa só protege dentro de uma transação; "
+            "chame a partir de uma função decorada com transaction.atomic."
+        )
+    if connection.vendor != "postgresql":
+        warnings.warn(
+            f"_adquirir_lock_do_mes sem lock: a conexão é '{connection.vendor}', não "
+            "PostgreSQL. A garantia de CONCORRÊNCIA do fechamento de mês (DL-053) não "
+            "vale aqui, só a checagem serial. Válido apenas em desenvolvimento local.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return
+    funcao = "pg_advisory_xact_lock" if exclusivo else "pg_advisory_xact_lock_shared"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {funcao}(%s)",
+            [_chave_do_lock_do_mes(empresa_id=empresa_id, ano=ano, mes=mes)],
+        )
+
+
+def _recusar_se_mes_caixa_encerrado(*, empresa, data, e_estorno):
+    """A TRAVA de `criar_lancamento_caixa` (critérios 1 e 2 da DL-053).
+
+    Pede o lock do mês em modo compartilhado e só então lê o estado; se
+    `encerrado`, levanta `MesCaixaEncerrado` (409) nomeando mês e empresa. A
+    condição é `estado != ABERTO` (não `== ENCERRADO`): estado desconhecido
+    bloqueia, nunca libera. Mês sem linha é aberto.
+
+    Para o estorno, `data` é a do lançamento ORIGINAL (DE-091 item 4), então
+    estornar lançamento de mês encerrado exige reabri-lo — a RC-130.
+    """
+    try:
+        _adquirir_lock_do_mes(empresa_id=empresa.id, ano=data.year, mes=data.month, exclusivo=False)
+    except OperationalError as exc:
+        if not _e_falha_de_espera_de_lock(exc):
+            raise
+        # Só parâmetros já em memória na mensagem: a transação está abortada
+        # pelo estouro do lock, e qualquer consulta aqui falharia.
+        raise MesCaixaOcupado(
+            f"O mês {data.month:02d}/{data.year} do livro-caixa de {empresa} está sendo "
+            "encerrado ou reaberto por outra operação agora; não foi possível confirmar o "
+            "estado dele a tempo. Tente novamente em instantes."
+        ) from exc
+
+    estado = (
+        FechamentoMesCaixa.objects.filter(empresa=empresa, ano=data.year, mes=data.month)
+        .values_list("estado", flat=True)
+        .first()
+    )
+    if estado is not None and estado != EstadoMesCaixa.ABERTO:
+        mes_ano = f"{data.month:02d}/{data.year}"
+        if e_estorno:
+            raise MesCaixaEncerrado(
+                f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "
+                "estornar lançamento dele. Reabra o mês (informando o motivo) para corrigir "
+                "o lançamento no mês original (RC-130)."
+            )
+        raise MesCaixaEncerrado(
+            f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "
+            "gravar lançamento nele. Reabra o mês (informando o motivo) ou lance em um "
+            "mês aberto."
+        )
 
 
 @transaction.atomic
@@ -398,6 +603,14 @@ def criar_lancamento_caixa(
             )
     else:
         impressao = None
+
+    # DL-053: a TRAVA do mês encerrado. Depois de toda a validação e da
+    # checagem de idempotência (uma repetição idempotente devolve o lançamento
+    # que JÁ existe e não grava nada, então não precisa da trava), e ANTES de
+    # qualquer INSERT. O lock compartilhado do mês é mantido até o fim desta
+    # transação (inclui a trilha), que é o que impede um fechamento concorrente
+    # de commitar entre esta leitura do estado e a gravação do lançamento.
+    _recusar_se_mes_caixa_encerrado(empresa=empresa, data=data, e_estorno=estorno_de is not None)
 
     lancamento = LancamentoCaixa(
         empresa=empresa,
@@ -605,6 +818,254 @@ def estornar_lancamento_caixa(
             # lançamento gravado — esta é a segunda camada).
             _pular_validacao_dependente_da_conta=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Encerrar e reabrir o mês (DL-053, critérios 3, 4 e 5)
+#
+# PERMISSÃO (RC-146 = RC-102): quem pode encerrar/reabrir é decidido pela
+# VIEW (`PodeFecharMesCaixa`, `papel_pode_fechar_mes_caixa`) — mesmo
+# desenho de `encerrar_competencia`, que também não conhece papel. Estas
+# funções recebem o `usuario` explícito (autoria e trilha), nunca o inferem.
+# ---------------------------------------------------------------------------
+
+
+def _validar_empresa_ano_mes_do_fechamento(*, empresa, ano, mes, usuario):
+    """Entrada das duas transições: recusa (400) o que o cliente pode
+    corrigir. Na API o mesmo limite já é checado na fronteira, com mensagem
+    específica; aqui é a defesa de quem chama o serviço direto (shell,
+    comando, tarefa)."""
+    if usuario is None:
+        raise FechamentoMesCaixaInvalido("Informe o usuário que encerra ou reabre o mês.")
+    try:
+        recusar_se_nao_livro_caixa(empresa)
+    except EmpresaNaoEmModoLivroCaixa as exc:
+        raise FechamentoMesCaixaInvalido(exc.mensagem) from exc
+    if isinstance(mes, bool) or not isinstance(mes, int) or not (1 <= mes <= 12):
+        raise FechamentoMesCaixaInvalido(f"'mes' inválido: {mes!r} — deve estar entre 1 e 12.")
+    if (
+        isinstance(ano, bool)
+        or not isinstance(ano, int)
+        or not (_ANO_MINIMO_FECHAMENTO <= ano <= _ANO_MAXIMO_FECHAMENTO)
+    ):
+        raise FechamentoMesCaixaInvalido(
+            f"'ano' inválido: {ano!r} — deve estar entre "
+            f"{_ANO_MINIMO_FECHAMENTO} e {_ANO_MAXIMO_FECHAMENTO}."
+        )
+
+
+def _travar_mes_para_transicao(*, empresa, ano, mes):
+    """Lock consultivo EXCLUSIVO do mês (espera os lançamentos em andamento e
+    barra os novos até o commit) e, se a linha existir, `FOR UPDATE` nela.
+    Devolve a linha travada ou `None` (mês sem registro = aberto). Estouro de
+    `lock_timeout`/deadlock vira `FechamentoMesCaixaTravado` (409)."""
+    try:
+        _adquirir_lock_do_mes(empresa_id=empresa.id, ano=ano, mes=mes, exclusivo=True)
+        return (
+            FechamentoMesCaixa.objects.select_for_update()
+            .filter(empresa=empresa, ano=ano, mes=mes)
+            .first()
+        )
+    except OperationalError as exc:
+        if not _e_falha_de_espera_de_lock(exc):
+            raise
+        raise FechamentoMesCaixaTravado(
+            f"O mês {mes:02d}/{ano} do livro-caixa de {empresa} está sendo alterado por "
+            "outra operação agora (um lançamento, fechamento ou reabertura em andamento); "
+            "não foi possível travá-lo a tempo. Nada foi gravado. Tente novamente em "
+            "instantes."
+        ) from exc
+
+
+@transaction.atomic
+def encerrar_mes_caixa(*, empresa, ano, mes, usuario, request=None):
+    """Encerra o mês (ano, mes) do livro-caixa da empresa: `aberto -> encerrado`.
+
+    Cria a linha se o mês nunca teve registro (mês sem registro é aberto) e
+    a reutiliza se o mês foi reaberto antes. Mês JÁ encerrado é RECUSADO
+    (`FechamentoMesCaixaRecusado`, 409), sem efeito — diferente da
+    competência contábil, que trata o repetido como no-op: aqui o critério 4
+    da DL-053 manda recusar, e o autor/horário do primeiro fechamento nunca
+    são sobrescritos.
+
+    Atomicidade: estado, autoria e trilha (`registrar`) gravam na MESMA
+    transação — se a trilha falhar, o fechamento não fica gravado. A trilha
+    carrega `ano`/`mes`/`empresa_id`, sem dado pessoal.
+
+    Concorrência: lock consultivo exclusivo do mês (ver o bloco de
+    comentários da trava). Dois encerramentos simultâneos do MESMO mês
+    produzem UM fechamento; o segundo, ao obter o lock, encontra `encerrado`
+    e é recusado. Fechar também espera o lançamento em andamento terminar,
+    então o fechamento nunca "passa por cima" de uma gravação em voo.
+
+    Levanta `FechamentoMesCaixaInvalido` (400) para entrada malformada ou
+    empresa fora do modo livro-caixa, `FechamentoMesCaixaRecusado` (409) para
+    o estado, e `FechamentoMesCaixaTravado` (409) se a espera pelo lock
+    estourar.
+    """
+    _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
+    fechamento = _travar_mes_para_transicao(empresa=empresa, ano=ano, mes=mes)
+
+    if fechamento is not None and fechamento.estado == EstadoMesCaixa.ENCERRADO:
+        raise FechamentoMesCaixaRecusado(
+            f"O mês {mes:02d}/{ano} do livro-caixa de {empresa} já está encerrado "
+            f"(em {timezone.localtime(fechamento.fechado_em):%d/%m/%Y %H:%M}). Nada foi alterado."
+        )
+
+    agora = timezone.now()
+    if fechamento is None:
+        fechamento = FechamentoMesCaixa(
+            empresa=empresa,
+            ano=ano,
+            mes=mes,
+            estado=EstadoMesCaixa.ENCERRADO,
+            fechado_em=agora,
+            fechado_por=usuario,
+        )
+        fechamento.full_clean()
+        fechamento.save()
+    else:
+        # Mês reaberto que volta a ser encerrado: a linha é reaproveitada; a
+        # reabertura anterior fica registrada na linha e na trilha.
+        fechamento.estado = EstadoMesCaixa.ENCERRADO
+        fechamento.fechado_em = agora
+        fechamento.fechado_por = usuario
+        fechamento.save(update_fields=["estado", "fechado_em", "fechado_por"])
+
+    registrar(
+        acao="fechamento_mes_caixa.encerrado",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=fechamento,
+        request=request,
+        detalhes={"ano": ano, "mes": mes, "empresa_id": empresa.id},
+    )
+    return fechamento
+
+
+@transaction.atomic
+def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
+    """Reabre o mês (ano, mes) do livro-caixa da empresa: `encerrado -> aberto`.
+
+    `motivo` é OBRIGATÓRIO (critério 4): vazio, só espaço, com caractere
+    nulo ou acima de `TAMANHO_MAXIMO_MOTIVO_REABERTURA` é recusado
+    (`FechamentoMesCaixaInvalido`, 400) ANTES de qualquer lock — erro de
+    entrada, não de estado. Reabrir mês que está aberto (ou que nunca foi
+    fechado) é recusado (`FechamentoMesCaixaRecusado`, 409), sem efeito.
+
+    A linha NÃO é apagada: `estado` volta a `aberto` e `reaberto_em`/
+    `reaberto_por`/`motivo_reabertura` são gravados. A trilha
+    (`fechamento_mes_caixa.reaberto`) leva o motivo e o fechamento que está
+    sendo desfeito (`fechado_por_anterior`/`fechado_em_anterior`), na mesma
+    transação — reabertura é o ato mais afiado do período e nunca pode
+    acontecer sem rastro.
+    """
+    if motivo is not None and not isinstance(motivo, str):
+        raise FechamentoMesCaixaInvalido("O motivo da reabertura deve ser texto.")
+    motivo_normalizado = (motivo or "").strip()
+    if not motivo_normalizado:
+        raise FechamentoMesCaixaInvalido(
+            "Informe o motivo da reabertura: não pode ficar em branco."
+        )
+    if "\x00" in motivo_normalizado:
+        raise FechamentoMesCaixaInvalido(
+            "O motivo da reabertura não pode conter o caractere nulo (código 0)."
+        )
+    if len(motivo_normalizado) > TAMANHO_MAXIMO_MOTIVO_REABERTURA:
+        raise FechamentoMesCaixaInvalido(
+            f"O motivo da reabertura tem {len(motivo_normalizado)} caracteres; o máximo "
+            f"é {TAMANHO_MAXIMO_MOTIVO_REABERTURA}."
+        )
+    _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
+    fechamento = _travar_mes_para_transicao(empresa=empresa, ano=ano, mes=mes)
+
+    if fechamento is None or fechamento.estado != EstadoMesCaixa.ENCERRADO:
+        raise FechamentoMesCaixaRecusado(
+            f"Só é possível reabrir um mês encerrado; o mês {mes:02d}/{ano} do livro-caixa "
+            f"de {empresa} está aberto. Nada foi alterado."
+        )
+
+    # Capturados ANTES do `save()`: o fechamento que está sendo desfeito
+    # deixa de ser o estado atual da linha, e a trilha precisa dele.
+    fechado_por_anterior = fechamento.fechado_por_id
+    fechado_em_anterior = fechamento.fechado_em
+
+    fechamento.estado = EstadoMesCaixa.ABERTO
+    fechamento.reaberto_em = timezone.now()
+    fechamento.reaberto_por = usuario
+    fechamento.motivo_reabertura = motivo_normalizado
+    fechamento.save(update_fields=["estado", "reaberto_em", "reaberto_por", "motivo_reabertura"])
+    registrar(
+        acao="fechamento_mes_caixa.reaberto",
+        usuario=usuario,
+        escritorio=empresa.escritorio,
+        objeto=fechamento,
+        request=request,
+        detalhes={
+            "ano": ano,
+            "mes": mes,
+            "empresa_id": empresa.id,
+            "motivo": motivo_normalizado,
+            "fechado_por_anterior": fechado_por_anterior,
+            "fechado_em_anterior": fechado_em_anterior.isoformat(),
+        },
+    )
+    return fechamento
+
+
+def _nome_do_usuario_do_fechamento(usuario):
+    """Nome para exibição ao lado do id — o escritório precisa ver QUEM
+    fechou sem consultar a trilha."""
+    if usuario is None:
+        return None
+    return usuario.get_full_name() or usuario.get_username()
+
+
+def estado_dos_meses_caixa(*, empresa, ano):
+    """Estado dos 12 meses de `ano` para a empresa — SEMPRE 12 itens, em
+    ordem: o mês sem registro aparece como `aberto` (decisão 3 do plano),
+    sem autoria. Uma consulta só (com `select_related` nos dois usuários).
+
+    Só LEITURA, sem lock: serve à consulta e à tela. NÃO substitui a trava —
+    quem grava sempre passa por `criar_lancamento_caixa`.
+    """
+    registros = {
+        r.mes: r
+        for r in FechamentoMesCaixa.objects.filter(empresa=empresa, ano=ano).select_related(
+            "fechado_por", "reaberto_por"
+        )
+    }
+    meses = []
+    for mes in range(1, 13):
+        r = registros.get(mes)
+        meses.append(
+            {
+                "ano": ano,
+                "mes": mes,
+                "estado": r.estado if r is not None else EstadoMesCaixa.ABERTO.value,
+                "fechado_em": r.fechado_em if r is not None else None,
+                "fechado_por": r.fechado_por_id if r is not None else None,
+                "fechado_por_nome": (
+                    _nome_do_usuario_do_fechamento(r.fechado_por) if r is not None else None
+                ),
+                "reaberto_em": r.reaberto_em if r is not None else None,
+                "reaberto_por": r.reaberto_por_id if r is not None else None,
+                "reaberto_por_nome": (
+                    _nome_do_usuario_do_fechamento(r.reaberto_por) if r is not None else None
+                ),
+                "motivo_reabertura": r.motivo_reabertura if r is not None else "",
+            }
+        )
+    return meses
+
+
+def mes_caixa_esta_encerrado(*, empresa, ano, mes):
+    """Leitura SEM lock: o mês está encerrado? Para a tela decidir se oferece
+    a ação de lançar. Informativa — a recusa de verdade é a trava de
+    `criar_lancamento_caixa`, que lê o estado sob lock."""
+    return FechamentoMesCaixa.objects.filter(
+        empresa=empresa, ano=ano, mes=mes, estado=EstadoMesCaixa.ENCERRADO
+    ).exists()
 
 
 GRUPO_ENTRADA = "entrada"

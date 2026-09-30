@@ -16,6 +16,7 @@ from datetime import date
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -55,7 +56,10 @@ from apps.livro_caixa.models import (
     LancamentoCaixa,
     OrigemRecebimento,
 )
-from apps.livro_caixa.permissoes import papel_pode_ler_livro_caixa
+from apps.livro_caixa.permissoes import (
+    papel_pode_fechar_mes_caixa,
+    papel_pode_ler_livro_caixa,
+)
 from apps.livro_caixa.serializers import (
     ContaLivroCaixaSerializer,
     DependentesCarneLeaoClienteSerializer,
@@ -63,11 +67,17 @@ from apps.livro_caixa.serializers import (
 )
 from apps.livro_caixa.services import (
     ChaveIdempotenciaConflitanteCaixa,
+    FechamentoMesCaixaInvalido,
+    FechamentoMesCaixaRecusado,
     LancamentoCaixaInvalido,
+    MesCaixaEncerrado,
     apurar_livro_caixa,
     criar_conta_livro_caixa,
     criar_lancamento_caixa,
+    encerrar_mes_caixa,
+    estado_dos_meses_caixa,
     estornar_lancamento_caixa,
+    reabrir_mes_caixa,
 )
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -401,6 +411,12 @@ class LancamentoCaixaListCreateView(EmpresaEscopadaLivroCaixaMixin, generics.Lis
             )
         except ChaveIdempotenciaConflitanteCaixa as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except MesCaixaEncerrado as exc:
+            # DL-053: mês encerrado — o corpo é válido, o ESTADO do mês é que
+            # recusa. 409 (não 400): o cliente não corrige o corpo, reabre o
+            # mês ou lança em outro. Nada foi gravado (a trava roda antes do
+            # INSERT, dentro da transação do serviço).
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except LancamentoCaixaInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -425,6 +441,10 @@ class EstornarLancamentoCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
             estorno = estornar_lancamento_caixa(
                 lancamento, criado_por=request.user, request=request
             )
+        except MesCaixaEncerrado as exc:
+            # DL-053, critério 2: estornar lançamento de mês encerrado exige
+            # reabrir o mês (RC-130) — 409, nada gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except LancamentoCaixaInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -501,6 +521,145 @@ class LivroCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
                 "saldo": str(apuracao["saldo"]),
             },
             status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# DL-053 — fechamento de mês do livro-caixa (RC-145, RC-146).
+
+
+# RC-146 = RC-102: quem fecha e reabre é a MESMA lista da contabilidade
+# (`apps.core.papeis_de_fechamento`), lida por `papel_pode_fechar_mes_caixa`
+# — aqui só a adaptação para permissão do DRF, sem segunda lista de papéis.
+class PodeFecharMesCaixa(BasePermission):
+    message = "Papel sem permissão para encerrar ou reabrir mês do livro-caixa."
+
+    def has_permission(self, request, view):
+        return papel_pode_fechar_mes_caixa(getattr(request, "papel", None))
+
+
+# Encerrar é rota de AÇÃO: o mês vem da URL, sem corpo — mesmo desenho do
+# fechamento de competência. Reabrir tem um único campo, `motivo`.
+CONTRATO_POST_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no encerramento de mês do livro-caixa",
+)
+CONTRATO_POST_REABRIR_MES_CAIXA = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura de mês do livro-caixa",
+)
+
+
+def _validar_ano_mes_da_url(ano, mes):
+    """Recusa (400) `ano`/`mes` fora da faixa das `CheckConstraint` de
+    `FechamentoMesCaixa`. `<int:...>` no urlconf já recusou texto (404)."""
+    if not (1 <= mes <= 12):
+        raise DRFValidationError(f"'mes' inválido: {mes} — deve estar entre 1 e 12.")
+    if not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+        raise DRFValidationError(
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO} e {_ANO_MAXIMO}."
+        )
+
+
+def _mes_caixa_como_dict(mes):
+    """Um mês no formato da API. Datas em ISO; ids dos usuários e nome para
+    exibição. Mês sem registro vem como `aberto` com os demais campos nulos."""
+    return {
+        "ano": mes["ano"],
+        "mes": mes["mes"],
+        "estado": mes["estado"],
+        "fechado_em": mes["fechado_em"].isoformat() if mes["fechado_em"] else None,
+        "fechado_por": mes["fechado_por"],
+        "fechado_por_nome": mes["fechado_por_nome"],
+        "reaberto_em": mes["reaberto_em"].isoformat() if mes["reaberto_em"] else None,
+        "reaberto_por": mes["reaberto_por"],
+        "reaberto_por_nome": mes["reaberto_por_nome"],
+        "motivo_reabertura": mes["motivo_reabertura"],
+    }
+
+
+def _mes_caixa_depois_da_transicao(empresa, ano, mes):
+    """Estado do mês lido de novo do banco, no mesmo formato da consulta —
+    a resposta de encerrar/reabrir é o que ficou gravado, não o objeto em
+    memória."""
+    return _mes_caixa_como_dict(estado_dos_meses_caixa(empresa=empresa, ano=ano)[mes - 1])
+
+
+class MesesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """`GET .../meses/?ano=AAAA` — estado dos 12 meses do ano para a empresa
+    (`ano` opcional: padrão, o ano corrente). Mês sem registro é `aberto`.
+    Só LEITURA; empresa de outro escritório é 404 (isolamento pelo mixin)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerLivroCaixa]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        if request.query_params.get("ano"):
+            ano = _extrair_ano_da_querystring(request)
+        else:
+            ano = timezone.localdate().year
+        meses = estado_dos_meses_caixa(empresa=empresa, ano=ano)
+        return Response(
+            {"empresa": empresa.id, "ano": ano, "meses": [_mes_caixa_como_dict(m) for m in meses]},
+            status=status.HTTP_200_OK,
+        )
+
+
+class EncerrarMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """`POST .../meses/<ano>/<mes>/encerrar/` — encerra o mês (DL-053,
+    critério 3). Sem corpo. 200 com o estado do mês; 409 se já encerrado."""
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharMesCaixa]
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ENCERRAR_MES_CAIXA)
+        empresa = self.get_empresa()
+        _validar_ano_mes_da_url(ano, mes)
+        try:
+            encerrar_mes_caixa(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except FechamentoMesCaixaInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except FechamentoMesCaixaRecusado as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            _mes_caixa_depois_da_transicao(empresa, ano, mes), status=status.HTTP_200_OK
+        )
+
+
+class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
+    """`POST .../meses/<ano>/<mes>/reabrir/` com `{"motivo": "..."}` — reabre
+    o mês (DL-053, critérios 3 e 4). 400 sem motivo; 409 se o mês está
+    aberto."""
+
+    permission_classes = [TemEscritorioAtivo, PodeFecharMesCaixa]
+
+    def post(self, request, empresa_id, ano, mes):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_REABRIR_MES_CAIXA)
+        empresa = self.get_empresa()
+        _validar_ano_mes_da_url(ano, mes)
+        dados = request.data if isinstance(request.data, dict) else {}
+        motivo = dados.get("motivo")
+        if motivo is not None and not isinstance(motivo, str):
+            raise DRFValidationError("O campo 'motivo' deve ser texto.")
+        try:
+            reabrir_mes_caixa(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
+        except FechamentoMesCaixaInvalido as exc:
+            raise DRFValidationError(str(exc)) from exc
+        except FechamentoMesCaixaRecusado as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            _mes_caixa_depois_da_transicao(empresa, ano, mes), status=status.HTTP_200_OK
         )
 
 

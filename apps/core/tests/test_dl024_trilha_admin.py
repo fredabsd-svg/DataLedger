@@ -111,6 +111,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ContaLivroCaixa,
         DependentesCarneLeaoCliente,
         FaixaTabelaProgressivaCarneLeao,
+        FechamentoMesCaixa,
         LancamentoCaixa,
         VigenciaDependenteCarneLeao,
         VigenciaReducaoCarneLeao,
@@ -184,6 +185,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         VigenciaReducaoCarneLeao,
         VigenciaDependenteCarneLeao,
         DependentesCarneLeaoCliente,
+        # DL-053 (2026-09-30): `FechamentoMesCaixa`, SEM `ModelAdmin` de
+        # propósito — encerrar/reabrir mês é ato autorizado por papel, com
+        # trilha na mesma transação, e um formulário de admin contornaria as
+        # duas coisas. Cobertura "por padrão" (R1/DE-056), como o bloco acima.
+        FechamentoMesCaixa,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"
