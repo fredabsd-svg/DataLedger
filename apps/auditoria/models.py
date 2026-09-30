@@ -11,8 +11,10 @@ _HINT_LIMPEZA_REFERENCIAL = "_auditoria_limpeza_referencial"
 def _set_null_preservando_trilha(collector, field, sub_objs, using):
     """Permite apenas o `SET_NULL` interno que preserva a trilha.
 
-    A exclusão de usuário ou escritório deve manter o evento, anulando só
-    sua FK. O coletor de exclusão do Django executa essa ação com
+    A exclusão de ESCRITÓRIO deve manter o evento, anulando só sua FK. (A de
+    usuário deixou de existir: pela RC-144 — DL-052, decisão do Fred em
+    30/09/2026 — usuário se desativa, não se apaga, e `RegistroAuditoria.
+    usuario` é PROTECT; este tratamento serve hoje só a `escritorio`.) O coletor de exclusão do Django executa essa ação com
     `QuerySet.update()`, que a proteção de imutabilidade bloqueia por padrão;
     o marcador privado diferencia essa limpeza referencial inevitável de
     uma tentativa de reescrever a auditoria.
@@ -48,9 +50,11 @@ class RegistroAuditoria(models.Model):
 
     Nunca gravar senha, token, documento pessoal completo ou qualquer outro
     dado sensível em `detalhes` — apenas identificadores e um resumo não
-    sensível da ação, conforme AGENTS.md, seção 11. `usuario` e
-    `escritorio` usam SET_NULL para que a exclusão de um usuário ou
-    escritório não apague o histórico de auditoria.
+    sensível da ação, conforme AGENTS.md, seção 11. `escritorio` usa SET_NULL
+    (via `_set_null_preservando_trilha`) para que a exclusão de um escritório
+    não apague o histórico. `usuario` é PROTECT desde a RC-144 (DL-052): o
+    usuário se desativa, não se apaga, e apagar um usuário que tem trilha é
+    recusado (`ProtectedError`) em vez de apagar a autoria do evento.
     """
 
     usuario = models.ForeignKey(
@@ -58,7 +62,7 @@ class RegistroAuditoria(models.Model):
         verbose_name="usuário",
         null=True,
         blank=True,
-        on_delete=_set_null_preservando_trilha,
+        on_delete=models.PROTECT,
         related_name="registros_auditoria",
     )
     escritorio = models.ForeignKey(

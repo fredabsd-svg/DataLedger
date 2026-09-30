@@ -404,11 +404,13 @@ class LancamentoCaixa(models.Model):
     estorno_de = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="estornos"
     )
+    # RC-144 / DL-052: usuário se desativa, não se apaga — a autoria do
+    # registro não pode sumir com a exclusão do usuário (PROTECT, era SET_NULL).
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="+",
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
@@ -873,11 +875,13 @@ class DependentesCarneLeaoCliente(models.Model):
     )
     quantidade = models.PositiveSmallIntegerField("quantidade de dependentes")
     competencia_inicio = models.DateField("vigente a partir de (mês)")
+    # RC-144 / DL-052: usuário se desativa, não se apaga — a autoria do
+    # registro não pode sumir com a exclusão do usuário (PROTECT, era SET_NULL).
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="+",
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
