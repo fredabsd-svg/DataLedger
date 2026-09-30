@@ -249,7 +249,9 @@ pode ser implementada; a D8 (API da DLPA) também.**
   primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
 - **Branch de trabalho:** `docs/dl-048-premissa-normativa`.
 - ✅ **RESOLVIDO — as ~30 esperas infinitas foram eliminadas** (branch
-  `test/esperas-limitadas`). A varredura achou **9 arquivos** com `join()` e
+  `test/esperas-limitadas`, etapa **DL-050** — plano em
+  [DL-050-esperas-de-thread-com-timeout.md](../planos/DL-050-esperas-de-thread-com-timeout.md)).
+  A varredura achou **9 arquivos** com `join()` e
   `barreira.wait()` **sem timeout**: `test_bl40_bl41.py`,
   `test_dl016_fatia1_fechamento_reabertura_entrega.py`,
   `test_dl043_zeramento_concorrencia_e_permissoes.py`, `empresas/test_api.py`,
