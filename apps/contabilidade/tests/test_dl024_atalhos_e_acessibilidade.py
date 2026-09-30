@@ -1012,6 +1012,12 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
     "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
+    # DL-053: fechamento de mês do livro-caixa — as três rotas são API REST
+    # (JSON); a tela de fechamento é do especialista-frontend, depois do
+    # contrato do servidor.
+    "livro_caixa:meses": "API REST (MesesCaixaView, DRF) — JSON; DL-053",
+    "livro_caixa:encerrar-mes": "API REST (EncerrarMesCaixaView, DRF) — JSON; DL-053",
+    "livro_caixa:reabrir-mes": "API REST (ReabrirMesCaixaView, DRF) — JSON; DL-053",
     # DL-046 fatia 2: apuração do carnê-leão — mesmo motivo das quatro
     # rotas da fatia 1, acima (só servidor + API nesta fatia; a tela vem
     # depois pelo especialista-frontend).

@@ -471,6 +471,12 @@ def criar_lancamento_caixa(
     conteúdo devolve o existente (200), conteúdo diferente levanta o
     conflito (409). Nunca um 500.
 
+    DL-053 (RC-145): mês encerrado recusa o lançamento com `MesCaixaEncerrado`
+    (409 na API e na tela), SEM gravar nada. A recusa roda sob o lock do mês
+    (`_recusar_se_mes_caixa_encerrado`), depois da validação e da checagem de
+    idempotência e antes de qualquer INSERT; uma repetição idempotente de
+    lançamento já gravado devolve o existente, porque não grava nada novo.
+
     `_pular_validacao_dependente_da_conta` (uso INTERNO, nunca exposto por
     view nenhuma): M4 (DE-087 item 4) — setada só por
     `estornar_lancamento_caixa`, para o ESTORNO copiar o original sem
@@ -759,6 +765,11 @@ def estornar_lancamento_caixa(
     de outro mês segue por estorno NO MÊS ORIGINAL seguido de um novo
     lançamento no mês correto, nunca por uma data de estorno fora do mês do
     lançamento estornado (RC-130).
+
+    DL-053 (RC-145/RC-130): como a data do estorno fica no mês do original,
+    estornar lançamento de mês ENCERRADO é recusado por `criar_lancamento_caixa`
+    (`MesCaixaEncerrado`) — o caminho é reabrir o mês, com motivo, e só então
+    estornar. Nada é gravado na recusa.
     """
     with transaction.atomic():
         lancamento = LancamentoCaixa.objects.select_for_update().get(pk=lancamento.pk)

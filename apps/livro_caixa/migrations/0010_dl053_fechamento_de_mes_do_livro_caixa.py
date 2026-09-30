@@ -7,9 +7,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("empresas", "0015_dl046_fatia3_codigo_ocupacao"),
+        # Editado à mão, pelo MESMO motivo de `0001_inicial.py`/
+        # `0008_dl046_fatia3_campos_arquivo_carne_leao.py`: o `makemigrations`
+        # apontaria para a migração MAIS RECENTE de `empresas`
+        # ("0015_dl046_fatia3_codigo_ocupacao"), mas este modelo só depende de
+        # `Empresa` existir (para o `ForeignKey`). Depender da 0015 faria
+        # os testes de migração de `empresas` (que recuam `empresas` e
+        # religam só o app `empresas`) desaplicarem ESTA migração e deixarem a
+        # tabela sem ser recriada — medido na suíte completa.
+        ("empresas", "0001_initial"),
         ("livro_caixa", "0009_dl052_autoria_protegida"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
@@ -40,18 +47,14 @@ class Migration(migrations.Migration):
                 ("fechado_em", models.DateTimeField(verbose_name="fechado em")),
                 (
                     "reaberto_em",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="reaberto em"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="reaberto em"),
                 ),
                 (
                     "motivo_reabertura",
                     models.TextField(
                         blank=True,
                         default="",
-                        validators=[
-                            django.core.validators.ProhibitNullCharactersValidator()
-                        ],
+                        validators=[django.core.validators.ProhibitNullCharactersValidator()],
                         verbose_name="motivo da reabertura",
                     ),
                 ),
