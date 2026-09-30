@@ -89,5 +89,28 @@ resultado sem aviso. A RC-130 já diz que o erro de mês anterior se corrige
 
 ## Evidências
 
-Registradas na entrega, no [estado](../agents/estado.md) e em
-[`docs/auditorias/`](../auditorias/).
+Implementação (PostgreSQL 16 local, Python 3.13):
+
+- **Servidor** (`desenvolvedor-pleno`): `FechamentoMesCaixa` e migração
+  0010; `encerrar_mes_caixa`/`reabrir_mes_caixa` atômicos com a trilha;
+  trava no único caminho de gravação (`criar_lancamento_caixa`, por onde
+  passa o estorno); lock consultivo por empresa, ano e mês cobre o mês sem
+  registro; papéis num ponto só (`apps/core/papeis_de_fechamento.py`).
+  Mutação: sem a trava, 23 testes reprovam; sem o lock, 6.
+- **Dependentes (RC-147):** a alteração recusa quando muda a quantidade
+  aplicada num mês encerrado ou em qualquer mês até dezembro do mesmo ano
+  (encadeamento da apuração). Regra conservadora: pode recusar alteração de
+  efeito nulo. Lock consultivo por empresa. Mutação: sem a trava, 9
+  reprovam.
+- **Tela** (`especialista-frontend`): painel dos 12 meses, encerrar e
+  reabrir, aviso de mês encerrado em lista, formulário e estorno, recusa nos
+  dependentes. Chromium em 1.440 e 390 px sem rolagem horizontal. Mutação:
+  qualquer papel fechando, 11 reprovam.
+- Integração (`arquiteto-senior`): item no menu lateral, rótulos da trilha,
+  mensagem do servidor sem identificador interno (a asserção nova reprova
+  com ele).
+- Suíte completa: **3.875 aprovados, 50 pulados, 1 reprovado** (o conhecido
+  de Python 3.13).
+- Não testado: leitor de tela, Firefox e Safari; Python 3.14 (CI).
+
+Auditoria independente: [`docs/auditorias/`](../auditorias/).
