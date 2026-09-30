@@ -31,10 +31,17 @@
 # Custo: a busca no marcador é linear no número de lançamentos criados NA MESMA
 # transação (importação em lote grande); aceito por simplicidade.
 #
-# Limite operacional declarado: restauração de backup por `pg_restore` insere
-# itens em transação separada da do lançamento; ela precisa de
-# `--disable-triggers` (superusuário) ou carga numa única transação — assunto
-# do plano de backup/restauração (PE-07), não desta migração.
+# Limite operacional declarado (medido na reconferência da DL-052, R2): a
+# restauração COMPLETA (esquema e dados) funciona sem ajuste, porque os
+# gatilhos são recriados depois dos dados. Carga SÓ DE DADOS
+# (`pg_restore --data-only`) exige `--disable-triggers` como superusuário;
+# transação única NÃO basta, pois a ordem das tabelas não põe o lançamento
+# antes do item. Assunto do plano de backup/restauração (PE-07).
+#
+# Limite aceito (reconferência, R1; BL-569): o marcador é defesa contra
+# escrita ACIDENTAL fora do serviço, não barreira contra quem escreve SQL —
+# essa pessoa forja o marcador com `set_config`, e um `INSERT ... ON
+# CONFLICT DO NOTHING` com id de lançamento existente também o marca.
 #
 # Só PostgreSQL (no-op em SQLite, limite aceito como na 0009). Reversão remove
 # os dois gatilhos e as duas funções.

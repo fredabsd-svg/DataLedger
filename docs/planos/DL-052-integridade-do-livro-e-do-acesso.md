@@ -125,11 +125,27 @@ Rodada única de correção (migrações novas 0015 a 0017, sem editar a 0013):
 - D1: `CHECK` de tipo do item (débito ou crédito).
 - D2: item só entra em lançamento inserido na mesma transação — marcador
   local à transação gravado pelo gatilho do lançamento; `ROLLBACK TO
-  SAVEPOINT` o desfaz. Limite: carga só de dados (`pg_restore --data-only`)
-  precisa de `--disable-triggers` ou de uma transação única — vai para o
-  plano de backup (PE-07).
+  SAVEPOINT` o desfaz. Restauração completa de backup funciona sem ajuste;
+  carga só de dados (`pg_restore --data-only`) exige `--disable-triggers`
+  como superusuário — transação única **não** basta (medido na
+  reconferência, R2). Vai para o plano de backup (PE-07).
 - D3: a exceção do backfill só aceita competência da mesma empresa.
 - D5: usuário já vinculado recebe recusa com mensagem, sem 500.
 - D6: `PROTECT` dos seis campos de autoria provado por metadado e por ORM.
 - Suíte completa: **3.681 aprovados, 50 pulados, 1 reprovado** (a conhecida
   de Python 3.13). Cada teste novo reprova com a correção desfeita.
+
+[Reconferência única](../auditorias/2026-09-30-dl-052-reconferencia.md):
+**APROVADA COM RESSALVAS** — D1, D2, D3, D5, D6 e D7 fechados, sem
+regressão. Decisão do `arquiteto-senior` sobre as ressalvas, sem terceira
+rodada (AGENTS.md §3.1):
+
+- **R1, limite aceito (BL-569):** o marcador da 0016 impede partida nova em
+  lançamento efetivado pelos caminhos do produto e pelo ORM comum, mas
+  **não** contra quem escreve SQL — `ON CONFLICT DO NOTHING` com id existente
+  o marca, e `set_config` o forja. O banco protege contra escrita acidental,
+  não contra quem tem acesso direto a ele; isso é papel de permissão de banco
+  e de backup.
+- **R2:** frase sobre restauração corrigida aqui e no comentário da 0016.
+- **R3:** custo quadrático do marcador acima de milhares de lançamentos por
+  transação registrado no BL-570.

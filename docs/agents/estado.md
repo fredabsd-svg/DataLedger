@@ -124,7 +124,10 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 ## Próximo passo
 
 **DL-052 — Integridade do livro e do acesso (30/09/2026), em
-validação** — implementada e aguardando a auditoria independente. Ordem do Fred depois da análise do repositório: *"Aprovo a
+revisão** — auditoria e reconferência única **aprovadas com ressalvas**
+([rodada 1](../auditorias/2026-09-30-dl-052-rodada-1.md),
+[reconferência](../auditorias/2026-09-30-dl-052-reconferencia.md)); a
+integração acompanha o pull request da branch. Ordem do Fred depois da análise do repositório: *"Aprovo a
 DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md). Branch
 `claude/zealous-goldberg-jr5ggu` → `main`.
@@ -137,6 +140,9 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 - **M1 (média):** estorno e trilha de auditoria na mesma transação (BL-546).
 - **Usuário se desativa, não se apaga** — decisão do Fred em 30/09 (RC-144,
   BL-559): autoria do lançamento protegida e admin sem exclusão de usuário.
+- Limite aceito e declarado: a trava de partida nova em lançamento
+  efetivado protege contra escrita acidental, não contra quem escreve SQL
+  direto no banco (BL-569).
 - Nível 3, sem auditoria: `makemigrations --check` na CI; este arquivo
   reescrito enxuto; `auditor-qa` passa a `sonnet` por instrução do Fred
   (RC-143, ver [equipe.md](equipe.md)).
