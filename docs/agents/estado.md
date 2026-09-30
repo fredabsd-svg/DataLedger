@@ -113,7 +113,11 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-050](../planos/DL-050-esperas-de-thread-com-timeout.md) | Toda espera de thread em teste ganha timeout, com asserção de que a thread concluiu | Integrada (PR #64) — nível 3 |
 | [DL-051](../planos/DL-051-correcao-dos-modulos.md) | Correção dos módulos: Vendas fora do produto; inventário dentro de Fiscal | Integrada (PR #65) |
 | [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md) | Integridade do livro e do acesso: convite com validade, invariantes do lançamento no banco, estorno atômico | Integrada (PR #66) — auditoria e reconferência aprovadas com ressalvas; limite aceito no BL-569 |
-| [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md) | Fechamento de mês do livro-caixa (RC-145, RC-146) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md) | Fechamento de mês do livro-caixa (RC-145, RC-146, RC-147) | Integrada (PR #67) — auditoria aprovada com ressalvas; limite do encadeamento fechado pela DL-054 |
+| [DL-054](../planos/DL-054-encadeamento-do-fechamento.md) | Mês encerrado congelado contra o encadeamento do carnê-leão (RC-148) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -124,19 +128,30 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**DL-053 — Fechamento de mês do livro-caixa (30/09/2026), em
-revisão** — servidor, dependentes (RC-147) e tela implementados;
-[auditoria](../auditorias/2026-09-30-dl-053-rodada-1.md) **aprovada com
-ressalvas**. O Fred respondeu à PE-74 (RC-148) e mandou integrar com a CI
-verde. **Limite conhecido até a DL-054:** lançamento em mês aberto anterior
-ainda pode mudar o carnê-leão de mês posterior encerrado do mesmo ano
-(BL-572). Próxima etapa: **DL-054**, que fecha esse limite com a reabertura
-em cascata. Nível 1, auditoria independente obrigatória. Plano:
-[DL-053](../planos/DL-053-fechamento-do-livro-caixa.md). Branch
-`claude/zealous-goldberg-jr5ggu` → `main`, reiniciada da `main` depois do PR
-#66. Mês encerrado não aceita lançamento nem estorno até ser reaberto;
-fecham e reabrem administrador e gestor (RC-146). Controle próprio do
-livro-caixa, não a competência contábil (decisão registrada no plano).
+**Quatro etapas em desenvolvimento em paralelo (30/09/2026)**, por
+instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
+isolada do repositório e integrada **uma por vez** na branch
+`claude/zealous-goldberg-jr5ggu` → `main`:
+
+- **DL-054** (nível 1) — mês encerrado congelado contra o encadeamento do
+  carnê-leão no ano, com reabertura em cascata (RC-148, BL-572). Primeiro o
+  servidor; depois a tela e a auditoria.
+- **DL-055** (nível 1) — o papel Cliente não vê o cadastro de empresas
+  (BL-549).
+- **DL-056** (nível 2) — limite de tentativas no login e no cadastro
+  (BL-552, sem a titularidade do CNPJ). Limites iniciais são hipótese.
+- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável (BL-553).
+
+**DL-053 — integrada pelo [PR #67](https://github.com/fredabsd-svg/DataLedger/pull/67)**
+em 30/09/2026 (squash `0d68949`), com os quatro checks verdes no último
+commit e ordem do Fred. Fechamento de mês do livro-caixa com trava de
+lançamento, estorno e dependentes; papéis de fechamento num ponto só; tela
+de encerrar e reabrir. [Auditoria](../auditorias/2026-09-30-dl-053-rodada-1.md)
+aprovada com ressalvas. **Limite conhecido até a DL-054:** lançamento em
+mês aberto anterior ainda pode mudar o carnê-leão de mês posterior encerrado
+do mesmo ano (BL-572). Observação de CI: pelo evento `pull_request`, o job
+de identificação do emitente roda a bateria do instrumento (~9 min); pelo
+`push`, não — a diferença de duração não indica travamento.
 
 **DL-052 — integrada pelo [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66)**
 em 30/09/2026 (squash `258e413`), com os quatro checks verdes no último
@@ -149,16 +164,15 @@ a trilha; usuário se desativa, não se apaga (RC-144).
 com ressalvas. Limite aceito: a trava de partida nova protege contra escrita
 acidental, não contra quem escreve SQL direto (BL-569).
 
-**Fila depois da DL-053, sujeita ao Fred:**
+**Fila depois das DL-054 a DL-057, sujeita ao Fred:**
 
 1. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
    integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
    29/09 já fechadas: versionar pela data de início do exercício, com adoção
    antecipada da NBC TG 51 prevista. Lacuna declarada: o ato da CVM que
    aprovou o CPC 26 não foi lido em fonte oficial.
-2. **Achados médios da análise** (BL-549 a BL-553): papel Cliente lendo a
-   carteira, reclassificação em período encerrado, limite de tentativas no
-   login, IP atrás de proxy.
+2. **Reclassificação em período encerrado** (BL-550) e a titularidade do
+   CNPJ no cadastro (resto do BL-552, depende do Fred).
 3. **DL-016 F3** (encerramento de competência) — só o plano existe.
 4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.

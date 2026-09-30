@@ -234,6 +234,10 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-051** — Correção do escopo da navegação: Vendas não pertence ao produto; estoque e inventário são rotinas de Fiscal, sem módulo próprio. Plano em [docs/planos/DL-051-correcao-dos-modulos.md](docs/planos/DL-051-correcao-dos-modulos.md)
 - **DL-052** — Integridade do livro e do acesso: convite de escritório com validade e amarrado ao e-mail convidado; débito igual a crédito, valor positivo e imutabilidade do lançamento garantidos também pelo banco; estorno e trilha de auditoria na mesma transação. Plano em [docs/planos/DL-052-integridade-do-livro-e-do-acesso.md](docs/planos/DL-052-integridade-do-livro-e-do-acesso.md)
 - **DL-053** — Fechamento de mês do livro-caixa: mês encerrado não aceita lançamento nem estorno até ser reaberto, com a mesma regra de papéis da contabilidade (administrador e gestor fecham e reabrem; analista não). Plano em [docs/planos/DL-053-fechamento-do-livro-caixa.md](docs/planos/DL-053-fechamento-do-livro-caixa.md)
+- **DL-054** — Mês encerrado do livro-caixa congelado também contra o encadeamento do carnê-leão no ano, com reabertura em cascata. Plano em [docs/planos/DL-054-encadeamento-do-fechamento.md](docs/planos/DL-054-encadeamento-do-fechamento.md)
+- **DL-055** — O papel Cliente não vê o cadastro de empresas do escritório. Plano em [docs/planos/DL-055-cliente-nao-ve-a-carteira.md](docs/planos/DL-055-cliente-nao-ve-a-carteira.md)
+- **DL-056** — Limite de tentativas no login e no cadastro de escritório. Plano em [docs/planos/DL-056-limite-de-tentativas.md](docs/planos/DL-056-limite-de-tentativas.md)
+- **DL-057** — IP real de quem acessou na trilha de auditoria, atrás de proxy confiável. Plano em [docs/planos/DL-057-ip-real-na-trilha.md](docs/planos/DL-057-ip-real-na-trilha.md)
 
 Ainda não existem:
 
