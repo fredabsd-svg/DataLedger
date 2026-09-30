@@ -116,6 +116,10 @@ from apps.livro_caixa.models import (
     VigenciaReducaoCarneLeao,
     VigenciaTabelaProgressivaCarneLeao,
 )
+from apps.livro_caixa.services import (
+    recusar_dependentes_que_alteram_mes_encerrado,
+    travar_dependentes_do_carne_leao,
+)
 from apps.livro_caixa.validators import (
     CODIGO_RENDIMENTO_NOTARIAL,
     CODIGO_RENDIMENTO_PENSAO_ALIMENTICIA,
@@ -961,11 +965,17 @@ def registrar_dependentes_carne_leao(
     `competencia_inicio` (HI-35). Mesmo padrão de `criar_conta_livro_caixa`:
     trava a linha da EMPRESA antes de validar o modo de escrituração (N6,
     DL-046 rodada 1) para fechar a mesma corrida já corrigida naquela
-    fatia."""
+    fatia.
+
+    RC-147 (DL-053): recusa com `MesCaixaEncerrado` (409) se o registro mudar o
+    carnê-leão de algum mês ENCERRADO da empresa — regra exata de meses
+    alcançados em `services._recusar_se_dependentes_alteram_mes_encerrado`. O
+    lock dos dependentes é o PRIMEIRO passo, antes da linha da empresa."""
     with (
         transaction.atomic(),
         restricao_como_400(mensagens_de("dependentes_carne_leao_competencia_unica_por_empresa")),
     ):
+        travar_dependentes_do_carne_leao(empresa=empresa)
         empresa_travada = Empresa.objects.select_for_update().get(pk=empresa.pk)
         try:
             recusar_se_nao_livro_caixa(empresa_travada)
@@ -982,6 +992,17 @@ def registrar_dependentes_carne_leao(
             registro.full_clean()
         except DjangoValidationError as exc:
             raise DependentesCarneLeaoInvalido("; ".join(exc.messages)) from exc
+        # RC-147: só depois de validado (dia 1, modo, unicidade) e já sob o lock.
+        existentes = list(
+            DependentesCarneLeaoCliente.objects.filter(empresa=empresa_travada).values_list(
+                "competencia_inicio", "quantidade"
+            )
+        )
+        recusar_dependentes_que_alteram_mes_encerrado(
+            empresa=empresa_travada,
+            antes=existentes,
+            depois=[*existentes, (competencia_inicio, quantidade)],
+        )
         # A `UniqueConstraint` residual (corrida entre duas requisições que
         # ainda não veem a linha uma da outra) é traduzida pelo
         # `restricao_como_400` do `with`, acima — mesmo padrão de
@@ -1023,8 +1044,16 @@ def retificar_dependentes_carne_leao(registro, *, quantidade, retificado_por=Non
     carne_leao` já fecha — sem a trava, uma troca concorrente de modo de
     escrituração (contabilidade ↔ livro-caixa) podia ler o modo ANTIGO
     entre o `Model.clean()` (que já recusa modo contabilidade) e o
-    `save()` desta função."""
+    `save()` desta função.
+
+    RC-147 (DL-053): recusa com `MesCaixaEncerrado` (409) se a nova quantidade
+    mudar o carnê-leão de algum mês ENCERRADO coberto pelo registro (e, por
+    encadeamento no ano-calendário, dos meses seguintes) — regra exata em
+    `services._recusar_se_dependentes_alteram_mes_encerrado`. Retificar para
+    a MESMA quantidade não altera nada e não é recusado. O lock dos
+    dependentes é o primeiro passo, antes de qualquer `FOR UPDATE`."""
     with transaction.atomic():
+        travar_dependentes_do_carne_leao(empresa=registro.empresa)
         registro = DependentesCarneLeaoCliente.objects.select_for_update().get(pk=registro.pk)
         Empresa.objects.select_for_update().get(pk=registro.empresa_id)
 
@@ -1034,6 +1063,16 @@ def retificar_dependentes_carne_leao(registro, *, quantidade, retificado_por=Non
             registro.full_clean()
         except DjangoValidationError as exc:
             raise DependentesCarneLeaoInvalido("; ".join(exc.messages)) from exc
+        outros = list(
+            DependentesCarneLeaoCliente.objects.filter(empresa_id=registro.empresa_id)
+            .exclude(pk=registro.pk)
+            .values_list("competencia_inicio", "quantidade")
+        )
+        recusar_dependentes_que_alteram_mes_encerrado(
+            empresa=registro.empresa,
+            antes=[*outros, (registro.competencia_inicio, quantidade_anterior)],
+            depois=[*outros, (registro.competencia_inicio, quantidade)],
+        )
         registro.save(update_fields=["quantidade"])
         registrar(
             acao="dependentes_carne_leao.retificado",

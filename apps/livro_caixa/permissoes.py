@@ -13,6 +13,7 @@ fonte de regra — mudar quem escreve/lê UM dos dois módulos não deve, por
 acidente de referência compartilhada, mudar o outro.
 """
 
+from apps.core.papeis_de_fechamento import PAPEIS_QUE_FECHAM_PERIODO
 from apps.tenancy.models import Papel
 
 PAPEIS_QUE_ESCRITURAM_LIVRO_CAIXA = (
@@ -39,3 +40,18 @@ def papel_pode_escriturar_livro_caixa(papel):
 def papel_pode_ler_livro_caixa(papel):
     """`None` (sem papel resolvido) sempre devolve `False`."""
     return papel in PAPEIS_QUE_LEEM_LIVRO_CAIXA
+
+
+# DL-053 / RC-146 (= RC-102): fechar e reabrir o mês do livro-caixa é de
+# ADMINISTRADOR ou GESTOR, "a mesma regra da contabilidade" (Fred,
+# 2026-09-30). Ao contrário das duas tuplas acima — copiadas por VALOR de
+# propósito, porque escrita e leitura são regimes distintos —, esta é a MESMA
+# tupla da contabilidade, por REFERÊNCIA: a regra pedida é uma só, e
+# `apps.core.papeis_de_fechamento` é o único lugar onde ela está escrita.
+PAPEIS_QUE_FECHAM_MES_CAIXA = PAPEIS_QUE_FECHAM_PERIODO
+
+
+def papel_pode_fechar_mes_caixa(papel):
+    """`None` (sem papel resolvido) sempre devolve `False`. Mesma decisão
+    para a API e para a tela — nenhuma segunda lista."""
+    return papel in PAPEIS_QUE_FECHAM_MES_CAIXA

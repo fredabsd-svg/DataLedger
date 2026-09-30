@@ -29,6 +29,29 @@ risco, ação sensível), mesmo padrão de competencia_reabrir.html
 {% block titulo_pagina %}<h1>Estornar lançamento nº {{ lancamento.id }}</h1>{% endblock %}
 
 {% block content %}
+    {% if mes_encerrado %}
+        {# DL-053: estorno usa a data do ORIGINAL; mês encerrado não o aceita. Sem botão, com o caminho. #}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>Este mês está encerrado</h2>
+            <p>
+                O lançamento nº {{ lancamento.id }} é de {{ lancamento.data|date:"d/m/Y" }}, e o mês
+                <strong>{{ lancamento.data|date:"m/Y" }}</strong> do livro-caixa de
+                {{ empresa.razao_social }} está encerrado. O estorno usa a data do lançamento
+                original, por isso não pode ser feito agora.
+            </p>
+            <p>
+                Para estornar, reabra o mês informando o motivo, estorne, e encerre o mês de novo.
+            </p>
+            <div class="acoes-de-linha">
+                <button type="button" class="botao botao--primario" disabled aria-disabled="true">
+                    Estornar lançamento nº {{ lancamento.id }} ({{ valor_ptbr }})
+                </button>
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ lancamento.data.year }}">Ir para o fechamento de mês</a>
+            </div>
+            <p class="texto-apoio">O botão de estornar está indisponível enquanto o mês estiver encerrado.</p>
+        </div>
+    {% else %}
     <div class="painel-etapa">
         <h2>O que vai acontecer</h2>
         <p>
@@ -49,4 +72,5 @@ risco, ação sensível), mesmo padrão de competencia_reabrir.html
             </button>
         </form>
     </div>
+    {% endif %}
 {% endblock %}

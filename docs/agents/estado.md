@@ -112,7 +112,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-049](../planos/DL-049-home-por-modulo.md) | Página inicial por módulo, filtros persistentes e fila operacional multiempresa | Integrada (PR #63) — auditoria e reconferência em `docs/auditorias/` |
 | [DL-050](../planos/DL-050-esperas-de-thread-com-timeout.md) | Toda espera de thread em teste ganha timeout, com asserção de que a thread concluiu | Integrada (PR #64) — nível 3 |
 | [DL-051](../planos/DL-051-correcao-dos-modulos.md) | Correção dos módulos: Vendas fora do produto; inventário dentro de Fiscal | Integrada (PR #65) |
-| [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md) | Integridade do livro e do acesso: convite com validade, invariantes do lançamento no banco, estorno atômico | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md) | Integridade do livro e do acesso: convite com validade, invariantes do lançamento no banco, estorno atômico | Integrada (PR #66) — auditoria e reconferência aprovadas com ressalvas; limite aceito no BL-569 |
+| [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md) | Fechamento de mês do livro-caixa (RC-145, RC-146) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -123,48 +124,43 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**DL-052 — Integridade do livro e do acesso (30/09/2026), em
-revisão** — auditoria e reconferência única **aprovadas com ressalvas**
-([rodada 1](../auditorias/2026-09-30-dl-052-rodada-1.md),
-[reconferência](../auditorias/2026-09-30-dl-052-reconferencia.md)). Estado da
-integração no [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66): em
-revisão enquanto aberto; integrada após o merge confirmado nesse PR. Ordem do Fred depois da análise do repositório: *"Aprovo a
-DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
-[DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md). Branch
-`claude/zealous-goldberg-jr5ggu` → `main`.
+**DL-053 — Fechamento de mês do livro-caixa (30/09/2026), em
+revisão** — servidor, dependentes (RC-147) e tela implementados;
+[auditoria](../auditorias/2026-09-30-dl-053-rodada-1.md) **aprovada com
+ressalvas**. O Fred respondeu à PE-74 (RC-148) e mandou integrar com a CI
+verde. **Limite conhecido até a DL-054:** lançamento em mês aberto anterior
+ainda pode mudar o carnê-leão de mês posterior encerrado do mesmo ano
+(BL-572). Próxima etapa: **DL-054**, que fecha esse limite com a reabertura
+em cascata. Nível 1, auditoria independente obrigatória. Plano:
+[DL-053](../planos/DL-053-fechamento-do-livro-caixa.md). Branch
+`claude/zealous-goldberg-jr5ggu` → `main`, reiniciada da `main` depois do PR
+#66. Mês encerrado não aceita lançamento nem estorno até ser reaberto;
+fecham e reabrem administrador e gestor (RC-146). Controle próprio do
+livro-caixa, não a competência contábil (decisão registrada no plano).
 
-- **A2 (alta):** convite de escritório passa a vencer em 7 dias e só vale para
-  o e-mail convidado (BL-544).
-- **A1 (alta):** débito = crédito, valor positivo e imutabilidade do
-  lançamento garantidos também pelo PostgreSQL, com uma exceção declarada
-  no plano (BL-545).
-- **M1 (média):** estorno e trilha de auditoria na mesma transação (BL-546).
-- **Usuário se desativa, não se apaga** — decisão do Fred em 30/09 (RC-144,
-  BL-559): autoria do lançamento protegida e admin sem exclusão de usuário.
-- Limite aceito e declarado: a trava de partida nova em lançamento
-  efetivado protege contra escrita acidental, não contra quem escreve SQL
-  direto no banco (BL-569).
-- Nível 3, sem auditoria: `makemigrations --check` na CI; este arquivo
-  reescrito enxuto; `auditor-qa` passa a `sonnet` por instrução do Fred
-  (RC-143, ver [equipe.md](equipe.md)).
+**DL-052 — integrada pelo [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66)**
+em 30/09/2026 (squash `258e413`), com os quatro checks verdes no último
+commit e ordem do Fred para integrar. Convite com validade e amarrado ao
+e-mail; débito = crédito, valor positivo, tipo válido e imutabilidade do
+lançamento garantidos também pelo PostgreSQL; estorno e criação atômicos com
+a trilha; usuário se desativa, não se apaga (RC-144).
+[Rodada 1](../auditorias/2026-09-30-dl-052-rodada-1.md) e
+[reconferência](../auditorias/2026-09-30-dl-052-reconferencia.md) aprovadas
+com ressalvas. Limite aceito: a trava de partida nova protege contra escrita
+acidental, não contra quem escreve SQL direto (BL-569).
 
-**Fila depois da DL-052, sujeita ao Fred:**
+**Fila depois da DL-053, sujeita ao Fred:**
 
-1. **DL-053 — fechamento de mês do livro-caixa** (BL-551), nível 1. O Fred
-   respondeu à PE-73 em 30/09: *"livro-caixa pode ter fechamento de mês"*
-   (RC-145), e confirmou a regra de papéis: a mesma da contabilidade —
-   administrador e gestor fecham e reabrem, analista não (RC-146). Plano
-   ainda não escrito; começa depois da DL-052.
-2. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
+1. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
    integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
    29/09 já fechadas: versionar pela data de início do exercício, com adoção
    antecipada da NBC TG 51 prevista. Lacuna declarada: o ato da CVM que
    aprovou o CPC 26 não foi lido em fonte oficial.
-3. **Achados médios da análise** (BL-549 a BL-553): papel Cliente lendo a
+2. **Achados médios da análise** (BL-549 a BL-553): papel Cliente lendo a
    carteira, reclassificação em período encerrado, limite de tentativas no
    login, IP atrás de proxy.
-4. **DL-016 F3** (encerramento de competência) — só o plano existe.
-5. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
+3. **DL-016 F3** (encerramento de competência) — só o plano existe.
+4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.
 
 **Decisões com o Fred:**

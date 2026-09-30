@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block titulo %}Fechamento de mês — {{ empresa.razao_social }}{% if ano %} — {{ ano }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if ano %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Ano</span>
+            <strong>{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:plano_de_contas' empresa.id %}">Livro-caixa</a></li>
+            <li><a href="{% url 'livro_caixa_web:plano_de_contas' empresa.id %}">{{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Fechamento de mês</li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-053, critério 7 — arquétipo D (painel de período), molde do fechamento de
+competência da contabilidade (DL-031). Empresa e ano ficam nas pílulas do
+topo; o mês encerrado é dito em TEXTO ("Encerrado"), a cor é só reforço.
+O "momento da verdade" desta tela: este mês já está fechado? quem fechou?
+{% endcomment %}
+{% block titulo_pagina %}<h1>Fechamento de mês</h1>{% endblock %}
+
+{% block content %}
+    {% if not ano %}
+        {# Estado de ERRO: ano da querystring inválido. A mensagem já está no topo (messages). #}
+        <div class="estado-vazio">
+            <h2 class="estado-vazio__titulo">Não foi possível abrir este ano</h2>
+            <p class="estado-vazio__descricao">
+                O ano informado na página não é válido, por isso nenhum mês foi carregado.
+            </p>
+            <a class="botao botao--secundario"
+               href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano_corrente }}">Ver o ano {{ ano_corrente }}</a>
+        </div>
+    {% else %}
+        <p class="texto-apoio">
+            Mês encerrado não recebe lançamento nem estorno. Para corrigir um lançamento de um
+            mês encerrado, reabra o mês informando o motivo, corrija, e encerre de novo.
+        </p>
+
+        {% comment %}
+        "Sem permissão" é ESTADO, não erro: quem só lê VÊ o painel inteiro (estados,
+        quem encerrou, motivos) e só a coluna de ações muda, com a explicação aqui.
+        Se forçar a requisição, o servidor devolve 403 — a checagem de verdade.
+        {% endcomment %}
+        {% if not pode_fechar %}
+            <p class="mensagem mensagem-info" role="status">
+                Seu papel permite consultar o fechamento, mas não encerrar nem reabrir meses —
+                essa ação exige administrador ou gestor. Fale com um deles para agir sobre um
+                mês.
+            </p>
+        {% endif %}
+
+        <form method="get" class="formulario-periodo" action="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}">
+            <div class="campo">
+                <label for="id_ano">Ano</label>
+                <input type="number" id="id_ano" name="ano" value="{{ ano }}" min="1970" max="2999" required>
+            </div>
+            <button type="submit">Ver ano</button>
+            <div class="acoes-de-linha">
+                {% if ano_anterior %}
+                    <a class="botao botao--fantasma" href="?ano={{ ano_anterior }}">‹ {{ ano_anterior }}</a>
+                {% endif %}
+                {% if ano != ano_corrente %}
+                    <a class="botao botao--fantasma" href="?ano={{ ano_corrente }}">Ano atual ({{ ano_corrente }})</a>
+                {% endif %}
+                {% if ano_seguinte %}
+                    <a class="botao botao--fantasma" href="?ano={{ ano_seguinte }}">{{ ano_seguinte }} ›</a>
+                {% endif %}
+            </div>
+        </form>
+
+        <p class="texto-apoio" id="resumo-do-ano">
+            {% if quantidade_encerrados == 0 %}
+                Nenhum mês de {{ ano }} está encerrado — todos aceitam lançamento.
+            {% elif quantidade_encerrados == 1 %}
+                1 mês de {{ ano }} está encerrado.
+            {% else %}
+                {{ quantidade_encerrados }} meses de {{ ano }} estão encerrados.
+            {% endif %}
+        </p>
+
+        <div class="cartao-tabela">
+            {# Rede de segurança: em tela estreita a tabela rola DENTRO do cartão em vez de cortar a coluna de ações. #}
+            <div class="tabela-com-rolagem-horizontal">
+            <table class="tabela-dados tabela-fechamento-mes">
+                <caption class="visualmente-oculto">Fechamento dos meses de {{ ano }} do livro-caixa de {{ empresa.razao_social }}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mês e situação</th>
+                        <th scope="col">Encerramento e reabertura</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mes in meses %}
+                        <tr>
+                            {% comment %}
+                            `<td>` e não `<th scope="row">`: `.tabela-dados th` é cabeçalho de
+                            COLUNA (fixo ao rolar, caixa alta) e não serve de rótulo de linha.
+                            {% endcomment %}
+                            <td>
+                                <strong>{{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</strong>
+                                <br><span class="texto-apoio">{{ mes.primeiro_dia|date:"F" }}{% if mes.e_mes_atual %} — mês atual{% endif %}</span>
+                                <br>
+                                {% comment %}
+                                Aberto x encerrado à primeira vista: o TEXTO diz qual é; peso e
+                                cor (`estado-competencia--*`, base.css) são só reforço.
+                                {% endcomment %}
+                                {% if mes.encerrado %}
+                                    <strong class="estado-competencia estado-competencia--encerrada">Encerrado</strong>
+                                {% else %}
+                                    <span class="estado-competencia estado-competencia--aberta">Aberto</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if mes.fechado_em %}
+                                    {% if mes.encerrado %}Encerrado{% else %}Último encerramento{% endif %}
+                                    por {{ mes.fechado_por_nome|default:"—" }}
+                                    em {{ mes.fechado_em|date:"d/m/Y H:i" }}.
+                                {% else %}
+                                    Nunca encerrado.
+                                {% endif %}
+                                {% if mes.reaberto_em %}
+                                    <br>
+                                    Última reabertura por {{ mes.reaberto_por_nome|default:"—" }}
+                                    em {{ mes.reaberto_em|date:"d/m/Y H:i" }}.
+                                    <br><span class="texto-apoio">Motivo: {{ mes.motivo_reabertura }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if pode_fechar %}
+                                        {% if mes.encerrado %}
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'livro_caixa_web:mes_reabrir' empresa.id %}?ano={{ mes.ano }}&amp;mes={{ mes.mes }}">Reabrir<span class="visualmente-oculto"> o mês {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
+                                        {% else %}
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'livro_caixa_web:mes_encerrar' empresa.id %}?ano={{ mes.ano }}&amp;mes={{ mes.mes }}">Encerrar<span class="visualmente-oculto"> o mês {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
+                                        {% endif %}
+                                    {% else %}
+                                        <span aria-hidden="true">—</span>
+                                        <span class="visualmente-oculto">Sem permissão para encerrar ou reabrir</span>
+                                    {% endif %}
+                                    <a class="botao botao--fantasma botao--pequeno"
+                                       href="{% url 'livro_caixa_web:lancamentos' empresa.id %}?inicio={{ mes.inicio_iso }}&amp;fim={{ mes.fim_iso }}">Lançamentos<span class="visualmente-oculto"> de {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

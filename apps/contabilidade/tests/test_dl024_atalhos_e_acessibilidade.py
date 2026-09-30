@@ -1012,6 +1012,12 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     ),
     "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
     "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
+    # DL-053: fechamento de mês do livro-caixa — as três rotas são API REST
+    # (JSON); a tela de fechamento é do especialista-frontend, depois do
+    # contrato do servidor.
+    "livro_caixa:meses": "API REST (MesesCaixaView, DRF) — JSON; DL-053",
+    "livro_caixa:encerrar-mes": "API REST (EncerrarMesCaixaView, DRF) — JSON; DL-053",
+    "livro_caixa:reabrir-mes": "API REST (ReabrirMesCaixaView, DRF) — JSON; DL-053",
     # DL-046 fatia 2: apuração do carnê-leão — mesmo motivo das quatro
     # rotas da fatia 1, acima (só servidor + API nesta fatia; a tela vem
     # depois pelo especialista-frontend).
@@ -1143,6 +1149,12 @@ NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE = {
     # das nove de cima (os dois downloads dela são anexo, não tela: ver
     # EXCLUSOES_NOMEADAS_DE_TELA).
     "livro_caixa_web:arquivos_carne_leao": "test_tela_livro_caixa_arquivos_carne_leao_e_acessivel",
+    # DL-053 (especialista-frontend): o painel de fechamento de mês e as duas
+    # telas de confirmação (encerrar/reabrir) — mesmo papel das dez de cima,
+    # sem atalho/accesskey próprio.
+    "livro_caixa_web:fechamento_mes": "test_tela_livro_caixa_fechamento_mes_e_acessivel",
+    "livro_caixa_web:mes_encerrar": "test_tela_livro_caixa_mes_encerrar_e_acessivel",
+    "livro_caixa_web:mes_reabrir": "test_tela_livro_caixa_mes_reabrir_e_acessivel",
 }
 
 # Rota nomeada → função(ões) desta suíte que exercitam a renderização REAL
@@ -1505,6 +1517,45 @@ def test_tela_livro_caixa_arquivos_carne_leao_e_acessivel(client, cenario_livro_
     )
     assert resposta.status_code == 200
     assert "livro_caixa/arquivos_carne_leao.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+# DL-053 (especialista-frontend): o painel de fechamento de mês e as duas
+# telas de confirmação. `mes_reabrir` só renderiza com o mês ENCERRADO (sem
+# isso a view redireciona para o painel), por isso este teste encerra o mês
+# antes de medir a tela — o mesmo cuidado de `competencia_reabrir`.
+
+
+def test_tela_livro_caixa_fechamento_mes_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:fechamento_mes", args=[cenario_livro_caixa["empresa"].id])
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/fechamento_mes.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_mes_encerrar_e_acessivel(client, cenario_livro_caixa):
+    resposta = client.get(
+        reverse("livro_caixa_web:mes_encerrar", args=[cenario_livro_caixa["empresa"].id]),
+        {"ano": "2026", "mes": "1"},
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/fechamento_mes_encerrar.html" in [t.name for t in resposta.templates]
+    assert_moldura_acessivel(resposta.content.decode())
+
+
+def test_tela_livro_caixa_mes_reabrir_e_acessivel(client, cenario_livro_caixa):
+    from apps.livro_caixa.services import encerrar_mes_caixa
+
+    usuario = get_user_model().objects.get(username="gestor-caixa-a11y")
+    encerrar_mes_caixa(empresa=cenario_livro_caixa["empresa"], ano=2026, mes=1, usuario=usuario)
+    resposta = client.get(
+        reverse("livro_caixa_web:mes_reabrir", args=[cenario_livro_caixa["empresa"].id]),
+        {"ano": "2026", "mes": "1"},
+    )
+    assert resposta.status_code == 200
+    assert "livro_caixa/fechamento_mes_reabrir.html" in [t.name for t in resposta.templates]
     assert_moldura_acessivel(resposta.content.decode())
 
 

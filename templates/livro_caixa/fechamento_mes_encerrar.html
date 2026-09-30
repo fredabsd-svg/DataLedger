@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block titulo %}Encerrar mês {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Mês</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Fechamento de mês — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Encerrar {{ mes|stringformat:"02d" }}/{{ ano }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">‹ Voltar para o fechamento de mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+Ação sensível (arquétipo E): o mês/ano PERMANECE no título mesmo repetindo a
+pílula "Mês" — dois canais para reduzir o risco de encerrar o mês errado,
+mesmo critério das telas de fechamento de competência da contabilidade.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Encerrar mês {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que o mês contém</h2>
+        {% comment %}
+        A conferência antes do botão: mesmos totais do relatório Livro Caixa
+        (estorno entra com o sinal invertido), em tabela de uma linha por
+        total, valores à direita e tabulados.
+        {% endcomment %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Totais do mês {{ mes|stringformat:"02d" }}/{{ ano }} do livro-caixa de {{ empresa.razao_social }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Total</th>
+                    <th scope="col" class="cabecalho-numerico">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Entradas (receitas)</td>
+                    <td class="valor-monetario">{{ total_entradas_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Saídas (despesas e pagamentos)</td>
+                    <td class="valor-monetario">{{ total_saidas_ptbr }}</td>
+                </tr>
+                <tr>
+                    <td>Saldo do mês</td>
+                    <td class="valor-monetario">{{ saldo_ptbr }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>
+            {% if quantidade_lancamentos == 0 %}
+                Este mês <strong>não tem nenhum lançamento</strong>. Encerrar assim declara
+                o mês sem movimento.
+            {% elif quantidade_lancamentos == 1 %}
+                <strong>1 lançamento</strong> no mês (estornos contam como lançamento).
+            {% else %}
+                <strong>{{ quantidade_lancamentos }} lançamentos</strong> no mês (estornos contam
+                como lançamento).
+            {% endif %}
+            <a href="{% url 'livro_caixa_web:lancamentos' empresa.id %}?inicio={{ inicio_iso }}&amp;fim={{ fim_iso }}">Conferir os lançamentos do mês</a>
+            antes de encerrar.
+        </p>
+        {% if mes_em_curso %}
+            <p class="mensagem mensagem-warning" role="note">
+                O mês {{ mes|stringformat:"02d" }}/{{ ano }} ainda não terminou: encerrá-lo agora
+                bloqueia os lançamentos que ainda faltarem nele.
+            </p>
+        {% endif %}
+    </div>
+
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            O mês <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong> do livro-caixa de
+            <strong>{{ empresa.razao_social }}</strong> será encerrado. A partir daí:
+        </p>
+        <ul>
+            <li>Nenhum lançamento novo pode ser gravado com data neste mês.</li>
+            <li>
+                Um lançamento deste mês não pode ser estornado: o estorno usa a data do
+                lançamento original.
+            </li>
+            <li>
+                Para lançar ou estornar neste mês de novo, será preciso <strong>reabri-lo</strong>
+                informando o motivo. O encerramento e a reabertura ficam registrados na trilha
+                de auditoria, com o seu nome.
+            </li>
+        </ul>
+        <form method="post" action="{% url 'livro_caixa_web:mes_encerrar' empresa.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="ano" value="{{ ano }}">
+            <input type="hidden" name="mes" value="{{ mes }}">
+            <div class="acoes-de-linha">
+                <button type="submit" class="botao botao--primario">Encerrar mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                <a class="botao botao--fantasma" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Cancelar</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

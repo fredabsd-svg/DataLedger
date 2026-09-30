@@ -21,6 +21,7 @@ livro-caixa e contabilidade são regimes de escrituração DIFERENTES
 implementação, nunca por contrato.
 """
 
+import calendar
 import re
 import uuid
 from datetime import date, timedelta
@@ -66,21 +67,33 @@ from apps.livro_caixa.carne_leao_arquivos import (
 from apps.livro_caixa.models import (
     ContaLivroCaixa,
     DependentesCarneLeaoCliente,
+    EstadoMesCaixa,
+    FechamentoMesCaixa,
     LancamentoCaixa,
     NaturezaCaixa,
     OrigemRecebimento,
 )
 from apps.livro_caixa.permissoes import (
     papel_pode_escriturar_livro_caixa,
+    papel_pode_fechar_mes_caixa,
     papel_pode_ler_livro_caixa,
 )
 from apps.livro_caixa.services import (
+    TAMANHO_MAXIMO_MOTIVO_REABERTURA,
     ChaveIdempotenciaConflitanteCaixa,
+    FechamentoMesCaixaInvalido,
+    FechamentoMesCaixaRecusado,
     LancamentoCaixaInvalido,
+    MesCaixaEncerrado,
+    MesCaixaOcupado,
     apurar_livro_caixa,
     criar_conta_livro_caixa,
     criar_lancamento_caixa,
+    encerrar_mes_caixa,
+    estado_dos_meses_caixa,
     estornar_lancamento_caixa,
+    mes_caixa_esta_encerrado,
+    reabrir_mes_caixa,
 )
 from apps.livro_caixa.validators import (
     DATA_MINIMA_LANCAMENTO_CAIXA,
@@ -159,6 +172,28 @@ def _pode_ler(request):
 
 def _pode_escriturar(request):
     return papel_pode_escriturar_livro_caixa(getattr(request, "papel", None))
+
+
+def _pode_fechar_mes(request):
+    return papel_pode_fechar_mes_caixa(getattr(request, "papel", None))
+
+
+def _meses_encerrados(empresa, ano_inicial, ano_final):
+    """Conjunto `{(ano, mes)}` dos meses ENCERRADOS de `empresa` entre os
+    dois anos (inclusive) — UMA consulta, sem lock. Só informa a TELA (aviso
+    de mês encerrado e ausência do botão de estornar); a recusa de verdade é
+    da trava de `criar_lancamento_caixa`, que lê o estado sob lock (DL-053).
+    Estado desconhecido NÃO conta como encerrado aqui: a tela só deixa de
+    oferecer a ação quando tem certeza, e o servidor recusa de qualquer
+    forma quando o estado não for "aberto"."""
+    return set(
+        FechamentoMesCaixa.objects.filter(
+            empresa=empresa,
+            estado=EstadoMesCaixa.ENCERRADO,
+            ano__gte=ano_inicial,
+            ano__lte=ano_final,
+        ).values_list("ano", "mes")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -472,10 +507,24 @@ def _competencia_previdencia_do_formulario(bruto):
     return para_data(texto)
 
 
+def _meses_encerrados_para_o_formulario(empresa):
+    """Meses encerrados do ano anterior em diante, em texto `MM/AAAA` e em
+    ordem cronológica, para o aviso do formulário de lançamento (DL-053,
+    critério 7). Um `<input type="date">` não consegue excluir meses sem
+    JavaScript (regra 6 da direção de arte), então a tela AVISA quais datas
+    serão recusadas, em texto; quem recusa de verdade é o servidor. O ano
+    anterior entra porque é onde o contador corrige o fechamento recém-feito."""
+    ano_corrente = timezone.localdate().year
+    encerrados = sorted(_meses_encerrados(empresa, ano_corrente - 1, 9999))
+    return [f"{mes:02d}/{ano}" for ano, mes in encerrados]
+
+
 def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotencia):
     return {
         "empresa": empresa,
         "contas": contas,
+        "meses_encerrados": _meses_encerrados_para_o_formulario(empresa),
+        "ano_do_fechamento": timezone.localdate().year,
         "origens": OrigemRecebimento.choices,
         "data_texto": dados.get("data", ""),
         "conta_selecionada_id": dados.get("conta", ""),
@@ -533,12 +582,12 @@ def lancamento_caixa_novo(request, empresa_id):
 
         chave_idempotencia = request.POST.get("chave_idempotencia") or uuid.uuid4().hex
 
-        def _recusa(mensagem):
+        def _recusa(mensagem, status=400):
             messages.error(request, mensagem)
             contexto = _contexto_form_lancamento_caixa(
                 empresa, contas, request.POST, chave_idempotencia=chave_idempotencia
             )
-            return render(request, "livro_caixa/lancamento_form.html", contexto, status=400)
+            return render(request, "livro_caixa/lancamento_form.html", contexto, status=status)
 
         # M1 (rodada 1 da auditoria da DL-046): `conta` chega da tela como
         # TEXTO cru do formulário — "abc", "1.5" ou espaço em branco
@@ -617,6 +666,11 @@ def lancamento_caixa_novo(request, empresa_id):
             )
         except ChaveIdempotenciaConflitanteCaixa as exc:
             return _recusa(str(exc))
+        except MesCaixaEncerrado as exc:
+            # DL-053: mês encerrado — 409 (conflito de ESTADO, como na API),
+            # com a mensagem do serviço, que nomeia o mês e orienta reabrir.
+            # Nada foi gravado; o formulário volta preenchido.
+            return _recusa(str(exc), status=409)
         except DataInvalida as exc:
             # Só a `competencia_previdencia` é lida dentro deste `try` por
             # `para_data` (a `data` do lançamento já é convertida antes) —
@@ -711,16 +765,27 @@ def lancamentos_caixa_lista(request, empresa_id):
         .annotate(_tem_estorno=Exists(LancamentoCaixa.objects.filter(estorno_de=OuterRef("pk"))))
         .order_by("-data", "-id")
     )
+    # DL-053, critério 7: o mês encerrado aparece como encerrado e a ação de
+    # estornar NÃO é oferecida nele (o estorno usa a data do original, então
+    # exigiria reabrir o mês). Uma consulta para o intervalo inteiro; a
+    # recusa continua sendo do servidor de qualquer forma.
+    encerrados = _meses_encerrados(empresa, inicio.year, fim.year)
     linhas = [
         {
             "lancamento": lancamento,
             "valor_ptbr": _valor_ptbr(lancamento.valor),
             "e_estorno": lancamento.estorno_de_id is not None,
             "ja_estornado": lancamento._tem_estorno,
+            "mes_encerrado": (lancamento.data.year, lancamento.data.month) in encerrados,
         }
         for lancamento in lancamentos
     ]
     contexto["linhas"] = linhas
+    contexto["meses_encerrados_no_periodo"] = [
+        f"{mes:02d}/{ano}"
+        for ano, mes in sorted(encerrados)
+        if (inicio.year, inicio.month) <= (ano, mes) <= (fim.year, fim.month)
+    ]
     return render(request, "livro_caixa/lancamentos_lista.html", contexto)
 
 
@@ -729,6 +794,12 @@ def _contexto_lancamento_estornar(empresa, lancamento):
         "empresa": empresa,
         "lancamento": lancamento,
         "valor_ptbr": _valor_ptbr(lancamento.valor),
+        # DL-053: o estorno usa a data do ORIGINAL; se o mês dela está
+        # encerrado a tela explica e não oferece o botão (informativo — o
+        # servidor recusa o POST de qualquer forma, com 409).
+        "mes_encerrado": mes_caixa_esta_encerrado(
+            empresa=empresa, ano=lancamento.data.year, mes=lancamento.data.month
+        ),
     }
 
 
@@ -770,6 +841,29 @@ def lancamento_caixa_estornar(request, empresa_id, lancamento_id):
             )
         try:
             estornar_lancamento_caixa(lancamento, criado_por=request.user, request=request)
+        except MesCaixaEncerrado as exc:
+            # DL-053, critério 2: estorno de lançamento de mês encerrado —
+            # 409, nada gravado; reabrir o mês é o caminho (RC-130).
+            # O texto do serviço para o estorno cita o código interno da
+            # regra ("RC-130"), que não pode aparecer para o contador; a
+            # tela diz a mesma coisa em linguagem de escritório. A recusa por
+            # espera de lock (`MesCaixaOcupado`) mantém a mensagem do
+            # serviço, que não cita código nenhum.
+            if isinstance(exc, MesCaixaOcupado):
+                messages.error(request, str(exc))
+            else:
+                messages.error(
+                    request,
+                    f"O mês {lancamento.data.month:02d}/{lancamento.data.year} do livro-caixa "
+                    f"de {empresa} está encerrado; o lançamento não foi estornado. Reabra o "
+                    "mês, informando o motivo, e estorne de novo.",
+                )
+            return render(
+                request,
+                "livro_caixa/lancamento_estornar.html",
+                _contexto_lancamento_estornar(empresa, lancamento),
+                status=409,
+            )
         except LancamentoCaixaInvalido as exc:
             messages.error(request, str(exc))
             return render(
@@ -1485,6 +1579,11 @@ def dependentes_carne_leao(request, empresa_id):
 
     pode_escriturar = _pode_escriturar(request)
     form = None
+    # DL-053 (RC-147): registrar dependentes que alterariam o carnê-leão de um
+    # mês ENCERRADO é recusado pelo serviço (`MesCaixaEncerrado`); a tela
+    # devolve o formulário com o que foi digitado e status 409 (conflito de
+    # ESTADO, como no lançamento), nunca 500.
+    recusado_por_mes_encerrado = False
 
     if request.method == "POST":
         if not pode_escriturar:
@@ -1516,6 +1615,12 @@ def dependentes_carne_leao(request, empresa_id):
                 # `contabilidade_web.parametros_contabeis`: o serviço não
                 # separa por campo neste erro.
                 form.add_error(None, str(exc))
+            except MesCaixaEncerrado as exc:
+                # Inclui `MesCaixaOcupado` (espera de lock estourada): a
+                # mensagem do serviço nomeia o mês e orienta reabrir ou tentar
+                # de novo. Nada foi gravado.
+                form.add_error(None, str(exc))
+                recusado_por_mes_encerrado = True
             except RestricaoViolada as exc:
                 # Corrida na `UniqueConstraint` "dependentes_carne_leao_
                 # competencia_unica_por_empresa" — mesmo padrão de
@@ -1538,7 +1643,10 @@ def dependentes_carne_leao(request, empresa_id):
         "pode_escriturar": pode_escriturar,
         "form": form,
     }
-    status = 400 if form is not None and form.is_bound and form.errors else 200
+    if recusado_por_mes_encerrado:
+        status = 409
+    else:
+        status = 400 if form is not None and form.is_bound and form.errors else 200
     return render(request, "livro_caixa/dependentes_carne_leao.html", contexto, status=status)
 
 
@@ -1600,6 +1708,12 @@ def dependentes_carne_leao_retificar(request, empresa_id, dependente_id):
             registro, quantidade=quantidade, retificado_por=request.user, request=request
         )
     except DependentesCarneLeaoInvalido as exc:
+        messages.error(request, str(exc))
+        return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
+    except MesCaixaEncerrado as exc:
+        # DL-053 (RC-147): a nova quantidade alteraria o carnê-leão de mês
+        # encerrado (ou a espera pelo lock estourou). Nada foi gravado; a
+        # mensagem do serviço diz qual mês e que é preciso reabri-lo.
         messages.error(request, str(exc))
         return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
 
@@ -1873,3 +1987,314 @@ def arquivo_pagamentos_carne_leao(request, empresa_id):
         prefixo="pagamentos",
         escolher_conteudo=lambda rendimentos, pagamentos: pagamentos,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fechamento de mês do livro-caixa (DL-053, critério 7 — a TELA)
+#
+# NENHUMA regra de fechamento mora aqui: `encerrar_mes_caixa`,
+# `reabrir_mes_caixa` e `estado_dos_meses_caixa` (services.py) decidem, travam
+# o mês sob concorrência e gravam a trilha na mesma transação. Esta seção só
+# CHAMA os serviços e traduz cada recusa em mensagem de escritório (nunca 500).
+#
+# Molde: o fechamento de competência da contabilidade (DL-031) — painel de
+# período (arquétipo D) para a consulta e uma tela de confirmação por ação
+# (arquétipo E) que diz o que vai acontecer antes do botão.
+#
+# PERMISSÃO (RC-146 = RC-102): a consulta exige o papel que LÊ o livro-caixa;
+# encerrar e reabrir exigem o papel de `papel_pode_fechar_mes_caixa`
+# (administrador ou gestor) — conferido AQUI, no servidor, em GET e em POST.
+# O painel esconde os botões de quem não pode e explica por quê, mas isso é
+# só ajuda: o 403 abaixo é que vale (testado pela requisição, banco inalterado).
+# ---------------------------------------------------------------------------
+
+# Mesma faixa que o serviço valida (`_ANO_MINIMO_FECHAMENTO`/`_ANO_MAXIMO_
+# FECHAMENTO`, privados de services.py) — copiada por valor, como o resto
+# deste módulo faz com o que é "privado" de outro arquivo.
+_ANO_MINIMO_FECHAMENTO_MES, _ANO_MAXIMO_FECHAMENTO_MES = 1970, 2999
+
+_CONTRATO_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "ano", "mes"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no encerramento de mês do livro-caixa",
+)
+_CONTRATO_REABRIR_MES_CAIXA = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "ano", "mes", "motivo"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura de mês do livro-caixa",
+)
+
+
+def _url_do_painel_de_fechamento(empresa, ano):
+    return (
+        f"{reverse('livro_caixa_web:fechamento_mes', args=[empresa.id])}?{urlencode({'ano': ano})}"
+    )
+
+
+def _ano_do_painel_de_fechamento(request):
+    """Ano pedido por `?ano=` (padrão: o corrente). Devolve `(ano, erro)`;
+    nunca lança exceção. Só dígitos ASCII (`[0-9]`), nunca dígito Unicode."""
+    bruto = (request.GET.get("ano") or "").strip()
+    if not bruto:
+        return timezone.localdate().year, None
+    if _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(bruto):
+        ano = int(bruto)
+        if _ANO_MINIMO_FECHAMENTO_MES <= ano <= _ANO_MAXIMO_FECHAMENTO_MES:
+            return ano, None
+    return None, (
+        f"O ano informado não é válido: use um ano entre {_ANO_MINIMO_FECHAMENTO_MES} e "
+        f"{_ANO_MAXIMO_FECHAMENTO_MES}."
+    )
+
+
+def _ano_e_mes_do_fechamento(fonte):
+    """Lê `ano`/`mes` de `fonte` (GET na tela de confirmação, POST no envio,
+    onde voltam como campos ocultos do formulário). Devolve `(ano, mes,
+    erro)`; nunca lança exceção — erro de entrada vira mensagem, não 500."""
+    bruto_ano = (fonte.get("ano") or "").strip()
+    bruto_mes = (fonte.get("mes") or "").strip()
+    if not _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(
+        bruto_ano
+    ) or not _PADRAO_ANO_MES_CARNE_LEAO.fullmatch(bruto_mes):
+        return None, None, "Informe o ano e o mês do fechamento."
+    ano, mes = int(bruto_ano), int(bruto_mes)
+    if not (1 <= mes <= 12) or not (
+        _ANO_MINIMO_FECHAMENTO_MES <= ano <= _ANO_MAXIMO_FECHAMENTO_MES
+    ):
+        return (
+            None,
+            None,
+            f"Mês ou ano inválido: o mês deve estar entre 1 e 12 e o ano entre "
+            f"{_ANO_MINIMO_FECHAMENTO_MES} e {_ANO_MAXIMO_FECHAMENTO_MES}.",
+        )
+    return ano, mes, None
+
+
+def _porta_do_fechamento(request, empresa_id, *, para_agir):
+    """Portão comum das três telas: devolve `(empresa, resposta_de_recusa)`.
+
+    Ordem (a mesma das demais telas do módulo): escritório ativo → empresa do
+    escritório (404 para outro escritório, sem confirmar que existe) → papel
+    (403) → modo de escrituração. O papel vem ANTES do modo para quem não tem
+    acesso nunca ficar sabendo o modo de escrituração da empresa."""
+    if request.escritorio is None:
+        return None, _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if para_agir:
+        if not _pode_fechar_mes(request):
+            return empresa, _resposta_sem_permissao(
+                request,
+                "Seu papel não permite encerrar nem reabrir meses do livro-caixa desta "
+                "empresa — essa ação exige administrador ou gestor. Fale com um deles.",
+            )
+    elif not _pode_ler(request):
+        return empresa, _resposta_sem_permissao(
+            request, "Seu papel não permite ler o livro-caixa desta empresa."
+        )
+    recusa = _sem_livro_caixa_para_contabilidade(request, empresa)
+    if recusa is not None:
+        return empresa, recusa
+    return empresa, None
+
+
+@login_required
+@require_safe
+def fechamento_mes_caixa(request, empresa_id):
+    """Painel de fechamento (arquétipo D): os 12 meses do ano, o estado de
+    cada um, quem encerrou e quando, e a última reabertura com o motivo.
+
+    Quem lê o livro-caixa mas não pode fechar (analista, financeiro,
+    paralegal) vê o painel INTEIRO; só a coluna de ações muda, com a
+    explicação no topo em vez de sumir em silêncio."""
+    empresa, recusa = _porta_do_fechamento(request, empresa_id, para_agir=False)
+    if recusa is not None:
+        return recusa
+
+    ano, erro = _ano_do_painel_de_fechamento(request)
+    contexto = {"empresa": empresa, "pode_fechar": _pode_fechar_mes(request)}
+    if erro is not None:
+        messages.error(request, erro)
+        contexto["ano"] = None
+        contexto["ano_corrente"] = timezone.localdate().year
+        return render(request, "livro_caixa/fechamento_mes.html", contexto, status=400)
+
+    hoje = timezone.localdate()
+    meses = estado_dos_meses_caixa(empresa=empresa, ano=ano)
+    for mes in meses:
+        mes["encerrado"] = mes["estado"] == EstadoMesCaixa.ENCERRADO
+        mes["e_mes_atual"] = (mes["ano"], mes["mes"]) == (hoje.year, hoje.month)
+        mes["primeiro_dia"] = date(ano, mes["mes"], 1)  # o template escreve o nome do mês
+        mes["inicio_iso"] = mes["primeiro_dia"].isoformat()
+        mes["fim_iso"] = date(ano, mes["mes"], calendar.monthrange(ano, mes["mes"])[1]).isoformat()
+    contexto.update(
+        {
+            "ano": ano,
+            "ano_corrente": hoje.year,
+            "ano_anterior": ano - 1 if ano > _ANO_MINIMO_FECHAMENTO_MES else None,
+            "ano_seguinte": ano + 1 if ano < _ANO_MAXIMO_FECHAMENTO_MES else None,
+            "meses": meses,
+            "quantidade_encerrados": sum(1 for mes in meses if mes["encerrado"]),
+            "quantidade_com_reabertura": sum(1 for mes in meses if mes["reaberto_em"] is not None),
+        }
+    )
+    return render(request, "livro_caixa/fechamento_mes.html", contexto)
+
+
+def _contexto_da_acao_de_fechamento(empresa, ano, mes):
+    return {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "motivo_tamanho_maximo": TAMANHO_MAXIMO_MOTIVO_REABERTURA,
+        "inicio_iso": date(ano, mes, 1).isoformat(),
+        "fim_iso": date(ano, mes, calendar.monthrange(ano, mes)[1]).isoformat(),
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def mes_caixa_encerrar(request, empresa_id):
+    """Encerra um mês (arquétipo E, etapa única). GET mostra o que o mês
+    contém e o que passa a ser recusado ANTES do botão; POST chama
+    `encerrar_mes_caixa`, que decide e trava de verdade."""
+    empresa, recusa = _porta_do_fechamento(request, empresa_id, para_agir=True)
+    if recusa is not None:
+        return recusa
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro = _ano_e_mes_do_fechamento(fonte)
+    if erro is not None:
+        messages.error(request, erro)
+        return redirect("livro_caixa_web:fechamento_mes", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_ENCERRAR_MES_CAIXA)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect(_url_do_painel_de_fechamento(empresa, ano))
+        try:
+            encerrar_mes_caixa(
+                empresa=empresa, ano=ano, mes=mes, usuario=request.user, request=request
+            )
+        except (FechamentoMesCaixaInvalido, FechamentoMesCaixaRecusado) as exc:
+            # Mês já encerrado, espera de lock estourada ou entrada inválida:
+            # nada foi gravado. O painel mostra o estado ATUAL do mês, que é o
+            # que a pessoa precisa ver para decidir o que fazer a seguir.
+            messages.error(request, str(exc))
+            return redirect(_url_do_painel_de_fechamento(empresa, ano))
+        messages.success(
+            request,
+            f"Mês {mes:02d}/{ano} do livro-caixa de {empresa.razao_social} encerrado com "
+            "sucesso. Lançamentos e estornos nele ficam bloqueados até a reabertura.",
+        )
+        return redirect(_url_do_painel_de_fechamento(empresa, ano))
+
+    if mes_caixa_esta_encerrado(empresa=empresa, ano=ano, mes=mes):
+        messages.info(
+            request, f"O mês {mes:02d}/{ano} de {empresa.razao_social} já está encerrado."
+        )
+        return redirect(_url_do_painel_de_fechamento(empresa, ano))
+
+    contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
+    # O que o mês contém, ANTES de encerrar: é a conferência do contador.
+    # `apurar_livro_caixa` é o mesmo cálculo do relatório Livro Caixa, então
+    # os totais daqui batem com ele (estorno entra com o sinal invertido).
+    apuracao = apurar_livro_caixa(
+        empresa=empresa,
+        inicio=date.fromisoformat(contexto["inicio_iso"]),
+        fim=date.fromisoformat(contexto["fim_iso"]),
+    )
+    contexto.update(
+        {
+            "quantidade_lancamentos": len(apuracao["itens"]),
+            "total_entradas_ptbr": _valor_ptbr(apuracao["total_entradas"]),
+            "total_saidas_ptbr": _valor_ptbr(apuracao["total_saidas"]),
+            "saldo_ptbr": _valor_ptbr(apuracao["saldo"]),
+            # Aviso, não bloqueio: encerrar mês ainda em curso é possível,
+            # mas quase sempre é engano do contador.
+            "mes_em_curso": date.fromisoformat(contexto["fim_iso"]) >= timezone.localdate(),
+        }
+    )
+    return render(request, "livro_caixa/fechamento_mes_encerrar.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def mes_caixa_reabrir(request, empresa_id):
+    """Reabre um mês encerrado (arquétipo E, etapa única). O motivo é
+    obrigatório e fica na trilha de auditoria; a recusa de verdade é do
+    serviço (`reabrir_mes_caixa`), que a tela traduz sem nunca dar 500."""
+    empresa, recusa = _porta_do_fechamento(request, empresa_id, para_agir=True)
+    if recusa is not None:
+        return recusa
+
+    fonte = request.POST if request.method == "POST" else request.GET
+    ano, mes, erro = _ano_e_mes_do_fechamento(fonte)
+    if erro is not None:
+        messages.error(request, erro)
+        return redirect("livro_caixa_web:fechamento_mes", empresa_id=empresa.id)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_REABRIR_MES_CAIXA)
+        except DadoNaoContratado as exc:
+            messages.error(request, exc.mensagem)
+            return redirect(_url_do_painel_de_fechamento(empresa, ano))
+        motivo = request.POST.get("motivo", "")
+        try:
+            reabrir_mes_caixa(
+                empresa=empresa,
+                ano=ano,
+                mes=mes,
+                usuario=request.user,
+                motivo=motivo,
+                request=request,
+            )
+        except FechamentoMesCaixaInvalido as exc:
+            # Motivo em branco (ou longo demais) é erro de FORMULÁRIO: a tela
+            # volta com o que foi digitado, status 400, e nada muda no mês.
+            messages.error(request, str(exc))
+            contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
+            contexto["motivo"] = motivo
+            contexto.update(_contexto_do_encerramento_atual(empresa, ano, mes))
+            return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto, status=400)
+        except FechamentoMesCaixaRecusado as exc:
+            # Mês que já estava aberto (duas pessoas reabrindo) ou espera de
+            # lock estourada: nada foi gravado; o painel mostra o estado atual.
+            messages.error(request, str(exc))
+            return redirect(_url_do_painel_de_fechamento(empresa, ano))
+        messages.success(
+            request,
+            f"Mês {mes:02d}/{ano} do livro-caixa de {empresa.razao_social} reaberto com "
+            "sucesso. O motivo ficou registrado na trilha de auditoria.",
+        )
+        return redirect(_url_do_painel_de_fechamento(empresa, ano))
+
+    if not mes_caixa_esta_encerrado(empresa=empresa, ano=ano, mes=mes):
+        messages.info(
+            request,
+            f"O mês {mes:02d}/{ano} de {empresa.razao_social} não está encerrado; não há o "
+            "que reabrir.",
+        )
+        return redirect(_url_do_painel_de_fechamento(empresa, ano))
+
+    contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
+    contexto["motivo"] = ""
+    contexto.update(_contexto_do_encerramento_atual(empresa, ano, mes))
+    return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto)
+
+
+def _contexto_do_encerramento_atual(empresa, ano, mes):
+    """Quem encerrou o mês e quando — mostrado na tela de reabertura para a
+    pessoa saber o que está desfazendo. Lê os 12 meses do ano (uma consulta)
+    pelo serviço e fica com o pedido."""
+    estado = estado_dos_meses_caixa(empresa=empresa, ano=ano)[mes - 1]
+    return {
+        "fechado_por_nome": estado["fechado_por_nome"],
+        "fechado_em": estado["fechado_em"],
+    }

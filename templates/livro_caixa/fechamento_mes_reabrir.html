@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block titulo %}Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Mês</span>
+        <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Fechamento de mês — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Reabrir {{ mes|stringformat:"02d" }}/{{ ano }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">‹ Voltar para o fechamento de mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+Ação sensível (arquétipo E) — mesmo raciocínio de fechamento_mes_encerrar.html:
+mês/ano permanece no título, e o botão tem o tom "perigoso".
+{% endcomment %}
+{% block titulo_pagina %}<h1>Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            O mês <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong> do livro-caixa de
+            <strong>{{ empresa.razao_social }}</strong>
+            {% if fechado_em %}
+                foi encerrado por <strong>{{ fechado_por_nome|default:"—" }}</strong> em
+                {{ fechado_em|date:"d/m/Y H:i" }}.
+            {% else %}
+                está encerrado.
+            {% endif %}
+            Ao reabrir:
+        </p>
+        <ul>
+            <li>O mês volta a aceitar lançamento e estorno.</li>
+            <li>
+                Se o carnê-leão deste mês já foi apurado, pago ou importado no Carnê-Leão Web,
+                o resultado dele pode mudar depois da correção — confira antes de encerrar de
+                novo.
+            </li>
+            <li>
+                O motivo abaixo <strong>fica registrado na trilha de auditoria</strong>, junto
+                com quem encerrou antes e quando.
+            </li>
+        </ul>
+        <form method="post" action="{% url 'livro_caixa_web:mes_reabrir' empresa.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="ano" value="{{ ano }}">
+            <input type="hidden" name="mes" value="{{ mes }}">
+            <div class="campo">
+                <label for="id_motivo">Motivo da reabertura</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_tamanho_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório, até {{ motivo_tamanho_maximo|floatformat:"0g" }} caracteres — fica na trilha de auditoria deste mês.
+                </p>
+            </div>
+            <div class="acoes-de-linha">
+                <button type="submit" class="botao botao--perigoso">Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                <a class="botao botao--fantasma" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Cancelar</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

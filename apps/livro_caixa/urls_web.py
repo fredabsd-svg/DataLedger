@@ -9,10 +9,13 @@ from apps.livro_caixa.views_web import (
     conta_caixa_nova,
     dependentes_carne_leao,
     dependentes_carne_leao_retificar,
+    fechamento_mes_caixa,
     lancamento_caixa_estornar,
     lancamento_caixa_novo,
     lancamentos_caixa_lista,
     livro_caixa_relatorio,
+    mes_caixa_encerrar,
+    mes_caixa_reabrir,
     plano_de_contas_caixa,
 )
 
@@ -99,5 +102,23 @@ urlpatterns = [
         "empresas/<int:empresa_id>/carne-leao/arquivos/pagamentos/",
         arquivo_pagamentos_carne_leao,
         name="arquivo_pagamentos",
+    ),
+    # DL-053 — fechamento de mês do livro-caixa. O painel lê "?ano=" e as duas
+    # telas de ação leem "ano"/"mes" (querystring no GET, campos ocultos no
+    # POST), mesmo desenho do fechamento de competência da contabilidade.
+    path(
+        "empresas/<int:empresa_id>/fechamento-de-mes/",
+        fechamento_mes_caixa,
+        name="fechamento_mes",
+    ),
+    path(
+        "empresas/<int:empresa_id>/fechamento-de-mes/encerrar/",
+        mes_caixa_encerrar,
+        name="mes_encerrar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/fechamento-de-mes/reabrir/",
+        mes_caixa_reabrir,
+        name="mes_reabrir",
     ),
 ]

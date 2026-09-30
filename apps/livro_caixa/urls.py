@@ -9,9 +9,12 @@ from apps.livro_caixa.views import (
     ContaLivroCaixaListCreateView,
     DependentesCarneLeaoListCreateView,
     DependentesCarneLeaoRetificarView,
+    EncerrarMesCaixaView,
     EstornarLancamentoCaixaView,
     LancamentoCaixaListCreateView,
     LivroCaixaView,
+    MesesCaixaView,
+    ReabrirMesCaixaView,
 )
 
 app_name = "livro_caixa"
@@ -36,6 +39,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/livro-caixa/",
         LivroCaixaView.as_view(),
         name="livro-caixa",
+    ),
+    # DL-053 — fechamento de mês do livro-caixa (RC-145/RC-146).
+    path(
+        "empresas/<int:empresa_id>/meses/",
+        MesesCaixaView.as_view(),
+        name="meses",
+    ),
+    path(
+        "empresas/<int:empresa_id>/meses/<int:ano>/<int:mes>/encerrar/",
+        EncerrarMesCaixaView.as_view(),
+        name="encerrar-mes",
+    ),
+    path(
+        "empresas/<int:empresa_id>/meses/<int:ano>/<int:mes>/reabrir/",
+        ReabrirMesCaixaView.as_view(),
+        name="reabrir-mes",
     ),
     # DL-046, fatia 2 — carnê-leão.
     path(
