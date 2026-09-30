@@ -32,8 +32,10 @@ não criar atalhos ou resultados fictícios para elas.
 
 Sem mudança em dados, cálculos, documentos emitidos, permissões ou
 migrações. As duas URLs informativas indevidas deixam de existir; não são
-contratos de operação. Base: `main` após os PRs #63 e #62, preservando a
-API da DLPA. Reversão por revert deste PR, sem operação no banco.
+contratos de operação. Base: `main` após os PRs #63, #62 e #64, preservando a
+API da DLPA e os timeouts dos testes. Esta correção foi renumerada DL-051
+porque a etapa DL-050 chegou à main durante a execução. Reversão por
+revert deste PR, sem operação no banco.
 
 ## Evidências
 
@@ -49,10 +51,14 @@ de agregações ou regras contábeis.
 - Ruff check limpo, format check com 318 arquivos já formatados;
   Django check sem problemas e diff check sem apontamento.
 - `pwsh -NoProfile -File scripts/validate-docs.ps1` →
-  `Documentação válida: 193 arquivos Markdown verificados.`, exit 0.
+  `Documentação válida: 194 arquivos Markdown verificados.`, exit 0.
+- Após incorporar a main atual: recorte combinado de homes, estado, painel,
+  navegação e troca de empresa → `107 passed, 1 warning in 11.59s`.
 - Navegador real sobre dados fictícios: menu corrigido na home Contabilidade,
   home Fiscal e Início; seis URLs 404; contexto histórico conservado e
   nenhum erro JavaScript ou rolagem horizontal em 1.440/390 px.
 - A validação integral PostgreSQL e as demais checagens obrigatórias
   serão conferidas na CI antes de integrar. Não houve teste com operadores
   nem dispositivo físico nesta correção.
+
+Entrega e CI: [PR #65](https://github.com/fredabsd-svg/DataLedger/pull/65).

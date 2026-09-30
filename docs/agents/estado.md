@@ -143,12 +143,14 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**DL-051 — Correção de escopo (30/09/2026), em validação.** Fred
+**DL-051 — Correção de escopo (30/09/2026). Estado no
+[PR #65](https://github.com/fredabsd-svg/DataLedger/pull/65): em revisão
+enquanto aberto; integrada após o merge confirmado nesse PR.** Fred
 identificou que a DL-049 promoveu Vendas/Estoque indevidamente a módulos.
 Retirar menu e páginas informativas; registrar inventário e estoque dentro
 de Fiscal, conforme FIS-39/FIS-47, sem implementar essas rotinas nesta etapa.
 Plano: [DL-051](../planos/DL-051-correcao-dos-modulos.md). Base `main` após
-os PRs #63 e #62; preservar a API da DLPA e as consultas dos módulos reais.
+os PRs #63, #62 e #64; preservar a API da DLPA e as consultas dos módulos reais.
 Validação inicial: `pytest apps/core/tests/test_module_homes.py -q` em
 SQLite temporário → **71 passed, 1 warning in 8.92s**. Esse resultado é
 anterior à correção. Os oito novos casos reproduziram o defeito com
@@ -163,7 +165,11 @@ JavaScript e sem rolagem horizontal em 1.440/390 px. Fonte de dados
 descartável em SQLite; não valida valores monetários ou concorrência.
 Não houve mudança em agregações, autorização, cálculos ou documentos.
 A CI integral do novo PR ainda é pendente; merge somente após sua aprovação.
-Validador documental oficial: **193 arquivos Markdown verificados**, exit 0.
+Após incorporar a main do PR #64 e renumerar esta demanda para DL-051,
+o recorte combinado registrou **107 passed, 1 warning in 11.59s**; lint e
+formatação continuam aprovados. Validador documental oficial:
+**194 arquivos Markdown verificados**, exit 0. A inclusão de timeouts da
+DL-050 foi preservada; o código da correção de navegação não mudou.
 
 **DL-049 — Home por módulo (30/09/2026). Estado da entrega no
 [PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63): em revisão
