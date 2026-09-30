@@ -114,3 +114,15 @@ Implementação (PostgreSQL 16 local, Python 3.13):
 - Não testado: leitor de tela, Firefox e Safari; Python 3.14 (CI).
 
 Auditoria independente: [`docs/auditorias/`](../auditorias/).
+
+## Integração e limite conhecido
+
+[Auditoria rodada 1](../auditorias/2026-09-30-dl-053-rodada-1.md): **aprovada
+com ressalvas**. O Fred respondeu à PE-74 (RC-148) e mandou integrar e seguir
+para a próxima etapa. **Limite conhecido até a DL-054:** a trava impede
+lançar e estornar **no** mês encerrado, mas ainda não impede que um
+lançamento num mês aberto anterior mude o carnê-leão de um mês posterior
+encerrado do mesmo ano (achado E1, BL-572). A DL-054 fecha esse limite com a
+regra da RC-148. Os demais achados (E2 a E5) estão no backlog (BL-573 a
+BL-576).
+

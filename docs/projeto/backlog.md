@@ -1964,7 +1964,7 @@ E1 depende de decisão do Fred (PE-74) e bloqueia o merge; E2 a E5 ficam abaixo.
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | PE-74 | bloqueada | Conforme a decisão do Fred sobre a PE-74 |
+| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | — | planejada (DL-054) | **Decidido pelo Fred (RC-148):** lançar/estornar recusado com mês posterior encerrado no mesmo ano; reabertura em cascata com motivo único e trilha |
 | BL-573 | **E2 (baixa)** — trocar a empresa de livro-caixa para contabilidade ignora meses encerrados e deixa fechamento órfão | `desenvolvedor-pleno` | — | aberta | Troca recusada com mês encerrado, ou comportamento documentado, com teste |
 | BL-574 | **E3 (baixa)** — o formulário de lançamento só avisa em texto o mês encerrado (a recusa é do servidor) e o aviso omite anos anteriores ao passado | `especialista-frontend` | — | aberta | Aviso cobre todo ano com mês encerrado, com teste de renderização |
 | BL-575 | **E4 (baixa)** — comentários com referência errada (`models.py` cita "decisão 6" para fora do escopo; teste de atalhos diz que a tela ainda não existe) | `desenvolvedor-pleno` | — | aberta | Referências corrigidas |
