@@ -57,7 +57,7 @@ no código:
 **Fora do escopo** (registrado no backlog, BL-547 a BL-558): token do convite
 fora da URL, confirmação de e-mail no cadastro, papel Cliente lendo a
 carteira (M2), reclassificação de conta em período encerrado (M3), trava de
-período do livro-caixa (M4, depende da PE-73), limite de tentativas no login
+período do livro-caixa (M4 — PE-73 respondida, RC-145; vira a DL-053), limite de tentativas no login
 e titularidade de CNPJ (M5), IP atrás de proxy (M6) e os achados baixos.
 
 ## Critérios de aceite

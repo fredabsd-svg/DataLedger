@@ -43,7 +43,9 @@ funcionalidade ou atalho fictício nesta correção.
 | RC-144 | Confirmado | Fred, 30/09/2026: *"pode desativar o usuário em vez de apagar"*. Usuário não se exclui: desativa-se. A autoria de lançamento e da trilha fica protegida (`PROTECT`), e o admin não oferece exclusão de usuário. Fecha o BL-559. |
 | HI-47 | Hipótese técnica | O convite vale para o e-mail convidado, comparado sem diferença de maiúsculas e espaços. Como o cadastro não confirma e-mail (BL-548), essa amarração é defesa parcial; a defesa principal é o prazo de 7 dias já documentado desde a DL-018. |
 | HI-48 | Hipótese técnica | O token do convite continua na URL nesta etapa; retirá-lo muda o fluxo do link enviado e fica no BL-547. |
-| PE-73 | Pendência | O livro-caixa deve ter fechamento de mês, como a contabilidade, para que o carnê-leão apurado não mude com lançamento posterior? Ou o escritório precisa lançar retroativamente? Bloqueia o BL-551. |
+| RC-145 | Confirmado | Fred, 30/09/2026, respondendo à PE-73: *"livro-caixa pode ter fechamento de mês"*. Mês fechado do livro-caixa não aceita lançamento nem estorno até ser reaberto. Entra como DL-053, depois da DL-052. |
+| HI-49 | Hipótese de desenho | O fechamento do livro-caixa espelha a competência contábil: fecha e reabre quem é ADMINISTRADOR ou GESTOR (mesma regra da RC-102), reabertura é ato explícito registrado na trilha, e a trava vale para toda porta de escrita (tela, API, importação). Validar com o Fred antes de virar comportamento definitivo. |
+| PE-73 | ✅ Respondida em 30/09/2026 — ver RC-145 | Pergunta original: o livro-caixa deve ter fechamento de mês? |
 
 Plano: [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md).
 
