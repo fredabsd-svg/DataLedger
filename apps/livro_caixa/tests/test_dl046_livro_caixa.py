@@ -10,6 +10,14 @@ migração aplicada em banco vazio (conferida separadamente por
 `manage.py migrate` em Postgres/SQLite — ver o relatório da etapa).
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import json
 import threading
 from datetime import date, timedelta
@@ -1289,8 +1297,9 @@ def test_a2_corrida_de_idempotencia_mesmo_conteudo_dois_201_ou_200_nunca_500():
         for t in threads:
             t.start()
         for t in threads:
-            t.join()
+            t.join(timeout=60)
 
+        assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert set(resultados.values()) <= {201, 200}, resultados
     assert 500 not in resultados.values(), resultados
     assert sorted(resultados.values()) == [200, 201], resultados
@@ -1366,8 +1375,9 @@ def test_a2_corrida_de_idempotencia_conteudo_diferente_e_conflito_nunca_500():
         for t in threads:
             t.start()
         for t in threads:
-            t.join()
+            t.join(timeout=60)
 
+        assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert 500 not in resultados.values(), resultados
     assert sorted(resultados.values()) == [201, 409], resultados
     assert LancamentoCaixa.objects.filter(empresa=empresa).count() == 1
@@ -2518,8 +2528,9 @@ def test_n6_corrida_entre_troca_de_modo_e_criacao_de_conta_sempre_recusa_um_dos_
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert 500 not in resultados.values(), resultados
     # Nunca os dois aceitos ao mesmo tempo: ou o PATCH venceu (200) e a
     # conta foi recusada (400, empresa já em contabilidade), ou a conta

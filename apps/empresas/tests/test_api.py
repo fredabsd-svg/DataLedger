@@ -10,6 +10,14 @@ chamando a função de validação isolada), porque foi assim que a auditoria
 reproduziu o defeito.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import json
 import threading
 
@@ -382,7 +390,7 @@ def test_atualizar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_5
         try:
             cliente = Client(raise_request_exception=False)
             cliente.login(username="gestor-corrida-patch", password="senha-forte-123")
-            barreira.wait()
+            barreira.wait(timeout=30)
             resposta = cliente.patch(
                 reverse("empresas:api-detalhe", kwargs={"pk": pk}),
                 data=json.dumps({"cnpj": cnpj}),
@@ -396,8 +404,9 @@ def test_atualizar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_5
     thread_b = threading.Thread(target=_patch, args=("B", empresa_b.pk, "ab123cde000155"))
     thread_a.start()
     thread_b.start()
-    thread_a.join()
-    thread_b.join()
+    thread_a.join(timeout=60)
+    thread_b.join(timeout=60)
+    assert not [t for t in (thread_a, thread_b) if t.is_alive()], "thread nao concluiu"
 
     assert set(resultados.values()) <= {200, 400}, resultados
     assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1

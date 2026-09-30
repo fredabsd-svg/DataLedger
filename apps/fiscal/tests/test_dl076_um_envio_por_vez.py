@@ -12,6 +12,14 @@ mesmo sentido, só de nunca haver exceção não tratada, e de a PERDEDORA
 sempre receber a mensagem de "envio em processamento").
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 from __future__ import annotations
 
 import threading
@@ -91,8 +99,9 @@ def test_espera_de_lock_nao_produz_excecao_e_a_perdedora_recebe_a_mensagem():
     t2 = threading.Thread(target=_thread_2)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     # O ponto central do achado A3: NENHUMA exceção não tratada, dos dois
     # lados — nem `OperationalError` de espera de lock, nem qualquer outra.
@@ -154,7 +163,7 @@ def test_deadlock_nao_ocorre_mais_porque_envios_do_mesmo_escritorio_sao_serializ
     erros = {}
 
     def _enviar(chave, conteudo, nome):
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             lote = services.receber_envio(
                 escritorio=escritorio, usuario=usuario, arquivo=conteudo, nome_arquivo=nome
@@ -171,8 +180,9 @@ def test_deadlock_nao_ocorre_mais_porque_envios_do_mesmo_escritorio_sao_serializ
     t2 = threading.Thread(target=_enviar, args=("BA", zip_ba, "ba.zip"))
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     assert erros == {}, erros
 

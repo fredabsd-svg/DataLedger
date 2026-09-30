@@ -11,6 +11,14 @@ Corrigido acrescentando `apps.core.restricoes.restricao_como_400` no MESMO
 `with` que já trata o CNPJ.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import json
 import threading
 
@@ -156,7 +164,7 @@ def test_quatro_criacoes_simultaneas_de_matriz_nunca_500():
         try:
             cliente = Client(raise_request_exception=False)
             cliente.login(username="gestor-bl144b-corrida", password="senha-forte-123")
-            barreira.wait()
+            barreira.wait(timeout=30)
             resposta = cliente.post(
                 reverse("empresas:api-estabelecimentos", args=[empresa.id]),
                 data=json.dumps(
@@ -176,8 +184,9 @@ def test_quatro_criacoes_simultaneas_de_matriz_nunca_500():
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert set(resultados.values()) <= {201, 400}, resultados
     assert list(resultados.values()).count(201) == 1, resultados
     assert (

@@ -4,6 +4,14 @@ Cobre os 10 cenários da tabela "Cenários de teste" do plano. Dados 100%
 sintéticos, criados nos próprios testes.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import threading
 from datetime import date
 from decimal import Decimal
@@ -1097,7 +1105,7 @@ def test_corrida_real_de_estorno_produz_um_unico_estorno():
     barreira = threading.Barrier(2)
 
     def tentar_estornar():
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             estornar_lancamento(original)
             resultados.append("ok")
@@ -1110,8 +1118,9 @@ def test_corrida_real_de_estorno_produz_um_unico_estorno():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert sorted(resultados) == ["ok", "recusado"]
     assert LancamentoContabil.objects.filter(estorno_de=original).count() == 1
 
@@ -1147,7 +1156,7 @@ def test_corrida_real_de_idempotencia_produz_um_unico_lancamento():
     barreira = threading.Barrier(2)
 
     def tentar_criar():
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             lancamento = criar_lancamento(
                 empresa=empresa,
@@ -1167,8 +1176,9 @@ def test_corrida_real_de_idempotencia_produz_um_unico_lancamento():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert len(resultados) == 2
     assert resultados[0] == resultados[1]
     assert LancamentoContabil.objects.filter(chave_idempotencia="chave-corrida-real-1").count() == 1
