@@ -141,8 +141,40 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048: auditoria executada, achados corrigidos e a fatia **INTEGRADA na main** pelo PR #59; o que falta é a conformidade normativa:**
+**AGORA — sessão de 2026-09-29. DL-048: a fatia CTB-12/CTB-13 (a DLPA) está
+INTEGRADA na `main` pelo PR #59. Esta entrega é a **fatia D8**, a porta de API que a
+decisão D8 deixou declarada para depois da tela. O que falta é a conformidade normativa
+da DLPA e a própria CTB-14 (DMPL).**
 
+0. **DL-048, fatia D8 (paridade de API da DLPA) — NÍVEL 2, entregue nesta
+   sessão.** Plano de uma página em
+   [DL-048-fatia-d8-api-da-dlpa.md](../planos/DL-048-fatia-d8-api-da-dlpa.md).
+   Três peças, e nada além delas: `DlpaView` (GET por empresa/ano/mês),
+   `ContaClassificacaoDlpaView` (PATCH da `classificacao_dlpa`) e
+   `ContaSerializer.classificacao_dlpa` exposto e aceito com a mesma checagem de
+   tipo que a DRE já tem. **25 testes novos**; a guarda de contagem de rotas
+   (`test_dl038_recusa_livro_caixa`) foi atualizada de **15 para 17** rotas de API,
+   como o plano previa. Nenhuma regra de apuração mudou, nenhuma tela, nenhuma
+   migração, nenhum enum.
+
+   **O desenho pedido pelo Fred — a DLPA pode estar EMBUTIDA na DMPL (Lei 6.404/76,
+   art. 186, §2º) e não só como peça autônoma** — virou duas decisões concretas, e
+   não uma frase no docstring:
+
+   - **O §2º é DECLARADO na resposta, nunca omitido.** A chave `paragrafo_2` existe
+     em **toda** resposta, com `dividendo_por_acao: null` e o motivo: a base de
+     cálculo (ações do capital social) é dado da DMPL (CTB-14), e a DLPA lê
+     movimento de lançamentos. É o achado 11 da auditoria de 29/09 visível para quem
+     consome, em vez de escondido.
+   - **A `chave` de cada linha é o contrato com a CTB-14.** A linha da DLPA é a
+     DESTINAÇÃO e a coluna da DMPL é a CONTRAPARTIDA — *"o mesmo fato visto por dois
+     lados"* (RC-137). Por isso a chave (`transferencia:<reserva>` ×
+     `reversao:<reserva>`, decisão D4) é a identidade do evento, e a DMPL vai ler
+     essas chaves como movimento de coluna **sem segunda lógica**.
+
+   ⚠️ **A API não escolhe entre DLPA autônoma e embutida**: é faculdade da lei, e a
+   escolha é da emissão, não da leitura. A apuração é a mesma nos dois casos — e por
+   isso a resposta **não tem** campo "modo".
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
    desenvolvimento; a fatia está CODE E TESTADA na branch

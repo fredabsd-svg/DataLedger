@@ -1,7 +1,9 @@
 from rest_framework import serializers
 
 from apps.contabilidade.models import (
+    TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA,
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
+    ClassificacaoDlpa,
     ClassificacaoDre,
     Conta,
     ItemLancamento,
@@ -66,6 +68,15 @@ class ContaSerializer(serializers.ModelSerializer):
             # `tipo` (o `Conta.clean()` não roda neste caminho — DRF não
             # chama `full_clean()`, achado BL-40/DE-008).
             "classificacao_dre",
+            # DL-048 (fatia D8): linha da DLPA — exposta e aceita pela MESMA
+            # porta e a MESMA autorização de `classificacao_dre`, porque é o
+            # mesmo molde (CTB-12: campo fixo na conta, classificado pelo
+            # contador, nunca inferido). A compatibilidade com `tipo` é
+            # verificada em `validate`, na fonte única
+            # `TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA` — igual à da DRE, e pelo
+            # mesmo motivo: o DRF nunca chama `full_clean()` (BL-40/DE-008),
+            # então `Conta.clean()` não roda neste caminho.
+            "classificacao_dlpa",
         ]
 
     def validate_classificacao_dre(self, value):
@@ -82,37 +93,72 @@ class ContaSerializer(serializers.ModelSerializer):
         examina o valor branco."""
         return value or None
 
-    def validate(self, attrs):
-        """Compatibilidade `classificacao_dre` × `tipo` (Lei 6.404/76, art.
-        187) — mesma regra de `Conta.clean()`, repetida aqui porque o DRF
-        NUNCA chama `full_clean()` (achado BL-40/DE-008, o mesmo motivo de
-        `validate_conta_pai`). Cross-field: mora em `validate()`, não em
-        `validate_classificacao_dre`, porque depende de `tipo`, outro
-        campo do mesmo payload.
-        """
-        classificacao = attrs.get("classificacao_dre")
-        if self.instance is not None and "classificacao_dre" not in attrs:
-            classificacao = self.instance.classificacao_dre
-        if not classificacao:
-            return attrs
+    def validate_classificacao_dlpa(self, value):
+        """Mesma normalização do achado A4 da DL-045, pelo mesmo motivo: o
+        `ChoiceField` do `ModelSerializer` aceita `""` e a guarda de
+        transição de `Conta.clean()` trataria `""` como "já classificada",
+        travando a conta para uma classificação REAL posterior.
 
+        ⚠️ `"remover a classificação"` é operação NORMAL nesta API, não
+        erro: `null` e `""` significam a mesma coisa e ambos gravam `None`
+        (é assim que `classificar_conta_na_dlpa` normaliza)."""
+        return value or None
+
+    def validate(self, attrs):
+        """Compatibilidade da classificação × `tipo` — mesma regra de
+        `Conta.clean()`, repetida aqui porque o DRF NUNCA chama
+        `full_clean()` (achado BL-40/DE-008, o mesmo motivo de
+        `validate_conta_pai`). Cross-field: mora em `validate()`, não em
+        `validate_<campo>`, porque depende de `tipo`, outro campo do mesmo
+        payload.
+
+        Duas classificações, DUAS fontes de verdade, e é proposital: a DRE
+        vem do art. 187 da Lei 6.404/76 e a DLPA do art. 186 (mesma lei) —
+        classificações de linhas diferentes não podem compartilhar a mesma
+        tabela de tipos aceitos. Cada uma consulta a sua, e a validação do
+        tipo da conta é a MESMA (`tipo`), porque é a mesma conta.
+        """
         tipo = attrs.get("tipo")
         if tipo is None and self.instance is not None:
             tipo = self.instance.tipo
 
-        tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(classificacao)
-        if tipos_aceitos is not None and tipo not in tipos_aceitos:
-            rotulo_classificacao = ClassificacaoDre(classificacao).label
-            rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
-            raise serializers.ValidationError(
-                {
-                    "classificacao_dre": (
-                        f'A linha da DRE "{rotulo_classificacao}" não é compatível com o '
-                        f"tipo desta conta: só se aplica a contas de tipo "
-                        f"{rotulos_tipos_aceitos} (Lei 6.404/76, art. 187)."
-                    )
-                }
-            )
+        classificacao = attrs.get("classificacao_dre")
+        if self.instance is not None and "classificacao_dre" not in attrs:
+            classificacao = self.instance.classificacao_dre
+        if classificacao:
+            tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE.get(classificacao)
+            if tipos_aceitos is not None and tipo not in tipos_aceitos:
+                rotulo_classificacao = ClassificacaoDre(classificacao).label
+                rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
+                raise serializers.ValidationError(
+                    {
+                        "classificacao_dre": (
+                            f'A linha da DRE "{rotulo_classificacao}" não é compatível com o '
+                            f"tipo desta conta: só se aplica a contas de tipo "
+                            f"{rotulos_tipos_aceitos} (Lei 6.404/76, art. 187)."
+                        )
+                    }
+                )
+
+        # DL-048 (fatia D8) — mesma checagem, fonte `TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA`
+        # (models.py), que é a fonte ÚNICA do que cada linha da DLPA aceita.
+        classificacao = attrs.get("classificacao_dlpa")
+        if self.instance is not None and "classificacao_dlpa" not in attrs:
+            classificacao = self.instance.classificacao_dlpa
+        if classificacao:
+            tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA.get(classificacao)
+            if tipos_aceitos is not None and tipo not in tipos_aceitos:
+                rotulo_classificacao = ClassificacaoDlpa(classificacao).label
+                rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
+                raise serializers.ValidationError(
+                    {
+                        "classificacao_dlpa": (
+                            f'A linha da DLPA "{rotulo_classificacao}" não é compatível com o '
+                            f"tipo desta conta: só se aplica a contas de tipo "
+                            f"{rotulos_tipos_aceitos}."
+                        )
+                    }
+                )
         return attrs
 
     def validate_conta_pai(self, value):
@@ -196,6 +242,30 @@ class ClassificacaoDrePatchSerializer(serializers.Serializer):
 
     classificacao_dre = serializers.ChoiceField(
         choices=ClassificacaoDre.choices, allow_null=True, allow_blank=True, required=False
+    )
+
+
+class ClassificacaoDlpaPatchSerializer(serializers.Serializer):
+    """DL-048 (fatia D8): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDlpaView` ANTES de chegar ao serviço.
+
+    É a MESMA defesa de `ClassificacaoDrePatchSerializer` (R3 da auditoria
+    DL-045), e pelos mesmos motivos: sem isto, um corpo malformado vazaria
+    como 500 mudo em dois pontos — `request.data.get("classificacao_dlpa")`
+    na view quebra com `AttributeError` quando o corpo TODO é uma lista
+    (`["x"]`, não tem `.get`), e `TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA.get`
+    em `Conta.clean()` quebra com `TypeError: unhashable type` quando o
+    valor é `dict` ou `list`.
+
+    `ChoiceField` cobre os dois: corpo que não é `Mapping` recusa com 400
+    antes de examinar campo algum; valor não-`str` que não bate com nenhuma
+    chave de `ClassificacaoDlpa.choices` recusa com `invalid_choice`.
+    `allow_null`/`allow_blank` continuam aceitando "remover a classificação"
+    — REMOVER é operação normal, não erro.
+    """
+
+    classificacao_dlpa = serializers.ChoiceField(
+        choices=ClassificacaoDlpa.choices, allow_null=True, allow_blank=True, required=False
     )
 
 

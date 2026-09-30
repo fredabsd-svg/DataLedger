@@ -3,9 +3,11 @@ from django.urls import path
 from apps.contabilidade.views import (
     BalanceteView,
     ConferenciaLotesDesbalanceadosView,
+    ContaClassificacaoDlpaView,
     ContaClassificacaoDreView,
     ContaListCreateView,
     DiarioView,
+    DlpaView,
     DreView,
     EncerrarCompetenciaView,
     EncerrarVigenciaParametroContabilView,
@@ -98,5 +100,21 @@ urlpatterns = [
         "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dre/",
         ContaClassificacaoDreView.as_view(),
         name="conta-classificacao-dre",
+    ),
+    # DL-048 (fatia D8): porta de API da DLPA — `ano`/`mes` identificam o
+    # RECURSO (o exercício até a competência pedida), mesmo padrão de
+    # `dre/<int:ano>/<int:mes>/`, acima.
+    path(
+        "empresas/<int:empresa_id>/dlpa/<int:ano>/<int:mes>/",
+        DlpaView.as_view(),
+        name="dlpa",
+    ),
+    # DL-048 (fatia D8): classificar/reclassificar/remover a linha da DLPA de
+    # uma conta existente — `conta_id` identifica o RECURSO, mesmo padrão de
+    # `conta-classificacao-dre/`, acima.
+    path(
+        "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dlpa/",
+        ContaClassificacaoDlpaView.as_view(),
+        name="conta-classificacao-dlpa",
     ),
 ]
