@@ -164,7 +164,8 @@ recusadas com 404, troca preservando empresa/competência, nenhum erro
 JavaScript e sem rolagem horizontal em 1.440/390 px. Fonte de dados
 descartável em SQLite; não valida valores monetários ou concorrência.
 Não houve mudança em agregações, autorização, cálculos ou documentos.
-A CI integral do novo PR ainda é pendente; merge somente após sua aprovação.
+A situação da CI integral acompanha o PR #65; merge somente após a aprovação
+das quatro checagens obrigatórias no último HEAD.
 Após incorporar a main do PR #64 e renumerar esta demanda para DL-051,
 o recorte combinado registrou **107 passed, 1 warning in 11.59s**; lint e
 formatação continuam aprovados. Validador documental oficial:
