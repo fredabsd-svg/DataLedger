@@ -28,6 +28,14 @@ ZIPs grandes disputando o mesmo índice) estão em
 original.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 from __future__ import annotations
 
 import threading
@@ -68,7 +76,7 @@ def test_corrida_real_de_documento_produz_um_unico_documento():
     barreira = threading.Barrier(2)
 
     def tentar_receber():
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             lote = services.receber_envio(
                 escritorio=escritorio, usuario=usuario, arquivo=conteudo, nome_arquivo="nota.xml"
@@ -87,8 +95,9 @@ def test_corrida_real_de_documento_produz_um_unico_documento():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert erros == []
     # Exatamente uma thread processa (e recebe a nota); a outra é recusada
     # pelo lock — nunca as duas processando, nunca as duas recusadas.
@@ -119,7 +128,7 @@ def test_corrida_real_de_evento_produz_um_unico_evento():
     barreira = threading.Barrier(2)
 
     def tentar_receber():
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             lote = services.receber_envio(
                 escritorio=escritorio, usuario=usuario, arquivo=conteudo, nome_arquivo="evento.xml"
@@ -136,8 +145,9 @@ def test_corrida_real_de_evento_produz_um_unico_evento():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert erros == []
     assert len(resultados) == 1, (resultados, recusados_por_lock)
     assert resultados[0] == 1

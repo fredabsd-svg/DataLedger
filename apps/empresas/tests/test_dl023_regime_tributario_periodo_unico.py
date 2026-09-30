@@ -12,6 +12,14 @@ A ordem obrigatória de execução da etapa começa pela RESTRIÇÃO DE BANCO
 TODAS as portas, inclusive ORM direto, shell e importação futura.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import threading
 from datetime import date
 
@@ -342,7 +350,7 @@ def test_duas_requisicoes_simultaneas_abrindo_regime_resultam_em_um_periodo_sem_
         try:
             cliente = Client(raise_request_exception=False)
             cliente.login(username="gestor-dl023r-corrida", password=SENHA)
-            barreira.wait()
+            barreira.wait(timeout=30)
             resposta = cliente.post(
                 reverse("empresas:api-regime-tributario", args=[empresa.id]),
                 {"regime": "simples_nacional", "vigencia_inicio": "2024-06-01"},
@@ -356,8 +364,9 @@ def test_duas_requisicoes_simultaneas_abrindo_regime_resultam_em_um_periodo_sem_
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     # Nenhum 5xx: as duas respostas são 201 (criou) ou 400 (recusado com
     # mensagem de negócio) — nunca um erro de servidor cru.
     assert set(resultados.values()) <= {201, 400}, resultados
@@ -426,7 +435,7 @@ def test_post_e_delete_de_regime_concorrentes_nunca_dao_5xx():
             try:
                 cliente = Client(raise_request_exception=False)
                 cliente.login(username="gestor-dl023r-bl246", password=SENHA)
-                barreira.wait()
+                barreira.wait(timeout=30)
                 resposta = cliente.delete(
                     reverse(
                         "empresas:api-regime-tributario-detalhe",
@@ -441,7 +450,7 @@ def test_post_e_delete_de_regime_concorrentes_nunca_dao_5xx():
             try:
                 cliente = Client(raise_request_exception=False)
                 cliente.login(username="gestor-dl023r-bl246", password=SENHA)
-                barreira.wait()
+                barreira.wait(timeout=30)
                 resposta = cliente.post(
                     reverse("empresas:api-regime-tributario", args=[empresa.id]),
                     {"regime": "lucro_real", "vigencia_inicio": "2025-06-01"},
@@ -455,8 +464,9 @@ def test_post_e_delete_de_regime_concorrentes_nunca_dao_5xx():
         for t in threads:
             t.start()
         for t in threads:
-            t.join()
+            t.join(timeout=60)
 
+        assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
         status_vistos.update(resultados.values())
         # Nenhum 5xx NESTA rodada — a asserção fica DENTRO do laço para que
         # a mensagem de falha aponte a rodada exata, não só o agregado.

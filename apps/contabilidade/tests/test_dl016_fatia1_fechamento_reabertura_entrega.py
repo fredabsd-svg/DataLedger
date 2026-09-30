@@ -13,6 +13,14 @@ entregar uma competência não tem essa faixa — só o LANÇAMENTO tem —, mas
 manter os meses no passado deixa os cenários inequívocos de ler.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import threading
 import time
 from datetime import date
@@ -325,8 +333,9 @@ def test_bl456_for_share_bloqueia_encerrar_competencia_ate_o_lancamento_commitar
     t2 = threading.Thread(target=fechar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     # O fechamento só pode ter terminado DEPOIS do lançamento (que segurou
     # o lock por 0,5s) — se terminasse antes, o FOR UPDATE não esperou.
@@ -436,8 +445,9 @@ def test_bl456_lancamento_concorrente_e_recusado_quando_o_fechamento_ja_commitou
     t2 = threading.Thread(target=fechar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     assert resultado["ok"] is False
     assert not LancamentoContabil.objects.filter(
@@ -526,8 +536,9 @@ def test_bl456_reproducao_2_lancamento_concorrente_recusado_em_competencia_entre
     t2 = threading.Thread(target=fechar_e_entregar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     assert resultado["ok"] is False
     assert not LancamentoContabil.objects.filter(
@@ -627,8 +638,9 @@ def test_concorrencia_natural_e_robusta_sem_excecao_deadlock_ou_inconsistencia()
         t2 = threading.Thread(target=fechar)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=60)
+        t2.join(timeout=60)
+        assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
         # Nunca "outra coisa" além de gravado/recusado — nenhuma exceção crua.
         assert resultado.get("lancamento") in ("gravado", "recusado")
@@ -1226,7 +1238,7 @@ def test_criterio10_corrida_real_de_fechamento_produz_um_unico_fechamento():
     barreira = threading.Barrier(2)
 
     def fechar(usuario):
-        barreira.wait()
+        barreira.wait(timeout=30)
         try:
             competencia = encerrar_competencia(empresa=empresa, ano=2026, mes=4, usuario=usuario)
             resultados.append(competencia.encerrada_agora)
@@ -1237,8 +1249,9 @@ def test_criterio10_corrida_real_de_fechamento_produz_um_unico_fechamento():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
 
+    assert not [t for t in threads if t.is_alive()], "thread nao concluiu"
     assert sorted(resultados) == [False, True]
     assert Competencia.objects.filter(empresa=empresa, ano=2026, mes=4).count() == 1
     competencia = Competencia.objects.get(empresa=empresa, ano=2026, mes=4)
@@ -1534,8 +1547,9 @@ def test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente(monkeypatch):
     t2 = threading.Thread(target=lancar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     # O lançamento tem que terminar MUITO antes dos 0,5s que a varredura
     # segura — se estivesse bloqueado pelo lock, levaria pelo menos isso.
@@ -1720,8 +1734,9 @@ def test_bl470_lock_timeout_real_no_lancamento_gera_competenciaocupada_legivel()
     t2 = threading.Thread(target=lancar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     # Nunca a exceção crua de banco que o defeito original deixava vazar no
     # lugar de `CompetenciaOcupada` — se aparecer aqui, a correção regrediu.
@@ -1810,8 +1825,9 @@ def test_bl470_lock_timeout_real_no_lancamento_api_responde_409_nunca_500():
     t2 = threading.Thread(target=lancar_pela_api)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     resposta = resultado["resposta"]
     # Nunca 500 cru: é exatamente o que o defeito original (BL-470)

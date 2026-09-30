@@ -14,6 +14,14 @@ com a faixa de data de LANÇAMENTO do RC-77 (01/01/2000 até hoje + 30 dias).
 Dados 100% sintéticos, criados nos próprios testes.
 """
 
+# Toda espera de thread deste arquivo tem TIMEOUT, e ha uma assercao logo
+# depois exigindo que as threads tenham concluido. Medido em 29/09/2026:
+# `join()` sem timeout transformava falha em travamento invisivel -- tres
+# execucoes de `pytest` terminaram em silencio, sem traceback e sem timeout
+# do proprio pytest. Timeout + `is_alive()` trocam espera infinita por FALHA
+# VISIVEL, e nao afrouxam a guarda: as assercoes de resultado continuam as
+# mesmas, e resultado incompleto reprova.
+
 import threading
 from datetime import date
 from decimal import Decimal
@@ -370,8 +378,9 @@ def test_concorrencia_real_dois_pedidos_produzem_um_unico_zeramento():
     t2 = threading.Thread(target=_chamar, args=("t2",))
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=60)
+    t2.join(timeout=60)
+    assert not [t for t in (t1, t2) if t.is_alive()], "thread nao concluiu"
 
     assert erros == {}, erros
     assert set(resultados) == {"t1", "t2"}

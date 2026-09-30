@@ -248,6 +248,37 @@ pode ser implementada; a D8 (API da DLPA) também.**
 - **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
   primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
 - **Branch de trabalho:** `docs/dl-048-premissa-normativa`.
+- ✅ **RESOLVIDO — as ~30 esperas infinitas foram eliminadas** (branch
+  `test/esperas-limitadas`, etapa **DL-050** — plano em
+  [DL-050-esperas-de-thread-com-timeout.md](../planos/DL-050-esperas-de-thread-com-timeout.md)).
+  A varredura achou **9 arquivos** com `join()` e
+  `barreira.wait()` **sem timeout**: `test_bl40_bl41.py`,
+  `test_dl016_fatia1_fechamento_reabertura_entrega.py`,
+  `test_dl043_zeramento_concorrencia_e_permissoes.py`, `empresas/test_api.py`,
+  `test_bl144_matriz_duplicada.py`, `test_dl023_regime_tributario_periodo_unico.py`,
+  `fiscal/test_concorrencia.py`, `fiscal/test_dl076_um_envio_por_vez.py` e
+  `test_dl046_livro_caixa.py`. Todas as esperas ganharam **`join(timeout=60)`** e
+  **`wait(timeout=30)`**, e **47 asserções de `is_alive()`** exigem que as threads
+  tenham concluído.
+  ⚠️ **O timeout sozinho seria perigoso**: sem a asserção, uma thread que não
+  concluísse deixaria o teste *seguir* com resultados incompletos, e uma
+  verificação que só confere "não levantou exceção" passaria — **falso positivo
+  silencioso**, pior que travar. Por isso a asserção veio junto, e é o que garante
+  que a guarda fica **mais forte**, não mais frouxa.
+  **Efeito medido:** os 9 arquivos passaram a **terminar em 4min20s**; antes,
+  terminavam em silêncio, sem traceback e sem timeout do próprio pytest.
+  ⚠️ **As 30 falhas restantes são a lacuna SQLite × PostgreSQL já conhecida**
+  (`database is locked`, `no such table: pg_indexes`, `UNIQUE constraint failed`) —
+  **nenhuma** delas é *"thread não concluiu"*, o que prova que os timeouts são
+  folgados e não estão mascarando nada. **O veredouro é a CI em Linux +
+  PostgreSQL**, onde a suíte completa roda verde.
+  ⚠️ **Dois erros meus nesta etapa, ambos corrigidos antes de seguir:** o script
+  de transformação emitting a asserção **dentro** do `for` e sobre a variável de
+  loop em vez da coleção; e, na correção seguinte, emitindo os **nomes como
+  strings** (`for t in ("thread_a", "thread_b")`), o que quebrava com
+  `AttributeError: 'str' object has no attribute 'is_alive'`. Os dois foram
+  encontrados **rodando os testes**, não por leitura do diff — e é por isso que
+  a primeira versão não foi commitada.
 
 ### Próximo passo, agora sem decisão pendente
 
