@@ -133,11 +133,20 @@ def test_quatro_criacoes_simultaneas_do_mesmo_codigo_nunca_500():
     barreira = threading.Barrier(4)
     resultados = {}
 
+    # ⚠️ Toda espera deste teste tem TIMEOUT, e uma asserção exige que as quatro
+    # threads tenham chegado ao fim. Sem isso, uma thread que morre antes de
+    # `barreira.wait()` deixa as outras três bloqueadas para sempre e o
+    # `join()` sem timeout trava a SUÍTE INTEIRA — foi medido em 29/09/2026: este
+    # arquivo era o que impedia `pytest` de terminar no Windows, e o sintoma
+    # (silêncio, sem traceback) não dizia nada sobre a causa. Timeout mais
+    # asserção trocam travamento invisível por FALHA VISÍVEL, e não afrouxam a
+    # guarda: `resultados` incompleto reprova, porque as três asserções de baixo
+    # exigem os quatro códigos de resposta.
     def _postar(chave):
         try:
             cliente = Client(raise_request_exception=False)
             cliente.login(username="gestor-bl144-corrida", password="senha-forte-123")
-            barreira.wait()
+            barreira.wait(timeout=15)
             resposta = cliente.post(
                 reverse("contabilidade:contas", args=[empresa.id]),
                 data=json.dumps(
@@ -158,7 +167,13 @@ def test_quatro_criacoes_simultaneas_do_mesmo_codigo_nunca_500():
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=30)
+
+    # Nenhuma thread pode continuar viva: se alguma não concluiu, `resultados`
+    # está incompleto e o teste tem que FALHAR dizendo isso — nunca passar, e
+    # nunca ficar esperando.
+    assert not [t for t in threads if t.is_alive()], "thread de _postar não concluiu"
+    assert set(resultados) == set("ABCD"), f"resultados incompletos: {resultados}"
 
     assert set(resultados.values()) <= {201, 400}, resultados
     assert list(resultados.values()).count(201) == 1, resultados

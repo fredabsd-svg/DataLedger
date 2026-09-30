@@ -278,7 +278,12 @@ def test_criar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_500()
         try:
             cliente = Client(raise_request_exception=False)
             cliente.login(username="gestor-corrida", password="senha-forte-123")
-            barreira.wait()
+            # TIMEOUT obrigatório, pelo mesmo motivo do BL-144: sem ele, uma
+            # thread que morre antes da barreira deixa a outra esperando para
+            # sempre e o `join()` sem timeout trava a suíte inteira. Medido em
+            # 29/09/2026. Ver a nota longa em
+            # `test_bl144_codigo_conta_duplicado.py`.
+            barreira.wait(timeout=15)
             resposta = cliente.post(
                 reverse("empresas:api-lista"),
                 data=json.dumps({"razao_social": f"Empresa Corrida {chave} Ltda", "cnpj": cnpj}),
@@ -297,8 +302,15 @@ def test_criar_empresa_via_api_corrida_real_com_duas_threads_nunca_devolve_500()
     thread_b = threading.Thread(target=_postar, args=("B", "ab123cde000155"))
     thread_a.start()
     thread_b.start()
-    thread_a.join()
-    thread_b.join()
+    thread_a.join(timeout=30)
+    thread_b.join(timeout=30)
+
+    # Se alguma thread não concluiu, `resultados` está incompleto: o teste tem
+    # que FALHAR dizendo isso, nunca passar e nunca ficar esperando. As duas
+    # asserções de baixo já exigiriam os dois códigos, mas a mensagem explícita
+    # distingue "trava" de "regra violada" na leitura do relatório.
+    assert not [t for t in (thread_a, thread_b) if t.is_alive()], "thread de _postar não concluiu"
+    assert set(resultados) == {"A", "B"}, f"resultados incompletos: {resultados}"
 
     assert set(resultados.values()) <= {201, 400}, resultados
     assert Empresa.objects.filter(cnpj="AB123CDE000155").count() == 1

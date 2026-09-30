@@ -473,8 +473,12 @@ def test_b2_concorrencia_entre_meses_diferentes_nunca_conta_em_dobro():
         t2 = threading.Thread(target=_chamar, args=(4, "abril"))
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        # Nenhuma espera deste arquivo é infinita: ver a nota longa em
+        # `test_bl144_codigo_conta_duplicado.py`. Timeout sem `is_alive()`
+        # transformaria um travamento em espera silenciosa.
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+        assert not [t for t in (t1, t2) if t.is_alive()], f"thread não concluiu: {erros}"
 
         # Dois resultados ACEITÁVEIS de erro, os dois pela MESMA razão —
         # perder a corrida contra a ordem cronológica —, só que detectada
@@ -683,8 +687,11 @@ def test_b3_5d_lock_timeout_real_na_empresa_e_409_sem_500():
     t2 = threading.Thread(target=zerar)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    # Nenhuma espera deste arquivo é infinita: ver a nota longa em
+    # `test_bl144_codigo_conta_duplicado.py`.
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+    assert not [t for t in (t1, t2) if t.is_alive()], f"thread não concluiu: {resultado}"
 
     assert "erro" in resultado, (
         "esperava EmpresaTravadaPorOutraOperacao, nenhuma exceção foi levantada"
@@ -1399,7 +1406,7 @@ def test_r1_lancamento_concorrente_com_zeramento_do_mesmo_mes_nunca_da_500():
             cliente = Client(raise_request_exception=False)
             cliente.login(username=f"r1-analista-{rodada}", password="senha-forte-123")
             try:
-                barreira.wait(timeout=5)
+                barreira.wait(timeout=30)
                 resultados["lancamento"] = cliente.post(
                     reverse("contabilidade:lancamentos", args=[empresa.id]),
                     data={
@@ -1421,7 +1428,7 @@ def test_r1_lancamento_concorrente_com_zeramento_do_mesmo_mes_nunca_da_500():
             cliente = Client(raise_request_exception=False)
             cliente.login(username=f"r1-gestor-{rodada}", password="senha-forte-123")
             try:
-                barreira.wait(timeout=5)
+                barreira.wait(timeout=30)
                 resultados["zeramento"] = cliente.post(
                     reverse("contabilidade:zeramento", args=[empresa.id, 2026, 4])
                 )
@@ -1432,8 +1439,23 @@ def test_r1_lancamento_concorrente_com_zeramento_do_mesmo_mes_nunca_da_500():
         t2 = threading.Thread(target=_zerar_pela_api)
         t1.start()
         t2.start()
-        t1.join(timeout=15)
-        t2.join(timeout=15)
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        # Este teste JÁ falha visivelmente quando uma thread não termina — o
+        # `if ... is None` abaixo registra a falha e o `assert falhas == []` no
+        # fim reprova. O que faltava era distinguir "thread travada" de "regra
+        # violada" na leitura do relatório, e garantir que a barreira não
+        # expirasse por máquina lenta antes de as duas threads chegarem.
+        #
+        # Medido em 29/09/2026: com a barreira em 5s, uma máquina sob carga
+        # (SQLite + disco ocupado) fazia as threads desistirem e o teste
+        # gastava até 10s por rodada só para reportar um atraso, não uma falha
+        # de regra. Por isso o tempo da barreira sobe (as duas threads são
+        # simultâneas por construção) e a de join fica igual à da barreira.
+        # ⚠️ Nenhuma espera aqui é infinita: ver a nota longa em
+        # `test_bl144_codigo_conta_duplicado.py`.
+        assert not [t for t in (t1, t2) if t.is_alive()], f"thread não concluiu: {resultados}"
 
         resposta_lancamento = resultados.get("lancamento")
         resposta_zeramento = resultados.get("zeramento")
@@ -1563,8 +1585,8 @@ def test_r1_variante_criar_lancamento_segurando_a_transacao_nunca_bloqueia_o_zer
         t2 = threading.Thread(target=_zerar)
         t1.start()
         t2.start()
-        t1.join(timeout=15)
-        t2.join(timeout=15)
+        t1.join(timeout=30)
+        t2.join(timeout=30)
 
         if erros:
             falhas.append((rodada, {chave: repr(exc) for chave, exc in erros.items()}))
