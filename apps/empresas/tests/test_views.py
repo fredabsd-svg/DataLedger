@@ -177,8 +177,12 @@ def test_lista_empresas_sem_escritorio_ativo_explica_e_da_caminho_de_volta(clien
 
 
 def test_link_nova_empresa_oculto_para_papel_sem_permissao_de_gerenciar(client, escritorio):
-    _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
-    client.login(username="cliente", password="senha-forte-123")
+    # DL-055: era CLIENTE, que agora nem chega à lista (403; coberto em
+    # test_dl055_cliente_nao_ve_carteira.py). O que este teste guarda — papel
+    # que lê a carteira mas não gerencia não vê o link — passa a ser provado
+    # com ANALISTA, que lê e não gerencia.
+    _usuario_com_papel(Papel.ANALISTA, escritorio, "analista")
+    client.login(username="analista", password="senha-forte-123")
 
     resposta = client.get(reverse("empresas:lista"))
 
