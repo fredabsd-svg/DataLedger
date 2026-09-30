@@ -1,4 +1,4 @@
-﻿# Estado do projeto
+# Estado do projeto
 
 Este é o **único** lugar onde o estado do DataLedger é descrito (instrução
 permanente do Fred, 2026-09-13). O `README.md` aponta para cá e não repete o
