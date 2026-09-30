@@ -1936,11 +1936,11 @@ abaixo.
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-561 | **D1 (média)** — item com `tipo` fora de débito/crédito passa nos gatilhos e desconcilia Razão e Balancete | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | `CHECK` de tipo; `tipo="lixo"` e `"DEBITO"` recusados, 0 gravados |
-| BL-562 | **D2 (média)** — par de partidas balanceado pode ser inserido em lançamento já efetivado, sem estorno nem trilha | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | INSERT de item em lançamento de transação anterior recusado; criar, estornar e zerar seguem funcionando |
-| BL-563 | **D3 (baixa)** — exceção do backfill aceita competência de outra empresa | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Competência de outra empresa recusada |
-| BL-564 | **D5 (baixa)** — usuário já vinculado que aceita convite recebe 500 | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Mensagem própria, 302, convite não consumido |
-| BL-565 | **D6 (baixa)** — testes não isolam o `PROTECT` de `Competencia.fechada_por` e `entregue_por` | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Teste que reprova se algum dos seis campos voltar a `SET_NULL` |
+| BL-561 | **D1 (média)** — item com `tipo` fora de débito/crédito passa nos gatilhos e desconcilia Razão e Balancete | `desenvolvedor-pleno` | — | em validação (DL-052, reconferência) | `CHECK` de tipo; `tipo="lixo"` e `"DEBITO"` recusados, 0 gravados |
+| BL-562 | **D2 (média)** — par de partidas balanceado pode ser inserido em lançamento já efetivado, sem estorno nem trilha | `desenvolvedor-pleno` | — | em validação (DL-052, reconferência) | INSERT de item em lançamento de transação anterior recusado; criar, estornar e zerar seguem funcionando |
+| BL-563 | **D3 (baixa)** — exceção do backfill aceita competência de outra empresa | `desenvolvedor-pleno` | — | em validação (DL-052, reconferência) | Competência de outra empresa recusada |
+| BL-564 | **D5 (baixa)** — usuário já vinculado que aceita convite recebe 500 | `desenvolvedor-pleno` | — | em validação (DL-052, reconferência) | Mensagem própria, 302, convite não consumido |
+| BL-565 | **D6 (baixa)** — testes não isolam o `PROTECT` de `Competencia.fechada_por` e `entregue_por` | `desenvolvedor-pleno` | — | em validação (DL-052, reconferência) | Teste que reprova se algum dos seis campos voltar a `SET_NULL` |
 | BL-566 | **D4 (baixa)** — recusa de aceite de convite (vencido, e-mail divergente) não deixa rastro na trilha | `desenvolvedor-pleno` | — | aberta | Evento `convite.escritorio.recusado` com motivo, sem o e-mail, gravado fora da transação revertida |
 | BL-567 | **D8 (baixa, pré-existente)** — `empresa_escritorio_imutavel` sem mensagem em `restricoes.py`; nenhuma guarda cruza os nomes de gatilho das migrações com os mapas | `desenvolvedor-pleno` | — | aberta | Nome mapeado; guarda derivada das migrações (nível 3) |
 | BL-568 | **D9 (baixa)** — `casefold()` iguala e-mails distintos (`ß`/`ss`, sinal Kelvin) e não normaliza NFC/NFD | `desenvolvedor-pleno` | BL-548 | aberta | Decidir a normalização junto com a confirmação de e-mail |

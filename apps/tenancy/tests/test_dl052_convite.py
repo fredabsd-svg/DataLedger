@@ -272,3 +272,56 @@ def test_post_na_view_com_email_diferente_nao_cria_vinculo(client, cenario):
     assert _sem_vinculo(cenario["escritorio"], intruso)
     convite.refresh_from_db()
     assert convite.consumido_em is None
+
+
+# --- rodada 1, D5: quem já está vinculado ao escritório ----------------------
+
+
+def _convite_para_o_admin(cenario):
+    """O administrador convida o próprio e-mail: já tem vínculo com o escritório."""
+    admin = VinculoUsuarioEscritorio.objects.get(
+        escritorio=cenario["escritorio"], papel=Papel.ADMINISTRADOR
+    ).usuario
+    convite = cenario["convite"]
+    ConviteEscritorio.objects.filter(pk=convite.pk).update(
+        email=admin.email, criado_em=timezone.now() - timedelta(days=1)
+    )
+    convite.refresh_from_db()
+    return admin, convite
+
+
+def test_usuario_ja_vinculado_ao_escritorio_e_recusado_sem_500_e_sem_consumir(cenario):
+    admin, convite = _convite_para_o_admin(cenario)
+
+    with pytest.raises(ConviteInvalido) as erro:
+        aceitar_convite_e_criar_vinculo(token=convite.token, usuario=admin)
+
+    assert "já tem vínculo" in str(erro.value)
+    assert VinculoUsuarioEscritorio.objects.filter(usuario=admin).count() == 1
+    convite.refresh_from_db()
+    assert convite.consumido_em is None
+
+
+def test_usuario_com_vinculo_inativo_tambem_e_recusado_sem_500(cenario):
+    admin, convite = _convite_para_o_admin(cenario)
+    VinculoUsuarioEscritorio.objects.filter(usuario=admin).update(ativo=False)
+
+    with pytest.raises(ConviteInvalido):
+        aceitar_convite_e_criar_vinculo(token=convite.token, usuario=admin)
+
+    convite.refresh_from_db()
+    assert convite.consumido_em is None
+
+
+def test_view_com_usuario_ja_vinculado_responde_302_com_mensagem(client, cenario):
+    admin, convite = _convite_para_o_admin(cenario)
+    client.force_login(admin)
+
+    resposta = client.post(
+        reverse("tenancy:aceitar-convite", kwargs={"token": convite.token}), follow=True
+    )
+
+    assert resposta.redirect_chain and resposta.redirect_chain[0][1] == 302
+    assert any("já tem vínculo" in str(m) for m in resposta.context["messages"])
+    convite.refresh_from_db()
+    assert convite.consumido_em is None

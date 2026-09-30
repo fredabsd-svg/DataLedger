@@ -522,6 +522,9 @@ ESPERADOS = {
     "trg_item_lancamento_imutavel",
     "trg_item_lancamento_balanceado",
     "trg_lancamento_contabil_balanceado",
+    # Rodada 1 (D2), migração 0016.
+    "trg_lancamento_contabil_marca_transacao",
+    "trg_item_lancamento_so_em_lancamento_novo",
 }
 
 
@@ -542,7 +545,13 @@ def test_migracao_e_reversivel_e_remove_gatilhos_e_constraint():
             cursor.execute(
                 "SELECT count(*) FROM pg_proc WHERE proname IN "
                 "('contabilidade_recusar_alteracao_do_livro', "
-                "'contabilidade_exigir_lancamento_balanceado')"
+                "'contabilidade_exigir_lancamento_balanceado', "
+                "'contabilidade_marcar_lancamento_da_transacao', "
+                "'contabilidade_item_so_em_lancamento_da_transacao')"
+            )
+            assert cursor.fetchone()[0] == 0
+            cursor.execute(
+                "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_itemlancamento_tipo_valido'"
             )
             assert cursor.fetchone()[0] == 0
     finally:
@@ -593,3 +602,227 @@ def test_migracao_falha_alto_nomeando_o_lote_quando_o_banco_ja_tem_dado_invalido
         MigrationExecutor(connection).migrate(alvo_atual)
 
     assert ESPERADOS <= _gatilhos_do_livro()
+
+
+# ---------------------------------------------------------------------------
+# Rodada 1 de auditoria — D1: `tipo` só débito/crédito
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("tipo_invalido", ["lixo", "DEBITO", "Credito", ""])
+def test_d1_item_com_tipo_fora_de_debito_ou_credito_e_recusado_e_nada_e_gravado(
+    cenario, tipo_invalido
+):
+    """Com o gatilho de partidas dobradas sozinho, o terceiro item (tipo
+    inválido) era ignorado pela soma e o commit passava — Razão e Balancete
+    divergiam. `transaction=True`: é o COMMIT real que julga."""
+    antes = LancamentoContabil.objects.count()
+
+    with pytest.raises(IntegrityError) as erro:
+        with transaction.atomic():
+            lancamento = _lancamento_nu(cenario)
+            _bulk_itens(
+                cenario,
+                lancamento,
+                [
+                    (TipoPartida.DEBITO, "10.00"),
+                    (TipoPartida.CREDITO, "10.00"),
+                    (tipo_invalido, "5000.00"),
+                ],
+            )
+
+    assert _nome_da_restricao(erro) == "ck_itemlancamento_tipo_valido"
+    assert LancamentoContabil.objects.count() == antes
+    assert ItemLancamento.objects.count() == 0
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d1_migracao_0015_falha_alto_nomeando_o_lote_com_tipo_invalido(cenario):
+    from django.db.migrations.executor import MigrationExecutor
+
+    antes_da_0015 = [("contabilidade", "0014_dl052_autoria_protegida")]
+    ate_a_0015 = [("contabilidade", "0015_dl052_r1_tipo_do_item_valido")]
+    alvo_atual = MigrationExecutor(connection).loader.graph.leaf_nodes("contabilidade")
+    lote_ruim = None
+    try:
+        MigrationExecutor(connection).migrate(antes_da_0015)
+        with transaction.atomic():
+            lote_ruim = _lancamento_nu(cenario)
+            _bulk_itens(
+                cenario,
+                lote_ruim,
+                [
+                    (TipoPartida.DEBITO, "10.00"),
+                    (TipoPartida.CREDITO, "10.00"),
+                    ("lixo", "5.00"),
+                ],
+            )
+
+        with pytest.raises(RuntimeError) as erro:
+            MigrationExecutor(connection).migrate(ate_a_0015)
+
+        assert "0015" in str(erro.value)
+        assert f"[{lote_ruim.pk}]" in str(erro.value)
+        assert "nenhum dado foi alterado" in str(erro.value)
+        assert lote_ruim.itens.filter(tipo="lixo").exists()
+    finally:
+        if lote_ruim is not None:
+            with gatilho_desligado(IMUTAVEL_ITEM, IMUTAVEL_LANCAMENTO):
+                ItemLancamento.objects.filter(lancamento=lote_ruim).delete()
+                LancamentoContabil.objects.filter(pk=lote_ruim.pk).delete()
+        MigrationExecutor(connection).migrate(alvo_atual)
+
+
+# ---------------------------------------------------------------------------
+# Rodada 1 de auditoria — D2: partida nova só em lançamento da MESMA transação
+# ---------------------------------------------------------------------------
+
+MARCADOR = "dataledger.lancamentos_da_transacao"
+
+
+def _marcador_atual():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_setting(%s, true)", [MARCADOR])
+        return cursor.fetchone()[0] or ""
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d2_par_balanceado_em_transacao_posterior_e_recusado_e_o_lancamento_fica_intacto(
+    cenario,
+):
+    lancamento = _lancamento_valido(cenario)  # efetivado e comitado
+    assert lancamento.itens.count() == 2
+
+    with pytest.raises(IntegrityError) as erro:
+        with transaction.atomic():
+            _bulk_itens(
+                cenario,
+                lancamento,
+                [(TipoPartida.DEBITO, "7.00"), (TipoPartida.CREDITO, "7.00")],
+            )
+
+    assert _nome_da_restricao(erro) == "item_lancamento_em_lancamento_efetivado"
+    assert sorted(i.valor for i in lancamento.itens.all()) == [Decimal("100.00")] * 2
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d2_criar_lancamento_estorno_e_bulk_create_na_mesma_transacao_seguem_funcionando(
+    cenario,
+):
+    original = _lancamento_valido(cenario)
+    estorno = estornar_lancamento(original)
+    with transaction.atomic():
+        novo = _lancamento_nu(cenario)
+        _bulk_itens(
+            cenario,
+            novo,
+            [(TipoPartida.DEBITO, "3.00"), (TipoPartida.CREDITO, "3.00")],
+        )
+
+    assert estorno.itens.count() == 2
+    assert novo.itens.count() == 2
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d2_lancamento_criado_em_savepoint_aceita_itens_no_savepoint_e_depois_dele(cenario):
+    with transaction.atomic():
+        with transaction.atomic():  # savepoint do lançamento
+            lancamento = _lancamento_nu(cenario)
+            _bulk_itens(
+                cenario,
+                lancamento,
+                [(TipoPartida.DEBITO, "4.00"), (TipoPartida.CREDITO, "4.00")],
+            )
+        # savepoint liberado; ainda na transação externa: par extra balanceado
+        _bulk_itens(
+            cenario,
+            lancamento,
+            [(TipoPartida.DEBITO, "6.00"), (TipoPartida.CREDITO, "6.00")],
+        )
+
+    assert lancamento.itens.count() == 4
+    # Comitado: agora está efetivado, e partida nova é recusada.
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            _bulk_itens(
+                cenario,
+                lancamento,
+                [(TipoPartida.DEBITO, "1.00"), (TipoPartida.CREDITO, "1.00")],
+            )
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d2_savepoint_revertido_nao_deixa_id_fantasma_no_marcador(cenario):
+    efetivado = _lancamento_valido(cenario)
+
+    class _Desfazer(Exception):
+        pass
+
+    fantasma = None
+    with pytest.raises(IntegrityError) as erro:
+        with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    fantasma = _lancamento_nu(cenario)
+                    assert f",{fantasma.pk}," in _marcador_atual()
+                    raise _Desfazer
+            except _Desfazer:
+                pass
+            # Revertido: o id desfeito saiu do marcador, e o efetivado nunca esteve.
+            assert f",{fantasma.pk}," not in _marcador_atual()
+            _bulk_itens(
+                cenario,
+                efetivado,
+                [(TipoPartida.DEBITO, "2.00"), (TipoPartida.CREDITO, "2.00")],
+            )
+
+    assert _nome_da_restricao(erro) == "item_lancamento_em_lancamento_efetivado"
+    assert efetivado.itens.count() == 2
+    assert not LancamentoContabil.objects.filter(pk=fantasma.pk).exists()
+
+
+@so_postgresql
+@pytest.mark.django_db(transaction=True)
+def test_d2_marcador_some_no_fim_da_transacao(cenario):
+    with transaction.atomic():
+        lancamento = _lancamento_nu(cenario)
+        assert f",{lancamento.pk}," in _marcador_atual()
+        _bulk_itens(
+            cenario,
+            lancamento,
+            [(TipoPartida.DEBITO, "1.00"), (TipoPartida.CREDITO, "1.00")],
+        )
+
+    assert f",{lancamento.pk}," not in _marcador_atual()
+
+
+# ---------------------------------------------------------------------------
+# Rodada 1 de auditoria — D3: backfill só com competência da MESMA empresa
+# ---------------------------------------------------------------------------
+
+
+@so_postgresql
+def test_d3_backfill_com_competencia_de_outra_empresa_e_recusado(cenario):
+    outra_empresa = Empresa.objects.create(
+        escritorio=cenario["empresa"].escritorio,
+        razao_social="Outra empresa DL-052 Ltda",
+        cnpj="52525252000154",
+    )
+    competencia_alheia = Competencia.objects.create(empresa=outra_empresa, ano=2026, mes=3)
+    lancamento = _lancamento_sem_competencia(cenario)
+
+    with pytest.raises(DatabaseError) as erro:
+        with transaction.atomic():
+            LancamentoContabil.objects.filter(pk=lancamento.pk).update(
+                competencia=competencia_alheia
+            )
+
+    assert _nome_da_restricao(erro) == "lancamento_contabil_imutavel"
+    lancamento.refresh_from_db()
+    assert lancamento.competencia_id is None

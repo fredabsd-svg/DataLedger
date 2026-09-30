@@ -118,4 +118,18 @@ Implementação (`desenvolvedor-pleno`, PostgreSQL 16 local, Python 3.13):
 - Não testado: `TRUNCATE` e o dono da tabela desligando gatilho (fora do que
   o banco impede); concorrência dos gatilhos adiados.
 
-Auditoria independente: relatório em [`docs/auditorias/`](../auditorias/).
+Auditoria independente, rodada 1:
+[APROVADA COM RESSALVAS](../auditorias/2026-09-30-dl-052-rodada-1.md).
+Rodada única de correção (migrações novas 0015 a 0017, sem editar a 0013):
+
+- D1: `CHECK` de tipo do item (débito ou crédito).
+- D2: item só entra em lançamento inserido na mesma transação — marcador
+  local à transação gravado pelo gatilho do lançamento; `ROLLBACK TO
+  SAVEPOINT` o desfaz. Limite: carga só de dados (`pg_restore --data-only`)
+  precisa de `--disable-triggers` ou de uma transação única — vai para o
+  plano de backup (PE-07).
+- D3: a exceção do backfill só aceita competência da mesma empresa.
+- D5: usuário já vinculado recebe recusa com mensagem, sem 500.
+- D6: `PROTECT` dos seis campos de autoria provado por metadado e por ORM.
+- Suíte completa: **3.681 aprovados, 50 pulados, 1 reprovado** (a conhecida
+  de Python 3.13). Cada teste novo reprova com a correção desfeita.

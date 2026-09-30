@@ -1565,6 +1565,14 @@ class ItemLancamento(models.Model):
                 condition=models.Q(valor__gt=0),
                 name="ck_itemlancamento_valor_positivo",
             ),
+            # DL-052 (rodada 1, D1): `tipo` só pode ser débito ou crédito. O
+            # gatilho de partidas dobradas soma apenas esses dois tipos; sem
+            # esta constraint, um item com tipo inválido (`"lixo"`, `"DEBITO"`)
+            # passava pelo gatilho e fazia Razão e Balancete divergirem.
+            models.CheckConstraint(
+                condition=models.Q(tipo__in=["debito", "credito"]),
+                name="ck_itemlancamento_tipo_valido",
+            ),
         ]
 
     def __str__(self):

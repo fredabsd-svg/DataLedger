@@ -172,3 +172,42 @@ def test_apagar_usuario_que_nunca_escriturou_continua_possivel_pelo_orm(colabora
     colaborador.delete()
 
     assert not get_user_model().objects.filter(username="colab-dl052").exists()
+
+
+# --- rodada 1, D6: PROTECT isolado em cada campo de autoria da RC-144 --------
+
+CAMPOS_DE_AUTORIA = [
+    ("contabilidade", "LancamentoContabil", "criado_por"),
+    ("contabilidade", "Competencia", "fechada_por"),
+    ("contabilidade", "Competencia", "entregue_por"),
+    ("auditoria", "RegistroAuditoria", "usuario"),
+    ("livro_caixa", "LancamentoCaixa", "criado_por"),
+    ("livro_caixa", "DependentesCarneLeaoCliente", "criado_por"),
+]
+
+
+@pytest.mark.parametrize(("app", "modelo", "campo"), CAMPOS_DE_AUTORIA)
+def test_d6_os_seis_campos_de_autoria_sao_protect(app, modelo, campo):
+    """Metadado do modelo: reverter qualquer um dos seis para SET_NULL reprova."""
+    from django.apps import apps
+    from django.db.models import PROTECT
+
+    assert apps.get_model(app, modelo)._meta.get_field(campo).remote_field.on_delete is PROTECT
+
+
+@pytest.mark.parametrize("campo", ["fechada_por", "entregue_por"])
+def test_d6_apagar_usuario_autor_da_competencia_e_recusado_sem_depender_da_trilha(
+    colaborador, campo
+):
+    """A `Competencia` é montada por ORM, SEM `encerrar_competencia` e portanto
+    sem registro de auditoria: só o `on_delete` do próprio campo segura o usuário."""
+    empresa, _caixa, _capital = _empresa_com_contas()
+    competencia = Competencia.objects.create(
+        empresa=empresa, ano=2026, mes=5, **{campo: colaborador}
+    )
+
+    with pytest.raises(ProtectedError):
+        colaborador.delete()
+
+    competencia.refresh_from_db()
+    assert getattr(competencia, f"{campo}_id") == colaborador.pk

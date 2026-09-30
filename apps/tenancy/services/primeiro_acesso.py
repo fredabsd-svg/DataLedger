@@ -196,6 +196,10 @@ MENSAGEM_CONVITE_EXPIRADO = (
     "Este convite venceu (vale 7 dias a partir da emissão). "
     "Peça ao administrador do escritório para emitir outro."
 )
+MENSAGEM_JA_VINCULADO = (
+    "Sua conta já tem vínculo com este escritório; este convite não é necessário. "
+    "Use o painel para acessá-lo."
+)
 MENSAGEM_CONVITE_DE_OUTRO_EMAIL = (
     "Este convite não foi emitido para o e-mail da sua conta. "
     "Entre com a conta do e-mail convidado ou peça ao administrador um novo convite."
@@ -212,7 +216,8 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
     tem mais de 7 dias (`ConviteEscritorio.expirado`: vence só quando
     `agora > criado_em + 7 dias`, então exatamente 7 dias ainda vale); ou
     o e-mail do usuário difere do e-mail do convidado (sem diferença de
-    maiúsculas nem de espaços nas pontas). As recusas por prazo e por
+    maiúsculas nem de espaços nas pontas); ou o usuário já tem vínculo com o
+    escritório do convite. As recusas por prazo e por
     e-mail usam mensagens próprias, e a de e-mail não diz a qual e-mail
     o convite pertence (DL-052, A2)."""
     convite = (
@@ -226,6 +231,13 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
         raise ConviteInvalido(MENSAGEM_CONVITE_EXPIRADO)
     if not convite_e_do_usuario(convite, usuario):
         raise ConviteInvalido(MENSAGEM_CONVITE_DE_OUTRO_EMAIL)
+    # DL-052 rodada 1 (D5): quem já tem vínculo (ativo ou não) com o escritório
+    # violaria `unico_vinculo_usuario_escritorio` — antes isso virava
+    # `IntegrityError` (500). Recusa de negócio, convite NÃO consumido.
+    if VinculoUsuarioEscritorio.objects.filter(
+        usuario=usuario, escritorio=convite.escritorio
+    ).exists():
+        raise ConviteInvalido(MENSAGEM_JA_VINCULADO)
 
     vinculo = VinculoUsuarioEscritorio.objects.create(
         usuario=usuario,

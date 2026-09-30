@@ -220,6 +220,11 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     "lancamento_com_debito_e_credito": (
         "O lançamento precisa ter ao menos um débito e um crédito de valor maior que zero."
     ),
+    # DL-052 rodada 1 (D2), migração 0016: partida nova só entra em lançamento
+    # criado na MESMA transação (marcador local à transação).
+    "item_lancamento_em_lancamento_efetivado": (
+        "Lançamento efetivado não recebe partida nova: registre um estorno."
+    ),
 }
 
 
@@ -451,6 +456,15 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "gravar, e nenhum caminho de cliente (API, tela, importação) grava "
         "`ItemLancamento` sem passar por ele. Defesa em profundidade contra "
         "escrita direta no ORM ou no banco."
+    ),
+    # DL-052 rodada 1 (D1): `tipo` só débito/crédito no banco. `criar_lancamento`
+    # e o formulário só aceitam `TipoPartida`; nenhum caminho de cliente grava
+    # `ItemLancamento` sem passar por eles. Defesa contra escrita direta.
+    "ck_itemlancamento_tipo_valido": (
+        "`CheckConstraint(tipo IN ('debito','credito'))` do modelo `ItemLancamento` "
+        "(DL-052, rodada 1, D1). `criar_lancamento` só aceita `TipoPartida` e nenhum "
+        "caminho de cliente (API, tela, importação) grava `ItemLancamento` sem passar "
+        "por ele. Defesa em profundidade contra escrita direta no ORM ou no banco."
     ),
     "ck_lancamentocontabil_empresa_not_null": (
         "`CheckConstraint(empresa_id IS NOT NULL)` do modelo "
