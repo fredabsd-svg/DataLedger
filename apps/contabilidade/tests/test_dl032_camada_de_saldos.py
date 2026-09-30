@@ -377,6 +377,9 @@ def test_equacao_fecha_em_base_correta(cenario_completo):
     assert equacao["diferenca"] == Decimal("0.00")
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_diferenca_aparece_com_valor_e_sinal_e_nenhum_saldo_e_alterado(cenario_completo):
     """Base DELIBERADAMENTE torta: um `ItemLancamento` gravado direto pelo
     ORM, contornando `criar_lancamento` (mesma técnica já usada por

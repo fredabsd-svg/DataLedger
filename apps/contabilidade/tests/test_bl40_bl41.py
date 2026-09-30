@@ -276,6 +276,9 @@ def test_estorno_de_estorno_e_recusado_sem_regressao(cenario, lancamento_origina
         estornar_lancamento(estorno)
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_constraint_de_banco_impede_dois_estornos_do_mesmo_original(cenario, lancamento_original):
     """Prova que a proteção de BANCO existe, além da checagem prévia do serviço.
 
@@ -302,6 +305,9 @@ def test_constraint_de_banco_impede_dois_estornos_do_mesmo_original(cenario, lan
     assert LancamentoContabil.objects.filter(estorno_de=lancamento_original).count() == 1
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_constraint_de_banco_permite_multiplos_lancamentos_sem_estorno(cenario):
     """`estorno_de` nulo em várias linhas continua permitido (NULL não colide).
 
@@ -357,6 +363,9 @@ def test_indice_parcial_de_chave_idempotencia_existe_no_banco(cenario):
     assert "WHERE" in definicao.upper()
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_constraint_de_banco_da_chave_de_idempotencia_existe(cenario):
     """Prova que a unicidade de (empresa, chave_idempotencia) é de BANCO
     (achado A5 da auditoria), não só da checagem prévia do serviço —

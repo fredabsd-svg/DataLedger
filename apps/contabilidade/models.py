@@ -114,7 +114,9 @@ class Competencia(models.Model):
         verbose_name="fechada por",
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        # DL-052: usuário se desativa, não se apaga — a autoria do
+        # fechamento é parte da trilha do período (PROTECT, era SET_NULL).
+        on_delete=models.PROTECT,
         related_name="+",
         help_text="Usuário que fechou a competência (RC do DL-016, critério 3 da fatia 1).",
     )
@@ -137,7 +139,8 @@ class Competencia(models.Model):
         verbose_name="entregue por",
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        # DL-052: idem `fechada_por` (PROTECT, era SET_NULL).
+        on_delete=models.PROTECT,
         related_name="+",
         help_text="Usuário que marcou a competência como entregue.",
     )
@@ -1361,6 +1364,16 @@ class LancamentoContabil(models.Model):
     (AGENTS.md, seção 10). Isso é aplicado em `save`/`delete`, não só por
     convenção: qualquer tentativa de alterar um lançamento já persistido
     levanta LancamentoImutavelError.
+
+    `save`/`delete` não alcançam `QuerySet.update()`/`.delete()`/
+    `bulk_create()`. Desde a DL-052 (migração 0013), em PostgreSQL o BANCO
+    também recusa UPDATE e DELETE de lançamento e de item (gatilhos
+    `trg_lancamento_contabil_imutavel`/`trg_item_lancamento_imutavel`), e
+    recusa no COMMIT lançamento cujos débitos diferem dos créditos ou que
+    não tenha um débito e um crédito (`CONSTRAINT TRIGGER` adiado). Única
+    exceção: `competencia_id` de NULL para um valor, sem mudar mais nada —
+    o backfill da DL-016 F5. Em SQLite (só desenvolvimento local) vale a
+    guarda de Python.
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="lancamentos")
@@ -1383,11 +1396,17 @@ class LancamentoContabil(models.Model):
     estorno_de = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="estornos"
     )
+    # DL-052 (decisão do Fred, 30/09/2026): usuário se DESATIVA, não se apaga.
+    # `PROTECT` (era `SET_NULL`) impede que apagar um usuário apague a
+    # AUTORIA de um lançamento efetivado — e o gatilho de imutabilidade do
+    # banco (migração 0013) recusaria o UPDATE que o `SET_NULL` emitiria.
+    # `null=True` permanece: lançamento gerado pelo sistema (zeramento,
+    # testes, importação) pode não ter autor.
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="+",
     )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
@@ -1533,6 +1552,20 @@ class ItemLancamento(models.Model):
     class Meta:
         verbose_name = "item de lançamento"
         verbose_name_plural = "itens de lançamento"
+        constraints = [
+            # DL-052 (A1, critério 5): `valor > 0` no BANCO. `criar_lancamento`
+            # já recusa valor <= 0 (débito e crédito se expressam por `tipo`,
+            # nunca pelo sinal — um "débito de -50" e um "crédito de 50"
+            # seriam indistinguíveis na soma), mas `MinValueValidator` só
+            # roda em `full_clean()` e `objects.create()`/`bulk_create()`/
+            # `update()` não o chamam. Os gatilhos de imutabilidade e de
+            # partidas dobradas da migração 0013 (PostgreSQL) completam a
+            # defesa; esta constraint vale também em SQLite.
+            models.CheckConstraint(
+                condition=models.Q(valor__gt=0),
+                name="ck_itemlancamento_valor_positivo",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.get_tipo_display()} {self.valor} — {self.conta}"

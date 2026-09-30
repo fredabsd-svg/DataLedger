@@ -44,6 +44,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 
 from apps.contabilidade.models import LancamentoContabil
+from apps.contabilidade.tests.gatilhos_do_livro import BALANCEADO_LANCAMENTO, gatilho_desligado
 from apps.empresas.models import Empresa, Escritorio
 
 
@@ -165,8 +166,13 @@ class CheckEmpresaNotNullTests(TestCase):
     def test_insert_direto_com_empresa_valida_passa(self):
         """INSERT direto via SQL com empresa_id valido deve passar (sanity check
         do cenario feliz — garante que a constraint nao esta bloqueando
-        escritas legitimas)."""
-        with transaction.atomic():
+        escritas legitimas).
+
+        DL-052: o INSERT cru grava um lançamento SEM partidas, que o gatilho
+        adiado de partidas dobradas (migração 0013) recusaria no commit — e
+        este teste trata só da constraint de `empresa_id`. O gatilho adiado do
+        LANÇAMENTO fica desligado só aqui; a asserção não muda."""
+        with gatilho_desligado(BALANCEADO_LANCAMENTO), transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

@@ -1033,6 +1033,12 @@ def aceitar_convite(request, token: str):
     escritório. Token está no path da URL para simplicidade da etapa
     — quando SMTP entrar, o token vem por link no e-mail, e esta
     rota permanece a mesma.
+
+    DL-052 (A2): o convite só vale por 7 dias e só para o usuário cujo
+    e-mail é o do convidado. A regra mora no serviço
+    (`aceitar_convite_e_criar_vinculo`); o GET só deixa de oferecer o botão
+    "Aceitar" quando o serviço recusaria, e diz o motivo (venceu, ou não é
+    o e-mail desta conta) sem revelar o e-mail do convite.
     """
     if request.method == "POST":
         try:

@@ -294,6 +294,9 @@ def test_conferencia_em_base_sadia_diz_que_nao_ha_data_fora_da_faixa(client, cen
     assert "Nenhum lançamento com data fora da faixa aceita." in html
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_conferencia_nao_mostra_lancamento_fora_da_faixa_de_OUTRA_empresa(client, cenario):
     """Isolamento entre empresas na categoria nova: o lançamento absurdo
     está na empresa VIZINHA do mesmo escritório e não pode aparecer aqui —

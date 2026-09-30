@@ -16,6 +16,7 @@ from django.utils import timezone
 from apps.auditoria.models import RegistroAuditoria
 from apps.contabilidade.models import Competencia, Conta, EstadoCompetencia, LancamentoContabil
 from apps.contabilidade.services import localizar_lotes_desbalanceados
+from apps.contabilidade.tests.gatilhos_do_livro import BALANCEADO_LANCAMENTO, gatilho_desligado
 from apps.core.module_homes import (
     LIMITE_PREFERENCIAS_ESCRITORIOS,
     SESSION_KEY,
@@ -370,9 +371,13 @@ def test_plano_inativo_continua_existente_e_conjuntos_se_sobrepoem(client, cenar
 
 def test_bloqueio_base_inteira_e_mesma_regra_single_multi(client, cenario):
     _plano(cenario["empresa"])
-    lote = LancamentoContabil.objects.create(
-        empresa=cenario["empresa"], data=date(2025, 1, 1), historico="Lote legado sem partidas"
-    )
+    # DL-052: o banco recusa, no commit, lançamento sem partidas (migração 0013).
+    # Este teste PRECISA de um lote legado assim; o gatilho adiado do lançamento
+    # fica desligado só durante a criação, e religa em seguida. Asserções iguais.
+    with gatilho_desligado(BALANCEADO_LANCAMENTO):
+        lote = LancamentoContabil.objects.create(
+            empresa=cenario["empresa"], data=date(2025, 1, 1), historico="Lote legado sem partidas"
+        )
     assert list(
         localizar_lotes_desbalanceados(empresa=cenario["empresa"]).values_list("pk", flat=True)
     ) == [lote.pk]

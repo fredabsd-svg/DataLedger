@@ -202,6 +202,24 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     "parametro_contabil_sem_sobreposicao": (
         "Esta vigência de parâmetro contábil sobrepõe outra já gravada para a mesma empresa."
     ),
+    # DL-052 (A1), migração 0013 de `apps.contabilidade` — gatilhos só em
+    # PostgreSQL que espelham no BANCO as regras de `criar_lancamento` e de
+    # `save()`/`delete()` dos modelos. NENHUMA porta de escrita do produto as
+    # alcança (os serviços validam antes, e nenhum caminho legítimo faz
+    # UPDATE/DELETE em lançamento ou item); as mensagens existem para que, se
+    # um dia uma alcançar, o erro seja legível e não um 500 cru.
+    "lancamento_contabil_imutavel": (
+        "Lançamento contábil efetivado não pode ser alterado nem excluído; registre um estorno."
+    ),
+    "item_lancamento_imutavel": (
+        "Item de lançamento efetivado não pode ser alterado nem excluído; registre um estorno."
+    ),
+    "lancamento_debito_igual_a_credito": (
+        "O total de débitos do lançamento deve ser igual ao total de créditos."
+    ),
+    "lancamento_com_debito_e_credito": (
+        "O lançamento precisa ter ao menos um débito e um crédito de valor maior que zero."
+    ),
 }
 
 
@@ -423,6 +441,17 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     # profundidade contra INSERT direto via psql/shell-admin que contorne o
     # ORM inteiro — nenhuma rota de cliente (API, tela ou importação) pode
     # alcançá-la.
+    # DL-052 (A1, critério 5): `valor > 0` no banco. `criar_lancamento` já
+    # recusa valor <= 0 item a item ANTES de gravar (e a API/tela só gravam por
+    # ela); a constraint é a defesa contra `objects.create()`/`bulk_create()`/
+    # SQL direto, que não passam por `MinValueValidator` nem pelo serviço.
+    "ck_itemlancamento_valor_positivo": (
+        "`CheckConstraint(valor > 0)` do modelo `ItemLancamento` (DL-052). "
+        "`criar_lancamento` recusa valor menor ou igual a zero antes de "
+        "gravar, e nenhum caminho de cliente (API, tela, importação) grava "
+        "`ItemLancamento` sem passar por ele. Defesa em profundidade contra "
+        "escrita direta no ORM ou no banco."
+    ),
     "ck_lancamentocontabil_empresa_not_null": (
         "`CheckConstraint(empresa_id IS NOT NULL)` do modelo "
         "`LancamentoContabil` (DL-016 F6/DE-051). `empresa` já é uma "

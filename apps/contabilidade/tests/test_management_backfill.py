@@ -75,6 +75,17 @@ class BackfillCompetenciaTests(TestCase):
             tipo=TipoConta.ATIVO,
             natureza=NaturezaConta.DEVEDORA,
         )
+        # DL-052: a segunda perna do lote. O banco (migração 0013) recusa no
+        # commit lançamento desbalanceado; o backfill trata lançamentos
+        # legados VÁLIDOS que só não têm competência, então o helper abaixo
+        # agora grava débito E crédito de 100,00 (antes só o débito).
+        cls.conta_capital = Conta.objects.create(
+            empresa=cls.empresa,
+            codigo="2.1.1.01",
+            nome="Capital",
+            tipo=TipoConta.PATRIMONIO_LIQUIDO,
+            natureza=NaturezaConta.CREDORA,
+        )
 
     def _criar_lancamento_sem_competencia(
         self,
@@ -83,7 +94,8 @@ class BackfillCompetenciaTests(TestCase):
         empresa: Empresa | None = None,
         historico: str = "lancamento de teste",
     ) -> LancamentoContabil:
-        """Cria LancamentoContabil sem FK competencia e com 1 ItemLancamento.
+        """Cria LancamentoContabil sem FK competencia e com 2 ItemLancamento
+        (débito e crédito de 100,00).
 
         `empresa` NAO tem default None explicito no call site: como
         `LancamentoContabil.empresa` e NOT NULL por schema desde
@@ -103,6 +115,12 @@ class BackfillCompetenciaTests(TestCase):
             lancamento=lancamento,
             conta=self.conta_caixa,
             tipo=TipoPartida.DEBITO,
+            valor="100.00",
+        )
+        ItemLancamento.objects.create(
+            lancamento=lancamento,
+            conta=self.conta_capital,
+            tipo=TipoPartida.CREDITO,
             valor="100.00",
         )
         return lancamento

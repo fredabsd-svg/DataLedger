@@ -750,6 +750,9 @@ def test_criterio3_api_encerrar_grava_registro_na_trilha(client, cenario):
     assert registro.objeto_tipo == "Competencia"
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_criterio3_encerrar_recusa_com_lote_desbalanceado_na_base(cenario):
     empresa, caixa = cenario["empresa"], cenario["caixa"]
     gestor = _usuario_com_papel(Papel.GESTOR, cenario["escritorio"], "c3-desbalanceado")
@@ -775,6 +778,9 @@ def test_criterio3_encerrar_recusa_com_lote_desbalanceado_na_base(cenario):
     assert competencia.fechada_em is None
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_criterio3_api_encerrar_recusa_com_409_quando_ha_lote_desbalanceado(client, cenario):
     empresa, caixa = cenario["empresa"], cenario["caixa"]
     competencia = Competencia.objects.create(empresa=empresa, ano=2026, mes=6)
@@ -1565,6 +1571,9 @@ def test_bl463_varredura_rc58_nao_bloqueia_lancamento_concorrente(monkeypatch):
     assert competencia.estado == EstadoCompetencia.ENCERRADA
 
 
+# DL-052: este teste grava de propósito lançamento sem partidas/desbalanceado; o gatilho
+# adiado de partidas dobradas fica desligado só durante ele (ver gatilhos_do_livro.py).
+@pytest.mark.usefixtures("sem_julgamento_de_partidas")
 def test_bl463_fechar_com_lote_desbalanceado_continua_recusando_sem_lock(cenario):
     """Efeito colateral que a reordenação do BL-463 poderia ter quebrado:
     a checagem RC-58 SEM lock ainda recusa o fechamento quando há lote
