@@ -149,3 +149,5 @@ rodada (AGENTS.md §3.1):
 - **R2:** frase sobre restauração corrigida aqui e no comentário da 0016.
 - **R3:** custo quadrático do marcador acima de milhares de lançamentos por
   transação registrado no BL-570.
+
+Entrega e CI: [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66).

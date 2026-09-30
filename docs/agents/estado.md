@@ -126,8 +126,9 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 **DL-052 — Integridade do livro e do acesso (30/09/2026), em
 revisão** — auditoria e reconferência única **aprovadas com ressalvas**
 ([rodada 1](../auditorias/2026-09-30-dl-052-rodada-1.md),
-[reconferência](../auditorias/2026-09-30-dl-052-reconferencia.md)); a
-integração acompanha o pull request da branch. Ordem do Fred depois da análise do repositório: *"Aprovo a
+[reconferência](../auditorias/2026-09-30-dl-052-reconferencia.md)). Estado da
+integração no [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66): em
+revisão enquanto aberto; integrada após o merge confirmado nesse PR. Ordem do Fred depois da análise do repositório: *"Aprovo a
 DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md). Branch
 `claude/zealous-goldberg-jr5ggu` → `main`.
