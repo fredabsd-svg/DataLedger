@@ -141,7 +141,90 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048: auditoria executada, achados corrigidos e a fatia **INTEGRADA na main** pelo PR #59; o que falta é a conformidade normativa:**
+**AGORA — sessão de 2026-09-29 (3ª rodada). O Fred revisou o relatório e corrigiu
+**quatro pontos**; todos foram **verificados na fonte** antes de entrar no repositório,
+e **dois deles corrigem erro meu**. As decisões que faltavam foram dadas. A DMPL (CTB-14)
+pode ser implementada; a D8 (API da DLPA) também.**
+
+### Correções do Fred (29/09/2026) — as quatro verificadas
+
+| # | Correção | Verificação na fonte |
+| --- | --- | --- |
+| 1 | A NBC TG 26 (R5) **não** está revogada "para 2026" | ✅ **CONFIRMADO** — o ato é de **13/11/2025** (cabeçalho e fecho da cláusula de vigência do PDF oficial) e a aplicabilidade é **exercícios iniciados a partir de 01/01/2027**. **Exercícios 2025/2026 seguem ancorados na R5.** A data 25/02/2026 é o campo "publicação no DOU" da ficha do CFC, **não a do ato** — a afirmação anterior neste arquivo e no plano **corrigida**. ⚠️ A data do DOU em si está em divergência entre o CFC (25/02/2026) e o Fred (22/12/2025): **registrada como divergência, sem efeito em conclusão alguma.** |
+| 2 | A reserva de lucros a realizar **tem** lastro: art. 197 LSA | ✅ **CONFIRMADO — e eu estava ERRADO.** O art. 197 (redação da Lei 10.303/2001) institui exatamente essa reserva, e o **art. 199** também a nomeia. A afirmação anterior ("não existe na LSA") saiu. **O erro foi meu** — veio do relatório de pesquisa, que reportou ausência como fato sem segunda fonte. Rótulo trocado para **"art. 197 LSA"** (S/A; Ltda por regência supletiva, art. 1.069 CC). |
+| 3 | A conciliação DMPL ↔ Balanço não é só invariante | ✅ **CONFIRMADO** — o **item 106(d) da R5 / 107(c) da TG 51** exige, para **cada componente do PL**, a conciliação entre o valor contábil no início e no final; esse saldo final é o do Balanço na mesma data. Reescrito como **exigência derivada do item 106(d) e da consistência do conjunto** — não como citação literal. |
+| 4 | O item 52 **já** exigia julgamento; não mudou | ✅ **CONFIRMADO — e eu estava ERRADO.** O item 52 diz *"é necessário o exercício de julgamento"*; o B10 diz *"É exigido julgamento"*. **Não houve mudança de prescrição para julgamento.** A única diferença material: a expressão ***"em cada página"*** está no 52 e **não aparece no B10** — mas o B10 nomeia *"títulos apropriados para as páginas"*, então **repetir em cada página continua cumprindo** a norma em 2027. **Logo o documento do cliente NÃO muda**; muda a justificativa interna e a citação (52 → B10). |
+
+### Decisões do Fred, agora fechadas
+
+1. ✅ **Versionamento por data de início do exercício: APROVADO, e é OBRIGATÓRIO** —
+   não opcional. O item citado varia com a vigência, e o produto **deve prever a adoção
+   antecipada** da NBC TG 51 antes de 01/01/2027.
+2. ✅ **Item 52 / B10: resolvido** pelo ponto 4 acima. Documento do cliente **não** muda.
+3. ✅ **Base da DMPL: encerrada a busca em diploma.** A Lei 11.638/2007 **não** criou a
+   DMPL (trocou a DOAR pela DFC e criou a DVA). A base é: **competência** = DL 9.295/46,
+   art. 6º, alínea "f" (redação da Lei 12.249/2010) — confirmada no **préâmbulo da
+   própria NBC TG 51**, verbatim; **obrigação** = NBC TG 26 (R5) item 10 e, de 2027 em
+   diante, NBC TG 51; **PMEs** = NBC TG 1000 (admite a DLPA no lugar da DMPL em certas
+   condições); **microempresas** = ITG 1000, **não obrigatória**.
+   ⚠️ **Única lacuna que resta:** para **companhias abertas**, o **ato da CVM que
+   aprovou o CPC 26** não foi lido em fonte oficial — declarado, não inventado.
+
+### O que mais mudou nesta rodada
+
+- **Repositório movido para fora do OneDrive** → **`C:\src\DataLedger`**. O OneDrive era
+  a causa do I/O-bound, não o SQLite. Copiado, verificado (mesmo commit, `manage.py
+  check` limpo) e é o novo local de trabalho.
+- **Módulo que travava a suíte: ACHADO — e é SISTÊMICO, não um ponto.** Três
+  execuções de `pytest` terminaram em silêncio (sem traceback, sem timeout do pytest).
+  O `faulthandler` mostrou a causa: **espera infinita** — `barreira.wait()` e
+  `t.join()` **sem timeout**. Se uma thread morre antes da barreira, as outras
+  esperam para sempre. ⚠️ A descrição antiga deste arquivo mandava deselecionar
+  `test_restricoes_contabilidade.py::test_bl144_codigo_conta_duplicado`, **caminho
+  errado** — por isso a deseleção anterior não funcionou.
+  - ✅ **Corrigido (commit `bc52c5b`):** `test_bl144_codigo_conta_duplicado.py`,
+    `test_api.py` (1º teste de concorrência) e `test_dl043_correcao_rodada1.py`
+    (incluindo dois `join()` sem timeout adicionais no mesmo arquivo, nas linhas 476-477 e 686-687). Todas as
+    esperas ganharam timeout e uma asserção de `is_alive()`. **Nenhuma guarda foi
+    afrouxada** — `resultados` incompleto reprova, porque as asserções de baixo exigem
+    o código de resposta de todas as threads.
+  - ⚠️ **NÃO CORRIGIDO — e é o que trava a suíte ainda:** a varredura do repositório
+    encontrou **cerca de 30 esperas infinitas em 13 arquivos de teste**. Depois da
+    correção acima, `test_api.py` **continua travando no teste de concorrência
+    seguinte do mesmo arquivo** (linhas 378-400) — o que confirma que o alcance é
+    maior. Arquivos com o padrão: `test_dl016_fatia1_*.py` (8 pontos),
+    `test_dl046_livro_caixa.py` (3), `test_bl40_bl41.py` (2),
+    `test_dl023_regime_tributario_periodo_unico.py` (3),
+    `test_bl144_matriz_duplicada.py`, `test_dl043_zeramento_concorrencia_e_permissoes.py`,
+    `fiscal/tests/test_concorrencia.py` (2), `fiscal/tests/test_dl076_um_envio_por_vez.py` (3),
+    entre outros.
+    **Não foi feito num commit só de propósito:** são testes que guardam invariantes
+    de concorrência de CNPJ, lançamento e zeramento — nível 1. Mexer em 13 arquivos
+    desses exige etapa própria, com verificação própria. **Ordem a definir pelo Fred.**
+  - ⚠️ **Consequência prática:** a suíte `pytest` **completa não termina localmente**
+    no Windows. A CI (Linux + PostgreSQL) roda tudo verde em ~4m35s. Para medir
+    localmente, usar recorte de módulo.
+
+- **PowerShell 7 instalado (7.6.6)**; `scripts/validate-docs.ps1` **original** executado
+  e **verde** (*"Documentação válida: 187 arquivos Markdown verificados"*, exit 0). A
+  **réplica em Python foi descartada**, para não haver dois validadores.
+- **Reserva de lucros a realizar** deixa de ser "escolha de desenho" e passa a ter
+  fundamentação legal — ver o ponto 2 acima.
+- **A decisão de 29/09 sobre a correção monetária se confirma** com base oficial: Lei
+  9.249/95, art. 4º, p.ú. veda *"qualquer sistema de correção monetária de demonstrações
+  financeiras, inclusive para fins societários"*. ⚠️ A referência a "**Lei 9.492/95**"
+  que circulou é **ERRADA** (a 9.492 é de 1997, protesto de títulos).
+- **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
+  primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
+- **Branch de trabalho:** `docs/dl-048-premissa-normativa`.
+
+### Próximo passo, agora sem decisão pendente
+
+1. **D8 (API da DLPA)** — `DlpaView` + `ContaClassificacaoDlpaView`, **projetada prevendo
+   que a DLPA pode estar embutida na DMPL** (art. 186, §2º), e não só como peça
+   autônoma. Nível 2.
+2. **CTB-14 (DMPL)** — nível 1, com auditoria independente obrigatória. Aplica as duas
+   normas por data de início do exercício, com adoção antecipada prevista.
 
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
