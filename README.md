@@ -229,6 +229,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-046** — livro-caixa e carnê-leão do cliente pessoa física: lançamentos de caixa com o código do Carnê-Leão Web, apuração mensal com excesso de deduções (RIR/2018, arts. 68-69 e 118-125) e arquivo de importação no leiaute oficial
 - **DL-047** — mapa de paridade funcional com o sistema de referência: inventário de relatórios e funções de Contabilidade, Fiscal, Folha, Patrimônio, Lalur e Honorários, com plano detalhado por módulo em [docs/projeto/paridade/](docs/projeto/paridade/). Plano em [docs/planos/DL-047-mapa-de-paridade-funcional.md](docs/planos/DL-047-mapa-de-paridade-funcional.md)
 - **DL-048** — Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC (indireto) e DRA e DVA (CTB-12 a CTB-17 do mapa de paridade). Itens em [docs/projeto/paridade/contabilidade.md](docs/projeto/paridade/contabilidade.md). Plano em [docs/planos/DL-048-contabilidade-anual-demonstracoes.md](docs/planos/DL-048-contabilidade-anual-demonstracoes.md)
+- **DL-049** — Página inicial por módulo: contexto de empresa/competência, indicadores acionáveis, carteira e fila de trabalho. Plano em [docs/planos/DL-049-home-por-modulo.md](docs/planos/DL-049-home-por-modulo.md)
 
 Ainda não existem:
 

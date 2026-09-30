@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
     {% comment %}
     BL-332 (achado A2 da auditoria DL-026, rodada 5,
     docs/auditorias/2026-09-19-dl-026-rodada-5.md): com as opções PADRÃO de
@@ -74,6 +74,7 @@
     deploy, e então voltar a usar a tag "static".
     {% endcomment %}
     <link rel="stylesheet" href="/static/css/base.css?v={{ versao_css_base }}">
+    {% if modulos_home_menu %}<link rel="stylesheet" href="/static/css/module-home.css?v={{ versao_css_module_home }}">{% endif %}
     {% block estilos_extras %}{% endblock %}
 </head>
 <body class="{% block classe_body %}{% endblock %}">
@@ -365,6 +366,26 @@
                 atalho novo colidindo reprovaria `accesskeys_duplicados`
                 (test_dl024_atalhos_e_acessibilidade.py).
                 {% endcomment %}
+                {% if modulos_home_menu %}
+                    {% comment %}DL-049: module selection always opens its
+                    operational home. URLs already preserve the validated
+                    company and competence; unimplemented domains are
+                    explicitly informational, never simulated totals.{% endcomment %}
+                    <nav class="module-home-switcher" aria-label="Trocar módulo">
+                        <p class="module-home-switcher__title rotulo-menu">Módulos</p>
+                        <ul>
+                            {% for modulo in modulos_home_menu %}
+                                {% if modulo.permitido %}
+                                    <li><a href="{{ modulo.url }}" {% if modulo.ativo %}aria-current="page"{% endif %}>
+                                        <svg class="icone-menu" aria-hidden="true"><use href="{% if modulo.slug == 'fiscal' %}#icone-fiscal{% elif modulo.slug == 'folha' %}#icone-conta{% elif modulo.slug == 'financeiro' %}#icone-balanco{% elif modulo.slug == 'vendas' %}#icone-diario{% elif modulo.slug == 'estoque' %}#icone-empresas{% else %}#icone-contabilidade{% endif %}"></use></svg>
+                                        <span class="module-home-switcher__label rotulo-menu">{{ modulo.titulo }}{% if modulo.disponibilidade == "indisponivel" %}<span class="module-home-switcher__state">Indisponível</span>{% elif modulo.disponibilidade == "parcial" %}<span class="module-home-switcher__state">Recepção de NFS-e</span>{% endif %}</span>
+                                        {% if modulo.grave_count != None %}<span class="module-home-switcher__badge" aria-label="{{ modulo.grave_count }} ocorrências graves apuradas neste módulo">{{ modulo.grave_count }}</span>{% endif %}
+                                    </a></li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                    </nav>
+                {% endif %}
                 <nav class="navegacao-principal" aria-label="Navegação principal">
                     <ul>
                         <li>
@@ -425,6 +446,7 @@
                         futura, se o Fred pedir.
                         {% endcomment %}
                         {% if pode_ler_contabilidade_no_menu %}
+                            {% if not home or home.modulo.slug == "contabilidade" or home.modulo.slug == "livro-caixa" %}
                             <li class="menu-modulo">
                                 <details class="menu-dropdown" {% if request.resolver_match.namespace == "contabilidade_web" or request.resolver_match.namespace == "livro_caixa_web" %}open{% endif %}>
                                     <summary {% if request.resolver_match.namespace == "contabilidade_web" or request.resolver_match.namespace == "livro_caixa_web" %}aria-current="page"{% endif %}>
@@ -680,6 +702,7 @@
                                     </div>
                                 </details>
                             </li>
+                            {% endif %}
                         {% endif %}
 
                         {% comment %}
@@ -703,6 +726,7 @@
                         {% endcomment %}
                         {% url 'fiscal_web:recepcao' as url_fiscal %}
                         {% if url_fiscal and pode_consultar_fiscal_no_menu %}
+                            {% if not home or home.modulo.slug == "fiscal" %}
                             <li class="menu-modulo">
                                 <details class="menu-dropdown" {% if request.resolver_match.namespace == "fiscal_web" %}open{% endif %}>
                                     <summary {% if request.resolver_match.namespace == "fiscal_web" %}aria-current="page"{% endif %}>
@@ -740,6 +764,7 @@
                                     </div>
                                 </details>
                             </li>
+                            {% endif %}
                         {% endif %}
                     </ul>
                 </nav>

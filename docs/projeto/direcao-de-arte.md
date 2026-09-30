@@ -118,12 +118,17 @@ sem mudar a identidade visual:
 | Módulo | A pergunta que a tela responde antes de gravar |
 | --- | --- |
 | **Contábil** | Débito é igual a crédito? |
+| **Core** | Na home do módulo, qual empresa e competência estão selecionadas, qual ocorrência exige atenção e qual rotina autorizada permite conferi-la? |
 | **Livro-caixa** | A conta tem o código do Carnê-Leão Web coerente com a natureza (receita/despesa), e a documentação de quem pagou/recebeu está completa quando o código exige (RC-113/RC-114/HI-30)? |
 | **Fiscal** | O documento é elegível, não é duplicado, e a apuração confere com a memória de cálculo? |
 | **Folha** | Proventos menos descontos dá o líquido, e as bases de encargo batem? |
 | **Honorários** | O que está sendo faturado corresponde ao contrato vigente, e não é cobrança repetida? |
 | **Processos/Paralegal** | A etapa tem a evidência exigida, e o prazo em risco está à vista? |
 | **Lalur/ECF** | O resultado contábil concilia com a base fiscal depois das adições e exclusões? |
+
+Core é a camada compartilhada das homes, não um novo domínio contábil. Suas
+telas são somente de consulta: abrem a rotina do módulo para revisão e não
+gravam fechamento, tratamento fiscal ou operação financeira (DL-049).
 
 Quem for construir um módulo novo **escreve a sua linha nesta tabela antes de
 desenhar a tela**. Se não souber responder, o problema não é de design.

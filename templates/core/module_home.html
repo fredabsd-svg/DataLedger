@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ home.modulo.titulo }}{% endblock %}
+{% block classe_body %}pagina-home-modulo{% endblock %}
+{% block estilos_extras %}
+    <script src="/static/js/module-home.js?v={{ versao_js_module_home }}" defer></script>
+{% endblock %}
+{% block titulo_pagina %}<h1>{{ home.modulo.titulo }}</h1>{% endblock %}
+{% block contexto_extra %}
+    {% if home.filtros %}
+        <span class="contexto-item"><span class="contexto-rotulo">Empresa</span><strong>{{ home.filtros.escopo_rotulo }}</strong></span>
+        <span class="contexto-item"><span class="contexto-rotulo">Competência</span><strong>{{ home.filtros.competencia_rotulo }}</strong></span>
+    {% endif %}
+{% endblock %}
+{% block trilha %}{% endblock %}
+
+{% block content %}
+    <div class="module-home" data-module-home data-context="{{ home.modulo.titulo }}{% if home.filtros %}, {{ home.filtros.escopo_rotulo }}, competência {{ home.filtros.competencia_rotulo }}{% endif %}" data-state="{{ home.estado }}"{% if home.carteira %} data-total="{{ home.fila_total_rotulo|default:home.fila_total }}"{% endif %}>
+        <header class="mh-header">
+            <div>
+                <p class="mh-eyebrow">Central de trabalho</p>
+                <p class="mh-subtitle">{{ home.modulo.descricao }}</p>
+                {% if home.modulo.disponibilidade == "parcial" %}<p class="mh-availability">Fiscal disponível: recepção e consulta de NFS-e.</p>{% endif %}
+            </div>
+            {% if home.filtros %}{% include "core/_home_components.html" with parte="filtros" %}{% endif %}
+        </header>
+
+        {% if home.acoes or home.novos %}
+            <div class="mh-actions" aria-label="Ações do módulo">
+                {% for acao in home.acoes %}<a class="botao {% if forloop.first %}botao--primario{% else %}botao--secundario{% endif %}" href="{{ acao.url }}">{{ acao.rotulo }}</a>{% endfor %}
+                {% if home.novos %}<details class="mh-new-menu"><summary class="botao botao--secundario">+ Novo <span aria-hidden="true">▾</span></summary><ul>{% for novo in home.novos %}<li><a href="{{ novo.url }}">{{ novo.rotulo }}</a></li>{% endfor %}</ul></details>{% endif %}
+            </div>
+        {% endif %}
+
+        {% if home.kpis %}{% include "core/_home_components.html" with parte="kpis" %}{% endif %}
+        {% include "core/_home_components.html" with parte="banners" %}
+        {% if home.carteira %}{% include "core/_home_components.html" with parte="carteira" %}{% endif %}
+
+        {% if home.estado == "sem_permissao" or home.estado == "filtro_invalido" or home.estado == "indisponivel" or home.estado == "sem_empresas" or home.estado == "inaplicavel" %}
+            {% include "core/_home_components.html" with parte="vazio" %}
+        {% else %}
+            <div class="mh-grid">
+                <section class="mh-panel mh-workqueue" aria-labelledby="mh-queue-title">
+                    <div class="mh-panel-header"><div><h2 id="mh-queue-title">{{ home.fila_titulo|default:"Fila de trabalho" }}</h2><p>{{ home.fila_descricao }}</p></div><span class="mh-count">{{ home.fila_total_rotulo|default:home.fila_total }} registro{{ home.fila_total|pluralize }}</span></div>
+                    {% include "core/_home_components.html" with parte="fila" %}
+                    <div class="mh-panel-footer"><span>{{ home.fila|length }} de {{ home.fila_total_rotulo|default:home.fila_total }} registro{{ home.fila_total|pluralize }}</span><a class="botao botao--secundario" href="{{ home.fila_url }}">Ver lista completa <span aria-hidden="true">→</span></a></div>
+                </section>
+                {% include "core/_home_components.html" with parte="atalhos" %}
+            </div>
+        {% endif %}
+        {% if home.atualizado_em %}<p class="mh-updated">Apurado em {{ home.atualizado_em }}. A situação atual do cadastro pode diferir da competência selecionada.</p>{% endif %}
+        <p class="visualmente-oculto" role="status" aria-live="polite" aria-atomic="true" data-home-announcement></p>
+        <p class="mh-loading" role="status" hidden data-home-loading>Atualizando os dados da empresa e da competência…</p>
+    </div>
+{% endblock %}
