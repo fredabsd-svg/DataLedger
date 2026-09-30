@@ -31,12 +31,16 @@ no código:
    - `CHECK (valor > 0)` no item.
    - Gatilhos que **recusam UPDATE e DELETE** em `LancamentoContabil` e
      `ItemLancamento`, espelhando exatamente o `save`/`delete` de hoje.
-     **Duas exceções**, achadas pelo implementador e aprovadas pelo
-     `arquiteto-senior` em 30/09/2026, cada uma válida só se nenhuma outra
-     coluna mudar na mesma instrução: `competencia_id` de nulo para
-     preenchido (comando `backfill_lancamento_competencia`, DL-016 F5) e
-     `criado_por_id` para nulo (`on_delete=SET_NULL` ao apagar usuário —
-     comportamento preservado, decisão aberta no BL-559).
+     **Uma exceção**, achada pelo implementador e aprovada pelo
+     `arquiteto-senior` em 30/09/2026, válida só se nenhuma outra coluna
+     mudar na mesma instrução: `competencia_id` de nulo para preenchido
+     (comando `backfill_lancamento_competencia`, DL-016 F5). O implementador
+     achou também `criado_por_id` virando nulo ao apagar usuário
+     (`SET_NULL`); o Fred decidiu (RC-144) que usuário se desativa e não se
+     apaga, então essa via é fechada em vez de liberada.
+   - **Usuário não se exclui (RC-144, BL-559):** `criado_por` do lançamento
+     e autorias da trilha com `PROTECT`; admin sem exclusão de usuário;
+     desativar continua possível.
    - Gatilho de restrição **adiado para o fim da transação** que recusa
      lançamento cujos itens não somem débito igual a crédito, ou que não tenha
      ao menos um débito e um crédito (as mesmas regras de `criar_lancamento`;
@@ -50,7 +54,7 @@ no código:
    `estado.md` enxuto e coerente com o Git; preferência de modelo do Fred
    registrada na equipe.
 
-**Fora do escopo** (registrado no backlog, BL-547 a BL-559): token do convite
+**Fora do escopo** (registrado no backlog, BL-547 a BL-558): token do convite
 fora da URL, confirmação de e-mail no cadastro, papel Cliente lendo a
 carteira (M2), reclassificação de conta em período encerrado (M3), trava de
 período do livro-caixa (M4, depende da PE-73), limite de tentativas no login
@@ -76,7 +80,9 @@ e titularidade de CNPJ (M5), IP atrás de proxy (M6) e os achados baixos.
 7. Suíte completa verde em PostgreSQL; nenhum teste existente afrouxado.
    Teste que precise montar dado inválido de propósito desliga o gatilho de
    forma explícita, local e comentada.
-8. Migração aplica em banco vazio e é reversível (`migrate contabilidade
+8. Excluir usuário que escriturou → recusado (ORM e admin); desativar →
+   aceito, e o usuário desativado não entra.
+9. Migração aplica em banco vazio e é reversível (`migrate contabilidade
    <anterior>` remove gatilhos e restrição).
 
 ## Impacto, riscos e reversão

@@ -135,6 +135,8 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
   lançamento garantidos também pelo PostgreSQL, com duas exceções declaradas
   no plano (BL-545).
 - **M1 (média):** estorno e trilha de auditoria na mesma transação (BL-546).
+- **Usuário se desativa, não se apaga** — decisão do Fred em 30/09 (RC-144,
+  BL-559): autoria do lançamento protegida e admin sem exclusão de usuário.
 - Nível 3, sem auditoria: `makemigrations --check` na CI; este arquivo
   reescrito enxuto; `auditor-qa` passa a `sonnet` por instrução do Fred
   (RC-143, ver [equipe.md](equipe.md)).
@@ -156,8 +158,6 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 **Decisões com o Fred:**
 
 - **PE-73:** o livro-caixa deve ter fechamento de mês?
-- **BL-559:** apagar usuário zera a autoria dos lançamentos; proibir a
-  exclusão (desativar) ou manter?
 - Balanço emitido sem o zeramento (três caminhos apresentados em 21/09).
 - Quem vê a contabilidade de quais empresas (PE-36).
 - Pendências do carnê-leão: HI-32, HI-37, HI-38, HI-39; importação real no
