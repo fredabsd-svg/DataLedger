@@ -48,6 +48,7 @@ from apps.tenancy.services.primeiro_acesso import (
     ConviteTokenColidiu,
     PrimeiroEscritorioJaExiste,
     aceitar_convite_e_criar_vinculo,
+    convite_e_do_usuario,
     criar_primeiro_escritorio_e_vinculo_admin,
     emitir_convite_para_escritorio,
 )
@@ -1042,11 +1043,11 @@ def aceitar_convite(request, token: str):
 
         try:
             aceitar_convite_e_criar_vinculo(token=token, usuario=request.user)
-        except ConviteInvalido:
-            messages.error(
-                request,
-                "Convite inexistente, expirado ou já consumido.",
-            )
+        except ConviteInvalido as exc:
+            # A mensagem da exceção é escrita para o usuário final (prazo
+            # vencido, e-mail divergente ou convite inexistente/consumido)
+            # e não revela o e-mail para o qual o convite foi emitido.
+            messages.error(request, str(exc))
             return redirect("tenancy:painel")
 
         messages.success(
@@ -1056,8 +1057,12 @@ def aceitar_convite(request, token: str):
         return redirect("tenancy:painel")
 
     convite = ConviteEscritorio.objects.filter(token=token).first()
+    # A tela só oferece "Aceitar" se o serviço aceitaria: convite dentro do
+    # prazo e emitido para o e-mail de quem está logado. O template não
+    # recebe nem mostra o e-mail do convite.
+    email_confere = convite is not None and convite_e_do_usuario(convite, request.user)
     return render(
         request,
         "tenancy/aceitar_convite.html",
-        {"token": token, "convite": convite},
+        {"token": token, "convite": convite, "email_confere": email_confere},
     )
