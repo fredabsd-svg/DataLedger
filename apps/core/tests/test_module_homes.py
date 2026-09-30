@@ -111,6 +111,67 @@ def test_entrada_autenticada_e_modulo_desconhecido(client):
     assert client.get(_url("modulo-inexistente")).status_code == 302
 
 
+@pytest.mark.parametrize("modulo", ["vendas", "estoque", "inventario"])
+@pytest.mark.parametrize("lista", [False, True])
+def test_modulo_fora_do_escopo_retornando404_autenticado(client, cenario, modulo, lista):
+    resposta = client.get(_url(modulo, lista=lista))
+    assert resposta.status_code == 404
+
+
+@pytest.mark.parametrize("pagina", ["home", "painel"])
+def test_navegacao_renderizada_respeita_escopo_e_preserva_contexto(client, cenario, pagina):
+    class NavegacaoDosModulos(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.no_menu = False
+            self.encontrou_menu = False
+            self.destinos = []
+            self.rotulos = []
+
+        def handle_starttag(self, tag, attrs):
+            atributos = dict(attrs)
+            if tag == "nav" and atributos.get("aria-label") == "Trocar módulo":
+                self.no_menu = True
+                self.encontrou_menu = True
+            if tag == "a" and self.no_menu:
+                self.destinos.append(atributos["href"])
+
+        def handle_endtag(self, tag):
+            if tag == "nav":
+                self.no_menu = False
+
+        def handle_data(self, data):
+            if self.no_menu:
+                self.rotulos.append(data.strip())
+
+    resposta = client.get(_url(), {"empresa": cenario["segunda"].pk, "competencia": "2024-02"})
+    if pagina == "painel":
+        resposta = client.get(reverse("tenancy:painel"))
+    assert resposta.status_code == 200
+    parser = NavegacaoDosModulos()
+    parser.feed(resposta.content.decode())
+    assert parser.encontrou_menu
+    assert {"Vendas", "Estoque", "Inventário", "Inventario"}.isdisjoint(parser.rotulos)
+    destinos = {urlsplit(url).path: url for url in parser.destinos}
+    for slug in ("vendas", "estoque", "inventario"):
+        assert _url(slug) not in destinos
+        assert _url(slug, lista=True) not in destinos
+    for slug in ("financeiro", "folha"):
+        assert _url(slug) in destinos
+    # Seguir os links HTML prova o destino e o contexto das rotinas reais,
+    # inclusive a seleção incompatível com Livro-caixa, sem ampliar a carteira.
+    for slug in ("contabilidade", "fiscal", "livro-caixa"):
+        destino = destinos[_url(slug)]
+        filtros = parse_qs(urlsplit(destino).query)
+        assert filtros["empresa"] == [str(cenario["segunda"].pk)]
+        assert filtros["competencia"] == ["2024-02"]
+        home = client.get(destino)
+        assert home.status_code == 200
+        assert home.context["home"]["modulo"]["slug"] == slug
+        assert home.context["home"]["filtros"]["empresa"] == str(cenario["segunda"].pk)
+        assert home.context["home"]["filtros"]["competencia"] == "2024-02"
+
+
 def test_sem_permissao_nao_consulta_empresa_nem_expoe_nomes(client, cenario):
     cenario["vinculo"].papel = Papel.CLIENTE
     cenario["vinculo"].save(update_fields=["papel"])
@@ -400,7 +461,7 @@ def test_livro_caixa_nao_inventa_fechamento_ou_valores(client, cenario):
     assert all("fechamento" not in atalho["url"] for atalho in home["atalhos"])
 
 
-@pytest.mark.parametrize("modulo", ["financeiro", "folha", "vendas", "estoque"])
+@pytest.mark.parametrize("modulo", ["financeiro", "folha"])
 def test_modulo_planejado_sem_dados_ou_acoes_ficticias(client, cenario, modulo):
     home = client.get(_url(modulo), {"empresa": "todas", "competencia": "2026-09"}).context["home"]
     assert home["estado"] == "indisponivel"
@@ -694,7 +755,7 @@ def test_seletor_nativo_tem_uma_opcao_selecionada_e_preserva_escopo(client, cena
 
 
 @pytest.mark.parametrize(
-    "modulo", ["contabilidade", "fiscal", "livro-caixa", "financeiro", "folha", "vendas", "estoque"]
+    "modulo", ["contabilidade", "fiscal", "livro-caixa", "financeiro", "folha"]
 )
 @pytest.mark.parametrize("lista", [False, True])
 def test_homes_compartilhadas_tem_moldura_acessivel(client, cenario, modulo, lista):

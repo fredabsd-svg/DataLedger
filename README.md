@@ -231,6 +231,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-048** — Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC (indireto) e DRA e DVA (CTB-12 a CTB-17 do mapa de paridade). Itens em [docs/projeto/paridade/contabilidade.md](docs/projeto/paridade/contabilidade.md). Plano em [docs/planos/DL-048-contabilidade-anual-demonstracoes.md](docs/planos/DL-048-contabilidade-anual-demonstracoes.md)
 - **DL-049** — Página inicial por módulo: contexto de empresa/competência, indicadores acionáveis, carteira e fila de trabalho. Plano em [docs/planos/DL-049-home-por-modulo.md](docs/planos/DL-049-home-por-modulo.md)
 - **DL-050** — Toda espera de thread em teste ganha timeout, com asserção de que a thread concluiu. Nível 3 (andaime): `join()` e `barreira.wait()` sem timeout faziam a suíte **terminar em silêncio** quando uma thread morria antes da barreira, e timeout sozinho — sem a asserção de `is_alive()` — trocaria o travamento por um falso positivo silencioso. Plano em [docs/planos/DL-050-esperas-de-thread-com-timeout.md](docs/planos/DL-050-esperas-de-thread-com-timeout.md)
+- **DL-051** — Correção do escopo da navegação: Vendas não pertence ao produto; estoque e inventário são rotinas de Fiscal, sem módulo próprio. Plano em [docs/planos/DL-051-correcao-dos-modulos.md](docs/planos/DL-051-correcao-dos-modulos.md)
 
 Ainda não existem:
 

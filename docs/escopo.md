@@ -23,6 +23,9 @@ Não entregar somente telas demonstrativas nem apresentar dados fictícios como 
 
 ## Fiscal
 
+- Controle de estoque e Livro de Registro de Inventário pertencem a este
+  domínio, sem módulo independente. A orientação do Fred de 30/09/2026
+  delimita o produto; Vendas não faz parte do DataLedger.
 - Começar por importação, validação e consulta de XML de NF-e.
 - Evoluir para NFC-e, CT-e e NFS-e conforme os formatos e conectores disponíveis.
 - Cadastrar produtos, serviços, NCM, CFOP, CST e CSOSN quando aplicáveis.

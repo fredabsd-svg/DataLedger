@@ -9,6 +9,12 @@ posterior autoriza escolha autônoma da variante e execução sem novas pergunta
 **Risco:** nível 2, interface de consulta; a agregação e o isolamento recebem
 revisão independente. Nenhuma alteração de cálculo, migração ou transmissão.
 
+**Correção de escopo:** [DL-051](DL-051-correcao-dos-modulos.md), determinada
+pelo Fred em 30/09/2026. A entrega original incluiu Vendas/Estoque indevidamente
+como módulos informativos. Vendas é retirado do produto; estoque e inventário
+pertencem a Fiscal, sem módulo próprio. O escopo abaixo reflete essa correção;
+os relatórios de auditoria preservam a versão que efetivamente examinaram.
+
 ## Escopo e etapas
 
 1. Comparar três variantes isoladas da fila, com o mesmo contexto: Compacta
@@ -17,7 +23,7 @@ revisão independente. Nenhuma alteração de cálculo, migração ou transmiss�
    registrar a decisão e remover a superfície experimental da entrega.
 2. Implementar um contrato comum de home e lista filtrada, com empresa,
    seleção de empresas e competência persistentes. Contábil, recepção Fiscal e
-   Livro-caixa usam dados reais; Financeiro, Folha, Vendas e Estoque explicam
+   Livro-caixa usam dados reais; Financeiro e Folha explicam
    indisponibilidade sem números ou atalhos fictícios.
 3. Validar navegação, estados, consultas, permissões, visual e movimento;
    revisar independentemente; publicar commit/PR, conferir CI e mesclar.

@@ -5,6 +5,12 @@ contexto de empresa e competência ao trocar de domínio e reúne exceções,
 empresas que exigem atenção e a próxima ação. Relatórios gerenciais e gráficos
 ficam em seus destinos próprios.
 
+Correção de escopo determinada pelo Fred em 30/09/2026:
+[DL-051](../planos/DL-051-correcao-dos-modulos.md). Vendas não é módulo do
+DataLedger. Estoque e Livro de Registro de Inventário são rotinas de Fiscal
+(FIS-39/FIS-47), ainda planejadas, e não possuem home ou item independente
+na seleção de módulos. Referência visual não define o escopo do produto.
+
 ## Revisão do prompt aplicado
 
 O briefing orienta a interface. Cada exigência abaixo foi traduzida em um
@@ -24,7 +30,8 @@ explícito na tela. Nenhuma pesquisa com operadores foi presumida.
 | Financeiro como instância do padrão | Aplicar o mesmo shell à página indisponível até existir fonte financeira, sem amostra fictícia em produção. |
 | Fiscal com XML, emissão e certificado | Nesta entrega, consultar recepção real de NFS-e; emissão, certificado e obrigação ficam fora do escopo. |
 | Contábil e checklist de fechamento | Exibir ocorrências e bloqueios persistidos; a rotina existente continua validando fechamento e reabertura. |
-| Folha, Vendas e Estoque | Página informativa no padrão comum; implementação do domínio é uma demanda própria. |
+| Folha | Página informativa no padrão comum; implementação do domínio é uma demanda própria. |
+| Vendas e Estoque no briefing | Não incluir como módulos. Vendas está fora do escopo; estoque e inventário pertencem a Fiscal, sem anunciar rotinas ainda não implementadas. |
 | Fila e empresas críticas | Oito linhas iniciais, cinco empresas críticas e lista completa paginada; sem total de cards tratado como empresas únicas. |
 | Ações primárias e “+ Novo” | Oferecer somente destinos reais autorizados; carteira nunca seleciona cliente de escrita silenciosamente. |
 | Valores ocultos por permissão | Produzir contagens, sem R$; papel DP e privilégio monetário separado ainda não existem no projeto. |
@@ -41,6 +48,9 @@ explícito na tela. Nenhuma pesquisa com operadores foi presumida.
 **Prompt revisado para manutenção:** implemente a página inicial do módulo
 no shell DataLedger existente. Preserve o contexto autorizado por escritório,
 empresa e competência; derive cards e filas das mesmas fontes de leitura.
+Use apenas módulos pertencentes ao escopo confirmado do DataLedger; não
+importe a estrutura de um ERP comercial da referência visual. Inventário
+e controle de estoque pertencem a Fiscal, sem módulo independente.
 Mostre primeiro o bloqueio comprovado e a ação de revisão correspondente.
 Declare fonte ausente ou estado não acompanhado, sem fabricar número, prazo,
 resolução ou operação. Use até quatro cards, carteira com quatro segmentos,
@@ -77,7 +87,7 @@ podem se sobrepor. Não somar o total dos cards para obter pendências graves.
 | Contábil | Competências persistidas e plano de contas. O detector RC-58 identifica lançamentos desbalanceados na base inteira; a origem temporal aparece na fila. Ausência de competência é “Não registrada”, nunca abertura automática. |
 | Fiscal | Recepção e consulta de NFS-e. Competência do documento e mês de recepção do arquivo são eixos diferentes. Recusa de arquivo não significa rejeição de emissão. A aplicação não persiste estado de tratamento dessas ocorrências. |
 | Livro-caixa | Empresas em modo livro-caixa, plano e movimentação de caixa. Não oferecer Balanço/DRE ou fechamento de partidas dobradas. |
-| Financeiro, Folha, Vendas e Estoque | Indisponíveis nesta instalação; sem dados fictícios, valores financeiros ou ações anunciadas como prontas. |
+| Financeiro e Folha | Indisponíveis nesta instalação; sem dados fictícios, valores financeiros ou ações anunciadas como prontas. |
 
 Sem prazo cadastrado, informar “Sem prazo informado”. Competência anterior
 aberta não comprova vencimento legal. Zero só significa zero apurado;
@@ -158,8 +168,6 @@ perfil sem consulta, 403, antes de buscar empresas ou totais.
 | Livro-caixa | Clientes sem movimento registrado | `sem-movimento` | Nenhum registro encontrado com estes filtros. Ausência de movimento não comprova atraso. |
 | Financeiro | Sem indicador nesta versão | Sem lista apurada | Financeiro ainda não está disponível. |
 | Folha | Sem indicador nesta versão | Sem lista apurada | Folha ainda não está disponível. |
-| Vendas | Sem indicador nesta versão | Sem lista apurada | Vendas ainda não está disponível. |
-| Estoque | Sem indicador nesta versão | Sem lista apurada | Estoque ainda não está disponível. |
 
 ```mermaid
 flowchart TD

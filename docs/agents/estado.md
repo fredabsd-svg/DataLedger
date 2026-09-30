@@ -134,6 +134,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | **Fatia CTB-12 + CTB-13 (a DLPA) integrada pelo PR #59** — com auditoria reprovada e achados corrigidos; CTB-14 a CTB-17 em **[Próximo passo](#próximo-passo)** |
 | [DL-049](../planos/DL-049-home-por-modulo.md) | Página inicial por módulo, filtros persistentes e fila operacional multiempresa | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-051](../planos/DL-051-correcao-dos-modulos.md) | Correção dos módulos: Vendas fora do produto; inventário dentro de Fiscal | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -141,6 +142,35 @@ fechamento como DL-031. Rastreabilidade: DL-028 a DL-034 entraram juntas pelo
 merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
+
+**DL-051 — Correção de escopo (30/09/2026). Estado no
+[PR #65](https://github.com/fredabsd-svg/DataLedger/pull/65): em revisão
+enquanto aberto; integrada após o merge confirmado nesse PR.** Fred
+identificou que a DL-049 promoveu Vendas/Estoque indevidamente a módulos.
+Retirar menu e páginas informativas; registrar inventário e estoque dentro
+de Fiscal, conforme FIS-39/FIS-47, sem implementar essas rotinas nesta etapa.
+Plano: [DL-051](../planos/DL-051-correcao-dos-modulos.md). Base `main` após
+os PRs #63, #62 e #64; preservar a API da DLPA e as consultas dos módulos reais.
+Validação inicial: `pytest apps/core/tests/test_module_homes.py -q` em
+SQLite temporário → **71 passed, 1 warning in 8.92s**. Esse resultado é
+anterior à correção. Os oito novos casos reproduziram o defeito com
+**6 failed, 2 passed, 65 deselected in 11.01s**. Após a correção, homes:
+**73 passed in 38.97s**, incluindo as rotas 404 e a navegação real; painel
+e estado documental: **23 passed, 1 warning in 2.95s**; navegação de telas
+e troca de empresa: **11 passed, 1 warning in 2.55s**. Ruff limpo;
+**318 arquivos** formatados; Django check sem problemas.
+Chromium headless: três páginas reais sem os módulos indevidos, seis URLs
+recusadas com 404, troca preservando empresa/competência, nenhum erro
+JavaScript e sem rolagem horizontal em 1.440/390 px. Fonte de dados
+descartável em SQLite; não valida valores monetários ou concorrência.
+Não houve mudança em agregações, autorização, cálculos ou documentos.
+A situação da CI integral acompanha o PR #65; merge somente após a aprovação
+das quatro checagens obrigatórias no último HEAD.
+Após incorporar a main do PR #64 e renumerar esta demanda para DL-051,
+o recorte combinado registrou **107 passed, 1 warning in 11.59s**; lint e
+formatação continuam aprovados. Validador documental oficial:
+**194 arquivos Markdown verificados**, exit 0. A inclusão de timeouts da
+DL-050 foi preservada; o código da correção de navegação não mudou.
 
 **DL-049 — Home por módulo (30/09/2026). Estado da entrega no
 [PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63): em revisão
