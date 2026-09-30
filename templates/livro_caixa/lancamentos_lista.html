@@ -17,6 +17,8 @@
 
 {% block titulo_pagina %}<h1>Lançamentos de caixa</h1>{% endblock %}
 {% block acoes_pagina %}
+    {# DL-053: caminho para o fechamento de mês — qualquer papel que lê o livro-caixa pode consultá-lo. #}
+    <a class="botao botao--secundario" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}{% if inicio %}?ano={{ inicio.year }}{% endif %}">Fechamento de mês</a>
     {% if pode_escriturar %}
         <a class="botao botao--primario" href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
     {% endif %}
@@ -47,6 +49,20 @@
             O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
         </p>
     </form>
+
+    {% comment %}
+    DL-053, critério 7: mês encerrado é dito em TEXTO, antes da tabela. Nas
+    linhas dele a ação de estornar não é oferecida (o servidor recusa de
+    qualquer forma, com 409).
+    {% endcomment %}
+    {% if meses_encerrados_no_periodo %}
+        <p class="mensagem mensagem-warning" role="note">
+            <strong>Mês encerrado neste período:</strong>
+            {{ meses_encerrados_no_periodo|join:", " }}.
+            Lançamentos e estornos nele estão bloqueados. Para corrigir, reabra o mês em
+            <a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ inicio.year }}">Fechamento de mês</a>.
+        </p>
+    {% endif %}
 
     {% if linhas %}
         <div class="cartao-tabela">
@@ -91,13 +107,20 @@
                                 {% endif %}
                             </td>
                             <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
-                            <td class="acoes-de-linha">
+                            <td>
+                                <div class="acoes-de-linha">
                                 {% if pode_escriturar and not linha.e_estorno and not linha.ja_estornado %}
-                                    <a class="botao botao--secundario botao--pequeno"
-                                       href="{% url 'livro_caixa_web:lancamento_estornar' empresa.id linha.lancamento.id %}">
-                                        Estornar
-                                    </a>
+                                    {% if linha.mes_encerrado %}
+                                        {# Mês encerrado: sem o botão, e o motivo em texto. #}
+                                        <span class="texto-apoio">Mês encerrado</span>
+                                    {% else %}
+                                        <a class="botao botao--secundario botao--pequeno"
+                                           href="{% url 'livro_caixa_web:lancamento_estornar' empresa.id linha.lancamento.id %}">
+                                            Estornar
+                                        </a>
+                                    {% endif %}
                                 {% endif %}
+                                </div>
                             </td>
                         </tr>
                     {% endfor %}

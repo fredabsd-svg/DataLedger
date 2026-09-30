@@ -29,6 +29,20 @@
             <a href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastre uma conta</a> antes de lançar.
         </p>
     {% else %}
+        {% comment %}
+        DL-053, critério 7: um campo de data não consegue excluir meses sem
+        JavaScript, então a tela AVISA, em texto, quais meses estão
+        encerrados. Quem recusa de verdade é o servidor (409, formulário
+        preenchido de volta).
+        {% endcomment %}
+        {% if meses_encerrados %}
+            <p class="mensagem mensagem-warning" role="note">
+                <strong>Meses encerrados não recebem lançamento:</strong>
+                {{ meses_encerrados|join:", " }}.
+                Escolha uma data em mês aberto, ou reabra o mês em
+                <a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano_do_fechamento }}">Fechamento de mês</a>.
+            </p>
+        {% endif %}
         <form method="post" action="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}"
               class="formulario" novalidate>
             {% csrf_token %}
