@@ -140,7 +140,7 @@ isolada do repositório e integrada **uma por vez** na branch
   (BL-549).
 - **DL-056** (nível 2) — limite de tentativas no login e no cadastro
   (BL-552, sem a titularidade do CNPJ). Limites iniciais são hipótese.
-- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável (BL-553).
+- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável (BL-553); implementada e integrada na branch, em auditoria.
 
 **DL-053 — integrada pelo [PR #67](https://github.com/fredabsd-svg/DataLedger/pull/67)**
 em 30/09/2026 (squash `0d68949`), com os quatro checks verdes no último

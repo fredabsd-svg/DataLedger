@@ -31,3 +31,26 @@ do proxy.
 3. Cabeçalho malformado, IPv6, espaços → sem erro, IP válido gravado.
 4. Todas as gravações da trilha usam a função única (varredura por teste).
 5. Suíte completa verde.
+
+## Evidências
+
+Implementação (`desenvolvedor-pleno`, cópia isolada, integrada por
+cherry-pick): `apps/auditoria/ip.py` (`ip_do_cliente`), `registrar` usando a
+função única, `PROXIES_CONFIAVEIS` lida de `DJANGO_PROXIES_CONFIAVEIS` (vazia
+por padrão; entrada que não seja IP ou CIDR impede a subida) e a variável no
+`.env.example`.
+
+- Achado do implementador: o Python aceita IPv6 com escopo
+  (`2001:db8::1%eth0`), texto controlado por quem faz a requisição; passou a
+  ser tratado como malformado, com teste.
+- `REMOTE_ADDR` em código de produção só existia em
+  `apps/auditoria/services.py`; nenhum outro ponto lê `X-Forwarded-For`.
+- Suíte completa (PostgreSQL, Python 3.13): **3.916 aprovados, 50 pulados,
+  1 reprovado** (o conhecido de Python 3.13). Mutação: voltar a
+  `REMOTE_ADDR` → 4 reprovam; ignorar a lista confiável → 8; percorrer o
+  cabeçalho da esquerda → 7.
+- **Operação:** em produção, `DJANGO_PROXIES_CONFIAVEIS` precisa receber o
+  IP ou a rede do proxy que fala com o Django; sem isso a trilha continua
+  com o IP do proxy.
+- Não testado: proxy real (nginx); Python 3.14 (CI).
+
