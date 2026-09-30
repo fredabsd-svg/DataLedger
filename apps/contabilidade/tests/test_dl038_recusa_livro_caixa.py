@@ -70,7 +70,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_vinte_e_uma_rotas_web_e_as_quinze_da_api():
+def test_a_derivacao_encontrou_as_vinte_e_uma_rotas_web_e_as_dezessete_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -101,15 +101,17 @@ def test_a_derivacao_encontrou_as_vinte_e_uma_rotas_web_e_as_quinze_da_api():
     # "conta_classificacao_dre" (GET mostra o formulário, POST grava) —
     # 18 -> 19 do lado da tela.
     #
-    # DL-048/CTB-12 e CTB-13 (esta entrega): DUAS rotas novas na tela —
-    # "dlpa" (a própria demonstração) e "conta_classificacao_dlpa" (GET
-    # formulário, POST grava) — 19 -> 21 do lado da tela. NENHUMA rota
-    # nova na API nesta fatia: a DLPA nasce com tela primeiro, e a
-    # paridade de API (`DlpaView` GET + `ContaClassificacaoDlpaView`
-    # PATCH) é a fatia seguinte, declarada no plano da DL-048 — por isso a
-    # API continua em 15.
+    # DL-048/CTB-12 e CTB-13: DUAS rotas novas na tela — "dlpa" (a própria
+    # demonstração) e "conta_classificacao_dlpa" (GET formulário, POST grava)
+    # — 19 -> 21 do lado da tela. NENHUMA rota nova na API nessa fatia: a
+    # DLPA nasceu com tela primeiro.
+    #
+    # DL-048, **fatia D8** (esta entrega): as DUAS rotas de API que aquela
+    # fatia deixou declaradas para depois — `DlpaView` (GET) e
+    # `ContaClassificacaoDlpaView` (PATCH) — 15 -> 17 do lado da API. Nenhuma
+    # rota nova na tela: a D8 é paridade, não superfície nova.
     assert len(ROTAS_WEB) == 21, ROTAS_WEB
-    assert len(ROTAS_API) == 15, ROTAS_API
+    assert len(ROTAS_API) == 17, ROTAS_API
 
 
 @pytest.fixture

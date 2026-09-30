@@ -251,11 +251,25 @@ pode ser implementada; a D8 (API da DLPA) também.**
 
 ### Próximo passo, agora sem decisão pendente
 
-1. **D8 (API da DLPA)** — `DlpaView` + `ContaClassificacaoDlpaView`, **projetada prevendo
-   que a DLPA pode estar embutida na DMPL** (art. 186, §2º), e não só como peça
-   autônoma. Nível 2.
+1. ✅ **D8 (API da DLPA) — ENTREGUE.** `DlpaView` + `ContaClassificacaoDlpaView` +
+   `ContaSerializer.classificacao_dlpa`, **projetadas prevendo que a DLPA pode estar
+   embutida na DMPL** (art. 186, §2º) e não só como peça autônoma. Nível 2.
+   Plano de uma página em
+   [DL-048-fatia-d8-api-da-dlpa.md](../planos/DL-048-fatia-d8-api-da-dlpa.md).
+   **25 testes novos**; a guarda de contagem de rotas foi de **15 para 17** na API.
+   **O §2º é DECLARADO na resposta** (chave `paragrafo_2`, sempre presente, com a
+   pendência do dividendo por ação e o motivo), em vez de omitido — é o achado 11 da
+   auditoria visível para quem consome. E **a `chave` de cada linha é o contrato com a
+   CTB-14**: a linha da DLPA é a DESTINAÇÃO e a coluna da DMPL é a CONTRAPARTIDA
+   (RC-137), então a DMPL vai ler `transferencia:<reserva>` × `reversao:<reserva>`
+   (decisão D4) como movimento de coluna, sem segunda lógica.
+   A API **não escolhe** entre DLPA autônoma e embutida: é faculdade da lei, e a
+   escolha é da emissão — por isso a resposta **não tem** campo "modo".
 2. **CTB-14 (DMPL)** — nível 1, com auditoria independente obrigatória. Aplica as duas
    normas por data de início do exercício, com adoção antecipada prevista.
+3. **As ~30 esperas infinitas restantes** em 13 arquivos de teste (achado sistêmico
+   acima) — etapa própria, com verificação própria, porque guardam invariantes de
+   concorrência de CNPJ, lançamento e zeramento. Ordem a definir pelo Fred.
 
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em

@@ -21,6 +21,7 @@ from apps.contabilidade.models import (
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import (
+    ClassificacaoDlpaPatchSerializer,
     ClassificacaoDrePatchSerializer,
     ContaSerializer,
     LancamentoContabilSerializer,
@@ -36,9 +37,12 @@ from apps.contabilidade.services import (
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     apurar_balancete,
+    apurar_dlpa,
     apurar_dre,
     apurar_razao,
+    avaliar_emissao_da_dlpa,
     avaliar_emissao_da_dre,
+    classificar_conta_na_dlpa,
     classificar_conta_na_dre,
     criar_lancamento,
     encerrar_competencia,
@@ -194,6 +198,11 @@ CONTRATO_POST_CONTA = ContratoDeRequisicao(
         "aceita_lancamento",
         "ativo",
         "classificacao_dre",
+        # DL-048 (fatia D8): mesma razão do `classificacao_dre` acima. Sem
+        # esta linha, o campo novo do serializer é recusado com "dado não
+        # contratado" ANTES de qualquer validação — e a recusa acontece por
+        # contrato, não por tipo, então a mensagem nem nomeia o campo.
+        "classificacao_dlpa",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
@@ -259,6 +268,14 @@ CONTRATO_POST_ZERAR_RESULTADO = ContratoDeRequisicao(
 CONTRATO_PATCH_CLASSIFICACAO_DRE = ContratoDeRequisicao(
     campos={"classificacao_dre"},
     contexto="na classificação da linha da DRE",
+)
+# DL-048 (fatia D8): mesmo contrato da DRE para a linha da DLPA — um campo só,
+# e a própria conta vem da URL. Um contrato NOVO (e não o mesmo) porque a
+# política recusa chave desconhecida por NOME: aceitar `classificacao_dre` num
+# PATCH de DLPA gravaria a linha errada em silêncio.
+CONTRATO_PATCH_CLASSIFICACAO_DLPA = ContratoDeRequisicao(
+    campos={"classificacao_dlpa"},
+    contexto="na classificação da linha da DLPA",
 )
 
 
@@ -1797,6 +1814,191 @@ class ContaClassificacaoDreView(EmpresaEscopadaContabilMixin, APIView):
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dre": mensagens_da_validacao_django(exc)}
+            ) from exc
+
+        return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
+
+
+# DL-048 (fatia D8) — o § 2º do art. 186 da Lei 6.404/76, como BLOCO de
+# resposta, e não como frase no docstring.
+#
+# "A demonstração de lucros ou prejuízos acumulados deverá indicar o montante
+#  do dividendo por ação do capital social e poderá ser incluída na demonstração
+#  das mutações do patrimônio líquido, se elaborada e publicada pela companhia."
+# (texto lido no Planalto em 29/09/2026)
+#
+# São TRÊS fatos que a API precisa declarar, e todos os três são
+# consecuencias que um cliente não pode deduzir sozinho:
+#
+# 1. O "montante do dividendo por ação" NÃO é apurável aqui, e a razão é
+#    estrutural, não uma pendência esquecida: a base de cálculo (número de
+#    ações do capital social) é dado da DMPL, que é a CTB-14. A DLPA lê
+#    movimento de lançamentos e não tem esse dado. O achado 11 da auditoria de
+#    29/09 registrou exatamente isso, e a decisão foi DECLARAR em vez de
+#    inventar o número (AGENTS.md §10: não inventar fórmula ou leiaute).
+# 2. "Poderá ser incluída na DMPL" é FACULDADE da lei, não dever. A API não
+#    escolhe entre emitir a DLPA autônoma ou embutida — essa escolha é da
+#    emissão, e a apuração é a MESMA nos dois casos. Por isso a resposta não
+#    tem campo "modo": teria duas respostas idênticas com nomes diferentes, e
+#    quem integrasse escolheria pelo nome em vez de pela lei.
+# 3. A chave SEMPRE existe, mesmo sem dividendo nenhum. Cliente que só a
+#    enxergasse quando houvesse valor não tem como distinguir "não há" de
+#    "esta versão do servidor não responde isso" — o mesmo raciocínio de
+#    `_aviso_de_movimento_fora_do_periodo` (BL-198).
+#
+# ⚠️ O que a API NÃO faz, por decisão: não calcula dividendo por ação, não
+# emite coluna de DMPL, e não escolhe o modo de emissão. A CTB-14 consome as
+# `chave` das linhas (que já carregam a destinação × reversão da D4) como
+# movimento de coluna — a MESMA leitura estruturada, sem segunda lógica.
+_PARAGRAFO_2_DA_DLPA = {
+    "fonte": "Lei 6.404/76, art. 186, § 2º",
+    "dividendo_por_acao": None,
+    "situacao_do_dividendo_por_acao": (
+        "pendente: a base de cálculo (ações do capital social) é dado da DMPL (CTB-14)"
+    ),
+    "pode_ser_incluida_na_dmpl": True,
+    "natureza": (
+        "faculdade da lei, não obrigação — a escolha de emitir a DLPA autônoma ou "
+        "embutida é da emissão, não da leitura"
+    ),
+}
+
+
+def _linhas_da_dlpa_para_json(linhas):
+    return [
+        {
+            "chave": linha["chave"],
+            "titulo": linha["titulo"],
+            "valor": _como_moeda(linha["valor"]),
+            "lancamentos": list(linha["lancamentos"]),
+        }
+        for linha in linhas
+    ]
+
+
+class DlpaView(EmpresaEscopadaContabilMixin, APIView):
+    """Demonstração dos Lucros ou Prejuízos Acumulados (DL-048, **fatia D8** —
+    a porta de API que a decisão D8 deixou para depois da tela).
+
+    **O que ela NÃO é:** uma segunda apuração. Revela, sem recalcular, o que
+    `apurar_dlpa` e `avaliar_emissao_da_dlpa` já decidem no servidor. Nenhuma
+    regra de negócio é duplicada aqui — a autorização, o isolamento, a
+    conciliação com o Balanço e os vetos de emissão vivem no serviço e na
+    camada de permissões, como em `DreView`.
+
+    **Autorização:** a MESMA das outras saídas contábeis com período (Diário,
+    Razão, Balancete, DRE) — `PodeLerContabilidade`, nunca
+    `PodeFecharCompetencia`: a DLPA é leitura, não ação de fechamento.
+
+    **Período:** `ano`/`mes` identificam o RECURSO (o exercício até a competência
+    pedida), mesmo padrão de `dre/<int:ano>/<int:mes>/`. `_validar_ano_mes`
+    recusa mês fora de 1–12 e ano implausível com 400 — é o achado 14 da
+    auditoria de 29/09 ("`mes` fora da faixa levanta exceção crua") corrigido
+    AQUI, na fronteira, que é onde a validação de FORMATO pertence.
+
+    **409 (`pode_emitir=False`) com o corpo INTEIRO mesmo assim:** mesmo padrão
+    de `DreView`. Um cliente que só recebesse o veto não distinguiria "não pode
+    emitir" de "o servidor não sabe ler"; e um cliente que montasse documento
+    com 200 receberia número imprimível sem saber da pendência. Por isso o
+    corpo sempre traz saldos, linhas, conciliação e pendências — o status
+    informa, não substitui.
+
+    **A chave `chave` de cada linha é o contrato com a DMPL (CTB-14).** A
+    RC-137 fixa que a linha da DLPA é a DESTINAÇÃO e a coluna da DMPL é a
+    CONTRAPARTIDA — *"o mesmo fato visto por dois lados"*. Por isso a apuração
+    emite a leitura estruturada do evento, e a `chave` (`transferencia:<reserva>`
+    × `reversao:<reserva>`, decisão D4) é a identidade desse evento. Ver
+    `_PARAGRAFO_2_DA_DLPA` para o que a lei faculta e o que esta API declara
+    em vez de calcular.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            dlpa = apurar_dlpa(empresa=empresa, ano=ano, mes=mes)
+        except HierarquiaInconsistente as exc:
+            # Mesmo padrão do Balancete/Razão/DRE: ciclo ou `conta_pai` de outra
+            # empresa na hierarquia — resposta controlada, nunca 500 mudo.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        emissao = avaliar_emissao_da_dlpa(dlpa)
+        corpo = {
+            "empresa_id": dlpa["empresa_id"],
+            "ano": dlpa["ano"],
+            "mes": dlpa["mes"],
+            "data_inicio_exercicio": dlpa["data_inicio_exercicio"].isoformat(),
+            "data_fim": dlpa["data_fim"].isoformat(),
+            "saldo_inicial": _como_moeda(dlpa["saldo_inicial"]),
+            "movimento": _como_moeda(dlpa["movimento"]),
+            "saldo_final": _como_moeda(dlpa["saldo_final"]),
+            "linhas": _linhas_da_dlpa_para_json(dlpa["linhas"]),
+            "conciliacao": {
+                "saldo_no_balanco": _como_moeda(dlpa["conciliacao"]["saldo_no_balanco"]),
+                "diferenca": _como_moeda(dlpa["conciliacao"]["diferenca"]),
+            },
+            "pode_emitir": emissao["pode_emitir"],
+            "listas_pendentes": emissao["listas_pendentes"],
+            "avisos": emissao["avisos"],
+            "paragrafo_2": dict(_PARAGRAFO_2_DA_DLPA),
+        }
+        status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
+        return Response(corpo, status=status_code)
+
+
+class ContaClassificacaoDlpaView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-048 (fatia D8): `PATCH` da linha da DLPA (`classificacao_dlpa`) de
+    uma conta já existente — a porta de API da tela `conta_classificacao_dlpa`.
+
+    Autenticação e autorização são as MESMAS da tela: `TemEscritorioAtivo` +
+    `PodeEscriturar`, o MESMO papel que grava lançamento e cria conta
+    (`ContaListCreateView.post`). **Nenhuma permissão nova** — a RC-137 não
+    criou papel próprio para classificação, e criar um agora daria a
+    classificação mais poder de que o lançamento tem.
+
+    Corpo: `{"classificacao_dlpa": "<valor de ClassificacaoDlpa, ou null/""
+    para remover>"}` — um campo só (`CONTRATO_PATCH_CLASSIFICACAO_DLPA`).
+    O contrato é **separado** do da DRE de propósito: a política recusa chave
+    desconhecida por nome, e um corpo com `classificacao_dre` neste PATCH tem
+    de ser recusado, não aplicado à linha errada em silêncio.
+
+    Validação em DUAS camadas, nenhuma delas duplicando regra:
+    `ClassificacaoDlpaPatchSerializer` valida o TIPO do corpo e do valor
+    (400, nunca 500 — R3 da auditoria DL-045); a compatibilidade com
+    `Conta.tipo` é decidida por `Conta.full_clean()` dentro de
+    `classificar_conta_na_dlpa`, e o `ValidationError` do Django é traduzido
+    para 400 do DRF.
+
+    200 com a conta serializada (incluindo o `classificacao_dlpa` novo) quando
+    aceito; **404** quando a conta não existe NESTA empresa (isolamento —
+    `Conta.objects.filter(empresa=empresa)`, nunca uma consulta sem esse
+    filtro); 403 sem `PodeEscriturar`.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def patch(self, request, empresa_id, conta_id):
+        empresa = self.get_empresa()
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DLPA)
+
+        entrada = ClassificacaoDlpaPatchSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        classificacao = entrada.validated_data.get("classificacao_dlpa") or None
+
+        try:
+            classificar_conta_na_dlpa(
+                conta=conta,
+                classificacao=classificacao,
+                usuario=request.user,
+                request=request,
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                {"classificacao_dlpa": mensagens_da_validacao_django(exc)}
             ) from exc
 
         return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
