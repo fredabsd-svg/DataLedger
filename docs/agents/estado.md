@@ -142,7 +142,9 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**DL-049 — Home por módulo, em validação (30/09/2026).** Demanda direta
+**DL-049 — Home por módulo (30/09/2026). Estado da entrega no
+[PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63): em revisão
+enquanto aberto; integrada após o merge confirmado nesse PR.** Demanda direta
 do Fred para aplicar a especificação, comparar variantes, revisar e mesclar.
 Escolha de interface autorizada sem nova pergunta. Contábil, recepção Fiscal
 e Livro-caixa possuem consulta operacional; módulos futuros permanecem
@@ -151,8 +153,7 @@ Plano: [DL-049](../planos/DL-049-home-por-modulo.md).
 Roteiro de navegador aprovado com dados fictícios: filtros, lista por indicador,
 carteira sem JavaScript, permissão e larguras de 1.440, 1.280 e 390 px. A
 primeira linha crítica ficou inteira até 898,16 px no cenário 1.440 × 900.
-Suíte completa, auditoria e CI são conferidas antes da integração; telefone
-físico e teste com operadores permanecem não executados.
+Telefone físico, leitor de tela e teste com operadores permanecem não executados.
 Na revisão local `9f9c2a5`, a suíte PostgreSQL registrou **3.573 aprovados,
 19 pulados e 2 avisos**. A [auditoria independente](../auditorias/2026-09-30-dl-049-rodada-1.md)
 reprovou três comportamentos: Fiscal sem empresas escondia ocorrências;
@@ -162,8 +163,14 @@ escritórios recentes e valida filtros também nos retornos antecipados.
 Os **351 testes do recorte de regressão, incluindo 71 da home**, passaram
 em SQLite temporário após a correção, com 31 avisos existentes de ambiente;
 esse recorte não comprova concorrência nem agregação monetária. A política
-atual do ambiente impede reutilizar o PostgreSQL local via rede. A CI em
-PostgreSQL 16 e a reconferência da nova revisão precedem o merge.
+atual do ambiente impede reutilizar o PostgreSQL local via rede.
+A [reconferência única](../auditorias/2026-09-30-dl-049-reconferencia.md)
+aprovou a correção na árvore `f1d7592`, com 138 testes próprios, navegador e
+inspeção da CI do commit remoto `280873b`. Os quatro jobs passaram; Backend
+em PostgreSQL 16.15 registrou **3.563 aprovados, 50 pulados e 2 avisos**;
+o instrumento de documentos registrou **139 aprovados**, mais a medição real.
+Relatórios e apontadores são a única alteração posterior à árvore auditada;
+a CI do último HEAD do PR deve passar antes de integrar.
 
 **AGORA — sessão de 2026-09-29 (3ª rodada). O Fred revisou o relatório e corrigiu
 **quatro pontos**; todos foram **verificados na fonte** antes de entrar no repositório,

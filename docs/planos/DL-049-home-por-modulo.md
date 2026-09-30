@@ -65,3 +65,7 @@ por escritório e na URL; leitura não grava dados de negócio.
 Evidências executadas, decisão de variante e relatório independente serão
 registrados junto à entrega. Não declarar testes, CI ou merge concluídos
 antes de conferir seus resultados.
+
+Entrega: [PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63).
+Evidência independente: [auditoria original](../auditorias/2026-09-30-dl-049-rodada-1.md)
+e [reconferência única](../auditorias/2026-09-30-dl-049-reconferencia.md).
