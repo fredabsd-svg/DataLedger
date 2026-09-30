@@ -1926,3 +1926,21 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-558 | Dependências circulares entre apps: `core` importa contabilidade, fiscal e livro_caixa (`module_homes.py`); `tenancy` importa fiscal; `views_web` importa símbolo privado de `views` | `arquiteto-senior` | — | aberta | Camadas definidas e uma guarda derivada de import |
 | BL-559 | Apagar um usuário pelo admin zera a autoria (`criado_por`, `on_delete=SET_NULL`) dos lançamentos que ele escriturou. O gatilho da DL-052 **preserva** esse comportamento de propósito, para não mudar regra sem decisão | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | **Decidido pelo Fred (RC-144): desativar, não apagar.** `criado_por` com `PROTECT`, admin sem exclusão de usuário, gatilho sem a exceção de autoria |
 | BL-560 | A tela do convite **já consumido** ainda oferece o botão "Aceitar" (o POST recusa). Achado pelo implementador na DL-052, pré-existente | `especialista-frontend` | — | aberta | GET de convite consumido informa que já foi usado e não oferece o botão, com teste |
+
+## Auditoria da DL-052 — rodada 1, APROVADA COM RESSALVAS (2026-09-30)
+
+Relatório integral em [2026-09-30-dl-052-rodada-1.md](../auditorias/2026-09-30-dl-052-rodada-1.md).
+Decisão do `arquiteto-senior`: D1, D2, D3, D5 e D6 corrigidos na **única**
+rodada de correção da DL-052; D7 corrigido no `estado.md`; D4, D8 e D9 ficam
+abaixo.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-561 | **D1 (média)** — item com `tipo` fora de débito/crédito passa nos gatilhos e desconcilia Razão e Balancete | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | `CHECK` de tipo; `tipo="lixo"` e `"DEBITO"` recusados, 0 gravados |
+| BL-562 | **D2 (média)** — par de partidas balanceado pode ser inserido em lançamento já efetivado, sem estorno nem trilha | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | INSERT de item em lançamento de transação anterior recusado; criar, estornar e zerar seguem funcionando |
+| BL-563 | **D3 (baixa)** — exceção do backfill aceita competência de outra empresa | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Competência de outra empresa recusada |
+| BL-564 | **D5 (baixa)** — usuário já vinculado que aceita convite recebe 500 | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Mensagem própria, 302, convite não consumido |
+| BL-565 | **D6 (baixa)** — testes não isolam o `PROTECT` de `Competencia.fechada_por` e `entregue_por` | `desenvolvedor-pleno` | — | em desenvolvimento (DL-052) | Teste que reprova se algum dos seis campos voltar a `SET_NULL` |
+| BL-566 | **D4 (baixa)** — recusa de aceite de convite (vencido, e-mail divergente) não deixa rastro na trilha | `desenvolvedor-pleno` | — | aberta | Evento `convite.escritorio.recusado` com motivo, sem o e-mail, gravado fora da transação revertida |
+| BL-567 | **D8 (baixa, pré-existente)** — `empresa_escritorio_imutavel` sem mensagem em `restricoes.py`; nenhuma guarda cruza os nomes de gatilho das migrações com os mapas | `desenvolvedor-pleno` | — | aberta | Nome mapeado; guarda derivada das migrações (nível 3) |
+| BL-568 | **D9 (baixa)** — `casefold()` iguala e-mails distintos (`ß`/`ss`, sinal Kelvin) e não normaliza NFC/NFD | `desenvolvedor-pleno` | BL-548 | aberta | Decidir a normalização junto com a confirmação de e-mail |

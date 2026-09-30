@@ -132,7 +132,7 @@ DL-052, pode seguir"*. Nível 1, auditoria independente obrigatória. Plano:
 - **A2 (alta):** convite de escritório passa a vencer em 7 dias e só vale para
   o e-mail convidado (BL-544).
 - **A1 (alta):** débito = crédito, valor positivo e imutabilidade do
-  lançamento garantidos também pelo PostgreSQL, com duas exceções declaradas
+  lançamento garantidos também pelo PostgreSQL, com uma exceção declarada
   no plano (BL-545).
 - **M1 (média):** estorno e trilha de auditoria na mesma transação (BL-546).
 - **Usuário se desativa, não se apaga** — decisão do Fred em 30/09 (RC-144,
