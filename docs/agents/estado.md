@@ -133,6 +133,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-046](../planos/DL-046-livro-caixa-e-carne-leao.md) | Livro-caixa e carnê-leão do cliente pessoa física (RC-127 a RC-129) | **Integrada (PR #53, #54 e #56)** — fatias 1, 2 e 3; a auditoria da fatia 3 não consta em `docs/auditorias/` |
 | [DL-047](../planos/DL-047-mapa-de-paridade-funcional.md) | Mapa de paridade funcional e plano detalhado por módulo | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) | Contabilidade anual: estrutura de demonstração ligada à conta, com DLPA, DMPL, DFC, DRA e DVA (CTB-12 a CTB-17) | **Fatia CTB-12 + CTB-13 (a DLPA) integrada pelo PR #59** — com auditoria reprovada e achados corrigidos; CTB-14 a CTB-17 em **[Próximo passo](#próximo-passo)** |
+| [DL-049](../planos/DL-049-home-por-modulo.md) | Página inicial por módulo, filtros persistentes e fila operacional multiempresa | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -141,40 +142,135 @@ merge do PR #38, sem commit individual por etapa.
 
 ## Próximo passo
 
-**AGORA — sessão de 2026-09-29. DL-048: a fatia CTB-12/CTB-13 (a DLPA) está
-INTEGRADA na `main` pelo PR #59. Esta entrega é a **fatia D8**, a porta de API que a
-decisão D8 deixou declarada para depois da tela. O que falta é a conformidade normativa
-da DLPA e a própria CTB-14 (DMPL).**
+**DL-049 — Home por módulo (30/09/2026). Estado da entrega no
+[PR #63](https://github.com/fredabsd-svg/DataLedger/pull/63): em revisão
+enquanto aberto; integrada após o merge confirmado nesse PR.** Demanda direta
+do Fred para aplicar a especificação, comparar variantes, revisar e mesclar.
+Escolha de interface autorizada sem nova pergunta. Contábil, recepção Fiscal
+e Livro-caixa possuem consulta operacional; módulos futuros permanecem
+identificados como indisponíveis. Sem migração ou transmissão.
+Plano: [DL-049](../planos/DL-049-home-por-modulo.md).
+Roteiro de navegador aprovado com dados fictícios: filtros, lista por indicador,
+carteira sem JavaScript, permissão e larguras de 1.440, 1.280 e 390 px. A
+primeira linha crítica ficou inteira até 898,16 px no cenário 1.440 × 900.
+Telefone físico, leitor de tela e teste com operadores permanecem não executados.
+Na revisão local `9f9c2a5`, a suíte PostgreSQL registrou **3.573 aprovados,
+19 pulados e 2 avisos**. A [auditoria independente](../auditorias/2026-09-30-dl-049-rodada-1.md)
+reprovou três comportamentos: Fiscal sem empresas escondia ocorrências;
+retorno a um escritório perdia filtros; listas sem fonte aceitavam estado
+inválido. A correção conserva ocorrências sem cliente, preferências dos 16
+escritórios recentes e valida filtros também nos retornos antecipados.
+Os **351 testes do recorte de regressão, incluindo 71 da home**, passaram
+em SQLite temporário após a correção, com 31 avisos existentes de ambiente;
+esse recorte não comprova concorrência nem agregação monetária. A política
+atual do ambiente impede reutilizar o PostgreSQL local via rede.
+A [reconferência única](../auditorias/2026-09-30-dl-049-reconferencia.md)
+aprovou a correção na árvore `f1d7592`, com 138 testes próprios, navegador e
+inspeção da CI do commit remoto `280873b`. Os quatro jobs passaram; Backend
+em PostgreSQL 16.15 registrou **3.563 aprovados, 50 pulados e 2 avisos**;
+o instrumento de documentos registrou **139 aprovados**, mais a medição real.
+Relatórios e apontadores são a única alteração posterior à árvore auditada;
+a CI do último HEAD do PR deve passar antes de integrar.
 
-0. **DL-048, fatia D8 (paridade de API da DLPA) — NÍVEL 2, entregue nesta
-   sessão.** Plano de uma página em
+**AGORA — sessão de 2026-09-29 (3ª rodada). O Fred revisou o relatório e corrigiu
+**quatro pontos**; todos foram **verificados na fonte** antes de entrar no repositório,
+e **dois deles corrigem erro meu**. As decisões que faltavam foram dadas. A DMPL (CTB-14)
+pode ser implementada; a D8 (API da DLPA) também.**
+
+### Correções do Fred (29/09/2026) — as quatro verificadas
+
+| # | Correção | Verificação na fonte |
+| --- | --- | --- |
+| 1 | A NBC TG 26 (R5) **não** está revogada "para 2026" | ✅ **CONFIRMADO** — o ato é de **13/11/2025** (cabeçalho e fecho da cláusula de vigência do PDF oficial) e a aplicabilidade é **exercícios iniciados a partir de 01/01/2027**. **Exercícios 2025/2026 seguem ancorados na R5.** A data 25/02/2026 é o campo "publicação no DOU" da ficha do CFC, **não a do ato** — a afirmação anterior neste arquivo e no plano **corrigida**. ⚠️ A data do DOU em si está em divergência entre o CFC (25/02/2026) e o Fred (22/12/2025): **registrada como divergência, sem efeito em conclusão alguma.** |
+| 2 | A reserva de lucros a realizar **tem** lastro: art. 197 LSA | ✅ **CONFIRMADO — e eu estava ERRADO.** O art. 197 (redação da Lei 10.303/2001) institui exatamente essa reserva, e o **art. 199** também a nomeia. A afirmação anterior ("não existe na LSA") saiu. **O erro foi meu** — veio do relatório de pesquisa, que reportou ausência como fato sem segunda fonte. Rótulo trocado para **"art. 197 LSA"** (S/A; Ltda por regência supletiva, art. 1.069 CC). |
+| 3 | A conciliação DMPL ↔ Balanço não é só invariante | ✅ **CONFIRMADO** — o **item 106(d) da R5 / 107(c) da TG 51** exige, para **cada componente do PL**, a conciliação entre o valor contábil no início e no final; esse saldo final é o do Balanço na mesma data. Reescrito como **exigência derivada do item 106(d) e da consistência do conjunto** — não como citação literal. |
+| 4 | O item 52 **já** exigia julgamento; não mudou | ✅ **CONFIRMADO — e eu estava ERRADO.** O item 52 diz *"é necessário o exercício de julgamento"*; o B10 diz *"É exigido julgamento"*. **Não houve mudança de prescrição para julgamento.** A única diferença material: a expressão ***"em cada página"*** está no 52 e **não aparece no B10** — mas o B10 nomeia *"títulos apropriados para as páginas"*, então **repetir em cada página continua cumprindo** a norma em 2027. **Logo o documento do cliente NÃO muda**; muda a justificativa interna e a citação (52 → B10). |
+
+### Decisões do Fred, agora fechadas
+
+1. ✅ **Versionamento por data de início do exercício: APROVADO, e é OBRIGATÓRIO** —
+   não opcional. O item citado varia com a vigência, e o produto **deve prever a adoção
+   antecipada** da NBC TG 51 antes de 01/01/2027.
+2. ✅ **Item 52 / B10: resolvido** pelo ponto 4 acima. Documento do cliente **não** muda.
+3. ✅ **Base da DMPL: encerrada a busca em diploma.** A Lei 11.638/2007 **não** criou a
+   DMPL (trocou a DOAR pela DFC e criou a DVA). A base é: **competência** = DL 9.295/46,
+   art. 6º, alínea "f" (redação da Lei 12.249/2010) — confirmada no **préâmbulo da
+   própria NBC TG 51**, verbatim; **obrigação** = NBC TG 26 (R5) item 10 e, de 2027 em
+   diante, NBC TG 51; **PMEs** = NBC TG 1000 (admite a DLPA no lugar da DMPL em certas
+   condições); **microempresas** = ITG 1000, **não obrigatória**.
+   ⚠️ **Única lacuna que resta:** para **companhias abertas**, o **ato da CVM que
+   aprovou o CPC 26** não foi lido em fonte oficial — declarado, não inventado.
+
+### O que mais mudou nesta rodada
+
+- **Repositório movido para fora do OneDrive** → **`C:\src\DataLedger`**. O OneDrive era
+  a causa do I/O-bound, não o SQLite. Copiado, verificado (mesmo commit, `manage.py
+  check` limpo) e é o novo local de trabalho.
+- **Módulo que travava a suíte: ACHADO — e é SISTÊMICO, não um ponto.** Três
+  execuções de `pytest` terminaram em silêncio (sem traceback, sem timeout do pytest).
+  O `faulthandler` mostrou a causa: **espera infinita** — `barreira.wait()` e
+  `t.join()` **sem timeout**. Se uma thread morre antes da barreira, as outras
+  esperam para sempre. ⚠️ A descrição antiga deste arquivo mandava deselecionar
+  `test_restricoes_contabilidade.py::test_bl144_codigo_conta_duplicado`, **caminho
+  errado** — por isso a deseleção anterior não funcionou.
+  - ✅ **Corrigido (commit `bc52c5b`):** `test_bl144_codigo_conta_duplicado.py`,
+    `test_api.py` (1º teste de concorrência) e `test_dl043_correcao_rodada1.py`
+    (incluindo dois `join()` sem timeout adicionais no mesmo arquivo, nas linhas 476-477 e 686-687). Todas as
+    esperas ganharam timeout e uma asserção de `is_alive()`. **Nenhuma guarda foi
+    afrouxada** — `resultados` incompleto reprova, porque as asserções de baixo exigem
+    o código de resposta de todas as threads.
+  - ⚠️ **NÃO CORRIGIDO — e é o que trava a suíte ainda:** a varredura do repositório
+    encontrou **cerca de 30 esperas infinitas em 13 arquivos de teste**. Depois da
+    correção acima, `test_api.py` **continua travando no teste de concorrência
+    seguinte do mesmo arquivo** (linhas 378-400) — o que confirma que o alcance é
+    maior. Arquivos com o padrão: `test_dl016_fatia1_*.py` (8 pontos),
+    `test_dl046_livro_caixa.py` (3), `test_bl40_bl41.py` (2),
+    `test_dl023_regime_tributario_periodo_unico.py` (3),
+    `test_bl144_matriz_duplicada.py`, `test_dl043_zeramento_concorrencia_e_permissoes.py`,
+    `fiscal/tests/test_concorrencia.py` (2), `fiscal/tests/test_dl076_um_envio_por_vez.py` (3),
+    entre outros.
+    **Não foi feito num commit só de propósito:** são testes que guardam invariantes
+    de concorrência de CNPJ, lançamento e zeramento — nível 1. Mexer em 13 arquivos
+    desses exige etapa própria, com verificação própria. **Ordem a definir pelo Fred.**
+  - ⚠️ **Consequência prática:** a suíte `pytest` **completa não termina localmente**
+    no Windows. A CI (Linux + PostgreSQL) roda tudo verde em ~4m35s. Para medir
+    localmente, usar recorte de módulo.
+
+- **PowerShell 7 instalado (7.6.6)**; `scripts/validate-docs.ps1` **original** executado
+  e **verde** (*"Documentação válida: 187 arquivos Markdown verificados"*, exit 0). A
+  **réplica em Python foi descartada**, para não haver dois validadores.
+- **Reserva de lucros a realizar** deixa de ser "escolha de desenho" e passa a ter
+  fundamentação legal — ver o ponto 2 acima.
+- **A decisão de 29/09 sobre a correção monetária se confirma** com base oficial: Lei
+  9.249/95, art. 4º, p.ú. veda *"qualquer sistema de correção monetária de demonstrações
+  financeiras, inclusive para fins societários"*. ⚠️ A referência a "**Lei 9.492/95**"
+  que circulou é **ERRADA** (a 9.492 é de 1997, protesto de títulos).
+- **RC-137 omitiu três reservas de capital** do art. 182 (§1º "c" e "d", §2º). As duas
+  primeiras entram na DMPL; a terceira é letra morta (mesma vedação da Lei 9.249/95).
+- **Branch de trabalho:** `docs/dl-048-premissa-normativa`.
+
+### Próximo passo, agora sem decisão pendente
+
+1. ✅ **D8 (API da DLPA) — ENTREGUE.** `DlpaView` + `ContaClassificacaoDlpaView` +
+   `ContaSerializer.classificacao_dlpa`, **projetadas prevendo que a DLPA pode estar
+   embutida na DMPL** (art. 186, §2º) e não só como peça autônoma. Nível 2.
+   Plano de uma página em
    [DL-048-fatia-d8-api-da-dlpa.md](../planos/DL-048-fatia-d8-api-da-dlpa.md).
-   Três peças, e nada além delas: `DlpaView` (GET por empresa/ano/mês),
-   `ContaClassificacaoDlpaView` (PATCH da `classificacao_dlpa`) e
-   `ContaSerializer.classificacao_dlpa` exposto e aceito com a mesma checagem de
-   tipo que a DRE já tem. **25 testes novos**; a guarda de contagem de rotas
-   (`test_dl038_recusa_livro_caixa`) foi atualizada de **15 para 17** rotas de API,
-   como o plano previa. Nenhuma regra de apuração mudou, nenhuma tela, nenhuma
-   migração, nenhum enum.
+   **25 testes novos**; a guarda de contagem de rotas foi de **15 para 17** na API.
+   **O §2º é DECLARADO na resposta** (chave `paragrafo_2`, sempre presente, com a
+   pendência do dividendo por ação e o motivo), em vez de omitido — é o achado 11 da
+   auditoria visível para quem consome. E **a `chave` de cada linha é o contrato com a
+   CTB-14**: a linha da DLPA é a DESTINAÇÃO e a coluna da DMPL é a CONTRAPARTIDA
+   (RC-137), então a DMPL vai ler `transferencia:<reserva>` × `reversao:<reserva>`
+   (decisão D4) como movimento de coluna, sem segunda lógica.
+   A API **não escolhe** entre DLPA autônoma e embutida: é faculdade da lei, e a
+   escolha é da emissão — por isso a resposta **não tem** campo "modo".
+2. **CTB-14 (DMPL)** — nível 1, com auditoria independente obrigatória. Aplica as duas
+   normas por data de início do exercício, com adoção antecipada prevista.
+3. **As ~30 esperas infinitas restantes** em 13 arquivos de teste (achado sistêmico
+   acima) — etapa própria, com verificação própria, porque guardam invariantes de
+   concorrência de CNPJ, lançamento e zeramento. Ordem a definir pelo Fred.
 
-   **O desenho pedido pelo Fred — a DLPA pode estar EMBUTIDA na DMPL (Lei 6.404/76,
-   art. 186, §2º) e não só como peça autônoma** — virou duas decisões concretas, e
-   não uma frase no docstring:
-
-   - **O §2º é DECLARADO na resposta, nunca omitido.** A chave `paragrafo_2` existe
-     em **toda** resposta, com `dividendo_por_acao: null` e o motivo: a base de
-     cálculo (ações do capital social) é dado da DMPL (CTB-14), e a DLPA lê
-     movimento de lançamentos. É o achado 11 da auditoria de 29/09 visível para quem
-     consome, em vez de escondido.
-   - **A `chave` de cada linha é o contrato com a CTB-14.** A linha da DLPA é a
-     DESTINAÇÃO e a coluna da DMPL é a CONTRAPARTIDA — *"o mesmo fato visto por dois
-     lados"* (RC-137). Por isso a chave (`transferencia:<reserva>` ×
-     `reversao:<reserva>`, decisão D4) é a identidade do evento, e a DMPL vai ler
-     essas chaves como movimento de coluna **sem segunda lógica**.
-
-   ⚠️ **A API não escolhe entre DLPA autônoma e embutida**: é faculdade da lei, e a
-   escolha é da emissão, não da leitura. A apuração é a mesma nos dois casos — e por
-   isso a resposta **não tem** campo "modo".
 
 1. **DL-048 (Contabilidade anual — CTB-12 + CTB-13, a DLPA) — em
    desenvolvimento; a fatia está CODE E TESTADA na branch

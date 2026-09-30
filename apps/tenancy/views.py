@@ -638,7 +638,7 @@ def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
     return acoes
 
 
-def _modulos_do_painel(*, papel, empresas_da_carteira):
+def _modulos_do_painel(*, papel, empresas_da_carteira, request=None):
     """Tiles de MÓDULO do Início (DL-044, 3ª iteração — retorno do Fred,
     referência Conta Azul: "módulos no Início também como tiles com
     ícone"). Reaproveita `empresas_da_carteira` — mesma lógica de destino
@@ -711,6 +711,16 @@ def _modulos_do_painel(*, papel, empresas_da_carteira):
             "planejado": True,
         }
     )
+    if request is not None:
+        # DL-049: escolher módulo abre sua home, preservando os filtros
+        # validados na sessão. O helper não consulta a carteira; URLConfs
+        # legados sem as homes continuam com os destinos já existentes.
+        from apps.core.module_homes import menu_modulos
+
+        homes = {item["slug"]: item["url"] for item in menu_modulos(request) if item["permitido"]}
+        for modulo in modulos:
+            if not modulo["planejado"] and modulo["chave"] in homes:
+                modulo["url"] = homes[modulo["chave"]]
     return modulos
 
 
@@ -777,7 +787,9 @@ def painel(request):
         acoes_rapidas = _acoes_rapidas_do_painel(
             papel=papel, empresas_da_carteira=empresas_da_carteira_lista
         )
-        modulos = _modulos_do_painel(papel=papel, empresas_da_carteira=empresas_da_carteira_lista)
+        modulos = _modulos_do_painel(
+            papel=papel, empresas_da_carteira=empresas_da_carteira_lista, request=request
+        )
         empresas_da_carteira = empresas_da_carteira_lista if pode_ver_carteira else None
     return render(
         request,

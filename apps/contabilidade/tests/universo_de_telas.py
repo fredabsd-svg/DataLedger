@@ -147,6 +147,16 @@ NOMES_DE_TELA_FORA_DA_CONTABILIDADE = {
     ),
     "tenancy:aceitar-convite": "test_tela_aceitar_convite_e_acessivel",
     "tenancy:bootstrap-primeiro-acesso": "test_tela_bootstrap_primeiro_acesso_e_acessivel",
+    # DL-049: duas telas de CONSULTA operacional compartilhadas por slug
+    # de módulo; não são documentos contábeis emitidos. Ambas renderizam
+    # base.html e entram na cobertura de moldura, não em exclusões. O
+    # teste indicado requisita as sete instâncias no URLConf real.
+    "module_home:home": (
+        "apps.core.tests.test_module_homes.test_homes_compartilhadas_tem_moldura_acessivel"
+    ),
+    "module_home:pendencias": (
+        "apps.core.tests.test_module_homes.test_homes_compartilhadas_tem_moldura_acessivel"
+    ),
 }
 
 # A UNIÃO completa — o que este módulo existe para compartilhar. Qualquer
@@ -244,6 +254,10 @@ ARGS_DE_ROTA_FORA_DA_CONTABILIDADE = {
     "tenancy:painel": [],
     "tenancy:aceitar-convite": ["token-inexistente-bl352"],
     "tenancy:bootstrap-primeiro-acesso": [],
+    # Slug de referência para o universo; a cobertura parametrizada das
+    # outras instâncias compartilha o mesmo contrato de template/rota.
+    "module_home:home": ["contabilidade"],
+    "module_home:pendencias": ["contabilidade"],
 }
 
 
