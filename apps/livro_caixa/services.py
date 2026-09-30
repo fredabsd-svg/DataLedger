@@ -577,7 +577,7 @@ def _recusar_se_mes_caixa_encerrado(*, empresa, data, e_estorno):
             raise MesCaixaEncerrado(
                 f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "
                 "estornar lançamento dele. Reabra o mês (informando o motivo) para corrigir "
-                "o lançamento no mês original (RC-130)."
+                "o lançamento no mês original."
             )
         raise MesCaixaEncerrado(
             f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "

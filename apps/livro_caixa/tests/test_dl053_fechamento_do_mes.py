@@ -21,6 +21,7 @@ de travar em silêncio.
 import contextlib
 import itertools
 import json
+import re
 import threading
 import time
 from datetime import date
@@ -296,7 +297,15 @@ def test_estorno_de_lancamento_de_mes_encerrado_e_recusado_e_passa_depois_de_rea
         estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
 
     assert "01/2026" in str(erro.value)
-    assert "RC-130" in str(erro.value)
+    # A mensagem chega ao usuário (tela e API): orienta o procedimento da
+    # RC-130 (reabrir o mês e corrigir no mês original) sem citar
+    # identificador interno, que é regra das telas (BL-543).
+    assert "Reabra o mês" in str(erro.value)
+    assert "mês original" in str(erro.value)
+    # O nome fictício do cliente do cenário contém "DL-053"; tira-se o nome
+    # antes da varredura, para medir só o texto que o produto escreve.
+    texto_do_produto = str(erro.value).replace(str(cenario["empresa"]), "")
+    assert not re.search(r"\b(RC|HI|DE|PE|BL|DL)-\d+", texto_do_produto)
     assert _fotografia(cenario["empresa"]) == antes
 
     _reabrir(cenario)

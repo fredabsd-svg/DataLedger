@@ -485,6 +485,13 @@
                                                                     <a href="{% url 'livro_caixa_web:relatorio' empresa_atual.id %}">Livro Caixa</a>
                                                                 {% endif %}
                                                             </li>
+                                                            <li>
+                                                                {% if pagina_atual == "fechamento_mes" or pagina_atual == "mes_encerrar" or pagina_atual == "mes_reabrir" %}
+                                                                    <span class="item-atual" aria-current="page">Fechamento de mês</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'livro_caixa_web:fechamento_mes' empresa_atual.id %}">Fechamento de mês</a>
+                                                                {% endif %}
+                                                            </li>
                                                             {% comment %}
                                                             DL-046, fatia 2: três telas novas do
                                                             carnê-leão — mesmo grupo "Livro-caixa"

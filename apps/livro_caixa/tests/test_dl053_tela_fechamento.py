@@ -871,3 +871,83 @@ def test_nenhuma_tela_do_fechamento_mostra_identificador_interno(cenario):
         texto = re.sub(r"<!--.*?-->", "", pagina.content.decode(), flags=re.S)
         achados = _IDENTIFICADOR_INTERNO.findall(texto)
         assert not achados, f"identificador interno visível: {achados}"
+
+
+# ---------------------------------------------------------------------------
+# Dependentes do carnê-leão em mês encerrado (RC-147): a tela recusa, sem 500
+# ---------------------------------------------------------------------------
+
+
+def _fotografia_de_dependentes(empresa):
+    from apps.livro_caixa.models import DependentesCarneLeaoCliente
+
+    return sorted(
+        DependentesCarneLeaoCliente.objects.filter(empresa=empresa).values_list(
+            "id", "competencia_inicio", "quantidade"
+        )
+    )
+
+
+def test_registrar_dependentes_em_mes_encerrado_pela_tela_da_409_e_nao_grava(cenario):
+    _encerrar(cenario, mes=3)
+    antes = _fotografia_de_dependentes(cenario["empresa"])
+    cliente = _cliente(Papel.ANALISTA, cenario["escritorio_a"])
+
+    resposta = cliente.post(
+        _url("dependentes_carne_leao", cenario["empresa"]),
+        {"quantidade": "2", "competencia_inicio": "2026-03-01"},
+    )
+
+    assert resposta.status_code == 409
+    html = _texto(resposta)
+    assert "03/2026" in html
+    assert "encerrado" in html
+    assert "Reabra o mês" in html
+    # O formulário não some, e o que foi digitado continua lá.
+    assert 'name="quantidade"' in html
+    assert 'value="2026-03-01"' in html
+    assert _fotografia_de_dependentes(cenario["empresa"]) == antes
+    assert not _IDENTIFICADOR_INTERNO.findall(html)
+
+
+def test_registrar_dependentes_em_mes_aberto_continua_funcionando(cenario):
+    _encerrar(cenario, mes=1)
+    cliente = _cliente(Papel.ANALISTA, cenario["escritorio_a"])
+
+    resposta = cliente.post(
+        _url("dependentes_carne_leao", cenario["empresa"]),
+        {"quantidade": "2", "competencia_inicio": "2026-12-01"},
+    )
+
+    assert resposta.status_code == 302
+    assert len(_fotografia_de_dependentes(cenario["empresa"])) == 1
+
+
+def test_retificar_dependentes_em_mes_encerrado_pela_tela_mostra_mensagem_e_nao_grava(cenario):
+    from apps.livro_caixa.carne_leao import registrar_dependentes_carne_leao
+
+    registro = registrar_dependentes_carne_leao(
+        empresa=cenario["empresa"],
+        quantidade=1,
+        competencia_inicio=date(2026, 3, 1),
+        criado_por=cenario["autor"],
+    )
+    _encerrar(cenario, mes=4)
+    antes = _fotografia_de_dependentes(cenario["empresa"])
+    cliente = _cliente(Papel.ANALISTA, cenario["escritorio_a"])
+
+    resposta = cliente.post(
+        reverse(
+            "livro_caixa_web:dependentes_carne_leao_retificar",
+            args=[cenario["empresa"].id, registro.id],
+        ),
+        {"quantidade": "5"},
+        follow=True,
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.redirect_chain  # volta para a tela de dependentes, sem 500
+    assert "encerrado" in _mensagens(resposta)
+    assert "Reabra o mês" in _mensagens(resposta)
+    assert not _IDENTIFICADOR_INTERNO.findall(_texto(resposta))
+    assert _fotografia_de_dependentes(cenario["empresa"]) == antes

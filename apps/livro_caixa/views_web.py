@@ -1579,6 +1579,11 @@ def dependentes_carne_leao(request, empresa_id):
 
     pode_escriturar = _pode_escriturar(request)
     form = None
+    # DL-053 (RC-147): registrar dependentes que alterariam o carnê-leão de um
+    # mês ENCERRADO é recusado pelo serviço (`MesCaixaEncerrado`); a tela
+    # devolve o formulário com o que foi digitado e status 409 (conflito de
+    # ESTADO, como no lançamento), nunca 500.
+    recusado_por_mes_encerrado = False
 
     if request.method == "POST":
         if not pode_escriturar:
@@ -1610,6 +1615,12 @@ def dependentes_carne_leao(request, empresa_id):
                 # `contabilidade_web.parametros_contabeis`: o serviço não
                 # separa por campo neste erro.
                 form.add_error(None, str(exc))
+            except MesCaixaEncerrado as exc:
+                # Inclui `MesCaixaOcupado` (espera de lock estourada): a
+                # mensagem do serviço nomeia o mês e orienta reabrir ou tentar
+                # de novo. Nada foi gravado.
+                form.add_error(None, str(exc))
+                recusado_por_mes_encerrado = True
             except RestricaoViolada as exc:
                 # Corrida na `UniqueConstraint` "dependentes_carne_leao_
                 # competencia_unica_por_empresa" — mesmo padrão de
@@ -1632,7 +1643,10 @@ def dependentes_carne_leao(request, empresa_id):
         "pode_escriturar": pode_escriturar,
         "form": form,
     }
-    status = 400 if form is not None and form.is_bound and form.errors else 200
+    if recusado_por_mes_encerrado:
+        status = 409
+    else:
+        status = 400 if form is not None and form.is_bound and form.errors else 200
     return render(request, "livro_caixa/dependentes_carne_leao.html", contexto, status=status)
 
 
@@ -1694,6 +1708,12 @@ def dependentes_carne_leao_retificar(request, empresa_id, dependente_id):
             registro, quantidade=quantidade, retificado_por=request.user, request=request
         )
     except DependentesCarneLeaoInvalido as exc:
+        messages.error(request, str(exc))
+        return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
+    except MesCaixaEncerrado as exc:
+        # DL-053 (RC-147): a nova quantidade alteraria o carnê-leão de mês
+        # encerrado (ou a espera pelo lock estourou). Nada foi gravado; a
+        # mensagem do serviço diz qual mês e que é preciso reabri-lo.
         messages.error(request, str(exc))
         return redirect("livro_caixa_web:dependentes_carne_leao", empresa_id=empresa.id)
 
