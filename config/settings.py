@@ -7,6 +7,7 @@ Ver .env.example para a lista completa e valores de referência para
 desenvolvimento local.
 """
 
+import ipaddress
 import os
 import warnings
 from pathlib import Path
@@ -32,6 +33,26 @@ DEBUG = env("DEBUG")
 # requisição em vez de aceitar um host não revisado.
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+
+# DL-057 (BL-553): proxies reversos cujo `X-Forwarded-For` a trilha de
+# auditoria aceita para descobrir o IP real do cliente (ver
+# `apps/auditoria/ip.py`). Lista de IPs ou redes CIDR separados por vírgula,
+# IPv4 ou IPv6. VAZIA POR PADRÃO: sem proxy declarado, o cabeçalho é ignorado,
+# porque qualquer cliente pode forjá-lo. Em produção, informe o endereço (ou a
+# rede) do proxy que fala com o Django — o valor de REMOTE_ADDR visto pela
+# aplicação —, nunca uma rede ampla que inclua a internet. Entrada inválida
+# impede a subida em vez de ser ignorada em silêncio. Não altera
+# SECURE_PROXY_SSL_HEADER, que continua como está mais abaixo.
+PROXIES_CONFIAVEIS = [
+    _proxy.strip() for _proxy in env.list("DJANGO_PROXIES_CONFIAVEIS", default=[]) if _proxy.strip()
+]
+for _proxy in PROXIES_CONFIAVEIS:
+    try:
+        ipaddress.ip_network(_proxy, strict=False)
+    except ValueError as erro:
+        raise ImproperlyConfigured(
+            f"DJANGO_PROXIES_CONFIAVEIS contém um valor que não é IP nem rede CIDR: {_proxy!r}."
+        ) from erro
 
 
 # Aplicação

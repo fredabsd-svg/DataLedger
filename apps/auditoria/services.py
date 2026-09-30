@@ -1,3 +1,4 @@
+from apps.auditoria.ip import ip_do_cliente
 from apps.auditoria.models import RegistroAuditoria
 
 
@@ -10,7 +11,9 @@ def registrar(*, acao, usuario=None, escritorio=None, objeto=None, detalhes=None
     """
     endereco_ip = None
     if request is not None:
-        endereco_ip = request.META.get("REMOTE_ADDR")
+        # DL-057: única origem do IP da trilha; ler o endereço da conexão direto grava o
+        # IP do proxy atrás do proxy reverso (varredura em test_dl057_ip_real).
+        endereco_ip = ip_do_cliente(request)
         if usuario is None and request.user.is_authenticated:
             usuario = request.user
         if escritorio is None:
