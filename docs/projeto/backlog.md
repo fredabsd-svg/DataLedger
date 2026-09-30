@@ -1956,3 +1956,16 @@ concluído com o limite abaixo. R2 corrigido no plano e no comentário da 0016.
 | BL-569 | **R1 (média-baixa), limite aceito** — `INSERT ... ON CONFLICT DO NOTHING` com id de lançamento efetivado marca o lançamento como "da transação" e libera partida nova. Nenhum caminho do produto usa isso; quem escreve SQL também forja o marcador com `set_config` | `arquiteto-senior` | — | aceita (limite declarado) | Reabrir se algum caminho do produto passar a usar `ignore_conflicts` em lançamento; correção validada pelo auditor: marcador em gatilho `AFTER INSERT` numa migração nova |
 | BL-570 | **R3 (baixa)** — custo quadrático do marcador da 0016: 20.000 lançamentos numa transação custam 2,6 vezes; 50.000, 5,5 vezes | `desenvolvedor-pleno` | — | aberta | Antes de qualquer importação contábil em volume: marcador indexado (tabela temporária `ON COMMIT DROP`) ou importação em lotes, medido |
 | BL-571 | **Dependentes do carnê-leão alteram mês já apurado** — achado na DL-053: `registrar_dependentes_carne_leao` aceita início no passado e `retificar_dependentes_carne_leao` muda quantidade vigente; o recálculo muda a dedução de meses encerrados e se encadeia nos seguintes. A trava da DL-053 cobre só `LancamentoCaixa` | `desenvolvedor-pleno` | — | em desenvolvimento (DL-053) | **Decidido pelo Fred (RC-147): trava.** Registrar ou retificar dependentes que mude o resultado de mês encerrado → recusado até reabrir, com teste |
+
+## Auditoria da DL-053 — rodada 1, APROVADA COM RESSALVAS (2026-09-30)
+
+Relatório integral em [2026-09-30-dl-053-rodada-1.md](../auditorias/2026-09-30-dl-053-rodada-1.md).
+E1 depende de decisão do Fred (PE-74) e bloqueia o merge; E2 a E5 ficam abaixo.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | PE-74 | bloqueada | Conforme a decisão do Fred sobre a PE-74 |
+| BL-573 | **E2 (baixa)** — trocar a empresa de livro-caixa para contabilidade ignora meses encerrados e deixa fechamento órfão | `desenvolvedor-pleno` | — | aberta | Troca recusada com mês encerrado, ou comportamento documentado, com teste |
+| BL-574 | **E3 (baixa)** — o formulário de lançamento só avisa em texto o mês encerrado (a recusa é do servidor) e o aviso omite anos anteriores ao passado | `especialista-frontend` | — | aberta | Aviso cobre todo ano com mês encerrado, com teste de renderização |
+| BL-575 | **E4 (baixa)** — comentários com referência errada (`models.py` cita "decisão 6" para fora do escopo; teste de atalhos diz que a tela ainda não existe) | `desenvolvedor-pleno` | — | aberta | Referências corrigidas |
+| BL-576 | **E5 (informativo)** — reverter a migração 0010 apaga os fechamentos e reabre todos os meses sem trilha | `arquiteto-senior` | — | aberta | Aviso no procedimento de reversão: exportar fechamentos e comunicar o escritório antes |

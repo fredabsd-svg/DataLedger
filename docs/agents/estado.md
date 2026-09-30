@@ -125,9 +125,10 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 ## Próximo passo
 
 **DL-053 — Fechamento de mês do livro-caixa (30/09/2026), em
-validação** — servidor, dependentes (RC-147) e tela implementados;
-aguardando a auditoria independente. O Fred autorizou o merge com a CI
-verde. Nível 1, auditoria independente obrigatória. Plano:
+validação** — servidor, dependentes (RC-147) e tela implementados.
+[Auditoria](../auditorias/2026-09-30-dl-053-rodada-1.md) **aprovada com
+ressalvas**; o achado E1 depende de decisão do Fred (**PE-74**) e bloqueia o
+merge, que o Fred autorizou para quando a CI ficar verde. Nível 1, auditoria independente obrigatória. Plano:
 [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md). Branch
 `claude/zealous-goldberg-jr5ggu` → `main`, reiniciada da `main` depois do PR
 #66. Mês encerrado não aceita lançamento nem estorno até ser reaberto;
