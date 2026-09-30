@@ -45,6 +45,7 @@ funcionalidade ou atalho fictício nesta correção.
 | HI-48 | Hipótese técnica | O token do convite continua na URL nesta etapa; retirá-lo muda o fluxo do link enviado e fica no BL-547. |
 | RC-145 | Confirmado | Fred, 30/09/2026, respondendo à PE-73: *"livro-caixa pode ter fechamento de mês"*. Mês fechado do livro-caixa não aceita lançamento nem estorno até ser reaberto. Entra como DL-053, depois da DL-052. |
 | RC-146 | Confirmado | Fred, 30/09/2026: *"pode ser a mesma regra da contabilidade"*. O mês do livro-caixa é fechado e reaberto por ADMINISTRADOR ou GESTOR; ANALISTA não (mesma regra da RC-102). Reabertura é ato explícito registrado na trilha, e a trava vale para toda porta de escrita (tela, API, importação). Promove a HI-49 antes de virar código. |
+| RC-147 | Confirmado | Fred, 30/09/2026: *"os dependentes também devem travar em mês fechado"*. Registrar ou retificar dependentes do carnê-leão de forma que mude o resultado de algum mês encerrado é recusado até o mês ser reaberto. Fecha a decisão do BL-571; entra na DL-053. |
 | HI-49 | ~~Fechamento do livro-caixa com a mesma regra de papéis da competência contábil.~~ **Confirmada pelo Fred em 30/09/2026 — promovida a RC-146.** | Validada. |
 | PE-73 | ✅ Respondida em 30/09/2026 — ver RC-145 | Pergunta original: o livro-caixa deve ter fechamento de mês? |
 

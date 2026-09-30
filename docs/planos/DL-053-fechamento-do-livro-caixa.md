@@ -37,10 +37,13 @@ resultado sem aviso. A RC-130 já diz que o erro de mês anterior se corrige
 5. **Concorrência:** a gravação trava o registro do mês (`FOR SHARE`, como em
    `criar_lancamento` da contabilidade) para que fechar e lançar ao mesmo
    tempo não deixe lançamento em mês fechado.
-6. **Fora do escopo:** estado "entregue" do mês, trava por gatilho de banco,
-   fechamento em lote de vários clientes, e dependentes do carnê-leão (o
-   implementador informa se eles alteram mês já apurado; se alterarem, vira
-   BL próprio).
+6. **Dependentes do carnê-leão (RC-147, BL-571):** o implementador mediu que
+   registrar dependentes com início no passado ou retificar quantidade
+   vigente muda a dedução de meses já apurados. O Fred decidiu que também
+   travam: a alteração que mude o resultado de algum mês encerrado é
+   recusada até o mês ser reaberto.
+7. **Fora do escopo:** estado "entregue" do mês, trava por gatilho de banco e
+   fechamento em lote de vários clientes.
 
 ## Critérios de aceite
 
@@ -59,10 +62,14 @@ resultado sem aviso. A RC-130 já diz que o erro de mês anterior se corrige
 6. Concorrência: fechar e lançar simultaneamente no mesmo mês nunca termina
    com lançamento gravado em mês encerrado (teste com duas conexões, com
    timeout e asserção de conclusão, conforme a DL-050).
-7. Tela: o mês encerrado aparece como encerrado no livro-caixa, a ação de
+7. Dependentes (RC-147): registrar com início em mês encerrado, ou retificar
+   registro cuja mudança alcance mês encerrado → recusado, nada gravado;
+   alteração que só alcança meses abertos → aceita; depois de reabrir →
+   aceita.
+8. Tela: o mês encerrado aparece como encerrado no livro-caixa, a ação de
    lançar não é oferecida nele, e fechar/reabrir só aparecem para quem pode
    — sem substituir a checagem do servidor.
-8. Suíte completa verde em PostgreSQL; migração aplica em banco vazio e é
+9. Suíte completa verde em PostgreSQL; migração aplica em banco vazio e é
    reversível.
 
 ## Impacto, riscos e reversão
