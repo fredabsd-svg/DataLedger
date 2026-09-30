@@ -1,4 +1,4 @@
-# Estado do projeto
+﻿# Estado do projeto
 
 Este é o **único** lugar onde o estado do DataLedger é descrito (instrução
 permanente do Fred, 2026-09-13). O `README.md` aponta para cá e não repete o
@@ -175,14 +175,36 @@ pode ser implementada; a D8 (API da DLPA) também.**
 - **Repositório movido para fora do OneDrive** → **`C:\src\DataLedger`**. O OneDrive era
   a causa do I/O-bound, não o SQLite. Copiado, verificado (mesmo commit, `manage.py
   check` limpo) e é o novo local de trabalho.
-- **Módulo que travava a suíte: ACHADO e nomeado** —
-  `apps/contabilidade/tests/test_bl144_codigo_conta_duplicado.py:161`. O teste faz
-  `t.join()` **sem timeout** esperando 4 threads sincronizadas num `threading.Barrier(4)`
-  (linha 140): se uma thread não chega à barreira, o `join()` espera **para sempre**.
-  Não é o OneDrive — é um **defeito do próprio teste**, que transforma falha em travamento
-  invisível. ⚠️ A descrição antiga neste arquivo mandava deselecionar
+- **Módulo que travava a suíte: ACHADO — e é SISTÊMICO, não um ponto.** Três
+  execuções de `pytest` terminaram em silêncio (sem traceback, sem timeout do pytest).
+  O `faulthandler` mostrou a causa: **espera infinita** — `barreira.wait()` e
+  `t.join()` **sem timeout**. Se uma thread morre antes da barreira, as outras
+  esperam para sempre. ⚠️ A descrição antiga deste arquivo mandava deselecionar
   `test_restricoes_contabilidade.py::test_bl144_codigo_conta_duplicado`, **caminho
   errado** — por isso a deseleção anterior não funcionou.
+  - ✅ **Corrigido (commit `bc52c5b`):** `test_bl144_codigo_conta_duplicado.py`,
+    `test_api.py` (1º teste de concorrência) e `test_dl043_correcao_rodada1.py`
+    (incluindo dois `join()` sem timeout adicionais no mesmo arquivo, nas linhas 476-477 e 686-687). Todas as
+    esperas ganharam timeout e uma asserção de `is_alive()`. **Nenhuma guarda foi
+    afrouxada** — `resultados` incompleto reprova, porque as asserções de baixo exigem
+    o código de resposta de todas as threads.
+  - ⚠️ **NÃO CORRIGIDO — e é o que trava a suíte ainda:** a varredura do repositório
+    encontrou **cerca de 30 esperas infinitas em 13 arquivos de teste**. Depois da
+    correção acima, `test_api.py` **continua travando no teste de concorrência
+    seguinte do mesmo arquivo** (linhas 378-400) — o que confirma que o alcance é
+    maior. Arquivos com o padrão: `test_dl016_fatia1_*.py` (8 pontos),
+    `test_dl046_livro_caixa.py` (3), `test_bl40_bl41.py` (2),
+    `test_dl023_regime_tributario_periodo_unico.py` (3),
+    `test_bl144_matriz_duplicada.py`, `test_dl043_zeramento_concorrencia_e_permissoes.py`,
+    `fiscal/tests/test_concorrencia.py` (2), `fiscal/tests/test_dl076_um_envio_por_vez.py` (3),
+    entre outros.
+    **Não foi feito num commit só de propósito:** são testes que guardam invariantes
+    de concorrência de CNPJ, lançamento e zeramento — nível 1. Mexer em 13 arquivos
+    desses exige etapa própria, com verificação própria. **Ordem a definir pelo Fred.**
+  - ⚠️ **Consequência prática:** a suíte `pytest` **completa não termina localmente**
+    no Windows. A CI (Linux + PostgreSQL) roda tudo verde em ~4m35s. Para medir
+    localmente, usar recorte de módulo.
+
 - **PowerShell 7 instalado (7.6.6)**; `scripts/validate-docs.ps1` **original** executado
   e **verde** (*"Documentação válida: 187 arquivos Markdown verificados"*, exit 0). A
   **réplica em Python foi descartada**, para não haver dois validadores.
