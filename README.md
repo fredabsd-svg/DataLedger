@@ -239,6 +239,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-056** — Limite de tentativas no login e no cadastro de escritório. Plano em [docs/planos/DL-056-limite-de-tentativas.md](docs/planos/DL-056-limite-de-tentativas.md)
 - **DL-057** — IP real de quem acessou na trilha de auditoria, atrás de proxy confiável. Plano em [docs/planos/DL-057-ip-real-na-trilha.md](docs/planos/DL-057-ip-real-na-trilha.md)
 - **DL-058** — Pequenas fugas de informação: mensagem única para conta-pai de outro escritório, filtro por empresa na DLPA, falha de login sem gravar texto de conta inexistente e API sem login Basic. Plano em [docs/planos/DL-058-pequenas-fugas-de-informacao.md](docs/planos/DL-058-pequenas-fugas-de-informacao.md)
+- **DL-059** — Trilha do convite e eventos sem IP: a recusa de aceite de convite fica registrada na trilha, o convite já usado não oferece mais o botão de aceitar e os eventos que saíam sem IP passam a gravá-lo. Plano em [docs/planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md](docs/planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md)
 
 Ainda não existem:
 

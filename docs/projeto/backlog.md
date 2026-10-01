@@ -1925,7 +1925,7 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-557 | `contabilidade/services.py` com 6.154 linhas; `apurar_saldos` (660), `criar_lancamento` (413); `views_web.lancamento_novo` (529) | `desenvolvedor-pleno` | — | aberta | Refatoração por fatia, sem mudança de comportamento, com a suíte como rede |
 | BL-558 | Dependências circulares entre apps: `core` importa contabilidade, fiscal e livro_caixa (`module_homes.py`); `tenancy` importa fiscal; `views_web` importa símbolo privado de `views` | `arquiteto-senior` | — | aberta | Camadas definidas e uma guarda derivada de import |
 | BL-559 | Apagar um usuário pelo admin zera a autoria (`criado_por`, `on_delete=SET_NULL`) dos lançamentos que ele escriturou. O gatilho da DL-052 **preserva** esse comportamento de propósito, para não mudar regra sem decisão | `desenvolvedor-pleno` | — | concluída (DL-052) | **Decidido pelo Fred (RC-144): desativar, não apagar.** `criado_por` com `PROTECT`, admin sem exclusão de usuário, gatilho sem a exceção de autoria |
-| BL-560 | A tela do convite **já consumido** ainda oferece o botão "Aceitar" (o POST recusa). Achado pelo implementador na DL-052, pré-existente | `especialista-frontend` | — | aberta | GET de convite consumido informa que já foi usado e não oferece o botão, com teste |
+| BL-560 | A tela do convite **já consumido** ainda oferece o botão "Aceitar" (o POST recusa). Achado pelo implementador na DL-052, pré-existente | `especialista-frontend` | — | concluída (DL-059) | GET de convite consumido informa que já foi usado e não oferece o botão, com teste |
 
 ## Auditoria da DL-052 — rodada 1, APROVADA COM RESSALVAS (2026-09-30)
 
@@ -1941,7 +1941,7 @@ abaixo.
 | BL-563 | **D3 (baixa)** — exceção do backfill aceita competência de outra empresa | `desenvolvedor-pleno` | — | concluída (DL-052) | Competência de outra empresa recusada |
 | BL-564 | **D5 (baixa)** — usuário já vinculado que aceita convite recebe 500 | `desenvolvedor-pleno` | — | concluída (DL-052) | Mensagem própria, 302, convite não consumido |
 | BL-565 | **D6 (baixa)** — testes não isolam o `PROTECT` de `Competencia.fechada_por` e `entregue_por` | `desenvolvedor-pleno` | — | concluída (DL-052) | Teste que reprova se algum dos seis campos voltar a `SET_NULL` |
-| BL-566 | **D4 (baixa)** — recusa de aceite de convite (vencido, e-mail divergente) não deixa rastro na trilha | `desenvolvedor-pleno` | — | aberta | Evento `convite.escritorio.recusado` com motivo, sem o e-mail, gravado fora da transação revertida |
+| BL-566 | **D4 (baixa)** — recusa de aceite de convite (vencido, e-mail divergente) não deixa rastro na trilha | `desenvolvedor-pleno` | — | concluída (DL-059) | Evento `convite.escritorio.recusado` com motivo, sem o e-mail, gravado fora da transação revertida |
 | BL-567 | **D8 (baixa, pré-existente)** — `empresa_escritorio_imutavel` sem mensagem em `restricoes.py`; nenhuma guarda cruza os nomes de gatilho das migrações com os mapas | `desenvolvedor-pleno` | — | aberta | Nome mapeado; guarda derivada das migrações (nível 3) |
 | BL-568 | **D9 (baixa)** — `casefold()` iguala e-mails distintos (`ß`/`ss`, sinal Kelvin) e não normaliza NFC/NFD | `desenvolvedor-pleno` | BL-548 | aberta | Decidir a normalização junto com a confirmação de e-mail |
 
@@ -1979,7 +1979,7 @@ Integrada com as ressalvas abaixo (RC-150): nenhuma muda o escopo aprovado.
 | --- | --- | --- | --- | --- | --- |
 | BL-577 | **F1 (média)** — `DJANGO_PROXIES_CONFIAVEIS` aceita `0.0.0.0/0` e `::/0` (qualquer cliente forja o IP) e redes largas sem aviso. O padrão (lista vazia) é seguro | `desenvolvedor-pleno` | — | aberta — **obrigatória antes da implantação** | Subida recusa `/0`; aviso do `check` para redes largas; teste |
 | BL-578 | **F2 (média)** — a varredura de leitura de IP cobre só `apps/auditoria` e três marcas fixas | `desenvolvedor-pleno` | — | concluída (DL-056) | Guarda derivada sobre todo `apps/` (AST); DL-056 usando `ip_do_cliente`; mutações M8 a M10 reprovam |
-| BL-579 | **F3 (baixa, pré-existente)** — seis eventos gravados sem IP (`escritorio.ativado`, convite emitido/aceito, primeiro acesso, envio fiscal recebido) | `desenvolvedor-pleno` | — | aberta | `request` ou IP passado em cada chamador, com teste por evento |
+| BL-579 | **F3 (baixa, pré-existente)** — seis eventos gravados sem IP (`escritorio.ativado`, convite emitido/aceito, primeiro acesso, envio fiscal recebido) | `desenvolvedor-pleno` | — | concluída (DL-059) | `request` ou IP passado em cada chamador, com teste por evento |
 | BL-580 | **F4 (baixa)** — validação da configuração mais permissiva que a leitura (`/24` com bits de host, IPv4 mapeado, escopo `%`) | `desenvolvedor-pleno` | — | aberta | `strict=True` e recusas com mensagem; testes |
 | BL-581 | **F5 (baixa)** — sem teto de entradas no `X-Forwarded-For` (hoje neutralizado pelo limite de cabeçalho do gunicorn) | `desenvolvedor-pleno` | — | aberta | Teto (ex.: 64 entradas) com teste |
 | BL-582 | **F6 (baixa)** — procedimento de implantação do proxy não documentado (descobrir o `REMOTE_ADDR` do proxy; proxy deve acrescentar ao `X-Forwarded-For`; socket Unix sem IP) | `arquiteto-senior` | PE-07 | aberta | Documento de implantação |
@@ -2021,3 +2021,17 @@ Integrada com as ressalvas abaixo (RC-150). BL-554 e BL-555 concluídos.
 | BL-594 | **J4 (baixa)** — os testes de ponta a ponta do Basic passam sem a correção; falta teste nas rotas que de fato aceitavam Basic | `desenvolvedor-pleno` | — | aberta | Teste em `/api/escritorios/` e `/api/escritorio-ativo/` que reprova sem a correção |
 | BL-595 | **J6 (informativo)** — teste do B2 é de função, não de tela | `desenvolvedor-pleno` | — | aberta | Teste de tela se a apuração da DLPA mudar |
 | BL-596 | Verificar se o admin do Django expõe as falhas de login da trilha (não verificado na auditoria) | `auditor-qa` | — | aberta | Inspeção de `apps/auditoria/admin.py` |
+
+## Auditoria da DL-059 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-059-rodada-1.md](../auditorias/2026-10-01-dl-059-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150). BL-560, BL-566 e BL-579 concluídos;
+K3 (documentação da etapa) cumprido na integração.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-597 | **K1 (baixa)** — falha da própria trilha ao gravar a recusa do convite vira HTTP 500; decisão *fail-closed* registrada no plano da DL-059, sem teste que a documente | `desenvolvedor-pleno` | — | aberta | Teste com `registrar` forçado a falhar: 500, sem vínculo, convite não consumido |
+| BL-598 | **K2 (baixa, pré-existente)** — dois convites ao mesmo e-mail aceitos em paralelo dão `IntegrityError` (500) sem evento de recusa | `desenvolvedor-pleno` | — | aberta | Segundo aceite vira recusa `ja_vinculado` com evento, ou segundo convite pendente é impedido; teste de concorrência |
+| BL-599 | **K4 (baixa)** — cada POST recusado de convite grava um evento, sem limite de taxa | `arquiteto-senior` | — | aberta | Decidir: aceitar como está ou limitar por usuário e convite |
+| BL-600 | **K5 (baixa)** — texto do GET de token inexistente ainda diz "já foi consumido", caso que agora tem tela própria | `especialista-frontend` | — | aberta | Texto "inexistente ou inválido", com teste |
+| BL-601 | **K6 (baixa)** — faltam testes de aceite em paralelo e de `X-Forwarded-For` forjado em cada evento novo pela view | `desenvolvedor-pleno` | — | aberta | Casos da seção 7 da auditoria no repositório |
