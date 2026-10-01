@@ -23,6 +23,14 @@ Decisões que valem ser lidas antes de mexer:
   resposta não distingue usuário existente de inexistente, nem "senha errada"
   de "bloqueado". O custo é real e está declarado: quem está bloqueado não é
   informado (senha certa também é recusada até a janela passar).
+- **Sem IP conhecido, NÃO há limite por IP** (só o por usuário). O IP vem de
+  `apps.auditoria.ip.ip_do_cliente` — a MESMA função da trilha — que devolve
+  `None` quando `REMOTE_ADDR` falta ou é inválido. Agrupar todos os `None` numa
+  chave única ("desconhecido") faria 20 falhas de qualquer pessoa bloquearem o
+  login de TODOS (achado O2 da auditoria da DL-057). O limite por usuário
+  continua valendo, então a força bruta contra uma conta segue contida.
+  Atrás de proxy, sem `PROXIES_CONFIAVEIS` configurada, o IP é o do proxy e o
+  limite por IP vira global: a implantação deve exigir a variável.
 - **Bloqueio de conta por terceiros é possível**: quem digitar 5 vezes o
   usuário de alguém o bloqueia por até a janela. É o preço de qualquer limite
   por conta; o limite por IP e a janela curta o contêm, e a escolha de N e J
@@ -42,6 +50,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.accounts.models import TentativaDeAcesso
+from apps.auditoria.ip import ip_do_cliente
 
 Escopo = TentativaDeAcesso.Escopo
 
@@ -53,22 +62,6 @@ LOTE_DE_LIMPEZA = 500
 def _agora():
     """Relógio do módulo. Os testes o substituem para avançar o tempo."""
     return timezone.now()
-
-
-def _ip_da_requisicao(request) -> str:
-    """Endereço IP de quem fez a requisição.
-
-    PONTO ÚNICO PROVISÓRIO: a DL-057 cria a função única de IP em
-    `apps/auditoria`; quando ela estiver integrada, esta função passa a
-    chamá-la, para que trilha e limite enxerguem o MESMO endereço.
-
-    ⚠️ Enquanto for `REMOTE_ADDR`, atrás de um proxy reverso todos os usuários
-    parecem um único IP e compartilhariam o limite por IP. Não se confia em
-    `X-Forwarded-For` aqui: o cabeçalho é forjável e deixaria o atacante
-    escolher o próprio balde. A decisão sobre qual cabeçalho confiar é da
-    DL-057, junto com a topologia de implantação.
-    """
-    return request.META.get("REMOTE_ADDR") or "desconhecido"
 
 
 def normalizar_usuario(texto: str) -> str:
@@ -175,20 +168,24 @@ def reservar_tentativa_de_login(request, usuario_digitado: str) -> tuple[Reserva
     """
     janela = settings.LIMITE_TENTATIVAS_LOGIN_JANELA_SEGUNDOS
     chave_usuario = chave_do_usuario(usuario_digitado)
-    ip = _ip_da_requisicao(request)
+    ip = ip_do_cliente(request)
     por_usuario = (
         Escopo.LOGIN_USUARIO,
         chave_usuario,
         settings.LIMITE_TENTATIVAS_LOGIN_POR_USUARIO,
         janela,
     )
-    por_ip = (Escopo.LOGIN_IP, ip, settings.LIMITE_TENTATIVAS_LOGIN_POR_IP, janela)
-    ids, bloqueado_em = _reservar([por_usuario, por_ip])
+    itens = [por_usuario]
+    # `ip is None` (O2): sem IP conhecido não se aplica o limite por IP — ver o
+    # docstring do módulo. Nunca usar um texto fixo como chave para o `None`.
+    if ip is not None:
+        itens.append((Escopo.LOGIN_IP, ip, settings.LIMITE_TENTATIVAS_LOGIN_POR_IP, janela))
+    ids, bloqueado_em = _reservar(itens)
     limpar_vencidas()
     if not ids:
         return None, "usuario" if bloqueado_em == Escopo.LOGIN_USUARIO else "ip"
-    # ids[0] é a linha do usuário e ids[1] a do IP (ordem de `itens`).
-    return Reserva(ids_ip=(ids[1],), chave_usuario=chave_usuario), ""
+    # ids[0] é a linha do usuário; ids[1:] é a do IP, que não existe sem IP.
+    return Reserva(ids_ip=tuple(ids[1:]), chave_usuario=chave_usuario), ""
 
 
 def confirmar_sucesso_de_login(reserva: Reserva) -> None:
@@ -209,11 +206,19 @@ def reservar_cadastro(request) -> bool:
     errada de CNPJ. Não cobre a enumeração de e-mail/CNPJ pelas mensagens de
     validação do formulário — fora do escopo da DL-056.
     """
+    ip = ip_do_cliente(request)
+    if ip is None:
+        # O2: o cadastro só tem limite por IP; sem IP conhecido não há o que
+        # limitar, e agrupar os `None` numa chave única bloquearia o cadastro de
+        # todos. Recusar por falta de IP seria pior (derruba o cadastro legítimo
+        # por defeito de infraestrutura) — a falta de IP fica visível na trilha
+        # (`endereco_ip` nulo), que usa a mesma função.
+        return True
     ids, _ = _reservar(
         [
             (
                 Escopo.CADASTRO_IP,
-                _ip_da_requisicao(request),
+                ip,
                 settings.LIMITE_TENTATIVAS_CADASTRO_POR_IP,
                 settings.LIMITE_TENTATIVAS_CADASTRO_JANELA_SEGUNDOS,
             )

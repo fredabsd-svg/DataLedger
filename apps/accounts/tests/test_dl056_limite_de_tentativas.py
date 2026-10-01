@@ -332,6 +332,113 @@ def test_limite_de_cadastro_vem_de_settings(relogio, settings):
     assert _cadastrar(2).status_code == 429
 
 
+# --- IP único da trilha (DL-057) e IP desconhecido (achado O2) ---------------------
+#
+# O limite lê o IP por `apps.auditoria.ip.ip_do_cliente`, a mesma função da trilha.
+# Quando ela devolve `None` (sem `REMOTE_ADDR` válido), NÃO há limite por IP — só o
+# por usuário. Agrupar os `None` numa chave só bloquearia o login de todos.
+
+PROXY = "10.0.0.1"
+SEM_IP = ["", "isto-nao-e-ip"]
+
+
+@pytest.mark.parametrize("sem_ip", SEM_IP)
+def test_sem_ip_o_limite_por_usuario_continua_valendo(relogio, usuario, sem_ip):
+    for _ in range(5):
+        assert not _logou(_tentar("ana", "senha-errada", ip=sem_ip))
+
+    assert not _logou(_tentar("ana", SENHA, ip=sem_ip))  # 6ª, com a senha certa
+    relogio.avancar(minutes=15, seconds=1)
+    assert _logou(_tentar("ana", SENHA, ip=sem_ip))
+
+
+@pytest.mark.parametrize("sem_ip", SEM_IP)
+def test_sem_ip_nao_ha_balde_global_que_bloqueie_todo_mundo(relogio, usuario, sem_ip):
+    # 25 falhas de usuários diferentes, todas sem IP: com a chave única para
+    # `None` isso passaria dos 20 do limite por IP e travaria o acesso de todos.
+    for i in range(25):
+        assert not _logou(_tentar(f"alvo-{i}", "senha-errada", ip=sem_ip))
+
+    assert _logou(_tentar("ana", SENHA, ip=sem_ip))
+    assert not TentativaDeAcesso.objects.filter(escopo="login_ip").exists()
+    # A chave de IP nunca vira texto fixo ("None", "desconhecido"...).
+    assert not TentativaDeAcesso.objects.exclude(escopo="login_usuario").exists()
+
+
+def test_reserva_sem_ip_so_tem_a_linha_do_usuario(relogio):
+    request = RequestFactory().post("/entrar/", REMOTE_ADDR="")
+
+    reserva, motivo = limite_tentativas.reservar_tentativa_de_login(request, "ana")
+
+    assert motivo == ""
+    assert reserva.ids_ip == ()
+    assert TentativaDeAcesso.objects.count() == 1
+    # Sucesso sem IP não tenta devolver reserva de IP que não existe.
+    limite_tentativas.confirmar_sucesso_de_login(reserva)
+    assert TentativaDeAcesso.objects.count() == 0
+
+
+def test_bloqueio_por_usuario_sem_ip_vai_para_a_trilha_sem_ip(relogio, usuario):
+    for _ in range(5):
+        _tentar("ana", "senha-errada", ip="")
+
+    _tentar("ana", SENHA, ip="")
+
+    registro = RegistroAuditoria.objects.get(acao="login.bloqueado")
+    assert registro.endereco_ip is None
+    assert registro.detalhes["motivo"] == "usuario"
+
+
+@pytest.mark.parametrize("sem_ip", SEM_IP)
+def test_cadastro_sem_ip_nao_e_limitado_nem_agrupado(relogio, sem_ip):
+    # Mais cadastros que o limite (5) sem IP conhecido: nenhum é recusado, e
+    # nenhum balde de IP é criado para o `None`.
+    for n in range(7):
+        assert _cadastrar(n, ip=sem_ip).status_code == 302
+    assert not TentativaDeAcesso.objects.exists()
+    # Quem tem IP conhecido continua limitado.
+    for n in range(10, 15):
+        assert _cadastrar(n, ip=IP_A).status_code == 302
+    assert _cadastrar(99, ip=IP_A).status_code == 429
+
+
+def _pelo_proxy(usuario_digitado, senha, cliente):
+    return Client().post(
+        reverse("login"),
+        {"username": usuario_digitado, "password": senha},
+        REMOTE_ADDR=PROXY,
+        HTTP_X_FORWARDED_FOR=cliente,
+    )
+
+
+def test_atras_de_proxy_confiavel_o_balde_e_o_ip_do_cliente_e_nao_o_do_proxy(relogio, settings):
+    settings.PROXIES_CONFIAVEIS = [PROXY]
+    get_user_model().objects.create_user(username="bia", email="bia@x.example", password=SENHA)
+    for i in range(20):
+        _pelo_proxy(f"alvo-{i}", "senha-errada", IP_A)
+
+    # O cliente A estourou o limite; o cliente B, atrás do MESMO proxy, não.
+    assert not _logou(_pelo_proxy("bia", SENHA, IP_A))
+    assert _logou(_pelo_proxy("bia", SENHA, IP_B))
+    chaves = TentativaDeAcesso.objects.filter(escopo="login_ip").values_list("chave", flat=True)
+    assert PROXY not in set(chaves)
+    assert IP_A in set(chaves)
+
+
+def test_sem_proxy_confiavel_cabecalho_forjado_nao_escolhe_o_balde(relogio, usuario, settings):
+    settings.PROXIES_CONFIAVEIS = []
+    for i in range(20):
+        Client().post(
+            reverse("login"),
+            {"username": f"alvo-{i}", "password": "senha-errada"},
+            REMOTE_ADDR=IP_A,
+            HTTP_X_FORWARDED_FOR=f"198.51.100.{i + 1}",  # atacante troca o cabeçalho
+        )
+
+    # Continua o mesmo balde (o par TCP), então a 21ª é bloqueada.
+    assert not _logou(_tentar("ana", SENHA, ip=IP_A))
+
+
 # --- Limpeza oportunista ----------------------------------------------------
 
 
