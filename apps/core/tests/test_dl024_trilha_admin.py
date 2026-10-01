@@ -89,7 +89,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     mecanismo garante é a fonte de verdade (`signals.
     modelos_cobertos_pela_trilha()`), nunca esta lista sozinha.
     """
-    from apps.accounts.models import Usuario
+    from apps.accounts.models import TentativaDeAcesso, Usuario
     from apps.auditoria import signals
     from apps.auditoria.models import RegistroAuditoria
     from apps.contabilidade.models import (
@@ -123,6 +123,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
 
     esperados_cobertos = {
         Usuario,
+        TentativaDeAcesso,  # DL-056: modelo concreto novo entra na cobertura sozinho
         Escritorio,
         VinculoUsuarioEscritorio,
         ConviteEscritorio,

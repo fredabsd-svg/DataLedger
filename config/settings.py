@@ -337,6 +337,16 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "tenancy:painel"
 LOGOUT_REDIRECT_URL = "login"
 
+# DL-056 — limite de tentativas de login e de cadastro de escritório, contado
+# no BANCO (apps.accounts.limite_tentativas). Os números abaixo são HIPÓTESE
+# inicial do arquiteto, ainda a validar com o Fred: nenhuma norma os fixa.
+# Trocar o valor aqui não exige migração.
+LIMITE_TENTATIVAS_LOGIN_POR_USUARIO = 5  # falhas por usuário digitado na janela
+LIMITE_TENTATIVAS_LOGIN_POR_IP = 20  # falhas por IP (qualquer usuário) na janela
+LIMITE_TENTATIVAS_LOGIN_JANELA_SEGUNDOS = 15 * 60
+LIMITE_TENTATIVAS_CADASTRO_POR_IP = 5  # cadastros de escritório por IP na janela
+LIMITE_TENTATIVAS_CADASTRO_JANELA_SEGUNDOS = 60 * 60
+
 
 # Django REST Framework
 # Escopo mínimo por enquanto: as ferramentas MCP e demais APIs definirão
