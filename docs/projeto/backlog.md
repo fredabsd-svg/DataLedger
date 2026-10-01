@@ -2004,8 +2004,8 @@ Integrada com as ressalvas abaixo (RC-150); H1 e H2 viram a DL-060.
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-588 | **H1 (baixa)** — a confirmação da reabertura em cascata não fixa os meses mostrados: mês encerrado entre a tela e o clique é reaberto junto, sem constar da confirmação | `desenvolvedor-pleno` + `especialista-frontend` | — | planejada (DL-060) | A tela envia os meses confirmados; o serviço recusa (409, lista atual) se o conjunto sob lock divergir; nenhum mês alterado |
-| BL-589 | **H2 (baixa)** — faltam testes de corrida "reabrir sem cascata × encerrar mês posterior" e a asserção de estado final no teste de duas cascatas | `desenvolvedor-pleno` | — | planejada (DL-060) | Casos propostos na auditoria; a mutação sem o lock dos posteriores reprova |
+| BL-588 | **H1 (baixa)** — a confirmação da reabertura em cascata não fixa os meses mostrados: mês encerrado entre a tela e o clique é reaberto junto, sem constar da confirmação | `desenvolvedor-pleno` + `especialista-frontend` | — | concluída (DL-060) | A tela envia os meses confirmados; o serviço recusa (409, lista atual) se o conjunto sob lock divergir; nenhum mês alterado |
+| BL-589 | **H2 (baixa)** — faltam testes de corrida "reabrir sem cascata × encerrar mês posterior" e a asserção de estado final no teste de duas cascatas | `desenvolvedor-pleno` | — | concluída (DL-060) | Casos propostos na auditoria; a mutação sem o lock dos posteriores reprova |
 | BL-590 | **H3 (baixa)** — a tela filtra `estado=encerrado` e o serviço `!= aberto`; divergiriam com um terceiro estado | `especialista-frontend` | — | aberta | Mesmo critério nos dois, com teste |
 | BL-591 | **H4 (baixa)** — comentário da margem do `lock_timeout` (`config/settings.py`) supõe um lock por requisição; o lançamento agora toma até 12 | `desenvolvedor-pleno` | — | aberta | Comentário atualizado com a nova conta, ou medição |
 
@@ -2035,3 +2035,14 @@ K3 (documentação da etapa) cumprido na integração.
 | BL-599 | **K4 (baixa)** — cada POST recusado de convite grava um evento, sem limite de taxa | `arquiteto-senior` | — | aberta | Decidir: aceitar como está ou limitar por usuário e convite |
 | BL-600 | **K5 (baixa)** — texto do GET de token inexistente ainda diz "já foi consumido", caso que agora tem tela própria | `especialista-frontend` | — | aberta | Texto "inexistente ou inválido", com teste |
 | BL-601 | **K6 (baixa)** — faltam testes de aceite em paralelo e de `X-Forwarded-For` forjado em cada evento novo pela view | `desenvolvedor-pleno` | — | aberta | Casos da seção 7 da auditoria no repositório |
+
+## Auditoria da DL-060 — rodada 1 e reconferência, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatórios integrais em [2026-10-01-dl-060-rodada-1.md](../auditorias/2026-10-01-dl-060-rodada-1.md)
+e [2026-10-01-dl-060-reconferencia.md](../auditorias/2026-10-01-dl-060-reconferencia.md).
+Integrada com a ressalva abaixo (RC-150). BL-588 e BL-589 concluídos; L5
+(documentação) cumprido na integração.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-602 | **M1 (baixa)** — o caso "só o próprio mês" do teste de lista forjada não derruba o mutante que ignora o próprio mês na lista confirmada | `desenvolvedor-pleno` | — | aberta | Caso `(1, _meses(1, 2, 3))` na parametrização; reprova sob o mutante da reconferência e passa sem ele |
