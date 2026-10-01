@@ -48,6 +48,17 @@ social — a pílula "Empresa" já mostra.
     {% endif %}
 
     {% if vigencias %}
+        {% comment %}
+        N10 (auditoria DL-061, rodada 1): a tabela tem 7 ou 8 colunas (contas
+        com código e nome, datas, a marca da NBC TG 51 e os botões de ação);
+        a 390 px a PÁGINA rolava na horizontal (849 px medidos, 726 antes da
+        coluna nova). O invólucro faz rolar só a TABELA — todas as colunas
+        continuam alcançáveis. `role="region"` + `tabindex="0"` + nome
+        acessível: sem eles, quem usa só o teclado não consegue rolar a
+        região. Mesma técnica do carnê-leão e da DMPL.
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0"
+             aria-label="Vigências de parâmetro contábil — tabela com rolagem horizontal">
         <table class="tabela-dados">
             <caption class="visualmente-oculto">
                 Vigências de parâmetro contábil de {{ empresa.razao_social }}
@@ -132,6 +143,7 @@ social — a pílula "Empresa" já mostra.
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% comment %}
         DL-061: o EFEITO da marca, dito na tela onde ela mora — para quem
         consulta e para quem altera. Fundamento: plano DL-061, E7; a escolha
@@ -142,7 +154,9 @@ social — a pílula "Empresa" já mostra.
             demonstrações citam (NBC TG 26 (R5) ou NBC TG 51) nos exercícios que começam
             dentro da vigência e antes da vigência obrigatória da NBC TG 51; não muda saldo,
             lançamento nem zeramento. Ela vale para TODA a vigência — para separar um exercício
-            do outro, registre uma vigência nova (ela herda a marca). Cada alteração fica na
+            do outro, registre uma vigência nova (ela herda a marca). A marca só tem efeito em
+            vigência que cubra o dia 1º de janeiro de algum exercício anterior a 2027; em
+            qualquer outra, o sistema recusa a marcação e diz por quê. Cada alteração fica na
             trilha de auditoria.
         </p>
     {% else %}

@@ -114,6 +114,9 @@ paisagem (`@page dmpl-paisagem`, static/css/base.css) só a este documento.
                                 — <a href="{{ link.url }}">{{ link.rotulo }}</a>
                             {% endfor %}
                             {% if linha.resto %}— e mais {{ linha.resto }} lançamento(s); veja o Diário.{% endif %}
+                            {% if linha.orientacao %}
+                                <span class="orientacao-da-pendencia"><strong>Como resolver:</strong> {{ linha.orientacao }}</span>
+                            {% endif %}
                             {% if linha.contas %}
                                 <ul>
                                     {% for conta in linha.contas %}<li>{{ conta }}</li>{% endfor %}
@@ -146,6 +149,18 @@ paisagem (`@page dmpl-paisagem`, static/css/base.css) só a este documento.
             <span class="texto-apoio">
                 Saldo final de cada coluna e total conferidos com o Balanço da mesma data.
             </span>
+            {% if tem_aviso_de_passagem %}
+                {% comment %}
+                N3: "pronta" não pode parecer "sem ressalva" quando o total do
+                documento difere do patrimônio líquido do Balanço — o aviso
+                completo está mais abaixo; este fio leva a ele.
+                {% endcomment %}
+                <strong class="faixa-fechamento__ressalva">
+                    Com ressalva: há resultado ainda não transferido e o total difere do
+                    patrimônio líquido do Balanço —
+                    <a href="#{{ ancora_do_aviso }}">ver o aviso</a>.
+                </strong>
+            {% endif %}
         </div>
 
         {% if not tabela.tem_movimento %}
@@ -286,6 +301,18 @@ paisagem (`@page dmpl-paisagem`, static/css/base.css) só a este documento.
                     Adoção antecipada da NBC TG 51, declarada pela entidade para este exercício.
                 {% endif %}
             </p>
+            {% comment %}
+            N3 (decisão do arquiteto-senior, reversível): quando há saldo na
+            conta de passagem do resultado, o total do documento difere do
+            patrimônio líquido do Balanço por esse valor — a nota diz isso NO
+            PAPEL. Sem o aviso do servidor, nada é impresso aqui. O texto e o
+            valor vêm da view (`_nota_do_resultado_na_conta_de_passagem`).
+            {% endcomment %}
+            {% if nota_do_resultado_na_conta_de_passagem %}
+                <p class="nota-do-resultado-na-conta-de-passagem">
+                    {{ nota_do_resultado_na_conta_de_passagem.texto }}
+                </p>
+            {% endif %}
         </div>
 
         {% comment %}
@@ -378,13 +405,23 @@ paisagem (`@page dmpl-paisagem`, static/css/base.css) só a este documento.
     documento.
     {% endcomment %}
     {% if listas_apenas_aviso %}
-        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status" id="{{ ancora_do_aviso }}">
             <strong>Aviso:</strong> não impede a emissão da DMPL.
             {% for lista in listas_apenas_aviso %}
                 <p><strong>{{ lista.titulo }}</strong></p>
                 <ul>
                     {% for linha in lista.linhas %}
-                        <li>{{ linha.detalhe }}</li>
+                        <li>
+                            {{ linha.detalhe }}
+                            {% for link in linha.links %}
+                                — <a href="{{ link.url }}">{{ link.rotulo }}</a>
+                            {% endfor %}
+                            {% if linha.contas %}
+                                <ul>
+                                    {% for conta in linha.contas %}<li>{{ conta }}</li>{% endfor %}
+                                </ul>
+                            {% endif %}
+                        </li>
                     {% endfor %}
                 </ul>
             {% endfor %}

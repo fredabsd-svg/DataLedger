@@ -2499,6 +2499,14 @@ button:disabled {
    por qualquer tabela larga futura — não é específico do carnê-leão. */
 .tabela-com-rolagem-horizontal {
     overflow-x: auto;
+    /* N10 (auditoria DL-061, rodada 1): contêiner de bloco do texto só para
+       leitor de tela (`.visualmente-oculto`, `position: absolute`) que mora
+       dentro de uma célula. Sem ele, esse texto era posicionado em relação à
+       PÁGINA, ficava fora do recorte do `overflow` e a página inteira rolava
+       na horizontal (849 px medidos em 390 px na tela de parâmetros
+       contábeis, onde os botões de ação trazem esse texto). Mesma causa e
+       mesma correção que a DMPL já tinha (`.rolagem-da-dmpl`, abaixo). */
+    position: relative;
 }
 
 .tabela-dados {
@@ -2861,6 +2869,25 @@ button:disabled {
 
 .faixa-fechamento--nada-a-conferir .faixa-fechamento__veredito {
     color: var(--info);
+}
+
+/* DL-061, N3: a faixa "pronta para emissão" da DMPL, quando o servidor avisa
+   que há saldo na conta de passagem do resultado. O verde diz "fechou com o
+   Balanço"; a ressalva, em texto E em cor de aviso (nunca só cor), diz que o
+   total do documento difere do patrimônio líquido do Balanço por um valor
+   explicado. `display: block` para a frase não colar no veredito. */
+.faixa-fechamento__ressalva {
+    display: block;
+    margin-top: var(--esp-1);
+    color: var(--aviso);
+}
+
+/* DL-061, N4: orientação do servidor para a pendência sem link de correção
+   (conta de patrimônio líquido que não aceita coluna). Em bloco próprio, para
+   não se perder no fim da frase da pendência. */
+.orientacao-da-pendencia {
+    display: block;
+    margin-top: var(--esp-1);
 }
 
 /* Formulário de período (Diário, Razão, Balancete): disposição em linha,
@@ -3534,6 +3561,16 @@ button:disabled {
    orientação por causa desta regra. */
 @page dmpl-paisagem {
     size: A4 landscape;
+    /* N5 (auditoria DL-061, rodada 1): margem EXPLÍCITA. Sem ela, o PDF de
+       12 colunas saía com o texto a ~3 pt (1 mm) da borda direita — a coluna
+       "Total" encostava na folha e, em impressora real (margem não imprimível
+       de 4 a 6 mm), podia ser cortada. Com 9 mm nas laterais a folha tem
+       279 mm (~1.054 px) úteis, e o texto fica a mais de 8 mm da borda
+       direita (medido com `pdftotext -bbox`: ver o teste do navegador em
+       `test_dl061_tela_dmpl.py`). Vertical menor (8 mm) para a DMPL de 12
+       colunas e as notas do rodapé caberem na MESMA folha (ver o limite
+       declarado sobre a repetição da identificação, mais adiante). */
+    margin: 8mm 9mm;
 }
 
 /* BL-332 (achado A2 da auditoria DL-026, rodada 5,
@@ -3812,6 +3849,48 @@ button:disabled {
         padding: var(--esp-1);
     }
 
+    /* N5 — largura. A margem da página (`@page dmpl-paisagem`) já é a
+       moldura do documento: o respiro de 24 px do `.conteudo-principal` (que
+       existe para a TELA) só tirava ~50 px da folha. E o que fazia a tabela
+       de 12 colunas medir ~1.270 px (mais que os ~1.054 px úteis) eram os
+       RÓTULOS das colunas — em caixa alta, com espaçamento entre letras
+       ("CONTINGÊNCIAS" sozinha ocupava 106 px) — e o piso de 72 px por coluna
+       de valor. No papel o rótulo volta a caixa normal (ainda a 11 px, o piso
+       de legibilidade) e a coluna vale o que o seu maior valor ocupa; o
+       histórico fica com 8 rem e quebra linha. Se um cliente tiver valores
+       tão grandes que ainda assim não caibam, o navegador reduz a folha toda
+       (a margem direita continua respeitada) — limite declarado, não há como
+       caber 13 colunas de 14 caracteres a 11 px em A4. */
+    body.pagina-dmpl-impressao .conteudo-principal {
+        max-width: none;
+        padding: 0;
+    }
+
+    body.pagina-dmpl-impressao .tabela-dmpl th {
+        text-transform: none;
+        letter-spacing: normal;
+    }
+
+    body.pagina-dmpl-impressao .tabela-dmpl th.cabecalho-numerico {
+        min-width: 0;
+    }
+
+    body.pagina-dmpl-impressao .tabela-dmpl tbody th.cabecalho-de-linha {
+        min-width: var(--largura-minima-coluna-valor);
+    }
+
+    /* N5 — altura (continua abaixo): as notas a 12 px (acima do piso de 11 px) e
+       o timbre com menos respiro, para a DMPL de 12 colunas com a nota do saldo
+       na conta de passagem caber na MESMA folha de paisagem. */
+    body.pagina-dmpl-impressao .notas-do-documento {
+        margin: var(--esp-1) 0 0;
+        font-size: var(--tipo-xs);
+    }
+
+    body.pagina-dmpl-impressao .timbre-impressao {
+        margin-bottom: var(--esp-2);
+    }
+
     .tabela-dmpl tbody th.cabecalho-de-linha,
     .tabela-dmpl thead tr:not(.linha-identificacao-do-documento) th:first-child,
     .tabela-dmpl .identificacao-do-documento {
@@ -3830,6 +3909,22 @@ button:disabled {
 
     .tabela-dmpl .identificacao-do-documento {
         max-width: var(--largura-conteudo-agrupado);
+    }
+
+    /* N5 — altura. Na folha de paisagem (só ~725 px úteis de altura) o bloco
+       de identificação limitado a 40 rem quebrava em oito linhas, e com a nota
+       do saldo na conta de passagem a DMPL de 12 colunas passava para uma
+       SEGUNDA folha. Largura total da folha (a tabela já cabe nela, ver acima)
+       leva o bloco a cinco ou seis linhas e a demonstração inteira, com as
+       notas, a uma folha só (medido no PDF real). LIMITE DECLARADO: o Chromium
+       não repete o `<thead>` quando ele é alto demais para a folha de
+       paisagem (medido: 5 parágrafos de identificação, não repete; 3, repete),
+       então uma DMPL que ocupasse DUAS folhas de paisagem sairia com a
+       identificação só na primeira. Com no máximo ~14 linhas isso não ocorre
+       hoje; se o documento crescer (comparativo, BL de fatia 2), o bloco
+       precisa encolher junto. */
+    body.pagina-dmpl-impressao .tabela-dmpl .identificacao-do-documento {
+        max-width: none;
     }
 
     /* BL-338 (achado B2 da auditoria DL-026, rodada 5,

@@ -4743,16 +4743,42 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "Reclassifique cada conta listada com uma das opções válidas do campo “Coluna da "
         "DMPL” — o valor gravado não existe mais no cadastro."
     ),
+    # N11 (auditoria DL-061, rodada 1): a causa CONHECIDA vem primeiro. Conta
+    # RETIFICADORA do patrimônio líquido (capital a integralizar, ações em
+    # tesouraria) cadastrada FORA do grupo "Patrimônio Líquido" do plano de
+    # contas: o Balanço a soma pelo grupo em que ela está e a DMPL a subtrai
+    # pela natureza (BL-604, ainda aberta). Enquanto a BL-604 existir, dizer
+    # só "não deveria acontecer em dado íntegro" manda o contador procurar
+    # um erro que não existe nos lançamentos.
     "diferenca_de_fechamento": (
         "O saldo final da coluna não bate com o saldo das contas dela no Balanço da mesma "
-        "data — confira os lançamentos pelo Razão e se há conta de patrimônio líquido fora "
-        "das colunas ou subconta movimentada. Isto não deveria acontecer em dado íntegro."
+        "data. Causa mais provável: conta retificadora do patrimônio líquido (por exemplo, "
+        "capital a integralizar ou ações em tesouraria) cadastrada FORA do grupo "
+        "“Patrimônio Líquido” do plano de contas — o Balanço e a DMPL a tratam de formas "
+        "diferentes. Confira no plano de contas se toda conta do patrimônio líquido, "
+        "retificadoras inclusive, está dentro desse grupo. Se estiver, confira os "
+        "lançamentos pelo Razão e se há subconta movimentada: a diferença é o sinal de "
+        "dado inconsistente."
     ),
 }
 
 _TITULOS_DOS_AVISOS_DA_DMPL = {
     "resultado_nao_transferido": "Resultado do exercício ainda não zerado",
+    "resultado_na_conta_de_passagem": (
+        "Resultado do exercício na conta de passagem, ainda não transferido"
+    ),
 }
+
+# Âncora do bloco de aviso (a faixa "pronta para emissão" aponta para ele).
+ANCORA_DO_AVISO_DA_DMPL = "aviso-da-dmpl"
+
+# Quando a conta de PL não aceita coluna e o servidor não trouxe orientação
+# (`orientacao` ausente no item), a tela ainda diz que NÃO há ação de coluna a
+# fazer — nunca devolve a pessoa a um link que o servidor recusa.
+_ORIENTACAO_PADRAO_CONTA_SEM_COLUNA_POSSIVEL = (
+    "Esta conta não aceita coluna na DMPL; a emissão desta competência fica "
+    "impedida enquanto ela existir no patrimônio líquido."
+)
 
 
 def _links_de_lancamentos_da_pendencia(empresa, ids, lancamentos_por_id):
@@ -4827,9 +4853,12 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
     resultado = []
     for nome, itens in listas.items():
         linhas = []
+        tem_conta_sem_coluna_possivel = False
+        tem_conta_com_coluna_possivel = False
         for item in itens:
             links = []
             contas = []
+            orientacao = ""
             resto = 0
             if nome == "nenhuma_coluna_classificada":
                 texto = item["mensagem"]
@@ -4839,7 +4868,21 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
                     f"{_saldo_entre_parenteses(item['saldo_inicial'])}"
                     + (", com movimento no exercício." if item["movimento_no_exercicio"] else ".")
                 )
-                links.append(_link_da_coluna(item["conta_id"]))
+                # N4 (auditoria DL-061, rodada 1): só há link de coluna quando
+                # o SERVIDOR diz que a conta PODE receber uma (`classificavel`).
+                # Conta classificada como dividendo ou ajuste de exercício
+                # anterior na DLPA não admite nenhuma coluna — o servidor
+                # recusa qualquer uma —, e o link levaria a uma ação sem saída.
+                # Nesse caso a tela mostra a `orientacao` do servidor. Item sem
+                # a chave (contrato antigo) mantém o comportamento anterior.
+                if item.get("classificavel", True):
+                    links.append(_link_da_coluna(item["conta_id"]))
+                    tem_conta_com_coluna_possivel = True
+                else:
+                    orientacao = (
+                        item.get("orientacao") or _ORIENTACAO_PADRAO_CONTA_SEM_COLUNA_POSSIVEL
+                    )
+                    tem_conta_sem_coluna_possivel = True
             elif nome == "contrapartidas_sem_classificacao":
                 texto = (
                     f"Conta {item['conta']} — {item['nome']}: {item['mensagem']} "
@@ -4911,24 +4954,89 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
                 texto = str(item)
             if not pode_escriturar:
                 links = [link for link in links if not link["correcao"]]
-            linhas.append({"texto": texto, "links": links, "resto": resto, "contas": contas})
+            linhas.append(
+                {
+                    "texto": texto,
+                    "links": links,
+                    "resto": resto,
+                    "contas": contas,
+                    "orientacao": orientacao,
+                }
+            )
+        acao = ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA.get(
+            nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+        )
+        if tem_conta_sem_coluna_possivel:
+            # A ação padrão manda "dar uma coluna a cada conta listada": falsa
+            # para a conta que não aceita nenhuma (N4). Ela passa a dizer qual
+            # conta tem link e que as demais seguem a orientação própria.
+            acao = (
+                (
+                    "Dê uma coluna da DMPL às contas que têm o link ao lado. "
+                    if tem_conta_com_coluna_possivel
+                    else ""
+                )
+                + "As contas com orientação própria não aceitam coluna: siga a orientação "
+                "indicada em cada uma. O patrimônio líquido do Balanço inclui todas elas e a "
+                "demonstração, sem coluna, não as mostraria."
+            )
         resultado.append(
             {
                 "titulo": _TITULOS_DAS_PENDENCIAS_DA_DMPL.get(nome, nome),
                 "linhas": linhas,
-                "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA.get(
-                    nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
-                ),
+                "acao": acao,
             }
         )
     return resultado
 
 
-def _listas_de_aviso_da_dmpl_para_contexto(avisos):
+def _saldo_total_na_conta_de_passagem(avisos):
+    """Soma dos itens do aviso `resultado_na_conta_de_passagem` (N3), ou `None`
+    sem aviso. Contrato do servidor: lista de `{"valor": Decimal, "contas":
+    [{"conta_id", "conta", "nome", "saldo"}]}`. O valor é o SALDO da(s)
+    conta(s) de passagem — o mesmo que a conciliação soma ao total das
+    colunas para chegar ao patrimônio líquido do Balanço.
+    """
+    itens = avisos.get("resultado_na_conta_de_passagem") or []
+    if not itens:
+        return None
+    return sum((item["valor"] for item in itens), Decimal("0"))
+
+
+def _nota_do_resultado_na_conta_de_passagem(avisos, data_fim):
+    """A NOTA que sai NO PAPEL quando há saldo na conta de passagem (decisão
+    do arquiteto-senior, reversível, sobre o achado N3 da auditoria DL-061).
+
+    Por que no papel: o total da demonstração fica ABAIXO (ou acima) do
+    patrimônio líquido do Balanço pelo valor desse saldo — a conciliação
+    fecha porque soma a conta de passagem, mas o leitor do documento só tem
+    a tabela na mão, e um total diferente do Balanço sem explicação parece
+    erro. Sem o aviso, nada no papel (devolve `None`).
+    """
+    saldo = _saldo_total_na_conta_de_passagem(avisos)
+    if saldo is None:
+        return None
+    valor = _saldo_entre_parenteses(saldo)
+    return {
+        "valor": valor,
+        "texto": (
+            f"Há saldo de R$ {valor} na conta de resultado do exercício, ainda não "
+            "transferido para lucros ou prejuízos acumulados"
+            + (" (valor entre parênteses é saldo devedor)" if saldo < 0 else "")
+            + ". Por isso o total desta demonstração difere do patrimônio líquido do "
+            f"Balanço Patrimonial de {date_format(data_fim, 'd/m/Y')} nesse valor."
+        ),
+    }
+
+
+def _listas_de_aviso_da_dmpl_para_contexto(avisos, empresa=None):
     """Avisos da DMPL (nunca vetam), no mesmo formato das pendências e
     presentes nos DOIS desfechos da tela (emitida com aviso, ou vetada por
     outro motivo com o aviso também presente) — mesmo critério da DLPA
     (DE-070). Sem `acao`: aviso não se resolve, se CONFERE.
+
+    `resultado_na_conta_de_passagem` (N3) mostra o valor e cada conta de
+    passagem com o saldo dela, e aponta onde conferir (Diário e Fechamento).
     """
     listas = []
     for nome, itens in avisos.items():
@@ -4942,6 +5050,40 @@ def _listas_de_aviso_da_dmpl_para_contexto(avisos):
                         "exercício entra na linha “Resultado do exercício”, na coluna de "
                         "lucros ou prejuízos acumulados."
                     )
+                }
+                for item in itens
+            ]
+        elif nome == "resultado_na_conta_de_passagem":
+            linhas = [
+                {
+                    "detalhe": (
+                        f"Há saldo de R$ {_saldo_entre_parenteses(item['valor'])} na conta de "
+                        "resultado do exercício, ainda não transferido para lucros ou "
+                        "prejuízos acumulados. A DMPL não tem coluna para essa conta: o total "
+                        "dela difere do patrimônio líquido do Balanço exatamente por esse "
+                        "valor (a conferência abaixo mostra a conta de passagem). Confira no "
+                        "Diário se a transferência foi lançada ou foi estornada, e no "
+                        "Fechamento a situação do zeramento."
+                    ),
+                    "contas": [
+                        f"Conta {conta['conta']} — {conta['nome']}: saldo "
+                        f"{_saldo_entre_parenteses(conta['saldo'])}"
+                        for conta in item.get("contas", [])
+                    ],
+                    "links": (
+                        [
+                            {
+                                "rotulo": "abrir o Diário",
+                                "url": reverse("contabilidade_web:diario", args=[empresa.id]),
+                            },
+                            {
+                                "rotulo": "abrir o Fechamento",
+                                "url": reverse("contabilidade_web:fechamento", args=[empresa.id]),
+                            },
+                        ]
+                        if empresa is not None
+                        else []
+                    ),
                 }
                 for item in itens
             ]
@@ -5165,7 +5307,15 @@ def dmpl(request, empresa_id):
     )
 
     # Avisos nos DOIS desfechos (fora do if/else do veto), só na tela.
-    contexto["listas_apenas_aviso"] = _listas_de_aviso_da_dmpl_para_contexto(emissao["avisos"])
+    contexto["listas_apenas_aviso"] = _listas_de_aviso_da_dmpl_para_contexto(
+        emissao["avisos"], empresa
+    )
+    contexto["ancora_do_aviso"] = ANCORA_DO_AVISO_DA_DMPL
+    # N3: saldo na conta de passagem tem, além do aviso de tela, uma NOTA no papel
+    # (só no desfecho emitido — vetada, a demonstração nem é montada).
+    contexto["tem_aviso_de_passagem"] = bool(
+        emissao["avisos"].get("resultado_na_conta_de_passagem")
+    )
 
     if not emissao["pode_emitir"]:
         # Havendo QUALQUER pendência a tela NÃO monta a demonstração — só o
@@ -5186,6 +5336,9 @@ def dmpl(request, empresa_id):
         {
             "pode_emitir": True,
             "tabela": tabela,
+            "nota_do_resultado_na_conta_de_passagem": _nota_do_resultado_na_conta_de_passagem(
+                emissao["avisos"], dmpl_apurada["data_fim"]
+            ),
             "imprime_em_paisagem": len(tabela["colunas"]) > _COLUNAS_DA_DMPL_QUE_CABEM_EM_RETRATO,
         }
     )

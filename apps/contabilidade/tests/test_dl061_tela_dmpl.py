@@ -495,7 +495,9 @@ def test_exatamente_quatro_colunas_ainda_cabem_em_retrato(client):
 
 def test_a_folha_de_estilo_imprime_a_dmpl_em_paisagem_e_sem_a_conferencia_de_bancada():
     css = (RAIZ / "static/css/base.css").read_text(encoding="utf-8")
-    assert "@page dmpl-paisagem {\n    size: A4 landscape;\n}" in css
+    # A orientação e a margem do @page são conferidas em
+    # `test_dl061_tela_dmpl_correcoes.py` (N5, com a margem lida do próprio bloco).
+    assert "@page dmpl-paisagem {\n    size: A4 landscape;" in css
     impressao = css[css.index("@media print") :]
     assert "page: dmpl-paisagem;" in impressao
     assert ".bloco--somente-tela {\n        display: none;\n    }" in impressao
