@@ -5126,3 +5126,21 @@ dos dois leiautes — o teste (`test_dl046_fatia3_arquivos_carne_leao.py`)
 pega isso, mas o MOTIVO da assimetria (ela é do LEIAUTE OFICIAL, não um
 acidente de implementação) precisa estar em algum lugar que sobreviva a
 uma refatoração apressada.
+
+## DE-095 — O papel Cliente não lê o cadastro de empresas do escritório
+
+Data: 2026-10-01. Responsável: `arquiteto-senior`, na DL-055 (BL-549).
+
+A DE-020 §4 estabelece o sigilo de cliente contra cliente. Até a DL-055 ele
+valia para a contabilidade, mas o cadastro de empresas (lista, detalhe,
+estabelecimentos e regime tributário, pela API e pela tela) respondia 200 ao
+papel CLIENTE com razão social e CNPJ/CPF de toda a carteira.
+
+**Decisão:** o CLIENTE não lê o cadastro de empresas (403 sem revelar se o id
+existe). Quem lê a carteira é a mesma lista de quem lê a contabilidade, num
+ponto só (`apps/empresas/permissoes.py`). Não existe hoje vínculo entre um
+usuário CLIENTE e a empresa dele; quando existir (portal do cliente), o
+acesso restrito à própria empresa entra em etapa própria, e separar as duas
+listas exige acompanhar os pontos do BL-585. Reversível; o Fred pode
+revertê-la.
+

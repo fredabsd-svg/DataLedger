@@ -117,7 +117,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-054](../planos/DL-054-encadeamento-do-fechamento.md) | Mês encerrado congelado contra o encadeamento do carnê-leão (RC-148) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -133,19 +133,18 @@ instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
 isolada do repositório e integrada **uma por vez** na branch
 `claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
 uma com a auditoria aprovada e a CI verde (RC-150). Integração prevista:
-DL-057, DL-055, DL-056, DL-054, DL-058.
+DL-055, DL-054, DL-056, DL-058, DL-059.
 
 - **DL-054** (nível 1) — mês encerrado congelado contra o encadeamento do
   carnê-leão no ano, com reabertura em cascata (RC-148, BL-572). Primeiro o
   servidor; depois a tela e a auditoria.
 - **DL-055** (nível 1) — o papel Cliente não vê o cadastro de empresas
-  (BL-549).
+  (BL-549); [auditoria](../auditorias/2026-10-01-dl-055-rodada-1.md)
+  aprovada com ressalvas; em revisão no pull request, merge com a CI verde.
 - **DL-056** (nível 2) — limite de tentativas no login e no cadastro
   (BL-552, sem a titularidade do CNPJ). Limites iniciais são hipótese.
-- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável
-  (BL-553); [auditoria](../auditorias/2026-10-01-dl-057-rodada-1.md)
-  aprovada com ressalvas; em revisão no pull request, merge com a CI verde.
-  Antes da implantação: BL-577 (recusar `0.0.0.0/0`).
+- **DL-057** — **integrada pelo PR #68** (squash `49f118d`). Antes da
+  implantação: BL-577 (recusar `0.0.0.0/0`).
 
 **DL-053 — integrada pelo [PR #67](https://github.com/fredabsd-svg/DataLedger/pull/67)**
 em 30/09/2026 (squash `0d68949`), com os quatro checks verdes no último
