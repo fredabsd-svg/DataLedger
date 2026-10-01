@@ -131,7 +131,9 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 **Quatro etapas em desenvolvimento em paralelo (30/09/2026)**, por
 instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
 isolada do repositório e integrada **uma por vez** na branch
-`claude/zealous-goldberg-jr5ggu` → `main`:
+`claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
+uma com a auditoria aprovada e a CI verde (RC-150). Integração prevista:
+DL-057, DL-055, DL-056, DL-054, DL-058.
 
 - **DL-054** (nível 1) — mês encerrado congelado contra o encadeamento do
   carnê-leão no ano, com reabertura em cascata (RC-148, BL-572). Primeiro o
