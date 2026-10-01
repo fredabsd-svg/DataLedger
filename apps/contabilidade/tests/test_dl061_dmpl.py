@@ -985,6 +985,32 @@ def test_dividendo_lancado_contra_varios_destinos_do_mesmo_lancamento():
     _conferir_identidade_com_a_dlpa(empresa)
 
 
+def test_um_debito_nos_lucros_contra_varias_colunas_atribui_cada_valor_a_sua_linha():
+    """D lucros 100 / C reserva 60 / C capital 40: os lucros são a única
+    partida a débito, e cada coluna de destino leva a linha do SEU par
+    (constituição × aumento de capital com reservas e lucros)."""
+    empresa, contas, _ = _caso_a()
+    _lancar_itens(
+        empresa,
+        date(2026, 3, 29),
+        "Destinação mista dos lucros",
+        [
+            (contas["lucros"], "D", "100.00"),
+            (contas["reserva_legal"], "C", "60.00"),
+            (contas["capital"], "C", "40.00"),
+        ],
+    )
+    dmpl = _apurar(empresa)
+    assert _celula(dmpl, "constituicao_de_reservas", "reserva_legal") == _dec("1310.00")
+    assert _celula(dmpl, "constituicao_de_reservas", LUCROS) == _dec("-1310.00")
+    assert _celula(dmpl, "aumento_de_capital_com_reservas_e_lucros", "capital_social") == _dec(
+        "40.00"
+    )
+    assert _celula(dmpl, "aumento_de_capital_com_reservas_e_lucros", LUCROS) == _dec("-40.00")
+    assert avaliar_emissao_da_dmpl(dmpl)["pode_emitir"] is True
+    _conferir_identidade_com_a_dlpa(empresa)
+
+
 def test_prejuizo_do_zeramento_vira_resultado_negativo_nos_lucros():
     empresa = _empresa()
     contas = _plano_basico(empresa)
